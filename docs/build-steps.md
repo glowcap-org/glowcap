@@ -25,6 +25,7 @@ Build options:
 - `-Dattach=true` joins an already-running server instead of spawning one. It
   works on demo steps that also take `-Dport`. `demo-accountability` rejects
   it, because each caller needs a fresh host.
+
 [Developing Rooms](../apps/rooms/developing.md#build-steps) describes its transport
 and hot-reload options. [Operating Rooms](../apps/rooms/operating.md) lists the
 server flags passed after `--`. `rooms-dev` enables every operations capability.
@@ -147,8 +148,9 @@ zig build interface-authoring-lint     # Lint the compiler-request adapter and i
 zig build interface-fixtures-check     # Verify authored interface contract and message fixtures; part of check
 ```
 
-Checks the authored Syrup descriptions and independent message fixtures with
-upstream Syrup. This is fixture integrity, not compiler or interop qualification.
+`interface-fixtures-check` checks the authored Syrup descriptions and
+independent message fixtures with upstream Syrup. This is fixture integrity,
+not compiler or interop qualification.
 The Tasks server behavior remains covered by `tasks-app-test`. The creation
 proof crosses the generated Rust client and Zig server, including input snapshot,
 returned capability, pipelining, exact replay, and UTF-8 byte bounds.

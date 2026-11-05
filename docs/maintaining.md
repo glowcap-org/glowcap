@@ -26,10 +26,10 @@ sources:
 
 # Maintaining glowcap
 
-Every change lands on `dev`, the default branch: a pull request by squash
-merge, a worktree branch through the integrator. `main`, the publication
-branch, is the newest `dev` commit whose full check passed, and a workflow
-moves it. A release is a maintainer-signed tag on `main`.
+Every change lands on `dev`, the default branch, either as a squash-merged
+pull request or as a worktree branch through the integrator. `main`, the
+publication branch, is the newest `dev` commit whose full check passed, and a
+workflow moves it. A release is a maintainer-signed tag on `main`.
 [ADR-0073](decisions/adr/ADR-0073-hosted-landing-and-promotion.md) records
 the choice.
 
@@ -114,9 +114,8 @@ This fetch requires fast-forward updates and changes both refs together or
 neither. It refuses a checked-out target, so when the primary checkout holds
 `main`, fetch `dev` alone that way and fast-forward `main` in its checkout
 with `git merge --ff-only origin/main` after a plain fetch. If a push or
-fetch refuses divergent
-history, preserve both tips and reconcile them on a separate branch with the
-affected checks. Never force either shared branch to make synchronization
+fetch refuses divergent history, preserve both tips and reconcile them on a
+separate branch with the affected checks. Never force either shared branch to make synchronization
 pass. Each clean worktree then synchronizes its own branch with the refreshed
 shared tips before integrating, and nobody rebases a branch someone is editing.
 
@@ -278,9 +277,6 @@ files. The app holds four repository permissions on this repository alone:
 Contents and Workflows, both read and write, which promotion needs, and
 Administration and Code scanning alerts, both read-only, which the
 [repository policy workflow](../.github/workflows/repository-policy.yml) needs.
-GitHub shows a ruleset's bypass actors and the merge settings only to an
-administrator, so the weekly reading reports those as unchecked and compares
-everything else. The maintainer's own `--apply` run reads and writes them all.
 Its client ID is the
 `PROMOTE_APP_CLIENT_ID` variable and its private key the
 `PROMOTE_APP_PRIVATE_KEY` secret. Until both exist, promotion fails at its
@@ -334,8 +330,12 @@ beside it.
 `tools/repository-policy.py` reports every difference between GitHub and
 these files, and `--apply` makes GitHub match, creating a missing ruleset and
 updating a changed one. A ruleset on GitHub that no file describes is reported
-and left for a person to review. Change a setting in its file, run the command
-with `--apply`, and land the file in the same change.
+and left for a person to review. GitHub shows a ruleset's bypass actors and
+the merge settings only to an administrator, so the weekly workflow run below
+reports those as unchecked and compares everything else, while the
+maintainer's own `--apply` run reads and writes them all. Change a setting in
+its file, run the command with `--apply`, and land the file in the same
+change.
 
 Both branches take only signed commits in a linear history, and neither can be
 force-pushed or deleted. `main` also requires the `gates` and `macos-runtime`

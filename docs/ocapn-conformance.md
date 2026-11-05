@@ -9,10 +9,10 @@ sources:
 
 # OCapN conformance manifest
 
-The specification pin tracks reviewed upstream text independently of what
-glowcap implements. Moving it changes neither the opening grammar nor the
-Goblins interoperability target. Each row records, against that text, the
-adoption state of one draft section or upstream suite source.
+Each row below records the adoption state of one draft section or upstream
+suite source, against the pinned upstream text. That pin tracks reviewed
+upstream text independently of what glowcap implements, so moving it changes
+neither the opening grammar nor the Goblins interoperability target.
 
 - **Profile** names the wire profile the state applies to: `1.0`, `next`
   (`glowcap-next`), or `both`. A section whose row names only `next` keeps its

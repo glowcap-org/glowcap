@@ -40,6 +40,9 @@ process
                 └── Peer: that session's CapTP state
 ```
 
+The layers stack from the application down to the portable core, and
+dependencies point only downward:
+
 ```text
 application
     driver.Session / driver.HostRuntime
@@ -103,9 +106,10 @@ session. Actor state can use `loam.collections.PersistentMap`, so changing one
 entry does not copy the whole map
 ([ADR-0015](decisions/adr/ADR-0015-persistent-collections-and-time-travel.md)).
 
-Local eventual sends go into queues keyed by *ingress*, the session the work
-came from. (An eventual send is a call that runs later, not inline.) Before queuing, the Vat measures what the owned copy will cost and
-applies turn and byte limits per ingress. It takes one turn at a time from each
+An eventual send is a call that runs later rather than inline. Local eventual
+sends go into queues keyed by *ingress*, the session the work came from.
+Before queuing, the Vat measures what the owned copy will cost and applies
+turn and byte limits per ingress. It takes one turn at a time from each
 runnable ingress in rotation, first-in-first-out within each one. The whole Vat
 keeps at most one bounded spare queue chunk. The standard Host owns one Vat,
 and each session Port supplies its ingress identity but owns no queue

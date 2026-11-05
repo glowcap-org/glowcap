@@ -12,10 +12,8 @@ one unblocks. Each section names
 the proposal deciding it, because `glowcap-next` follows current direction as
 well as merged text. Each number below was checked on October 13, 2026.
 
-Which draft sections each profile has adopted, deferred, or left pending is
-the [conformance manifest](ocapn-conformance.md). Implementation work is
-listed under
-[waiting on upstream](roadmap.md#waiting-on-upstream) on the roadmap.
+The [conformance manifest](ocapn-conformance.md) says which draft sections
+each profile has adopted, deferred, or left pending.
 
 Where two pinned sources disagree, `zig build ocapn-findings-check` reproduces
 the disagreement against the exact upstream revisions this repository pins, and

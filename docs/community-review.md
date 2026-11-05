@@ -6,8 +6,9 @@ sources: []
 
 # Community review
 
-glowcap pins the OCapN suite and Goblins source. Full CI validation schedules
-both, as [`ci/groups.py`](../ci/groups.py) lists. Development runs select jobs by
+glowcap checks its protocol behavior against a pinned OCapN suite and pinned
+Goblins source. Full CI validation schedules both, as
+[`ci/groups.py`](../ci/groups.py) lists. Development runs select jobs by
 changed files, as the [CI guide](../CONTRIBUTING.md#continuous-integration)
 explains. A successful run establishes results only for the checks it ran on
 that commit.

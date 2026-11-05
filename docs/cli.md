@@ -17,7 +17,8 @@ binary: `glowcap help`, `help ocapn`, and `-h` on any command.
 ## Install
 
 Install the [CLI + Rooms product](../apps/rooms/host.md#install) from a release
-to use the CLI without a compiler. The `glowcap-c-` download is the C SDK.
+to use the CLI without a compiler. The `glowcap-c-` download is the
+[C SDK](c-sdk.md), not the CLI.
 
 For the core CLI while developing from the repository root:
 
