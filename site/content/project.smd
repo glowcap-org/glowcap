@@ -31,6 +31,15 @@ is `0.1.2` alpha.
   allocation, footprint, transport, and binding measurements with their
   methods.
 
+# Get help or contribute
+
+Ask a question or report a problem in
+[GitHub Issues](https://github.com/glowcap-org/glowcap/issues).
+Confusing instructions are worth reporting too.
+[Contributing](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md)
+explains how to run the project and send a fix. Contributions are welcome
+with or without AI tools.
+
 # Project records
 
 The repository keeps the detailed project record: [what

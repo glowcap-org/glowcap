@@ -30,28 +30,6 @@ and is answerable for what lands. [How glowcap is built](PROVENANCE.md)
 explains the assistance, verification, and upstream policies.
 [Contributions](CONTRIBUTING.md) are welcome with or without AI tools.
 
-The Zig API distinguishes owned frames from borrowed views and takes explicit
-allocators. The protocol core is synchronous and does no I/O. Sessions speak
-[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
-OCapN's session protocol, and encode it in [Syrup](https://github.com/ocapn/syrup), OCapN's canonical
-format.
-
-For an encrypted session, use [iroh](https://www.iroh.computer/), which is
-QUIC with peer discovery, or `noise-tcp`, which is TCP that proves you reached
-the key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor onion services.
-Plain `tcp` is a testing transport, cleartext with no identity proof.
-[Choosing a transport](https://glowcap.org/transports/choosing/)
-lists the rest.
-
-Applications can opt into Loam to keep state in atomic records backed by
-SQLite, LMDB, or memory. Durable actors can sleep outside memory,
-and transactions save their state before a reply is sent. Loam also models
-access, delegation, and revocation.
-
-Build checks hold selected allocation, copy, and state-size budgets.
-[Performance measurements](https://glowcap.org/performance/) report protocol,
-transport, binding, and Loam costs with their workloads and methods.
-
 ## Downloads
 
 One command installs the newest release for this machine. It verifies the
@@ -70,6 +48,17 @@ the CLI, Rooms, browser assets, and agent skills, in
 [installation guide](apps/rooms/host.md) covers verification and installation,
 and the [changelog](CHANGELOG.md) lists what each release changed.
 
+Rooms, the chat application built on glowcap, comes with the CLI. To open it
+after installation:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+glowcap apps rooms serve
+```
+
+Open the `web ui` address it prints. [Run Rooms](https://glowcap.org/rooms/start/) walks
+through joining a room and messaging another member directly.
+
 ## Quick start
 
 ### Try a local conversation
@@ -77,13 +66,14 @@ and the [changelog](CHANGELOG.md) lists what each release changed.
 From a [working checkout](CONTRIBUTING.md#get-a-working-checkout), run:
 
 ```sh
-zig build examples --summary all
+zig build quick-start
 ```
 
-The examples start their own peers. Chapter 01 publishes a greeter, connects
-over encrypted TCP, and checks its reply. Chapter 02 adds an introduction
-between three peers. The build summary shows which examples passed.
-[The example guide](examples/README.md) links each program.
+Chapter 01 starts both peers on your machine, publishes a greeter, connects
+over encrypted TCP, and checks its `Hello, world` reply. A line beginning
+`01: greeter fetched by name` confirms success.
+[The example guide](examples/README.md) continues with introductions between
+three peers and objects that survive a restart.
 
 ### Use glowcap in your program
 
@@ -154,8 +144,7 @@ checkout, run `./glowcap install`. It builds the product, checks its file
 list, and installs it outside the checkout. `zig build glowcap-install` stages
 the same files under `zig-out/product` without installing them.
 
-Rooms is a chat application built on glowcap, and
-[installing glowcap](apps/rooms/host.md) installs it too.
+[Installing glowcap](apps/rooms/host.md) installs Rooms too.
 `glowcap apps rooms serve` starts the browser app, and
 `glowcap apps rooms session join` joins a room over encrypted iroh.
 
@@ -166,6 +155,30 @@ fetch-and-call as a complete program. C consumers start at
 [`docs/consuming-from-c.md`](docs/consuming-from-c.md).
 The Rust, TypeScript, Python, and Racket bindings live in
 [`bindings/`](bindings/README.md).
+
+## How it fits
+
+The Zig API distinguishes owned frames from borrowed views and takes explicit
+allocators. The protocol core is synchronous and does no I/O. Sessions speak
+[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
+OCapN's session protocol, and encode it in [Syrup](https://github.com/ocapn/syrup), OCapN's canonical
+format.
+
+For an encrypted session, use [iroh](https://www.iroh.computer/), which is
+QUIC with peer discovery, or `noise-tcp`, which is TCP that proves you reached
+the key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor onion services.
+Plain `tcp` is a testing transport, cleartext with no identity proof.
+[Choosing a transport](https://glowcap.org/transports/choosing/)
+lists the rest.
+
+Applications can opt into Loam to keep state in atomic records backed by
+SQLite, LMDB, or memory. Durable actors can sleep outside memory,
+and transactions save their state before a reply is sent. Loam also models
+access, delegation, and revocation.
+
+Build checks hold selected allocation, copy, and state-size budgets.
+[Performance measurements](https://glowcap.org/performance/) report protocol,
+transport, binding, and Loam costs with their workloads and methods.
 
 ## Conformance
 

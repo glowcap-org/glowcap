@@ -21,9 +21,10 @@ pub fn register(
 ) void {
     // ── Examples ─────────────────────────────────────────────────────────────
     const examples_step = b.step("examples", "Build and run examples");
+    const quick_start = b.step("quick-start", "Run the first Zig example: publish a greeter and call it over encrypted TCP");
     check_step.dependOn(examples_step);
 
-    // Zig example programs, run in array order. The numbered chapters are
+    // Zig example programs. The numbered chapters are
     // runnable CapTP walkthroughs whose narrative lives in their `//!` headers,
     // so the prose and the API calls can't drift (each is built and run under
     // `check`); they read top-down, from the application surface to the raw
@@ -33,8 +34,8 @@ pub fn register(
     // Server thread.
     // `store` examples also import Loam's default disk engine, SQLite, and
     // own a fresh store directory per run.
-    const zig_examples = [_]struct { name: []const u8, path: []const u8, store: bool = false }{
-        .{ .name = "glowcap-ex-01-connect-and-serve", .path = "examples/zig/01_connect_and_serve.zig" },
+    const zig_examples = [_]struct { name: []const u8, path: []const u8, store: bool = false, first: bool = false }{
+        .{ .name = "glowcap-ex-01-connect-and-serve", .path = "examples/zig/01_connect_and_serve.zig", .first = true },
         .{ .name = "glowcap-ex-02-introduce-and-redeem", .path = "examples/zig/02_introduce_and_redeem.zig" },
         .{ .name = "glowcap-ex-03-actor-far-send", .path = "examples/zig/03_actor_far_send.zig" },
         .{ .name = "glowcap-ex-04-look-up-by-name", .path = "examples/zig/04_look_up_by_name.zig" },
@@ -54,6 +55,13 @@ pub fn register(
         const run = execution.addArtifact(b, .{ .deterministic = 30 }, exe);
         if (ex.store) _ = run.addOutputDirectoryArg("store");
         examples_step.dependOn(&run.step);
+        // The quick start reruns the same executable with its output shown, so
+        // `examples` keeps its quiet, cached run.
+        if (ex.first) {
+            const shown = execution.addArtifact(b, .{ .deterministic = 30 }, exe);
+            execution.showOutput(shown);
+            quick_start.dependOn(&shown.step);
+        }
     }
 
     // C example programs over the per-archive headers, each linking exactly the

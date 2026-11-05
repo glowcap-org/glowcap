@@ -6,22 +6,9 @@
 .draft = false,
 ---
 
-Every program below speaks the same protocol, CapTP. For a first call in code, use
-[Start building]($link.page('start')).
-
-# A complete application
-
-Rooms is a browser chat application in which the page is a glowcap peer. It
-holds room capabilities, hosts inboxes, retains history, and opens direct
-conversations after a room introduces two members.
-
-```sh
-zig build rooms-web
-```
-
-Open `http://localhost:8080` after the build is ready. The
-[first-room walkthrough]($link.page('rooms/start')) continues from there, and
-the [Rooms section]($link.page('rooms')) covers the rest.
+Start with a complete Zig conversation, or try [Rooms]($link.page('rooms')) in
+your browser.
+[Start building]($link.page('start')) covers setup and explains the call.
 
 # Learn the Zig API
 
@@ -31,8 +18,12 @@ It shows both ends of one session: listen, publish, connect, fetch, and call,
 over Noise TCP, which proves the listener's key to the dialer.
 
 ```sh
-zig build examples
+zig build quick-start
 ```
+
+Run it from a [working checkout](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#get-a-working-checkout).
+It starts both peers and checks a `Hello, world` reply. Use
+`zig build examples --summary all` to run every example.
 
 Three later chapters isolate the moves that are easiest to miss:
 
@@ -51,6 +42,20 @@ buffer-explicit and many-session helpers.
 [Concepts]($link.page('concepts')) explains handoff and pipelining, and
 [the modules]($link.page('modules')) page shows which API level each chapter
 uses.
+
+# A complete application
+
+Rooms is a browser chat application in which the page is a glowcap peer. It
+holds room capabilities, hosts inboxes, retains history, and opens direct
+conversations after a room introduces two members.
+
+```sh
+zig build rooms-web
+```
+
+Open the `web ui` address it prints once the build is ready. The
+[first-room walkthrough]($link.page('rooms/start')) continues from there, and
+the [Rooms section]($link.page('rooms')) covers the rest.
 
 # Use it from C
 

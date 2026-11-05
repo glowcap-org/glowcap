@@ -554,13 +554,12 @@ pre code {
   }
 }
 
-/* A short set of links a reader picks one from, such as the languages on
-   Start building. A bulleted column spent a line per link; a grid of small
-   tiles keeps the choice on one screen. Authored as a `link-grid` block
-   around a plain Markdown list. */
+/* A short set of links a reader picks one from. Small tiles keep the choice
+   on one screen, two columns wide on a phone, and each tile is a full target.
+   Authored as a `link-grid` block around a plain Markdown list. */
 .prose .link-grid ul {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr));
   gap: 0.5rem;
   margin: 1.25rem 0;
   padding: 0;

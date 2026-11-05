@@ -13,15 +13,18 @@ another device.
 # Start Rooms
 
 Install the [CLI + Rooms product](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)
-for your machine from [GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
-Choose the `glowcap-vVERSION-ARCH-OS.tar.gz` download. It includes the services
-and prepared browser files, so it needs no compiler.
+and start Rooms. The installer verifies the release checksum, and the product
+includes the services and prepared browser files, so it needs no compiler. To
+install by hand, download `glowcap-vVERSION-ARCH-OS.tar.gz` from
+[GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
 
 ```sh
+curl -fsSL https://glowcap.org/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 
-Open the browser URL it prints. Peers reach the directory over encrypted
+Open the `web ui` address it prints. Peers reach the directory over encrypted
 [iroh]($link.page('transports/iroh')). The web page listens on loopback by
 default. See the [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
 for Docker and public hosting, or [developing Rooms](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/developing.md)
@@ -102,9 +105,17 @@ shows where a host supplies TURN credentials and the relay.
 
 # Open your session somewhere else
 
+For another view on this machine, open a separate browser or private window.
+For a phone or another computer, first give the page an HTTPS address both
+devices can reach, using the
+[deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md).
+The loopback address printed at startup works only on the machine running
+Rooms. Plain HTTP at a LAN address will not work because browsers withhold
+APIs Rooms needs there.
+
 Back in the first session, open Settings and go to the **Session** tab.
 **Share this session** publishes it and shows you its link. Open the page
-somewhere else (a phone works well), choose **Shared session**
+in the other browser, choose **Shared session**
 on the first screen, paste the link, and press **Attach**.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-dark.webp'))
