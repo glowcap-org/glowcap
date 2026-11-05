@@ -30,16 +30,7 @@ Build options:
 and hot-reload options. [Operating Rooms](../apps/rooms/operating.md) lists the
 server flags passed after `--`. `rooms-dev` enables every operations capability.
 
-## Adding a step
-
-Add `zig build <name>` on its own line in the section that matches what the
-step proves, beside its closest sibling, then run `zig build gen-build-steps`.
-The comment on every bare row is written from the build graph: the step's own
-description, then `part of` and the nearest steps that run it, derived from
-the step dependencies. The description says what the step proves and ends with
-the tools it needs in parentheses when it needs more than Zig. A row with
-arguments after the name is a usage example and keeps the comment you write.
-`gen-build-steps-check` holds the rows to the graph under `source-check`.
+To add a build step, follow [Contributing](../CONTRIBUTING.md#adding-a-build-step).
 
 ## Everyday steps and checks
 
@@ -85,6 +76,7 @@ zig build python-fmt                        # Format every first-party Python fi
 zig build cli-test                          # Run the in-tree glowcap CLI registry and session/capture tests; part of check
 zig build glowcap                           # Run the glowcap CapTP CLI; pass `-- <command> ...` (ocapn, repl, mcp, apps rooms session, and so on)
 zig build examples                          # Build and run examples; part of check
+zig build quick-start                       # Run the first Zig example: publish a greeter and call it over encrypted TCP
 zig build consumer-check                    # Build a downstream package against the glowcap module (the README's fetch/import path); part of check-build
 zig build cross-check                       # Type-check non-host targets, macOS/kqueue (full) and wasm32 (sans-io core), compile-only, and analyze the Zig tree in ReleaseFast; part of check
 zig build perf-check                        # Gate ReleaseFast wall-clock cost: warm inbound dispatch and the outbound answered-send path against the ceilings in the bench files, plus the gc-storm linearity ratio; part of check

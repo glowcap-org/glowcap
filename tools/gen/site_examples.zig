@@ -113,14 +113,14 @@ const matrix = [_]Cell{
     .{ .binding = .racket, .transport = .inproc },
 };
 
-// The binding pages follow the same deployment order as Choosing a transport:
-// production paths first, then trusted-network paths, then testing-only paths.
+// Start with the sealed local round-trip used by the Zig quick start. Keep
+// discovery and browser transports next, and cleartext testing paths last.
 // One ordered tabset keeps every transport visible without inventing a
 // miscellaneous family around whichever symbols remain.
 const binding_transports = [_]model.transport.Known{
+    .noise_tcp,
     .iroh,
     .webrtc,
-    .noise_tcp,
     .noise_relay,
     .onion,
     .keyed_tcp,

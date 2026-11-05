@@ -5,15 +5,25 @@ object, and another fetches it and calls it over encrypted TCP. Chapter 02
 adds a third peer and an introduction. The later chapters stay in one process
 to show actors, the protocol engine, and storage up close.
 
-From a [working checkout](../CONTRIBUTING.md#get-a-working-checkout), build
-and run the examples:
+From a [working checkout](../CONTRIBUTING.md#get-a-working-checkout), run
+chapter 01:
+
+```sh
+zig build quick-start
+```
+
+It starts both peers on loopback and checks the greeter's `Hello, world`
+reply. A line beginning `01: greeter fetched by name` confirms success.
+Read [chapter 01](zig/01_connect_and_serve.zig) to see the whole exchange.
+
+To build and run every example:
 
 ```sh
 zig build examples --summary all
 ```
 
-The network examples start their own peers on loopback. The summary reports
-each run's result.
+The network examples start their own peers. The summary reports each run's
+result.
 
 ## Complete applications
 

@@ -110,9 +110,8 @@ pub fn addSystemCommand(
     };
 }
 
-/// Assert a test's child output before quiet-success can hide it. Zig captures
-/// checked stdout itself; the command still runs on every gate invocation.
-pub fn expectStdOutMatch(run: *std.Build.Step.Run, expected: []const u8) void {
+/// Forward bounded child output on success too, and run on every invocation.
+pub fn showOutput(run: *std.Build.Step.Run) void {
     var index: usize = 0;
     while (index < run.argv.items.len) {
         const arg = run.argv.items[index];
@@ -123,6 +122,12 @@ pub fn expectStdOutMatch(run: *std.Build.Step.Run, expected: []const u8) void {
         }
     }
     run.has_side_effects = true;
+}
+
+/// Assert a test's child output before quiet-success can hide it. Zig captures
+/// checked stdout itself; the command still runs on every gate invocation.
+pub fn expectStdOutMatch(run: *std.Build.Step.Run, expected: []const u8) void {
+    showOutput(run);
     run.expectStdOutMatch(expected);
 }
 

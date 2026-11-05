@@ -139,6 +139,18 @@ A change to an architectural contract needs a
 [decision record](docs/decisions/README.md), and that page says which changes
 qualify.
 
+## Adding a build step
+
+Add `zig build <name>` on its own line in the section of
+[Build steps](docs/build-steps.md) that matches what the step proves, beside
+its closest sibling, then run `zig build gen-build-steps`.
+The comment on every bare row is written from the build graph: the step's own
+description, then `part of` and the nearest steps that run it, derived from
+the step dependencies. The description says what the step proves and ends with
+the tools it needs in parentheses when it needs more than Zig. A row with
+arguments after the name is a usage example and keeps the comment you write.
+`gen-build-steps-check` holds the rows to the graph under `source-check`.
+
 ## Open a pull request
 
 Fork the repository on GitHub, then publish your branch to your fork:
