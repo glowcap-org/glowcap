@@ -191,28 +191,19 @@ drop, refusing foreign, released or closed-Host inputs before acquiring a hold.
 cleanup, including references nested in copied values. It applies even when
 `Host::set_release_on_drop(false)` leaves raw Session replies under manual
 release. Generated Rust calls choose owned outcomes before observation, so
-discarded replies and failed decoding can release their references.
+discarded replies and failed decoding can release their references. Choosing
+ownership adds no future wrapper, payload copy, or FFI retain: the reply's
+existing bookkeeping carries it. Accepting a reply takes constant time and adds
+no heap allocation.
 
-This choice reuses the vow row and the automatic-release tracking walk. Each
-capability occurrence gets its existing shared guard allocation. An automatic
-outcome needs no second walk or guard. A settled manual outcome receives its
-guards when ownership is selected. Selecting ownership adds no future wrapper,
-payload copy or FFI retain.
-
-Until observation transfers a reply to its caller, the binding owns it.
-Unobserved eviction, abandoned handles and cancelled observations release every
-reply occurrence even under manual release. Exposed raw replies keep their
-sampled policy and explicit-release responsibility.
-
-`Session::fetch` and `Session::enliven` keep that ownership through capability
-classification. Rejected replies and cancelled lookups clean up. Accepted
-capabilities follow the Host policy sampled when the lookup starts.
-
-The reply keeps a weak Host reference inside the existing waiter payload.
-It adds no heap allocation or future wrapper, and leaves row storage unchanged.
-Discarding an unexposed manual value walks its references into the existing
-release queue without allocating guards. Acceptance takes constant time, with
-no payload copy, FFI retain or success walk. Manual fetch needs no guard.
+Until you observe a reply, the binding owns it. A reply evicted unobserved, an
+abandoned handle, or a cancelled observation releases every capability in that
+reply, even under manual release. A raw reply you have observed keeps the
+release policy sampled when the call started, so under manual release you
+release it yourself.
+`Session::fetch` and `Session::enliven` follow the same rule: a rejected reply
+or cancelled lookup cleans up, and an accepted capability follows the Host
+policy sampled when the lookup started.
 
 `Host::reference_session` retains an owned handle to a capability's live
 exporter.

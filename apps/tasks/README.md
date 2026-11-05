@@ -104,9 +104,10 @@ Each binding presents the same calls in its own style:
 Adding returns the new task, and marking done takes that task. A watcher's
 `changed()` (`watcher-changed?` in Racket) says whether the board changed
 since its last look, and `stop()` (`watcher-stop`) cancels it.
-Once registration succeeds, failed startup attempts one cancellation. If cleanup
-also fails, the startup failure remains available together with that cleanup failure.
-Racket reports both through `exn:fail:watcher-start`, whose fields retain the original exceptions.
+If the first poll fails after the watcher is registered, the client cancels
+that registration once. If the cancellation fails too, the startup failure is
+reported together with the cleanup failure. Racket reports both through
+`exn:fail:watcher-start`, whose fields hold the original exceptions.
 
 Each Deno, Python, Racket, or Rust board client runs one change at a time,
 from asking for its sequence through receiving the reply. Calls on that client

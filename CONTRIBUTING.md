@@ -13,12 +13,13 @@ and fit with the project.
 The [bug report form](.github/ISSUE_TEMPLATE/bug_report.md) lists what a report
 needs, and a fix is optional. Send suspected vulnerabilities through
 [the security policy](SECURITY.md).
+
 [Issues](https://github.com/glowcap-org/glowcap/issues) and
 [the roadmap](docs/roadmap.md) show the work under discussion. An open plan
 describes proposed work, not a shipped API or an instruction to implement it
-without agreeing on scope.
-Before changing a contract covered by a plan, discuss the approach in an
-issue. Focused fixes to the existing product need not wait for that plan.
+without agreeing on scope. Before changing a contract covered by a plan,
+discuss the approach in an issue. Focused fixes to the existing product need
+not wait for that plan.
 
 ## Find a starting point
 
@@ -74,8 +75,9 @@ staged Zig, Rust, TypeScript, JavaScript, and Python files. A plain clone runs
 `zig build site-serve` and `zig build rooms-dev` build their prerequisites
 before starting a server. A fresh checkout or empty build cache can spend
 several minutes downloading and compiling dependencies. Wait for the server's
-listening address before opening the page. The development environment front
-prints a preparation notice before the build starts.
+listening address before opening the page. When you run either through the
+devcontainer's `glowcap-dev` command, it prints a notice that the build is
+still preparing before the server starts.
 
 The website preview also captures Rooms screenshots when none are cached in
 `site/assets/`. That preparation builds Rooms and runs browser scenes before
