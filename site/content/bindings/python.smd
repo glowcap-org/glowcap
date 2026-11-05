@@ -13,7 +13,7 @@ The Python binding gives you `Session` and `Host` with Python values over
 `runtime.connect` picks the one that matches the locator. The transport modules
 include `glowcap.iroh`, `glowcap.onion`, `glowcap.relay`, and
 `glowcap.tcp`. Start from the
-[checkout instructions]($link.page('bindings')).
+[installation options]($link.page('bindings').ref('install-a-binding')).
 
 # The same round-trip
 

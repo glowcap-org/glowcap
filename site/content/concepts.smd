@@ -6,10 +6,6 @@
 .draft = false,
 ---
 
-A capability is a reference you can call. [Why OCapN]($link.page('why'))
-explains why that matters, and [modules]($link.page('modules')) shows where
-`Session`, `Host`, and `Peer` fit.
-
 # A capability is a reference
 
 Code that holds a reference to an object can call it. A session checks that
@@ -175,5 +171,6 @@ diagrams draw it.
 
 The
 [diagram catalog](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/README.md)
-shows the protocol flows in full. To write a client, go to
+shows the protocol flows in full. [Modules]($link.page('modules')) maps these
+concepts to `Session`, `Host`, and `Peer`. To write a client, go to
 [Start building]($link.page('start')).

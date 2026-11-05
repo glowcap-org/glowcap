@@ -6,24 +6,14 @@
 .draft = false,
 ---
 
-Pick a binding to use glowcap from your language. The Rust, Python,
-TypeScript, and Racket bindings wrap the C ABI in their language's conventions. They
-load glowcap's compiled libraries, then add transport libraries as needed. The
-browser package calls the core compiled to WebAssembly. [Choose an API]($link.page('surfaces'))
-compares these bindings with the Zig package, C ABI, CLI, and browser package,
-and [Concepts]($link.page('concepts')) explains the capability model behind
-them.
+The Rust, TypeScript, Python, and Racket bindings wrap glowcap's C ABI in
+each language's conventions. They load the compiled core and the transport
+libraries you choose. The browser package uses the same core compiled to
+WebAssembly.
 
 [Rust, TypeScript, Python, and Racket wrap the shared C ABI with their own values and lifetimes.]($image.siteAsset('diagram-bindings.svg'))
 
 # One contract, each language's idioms
-
-A `Session` is one connection to a peer, with the operations in the
-[bindings contract](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md),
-such as `fetch`, `send`, `publish`, and `serve`.
-A `Host` manages many sessions and the introductions between them
-([modules]($link.page('modules'))). A `Ref` is a capability in hand: pass it as
-an argument and the access moves with it.
 
 | Binding | Entry point | Async idiom | Actor idiom |
 | --- | --- | --- | --- |
@@ -31,6 +21,13 @@ an argument and the access moves with it.
 | [TypeScript]($link.page('bindings/ts')) | `Runtime`, `Session` class | JavaScript promises | `spawn` over callbacks |
 | [Python]($link.page('bindings/python')) | `Runtime`, `Session`, Python values | `asyncio` | `spawn` over callables |
 | [Racket]($link.page('bindings/racket')) | `Runtime`, `session`, event structs | green threads + ports | Goblins-style `spawn`, `$`, `<-` |
+
+A `Session` is one connection to a peer, with the operations in the
+[bindings contract](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md),
+such as `fetch`, `send`, `publish`, and `serve`.
+A `Host` manages many sessions and the introductions between them
+([modules]($link.page('modules'))). A `Ref` is a capability in hand: pass it as
+an argument and the access moves with it.
 
 `Runtime.open(...)` installs transports once. `runtime.connect(locator)`
 returns a session whose handshake is complete.
@@ -43,6 +40,17 @@ relay instead. See
 Each language page lists its runtime and transport support. Near calls run
 within the Host, while eventual sends queue a call and return a promise
 ([modules]($link.page('modules'))).
+
+# [Install a binding]($section.id('install-a-binding'))
+
+Use a published package or build from a pinned checkout. The package READMEs
+cover installation for
+[Rust](https://github.com/glowcap-org/glowcap/blob/main/bindings/rust/README.md#install),
+[TypeScript](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/runtime/README.md#install),
+[Python](https://github.com/glowcap-org/glowcap/blob/main/bindings/python/README.md#install), and
+[Racket](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/README.md#install).
+Released packages download the C libraries for their version and verify the
+release checksums.
 
 # Use a binding from a checkout
 
@@ -60,3 +68,6 @@ has the path for each language. Compose
 [WebRTC]($link.page('transports/webrtc'))
 from their archives. The TCP archive carries Noise over TCP, keyed TCP, and the
 testing `tcp`. `inproc` has its own archive.
+
+[Choose an API]($link.page('surfaces')) compares bindings with the Zig package,
+C ABI, and CLI. [Concepts]($link.page('concepts')) explains the capability model.

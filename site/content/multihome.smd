@@ -6,16 +6,17 @@
 .draft = false,
 ---
 
-A program reachable over more than one transport can keep its sturdyrefs
-(long-lived `ocapn://` references to a published object, explained in
-[Concepts]($link.page('concepts'))) working when those transports change.
+A standard OCapN locator names one transport and one designator. A program
+that listens on two transports therefore looks like two separate peers.
+A saved reference, or [sturdyref]($link.page('concepts')), written for one
+of them works only over that path.
 
-A standard OCapN locator names one transport and one designator. So a program
-that listens on two transports looks like two separate peers, and a sturdyref
-written for one of them only works over that one path. glowcap's `id` locator
-names the peer by its durable public key instead and lists the paths that reach
-it as hints. OCapN does not define its wire names, so they live in
-`glowcap-next`, glowcap's own experimental CapTP version (see [Wire format]($link.ref('wire-format'))).
+glowcap's `id` locator names the peer by its durable public key and lists its
+routes as hints. A sturdyref using that locator can reach the same peer
+through any of its authenticated routes.
+
+This is a `glowcap-next` extension. OCapN does not define these wire names.
+[Wire format]($link.ref('wire-format')) describes how they are negotiated.
 
 # One peer, several routes
 
@@ -83,10 +84,9 @@ refuses the give before sending anything.
 
 # Sturdyrefs that survive a transport change
 
-A sturdyref written against an `id` locator names the peer's key, not one of
-its paths. The peer can move to a different transport, or add a second
-listener, and stored references keep working. On a Host that has opted into
-`multi_location`, redeeming one works like this:
+A sturdyref written against an `id` locator names the peer's key. It can
+use any reachable strong route listed in that locator. On a Host that has
+opted into `multi_location`, redemption works like this:
 
 1. If a session already exists whose channel proved that key, on any
    transport, the Host reuses it.
@@ -94,8 +94,8 @@ listener, and stored references keep working. On a Host that has opted into
    publisher listed them. When one attempt fails, it starts the next route on
    the list. The first channel that proves the key carries the fetch, and the
    other dials are cancelled.
-3. Only after every strong route fails does it try the weak fallbacks, one at
-   a time, in their listed order.
+3. If every strong route fails, redemption fails. Weak fallbacks are reserved
+   for a signed gift handoff and cannot redeem a sturdyref.
 
 The
 [multi-home route diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/08-multihome-routes.md)

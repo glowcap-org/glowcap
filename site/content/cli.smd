@@ -6,10 +6,10 @@
 .draft = false,
 ---
 
-Call a capability from your shell, host a peer, inspect a live session in the
-REPL, or expose CapTP tools over MCP (Model Context Protocol, which AI
-assistants use to call tools), with the library's [Host]($link.page('modules')).
-The [CLI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md)
+Use the CLI to call capabilities, host a peer, or inspect a live session in
+the REPL. It also provides tools for AI assistants over MCP (Model Context
+Protocol). The
+[CLI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md)
 is the complete reference.
 
 Install the [CLI + Rooms product](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)

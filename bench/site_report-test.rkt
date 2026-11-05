@@ -133,7 +133,7 @@
       ;; mutable-vs-persistent vocabulary live only in the benchmark programs'
       ;; .md reports.
       (check-true (regexp-match? #px"Snapshot \\(µs by actor count\\)" region))
-      (check-true (regexp-match? #px"shared O\\(objects\\) trend" region))
+      (check-true (regexp-match? #px"Restore \\(µs by actor count\\)" region))
       (check-false (regexp-match? #px"Divergence|glowcap mutable|glowcap persistent|entries / actor" region)))
     (test-case "iroh"
       (define h (parse-iroh iroh-out))

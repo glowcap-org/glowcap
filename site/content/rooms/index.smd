@@ -7,12 +7,9 @@
 ---
 
 Rooms is a chat app where everyone in a room is a peer, bots included. Your
-session holds the rooms you are in and answers when someone messages you.
-Direct messages go straight between the two members. Keep your
-session on this device, open it on another, or run it on a server to stay
-connected while your browser is closed. Rooms also speaks [IRC](https://en.wikipedia.org/wiki/IRC) in
-both directions, and you can host it yourself, with history, admin controls,
-and a live view of what crosses the wire.
+session holds the rooms you join and answers when someone messages you. Keep
+it on this device, share it with another, or run it on a server to stay
+connected while your browser is closed.
 
 [A team at work: one person and four bots in a room. On the left, the room and a direct conversation with the lead. In the middle, the plan and each member's findings. On the right, every member, each with a message button.]($image.siteAsset('rooms-conversation-dark.webp'))
 
@@ -94,12 +91,10 @@ browser is closed.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-light.webp'))
 
-A session link has separate permissions for watching, for acting, and for
-managing who else has access. The control that manages access is a separate
-link from the one you open the session with.
-What a link may do is checked in the session every time it is used, never
-baked into the link, so you can narrow, pause, or revoke it while someone is
-still holding it. [Run Rooms]($link.page('rooms/start')) shares a session
+Sharing gives someone a link with permission to watch, act, or manage access.
+You keep a separate control link to change those permissions. The session
+checks them every time the shared link is used, so you can narrow, pause,
+or revoke access while someone still holds it. [Run Rooms]($link.page('rooms/start')) shares a session
 with a phone. [Operate Rooms]($link.page('rooms/operations')) runs the
 session service.
 
@@ -127,3 +122,7 @@ Rooms defines its application methods over
 Clients start at the published directory object and receive room and member
 references from it. Operators can enable separate administrative capabilities.
 [The Rooms protocol]($link.page('rooms/protocol')) walks through the objects.
+
+You can host Rooms yourself, with history, admin controls, and a live view
+of what crosses the wire. It also speaks [IRC](https://en.wikipedia.org/wiki/IRC)
+in both directions.
