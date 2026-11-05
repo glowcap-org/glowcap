@@ -439,6 +439,73 @@ pub fn serveBoth(
     try expectOk(cdrv.glowcap_driver_session_serve(server, server_session));
 }
 
+/// Two loops joined by one served TCP session, with the client's fetched
+/// reference to a name the server published. The caller publishes on
+/// `server.host` before `connectAndFetch`, which then owns both loops.
+pub const FetchedPair = struct {
+    server: TestLoop,
+    client: TestLoop,
+    listener: u64,
+    server_seen: Drained = .{},
+    client_seen: Drained = .{},
+
+    pub fn deinit(self: FetchedPair) void {
+        self.client.deinit();
+        self.server.deinit();
+    }
+
+    /// Step both loops until the client's vow `ticket` settles, within a
+    /// fixed bound, and fail if it never does.
+    pub fn settle(self: *FetchedPair, ticket: u64) !void {
+        self.client_seen.settle_ticket = 0;
+        for (0..2_000) |_| {
+            try self.stepBoth();
+            if (self.client_seen.settle_ticket == ticket) return;
+        }
+        try std.testing.expectEqual(ticket, self.client_seen.settle_ticket);
+    }
+
+    /// Release both ends' session handles.
+    pub fn releaseSessions(self: *FetchedPair) !void {
+        try expectOk(cdrv.glowcap_driver_session_release(self.client.raw, self.client_seen.dialed_session));
+        try expectOk(cdrv.glowcap_driver_session_release(self.server.raw, self.server_seen.accepted_session));
+    }
+
+    fn stepBoth(self: *FetchedPair) !void {
+        try expectStep(cdrv.glowcap_driver_step(self.client.raw, 5));
+        try drainEvents(self.client.raw, &self.client_seen);
+        try expectStep(cdrv.glowcap_driver_step(self.server.raw, 5));
+        try drainEvents(self.server.raw, &self.server_seen);
+    }
+};
+
+/// Listen on `server` over TCP, dial it from a new client loop, serve the
+/// session, and fetch `name`. The fetched reference is
+/// `client_seen.settled_reference`.
+pub fn connectAndFetch(server: TestLoop, client_seed: u8, name: []const u8) !FetchedPair {
+    errdefer server.deinit();
+    const listener = try listenReady(server.raw, "tcp", "127.0.0.1:0");
+    try expectOk(cdrv.glowcap_driver_listener_select(server.raw, listener));
+    const locator = try readListenerLocator(server.raw, listener);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    var pair = FetchedPair{ .server = server, .client = try newLoop(client_seed), .listener = listener };
+    errdefer pair.client.deinit();
+    var operation: u64 = 0;
+    try expectOk(try dialParts(pair.client.raw, "tcp", locator.designator, "", &operation));
+    for (0..2_000) |_| {
+        try pair.stepBoth();
+        if (pair.client_seen.dialed_session != null and pair.server_seen.accepted_session != null) break;
+    }
+    try std.testing.expect(pair.client_seen.dialed_session != null);
+    try std.testing.expect(pair.server_seen.accepted_session != null);
+    try serveBoth(pair.client.raw, pair.client_seen.dialed_session, pair.server.raw, pair.server_seen.accepted_session);
+    var fetch_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_fetch(pair.client_seen.dialed_session, name.ptr, name.len, &fetch_vow));
+    try pair.settle(fetch_vow);
+    try std.testing.expect(pair.client_seen.settled_reference.id != 0);
+    return pair;
+}
+
 pub fn drainEvents(loop: ?*cdrv.GlowcapDriverLoop, into: *Drained) !void {
     var event: cdrv.GlowcapDriverEvent = undefined;
     while (true) {

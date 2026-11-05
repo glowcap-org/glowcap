@@ -408,6 +408,37 @@ pub const ReentrantSessionRelease = struct {
     ran: bool = false,
 };
 
+/// Records what the exporter claims return from a turn that a top-level Host
+/// verb's tail runs, outside `glowcap_driver_step`.
+pub const ExporterClaim = struct {
+    loop: ?*cdrv.GlowcapDriverLoop,
+    exporter: ?*cd.GlowcapHostSession = null,
+    exporter_result: i32 = c.GLOWCAP_ERR_INTERNAL,
+    claim_result: i32 = c.GLOWCAP_ERR_INTERNAL,
+    ran: bool = false,
+};
+
+pub fn exporterClaimBehavior(
+    raw_ctx: ?*anyopaque,
+    turn: ?*cd.GlowcapHostTurn,
+    selector: ?[*]const u8,
+    verb_len: usize,
+    args: ?[*]const c.GlowcapArgument,
+    args_len: usize,
+    out_reply: *c.GlowcapArgument,
+) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
+    _ = turn;
+    if (!std.mem.eql(u8, verb[0..verb_len], "claim")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (args_len != 1 or args.?[0].kind != c.GLOWCAP_ARG_REFERENCE) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const ctx: *ExporterClaim = @ptrCast(@alignCast(raw_ctx.?));
+    ctx.ran = true;
+    ctx.exporter_result = cdrv.glowcap_driver_claim_reference_exporter(ctx.loop, &args.?[0].reference, &ctx.exporter);
+    ctx.claim_result = cdrv.glowcap_driver_claim_exporter_session(ctx.loop, ctx.exporter);
+    out_reply.* = c_args.argStr("claimed");
+    return c.GLOWCAP_OK;
+}
+
 pub const CallbackRetirement = struct {
     loop: ?*cdrv.GlowcapDriverLoop,
     result: i32 = c.GLOWCAP_ERR_INTERNAL,

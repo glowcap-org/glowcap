@@ -72,11 +72,12 @@ fn claimSessionHandleOwned(self: *HostRuntime, session: *driver_core.HostSession
 
 /// Resolve the live exporter session named by one opaque Host capability and
 /// ensure the Runtime's single application handle owns it. Repeated exposure
-/// is idempotent. An internal redeem wire is admitted as application
+/// is idempotent. A session the application released inside a callback
+/// resolves to none, though its wire lives until the carrier closes. An internal redeem wire is admitted as application
 /// work and claimed before its pointer crosses an adapter.
 pub fn claimReferenceExporter(self: *HostRuntime, raw_ref: u64) AdmissionError!?*driver_core.HostSession {
-    self.enterDriver();
-    defer self.leaveDriver();
+    const entered = try enterOwnershipUpdate(self);
+    defer if (entered) self.leaveDriver();
 
     const session = (try self.core.capabilitySession(self.core.capabilityFromRaw(raw_ref))) orelse return null;
     claimExporterSessionOwned(self, session) catch |err| switch (err) {
@@ -90,19 +91,49 @@ pub fn claimReferenceExporter(self: *HostRuntime, raw_ref: u64) AdmissionError!?
 /// Safe inside a callback: this only checks admission and updates ownership.
 /// It never drives transport, dispatches callbacks, or releases the wire.
 pub fn claimExporterSession(self: *HostRuntime, session: *driver_core.HostSession) AdmissionError!void {
-    self.enterDriver();
-    defer self.leaveDriver();
+    const entered = try enterOwnershipUpdate(self);
+    defer if (entered) self.leaveDriver();
     try claimExporterSessionOwned(self, session);
+}
+
+/// Open a driver turn for an ownership update, unless a Host callback or Vat
+/// turn is running. That turn may come from `step` or from a Host verb's tail
+/// pump, and whichever started it already claimed the owning thread, so the
+/// update only checks that it runs there. The update queues no effect and needs
+/// no flush. Leaving a turn inside the callback would flush residents and
+/// release ownership while the callback still runs. Returns whether the caller
+/// must `leaveDriver`. The callback state is read once, so a caller's body must
+/// not pump or dispatch before its deferred leave.
+fn enterOwnershipUpdate(self: *HostRuntime) error{WrongThread}!bool {
+    if (self.withinCallback()) {
+        try self.core.claimOwner();
+        return false;
+    }
+    self.enterDriver();
+    return true;
 }
 
 fn claimExporterSessionOwned(self: *HostRuntime, session: *driver_core.HostSession) AdmissionError!void {
     if (session.host != self.core) return Error.SessionNotOwned;
     const wire = self.wires.get(session.peer_handle) orelse return Error.SessionNotOwned;
     if (wire.session != session) return Error.SessionNotOwned;
+    if (releaseIsDeferred(self, session)) return Error.SessionNotOwned;
     if (!wire.session_handle_claimed) {
         try Internal.admitApplicationOperation(self);
         try claimSessionHandleOwned(self, session);
     }
+}
+
+/// Whether the application released `session` inside a callback. Its handle
+/// then belongs to the deferred-release queue, which frees the session once
+/// its carrier closes, so no claim may hand it out again. The queue is empty
+/// outside that window.
+fn releaseIsDeferred(self: *const HostRuntime, session: *const driver_core.HostSession) bool {
+    var request = self.deferred_session_releases;
+    while (request) |queued| : (request = queued.next) {
+        if (queued.session == session) return true;
+    }
+    return false;
 }
 
 /// Whether this runtime still owns the exact session shell named by a queued
