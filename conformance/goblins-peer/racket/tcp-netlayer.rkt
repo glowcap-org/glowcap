@@ -37,10 +37,6 @@
 
 (provide ^tcp-netlayer)
 
-;; Latest CapTP write proc for the active session (interop-only). Updated when
-;; a connection hands `write-message` to mycapn.
-(define interop-captp-writer (box #f))
-
 ;; Constructor for a TCP netlayer.
 ;;
 ;;   listen-host: string passed to `tcp-listen`. Use "127.0.0.1" for
@@ -87,14 +83,13 @@
 ;; which both ends of the session derive alike. The default is #f, and with no
 ;; sink the wire path is untouched.
 ;;
-;; Optional `#:interop-message-sink sink`, test-only observation of decoded
-;; inbound CapTP records before this netlayer hands them to Goblins. This is not
-;; an application API; it exists so glowcap's interop probes can prove a
-;; canonical Goblins-written frame caused the partner's semantic response even
-;; where the pinned Goblins release has no public API for creating that request.
-;; `#:interop-outbound-message-sink` is the symmetric hook: it observes decoded
-;; outbound records before encoding, so a probe can refer to a Goblins-allocated
-;; wire name without guessing the allocator's current position.
+;; Optional `#:interop-write-message`, a test-only adapter receiving the writer,
+;; the Goblins-allocated message and its marshallers. It may translate an
+;; ordinary request to a wire operation Goblins has no public API for. Questions,
+;; resolver exports and reference counts still belong to Goblins. Inbound
+;; messages always reach Goblins itself, whose vow callbacks decide success.
+;; `#:interop-message-sink` observes inbound releases so probes can place a
+;; health call after GC. It cannot replace or consume an incoming message.
 (define make-wire-ocapn-node (cdr unmarshall::ocapn-node))
 
 (define (^tcp-netlayer _bcom
@@ -104,8 +99,8 @@
                        #:trace [trace-fn void]
                        #:location-hints [location-hints #f]
                        #:session-trace [session-trace #f]
-                       #:interop-message-sink [interop-message-sink #f]
-                       #:interop-outbound-message-sink [interop-outbound-message-sink #f])
+                       #:interop-write-message [interop-write-message #f]
+                       #:interop-message-sink [interop-message-sink #f])
   ;; The bind happens here, on the caller's thread, so returning from the
   ;; constructor means the port is listening and a dial lands in its backlog.
   ;; Anything later, `setup`, the accept thread below, leaves a window where a
@@ -160,22 +155,18 @@
     (define-values (read-message write-message) (captp-message-procs in out))
     (define (observed-read-message unmarshallers)
       (define msg (read-message unmarshallers))
-      (when (and interop-message-sink (not (eof-object? msg)))
-        (interop-message-sink msg))
+      (when interop-message-sink (interop-message-sink msg))
       msg)
-    (define (observed-write-message msg marshallers)
-      (when interop-outbound-message-sink
-        (interop-outbound-message-sink msg))
-      (write-message msg marshallers))
+    (define (adapted-write-message msg marshallers)
+      (if interop-write-message
+          (interop-write-message write-message msg marshallers)
+          (write-message msg marshallers)))
     (if session-trace
-        (traced-message-procs observed-read-message observed-write-message session-trace
+        (traced-message-procs observed-read-message adapted-write-message session-trace
                               #:transport "tcp"
                               #:our-designator our-designator
                               #:provenance (lambda (_claimed) provenance-unauthenticated))
-        (values observed-read-message observed-write-message)))
-
-  (define (register-captp-writer write-message)
-    (set-box! interop-captp-writer write-message))
+        (values observed-read-message adapted-write-message)))
 
   (define (start-listening conn-establisher)
     (let listen-loop ()
@@ -184,7 +175,6 @@
             [(list (vector ip op))
              (define-values (read-message write-message)
                (connection-procs ip op))
-             (register-captp-writer write-message)
              (<- conn-establisher read-message write-message #f)])
           #:finally listen-loop)))
 
@@ -230,14 +220,7 @@
            (define-values (in out) (tcp-connect host port))
            (define-values (read-message write-message)
              (connection-procs in out))
-           (register-captp-writer write-message)
-           (<- conn-establisher read-message write-message remote-node)])]
-       ;; Interop-only: write a CapTP record on the active session. Used when
-       ;; Goblins lacks an outbound projection API but the wire op is canonical.
-       [(interop-send msg marshallers)
-        (match (unbox interop-captp-writer)
-          [#f (error '^tcp-netlayer "no active CapTP writer for interop-send")]
-          [write-message (write-message msg marshallers)])]))
+           (<- conn-establisher read-message write-message remote-node)])]))
 
     pre-setup-beh)
 

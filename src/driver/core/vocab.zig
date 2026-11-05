@@ -119,13 +119,10 @@ pub const Error = error{
     /// produce the durable designator the transport advertises. Accept with
     /// `.{ .keyed = secret }` holding the listener's identity key.
     EphemeralIdentityOnKeyedTransport,
-    /// This face was wired to advertise a durable key it cannot sign for
-    /// (ADR-0028): an `Identity.keyed` whose `designator` names some other
-    /// peer's key, or a keyed listener bound under a key that is not the one
-    /// the host was built on. The mismatch is refused where it was wired
-    /// rather than on the first accept. Same name and meaning as
-    /// `driver_core.HostError.UnheldIdentity`, which the byte-fed tier raises
-    /// for the same condition.
+    /// A keyed listener's published designator differs from the Host's key.
+    /// Listener construction refuses the mismatch before accepting a peer.
+    /// `driver_core.HostError.UnheldIdentity` names the same refusal when an
+    /// embedder publishes a key-scheme locator through the byte-fed Host.
     UnheldIdentity,
 };
 
@@ -191,50 +188,26 @@ pub const DesignatorScheme = model.transport.DesignatorScheme;
 /// `model.transport.hint_direct_addresses` / `net.netlayer.hint_direct_addresses`.
 pub const hint_direct_addresses = model.transport.hint_direct_addresses;
 
-/// The `tcp` designator a dialer that does not itself listen signs as its own
-/// dialable address: a placeholder no partner can reach. A dialer advertises
-/// this because the keyed session's identity is its signing key, not its
-/// address, so a partner verifies the signature over these bytes rather than
-/// dialing them back. Every never-listening dialer signs the one value:
-/// `Identity.ephemeral` and a `Host` that never binds a listener, so the
-/// placeholder never drifts between them.
+/// The dial-only fallback for an address-scheme transport: a placeholder no
+/// partner can reach. Host defaults for key-scheme transports instead name
+/// the Host's public key, even when its identity is ephemeral.
 pub const unreachable_client_designator = "127.0.0.1:0";
 
-/// The durable-locator posture a driver half advertises in its keyed
-/// `op:start-session`. The session signing key is always drawn separately per
-/// connection. Every dial (`driver.connect`) carries this posture
-/// explicitly: an ephemeral dialer has no
-/// stable designator of its own, while a keyed peer names the durable
-/// designator its endpoint is reachable as.
+/// Identity seed policy for runtime construction. The Host keeps this identity
+/// for its lifetime. Every connection draws a separate session signing key.
+/// Advertised locators follow the transport profile and any published listener.
 pub const Identity = union(enum) {
-    /// Draw a fresh random session key at the I/O boundary for this one
-    /// session. The ordinary client posture: a dialer that does not itself
-    /// listen signs the unreachable-client placeholder as its own designator.
-    /// On accept, the listener's bound designator is still signed, because a host is
-    /// always reachable.
+    /// Generate a fresh Host identity seed at construction. A dial-only Host
+    /// advertises that public key on key-scheme transports and the unreachable
+    /// placeholder on address-scheme transports. This does not configure a
+    /// separately constructed endpoint: use `keyed` with that endpoint's seed
+    /// when its transport authenticates the locator key, as iroh does.
     ephemeral,
-    /// Hold `secret` as this caller's *durable* identity and advertise
-    /// `designator` as its own dialable designator. `secret` is the secret half
-    /// of the key the netlayer endpoint is built on, so it is what a partner
-    /// re-dials across a restart. The key each session *signs its hello with*
-    /// is drawn per connection and is a different value.
-    ///
-    /// `designator` is the caller's own address on a transport that names
-    /// peers by address. On a key-scheme transport there is one legal value,
-    /// `secret`'s own public key: naming any other is `Error.UnheldIdentity`,
-    /// since this endpoint does not hold it.
-    keyed: struct { secret: crypto.SecretKey, designator: []const u8 },
-
-    /// The dialable designator a *dialer* advertises for this identity: the
-    /// unreachable-client placeholder for an ephemeral client (same bytes
-    /// `Host` and tcp-named constructors sign), the keyed designator otherwise.
-    /// A host's designator comes from its listener, not from here.
-    pub fn dialedDesignator(self: Identity) []const u8 {
-        return switch (self) {
-            .ephemeral => unreachable_client_designator,
-            .keyed => |k| k.designator,
-        };
-    }
+    /// Supply the Host identity key. An externally constructed endpoint that
+    /// authenticates its locator key must use this same key. Session hello
+    /// signing keys are generated independently per connection. A key-scheme
+    /// listener requires this arm and verifies its published endpoint identity.
+    keyed: crypto.SecretKey,
 };
 
 /// The three identity facts learned for a partner: the verified session public
@@ -309,17 +282,6 @@ pub const PartnerIdentity = struct {
 /// holds. This alias is how the byte-fed tier and the C ABI name it without
 /// reaching into the engine.
 pub const DurableProvenance = engine.DurableProvenance;
-
-/// The responder's durable-locator posture for `driver.listen`. An
-/// accepting host advertises its listener's bound designator, so unlike the
-/// dialer's `Identity` there is no designator to carry. `ephemeral` supplies no
-/// durable key. `keyed` supplies the caller-held endpoint key from which a
-/// key-scheme listener derives its stable designator. Both draw a separate
-/// signing key per accepted session.
-pub const AcceptIdentity = union(enum) {
-    ephemeral,
-    keyed: crypto.SecretKey,
-};
 
 /// The serve core's handle to an eventual result: `actors.Vow`,
 /// re-exported so a consumer holding only the driver vocabulary can name it

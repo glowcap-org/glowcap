@@ -27,9 +27,9 @@
 ;; - Full Spritely netlayer: no graceful shutdown, no reconnect-on-loss, minimal
 ;;   error reporting. A connection's handle is released when the endpoint is,
 ;;   which for a driver process is at exit. Good enough for an interop bracket.
-;; - A second CapTP. Nothing here parses a CapTP record for the wire's sake; the
-;;   session trace below reads `op:start-session` only to name the session, and
-;;   the bytes pass through untouched.
+;; - A second CapTP. The adapter binds the hello's advertised endpoint to the
+;;   QUIC identity before Goblins sees it. Goblins owns signature verification
+;;   and protocol state. Accepted records pass through unchanged.
 
 (require goblins
          goblins/actor-lib/methods
@@ -43,7 +43,7 @@
                   iroh-endpoint-node-id iroh-endpoint-direct-addresses
                   iroh-endpoint-accept iroh-endpoint-dial iroh-endpoint-close!
                   byte-channel byte-channel-read byte-channel-write
-                  byte-channel-verified-remote)
+                  byte-channel-verified-remote byte-channel-close!)
          racket/async-channel
          racket/match)
 
@@ -76,24 +76,34 @@
     [(bytes? value) (bytes->string/utf-8 value)]
     [else ""]))
 
-;; What a connection proved about the partner's durable name, asked with the
-;; designator the partner's hello claims.
-;;
-;; `verified-remote` is the endpoint id QUIC authenticated for the far end of
-;; this channel, or #f when nothing proved one. QUIC verifies the remote in both
-;; directions, so an accepted connection answers this as well as a dialed one:
-;; the vat reads the proof off the connection rather than trusting that a dial
-;; reached the endpoint it named.
-;;
-;; A proved id equal to the claim is what makes the claim the transport's own
-;; word. Anything else is unproven: a claim naming some other endpoint is a
-;; claim about somebody else, and a channel that proved nothing leaves nothing
-;; to weigh the claim against. Both stay `unauthenticated`, because reporting
-;; either as proved would report a check nobody ran.
-(define ((transport-proof-provenance verified-remote) claimed)
-  (if (and verified-remote (equal? claimed verified-remote))
-      provenance-authenticated-transport
-      provenance-unauthenticated))
+;; Goblins indexes sessions by the hello's claimed locator and does not check
+;; that locator against its netlayer. An iroh endpoint may advertise new routing
+;; hints, but it may never install another endpoint's durable name in that map.
+;; Refusal closes only this channel and returns EOF to Goblins' ordinary close
+;; path. The claimed hello never reaches either telemetry or protocol dispatch.
+(define (identity-bound-message-procs read-message write-message
+                                      verified-remote close!
+                                      our-designator session-trace)
+  (define refused? #f)
+  (define (read-bound unmarshallers)
+    (define msg (if refused? eof (read-message unmarshallers)))
+    (define fields (and (struct? msg) (struct->vector msg)))
+    (cond
+      [(and fields (eq? (vector-ref fields 0) 'struct:op:start-session))
+       (define location (and (= (vector-length fields) 5) (vector-ref fields 3)))
+       (if (and verified-remote
+                (ocapn-node? location)
+                (eq? (ocapn-node-transport location) 'iroh)
+                (equal? (ocapn-node-designator location) verified-remote))
+           msg
+           (begin (set! refused? #t) (close!) eof))]
+      [else msg]))
+  (if session-trace
+      (traced-message-procs read-bound write-message session-trace
+                            #:transport "iroh"
+                            #:our-designator our-designator
+                            #:provenance (lambda (_claimed) provenance-authenticated-transport))
+      (values read-bound write-message)))
 
 ;; Goblins reads and writes CapTP through Racket ports, while the transport under
 ;; it is a byte channel: a blocking read that answers the next chunk or eof, and
@@ -210,13 +220,10 @@
   (define (connection-procs ch)
     (define-values (in out) (channel-ports ch))
     (define-values (read-message write-message) (captp-message-procs in out))
-    (if session-trace
-        (traced-message-procs read-message write-message session-trace
-                              #:transport "iroh"
-                              #:our-designator our-designator
-                              #:provenance (transport-proof-provenance
-                                            (byte-channel-verified-remote ch)))
-        (values read-message write-message)))
+    (identity-bound-message-procs read-message write-message
+                                  (byte-channel-verified-remote ch)
+                                  (byte-channel-close! ch)
+                                  our-designator session-trace))
 
   (define (start-listening conn-establisher)
     (let listen-loop ()
@@ -278,6 +285,42 @@
            racket/async-channel
            (submod goblins/ocapn/structs-urls marshall))
 
+  ;; A self-signed hello cannot borrow another endpoint's identity. Test the
+  ;; exact wrapper installed on both accepted and dialed channels, including
+  ;; the no-telemetry path, which must enforce the same identity check.
+  (struct op:start-session (version key location signature) #:transparent)
+  (for* ([traced? '(#f #t)]
+         [case (list (cons "attacker" (ocapn-node 'iroh "victim" #f))
+                     (cons "attacker" (ocapn-node 'tcp "attacker" #f))
+                     (cons #f (ocapn-node 'iroh "victim" #f)))])
+    (define claimed (cdr case))
+    (define closed 0)
+    (define events '())
+    (define reads 0)
+    (define-values (read-bound write-bound)
+      (identity-bound-message-procs
+       (lambda (_)
+         (set! reads (add1 reads))
+         (op:start-session "1.0" '(public-key attacker) claimed 'signature))
+       (lambda (_msg _marshallers) (void))
+       (car case) (lambda () (set! closed (add1 closed))) "ours"
+       (and traced? (lambda (event _handle _info) (set! events (cons event events))))))
+    (write-bound (op:start-session "1.0" '(public-key ours)
+                                   (ocapn-node 'iroh "ours" #f) 'signature) '())
+    (check-eq? (read-bound '()) eof "spoofed hello must not reach Goblins")
+    (check-eq? (read-bound '()) eof "a refused channel stays closed")
+    (check-equal? closed 1)
+    (check-equal? reads 1)
+    (check-equal? events '() "a rejected identity is never reported as an open session"))
+  (let ()
+    (define location (make-wire-ocapn-node 'iroh "victim" (hash "direct-addresses" "new")))
+    (define hello (op:start-session "1.0" '(public-key victim) location 'signature))
+    (define-values (read-bound _write-bound)
+      (identity-bound-message-procs
+       (lambda (_) hello) void "victim"
+       (lambda () (error 'identity-test "closed an authenticated endpoint")) "ours" #f))
+    (check-eq? (read-bound '()) hello "routing hints do not change endpoint identity"))
+
   ;; The dial hint is read off whatever shape a node arrived in. A locator
   ;; decoded from the wire carries the draft's mapping, a discovery-posture
   ;; partner carries none, and a Syrup bytestring value is still an address list.
@@ -310,28 +353,6 @@
              (lambda (data) (async-channel-put sent data))
              void
              #f)))
-
-  ;; What a channel's proof is allowed to conclude about the partner's claim.
-  ;; This is the netlayer's whole authentication verdict, so each way it can go
-  ;; is checked: only an exact match between the id QUIC verified and the id the
-  ;; hello claims is the transport's own word for the partner.
-  (let ([proved "aa11"]
-        [other "bb22"])
-    (check-equal? ((transport-proof-provenance proved) proved)
-                  provenance-authenticated-transport
-                  "a claim naming the endpoint QUIC verified is proved")
-    ;; A partner that opened the connection under one key and claims another in
-    ;; its hello is claiming something nothing here checked.
-    (check-equal? ((transport-proof-provenance proved) other)
-                  provenance-unauthenticated
-                  "a claim naming some other endpoint is not proved")
-    ;; A channel that proved nothing cannot lend its silence to a claim.
-    (check-equal? ((transport-proof-provenance #f) other)
-                  provenance-unauthenticated
-                  "an unproved channel proves no claim")
-    (check-equal? ((transport-proof-provenance #f) #f)
-                  provenance-unauthenticated
-                  "two absent names are not a match"))
 
   ;; Reading: every chunk the connection produces reaches the port in order, and
   ;; the end of the connection is the end of the port.

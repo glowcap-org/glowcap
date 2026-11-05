@@ -233,9 +233,10 @@ pub fn main(init: std.process.Init) !void {
     // Sixth bracket: Goblins-as-asker sends canonical `op:get` / `op:index`
     // frames through its own netlayer against glowcap's ADR-0004 responders.
     // The pinned Goblins release has inbound projection support but no public
-    // outbound app API for those ops, so the Racket asker uses Goblins'
-    // canonical records and test-only netlayer writer, then observes glowcap's
-    // V1.0 resolver-callback settlements on the live Goblins TCP netlayer.
+    // outbound app API for those ops, so a test-only writer translates ordinary
+    // Goblins requests while preserving their allocated questions and resolvers.
+    // Goblins must settle both vows and receive their listener GC before an
+    // ordinary re-fetch and call establish that the session remains healthy.
     try runListenerScenario(init, .{
         .dialer = projection_asker_script,
         .swiss = projection_swiss,
@@ -243,10 +244,9 @@ pub fn main(init: std.process.Init) !void {
         .serves_actor = true,
         .kind = "projection asker",
         .actor = .projection,
-        // `PROJECTION OK` means the Goblins-side probe observed fulfill
-        // resolver callbacks for both projection answer positions, with the
-        // expected payloads. The kind latches stay as a guard that the
-        // canonical projection frames themselves reached glowcap.
+        // `PROJECTION OK` means Goblins' own resolvers fulfilled both questions
+        // and the same session answered a later ordinary call after listener
+        // GC. The kind latches also require both projection frames to arrive.
         .expect_inbound_ops = &.{ .get, .index },
     });
     std.debug.print("goblins-interop: OK, glowcap accepted canonical op:get/op:index frames a Goblins netlayer wrote\n", .{});

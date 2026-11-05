@@ -483,16 +483,6 @@ test "driver loopback: a spawned capability is unreachable until first marshaled
     try host_result;
 }
 
-test "Identity.ephemeral signs the unreachable-client designator" {
-    // The same bytes a Host advertises for an ephemeral dialer: the
-    // placeholder must not drift by entry path.
-    const identity: driver.Identity = .ephemeral;
-    try std.testing.expectEqualStrings(
-        driver.unreachable_client_designator,
-        identity.dialedDesignator(),
-    );
-}
-
 /// Answers `read(capability)` with the kind of capability the Host handed it,
 /// a lifted promise or a settled object, and `echo(capability)` with the
 /// capability itself.

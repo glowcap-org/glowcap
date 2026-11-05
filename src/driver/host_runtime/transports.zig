@@ -32,6 +32,7 @@ pub const Transports = struct {
     /// runtime's life.
     inproc: ?*net.inproc_completion.Exchange = null,
     /// Residents the caller owns and keeps stable for the runtime's life.
+    /// Their endpoint identity must satisfy the provider registration contract.
     residents: []const provider_package.Registration = &.{},
     stack: Sizing = .{},
 

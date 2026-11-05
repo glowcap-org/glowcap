@@ -21,7 +21,7 @@
 //! durable identity of the partner before a byte is fed: the vat's hello has to
 //! claim the endpoint id glowcap dialed, and QUIC has already proved the far end
 //! holds it. glowcap names itself in the same way, advertising the id of the
-//! endpoint it dialed from and signing under that key, and this driver then
+//! endpoint it dialed from in a hello signed by its fresh session key. The driver
 //! reads back what the vat's netlayer concluded: the accepting side has to
 //! report `authenticated-transport` and name glowcap's endpoint, which it can
 //! do because the iroh C ABI hands an accepted connection its QUIC-verified
@@ -158,10 +158,7 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
     var client_id_buf: [iroh.node_id_len]u8 = undefined;
     const client_node_id = endpoint.nodeId(&client_id_buf);
 
-    callEcho(io, allocator, &providers, node_id, direct_addrs, swiss, .{
-        .secret = crypto.SecretKey.fromSeed(client_seed),
-        .designator = client_node_id,
-    }) catch |err| {
+    callEcho(io, allocator, &providers, node_id, direct_addrs, swiss, crypto.SecretKey.fromSeed(client_seed)) catch |err| {
         std.debug.print("goblins-iroh: dialing the goblins vat failed: {s}\n", .{@errorName(err)});
         goblins_child.dumpChildStderr(io, "goblins-iroh", &child);
         return err;
@@ -206,9 +203,8 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
 /// realizer's QUIC proof is what settles the claim. A vat answering under some
 /// other key is refused before its first byte reaches the session.
 ///
-/// `self` is what this side signs: the dialing endpoint's own key and the id it
-/// is named by, so the vat hears a caller that names itself and can weigh that
-/// name against the endpoint QUIC verified.
+/// `secret` is the dialing endpoint's identity key. The Host advertises its
+/// public key, so the vat can compare that claim with the endpoint QUIC proved.
 fn callEcho(
     io: std.Io,
     allocator: std.mem.Allocator,
@@ -216,7 +212,7 @@ fn callEcho(
     node_id: []const u8,
     direct_addrs: []const u8,
     swiss: []const u8,
-    self: struct { secret: crypto.SecretKey, designator: []const u8 },
+    secret: crypto.SecretKey,
 ) !void {
     var hints: [1]model.HintEntry = undefined;
     const locator = iroh.locatorWithDirectAddresses(node_id, direct_addrs, &hints);
@@ -226,7 +222,7 @@ fn callEcho(
         io,
         .{ .residents = providers },
         locator,
-        .{ .keyed = .{ .secret = self.secret, .designator = self.designator } },
+        .{ .keyed = secret },
         opts,
     );
     defer session.deinit();
@@ -267,9 +263,8 @@ fn callEcho(
 /// `authenticated-transport`. That is what makes a Goblins vat over iroh a peer
 /// whose durable name something checked, rather than one that merely asserted it.
 fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.process.Environ.Map) !void {
-    // Seeded, so glowcap's accept signs under the very key its endpoint is named
-    // by: iroh is a key-designator transport, and the vat pins the session to the
-    // endpoint id it dialed.
+    // The Host and endpoint share their durable identity. The hello claims that
+    // endpoint id under a fresh session signing key.
     const seed: [32]u8 = @splat(0x5a);
     const secret = crypto.SecretKey.fromSeed(seed);
     var endpoint = iroh.Resident.init(io, &seed, .{ .reachability = .direct }) catch |err| {

@@ -57,7 +57,6 @@ pub const SettleFlag = driver_core.SettleFlag;
 pub const PendingSend = driver_core.PendingSend;
 pub const FetchCapture = driver_core.FetchCapture;
 pub const Identity = driver_core.Identity;
-pub const AcceptIdentity = driver_core.AcceptIdentity;
 pub const Vow = driver_core.Vow;
 /// The opaque Host-scoped capability identity (ADR-0026). The serve core's
 /// export-bound form is `Exported`.

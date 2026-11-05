@@ -190,7 +190,7 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         }
     }
 
-    const accept_id = try ctx.acceptIdentity();
+    const accept_id = try ctx.identity();
 
     // The handle is allocated before the server because it owns the relay
     // TLS runtime the server's relay backend leases.

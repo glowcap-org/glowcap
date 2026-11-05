@@ -117,7 +117,7 @@ pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) 
         .symbols = symbols,
         .relay = if (ctx.rendezvous_provider) |*provider| try provider.options(ctx.io) else null,
     };
-    const identity = try ctx.dialIdentity();
+    const identity = try ctx.identity();
     return driver.connect(ctx.gpa, ctx.io, transports, locator, identity, session_opts.withRecipient(ctx, opts)) catch |err| {
         ctx.logErr("dial failed: {s}", .{@errorName(err)});
         return err;

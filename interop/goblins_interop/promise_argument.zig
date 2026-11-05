@@ -6,13 +6,15 @@
 //! proves Goblins lifted the argument as a promise and settled through it
 //! when the reply it names arrived.
 //!
-//! From Goblins, `glowcap-answer-argument.rkt` writes the canonical
-//! `op:deliver` through its netlayer, because Goblins has no application-level
-//! form for an answer in argument position either. An ordinary `make` whose
+//! From Goblins, `glowcap-answer-argument.rkt` adapts the
+//! arguments of an ordinary Goblins `op:deliver` through its netlayer, because
+//! Goblins has no application-level form for an answer in argument position.
+//! Its question and callable resolver remain Goblins-owned. A `make` whose
 //! answer glowcap defers is followed by a `read` naming that answer. glowcap
 //! lifts the pending answer to a capability promise and the actor listens on
 //! it. The serving loop settles `make`, and the promise's value answers
-//! `read`. Goblins observes both settlements.
+//! `read`. Goblins settles both vows, receives the resolver releases, then
+//! fetches and calls the actor again on the same session.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -129,6 +131,7 @@ const AnswerReader = struct {
     pub fn handle(self: *AnswerReader, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
         defer ht.releaseArguments(args);
         const verb = selector orelse return error.NoSuchMethod;
+        if (std.mem.eql(u8, verb, "health")) return .{ .string = "reader healthy" };
         if (std.mem.eql(u8, verb, "make")) {
             self.shared.make_resolver = try ht.deferAnswer();
             return .{ .void = {} };

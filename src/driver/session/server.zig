@@ -327,8 +327,8 @@ pub const Server = struct {
 
 /// Bind a listener for `transport` over the transports `transports` names
 /// and return the owning `Server`, whose every accept shares one host
-/// identity. `identity` is the responder signing posture (`.ephemeral` fresh
-/// random, `.keyed` a caller-held key). The same runtime redeems a give an
+/// identity. `identity` supplies a Host key or requests a fresh one. A listener
+/// whose designator is a key requires the supplied key. The same runtime redeems a give an
 /// accepted session receives, so whatever `transports` borrows outlives the
 /// Server and every Session it yields.
 pub fn listen(
@@ -337,17 +337,17 @@ pub fn listen(
     transports: host_runtime.HostRuntime.Transports,
     transport: []const u8,
     config: net.netlayer.ListenConfig,
-    identity: driver.AcceptIdentity,
+    identity: Identity,
     opts: SessionOptions,
 ) !*Server {
     const shared = try allocator.create(SharedRuntime);
     errdefer allocator.destroy(shared);
-    shared.* = SharedRuntime.init(allocator, try host_runtime.HostRuntime.init(allocator, io, transports, acceptToIdentity(identity), opts));
+    shared.* = SharedRuntime.init(allocator, try host_runtime.HostRuntime.init(allocator, io, transports, identity, opts));
     errdefer shared.runtime.deinit();
     return finishListen(shared, transport, config, identity);
 }
 
-fn finishListen(shared: *SharedRuntime, transport: []const u8, config: net.netlayer.ListenConfig, identity: driver.AcceptIdentity) !*Server {
+fn finishListen(shared: *SharedRuntime, transport: []const u8, config: net.netlayer.ListenConfig, identity: Identity) !*Server {
     shared.runtime.enterDriver();
     defer shared.runtime.leaveDriver();
     const allocator = shared.allocator;
@@ -387,14 +387,4 @@ fn finishListen(shared: *SharedRuntime, transport: []const u8, config: net.netla
     const selected = shared.runtime.selectOwnedListener(server.listener_tag) catch unreachable;
     std.debug.assert(selected);
     return server;
-}
-
-/// Map the responder signing posture onto the dialer-shaped `Identity` the
-/// host face takes: an accepting host's designator is the listener's bound
-/// address (set after bind), so the keyed arm carries only the secret here.
-fn acceptToIdentity(identity: driver.AcceptIdentity) Identity {
-    return switch (identity) {
-        .ephemeral => .ephemeral,
-        .keyed => |secret| .{ .keyed = .{ .secret = secret, .designator = driver.unreachable_client_designator } },
-    };
 }

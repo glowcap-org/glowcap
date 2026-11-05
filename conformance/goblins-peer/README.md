@@ -46,9 +46,9 @@ directory holds glowcap's wrappers and small Racket programs around its API.
 | `racket/goblins-tap-dialer.rkt`   | Goblins client: pipelined enliven-and-call against glowcap.                                  |
 | `racket/glowcap-break-call.rkt`   | Goblins client: unknown-swiss fetch, asserts glowcap's break reason.                         |
 | `racket/glowcap-export-listen.rkt` | Goblins client: `listen` on a live glowcap object export, asserts the fulfill.              |
-| `racket/glowcap-projection-asker.rkt` | Goblins client: writes canonical `op:get` / `op:index` at glowcap's responders, sends `op:listen` for each projected answer, and observes glowcap's resolver-callback fulfillments. Goblins 0.18.0 has no application-level outbound projection send, so it marshals records Goblins already defines through the live session. |
-| `racket/glowcap-answer-argument.rkt` | Goblins client: names its own pending `make` question with `desc:answer` in argument position of a `read` deliver it writes through its netlayer, and observes glowcap answer `read` with the value `make` settled to. |
-| `racket/captp-interop-wire.rkt`   | The CapTP records, marshallers, and record readers the asker and the answer-argument dialer share. |
+| `racket/glowcap-projection-asker.rkt` | Goblins client: translates two ordinary requests into `op:get` / `op:index` and `op:listen`, preserving the Goblins-allocated questions and resolvers. Goblins settles both vows, receives the listener releases, and fetches and calls again on the same session. Goblins has no public outbound projection API. |
+| `racket/glowcap-answer-argument.rkt` | Goblins client: replaces the arguments of an ordinary `read` deliver with `desc:answer` naming its pending `make` question. Goblins settles both vows and makes a health call after their listener releases. |
+| `racket/captp-interop-wire.rkt`   | The test-only request records and resolver-release observation shared by those probes. Incoming callbacks are consumed by Goblins itself. |
 | `racket/handoff-introducer-host.rkt` | Goblins Alice+Bob for recipient-side handoff over TCP and iroh (`goblins-handoff`, `goblins-handoff-iroh`, and binding checks).   |
 | `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for glowcap-as-gifter (`*-goblins-gift`).                                  |
 | `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a glowcap-minted give (`*-goblins-gift`).             |
@@ -111,5 +111,6 @@ testing and iroh netlayers.
 - `seven-caps-peer.rkt` stays compatible with the capabilities the upstream
   suite expects.
 - The testing TCP netlayer is cleartext loopback. The iroh netlayer is encrypted
-  and names its peer by key, but it is interop scaffolding, not a Spritely
+  and refuses a hello whose locator does not name the authenticated endpoint.
+  It is interop scaffolding, not a Spritely
   product, with no graceful shutdown and no reconnect.
