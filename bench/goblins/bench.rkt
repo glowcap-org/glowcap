@@ -50,50 +50,120 @@
 (define port-counter (box base-port))
 (define (next-port!) (begin0 (unbox port-counter) (set-box! port-counter (+ (unbox port-counter) 7))))
 
-;; Start a server process; wait for its NDJSON ready line; then drain its stdout in
-;; a background thread so it never blocks. Returns (values proc pid).
+;; Every child owns its pipes and reader threads from spawn through exit. One
+;; deadline covers reading AND process termination: EOF alone is not success.
+;; Keep the last 8 KiB of stderr so failures retain their cause without letting
+;; noisy teardown consume unbounded memory or clutter successful reports.
+(define child-timeout-seconds (make-parameter (if smoke? 30 120)))
+(define stop-grace-seconds (make-parameter 5))
+(struct child (proc out custody diagnostic stderr-reader label))
+
+(define (spawn-child label script . args)
+  (define custody (make-custodian))
+  (with-handlers ([exn? (lambda (e) (custodian-shutdown-all custody) (raise e))])
+    (parameterize ([current-custodian custody]
+                   [current-subprocess-custodian-mode 'kill])
+      (define-values (proc out in err)
+        (apply subprocess #f #f #f RACKET "-y" script args))
+      (close-output-port in)
+      (define diagnostic (box #""))
+      (define stderr-reader
+        (thread
+         (lambda ()
+           (define buffer (make-bytes 1024))
+           (let loop ()
+             (define count (read-bytes-avail! buffer err))
+             (unless (eof-object? count)
+               (define joined (bytes-append (unbox diagnostic) (subbytes buffer 0 count)))
+               (set-box! diagnostic (subbytes joined (max 0 (- (bytes-length joined) 8192))))
+               (loop))))))
+      (child proc out custody diagnostic stderr-reader label))))
+
+(define (child-error process message)
+  (error 'benchmark "~a: ~a~a" (child-label process) message
+         (if (zero? (bytes-length (unbox (child-diagnostic process)))) ""
+             (format "\nstderr (tail):\n~a"
+                     (bytes->string/utf-8 (unbox (child-diagnostic process)) #\?)))))
+
+(define (deadline)
+  (+ (current-inexact-monotonic-milliseconds) (* 1000 (child-timeout-seconds))))
+(define (await! process event until phase)
+  (unless (sync/timeout (max 0 (/ (- until (current-inexact-monotonic-milliseconds)) 1000)) event)
+    (child-error process (format "timed out during ~a" phase))))
+
+(define (read-child process until read-result)
+  (define result (box #f))
+  (define reader
+    (parameterize ([current-custodian (child-custody process)])
+      (thread (lambda ()
+                (with-handlers ([exn? (lambda (e) (set-box! result (cons #f e)))])
+                  (set-box! result (cons #t (read-result (child-out process)))))))))
+  (await! process reader until "stdout")
+  (if (car (unbox result)) (cdr (unbox result)) (raise (cdr (unbox result)))))
+
+(define (finish-child! process until)
+  (await! process (child-proc process) until "process exit")
+  (await! process (child-stderr-reader process) until "stderr")
+  (unless (zero? (subprocess-status (child-proc process)))
+    (child-error process (format "exited with status ~a" (subprocess-status (child-proc process))))))
+
+;; Cleanup never waits without a bound, including a child that closed stdout
+;; but stayed alive. The custodian closes all pipes and retires reader threads.
+(define (stop-child! process [graceful? #f])
+  (dynamic-wind
+    void
+    (lambda ()
+      (define proc (child-proc process))
+      (when (eq? (subprocess-status proc) 'running)
+        (subprocess-kill proc (not graceful?))
+        (unless (sync/timeout (if graceful? (stop-grace-seconds) 2) proc)
+          (subprocess-kill proc #t)
+          (sync/timeout 2 proc))))
+    (lambda () (custodian-shutdown-all (child-custody process)))))
+
+;; Startup owns cleanup before readiness, then transfers the live server to
+;; bench-one. Stderr drains immediately, including before the readiness line.
 (define (start-server backend suite port)
-  ;; Capture the server's stderr (#f) and drain it to nowhere: a force-killed
-  ;; Goblins vat prints captp teardown traces that are not failures and would
-  ;; otherwise clutter the report.
-  (define-values (proc out in err)
-    (subprocess #f #f #f RACKET "-y" SERVER backend suite HOST (number->string port)))
-  (let loop ()
-    (define line (read-line out))
-    (when (eof-object? line)
-      (error 'start-server "~a/~a server exited before ready" backend suite))
-    (unless (regexp-match? #px"\"event\":\"ready\"" line) (loop)))
-  (thread (lambda () (let drain () (define l (read-line out)) (unless (eof-object? l) (drain)))))
-  (thread (lambda () (let drain () (define l (read-line err)) (unless (eof-object? l) (drain)))))
-  (values proc (subprocess-pid proc)))
+  (define process (spawn-child (format "~a/~a/server" backend suite) SERVER
+                               backend suite HOST (number->string port)))
+  (with-handlers ([exn? (lambda (e) (stop-child! process) (raise e))])
+    (define until (deadline))
+    (define ready
+      (read-child process until
+                  (lambda (out)
+                    (let loop ()
+                      (define line (read-line out))
+                      (cond [(eof-object? line) #f]
+                            [(regexp-match? #px"\"event\":\"ready\"" line) #t]
+                            [else (loop)])))))
+    (unless ready
+      (finish-child! process until)
+      (child-error process "server exited before ready"))
+    (parameterize ([current-custodian (child-custody process)])
+      (thread (lambda () (copy-port (child-out process) (open-output-nowhere)))))
+    process))
 
-;; Cap how long a latency/throughput client may sit silent. A wedged CapTP
-;; round-trip parks `port->lines` forever and stalls `bench-site-report`
-;; with both peers at 0% CPU; fail loud so the orchestrator can kill the server
-;; and surface the backend/suite/mode instead of looking hung. Full runs finish
-;; in seconds at n=2000; anything past two minutes is a hang, not a slow bench.
-(define CLIENT-TIMEOUT-S (if smoke? 30 120))
+;; One measurement owns the process until both its output and exit status are
+;; known. All failure paths kill and reap it before returning to the server.
+(define (with-client backend suite port mode n conns read-result)
+  (define process (spawn-child (format "~a/~a/~a" backend suite mode) CLIENT
+                               backend suite HOST (number->string port)
+                               mode (number->string n) (number->string conns)))
+  (dynamic-wind
+    void
+    (lambda ()
+      (define until (deadline))
+      (define result (read-child process until read-result))
+      (finish-child! process until)
+      (unless result (child-error process "no result"))
+      result)
+    (lambda () (stop-child! process))))
 
-(struct exn:fail:client-timeout exn:fail ())
-
-;; Run a client measurement to completion; return its result NDJSON line.
 (define (run-client backend suite port mode n [conns 1])
-  (define-values (proc out in err)
-    (subprocess #f #f (current-error-port) RACKET "-y" CLIENT backend suite HOST (number->string port)
-                mode (number->string n) (number->string conns)))
-  (define lines-box (box #f))
-  (define reader (thread (lambda () (set-box! lines-box (port->lines out)))))
-  (cond
-    [(sync/timeout CLIENT-TIMEOUT-S reader)
-     (subprocess-wait proc)
-     (or (findf (lambda (l) (regexp-match? #px"\"metric\"" l)) (unbox lines-box))
-         (error 'run-client "no result from ~a/~a/~a" backend suite mode))]
-    [else
-     (subprocess-kill proc #t)
-     (raise (exn:fail:client-timeout
-             (format "run-client: timed out after ~as on ~a/~a/~a"
-                     CLIENT-TIMEOUT-S backend suite mode)
-             (current-continuation-marks)))]))
+  (with-client backend suite port mode n conns
+               (lambda (out)
+                 (for/fold ([result #f]) ([line (in-lines out)])
+                   (if (and (not result) (regexp-match? #px"\"metric\"" line)) line result)))))
 
 ;; Sample a pid's RSS `n` times `dt` seconds apart and keep the minimum, the
 ;; floor closest to the live set after a GC cycle, stripping transient allocation
@@ -112,135 +182,116 @@
 ;; measured batch and prints its line (loaded sampled here, during the hold).
 ;; Returns (values connections-line base-rss loaded-rss).
 (define (run-connections backend suite port pid conns)
-  (define-values (proc out in err)
-    (subprocess #f #f #f RACKET "-y" CLIENT backend suite HOST (number->string port)
-                "connections" "0" (number->string conns)))
-  ;; Drain stderr so a chatty teardown (50 Goblins vats closing) cannot fill the
-  ;; pipe buffer and wedge the client at exit, which would hang the loop below.
-  (thread (lambda () (let drain () (define l (read-line err)) (unless (eof-object? l) (drain)))))
-  (define base (box 0))
-  (define loaded (box 0))
-  (define line (box #f))
-  (let loop ()
-    (define l (read-line out))
-    (cond
-      [(eof-object? l) (void)]
-      [(regexp-match? #px"\"event\":\"warmed\"" l) (set-box! base (sample-min-rss pid 4 0.1)) (loop)]
-      [(regexp-match? #px"\"metric\":\"connections\"" l)
-       (set-box! line l) (set-box! loaded (sample-min-rss pid 12 0.15)) (loop)]
-      [else (loop)]))
-  (subprocess-wait proc)
-  (unless (unbox line) (error 'run-connections "no connections result from ~a/~a" backend suite))
-  (values (unbox line) (unbox base) (unbox loaded)))
+  (define base 0)
+  (define loaded 0)
+  (define line
+    (with-client backend suite port "connections" 0 conns
+      (lambda (out)
+        (for/fold ([result #f]) ([line (in-lines out)])
+          (cond
+            [(regexp-match? #px"\"event\":\"warmed\"" line)
+             (set! base (sample-min-rss pid 4 0.1)) result]
+            [(regexp-match? #px"\"metric\":\"connections\"" line)
+             (set! loaded (sample-min-rss pid 12 0.15)) line]
+            [else result])))))
+  (values line base loaded))
 
 ;; Pull a "key":num or "key":"str" field out of an NDJSON line.
 (define (jf line key)
   (define m (regexp-match (regexp (format "\"~a\":\"?([^,\"}]+)\"?" key)) line))
   (and m (cadr m)))
 
-;; Stop a server the way an operator would: the interrupt lets it close its
-;; listener and runtime, and only a server that ignores the interrupt is
-;; killed. A glowcap server killed outright leaves its armed operations for the
-;; kernel to cancel, which on some kernels keeps exit work spinning for a long
-;; time after the process is gone.
-(define (stop-server! proc)
-  (subprocess-kill proc #f)
-  (unless (sync/timeout 5 proc) (subprocess-kill proc #t))
-  (subprocess-wait proc))
-
-;; One attempt of suite×backend on a fresh server/port.
-(define (bench-one-attempt suite backend)
-  (define port (next-port!))
-  (define-values (proc pid) (start-server backend suite port))
-  (with-handlers ([(lambda (_) #t) (lambda (e) (stop-server! proc) (raise e))])
-    (sleep 0.3)
-    (define lat (run-client backend suite port "latency" LAT-N))
-    (define tput (run-client backend suite port "throughput" TPUT-N))
-    ;; connections + memory: the client warms the accept path, the orchestrator
-    ;; samples the baseline at the "warmed" marker and the loaded RSS during the
-    ;; held-open measured batch. The throwaway warmup connections are held through
-    ;; both samples, so they cancel in the delta.
-    (define-values (conn-line base-rss loaded-rss) (run-connections backend suite port pid CONNS))
-    (stop-server! proc)
-    (hash-set! results (list suite backend)
-               (list (cons 'p50 (jf lat "p50_ms"))
-                     (cons 'p99 (jf lat "p99_ms"))
-                     (cons 'p999 (jf lat "p999_ms"))
-                     (cons 'rps (jf tput "rps"))
-                     (cons 'conn_ms (jf conn-line "per_conn_ms"))
-                     (cons 'base_rss base-rss)
-                     (cons 'loaded_rss loaded-rss)
-                     (cons 'per_conn_kb (real->decimal-string (/ (max 0 (- loaded-rss base-rss)) (max 1 CONNS)) 1))))))
-
-;; CapTP under load can kill a serve thread (UnexpectedMessage) or rarely stall
-;; until the client timeout. Retry on a fresh server so one bad pair does not
-;; fail the whole suite / site regen.
+;; A failed measurement fails the run, rather than selecting a later success.
 (define (bench-one suite backend)
-  (define (attempt remaining)
-    (with-handlers ([exn:fail?
-                     (lambda (e)
-                       (cond
-                         [(> remaining 0)
-                          (eprintf "bench-one: ~a; retrying ~a/~a on a fresh server (~a left)\n"
-                                   (exn-message e) suite backend remaining)
-                          (flush-output (current-error-port))
-                          (attempt (sub1 remaining))]
-                         [else (raise e)]))])
-      (bench-one-attempt suite backend)))
-  (attempt 2))
+  (define port (next-port!))
+  (define process (start-server backend suite port))
+  (define pid (subprocess-pid (child-proc process)))
+  (with-handlers ([exn:fail? (lambda (e) (child-error process (exn-message e)))])
+    (dynamic-wind void
+      (lambda ()
+        (sleep 0.3)
+        (define lat (run-client backend suite port "latency" LAT-N))
+        (define tput (run-client backend suite port "throughput" TPUT-N))
+        ;; connections + memory: the client warms the accept path, the orchestrator
+        ;; samples the baseline at the "warmed" marker and the loaded RSS during the
+        ;; held-open measured batch. The throwaway warmup connections are held through
+        ;; both samples, so they cancel in the delta.
+        (define-values (conn-line base-rss loaded-rss) (run-connections backend suite port pid CONNS))
+        ;; Client metrics do not excuse a server that died during the sample.
+        ;; Drain its diagnostic under a deadline before accepting any results;
+        ;; the intentional interrupt happens only in the cleanup below.
+        (unless (eq? (subprocess-status (child-proc process)) 'running)
+          (finish-child! process (deadline))
+          (child-error process "server exited before sample commit"))
+        (hash-set! results (list suite backend)
+                   (list (cons 'p50 (jf lat "p50_ms"))
+                         (cons 'p99 (jf lat "p99_ms"))
+                         (cons 'p999 (jf lat "p999_ms"))
+                         (cons 'rps (jf tput "rps"))
+                         (cons 'conn_ms (jf conn-line "per_conn_ms"))
+                         (cons 'base_rss base-rss)
+                         (cons 'loaded_rss loaded-rss)
+                         (cons 'per_conn_kb (real->decimal-string (/ (max 0 (- loaded-rss base-rss)) (max 1 CONNS)) 1)))))
+      (lambda () (stop-child! process #t)))))
 
-(for ([suite (in-list SUITES)])
-  (for ([backend (in-list BACKENDS)])
-    (printf "running ~a / ~a ...\n" suite backend) (flush-output)
-    (bench-one suite backend)))
+(module+ test-support
+  (provide start-server stop-child! run-client run-connections bench-one
+           child-timeout-seconds stop-grace-seconds))
 
-;; ---- Report ----
-(define (f r k) (if (and r (cdr (assq k r))) (cdr (assq k r)) "-"))
-(define (row suite)
-  (string-append
-   (format "~a\n" suite)
-   (string-join
-    (for/list ([backend (in-list BACKENDS)])
-      (define r (hash-ref results (list suite backend) #f))
-      (format "  ~a  p50=~ams p99=~ams p999=~ams rps=~a setup=~ams/conn per_conn=~akB"
-              backend (f r 'p50) (f r 'p99) (f r 'p999) (f r 'rps) (f r 'conn_ms) (f r 'per_conn_kb)))
-    "\n")))
+(module+ main
+  (for ([suite (in-list SUITES)])
+    (for ([backend (in-list BACKENDS)])
+      (printf "running ~a / ~a ...\n" suite backend) (flush-output)
+      (bench-one suite backend)))
 
-(define report
-  (string-append
-   "glowcap vs Goblins, cross-implementation benchmark\n"
-   (format "mode=~a suites=~a lat_n=~a tput_n=~a conns=~a\n\n"
-           (if smoke? "smoke" "full") (string-join SUITES ",") LAT-N TPUT-N CONNS)
-   (string-join (for/list ([s (in-list SUITES)]) (row s)) "\n\n")
-   "\n"))
+  ;; ---- Report ----
+  (define (f r k) (if (and r (cdr (assq k r))) (cdr (assq k r)) "-"))
+  (define (row suite)
+    (string-append
+     (format "~a\n" suite)
+     (string-join
+      (for/list ([backend (in-list BACKENDS)])
+        (define r (hash-ref results (list suite backend) #f))
+        (format "  ~a  p50=~ams p99=~ams p999=~ams rps=~a setup=~ams/conn per_conn=~akB"
+                backend (f r 'p50) (f r 'p99) (f r 'p999) (f r 'rps) (f r 'conn_ms) (f r 'per_conn_kb)))
+      "\n")))
 
-(display report)
-(define out-dir (simplify-path (build-path repo-root "zig-out" "bench-reports")))
-(make-directory* out-dir)
-(define stamp (number->string (current-seconds)))
-(define mode-str (if smoke? "smoke" "full"))
+  (define report
+    (string-append
+     "glowcap vs Goblins, cross-implementation benchmark\n"
+     (format "mode=~a suites=~a lat_n=~a tput_n=~a conns=~a\n\n"
+             (if smoke? "smoke" "full") (string-join SUITES ",") LAT-N TPUT-N CONNS)
+     (string-join (for/list ([s (in-list SUITES)]) (row s)) "\n\n")
+     "\n"))
 
-;; Text report (terminal-friendly).
-(define txt-path (build-path out-dir (format "goblins-compare-~a.txt" stamp)))
-(call-with-output-file txt-path (lambda (o) (display report o)) #:exists 'replace)
+  (display report)
+  (define out-dir (simplify-path (build-path repo-root "zig-out" "bench-reports")))
+  (make-directory* out-dir)
+  (define stamp (number->string (current-seconds)))
+  (define mode-str (if smoke? "smoke" "full"))
 
-;; SVG bar charts (self-contained, no JS), latency p50 and throughput.
-(define (write-svg name title y-label key fmt)
-  (define p (build-path out-dir (format "goblins-compare-~a-~a.svg" stamp name)))
-  (define svg (render-svg-bars title y-label SUITES
-                               (lambda (s b) (numof results s b key)) fmt))
-  (call-with-output-file p (lambda (o) (display svg o)) #:exists 'replace)
-  p)
-(define lat-svg (write-svg "latency" "Latency p50 (ms, lower is better)" "ms" 'p50
-                           (lambda (v) (~r v #:precision 2))))
-(define tput-svg (write-svg "throughput" "Throughput (req/s, higher is better)" "req/s" 'rps
-                            (lambda (v) (~r v #:precision 0))))
+  ;; Text report (terminal-friendly).
+  (define txt-path (build-path out-dir (format "goblins-compare-~a.txt" stamp)))
+  (call-with-output-file txt-path (lambda (o) (display report o)) #:exists 'replace)
 
-;; Markdown report (value table + Mermaid charts + the SVGs by relative name).
-(define md-path (build-path out-dir (format "goblins-compare-~a.md" stamp)))
-(define md (render-markdown SUITES results mode-str LAT-N TPUT-N CONNS
-                            (list (cons 'latency (format "goblins-compare-~a-latency.svg" stamp))
-                                  (cons 'throughput (format "goblins-compare-~a-throughput.svg" stamp)))))
-(call-with-output-file md-path (lambda (o) (display md o)) #:exists 'replace)
+  ;; SVG bar charts (self-contained, no JS), latency p50 and throughput.
+  (define (write-svg name title y-label key fmt)
+    (define p (build-path out-dir (format "goblins-compare-~a-~a.svg" stamp name)))
+    (define svg (render-svg-bars title y-label SUITES
+                                 (lambda (s b) (numof results s b key)) fmt))
+    (call-with-output-file p (lambda (o) (display svg o)) #:exists 'replace)
+    p)
+  (define lat-svg (write-svg "latency" "Latency p50 (ms, lower is better)" "ms" 'p50
+                             (lambda (v) (~r v #:precision 2))))
+  (define tput-svg (write-svg "throughput" "Throughput (req/s, higher is better)" "req/s" 'rps
+                              (lambda (v) (~r v #:precision 0))))
 
-(printf "\nreports written:\n  ~a\n  ~a\n  ~a\n  ~a\n" txt-path md-path lat-svg tput-svg)
+  ;; Markdown report (value table + Mermaid charts + the SVGs by relative name).
+  (define md-path (build-path out-dir (format "goblins-compare-~a.md" stamp)))
+  (define md (render-markdown SUITES results mode-str LAT-N TPUT-N CONNS
+                              (list (cons 'latency (format "goblins-compare-~a-latency.svg" stamp))
+                                    (cons 'throughput (format "goblins-compare-~a-throughput.svg" stamp)))))
+  (call-with-output-file md-path (lambda (o) (display md o)) #:exists 'replace)
+
+  (printf "\nreports written:\n  ~a\n  ~a\n  ~a\n  ~a\n" txt-path md-path lat-svg tput-svg)
+)

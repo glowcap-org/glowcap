@@ -284,6 +284,11 @@ pub fn register(ctx: Context) Registered {
     const site_report_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "racket", "-y", "bench/site_report-test.rkt" });
     site_report_test.has_side_effects = true;
     check_step.dependOn(&site_report_test.step);
+    // Each supervision scenario owns its subprocess deadline; an aggregate
+    // timer would also count the deliberate timeout cases before it.
+    const bench_failure_test = execution.addSystemCommand(b, .child_bounded, &.{ "python3", "bench/goblins/bench_test.py" });
+    bench_failure_test.has_side_effects = true;
+    check_step.dependOn(&bench_failure_test.step);
 
     // Regenerate the performance pages' charts and tables from live ReleaseFast
     // runs of every bench (codec, peer-scaling, frame-view) plus the Cap'n Proto
