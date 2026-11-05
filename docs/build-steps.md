@@ -12,6 +12,11 @@ Every `zig build` step this repository declares, grouped by what it proves. Run
 `zig build` from the repository root: a run started in a subdirectory leaves its
 cache and output directories there and resolves relative paths wrong.
 
+Bare command rows describe the default host build graph. Generation and checks
+use that reference graph even when invoked with build options. Configured
+examples state their options separately. Gate membership can differ in those
+configurations, such as the release packages that require optimized builds.
+
 The aggregate checks divide evidence by the resources they own, as
 [everyday steps](#everyday-steps-and-checks) lists. The side-effecting
 commands in `runtime-check` take the build runner's execution lock and run

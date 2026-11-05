@@ -2,10 +2,10 @@
 //!
 //! The document owns one fact by hand: which subject each step belongs to,
 //! as the section a bare `zig build <name>` row sits in. Every other fact on
-//! a row comes from the build graph at configure time. The description is the
-//! one the step declares, and "part of" names the steps that run it, derived
-//! from step dependencies and reduced to the nearest containers, so a claim
-//! of gate membership can never be asserted by hand. A row with arguments
+//! a row comes from the default host build graph at configure time. The
+//! description is the one the step declares, and "part of" names the steps
+//! that run it, derived from dependencies and reduced to nearest containers.
+//! Gate membership can never be asserted by hand. A row with arguments
 //! after the name is a usage example and stays as written.
 //!
 //! `gen-build-steps` rewrites the document. `gen-build-steps-check`, part of
@@ -13,7 +13,11 @@
 //! step with no row. Both register last, after every other registrar, so the
 //! graph they read is complete, and the document is a configure input, so an
 //! edit to it reruns the configure phase that reads it.
+//! Optioned invocations delegate only these documentation steps to an option-free
+//! build. Product gates keep their configured graph; the inventory has one
+//! reference graph rather than changing membership with its caller's options.
 const std = @import("std");
+const commands = @import("commands.zig");
 const execution = @import("execution.zig");
 const listing = @import("listing.zig");
 const Step = std.Build.Step;
@@ -32,6 +36,21 @@ pub fn register(b: *std.Build, source_check_step: *Step) void {
     // A cold configure with lazy dependencies still to fetch is run again by
     // the build runner once they are present, with their steps in the graph.
     if (b.graph.needed_lazy_dependencies.count() > 0) return;
+
+    if (b.user_input_options.count() != 0 or b.graph.release_mode != .off) {
+        for ([_]*Step{ check_step, gen_step }) |step| {
+            const reference = commands.addRootedSystemCommand(b, .build_tool, &.{
+                b.graph.zig_exe, "build", step.name, "--cache-dir",
+            });
+            reference.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
+            // The child owns source/configure inputs, so it must inspect them
+            // on every invocation. It receives no -D options or --release:
+            // its default graph reaches the in-process renderer below.
+            reference.has_side_effects = true;
+            step.dependOn(&reference.step);
+        }
+        return;
+    }
 
     // Configure output is cached; the document is read here, so its
     // contents are a configure input or an edit to it would go unseen.
