@@ -72,7 +72,8 @@ fn claimSessionHandleOwned(self: *HostRuntime, session: *driver_core.HostSession
 
 /// Resolve the live exporter session named by one opaque Host capability and
 /// ensure the Runtime's single application handle owns it. Repeated exposure
-/// is idempotent. An internal redeem wire is admitted as application
+/// is idempotent. A session the application released inside a callback
+/// resolves to none, though its wire lives until the carrier closes. An internal redeem wire is admitted as application
 /// work and claimed before its pointer crosses an adapter.
 pub fn claimReferenceExporter(self: *HostRuntime, raw_ref: u64) AdmissionError!?*driver_core.HostSession {
     const entered = try enterOwnershipUpdate(self);
@@ -116,10 +117,23 @@ fn claimExporterSessionOwned(self: *HostRuntime, session: *driver_core.HostSessi
     if (session.host != self.core) return Error.SessionNotOwned;
     const wire = self.wires.get(session.peer_handle) orelse return Error.SessionNotOwned;
     if (wire.session != session) return Error.SessionNotOwned;
+    if (releaseIsDeferred(self, session)) return Error.SessionNotOwned;
     if (!wire.session_handle_claimed) {
         try Internal.admitApplicationOperation(self);
         try claimSessionHandleOwned(self, session);
     }
+}
+
+/// Whether the application released `session` inside a callback. Its handle
+/// then belongs to the deferred-release queue, which frees the session once
+/// its carrier closes, so no claim may hand it out again. The queue is empty
+/// outside that window.
+fn releaseIsDeferred(self: *const HostRuntime, session: *const driver_core.HostSession) bool {
+    var request = self.deferred_session_releases;
+    while (request) |queued| : (request = queued.next) {
+        if (queued.session == session) return true;
+    }
+    return false;
 }
 
 /// Whether this runtime still owns the exact session shell named by a queued

@@ -241,6 +241,8 @@ comptime {
         if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/serve_test.zig");
         _ = @import("driver/host_runtime_step/flood_test.zig");
+        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+            _ = @import("driver/host_runtime_step/deferred_release_claim_test.zig");
         _ = @import("driver/host_runtime_step/refused_partner_release_test.zig");
         _ = @import("driver/host_runtime_step/staged_dial_test.zig");
         _ = @import("driver/host_runtime_step/wake_test.zig");
