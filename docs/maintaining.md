@@ -385,10 +385,13 @@ maintainer's own push answers to it. GitHub verifies a signature only against
 a signing key on the maintainer's account, so upload the public key before
 applying the rulesets.
 
-A pull request's branch usually carries unsigned commits, because agents do
-not sign, so the repository's administrator may merge one into `dev` past the
-signature rule, and GitHub signs the squash commit it creates. No push bypasses
-the rule, and nothing bypasses `main`.
+Maintainer and agent commits on pull-request branches are signed before
+pushing, including commits that will be squashed. Enable signing for the
+repository with `git config --local commit.gpgsign true`, use `git commit -S`,
+and verify each new commit with `git verify-commit` before pushing. If the
+signing key is unavailable, stop and report it rather than making an unsigned
+commit. GitHub also signs the squash commit it creates. The administrator's
+pull-request bypass does not apply to pushes or to `main`.
 
 Immutable releases hold a published release and its assets as they were, which
 is the policy the release workflow already follows.
