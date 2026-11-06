@@ -68,6 +68,8 @@ pub fn addZigTest(
     compile: *std.Build.Step.Compile,
     posture: Posture,
 ) *std.Build.Step.Run {
+    // Test environment overrides need the same fresh configuration as commands.
+    b.graph.poisonCache();
     switch (posture) {
         .unit_test => {
             const run = b.addRunArtifact(compile);
@@ -100,6 +102,11 @@ pub fn addSystemCommand(
     posture: Posture,
     argv: []const []const u8,
 ) *std.Build.Step.Run {
+    // Run environment overrides copy the invoking process's environment.
+    // The configure cache does not track changes to that snapshot, including
+    // PATH and GitHub's per-step files. Reconfigure commands on each invocation
+    // while retaining compiled artifact caches, including on direct host builds.
+    b.graph.poisonCache();
     return switch (posture) {
         .deterministic => |seconds| boundedCommand(b, argv, seconds),
         .browser_proof => |seconds| browserBoundedCommand(b, argv, seconds),
@@ -137,6 +144,7 @@ pub fn addArtifact(
     posture: Posture,
     compile: *std.Build.Step.Compile,
 ) *std.Build.Step.Run {
+    b.graph.poisonCache();
     return switch (posture) {
         .deterministic => |seconds| blk: {
             const run = boundedCommand(b, &.{}, seconds);

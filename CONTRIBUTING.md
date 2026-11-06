@@ -97,7 +97,8 @@ response: doing so guarantees another cold build.
 ## Make a change
 
 Start with the tests and implementation for the area you are changing.
-[Architecture](docs/architecture.md) explains the layers, and
+[Project structure and dependencies](docs/dependencies.md) maps the repository.
+[Architecture](docs/architecture.md) explains the library layers, and
 [the vision](docs/vision.md) explains the project's scope.
 
 Keep fixes focused. Add a regression test for a behavior change and update

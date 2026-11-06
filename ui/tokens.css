@@ -112,7 +112,7 @@
 	/* ── The mark ─────────────────────────────────────
 	   A glowcap is a mushroom that makes its own light, and this is that
 	   mushroom: the shader mark, whose geometry lives in
-	   apps/rooms/web/ui/mark/field.ts, traced in its settled pose with
+	   ui/mark/field.ts, traced in its settled pose with
 	   its lamps at zero. The shader is what a browser with a device to run it
 	   on draws, and it runs only where the mark performs. These are the still
 	   readings of it, and site/assets/mark.svg is the artwork they came from.
@@ -254,7 +254,7 @@
 	--cover: color-mix(in srgb, black 28%, transparent);
 	--cover-blur: 6px;
 	--frost: 10px;
-	/* The mycelium grown under both pages (apps/rooms/web/ui/mycelium/):
+	/* The mycelium grown under both pages (ui/mycelium/):
 	   threads a shade darker than the paper on cream and a pale web on syrup.
 	   The light that runs through them is the mark's teal in both. The
 	   threads' weight scales how strong they are in either theme. */

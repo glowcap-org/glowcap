@@ -28,9 +28,9 @@ Visual rules:
 ## The page and its chunks
 
 `page.js` is the browser entry point, and it loads the React application in `main.tsx`. A second, small entry,
-`ground.js`, starts the mycelium under the page (`mycelium/live.ts`). It loads on its own so the threads come up under the
-opening screen while `page.js` is still arriving. The threads draw with WebGPU, so a browser without it shows the
-plain ground. Both entries share `mycelium/link.ts`, which is how `page.js` dims
+`ground.js`, starts the mycelium under the page ([shared renderer](../../../../ui/mycelium/live.ts)). It loads on its own so the threads come up under the
+opening screen while `page.js` is still arriving. Touch-first devices and browsers without WebGPU show the
+plain background. Both entries share `mycelium/link.ts`, which is how `page.js` dims
 the threads while every connection is lost and grows them back in when one returns.
 
 - **Production build.** The app's Vite configuration runs through Deno's pinned toolchain and publishes the entries as
@@ -61,8 +61,8 @@ The component folders follow visual ownership:
 - `panes/` holds the conversation and modal work surfaces.
 - `settings/` holds the settings surface and its sections.
 - `ops/`, `sidebar/`, `composer/`, and `message/` each own a narrower domain.
-- `mark/` draws the live mushroom and `mycelium/` the threads under the page, both with WebGPU on the one device
-  `gpu/` shares between them.
+- The shared [UI renderers](../../../../ui/) draw the mushroom and the threads beneath the page.
+  `mycelium/link.ts` connects the background to Rooms connection state.
 - Reusable controls and composition helpers stay at this directory's root.
 
 State lives in three places:

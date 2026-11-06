@@ -1,5 +1,5 @@
 // The site's shader marks, the heroes of the front door and the Rooms front
-// door, and the mycelium under every page (apps/rooms/web/ui/mycelium/).
+// door, and the mycelium under every page (ui/mycelium/).
 //
 // The mark is drawn three ways across this project, and which one a place gets
 // is decided by what the mark is doing there. As an object, saying whose page
@@ -18,8 +18,8 @@
 
 /// <reference lib="dom" />
 
-import { type MarkPlay, start } from "../apps/rooms/web/ui/mark/live.ts";
-import { startMycelium } from "../apps/rooms/web/ui/mycelium/live.ts";
+import { type MarkPlay, start } from "../ui/mark/live.ts";
+import { startMycelium } from "../ui/mycelium/live.ts";
 
 // The network of threads behind every page, shared with Rooms.
 void startMycelium();

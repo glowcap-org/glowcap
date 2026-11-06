@@ -117,23 +117,14 @@ fi
 # boundary instead of wrapping an aggregate artifact in a wall-clock deadline.
 if [[ ${1:-} == zig && ${2:-} == build ]]; then
     has_test_timeout=false
-    has_cache_poison=false
     for arg in "$@"; do
         [[ ${arg} == -- ]] && break
         if [[ $arg == --test-timeout ]]; then
             has_test_timeout=true
-        elif [[ $arg == --cache-poison ]]; then
-            has_cache_poison=true
         fi
     done
     if [[ $has_test_timeout == false ]]; then
         set -- zig build --test-timeout 30s "${@:3}"
-    fi
-    # The pinned build runner caches Run environments with its configured
-    # graph. Refresh configuration so an explicit override reaches Cargo and
-    # other children, retaining their compiled artifact caches.
-    if [[ ${#forwarded_env[@]} -gt 0 && ${has_cache_poison} == false ]]; then
-        set -- zig build --cache-poison "${@:3}"
     fi
 
     # Service steps run until interrupted. Every other build gets

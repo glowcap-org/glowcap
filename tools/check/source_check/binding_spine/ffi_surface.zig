@@ -491,8 +491,10 @@ pub fn checkSidecarPins(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
+    const workspace = try root.readFileAlloc(io, "transports/Cargo.toml", gpa, .limited(1 << 20));
+    defer gpa.free(workspace);
     for (pinned_sidecar_crates) |sidecar| {
-        try checkCratePins(io, gpa, root, violations, sidecar.manifest, sidecar.lockfile);
+        try checkCratePins(io, gpa, root, violations, sidecar.manifest, sidecar.lockfile, workspace);
     }
 }
 
@@ -503,6 +505,7 @@ fn checkCratePins(
     violations: *std.ArrayList([]const u8),
     manifest_path: []const u8,
     lockfile_path: []const u8,
+    workspace: []const u8,
 ) !void {
     root.access(io, lockfile_path, .{}) catch {
         try appendViolation(gpa, violations, "{s}: missing, the sidecar lockfile is deliberately committed (ADR-0021) so its gates resolve the same dependency tree on every machine", .{lockfile_path});
@@ -516,7 +519,7 @@ fn checkCratePins(
 
     var pins_seen: usize = 0;
     var in_dep_section = false;
-    var in_dotted_dep_table = false;
+    var dependency_table: ?[]const u8 = null;
     var lines = std.mem.splitScalar(u8, contents, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t\r");
@@ -528,13 +531,21 @@ fn checkCratePins(
             in_dep_section = std.mem.indexOf(u8, line, "dependencies") != null;
             // In a dotted table like `[dependencies.iroh]` the dependency is
             // the table itself, so only its `version` key carries the pin.
-            in_dotted_dep_table = in_dep_section and std.mem.indexOf(u8, line, "dependencies.") != null;
+            dependency_table = if (std.mem.indexOf(u8, line, "dependencies.")) |start|
+                std.mem.trim(u8, line[start + "dependencies.".len ..], "]\"")
+            else
+                null;
             continue;
         }
         if (!in_dep_section) continue;
         const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
         const key = std.mem.trim(u8, line[0..eq], " \t");
-        if (in_dotted_dep_table and !std.mem.eql(u8, key, "version")) continue;
+        if (dependency_table != null and !std.mem.eql(u8, key, "version") and !std.mem.eql(u8, key, "workspace")) continue;
+        const value = std.mem.trim(u8, line[eq + 1 ..], " \t");
+        const dotted = std.mem.endsWith(u8, key, ".workspace");
+        const inherited = ((dotted or std.mem.eql(u8, key, "workspace")) and std.mem.eql(u8, value, "true")) or
+            std.mem.indexOf(u8, value, "workspace = true") != null;
+        const dependency = dependency_table orelse if (dotted) key[0 .. key.len - ".workspace".len] else key;
         // An inline table names its version explicitly; a plain string dep is
         // the version itself. Anything else (git, path, no version) escapes
         // the registry pin and fails the same way.
@@ -542,7 +553,7 @@ fn checkCratePins(
             nextQuotedString(line, v)
         else
             nextQuotedString(line, eq);
-        const pinned = if (version) |spec| spec.len > 1 and spec[0] == '=' else false;
+        const pinned = if (inherited) workspacePinned(workspace, dependency) else if (version) |spec| spec.len > 1 and spec[0] == '=' else false;
         if (!pinned) {
             try appendViolation(gpa, violations, "{s}: dependency `{s}` is not pinned to an exact `=x.y.z` version — the sidecar's direct dependencies are pinned exactly (ADR-0021)", .{ manifest_path, key });
             continue;
@@ -552,4 +563,33 @@ fn checkCratePins(
     if (pins_seen == 0) {
         try appendViolation(gpa, violations, "{s}: found no pinned dependencies — the sidecar pin scanner no longer matches this manifest", .{manifest_path});
     }
+}
+
+// The workspace owns inherited versions. A same-named package dependency is
+// not a workspace declaration and cannot satisfy a member's inheritance.
+fn workspacePinned(workspace: []const u8, dependency: []const u8) bool {
+    var in_workspace = false;
+    var lines = std.mem.splitScalar(u8, workspace, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (line.len == 0 or line[0] == '#') continue;
+        if (line[0] == '[') {
+            in_workspace = std.mem.eql(u8, line, "[workspace.dependencies]");
+            continue;
+        }
+        if (!in_workspace) continue;
+        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        if (!std.mem.eql(u8, std.mem.trim(u8, line[0..eq], " \t\""), dependency)) continue;
+        const version = nextQuotedString(line, std.mem.indexOf(u8, line, "version") orelse eq) orelse return false;
+        return version.len > 1 and version[0] == '=';
+    }
+    return false;
+}
+
+test "inherited transport pins resolve only exact workspace declarations" {
+    try std.testing.expect(workspacePinned("[workspace.dependencies]\ntokio = { version = \"=1.2.3\" }\n", "tokio"));
+    try std.testing.expect(workspacePinned("[workspace.dependencies]\ntokio = \"=1.2.3\"\n", "tokio"));
+    try std.testing.expect(!workspacePinned("[workspace.dependencies]\ntokio = \"1.2.3\"\n", "tokio"));
+    try std.testing.expect(!workspacePinned("[workspace.dependencies]\nother = \"=1.2.3\"\n", "tokio"));
+    try std.testing.expect(!workspacePinned("[dependencies]\ntokio = \"=1.2.3\"\n", "tokio"));
 }

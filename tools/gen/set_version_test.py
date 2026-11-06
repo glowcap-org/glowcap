@@ -39,7 +39,8 @@ def copy_tree():
     temporary = tempfile.TemporaryDirectory()
     root = Path(temporary.name)
     paths = mirrors(ROOT)
-    for path in paths:
+    manifests = set(subprocess.check_output(["git", "ls-files", "**/Cargo.toml"], cwd=ROOT, text=True).splitlines())
+    for path in paths | manifests:
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / path, root / path)
     # Give the fixture known entries whether the checkout has pending changes or not.
@@ -103,9 +104,12 @@ class SetVersion(unittest.TestCase):
                     f'name = "{member}"\nversion = "{NEXT}"' in text or f"jsr:{member}@{NEXT}" in text, lock
                 )
                 self.assertNotIn(f'name = "{member}"\nversion = "{CURRENT}"', text, lock)
+            transport_lock = (root / "transports/Cargo.lock").read_text()
+            for member in ("glowcap-sidecars", "glowcap-iroh", "glowcap-webrtc", "glowcap-sidecar-runtime"):
+                self.assertIn(f'name = "{member}"\nversion = "{NEXT}"', transport_lock)
             self.assertNotIn(f'version = "{CURRENT}"', (root / "transports/Cargo.toml").read_text())
-            self.assertIn(f'version = "={NEXT}"', (root / "transports/webrtc/Cargo.toml").read_text())
-            self.assertNotIn(f'"={CURRENT}"', (root / "transports/webrtc/Cargo.toml").read_text())
+            self.assertIn(f'version = "={NEXT}"', (root / "transports/Cargo.toml").read_text())
+            self.assertNotIn(f'"={CURRENT}"', (root / "transports/Cargo.toml").read_text())
             self.assertNotIn(f'"version": "{CURRENT}"', (root / "apps/ocapnviz/deno.json").read_text())
             major, minor, patch = NEXT.split(".")
             self.assertIn(

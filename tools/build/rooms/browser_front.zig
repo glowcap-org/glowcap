@@ -121,7 +121,7 @@ fn addLaunch(ctx: Context, transport: Transport, launch: Launch) *std.Build.Step
     const run = commands.addInstalledSystemRun(b, postureFor(transport), &.{"env"});
     addEnvironment(run, b, launch);
     if (launch.hot_reload) run.addArgs(&.{
-        "deno", "run", "-A", "--config=apps/rooms/web/deno.json", "apps/rooms/web/dev.ts",
+        "deno", "run", "-A", "--config=apps/rooms/deno.json", "apps/rooms/web/dev.ts",
     });
     Binary.web.addAbsoluteArg(run);
     if (ctx.pin_port != null or launch.hot_reload) run.addArg(b.fmt("{d}", .{ctx.pin_port orelse 8080}));

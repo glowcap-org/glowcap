@@ -122,8 +122,9 @@ commit for another agent's handoff includes integration into local `dev`.
   without `--sync`: it rebases onto `main` and `dev`, makes one commit from
   the branch's tree (several commits squash under `-m "<subject>"`), signs it
   with the maintainer's key, and compare-and-swaps `dev`. Without a reachable
-  signing key it refuses and moves nothing, so a worktree commit needs no
-  signature of its own. It refuses a decision record id the rebased tree
+  signing key it refuses and moves nothing. Branch commits also follow the
+  [signing requirements](../../docs/maintaining.md#repository-protection).
+  It refuses a decision record id the rebased tree
   holds twice, because another tree may have taken the number you took:
   renumber yours and retry.
 

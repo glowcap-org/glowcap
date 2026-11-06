@@ -91,7 +91,7 @@ function developmentCommand(fixture: BackendFixture, port: number): Deno.Command
 		args: [
 			"run",
 			"-A",
-			`--config=${fileURLToPath(new URL("apps/rooms/web/deno.json", repository))}`,
+			`--config=${fileURLToPath(new URL("apps/rooms/deno.json", repository))}`,
 			fileURLToPath(new URL("apps/rooms/web/dev.ts", repository)),
 			fixture.executable,
 			String(port),
@@ -133,6 +133,19 @@ Deno.test("rooms-dev serves source modules and finishes retirement across repeat
 		const setup = await fetch(`http://127.0.0.1:${port}/panes/SessionSetup.tsx`);
 		assertEquals(setup.status, 200);
 		assert((await setup.text()).includes("import.meta.hot.accept"), "component edits must retain Fast Refresh");
+
+		for (
+			const [path, symbol] of [
+				["mark/live.ts", "start"],
+				["mycelium/live.ts", "startMycelium"],
+				["gpu/device.ts", "keepOnPageDevice"],
+			]
+		) {
+			const shared = fileURLToPath(new URL(`../../../ui/${path}`, import.meta.url));
+			const module = await fetch(`http://127.0.0.1:${port}/@fs${shared}`);
+			assertEquals(module.status, 200, `shared UI module ${path} must be served during development`);
+			assert((await module.text()).includes(symbol), `shared UI module ${path} was not transformed`);
+		}
 
 		const wasm = await fetch(`http://127.0.0.1:${port}/rooms_browser_bg.wasm`);
 		assertEquals(wasm.status, 200);

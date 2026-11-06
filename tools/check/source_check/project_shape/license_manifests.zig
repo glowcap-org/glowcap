@@ -52,11 +52,11 @@ fn checkCargo(
     };
     defer gpa.free(contents);
     const direct = hasLine(contents, "license = \"" ++ expected ++ "\"");
-    const rooms_member = std.mem.startsWith(u8, path, "apps/rooms/rust/") and
-        !std.mem.eql(u8, path, "apps/rooms/rust/Cargo.toml");
-    const inherited = rooms_member and hasLine(contents, "license.workspace = true");
+    const workspace_member = (std.mem.startsWith(u8, path, "transports/") and !std.mem.eql(u8, path, "transports/Cargo.toml")) or
+        (std.mem.startsWith(u8, path, "apps/rooms/rust/") and !std.mem.eql(u8, path, "apps/rooms/rust/Cargo.toml"));
+    const inherited = workspace_member and hasLine(contents, "license.workspace = true");
     if (!direct and !inherited) {
-        try appendViolation(gpa, violations, "{s}: Cargo package must declare `license = \"{s}\"`; Rooms workspace members may inherit it with `license.workspace = true`", .{ path, expected });
+        try appendViolation(gpa, violations, "{s}: Cargo package must declare `license = \"{s}\"`; Rooms and transport workspace members may inherit it with `license.workspace = true`", .{ path, expected });
     }
 }
 

@@ -9,7 +9,7 @@
 // swapchain: the frames are drawn into an offscreen texture and copied back,
 // which is also the only thing that paints at all under SwiftShader.
 
-import { beats, readColours, Renderer, VIEW } from "../../../apps/rooms/web/ui/mark/renderer.ts";
+import { beats, readColours, Renderer, VIEW } from "../../../ui/mark/renderer.ts";
 
 /** One frame, base64 so it survives the trip out of the page. */
 export type Shot = { name: string; w: number; h: number; rgba: string };

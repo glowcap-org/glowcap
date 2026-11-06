@@ -33,7 +33,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     b.step("gen-rust-wasm-layouts-check", "Verify Rust layout constants and fingerprints match the compiled wasm32 C ABI").dependOn(&layout_check.step);
     check_step.dependOn(&layout_check.step);
     const application = @import("browser.zig").register(b, wasm_archives, &layout_check.step);
-    const projection_cost = commands.addRootedSystemCommand(b, .benchmark, &.{ "deno", "run", "--allow-all", "bench/rooms/projection_bench.ts" });
+    const projection_cost = commands.addRootedSystemCommand(b, .benchmark, &.{ "deno", "run", "--config=apps/rooms/deno.json", "--allow-all", "apps/rooms/tools/projection_bench.ts" });
     projection_cost.step.dependOn(application.production);
     b.step("bench-rooms-projection", "Count conversation and line-custody visits in the production Rooms projection").dependOn(&projection_cost.step);
     application.startup.step.dependOn(peers);

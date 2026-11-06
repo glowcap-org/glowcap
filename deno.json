@@ -20,28 +20,7 @@
     "@glowcap/webrtc/driver": "./bindings/ts/webrtc/driver.ts",
     // dep playwright: Drives the browser tests.
     "playwright": "npm:playwright@1.64.0",
-    // dep es-module-lexer: Reads import graphs in Rooms bundle tests.
-    "es-module-lexer": "npm:es-module-lexer@3.0.3/minimal",
-    // dep @std/jsonc: Reads the Rooms web manifest, whose dependency comments make it JSONC.
-    "@std/jsonc": "jsr:@std/jsonc@1.0.3",
-    // dep react: React for the Rooms tests that run under this config.
-    "react": "npm:react@19.3.0",
-    "react/jsx-runtime": "npm:react@19.3.0/jsx-runtime",
-    // dep react-dom: Renders Rooms components in those tests.
-    "react-dom": "npm:react-dom@19.3.0",
-    "react-dom/client": "npm:react-dom@19.3.0/client",
-    "react-dom/server": "npm:react-dom@19.3.0/server",
-		// dep react-router: Routes between Rooms views.
-		"react-router": "npm:react-router@8.4.0",
-		// dep zustand: Holds Rooms client state.
-		"zustand": "npm:zustand@5.0.15",
-		"zustand/vanilla": "npm:zustand@5.0.15/vanilla",
-		"zustand/react/shallow": "npm:zustand@5.0.15/react/shallow",
-		// dep @types/react: React's types for the type checker.
-		"@types/react": "npm:@types/react@19.3.0",
-    // dep @types/react-dom: React DOM's types for the type checker.
-    "@types/react-dom": "npm:@types/react-dom@19.3.0",
-    // dep zod: Validates data in the shared Rooms code.
+    // dep zod: Validates cross-application Rooms and ocapnviz trace proofs.
     "zod": "npm:zod@4.6.5",
     "zod/mini": "npm:zod@4.6.5/mini"
   },
@@ -49,39 +28,39 @@
     "path": "./deno.lock",
     "frozen": true
   },
-  // ocapnviz stays its own scope for everything else, but the rooms trace proofs
-  // load its real converter and its real `Observation` schema at run time
-  // instead of declaring a second copy of them, and both are built on zod. This
-  // is the one specifier the root scope has to resolve for a proof to run the
-  // viewer's own code. It is therefore one version with two homes, and
-  // `zig build source-check` (`checkSharedNpmPins`) is what keeps the two in step
-  // rather than a reader remembering to.
-  // Root-scope Rooms tests import the browser's TSX modules, so their transform
-  // remains available to that test graph even though the browser has its own
-  // Deno scope.
   "compilerOptions": {
-    "lib": ["deno.window", "dom", "dom.iterable"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "react",
-    "jsxImportSourceTypes": "npm:@types/react@19.3.0"
+    "lib": [
+      "deno.window",
+      "dom",
+      "dom.iterable"
+    ]
   },
-  // Each browser app owns its Deno configuration and checks. Keep root walks
-  // out so focused and aggregate checks do not lint and format them twice.
-  "exclude": ["apps/ocapnviz", "apps/rooms/web"],
+  "exclude": [
+    "apps/ocapnviz",
+    "apps/rooms"
+  ],
   "fmt": {
     "lineWidth": 120,
     "semiColons": true,
     "singleQuote": false,
-    // Every first-party script is in scope: TypeScript, JSX, and the plain
-    // JavaScript the browser proofs and the Loam storage shim are written in.
-    // No vendored or generated JavaScript is tracked, and fetched packages
-    // sit under the excluded `node_modules` and `upstream` trees.
-    "include": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.mjs"],
-    // yml/yaml/md/json are excluded so an explicit-path run (`deno fmt <dir>`)
-    // cannot reach them: a path argument overrides `include`, and this formatter
-    // would reindent YAML to four spaces, re-wrap Markdown to lineWidth, and
-    // re-tab JSON, all against .editorconfig. Their formatting is owned by
-    // .editorconfig and by hand.
-    "exclude": ["bindings/ts", "zig-out", ".zig-cache", "**/target", "**/node_modules", "**/upstream", ".local", "**/*.yml", "**/*.yaml", "**/*.md", "**/*.json"]
+    "include": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.js",
+      "**/*.mjs"
+    ],
+    "exclude": [
+      "bindings/ts",
+      "zig-out",
+      ".zig-cache",
+      "**/target",
+      "**/node_modules",
+      "**/upstream",
+      ".local",
+      "**/*.yml",
+      "**/*.yaml",
+      "**/*.md",
+      "**/*.json"
+    ]
   }
 }

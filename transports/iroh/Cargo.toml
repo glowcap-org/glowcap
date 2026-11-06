@@ -3,16 +3,16 @@
 # pure Zig; building this backend requires cargo on PATH.
 #
 # The transport workspace's Cargo.lock pins transitive dependencies. Exact
-# direct versions below make intentional updates visible in this manifest.
+# direct versions live here or in the workspace dependency table.
 [package]
-repository = "https://github.com/glowcap-org/glowcap"
-homepage = "https://glowcap.org"
-documentation = "https://glowcap.org"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 name = "glowcap-iroh"
-version = "0.1.3"
-edition = "2024"
-license = "Apache-2.0"
-publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -33,18 +33,16 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 # The runtime owner, task barrier, and readiness channel both sidecars share
-# (transports/sidecar-runtime). A path dependency still names its version so the
-# exact-pin check reads it like every other row.
-glowcap-sidecar-runtime = { path = "../sidecar-runtime", version = "=0.1.3" }
+# (transports/sidecar-runtime). The workspace owns its path and version.
+glowcap-sidecar-runtime.workspace = true
 # 1.1.0 is the first release whose relay shutdown drains cancelled tasks
 # without `JoinSet::join_all` panicking (n0-computer/iroh#4460). glowcap drops
 # one private runtime per endpoint, so that shutdown path is part of our
 # ordinary endpoint lifecycle rather than an upstream implementation detail.
 # dep iroh: QUIC connections with relay fallback behind the `iroh` transport.
 iroh = "=1.4.1"
-# dep tokio: The runtime the iroh endpoint runs on.
-tokio = { version = "=1.54.1", features = ["rt-multi-thread"] }
+tokio.workspace = true
 
 [dev-dependencies]
 # The same crate with its test helpers switched on for this crate's own tests.
-glowcap-sidecar-runtime = { path = "../sidecar-runtime", version = "=0.1.3", features = ["test-support"] }
+glowcap-sidecar-runtime = { workspace = true, features = ["test-support"] }

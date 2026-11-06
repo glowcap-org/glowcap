@@ -6,14 +6,14 @@
 # The transport workspace's Cargo.lock pins the DTLS, SCTP, ICE, STUN, and
 # SDP dependency tree for reproducible builds.
 [package]
-repository = "https://github.com/glowcap-org/glowcap"
-homepage = "https://glowcap.org"
-documentation = "https://glowcap.org"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 name = "glowcap-webrtc"
-version = "0.1.3"
-edition = "2024"
-license = "Apache-2.0"
-publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 # The sidecar's whole surface is a C ABI over caller pointers, so every entry
 # point is an `unsafe fn`. At edition 2024 those bodies are not implicitly
@@ -48,11 +48,10 @@ path = "src/probe.rs"
 [dependencies]
 # The runtime owner, task barrier, and readiness channel both sidecars share
 # (transports/sidecar-runtime).
-glowcap-sidecar-runtime = { path = "../sidecar-runtime", version = "=0.1.3" }
+glowcap-sidecar-runtime.workspace = true
 # dep webrtc: Data channels behind the `webrtc` transport.
 webrtc = "=0.21.1"
-# dep tokio: The runtime the WebRTC peer runs on.
-tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "io-std", "io-util", "sync", "time"] }
 # dep async-trait: Async methods on the peer's traits.
 async-trait = "=0.1.92"
 # dep serde_json: JSON signaling messages.
@@ -62,4 +61,4 @@ bytes = "=1.12.1"
 
 [dev-dependencies]
 # The same crate with its test helpers switched on for this crate's own tests.
-glowcap-sidecar-runtime = { path = "../sidecar-runtime", version = "=0.1.3", features = ["test-support"] }
+glowcap-sidecar-runtime = { workspace = true, features = ["test-support"] }

@@ -1,4 +1,19 @@
 {
-  "args": ["run", "-A", "--config", "deno.json", "vite", "build", "--config", "vite.config.ts", "--outDir", "{outdir}"],
-  "inputs": ["vite.config.ts"]
+  "args": [
+    "run",
+    "-A",
+    "--config",
+    "../deno.json",
+    "vite",
+    "build",
+    "--configLoader",
+    "native",
+    "--config",
+    "vite.config.ts",
+    "--outDir",
+    "{outdir}"
+  ],
+  "inputs": [
+    "vite.config.ts"
+  ]
 }

@@ -284,6 +284,21 @@ pub fn register(ctx: Context) Registered {
     const site_render_check_step = b.step("site-render-check", "Render every built site page at four widths in the pinned Chromium (fails on console errors, horizontal overflow, or widows) (needs deno + the image-baked browser)");
     site_render_check_step.dependOn(&site_render_check.step);
 
+    const mycelium_bundle = commands.addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "bundle", "--platform", "browser", "--config", "deno.json", "tools/check/mycelium_page.ts", "--output",
+    });
+    const mycelium_source = mycelium_bundle.addOutputFileArg("mycelium-test.js");
+    mycelium_bundle.has_side_effects = true;
+    const mycelium = commands.addRootedSystemCommand(b, .{ .browser_proof = 60 }, &.{
+        "deno", "run", "--allow-all", "tools/check/mycelium.ts",
+    });
+    mycelium.addFileArg(mycelium_source);
+    mycelium.has_side_effects = true;
+    mycelium.step.dependOn(ctx.browser_preflight);
+    const mycelium_test = b.step("mycelium-test", "Prove touch devices skip the background and desktop animation respects visibility, motion preferences and teardown (needs deno + Playwright)");
+    mycelium_test.dependOn(&mycelium.step);
+    site_render_check_step.dependOn(mycelium_test);
+
     // Press the code-tabs on every built page and prove the example switches.
     // `site-render-check` above proves the pages load and do not overflow but
     // never clicks, so a broken tab `select()` would pass it. On-demand like

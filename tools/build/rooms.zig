@@ -183,6 +183,7 @@ pub fn register(ctx: Context) Registered {
     const rooms_trace_tail = execution.addSystemCommand(b, .service, &.{
         "deno",
         "run",
+        "--config=apps/rooms/deno.json",
         "--allow-ffi",
         "--allow-read",
         "--allow-net",
@@ -194,6 +195,7 @@ pub fn register(ctx: Context) Registered {
     const rooms_trace_tail_cache = execution.addSystemCommand(b, .build_tool, &.{
         "deno",
         "cache",
+        "--config=apps/rooms/deno.json",
         "apps/rooms/tools/trace_tail.ts",
     });
     rooms_trace_tail.step.dependOn(&rooms_trace_tail_cache.step);
@@ -233,7 +235,7 @@ pub fn register(ctx: Context) Registered {
     rooms_peers.Binary.server.addEnv(rooms_demo);
     rooms_demo.step.dependOn(archive_install);
     rooms_demo.addArgs(&.{
-        "deno",                     "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "deno",                     "run", "--config=apps/rooms/deno.json", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/rooms/demos/demo.ts",
     });
     rooms_demo.addArtifactArg(rooms_client_exe); // the Zig client's built path
@@ -309,9 +311,9 @@ pub fn register(ctx: Context) Registered {
     for (dm_demos) |demo| {
         const run = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
         rooms_peers.Binary.server.addEnv(run);
-        run.addArgs(&.{ "deno", "run", "--allow-run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", demo.source });
+        run.addArgs(&.{ "deno", "run", "--config=apps/rooms/deno.json", "--allow-run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", demo.source });
         run.step.dependOn(archive_install);
-        const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", demo.source });
+        const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", "--config=apps/rooms/deno.json", demo.source });
         run.step.dependOn(&cache.step);
         run.step.dependOn(b.getInstallStep());
         b.step(demo.step_name, demo.description).dependOn(&run.step);
@@ -345,7 +347,7 @@ pub fn register(ctx: Context) Registered {
     rooms_peers.Binary.server.addEnv(rooms_demo_iroh);
     rooms_demo_iroh.step.dependOn(archive_install);
     rooms_demo_iroh.addArgs(&.{
-        "deno",                     "run", "-A", "--unstable-ffi",
+        "deno",                     "run", "--config=apps/rooms/deno.json", "-A", "--unstable-ffi",
         "apps/rooms/demos/demo.ts",
     });
     rooms_demo_iroh.addArtifactArg(rooms_client_iroh_exe); // the iroh-enabled Zig client
@@ -368,7 +370,7 @@ pub fn register(ctx: Context) Registered {
     rooms_peers.Binary.server.addEnv(rooms_dm_iroh);
     rooms_dm_iroh.step.dependOn(archive_install);
     rooms_dm_iroh.addArgs(&.{
-        "deno",                             "run", "-A", "--unstable-ffi",
+        "deno",                             "run", "--config=apps/rooms/deno.json", "-A", "--unstable-ffi",
         "apps/rooms/demos/dm_demo_iroh.ts",
     });
     rooms_dm_iroh.step.dependOn(ctx.iroh_abi_step);
@@ -386,7 +388,7 @@ pub fn register(ctx: Context) Registered {
     rooms_peers.Binary.server.addEnv(rooms_dm_iroh_discovery);
     rooms_dm_iroh_discovery.step.dependOn(archive_install);
     rooms_dm_iroh_discovery.addArgs(&.{
-        "deno",                                       "run", "-A", "--unstable-ffi",
+        "deno",                                       "run", "--config=apps/rooms/deno.json", "-A", "--unstable-ffi",
         "apps/rooms/demos/dm_demo_iroh_discovery.ts",
     });
     rooms_dm_iroh_discovery.step.dependOn(ctx.iroh_abi_step);
@@ -402,7 +404,7 @@ pub fn register(ctx: Context) Registered {
     const rooms_web_relay_peer = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
     rooms_peers.Binary.server.addEnv(rooms_web_relay_peer);
     rooms_web_relay_peer.addArgs(&.{
-        "deno",                                       "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "deno",                                       "run", "--config=apps/rooms/deno.json", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/rooms/test/proofs/relay_peer_proof.ts",
     });
     rooms_web_relay_peer.has_side_effects = true;
@@ -578,14 +580,14 @@ fn webProofRun(ctx: Context, proof: WebProof, archive_install: *std.Build.Step, 
         rooms_peers.Binary.server.addEnv(run);
         run.step.dependOn(web_build);
     }
-    run.addArgs(&.{ "deno", "run", "--allow-all", proof.source });
+    run.addArgs(&.{ "deno", "run", "--config=apps/rooms/deno.json", "--allow-all", proof.source });
     // Each proof binds free loopback ports, owns its process group and
     // temporary state, so the family runs concurrently up to `-j`, apart
     // from a proof that `measures_time`.
     // Capturing output keeps it out of the runtime gate's exclusive
     // stdio lock; a failure still reports the proof's captured stderr.
     run.expectExitCode(0);
-    const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", proof.source });
+    const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", "--config=apps/rooms/deno.json", proof.source });
     run.step.dependOn(&cache.step);
     run.has_side_effects = true;
     if (proof.needs_browser) run.step.dependOn(ctx.browser_preflight);

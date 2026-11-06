@@ -70,20 +70,24 @@ class VersionLockstep(unittest.TestCase):
                     self.assertRegex(source, r'"license":\s*"Apache-2\.0"')
                     continue
                 data = tomllib.loads(source)
-                package = data.get("package", data.get("project", data.get("workspace", {}).get("package")))
-                self.assertIsNotNone(package)
-                for field, expected in (("version", version), ("license", "Apache-2.0")):
-                    actual = package[field]
-                    self.assertTrue(actual == expected or actual == {"workspace": True}, (field, actual))
-                urls = package.get("urls", package)
-                # Documentation belongs to each package's guide or API reference.
-                # Only the project homepage and repository are shared URLs.
-                for field, expected in (
-                    ("repository", "https://github.com/glowcap-org/glowcap"),
-                    ("homepage", "https://glowcap.org"),
-                ):
-                    actual = {key.lower(): value for key, value in urls.items()}[field]
-                    self.assertTrue(actual == expected or actual == {"workspace": True}, (path, field, actual))
+                workspace = data.get("workspace", {}).get("package")
+                packages = [p for p in (data.get("package", data.get("project")), workspace) if p is not None]
+                self.assertTrue(packages)
+                for package in packages:
+                    for field, expected in (("version", version), ("license", "Apache-2.0")):
+                        actual = package[field]
+                        inherited = package is not workspace and actual == {"workspace": True}
+                        self.assertTrue(actual == expected or inherited, (path, field, actual))
+                    urls = package.get("urls", package)
+                    # Documentation belongs to each package's guide or API reference.
+                    # Only the project homepage and repository are shared URLs.
+                    for field, expected in (
+                        ("repository", "https://github.com/glowcap-org/glowcap"),
+                        ("homepage", "https://glowcap.org"),
+                    ):
+                        actual = {key.lower(): value for key, value in urls.items()}[field]
+                        inherited = package is not workspace and actual == {"workspace": True}
+                        self.assertTrue(actual == expected or inherited, (path, field, actual))
         for path, section in (("bindings/rust/Cargo.toml", "package"), ("bindings/python/pyproject.toml", "project")):
             self.assertEqual(tomllib.loads((ROOT / path).read_text())[section]["name"], "glowcap")
         distribution = tomllib.loads((ROOT / "bindings/python/pyproject.toml").read_text())["project"]["name"]

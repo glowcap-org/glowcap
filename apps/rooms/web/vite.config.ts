@@ -205,7 +205,7 @@ export default defineConfig(({ command }) => {
 						fileURLToPath(new URL("../lib/", import.meta.url)),
 						fileURLToPath(new URL("../../../bindings/ts/", import.meta.url)),
 						fileURLToPath(new URL("../../../zig-out/wasm/rooms/", import.meta.url)),
-						fileURLToPath(new URL("../../../ui/fonts/", import.meta.url)),
+						fileURLToPath(new URL("../../../ui/", import.meta.url)),
 					],
 				},
 			}

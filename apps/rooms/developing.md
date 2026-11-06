@@ -103,8 +103,9 @@ responsiveness scenes exercise these rules.
 Deno from `web/`, with `{outdir}` replaced by the publisher's empty temporary
 directory. Its `inputs` list further files that affect compilation, such as
 helpers the compiler configuration imports. The recipe, those files,
-`deno.json`, and the lockfile join the application sources and assets in the
-source identity.
+the application's `deno.json` and lockfile join the application sources and
+shared `ui/` renderers in the source identity. Deno loads the Vite configuration
+directly, resolving its imports through that application manifest.
 
 The compiler must emit `page.js`, `ground.js`, and their minified ESM chunks as
 sibling files, and static and literal dynamic imports must resolve within that output. The
@@ -117,7 +118,7 @@ Deno the required output names. To try `deno bundle`, replace the recipe with:
 
 ```json
 {
-  "args": ["bundle", "--config", "deno.json", "--platform", "browser", "--minify", "--code-splitting", "--outdir", "{outdir}", "ui/page.js", "ui/ground.js"],
+  "args": ["bundle", "--config", "../deno.json", "--platform", "browser", "--minify", "--code-splitting", "--outdir", "{outdir}", "ui/page.js", "ui/ground.js"],
   "inputs": []
 }
 ```
@@ -130,7 +131,7 @@ Chromium.
 To remove Vite entirely, keep the generation launch in
 `tools/build/rooms/browser_front.zig`, delete the Vite launch, the `web/dev.ts`
 supervisor and their tests, remove `web/vite.config.ts` and the Vite imports
-from `web/deno.json`, then update the app's check task and regenerate its
+from `deno.json`, then update the app's check task and regenerate its
 lockfile.
 
 ## Running the pieces by hand
@@ -415,7 +416,8 @@ The server therefore enforces limits:
 | `rust/product/` | Private executable entry points, workspace and roster supervision, and process proofs |
 | `web/ui/` | The browser page: React components, the store, the session projection |
 | `web/compiler.json` | The production compiler invocation and additional source-identity inputs |
-| `web/deno.json`, `web/vite.config.ts` | The pinned browser toolchain and Vite configuration |
+| `deno.json` | TypeScript dependencies and checks for the application |
+| `web/vite.config.ts` | Browser bundling and the development server |
 | `web/dev.ts` | The internal process owner called by `zig build rooms-dev` |
 | `web/deploy/` | The Compose deployment |
 | `lib/` | The Rooms protocol as TypeScript, for the Deno client, the demos, and the tests |

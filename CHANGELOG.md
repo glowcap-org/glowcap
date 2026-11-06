@@ -9,7 +9,7 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
-## [0.1.3] - 2026-11-06
+## [0.1.4] - 2026-11-06
 
 ### Added
 
@@ -25,6 +25,8 @@ and storage formats before 1.0.
 
 ### Fixed
 
+- Refresh build command environments on every invocation so release checks
+  use newly installed tools and the current GitHub step settings.
 - Load browser Wasm from ordinary binary responses as well as streaming Wasm
   responses, and report HTTP errors before trying to compile them.
 - Complete package setup examples, correct browser relay routes, and use
@@ -36,6 +38,10 @@ and storage formats before 1.0.
   and release notes.
 - Ship the Racket binding as a release archive. The catalog can install it
   without checking out repository symlinks that Racket refuses to extract.
+
+## [0.1.3] - 2026-11-06
+
+The release build failed before publication. Its changes ship in 0.1.4.
 
 ## [0.1.2] - 2026-11-05
 
@@ -184,7 +190,8 @@ and storage formats before 1.0.
   Rooms application with its container image. [What ships](docs/shipped.md)
   describes the release in full.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/glowcap-org/glowcap/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/glowcap-org/glowcap/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/glowcap-org/glowcap/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/glowcap-org/glowcap/compare/v0.1.0...v0.1.1

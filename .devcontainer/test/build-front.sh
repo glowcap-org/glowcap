@@ -133,17 +133,17 @@ wait "${front_pid}" || front_status=$?
 grep -F "kill -TERM" "${docker_log}" >/dev/null
 
 build_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test)"
-[[ "${build_exec}" == *"/workspaces/glowcap/.devcontainer/bin/build-lease zig build --cache-poison --test-timeout 30s test"* ]]
+[[ "${build_exec}" == *"/workspaces/glowcap/.devcontainer/bin/build-lease zig build --test-timeout 30s test"* ]]
 [[ "${build_exec}" == *"exec -i "* && "${build_exec}" == *"--user vscode"* ]]
 waiting_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container GLOWCAP_BUILD_LEASE_TIMEOUT=600 "${front}" zig build test)"
 [[ "${waiting_exec}" == *"exec -i --env GLOWCAP_BUILD_LEASE_TIMEOUT=600 "* ]]
 explicit_timeout_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test --test-timeout 7s)"
-[[ "${explicit_timeout_exec}" == *"build-lease zig build --cache-poison test --test-timeout 7s"* ]]
+[[ "${explicit_timeout_exec}" == *"build-lease zig build test --test-timeout 7s"* ]]
 [[ "${explicit_timeout_exec}" != *"--test-timeout 30s"* ]]
 override_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --env CARGO_BUILD_JOBS=1 zig build test)"
 [[ "${override_exec}" == *"--env CARGO_BUILD_JOBS=1"* ]]
 [[ "${override_exec}" != *"--env CARGO_BUILD_JOBS=4"* ]]
-[[ "${override_exec}" == *"build-lease zig build --cache-poison --test-timeout 30s test"* ]]
+[[ "${override_exec}" == *"build-lease zig build --test-timeout 30s test"* ]]
 # shellcheck disable=SC2016 # Both the literal value and the child expansion are intentional.
 override_local="$(cd / && PATH="${scratch}/bin:${PATH}" "${front}" --local --env 'GLOWCAP_TEST_VALUE=two words=$literal' bash -c 'printf "%s" "$GLOWCAP_TEST_VALUE"')"
 # shellcheck disable=SC2016 # Compare the exact literal delivered to the child.
@@ -175,13 +175,13 @@ fi
 local_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" "${front}" local-probe one two)"
 [[ "${local_exec}" == "${repo_root}|one two" ]]
 local_build_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" GLOWCAP_BUILD_LEASE_FILE="${scratch}/local-build.lock" "${front}" zig build test)"
-[[ "${local_build_exec}" == "${repo_root}|build --cache-poison --test-timeout 30s test" ]]
+[[ "${local_build_exec}" == "${repo_root}|build --test-timeout 30s test" ]]
 forced_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" GLOWCAP_DEV_CONTAINER=test-container "${front}" true)"
 [[ "${forced_container_exec}" == *"--workdir /workspaces/glowcap abc123 setsid --wait sh -c "*" true" ]]
 
 if [[ $(uname -s) == Linux ]]; then
     auto_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --auto zig build glowcap-install)"
-    [[ "${auto_container_exec}" == *"abc123 setsid --wait sh -c "*" /workspaces/glowcap/.devcontainer/bin/build-lease zig build --cache-poison --test-timeout 30s glowcap-install"* ]]
+    [[ "${auto_container_exec}" == *"abc123 setsid --wait sh -c "*" /workspaces/glowcap/.devcontainer/bin/build-lease zig build --test-timeout 30s glowcap-install"* ]]
 fi
 explicit_local="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --local local-probe local)"
 [[ "${explicit_local}" == "${repo_root}|local" ]]

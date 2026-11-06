@@ -33,8 +33,8 @@ impl Fixture {
 		fs::write(root.join("../../../ui/fonts/OFL.txt"), "fixture font license").unwrap();
 		fs::write(root.join("ui/main.tsx"), "// a source input\n").unwrap();
 		fs::write(root.join("ui/page.html"), "<!doctype html><title>Test</title>").unwrap();
-		fs::write(root.join("deno.json"), "{}").unwrap();
-		fs::write(root.join("deno.lock"), "{}").unwrap();
+		fs::write(root.join("../deno.json"), "{}").unwrap();
+		fs::write(root.join("../deno.lock"), "{}").unwrap();
 		fs::write(
 			root.join("compiler.json"),
 			r#"{"args":["fixture","--destination","{outdir}"],"inputs":["compiler-input.txt"]}"#,
