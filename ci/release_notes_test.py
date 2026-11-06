@@ -63,7 +63,7 @@ def facts(**changes):
             {
                 "name": f"glowcap-c-{TAG}-wasm32-freestanding.tar.gz",
                 "target": "wasm32-freestanding",
-                "role": "wasm-sdk",
+                "role": "wasm-libraries",
                 "minimum_runtime": "WebAssembly",
             },
         ]

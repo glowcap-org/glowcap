@@ -573,7 +573,7 @@ pub fn build(b: *std.Build) void {
         .headers = release_headers.items,
     });
 
-    b.top_level_steps.get("portable-sdk-test").?.step.dependOn(browser_preflight);
+    b.top_level_steps.get("portable-package-test").?.step.dependOn(browser_preflight);
 
     // External conformance and the shipped Rooms page proofs meet in the
     // opt-in external gate after both families have registered their steps.

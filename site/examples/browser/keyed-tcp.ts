@@ -4,7 +4,7 @@ import { init } from "@glowcap/web";
 const web = await init({
 	wasm: fetch("/glowcap_host.wasm"),
 	// A page cannot open raw TCP, so a relay carries the bytes.
-	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
+	wsUrl: (host, port) => `ws://127.0.0.1:9000/relay?to=${host}:${port}`,
 });
 await using runtime = web.runtime;
 // keyed-tcp is cleartext through the relay. Use WebRTC for a sealed browser path.

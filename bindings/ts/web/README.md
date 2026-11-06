@@ -6,7 +6,7 @@ The protocol core runs in WebAssembly.
 
 ## Try it
 
-Download the [browser SDK for v0.1.3](https://github.com/glowcap-org/glowcap/releases/download/v0.1.3/glowcap-web-v0.1.3-browser.tar.gz).
+Download the [browser bundle for v0.1.3](https://github.com/glowcap-org/glowcap/releases/download/v0.1.3/glowcap-web-v0.1.3-browser.tar.gz).
 It includes JavaScript, matching Wasm, and a complete two-peer WebRTC example.
 Extract it into a new directory your web server serves, then open `index.html`.
 For a local trial with Python installed:
@@ -48,7 +48,7 @@ peer in the page. Use the supplied `example.js` for a complete connection.
 
 Serve the page over HTTPS, or localhost during development. Serve Wasm as
 `application/wasm` for streaming compilation. Other binary MIME types work
-with buffered loading. Keep JavaScript and Wasm from the same SDK release.
+with buffered loading. Keep JavaScript and Wasm from the same bundle release.
 
 ## Connecting peers
 
@@ -68,10 +68,10 @@ that contract and STUN/TURN configuration.
 deno add jsr:@glowcap/web jsr:@glowcap/runtime
 ```
 
-JSR publishes the TypeScript source. The release SDK above is the ready-to-serve
+JSR publishes the TypeScript source. The release bundle above is the ready-to-serve
 browser build. Its [entry](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/web/browser.ts)
 and [bundling configuration](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/web/browser-bundle.json)
-show how contributors build it with `zig build portable-sdk-pack`.
+show how contributors build it with `zig build portable-pack`.
 
 The [browser guide](https://glowcap.org/bindings/browser/) covers transports,
 callbacks, and runtime lifetime. glowcap is built with AI coding assistants,

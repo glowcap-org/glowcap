@@ -67,7 +67,7 @@ def render(facts, image_digest, changelog=CHANGELOG):
         raise ValueError("invalid image digest")
     archives = {(archive["target"], archive["role"]): archive for archive in facts["archives"]}
     expected = {(target, role) for target in PLATFORMS for role in ("product", "sdk")}
-    expected.update({("browser", "web"), ("wasm32-freestanding", "wasm-sdk")})
+    expected.update({("browser", "web"), ("wasm32-freestanding", "wasm-libraries")})
     if set(archives) != expected:
         raise ValueError("release facts do not name a product and an SDK for every platform")
     slug = repository.removeprefix("https://github.com/")
@@ -110,13 +110,13 @@ yours. Windows and musl distributions such as Alpine have no prebuilt package.
 GitHub's automatic **Source code** downloads contain source for building and are
 separate from the compiled downloads above.
 
-For browser applications, download the [browser SDK]({base}/{archives[("browser", "web")]["name"]}).
+For browser applications, download the [browser bundle]({base}/{archives[("browser", "web")]["name"]}).
 It includes prebuilt JavaScript, matching Wasm, and an example page. Extract
 it into a new directory your web server serves and open `index.html`.
 
-The [Rust Wasm SDK]({base}/{archives[("wasm32-freestanding", "wasm-sdk")]["name"]})
-contains the static libraries for `wasm32-unknown-unknown`. The Rust crate
-downloads it automatically when building for that target.
+The Rust crate downloads the [WebAssembly libraries]({base}/{archives[("wasm32-freestanding", "wasm-libraries")]["name"]})
+automatically when targeting `wasm32-unknown-unknown`. The archive includes
+the matching C headers.
 
 # Verify and install the product
 

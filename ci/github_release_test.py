@@ -247,7 +247,7 @@ class Assemble(unittest.TestCase):
             )
             self.assertEqual([fact["name"] for fact in facts["archives"]], archives)
             for fact in facts["archives"]:
-                self.assertIn(fact["role"], ("product", "sdk", "web", "wasm-sdk"))
+                self.assertIn(fact["role"], ("product", "sdk", "web", "wasm-libraries"))
                 self.assertEqual(fact["minimum_runtime"], minimum_runtime(fact["target"]))
             self.assertEqual(
                 {(fact["target"], fact["role"]) for fact in facts["archives"]},
@@ -336,7 +336,7 @@ if lines:
             for call in calls:
                 self.assertEqual(call[3:], ["--repo", REPOSITORY, "--predicate-type", RELEASE.PROVENANCE])
 
-    def test_a_rerun_attests_again_and_every_attestation_is_kept(self):
+    def test_preparation_keeps_every_available_attestation(self):
         with workdir() as root:
             environment = self.prepare(root, "two")
             run_main("bundles", TAG, **environment)
@@ -371,7 +371,7 @@ class Draft(unittest.TestCase):
             return answer
 
         with mock.patch.object(RELEASE, "api", side_effect=lookup):
-            return run_main(*argv or ("draft-state", TAG))
+            return run_main(*argv or ("resume-state", TAG))
 
     def test_draft_state_resumes_only_matching_uploads_of_this_run(self):
         count = len(self.NAMES)
@@ -388,10 +388,10 @@ class Draft(unittest.TestCase):
         resumable = {
             "new": ([[]], False, count),
             "complete": ([[self.release()]], True, 0),
+            "published": ([[self.release(draft=False)]], False, 0),
             "partial": ([[partial]], True, 1),
         }
         refused = {
-            "published": self.release(draft=False),
             "foreign run": self.release(body=RELEASE.run_marker("999")),
             "no notes": self.release(body=None),
             "damaged digest": damaged,
@@ -547,15 +547,15 @@ class Arguments(unittest.TestCase):
 
     def test_malformed_values_are_refused(self):
         for argv, env, message in [
-            (("draft-state", TAG), {"GITHUB_RUN_ID": "0123"}, "invalid GITHUB_RUN_ID"),
-            (("draft-state", TAG), {"GITHUB_REPOSITORY": "owner"}, "invalid GITHUB_REPOSITORY"),
+            (("resume-state", TAG), {"GITHUB_RUN_ID": "0123"}, "invalid GITHUB_RUN_ID"),
+            (("resume-state", TAG), {"GITHUB_REPOSITORY": "owner"}, "invalid GITHUB_REPOSITORY"),
             (("assemble", "artifacts", TAG), {"GITHUB_SHA": "abc"}, "invalid GITHUB_SHA"),
         ]:
             with self.subTest(argv=argv, env=env), self.assertRaisesRegex(ValueError, message):
                 run_main(*argv, **env)
         for argv, message in [
-            (("draft-state", "v1.0.0"), "invalid prerelease tag"),
-            (("draft-state", TAG, "extra"), "unrecognized arguments"),
+            (("resume-state", "v1.0.0"), "invalid prerelease tag"),
+            (("resume-state", TAG, "extra"), "unrecognized arguments"),
             (("published", TAG, "extra"), "unrecognized arguments"),
             (("assemble", TAG), "required: tag"),
         ]:

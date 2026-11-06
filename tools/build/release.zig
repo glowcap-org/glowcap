@@ -77,18 +77,18 @@ fn portablePackages(b: *std.Build, version: std.SemanticVersion) void {
     pack.step.dependOn(&b.top_level_steps.get("wasm-host").?.step);
     pack.step.dependOn(&b.top_level_steps.get("wasm-archives").?.step);
     pack.has_side_effects = true;
-    b.step("portable-sdk-pack", "Package prebuilt browser JavaScript, Wasm, examples, and Rust Wasm archives").dependOn(&pack.step);
+    b.step("portable-pack", "Package prebuilt browser JavaScript, Wasm, examples, and Rust Wasm archives").dependOn(&pack.step);
     const proof = commands.addRootedSystemCommand(b, .{ .browser_proof = 90 }, &.{
         "deno", "run", "--allow-all", "bindings/ts/web/test/package_test.ts",
     });
     proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = b.fmt("portable-release/glowcap-web-v{d}.{d}.{d}-browser.tar.gz", .{ version.major, version.minor, version.patch }) } }, .{ .make_absolute = true });
     proof.step.dependOn(&pack.step);
     proof.has_side_effects = true;
-    const rust_proof = commands.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/wasm_sdk.py" });
+    const rust_proof = commands.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/wasm_libraries.py" });
     rust_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "portable-release" } }, .{ .make_absolute = true });
     rust_proof.step.dependOn(&pack.step);
     rust_proof.has_side_effects = true;
-    const step = b.step("portable-sdk-test", "Run the extracted browser example and link a Rust Wasm consumer through the SDK downloader");
+    const step = b.step("portable-package-test", "Run the extracted browser example and link a Rust Wasm consumer through the library downloader");
     step.dependOn(&proof.step);
     step.dependOn(&rust_proof.step);
 }

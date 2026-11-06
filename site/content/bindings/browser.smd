@@ -10,16 +10,16 @@ The `@glowcap/web` package runs glowcap's WebAssembly protocol core. A
 browser uses the same `Session` operations as the TypeScript binding.
 JavaScript supplies the byte channel and scheduling.
 
-# Start with the browser SDK
+# Start with the browser bundle
 
-Download the [v0.1.3 browser SDK](https://github.com/glowcap-org/glowcap/releases/download/v0.1.3/glowcap-web-v0.1.3-browser.tar.gz),
+Download the [v0.1.3 browser bundle](https://github.com/glowcap-org/glowcap/releases/download/v0.1.3/glowcap-web-v0.1.3-browser.tar.gz),
 extract it into a new directory your web server serves, and open `index.html`.
 It includes JavaScript, matching Wasm, and a complete WebRTC greeter example.
 The [package README](https://jsr.io/@glowcap/web) has local serving commands.
 
 The TypeScript fragments below show transport configuration. They share the
 fetch-and-call block beneath the tabs and expect a running remote peer.
-WebRTC also needs your application's authenticated signaling. Use the SDK's
+WebRTC also needs your application's authenticated signaling. Use the bundle's
 `example.js` for a complete local starting point.
 
 # Dial
@@ -53,11 +53,12 @@ through WebRTC or a registered relay route, as described under
 >
 > const web = await init({
 > 	wasm: fetch("/glowcap_host.wasm"),
-> 	relayUrl: (locator) => `wss://relay.example/?locator=${encodeURIComponent(locator)}`,
+> 	relayUrl: (locator) => `wss://relay.example/relay?locator=${encodeURIComponent(locator)}`,
 > });
 > await using runtime = web.runtime;
-> // `@glowcap/iroh` loads a compiled library through FFI, so a page parses the locator on the web runtime.
-> const partner = web.parseLocator("ocapn://<64 lowercase hex characters>.iroh");
+> // Copy the server's full URI, including direct-addresses reachable from the relay.
+> const peerUri = "ocapn://<64 lowercase hex characters>.iroh?direct-addresses=127.0.0.1%3A5000";
+> const partner = web.parseLocator(peerUri);
 > ```
 > **webrtc**
 > ```ts
@@ -93,7 +94,7 @@ through WebRTC or a registered relay route, as described under
 > const web = await init({
 > 	wasm: fetch("/glowcap_host.wasm"),
 > 	// A page cannot open raw TCP, so a relay carries the bytes.
-> 	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
+> 	wsUrl: (host, port) => `ws://127.0.0.1:9000/relay?to=${host}:${port}`,
 > });
 > await using runtime = web.runtime;
 > // keyed-tcp is cleartext through the relay. Use WebRTC for a sealed browser path.
@@ -104,7 +105,7 @@ through WebRTC or a registered relay route, as described under
 > import { connector, keyed } from "@glowcap/relay";
 > import { init } from "@glowcap/web";
 >
-> const relayUrl = "wss://relay.example/rendezvous";
+> const relayUrl = "wss://relay.example/relay";
 > const web = await init({
 > 	wasm: fetch("/glowcap_host.wasm"),
 > 	connectors: [connector()],
@@ -120,7 +121,7 @@ through WebRTC or a registered relay route, as described under
 > const web = await init({
 > 	wasm: fetch("/glowcap_host.wasm"),
 > 	// A page cannot open raw TCP, so a relay carries the bytes.
-> 	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
+> 	wsUrl: (host, port) => `ws://127.0.0.1:9000/relay?to=${host}:${port}`,
 > });
 > await using runtime = web.runtime;
 > const partner = locator("127.0.0.1", 9099);
@@ -142,7 +143,7 @@ When you hold the key and address as separate pieces instead, import
 `keyed` from `@glowcap/tcp` before `init` and call `keyed.locator`. The locator package
 does not load a compiled library or depend on the initialized wasm adapter.
 
-`init` instantiates the SDK's `glowcap_host.wasm` and
+`init` instantiates the bundle's `glowcap_host.wasm` and
 hands back the configured browser runtime. From there `connect`, `fetch`,
 `send`, `spawn`, and `publish` work as on the
 [TypeScript page]($link.page('bindings/ts')).
@@ -163,7 +164,7 @@ a relay can also be dialed there by its key.
 
 # [Accept peers]($section.id('accept-peers'))
 
-Use the [WebRTC listener](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/webrtc/README.md#dial-and-listen-in-a-browser)
+Use the [WebRTC listener](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/webrtc/README.md#add-webrtc-to-your-application)
 to answer offers from your signaling service. The
 [browser runtime](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/runtime/rendezvous.ts)
 exports `serveRendezvous` to accept sessions through a relay. Choose

@@ -14,9 +14,11 @@
 //                             peer registered under its key designator at
 //                             `/register?id=<id>` (the ADR-0034 cold-dial leg).
 //
-// Run it directly; it prints `RELAY_READY_MARKER <port>` on stdout once listening:
-//     deno run --allow-net --allow-ffi --allow-env --allow-read \
-//         bindings/ts/relay/serve.ts <listen-port>
+// From a repository checkout, set GLOWCAP_LIB_DIR to an extracted C SDK's
+// lib directory for iroh, or build the transport libraries as a contributor.
+// It prints `RELAY_READY_MARKER <port>` on stdout once listening:
+//     deno run --allow-all bindings/ts/relay/serve.ts <listen-port>
+// Iroh targets need direct-addresses reachable from this localhost relay.
 //
 // The embedding app adds the target allow-list and capacity admission (see the
 // rooms relay in apps/rooms/rust/services/src/web/relay.rs); this reference relays wherever

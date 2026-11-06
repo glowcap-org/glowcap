@@ -30,21 +30,29 @@ if sys.argv[1:3] == ['release', 'upload']:
 """
     VERIFIER = """import os, sys
 from pathlib import Path
-if sys.argv[1] == 'draft-state':
+if sys.argv[1] == 'resume-state':
     print(os.environ['DRAFT_STATE'])
 else:
     Path('verification-attempted').touch()
     sys.exit(int(os.environ['VERIFY_STATUS']))
 """
 
-    def fill(self, draft_exists, *, upload=0, verify=0):
+    def fill(self, draft_exists, *, upload=0, verify=0, published=False, dispatch=False):
         script = run(self.RELEASE, "Fill the draft release, then make it public")
+        if dispatch:
+            script += "\n" + run(self.RELEASE, "Publish the language packages at the tag")
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             (directory / "artifacts").mkdir()
             stub(directory, "gh", self.GH)
             stub(directory, "ci/github_release.py", self.VERIFIER)
-            state = json.dumps({"draft_exists": draft_exists, "missing_assets": ["a", "b"]})
+            state = json.dumps(
+                {
+                    "draft_exists": draft_exists,
+                    "missing_assets": [] if published else ["a", "b"],
+                    "published": published,
+                }
+            )
             result = subprocess.run(
                 ["bash", "-e", "-o", "pipefail", "-c", script],
                 cwd=directory,
@@ -94,6 +102,15 @@ else:
                 self.assertNotIn(["release", "edit"], [call[:2] for call in calls])
                 self.assertEqual(verified, not upload)
 
+    def test_a_completed_public_release_retries_only_the_package_dispatch(self):
+        result, calls, verified = self.fill(False, published=True, dispatch=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            calls,
+            [["workflow", "run", "publish.yml", "--repo", REPOSITORY, "--ref", f"refs/tags/{TAG}", "-f", f"tag={TAG}"]],
+        )
+        self.assertFalse(verified)
+
     def test_the_release_job_and_publish_contract_call_the_script_modes(self):
         self.assertEqual(
             run(jobs(".github/workflows/publish.yml")["contract"], "Verify the public release behind the tag"),
@@ -102,7 +119,7 @@ else:
         for mode in (
             'assemble artifacts "$RELEASE_TAG"',
             'bundles "$RELEASE_TAG"',
-            'draft-state "$RELEASE_TAG"',
+            'resume-state "$RELEASE_TAG"',
             'verify-draft "$RELEASE_TAG"',
         ):
             self.assertTrue(

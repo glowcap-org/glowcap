@@ -201,7 +201,7 @@ when the sender's session ends, even when the message remains.
 
 ## Browser reachability
 
-The browser SDK includes JavaScript and its matching Wasm for self-hosting.
+The browser bundle includes JavaScript and its matching Wasm for self-hosting.
 The supplied WebRTC example connects two peers in one tab. Its in-page
 signaling demonstrates the API, not an authenticated signaling service for
 remote peers.

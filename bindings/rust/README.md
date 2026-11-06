@@ -332,7 +332,7 @@ allocation, lifecycle, and refusal diagnostics.
 ## Browser and Wasm
 
 The base binding supports `wasm32-unknown-unknown` with default features disabled.
-The published crate downloads its version's Wasm SDK automatically, using the
+The published crate downloads its version's WebAssembly libraries automatically, using the
 same verified cache as the desktop SDK. No Zig toolchain is needed.
 
 ```toml
@@ -345,7 +345,7 @@ build with `cargo build --target wasm32-unknown-unknown`. Your application
 chooses its browser executor and JavaScript packaging. Add `loam` to the
 features for IndexedDB storage.
 
-`GLOWCAP_LIB_DIR` selects an extracted Wasm SDK's `lib/` directory. In a source
+Set `GLOWCAP_LIB_DIR` to an extracted archive's `lib/` directory to use a local copy. In a source
 checkout, `zig build gen-rust-wasm-layouts` prepares the libraries under
 `zig-out/wasm/lib`. Compile-time layout assertions and runtime archive
 fingerprint checks stay enabled.

@@ -1,7 +1,7 @@
 import { connector, keyed } from "@glowcap/relay";
 import { init } from "@glowcap/web";
 
-const relayUrl = "wss://relay.example/rendezvous";
+const relayUrl = "wss://relay.example/relay";
 const web = await init({
 	wasm: fetch("/glowcap_host.wasm"),
 	connectors: [connector()],

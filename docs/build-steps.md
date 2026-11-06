@@ -112,8 +112,8 @@ zig build glowcap-host-test                 # Prove verified host installation a
 zig build glowcap-pack                      # Package and exercise the complete relocatable glowcap product (explicit Release mode and baseline CPU required)
 zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
 zig build glowcap-package-test              # Prove release rollback and reject damaged packages, broken skills, and loader fallbacks; part of check, infrastructure-check
-zig build portable-sdk-pack                 # Package prebuilt browser JavaScript, Wasm, examples, and Rust Wasm archives; part of portable-sdk-test
-zig build portable-sdk-test                 # Run the extracted browser example and link a Rust Wasm consumer through the SDK downloader
+zig build portable-pack                     # Package prebuilt browser JavaScript, Wasm, examples, and Rust Wasm archives; part of portable-package-test
+zig build portable-package-test             # Run the extracted browser example and link a Rust Wasm consumer through the library downloader
 zig build product-manifest-test             # Generate and parse a sealed staged product without a release package build; part of check
 zig build set-version                       # Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants, and dates the Unreleased changelog entries as the version's section
 zig build mbedtls-build                     # Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)
@@ -446,8 +446,8 @@ zig build demo-rooms-onion          # Run the Rooms application over real Tor wi
 ## The browser peer and the relays
 
 ```sh
-zig build wasm-host             # Build the browser binding's freestanding wasm32 Host module (ADR-0034) into zig-out/wasm/; part of build, gen-rust-wasm-layouts, gen-rust-wasm-layouts-check, install, loam-browser-build, ocapnviz-dev, portable-sdk-pack, wasm-abi-layout-check, wasm-host-test, wasm-import-check, webrtc-browser-peer, webrtc-browser-to-browser
-zig build wasm-archives         # Build freestanding Host, OCapN, and Loam static archives for Wasm application linking; part of loam-browser-build, portable-sdk-pack, rooms-browser-build, rooms-managed-rooms-browser-test, rooms-managed-sharing-browser-test, rooms-rust-contract-browser-test, rooms-rust-lint, rooms-session-executor-browser-test, rooms-session-foreign-browser-reload-test, rooms-session-foreign-browser-test, rooms-session-graph-browser-test
+zig build wasm-host             # Build the browser binding's freestanding wasm32 Host module (ADR-0034) into zig-out/wasm/; part of build, gen-rust-wasm-layouts, gen-rust-wasm-layouts-check, install, loam-browser-build, ocapnviz-dev, portable-pack, wasm-abi-layout-check, wasm-host-test, wasm-import-check, webrtc-browser-peer, webrtc-browser-to-browser
+zig build wasm-archives         # Build freestanding Host, OCapN, and Loam static archives for Wasm application linking; part of loam-browser-build, portable-pack, rooms-browser-build, rooms-managed-rooms-browser-test, rooms-managed-sharing-browser-test, rooms-rust-contract-browser-test, rooms-rust-lint, rooms-session-executor-browser-test, rooms-session-foreign-browser-reload-test, rooms-session-foreign-browser-test, rooms-session-graph-browser-test
 zig build wasm-host-test        # Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno, ADR-0034 and ADR-0007)
 zig build wasm-abi-layout-check # Prove the wasm32 Host's layout descriptor (glowcap_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno, ADR-0034)
 zig build wasm-import-check     # Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno, ADR-0034)

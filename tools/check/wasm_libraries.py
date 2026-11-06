@@ -1,14 +1,14 @@
-"""portable-sdk-test: link an external Rust browser consumer through a cold SDK download.
+"""portable-package-test: link an external Rust browser consumer through a cold library download.
 
-Takes the portable-release directory produced by portable-sdk-pack. Packages the
-local crate without publishing, serves that exact SDK and its checksum file on
+Takes the portable-release directory produced by portable-pack. Packages the
+local crate without publishing, serves that exact archive and its checksum file on
 loopback, and builds an extracted-crate consumer outside the checkout. Requires
-the pinned Cargo/Rust Wasm target, Python, curl, tar and Deno toolchain. Cargo's
-dependency cache is shared; the SDK cache and build output are new for each run.
+the pinned Zig, Cargo/Rust Wasm target, Python, curl, tar and Deno toolchain. Cargo's
+dependency cache is shared; the library cache and build output are new for each run.
 Every child has a 600-second deadline, errors replay child output, and the
 temporary files and HTTP listener are removed on success or failure. No retries,
 registry writes or user package installs occur. The check itself proves download,
-target selection and linking; it does not execute browser or IndexedDB behavior.
+target selection, headers and linking; it does not execute browser or IndexedDB behavior.
 """
 
 import functools
@@ -51,9 +51,30 @@ def prove(directory, work):
     checksums = directory / "SHA256SUMS"
     sums = {filename: digest for digest, filename in (line.split() for line in checksums.read_text().splitlines())}
     with archive.open("rb") as source:
-        assert hashlib.file_digest(source, "sha256").hexdigest() == sums[name], "SDK checksum differs from its artifact"
+        assert hashlib.file_digest(source, "sha256").hexdigest() == sums[name], (
+            "library checksum differs from its artifact"
+        )
 
     env = {key: value for key, value in os.environ.items() if not key.startswith("GLOWCAP_") and key != "DOCS_RS"}
+    libraries = work / "libraries"
+    with tarfile.open(archive) as package:
+        package.extractall(libraries, filter="data")
+    headers = work / "headers.c"
+    headers.write_text('#include "glowcap_loam.h"\n')
+    run(
+        "zig",
+        "cc",
+        "-target",
+        TARGET,
+        "-c",
+        "-o",
+        str(work / "headers.o"),
+        "-I",
+        str(libraries / "include"),
+        str(headers),
+        cwd=work,
+        env=env,
+    )
     target = work / "cargo"
     run(
         "cargo",
@@ -79,7 +100,7 @@ def prove(directory, work):
     (consumer / "Cargo.toml").write_text(
         textwrap.dedent(f"""\
         [package]
-        name = "glowcap-wasm-sdk-consumer"
+        name = "glowcap-wasm-libraries-consumer"
         version = "0.0.0"
         edition = "2024"
         [lib]
@@ -91,7 +112,7 @@ def prove(directory, work):
     (consumer / "src/lib.rs").write_text(
         textwrap.dedent("""\
         #[unsafe(no_mangle)]
-        pub extern "C" fn glowcap_wasm_sdk_probe() -> u32 {
+        pub extern "C" fn glowcap_wasm_libraries_probe() -> u32 {
             let context = glowcap::Context::new().unwrap();
             let host = glowcap::Host::from_seed_with_options_in(
                 [7; 32], glowcap::HostOptions::default(), &context,
@@ -126,7 +147,7 @@ def prove(directory, work):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     cache = work / "cache"
-    assert not cache.exists(), "the SDK consumer must start with an empty cache"
+    assert not cache.exists(), "the library consumer must start with an empty cache"
     env.update(
         GLOWCAP_CACHE_DIR=str(cache),
         GLOWCAP_STRICT="1",
@@ -139,39 +160,39 @@ def prove(directory, work):
         server.shutdown()
         server.server_close()
         thread.join()
-    assert set(requested) == expected, f"SDK consumer requested {requested}, expected {sorted(expected)}"
+    assert set(requested) == expected, f"library consumer requested {requested}, expected {sorted(expected)}"
     cached = Path(contract["cache_layout"].format(cache_base=cache, version=version, target=TARGET))
-    assert sorted(cache.glob("*/*/lib")) == [cached], "SDK download populated the wrong target cache"
+    assert sorted(cache.glob("*/*/lib")) == [cached], "library download populated the wrong target cache"
     with tarfile.open(archive) as package:
         for stem in ("host", "ocapn", "loam"):
             library = f"libglowcap_{stem}.a"
             assert (cached / library).read_bytes() == package.extractfile(f"lib/{library}").read(), library
-    wasm = target / RUST_TARGET / "debug/glowcap_wasm_sdk_consumer.wasm"
+    wasm = target / RUST_TARGET / "debug/glowcap_wasm_libraries_consumer.wasm"
     run(
         "deno",
         "eval",
         """
         const module = new WebAssembly.Module(await Deno.readFile(Deno.args[0]));
-        if (!WebAssembly.Module.exports(module).some((entry) => entry.name === "glowcap_wasm_sdk_probe")) {
-            throw new Error("consumer Wasm omitted the exported SDK probe");
+        if (!WebAssembly.Module.exports(module).some((entry) => entry.name === "glowcap_wasm_libraries_probe")) {
+            throw new Error("consumer Wasm omitted the exported library probe");
         }
         const missing = WebAssembly.Module.imports(module).filter((entry) => entry.name.startsWith("glowcap_"));
-        if (missing.length) throw new Error(`unresolved SDK imports: ${JSON.stringify(missing)}`);
+        if (missing.length) throw new Error(`unresolved library imports: ${JSON.stringify(missing)}`);
         """,
         str(wasm),
         cwd=consumer,
         env=env,
     )
-    print("Extracted Rust crate: downloaded the Wasm SDK into an empty target cache and linked browser + loam")
+    print("Extracted Rust crate: downloaded WebAssembly libraries into an empty target cache and linked browser + loam")
 
 
 def main():
     if len(sys.argv) != 2:
-        raise SystemExit("usage: wasm_sdk.py PORTABLE_RELEASE_DIRECTORY")
+        raise SystemExit("usage: wasm_libraries.py PORTABLE_RELEASE_DIRECTORY")
     directory = Path(sys.argv[1]).resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix="glowcap-wasm-sdk-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="glowcap-wasm-libraries-") as temporary:
         work = Path(temporary).resolve()
-        assert not work.is_relative_to(ROOT), "SDK consumer must live outside the checkout"
+        assert not work.is_relative_to(ROOT), "library consumer must live outside the checkout"
         prove(directory, work)
 
 

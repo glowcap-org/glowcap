@@ -205,8 +205,8 @@ The raw TCP, inproc, and onion shuttles are asynchronous only on a runtime that
 moves a potentially parking call off the JavaScript event loop. Deno does. Bun's
 FFI executes the call synchronously, so those raw transports refuse
 construction before allocating a handle, since even an idle release may join
-backend work. Core TCP and inproc sessions work on both runtimes through their
-runtime adapters.
+backend work. Bun supports byte-fed Host clients whose JavaScript supplies the
+channel. Inproc exposes raw frames and has no Runtime provider.
 
 ## Learn more
 

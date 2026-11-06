@@ -1,10 +1,10 @@
-// portable-sdk-test serves only an extracted release archive. The shipped
+// portable-package-test serves only an extracted release archive. The shipped
 // example must connect two real browser peers without bundling or checkout URLs.
 import { chromium } from "playwright";
 import { assertEquals } from "../../test/assert.ts";
 
 const archive = Deno.args[0];
-if (!archive) throw new Error("package_test needs the browser SDK archive");
+if (!archive) throw new Error("package_test needs the browser bundle archive");
 const extracted = await Deno.makeTempDir({ prefix: "glowcap-browser-consumer-" });
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 let server: Deno.HttpServer | undefined;
@@ -26,7 +26,7 @@ try {
 		const asset = allowed.get(path);
 		if (!asset) {
 			unexpected.push(path);
-			return new Response("not in SDK", { status: 404 });
+			return new Response("not in browser bundle", { status: 404 });
 		}
 		return new Response(await Deno.readFile(`${extracted}/${asset[0]}`), { headers: { "content-type": asset[1] } });
 	});
@@ -51,7 +51,7 @@ try {
 	assertEquals(await page.locator("#result").textContent(), "hello world over WebRTC");
 	assertEquals(errors.join("\n"), "");
 	assertEquals(unexpected.join("\n"), "");
-	console.log("Extracted browser SDK: two peers connected and called the greeter");
+	console.log("Extracted browser bundle: two peers connected and called the greeter");
 } finally {
 	await browser?.close();
 	await server?.shutdown();

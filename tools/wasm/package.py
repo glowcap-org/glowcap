@@ -1,9 +1,9 @@
-"""portable-sdk-pack: seal the built browser module and Rust Wasm SDK as release archives.
+"""portable-pack: seal the built browser module and WebAssembly libraries as release archives.
 
 Called by the build graph with the install prefix and a fresh staging directory. Uses the checkout's version,
 Git revision and dirty state, writes portable-release/{archives,SHA256SUMS}, and
 writes both archives before the build graph commits the directory as one generation. Exits nonzero
-for missing inputs or a failed browser bundle. portable-sdk-test exercises the
+for missing inputs or a failed browser bundle. portable-package-test exercises the
 extracted browser package, and release assembly verifies metadata and inventory.
 """
 
@@ -61,7 +61,9 @@ def package(prefix: Path, output: Path) -> None:
                     name = f"libglowcap_{stem}.a"
                     shutil.copyfile(prefix / "wasm/lib" / name, stage / "lib" / name)
                 (stage / "include").mkdir()
-                shutil.copyfile(ROOT / "include/glowcap_ocapn.h", stage / "include/glowcap_ocapn.h")
+                for stem in ("ocapn", "locator", "host", "loam"):
+                    header = f"glowcap_{stem}.h"
+                    shutil.copyfile(ROOT / "include" / header, stage / "include" / header)
             metadata = stage / "share/glowcap/release.json"
             metadata.parent.mkdir(parents=True)
             metadata.write_text(

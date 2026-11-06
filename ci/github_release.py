@@ -1,6 +1,6 @@
 """release.yml's GitHub release: assemble its assets, resume its draft, prove publication.
 
-The release job runs these modes in order, each from the checkout root with
+The release job calls these modes from the checkout root with
 gh, GH_TOKEN, GITHUB_REPOSITORY, and GITHUB_RUN_ID in the environment:
 
   assemble ARTIFACTS TAG  reads the run's archive artifacts, verifies each
@@ -16,13 +16,19 @@ gh, GH_TOKEN, GITHUB_REPOSITORY, and GITHUB_RUN_ID in the environment:
                           build provenance beside it as <asset>.sigstore.json,
                           one JSON line per attestation, so a reader can verify
                           offline and a registry scanner can see the signatures.
-                          A re-run of the release job attests the checksum file
-                          again, and gh verifies a file of several bundles.
-  draft-state TAG         prints {"draft_exists", "missing_assets"} for this
-                          run's draft. It refuses a published release, another
-                          run's draft, and an uploaded asset whose digest
-                          differs from release-assets/, so a re-run of a failed
-                          job resumes exactly where it stopped.
+                          Preparation may find several attestations; a retry
+                          restores the saved generation rather than replacing it.
+  prepared-state TAG      selects this run's immutable prepared-release artifact,
+                          or refuses to regenerate evidence behind an existing
+                          draft when that artifact is missing or expired.
+  seal-prepared TAG       records the complete assets, release facts, and notes
+                          as one generation before the workflow saves it.
+  verify-prepared TAG     checks that generation's identity and every byte after
+                          preparation or restoration, before draft effects.
+  resume-state TAG        reports matching uploaded and missing assets for this
+                          run's release, refusing changed bytes or another run.
+                          A complete matching public release allows a retry
+                          to finish the package dispatch without uploading again.
   verify-draft TAG        requires the draft to hold every asset before it is
                           made public.
   published TAG           is publish.yml's contract: the signed annotated tag
@@ -67,15 +73,26 @@ ENTRY_POINTS = {
 PORTABLE = {
     "browser": ("web", "glowcap-web", ("glowcap.js", "glowcap_host.wasm", "index.html", "example.js")),
     "wasm32-freestanding": (
-        "wasm-sdk",
+        "wasm-libraries",
         "glowcap-c",
-        ("include/glowcap_ocapn.h", "lib/libglowcap_ocapn.a", "lib/libglowcap_host.a", "lib/libglowcap_loam.a"),
+        (
+            "include/glowcap_ocapn.h",
+            "include/glowcap_locator.h",
+            "include/glowcap_host.h",
+            "include/glowcap_loam.h",
+            "lib/libglowcap_ocapn.a",
+            "lib/libglowcap_host.a",
+            "lib/libglowcap_loam.a",
+        ),
     ),
 }
 COMMON_FILES = ("README.md", "PROVENANCE.md", "LICENSE-APACHE", "LICENSE-THIRD-PARTY")
 PROVENANCE = "https://slsa.dev/provenance/v1"
 ASSETS = Path("release-assets")
 FACTS = Path("artifacts/release.json")
+PREPARED_ARTIFACT = "prepared-release"
+PREPARED = Path("artifacts/prepared-release.json")
+NOTES = Path("artifacts/release-notes.md")
 
 
 def require(condition, message):
@@ -218,6 +235,70 @@ def assemble(repository, artifacts, tag, commit, run_id):
     )
 
 
+def prepared_state(repository, tag, run_id):
+    """Select one saved generation from this run; a draft cannot outlive its evidence."""
+    matches = [
+        artifact
+        for page in api(repository, f"actions/runs/{run_id}/artifacts?per_page=100", pages=True)
+        for artifact in page["artifacts"]
+        if artifact["name"] == PREPARED_ARTIFACT
+    ]
+    require(len(matches) <= 1, "the run holds multiple prepared release generations")
+    if matches:
+        artifact = matches[0]
+        require(artifact["expired"] is False, "the prepared release artifact expired; refusing to regenerate it")
+        require(isinstance(artifact["id"], int) and artifact["id"] > 0, "invalid prepared release artifact id")
+        return str(artifact["id"])
+    require(
+        release_for(repository, tag) is None,
+        "release already exists but this run's prepared artifact is missing; refusing to regenerate evidence",
+    )
+    return ""
+
+
+def prepared_files(repository, tag, commit, run_id):
+    """Validate release identity and package contents before sealing or trusting a restored generation."""
+    names = inventory(tag)
+    require(sorted(path.name for path in ASSETS.iterdir()) == names, "prepared release has an incomplete asset set")
+    paths = [*(ASSETS / name for name in names), FACTS, NOTES]
+    require(
+        all(path.is_file() and not path.is_symlink() for path in paths),
+        "prepared release entries must be regular files",
+    )
+    facts = json.loads(FACTS.read_text())
+    for key, expected in {
+        "repository": f"https://github.com/{repository}",
+        "version": tag[1:],
+        "tag": tag,
+        "commit": commit,
+        "run": f"https://github.com/{repository}/actions/runs/{run_id}",
+    }.items():
+        require(facts[key] == expected, f"prepared release {key} differs from this run")
+    require(run_marker(run_id) in NOTES.read_text(), "prepared release notes do not name this run")
+    entries = [line.split() for line in (ASSETS / "SHA256SUMS").read_text().splitlines()]
+    checksummed = sorted(name for name in names if not name.endswith(".json") and name != "SHA256SUMS")
+    require(
+        all(len(entry) == 2 for entry in entries) and sorted(entry[1] for entry in entries) == checksummed,
+        "prepared release checksums do not name exactly the packages",
+    )
+    for digest, name in entries:
+        require(digest_of(ASSETS / name) == digest, f"prepared release checksum mismatch: {name}")
+    archives = [archive_facts(ASSETS / name, tag, commit) for name in sorted(archive_names(tag))]
+    require(facts["archives"] == archives, "prepared release archive facts disagree with its packages")
+    return {path.as_posix(): digest_of(path) for path in paths}
+
+
+def prepared_generation(repository, tag, commit, run_id, *, seal=False):
+    files = prepared_files(repository, tag, commit, run_id)
+    if seal:
+        with PREPARED.open("x") as output:
+            json.dump({"files": files}, output, indent=2)
+            output.write("\n")
+    else:
+        require(PREPARED.is_file() and not PREPARED.is_symlink(), "prepared release seal is missing")
+        require(json.loads(PREPARED.read_text()) == {"files": files}, "prepared release bytes differ from its seal")
+
+
 def bundles(repository, tag):
     """One Sigstore bundle per signed asset, downloaded from the attestation store."""
     for asset in sorted(ASSETS.iterdir()):
@@ -253,12 +334,14 @@ def release_for(repository, tag):
     return matches[0] if matches else None
 
 
-def draft_state(repository, tag, run_id, *, complete=False):
+def draft_state(repository, tag, run_id, *, complete=False, allow_published=False):
     release = release_for(repository, tag)
     require(not complete or release is not None, "release draft is missing")
+    published = release is not None and release["draft"] is False
     if release:
         require(
-            release["draft"] is True and run_marker(run_id) in (release["body"] or ""),
+            (release["draft"] is True or (allow_published and published))
+            and run_marker(run_id) in (release["body"] or ""),
             "existing release is published or is another run's draft",
         )
     expected = {path.name: "sha256:" + digest_of(path) for path in ASSETS.iterdir() if path.is_file()}
@@ -273,8 +356,11 @@ def draft_state(repository, tag, run_id, *, complete=False):
             f"existing draft asset differs: {asset['name']}",
         )
     missing = sorted(set(expected) - {asset["name"] for asset in assets})
-    require(not complete or not missing, f"release draft is incomplete: {missing}")
-    return {"draft_exists": release is not None, "missing_assets": missing}
+    require(not (complete or published) or not missing, f"release is incomplete: {missing}")
+    result = {"draft_exists": release is not None and not published, "missing_assets": missing}
+    if allow_published:
+        result["published"] = published
+    return result
 
 
 def signed_commit(repository, tag):
@@ -312,7 +398,19 @@ def main(argv=None):
     assembling.add_argument("artifacts", type=Path)
     for mode in (
         assembling,
-        *(modes.add_parser(name) for name in ("racket-package", "bundles", "draft-state", "verify-draft", "published")),
+        *(
+            modes.add_parser(name)
+            for name in (
+                "racket-package",
+                "bundles",
+                "prepared-state",
+                "seal-prepared",
+                "verify-prepared",
+                "resume-state",
+                "verify-draft",
+                "published",
+            )
+        ),
     ):
         mode.add_argument("tag", type=prerelease_tag)
     args = parser.parse_args(argv)
@@ -328,9 +426,19 @@ def main(argv=None):
         return
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     require(re.fullmatch(r"[1-9][0-9]*", run_id) is not None, "invalid GITHUB_RUN_ID")
-    if args.mode in ("assemble", "racket-package"):
+    if args.mode == "prepared-state":
+        artifact_id = prepared_state(repository, tag, run_id)
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+            output.write(f"artifact_id={artifact_id}\n")
+        print(f"Prepared release artifact: {artifact_id or 'not yet saved'}")
+        return
+    if args.mode in ("assemble", "racket-package", "seal-prepared", "verify-prepared"):
         commit = os.environ.get("GITHUB_SHA", "")
         require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None, "invalid GITHUB_SHA")
+        if args.mode in ("seal-prepared", "verify-prepared"):
+            prepared_generation(repository, tag, commit, run_id, seal=args.mode == "seal-prepared")
+            print(f"Prepared release generation verified for {tag} at {commit}")
+            return
         if args.mode == "racket-package":
             racket_package(tag, commit)
             return
@@ -340,8 +448,8 @@ def main(argv=None):
     if args.mode == "bundles":
         bundles(repository, tag)
         print(f"Downloaded the provenance bundle of every signed asset for {tag}")
-    elif args.mode == "draft-state":
-        print(json.dumps(draft_state(repository, tag, run_id)))
+    elif args.mode == "resume-state":
+        print(json.dumps(draft_state(repository, tag, run_id, allow_published=True)))
     else:
         draft_state(repository, tag, run_id, complete=True)
         print("Complete release draft matches every prepared asset")

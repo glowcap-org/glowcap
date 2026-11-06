@@ -69,7 +69,7 @@ fn main() {
 			let path = directory.join(format!("lib{archive}.a"));
 			assert!(
 				path.is_file(),
-				"missing Wasm archive {}; check the SDK download or set GLOWCAP_LIB_DIR to an extracted Wasm SDK's lib directory",
+				"missing Wasm archive {}; check the library download or set GLOWCAP_LIB_DIR to an extracted archive's lib directory",
 				path.display()
 			);
 			println!("cargo:rerun-if-changed={}", path.display());
@@ -272,7 +272,7 @@ fn macro_u32(text: &str, name: &str) -> Option<u32> {
 
 fn sdk_target() -> (String, &'static str) {
 	// Host cfg names match c-sdk-pack. Browser Wasm maps to the one portable
-	// SDK, regardless of the machine Cargo runs on.
+	// library target, regardless of the machine Cargo runs on.
 	let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".into());
 	let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".into());
 	if arch == "wasm32" && os == "unknown" {

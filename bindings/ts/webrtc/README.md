@@ -6,7 +6,7 @@ WebRTC API. Deno uses the WebRTC library included in glowcap's C SDK.
 
 ## Try it in a browser
 
-The [browser SDK](https://github.com/glowcap-org/glowcap/releases/download/v0.1.3/glowcap-web-v0.1.3-browser.tar.gz)
+The [browser bundle](https://github.com/glowcap-org/glowcap/releases/download/v0.1.3/glowcap-web-v0.1.3-browser.tar.gz)
 contains prebuilt JavaScript, Wasm, and a complete WebRTC example. Extract it,
 serve its directory, and open `index.html`. The
 [browser package](https://jsr.io/@glowcap/web) has the commands.

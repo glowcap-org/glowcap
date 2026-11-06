@@ -11,7 +11,7 @@ bytes without parsing CapTP or holding capabilities.
 deno add jsr:@glowcap/relay jsr:@glowcap/runtime
 ```
 
-For a browser, start with the [prebuilt browser SDK](https://jsr.io/@glowcap/web).
+For a browser, start with the [prebuilt browser bundle](https://jsr.io/@glowcap/web).
 It includes the relay client. The [relay guide](https://glowcap.org/relay/)
 explains the routes and server setup.
 

@@ -13,9 +13,10 @@ and storage formats before 1.0.
 
 ### Added
 
-- A browser SDK with prebuilt JavaScript, matching Wasm, and a complete WebRTC
+- A browser bundle with prebuilt JavaScript, matching Wasm, and a complete WebRTC
   example. Serve its files directly without a compiler or repository checkout.
-- A Wasm SDK that the Rust crate downloads when building for the browser.
+- Prebuilt WebAssembly libraries that the Rust crate downloads when building
+  for the browser.
 
 ### Changed
 
@@ -26,10 +27,13 @@ and storage formats before 1.0.
 
 - Load browser Wasm from ordinary binary responses as well as streaming Wasm
   responses, and report HTTP errors before trying to compile them.
-- Complete package setup examples and use installed Racket collection imports.
+- Complete package setup examples, correct browser relay routes, and use
+  installed Racket collection imports.
 - Verify newly published JSR packages without waiting for Deno's dependency
   age window. The release check imports all nine packages and keeps the age
   policy for third-party dependencies.
+- Resume partial release uploads with the original checksums, attestations,
+  and release notes.
 - Ship the Racket binding as a release archive. The catalog can install it
   without checking out repository symlinks that Racket refuses to extract.
 
