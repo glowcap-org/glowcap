@@ -33,9 +33,12 @@ driver-based dialing and listening are unavailable.
 See [installation options]($link.page('bindings').ref('install-a-binding'))
 for released packages. From a checkout, build the archives and run from
 `bindings/ts` or point an import map at `bindings/ts/runtime/mod.ts`.
-Set `GLOWCAP_LIB_DIR` to use archives from another directory. Deno needs
-`--allow-ffi --allow-read --allow-net`, plus `--allow-env` when the library
-path comes from the environment.
+Set `GLOWCAP_LIB_DIR` to use archives from another directory. Run the client
+with `deno run --allow-all client.ts`. Loading a downloaded SDK needs
+environment, filesystem, subprocess, and FFI permissions as well as network access.
+
+WebRTC tabs show how to connect application-owned signaling. Supply its
+offer, answer, and candidate exchange before using those snippets.
 
 # The same round-trip
 

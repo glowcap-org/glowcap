@@ -11,6 +11,12 @@ and storage formats before 1.0.
 
 ## [0.1.3] - 2026-11-06
 
+### Added
+
+- A browser SDK with prebuilt JavaScript, matching Wasm, and a complete WebRTC
+  example. Serve its files directly without a compiler or repository checkout.
+- A Wasm SDK that the Rust crate downloads when building for the browser.
+
 ### Changed
 
 - Reduce event-queue overhead while preserving capacity reserved for promise
@@ -18,6 +24,9 @@ and storage formats before 1.0.
 
 ### Fixed
 
+- Load browser Wasm from ordinary binary responses as well as streaming Wasm
+  responses, and report HTTP errors before trying to compile them.
+- Complete package setup examples and use installed Racket collection imports.
 - Verify newly published JSR packages without waiting for Deno's dependency
   age window. The release check imports all nine packages and keeps the age
   policy for third-party dependencies.

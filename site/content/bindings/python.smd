@@ -15,6 +15,15 @@ include `glowcap.iroh`, `glowcap.onion`, `glowcap.relay`, and
 `glowcap.tcp`. Start from the
 [installation options]($link.page('bindings').ref('install-a-binding')).
 
+For complete client and server programs, start with the
+[package quick start](https://github.com/glowcap-org/glowcap/blob/main/bindings/python/README.md#a-first-session).
+The transport tabs below show the setup to combine with the common call
+or serving code beneath them. Keep imports at the top of your file and put
+the asynchronous code inside `async def main()`, called by `asyncio.run(main())`.
+
+WebRTC examples show how to connect application-owned signaling. Supply its
+offer, answer, and candidate exchange before using those snippets.
+
 # The same round-trip
 
 This is the [Start building]($link.page('start')) round-trip in Python. `fetch`

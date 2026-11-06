@@ -152,6 +152,13 @@ jobs:
           fi
           zig build -Doptimize=ReleaseSafe c-sdk-pack glowcap-pack -Dcpu=baseline "-Dtarget=$RELEASE_TARGET"
 
+      - name: Build and verify portable SDK archives
+        if: matrix.runner == 'ubuntu-24.04'
+        run: |
+          source .devcontainer/pins.sh
+          npx --yes "playwright@$PLAYWRIGHT_VERSION" install --with-deps chromium
+          zig build portable-sdk-test
+
       - name: Verify the Zig source package
         run: zig build consumer-check --summary all
 
@@ -162,6 +169,7 @@ jobs:
           subject-path: |
             zig-out/release/*.tar.gz
             zig-out/glowcap-release/*.tar.gz
+            zig-out/portable-release/*.tar.gz
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # Preserve the product when its proof fails, so a corrected harness can
@@ -174,7 +182,9 @@ jobs:
             zig-out/release/*.tar.gz
             zig-out/release/SHA256SUMS
             zig-out/glowcap-release/*.tar.gz
+            zig-out/portable-release/*.tar.gz
             zig-out/glowcap-release/SHA256SUMS
+            zig-out/portable-release/SHA256SUMS
           if-no-files-found: error
 
   images:

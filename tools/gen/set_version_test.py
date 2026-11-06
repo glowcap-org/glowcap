@@ -78,6 +78,15 @@ class SetVersion(unittest.TestCase):
                 f"[{NEXT}]: https://github.com/glowcap-org/glowcap/compare/v{CURRENT}...v{NEXT}\n[{CURRENT}]:",
                 changelog,
             )
+            for guide in (
+                "bindings/ts/web/README.md",
+                "bindings/ts/webrtc/README.md",
+                "site/content/bindings/browser.smd",
+            ):
+                text = (root / guide).read_text()
+                self.assertIn(f"glowcap-web-v{NEXT}-browser.tar.gz", text)
+                self.assertNotIn(f"glowcap-web-v{CURRENT}-browser.tar.gz", text)
+            self.assertIn(f'version = "{NEXT}"', (root / "bindings/rust/README.md").read_text())
             # Every mirror now states NEXT exactly where a later bump looks.
             (root / "CHANGELOG.md").write_text(
                 changelog.replace("## [Unreleased]\n", "## [Unreleased]\n\n- Next.\n", 1)

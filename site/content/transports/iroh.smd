@@ -109,8 +109,8 @@ dial passes only the locator and any per-connect options.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-iroh.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-iroh)
 >
 > ;; IROH-REACH-DISCOVERY resolves a bare iroh node ID without an address hint.
 > (define node-id "<64 lowercase hex characters from the server>")
@@ -200,8 +200,8 @@ can use.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-iroh.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-iroh)
 >
 > ;; This listener is named by its node id. Partners can dial it from anywhere.
 > (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))

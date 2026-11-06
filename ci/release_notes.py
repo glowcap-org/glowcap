@@ -66,7 +66,9 @@ def render(facts, image_digest, changelog=CHANGELOG):
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
         raise ValueError("invalid image digest")
     archives = {(archive["target"], archive["role"]): archive for archive in facts["archives"]}
-    if set(archives) != {(target, role) for target in PLATFORMS for role in ("product", "sdk")}:
+    expected = {(target, role) for target in PLATFORMS for role in ("product", "sdk")}
+    expected.update({("browser", "web"), ("wasm32-freestanding", "wasm-sdk")})
+    if set(archives) != expected:
         raise ValueError("release facts do not name a product and an SDK for every platform")
     slug = repository.removeprefix("https://github.com/")
     tree = f"{repository}/blob/{tag}"
@@ -94,7 +96,7 @@ Every release is listed in the [changelog]({tree}/CHANGELOG.md).
 
 # Choose a download
 
-For the **CLI, Rooms, browser assets, and agent skills**, choose **CLI + Rooms**.
+For the **CLI, Rooms, and agent skills**, choose **CLI + Rooms**.
 Its filename starts with `glowcap-{tag}-`. The **C SDK** starts with
 `glowcap-c-{tag}-` and contains headers and libraries for building applications.
 The SDK does not contain the CLI or Rooms.
@@ -107,6 +109,14 @@ The Linux archives need the glibc version shown or newer. `ldd --version` prints
 yours. Windows and musl distributions such as Alpine have no prebuilt package.
 GitHub's automatic **Source code** downloads contain source for building and are
 separate from the compiled downloads above.
+
+For browser applications, download the [browser SDK]({base}/{archives[("browser", "web")]["name"]}).
+It includes prebuilt JavaScript, matching Wasm, and an example page. Extract
+it into a new directory your web server serves and open `index.html`.
+
+The [Rust Wasm SDK]({base}/{archives[("wasm32-freestanding", "wasm-sdk")]["name"]})
+contains the static libraries for `wasm32-unknown-unknown`. The Rust crate
+downloads it automatically when building for that target.
 
 # Verify and install the product
 

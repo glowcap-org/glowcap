@@ -35,7 +35,7 @@ conformance lane checks `next` beside the unchanged `1.0` suite
 | I/O-free Zig | `engine.Peer` exposes the protocol engine without sockets or scheduling. Callers feed frames, step the engine, drain output, and handle events. |
 | C            | Opaque handles, fixed-width result codes, explicit release, and separate archives for the core, Host, driver loop, and transports. See [the C ABI](#the-c-abi) below. |
 | Bindings     | Rust, TypeScript, Python, and Racket expose the same session and actor model through the C ABI. They can dial, listen, host objects, call far objects, and pass capabilities. |
-| Browser      | `@glowcap/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs, take sealed `noise-relay` cold dials, and dial or answer a keyed session over WebRTC. |
+| Browser      | The release SDK ships JavaScript, Wasm, and a runnable WebRTC example. `@glowcap/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs, take sealed `noise-relay` cold dials, and dial or answer a keyed session over WebRTC. |
 
 The [Zig examples](../examples/README.md), [C guide](consuming-from-c.md), and [binding contract](../bindings/README.md)
 are the entry points for those surfaces.

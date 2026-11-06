@@ -1,10 +1,11 @@
-// One WebSocket adapted to the byte-`Channel` seam, shared by every place that
-// carries glowcap bytes over a WebSocket: the browser adapter's dial, both
-// halves of the keyed-relay rendezvous (ADR-0034), and `@glowcap/relay`. The
-// `WebSocket` global is a web standard every supported runtime ships (browser,
-// Deno, Bun), so this is runtime-neutral code, not a per-runtime adapter
-// seam. Each caller differs only in how it gets the socket: opening it, or
-// being handed an accepted one; the byte plumbing is this one module.
+/**
+ * Adapt a WebSocket into the byte channel used by glowcap sessions.
+ * Open a socket with `openWebSocketChannel`, or adapt an existing socket with
+ * `webSocketChannel`. The adapter bounds incoming queues and applies outgoing
+ * backpressure. It works with the WebSocket APIs in browsers, Deno, and Bun.
+ *
+ * @module
+ */
 
 import type { Channel } from "./session.ts";
 import type { Timer } from "./timer.ts";

@@ -1,4 +1,4 @@
-(require "glowcap.rkt" "glowcap-onion.rkt")
+(require glowcap/glowcap glowcap/glowcap-onion)
 
 ;; glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 (define partner (onion-locator "<56-character onion service id>"))

@@ -40,14 +40,20 @@ fn checkFile(
     // above a doc comment is two different remarks, not one stranded one.
     var closed_at: usize = 0;
     var inside = false;
+    var module_doc = false;
     var blank_since = true;
     while (lines.next()) |line| {
         number += 1;
         const text = std.mem.trim(u8, line, " \t\r");
+        const tag = std.mem.trimStart(u8, text, "/* \t");
+        const is_module_tag = std.mem.startsWith(u8, tag, "@module") and
+            (tag.len == 7 or std.ascii.isWhitespace(tag[7]));
         if (inside) {
+            module_doc = module_doc or is_module_tag;
             if (std.mem.endsWith(u8, text, "*/")) {
                 inside = false;
-                closed_at = number;
+                // JSDoc's @module describes the file, not a declaration.
+                closed_at = if (module_doc) 0 else number;
                 blank_since = true;
             }
             continue;
@@ -62,8 +68,9 @@ fn checkFile(
                 );
             }
             // A one-line `/** … */` opens and closes on the same line.
+            module_doc = is_module_tag;
             if (std.mem.endsWith(u8, text, "*/")) {
-                closed_at = number;
+                closed_at = if (module_doc) 0 else number;
                 blank_since = true;
             } else inside = true;
             continue;
@@ -92,5 +99,24 @@ pub fn check(
 ) !void {
     for (roots) |root_path| {
         try source_tree.visitSourceFiles(io, gpa, root, violations, "doc-orphan", root_path, &source_tree.isTypeScriptPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
+    }
+}
+
+test "module documentation may precede a declaration's own docs, orphaned prose may not" {
+    const cases = .{
+        .{ "/** Package overview.\n * @module\n */\n\n/** Measure text. */\nexport function size() {}", 0 },
+        .{ "/** @module */\n/** Measure text. */\nexport function size() {}", 0 },
+        .{ "/** Stranded description. */\n\n/** Measure text. */\nexport function size() {}", 1 },
+        .{ "/** @moduleName is not a module tag. */\n/** Measure text. */\nexport function size() {}", 1 },
+    };
+    inline for (cases) |case| {
+        const gpa = std.testing.allocator;
+        var violations: std.ArrayList([]const u8) = .empty;
+        defer {
+            for (violations.items) |message| gpa.free(message);
+            violations.deinit(gpa);
+        }
+        try checkFile(gpa, "module.ts", case[0], &violations);
+        try std.testing.expectEqual(@as(usize, case[1]), violations.items.len);
     }
 }

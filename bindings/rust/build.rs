@@ -60,27 +60,20 @@ fn main() {
 				"Rust Wasm uses embedder-owned byte channels; disable native transport feature {feature}"
 			);
 		}
-		let directory = std::env::var_os("GLOWCAP_LIB_DIR")
-			.map(PathBuf::from)
-			.or_else(|| find_dev_root(&manifest_dir).map(|root| root.join("zig-out/wasm/lib")))
-			.expect("set GLOWCAP_LIB_DIR to the wasm32 glowcap archives");
+		let directory = resolve_lib_dir(&manifest_dir);
 		println!("cargo:rustc-link-search=native={}", directory.display());
-		for archive in ["glowcap_host", "glowcap_ocapn"] {
+		let archives = ["glowcap_host", "glowcap_ocapn"]
+			.into_iter()
+			.chain(cfg!(feature = "loam").then_some("glowcap_loam"));
+		for archive in archives {
 			let path = directory.join(format!("lib{archive}.a"));
 			assert!(
 				path.is_file(),
-				"missing Wasm archive {}; run zig build wasm-archives",
+				"missing Wasm archive {}; check the SDK download or set GLOWCAP_LIB_DIR to an extracted Wasm SDK's lib directory",
 				path.display()
 			);
 			println!("cargo:rerun-if-changed={}", path.display());
 			println!("cargo:rustc-link-lib=static={archive}");
-		}
-		if cfg!(feature = "loam") {
-			println!("cargo:rustc-link-lib=static=glowcap_loam");
-			println!(
-				"cargo:rerun-if-changed={}",
-				directory.join("libglowcap_loam.a").display()
-			);
 		}
 		return;
 	}
@@ -179,7 +172,7 @@ fn main() {
 	}
 }
 /// Cascade (ADR-0023): `GLOWCAP_LIB_DIR` → abi-versioned download cache →
-/// optional in-tree `zig-out/lib` → (caller falls through to link failure).
+/// optional target-specific in-tree libraries → (caller falls through to link failure).
 fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
 	if let Some(dir) = std::env::var_os("GLOWCAP_LIB_DIR") {
 		return PathBuf::from(dir);
@@ -188,9 +181,9 @@ fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
 	let contract = load_contract();
 	let dev_root = find_dev_root(manifest_dir);
 	let version = abi_version(dev_root.as_deref(), &contract);
-	let target = host_target_triple();
+	let (target, checkout_lib) = sdk_target();
 	let cache_lib = cache_lib_dir(&contract, &version, &target);
-	let zig_out = dev_root.as_ref().map(|r| r.join("zig-out/lib"));
+	let zig_out = dev_root.as_ref().map(|r| r.join(checkout_lib));
 
 	if cache_lib.join(&contract.marker_static).is_file() {
 		return cache_lib;
@@ -277,13 +270,16 @@ fn macro_u32(text: &str, name: &str) -> Option<u32> {
 	None
 }
 
-fn host_target_triple() -> String {
-	// CARGO_CFG_TARGET_ARCH/OS already match zig build c-sdk-pack names
-	// (x86_64, aarch64, macos, linux, windows). Other ports normalize host
-	// aliases: see tools/c-abi/c-abi-host-aliases.json.
+fn sdk_target() -> (String, &'static str) {
+	// Host cfg names match c-sdk-pack. Browser Wasm maps to the one portable
+	// SDK, regardless of the machine Cargo runs on.
 	let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".into());
 	let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".into());
-	format!("{arch}-{os}")
+	if arch == "wasm32" && os == "unknown" {
+		("wasm32-freestanding".into(), "zig-out/wasm/lib")
+	} else {
+		(format!("{arch}-{os}"), "zig-out/lib")
+	}
 }
 
 fn find_dev_root(start: &Path) -> Option<PathBuf> {

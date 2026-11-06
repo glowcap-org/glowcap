@@ -1,4 +1,4 @@
-(require "glowcap.rkt" "glowcap-tcp.rkt")
+(require glowcap/glowcap glowcap/glowcap-tcp)
 
 ;; Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 (define peer-key "<64 lowercase hex characters from the server>")

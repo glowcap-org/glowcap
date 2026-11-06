@@ -64,6 +64,14 @@ ENTRY_POINTS = {
         "share/glowcap/skills/rooms-team/SKILL.md",
     ),
 }
+PORTABLE = {
+    "browser": ("web", "glowcap-web", ("glowcap.js", "glowcap_host.wasm", "index.html", "example.js")),
+    "wasm32-freestanding": (
+        "wasm-sdk",
+        "glowcap-c",
+        ("include/glowcap_ocapn.h", "lib/libglowcap_ocapn.a", "lib/libglowcap_host.a", "lib/libglowcap_loam.a"),
+    ),
+}
 COMMON_FILES = ("README.md", "PROVENANCE.md", "LICENSE-APACHE", "LICENSE-THIRD-PARTY")
 PROVENANCE = "https://slsa.dev/provenance/v1"
 ASSETS = Path("release-assets")
@@ -86,13 +94,15 @@ def archive_name(tag, target, role):
     return f"{ROLES[role]}-{tag}-{target}.tar.gz"
 
 
+def archive_names(tag):
+    return [archive_name(tag, target, role) for target in TARGETS for role in ROLES] + [
+        f"{prefix}-{tag}-{target}.tar.gz" for target, (_, prefix, _) in PORTABLE.items()
+    ]
+
+
 def inventory(tag):
     """Every asset a public release holds: the archives, the checksums, and their bundles."""
-    signed = [archive_name(tag, target, role) for target in TARGETS for role in ROLES] + [
-        f"glowcap-racket-{tag}.zip",
-        f"glowcap-racket-{tag}.zip.CHECKSUM",
-        "SHA256SUMS",
-    ]
+    signed = archive_names(tag) + [f"glowcap-racket-{tag}.zip", f"glowcap-racket-{tag}.zip.CHECKSUM", "SHA256SUMS"]
     return sorted(signed + [f"{name}.sigstore.json" for name in signed] + [f"glowcap-rooms-{tag}.spdx.json"])
 
 
@@ -107,9 +117,15 @@ def run_marker(run_id):
 
 def archive_facts(path, tag, commit):
     """The archive's own release metadata, held to its filename and its entry points."""
-    match = re.fullmatch(r"(glowcap(?:-c)?)-" + re.escape(tag) + r"-(.+)\.tar\.gz", path.name)
-    require(match is not None and match[2] in TARGETS, f"unexpected release archive: {path.name}")
-    role = next(role for role, prefix in ROLES.items() if prefix == match[1])
+    match = re.fullmatch(r"(glowcap(?:-c|-web)?)-" + re.escape(tag) + r"-(.+)\.tar\.gz", path.name)
+    require(match is not None and match[2] in (*TARGETS, *PORTABLE), f"unexpected release archive: {path.name}")
+    portable = PORTABLE.get(match[2])
+    if portable:
+        role, prefix, entries = portable
+        require(match[1] == prefix, f"unexpected portable archive: {path.name}")
+    else:
+        role = next(role for role, prefix in ROLES.items() if prefix == match[1])
+        entries = ENTRY_POINTS[role]
     with tarfile.open(path) as archive:
         metadata = archive.getmember("share/glowcap/release.json")
         require(metadata.isfile() and 0 < metadata.size <= 65536, f"invalid release metadata: {path.name}")
@@ -120,10 +136,14 @@ def archive_facts(path, tag, commit):
             and value["target"] == match[2]
             and value["revision"] == commit
             and value["dirty"] is False
-            and re.fullmatch(runtime + r" [0-9]+\.[0-9]+\.[0-9]+", value["minimum_runtime"]) is not None,
+            and (
+                value["minimum_runtime"] == "WebAssembly"
+                if portable
+                else re.fullmatch(runtime + r" [0-9]+\.[0-9]+\.[0-9]+", value["minimum_runtime"]) is not None
+            ),
             f"archive metadata disagrees with its release: {path.name}",
         )
-        for name in (*COMMON_FILES, *ENTRY_POINTS[role]):
+        for name in (*COMMON_FILES, *entries):
             member = archive.getmember(name)
             require(member.isfile() and member.size > 0, f"missing release entry point: {path.name}: {name}")
     return {"name": path.name, "target": match[2], "role": role, "minimum_runtime": value["minimum_runtime"]}
@@ -163,9 +183,8 @@ def assemble(repository, artifacts, tag, commit, run_id):
             facts.append(archive_facts(archive, tag, commit))
             shutil.copyfile(archive, ASSETS / name)
     require(
-        sorted(fact["name"] for fact in facts)
-        == sorted(archive_name(tag, target, role) for target in TARGETS for role in ROLES),
-        "the run did not produce exactly the eight release archives",
+        sorted(fact["name"] for fact in facts) == sorted(archive_names(tag)),
+        "the run did not produce exactly the expected release archives",
     )
     for target in TARGETS:
         minimums = {fact["minimum_runtime"] for fact in facts if fact["target"] == target}

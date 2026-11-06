@@ -91,7 +91,7 @@ stream sealed, and iroh when they also need discovery or NAT traversal.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-tcp.rkt")
+> (require glowcap/glowcap glowcap/glowcap-tcp)
 >
 > ;; Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -193,7 +193,7 @@ stream sealed, and iroh when they also need discovery or NAT traversal.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-relay.rkt")
+> (require glowcap/glowcap glowcap/glowcap-relay)
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -280,8 +280,8 @@ registering: the peer publishes its key at the relay and waits there.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-tcp.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-tcp)
 >
 > ;; Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -382,8 +382,8 @@ registering: the peer publishes its key at the relay and waits there.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-relay.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-relay)
 >
 > ;; Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.

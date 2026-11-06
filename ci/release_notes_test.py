@@ -52,6 +52,22 @@ def facts(**changes):
         for target in NOTES.PLATFORMS
         for role in ("product", "sdk")
     ]
+    archives.extend(
+        [
+            {
+                "name": f"glowcap-web-{TAG}-browser.tar.gz",
+                "target": "browser",
+                "role": "web",
+                "minimum_runtime": "WebAssembly",
+            },
+            {
+                "name": f"glowcap-c-{TAG}-wasm32-freestanding.tar.gz",
+                "target": "wasm32-freestanding",
+                "role": "wasm-sdk",
+                "minimum_runtime": "WebAssembly",
+            },
+        ]
+    )
     return {
         "repository": REPOSITORY,
         "version": TAG[1:],

@@ -323,7 +323,14 @@ async function instantiate(
 		return new WebAssembly.Instance(resolved, imports);
 	}
 	if (typeof Response !== "undefined" && resolved instanceof Response) {
-		if (typeof WebAssembly.instantiateStreaming === "function") {
+		if (!resolved.ok) {
+			throw new Error(
+				`glowcap web: Wasm request failed${resolved.url ? ` for ${resolved.url}` : ""}: ` +
+					`HTTP ${resolved.status}${resolved.statusText ? ` ${resolved.statusText}` : ""}`,
+			);
+		}
+		const mime = resolved.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+		if (mime === "application/wasm" && typeof WebAssembly.instantiateStreaming === "function") {
 			return (await WebAssembly.instantiateStreaming(resolved, imports)).instance;
 		}
 		const bytes = await resolved.arrayBuffer();

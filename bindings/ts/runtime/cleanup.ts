@@ -1,4 +1,12 @@
-// Bounded JavaScript error custody. This module requires no Host or FFI.
+/**
+ * Preserve the original thrown value while retaining bounded cleanup failures.
+ * Use `secondaryFailures` and `secondaryFailureCount` to inspect later failures,
+ * or `FirstFailure` to collect failures across a shutdown operation.
+ * This module requires no Host or FFI runtime.
+ *
+ * @module
+ */
+
 import { BINDING_SECONDARY_FAILURE_CAP } from "@glowcap/abi";
 
 const SECONDARY_FAILURE_CAP = BINDING_SECONDARY_FAILURE_CAP;

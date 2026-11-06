@@ -10,6 +10,7 @@ pub const Manifest = staging.Manifest;
 /// static archives, which the default install leaves out.
 pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, companion_steps: []const *std.Build.Step, check_step: *std.Build.Step, manifest: Manifest) void {
     productPreset(b, target);
+    portablePackages(b, version);
     const manifest_tests = staging.addManifestTests(b);
     check_step.dependOn(&manifest_tests.step);
     b.step("product-manifest-test", "Generate and parse a sealed staged product without a release package build")
@@ -59,6 +60,37 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     proof.step.dependOn(&product_archive.run.step);
     proof.step.dependOn(test_step);
     gate(b, target, optimize, b.step("glowcap-pack", "Package and exercise the complete relocatable glowcap product (explicit Release mode and baseline CPU required)"), &proof.step);
+}
+
+fn portablePackages(b: *std.Build, version: std.SemanticVersion) void {
+    const pack = commands.addRootedSystemCommand(b, .build_tool, &.{
+        "sh",                       "-ec",
+        transaction.wrap(b,
+            \\python3 tools/wasm/package.py "$2" "$stage/tree"
+            \\marker=SHA256SUMS
+            \\
+        ),
+        "glowcap-portable-archive",
+    });
+    pack.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "portable-release" } }, .{ .make_absolute = true });
+    pack.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix } }, .{ .make_absolute = true });
+    pack.step.dependOn(&b.top_level_steps.get("wasm-host").?.step);
+    pack.step.dependOn(&b.top_level_steps.get("wasm-archives").?.step);
+    pack.has_side_effects = true;
+    b.step("portable-sdk-pack", "Package prebuilt browser JavaScript, Wasm, examples, and Rust Wasm archives").dependOn(&pack.step);
+    const proof = commands.addRootedSystemCommand(b, .{ .browser_proof = 90 }, &.{
+        "deno", "run", "--allow-all", "bindings/ts/web/test/package_test.ts",
+    });
+    proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = b.fmt("portable-release/glowcap-web-v{d}.{d}.{d}-browser.tar.gz", .{ version.major, version.minor, version.patch }) } }, .{ .make_absolute = true });
+    proof.step.dependOn(&pack.step);
+    proof.has_side_effects = true;
+    const rust_proof = commands.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/wasm_sdk.py" });
+    rust_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "portable-release" } }, .{ .make_absolute = true });
+    rust_proof.step.dependOn(&pack.step);
+    rust_proof.has_side_effects = true;
+    const step = b.step("portable-sdk-test", "Run the extracted browser example and link a Rust Wasm consumer through the SDK downloader");
+    step.dependOn(&proof.step);
+    step.dependOn(&rust_proof.step);
 }
 
 fn productPreset(b: *std.Build, target: std.Build.ResolvedTarget) void {

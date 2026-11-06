@@ -29,8 +29,7 @@ export PYTHONPATH="$PWD/bindings/python${PYTHONPATH:+:$PYTHONPATH}"
 
 ## A first session
 
-Start a server that publishes `greeter` with a `greet` method, as in the
-[listening example](https://glowcap.org/bindings/python/). This client
+Start the [greeter server below](#run-the-greeter-server). This client
 connects over encrypted Noise TCP to `127.0.0.1:9099`. Replace `peer_key` with
 the server's public key, save this as `client.py`, and run `python client.py`.
 
@@ -61,6 +60,36 @@ asyncio.run(main())
 - `Host.publish_durable(behavior, entropy=None)` publishes `behavior` under a
   durable swiss number, the secret name a peer uses to fetch it later. Pass the
   same entropy to a Host reconstructed from the same seed to restore that name.
+
+### Run the greeter server
+
+Save this as `server.py` and run `python server.py` in another terminal.
+It prints an `ocapn://` URI. Copy its 64-character key into `peer_key` in the
+client above. The server creates a fresh key each time it starts.
+
+```python
+import asyncio
+
+from glowcap import Argument, tcp
+
+
+def greet(verb: str | None, args: list[Argument]) -> str:
+    if verb != "greet" or len(args) != 1 or not isinstance(args[0], str):
+        raise ValueError("expected greet with one string")
+    return f"Hello, {args[0]}"
+
+
+async def main():
+    async with await tcp.noise.listen("127.0.0.1", 9099) as server:
+        server.host.publish("greeter", greet)
+        print(server.uri, flush=True)
+        async for accepted in server:
+            async with accepted as session:
+                await session.serve()
+
+
+asyncio.run(main())
+```
 
 ## Sessions and actors
 

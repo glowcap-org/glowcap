@@ -12,6 +12,16 @@ The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and
 Start from the
 [installation options]($link.page('bindings').ref('install-a-binding')).
 
+For complete client and server programs, start with the
+[package quick start](https://github.com/glowcap-org/glowcap/blob/main/bindings/rust/README.md#a-first-session).
+The transport tabs below show the setup to combine with the common call
+or serving code beneath them. Put the asynchronous code inside the
+quick start's `main` and Tokio `LocalSet`. Enable the Cargo feature named for
+each optional transport you use.
+
+WebRTC examples show how to connect application-owned signaling. Supply its
+offer, answer, and candidate exchange before using those snippets.
+
 # The same round-trip
 
 This is the [Start building]($link.page('start')) round-trip in Rust. It uses

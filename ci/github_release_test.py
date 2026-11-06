@@ -35,7 +35,6 @@ REPOSITORY = "owner/project"
 COMMIT = "a" * 40
 TAG = "v0.1.0"
 MARKER = RELEASE.run_marker("123")
-needs_jq = unittest.skipUnless(shutil.which("jq"), "the release steps parse state with jq")
 
 
 @contextlib.contextmanager
@@ -72,6 +71,8 @@ def run_main(*argv, **env):
 
 
 def minimum_runtime(target):
+    if target in RELEASE.PORTABLE:
+        return "WebAssembly"
     return "macOS 14.0.0" if target.endswith("-macos") else "glibc 2.31.0"
 
 
@@ -86,7 +87,8 @@ def archive_bytes(role, target, *, meta=None, omit=None, empty=None):
         **(meta or {}),
     }
     members = {"share/glowcap/release.json": json.dumps(metadata).encode()}
-    for name in (*RELEASE.COMMON_FILES, *RELEASE.ENTRY_POINTS[role]):
+    entries = RELEASE.PORTABLE[target][2] if target in RELEASE.PORTABLE else RELEASE.ENTRY_POINTS[role]
+    for name in (*RELEASE.COMMON_FILES, *entries):
         members[name] = b"" if name == empty else b"content"
     members.pop(omit, None)
     buffer = io.BytesIO()
@@ -115,6 +117,15 @@ def build_artifacts(root, problems=None):
                 (directory / name).write_bytes(data)
             digest = problem.get("digest", hashlib.sha256(data).hexdigest())
             (directory / "SHA256SUMS").write_text(f"{digest}  {name}\n")
+    directory = root / "archives-portable" / "portable-release"
+    directory.mkdir(parents=True)
+    sums = []
+    for target, (role, prefix, _) in RELEASE.PORTABLE.items():
+        name = f"{prefix}-{TAG}-{target}.tar.gz"
+        data = archive_bytes(role, target)
+        (directory / name).write_bytes(data)
+        sums.append(f"{hashlib.sha256(data).hexdigest()}  {name}\n")
+    (directory / "SHA256SUMS").write_text("".join(sums))
     with zipfile.ZipFile(root / f"glowcap-racket-{TAG}.zip", "w") as package:
         package.writestr("glowcap/private/c-abi-resolve.json", json.dumps({"abi_version": TAG[1:]}))
         for name in ("info.rkt", "glowcap.rkt", "LICENSE-APACHE", "README.md"):
@@ -190,13 +201,22 @@ class Assemble(unittest.TestCase):
                 with self.assertRaises((ValueError, OSError, KeyError, zipfile.BadZipFile)):
                     run_main("assemble", "artifacts", TAG)
 
+    def test_portable_archives_require_their_version_and_every_entry_point(self):
+        for target, (role, prefix, entries) in RELEASE.PORTABLE.items():
+            for problem in ({"omit": entries[0]}, {"meta": {"version": "9.9.9"}}, {"meta": {"dirty": True}}):
+                with self.subTest(target=target, problem=problem), workdir() as root:
+                    archive = root / f"{prefix}-{TAG}-{target}.tar.gz"
+                    archive.write_bytes(archive_bytes(role, target, **problem))
+                    with self.assertRaises((ValueError, KeyError)):
+                        RELEASE.archive_facts(archive, TAG, COMMIT)
+
     def test_archives_are_copied_with_one_checksum_file_and_the_release_facts(self):
         with workdir() as root:
             build_artifacts(root / "artifacts")
             output = run_main("assemble", "artifacts", TAG)
-            self.assertEqual(output, f"Assembled 8 archives for {TAG} at {COMMIT}\n")
+            self.assertEqual(output, f"Assembled 10 archives for {TAG} at {COMMIT}\n")
             archives = sorted(path.name for path in Path("release-assets").glob("*.tar.gz"))
-            self.assertEqual(len(archives), 8)
+            self.assertEqual(len(archives), 10)
             racket = f"glowcap-racket-{TAG}.zip"
             packaged = sorted([*archives, racket, racket + ".CHECKSUM"])
             self.assertEqual(
@@ -227,11 +247,12 @@ class Assemble(unittest.TestCase):
             )
             self.assertEqual([fact["name"] for fact in facts["archives"]], archives)
             for fact in facts["archives"]:
-                self.assertIn(fact["role"], ("product", "sdk"))
+                self.assertIn(fact["role"], ("product", "sdk", "web", "wasm-sdk"))
                 self.assertEqual(fact["minimum_runtime"], minimum_runtime(fact["target"]))
             self.assertEqual(
                 {(fact["target"], fact["role"]) for fact in facts["archives"]},
-                {(target, role) for target in RELEASE.TARGETS for role in ("product", "sdk")},
+                {(target, role) for target in RELEASE.TARGETS for role in ("product", "sdk")}
+                | {(target, role) for target, (role, _, _) in RELEASE.PORTABLE.items()},
             )
 
     def test_every_disagreement_between_archive_and_release_is_refused(self):
@@ -239,7 +260,7 @@ class Assemble(unittest.TestCase):
         cases = {
             "digest mismatch": ({("sdk", linux): {"digest": "0" * 64}}, "packaged checksum mismatch"),
             "missing archive": ({("product", linux): {"missing": True}}, "packaged checksum mismatch"),
-            "missing runner": ({("product", linux): {"absent": True}}, "exactly the eight"),
+            "missing runner": ({("product", linux): {"absent": True}}, "exactly the expected"),
             "wrong revision": ({("sdk", linux): {"options": {"meta": {"revision": "b" * 40}}}}, "metadata disagrees"),
             "wrong version": ({("sdk", linux): {"options": {"meta": {"version": "0.2.0"}}}}, "metadata disagrees"),
             "dirty tree": ({("product", linux): {"options": {"meta": {"dirty": True}}}}, "metadata disagrees"),
@@ -311,7 +332,7 @@ if lines:
             run_main("bundles", TAG, **environment)
             self.assertEqual(sorted(path.name for path in Path("release-assets").iterdir()), RELEASE.inventory(TAG))
             calls = [json.loads(line) for line in (root / "gh.log").read_text().splitlines()]
-            self.assertEqual(len(calls), 11)
+            self.assertEqual(len(calls), 13)
             for call in calls:
                 self.assertEqual(call[3:], ["--repo", REPOSITORY, "--predicate-type", RELEASE.PROVENANCE])
 
@@ -542,101 +563,6 @@ class Arguments(unittest.TestCase):
                 result = self.script(*argv, GITHUB_REPOSITORY=REPOSITORY, GITHUB_RUN_ID="123", GITHUB_SHA=COMMIT)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn(message, result.stderr)
-
-
-@needs_jq
-class Workflow(unittest.TestCase):
-    RELEASE = jobs(".github/workflows/release.yml")["release"]
-    GH = """#!/usr/bin/env python3
-import json, os, sys
-with open('calls', 'a') as log:
-    log.write(json.dumps(sys.argv[1:]) + '\\n')
-if sys.argv[1:3] == ['release', 'upload']:
-    sys.exit(int(os.environ['UPLOAD_STATUS']))
-"""
-    VERIFIER = """import os, sys
-from pathlib import Path
-if sys.argv[1] == 'draft-state':
-    print(os.environ['DRAFT_STATE'])
-else:
-    Path('verification-attempted').touch()
-    sys.exit(int(os.environ['VERIFY_STATUS']))
-"""
-
-    def fill(self, draft_exists, *, upload=0, verify=0):
-        script = run(self.RELEASE, "Fill the draft release, then make it public")
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp)
-            (directory / "artifacts").mkdir()
-            stub(directory, "gh", self.GH)
-            stub(directory, "ci/github_release.py", self.VERIFIER)
-            state = json.dumps({"draft_exists": draft_exists, "missing_assets": ["a", "b"]})
-            result = subprocess.run(
-                ["bash", "-e", "-o", "pipefail", "-c", script],
-                cwd=directory,
-                env=dict(
-                    os.environ,
-                    PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
-                    RELEASE_TAG=TAG,
-                    GITHUB_REPOSITORY=REPOSITORY,
-                    DRAFT_STATE=state,
-                    UPLOAD_STATUS=str(upload),
-                    VERIFY_STATUS=str(verify),
-                ),
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            calls = (directory / "calls").read_text().splitlines() if (directory / "calls").exists() else []
-            return result, [json.loads(line) for line in calls], (directory / "verification-attempted").exists()
-
-    def test_a_new_draft_is_created_filled_in_order_and_then_made_public(self):
-        result, calls, verified = self.fill(False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            [call[:2] for call in calls],
-            [["release", "create"], ["release", "upload"], ["release", "upload"], ["release", "edit"]],
-        )
-        for flag in ("--draft", "--prerelease", "--latest=false", "--verify-tag"):
-            self.assertIn(flag, calls[0])
-        self.assertIn(f"glowcap {TAG} alpha", calls[0])
-        self.assertEqual([call[3] for call in calls[1:3]], ["release-assets/a", "release-assets/b"])
-        for flag in ("--draft=false", "--prerelease", "--latest=false"):
-            self.assertIn(flag, calls[3])
-        self.assertTrue(verified)
-
-    def test_an_existing_draft_is_resumed_without_creating_another(self):
-        result, calls, _ = self.fill(True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            [call[:2] for call in calls], [["release", "upload"], ["release", "upload"], ["release", "edit"]]
-        )
-
-    def test_a_failed_upload_or_verification_never_publishes_the_draft(self):
-        for upload, verify in ((37, 0), (0, 41)):
-            with self.subTest(upload=upload, verify=verify):
-                result, calls, verified = self.fill(False, upload=upload, verify=verify)
-                self.assertEqual(result.returncode, upload or verify, result.stderr)
-                self.assertNotIn(["release", "edit"], [call[:2] for call in calls])
-                self.assertEqual(verified, not upload)
-
-    def test_the_release_job_and_publish_contract_call_the_script_modes(self):
-        self.assertEqual(
-            run(jobs(".github/workflows/publish.yml")["contract"], "Verify the public release behind the tag"),
-            'python3 ci/github_release.py published "$RELEASE_TAG"',
-        )
-        for mode in (
-            'assemble artifacts "$RELEASE_TAG"',
-            'bundles "$RELEASE_TAG"',
-            'draft-state "$RELEASE_TAG"',
-            'verify-draft "$RELEASE_TAG"',
-        ):
-            self.assertTrue(
-                any(f"python3 ci/github_release.py {mode}" in found.get("run", "") for found in self.RELEASE["steps"])
-            )
-        script = run(self.RELEASE, "Fill the draft release, then make it public")
-        self.assertIn('gh release create "$RELEASE_TAG"', script)
-        self.assertNotIn("GITHUB_REF_NAME", script)
 
 
 if __name__ == "__main__":

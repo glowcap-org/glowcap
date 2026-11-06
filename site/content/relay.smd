@@ -188,7 +188,7 @@ so none exercises a relay with a public certificate.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-relay.rkt")
+> (require glowcap/glowcap glowcap/glowcap-relay)
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -291,7 +291,7 @@ so none exercises a relay with a public certificate.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-relay.rkt")
+> (require glowcap/glowcap glowcap/glowcap-relay)
 >
 > ;; The key names the peer; the hint names the relay that can reach it.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -410,8 +410,8 @@ relay path is not sealed.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-relay.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-relay)
 >
 > ;; Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.

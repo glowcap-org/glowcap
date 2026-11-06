@@ -21,6 +21,7 @@ import { addressDesignator } from "./address.ts";
 import { type Config, installProvider as installTcpProvider } from "./transport.ts";
 import { INVALID_ARGUMENT } from "@glowcap/abi";
 
+/** Configure a TCP listener and the Host shared by its accepted sessions. */
 export interface ListenOptions {
 	/** Defaults inherited by every TCP stream admitted through this provider. */
 	readonly config?: Config;
@@ -34,6 +35,8 @@ export interface ListenOptions {
 	readonly codec?: Codec;
 }
 
+/** A keyed listener creates an identity from `seed` or shares `host`.
+ * Supplying neither creates a fresh identity. */
 export type KeyedListenOptions =
 	| (Omit<ListenOptions, "host"> & {
 		/** Reuse this 32-byte identity seed across restarts. */

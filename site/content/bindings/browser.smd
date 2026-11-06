@@ -6,9 +6,21 @@
 .draft = false,
 ---
 
-The `@glowcap/web` package compiles glowcap's protocol core to WebAssembly. A
+The `@glowcap/web` package runs glowcap's WebAssembly protocol core. A
 browser uses the same `Session` operations as the TypeScript binding.
 JavaScript supplies the byte channel and scheduling.
+
+# Start with the browser SDK
+
+Download the [v0.1.3 browser SDK](https://github.com/glowcap-org/glowcap/releases/download/v0.1.3/glowcap-web-v0.1.3-browser.tar.gz),
+extract it into a new directory your web server serves, and open `index.html`.
+It includes JavaScript, matching Wasm, and a complete WebRTC greeter example.
+The [package README](https://jsr.io/@glowcap/web) has local serving commands.
+
+The TypeScript fragments below show transport configuration. They share the
+fetch-and-call block beneath the tabs and expect a running remote peer.
+WebRTC also needs your application's authenticated signaling. Use the SDK's
+`example.js` for a complete local starting point.
 
 # Dial
 
@@ -130,7 +142,7 @@ When you hold the key and address as separate pieces instead, import
 `keyed` from `@glowcap/tcp` before `init` and call `keyed.locator`. The locator package
 does not load a compiled library or depend on the initialized wasm adapter.
 
-`init` instantiates `glowcap_host.wasm` (built by `zig build wasm-host`) and
+`init` instantiates the SDK's `glowcap_host.wasm` and
 hands back the configured browser runtime. From there `connect`, `fetch`,
 `send`, `spawn`, and `publish` work as on the
 [TypeScript page]($link.page('bindings/ts')).

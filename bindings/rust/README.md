@@ -19,7 +19,8 @@ cargo add tokio --features rt,macros
 
 The build script downloads the C libraries of the crate's version from its
 [GitHub release](https://github.com/glowcap-org/glowcap/releases) and verifies
-them against its checksum file. Set
+them against its checksum file. Automatic downloads need `curl`, GNU or BSD
+`tar`, and `sha256sum` or `shasum` on `PATH`. Set
 `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/` directory to build against a
 local copy. In a checkout of the repository, run `zig build` and depend on the
 crate by path instead:
@@ -31,10 +32,10 @@ glowcap = { path = "/path/to/glowcap/bindings/rust", features = ["async"] }
 
 ## A first session
 
-Start a server that publishes `greeter` with a `greet` method, as in the
-[listening example](https://glowcap.org/bindings/rust/). This client
+Start the [greeter server below](#run-the-greeter-server). This client
 connects over encrypted Noise TCP to `127.0.0.1:9099`. Replace `peer_key` with
-the server's public key, save this as `src/main.rs`, and run `cargo run`.
+the server's public key, create `src/bin/`, and save this as `src/bin/client.rs`.
+Run `cargo run --bin client`.
 Rust sessions stay on one thread, so the program runs inside a Tokio `LocalSet`.
 
 ```rust
@@ -58,6 +59,42 @@ async fn main() -> glowcap::Result<()> {
 
         session.close(PendingWork::Cancel).await?;
         runtime.close(PendingWork::Cancel).await
+    }).await
+}
+```
+
+### Run the greeter server
+
+Create `src/bin/server.rs` with the program below, using the same Cargo
+project and dependencies as the client. Run `cargo run --bin server` in
+another terminal. It prints an `ocapn://` URI. Copy its 64-character key into
+`peer_key` in the client above. The server creates a fresh key each time it starts.
+
+```rust
+use glowcap::{tcp, Argument, PendingWork};
+
+fn greet(verb: Option<&str>, args: &[Argument]) -> Result<Argument, String> {
+    let [Argument::String(name)] = args else {
+        return Err("expected one string".into());
+    };
+    if verb != Some("greet") {
+        return Err("expected greet".into());
+    }
+    Ok(Argument::String(format!("Hello, {name}").into()))
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> glowcap::Result<()> {
+    tokio::task::LocalSet::new().run_until(async {
+        let server = tcp::noise::listen("127.0.0.1", 9099, tcp::ListenOptions::default()).await?;
+        server.host().publish("greeter", || Box::new(greet))?;
+        println!("{}", server.uri()?);
+        loop {
+            let session = server.accept().await?;
+            let served = session.serve().await;
+            session.close(PendingWork::Cancel).await?;
+            served?;
+        }
     }).await
 }
 ```
@@ -294,11 +331,24 @@ allocation, lifecycle, and refusal diagnostics.
 
 ## Browser and Wasm
 
-The base binding supports `wasm32-unknown-unknown` with default features disabled. In a checkout,
-build the Wasm libraries and the generated struct-layout checks with
-`zig build gen-rust-wasm-layouts`. `GLOWCAP_LIB_DIR` selects the Wasm archive
-directory when consuming outside the checkout. Compile-time layout assertions
-and runtime archive fingerprint checks stay enabled.
+The base binding supports `wasm32-unknown-unknown` with default features disabled.
+The published crate downloads its version's Wasm SDK automatically, using the
+same verified cache as the desktop SDK. No Zig toolchain is needed.
+
+```toml
+[dependencies]
+glowcap = { version = "0.1.3", default-features = false, features = ["browser"] }
+```
+
+Install the Rust target with `rustup target add wasm32-unknown-unknown`, then
+build with `cargo build --target wasm32-unknown-unknown`. Your application
+chooses its browser executor and JavaScript packaging. Add `loam` to the
+features for IndexedDB storage.
+
+`GLOWCAP_LIB_DIR` selects an extracted Wasm SDK's `lib/` directory. In a source
+checkout, `zig build gen-rust-wasm-layouts` prepares the libraries under
+`zig-out/wasm/lib`. Compile-time layout assertions and runtime archive
+fingerprint checks stay enabled.
 
 With `async`, the same Host, Session, reference, and vow machinery runs on a
 Tokio `LocalSet` polled by a browser executor. Driver providers and socket

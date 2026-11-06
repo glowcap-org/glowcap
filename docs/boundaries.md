@@ -201,6 +201,11 @@ when the sender's session ends, even when the message remains.
 
 ## Browser reachability
 
+The browser SDK includes JavaScript and its matching Wasm for self-hosting.
+The supplied WebRTC example connects two peers in one tab. Its in-page
+signaling demonstrates the API, not an authenticated signaling service for
+remote peers.
+
 - **A browser opens no listening socket.** It needs a relay or WebRTC signaling.
   An iroh gateway can read traffic and vouch for the peer, while `noise-relay`
   seals the stream end to end ([relay trust](https://glowcap.org/relay/)).

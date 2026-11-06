@@ -1,3 +1,12 @@
+/**
+ * Build transport packages for a glowcap Runtime.
+ * `DriverProvider` installs a transport into the C driver loop. `Connector`
+ * opens a Session over a channel managed by the application. The exported
+ * listener and profile types let each transport own its setup and options.
+ *
+ * @module
+ */
+
 export type { Timer } from "./timer.ts";
 
 import type { DriverLoop } from "./driver_loop.ts";
@@ -10,6 +19,8 @@ export interface DriverProvider {
 	install(loop: DriverLoop): Promise<void>;
 }
 
+/** Dial context supplied to a connector, including cancellation and handoff
+ * redemption. The connector returns the established Session to the Runtime. */
 export interface ConnectorRequest {
 	/** True when this dial realizes a transparent handoff redeem. */
 	readonly redeem: boolean;
