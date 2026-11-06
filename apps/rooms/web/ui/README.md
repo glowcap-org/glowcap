@@ -29,8 +29,8 @@ Visual rules:
 
 `page.js` is the browser entry point, and it loads the React application in `main.tsx`. A second, small entry,
 `ground.js`, starts the mycelium under the page ([shared renderer](../../../../ui/mycelium/live.ts)). It loads on its own so the threads come up under the
-opening screen while `page.js` is still arriving. The threads draw with WebGPU, so a browser without it shows the
-plain ground. Both entries share `mycelium/link.ts`, which is how `page.js` dims
+opening screen while `page.js` is still arriving. Touch-first devices and browsers without WebGPU show the
+plain background. Both entries share `mycelium/link.ts`, which is how `page.js` dims
 the threads while every connection is lost and grows them back in when one returns.
 
 - **Production build.** The app's Vite configuration runs through Deno's pinned toolchain and publishes the entries as

@@ -102,6 +102,7 @@ zig build site-captures-rooms               # Capture the team room, direct line
 zig build site-captures-directories         # Capture the three-directory session and its phone pictures (needs cargo + deno + a Playwright Chromium); part of site-captures
 zig build site-render-check                 # Render every built site page at four widths in the pinned Chromium (fails on console errors, horizontal overflow, or widows) (needs deno + the image-baked browser)
 zig build site-tabs-check                   # Press the code-tabs on every built site page in the pinned Chromium and prove each tab opens its own panel (needs deno + the image-baked browser)
+zig build mycelium-test                     # Prove touch devices skip the background and desktop animation respects visibility, motion preferences and teardown (needs deno + Playwright); part of site-render-check
 zig build site-serve                        # Serve the documentation site with Zine's development server and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; captures the Rooms pictures first only when site/assets has none, so run site-captures to refresh them)
 zig build c-sdk-pack                        # Package and verify the C SDK (explicit Release mode and baseline CPU required)
 zig build c-sdk-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)

@@ -1,47 +1,11 @@
-// The mycelium under the page: a network of fine threads grown behind the
-// content of the Rooms page and the documentation site.
-//
-// It is grown, not tiled (network.ts owns the growth), so no two
-// window sizes show the same network and nothing in it repeats.
-// light.ts lays out the light that moves through the threads, renderer.ts
-// draws both on the page's GPU device, and open_ground.ts says where the
-// pointer is free to light them. This file owns the canvases and decides
-// when the light runs.
-//
-// It is drawn with WebGPU and nothing else. A browser that cannot make a
-// device shows the page's plain ground, and the page works the same.
-//
-// The threads lie in three planes at different depths, finer and fainter
-// far away and softer up close, all fuzzed with short hairs.
-//
-// The threads stay out of the reader's way. The canvases sit under the
-// content and take no pointer events, their colors come from `--mycelium`
-// and `--mycelium-pulse` in ui/tokens.css, and a mask thins everything
-// toward the middle of the window, where the reading is.
-//
-// It answers a little:
-//
-// - It fades in, slowly when the page is an arrival: a tab's first page, or
-//   any load of a page that is arrived at each time, as Rooms is.
-// - On an arrival the network also grows in from the edges, its tips lit.
-// - `dim()` fades the threads down and stills their life, for a page whose
-//   connection is lost. `regrow()` brings them back: the same network grows
-//   in again from the edges, its tips lit.
-// - Threads near the mouse light, and cool once it rests. The near plane
-//   moves a little against the mouse.
-// - A click or tap sends a wave of light out along the threads around it.
-// - Both answer only over open ground. Over a control, text, or a surface,
-//   the pointer is about the page, so the light fades and no wave starts.
-// - Every few seconds, toward the edges, a point of light runs out along a
-//   thread or a small wave flickers. `pulse()` sends a run on demand.
-// - The threads breathe, very slowly.
-//
-// Under reduced motion only the fade in runs, and in a hidden tab nothing does.
-// Between those, nothing is drawn: the threads are drawn once, and only a
-// frame with light in it draws again.
+// Shared background for Rooms and the documentation site. Touch-first
+// devices use the plain page background. Desktop threads grow once, then
+// react to the pointer and occasional runs of light. Network and GPU data
+// belong here; activity.ts owns when animation work may run.
 
 /// <reference lib="dom" />
 
+import { Activity } from "./activity.ts";
 import { readColors } from "../gpu/color.ts";
 import { keepOnPageDevice } from "../gpu/device.ts";
 import { grow, type Links, linksOf, type Network, READING } from "./network.ts";
@@ -60,10 +24,6 @@ const ARRIVE_MS = 1200;
 const RETURN_MS = 300;
 /** One slow breath of the threads, in and out, in ms. */
 const BREATH_MS = 18000;
-/** How often a breath moves the threads' opacity. At its fastest a breath
- * changes it by a 255th, one step of an 8-bit channel, in this long, so a
- * faster beat would only redraw the same frame. */
-const BREATH_STEP_MS = 125;
 const GROWN_KEY = "glowcap.mycelium.grown";
 /** How long the light under the mouse takes to rise once it is back over
  * open ground, and to fade once it rests, in ms. */
@@ -75,9 +35,7 @@ const PARALLAX = 5;
 /** How long the near plane takes to follow the pointer, so it drifts rather
  * than jitters with every move. */
 const PARALLAX_EASE = "translate 1.6s cubic-bezier(.2, .6, .2, 1)";
-/** Life of its own: the wait before the next run or flicker is between
- * these, in ms, and this share of them are runs. */
-const AMBIENT_MS = [2200, 6000] as const;
+/** The share of ambient effects that run along a thread. */
 const RUN_SHARE = 0.55;
 /** A run of light: the shortest thread it runs on, how much of the thread it
  * covers, and its speed in pixels per ms, all in CSS pixels. */
@@ -91,9 +49,8 @@ const SURGE_MS = 130;
 const OUTSKIRT = 0.55;
 const RUN_WIDTH = 0.45;
 const FLICKER_WIDTH = 0.3;
-/** A phone's toolbar changes the height by a strip, and regrowing for that
- * would swap the whole network under the reader's thumb. A resize regrows
- * only past this change in height, in CSS pixels, after this quiet, in ms. */
+/** Ignore small height changes from browser chrome. A resize regrows only
+ * past this change in height, in CSS pixels, after this quiet, in ms. */
 const RESIZE_SLACK = 140;
 const RESIZE_QUIET = 220;
 /** How much of their light the threads keep while dimmed, and how long
@@ -173,8 +130,11 @@ function fixedLayer(name: string, middle: number, bleed = 0): Layer | null {
 }
 
 /** Start the mycelium under the page. Resolves to null, with nothing added
- * to the page, when the browser cannot draw it. */
+ * to the page, on touch-first devices or when the browser cannot draw it. */
 export async function startMycelium(options: MyceliumOptions = {}): Promise<Mycelium | null> {
+	// Avoid network growth, GPU setup, and full-screen compositing on phones
+	// and tablets. Viewport width alone would miss a tablet in landscape.
+	if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return null;
 	const mid = fixedLayer("mycelium", 0.22);
 	// Out of focus, it would only blur the reading, so none of it reaches the
 	// middle of the window.
@@ -188,6 +148,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	let colors = read;
 
 	let renderer: GroundRenderer | null = null;
+	let activity: Activity | null = null;
 	const release = await keepOnPageDevice({
 		mount: (device, format) => {
 			try {
@@ -202,6 +163,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		lost: () => {
 			renderer?.destroy();
 			renderer = null;
+			activity?.refresh();
 		},
 		// Drawn again whole, with whatever light was alight left out.
 		relit: () => {
@@ -210,7 +172,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 			waves.length = 0;
 			runs.length = 0;
 			growth = null;
-			paint();
+			activity?.refresh();
 		},
 	});
 	if (release === null) return null;
@@ -225,8 +187,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	let focus: Network | null = null;
 	let links: Links | null = null;
 	let size = { w: 0, h: 0 };
-	let frameId = 0;
-	let ambient: ReturnType<typeof setTimeout> | undefined;
+	let paintedUpTo = -1;
 	// When the growth in progress on an arrival began.
 	let growth: number | null = null;
 	// The waves and runs alight, each in the slot its layout is written to.
@@ -257,17 +218,14 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	const drawPlanes = (upTo: number[]) => renderer?.paint(sheets(), looks, upTo, colors.thread, scale);
 	const paint = () => drawPlanes(planes.map((plane) => plane.steps));
 
-	const lively = () => !still.matches && !document.hidden && focus !== null;
-	const wake = () => {
-		if (frameId === 0) frameId = requestAnimationFrame(frame);
-	};
+	const lively = () => activity?.active === true && focus !== null;
+	const wake = () => activity?.wake();
 
 	// One frame of light: the mouse's, the growing front's, and every wave
 	// and run alight. The last frame of any of them draws it gone, so the
 	// light canvas is left empty when it rests.
 	const frame = (now: number) => {
-		frameId = 0;
-		if (renderer === null || focus === null) return;
+		if (renderer === null || focus === null) return false;
 		let busy = false;
 		const resting = now - mouse.at;
 		let hover = 0;
@@ -282,7 +240,10 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 			const t = Math.min(1, (now - growth) / GROW_MS);
 			upTo = Math.round((1 - (1 - t) ** 2) * focus.steps);
 			const steps = focus.steps;
-			drawPlanes(planes.map((plane) => Math.round((upTo / steps) * plane.steps)));
+			if (upTo !== paintedUpTo) {
+				drawPlanes(planes.map((plane) => Math.round((upTo / steps) * plane.steps)));
+				paintedUpTo = upTo;
+			}
 			const cooling = Math.max(0, now - growth - GROW_MS) / COOL_MS;
 			front = 1 - Math.min(1, cooling);
 			if (cooling >= 1) growth = null;
@@ -315,12 +276,12 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 			busy = true;
 		}
 		renderer.light(lightSheet(), { mouse, hover, upTo, front, waves: alight, runs: running }, colors.light, scale);
-		if (busy) frameId = requestAnimationFrame(frame);
+		return busy;
 	};
 
 	const rebuild = (animate: boolean) => {
-		cancelAnimationFrame(frameId);
-		frameId = 0;
+		activity?.cancelFrame();
+		paintedUpTo = -1;
 		size = { w: innerWidth, h: innerHeight };
 		for (const l of [mid, light]) fit(l);
 		fit(near, PARALLAX);
@@ -343,8 +304,8 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 
 	// Grow the network already there in again, from nothing.
 	const replay = () => {
-		cancelAnimationFrame(frameId);
-		frameId = 0;
+		activity?.cancelFrame();
+		paintedUpTo = -1;
 		drawPlanes(planes.map(() => -1));
 		waves.length = 0;
 		runs.length = 0;
@@ -432,17 +393,6 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		wake();
 	};
 
-	// Life of its own: every few seconds a point of light runs, or a small
-	// wave flickers, somewhere toward the edges.
-	const scheduleAmbient = (delay = AMBIENT_MS[0] + Math.random() * (AMBIENT_MS[1] - AMBIENT_MS[0])) => {
-		clearTimeout(ambient);
-		ambient = setTimeout(() => {
-			if (Math.random() < RUN_SHARE) pulse();
-			else flicker();
-			scheduleAmbient();
-		}, delay);
-	};
-
 	let stopped = false;
 	let arrival = options.arriving === true;
 	try {
@@ -451,40 +401,28 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	} catch (_) {
 		// tolerant: no storage means no memory of a first visit, so it never grows in
 	}
-	rebuild(arrival && !still.matches);
-	scheduleAmbient(arrival ? GROW_MS + COOL_MS + 400 : 1200);
 
 	// The threads fade in, then breathe very slowly. The compositor runs the
 	// fades, so they cost no drawing. A fade is not motion, so it runs for
 	// everyone. An arrival rises early and settles slowly, so the growth is
 	// not spent in the dark.
-	const rest = still.matches ? 1 : 0.82;
+	let rest = still.matches ? 1 : 0.82;
 	const depths = [mid.canvas, near.canvas];
 	// The fades that hold each shown canvas where it is, and the timer that
 	// moves the breath once the threads are fully up.
 	let fades: Animation[] = [];
-	let breathing: ReturnType<typeof setTimeout> | undefined;
+	let breathBegan = 0;
 	let dimmed = false;
 	// The near plane breathes half a breath behind, so the depths move apart,
 	// and holds at rest until its breath begins. Each breath eases in and out.
 	const breathe = (began: number) => {
-		const half = BREATH_MS / 2;
+		if (!lively() || dimmed || stopped) return;
+		breathBegan = began;
 		for (const canvas of depths) canvas.style.opacity = String(rest);
 		for (const fade of fades.slice(0, depths.length)) fade.cancel();
-		const step = () => {
-			const now = performance.now();
-			if (!document.hidden) {
-				depths.forEach((canvas, k) => {
-					const t = (now - began) / half - k;
-					if (t < 0) return;
-					const x = Math.floor(t) % 2 === 0 ? t % 1 : 1 - (t % 1);
-					canvas.style.opacity = String(rest + ((1 - rest) * (1 - Math.cos(Math.PI * x))) / 2);
-				});
-			}
-			breathing = setTimeout(step, BREATH_STEP_MS);
-		};
-		step();
+		activity?.breathe();
 	};
+
 	// Each shown canvas fades from `from` to `level` of its full light.
 	const fadeTo = (from: readonly (number | string)[], level: number, timing: KeyframeAnimationOptions) => {
 		const full = [rest, rest, 1];
@@ -503,9 +441,52 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	const halt = () => {
 		const from = shown.map(({ canvas }) => getComputedStyle(canvas).opacity);
 		for (const a of fades) a.cancel();
-		clearTimeout(breathing);
+		activity?.cancelBreath();
 		return from;
 	};
+	activity = new Activity({
+		ready: () => renderer !== null,
+		frame,
+		ambient: () => {
+			if (Math.random() < RUN_SHARE) pulse();
+			else flicker();
+		},
+		breath: (now) => {
+			depths.forEach((canvas, k) => {
+				const t = (now - breathBegan) / (BREATH_MS / 2) - k;
+				if (t < 0) return;
+				const x = Math.floor(t) % 2 === 0 ? t % 1 : 1 - (t % 1);
+				canvas.style.opacity = String(rest + ((1 - rest) * (1 - Math.cos(Math.PI * x))) / 2);
+			});
+		},
+		suspend: () => {
+			growth = null;
+			waves.length = 0;
+			runs.length = 0;
+			mouse.at = -Infinity;
+			for (const fade of fades) fade.cancel();
+			rest = still.matches ? 1 : 0.82;
+			shown.forEach(({ canvas }, k) => {
+				canvas.style.opacity = String((k < 2 ? rest : 1) * (dimmed ? DIM : 1));
+			});
+			if (!document.hidden && renderer !== null) {
+				paint();
+				renderer.light(
+					lightSheet(),
+					{ mouse, hover: 0, upTo: 0, front: 0, waves: [], runs: [] },
+					colors.light,
+					scale,
+				);
+			}
+		},
+		resume: () => {
+			activity?.scheduleAmbient();
+			breathe(performance.now());
+		},
+	});
+	rebuild(arrival && activity.active);
+	activity.scheduleAmbient(arrival ? GROW_MS + COOL_MS + 400 : 1200);
+
 	const arriving = {
 		duration: ARRIVE_MS,
 		easing: "cubic-bezier(.25, .5, .3, 1)",
@@ -519,18 +500,19 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	const dim = () => {
 		if (dimmed || stopped) return;
 		dimmed = true;
-		clearTimeout(ambient);
+		activity?.setDimmed(true);
 		fadeTo(halt(), DIM, { duration: DIM_MS, easing: "cubic-bezier(.4, 0, .2, 1)" });
 	};
 
 	const regrow = () => {
 		if (!dimmed || stopped) return;
 		dimmed = false;
+		activity?.setDimmed(false);
 		const from = halt();
 		const growing = lively();
 		if (growing) replay();
 		fadeTo(from, 1, arriving);
-		scheduleAmbient(growing ? GROW_MS + COOL_MS + 400 : 1200);
+		activity?.scheduleAmbient(growing ? GROW_MS + COOL_MS + 400 : 1200);
 	};
 
 	let resizing: ReturnType<typeof setTimeout> | undefined;
@@ -541,6 +523,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		}, RESIZE_QUIET);
 	};
 	const recolor = () => {
+		paintedUpTo = -1;
 		colors = readColors(document.body, COLORS) ?? colors;
 		if (growth === null) paint();
 	};
@@ -557,16 +540,17 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		stop() {
 			stopped = true;
 			release();
-			cancelAnimationFrame(frameId);
+			activity?.stop();
 			for (const a of fades) a.cancel();
-			clearTimeout(breathing);
-			clearTimeout(ambient);
 			clearTimeout(resizing);
 			themes.disconnect();
 			removeEventListener("resize", onResize);
 			removeEventListener("pointermove", hover);
 			removeEventListener("pointerdown", touch);
-			for (const l of shown) l.canvas.remove();
+			for (const { canvas, context } of shown) {
+				context.unconfigure();
+				canvas.remove();
+			}
 			// The buffers are the threads' and go with them; the device is the
 			// page's and stays.
 			renderer?.destroy();

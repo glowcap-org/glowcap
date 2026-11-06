@@ -51,8 +51,9 @@ readable accent text on both surfaces.
     `--frost`, or `--radius-card`
   - a rooms sheet that never uses `--type-ui`
 - **Mycelium:** `ui/mycelium/` grows the network of threads
-  behind every page of both surfaces, and both call its `startMycelium()`. It
-  draws with WebGPU, and a browser without it shows the plain ground. A
+  behind both surfaces on devices with a fine pointer and hover. Touch-first
+  devices and browsers without WebGPU use the plain background. Hidden tabs
+  and reduced motion stop recurring animation work. A
   surface that paints its own full-page ground hides it, so a page shows the
   body's `--page-bg` instead of repainting it.
 - **Mark lockup:** `mark.css` owns where the still mushroom sits in its box,
