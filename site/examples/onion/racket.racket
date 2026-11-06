@@ -1,4 +1,4 @@
-(require "glowcap.rkt" "glowcap-onion.rkt")
+(require glowcap/glowcap glowcap/glowcap-onion)
 
 ;; glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 (define server (listen-onion #:socks "/run/tor/socks"

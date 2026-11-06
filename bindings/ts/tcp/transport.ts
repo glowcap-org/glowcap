@@ -1,23 +1,12 @@
-// Framed transport API for `libglowcap_net_transport_tcp`, beside
-// this package's dependency-free locator constructors in `mod.ts`.
-//
-// The transport subpath opens only the TCP archive and builds on `@glowcap/runtime`'s
-// shared frame/context types. Applications normally use the package root to
-// construct locators and the runtime's `connect`/`listen`; this subpath exposes
-// provider installation and the C ABI's direct frame shuttle. Deno offloads
-// every potentially blocking call;
-// runtimes with synchronous FFI refuse those methods before entering FFI code.
-//
-//   using net = new Netlayer();
-//   using listener = net.listen("127.0.0.1", 0);
-//   using client = await net.connect("127.0.0.1", listener.port());
-//   using server = await listener.accept();
-//   await client.writeFrame(frame);
-//   const got = await server.readFrame();
-//
-// The TCP archive keeps its own thread-local last-error, read through
-// `glowcap_tcp_last_error`, so a failed call's diagnostic never scrapes the
-// core's unrelated `glowcap_last_error`.
+/**
+ * Provider configuration and raw framed TCP connections for Deno.
+ * Use `Netlayer` to open listeners and connections when your program moves
+ * frames itself. Release connections before their listener and netlayer.
+ * Blocking operations run off the JavaScript thread and refuse synchronous FFI
+ * runtimes. Most applications use `@glowcap/tcp` with `Runtime` instead.
+ *
+ * @module
+ */
 
 import {
 	AsyncFfiWriteQueue,

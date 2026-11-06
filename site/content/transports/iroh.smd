@@ -73,11 +73,12 @@ dial passes only the locator and any per-connect options.
 >
 > const web = await init({
 > 	wasm: fetch("/glowcap_host.wasm"),
-> 	relayUrl: (locator) => `wss://relay.example/?locator=${encodeURIComponent(locator)}`,
+> 	relayUrl: (locator) => `wss://relay.example/relay?locator=${encodeURIComponent(locator)}`,
 > });
 > await using runtime = web.runtime;
-> // `@glowcap/iroh` loads a compiled library through FFI, so a page parses the locator on the web runtime.
-> const partner = web.parseLocator("ocapn://<64 lowercase hex characters>.iroh");
+> // Copy the server's full URI, including direct-addresses reachable from the relay.
+> const peerUri = "ocapn://<64 lowercase hex characters>.iroh?direct-addresses=127.0.0.1%3A5000";
+> const partner = web.parseLocator(peerUri);
 > ```
 > **Python**
 > ```python
@@ -109,8 +110,8 @@ dial passes only the locator and any per-connect options.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-iroh.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-iroh)
 >
 > ;; IROH-REACH-DISCOVERY resolves a bare iroh node ID without an address hint.
 > (define node-id "<64 lowercase hex characters from the server>")
@@ -200,8 +201,8 @@ can use.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-iroh.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-iroh)
 >
 > ;; This listener is named by its node id. Partners can dial it from anywhere.
 > (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))

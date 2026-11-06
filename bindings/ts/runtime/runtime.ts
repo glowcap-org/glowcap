@@ -28,6 +28,9 @@ type CommonRuntimeOptions = RuntimeHostOptions & {
 	readonly handshakeTimeoutMs?: number | null;
 };
 
+/** Choose providers for the C driver or connectors for application-owned
+ * channels. Supply `adoptHost` to transfer an existing Host, or Host options
+ * to create a new identity. */
 export type RuntimeOptions =
 	& CommonRuntimeOptions
 	& (
@@ -41,6 +44,7 @@ export type RuntimeOptions =
 		}
 	);
 
+/** Cancellation and transport-specific options for one outgoing session. */
 export interface ConnectOptions {
 	/** Cancel byte-channel establishment before the Session opens. */
 	readonly signal?: AbortSignal;
@@ -68,6 +72,8 @@ export class Runtime {
 		this.#handshakeTimeoutMs = handshakeTimeoutMs;
 	}
 
+	/** Open one Host with the explicitly selected transports. An adopted Host
+	 * becomes owned by this Runtime and closes with it. */
 	static async open(options: RuntimeOptions): Promise<Runtime> {
 		await ensureRuntimeReady();
 		const handshakeTimeoutMs = options.handshakeTimeoutMs === undefined
@@ -109,10 +115,13 @@ export class Runtime {
 		}
 	}
 
+	/** The shared Host that owns this Runtime's identity and published objects. */
 	get host(): Host {
 		return this.#host;
 	}
 
+	/** Open a session using a configured transport that supports the locator.
+	 * Resolves after the CapTP handshake. A missing transport is refused. */
 	async connect(partner: Locator, options: ConnectOptions = {}): Promise<Session> {
 		this.#host.assertHandle();
 		throwIfCancelled(options.signal);
@@ -147,6 +156,8 @@ export class Runtime {
 		);
 	}
 
+	/** Close the owned Host, listeners, and sessions. `options` selects whether
+	 * outstanding work is cancelled or allowed to finish before shutdown. */
 	async close(options: CloseOptions = {}): Promise<void> {
 		if (this.#mode.tag === "driver") await this.#mode.loop.close(options);
 		else await this.#host.close(options);

@@ -253,3 +253,53 @@ test "pipeline retirement event reservations survive idle trims and publish with
     retired.deinit();
     try std.testing.expectEqual(@as(usize, 0), peer.events.reservations);
 }
+
+test "event appends preserve reserved seats at capacity and after compaction" {
+    inline for (.{ false, true }) |uninit| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.Peer.init(failing.allocator());
+        defer peer.deinit();
+        defer while (peer.events.reservations != 0) peer.events.cancelReservation();
+        try peer.events.reserve(peer.allocator);
+        try peer.events.reserve(peer.allocator);
+        try peer.events.ensureUnusedCapacity(peer.allocator, 2);
+        const event: engine.Event = .{
+            .payload = .{ .release_pipeline_export = .{ .near = model.NearRef.object(7), .target = 8 } },
+            .codec = .syrup,
+            .captp_version = peer.session_state.captp_version,
+            .allocator = peer.allocator,
+        };
+        const capacity = peer.events.items.capacity;
+        for (0..capacity - 2) |_| {
+            if (uninit) (try peer.events.pushUninit(peer.allocator)).* = event else try peer.events.push(peer.allocator, event);
+        }
+        failing.fail_index = failing.alloc_index;
+        failing.resize_fail_index = failing.resize_index;
+        if (uninit) {
+            try std.testing.expectError(error.OutOfMemory, peer.events.pushUninit(peer.allocator));
+        } else {
+            try std.testing.expectError(error.OutOfMemory, peer.events.push(peer.allocator, event));
+        }
+        try std.testing.expectEqual(@as(usize, 2), peer.events.reservations);
+
+        // A consumed prefix makes room without spending a promised seat.
+        var first = peer.pollEvent().?;
+        first.deinit();
+        if (uninit) (try peer.events.pushUninit(peer.allocator)).* = event else try peer.events.push(peer.allocator, event);
+        try std.testing.expectEqual(capacity, peer.events.items.capacity);
+        try std.testing.expectEqual(@as(usize, 0), peer.events.head);
+
+        // Cancellation returns one seat to ordinary appends.
+        peer.events.cancelReservation();
+        if (uninit) (try peer.events.pushUninit(peer.allocator)).* = event else try peer.events.push(peer.allocator, event);
+        while (peer.pollEvent()) |owned| {
+            var item = owned;
+            item.deinit();
+        }
+        peer.events.trimDrained(peer.allocator);
+        peer.events.pushReserved(event);
+        var promised = peer.pollEvent().?;
+        promised.deinit();
+        try std.testing.expectEqual(@as(usize, 0), peer.events.reservations);
+    }
+}

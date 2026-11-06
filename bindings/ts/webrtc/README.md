@@ -1,130 +1,69 @@
 # @glowcap/webrtc
 
-`@glowcap/webrtc` connects two [OCapN](https://glowcap.org/protocol/) peers directly over WebRTC,
-for example two browsers. A browser dials and listens with `RtcPeer`, and Deno does the same
-through the WebRTC C library. Each keyed session runs over one `RTCDataChannel`, with one CapTP
-frame per packet. The [WebRTC page](https://glowcap.org/transports/webrtc/) explains signaling,
-identity, and staying direct.
+Connect [OCapN](https://glowcap.org/protocol/) peers over WebRTC. Each keyed
+session runs over one ordered, reliable DataChannel. Browsers use the browser
+WebRTC API. Deno uses the WebRTC library included in glowcap's C SDK.
 
-## Install
+## Try it in a browser
+
+The [browser bundle](https://github.com/glowcap-org/glowcap/releases/download/v0.1.3/glowcap-web-v0.1.3-browser.tar.gz)
+contains prebuilt JavaScript, Wasm, and a complete WebRTC example. Extract it,
+serve its directory, and open `index.html`. The
+[browser package](https://jsr.io/@glowcap/web) has the commands.
+
+`example.js` defines both peers, their signaling, and a greeter call. Its
+signaling stays inside one page. A real application supplies signaling over
+an authenticated channel, such as an existing CapTP session.
+
+## Add WebRTC to your application
 
 ```sh
-deno add jsr:@glowcap/webrtc jsr:@glowcap/runtime
+deno add jsr:@glowcap/webrtc jsr:@glowcap/runtime jsr:@glowcap/web
 ```
 
-In the browser, add [`@glowcap/web`](https://jsr.io/@glowcap/web). In Deno, the package loads the
-WebRTC C library on first use, which the runtime's C SDK download includes.
-Run a Deno application with `deno run --allow-all app.ts`. The
-[runtime installation instructions](https://jsr.io/@glowcap/runtime#install) explain the
-download tools and how to use a local SDK.
-
-## Signaling
-
-WebRTC peers cannot find each other alone. Your application supplies signaling, the exchange of
-offers, answers, and network candidates that sets up the connection, usually through an OCapN
-capability such as a room. Once the channel opens, bytes flow directly between the peers. The same
-`SignalingAuthority` serves every side: `offer` sends an offer
-and resolves with the answer, `answer` sends an answer, `candidate` sends a
-local candidate, and `onCandidate` subscribes the far peer's candidates. Every
-call names its exchange by id. `offer`, `answer`, and `onCandidate` also
-receive a `SignalingTarget` whose `designator` names the peer, and `candidate`
-takes only the id.
-
-## Dial and listen in a browser
-
-These snippets compose with a Host initialized through
-[`@glowcap/web`](https://jsr.io/@glowcap/web). Your application supplies the signaling
-implementation, peer keys, and incoming offers described above.
-
-`connector(signaling, options?)` lets a `@glowcap/web` Runtime dial a `webrtc`
-locator. `listener(host, signaling, options?)` answers offers for a Host and
-advertises the Host's key as its `webrtc` locator.
+This browser helper takes your signaling implementation and matching Wasm as
+explicit inputs. It returns one runtime and a listener using that runtime's
+Host. Close both when your application stops.
 
 ```ts
-import { connector, listener, locator } from "@glowcap/webrtc";
+import { init, type WasmSource } from "@glowcap/web";
+import { connector, listener, type SignalingAuthority } from "@glowcap/webrtc";
 
-const runtime = await stack.openRuntime({ connectors: [connector(signaling)] });
-const session = await runtime.connect(locator(designator));
-
-await using answering = listener(stack.host, signaling);
-answering.provideOffer(offererDesignator, offerSdp);
-for await (const accepted of answering) {
-	await accepted.serve();
+export async function openPeer(wasm: WasmSource, signaling: SignalingAuthority) {
+	const web = await init({ wasm, connectors: [connector(signaling)] });
+	return {
+		runtime: web.runtime,
+		answering: listener(web.runtime.host, signaling),
+	};
 }
 ```
 
-- `provideOffer` takes the offerer's key, which the accepted session names as its authenticated
-  partner. It refuses an offer when the listener is closed, the key is malformed, or too many
-  accepts are in flight. A failure after it returns ends that accept and is recorded on the Host,
-  where `Host.takeFailures()` reads it (the [runtime package](https://jsr.io/@glowcap/runtime)
-  describes that list).
-- `failExchange` gives up an accept whose offerer went quiet.
-- Pass `iceServers` in `options` as a list, or as a function that fetches short-lived TURN
-  credentials for each connection. ICE servers help two peers find a route to each other.
+For Deno, run with `deno run --allow-all app.ts`. The C SDK downloads on
+first use. The [runtime installation guide](https://jsr.io/@glowcap/runtime#install)
+lists prerequisites. Use `provider` from `@glowcap/webrtc/driver` in
+`Runtime.open({ providers: [provider(signaling)] })`. Its `listen(signaling)`
+function opens an answering peer. Deno peers on the same machine need
+`includeLoopbackCandidates: true` in the provider and listener configuration.
 
-The public API is [`mod.ts`](mod.ts).
+## Signaling and ownership
 
-## Dial and listen from Deno
+`SignalingAuthority` carries offers, answers, and network candidates. `offer`
+resolves with the answer. `answer` and `candidate` send messages, while
+`onCandidate` subscribes to remote candidates. Route candidates by exchange
+ID, including candidates that arrive before their subscriber exists.
 
-`@glowcap/webrtc/driver` is the Deno entry. `provider(signaling, config?)` lets
-`runtime.connect(locator(designator))` dial a `webrtc` locator on the driver
-loop. The C library makes the offer and gathers candidates, and your
-`SignalingAuthority` carries them. Here a target's `introducer` is the
-designator of the session that handed over the reference the dial follows, or
-`null` when the application started the dial itself or accepted the peer.
+Pass authenticated incoming offers to `answering.provideOffer(peerKey, sdp)`.
+Iterating the listener yields accepted sessions. Serve each session and
+close it when finished. Use `failExchange` to cancel an accept whose offerer
+went quiet. A refusal after `provideOffer` returns is recorded on the Host,
+where `Host.takeFailures()` reads it.
 
-```ts
-import { Runtime } from "@glowcap/runtime";
-import { locator } from "@glowcap/webrtc";
-import { provider } from "@glowcap/webrtc/driver";
+The peer key is an authority claim, so signaling must bind that key to the
+party sending the offer. Across networks, pass `iceServers` to the browser
+connector and listener. It accepts a list or a function that fetches fresh
+STUN/TURN configuration for each connection.
 
-const runtime = await Runtime.open({
-	providers: [provider(signaling, { iceServers: [{ urls: "stun:stun.example:3478" }] })],
-});
-const session = await runtime.connect(locator(designator));
-```
-
-`listen(signaling, config?, options?)` makes a Host that answers. Its
-designator is the Host's own key, so a peer dials `locator(server.designator)`.
-Hand each inbound offer to `server.provideOffer(designator, sdp)`. The library
-answers through `signaling.answer` before the call returns, and the exchange id
-it gives back names the accept for `server.failExchange(exchange)` when the
-offerer goes quiet. Pass a 32-byte `seed` or an existing `host` in `options`,
-never both. Iterating the server yields each accepted `Session` once its
-channel opens, with the offerer's key as its authenticated partner.
-
-```ts
-import { listen } from "@glowcap/webrtc/driver";
-
-await using server = await listen(signaling);
-const exchange = server.provideOffer(offererDesignator, offerSdp);
-for await (const session of server) {
-	await session.serve();
-}
-```
-
-The entry loads the WebRTC C library on first use, so the browser API in `mod.ts` never imports
-it. Failures behave as follows:
-
-- A dial whose answer never arrives fails at the handshake deadline.
-- When `offer` or `candidate` rejects, the dial is given up and fails at the driver's next step. The
-  error is recorded on the loop's Host.
-- An answer the library refuses gives the dial up the same way.
-- An `answer` that throws refuses the offer, and one whose promise rejects gives the accept up.
-
-Candidates route by exchange id, so a dial to a peer and that peer's own offer run side by side
-as two exchanges in a browser and in Deno alike. When two peers dial each other at once, CapTP
-keeps one of the two sessions. Your signaling object must key its candidate handlers by exchange
-id and never by designator. Two peers on one machine need
-`includeLoopbackCandidates: true`.
-
-## Learn more
-
-- [WebRTC page](https://glowcap.org/transports/webrtc/) and the
-  [browser guide](https://glowcap.org/bindings/browser/).
-- The [repository](https://github.com/glowcap-org/glowcap) for the C libraries and the other
-  bindings.
-
-glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
-what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
-explains.
+The [WebRTC guide](https://glowcap.org/transports/webrtc/) and
+[API reference](https://jsr.io/@glowcap/webrtc/doc) cover the full contract.
+glowcap is built with AI coding assistants under
+[maintainer direction](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md).

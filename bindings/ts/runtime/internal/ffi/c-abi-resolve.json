@@ -1,5 +1,5 @@
 {
-	"abi_version": "0.1.2",
+	"abi_version": "0.1.3",
 	"default_release_base_url": "https://github.com/glowcap-org/glowcap/releases/download",
 	"tarball_template": "glowcap-c-v{version}-{target}.tar.gz",
 	"release_tag_template": "v{version}",
@@ -19,5 +19,5 @@
 	"max_tarball_bytes": 536870912,
 	"max_sums_bytes": 1048576,
 	"extract_prefix": "lib",
-	"user_agent": "glowcap-c-abi-fetch/0.1.2"
+	"user_agent": "glowcap-c-abi-fetch/0.1.3"
 }

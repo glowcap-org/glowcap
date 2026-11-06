@@ -16,14 +16,14 @@ raco pkg install glowcap
 The package installs the `glowcap` collection. On first load it downloads the
 C libraries of its version from its
 [GitHub release](https://github.com/glowcap-org/glowcap/releases) and verifies
-them against its checksum file. Set `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/`
+them against its checksum file. Automatic downloads need `curl`, GNU or BSD
+`tar`, and `sha256sum` or `shasum` on `PATH`. Set `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/`
 directory to use a local copy. In a checkout of the repository, run `zig build`
 and `require` the modules from `bindings/racket/` by relative path instead.
 
 ## A first session
 
-Start a server that publishes `greeter` with a `greet` method, as in the
-[listening example](https://glowcap.org/bindings/racket/). This client
+Start the [greeter server below](#run-the-greeter-server). This client
 connects over encrypted Noise TCP to `127.0.0.1:9099`. Replace `peer-key` with
 the server's public key, save this as `client.rkt`, and run `racket client.rkt`.
 
@@ -40,6 +40,32 @@ the server's public key, save this as `client.rkt`, and run `racket client.rkt`.
 (printf "~a\n" (session-send session greeter 'greet "world"))
 (session-close! session)
 (runtime-close! runtime)
+```
+
+### Run the greeter server
+
+Save this as `server.rkt` and run `racket server.rkt` in another terminal.
+It prints an `ocapn://` URI. Copy its 64-character key into `peer-key` in the
+client above. The server creates a fresh key each time it starts.
+
+```racket
+#lang racket/base
+
+(require glowcap/glowcap
+         glowcap/glowcap-tcp)
+
+(define server (listen-noise-tcp "127.0.0.1" 9099))
+(host-publish (server-host server) "greeter"
+  (methods [(greet who) (format "Hello, ~a" who)]))
+(printf "~a\n" (server-uri server))
+(flush-output)
+(let loop ()
+  (define session (accept server))
+  (dynamic-wind
+    void
+    (lambda () (session-serve session))
+    (lambda () (session-close! session)))
+  (loop))
 ```
 
 `glowcap.rkt` provides sessions, hosts, values, locators, and the actor API.

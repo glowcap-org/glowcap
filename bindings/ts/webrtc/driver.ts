@@ -1,8 +1,11 @@
-// Deno's WebRTC provider and listener: the driver loop dials a `webrtc` locator
-// and answers inbound offers through the C library's netlayer, and this module
-// carries the signaling the application owns. It opens
-// `libglowcap_net_transport_webrtc`, so only Deno programs import it. The
-// browser surface in `mod.ts` never does.
+/**
+ * WebRTC providers and listeners for Deno's glowcap driver loop.
+ * The C transport library opens DataChannels while application-owned signaling
+ * carries offers, answers, and ICE candidates. Browser applications use the
+ * connector and listener from `@glowcap/webrtc` instead.
+ *
+ * @module
+ */
 
 import { GlowcapError, type Host, TRANSPORT_WEBRTC } from "@glowcap/runtime";
 import {

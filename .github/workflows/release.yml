@@ -11,7 +11,8 @@
 # The public release dispatches publish.yml at the tag for the registries.
 #
 # A job that fails is re-run from the Actions page with "Re-run failed jobs":
-# the release job resumes its own draft and skips an image already pushed. A
+# the release job restores its saved evidence, resumes its own draft, and skips
+# an image already pushed. The saved generation must survive until publication. A
 # published version is never replaced, so a defect takes the next patch version.
 # A workflow_dispatch run rehearses the builds and image proofs without
 # attesting or publishing anything.
@@ -152,6 +153,13 @@ jobs:
           fi
           zig build -Doptimize=ReleaseSafe c-sdk-pack glowcap-pack -Dcpu=baseline "-Dtarget=$RELEASE_TARGET"
 
+      - name: Build and verify the browser bundle and WebAssembly libraries
+        if: matrix.runner == 'ubuntu-24.04'
+        run: |
+          source .devcontainer/pins.sh
+          npx --yes "playwright@$PLAYWRIGHT_VERSION" install --with-deps chromium
+          zig build portable-package-test
+
       - name: Verify the Zig source package
         run: zig build consumer-check --summary all
 
@@ -162,6 +170,7 @@ jobs:
           subject-path: |
             zig-out/release/*.tar.gz
             zig-out/glowcap-release/*.tar.gz
+            zig-out/portable-release/*.tar.gz
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # Preserve the product when its proof fails, so a corrected harness can
@@ -174,7 +183,9 @@ jobs:
             zig-out/release/*.tar.gz
             zig-out/release/SHA256SUMS
             zig-out/glowcap-release/*.tar.gz
+            zig-out/portable-release/*.tar.gz
             zig-out/glowcap-release/SHA256SUMS
+            zig-out/portable-release/SHA256SUMS
           if-no-files-found: error
 
   images:
@@ -291,24 +302,50 @@ jobs:
         with:
           python-version: ${{ steps.pins.outputs.python }}
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Find this run's prepared release
+        id: prepared
+        run: python3 ci/github_release.py prepared-state "$RELEASE_TAG"
+
+      - name: Restore this run's prepared release
+        if: steps.prepared.outputs.artifact_id != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 5
+        with:
+          artifact-ids: ${{ steps.prepared.outputs.artifact_id }}
+          merge-multiple: true
+          path: .
+
+      - name: Download the build artifacts for preparation
+        if: steps.prepared.outputs.artifact_id == ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         timeout-minutes: 10
         with:
           path: artifacts
 
+      - name: Package the Racket binding
+        if: steps.prepared.outputs.artifact_id == ''
+        run: python3 ci/github_release.py racket-package "$RELEASE_TAG"
+
       - name: Assemble the release assets
+        if: steps.prepared.outputs.artifact_id == ''
         run: python3 ci/github_release.py assemble artifacts "$RELEASE_TAG"
 
-      - name: Attest the checksum file's build provenance
+      - name: Attest the Racket package and checksum files
+        if: steps.prepared.outputs.artifact_id == ''
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: release-assets/SHA256SUMS
+          subject-path: |
+            release-assets/SHA256SUMS
+            release-assets/*.zip
+            release-assets/*.CHECKSUM
 
       - name: Publish the versioned multi-platform Rooms image
+        if: steps.prepared.outputs.artifact_id == ''
         id: image
         run: python3 ci/release_image.py artifacts
 
       - name: Attest the image's build provenance
+        if: steps.prepared.outputs.artifact_id == ''
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/glowcap-org/glowcap-rooms
@@ -316,6 +353,7 @@ jobs:
           push-to-registry: true
 
       - name: Write the image's software bill of materials
+        if: steps.prepared.outputs.artifact_id == ''
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/glowcap-org/glowcap-rooms@${{ steps.image.outputs.digest }}
@@ -326,6 +364,7 @@ jobs:
           dependency-snapshot: false
 
       - name: Attest the image's software bill of materials
+        if: steps.prepared.outputs.artifact_id == ''
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/glowcap-org/glowcap-rooms
@@ -335,6 +374,7 @@ jobs:
           push-to-registry: true
 
       - name: Render the release page and download every provenance bundle
+        if: steps.prepared.outputs.artifact_id == ''
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
@@ -342,25 +382,49 @@ jobs:
             --image-digest "$IMAGE_DIGEST" --output artifacts/release-notes.md
           python3 ci/github_release.py bundles "$RELEASE_TAG"
 
+      - name: Seal the prepared release
+        if: steps.prepared.outputs.artifact_id == ''
+        run: python3 ci/github_release.py seal-prepared "$RELEASE_TAG"
+
+      - name: Save this run's prepared release
+        if: steps.prepared.outputs.artifact_id == ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 5
+        with:
+          name: prepared-release
+          path: |
+            release-assets/
+            artifacts/release.json
+            artifacts/release-notes.md
+            artifacts/prepared-release.json
+          if-no-files-found: error
+          overwrite: false
+          compression-level: 0
+
+      - name: Verify the saved release generation
+        run: python3 ci/github_release.py verify-prepared "$RELEASE_TAG"
+
       - name: Fill the draft release, then make it public
         run: |
-          python3 ci/github_release.py draft-state "$RELEASE_TAG" > artifacts/release-state.json
-          if ! jq -e '.draft_exists' artifacts/release-state.json > /dev/null; then
-            gh release create "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "glowcap $RELEASE_TAG alpha" \
-              --prerelease \
-              --draft \
-              --latest=false \
-              --verify-tag \
+          python3 ci/github_release.py resume-state "$RELEASE_TAG" > artifacts/release-state.json
+          if ! jq -e '.published' artifacts/release-state.json > /dev/null; then
+            if ! jq -e '.draft_exists' artifacts/release-state.json > /dev/null; then
+              gh release create "$RELEASE_TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "glowcap $RELEASE_TAG alpha" \
+                --prerelease \
+                --draft \
+                --latest=false \
+                --verify-tag \
+                --notes-file artifacts/release-notes.md
+            fi
+            while IFS= read -r asset; do
+              gh release upload "$RELEASE_TAG" "release-assets/$asset" --repo "$GITHUB_REPOSITORY"
+            done < <(jq -r '.missing_assets[]' artifacts/release-state.json)
+            python3 ci/github_release.py verify-draft "$RELEASE_TAG"
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false \
               --notes-file artifacts/release-notes.md
           fi
-          while IFS= read -r asset; do
-            gh release upload "$RELEASE_TAG" "release-assets/$asset" --repo "$GITHUB_REPOSITORY"
-          done < <(jq -r '.missing_assets[]' artifacts/release-state.json)
-          python3 ci/github_release.py verify-draft "$RELEASE_TAG"
-          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false \
-            --notes-file artifacts/release-notes.md
 
       - name: Publish the language packages at the tag
         run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"

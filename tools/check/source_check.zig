@@ -349,6 +349,7 @@ test {
     _ = section_refs;
     _ = bench_figures;
     _ = source_comments;
+    _ = doc_orphans;
     _ = docs_static_docs;
     _ = docs_public_paths;
     _ = docs_headers;

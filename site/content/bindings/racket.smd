@@ -15,6 +15,15 @@ The transport modules are `glowcap-iroh.rkt`, `glowcap-onion.rkt`,
 [Bindings]($link.page('bindings')) page covers install, and
 [modules]($link.page('modules')) has the actor vocabulary.
 
+For complete client and server programs, start with the
+[package quick start](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/README.md#a-first-session).
+The transport tabs below show the setup to combine with the common call
+or serving code beneath them. Save the combined code in a file beginning
+with `#lang racket/base`, then run it with `racket`.
+
+WebRTC examples show how to connect application-owned signaling. Supply its
+offer, answer, and candidate exchange before using those snippets.
+
 # The same round-trip
 
 The [Start building]($link.page('start')) round-trip reads like this in Racket:
@@ -25,7 +34,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > []($block.attrs('code-tabs'))
 > **noise-tcp**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-tcp.rkt")
+> (require glowcap/glowcap glowcap/glowcap-tcp)
 >
 > ;; Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -35,8 +44,8 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **iroh**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-iroh.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-iroh)
 >
 > ;; IROH-REACH-DISCOVERY resolves a bare iroh node ID without an address hint.
 > (define node-id "<64 lowercase hex characters from the server>")
@@ -48,8 +57,8 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **webrtc**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-webrtc.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-webrtc)
 >
 > ;; Your signaling carries the offer and each candidate to the peer the locator
 > ;; names, over a path you already hold, such as an OCapN capability both peers
@@ -66,7 +75,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **noise-relay**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-relay.rkt")
+> (require glowcap/glowcap glowcap/glowcap-relay)
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -77,7 +86,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **onion**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-onion.rkt")
+> (require glowcap/glowcap glowcap/glowcap-onion)
 >
 > ;; glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > (define partner (onion-locator "<56-character onion service id>"))
@@ -87,7 +96,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **keyed-tcp**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-tcp.rkt")
+> (require glowcap/glowcap glowcap/glowcap-tcp)
 >
 > ;; Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -97,7 +106,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **keyed-relay**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-relay.rkt")
+> (require glowcap/glowcap glowcap/glowcap-relay)
 >
 > ;; The key names the peer; the hint names the relay that can reach it.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -108,7 +117,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **tcp**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-tcp.rkt")
+> (require glowcap/glowcap glowcap/glowcap-tcp)
 >
 > ;; Plain TCP uses a cleartext host and port.
 > (define partner (tcp-locator "127.0.0.1" 9099))
@@ -144,8 +153,8 @@ key across restarts. iroh binds a node id instead of a host and port.
 > []($block.attrs('code-tabs'))
 > **noise-tcp**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-tcp.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-tcp)
 >
 > ;; Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -156,8 +165,8 @@ key across restarts. iroh binds a node id instead of a host and port.
 > ```
 > **iroh**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-iroh.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-iroh)
 >
 > ;; This listener is named by its node id. Partners can dial it from anywhere.
 > (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))
@@ -167,8 +176,8 @@ key across restarts. iroh binds a node id instead of a host and port.
 > ```
 > **noise-relay**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-relay.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-relay)
 >
 > ;; Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -182,7 +191,7 @@ key across restarts. iroh binds a node id instead of a host and port.
 > ```
 > **onion**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-onion.rkt")
+> (require glowcap/glowcap glowcap/glowcap-onion)
 >
 > ;; glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > (define server (listen-onion #:socks "/run/tor/socks"
@@ -194,8 +203,8 @@ key across restarts. iroh binds a node id instead of a host and port.
 > ```
 > **keyed-tcp**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-tcp.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-tcp)
 >
 > ;; Key designator, cleartext CapTP. Persist the seed to keep the same key.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -206,8 +215,8 @@ key across restarts. iroh binds a node id instead of a host and port.
 > ```
 > **tcp**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-tcp.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-tcp)
 >
 > ;; Plain TCP binds the host and port you choose.
 > (define server (listen "127.0.0.1" 9099))

@@ -1,7 +1,11 @@
-// One RTCDataChannel adapted to the runtime's `Channel` seam. Each read and
-// write is one DataChannel message. The Host session decides from transport
-// metadata that WebRTC packets carry bare codec frames; this adapter only moves
-// bounded opaque binary packets.
+/**
+ * Adapt a browser RTCDataChannel into a glowcap packet channel.
+ * Each read or write carries one binary DataChannel message. The adapter
+ * bounds queued packets and waits for outgoing buffer space. The Host
+ * handles CapTP encoding and protocol decisions.
+ *
+ * @module
+ */
 
 import type { Channel } from "@glowcap/runtime";
 import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@glowcap/abi";

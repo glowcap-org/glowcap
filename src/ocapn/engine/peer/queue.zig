@@ -37,9 +37,16 @@ fn QueueStorage(comptime T: type, comptime weightOf: ?*const fn (*const T) usize
         const Self = @This();
 
         pub fn push(self: *Self, allocator: std.mem.Allocator, value: T) !void {
-            try self.ensureUnusedCapacity(allocator, 1);
+            try self.ensureOneAvailable(allocator);
             self.items.appendAssumeCapacity(value);
             self.addWeight(&value);
+        }
+
+        fn ensureOneAvailable(self: *Self, allocator: std.mem.Allocator) !void {
+            const reserved = if (reservable) self.reservations else 0;
+            const end = self.items.capacity - reserved;
+            std.debug.assert(self.items.items.len <= end);
+            if (self.items.items.len == end) try self.ensureUnusedCapacity(allocator, 1);
         }
 
         pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, additional: usize) !void {
@@ -61,7 +68,7 @@ fn QueueStorage(comptime T: type, comptime weightOf: ?*const fn (*const T) usize
         /// weighed row is measured as it is pushed.
         pub fn pushUninit(self: *Self, allocator: std.mem.Allocator) !*T {
             comptime std.debug.assert(weightOf == null);
-            try self.ensureUnusedCapacity(allocator, 1);
+            try self.ensureOneAvailable(allocator);
             return self.items.addOneAssumeCapacity();
         }
 

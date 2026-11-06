@@ -114,8 +114,8 @@ capability they can already reach. That exchange is called signaling.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt"
->          "glowcap-webrtc.rkt")
+> (require glowcap/glowcap
+>          glowcap/glowcap-webrtc)
 >
 > ;; Your signaling carries the offer and each candidate to the peer the locator
 > ;; names, over a path you already hold, such as an OCapN capability both peers

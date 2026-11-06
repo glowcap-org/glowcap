@@ -1,6 +1,5 @@
 // The two far-side dials a Deno relay opens, shared by the reference relay
 // (`serve.ts`) and an embedding app relay (the rooms relay). The transport-
-// agnostic pump (`webSocketRelay`) never dials: the caller hands it a channel,
 // agnostic pump (`webSocketRelay`) never dials: the caller hands it a channel.
 // These are the one hardened copy of each: the TCP dial bounds its connect and closes
 // every partial resource, and the iroh dial loads @glowcap/iroh once and lazily.

@@ -168,8 +168,9 @@ borrowed `GlowcapLocatorView`. Owned locator handles give the same view with
 CapTP version: swiss-number path form belongs to the negotiated profile,
 so the C ABI refuses to infer or default it.
 
-Transport archives carry bytes for a Host session and own no CapTP state. iroh
-and WebRTC are built from Rust and need Cargo.
+Transport archives carry bytes for a Host session and own no CapTP state.
+Building iroh and WebRTC from source needs Cargo. The prebuilt C SDK includes
+their libraries.
 
 A provider's callbacks run on the driving thread, inside the driver verb that
 called them. A callback reports through its return code and failure

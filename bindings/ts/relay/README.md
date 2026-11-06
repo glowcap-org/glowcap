@@ -1,13 +1,9 @@
 # @glowcap/relay
 
-`@glowcap/relay` is for a peer that cannot open a socket itself, such as a browser, and needs an
-[OCapN](https://glowcap.org/protocol/) session with another peer. The package has two halves: the
-`keyed-relay` and `noise-relay` transport that a `@glowcap/runtime` Runtime dials and listens
-through, and the relay server itself. The relay forwards the raw session bytes without parsing
-them, so the keyed or Noise handshake and the session run end to end and the relay holds no
-capability. Every runtime's relay follows the same contract
-([ADR-0033](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0033-byte-transparent-relays.md)),
-and the [relay page](https://glowcap.org/relay/) explains the model and how to run one.
+Carry an [OCapN](https://glowcap.org/protocol/) session through a WebSocket
+relay when a peer cannot accept a socket directly. `noise-relay` encrypts the
+session between peers. `keyed-relay` sends it in the clear. The relay forwards
+bytes without parsing CapTP or holding capabilities.
 
 ## Install
 
@@ -15,109 +11,65 @@ and the [relay page](https://glowcap.org/relay/) explains the model and how to r
 deno add jsr:@glowcap/relay jsr:@glowcap/runtime
 ```
 
-## Parts of a relay
+For a browser, start with the [prebuilt browser bundle](https://jsr.io/@glowcap/web).
+It includes the relay client. The [relay guide](https://glowcap.org/relay/)
+explains the routes and server setup.
 
-A relay in any runtime has these parts. This package ships the pump and the WebSocket adapter,
-which work across JavaScript runtimes. Your application supplies the rest.
+## Embed an iroh relay
 
-1. **A raw byte channel** to the target, with `read(): Promise<Uint8Array | null>`,
-   `write(chunk: Uint8Array): Promise<void>`, and `close(): Promise<void>`. Calling `close` more than once is
-   safe. For an iroh target, `@glowcap/iroh` supplies the channel through
-   `dialLocatorForRelay`. A TCP target uses the runtime's own socket. One channel request makes one
-   dial attempt, and your application owns retry.
-2. **The pump**, `relayBytes(source, sink, channel, config, closeSource)`, moves bytes between the
-   two legs with an idle timeout, a byte cap, and awaited-write backpressure. If either leg fails,
-   it closes both before returning and keeps any close error alongside the first I/O error.
-3. **A WebSocket adapter**, `webSocketRelay(socket, getChannel, dialFailReason,
-   config, options?)`, wires an accepted WebSocket to the pump. It buffers the browser's first handshake bytes while the
-   target connection opens, bounds that queue, and slows outbound reads when the
-   socket's send buffer is full. Your application supplies the accepted socket from its own HTTP server.
-4. **A dial dispatcher** from your application, which maps the request to a channel. The reference
-   relay opens a socket for `?to=host:port` and an iroh channel for `?locator=<uri>`, and loads
-   iroh only for the locator path. The production Rooms relay uses `glowcap_host_plan_dial`
-   instead, so its target allow-list and dial plan cannot disagree.
-5. **Config:** `{ idleTimeoutMs, maxBytesPerSession }`. Your application separately decides which
-   targets to allow.
-
-## Usage
-
-The server integration below also uses the ABI constants and iroh transport:
+This function connects an accepted WebSocket to an iroh peer. Your HTTP
+server owns the WebSocket upgrade, origin checks, connection limits, and
+which peer locators it permits. Call the function as soon as the socket is
+upgraded, and observe the returned promise for teardown failures.
 
 ```sh
 deno add jsr:@glowcap/abi jsr:@glowcap/iroh
 ```
 
-Your HTTP server supplies `socket` after upgrading the request and validates the destination
-`locator` before opening it. Run a Deno server with `deno run --allow-all server.ts`.
-The [runtime installation instructions](https://jsr.io/@glowcap/runtime#install) cover loading
-the C libraries the iroh transport needs.
-
 ```ts
 import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@glowcap/abi";
-import { webSocketRelay } from "@glowcap/relay";
-import { dialLocatorForRelay, Reachability } from "@glowcap/iroh";
+import { denoIrohChannel, webSocketRelay } from "@glowcap/relay";
 
-// Inside the runtime's WebSocket-upgrade handler, once the app has admitted the
-// target, hand the accepted socket and a far-side dial to the pump:
-webSocketRelay(
-	socket,
-	() => dialLocatorForRelay(locator, Reachability.Discovery),
-	"iroh relay dial failed",
-	{
-		idleTimeoutMs: BINDING_RELAY_IDLE_TIMEOUT_MS,
-		maxBytesPerSession: BINDING_RELAY_MAX_BYTES_PER_SESSION,
-	},
-);
+export function relayToPeer(socket: WebSocket, locator: string): Promise<void> {
+	return webSocketRelay(
+		socket,
+		() => denoIrohChannel(locator, "discovery"),
+		"iroh relay dial failed",
+		{
+			idleTimeoutMs: BINDING_RELAY_IDLE_TIMEOUT_MS,
+			maxBytesPerSession: BINDING_RELAY_MAX_BYTES_PER_SESSION,
+		},
+	);
+}
 ```
 
-## Connecting a client
+The iroh transport loads its C library on first use. The
+[runtime installation guide](https://jsr.io/@glowcap/runtime#install) covers
+the SDK download and Deno permissions. An iroh gateway can read traffic and
+vouches for the far peer's identity. Use `noise-relay` when the gateway must
+not read the session.
 
-- Browser and other managed-WebSocket runtimes compose `connector()`. It
-  accepts both `keyed-relay` and `noise-relay`. The connector moves bytes, and
-  the byte-fed Host applies Noise sealing from the locator's transport profile.
-- Driver-based runtimes compose `provider()` for dialing and `keyed.listen` or
-  `noise.listen` (or the underlying `listenKeyed` and `listenNoise`) for
-  listening. The listener registers held inbound sockets at the relay's
-  `/register` endpoint and announces a locator carrying the dial route, one
-  registration route per driver loop.
-- Both kinds of runtime may use `ws://` or `wss://` with DNS names. Relay
-  routes are validated before WebSocket I/O.
+## Connect or accept peers
 
-## Backpressure
+- Browser runtimes use `connector()` to dial `keyed-relay` or `noise-relay`.
+- Deno runtimes use `provider()` to dial and `keyed.listen` or `noise.listen`
+  to register an accepting peer at the relay's `/register` endpoint.
+- Both support `ws://` and `wss://` routes, including DNS names.
 
-Each leg of the relay must block its producer, or a slow reader cannot slow
-the sender.
+## Resource limits
 
-- The target leg blocks through the byte channel, either a socket write or the
-  iroh channel's `WOULD_BLOCK`.
-- The browser-bound leg has no drain event, so `webSocketRelay` holds its next
-  read until the socket's `bufferedAmount` falls below a high-water mark. A
-  relay in another runtime must do the same: Python uses `websockets`' awaited
-  `send`, and Rust awaits `SinkExt::send`. ADR-0033 requires it.
+The pump waits for outbound writes and bounds queued inbound bytes. A slow
+peer cannot make its queue grow without limit. Idle timeouts and byte caps
+close both legs, preserving cleanup failures alongside the first error.
 
-The browser-to-relay direction has a different problem. An accepted WebSocket can deliver the first
-handshake bytes before the target connection opens, and browser WebSockets cannot be paused. The
-adapter installs handlers immediately, but accepts inbound messages only while its byte budget has
-room. Overflow closes the WebSocket with code 1009 instead of growing process memory.
+WebSocket messages are bounded by `MAX_RELAY_WEBSOCKET_MESSAGE_BYTES`,
+<!-- value ../../../tools/gen/binding/policy.zig websocket_message_cap_bytes bytes -->1 MiB<!-- /value -->.
+You can choose a smaller inbound budget. Text messages are refused. The
+server still owns target admission and its total connection limit.
 
-The relay adapter enforces a `MAX_RELAY_WEBSOCKET_MESSAGE_BYTES` bound of <!-- value ../../../tools/gen/binding/policy.zig websocket_message_cap_bytes bytes -->1 MiB<!-- /value --> on a reassembled
-WebSocket message. A deployment may set a smaller `inboundHighWaterBytes` but not a larger one. The
-relay does not parse the message or add a CapTP frame limit. Text messages are refused with
-WebSocket code 1003, and only binary `ArrayBuffer` messages enter the byte channel.
+See the [API reference](https://jsr.io/@glowcap/relay/doc) for the byte-channel
+and pump interfaces, or the [browser guide](https://glowcap.org/bindings/browser/)
+for client configuration.
 
-## Scaling
-
-The relay holds no CapTP session state, so each connection costs runtime and socket overhead and no
-glowcap session buffers. Each connection uses two file descriptors, so a large deployment needs
-enough memory and a matching descriptor limit. The repository's relay scaling check opens
-thousands of connections through this relay and holds the resident memory per connection under a
-ceiling.
-
-## Learn more
-
-- [Relay page](https://glowcap.org/relay/) and the [browser guide](https://glowcap.org/bindings/browser/).
-- The [repository](https://github.com/glowcap-org/glowcap) for the relays in the other runtimes.
-
-glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
-what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
-explains.
+glowcap is built with AI coding assistants under
+[maintainer direction](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md).

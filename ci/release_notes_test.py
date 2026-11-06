@@ -10,6 +10,7 @@ and the attestation of the published image. Nothing here reaches GitHub.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,22 @@ def facts(**changes):
         for target in NOTES.PLATFORMS
         for role in ("product", "sdk")
     ]
+    archives.extend(
+        [
+            {
+                "name": f"glowcap-web-{TAG}-browser.tar.gz",
+                "target": "browser",
+                "role": "web",
+                "minimum_runtime": "WebAssembly",
+            },
+            {
+                "name": f"glowcap-c-{TAG}-wasm32-freestanding.tar.gz",
+                "target": "wasm32-freestanding",
+                "role": "wasm-libraries",
+                "minimum_runtime": "WebAssembly",
+            },
+        ]
+    )
     return {
         "repository": REPOSITORY,
         "version": TAG[1:],
@@ -94,6 +111,7 @@ class ReleaseNotes(unittest.TestCase):
             "pip install glowcap==0.1.0",
             "deno add jsr:@glowcap/runtime@0.1.0 jsr:@glowcap/tcp@0.1.0",
             "raco pkg install glowcap",
+            f"[source package]({base}/glowcap-racket-{TAG}.zip)",
             f"[bindings guide]({REPOSITORY}/blob/{TAG}/bindings/README.md)",
             f"[project provenance]({REPOSITORY}/blob/{TAG}/PROVENANCE.md)",
             f"[changelog]({REPOSITORY}/blob/{TAG}/CHANGELOG.md)",
@@ -142,8 +160,6 @@ class ReleaseNotes(unittest.TestCase):
             with self.assertRaises(ValueError):
                 NOTES.changelog_section("0.1.0", changelog)
         self.assertTrue((ROOT / "CHANGELOG.md").is_file())
-        version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
-        self.assertTrue(NOTES.changelog_section(version).strip())
         workflow = jobs(".github/workflows/release.yml")
         self.assertLess(list(workflow).index("contract"), list(workflow).index("archives"))
         command = run(workflow["contract"], "Require the version's changelog entry")
@@ -204,18 +220,24 @@ class ReleaseNotes(unittest.TestCase):
     def test_command_line_renders_or_refuses_without_partial_output(self):
         def run(*arguments):
             return subprocess.run(
-                [sys.executable, str(SCRIPT), *arguments], cwd=ROOT, capture_output=True, text=True, timeout=30
+                [sys.executable, str(script), *arguments], cwd=ROOT, capture_output=True, text=True, timeout=30
             )
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
+            # Keep the CLI's script-relative lookup, with a release-ready fixture.
+            script = directory / "ci/release_notes.py"
+            script.parent.mkdir()
+            shutil.copyfile(SCRIPT, script)
+            changelog = directory / "CHANGELOG.md"
+            changelog.write_text(CHANGELOG)
             release = directory / "release.json"
             release.write_text(json.dumps(facts()))
             output = directory / "release-notes.md"
-            version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
+            version = TAG[1:]
             section = run("--changelog", version)
             self.assertEqual(section.returncode, 0, section.stderr)
-            self.assertEqual(section.stdout, NOTES.changelog_section(version))
+            self.assertEqual(section.stdout, NOTES.changelog_section(version, changelog))
             for label, arguments in (
                 ("changelog with facts", ("--changelog", version, "--facts", str(release))),
                 ("facts without a digest", ("--facts", str(release), "--output", str(output))),
@@ -226,13 +248,23 @@ class ReleaseNotes(unittest.TestCase):
                     result = run(*arguments)
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertFalse(output.exists())
-            # The full form reads the repository changelog, so it renders the current version.
-            release.write_text(json.dumps(facts(version=version, tag="v" + version)))
             result = run("--facts", str(release), "--image-digest", IMAGE_DIGEST, "--output", str(output))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(f"# What changed in {version}", output.read_text())
             self.assertIn("<!-- glowcap-release-run: 123 -->", output.read_text())
             output.unlink()
+            changelog.write_text(CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n- Pending.\n"))
+            for arguments in (
+                ("--changelog", version),
+                ("--facts", str(release), "--image-digest", IMAGE_DIGEST, "--output", str(output)),
+            ):
+                with self.subTest(arguments=arguments):
+                    result = run(*arguments)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("still lists Unreleased changes", result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertFalse(output.exists())
+            changelog.write_text(CHANGELOG)
             release.write_text(json.dumps(facts(commit="nope")))
             result = run("--facts", str(release), "--image-digest", IMAGE_DIGEST, "--output", str(output))
             self.assertNotEqual(result.returncode, 0)

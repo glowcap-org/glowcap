@@ -41,7 +41,7 @@ def stated_pages(root, old):
 
     Yields (path, token) for each form the page uses, plain or in a code span.
     """
-    for home in DOC_HOMES:
+    for home in (*DOC_HOMES, *tracked(root, "bindings/*/README.md", "bindings/ts/*/README.md")):
         path = root / home
         files = [path] if path.is_file() else sorted(p for p in path.rglob("*") if p.suffix in (".md", ".smd"))
         for page in files:
@@ -49,6 +49,11 @@ def stated_pages(root, old):
             for token in (f"{old} alpha", f"`{old}` alpha"):
                 if token in text:
                     yield str(page.relative_to(root)), token
+            # Installation guides name exact release assets and crate versions.
+            if f"glowcap-web-v{old}-browser.tar.gz" in text:
+                yield str(page.relative_to(root)), f"v{old}"
+            if f'glowcap = {{ version = "{old}"' in text:
+                yield str(page.relative_to(root)), f'version = "{old}"'
 
 
 def changelog_edits(text, old, new, date):

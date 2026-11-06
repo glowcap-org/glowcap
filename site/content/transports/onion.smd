@@ -99,7 +99,7 @@ service id to reach.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-onion.rkt")
+> (require glowcap/glowcap glowcap/glowcap-onion)
 >
 > ;; glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > (define partner (onion-locator "<56-character onion service id>"))
@@ -189,7 +189,7 @@ Netlayer the bindings expose.
 > ```
 > **Racket**
 > ```scheme
-> (require "glowcap.rkt" "glowcap-onion.rkt")
+> (require glowcap/glowcap glowcap/glowcap-onion)
 >
 > ;; glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > (define server (listen-onion #:socks "/run/tor/socks"

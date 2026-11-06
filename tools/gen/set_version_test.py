@@ -42,12 +42,11 @@ def copy_tree():
     for path in paths:
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / path, root / path)
-    # The checkout's Unreleased section is empty between releases, so the copy
-    # gets the entries a release would cut.
+    # Give the fixture known entries whether the checkout has pending changes or not.
     changelog = root / "CHANGELOG.md"
-    changelog.write_text(
-        changelog.read_text().replace("## [Unreleased]\n", "## [Unreleased]\n\n### Added\n\n- A test entry.\n", 1)
-    )
+    before, heading, after = changelog.read_text().partition("## [Unreleased]\n")
+    _, next_heading, history = after.partition("\n## ")
+    changelog.write_text(before + heading + "\n### Added\n\n- A test entry.\n" + next_heading + history)
     # The script lists manifests and locks with git, so the copy is a repository.
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
@@ -79,6 +78,15 @@ class SetVersion(unittest.TestCase):
                 f"[{NEXT}]: https://github.com/glowcap-org/glowcap/compare/v{CURRENT}...v{NEXT}\n[{CURRENT}]:",
                 changelog,
             )
+            for guide in (
+                "bindings/ts/web/README.md",
+                "bindings/ts/webrtc/README.md",
+                "site/content/bindings/browser.smd",
+            ):
+                text = (root / guide).read_text()
+                self.assertIn(f"glowcap-web-v{NEXT}-browser.tar.gz", text)
+                self.assertNotIn(f"glowcap-web-v{CURRENT}-browser.tar.gz", text)
+            self.assertIn(f'version = "{NEXT}"', (root / "bindings/rust/README.md").read_text())
             # Every mirror now states NEXT exactly where a later bump looks.
             (root / "CHANGELOG.md").write_text(
                 changelog.replace("## [Unreleased]\n", "## [Unreleased]\n\n- Next.\n", 1)

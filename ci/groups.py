@@ -118,6 +118,7 @@ GROUPS = (
                 gate("zig build wasm-abi-layout-check"),
                 gate("zig build wasm-import-check"),
                 gate("zig build web-peer-test"),
+                gate("zig build portable-package-test"),
                 gate("zig build goblins-interop"),
             ],
         },

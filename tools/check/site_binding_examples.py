@@ -98,9 +98,11 @@ def check_racket() -> None:
         # binding module from source, while Racket's own libraries keep their
         # installed bytecode.
         no_bytecode = shutil.ignore_patterns("compiled")
+        collection = work / "glowcap"
+        collection.mkdir()
         for module in binding.glob("*.rkt"):
-            shutil.copy2(module, work / module.name)
-        shutil.copytree(binding / "private", work / "private", ignore=no_bytecode)
+            shutil.copy2(module, collection / module.name)
+        shutil.copytree(binding / "private", collection / "private", ignore=no_bytecode)
         generated: list[str] = []
         for source_path in example_files("racket"):
             output = work / f"{source_path.parent.name}-{source_path.stem}.rkt"
@@ -112,7 +114,9 @@ def check_racket() -> None:
     (call-with-input-file path
       (lambda (input) (compile (read-syntax path input))))))
 """
-        subprocess.run(["racket", "-e", compiler, *generated], cwd=work, check=True)
+        environment = os.environ.copy()
+        environment["PLTCOLLECTS"] = str(work) + os.pathsep + environment.get("PLTCOLLECTS", "")
+        subprocess.run(["racket", "-e", compiler, *generated], cwd=work, env=environment, check=True)
 
 
 def check_rust() -> None:
