@@ -9,6 +9,11 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Reduce event-queue overhead while preserving capacity reserved for promise
+  retirement.
+
 ## [0.1.2] - 2026-11-05
 
 ### Added
