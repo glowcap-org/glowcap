@@ -42,12 +42,11 @@ def copy_tree():
     for path in paths:
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / path, root / path)
-    # The checkout's Unreleased section is empty between releases, so the copy
-    # gets the entries a release would cut.
+    # Give the fixture known entries whether the checkout has pending changes or not.
     changelog = root / "CHANGELOG.md"
-    changelog.write_text(
-        changelog.read_text().replace("## [Unreleased]\n", "## [Unreleased]\n\n### Added\n\n- A test entry.\n", 1)
-    )
+    before, heading, after = changelog.read_text().partition("## [Unreleased]\n")
+    _, next_heading, history = after.partition("\n## ")
+    changelog.write_text(before + heading + "\n### Added\n\n- A test entry.\n" + next_heading + history)
     # The script lists manifests and locks with git, so the copy is a repository.
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)

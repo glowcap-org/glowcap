@@ -211,7 +211,7 @@ def derive(root, stages):
 
 
 def racket_source(slug, tag):
-    return f"https://github.com/{slug}.git?path=bindings/racket#{tag}"
+    return f"https://github.com/{slug}/releases/download/{tag}/glowcap-racket-{tag}.zip"
 
 
 class Context:
@@ -484,9 +484,16 @@ def verify_racket(context):
         return Verdict(
             INCOMPLETE, [f"the catalog has no {RACKET_PACKAGE} entry, expected source {expected}"], ("missing",)
         )
-    source = json.loads(body)["source"]
+    entry = json.loads(body)
+    source = entry["source"]
     if source != expected:
         return Verdict(INCOMPLETE, [f"the catalog source is {source} and the release expects {expected}"], ("stale",))
+    if entry.get("checksum-error") or not entry.get("checksum"):
+        return Verdict(
+            INCOMPLETE,
+            [f"the catalog could not read the package: {entry.get('checksum-error') or 'empty checksum'}"],
+            ("unreadable",),
+        )
     return Verdict(COMPLETE, [])
 
 

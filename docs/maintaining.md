@@ -56,7 +56,7 @@ Registry identities live in
 | Archives, C SDK, checksums, and provenance | [GitHub Releases](https://github.com/glowcap-org/glowcap/releases) | The [release workflow](../.github/workflows/release.yml) | At each signed `v*` tag |
 | Rooms container image | `ghcr.io/glowcap-org/glowcap-rooms` | The release workflow, by digest | At each signed `v*` tag |
 | Rust crate, Python wheel, and JSR packages | crates.io, PyPI, and JSR | The [publish workflow](../.github/workflows/publish.yml), after the maintainer approves each registry | When the release becomes public |
-| Racket package | The Racket package catalog | The maintainer, guided by `tools/release-publishers.py` | After each release |
+| Racket package | The Racket package catalog, pointing to the release's binding ZIP | The maintainer, guided by `tools/release-publishers.py` | After each release |
 | Repository docs and READMEs | GitHub, read at `main` | Promotion to `main` | Each time `main` moves |
 
 Website pages link repository docs at `blob/main`, so both show the same
@@ -306,7 +306,7 @@ project from their manifests, and the repository from `gh`.
 | PyPI | Registers a pending trusted publisher for the project. It becomes the project's publisher at the first upload, and the command reports it as waiting until then. |
 | crates.io | Verifies the account's email address, which crates.io requires before any upload. Stores a publish token as the `CARGO_REGISTRY_TOKEN` secret of the `crates-io` environment for the first upload, because a trusted publisher binds to an existing crate. After that upload, adds the trusted publisher, and the command deletes the secret. |
 | JSR | Creates each workspace package in the `@glowcap` scope and links it to this repository. In the scope's settings, turns off the option that requires the user who triggered the workflow to be a scope member, because the release workflow dispatches the publication as `github-actions[bot]`. |
-| Racket catalog | Creates the `glowcap` entry with the source the command prints, and moves its tag after each release. |
+| Racket catalog | Points the `glowcap` entry at the release's binding ZIP and checks that the catalog could read it. |
 
 ## Promotion app
 

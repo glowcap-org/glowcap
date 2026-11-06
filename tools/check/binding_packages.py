@@ -201,18 +201,13 @@ def rust_package(work, env, registry):
 def racket_package(work, env, registry):
     assert registry is None, "the Racket catalog entry is maintained by hand"
     source = runpy.run_path(str(ROOT / "tools/release-publishers.py"))["racket_source"]("owner/project", "v1.2.3")
-    # Exercise the package manager's source inference and Git checkout parser,
-    # without fetching: a directory URL silently loses the subdirectory and tag.
-    expression = f"""(require pkg/name pkg/private/repo-path net/url)
+    # The catalog downloads only the binding archive. Checking out the whole
+    # repository fails Racket's strict link policy on contributor-tool symlinks.
+    expression = f"""(require pkg/name)
       (define source {json.dumps(source)})
-      (define-values (name type) (package-source->name+type source #f))
-      (unless (and (equal? name "racket") (memq type '(git git-url)))
-        (error 'catalog-source "expected a Git package, got ~s (~s) for ~a" name type source))
-      (define-values (transport host port repo tag subdir)
-        (split-git-or-hub-url (string->url source) #:type type))
-      (unless (equal? (list transport host (regexp-replace #rx"[.]git$" repo "") tag subdir)
-                      '(https "github.com" "owner/project" "v1.2.3" ("bindings" "racket")))
-        (error 'catalog-source "wrong repository, subdirectory, or tag for ~a" source))"""
+      (define-values (_name type) (package-source->name+type source #f))
+      (unless (eq? type 'file-url)
+        (error 'catalog-source "expected an archive, got ~s for ~a" type source))"""
     run("racket", "-e", expression, cwd=work, env=env)
     run("raco", "pkg", "create", "--source", "--format", "zip", "--dest", str(work), str(ROOT / "bindings/racket"))
     verify_license(work / "racket.zip")
@@ -309,20 +304,22 @@ def typescript_package(work, env, registry):
         return
     consumer = work / "deno-consumer"
     consumer.mkdir()
+    packages = sorted(json.loads(path.read_text())["name"] for path in (ROOT / "bindings/ts").glob("*/deno.json"))
     (consumer / "deno.json").write_text(
         json.dumps(
             {
-                "imports": {
-                    "@glowcap/runtime": f"jsr:@glowcap/runtime@{registry}",
-                    "@glowcap/tcp": f"jsr:@glowcap/tcp@{registry}",
-                }
+                "imports": {name: f"jsr:{name}@{registry}" for name in packages},
+                # These are the packages this release just published. Keep the
+                # age policy for third-party dependencies in the fresh consumer.
+                "minimumDependencyAge": {"age": "P1D", "exclude": [f"jsr:{name}" for name in packages]},
             },
             indent="\t",
         )
         + "\n"
     )
     (consumer / "smoke.ts").write_text(
-        textwrap.dedent("""\
+        "".join(f'import "{name}";\n' for name in packages if name not in ("@glowcap/runtime", "@glowcap/tcp"))
+        + textwrap.dedent("""\
         import { Runtime } from "@glowcap/runtime";
         import * as tcp from "@glowcap/tcp";
         await using managed = await Runtime.open({ providers: [tcp.provider()] });

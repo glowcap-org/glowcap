@@ -23,6 +23,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -114,6 +115,10 @@ def build_artifacts(root, problems=None):
                 (directory / name).write_bytes(data)
             digest = problem.get("digest", hashlib.sha256(data).hexdigest())
             (directory / "SHA256SUMS").write_text(f"{digest}  {name}\n")
+    with zipfile.ZipFile(root / f"glowcap-racket-{TAG}.zip", "w") as package:
+        package.writestr("glowcap/private/c-abi-resolve.json", json.dumps({"abi_version": TAG[1:]}))
+        for name in ("info.rkt", "glowcap.rkt", "LICENSE-APACHE", "README.md"):
+            package.writestr(f"glowcap/{name}", "content")
 
 
 def write_assets(names, content=b"approved"):
@@ -123,6 +128,68 @@ def write_assets(names, content=b"approved"):
 
 
 class Assemble(unittest.TestCase):
+    def test_racket_packaging_reads_only_the_signed_commits_binding_tree(self):
+        with workdir() as root:
+            binding = root / "bindings/racket"
+            binding.mkdir(parents=True)
+            (binding / "info.rkt").write_text("committed binding")
+            (root / "LICENSE-APACHE").write_text("license text")
+            (binding / "LICENSE-APACHE").symlink_to("../../LICENSE-APACHE")
+            (root / "unrelated-link").symlink_to("../outside")
+            subprocess.run(["git", "init", "-q"], check=True)
+            subprocess.run(["git", "add", "."], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.org",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "commit",
+                    "-qm",
+                    "fixture",
+                ],
+                check=True,
+                env=dict(os.environ, GIT_AUTHOR_DATE="2000-01-02T03:04:06Z", GIT_COMMITTER_DATE="2000-01-02T03:04:06Z"),
+            )
+            commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+            (binding / "info.rkt").write_text("uncommitted change")
+            (root / "artifacts").mkdir()
+            (root / "ci").mkdir()
+            shutil.copyfile(SCRIPT, root / "ci/github_release.py")
+            script = run(jobs(".github/workflows/release.yml")["release"], "Package the Racket binding")
+            subprocess.run(
+                ["bash", "-e", "-c", script],
+                check=True,
+                timeout=10,
+                env=dict(
+                    os.environ, GITHUB_SHA=commit, RELEASE_TAG=TAG, GITHUB_REPOSITORY=REPOSITORY, GITHUB_RUN_ID="123"
+                ),
+            )
+            with zipfile.ZipFile(root / "artifacts" / f"glowcap-racket-{TAG}.zip") as archive:
+                self.assertEqual(archive.namelist(), ["glowcap/LICENSE-APACHE", "glowcap/info.rkt"])
+                self.assertEqual(archive.read("glowcap/LICENSE-APACHE"), b"license text")
+                self.assertEqual(archive.read("glowcap/info.rkt"), b"committed binding")
+                self.assertEqual(archive.getinfo("glowcap/info.rkt").date_time, (2000, 1, 2, 3, 4, 6))
+
+    def test_racket_archive_must_exist_and_match_the_release(self):
+        for problem in ("missing", "wrong version", "missing entry", "corrupt"):
+            with self.subTest(problem), workdir() as root:
+                build_artifacts(root / "artifacts")
+                archive = root / "artifacts" / f"glowcap-racket-{TAG}.zip"
+                if problem == "missing":
+                    archive.unlink()
+                elif problem == "corrupt":
+                    archive.write_bytes(b"not a ZIP")
+                else:
+                    with zipfile.ZipFile(archive, "w") as package:
+                        version = "9.9.9" if problem == "wrong version" else TAG[1:]
+                        package.writestr("glowcap/private/c-abi-resolve.json", json.dumps({"abi_version": version}))
+                with self.assertRaises((ValueError, OSError, KeyError, zipfile.BadZipFile)):
+                    run_main("assemble", "artifacts", TAG)
+
     def test_archives_are_copied_with_one_checksum_file_and_the_release_facts(self):
         with workdir() as root:
             build_artifacts(root / "artifacts")
@@ -130,15 +197,21 @@ class Assemble(unittest.TestCase):
             self.assertEqual(output, f"Assembled 8 archives for {TAG} at {COMMIT}\n")
             archives = sorted(path.name for path in Path("release-assets").glob("*.tar.gz"))
             self.assertEqual(len(archives), 8)
+            racket = f"glowcap-racket-{TAG}.zip"
+            packaged = sorted([*archives, racket, racket + ".CHECKSUM"])
             self.assertEqual(
-                sorted(path.name for path in Path("release-assets").iterdir()), sorted([*archives, "SHA256SUMS"])
+                sorted(path.name for path in Path("release-assets").iterdir()), sorted([*packaged, "SHA256SUMS"])
+            )
+            self.assertEqual(
+                Path("release-assets", racket + ".CHECKSUM").read_text(),
+                hashlib.sha1(Path("release-assets", racket).read_bytes()).hexdigest(),
             )
             sums = Path("release-assets/SHA256SUMS").read_text().splitlines()
             self.assertEqual(
                 sums,
                 [
                     f"{hashlib.sha256((Path('release-assets') / name).read_bytes()).hexdigest()}  {name}"
-                    for name in archives
+                    for name in packaged
                 ],
             )
             facts = json.loads(Path("artifacts/release.json").read_text())
@@ -238,7 +311,7 @@ if lines:
             run_main("bundles", TAG, **environment)
             self.assertEqual(sorted(path.name for path in Path("release-assets").iterdir()), RELEASE.inventory(TAG))
             calls = [json.loads(line) for line in (root / "gh.log").read_text().splitlines()]
-            self.assertEqual(len(calls), 9)
+            self.assertEqual(len(calls), 11)
             for call in calls:
                 self.assertEqual(call[3:], ["--repo", REPOSITORY, "--predicate-type", RELEASE.PROVENANCE])
 

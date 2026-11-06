@@ -211,6 +211,13 @@ deno add jsr:@glowcap/runtime@{version} jsr:@glowcap/tcp@{version}
 raco pkg install glowcap
 ```
 
+Deno's default [dependency-age policy](https://docs.deno.com/runtime/reference/deno_json/#minimum-dependency-age)
+delays new versions for 24 hours. Add an exception for the glowcap packages if
+you need this release sooner.
+
+The Racket catalog points to this release's
+[source package]({base}/glowcap-racket-{tag}.zip).
+
 The packages are uploaded by the
 [publish workflow]({repository}/actions/workflows/publish.yml), which starts
 when this page is published and waits for the maintainer's approval at each

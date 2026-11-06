@@ -51,6 +51,7 @@ class World:
         self.pypi, self.crate, self.racket = 200, 200, (200, SOURCE)
         self.secrets, self.tag = set(), TAG
         self.fetched, self.calls, self.fetch_errors = [], [], {}
+        self.racket_checksum, self.racket_error = "a" * 40, None
 
     def fetch(self, url, slug):
         self.fetched.append(url)
@@ -66,7 +67,9 @@ class World:
         if host == "crates.io":
             return self.crate, "{}"
         status, source = self.racket
-        return status, json.dumps({"source": source})
+        return status, json.dumps(
+            {"source": source, "checksum": self.racket_checksum, "checksum-error": self.racket_error}
+        )
 
     def refuse(self, args, text="gh: Not Found (HTTP 404)"):
         return subprocess.CalledProcessError(1, ["gh", *args], stderr=text)
@@ -179,7 +182,8 @@ class DerivationTest(unittest.TestCase):
         )
         self.assertEqual((facts["crate"], facts["project"]), ("glowcap", "glowcap"))
         self.assertEqual(
-            MODULE.racket_source("o/r", "v1.2.3"), "https://github.com/o/r.git?path=bindings/racket#v1.2.3"
+            MODULE.racket_source("o/r", "v1.2.3"),
+            "https://github.com/o/r/releases/download/v1.2.3/glowcap-racket-v1.2.3.zip",
         )
 
     def test_a_missing_manifest_or_field_is_refused(self):
@@ -488,6 +492,18 @@ class RacketTest(unittest.TestCase):
                 1,
             ),
             ("matching", lambda w: None, "complete", 0),
+            (
+                "empty checksum",
+                lambda w: setattr(w, "racket_checksum", ""),
+                "incomplete: the catalog could not read the package",
+                1,
+            ),
+            (
+                "download error",
+                lambda w: setattr(w, "racket_error", "unsafe link"),
+                "incomplete: the catalog could not read the package: unsafe link",
+                1,
+            ),
         )
         for name, damage, expected, code in cases:
             with self.subTest(name):

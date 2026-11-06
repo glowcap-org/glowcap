@@ -296,13 +296,19 @@ jobs:
         with:
           path: artifacts
 
+      - name: Package the Racket binding
+        run: python3 ci/github_release.py racket-package "$RELEASE_TAG"
+
       - name: Assemble the release assets
         run: python3 ci/github_release.py assemble artifacts "$RELEASE_TAG"
 
-      - name: Attest the checksum file's build provenance
+      - name: Attest the Racket package and checksum files
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: release-assets/SHA256SUMS
+          subject-path: |
+            release-assets/SHA256SUMS
+            release-assets/*.zip
+            release-assets/*.CHECKSUM
 
       - name: Publish the versioned multi-platform Rooms image
         id: image
