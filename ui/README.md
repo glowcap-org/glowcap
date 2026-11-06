@@ -9,6 +9,9 @@ overlay cover, chrome frost):
 tokens.css   palette, type, the mark's two readings, and shared product tokens
 mark.css     how the still mark sits in a box, its bloom, and the wordmark lockup
 fonts/       IBM Plex Sans and IBM Plex Mono
+mark/        the live mushroom and its shader
+mycelium/    the animated background
+gpu/         device lifetime and color conversion shared by both renderers
 ```
 
 Each surface keeps its own layout and component styles. The site is static
@@ -47,7 +50,7 @@ readable accent text on both surfaces.
   - a surface that never uses `--accent-ink`, `--on-accent`, `--page-bg`,
     `--frost`, or `--radius-card`
   - a rooms sheet that never uses `--type-ui`
-- **Mycelium:** `apps/rooms/web/ui/mycelium/` grows the network of threads
+- **Mycelium:** `ui/mycelium/` grows the network of threads
   behind every page of both surfaces, and both call its `startMycelium()`. It
   draws with WebGPU, and a browser without it shows the plain ground. A
   surface that paints its own full-page ground hides it, so a page shows the
@@ -68,7 +71,8 @@ its fixed tints must support white initials, and `page.css` documents that.
 
 ## How the files are shared
 
-Both consumers use symlinks:
+Both consumers import the TypeScript renderers directly. Styles and fonts use
+symlinks:
 
 - `site/assets/tokens.css`, `site/assets/mark.css`, and `site/assets/fonts/*`
   point here.
@@ -89,7 +93,7 @@ local stylesheet.
 ## The mark
 
 There is one mushroom, and it comes from the WebGPU shader in the
-`apps/rooms/web/ui/mark/*.ts` modules. Each place that shows it uses one of
+`ui/mark/*.ts` modules. Each place that shows it uses one of
 three forms, chosen by what the mark is doing there:
 
 - **The live shader**, where the mark is an event. It runs only where it is
@@ -211,7 +215,7 @@ later fails.
 ## Making a change
 
 - **The mark itself:** edit the shader in the
-  `apps/rooms/web/ui/mark/*.ts` modules, then run `zig build gen-mark` to
+  `ui/mark/*.ts` modules, then run `zig build gen-mark` to
   regenerate the artwork, the favicon, the square icon, and the mark tokens.
 - **A shared color or typeface:** edit `tokens.css`.
 - **Where the still mark sits in its box, its bloom, or the wordmark:** edit

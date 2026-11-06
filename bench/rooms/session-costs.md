@@ -3,7 +3,7 @@ type: living
 description: Measured allocation and traversal counts for Rooms host routes, projection and admission.
 sources:
   - resource: /bench/host_locator_bench.zig
-  - resource: /bench/rooms/
+  - resource: /apps/rooms/tools/projection_bench.ts
   - resource: /apps/rooms/rust/
 ---
 

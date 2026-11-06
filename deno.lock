@@ -4,17 +4,8 @@
     "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
-    "jsr:@std/json@^1.1.0": "1.1.0",
-    "jsr:@std/jsonc@1.0.3": "1.0.3",
-    "npm:@types/react-dom@19.3.0": "19.3.0_@types+react@19.3.0",
-    "npm:@types/react@19.3.0": "19.3.0",
-    "npm:es-module-lexer@3.0.3": "3.0.3",
     "npm:playwright@1.64.0": "1.64.0",
-    "npm:react-dom@19.3.0": "19.3.0_react@19.3.0",
-    "npm:react-router@8.4.0": "8.4.0_react@19.3.0_react-dom@19.3.0",
-    "npm:react@19.3.0": "19.3.0",
-    "npm:zod@4.6.5": "4.6.5",
-    "npm:zustand@5.0.15": "5.0.15_@types+react@19.3.0_react@19.3.0"
+    "npm:zod@4.6.5": "4.6.5"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -25,42 +16,9 @@
     },
     "@std/internal@1.0.14": {
       "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
-    },
-    "@std/json@1.1.0": {
-      "integrity": "93330d3ed4054d6b1ffe54b075432c80a5f671be77277b978931e018014cb1cc"
-    },
-    "@std/jsonc@1.0.3": {
-      "integrity": "9a4bb168c6b64e8e89944e45f96390a6e6e6865f59f02f0a70b24653911f2d64",
-      "dependencies": [
-        "jsr:@std/json"
-      ]
     }
   },
   "npm": {
-    "@remix-run/route-pattern@0.22.1": {
-      "integrity": "sha512-czdGJWh09Lapvcqt7Vb09KlrU2PhRJ8xQaI+AItTuD9aDJ5MAgxnS38lnys6Ll+6RJEqPiaUqTwIQhVLwFvv+w=="
-    },
-    "@types/react-dom@19.3.0_@types+react@19.3.0": {
-      "integrity": "sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==",
-      "dependencies": [
-        "@types/react"
-      ]
-    },
-    "@types/react@19.3.0": {
-      "integrity": "sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==",
-      "dependencies": [
-        "csstype"
-      ]
-    },
-    "cookie-es@3.1.1": {
-      "integrity": "sha512-UaXxwISYJPTr9hwQxMFYZ7kNhSXboMXP+Z3TRX6f1/NyaGPfuNUZOWP1pUEb75B2HjfklIYLVRfWiFZJyC6Npg=="
-    },
-    "csstype@3.2.3": {
-      "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="
-    },
-    "es-module-lexer@3.0.3": {
-      "integrity": "sha512-yWGe1O/j+almnV4hOYrmZo8u58JdnmXEMneRQAYkWtqSiT86yoMIEKF4rpqEDj52tbYl3xceBD3DQIBwcsC9Pw=="
-    },
     "playwright-core@1.64.0": {
       "integrity": "sha512-T9r+MZkTECl2+oUcZ26YgZzTrYidTsIhYYkJix+6iDOymOb1FB2RLLSOxRGnZGv5DStt+aduIVbt+E8WygXYpg==",
       "bin": true
@@ -72,58 +30,14 @@
       ],
       "bin": true
     },
-    "react-dom@19.3.0_react@19.3.0": {
-      "integrity": "sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==",
-      "dependencies": [
-        "react",
-        "scheduler"
-      ]
-    },
-    "react-router@8.4.0_react@19.3.0_react-dom@19.3.0": {
-      "integrity": "sha512-JtydAkBvU9UTEe5qNC+POhu+ZBNM7rlKY2IegwXc7Idj7xfRG16x5RZrw3mju+XlqBxfvb2ky9P3jUp9WyWC1g==",
-      "dependencies": [
-        "@remix-run/route-pattern",
-        "cookie-es",
-        "react",
-        "react-dom"
-      ],
-      "optionalPeers": [
-        "react-dom"
-      ]
-    },
-    "react@19.3.0": {
-      "integrity": "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog=="
-    },
-    "scheduler@0.28.0": {
-      "integrity": "sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw=="
-    },
     "zod@4.6.5": {
       "integrity": "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="
-    },
-    "zustand@5.0.15_@types+react@19.3.0_react@19.3.0": {
-      "integrity": "sha512-MpSEjRiBkA9crSYeOUH32rJC7SVqAbm0Fqcqge/bUi2PPoLcBWKOsG+C8mevmpr8TwXHBVkChbbJiyvkE+i/3A==",
-      "dependencies": [
-        "@types/react",
-        "react"
-      ],
-      "optionalPeers": [
-        "@types/react",
-        "react"
-      ]
     }
   },
   "workspace": {
     "dependencies": [
-      "jsr:@std/jsonc@1.0.3",
-      "npm:@types/react-dom@19.3.0",
-      "npm:@types/react@19.3.0",
-      "npm:es-module-lexer@3.0.3",
       "npm:playwright@1.64.0",
-      "npm:react-dom@19.3.0",
-      "npm:react-router@8.4.0",
-      "npm:react@19.3.0",
-      "npm:zod@4.6.5",
-      "npm:zustand@5.0.15"
+      "npm:zod@4.6.5"
     ],
     "links": {
       "jsr:@glowcap/abi@0.1.4": {},

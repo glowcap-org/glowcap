@@ -18,11 +18,12 @@ impl Graph {
 		for (name, path) in [
 			("ui", "ui"),
 			("rooms-lib", "../lib"),
+			("shared-ui", "../../../ui"),
 			("bindings-ts", "../../../bindings/ts"),
 		] {
 			walk(&root.join(path), name, &mut entries)?;
 		}
-		for name in ["deno.json", "deno.lock", "compiler.json"] {
+		for name in ["../deno.json", "../deno.lock", "compiler.json"] {
 			entries.push((name.into(), root.join(name)));
 		}
 		for name in super::compiler::Recipe::read(root)?.inputs {
@@ -100,4 +101,55 @@ pub(super) fn revision(value: &str) -> bool {
 		value.strip_suffix("-dirty").unwrap_or(value)
 	};
 	digest.len() == 12 && digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rooms_testing::scratch::Scratch;
+	use std::fs;
+
+	#[test]
+	fn shared_renderers_and_project_configuration_change_bundle_identity() {
+		let root = Scratch::create("browser-source");
+		for directory in [
+			"apps/rooms/web/ui",
+			"apps/rooms/lib",
+			"bindings/ts",
+			"ui/mark",
+			"ui/fonts",
+			"zig-out/wasm/rooms",
+		] {
+			fs::create_dir_all(root.join(directory)).unwrap();
+		}
+		for file in [
+			"apps/rooms/deno.json",
+			"apps/rooms/deno.lock",
+			"ui/mark/live.ts",
+			"ui/fonts/OFL.txt",
+			"zig-out/wasm/rooms/rooms_browser.js",
+			"zig-out/wasm/rooms/rooms_browser.d.ts",
+			"zig-out/wasm/rooms/rooms_browser_bg.wasm",
+		] {
+			fs::write(root.join(file), "initial").unwrap();
+		}
+		let web = root.join("apps/rooms/web");
+		fs::write(
+			web.join("compiler.json"),
+			r#"{"args":["bundle","{outdir}"],"inputs":[]}"#,
+		)
+		.unwrap();
+		for changed in ["ui/mark/live.ts", "apps/rooms/deno.json", "apps/rooms/deno.lock"] {
+			let before = Graph::scan(&web).unwrap();
+			let version = before.version().unwrap();
+			fs::write(root.join(changed), "changed contents").unwrap();
+			let after = Graph::scan(&web).unwrap();
+			assert_ne!(before.stamp, after.stamp, "metadata must notice {changed}");
+			assert_ne!(
+				version,
+				after.version().unwrap(),
+				"bundle identity must include {changed}"
+			);
+		}
+	}
 }

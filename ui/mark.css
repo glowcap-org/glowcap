@@ -1,6 +1,6 @@
 /* The glowcap mark as the documentation site draws it in masks, and the
    logotype lockup the site and rooms share. Rooms draws its mark with a
-   shader (apps/rooms/web/ui/mark/live.ts) and takes only the lockup from
+   shader (ui/mark/live.ts) and takes only the lockup from
    here. This drawing is what a browser with no device to run that shader on
    gets instead, and it is the same mushroom because it was traced from it. */
 

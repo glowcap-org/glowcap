@@ -23,6 +23,7 @@ pub const Context = struct {
 const command: []const []const u8 = &.{
     "deno",
     "test",
+    "--config=apps/rooms/deno.json",
     "--preload=apps/rooms/test/support/browser_application.ts",
     "--cert=test/net/fixtures/tls_root.pem",
     "--allow-ffi",
@@ -190,11 +191,11 @@ pub fn register(ctx: Context) *std.Build.Step {
     // Formatting, lint, and type checks are compile work, so they run as a
     // build tool and only the tests run under the deadline.
     const web_static = commands.addRootedSystemCommand(ctx.b, .build_tool, &.{
-        "deno", "task", "--config", "apps/rooms/web/deno.json", "static",
+        "deno", "task", "--config", "apps/rooms/deno.json", "static",
     });
     web_static.step.dependOn(ctx.wasm_install);
     const web_tooling = commands.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{
-        "deno", "task", "--config", "apps/rooms/web/deno.json", "test",
+        "deno", "task", "--config", "apps/rooms/deno.json", "test",
     });
     web_tooling.step.dependOn(&web_static.step);
     web_tooling.has_side_effects = true;

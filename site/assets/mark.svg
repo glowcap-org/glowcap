@@ -4,7 +4,7 @@
      anything else that needs the mushroom as a picture is cut from it.
 
      It was traced from the shader mark, whose geometry lives in
-     apps/rooms/web/ui/mark/field.ts, in its settled pose with the lamps
+     ui/mark/field.ts, in its settled pose with the lamps
      at zero. The render is a cel drawing rather than a shaded one, so these
      four flat tones are its own structure and not a reduction of it. The
      tones are measured from the render's core pixels rather than picked by

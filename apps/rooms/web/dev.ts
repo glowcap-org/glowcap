@@ -7,7 +7,7 @@
 import { fileURLToPath } from "node:url";
 
 const webRoot = fileURLToPath(new URL("./", import.meta.url));
-const denoConfig = fileURLToPath(new URL("./deno.json", import.meta.url));
+const denoConfig = fileURLToPath(new URL("../deno.json", import.meta.url));
 const viteConfig = fileURLToPath(new URL("./vite.config.ts", import.meta.url));
 const handledSignals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
@@ -148,7 +148,7 @@ async function run(launch: DevelopmentLaunch): Promise<void> {
 		]);
 		if (target != null) {
 			viteChild = new Deno.Command(Deno.execPath(), {
-				args: ["run", "-A", "--config", denoConfig, "vite", "--config", viteConfig],
+				args: ["run", "-A", "--config", denoConfig, "vite", "--configLoader", "native", "--config", viteConfig],
 				cwd: webRoot,
 				env: {
 					GLOWCAP_ROOMS_DEV_BACKEND: target,

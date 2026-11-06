@@ -11,7 +11,7 @@ thing in a terminal, on a server, and in a tab.
 
 | Crate | Owns | Depends on |
 | --- | --- | --- |
-| `rooms-application` | Portable policy with no platform dependencies: documents and their bounds, the room protocol, files, the archive, the session, the server, the wire vocabularies | nothing |
+| `rooms-application` | Portable policy with no platform dependencies: documents and their bounds, the room protocol, files, the archive, the session, the server, the wire vocabularies | No other first-party crate |
 | `rooms-glowcap` | The view over the Rust binding's decoded values, and the clients that speak the Rooms protocol over a session | `rooms-application`, the Rust binding |
 | `rooms-runtime` | Shared execution over platform adapters: managed receipt execution, source-dependent supervision, direct messages, media and archives | `rooms-application`, `rooms-glowcap`, the Rust binding |
 | `rooms-platform` | The host side of those adapters: Tokio, operating-system entropy, leased filesystem storage, listeners, TLS trust, WebSocket byte channels, WebRTC signaling through a directory | the three above, the Rust binding |

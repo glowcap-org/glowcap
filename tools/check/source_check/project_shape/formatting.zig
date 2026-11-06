@@ -9,7 +9,7 @@ const scopes = [_][]const u8{
     "deno.json",
     "bindings/ts/deno.json",
     "apps/ocapnviz/deno.json",
-    "apps/rooms/web/deno.json",
+    "apps/rooms/deno.json",
 };
 
 const inherited_keys = [_][]const u8{

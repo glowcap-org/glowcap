@@ -256,7 +256,7 @@ zig build doc-impact               # List the docs that explain code changed sin
 ```
 
 The project's mark is defined once, as the WebGPU shader in
-`apps/rooms/web/ui/mark/field.ts`, and `tools/gen/mark/` traces every still
+`ui/mark/field.ts`, and `tools/gen/mark/` traces every still
 picture of it from a render of that shader. These two steps run the pinned
 headless Chromium. `zig build source-check` covers the half that needs no
 browser: it holds the committed files to one geometry, so a hand edit to any of

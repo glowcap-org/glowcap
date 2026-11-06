@@ -61,6 +61,7 @@ glowcap_pins_companions() {
             printf '%s\t%s\t%s\n' \
                 deno.json "npm:playwright@${old}" "npm:playwright@${new}" \
                 bindings/ts/deno.json "npm:playwright@${old}" "npm:playwright@${new}" \
+                apps/rooms/deno.json "npm:playwright@${old}" "npm:playwright@${new}" \
                 apps/ocapnviz/deno.json "npm:playwright@${old}" "npm:playwright@${new}"
             ;;
     esac

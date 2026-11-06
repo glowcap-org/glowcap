@@ -16,7 +16,7 @@ pub fn checkSharedNpmPins(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const root_path = "deno.json";
-    const rooms_path = "apps/rooms/web/deno.json";
+    const rooms_path = "apps/rooms/deno.json";
     const ocapnviz_path = "apps/ocapnviz/deno.json";
     const root_config = try readConfig(io, gpa, root, violations, root_path) orelse return;
     defer root_config.deinit();

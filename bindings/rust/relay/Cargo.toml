@@ -30,9 +30,9 @@ path = "src/main.rs"
 iroh = ["dep:glowcap"]
 
 [dependencies]
-# dep tokio: The async runtime for the relay server.
+# dep tokio: The async runtime for the loopback relay conformance fixture.
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "time"] }
-# dep tokio-tungstenite: The relay's WebSocket server.
+# dep tokio-tungstenite: WebSockets for the loopback relay conformance fixture.
 tokio-tungstenite = "0.30"
 # dep futures-util: Sink helpers for the relay's WebSockets.
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }

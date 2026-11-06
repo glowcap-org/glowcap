@@ -71,7 +71,7 @@ def browser_packages(root, stage):
                     "--json",
                     "--frozen-lockfile",
                     "--config",
-                    "apps/rooms/web/deno.json",
+                    "apps/rooms/deno.json",
                     f"apps/rooms/web/ui/{entry}",
                 ],
                 root,
