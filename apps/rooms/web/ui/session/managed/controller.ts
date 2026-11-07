@@ -12,7 +12,7 @@ import { directoryId } from "../../application.ts";
 import { dirAddress } from "../../page_bootstrap.ts";
 import { type DirId, dirId } from "../../directory.ts";
 import { relayAway } from "../../store/projection.ts";
-import { planJoinDestination, type RoomDestination } from "../../joining.ts";
+import { planJoinDestination, type RoomDestination, roomLinkDestination, typedRoomLink } from "../../joining.ts";
 import {
 	directoryUnreachable,
 	type FailureView,
@@ -88,7 +88,9 @@ export function createManagedController(
 		!(session.current?.intent.directories.some((row) => row.home) ?? false);
 	// A reach refused for want of a Rooms server is not said at all: the page
 	// asks for one, and `resume` names the address the act picks up at after
-	// the reload a chosen server takes, read only then. Any other failure
+	// the reload a chosen server takes, read only then. The verbs below ask
+	// before they act, so this arm is the net for a need found only on the
+	// way, such as a publish inside a verb with a server. Any other failure
 	// Rooms cannot name is said by its likeliest cause: the relay while it is
 	// not answering, otherwise whatever the act was reaching for.
 	const explainedAs =
@@ -315,8 +317,18 @@ export function createManagedController(
 		selfLocator,
 		dirAddress: dirAddressOf,
 		directoryId,
-		join: (destination: RoomDestination, nick, signal) =>
-			session.openings.run(
+		join: (destination: RoomDestination, nick, signal) => {
+			// Where the act picks up after a reload, read from what was typed
+			// rather than the plan, which refuses a link that is not a room's.
+			const linked = typedRoomLink(destination.locator, destination.room);
+			const resume = () =>
+				linked === null
+					? joinAddress({ room: destination.room, locator: destination.locator || undefined })
+					: joinAddress({ locator: linked.link, room: linked.label || undefined });
+			if (store.serverOrAsk(projection, resume) == null) {
+				return Promise.resolve({ ok: false, code: NO_SERVER, text: "" });
+			}
+			return session.openings.run(
 				async (opening): Promise<JoinOutcome> => {
 					const signal = opening.signal;
 					if (signal?.aborted) return { ok: true };
@@ -354,12 +366,10 @@ export function createManagedController(
 				if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
 					return { ok: true };
 				}
-				const plan = planJoinDestination(destination);
-				const id = plan.kind === "room-link" ? plan.directory : destinationOf(plan.locator).id ?? "";
-				const said = explained(error, () =>
-					plan.kind === "room-link"
-						? joinAddress({ locator: plan.link, room: plan.label || undefined })
-						: joinAddress({ room: plan.room, locator: plan.locator || undefined }));
+				const id = linked === null
+					? destinationOf(destination.locator).id ?? ""
+					: roomLinkDestination(linked.link, linked.label)?.directory ?? "";
+				const said = explained(error, resume);
 				if (said != null) rememberJoinRefusal(projection, id, destination.room, error);
 				return {
 					ok: false,
@@ -367,30 +377,36 @@ export function createManagedController(
 					failure: roomsErrorInMessage(error) ?? undefined,
 					text: said ?? "",
 				};
-			}),
+			});
+		},
 		reachDirectory: async (locator, nick, { home = false, signal } = {}) => {
 			if (signal?.aborted) return "";
+			const resume = () => joinAddress({ locator: locator || undefined });
+			if (store.serverOrAsk(projection, resume) == null) return "";
 			try {
 				await session.openings.run((opening) => reach(locator, nick, home, opening.signal), null, signal);
 				return "";
 			} catch (error) {
-				const said = unreached(error, () => joinAddress({ locator: locator || undefined }));
+				const said = unreached(error, resume);
 				if (said == null) return "";
 				rememberJoinRefusal(projection, destinationOf(locator).id ?? "", "", error);
 				return said;
 			}
 		},
-		startDm: (peer) =>
-			act(
+		startDm: (peer) => {
+			if (store.serverOrAsk(projection, () => dmAddress(peer)) == null) return Promise.resolve();
+			return act(
 				session.openings.run(async (opening) => {
 					const id = await session.actions.direct(directory(), peer, false, undefined, opening);
 					await opening.select(id);
 				}, { kind: "direct", peer }),
 				{ resume: () => dmAddress(peer) },
-			),
+			);
+		},
 		recoverDm: (key) => {
 			const row = store.getConv(projection, key);
 			const resume = row?.type === "dm" ? () => dmAddress(row.id) : null;
+			if (store.serverOrAsk(projection, () => resume?.() ?? null) == null) return Promise.resolve("");
 			return session.openings.run(async (opening) => {
 				try {
 					if (row?.type !== "dm" || row.peerRegistrationId === "") {

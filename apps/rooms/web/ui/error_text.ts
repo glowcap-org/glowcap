@@ -7,12 +7,7 @@
 
 import { refusalText } from "../../lib/text/failure.ts";
 
-export {
-	errorDetailTitle,
-	locatorRefusal,
-	needsErrorDetail,
-	sessionCapabilityRefusal,
-} from "../../lib/text/failure.ts";
+export { errorDetailTitle, needsErrorDetail, sessionCapabilityRefusal } from "../../lib/text/failure.ts";
 
 /** Settle one UI action into the controller convention: an empty string is
  * success and any other string is a refusal. Expected failures already arrive

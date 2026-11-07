@@ -6,6 +6,7 @@ import { type ReactNode, useState } from "react";
 import { useManagedSession } from "../session/managed/context.tsx";
 import type { HeldControl } from "../session/managed/access.ts";
 import { useAsyncAction } from "../async_action.ts";
+import { useServerGate } from "../hooks.ts";
 import { Button } from "../Button.tsx";
 import { Checkbox } from "../Checkbox.tsx";
 import { CopyField } from "../Copy.tsx";
@@ -16,6 +17,7 @@ const NAMES = { inspect: text.inspect, pause: text.pausePower, resume: text.resu
 
 export function ShareControl({ control }: { control: HeldControl }) {
 	const { management } = useManagedSession();
+	const serverGate = useServerGate();
 	const own = control.powers;
 	const [picks, setPicks] = useState({
 		inspect: own.inspect === true,
@@ -77,7 +79,15 @@ export function ShareControl({ control }: { control: HeldControl }) {
 			)}
 			{link ? <CopyField text={link} label={text.copyControl} /> : (
 				<div className="actions">
-					<Button variant="quiet" busy={share.busy} disabled={share.busy} onClick={() => void share.run()}>
+					<Button
+						variant="quiet"
+						busy={share.busy}
+						disabled={share.busy}
+						// The link is minted on the server, so the server comes first.
+						onClick={() => {
+							if (serverGate() != null) void share.run();
+						}}
+					>
 						{text.prepareControl}
 					</Button>
 				</div>

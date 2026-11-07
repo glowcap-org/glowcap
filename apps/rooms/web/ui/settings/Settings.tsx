@@ -40,7 +40,7 @@ import { CopyField } from "../Copy.tsx";
 import { directoryName } from "../text.ts";
 import { Field } from "../Field.tsx";
 import { Select } from "../Select.tsx";
-import { useRoomsState } from "../hooks.ts";
+import { useRoomsState, useServerGate } from "../hooks.ts";
 import { dirId } from "../directory.ts";
 import { relayAway } from "../store/projection.ts";
 import { SettingsHead } from "./SettingsHead.tsx";
@@ -143,6 +143,7 @@ function SettingsDialog(
 	);
 	const [dm, setDm] = useState<DmMode>(live.dm);
 	const [dmError, setDmError] = useState("");
+	const serverGate = useServerGate();
 	const dirs = useRoomsState((state) => state.dirs);
 	const relay = useRoomsState((state) => state.relay);
 	const homeDirectory = useRoomsState((state) => state.homeDirectory);
@@ -210,6 +211,8 @@ function SettingsDialog(
 			browser.closeSettings();
 			return;
 		}
+		// Reaching this browser through the relay needs a Rooms server to relay.
+		if (dm === "relay" && serverGate() == null) return;
 		dmSaving.current = true;
 		setDmBusy(true);
 		setDmError("");

@@ -52,18 +52,20 @@ export const SERVER_OFFER = "server";
 /** A server a link offers, read from `page` and taken out of it: `rest` is the
  * address without the offer, so a reload or a shared link does not repeat it.
  * `base` is null when the offer is not a server address or is already the
- * choice, so there is nothing to ask. Null when the link offers nothing. */
+ * choice, so there is nothing to ask, and `unreadable` is the offer that was
+ * not a server address, so the dropped offer is never silent. Null when the
+ * link offers nothing. */
 export function serverOffer(
 	page: URL,
 	chosen: string | null = chosenServer(),
-): { base: string | null; rest: URL } | null {
+): { base: string | null; unreadable: string | null; rest: URL } | null {
 	const offered = page.searchParams.get(SERVER_OFFER);
 	if (offered == null) return null;
 	const rest = new URL(page);
 	rest.searchParams.delete(SERVER_OFFER);
 	const read = serverBase(offered);
-	const base = "base" in read && read.base !== chosen ? read.base : null;
-	return { base, rest };
+	if (!("base" in read)) return { base: null, unreadable: offered, rest };
+	return { base: read.base !== chosen ? read.base : null, unreadable: null, rest };
 }
 
 /** The fragment key a link uses to offer a shared session's use link. The

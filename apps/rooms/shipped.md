@@ -78,9 +78,10 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   failures, and termination signals. These checks do not claim that any archive or release has been published.
 - *Published page.* `rooms-web --export-static` writes the page as plain files for a static host at one base path,
   and the website publishes that export at `/rooms/app/`. A browser uses one Rooms server: the one that served the
-  page, one a link offers and the reader accepts, or one chosen in Settings. A Rooms server admits the published
-  page by default and other pages through `--allow-origin`, and every printed link names the address
-  `--http-public` gives it.
+  page, one a link offers and the reader accepts, or one chosen in Settings. With none, an act that reaches
+  through a server asks for one before it does anything, and the act picks up once the server is saved. A Rooms
+  server admits the published page by default and other pages through `--allow-origin`, and every printed link
+  names the address `--http-public` gives it.
 - *Running from a checkout.* The checkout launcher builds the product if it is missing, then runs the complete staged
   installation without build tools. After editing source, run `glowcap-install` explicitly. The runtime proof exercises
   this path without a binary override.

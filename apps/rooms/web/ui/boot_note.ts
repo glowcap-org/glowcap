@@ -18,7 +18,8 @@
 // A joke beside a fault report is the wrong register, and the fault is the
 // thing to read.
 
-import { bootAsides, bootNote, type BootPhase, bootStillOpening } from "../../lib/text/boot.ts";
+import { bootAsides, bootNote, type BootPhase, bootStillOpening, bootStillOpeningStatic } from "../../lib/text/boot.ts";
+import { servedByRooms } from "./page_base.ts";
 
 export type { BootPhase };
 
@@ -83,7 +84,7 @@ export function noteBootDelay(why: string): void {
 	stopBootAsides();
 	const line = note();
 	if (line !== null) {
-		line.textContent = bootStillOpening;
+		line.textContent = servedByRooms() ? bootStillOpening : bootStillOpeningStatic;
 	}
 	const wait = document.querySelector("#boot .boot-wait");
 	if (wait === null) return;

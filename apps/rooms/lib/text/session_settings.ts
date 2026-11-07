@@ -108,6 +108,8 @@ export const sessionDataClearSharedCommit = "Reset shared session";
 export const sessionDataClearLocalCommit = "Delete local session";
 export const sessionDataClearSharedAsk = "Reset shared session…";
 export const sessionDataClearLocalAsk = "Delete local session…";
+export const sessionDataClearSharedDone = "Reset. Everyone attached is on the empty session now.";
+export const sessionDataClearLocalDone = "Deleted. This browser is on an empty session now.";
 
 /** Message history. */
 export function historyKeptBy(label: string): string {

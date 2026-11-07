@@ -23,7 +23,7 @@ import { identifierField } from "../field.ts";
 import { Icon, Wordmark } from "../icons.tsx";
 import { Said } from "../Said.tsx";
 import { ErrorDetail } from "./ErrorDetail.tsx";
-import { actionRefusal, locatorRefusal, sessionCapabilityRefusal } from "../error_text.ts";
+import { actionRefusal, sessionCapabilityRefusal } from "../error_text.ts";
 import {
 	sessionAdvanced,
 	sessionChangeLabel,
@@ -108,10 +108,7 @@ export function SessionSetup(
 		running.current = "attach";
 		setBusy("attach");
 		try {
-			setAttachError(locatorRefusal(
-				await actionRefusal(() => browser.attachRoomsSession(candidate)),
-				"session capability link",
-			));
+			setAttachError(await actionRefusal(() => browser.attachRoomsSession(candidate)));
 		} finally {
 			running.current = null;
 			setBusy(null);
