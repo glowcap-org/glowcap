@@ -77,7 +77,9 @@ Deno.test("a link's server offer is asked once and leaves the address either way
 	assertEquals(serverOffer(page, "http://127.0.0.1:8080/")?.base, null);
 	const bad = serverOffer(new URL("https://glowcap.org/rooms/app/?server=javascript:alert(1)"), null);
 	assertEquals(bad?.base, null);
+	assertEquals(bad?.unreadable, "javascript:alert(1)", "an offer that is no server address is named, not dropped");
 	assertEquals(bad?.rest.href, "https://glowcap.org/rooms/app/");
+	assertEquals(serverOffer(page, "http://127.0.0.1:8080/")?.unreadable, null);
 	assertEquals(serverOffer(new URL("https://glowcap.org/rooms/app/?dm=relay"), null), null);
 	// The link the Rooms server prints for a listed page offers that server.
 	// The fixture is the one its web.rs test prints from.

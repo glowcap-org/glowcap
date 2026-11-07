@@ -2,14 +2,14 @@
 
 import {
 	actionRefusal,
+	attachRefusal,
 	errorDetailTitle,
-	locatorRefusal,
 	needsErrorDetail,
 	sessionCapabilityRefusal,
 } from "../web/ui/error_text.ts";
 import { assertEquals } from "./assert.ts";
 import { NICK_TAKEN, RoomsError, roomsErrorInMessage } from "../lib/error_codes.ts";
-import { failureView } from "../lib/text/failure.ts";
+import { failureView, refusalText, renderFailure, transportBreak } from "../lib/text/failure.ts";
 
 Deno.test("Rooms errors parse only from the carrier position that owns the code", () => {
 	assertEquals(roomsErrorInMessage(new RoomsError(NICK_TAKEN, "alice"))?.code, NICK_TAKEN);
@@ -26,6 +26,7 @@ Deno.test("Rooms errors parse only from the carrier position that owns the code"
 });
 
 Deno.test("an unexpected failure keeps its diagnostic without inventing retry authority", () => {
+	assertEquals(refusalText(new Error("transport retired")).endsWith("again. (transport retired)"), true);
 	assertEquals(failureView(new Error("transport retired")), {
 		code: "unexpected",
 		subject: "operation",
@@ -94,22 +95,48 @@ Deno.test("a session capability is checked for the two mistakes a reader makes",
 	assertEquals(sessionCapabilityRefusal("ocapn://127.0.0.1%3A7300.tcp/s/swiss"), "");
 });
 
-Deno.test("a refusal that is not a native error is passed through as it stands", () => {
-	assertEquals(locatorRefusal("", "session capability link"), "");
-	assertEquals(
-		locatorRefusal("The session peer could not be reached.", "session capability link"),
-		"The session peer could not be reached.",
-	);
-});
-
-Deno.test("a native error offers the likely mistake rather than diagnosing one", () => {
-	const said = locatorRefusal("glowcap error -2: uri parse: UriParseError", "session capability link");
-	// It suggests checking the paste; it does not tell the reader their link
-	// was truncated, which the code it was handed does not establish.
-	assertEquals(said.toLowerCase().includes("pasted"), true);
+Deno.test("a value glowcap could not read offers the likely mistake rather than diagnosing one", () => {
+	const view = failureView(new Error("glowcap error -2: uri parse: UriParseError"));
+	assertEquals(view.code, "unreadable-value");
+	assertEquals(view.retry, "after-request-change");
+	const said = renderFailure(view);
+	// It suggests checking the text is whole; it does not tell the reader their
+	// link was truncated, which the code it was handed does not establish.
+	assertEquals(said.includes("from ocapn:// to the end"), true);
 	assertEquals(said.includes("is not a whole"), false);
 	assertEquals(said.includes("truncated"), false);
-	assertEquals(said.includes("glowcap error -2"), true);
+	// The cause keeps glowcap's own words, with no Rooms code in front.
+	assertEquals(said.endsWith("(glowcap error -2: uri parse: UriParseError)"), true);
+	// Only the leading position names the code: a -2 inside another cause is
+	// that cause's business.
+	assertEquals(failureView(new Error("glowcap error -12: glowcap error -2: x")).code, "unexpected");
+});
+
+Deno.test("a break on the way is told apart from a value or a denial", () => {
+	// A broken call carrying the break's own code is the way, not the link; a
+	// denial the peer answered is neither, and so is a value it could not read.
+	assertEquals(
+		transportBreak(new Error("glowcap error -12: glowcap error -8: browser channel error")),
+		"glowcap error -12: glowcap error -8: browser channel error",
+	);
+	assertEquals(transportBreak(new Error("glowcap error -12: Denied")), null);
+	assertEquals(transportBreak(new Error("glowcap error -2: host: MalformedPath")), null);
+	assertEquals(transportBreak(new Error("That name is taken.")), null);
+});
+
+Deno.test("an attach that broke on the way names the server this browser goes through", () => {
+	const said = (host: string, detail: string) => `server ${host}: ${detail}`;
+	const broke = new Error("glowcap error -12: glowcap error -8: browser channel error");
+	assertEquals(
+		attachRefusal(broke, { base: "https://rooms.example/" }, said),
+		"server rooms.example: glowcap error -12: glowcap error -8: browser channel error",
+	);
+	// With no server to name, and for a failure that is about the link, the
+	// refusal is the failure in the reader's words.
+	assertEquals(attachRefusal(broke, null, said).includes("browser channel error"), true);
+	assertEquals(attachRefusal(broke, null, said).startsWith("server "), false);
+	const denied = attachRefusal(new Error("glowcap error -12: Denied"), { base: "https://rooms.example/" }, said);
+	assertEquals(denied.startsWith("server "), false);
 });
 
 Deno.test("a UI action preserves expected refusals and contains unexpected failures", async () => {

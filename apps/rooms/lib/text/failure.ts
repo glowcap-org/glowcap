@@ -8,8 +8,8 @@
 //
 // The same screen is the engineering tool, so a friendly sentence must not
 // drop the error code. The cause rides along, in parentheses or in the
-// detail card, under a sentence that stands without it. `locatorRefusal` is
-// the worked example.
+// detail card, under a sentence that stands without it. The unreadable-value
+// arm of `failureView` is the worked example.
 
 // Import the taxonomy only, never `errors.ts`: reading a native break carrier
 // needs `@glowcap/runtime`, a host module the browser bundle must not contain.
@@ -35,6 +35,20 @@ export function failureView(err: unknown): FailureView {
 		return { code: typed.code, detail: typed.detail, ...definition };
 	}
 	const detail = err instanceof Error ? err.message : String(err);
+	// -2 is an argument glowcap refused to read: a locator, a link, or a swiss
+	// number that does not parse. Text that stopped short is the mistake the
+	// reader can act on. It suggests instead of diagnosing, because the code
+	// does not say where the text went wrong.
+	if (detail.startsWith("glowcap error -2: ")) {
+		return {
+			code: "unreadable-value",
+			subject: "address",
+			retry: "after-request-change",
+			summary: "Rooms couldn't read that address or link.",
+			action: "Check it's all there, from ocapn:// to the end.",
+			detail,
+		};
+	}
 	// -12 is a broken call. Only this native reason establishes denial, and
 	// detail that merely contains the word says nothing about access.
 	if (detail === "glowcap error -12: Denied") {
@@ -57,12 +71,14 @@ export function failureView(err: unknown): FailureView {
 	};
 }
 
+// The arms of `failureView` that read an untyped error keep its whole
+// message as the detail, which already names itself.
+const UNTYPED: ReadonlySet<string> = new Set(["unexpected", "access-denied", "unreadable-value"]);
 export function renderFailure(view: FailureView): string {
 	const said = view.action === null ? view.summary : `${view.summary} ${view.action}`;
 	if (view.detail === "") return said;
-	const cause = view.code === "unexpected" || view.code === "access-denied"
-		? view.detail
-		: `${view.code}: ${view.detail}`;
+	// A Rooms refusal is named by its code.
+	const cause = UNTYPED.has(view.code) ? view.detail : `${view.code}: ${view.detail}`;
 	return `${said} (${cause})`;
 }
 
@@ -82,7 +98,12 @@ export function refusalText(err: unknown): string {
  * it away. Every connection goes through that relay, so it is the cause a
  * person can do something about, and Settings > Reachability is where. */
 export const relayUnreachable = (host: string, detail: string) =>
-	`Rooms can't reach the Rooms server at ${host}, which this browser connects through. Rooms keeps trying. To use another server, open Settings, then Reachability. (${detail})`;
+	serverUnreachable(host, "Rooms keeps trying. To use another server, open Settings, then Reachability.", detail);
+/** A break through the Rooms server this browser connects through. `remedy`
+ * is what the screen saying it offers, since each one changes the server
+ * from somewhere else. */
+export const serverUnreachable = (host: string, remedy: string, detail: string) =>
+	`Rooms can't reach the Rooms server at ${host}, which this browser connects through. ${remedy} (${detail})`;
 
 /** An unexplained failure to reach a directory while the relay answers. A
  * browser sees only a closed socket, so the two causes it cannot tell apart are
@@ -107,18 +128,15 @@ export function errorDetailTitle(kind: "failure" | "warning" | "success"): strin
 	return kind === "failure" ? "What went wrong" : "The full message";
 }
 
-/** A refusal in the reader's words for a pasted link that was not taken.
- *
- * The native error code and diagnostic give a reader nothing to act on. A
- * paste that stopped short is something they can act on, so the sentence
- * suggests it and keeps the original words after it for whoever is debugging.
- *
- * It suggests instead of diagnosing, because a peer that answered and declined
- * reads like a link that was never whole. `noun` names what the link was meant
- * to be. */
-export function locatorRefusal(why: string, noun: string): string {
-	if (why === "" || !why.startsWith("glowcap error")) return why;
-	return `That ${noun} didn't work. Check you pasted the whole thing, from ocapn:// to the end. (${why})`;
+/** The cause when a reach broke on the way, which is the relay or the peer
+ * and never the pasted link: a broken call (-12) wrapping the break's own
+ * glowcap error. Null for any other failure, including a denial the peer
+ * answered, which -12 carries with no error inside. */
+export function transportBreak(error: unknown): string | null {
+	const view = failureView(error);
+	return view.code === "unexpected" && /^glowcap error -12: glowcap error -\d+:/.test(view.detail)
+		? view.detail
+		: null;
 }
 
 /** What a session capability has to look like before it is worth trying.

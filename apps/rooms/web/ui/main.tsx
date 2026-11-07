@@ -56,6 +56,7 @@ import {
 	sessionOffer,
 } from "./server_choice.ts";
 import { sessionDidNotOpen } from "../../lib/text/session.ts";
+import { settingsServerOffer, settingsServerRefused } from "../../lib/text/settings.ts";
 import { NO_SERVER, roomsErrorInMessage } from "../../lib/error_codes.ts";
 
 const page = new RoomsPage();
@@ -149,6 +150,11 @@ async function answerServerOffer(): Promise<void> {
 	const offer = serverOffer(new URL(location.href));
 	if (offer == null) return;
 	globalThis.history.replaceState(globalThis.history.state, "", offer.rest);
+	// An offer that is no server address is the link's defect, kept where
+	// whoever is debugging the link looks, and the page opens as it would.
+	if (offer.unreadable != null) {
+		store.noteTrouble(page.projection, settingsServerOffer, `${settingsServerRefused} (${offer.unreadable})`);
+	}
 	const base = offer.base;
 	if (base == null) return;
 	const { ServerOffer } = await loadServerOffer();

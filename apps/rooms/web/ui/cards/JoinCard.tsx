@@ -15,11 +15,10 @@ import { MAKE_HOME_FIELD, MakeHomeChoice } from "./MakeHomeChoice.tsx";
 import { identifierField } from "../field.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { useRoomsState, useSessionPaused } from "../hooks.ts";
+import { useRoomsState, useServerGate, useSessionPaused } from "../hooks.ts";
 import { useSuggest } from "../Suggest.tsx";
 import { Avatar } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";
-import { Icon } from "../icons.tsx";
 import { nextRoomPreset } from "../room_policy.ts";
 import {
 	destination,
@@ -27,20 +26,22 @@ import {
 	JOIN_DEFAULT_ROOM,
 	type JoinAnswers,
 	joinLead,
-	joinLocatorPlaceholder,
 	joinNickTarget,
 	type JoinResolution,
 	joinRoomOffers,
 	looksLikeRoomLink,
 	resolveJoin,
+	roomLinkDestination,
 	submittedRoomDestination,
 	suggestedJoinNick,
 	typedRoomLink,
 } from "../joining.ts";
 import { answerJoinNick, joinNickAvailability } from "../join_nick.ts";
+import { joinAddress } from "../route_address.ts";
 import { NICK_TAKEN, NO_SERVER } from "../../../lib/error_codes.ts";
-import { DirectoryPicks, typeAnotherAddress } from "../DirectoryPicks.tsx";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
+import { JoinLocator } from "./JoinLocator.tsx";
+import { MenuLayer } from "../Menu.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import {
 	joinAccessFixedLabel,
@@ -48,12 +49,10 @@ import {
 	joinBrowseLiveRooms,
 	joinCallIt,
 	joinChooseAnotherName,
-	joinChooseDirectory,
 	joinConnect,
 	joinConnecting,
 	joinCreateRoom,
 	joinCreating,
-	joinHideDirectories,
 	joinInstead,
 	joinJoining,
 	joinJoinRoom,
@@ -64,11 +63,13 @@ import {
 	joinLocatorHintFor,
 	joinLocatorLabel,
 	joinLocatorOptional,
-	joinNeedsAddress,
+	joinNeedsAddressServerQuiet,
 	joinNickHint,
 	joinNickLabel,
 	joinNickTakenInRoom,
 	joinNickTakenOnDirectory,
+	joinNotAnAddress,
+	joinNotARoomLink,
 	joinReadOnlySession,
 	joinSessionPaused,
 	joinStopConnecting,
@@ -78,7 +79,6 @@ import {
 	joinTitleJoin,
 	roomFieldLabel,
 } from "../../../lib/text/join.ts";
-import { MenuLayer, useMenu } from "../Menu.tsx";
 import { Said } from "../Said.tsx";
 import type { DirId, DirView } from "../directory.ts";
 import { WorkingAction } from "../WorkingAction.tsx";
@@ -125,6 +125,7 @@ export const JoinCard = memo(function JoinCard(
 	 * Asked separately from `canInteract`, because that answers what the reader
 	 * may do and this answers what there is to do it to. */
 	const paused = useSessionPaused();
+	const serverGate = useServerGate();
 	const homeDirectory = directoryContext.home;
 	const room = answers.room.value;
 	const locator = answers.locator.value;
@@ -197,18 +198,33 @@ export const JoinCard = memo(function JoinCard(
 		try {
 			const typedText = String(form.get("locator") ?? "");
 			const typedNick = String(form.get("nick") ?? "");
-			if (addressRequired && typedText.trim() === "") return { field: "locator", text: joinNeedsAddress };
-			// Resolving the aimed directory belongs to the locator. Even an
-			// unexpected classifier failure is answered on the field whose value
-			// could not be interpreted, rather than escaping the form action.
+			const typedRoom = String(form.get("room") ?? "");
+			if (addressRequired && typedText.trim() === "") {
+				// A blank address names the server's directory. With no server the
+				// page asks for one, and the card picks up here once it has it. Past
+				// the gate, an address is required only while the server has not
+				// answered with its directory, and that is what the reader waits on.
+				const server = serverGate(() => joinAddress({ room: typedRoom.trim() || undefined }));
+				if (server == null) return null;
+				return { field: "locator", text: joinNeedsAddressServerQuiet(new URL(server.base).host) };
+			}
+			// What was typed is judged here, where it entered, before any act.
+			// Resolving it belongs to the locator: even an unexpected classifier
+			// failure is answered on the field whose value could not be read.
 			failureField = "locator";
+			const linked = typedRoomLink(typedText, typedRoom);
+			if (linked !== null && roomLinkDestination(linked.link, linked.label) === null) {
+				return { field: "locator", text: joinNotARoomLink };
+			}
+			if (linked === null && typedText.trim() !== "" && session.directoryId(typedText.trim()) == null) {
+				return { field: "locator", text: joinNotAnAddress };
+			}
 			let nick = answerNick(typedNick, typedText, null, was).request;
 			if (nick.length > MAX_NICK) {
 				return { field: "nick", text: tooLong("name", MAX_NICK, "characters"), forNick: nick };
 			}
 			const nickWhy = nickRefusal(nick);
 			if (nickWhy != null) return { field: "nick", text: nickWhy, forNick: nick };
-			const typedRoom = String(form.get("room") ?? "");
 			// The submitted locator decides the act, not the flag from the render that
 			// built this closure: Connect is reaching that address, and a refusal has
 			// to land on it rather than on the join the button is not performing.
@@ -575,75 +591,6 @@ export const JoinCard = memo(function JoinCard(
 		</div>
 	);
 });
-
-function JoinLocator(
-	{ locator, dirs, defaultAddress, directoryContext, invalid, onPick, onType }: {
-		locator: string;
-		dirs: ReadonlyMap<DirId, DirView>;
-		defaultAddress: string | null;
-		directoryContext: DirectoryDestinationContext;
-		invalid?: boolean;
-		onPick: (locator: string) => void;
-		onType: (locator: string) => void;
-	},
-) {
-	const { open, setOpen, holder, trigger, layer } = useMenu();
-	return (
-		<div className="join-field-wrap" ref={holder}>
-			<JoinField invalid={invalid}>
-				<JoinPrefix
-					id="joinLocator"
-					ref={trigger}
-					className="join-prefix-dir"
-					label={open ? joinHideDirectories : joinChooseDirectory}
-					aria-haspopup="menu"
-					aria-expanded={open}
-					onClick={() => setOpen((was) => !was)}
-				>
-					<Icon name="directory" size={18} />
-				</JoinPrefix>
-				<input
-					id="locator"
-					name="locator"
-					type="text"
-					inputMode="url"
-					enterKeyHint="next"
-					placeholder={joinLocatorPlaceholder(defaultAddress)}
-					value={locator}
-					aria-describedby={invalid === true ? "joinError" : undefined}
-					aria-invalid={invalid === true}
-					onChange={(e) => onType(e.target.value)}
-					{...identifierField}
-				/>
-			</JoinField>
-			{
-				/* The addresses already in hand, from the mark that stands for this
-				    field. A locator is forty characters nobody can retype, and every one
-				    of these was typed or pasted once already. The only reason the field
-				    is empty on the way back to it is that the field is where a *new* one
-				    goes. Leaving it empty means this page's own directory, so that one
-				    clears rather than fills. The last row is the way to an address that
-				    is in none of them, and here it is the short way: the field it hands
-				    over is the one this menu hangs from. */
-			}
-			{open && (
-				<MenuLayer holder={holder} layer={layer} owner="joinForm">
-					<DirectoryPicks
-						className="locator-picks"
-						locator={locator}
-						dirs={dirs}
-						context={directoryContext}
-						onPick={(picked) => {
-							setOpen(false);
-							onPick(picked);
-						}}
-						onElsewhere={() => typeAnotherAddress(() => setOpen(false))}
-					/>
-				</MenuLayer>
-			)}
-		</div>
-	);
-}
 
 function knownNickTakenText(source: "directory" | "room"): string {
 	return source === "directory" ? joinNickTakenOnDirectory : joinNickTakenInRoom;

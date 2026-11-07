@@ -10,6 +10,7 @@ import * as z from "zod/mini";
 import { type DirId, dirId, dirMarkIn, type DirView, liveRoomNames } from "./directory.ts";
 import type { JoinNickTarget } from "./join_nick.ts";
 import { directoryName } from "./text.ts";
+import { noDirectoryName } from "../../lib/text/directory.ts";
 import { applicationModule, inspectCapability, inspectDirectory } from "./application.ts";
 import {
 	openRoomPolicy,
@@ -273,10 +274,10 @@ export function destination(
 	// The arm below does ask it, because there a color really is one directory's
 	// answer against the others, and past the ramp there is no answer to give.
 	if (thisDirectoryLocator(locator, context, typedAs) === "") {
-		return {
-			mark: context.defaultDirectory != null ? "home" : undefined,
-			name: hereWord,
-		};
+		// With no directory of its own, the page has no "here" to name.
+		return context.defaultDirectory != null
+			? { mark: "home", name: hereWord }
+			: { mark: undefined, name: noDirectoryName };
 	}
 	const held = typedAs != null ? dirs.get(typedAs) : undefined;
 	// The mark the rail is showing for that directory, and `unknown` when the

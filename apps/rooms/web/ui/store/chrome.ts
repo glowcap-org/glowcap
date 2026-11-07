@@ -16,7 +16,14 @@ import type { MemberRef } from "../member_ref.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { kindOf } from "../media.ts";
 import { type DraftPreview, reconcileDraftPreviews } from "../link_preview.ts";
-import { type Draft, type HelpTab, NO_DRAFT, type PageProjection, type State } from "./projection.ts";
+import {
+	type Draft,
+	type HelpTab,
+	NO_DRAFT,
+	type PageProjection,
+	type RoomsServerView,
+	type State,
+} from "./projection.ts";
 import { forgetConv, getConv, nextStandingKey } from "./convs.ts";
 import { markRead } from "./items.ts";
 
@@ -36,6 +43,19 @@ export function toast(projection: PageProjection, kind: ToastKind, text: string)
  * the page address the act picks up at after the reload, or null for here. */
 export function askServer(projection: PageProjection, resume: string | null): void {
 	projection.set({ serverAsk: { resume } });
+}
+
+/** The gate before an act that reaches through a Rooms server: links are
+ * minted on it, and every dial goes through it. Answers the server, or asks
+ * the page for one on the act's behalf and answers null, and the act goes no
+ * further, so nothing it would have done is done before the server exists.
+ * `resume` names the address the act picks up at after the reload a chosen
+ * server takes, or null for the page as it stands. It is read only when the
+ * ask is made, so an act with a server pays nothing for it. */
+export function serverOrAsk(projection: PageProjection, resume: () => string | null): RoomsServerView | null {
+	const server = projection.get().server;
+	if (server == null) askServer(projection, resume());
+	return server;
 }
 
 export function dismissServerAsk(projection: PageProjection): void {

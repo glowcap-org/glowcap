@@ -63,3 +63,25 @@ Deno.test("an act that needs a Rooms server holds where it resumes until the ask
 	store.dismissServerAsk(projection);
 	assertEquals(projection.get().serverAsk, null, "dismissing an ask that is gone is nothing");
 });
+
+Deno.test("an act that reaches through a Rooms server is gated on one before it does anything", () => {
+	projection.set({ server: null, serverAsk: null });
+	assertEquals(store.serverOrAsk(projection, () => "/join?room=general"), null, "with no server the act waits");
+	assertEquals(
+		projection.get().serverAsk,
+		{ resume: "/join?room=general" },
+		"and the page asks, naming where to resume",
+	);
+	store.dismissServerAsk(projection);
+	const held = { base: "https://rooms.example/", chosen: true, directory: null };
+	projection.set({ server: held });
+	assertEquals(
+		store.serverOrAsk(projection, () => {
+			throw new Error("the resume address is not read while a server is held");
+		}),
+		held,
+		"with a server the act goes, through that server",
+	);
+	assertEquals(projection.get().serverAsk, null, "and nothing is asked");
+	projection.set({ server: null });
+});

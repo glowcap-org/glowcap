@@ -24,6 +24,7 @@ import { refusalText } from "../../../lib/text/failure.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { useOpenModal } from "../modal.ts";
+import { useServerGate } from "../hooks.ts";
 import { useAsyncAction } from "../async_action.ts";
 import { Input } from "../Input.tsx";
 
@@ -43,6 +44,7 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	const { management } = useManagedSession();
 	useSyncExternalStore(management.subscribe, management.getVersion, management.getVersion);
 	const openModalFrom = useOpenModal();
+	const serverGate = useServerGate();
 	// Which row the running save or removal belongs to.
 	const [acting, setActing] = useState<string | null>(null);
 	const saveAction = useAsyncAction(async (_signal, control: HeldControl) => {
@@ -62,12 +64,16 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	const [doorOpen, setDoorOpen] = useState(false);
 	const [opening, setOpening] = useState(0);
 	const pending = management.issue;
-	const go = (event: { currentTarget: HTMLElement }, next: Door) =>
+	const go = (event: { currentTarget: HTMLElement }, next: Door) => {
+		// A new access is a link minted on the server, and a pasted management
+		// link is reached through it, so either door needs the server first.
+		if (next.kind !== "manage" && serverGate() == null) return;
 		openModalFrom(event.currentTarget, () => {
 			setDoor(next);
 			setOpening((value) => value + 1);
 			setDoorOpen(true);
 		});
+	};
 	const close = () => setDoorOpen(false);
 	return (
 		<Submodal

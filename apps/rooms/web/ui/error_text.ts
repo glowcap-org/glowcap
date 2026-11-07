@@ -5,14 +5,21 @@
 // because a product whose voice lives in two places has no voice: the next
 // author edits whichever copy they found.
 
-import { refusalText } from "../../lib/text/failure.ts";
+import { refusalText, transportBreak } from "../../lib/text/failure.ts";
 
-export {
-	errorDetailTitle,
-	locatorRefusal,
-	needsErrorDetail,
-	sessionCapabilityRefusal,
-} from "../../lib/text/failure.ts";
+export { errorDetailTitle, needsErrorDetail, sessionCapabilityRefusal } from "../../lib/text/failure.ts";
+
+/** An attach that failed, in the reader's words. A break on the way names
+ * the server this browser goes through, said by `unreachable` for the screen
+ * that says it; anything else is about the link. */
+export function attachRefusal(
+	error: unknown,
+	server: { readonly base: string } | null,
+	unreachable: (host: string, detail: string) => string,
+): string {
+	const broke = transportBreak(error);
+	return broke !== null && server != null ? unreachable(new URL(server.base).host, broke) : refusalText(error);
+}
 
 /** Settle one UI action into the controller convention: an empty string is
  * success and any other string is a refusal. Expected failures already arrive

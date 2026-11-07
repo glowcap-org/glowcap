@@ -55,8 +55,10 @@ import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
-import { actionRefusal, locatorRefusal, sessionCapabilityRefusal } from "../error_text.ts";
+import { attachRefusal, sessionCapabilityRefusal } from "../error_text.ts";
+import { sessionServerUnreachableInSettings } from "../../../lib/text/session.ts";
 import { useOpenModal } from "../modal.ts";
+import { useRoomsState, useServerGate } from "../hooks.ts";
 import { Said } from "../Said.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Submodal } from "../Submodal.tsx";
@@ -70,6 +72,7 @@ export function SessionMoves(
 ) {
 	const openModalFrom = useOpenModal();
 	const browser = useRoomsBrowser();
+	const serverGate = useServerGate();
 	const commitments = useCommitments();
 	const [open, setOpen] = useState(false);
 	const [asking, setAsking] = useState<"leave" | "local-copy" | "share" | null>(null);
@@ -143,14 +146,22 @@ export function SessionMoves(
 									id="sessionAttachOpen"
 									act="Attach…"
 									variant="primary"
-									onClick={(event) => openModalFrom(event.currentTarget, () => setOpen(true))}
+									// A shared session is reached through the server, and sharing
+									// this one mints its link there, so either door needs it first.
+									onClick={(event) => {
+										if (serverGate() != null) {
+											openModalFrom(event.currentTarget, () => setOpen(true));
+										}
+									}}
 								/>
 								{sessionKind === "local" && (
 									<EntryAct
 										name={sessionMoveThis}
 										id="sessionShareAsk"
 										act="Share…"
-										onClick={() => setAsking("share")}
+										onClick={() => {
+											if (serverGate() != null) setAsking("share");
+										}}
 									/>
 								)}
 								{sessionKind === "attached" && (
@@ -192,6 +203,7 @@ function AttachModal(
 ) {
 	const browser = useRoomsBrowser();
 	const commitments = useCommitments();
+	const server = useRoomsState((state) => state.server);
 	const [link, setLink] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [why, setWhy] = useState("");
@@ -219,11 +231,7 @@ function AttachModal(
 		setBusy(true);
 		setWhy("");
 		try {
-			const refusal = locatorRefusal(
-				await actionRefusal(() => browser.attachRoomsSession(candidate)),
-				"session capability link",
-			);
-			setWhy(refusal);
+			await browser.attachRoomsSession(candidate);
 			// Emptied once it has been used, because a filled field is a pending
 			// change and this one is spent. A capability that moves this browser
 			// reloads the page and takes the form with it, so this is invisible
@@ -231,7 +239,9 @@ function AttachModal(
 			// deliberately does not reload, and left filled it is a form that looks
 			// unsubmitted and stops the reader on the way out to ask about work that
 			// is already done.
-			if (refusal === "") setLink("");
+			setLink("");
+		} catch (error) {
+			setWhy(attachRefusal(error, server, sessionServerUnreachableInSettings));
 		} finally {
 			running.current = false;
 			setBusy(false);
