@@ -144,19 +144,31 @@ def save(found, source, description, tags, email, password):
 
 
 def wait(source, checksum, clock=time.monotonic, sleep=time.sleep):
-    """Poll the public catalog until it states the release, within the deadline."""
+    """Poll the public catalog until it states the release, within the deadline.
+
+    The edit is saved, so the two failures that clear with time, the catalog
+    answering an error status and the catalog not answering, are polled again
+    until the deadline. A read error on the release's archive is the catalog's
+    answer and ends the wait at once.
+    """
     deadline = clock() + DEADLINE_SECONDS
     while True:
-        found = entry()
-        if states(found, source, checksum):
-            return
-        # An error on the previous source is history; one on the release's
-        # archive is the catalog's answer.
-        error = (found or {}).get("checksum-error")
-        if error and found.get("source") == source:
-            raise Refused(f"the catalog could not read {source}: {error}")
+        try:
+            found = entry()
+        except (Refused, urllib.error.URLError) as unanswered:
+            found, last = None, str(unanswered)
+        else:
+            last = None
+            if states(found, source, checksum):
+                return
+            # An error on the previous source is history; one on the release's
+            # archive is the catalog's answer.
+            error = (found or {}).get("checksum-error")
+            if error and found.get("source") == source:
+                raise Refused(f"the catalog could not read {source}: {error}")
         if clock() >= deadline:
-            raise Refused(f"the catalog did not show {source} with checksum {checksum} within the deadline")
+            tail = f" (last: {last})" if last else ""
+            raise Refused(f"the catalog did not show {source} with checksum {checksum} within the deadline{tail}")
         sleep(POLL_SECONDS)
 
 
