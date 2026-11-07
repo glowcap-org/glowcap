@@ -56,7 +56,7 @@ Registry identities live in
 | Archives, C SDK, checksums, and provenance | [GitHub Releases](https://github.com/glowcap-org/glowcap/releases) | The [release workflow](../.github/workflows/release.yml) | At each signed `v*` tag |
 | Rooms container image | `ghcr.io/glowcap-org/glowcap-rooms` | The release workflow, by digest | At each signed `v*` tag |
 | Rust crate, Python wheel, and JSR packages | crates.io, PyPI, and JSR | The [publish workflow](../.github/workflows/publish.yml), after the maintainer approves each registry | When the release becomes public |
-| Racket package | The Racket package catalog, pointing to the release's binding ZIP | The maintainer, guided by `tools/release-publishers.py` | After each release |
+| Racket package | The Racket package catalog, pointing at the release's binding ZIP | The publish workflow, with the catalog account its `racket` environment holds, after the maintainer approves | When the release becomes public |
 | Repository docs and READMEs | GitHub, read at `main` | Promotion to `main` | Each time `main` moves |
 
 Website pages link repository docs at `blob/main`, so both show the same
@@ -253,11 +253,11 @@ release itself is two commands and two workflows.
    [publish workflow](../.github/workflows/publish.yml) at the tag.
 4. The publish workflow checks out the tag and verifies the public release.
    It uploads the crate, the wheel, and the JSR packages as each registry's
-   trusted publisher. Then it installs every published package in a fresh
-   consumer that downloads the release's C SDK. Each registry job waits for
-   the maintainer's approval in its environment. Then run
-   `tools/release-publishers.py`, which names the Racket catalog entry when
-   it lags the release and walks through the change.
+   trusted publisher, and points the Racket catalog's `glowcap` entry at the
+   release's binding ZIP with the catalog account its `racket` environment
+   holds. Then it installs every published package in a fresh consumer that
+   downloads the release's C SDK. Each registry job waits for the
+   maintainer's approval in its environment.
 
 A failed job is re-run from the run's page with **Re-run failed jobs**. The
 release job resumes its own draft, skips an image tag it already pushed, and
@@ -286,11 +286,15 @@ gh attestation verify --repo glowcap-org/glowcap <archive>
 
 ### Registry publishers
 
-Each registry trusts `publish.yml` in this repository through an OpenID
-Connect binding that names the workflow file and a GitHub environment. The
-environments `pypi`, `crates-io`, and `jsr` hold the maintainer as a required
-reviewer, so each publication waits for approval, and a deployment branch
-policy admits `v*` tags, so the dispatch at the tag can enter them.
+PyPI, crates.io, and JSR trust `publish.yml` in this repository through an
+OpenID Connect binding that names the workflow file and a GitHub environment.
+The Racket catalog has no such binding or token, so the `racket` environment
+holds the catalog account's email and password as secrets. The job edits the
+entry through the catalog's own API, the call its website makes when a person
+saves the edit form. The environments `pypi`, `crates-io`, `jsr`, and
+`racket` hold the maintainer as a required reviewer, so each publication waits
+for approval, and a deployment branch policy admits `v*` tags, so the dispatch
+at the tag can enter them.
 
 `tools/release-publishers.py` is the one command for this setup. It verifies
 each registry against what the registry and GitHub answer, and creates or
@@ -299,14 +303,15 @@ browser it prints the page and the exact values, opens the page, and verifies
 again once the step is confirmed. `--check` verifies without prompts or
 effects, so a script can run it. The names it enters come from the tree: the
 JSR scope and packages from the TypeScript workspace, the crate and the PyPI
-project from their manifests, and the repository from `gh`.
+project from their manifests, the Racket catalog's names from
+`ci/racket_catalog.py`, and the repository from `gh`.
 
 | Registry | What a person does once |
 | --- | --- |
 | PyPI | Registers a pending trusted publisher for the project. It becomes the project's publisher at the first upload, and the command reports it as waiting until then. |
 | crates.io | Verifies the account's email address, which crates.io requires before any upload. Stores a publish token as the `CARGO_REGISTRY_TOKEN` secret of the `crates-io` environment for the first upload, because a trusted publisher binds to an existing crate. After that upload, adds the trusted publisher, and the command deletes the secret. |
 | JSR | Creates each workspace package in the `@glowcap` scope and links it to this repository. In the scope's settings, turns off the option that requires the user who triggered the workflow to be a scope member, because the release workflow dispatches the publication as `github-actions[bot]`. |
-| Racket catalog | Points the `glowcap` entry at the release's binding ZIP and checks that the catalog could read it. |
+| Racket catalog | Creates the account that owns the `glowcap` entry and enters its email and password. The command stores them as the `RACKET_CATALOG_EMAIL` and `RACKET_CATALOG_PASSWORD` secrets of the `racket` environment. When the entry lags the newest release, the command offers to dispatch `publish.yml` at that release. |
 
 ## Promotion app
 

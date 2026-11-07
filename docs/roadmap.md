@@ -227,7 +227,7 @@ on them.
   The first release through it needs the
   [registry publishers](maintaining.md#registry-publishers) set up: the PyPI
   pending publisher, the crates.io first-version token, the missing
-  `@glowcap/relay` JSR package, and the Racket catalog entry. Direct npm
+  `@glowcap/relay` JSR package, and the Racket catalog account's secrets. Direct npm
   publication needs its own package and consumer proof
   ([plan to plan](planning/plan-to-plan.md)).
 

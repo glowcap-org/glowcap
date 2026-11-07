@@ -35,7 +35,8 @@ USER = 42
 TAG = "v0.1.1"
 TOKEN = "cio-secret-token-value"
 SCOPE, PACKAGES = MODULE.jsr_packages(ROOT)
-SOURCE = MODULE.racket_source(SLUG, TAG)
+SOURCE = MODULE.catalog.package_source(SLUG, TAG)
+RACKET_SECRETS = MODULE.RACKET_SECRETS
 
 
 class World:
@@ -49,7 +50,8 @@ class World:
         self.jsr = {package: {"owner": "owner", "name": "project"} for package in PACKAGES}
         self.jsr_total = None
         self.pypi, self.crate, self.racket = 200, 200, (200, SOURCE)
-        self.secrets, self.tag = set(), TAG
+        self.secrets = {"crates-io": set(), "racket": set(RACKET_SECRETS)}
+        self.tag = TAG
         self.fetched, self.calls, self.fetch_errors = [], [], {}
         self.racket_checksum, self.racket_error = "a" * 40, None
 
@@ -97,7 +99,10 @@ class World:
                 self.environments[path.split("/")[-2]]["tags"].append(name.removeprefix("name="))
                 return ""
             case ("api", path, "--jq", _) if path.endswith("/secrets"):
-                return "".join(f"{name}\n" for name in sorted(self.secrets))
+                environment = path.split("/")[-2]
+                if environment not in self.environments:
+                    raise self.refuse(args)
+                return "".join(f"{name}\n" for name in sorted(self.secrets[environment]))
             case ("api", path) if path.endswith("/deployment-branch-policies"):
                 state = self.environments.get(path.split("/")[-2])
                 if state is None:
@@ -120,16 +125,18 @@ class World:
                         },
                     }
                 )
-            case ("secret", "set", name, *_):
-                self.secrets.add(name)
+            case ("secret", "set", name, "--env", environment, *_):
+                self.secrets[environment].add(name)
                 return ""
-            case ("secret", "delete", name, *_):
-                self.secrets.discard(name)
+            case ("secret", "delete", name, "--env", environment, *_):
+                self.secrets[environment].discard(name)
+                return ""
+            case ("workflow", "run", *_):
                 return ""
         raise AssertionError(f"unexpected gh call {args}")
 
     def writes(self):
-        return [args for args, _ in self.calls if "-X" in args or args[0] == "secret"]
+        return [args for args, _ in self.calls if "-X" in args or args[0] in ("secret", "workflow")]
 
 
 class Result:
@@ -182,7 +189,7 @@ class DerivationTest(unittest.TestCase):
         )
         self.assertEqual((facts["crate"], facts["project"]), ("glowcap", "glowcap"))
         self.assertEqual(
-            MODULE.racket_source("o/r", "v1.2.3"),
+            MODULE.catalog.package_source("o/r", "v1.2.3"),
             "https://github.com/o/r/releases/download/v1.2.3/glowcap-racket-v1.2.3.zip",
         )
 
@@ -432,7 +439,7 @@ class CratesTest(unittest.TestCase):
             with self.subTest(exists=exists, secret=secret):
                 world = World()
                 world.crate = 200 if exists else 404
-                world.secrets = {MODULE.FIRST_PUBLISH_VARIABLE} if secret else set()
+                world.secrets["crates-io"] = {MODULE.FIRST_PUBLISH_VARIABLE} if secret else set()
                 result = run(world, "--check", "crates-io")
                 self.assertRegex(result.lines("crates-io")[0], f"crates-io: {expected}")
                 self.assertEqual(result.code, 1 if expected == "incomplete" else 0)
@@ -459,9 +466,9 @@ class CratesTest(unittest.TestCase):
         for answers, deleted, code in ((["y", "y"], True, 0), (["y", "n"], False, 1), (["n"], False, 1)):
             with self.subTest(answers=answers):
                 world = World()
-                world.secrets = {MODULE.FIRST_PUBLISH_VARIABLE}
+                world.secrets["crates-io"] = {MODULE.FIRST_PUBLISH_VARIABLE}
                 result = run(world, "crates-io", answers=answers, tty=True)
-                self.assertEqual(MODULE.FIRST_PUBLISH_VARIABLE in world.secrets, not deleted)
+                self.assertEqual(MODULE.FIRST_PUBLISH_VARIABLE in world.secrets["crates-io"], not deleted)
                 self.assertEqual(result.code, code)
                 self.assertEqual(result.opened, ["https://crates.io/crates/glowcap/settings/new-trusted-publisher"])
                 for line in (
@@ -482,7 +489,7 @@ class RacketTest(unittest.TestCase):
             (
                 "missing entry",
                 lambda w: setattr(w, "racket", (404, "")),
-                "incomplete: the catalog has no glowcap entry",
+                f"incomplete: the catalog has no glowcap entry, and the release expects source {SOURCE}",
                 1,
             ),
             (
@@ -504,6 +511,18 @@ class RacketTest(unittest.TestCase):
                 "incomplete: the catalog could not read the package: unsafe link",
                 1,
             ),
+            (
+                "one secret missing",
+                lambda w: w.secrets["racket"].discard(RACKET_SECRETS[1]),
+                f"incomplete: the racket environment has no {RACKET_SECRETS[1]} secret",
+                1,
+            ),
+            (
+                "no environment",
+                lambda w: w.environments.pop("racket"),
+                f"incomplete: the racket environment has no {RACKET_SECRETS[0]} secret",
+                1,
+            ),
         )
         for name, damage, expected, code in cases:
             with self.subTest(name):
@@ -514,19 +533,58 @@ class RacketTest(unittest.TestCase):
                 self.assertIn(f"racket: {expected}", result.out)
                 if name == "no release":
                     self.assertEqual(world.fetched, [])
+                if name == "no environment":
+                    self.assertEqual(len(result.lines("racket")), 2)
 
-    def test_guided_pages(self):
-        for name, racket, page, words in (
-            ("missing", (404, ""), "https://pkgs.racket-lang.org/", "add the package glowcap"),
-            ("stale", (200, "x"), "https://pkgs.racket-lang.org/package/glowcap", "change the source of glowcap"),
-        ):
-            with self.subTest(name):
+    def test_secrets_go_to_gh_on_stdin_after_a_yes(self):
+        world = World()
+        world.secrets["racket"] = set()
+        result = run(world, "racket", answers=["owner@example.invalid", "y"], tty=True)
+        result.ask_secret.assert_called_once()
+        sets = [(args, stdin) for args, stdin in world.calls if args[:2] == ("secret", "set")]
+        self.assertEqual(
+            sets,
+            [
+                (("secret", "set", RACKET_SECRETS[0], "--env", "racket", "-R", SLUG), "owner@example.invalid"),
+                (("secret", "set", RACKET_SECRETS[1], "--env", "racket", "-R", SLUG), TOKEN),
+            ],
+        )
+        self.assertTrue(all(TOKEN not in str(args) for args, _ in world.calls))
+        self.assertNotIn(TOKEN, result.out)
+        self.assertEqual((result.code, result.lines("racket")[-1].split(": ")[2]), (0, "complete"))
+        self.assertEqual(result.opened, [])
+
+    def test_secrets_with_no_confirmation_or_empty_answers_write_nothing(self):
+        for answers in (["owner@example.invalid", "n"], ["", "y"]):
+            with self.subTest(answers=answers):
                 world = World()
-                world.racket = racket
-                result = run(world, "racket", answers=["n"], tty=True)
-                self.assertEqual(result.opened, [page])
-                self.assertIn(f"{words}", result.out)
-                self.assertIn(SOURCE, result.out)
+                world.secrets["racket"] = set()
+                result = run(world, "racket", answers=answers, tty=True)
+                self.assertEqual((result.code, world.writes()), (1, []))
+                self.assertIn("nothing was written", result.out)
+
+    def test_a_lagging_entry_dispatches_publication_after_a_yes(self):
+        for answers, dispatched in ((["y"], True), (["n"], False)):
+            with self.subTest(answers=answers):
+                world = World()
+                world.racket = (200, "https://github.com/old/repo#v0.0.1")
+                result = run(world, "racket", answers=answers, tty=True)
+                runs = [args for args, _ in world.calls if args[:2] == ("workflow", "run")]
+                expected = [
+                    ("workflow", "run", "publish.yml", "--ref", f"refs/tags/{TAG}", "-f", f"tag={TAG}", "-R", SLUG)
+                ]
+                self.assertEqual(runs, expected if dispatched else [])
+                self.assertEqual(result.code, 1)
+                self.assertIn("approve the racket environment" if dispatched else "nothing was dispatched", result.out)
+
+    def test_missing_secrets_are_stored_before_the_dispatch_is_offered(self):
+        world = World()
+        world.secrets["racket"] = set()
+        world.racket = (404, "")
+        result = run(world, "racket", answers=["owner@example.invalid", "y", "y"], tty=True)
+        kinds = [args[0] for args in world.writes()]
+        self.assertEqual(kinds, ["secret", "secret", "workflow"])
+        self.assertEqual(result.code, 1)
 
 
 if __name__ == "__main__":

@@ -6,16 +6,18 @@ until each registry trusts this repository, and some of that trust can only be
 granted by a person in a browser. This command verifies each stage against
 what the registries and GitHub say, and in guided mode walks the person through
 the rest. Every name it uses comes from the tree: the repository from gh, the
-JSR scope and packages from bindings/ts, the crate from bindings/rust, and the
-PyPI project from bindings/python. The three environment names are the
-contract with publish.yml.
+JSR scope and packages from bindings/ts, the crate from bindings/rust, the
+PyPI project from bindings/python, and the Racket catalog's names from
+ci/racket_catalog.py. The four environment names are the contract with
+publish.yml.
 
-Stages, in this order: github (the pypi, crates-io, and jsr environments with
-the maintainer as reviewer and the v* tag policy), jsr (every workspace package
-exists and is linked to this repository), pypi (the project exists, or its
-pending trusted publisher is registered), crates-io (the first-publish token
-secret until the crate exists, then a trusted publisher and no secret), and
-racket (the catalog entry names the newest release tag). Each stage ends
+Stages, in this order: github (the pypi, crates-io, jsr, and racket
+environments with the maintainer as reviewer and the v* tag policy), jsr (every
+workspace package exists and is linked to this repository), pypi (the project
+exists, or its pending trusted publisher is registered), crates-io (the
+first-publish token secret until the crate exists, then a trusted publisher and
+no secret), and racket (the racket environment holds the catalog account's
+email and password, and the catalog entry names the newest release). Each stage ends
 complete, waiting (it cannot be verified until an outside event, such as the
 first publish), or incomplete.
 
@@ -38,9 +40,11 @@ import argparse
 import getpass
 import json
 import re
+import runpy
 import subprocess
 import sys
 import tomllib
+import types
 import urllib.error
 import urllib.request
 import webbrowser
@@ -49,12 +53,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = "publish.yml"
-ENVIRONMENTS = ("pypi", "crates-io", "jsr")
+ENVIRONMENTS = ("pypi", "crates-io", "jsr", "racket")
 TAG_POLICY = "v*"
 # The crates-io environment secret publish.yml reads for the first publish, before
 # the trusted publisher takes over. This is its name, which the messages print.
 FIRST_PUBLISH_VARIABLE = "CARGO_REGISTRY_TOKEN"
-RACKET_PACKAGE = "glowcap"
+
+# The publisher publish.yml runs owns the catalog's names: the package, its
+# public entry, the release archive URL, and the two secrets of the racket
+# environment. It lives in ci/, which `import` does not reach from here.
+catalog = types.SimpleNamespace(**runpy.run_path(str(ROOT / "ci/racket_catalog.py")))
+RACKET_SECRETS = (catalog.EMAIL, catalog.PASSWORD)
 STAGES = ("github", "jsr", "pypi", "crates-io", "racket")
 COMPLETE, WAITING, INCOMPLETE, CANNOT = "complete", "waiting", "incomplete", "cannot verify"
 TIMEOUT = 20
@@ -208,10 +217,6 @@ def derive(root, stages):
     if "pypi" in stages:
         facts["project"] = manifest_name(root, "bindings/python/pyproject.toml", "project")
     return facts
-
-
-def racket_source(slug, tag):
-    return f"https://github.com/{slug}/releases/download/{tag}/glowcap-racket-{tag}.zip"
 
 
 class Context:
@@ -471,45 +476,77 @@ def hand_over_crates(context, verdict):
 # Stage 5: the Racket catalog.
 
 
+def racket_secrets_missing(slug):
+    """The racket environment secrets publish.yml reads that are not set, all of them when the environment is missing."""
+    try:
+        names = gh("api", f"repos/{slug}/environments/racket/secrets", "--jq", ".secrets[].name").split()
+    except subprocess.CalledProcessError as error:
+        if not not_found(error):
+            raise
+        names = []
+    return tuple(name for name in RACKET_SECRETS if name not in names)
+
+
 def verify_racket(context):
-    tag = context.tag()
+    package, slug, tag = catalog.PACKAGE, context.slug(), context.tag()
+    missing = racket_secrets_missing(slug)
+    findings = [
+        f"the racket environment has no {name} secret, so publish.yml cannot edit the catalog" for name in missing
+    ]
+    items = ("secrets",) if missing else ()
     if not tag:
-        return Verdict(
-            WAITING, ["no release is published yet, so the catalog entry is created after the first release"]
-        )
-    url = f"https://pkgs.racket-lang.org/pkg/{RACKET_PACKAGE}.json"
-    status, body = fetch(url, context.slug())
-    expected = racket_source(context.slug(), tag)
-    if not present(status, url):
-        return Verdict(
-            INCOMPLETE, [f"the catalog has no {RACKET_PACKAGE} entry, expected source {expected}"], ("missing",)
-        )
+        notes = ["no release is published yet, so publish.yml creates the catalog entry at the first release"]
+        return Verdict(INCOMPLETE if missing else WAITING, findings + notes, items)
+    status, body = fetch(catalog.CATALOG, slug)
+    expected = catalog.package_source(slug, tag)
+    if not present(status, catalog.CATALOG):
+        findings.append(f"the catalog has no {package} entry, and the release expects source {expected}")
+        return Verdict(INCOMPLETE, findings, items + ("missing",))
     entry = json.loads(body)
     source = entry["source"]
     if source != expected:
-        return Verdict(INCOMPLETE, [f"the catalog source is {source} and the release expects {expected}"], ("stale",))
+        findings.append(f"the catalog source is {source} and the release expects {expected}")
+        return Verdict(INCOMPLETE, findings, items + ("stale",))
     if entry.get("checksum-error") or not entry.get("checksum"):
-        return Verdict(
-            INCOMPLETE,
-            [f"the catalog could not read the package: {entry.get('checksum-error') or 'empty checksum'}"],
-            ("unreadable",),
-        )
-    return Verdict(COMPLETE, [])
+        findings.append(f"the catalog could not read the package: {entry.get('checksum-error') or 'empty checksum'}")
+        return Verdict(INCOMPLETE, findings, items + ("unreadable",))
+    return Verdict(INCOMPLETE if missing else COMPLETE, findings, items)
+
+
+def store_racket_secrets(slug):
+    say("racket", f"the catalog account that owns {catalog.PACKAGE} at {catalog.PAGE}")
+    email = ask("release-publishers: racket: account email: ").strip()
+    password = ask_secret("release-publishers: racket: account password (input is hidden): ")
+    if (
+        not email
+        or not password
+        or not confirm(f"Store them as {' and '.join(RACKET_SECRETS)} on the racket environment of {slug}?")
+    ):
+        say("racket", "nothing was written")
+        return False
+    for name, value in zip(RACKET_SECRETS, (email, password)):
+        gh("secret", "set", name, "--env", "racket", "-R", slug, input=value)
+    return True
+
+
+def dispatch_publication(slug, tag):
+    say("racket", f"publish.yml at {tag} points the catalog entry at the release and installs it from the catalog")
+    if not confirm(f"Dispatch publish.yml at {tag} on {slug}?"):
+        say("racket", "nothing was dispatched")
+        return
+    gh("workflow", "run", WORKFLOW, "--ref", f"refs/tags/{tag}", "-f", f"tag={tag}", "-R", slug)
+    say("racket", "dispatched: approve the racket environment in the run, then run this check again once it finishes")
 
 
 def update_racket(context, verdict):
     if not verdict.items:
         return False
-    expected = racket_source(context.slug(), context.tag())
-    if verdict.items == ("missing",):
-        page = "https://pkgs.racket-lang.org/"
-        say("racket", f"sign in, then add the package {RACKET_PACKAGE} with the source {expected}")
-    else:
-        page = f"https://pkgs.racket-lang.org/package/{RACKET_PACKAGE}"
-        say("racket", f"sign in, then change the source of {RACKET_PACKAGE} to {expected}")
-    say("racket", f"page: {page}")
-    open_page(page)
-    return confirm("Is the catalog entry saved?")
+    stored = "secrets" in verdict.items and store_racket_secrets(context.slug())
+    if "secrets" in verdict.items and not stored:
+        return False
+    if set(verdict.items) & {"missing", "stale", "unreadable"}:
+        dispatch_publication(context.slug(), context.tag())
+    return stored
 
 
 VERIFY = {

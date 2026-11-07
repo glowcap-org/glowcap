@@ -6,8 +6,8 @@ With --registry VERSION, install that version of each package from its registry
 in a fresh consumer and run the same smoke. No GLOWCAP_LIB_DIR is set, so each
 binding downloads the release's C archive under GLOWCAP_STRICT=1: this is the
 cold-cache proof of a publication. Registry indexes lag an upload by minutes,
-so only the install step retries. The Racket catalog is maintained by hand, so
---registry covers Python, Rust, and TypeScript.
+so only the install step retries. The Racket consumer installs into its own
+PLTADDONDIR, so the user scope of the machine running the proof stays as it was.
 
 Requires the devcontainer tools, or the matching runner toolchain. Packages and
 consumers live in a temporary directory outside the checkout. Registry reads may
@@ -198,9 +198,29 @@ def rust_package(work, env, registry):
         )
 
 
+RACKET_SMOKE = """(for ([module '(glowcap/glowcap glowcap/glowcap-tcp glowcap/glowcap-inproc
+                     glowcap/glowcap-onion glowcap/glowcap-iroh glowcap/glowcap-webrtc
+                     glowcap/glowcap-relay)])
+        (dynamic-require module #f))
+      (define make-host (dynamic-require 'glowcap/glowcap 'make-fresh-host))
+      ((dynamic-require 'glowcap/glowcap 'host-close!) (make-host))"""
+
+
 def racket_package(work, env, registry):
-    assert registry is None, "the Racket catalog entry is maintained by hand"
-    source = runpy.run_path(str(ROOT / "tools/release-publishers.py"))["racket_source"]("owner/project", "v1.2.3")
+    if registry is not None:
+        # The catalog names the release archive publish.yml pointed it at, so
+        # the install is the one a reader runs. Its user scope lives under the
+        # work directory, and the version proves the catalog serves the release.
+        env = dict(env, PLTADDONDIR=str(work / "racket-addon"))
+        install("raco", "pkg", "install", "--auto", "--batch", "--no-docs", "glowcap", cwd=work, env=env)
+        expression = f"""(define info ((dynamic-require 'setup/getinfo 'get-info) (list "glowcap")))
+      (unless (equal? (info 'version) {json.dumps(registry)})
+        (error 'catalog "installed glowcap ~a, expected ~a" (info 'version) {json.dumps(registry)}))
+      {RACKET_SMOKE}"""
+        run("racket", "-e", expression, cwd=work, env=env)
+        downloaded_lib_dir(work)
+        return
+    source = runpy.run_path(str(ROOT / "ci/racket_catalog.py"))["package_source"]("owner/project", "v1.2.3")
     # The catalog downloads only the binding archive. Checking out the whole
     # repository fails Racket's strict link policy on contributor-tool symlinks.
     expression = f"""(require pkg/name)
@@ -230,12 +250,7 @@ def racket_package(work, env, registry):
     expression = f"""(parameterize ([current-library-collection-links
         (cons (string->path {json.dumps(str(scope / "links.rktd"))})
               (current-library-collection-links))])
-      (for ([module '(glowcap/glowcap glowcap/glowcap-tcp glowcap/glowcap-inproc
-                     glowcap/glowcap-onion glowcap/glowcap-iroh glowcap/glowcap-webrtc
-                     glowcap/glowcap-relay)])
-        (dynamic-require module #f))
-      (define make-host (dynamic-require 'glowcap/glowcap 'make-fresh-host))
-      ((dynamic-require 'glowcap/glowcap 'host-close!) (make-host)))"""
+      {RACKET_SMOKE})"""
     run("racket", "-e", expression, cwd=work, env=env)
 
 
@@ -347,9 +362,7 @@ def main():
         help="install this published version from each registry instead of building packages",
     )
     args = parser.parse_args()
-    languages = (
-        [args.language] if args.language else [name for name in proofs if args.registry is None or name != "racket"]
-    )
+    languages = [args.language] if args.language else list(proofs)
     with tempfile.TemporaryDirectory(prefix="glowcap-packages-") as temporary:
         work = Path(temporary)
         env = {key: value for key, value in os.environ.items() if not key.startswith("GLOWCAP_")}

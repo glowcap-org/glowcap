@@ -96,6 +96,7 @@ changes, so product checks never wait for agent downloads.
 | [`github_release.py`](github_release.py) | The GitHub release: assemble the archives, verify attestations, fill the draft, publish | Host, release and publish jobs |
 | [`release_notes.py`](release_notes.py) | The release page, from the assembled facts and the changelog | Host, release job |
 | [`release_image.py`](release_image.py) | The Rooms image publication: each platform's exact image and the versioned index | Host, release job |
+| [`racket_catalog.py`](racket_catalog.py) | The Racket catalog entry: point it at the release's binding archive and wait until the catalog has read it | Host, publish job |
 | [`tools/run-with-timeout.py`](../tools/run-with-timeout.py) | The deadline every gate runs under | Both |
 | [`workflows.py`](workflows.py) | The workflow files as mappings, the Actions predicates they select by, and a loader for the programs `import` cannot reach, for the tests | Imported |
 | [`pyproject.toml`](pyproject.toml) | The tests' one dependency, PyYAML, which [`uv.lock`](uv.lock) pins | `uv run --project ci --locked` |

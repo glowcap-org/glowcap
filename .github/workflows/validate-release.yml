@@ -108,5 +108,11 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
 
+      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          version: ${{ steps.pins.outputs.racket }}
+          variant: CS
+          distribution: minimal
+
       - name: Install every published package in a fresh consumer
         run: python3 tools/check/binding_packages.py --registry "$VERSION"
