@@ -9,6 +9,8 @@ outputs:
     value: ${{ steps.read.outputs.rust }}
   uv:
     value: ${{ steps.read.outputs.uv }}
+  racket:
+    value: ${{ steps.read.outputs.racket }}
 runs:
   using: composite
   steps:
@@ -16,4 +18,4 @@ runs:
       shell: bash
       run: |
         source .devcontainer/pins.sh
-        printf 'python=%s\ndeno=%s\nrust=%s\nuv=%s\n' "$PYTHON_VERSION" "$DENO_VERSION" "$RUST_VERSION" "$UV_VERSION" >> "$GITHUB_OUTPUT"
+        printf 'python=%s\ndeno=%s\nrust=%s\nuv=%s\nracket=%s\n' "$PYTHON_VERSION" "$DENO_VERSION" "$RUST_VERSION" "$UV_VERSION" "$RACKET_VERSION" >> "$GITHUB_OUTPUT"

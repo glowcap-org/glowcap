@@ -1,9 +1,10 @@
 """publish.yml publishes registry packages only from a verified public release.
 
-Read the workflow's own jobs: every registry job runs in its environment with an
-OIDC token after the contract job, and the registry steps skip a version the
-registry already holds. The crate step runs
-with stub curl and cargo. This does not reach a registry or GitHub runners.
+Read the workflow's own jobs: every registry job runs in its environment after
+the contract job, with an OIDC token where the registry binds one and with the
+catalog account's secrets for the Racket catalog, and the registry steps skip a
+version the registry already holds. The crate step runs with stub curl and
+cargo. This does not reach a registry or GitHub runners.
 """
 
 import json
@@ -17,7 +18,9 @@ from workflows import jobs, run, step, text, workflow
 
 PUBLISH = ".github/workflows/publish.yml"
 RELEASE = ".github/workflows/release.yml"
-REGISTRY_JOBS = {"pypi": "pypi", "crates-io": "crates-io", "jsr": "jsr"}
+REGISTRY_JOBS = {"pypi": "pypi", "crates-io": "crates-io", "jsr": "jsr", "racket": "racket"}
+OIDC = {"contents": "read", "id-token": "write"}
+VALIDATE = ".github/workflows/validate-release.yml"
 
 
 class PublishWorkflow(unittest.TestCase):
@@ -32,7 +35,7 @@ class PublishWorkflow(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(job["needs"], "contract")
                 self.assertEqual(job["environment"], environment)
-                self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"})
+                self.assertEqual(job["permissions"], {"contents": "read"} if name == "racket" else OIDC)
                 checkouts = [item for item in job["steps"] if item.get("uses", "").startswith("actions/checkout@")]
                 refs = [item["with"]["ref"] for item in checkouts]
                 self.assertEqual(refs, ["${{ needs.contract.outputs.commit }}"])
@@ -85,6 +88,41 @@ class PublishWorkflow(unittest.TestCase):
                     calls = log.read_text()
                     self.assertIn("crates/glowcap/0.1.1", calls)
                     self.assertEqual("cargo publish" in calls, published)
+
+    def test_the_racket_job_edits_the_catalog_with_its_environment_secrets_then_installs(self):
+        job = jobs(PUBLISH)["racket"]
+        self.assertNotIn("id-token", json.dumps(job))
+        publish = step(job, "Point the catalog at the release's binding archive")
+        self.assertEqual(publish["run"], 'python3 ci/racket_catalog.py publish "$RELEASE_TAG"')
+        self.assertEqual(
+            publish["env"],
+            {
+                "RELEASE_TAG": "${{ inputs.tag }}",
+                "RACKET_CATALOG_EMAIL": "${{ secrets.RACKET_CATALOG_EMAIL }}",
+                "RACKET_CATALOG_PASSWORD": "${{ secrets.RACKET_CATALOG_PASSWORD }}",
+            },
+        )
+        names = [item.get("name") for item in job["steps"]]
+        self.assertLess(names.index(publish["name"]), names.index("Install the published version in a fresh consumer"))
+        self.assertEqual(
+            run(job, "Install the published version in a fresh consumer"),
+            'python3 tools/check/binding_packages.py --registry "$VERSION" racket',
+        )
+        # The consumer is a reader's Racket, pinned with the toolchain, in both
+        # workflows that install from the catalog.
+        for path, name in ((PUBLISH, "racket"), (VALIDATE, "registries")):
+            with self.subTest(path):
+                setups = [
+                    item
+                    for item in jobs(path)[name]["steps"]
+                    if item.get("uses", "").startswith("Bogdanp/setup-racket@")
+                ]
+                self.assertEqual(len(setups), 1)
+                self.assertRegex(setups[0]["uses"], r"@[0-9a-f]{40}$")
+                self.assertEqual(setups[0]["with"]["version"], "${{ steps.pins.outputs.racket }}")
+        pins = workflow(".github/actions/pins/action.yml")
+        self.assertIn("racket", pins["outputs"])
+        self.assertIn("RACKET_VERSION", pins["runs"]["steps"][0]["run"])
 
     def test_the_contract_job_alone_requires_the_tag_of_its_checkout(self):
         found = jobs(PUBLISH)

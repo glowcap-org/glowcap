@@ -7,7 +7,7 @@ decision: "A signed version tag publishes the archives, the images, and every re
 supersedes: []
 superseded_by: []
 amends: [ADR-0023]
-amended_by: []
+amended_by: [ADR-0076]
 ---
 
 # ADR-0075 Release publication at the tag
@@ -26,7 +26,7 @@ A binding decides whether to download from where it runs. Outside a checkout it 
 
 A consumer-availability switch in the contract was rejected because it cannot be true at the commit that produces the release, so it splits one version across two commits. Publishing packages from `release.yml` itself was rejected because a registry step that fails would block the GitHub release, and a package should be installable only after the archives it downloads exist. Publishing by hand from a maintainer's machine was rejected because it loses the trusted-publisher provenance and the commit identity.
 
-A version that fails partway is finished, never replaced: a failed release job is re-run and resumes its own draft, a failed registry step is re-run or dispatched again, and registries refuse a republished version, so a defect found after a tag takes the next patch version. A separate recovery path that publishes one run's artifacts from another run was rejected because it needs a second set of inputs, duplicates every fact the ordinary path states, and rescues a version the never-replace policy already gives up. The Racket catalog has no publishing API, so its entry is maintained by hand and points at the tag.
+A version that fails partway is finished, never replaced: a failed release job is re-run and resumes its own draft, a failed registry step is re-run or dispatched again, and registries refuse a republished version, so a defect found after a tag takes the next patch version. A separate recovery path that publishes one run's artifacts from another run was rejected because it needs a second set of inputs, duplicates every fact the ordinary path states, and rescues a version the never-replace policy already gives up. The Racket catalog has no trusted-publisher binding, and [ADR-0076](ADR-0076-racket-catalog-publication.md) owns how its entry follows the release.
 
 ## Evidence
 

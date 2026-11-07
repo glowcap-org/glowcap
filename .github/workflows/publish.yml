@@ -8,8 +8,9 @@
 # with the run's OIDC token through the registry's trusted-publisher binding
 # (this filename plus the job's environment), uploads, then installs the
 # published version in a fresh consumer that downloads the release's C
-# archive. The Racket catalog entry is maintained by hand
-# (docs/maintaining.md#registry-publishers).
+# archive. The Racket catalog offers no OIDC binding, so its job points the
+# catalog entry at the release's binding archive with the catalog account its
+# environment holds (docs/maintaining.md#registry-publishers).
 name: publish
 
 on:
@@ -188,3 +189,45 @@ jobs:
         env:
           VERSION: ${{ needs.contract.outputs.version }}
         run: python3 tools/check/binding_packages.py --registry "$VERSION" typescript
+
+  racket:
+    needs: contract
+    # The catalog re-reads the archive at once but rebuilds its public pages on
+    # a schedule of minutes, and the consumer install waits for those pages.
+    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    environment: racket
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.contract.outputs.commit }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/pins
+        id: pins
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ steps.pins.outputs.python }}
+
+      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          version: ${{ steps.pins.outputs.racket }}
+          variant: CS
+          distribution: minimal
+
+      - name: Point the catalog at the release's binding archive
+        # The entry names one archive, so a rerun that finds the release's
+        # archive already there writes nothing.
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RACKET_CATALOG_EMAIL: ${{ secrets.RACKET_CATALOG_EMAIL }}
+          RACKET_CATALOG_PASSWORD: ${{ secrets.RACKET_CATALOG_PASSWORD }}
+        run: python3 ci/racket_catalog.py publish "$RELEASE_TAG"
+
+      - name: Install the published version in a fresh consumer
+        env:
+          VERSION: ${{ needs.contract.outputs.version }}
+        run: python3 tools/check/binding_packages.py --registry "$VERSION" racket

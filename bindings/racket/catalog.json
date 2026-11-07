@@ -1,0 +1,4 @@
+{
+  "description": "glowcap for Racket: connect to OCapN peers, call and host objects, and pass references between peers over Noise TCP, WebRTC, iroh, onion, and relay transports.",
+  "tags": ["captp", "networking", "ocapn"]
+}

@@ -225,13 +225,11 @@ Deno's default [dependency-age policy](https://docs.deno.com/runtime/reference/d
 delays new versions for 24 hours. Add an exception for the glowcap packages if
 you need this release sooner.
 
-The Racket catalog points to this release's
-[source package]({base}/glowcap-racket-{tag}.zip).
-
-The packages are uploaded by the
-[publish workflow]({repository}/actions/workflows/publish.yml), which starts
-when this page is published and waits for the maintainer's approval at each
-registry, so a registry can lag this page by a few hours. The
+The [publish workflow]({repository}/actions/workflows/publish.yml) uploads
+the packages and points the Racket catalog's `glowcap` entry at this release's
+[source package]({base}/glowcap-racket-{tag}.zip). It starts when this page is
+published and waits for the maintainer's approval at each registry, so a
+registry can lag this page by a few hours. The
 [bindings guide]({tree}/bindings/README.md) lists every package. Zig users
 depend on the [{tag} source]({repository}/tree/{tag}). The browser files in the
 product are the Rooms application, not a published package.

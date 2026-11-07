@@ -9,6 +9,12 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- The release workflow points the Racket package catalog at each release's
+  binding archive and installs the package from the catalog, so a release
+  reaches Racket users without a maintainer editing the catalog entry.
+
 ## [0.1.4] - 2026-11-06
 
 ### Added

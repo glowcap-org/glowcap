@@ -32,7 +32,7 @@ established separately from GitHub organization membership.
 | crates.io | `glowcap` | `publish.yml`, as the crates.io trusted publisher. |
 | PyPI | `glowcap` | `publish.yml`, as the PyPI trusted publisher. The Python import is also `glowcap`. |
 | JSR | `@glowcap/*`, one package per workspace member | `publish.yml`, through the packages linked to this repository. |
-| Racket catalog | `glowcap`, installing the `glowcap` collection | The maintainer, as a catalog entry pointing at the release tag. |
+| Racket catalog | `glowcap`, installing the `glowcap` collection | `publish.yml`, pointing the catalog entry at the release's binding ZIP with the catalog account its `racket` environment holds. |
 | GHCR | `glowcap-org/glowcap-rooms` and `glowcap-org/glowcap/devcontainer` | `release.yml` publishes and attests the Rooms image. `devcontainer-image.yml` publishes the development image. |
 | npm | `@glowcap/*` | Not published. JSR's npm compatibility serves npm users and grants no npm scope. |
 
