@@ -15,6 +15,7 @@ import io
 import json
 import os
 import platform
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -175,7 +176,10 @@ class Installer(unittest.TestCase):
             "curl -fsSL https://glowcap.org/install.sh | GLOWCAP_VERSION={version} sh",
             (ROOT / "ci/release_notes.py").read_text(),
         )
-        self.assertIn('.static_assets = ["install.sh"]', (ROOT / "site/zine.ziggy").read_text())
+        # The site serves the installer whether or not a page links it.
+        assets = re.search(r"\.static_assets = \[([^\]]*)\]", (ROOT / "site/zine.ziggy").read_text())
+        self.assertIsNotNone(assets, "site/zine.ziggy names its static assets")
+        self.assertIn('"install.sh"', [entry.strip() for entry in assets.group(1).split(",")])
 
 
 if __name__ == "__main__":
