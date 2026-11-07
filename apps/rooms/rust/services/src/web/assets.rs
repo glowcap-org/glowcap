@@ -270,6 +270,14 @@ impl Assets {
 	}
 }
 impl Generation {
+	/// The build this generation is, as `/ui-version` answers it.
+	pub(super) fn revision(&self) -> &Asset {
+		&self.revision
+	}
+	/// Every served route and its asset, `/` being the page.
+	pub(super) fn files(&self) -> impl Iterator<Item = (&str, &Asset)> {
+		self.files.iter().map(|(route, asset)| (route.as_str(), asset))
+	}
 	pub(super) fn load(bundle: &Path) -> Result<Self, String> {
 		Self::load_configured(bundle, "{}")
 	}
@@ -291,12 +299,13 @@ impl Generation {
 			bytes: 0,
 		};
 		let application = read(&bundle.join("rooms_browser_bg.wasm"), MAX_ASSET)?;
-		let application_path = format!(
-			"/rooms-{}.wasm",
+		// Named by its content, and named to the page relative to its base.
+		let application_name = format!(
+			"rooms-{}.wasm",
 			rooms_application::fields::lower_hex(&Sha256::digest(&application))
 		);
 		generation.insert(
-			application_path.clone(),
+			format!("/{application_name}"),
 			Asset::new(application.into(), "application/wasm")?,
 		)?;
 		for entry in std::fs::read_dir(&bundle).map_err(|e| e.to_string())? {
@@ -311,7 +320,7 @@ impl Generation {
 					let prefix = format!(
 						"document.documentElement.dataset.uiBuild={};\ndocument.documentElement.dataset.roomsWasm={};\ndocument.documentElement.dataset.roomsSessionAdmission={};\n",
 						serde_json::to_string(&revision).map_err(|e| e.to_string())?,
-						serde_json::to_string(&application_path).map_err(|e| e.to_string())?,
+						serde_json::to_string(&application_name).map_err(|e| e.to_string())?,
 						serde_json::to_string(browser_admission).map_err(|e| e.to_string())?
 					);
 					let mut main = prefix.into_bytes();
@@ -432,7 +441,9 @@ fn leaf(name: &str) -> bool {
 			.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 		&& !name.contains("..")
 }
-fn security(page: &str) -> Result<HeaderMap, String> {
+/// The page's content security policy, minus the framing directive a `<meta>`
+/// element cannot carry: the header and a static export share it.
+pub(super) fn content_policy(page: &str) -> Result<String, String> {
 	let mut hashes = String::new();
 	let mut rest = page;
 	while let Some((_, tail)) = rest.split_once("<script>") {
@@ -441,9 +452,16 @@ fn security(page: &str) -> Result<HeaderMap, String> {
 		hashes.push_str(&format!(" 'sha256-{hash}'"));
 		rest = tail;
 	}
-	let csp = format!(
-		"default-src 'self'; base-uri 'none'; connect-src 'self' ws: wss:; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'{hashes}; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
-	);
+	// A chosen Rooms server may be another host: the page reads its `locator`,
+	// `ice`, and link previews there, and shows preview images through it. Its
+	// sockets may already reach any host, so `http:` and `https:` reach nothing
+	// new, and the page names no other remote image.
+	Ok(format!(
+		"default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss: http: https:; font-src 'self'; form-action 'self'; img-src 'self' blob: data: http: https:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'{hashes}; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+	))
+}
+fn security(page: &str) -> Result<HeaderMap, String> {
+	let csp = format!("{}; frame-ancestors 'none'", content_policy(page)?);
 	let mut headers = HeaderMap::new();
 	headers.insert(
 		"content-security-policy",

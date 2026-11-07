@@ -192,9 +192,10 @@ jobs:
 
   racket:
     needs: contract
-    # The catalog re-reads the archive at once but rebuilds its public pages on
-    # a schedule of minutes, and the consumer install waits for those pages.
-    timeout-minutes: 45
+    # ci/racket_catalog.py waits up to an hour for the catalog's hourly sweep
+    # to release the update lock and the public pages to follow; the consumer
+    # install then reads those pages.
+    timeout-minutes: 75
     runs-on: ubuntu-24.04
     environment: racket
     permissions:

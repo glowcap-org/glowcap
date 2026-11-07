@@ -41,6 +41,15 @@ export function directoryId(locator: string): DirId | null {
 	return authority == null ? null : dirId(authority);
 }
 
+/** Whether `text` reads as a directory address. A malformed one is no address. */
+export function namesDirectory(text: string): boolean {
+	try {
+		return directoryId(text) != null;
+	} catch {
+		return false;
+	}
+}
+
 export function directConversationId(directory: string, registration: string): string {
 	return applicationModule().directConversationId(directory, registration);
 }

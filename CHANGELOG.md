@@ -9,11 +9,44 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-07
+
+### Added
+
+- The Rooms page is published at https://glowcap.org/rooms/app/ with the
+  website. A Rooms server lets that page use it unless `--allow-origin` (or
+  `GLOWCAP_RELAY_ALLOW_ORIGINS`) lists other pages. The link it prints under
+  **open the page** opens the page with this server. The page names the
+  browser's local network permission when that is what stands in the way.
+- `--http-public` (or `GLOWCAP_ROOMS_HTTP_PUBLIC`) names the address browsers
+  reach a Rooms server at, so the links a deployed server prints are ones
+  other people can open.
+- The Rooms server card in Settings shows the server's address to copy.
+- The theme chosen on the website or in the Rooms page it publishes is one
+  choice: both keep it under the same browser key. A presentation export
+  still carries it with the other view preferences.
+- Joining a room, connecting to a directory, or messaging someone from a page
+  with no Rooms server asks for one in place, the way Attach does, and the
+  page comes back to that act once the server is saved.
+- `rooms-web --export-static=<directory> --base=<path>` writes the page as
+  plain files for any static host. It replaces only an export it wrote, and
+  a failed export leaves the one in place untouched.
+- A session's home directory is chosen in Settings. A room joined without a
+  directory address opens there, the choice is offered again after a Rooms
+  server restart, and a home that stopped answering stays visible.
+
 ### Changed
 
 - The release workflow points the Racket package catalog at each release's
   binding archive and installs the package from the catalog, so a release
   reaches Racket users without a maintainer editing the catalog entry.
+- `--allow-origin=` with an empty value lets no other page in, and an option
+  given without its value names the form the help shows.
+- A session opens without a relay, and a page that did not open says why,
+  with **Reload** on a tab that has chosen no session.
+- Closing a Rust browser channel answers only a failure to retire the socket
+  itself. A channel that failed earlier closes cleanly, and that first failure
+  stays the answer to its reads and writes.
 
 ## [0.1.4] - 2026-11-06
 
@@ -196,7 +229,8 @@ The release build failed before publication. Its changes ship in 0.1.4.
   Rooms application with its container image. [What ships](docs/shipped.md)
   describes the release in full.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/glowcap-org/glowcap/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/glowcap-org/glowcap/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/glowcap-org/glowcap/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/glowcap-org/glowcap/compare/v0.1.1...v0.1.2

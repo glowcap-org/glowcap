@@ -15,10 +15,14 @@ fn credential(config: &web_sys::RtcConfiguration) -> String {
 }
 
 #[wasm_bindgen]
-pub async fn rooms_browser_ice_contract() {
+pub async fn rooms_browser_ice_contract(elsewhere: String) {
 	super::install_panic_hook();
 	tokio::task::LocalSet::new()
 		.run_until(async {
+			// A page served elsewhere reads its Rooms server's ICE across origins.
+			let across = Source::new(&elsewhere);
+			assert_eq!(credential(&across.configuration().await.unwrap()), "elsewhere");
+			across.close().await.unwrap();
 			let source = Source::new("/ice/rotating");
 			let (first, concurrent) = tokio::join!(source.configuration(), source.configuration());
 			let (first, concurrent) = (first.unwrap(), concurrent.unwrap());
@@ -34,6 +38,15 @@ pub async fn rooms_browser_ice_contract() {
 			assert_eq!(retry.configuration().await.unwrap_err(), Error::Http(503));
 			assert_eq!(records(&retry.configuration().await.unwrap()).length(), 0);
 			retry.close().await.unwrap();
+			// A page with no Rooms server holds the default STUN policy and fetches nothing.
+			let fixed = Source::stun_default().unwrap();
+			let urls: js_sys::Array =
+				js_sys::Reflect::get(&records(&fixed.configuration().await.unwrap()).get(0), &"urls".into())
+					.unwrap()
+					.unchecked_into();
+			assert!(urls.get(0).as_string().unwrap().starts_with("stun:"));
+			fixed.close().await.unwrap();
+			assert_eq!(fixed.configuration().await.unwrap_err(), Error::Closed);
 			for url in ["/ice/invalid", "/ice/oversize", "/ice/oversize-stream"] {
 				let source = Source::new(url);
 				assert!(matches!(source.configuration().await, Err(Error::Invalid(_))));

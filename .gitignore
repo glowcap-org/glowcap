@@ -20,6 +20,9 @@ site/assets/mark.js
 # inline. Generated, never committed.
 site/assets/rooms-*.webp
 site/assets/rooms-irc-transcript.txt
+# The Rooms page the site serves at /rooms/app/, exported from the prepared
+# browser generation by `zig build site-rooms-page`. Generated, never committed.
+site/assets/rooms/
 bindings/rust/Cargo.lock
 bindings/rust/target/
 bindings/rust/relay/Cargo.lock

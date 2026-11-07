@@ -13,6 +13,13 @@ import type { OperationsCapability } from "../application_data.ts";
 import type { RoomDestination } from "../joining.ts";
 import type { RoomsError, RoomsErrorCode } from "../../../lib/error_codes.ts";
 
+/** How a directory is reached. */
+export interface ReachOptions {
+	/** Make it the home directory, which counts only for a session with none. */
+	home?: boolean;
+	signal?: AbortSignal;
+}
+
 export type JoinOutcome =
 	| { readonly ok: true }
 	| {
@@ -40,8 +47,10 @@ export interface RoomsDirectoryController {
 	closeDm(conv: DmConv): Promise<void>;
 	endConv(): Promise<void>;
 	releaseNick(dir: DirId): Promise<string>;
+	/** Mark one held directory as this session's home directory, or none.
+	 * Answers the refusal, or the empty string. */
+	chooseHomeDirectory(dir: DirId | null): Promise<string>;
 	selfLocator(): string | null;
-	directoryLocator(): string | null;
 	dirAddress(dir: DirId): string;
 	directoryId(locator: string): DirId | null;
 	/** The room's final answer to a join. Expected protocol failures retain their
@@ -51,7 +60,7 @@ export interface RoomsDirectoryController {
 	/** Reach a directory without entering a room in it, so a card can offer its
 	 * listing before asking which room. An empty locator names this page's own.
 	 * Answers the refusal, or the empty string when the directory is reached. */
-	reachDirectory(locator: string, nick: JoinNicknameIntent, signal?: AbortSignal): Promise<string>;
+	reachDirectory(locator: string, nick: JoinNicknameIntent, options?: ReachOptions): Promise<string>;
 }
 
 export interface RoomsConversationController {

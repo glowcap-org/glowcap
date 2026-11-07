@@ -42,7 +42,7 @@ const build_steps_doc = @import("tools/build/build_steps_doc.zig");
 /// `include/glowcap_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
 /// in `build.zig.zon`, the source gate holds the zon triple to this one). Each
 /// archive's dynamic library soname tracks `major`.
-const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 4 };
+const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 5 };
 
 /// The layer DAG, the one authoritative statement of the architecture
 /// (ADR-0011 for the sibling-codec modules below the codec layer).
@@ -566,6 +566,9 @@ pub fn build(b: *std.Build) void {
     // render always waits for a fresh capture. The preview launcher owns its
     // cold-start capture so local output files never change the build graph.
     site_reg.render.dependOn(rooms.site_captures);
+    // The Rooms page is exported under the site's assets the same way, so the
+    // render carries the current page at rooms/app/.
+    site_reg.render.dependOn(rooms.site_page);
     const rooms_services_install = rooms.services_install;
     release_build.register(b, target, optimize, abi_version, &.{ iroh_abi_step, webrtc_reg.abi_step }, check_step, .{
         .static_archives = release_static_archives.items,

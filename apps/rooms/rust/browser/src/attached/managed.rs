@@ -21,7 +21,7 @@ pub(super) mod signaling;
 mod uploads;
 use super::{
 	Environment, Result, cleanup,
-	driver::{Driver, Held},
+	driver::{Driver, Held, Startup},
 	js_error, rejected, scalar,
 };
 use crate::{
@@ -192,14 +192,19 @@ impl Owner {
 			.as_str()
 			.filter(|name| !name.is_empty() && name.len() <= 64)
 			.ok_or("Access returned no durable publication name")?;
-		let locator = self.reachable(environment).await?;
+		let locator = self.relay_locator(environment).await?;
 		glowcap::format_sturdyref(&locator, name.as_bytes(), glowcap::CaptpVersion::V1_0).map_err(|e| e.to_string())
 	}
-	async fn reachable(&self, environment: &Environment) -> Result<glowcap::Locator> {
+	/// The locator this browser is reached at through its chosen relay. The
+	/// relay starts once and keeps registering in the background, so a relay
+	/// that is not answering leaves the session open and unreachable.
+	async fn relay_locator(&self, environment: &Environment) -> Result<glowcap::Locator> {
 		let mut relay = self.relay.lock().await;
 		if relay.is_none() {
-			let front = crate::transport::WebFront::deployment().map_err(|e| e.to_string())?;
-			let (locator, register) = front
+			let (locator, register) = environment
+				.front
+				.as_ref()
+				.ok_or_else(crate::transport::no_server)?
 				.relay_route(environment.runtime.host())
 				.map_err(|e| e.to_string())?;
 			*relay = Some(super::relay::Relay::start(
@@ -211,7 +216,6 @@ impl Owner {
 			)?);
 		}
 		let relay = relay.as_ref().ok_or("The publication route was not prepared")?;
-		relay.ready().await?;
 		Ok(relay.locator().clone())
 	}
 }
@@ -259,14 +263,22 @@ impl RoomsManagedApplication {
 		tab: js_sys::JsString,
 		trouble: js_sys::Function,
 		admission: Option<String>,
+		server: Option<String>,
 	) -> std::result::Result<Self, JsValue> {
 		let admission = admission::settings(admission.as_deref()).map_err(|e| js_error(&e))?;
+		// The Rooms server this page uses, as a page base URL, or none. A
+		// malformed one refuses here, before anything opens.
+		let front = server
+			.as_deref()
+			.map(crate::transport::WebFront::new)
+			.transpose()
+			.map_err(|e| js_error(&e.to_string()))?;
 		let tab = scalar(tab, 64).map_err(|e| js_error(&e))?;
 		if tab.is_empty() || !tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
 			return Err(js_error("Invalid Rooms tab identity"));
 		}
 		Ok(Self {
-			driver: Driver::start_managed(tab, trouble, admission),
+			driver: Driver::start_managed(Startup { tab, admission, front }, trouble),
 		})
 	}
 	pub fn workspace(&self) -> js_sys::Promise {

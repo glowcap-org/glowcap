@@ -6,16 +6,28 @@
 .draft = false,
 ---
 
-Hosting Rooms means setting up three separate things: the web address people
-open, the room server their sessions join, and the routes two peers use to
-talk directly. Decide each one on its own. HTTPS on the page does not make
-every peer route reachable, and changing how direct messages travel does not
-change how sessions are shared.
+Hosting Rooms means setting up three separate things: the Rooms server
+people's browsers connect through, the directory their sessions join, and
+the routes two peers use to talk directly. Decide each one on its own. An
+HTTPS address for the server does not make every peer route reachable, and
+changing how direct messages travel does not change how sessions are shared.
 
 # Choose the shape
 
-For local development, `zig build rooms-web` serves the page on your machine
-and runs the room server over encrypted [iroh]($link.page('transports/iroh')) in a temporary data directory.
+The page people open is [on this site]($link.siteAsset('rooms/app/index.html')),
+and every Rooms server lets that page use it unless `--allow-origin` says
+otherwise. Give the server the address
+browsers reach it at, `--http-public=https://rooms.example/`, and the
+**open the page** link it prints is one you can share:
+`https://glowcap.org/rooms/app/?server=https://rooms.example/`. The server
+also serves its own copy of the page at its **web ui** address, for an
+address of your own or a machine that cannot reach this site.
+[Running Rooms on a host](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#start-rooms)
+lists the server's options.
+
+For local development, `zig build rooms-web` runs a Rooms server on your
+machine, with its page and a directory over encrypted
+[iroh]($link.page('transports/iroh')) in a temporary data directory.
 `zig build rooms-dev` keeps its state between runs and turns on every
 admin capability.
 
@@ -25,22 +37,22 @@ To host it from a checkout, install Docker with Compose, then run:
 ./glowcap apps rooms deployment up
 ```
 
-That builds an image from your source and starts the page, an iroh room
-server, and one durable session service. The same command can check the stack,
-show its logs, stop it, and reset one part of it after saying what will be
-lost.
+That builds an image from your source and starts a Rooms server, an iroh
+directory, and one durable session service. The same command can check the
+stack, show its logs, stop it, and reset one part of it after saying what will
+be lost.
 
-The example settings expose the page only on the host's loopback address. To
-share it, put an HTTPS reverse proxy or a private network in front of it. That
-proxy does not guard the room server, which people reach over iroh with its
-own authentication. The
+The example settings expose the Rooms server only on the host's loopback
+address. To let other people's browsers use it, put an HTTPS reverse proxy or
+a private network in front of it. That proxy does not guard the directory,
+which people reach over iroh with its own authentication. The
 [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md) covers images, where state lives,
 and your own Compose settings. Its `docker-compose.yml` lists the environment
 variables.
 
 # Choose how people reach it
 
-The room server's transport decides how sessions reach it:
+The directory's transport decides how sessions reach it:
 
 | Transport | Use it when |
 | --- | --- |
@@ -55,9 +67,9 @@ of quietly making a new one.
 
 # Make sessions reachable
 
-The page reaches the room server through the web server's WebSocket gateway.
-On an iroh route, that gateway verifies the room server's key and can read
-the traffic. Incoming connections to a browser session use `noise-relay`,
+The page reaches the directory through the Rooms server's WebSocket relay.
+On an iroh route, that relay verifies the directory's key and can read the
+traffic. Incoming connections to a browser session use `noise-relay`,
 which encrypts between the peers. The [relay guide]($link.page('relay'))
 explains both paths.
 

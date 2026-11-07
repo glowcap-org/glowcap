@@ -7,6 +7,7 @@ import {
 	linkPreviewsLabel,
 } from "../../../lib/text/link_preview.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
+import { useRoomsState } from "../hooks.ts";
 import { Button } from "../Button.tsx";
 import { IconButton } from "../IconButton.tsx";
 import {
@@ -21,12 +22,12 @@ import {
 
 const FETCH_SETTLE_MS = 300;
 
-function PreviewImage({ image }: { image: OpenGraphMetadata["images"][number] }) {
+function PreviewImage({ service, image }: { service: string; image: OpenGraphMetadata["images"][number] }) {
 	const [visible, setVisible] = useState(true);
 	if (!visible) return null;
 	return (
 		<img
-			src={previewImageUrl(image.url)}
+			src={previewImageUrl(service, image.url)}
 			alt={image.alt ?? ""}
 			width={image.width}
 			height={image.height}
@@ -41,7 +42,9 @@ function PreviewImage({ image }: { image: OpenGraphMetadata["images"][number] })
  * mounted across offered -> fetching avoids cancelling the effect because of
  * its own state transition. Removing or settling the card unmounts it and
  * cancels only the exact attempt it started. */
-function PreviewEffect({ conversation, preview }: { conversation: string; preview: DraftPreview }) {
+function PreviewEffect(
+	{ service, conversation, preview }: { service: string; conversation: string; preview: DraftPreview },
+) {
 	const browser = useRoomsBrowser();
 	useEffect(() => {
 		if (preview.state !== "offered") return;
@@ -52,7 +55,7 @@ function PreviewEffect({ conversation, preview }: { conversation: string; previe
 			if (started?.state !== "fetching") return;
 			const attempt = started;
 			abort = new AbortController();
-			void fetchPreview(attempt.url, abort.signal, attempt.attempt > 0).then(
+			void fetchPreview(service, attempt.url, abort.signal, attempt.attempt > 0).then(
 				(metadata) =>
 					browser.settlePreview(conversation, attempt.id, attempt.attempt, { state: "ready", metadata }),
 				(error) => {
@@ -74,11 +77,13 @@ function PreviewEffect({ conversation, preview }: { conversation: string; previe
 		// The effect owns this id/attempt until it settles or unmounts. Fetching
 		// and ready are outcomes of that same attempt, not reasons to cancel it.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [browser, conversation, preview.id, preview.url, preview.attempt]);
+	}, [browser, service, conversation, preview.id, preview.url, preview.attempt]);
 	return null;
 }
 
-function PreviewCard({ conversation, preview }: { conversation: string; preview: DraftPreview }) {
+function PreviewCard(
+	{ service, conversation, preview }: { service: string; conversation: string; preview: DraftPreview },
+) {
 	const waiting = useProgress(
 		preview.state === "offered" || preview.state === "fetching",
 		undefined,
@@ -88,7 +93,7 @@ function PreviewCard({ conversation, preview }: { conversation: string; preview:
 
 	if (preview.state === "removed") return null;
 	const effect = (preview.state === "offered" || preview.state === "fetching") && (
-		<PreviewEffect conversation={conversation} preview={preview} />
+		<PreviewEffect service={service} conversation={conversation} preview={preview} />
 	);
 	const remove = (
 		<IconButton
@@ -113,7 +118,7 @@ function PreviewCard({ conversation, preview }: { conversation: string; preview:
 						<strong>{preview.metadata.title ?? previewHost(preview.metadata.url)}</strong>
 						{preview.metadata.description && <span>{preview.metadata.description}</span>}
 					</span>
-					{image !== undefined && <PreviewImage image={image} />}
+					{image !== undefined && <PreviewImage service={service} image={image} />}
 				</a>
 			</article>
 		);
@@ -154,13 +159,13 @@ type ReadState =
 	| { state: "ready"; attempt: number; metadata: OpenGraphMetadata }
 	| { state: "failed"; attempt: number; failure: import("../link_preview.ts").PreviewFailure };
 
-function MessagePreview({ url }: { url: string }) {
+function MessagePreview({ service, url }: { service: string; url: string }) {
 	const [read, setRead] = useState<ReadState>({ state: "loading", attempt: 0 });
 	useEffect(() => {
 		if (read.state !== "loading") return;
 		const attempt = read.attempt;
 		const abort = new AbortController();
-		void fetchPreview(url, abort.signal).then(
+		void fetchPreview(service, url, abort.signal).then(
 			(metadata) =>
 				setRead((current) =>
 					current.state === "loading" && current.attempt === attempt
@@ -177,7 +182,7 @@ function MessagePreview({ url }: { url: string }) {
 			},
 		);
 		return () => abort.abort();
-	}, [read, url]);
+	}, [read, service, url]);
 	if (read.state === "loading") {
 		return (
 			<article className="link-preview-card loading">
@@ -199,18 +204,21 @@ function MessagePreview({ url }: { url: string }) {
 					<strong>{read.metadata.title ?? previewHost(read.metadata.url)}</strong>
 					{read.metadata.description && <span>{read.metadata.description}</span>}
 				</span>
-				{image !== undefined && <PreviewImage image={image} />}
+				{image !== undefined && <PreviewImage service={service} image={image} />}
 			</a>
 		</article>
 	);
 }
 
+// Previews come from the page's Rooms server. A page with none shows the
+// authored links as they are.
 export function MessageLinkPreviews({ text, urls }: { text: string; urls: readonly string[] }) {
+	const service = useRoomsState((state) => state.server?.base ?? null);
 	const selected = previewSelection(text, urls);
-	if (selected.length === 0) return null;
+	if (service == null || selected.length === 0) return null;
 	return (
 		<div className="link-preview-list message-link-previews" aria-label={linkPreviewsLabel}>
-			{selected.map((url) => <MessagePreview key={url} url={url} />)}
+			{selected.map((url) => <MessagePreview key={url} service={service} url={url} />)}
 		</div>
 	);
 }
@@ -218,10 +226,13 @@ export function MessageLinkPreviews({ text, urls }: { text: string; urls: readon
 export function DraftLinkPreviews(
 	{ conversation, previews }: { conversation: string; previews: readonly DraftPreview[] },
 ) {
-	if (previews.every((preview) => preview.state === "removed")) return null;
+	const service = useRoomsState((state) => state.server?.base ?? null);
+	if (service == null || previews.every((preview) => preview.state === "removed")) return null;
 	return (
 		<div className="link-preview-list draft-link-previews" aria-label={linkPreviewsLabel}>
-			{previews.map((preview) => <PreviewCard key={preview.id} conversation={conversation} preview={preview} />)}
+			{previews.map((preview) => (
+				<PreviewCard key={preview.id} service={service} conversation={conversation} preview={preview} />
+			))}
 		</div>
 	);
 }

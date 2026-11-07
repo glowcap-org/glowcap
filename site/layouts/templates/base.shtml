@@ -45,7 +45,9 @@
 			// Stamp a remembered theme choice before the first paint, so a reader
 			// who picked the light page never sees a flash of syrup. Everyone
 			// who has not chosen is left unstamped, and the stylesheet answers
-			// for them with syrup, which is the default face.
+			// for them with syrup, which is the default face. The Rooms page
+			// exported beside the site keeps its theme under the same key, so
+			// one choice covers both (THEME_KEY in apps/rooms/web/ui).
 			document.documentElement.classList.add("js");
 			try {
 				var saved = localStorage.getItem("glowcap-theme");
@@ -68,9 +70,14 @@
 				<span class="wordmark"><span>glowcap</span></span>
 			</a>
 			<nav class="top-nav" aria-label="Site">
-				<a href="$site.page('rooms').link()">Rooms</a>
 				<a href="$site.page('reference').link()">API reference</a>
 				<a href="https://github.com/glowcap-org/glowcap">Source</a>
+				<!-- The Rooms pages sit beside the application they describe: the
+				     app is the one application on the site, exported beside it by
+				     site-rooms-page, and it asks for a Rooms server on its first
+				     screen, so a reader can open it from any page. -->
+				<a href="$site.page('rooms').link()">Rooms</a>
+				<a class="top-nav-app" href="$site.asset('rooms/app/index.html').link()" data-rooms-app>Open Rooms</a>
 				<button type="button" id="themeToggle" class="theme-toggle" title="Switch between light and syrup" aria-label="Switch between the light and syrup themes">
 					<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"/></svg>
 					<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.1M12 19.3v2.1M4.3 4.3l1.5 1.5M18.2 18.2l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.3 19.7l1.5-1.5M18.2 5.8l1.5-1.5"/></svg>
@@ -147,8 +154,11 @@
 					<div class="toc-links"></div>
 				</nav>
 			</aside>
-		</div>
-		<footer class="site-footer">
+			<!-- The footer sits in the reading column, under the article, so
+			     the sidebar's grid area runs to the end of the page and the
+			     sticky index never slides away under the header as the
+			     footer scrolls in. -->
+			<footer class="site-footer">
 			<hr>
 			<div class="footer-cols">
 				<div class="footer-brand">
@@ -184,7 +194,8 @@
 				</nav>
 			</div>
 			<p class="footer-legal">Copyright 2026 Glowcap LLC. glowcap 0.1.0 alpha. Apache-2.0.</p>
-		</footer>
+			</footer>
+		</div>
 		<!-- These enhancements are separate script elements on purpose. In one
 		     block a throw anywhere takes out everything after it, and the theme
 		     switch would stay rendered, styled, and dead. Separate elements are

@@ -36,10 +36,26 @@ export const joinNickHint = "Your name in this directory, used in rooms and dire
 
 /** The address field's hint, where the two pasted forms belong. */
 export const joinLocatorLabel = "Address";
-export const joinLocatorHint =
+const joinLocatorHint =
 	"Leave this alone for the rooms on this server. To reach another server's rooms, paste its OCapN locator. To open one room somebody sent you, paste their link.";
+/** The hint when a blank address names the session's home directory, by name. */
+const joinLocatorHintHome = (home: string) =>
+	`Leave this blank for rooms in your home directory, ${home}. To reach another directory's rooms, paste its OCapN locator. To open one room somebody sent you, paste their link.`;
+/** The hint when a blank address names nothing: no home directory and no
+ * directory served with the page. */
+const joinLocatorHintRequired =
+	"Paste a directory's OCapN locator to reach its rooms, or paste the link to one room somebody sent you.";
+export const joinNeedsAddress =
+	"Paste a directory's address. This session has no home directory to use when it's blank.";
 export const joinLocatorHere = "This server";
 export const joinLocatorOptional = "Optional";
+/** The address hint for what a blank field means: the home directory, named,
+ * else the directory served with the page, else nothing. */
+export function joinLocatorHintFor(home: string | null, served: boolean): string {
+	return home != null ? joinLocatorHintHome(home) : served ? joinLocatorHint : joinLocatorHintRequired;
+}
+/** Offered while connecting a directory to a session with no home directory. */
+export const joinMakeHome = "Make this my home directory";
 /** When a link is already in the field there is nothing to choose, so the
  * label says what is there. */
 export const joinLinkLabel = "Room link";

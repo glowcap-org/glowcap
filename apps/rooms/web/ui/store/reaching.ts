@@ -79,8 +79,8 @@ export function remember(projection: PageProjection, patch: { room?: string; loc
 /** What the join card shows, and the evidence behind each field. */
 export function answers(
 	projection: PageProjection,
-	snapshot: Readonly<Pick<State, "homeDir" | "reaching" | "edits" | "remembered">> = projection.get(),
-	context: DirectoryDestinationContext = { home: snapshot.homeDir, defaultDirectory: null },
+	snapshot: Readonly<Pick<State, "homeDirectory" | "reaching" | "edits" | "remembered">> = projection.get(),
+	context: DirectoryDestinationContext = { home: snapshot.homeDirectory, defaultDirectory: null },
 ): JoinAnswers {
 	return joinAnswers(snapshot.reaching, snapshot.edits, snapshot.remembered, context);
 }

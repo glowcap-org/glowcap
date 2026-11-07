@@ -45,19 +45,29 @@ export const JOIN_DEFAULT_NICK = "guest";
 /** Shape of a locator, used when this page's own address is not known yet.  status-allow: pending state or quoted runtime label */
 export const JOIN_LOCATOR_SHAPE = "ocapn://designator.transport";
 
+export interface DirectoryDestination {
+	readonly id: DirId;
+	readonly locator: string;
+}
 export interface DirectoryDestinationContext {
 	readonly home: DirId | null;
-	readonly defaultDirectory: { readonly id: DirId; readonly locator: string } | null;
+	/** What an empty address means: the home directory, else the directory of
+	 * the server that served this page. */
+	readonly defaultDirectory: DirectoryDestination | null;
+	/** The served directory when an empty address means another, offered by its
+	 * own address. */
+	readonly served?: DirectoryDestination | null;
 }
 
 export function directoryDestinationContext(
-	home: DirId | null,
-	defaultLocator: string | null,
+	home: DirectoryDestination | null,
+	servedLocator: string | null,
 	resolve: (locator: string) => DirId | null,
 ): DirectoryDestinationContext {
-	if (defaultLocator == null) return { home, defaultDirectory: null };
-	const id = resolve(defaultLocator);
-	return { home, defaultDirectory: id == null ? null : { id, locator: defaultLocator } };
+	const servedId = servedLocator == null ? null : resolve(servedLocator);
+	const served = servedId == null || servedLocator == null ? null : { id: servedId, locator: servedLocator };
+	if (home == null) return { home: null, defaultDirectory: served, served: null };
+	return { home: home.id, defaultDirectory: home, served: served?.id === home.id ? null : served };
 }
 
 /** Whether typed text is a room link: a sturdyref, told apart by the swissnum
@@ -444,7 +454,7 @@ function reached(view: DirView | undefined): boolean {
 export function resolveJoin(
 	answers: JoinAnswers,
 	dirs: ReadonlyMap<DirId, DirView>,
-	homeDir: DirId | null,
+	homeDirectory: DirId | null,
 	directoryOf: (locator: string) => DirId | null,
 ): JoinResolution {
 	const wanted = answers.room.value.trim();
@@ -455,7 +465,7 @@ export function resolveJoin(
 	// nobody has to: the first act here has always been to name a room.
 	const typed = answers.locator.value.trim();
 	const named = typed !== "";
-	const dir = named ? directoryOf(typed) : homeDir;
+	const dir = named ? directoryOf(typed) : homeDirectory;
 	const view = dir == null ? undefined : dirs.get(dir);
 	// A pasted room link carries its own way in. No directory listing decides
 	// anything about it, so neither phase nor standing is in question.

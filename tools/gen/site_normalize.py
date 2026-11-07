@@ -33,13 +33,15 @@ beside its `index.html`, converted from the page's SuperMD source, and the
 root gets `llms.txt` and `llms-full.txt` in the shape https://llmstxt.org/
 describes: an H1, a blockquote summary, then sections of links to those
 markdown twins with each page's own description. The conversion knows the
-SuperMD forms the pages use for page and section links, images, explicit
-section ids, and HTML fences. It refuses a page that uses an unknown form, so
+SuperMD forms the pages use for page, section, and site-asset links, images,
+explicit section ids, and HTML fences. It refuses a page that uses an unknown form, so
 a new template expression cannot ship as a dead `$` in the markdown.
 
 Called by `zig build site`. Direct usage is site_normalize.py <site-root>.
 The reference/api tree is the generated autodoc viewer, owned by its own
-fix-up, and is skipped for page-byte normalization.
+fix-up, and is skipped for page-byte normalization. An application exported
+beside the pages (the Rooms page at rooms/app/, marked by its export) keeps
+its bytes and has no markdown twin, and the sitemap lists it.
 """
 
 import re
@@ -47,6 +49,7 @@ import sys
 from html.parser import HTMLParser
 from pathlib import Path
 
+ENTRY_HREF = re.compile(r'href="(/(?:[^"]*/)?)index\.html"')
 # Each cell body is read one character at a time with disjoint alternatives, so
 # a long row of cells costs linear time (CodeQL py/redos).
 HEADER_ROW = re.compile(r"<table><tr>((?:<th>(?:[^<\n]|<(?!/th>))*</th>)+)</tr>")
@@ -93,6 +96,12 @@ def normalize(text: str, path: Path, root: Path) -> str:
     text = text.replace("<p><figure", "<figure").replace("</figure></p>", "</figure>")
 
     text = text.replace("<figure><img src=", '<figure><img alt="" src=')
+
+    # A page links an exported application by its entry document, the only
+    # form the renderer resolves for a static asset. The host serves that
+    # document at its directory, the address the export's own base href
+    # names, so the served link names the directory too.
+    text = ENTRY_HREF.sub(r'href="\1"', text)
 
     def themeFigures(match: re.Match[str]) -> str:
         dark = match.group("dark")
@@ -281,6 +290,7 @@ HTML_FENCE = re.compile(r"^```=html\n(.*?)\n```$", re.DOTALL | re.MULTILINE)
 CODE_TABS = re.compile(r"^> \[\]\(\$block\.attrs\('code-tabs'\)\)\n", re.MULTILINE)
 LINK_GRID = re.compile(r"^> \[\]\(\$block\.attrs\('link-grid'\)\)\n((?:> .*\n)+)", re.MULTILINE)
 IMAGE_REF = re.compile(r"\[([^\]]*)\]\(\$image\.siteAsset\('([^']+)'\)\)")
+ASSET_REF = re.compile(r"\(\$link\.siteAsset\('([^']+)'\)\)")
 THEME_IMAGE_PAIR = re.compile(
     r"\[(?P<caption>[^\]]+)\]\(\$image\.siteAsset\('(?P<stem>rooms-[^']+)-dark\.webp'\)\)\n\n"
     r"\[(?P=caption)\]\(\$image\.siteAsset\('(?P=stem)-light\.webp'\)\)"
@@ -309,6 +319,12 @@ def pageSource(content: Path, rel: str) -> Path:
     raise SystemExit(f"site_normalize: no SuperMD source found for the rendered page {rel!r}")
 
 
+def assetAddress(base: str, asset: str) -> str:
+    """A site asset's deployed address. An exported application's entry
+    document is served at its directory, as ENTRY_HREF serves it in HTML."""
+    return f"{base}/{asset.removesuffix('index.html')}"
+
+
 def toMarkdown(source: Path, base: str) -> tuple[str, str, str]:
     """A page as plain Markdown: its title, its description, and its body
     with every site reference resolved to the deployed address."""
@@ -331,6 +347,7 @@ def toMarkdown(source: Path, base: str) -> tuple[str, str, str]:
             "keep each matching pair adjacent with one caption"
         )
     body = IMAGE_REF.sub(lambda m: f"![{m.group(1)}]({base}/{m.group(2)})", body)
+    body = ASSET_REF.sub(lambda m: f"({assetAddress(base, m.group(1))})", body)
     body = PAGE_REF.sub(lambda m: f"({base}/{m.group(1)}/{'#' + m.group(2) if m.group(2) else ''})", body)
     body = LOCAL_REF.sub(lambda m: f"(#{m.group(1)})", body)
     body = SECTION_HEADING.sub(lambda m: f'<a id="{m.group(3)}"></a>\n{m.group(1)} {m.group(2)}', body)
@@ -395,43 +412,51 @@ def main() -> int:
     name, base = siteConfig(Path(__file__).resolve().parents[2])
     pages = 0
     listed: list[str] = []
+    exported: list[str] = []
     for page in sorted(root.rglob("index.html")):
         rel = str(page.relative_to(root))
-        if "reference/api" not in rel:
-            original = page.read_text(encoding="utf-8")
-            rewritten = normalize(original, page, root)
-            # Every real destination names its one address, so a crawler that
-            # reached a variant (the 404 copy, a mirrored path) still indexes
-            # the destination itself. The not-found page is no destination.
-            if rel != "404/index.html" and '<link rel="canonical"' not in rewritten:
-                head_close = "</head>"
-                if rewritten.count(head_close) != 1:
-                    raise SystemExit(f"site_normalize: {page}: expected one </head>")
-                loc = rel.removesuffix("index.html")
-                # The link-preview card needs what only the deployed origin
-                # can say: the page's one absolute address and an absolute
-                # image URL, so a link pasted into a chat shows the mark
-                # instead of a bare domain. The image is the touch icon,
-                # which the template already names, because Zine installs an
-                # asset only where a template asks for it and this URL is a
-                # plain string the build cannot see.
-                social = ""
-                if 'property="og:url"' not in rewritten:
-                    social += f'<meta property="og:url" content="{base}/{loc}">'
-                if 'property="og:image"' not in rewritten:
-                    social += (
-                        f'<meta property="og:image" content="{base}/glowcap-icon-256.png">'
-                        '<meta property="og:image:alt" content="The glowcap mark.">'
-                    )
-                rewritten = rewritten.replace(
-                    head_close, f'<link rel="canonical" href="{base}/{loc}">{social}{head_close}'
+        # The autodoc viewer is owned by its own fix-up, and its internal
+        # frames are no destinations.
+        if "reference/api" in rel:
+            continue
+        original = page.read_text(encoding="utf-8")
+        # An application exported beside the pages, such as the Rooms page at
+        # rooms/app/, is a destination but no authored page: its export owns
+        # its bytes and it has no SuperMD source. The mark is the one
+        # apps/rooms/rust/services/src/web/export.rs writes.
+        if '<meta name="rooms-host"' in original:
+            exported.append(rel.removesuffix("index.html"))
+            continue
+        rewritten = normalize(original, page, root)
+        # Every real destination names its one address, so a crawler that
+        # reached a variant (the 404 copy, a mirrored path) still indexes
+        # the destination itself. The not-found page is no destination.
+        if rel != "404/index.html" and '<link rel="canonical"' not in rewritten:
+            head_close = "</head>"
+            if rewritten.count(head_close) != 1:
+                raise SystemExit(f"site_normalize: {page}: expected one </head>")
+            loc = rel.removesuffix("index.html")
+            # The link-preview card needs what only the deployed origin
+            # can say: the page's one absolute address and an absolute
+            # image URL, so a link pasted into a chat shows the mark
+            # instead of a bare domain. The image is the touch icon,
+            # which the template already names, because Zine installs an
+            # asset only where a template asks for it and this URL is a
+            # plain string the build cannot see.
+            social = ""
+            if 'property="og:url"' not in rewritten:
+                social += f'<meta property="og:url" content="{base}/{loc}">'
+            if 'property="og:image"' not in rewritten:
+                social += (
+                    f'<meta property="og:image" content="{base}/glowcap-icon-256.png">'
+                    '<meta property="og:image:alt" content="The glowcap mark.">'
                 )
-            if rewritten != original:
-                page.write_text(rewritten, encoding="utf-8")
-            pages += 1
-        # The sitemap lists real destinations: not the not-found page, and not
-        # the autodoc viewer's internal frame.
-        if rel != "404/index.html" and "reference/api" not in rel:
+            rewritten = rewritten.replace(head_close, f'<link rel="canonical" href="{base}/{loc}">{social}{head_close}')
+        if rewritten != original:
+            page.write_text(rewritten, encoding="utf-8")
+        pages += 1
+        # The sitemap lists real destinations, not the not-found page.
+        if rel != "404/index.html":
             listed.append(rel.removesuffix("index.html"))
     if pages < 20:
         print(
@@ -447,7 +472,7 @@ def main() -> int:
     (root / "404.html").write_text(not_found.read_text(encoding="utf-8"), encoding="utf-8")
 
     (root / "robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n", encoding="utf-8")
-    urls = "\n".join(f"  <url><loc>{base}/{rel}</loc></url>" for rel in listed)
+    urls = "\n".join(f"  <url><loc>{base}/{rel}</loc></url>" for rel in sorted(listed + exported))
     (root / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -455,11 +480,11 @@ def main() -> int:
         encoding="utf-8",
     )
     # The autodoc viewer has no SuperMD source and no markdown twin; it is
-    # linked from llms.txt as HTML under Optional.
-    authored = [rel for rel in listed if not rel.startswith("reference/api")]
-    twins = writeLlms(root, name, base, authored, Path(__file__).resolve().parents[2] / "site" / "content")
+    # linked from llms.txt as HTML under Optional. An exported application has
+    # neither, and the pages that link it say what it is.
+    twins = writeLlms(root, name, base, listed, Path(__file__).resolve().parents[2] / "site" / "content")
     print(
-        f"site_normalize: {pages} pages normalized, {len(listed)} in the sitemap, "
+        f"site_normalize: {pages} pages normalized, {len(listed) + len(exported)} in the sitemap, "
         f"{twins} markdown twins behind llms.txt"
     )
     return 0

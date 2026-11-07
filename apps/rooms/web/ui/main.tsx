@@ -12,7 +12,7 @@ import { managedSessionText as managedText } from "../../lib/text/managed_sessio
 import { type ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { addressOfActive, navigateTo } from "./routing_api.ts";
-import { loadEstablished, loadOpsPage, loadSessionSetup, prefetch } from "./chunks.ts";
+import { loadEstablished, loadOpsPage, loadServerOffer, loadSessionSetup, prefetch } from "./chunks.ts";
 import {
 	handOffNow,
 	handOffWhenReady,
@@ -42,9 +42,21 @@ import type { RoomsSessionController } from "./controller/session.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 import { membershipStatus } from "./session/managed/membership_status.ts";
 import * as store from "./store.ts";
+import { relayAway } from "./store/projection.ts";
 import { bindViewPreferences } from "./view_preferences.ts";
 import { bindGroundToConnections } from "./mycelium/link.ts";
 import { bindReloadToBuild, servedPageBuild } from "./build_link.ts";
+import { pagePath, pathOffer } from "./page_base.ts";
+import {
+	chooseServer,
+	PROBE_TIMEOUT_MS,
+	reachesLocalNetwork,
+	serverInUse,
+	serverOffer,
+	sessionOffer,
+} from "./server_choice.ts";
+import { sessionDidNotOpen } from "../../lib/text/session.ts";
+import { NO_SERVER, roomsErrorInMessage } from "../../lib/error_codes.ts";
 
 const page = new RoomsPage();
 function report(source: string, error: unknown): void {
@@ -131,6 +143,32 @@ async function showSessionSetup(initialCapability = "", initialError = ""): Prom
 	handOffNow();
 }
 
+/** Ask about a Rooms server this page's link offers, and take the offer out of
+ * the address whatever the answer. A link never changes the server by itself. */
+async function answerServerOffer(): Promise<void> {
+	const offer = serverOffer(new URL(location.href));
+	if (offer == null) return;
+	globalThis.history.replaceState(globalThis.history.state, "", offer.rest);
+	const base = offer.base;
+	if (base == null) return;
+	const { ServerOffer } = await loadServerOffer();
+	const use = await new Promise<boolean>((answer) => {
+		root.render(
+			<StrictMode>
+				<PageSurface>
+					<ServerOffer
+						host={new URL(base).host}
+						local={reachesLocalNetwork(new URL(base))}
+						onAnswer={answer}
+					/>
+				</PageSurface>
+			</StrictMode>,
+		);
+		handOffNow();
+	});
+	if (use) chooseServer(base);
+}
+
 async function awaitRuntime(boot: () => Promise<unknown>): Promise<void> {
 	const slowAt = Date.now() + RUNTIME_SLOW_AFTER_MS;
 	let backoff = RUNTIME_RETRY_FLOOR_MS;
@@ -153,6 +191,10 @@ async function awaitRuntime(boot: () => Promise<unknown>): Promise<void> {
 // Rust admits the workspace and selects the controller before a Host exists.
 // Both local and attached sessions run on the Rust application Host.
 async function start(): Promise<void> {
+	// A host that serves one file per address hands a deep link over through
+	// its 404 page. Standing at that path comes before anything reads the address.
+	const at = pathOffer(new URL(location.href));
+	if (at != null) globalThis.history.replaceState(globalThis.history.state, "", at);
 	startOpeningMark();
 	noteBootPhase("peer");
 	startBootAsides();
@@ -161,12 +203,22 @@ async function start(): Promise<void> {
 		if (path == null) throw new Error("the Rooms page has no application module");
 		await application.loadApplication(fetch(path));
 	});
+	// A shared session a link offers leaves the address before anything else
+	// runs, and opens session choice with it filled in, whatever this browser
+	// used last. Attach is the answer, so a link never attaches by itself, and
+	// the session in use stays until it is pressed.
+	const attach = sessionOffer(new URL(location.href));
+	if (attach != null) globalThis.history.replaceState(globalThis.history.state, "", attach.rest);
+	// The server is fixed when the session opens, so a link's offer of one is
+	// answered before session choice.
+	await answerServerOffer();
 	// Session choice and explicit data deletion must remain reachable before
-	// opening storage, including when an obsolete schema refuses startup.
+	// opening storage, including when an obsolete schema refuses startup. A
+	// deletion asked for before this load finishes before anything opens.
 	const deleted = await finishBrowserDataDeletion(chosenKey());
-	if (deleted != null) {
+	if (attach != null || deleted != null) {
 		standAtFrontOfPrivilegedAddress();
-		await showSessionSetup("", deleted);
+		await showSessionSetup(attach?.capability ?? "", deleted ?? "");
 		return;
 	}
 	if (localStorage.getItem(chosenKey()) !== "yes") {
@@ -197,7 +249,7 @@ async function start(): Promise<void> {
 	noteBootPhase(local ? "rooms" : "session");
 	const establishedUi = loadEstablished();
 	prefetch(() => establishedUi);
-	if (location.pathname.startsWith("/ops")) prefetch(loadOpsPage);
+	if (pagePath().startsWith("/ops")) prefetch(loadOpsPage);
 	const history = new ManagedHistory(page, managed, report);
 	const files = presentationFiles(page.projection, () => history.source);
 	history.bindFiles(files);
@@ -210,21 +262,67 @@ async function start(): Promise<void> {
 	);
 	const stopProjection = projection.bind();
 	let selfLocator: string | null = null;
+	// The Rooms server this browser uses names the directory a blank address
+	// means: the one this device chose, else the one that sent this page. A
+	// static host is no server, so with no choice there is none.
+	const server = serverInUse();
+	const directoryOf = (base: string) =>
+		prefs.servedDirectory(
+			application.namesDirectory,
+			(address) => fetch(address, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }),
+			new URL("locator", base),
+		);
+	const servedDirectory = server == null ? null : await directoryOf(server.base);
+	page.projection.set({ server: server == null ? null : { ...server, directory: servedDirectory } });
+	// A server that was not answering when the page opened names its directory
+	// once it is reached, so a blank address finds it without a reload.
+	const readServedDirectory = async () => {
+		const held = page.projection.get().server;
+		if (held == null || held.directory != null) return;
+		const directory = await directoryOf(held.base);
+		if (directory != null) page.projection.set({ server: { ...held, directory } });
+	};
 	const session: RoomsSessionController = createManagedController(
 		page,
 		browser,
 		managed,
 		files,
-		await prefs.directoryLocator() ?? "",
 		history,
 		() => selfLocator,
 	);
 	if (local) {
-		selfLocator = await managed.application.startRooms(membershipStatus(page.projection, report));
-		// Opening the page observes its directory without claiming a nickname.
-		// Existing holdings keep their exact saved authority and user intent.
-		if (!managed.current?.intent.directories.some((row) => row.home)) {
+		try {
+			selfLocator = await managed.application.startRooms(membershipStatus(page.projection, report));
+		} catch (error) {
+			// Relay-only messages keep this browser's address off WebRTC, so a
+			// page with no Rooms server has no address to give. That is the page's
+			// state, not trouble: it stays open, and Settings is where a server is
+			// chosen. Anything else is the failure it is.
+			if (server != null || roomsErrorInMessage(error)?.code !== NO_SERVER) throw error;
+		}
+		// The session opens whether or not the relay answers. Its state is a
+		// fact on the page, and its reasons go to the trouble journal.
+		// A page with no Rooms server registers nowhere, so it has no relay
+		// state to show.
+		if (server != null) {
+			page.projection.set({ relay: "connecting" });
+			await managed.application.observeRelay((reason: string | null) => {
+				// Every seat retries on its own, so the journal records a change of
+				// reason once rather than every attempt.
+				const was = page.projection.get().relay;
+				if (reason == null ? was === "reached" : relayAway(was) && was.away === reason) return;
+				if (reason != null) report(managedText.roomsServer, reason);
+				page.projection.set({ relay: reason == null ? "reached" : { away: reason } });
+				if (reason == null) void readServedDirectory();
+			});
+		}
+		// A session that holds no directory opens in the served one, without
+		// claiming a nickname, and takes it as home. A session that holds any
+		// keeps its own, and the join card offers the served one.
+		if (servedDirectory != null && managed.current?.intent.directories.length === 0) {
+			page.projection.set({ openingDirectory: true });
 			const reason = await session.reachDirectory("", { kind: "exact", name: "" });
+			page.projection.set({ openingDirectory: false });
 			if (reason !== "") report(managedText.roomsConnection, reason);
 		}
 	}
@@ -234,7 +332,7 @@ async function start(): Promise<void> {
 		files.close();
 		await history.close();
 	});
-	if (location.pathname !== "/") reserveSelectionForAddress(page);
+	if (pagePath() !== "/") reserveSelectionForAddress(page);
 	const { EstablishedSession, bindEstablishedRouting } = await establishedUi;
 	bindEstablishedRouting(page);
 	root.render(
@@ -253,5 +351,17 @@ async function start(): Promise<void> {
 }
 
 void start().catch((error) => {
-	pageDidNotOpen(refusalText(error));
+	console.error("rooms: opening failed:", error);
+	// A Rooms refusal says what to do. Anything else gives a person nothing to
+	// act on, so the page says so plainly and the console keeps the cause.
+	const reason = roomsErrorInMessage(error) != null ? refusalText(error) : sessionDidNotOpen;
+	// Forgetting this tab's session choice keeps its data and shows setup. A
+	// tab that has chosen none has only the page to reload.
+	pageDidNotOpen(
+		reason,
+		localStorage.getItem(chosenKey()) == null ? null : () => {
+			localStorage.removeItem(chosenKey());
+			location.reload();
+		},
+	);
 });

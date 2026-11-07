@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -106,6 +107,26 @@ class PublishTest(unittest.TestCase):
         catalog = Catalog([failed, failed, CURRENT])
         publish(catalog)
         self.assertEqual(len(catalog.slept), 1)
+
+    def test_a_catalog_that_stops_answering_during_the_wait_is_polled_again(self):
+        # The edit is saved, so an error status or no answer from the public
+        # catalog is waited out: a rerun would spend a second approval.
+        catalog = Catalog([STALE, CURRENT])
+        unanswered = [(502, "bad gateway"), urllib.error.URLError("connection reset")]
+        public = catalog.fetch
+
+        def fetch(url):
+            if url == program.CATALOG and catalog.posts and unanswered:
+                answer = unanswered.pop(0)
+                if isinstance(answer, Exception):
+                    raise answer
+                return answer
+            return public(url)
+
+        catalog.fetch = fetch
+        publish(catalog)
+        self.assertEqual(len(catalog.slept), 2)
+        self.assertEqual(len(catalog.posts), 1)
 
     def test_refusals_name_their_cause(self):
         unread = {"source": SOURCE, "checksum": "", "checksum-error": "download failed"}

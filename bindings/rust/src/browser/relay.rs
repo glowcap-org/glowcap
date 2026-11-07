@@ -52,7 +52,7 @@ impl Registration {
 			if !state.queue.is_empty() {
 				return Poll::Ready(Ok(()));
 			}
-			if state.closed || state.closing {
+			if state.ending() {
 				return Poll::Ready(Err(io::Error::new(
 					io::ErrorKind::UnexpectedEof,
 					"relay registration closed",

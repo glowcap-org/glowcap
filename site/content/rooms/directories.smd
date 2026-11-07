@@ -6,10 +6,10 @@
 .draft = false,
 ---
 
-A directory is a Rooms server. It lists rooms and hands out nicknames. You
-are not limited to the one that served your page: one session can hold rooms
-on as many directories as you want, and you can message anyone you meet in
-any of them.
+A directory lists rooms and hands out nicknames, and every Rooms server hosts
+one. Your session has a home directory, and you are not limited to it: one
+session can hold rooms on as many directories as you want, and you can message
+anyone you meet in any of them.
 
 If you have used an IRC client connected to several networks, this will
 feel familiar. The directories do not know about each other, and your
@@ -18,12 +18,12 @@ not go through any directory. You can share your whole session with limits you
 set, and a directory can point people at a room on another server without
 trusting that server.
 
-[One session, three directories. The sidebar holds a room on the directory that served the page and a room on each of two others, each named by the directory it is on, and a direct conversation with a member of each. The open conversation is with lu, who lives on the third directory.]($image.siteAsset('rooms-directories-dark.webp'))
+[One session, three directories. The sidebar holds a room on the home directory and a room on each of two others, each named by the directory it is on, and a direct conversation with a member of each. The open conversation is with lu, who lives on the third directory.]($image.siteAsset('rooms-directories-dark.webp'))
 
-[One session, three directories. The sidebar holds a room on the directory that served the page and a room on each of two others, each named by the directory it is on, and a direct conversation with a member of each. The open conversation is with lu, who lives on the third directory.]($image.siteAsset('rooms-directories-light.webp'))
+[One session, three directories. The sidebar holds a room on the home directory and a room on each of two others, each named by the directory it is on, and a direct conversation with a member of each. The open conversation is with lu, who lives on the third directory.]($image.siteAsset('rooms-directories-light.webp'))
 
-In the picture, the page came from the directory that hosts `workshop`.
-From there, mira joined `zine-swap` and `night-sky` on two other
+In the picture, mira's home directory is the one that hosts `workshop`.
+From there, she joined `zine-swap` and `night-sky` on two other
 directories by pasting their addresses into the join card. Then someone in
 each room pressed the message button next to her name. None of the three
 directories has heard of the other two, and none of them can read the

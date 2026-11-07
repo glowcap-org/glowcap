@@ -30,6 +30,7 @@ export const ADMISSION_OWNERS = [
 ] as const;
 export const RATE_LIMITED = "rate-limited";
 export const ADMISSION_BUSY = "admission-busy";
+export const NO_SERVER = "no-server";
 export const REQUEST_TOO_LARGE = "request-too-large";
 export const NICK_TAKEN = "nick-taken";
 export const NO_SUCH_ROOM = "no-such-room";
@@ -93,6 +94,12 @@ export const ROOMS_FAILURES = {
 		retry: "soon",
 		summary: "This server is handling as much work as it can.",
 		action: "Try again in a moment.",
+	},
+	"no-server": {
+		subject: "server",
+		retry: "after-state-change",
+		summary: "This page has no Rooms server to reach through.",
+		action: "Choose one in Settings, under Reachability.",
 	},
 	"request-too-large": {
 		subject: "operation",

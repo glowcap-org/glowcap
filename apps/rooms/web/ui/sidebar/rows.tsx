@@ -7,6 +7,7 @@ import { Said } from "../Said.tsx";
 import { PRESENTATION, useProgress } from "../presentation.ts";
 import type { DirId, DirView, SessionPhase } from "../directory.ts";
 import { type Invitation, membersHere, type RoomConv } from "../conversation.ts";
+import { roomJoiningOn } from "../store/rooms.ts";
 import { useConversationMembers } from "../hooks.ts";
 import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, phaseWord, roomCalled } from "../text.ts";
 import { Icon } from "../icons.tsx";
@@ -157,7 +158,8 @@ export function RoomRow(
 	// with nothing wrong with it.
 	const progress = useProgress(phase === "connecting" || phase === "reconnecting", PRESENTATION.connection, phase);
 	const standing = phase === "disconnected" || progress ? dirStanding(phase) : "";
-	const joining = useProgress(conv.membership === "joining", PRESENTATION.connection, conv.key);
+	const joiningNow = roomJoiningOn(conv, phase);
+	const joining = useProgress(joiningNow, PRESENTATION.connection, conv.key);
 	// The row opens the room and carries a second control beside it to leave.
 	// Both are real buttons: an interactive control nested inside another is a
 	// structure no assistive software can read out.
@@ -181,7 +183,11 @@ export function RoomRow(
 	// The count is free to show because nothing sorts by it. Sorting by it would
 	// let a stranger joining anywhere walk the rows out from under the pointer.
 	// That is a property of the ordering, not of the number.
-	const membership = conv.membership === "joined" ? "" : conv.membership === "joining" ? rowJoining : rowNotJoined;
+	const membership = conv.membership === "joined" || (conv.membership === "joining" && !joiningNow)
+		? ""
+		: joiningNow
+		? rowJoining
+		: rowNotJoined;
 	const bridgeSaid = conv.bridge !== undefined && bridgedFrom !== null
 		? rowBridged(conv.bridge.badge, bridgedFrom)
 		: bridgedFrom !== null
@@ -217,7 +223,7 @@ export function RoomRow(
 					: conv.membership !== "joined" && (conv.membership !== "joining" || joining)
 					? (
 						<span className="rcount room-state">
-							{conv.membership === "joining" ? rowJoiningStatus : rowRetryStatus}
+							{joiningNow ? rowJoiningStatus : rowRetryStatus}
 						</span>
 					)
 					: null}

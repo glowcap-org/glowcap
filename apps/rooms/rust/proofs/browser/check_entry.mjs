@@ -42,8 +42,18 @@ function contract(binding) {
 async function lifetime(binding) {
 	const trouble = [];
 	const reportTrouble = (source, reason) => trouble.push({ source, reason });
-	const first = new binding.RoomsManagedApplication(crypto.randomUUID(), reportTrouble);
-	const sibling = new binding.RoomsManagedApplication(crypto.randomUUID(), reportTrouble);
+	const first = new binding.RoomsManagedApplication(
+		crypto.randomUUID(),
+		reportTrouble,
+		undefined,
+		new URL(".", document.baseURI).href,
+	);
+	const sibling = new binding.RoomsManagedApplication(
+		crypto.randomUUID(),
+		reportTrouble,
+		undefined,
+		new URL(".", document.baseURI).href,
+	);
 	// Fill admission synchronously, before the worker's first poll. Every
 	// refusal gets an observer immediately, including pressure and closure.
 	const answers = Array.from({ length: 256 }, () =>
@@ -138,7 +148,12 @@ try {
 	await page.evaluate(async () => {
 		const binding = await import("/rooms_browser.js");
 		await binding.default();
-		globalThis.openingApplication = new binding.RoomsManagedApplication(crypto.randomUUID(), () => {});
+		globalThis.openingApplication = new binding.RoomsManagedApplication(
+			crypto.randomUUID(),
+			() => {},
+			undefined,
+			new URL(".", document.baseURI).href,
+		);
 		globalThis.openingOutcome = globalThis.openingApplication.attachWorkspace("ocapn://127.0.0.1%3A1234.tcp/s/held")
 			.then(
 				() => "unexpected attachment",

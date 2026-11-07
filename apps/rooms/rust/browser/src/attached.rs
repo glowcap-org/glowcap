@@ -43,6 +43,9 @@ struct Environment {
 	sources: rooms_glowcap::client::sources::Sources<Platform>,
 	displays: rooms_application::files::receiving::Budget,
 	ice: ice::Source,
+	/// The relay this browser dials through and is reached at, if its page
+	/// has a Rooms server.
+	front: Option<transport::WebFront>,
 	managed_signaling: Rc<managed::signaling::Routes>,
 	trouble: TroubleReporter,
 }
@@ -57,16 +60,19 @@ impl Environment {
 		prepared: managed::Prepared,
 		trouble: TroubleReporter,
 		admission: rooms_application::admission::Settings,
+		front: Option<transport::WebFront>,
 	) -> Result<Self> {
 		let host = Host::from_seed_with_options(prepared.seed(), rooms_glowcap::host_options())
 			.map_err(|error| error.to_string())?;
 		let managed_signaling = Rc::new(managed::signaling::Routes::default());
 		let routes = managed_signaling.clone();
-		let front = transport::WebFront::deployment().map_err(|error| error.to_string())?;
-		let ice = ice::Source::deployment();
+		let ice = match &front {
+			Some(front) => ice::Source::new(front.ice()),
+			None => ice::Source::stun_default().map_err(|error| error.to_string())?,
+		};
 		let runtime = match transport::open(
 			&host,
-			front,
+			front.clone(),
 			move |locator, origin| routes.select(locator, origin),
 			ice.clone(),
 		)
@@ -88,6 +94,7 @@ impl Environment {
 			platform,
 			displays: Default::default(),
 			ice,
+			front,
 			managed_signaling,
 			trouble,
 		};

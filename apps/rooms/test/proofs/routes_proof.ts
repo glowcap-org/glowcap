@@ -224,7 +224,6 @@ try {
 		localStorage.setItem(
 			"rooms.view-preferences",
 			JSON.stringify({
-				theme: "light",
 				notifyOn: false,
 				railOpen: true,
 				rosterOpen: true,

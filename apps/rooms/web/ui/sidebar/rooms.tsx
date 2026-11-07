@@ -79,6 +79,7 @@ export function YourRooms(
 	// Its temporary row cannot claim that conversation's identity before lookup.
 	const pending = target?.kind === "room" ? target : null;
 	const paused = useSessionPaused();
+	const openingDirectory = useRoomsState((state) => state.openingDirectory);
 	const unreadOf = (key: string) => unreads.get(key) ?? CAUGHT_UP;
 	const held = invites.filter((invite) => shows(inviteRow(invite)));
 	const open = rooms.filter((conv) => shows(roomRow(conv, unreadOf(conv.key))));
@@ -88,7 +89,7 @@ export function YourRooms(
 	if (total === 0 && pending == null) {
 		return (
 			<Empty
-				text={paused ? nothingWhilePaused : dirs.size === 0 ? railReachingDirectory : railRoomsAppearHere}
+				text={paused ? nothingWhilePaused : openingDirectory ? railReachingDirectory : railRoomsAppearHere}
 			/>
 		);
 	}

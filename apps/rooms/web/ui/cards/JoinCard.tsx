@@ -10,7 +10,8 @@ import { joinRefusalKeys } from "../admission_feedback.ts";
 import { memo, useActionState, useEffect, useRef } from "react";
 import { avatarLabel } from "../../../lib/text/controls.ts";
 import { MAX_NICK, MAX_ROOM, nickRefusal } from "../limits.ts";
-import { tooLong } from "../text.ts";
+import { directoryName, tooLong } from "../text.ts";
+import { MAKE_HOME_FIELD, MakeHomeChoice } from "./MakeHomeChoice.tsx";
 import { identifierField } from "../field.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
@@ -37,7 +38,7 @@ import {
 	typedRoomLink,
 } from "../joining.ts";
 import { answerJoinNick, joinNickAvailability } from "../join_nick.ts";
-import { NICK_TAKEN } from "../../../lib/error_codes.ts";
+import { NICK_TAKEN, NO_SERVER } from "../../../lib/error_codes.ts";
 import { DirectoryPicks, typeAnotherAddress } from "../DirectoryPicks.tsx";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
@@ -60,9 +61,10 @@ import {
 	joinLeadReadOnly,
 	joinLinkLabel,
 	joinLocatorHere,
-	joinLocatorHint,
+	joinLocatorHintFor,
 	joinLocatorLabel,
 	joinLocatorOptional,
+	joinNeedsAddress,
 	joinNickHint,
 	joinNickLabel,
 	joinNickTakenInRoom,
@@ -95,6 +97,9 @@ function nickTargetKey(target: ReturnType<typeof joinNickTarget>): string | null
 	return target === null ? null : JSON.stringify([target.directory, target.link, target.room.toLowerCase()]);
 }
 
+/** Refusals answered elsewhere, not under the form: a wait, or the server ask. */
+const ANSWERED_ELSEWHERE: ReadonlySet<string | null> = new Set(["rate-limited", "admission-busy", NO_SERVER]);
+
 export const JoinCard = memo(function JoinCard(
 	{ answers, resolved, dirs, directoryContext, canInteract }: {
 		canInteract: boolean;
@@ -120,7 +125,7 @@ export const JoinCard = memo(function JoinCard(
 	 * Asked separately from `canInteract`, because that answers what the reader
 	 * may do and this answers what there is to do it to. */
 	const paused = useSessionPaused();
-	const homeDir = directoryContext.home;
+	const homeDirectory = directoryContext.home;
 	const room = answers.room.value;
 	const locator = answers.locator.value;
 	const nick = answers.nick.value;
@@ -128,6 +133,11 @@ export const JoinCard = memo(function JoinCard(
 	const conversations = useRoomsState((state) => state.convs);
 	const members = useRoomsState((state) => state.members);
 	const defaultDirectoryAddress = directoryContext.defaultDirectory?.locator ?? null;
+	// A blank address means the home directory, or the page's own when there is
+	// no home. With neither, the address is the one answer that names anything.
+	const addressRequired = defaultDirectoryAddress == null;
+	const homeName = homeDirectory == null ? null : directoryName(homeDirectory, null);
+	const locatorHint = joinLocatorHintFor(homeName, defaultDirectoryAddress != null);
 	const asLink = typedRoomLink(locator, room) !== null;
 	// What the world says about what has been asked for. Resolved on every
 	// render and never written back: the reader's own standing outlives a
@@ -137,7 +147,7 @@ export const JoinCard = memo(function JoinCard(
 	const { standing } = resolved;
 	const wantedRoom = room.trim();
 	const joinFeedback = joinRefusalKeys(
-		session.directoryId(locator.trim() || directoryContext.defaultDirectory?.locator || "") ?? homeDir ?? "",
+		session.directoryId(locator.trim() || directoryContext.defaultDirectory?.locator || "") ?? homeDirectory ?? "",
 		wantedRoom,
 	);
 	const cooldown = useActionCooldown(joinFeedback);
@@ -187,6 +197,7 @@ export const JoinCard = memo(function JoinCard(
 		try {
 			const typedText = String(form.get("locator") ?? "");
 			const typedNick = String(form.get("nick") ?? "");
+			if (addressRequired && typedText.trim() === "") return { field: "locator", text: joinNeedsAddress };
 			// Resolving the aimed directory belongs to the locator. Even an
 			// unexpected classifier failure is answered on the field whose value
 			// could not be interpreted, rather than escaping the form action.
@@ -209,7 +220,7 @@ export const JoinCard = memo(function JoinCard(
 					nick: { ...answers.nick, value: typedNick },
 				},
 				dirs,
-				homeDir,
+				homeDirectory,
 				(at) => session.directoryId(at),
 			);
 			failureField = submitted.act === "connect" ? "locator" : "form";
@@ -217,7 +228,7 @@ export const JoinCard = memo(function JoinCard(
 				const why = await session.reachDirectory(
 					typedText,
 					typedNick === "" ? { kind: "automatic", base: nick } : { kind: "exact", name: typedNick },
-					run.signal,
+					{ home: form.get(MAKE_HOME_FIELD) === "on", signal: run.signal },
 				);
 				if (run.signal.aborted) return null;
 				if (why !== "") return { field: "locator", text: why };
@@ -278,9 +289,7 @@ export const JoinCard = memo(function JoinCard(
 						suggestion: after.kind === "taken" ? after.suggestion : suggestedNickname(nick),
 					};
 				}
-				if (outcome.code === "rate-limited" || outcome.code === "admission-busy") {
-					return null;
-				}
+				if (ANSWERED_ELSEWHERE.has(outcome.code)) return null;
 				return { field: "form", text: outcome.text };
 			}
 			// The lock is an intention about the room just made, and it is now
@@ -368,12 +377,11 @@ export const JoinCard = memo(function JoinCard(
 					<label htmlFor="locator">
 						{asLink ? joinLinkLabel : (
 							<>
-								{joinLocatorLabel}{" "}
-								<span className="optional">
-									{homeDir == null && defaultDirectoryAddress != null
-										? joinLocatorHere
-										: joinLocatorOptional}
-								</span>
+								{joinLocatorLabel} {!addressRequired && (
+									<span className="optional">
+										{homeDirectory == null ? joinLocatorHere : joinLocatorOptional}
+									</span>
+								)}
 							</>
 						)}
 					</label>
@@ -395,7 +403,12 @@ export const JoinCard = memo(function JoinCard(
 					    button is not performing. The sentence about what to type
 					    follows the box it describes. */
 					}
-					{!asLink && <p className="hint" id="locatorHint">{joinLocatorHint}</p>}
+					{!asLink && (
+						<p className="hint" id="locatorHint">
+							{locatorHint}
+						</p>
+					)}
+					{reaching && homeDirectory == null && <MakeHomeChoice />}
 					{
 						/* Out until the directory can describe what naming a room there
 					    would do. */

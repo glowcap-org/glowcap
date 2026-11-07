@@ -1,7 +1,9 @@
-"""The site normalizer's table header rewrite: every header row gets a thead, in a form that reads each cell once.
+"""The site normalizer's rewrites: every header row gets a thead, in a form that
+reads each cell once, and a link to an exported application's entry document
+names its directory, in HTML and in the markdown twin alike.
 
 Run by infrastructure-check. tools/gen/site_normalize.py runs under `zig build
-site` on rendered pages, and this is the focused proof of its header-row regex.
+site` on rendered pages, and this is the focused proof of its regexes.
 """
 
 import importlib.util
@@ -40,6 +42,36 @@ class HeaderRows(unittest.TestCase):
         ):
             with self.subTest(page=page[:40]):
                 self.assertIsNone(MODULE.HEADER_ROW.search(page))
+
+
+class EntryLinks(unittest.TestCase):
+    def test_a_link_to_an_entry_document_names_its_directory(self):
+        page = '<a href="/rooms/app/index.html">app</a> <a href="/index.html">home</a>'
+        self.assertEqual(
+            MODULE.ENTRY_HREF.sub(r'href="\1"', page), '<a href="/rooms/app/">app</a> <a href="/">home</a>'
+        )
+
+    def test_other_links_keep_their_form(self):
+        for page in (
+            '<a href="/rooms/app/">app</a>',
+            '<a href="https://example.test/index.html">away</a>',
+            '<a href="/rooms/app/index.htm">near</a>',
+            '<a href="/rooms/app/myindex.html">near</a>',
+            '<a href="index.html">relative</a>',
+        ):
+            with self.subTest(page=page):
+                self.assertEqual(MODULE.ENTRY_HREF.sub(r'href="\1"', page), page)
+
+    def test_the_markdown_twin_names_the_same_address(self):
+        self.assertEqual(
+            MODULE.assetAddress("https://glowcap.org", "rooms/app/index.html"), "https://glowcap.org/rooms/app/"
+        )
+        self.assertEqual(MODULE.assetAddress("https://glowcap.org", "install.sh"), "https://glowcap.org/install.sh")
+        body = "open [the page]($link.siteAsset('rooms/app/index.html')) now"
+        self.assertEqual(
+            MODULE.ASSET_REF.sub(lambda m: f"({MODULE.assetAddress('https://glowcap.org', m.group(1))})", body),
+            "open [the page](https://glowcap.org/rooms/app/) now",
+        )
 
 
 if __name__ == "__main__":

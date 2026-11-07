@@ -17,6 +17,8 @@ import { namedRoomRow } from "../support/conversation_row.ts";
 import { fail } from "../support/fail.ts";
 import { openDirectoryCardFromCaption, reachDirectoryOnCard, showDirectoryFromCaption } from "./harness.ts";
 import { run as goneRun } from "./gone.ts";
+import { homeDirectoryName } from "../../lib/text/directory.ts";
+import { joinLocatorHere } from "../../lib/text/join.ts";
 
 export async function run(
 	tab: Page,
@@ -232,7 +234,9 @@ export async function run(
 	if (homeCameBack) fail("this page's own directory dialled itself back after it was left");
 	// The other directory is still held, so the join card is not already up.
 	// The rail's elsewhere line is how a reader names a directory they are not
-	// on; picking "this directory" there is walking back into the one they left.
+	// on. Leaving home left the session with none, so the blank row names the
+	// page's own directory, and picking it walks back into the one they left,
+	// which takes home again.
 	await tab.click("#newRoomBtn");
 	await tab.fill("#newRoomInput", "lobby");
 	await tab.focus("#newRoomElsewhere");
@@ -242,7 +246,7 @@ export async function run(
 	await tab.click("#joinLocator");
 	await tab.waitForSelector(".locator-picks [role=menuitemradio]", { timeout: 5_000 })
 		.catch(() => fail("the join card did not offer this page's own directory after it was left"));
-	await tab.getByRole("menuitemradio", { name: "this directory", exact: true }).click();
+	await tab.getByRole("menuitemradio", { name: joinLocatorHere, exact: true }).click();
 	await tab.fill("#nick", "cam");
 	await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
@@ -297,13 +301,13 @@ export async function run(
 	const offered = await tab.evaluate(() =>
 		[...document.querySelectorAll(".locator-picks [role=menuitemradio]")].map((b) => b.textContent?.trim() ?? "")
 	);
-	if (!offered.includes("this directory")) {
+	if (!offered.includes(homeDirectoryName)) {
 		fail(`the join card did not offer this page's own directory; it offered ${JSON.stringify(offered)}`);
 	}
 	if (offered.length < 2) {
 		fail(`the join card offered nothing but this directory while the tab held another: ${JSON.stringify(offered)}`);
 	}
-	const other = offered.find((name) => name !== "this directory");
+	const other = offered.find((name) => name !== homeDirectoryName);
 	if (other === undefined) {
 		fail(`the join card offered no held directory beside this one: ${JSON.stringify(offered)}`);
 	}
@@ -329,7 +333,7 @@ export async function run(
 	await tab.click("#joinLocator");
 	await tab.waitForSelector(".locator-picks [role=menuitemradio]", { timeout: 5_000 })
 		.catch(() => fail("the join card's directory mark did not open again to clear the field"));
-	await tab.getByRole("menuitemradio", { name: "this directory", exact: true }).click();
+	await tab.getByRole("menuitemradio", { name: homeDirectoryName, exact: true }).click();
 	const cleared = await tab.inputValue("#locator");
 	if (cleared !== "") {
 		fail(`pressing "this directory" left ${JSON.stringify(cleared)} in the field instead of clearing it`);

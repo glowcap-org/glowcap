@@ -8,6 +8,7 @@ mod bundle;
 mod client_address;
 mod compiler;
 mod config;
+mod export;
 mod http;
 mod ice;
 mod notice;
@@ -24,6 +25,7 @@ mod tor;
 mod upgrade;
 use config::BrowserAssets;
 pub use config::{Config, HELP};
+pub use export::StaticExport;
 pub use notice::{Notice, Report};
 pub use prepare::Preparation;
 pub use status::StatusQuery;
@@ -48,13 +50,14 @@ async fn serve(
 	let Config {
 		bind,
 		port,
+		public,
 		browser_assets,
 		browser_admission,
 		server,
 		server_args,
 		room,
 		session,
-		relay: limits,
+		relay: mut limits,
 		admission: admission_config,
 		ice,
 		tor,
@@ -168,9 +171,26 @@ async fn serve(
 		}
 		None => None,
 	};
+	// The browser leg of a shared session attachment comes through this relay,
+	// so a page is offered the session only when the relay can forward to it.
+	let attach = match &shared {
+		Some(peer) if limits.admit_own_session(peer.link()) => Some(peer.link()),
+		_ => None,
+	};
+	// The address every printed link names: the operator's public one, else
+	// the loopback address of the port this process bound.
+	let reached_at = public.map_or_else(|| format!("http://localhost:{port}/"), |public| public.to_string());
+	let links = page_links(&limits.pages, &reached_at, attach);
 	let (location, current) = watch::channel(Some(locator));
 	let (jobs, incoming) = tokio::sync::mpsc::channel(32);
-	let relay = relay::Relay::with_admission(limits, current.clone(), jobs, stopping.clone(), admission);
+	let relay = relay::Relay::with_admission(
+		limits,
+		current.clone(),
+		jobs,
+		stopping.clone(),
+		report.clone(),
+		admission,
+	);
 	let mut workers = tokio::task::JoinSet::new();
 	if let Some(peer) = shared {
 		announce(
@@ -203,10 +223,11 @@ async fn serve(
 		stop.clone(),
 		stopping.clone(),
 	));
+	let shown = reached_at.trim_end_matches('/');
 	announce(
 		&report,
 		&format!(
-			"rooms: serving\n\n  web ui           http://localhost:{port}\n  web locator      http://localhost:{port}/locator\n  room directory   {public_locator}\n\nrooms: ready"
+			"rooms: serving\n\n{links}  web ui           {shown}\n  web locator      {shown}/locator\n  room directory   {public_locator}\n\nrooms: ready"
 		),
 	);
 	let mut result = tokio::select! {
@@ -223,6 +244,30 @@ async fn serve(
 		crate::cleanup::retain(&mut result, tor.close().await);
 	}
 	result
+}
+
+/// The banner's first lines, one per Rooms page listed by its address: the
+/// page, offered this server, and with a shared session, the page offered
+/// that session too. They lead because that link is the way in the guides
+/// name. The session's use link is a capability, so it rides in the
+/// fragment, which a browser never sends to the page's host. The page asks
+/// before it uses either offer. `server` is the address browsers reach this
+/// server at, as a base ending in `/`.
+fn page_links(pages: &[url::Url], server: &str, session: Option<&str>) -> String {
+	let mut lines = String::new();
+	for page in pages {
+		let mut link = page.clone();
+		link.query_pairs_mut().append_pair("server", server);
+		lines.push_str(&format!("  open the page    {link}\n"));
+		if let Some(session) = session {
+			let attach: String = url::form_urlencoded::Serializer::new(String::new())
+				.append_pair("attach", session)
+				.finish();
+			link.set_fragment(Some(&attach));
+			lines.push_str(&format!("  open the session {link}\n"));
+		}
+	}
+	lines
 }
 
 fn local_relay_url(mut address: std::net::SocketAddr) -> String {
@@ -269,5 +314,35 @@ mod tests {
 		] {
 			assert_eq!(super::local_relay_url(bound.parse().unwrap()), expected);
 		}
+	}
+	/// The links as printed, held in one fixture with the page's reader test
+	/// (`apps/rooms/test/server_choice_test.ts`), so the two sides agree by
+	/// construction.
+	#[test]
+	fn a_listed_page_is_linked_with_this_server_as_its_offer() {
+		let fixture: serde_json::Value =
+			serde_json::from_str(include_str!("../../../test/web/page_links.json")).unwrap();
+		let text = |key: &str| fixture[key].as_str().unwrap().to_owned();
+		let pages = [url::Url::parse(&text("page")).unwrap()];
+		assert_eq!(
+			super::page_links(&pages, &text("server"), None),
+			format!("  open the page    {}\n", text("pageLink"))
+		);
+		assert_eq!(
+			super::page_links(&pages, &text("server"), Some(&text("session"))),
+			format!(
+				"  open the page    {}\n  open the session {}\n",
+				text("pageLink"),
+				text("sessionLink")
+			)
+		);
+		assert_eq!(
+			super::page_links(&pages, "https://rooms.example/", None),
+			"  open the page    https://glowcap.org/rooms/app/?server=https%3A%2F%2Frooms.example%2F\n"
+		);
+		assert_eq!(
+			super::page_links(&[], "http://localhost:8080/", Some("ocapn://abc.iroh/s/x")),
+			""
+		);
 	}
 }

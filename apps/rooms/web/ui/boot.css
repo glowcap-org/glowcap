@@ -125,8 +125,10 @@
 }
 /* Why there is nothing here to use. An opening page hides both explanations.
    Nothing stamped the document means scripting is off; `lost` means the bundle
-   never arrived; `insecure` is a deliberate refusal before the bundle. */
+   never arrived; `failed` means it ran and could not open; `insecure` is a
+   deliberate refusal before the bundle. */
 .boot-explain,
+.boot-failed,
 .boot-insecure {
 	display: none;
 	max-width: 34rem;
@@ -136,6 +138,7 @@
 }
 :root:not([data-boot]) .boot-wait,
 :root[data-boot="lost"] .boot-wait,
+:root[data-boot="failed"] .boot-wait,
 :root[data-boot="insecure"] .boot-wait {
 	display: none;
 }
@@ -143,10 +146,12 @@
 :root[data-boot="lost"] .boot-explain {
 	display: block;
 }
+:root[data-boot="failed"] .boot-failed,
 :root[data-boot="insecure"] .boot-insecure {
 	display: block;
 }
 .boot-explain h1,
+.boot-failed h1,
 .boot-insecure h1 {
 	margin: 0 0 10px;
 	font-size: var(--type-display);
@@ -156,6 +161,7 @@
 	text-wrap: balance;
 }
 .boot-explain p,
+.boot-failed p,
 .boot-insecure p {
 	margin: 0 0 10px;
 	color: var(--ink-soft);

@@ -192,7 +192,7 @@ impl RtcPeer {
 			if status.socket.open() {
 				return Poll::Ready(Ok(()));
 			}
-			if channel.closed || channel.closing {
+			if channel.ending() {
 				return Poll::Ready(Err(io::ErrorKind::NotConnected.into()));
 			}
 			channel.writer = Some(cx.waker().clone());

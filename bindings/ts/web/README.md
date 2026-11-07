@@ -6,14 +6,14 @@ The protocol core runs in WebAssembly.
 
 ## Try it
 
-Download the [browser bundle for v0.1.4](https://github.com/glowcap-org/glowcap/releases/download/v0.1.4/glowcap-web-v0.1.4-browser.tar.gz).
+Download the [browser bundle for v0.1.5](https://github.com/glowcap-org/glowcap/releases/download/v0.1.5/glowcap-web-v0.1.5-browser.tar.gz).
 It includes JavaScript, matching Wasm, and a complete two-peer WebRTC example.
 Extract it into a new directory your web server serves, then open `index.html`.
 For a local trial with Python installed:
 
 ```sh
 mkdir glowcap-web
-tar -xzf glowcap-web-v0.1.4-browser.tar.gz -C glowcap-web
+tar -xzf glowcap-web-v0.1.5-browser.tar.gz -C glowcap-web
 cd glowcap-web
 python3 -m http.server 8000 --bind 127.0.0.1
 ```

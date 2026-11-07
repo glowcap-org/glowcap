@@ -15,6 +15,7 @@ import {
 	dayYesterday,
 	dmBlockedWhile,
 	footHere,
+	homeDirectoryName,
 	lineFromNameTooLong,
 	lineTooLong,
 	peerFallback,
@@ -22,7 +23,6 @@ import {
 	phaseConnecting,
 	phaseDisconnected,
 	phaseReconnecting,
-	thisDirectoryName,
 	tooLongSaid,
 } from "../../lib/text/directory.ts";
 
@@ -214,13 +214,12 @@ function readable(text: string): string {
  * is named by whatever part of it a person could actually say, and the exact
  * locator stays one copy away in Settings.
  *
- * The directory this page came with is `this directory`, because it is the one a
- * reader never chose: showing them its address answers a question they did not
- * ask, and the address bar already says where the page came from. */
+ * The session's home directory is called that, and its address stays one copy
+ * away in Settings. An empty locator names it too. */
 export function directoryName(id: DirId, home: DirId | null): string {
-	if (home !== null && id === home) return thisDirectoryName;
+	if (home !== null && id === home) return homeDirectoryName;
 	const locator = id as string;
-	if (locator === "") return thisDirectoryName;
+	if (locator === "") return homeDirectoryName;
 	if (!locator.includes("://")) return readable(locator);
 	const authority = readable(locator.slice(locator.indexOf("://") + 3).split("/")[0]);
 	const dot = authority.lastIndexOf(".");
@@ -253,18 +252,20 @@ export function conversationReach(
 	return reachPublicRoom(roomCalled(conv.id, false));
 }
 
-/** The rooms this tab could publish into the home directory: rooms with held
- * durable entrances on another connected directory, in conversation order.
+/** The rooms this tab could publish into the peering capability's directory:
+ * rooms with held durable entrances on another connected directory, in
+ * conversation order.
  * The peering pane's choices, derived here so they carry the same directory
  * words the rail uses. */
 export function peeringSourcesOf(
 	convs: ReadonlyMap<string, Conv>,
+	target: DirId | null,
 	home: DirId | null,
 	dirs: ReadonlyMap<DirId, DirView>,
 ): PeeringSource[] {
 	const sources: PeeringSource[] = [];
 	for (const conv of convs.values()) {
-		if (conv.type !== "room" || conv.dir === home || conv.linkToken == null) continue;
+		if (conv.type !== "room" || conv.dir === target || conv.linkToken == null) continue;
 		if (dirs.get(conv.dir)?.session !== "connected") continue;
 		sources.push({ key: conv.key, room: conv.id, directory: directoryName(conv.dir, home) });
 	}

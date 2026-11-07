@@ -13,6 +13,7 @@ import { proveDirectoryCommands } from "./directory_commands.ts";
 import { run as dirColorsRun } from "./dir_colors.ts";
 import { run as filteringRun } from "./filtering.ts";
 import { run as leavingRun } from "./leaving.ts";
+import { homeDirectoryName } from "../../lib/text/directory.ts";
 
 export async function run(
 	tab: Page,
@@ -79,7 +80,7 @@ export async function run(
 		fail(`the rooms list does not hold a row per room: ${JSON.stringify(rail.rows)}`);
 	} else if (rail.rows.indexOf(lobby) > rail.rows.indexOf(elsewhere)) {
 		fail(`a second server reordered the rooms a reader had already learned: ${JSON.stringify(rail.rows)}`);
-	} else if (lobby.said !== "in this directory") {
+	} else if (lobby.said !== `in ${homeDirectoryName}`) {
 		fail(`the row for the room on this page's own server says ${JSON.stringify(lobby.said)}`);
 	} else if (!elsewhere.said.includes(String(foreignRoomPort))) {
 		fail(`the row for the room on the second server says ${JSON.stringify(elsewhere.said)}`);
@@ -188,7 +189,7 @@ export async function run(
 		facts: [...document.querySelectorAll(".modal .dirfacts dt")].map((dt) => dt.textContent?.trim() ?? ""),
 		mark: document.querySelector(".modal-card.dircard")?.getAttribute("data-dir") ?? "",
 	}));
-	if (homeCard.title !== "this directory") {
+	if (homeCard.title !== homeDirectoryName) {
 		fail(`the card for this page's own directory titled ${JSON.stringify(homeCard.title)}`);
 	}
 	if (!homeCard.facts.includes("Your name")) {
@@ -237,7 +238,7 @@ export async function run(
 	await openDirectoryCardFromSettings(tab);
 	await tab.waitForSelector("#settingsTitle", { state: "hidden", timeout: 10_000 });
 	const fromSettings = (await tab.textContent("#dircardTitle"))?.trim() ?? "";
-	if (fromSettings !== "this directory") {
+	if (fromSettings !== homeDirectoryName) {
 		fail(`Settings opened a card titled ${JSON.stringify(fromSettings)}`);
 	}
 	const centered = await tab.evaluate(() => {
@@ -614,9 +615,9 @@ export async function run(
 			fail(`the direct list is a ${lines.list} holding ${lines.boxes} boxes of rows rather than a list of them`);
 		} else if (lines.mark === "") {
 			fail("the direct row wears no directory color, so two people with one nickname look like one person");
-		} else if (lines.said !== "in this directory") {
+		} else if (lines.said !== `in ${homeDirectoryName}`) {
 			fail(`the direct row says ${JSON.stringify(lines.said)} rather than the directory that introduced it`);
-		} else if (!lines.announced.includes("this directory")) {
+		} else if (!lines.announced.includes(homeDirectoryName)) {
 			fail(`the direct row does not name its directory in what it announces: ${JSON.stringify(lines.announced)}`);
 		} else if (!lines.asks) {
 			fail("the direct row names its directory without offering to say what that directory is");

@@ -108,6 +108,9 @@ pub const Registered = struct {
     /// `site/assets` by `site-captures`. The site render and preview depend
     /// on it, so no picture is ever a tracked file.
     site_captures: *std.Build.Step,
+    /// The Rooms page exported under the site's assets by `site-rooms-page`.
+    /// The site render depends on it the way it depends on the pictures.
+    site_page: *std.Build.Step,
     /// The generated browser module and its type declarations, which the
     /// repository's TypeScript check imports.
     browser_application: *std.Build.Step,
@@ -128,7 +131,7 @@ pub fn register(ctx: Context) Registered {
     const browser_application = rust.browser_application;
     peers.web_build.dependOn(browser_application);
 
-    const browser_assets = rooms_browser_front.register(.{
+    const front = rooms_browser_front.register(.{
         .b = b,
         .target = target,
         .version = ctx.version,
@@ -144,6 +147,7 @@ pub fn register(ctx: Context) Registered {
         .relay_install = ctx.relay_install,
         .pin_port = ctx.pin_port,
     });
+    const browser_assets = front.prepare;
 
     const rooms_client_exe = modules.glowcapExecutable(b, lib_mod, target, optimize, "glowcap-rooms-client", "apps/rooms/clients/zig/client.zig");
     rooms_client_exe.root_module.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
@@ -554,6 +558,7 @@ pub fn register(ctx: Context) Registered {
         .services_install = archive_install,
         .web_proofs = web_proofs_step,
         .site_captures = site_captures_step,
+        .site_page = front.site_page,
         .browser_application = browser_application,
         .rust_lint = rust.lint,
     };

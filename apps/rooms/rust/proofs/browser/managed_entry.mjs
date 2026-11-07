@@ -1,7 +1,8 @@
 // Drive the exported application against its actual per-tab IndexedDB owner.
 // Both phases run in different documents, with no fixture restoring authority.
+
 export async function managedApplication(binding, tab, reopening) {
-	const app = new binding.RoomsManagedApplication(tab, () => {});
+	const app = new binding.RoomsManagedApplication(tab, () => {}, undefined, new URL(".", document.baseURI).href);
 	const workspace = await app.workspace();
 	const management = await app.management();
 	const held = [workspace, management];

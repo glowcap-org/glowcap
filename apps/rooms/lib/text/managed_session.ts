@@ -23,6 +23,7 @@ export const managedSessionText = {
 	sharedRoom: "Shared room",
 	workspaceShutdown: "Workspace shutdown",
 	roomsConnection: "Rooms connection",
+	roomsServer: "Rooms server",
 	directoryUnavailable:
 		"Cannot reach this directory with the saved access. Review its connection or access before retrying.",
 	directReadinessTimeout: "This direct conversation did not become ready in time. Try again.",

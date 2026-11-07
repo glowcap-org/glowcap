@@ -41,7 +41,7 @@ rooms-browser = { path = "../browser", optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
 js-sys = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["WebSocket", "RtcDataChannel", "RtcConfiguration"] }
+web-sys = { workspace = true, optional = true, features = ["RtcConfiguration", "RtcDataChannel", "Url", "WebSocket"] }
 gloo-timers = { workspace = true, features = ["futures"], optional = true }
 tokio = { workspace = true, features = ["io-util"], optional = true }
 futures-util = { workspace = true, features = ["alloc"], optional = true }

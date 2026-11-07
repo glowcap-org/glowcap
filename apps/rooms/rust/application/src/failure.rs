@@ -53,6 +53,7 @@ macro_rules! codes {
 codes! {
 	RateLimited => ("rate-limited", "operation", Soon, "This action is temporarily rate limited.", Some("Wait for the retry time before trying again.")),
 	AdmissionBusy => ("admission-busy", "server", Soon, "This server is handling as much work as it can.", Some("Try again in a moment.")),
+	NoServer => ("no-server", "server", AfterStateChange, "This page has no Rooms server to reach through.", Some("Choose one in Settings, under Reachability.")),
 	RequestTooLarge => ("request-too-large", "operation", AfterRequestChange, "This request exceeds its work allowance.", Some("Reduce the request before trying again.")),
 	NickTaken => ("nick-taken", "nickname", AfterRequestChange, "That name is taken in this room.", Some("Pick another.")),
 	NoSuchRoom => ("no-such-room", "room", AfterStateChange, "That room isn't open.", Some("If you followed a link, ask whoever sent it for a current one.")),
@@ -143,22 +144,21 @@ impl<'a> Failure<'a> {
 			_ => false,
 		}
 	}
-	/// Read the canonical Rooms reason, including the generic binding wrapper that
-	/// shipped around it. A code-shaped phrase inside diagnostic detail is not a
-	/// failure code. Unknown reasons stay untyped. Reading allocates nothing.
+	/// Read the canonical Rooms reason, including the generic binding wrapper
+	/// shipped around it, one per layer the line climbed through. A code-shaped
+	/// phrase inside diagnostic detail is not a failure code. Unknown reasons
+	/// stay untyped. Reading allocates nothing.
 	pub fn parse(reason: &'a str) -> Option<Self> {
-		let reason = match reason.strip_prefix("glowcap error ") {
-			Some(wrapped) => {
-				let (status, payload) = wrapped.split_once(": ")?;
-				let digits = status.strip_prefix('-').unwrap_or(status);
-				if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-					return None;
-				}
-				status.parse::<i32>().ok()?;
-				payload
+		let mut reason = reason;
+		while let Some(wrapped) = reason.strip_prefix("glowcap error ") {
+			let (status, payload) = wrapped.split_once(": ")?;
+			let digits = status.strip_prefix('-').unwrap_or(status);
+			if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+				return None;
 			}
-			None => reason,
-		};
+			status.parse::<i32>().ok()?;
+			reason = payload;
+		}
 		let (segment, detail) = reason.split_once(": ").unwrap_or((reason, ""));
 		FailureCode::parse(segment).map(|code| Self { code, detail })
 	}
@@ -228,6 +228,13 @@ mod tests {
 			Some(Failure {
 				code: FailureCode::NickTaken,
 				detail: "alice",
+			})
+		);
+		assert_eq!(
+			Failure::parse("glowcap error -12: glowcap error -8: no-server: none chosen"),
+			Some(Failure {
+				code: FailureCode::NoServer,
+				detail: "none chosen",
 			})
 		);
 		assert_eq!(Failure::parse("transport: nick-taken: alice"), None);

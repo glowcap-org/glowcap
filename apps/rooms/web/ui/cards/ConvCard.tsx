@@ -13,6 +13,7 @@
 // facts about this conversation.
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { homeDirectoryName } from "../../../lib/text/directory.ts";
 import type { AdministeredBridge } from "../ops/capabilities.ts";
 import { awayByPeer, awayOf, type RoomConv, type SessionConv } from "../conversation.ts";
 import type { DirId, DirView } from "../directory.ts";
@@ -63,7 +64,7 @@ export const ConvCard = memo(function ConvCard(
 		conv,
 		archiveShares,
 		dir,
-		homeDir,
+		homeDirectory,
 		mark,
 		standing,
 		follows,
@@ -80,7 +81,7 @@ export const ConvCard = memo(function ConvCard(
 		conv: SessionConv | null;
 		archiveShares: readonly ArchiveShareView[];
 		dir: DirView | null;
-		homeDir: DirId | null;
+		homeDirectory: DirId | null;
 		mark: string | undefined;
 		standing: string;
 		follows: string;
@@ -100,7 +101,7 @@ export const ConvCard = memo(function ConvCard(
 		conv: SessionConv;
 		archiveShares: readonly ArchiveShareView[];
 		dir: DirView | null;
-		homeDir: DirId | null;
+		homeDirectory: DirId | null;
 		mark: string | undefined;
 		standing: string;
 		follows: string;
@@ -115,7 +116,7 @@ export const ConvCard = memo(function ConvCard(
 			conv,
 			archiveShares,
 			dir,
-			homeDir,
+			homeDirectory,
 			mark,
 			standing,
 			follows,
@@ -131,7 +132,7 @@ export const ConvCard = memo(function ConvCard(
 			conv,
 			archiveShares,
 			dir,
-			homeDir,
+			homeDirectory,
 			mark,
 			standing,
 			follows,
@@ -422,7 +423,7 @@ function ConvDialog(
 		conv,
 		archiveShares,
 		dir,
-		homeDir,
+		homeDirectory,
 		mark,
 		standing,
 		follows,
@@ -440,7 +441,7 @@ function ConvDialog(
 		conv: SessionConv;
 		archiveShares: readonly ArchiveShareView[];
 		dir: DirView | null;
-		homeDir: DirId | null;
+		homeDirectory: DirId | null;
 		mark: string | undefined;
 		standing: string;
 		follows: string;
@@ -464,7 +465,7 @@ function ConvDialog(
 	}, [askingLeave, open]);
 	const requestClose = () => commitments.request(() => browser.closeAboutConversation());
 	useModalDialog(dialog, requestClose, close, open, onExited, retain);
-	const directory = dir === null ? "this directory" : directoryName(dir.id, homeDir);
+	const directory = dir === null ? homeDirectoryName : directoryName(dir.id, homeDirectory);
 	const named = conv.type === "room" ? roomCalled(conv.id, conv.held) : conv.id;
 	return (
 		<dialog ref={dialog} className="modal" aria-labelledby="convcardTitle">

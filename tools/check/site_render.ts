@@ -28,6 +28,7 @@
 // Usage: deno run --allow-all tools/check/site_render.ts <site-root>
 
 import { chromium } from "playwright";
+import { sitePages } from "./site_pages.ts";
 
 const siteRoot = Deno.args[0];
 if (!siteRoot) {
@@ -60,18 +61,7 @@ const server = Deno.serve({ port: 0, onListen: () => {} }, async (req) => {
 });
 const base = `http://127.0.0.1:${server.addr.port}`;
 
-// Every rendered page is a directory holding an index.html.
-const pages: string[] = [];
-async function walk(dir: string, rel: string): Promise<void> {
-	for await (const entry of Deno.readDir(dir)) {
-		if (!entry.isDirectory && entry.name === "index.html") pages.push(`${rel}/`);
-		if (entry.isDirectory) {
-			await walk(`${dir}/${entry.name}`, `${rel}/${entry.name}`);
-		}
-	}
-}
-await walk(siteRoot, "");
-pages.sort();
+const pages = await sitePages(siteRoot);
 if (pages.length < 20) {
 	console.error(
 		`site_render: found only ${pages.length} pages under ${siteRoot}; a real site build has more, refusing a vacuous pass`,

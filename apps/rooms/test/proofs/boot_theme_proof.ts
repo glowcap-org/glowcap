@@ -1,11 +1,12 @@
 import { spawnWeb, webPort } from "../support/web_front.ts";
 // The page's first paint is in the theme the reader left.
 //
-// A session decides the theme, and a session is not up during the first paint.
-// So `page.html` guesses from the workspace it finds in this browser, before
-// the bundle exists, on the bet that a reader's last theme is their next one. A
-// wrong guess costs the repaint that would have happened anyway; a missing one
-// means every cold load in a dark workspace flashes the light palette.
+// The bundle applies the theme, and the bundle is not up during the first
+// paint. So `page.html` reads the theme key this browser keeps for every
+// glowcap page, before the bundle exists, on the bet that a reader's last
+// theme is their next one. A wrong guess costs the repaint that would have
+// happened anyway; a missing one means every cold load in a dark browser
+// flashes the light palette.
 //
 // That is the whole failure mode, and it is silent. Nothing throws, nothing
 // logs, the page arrives the wrong colour for a moment. It stood that
@@ -47,15 +48,10 @@ try {
 	await establishLocalSession(page);
 
 	// Both themes, so a stamp that merely matches the default cannot pass. The
-	// workspace is written directly: what is under test is the reading of it,
-	// and driving the settings control to change it would prove that instead.
+	// key is written directly: what is under test is the reading of it, and
+	// driving the settings control to change it would prove that instead.
 	for (const theme of ["dark", "light"] as const) {
-		await page.evaluate((value) => {
-			const raw = localStorage.getItem("rooms.view-preferences");
-			const document_ = JSON.parse(raw ?? "null") ?? {};
-			document_.theme = value;
-			localStorage.setItem("rooms.view-preferences", JSON.stringify(document_));
-		}, theme);
+		await page.evaluate((value) => localStorage.setItem("glowcap-theme", value), theme);
 
 		const cold = await context.newPage();
 		await cold.route("**/page.js", (route) => route.abort());

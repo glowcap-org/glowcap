@@ -13,7 +13,12 @@
     gap: 0;
   }
 
+  .site-footer {
+    grid-column: 1;
+  }
+
   .sidebar {
+    grid-row: auto;
     position: static;
     max-height: none;
     overflow: visible;
@@ -74,8 +79,21 @@
 
   .theme-toggle {
     position: absolute;
-    right: clamp(1rem, 4vw, 2.5rem);
+    right: var(--header-inset);
     top: calc(0.7rem + var(--accent-line) - 5px);
+  }
+
+  /* The application link keeps the brand row too, beside the theme switch,
+     rather than wrapping to a third header row under the links. */
+  .top-nav .top-nav-app {
+    position: absolute;
+    right: calc(var(--header-inset) + var(--icon-button-size) + 0.6rem);
+    top: calc(0.7rem + var(--accent-line) - 5px);
+    box-sizing: border-box;
+    height: var(--icon-button-size);
+    padding: 0 0.7rem;
+    display: inline-flex;
+    align-items: center;
   }
 
   h1 {

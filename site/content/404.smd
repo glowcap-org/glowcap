@@ -20,3 +20,19 @@ The sidebar lists every page. The likeliest destinations:
 
 If a link on this site brought you here, that is a defect worth reporting:
 [open an issue](https://github.com/glowcap-org/glowcap/issues).
+
+```=html
+<script>
+	// A deep link into the Rooms page lands here, because this host serves one
+	// file per address. Hand the path to the page, which opens where it pointed.
+	// The page's address is the one the header links, so it is written once.
+	(function () {
+		var link = document.querySelector("a[data-rooms-app]");
+		if (link === null) return;
+		var app = link.pathname;
+		var path = location.pathname;
+		if (path.indexOf(app) !== 0 || path === app) return;
+		location.replace(app + "?path=" + encodeURIComponent(path.slice(app.length) + location.search) + location.hash);
+	})();
+</script>
+```

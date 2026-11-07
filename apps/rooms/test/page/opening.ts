@@ -20,6 +20,7 @@ import { helpAboutCredit } from "../../lib/text/help.ts";
 import * as linked from "./linked.ts";
 import { proveLockupSurvivesHandoff, proveOpeningWithoutGpu, withoutOpeningGpu } from "./opening_mark.ts";
 import { proveOpeningWithoutMotion } from "./opening_motion.ts";
+import { proveOpeningFaces } from "./opening_faces.ts";
 import { establishTestSession } from "./session_establishment.ts";
 import * as settingsForms from "./settings_forms.ts";
 
@@ -94,60 +95,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 
 	await proveOpeningWithoutMotion(browser, httpPort);
 
-	// The other two: a browser with scripting off is told why there is nothing
-	// here, and so is one whose bundle never arrived, the case nobody sees until
-	// it happens to them.
-	{
-		const off = await browser.newContext({ javaScriptEnabled: false });
-		const quiet = await off.newPage();
-		await quiet.goto(`http://127.0.0.1:${httpPort}/`);
-		if (!await quiet.locator(".boot-explain").isVisible()) {
-			fail("a browser with scripting off is not told why the page is empty");
-		}
-		if (await quiet.locator(".boot-wait").isVisible()) {
-			fail("a browser with scripting off is shown a wait that will never end");
-		}
-		await off.close();
-
-		const dark = await browser.newContext();
-		const blind = await dark.newPage();
-		await blind.route("**/page.js", (route) => route.fulfill({ status: 503, body: "" }));
-		await blind.goto(`http://127.0.0.1:${httpPort}/`);
-		if (!await blind.locator(".boot-explain").isVisible()) {
-			fail("a page whose bundle did not load shows a reader nothing at all");
-		}
-		await dark.close();
-	}
-
-	// A browser peer must arrive intact. Plain HTTP on another machine cannot
-	// promise that, and its origin is not a secure context. Refuse before loading
-	// the application bundle, with the development paths that preserve the
-	// boundary instead of letting the first restricted API supply the diagnosis.
-	{
-		const plainHttp = await browser.newContext();
-		const lan = await plainHttp.newPage();
-		let bundleAsked = false;
-		lan.on("request", (request) => {
-			if (new URL(request.url()).pathname === "/page.js") bundleAsked = true;
-		});
-		const address = Deno.networkInterfaces().find((entry) =>
-			entry.family === "IPv4" && !entry.address.startsWith("127.")
-		)?.address;
-		if (address === undefined) fail("the secure-origin proof found no non-loopback interface");
-		await lan.goto(`http://${address}:${httpPort}/`);
-		if (await lan.evaluate(() => isSecureContext)) {
-			fail("the secure-origin proof reached a trustworthy context over network HTTP");
-		}
-		if (!await lan.locator(".boot-insecure").isVisible()) {
-			fail("plain network HTTP did not explain the secure-origin requirement");
-		}
-		const explanation = (await lan.locator(".boot-insecure").textContent()) ?? "";
-		if (!explanation.includes("localhost") || !explanation.includes("HTTPS")) {
-			fail("the secure-origin refusal did not give either development path");
-		}
-		if (bundleAsked) fail("an insecure page loaded the Rooms peer bundle before refusing");
-		await plainHttp.close();
-	}
+	await proveOpeningFaces(browser, httpPort);
 
 	// The Wasm peer can lose a race with the server building its asset. Hold
 	// that asset down past the slow-start mark: the opening screen must carry

@@ -175,7 +175,7 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 		);
 	}
 	if path == "/locator" {
-		return match environment.location.borrow().clone() {
+		let reply = match environment.location.borrow().clone() {
 			Some(locator) => response(
 				StatusCode::OK,
 				"text/plain; charset=utf-8",
@@ -187,10 +187,13 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 				"rooms: locator not ready\n".into(),
 			),
 		};
+		// A page origin the operator listed reads the address from its own
+		// page, such as a hosted Rooms page finding this server's directory.
+		return for_listed_origin(reply, environment, &request);
 	}
 
 	if path == "/ice" {
-		return match environment.ice.servers().await {
+		let reply = match environment.ice.servers().await {
 			Ok(body) => response(StatusCode::OK, "application/json", body),
 			Err(error) => {
 				(environment.report)(super::Notice::IceUnavailable(error));
@@ -201,9 +204,10 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 				)
 			}
 		};
+		return for_listed_origin(reply, environment, &request);
 	}
 	if path == "/link-preview" || path == "/link-preview/image" {
-		if !super::relay::origin_allowed(&request) {
+		if !environment.relay.admits(&request) {
 			return response(
 				StatusCode::FORBIDDEN,
 				"text/plain",
@@ -224,10 +228,11 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 				.image(&url, request.extensions().get::<std::net::IpAddr>().copied())
 				.await
 		} else {
-			environment
+			let reply = environment
 				.previews
 				.metadata(&url, refresh, request.extensions().get::<std::net::IpAddr>().copied())
-				.await
+				.await;
+			for_listed_origin(reply, environment, &request)
 		};
 	}
 	if matches!(path, "/trace" | "/trace/locator" | "/trace/captp" | "/publish") {
@@ -292,6 +297,17 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 			)
 		}
 	}
+}
+
+/// Let a page origin the operator listed read this reply from its own page.
+fn for_listed_origin<B>(mut reply: Reply, environment: &Environment, request: &Request<B>) -> Reply {
+	reply
+		.headers_mut()
+		.insert("vary", hyper::header::HeaderValue::from_static("origin"));
+	if let Some(origin) = environment.relay.listed_origin(request) {
+		reply.headers_mut().insert("access-control-allow-origin", origin);
+	}
+	reply
 }
 
 pub(super) fn response(status: StatusCode, content_type: &'static str, body: Bytes) -> Reply {

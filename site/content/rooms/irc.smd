@@ -35,7 +35,7 @@ reached IRC is refused rather than sent again, so nothing lands on the
 channel twice.
 
 The bridge takes its settings as flags, and two-way mode reads its SASL
-password from `GLOWCAP_ROOMS_IRC_SASL_PASSWORD`. A room server can also bridge
+password from `GLOWCAP_ROOMS_IRC_SASL_PASSWORD`. A directory can also bridge
 IRC networks set up on its admin page, where each member answers a form to
 speak under their own nickname. A durable session keeps that password only
 while a room still needs it, so the bridge can log in again after a restart.
@@ -47,7 +47,7 @@ A browser tab asks again after a reload.
 zig build rooms-irc-server -- --directory=127.0.0.1:9099
 ```
 
-This needs a room server already listening on TCP port 9099. Point your IRC client at `127.0.0.1:6667`, pick a nickname, and join a
+This needs a directory already listening on TCP port 9099. Point your IRC client at `127.0.0.1:6667`, pick a nickname, and join a
 channel named after a room. Channel messages, private messages, `NAMES`,
 `LIST`, `PART`, `PING`, `TOPIC`, and `WHOIS` all work. `JOIN` enters a room
 that exists on the server, and if there is none, you see the server's

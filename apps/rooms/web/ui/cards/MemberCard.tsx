@@ -96,7 +96,7 @@ export const MemberCard = memo(function MemberCard(
 	// outside, where a `useMemo` can hold the result still.
 	const convs = useRoomsState((state) => state.convs);
 	const dirs = useRoomsState((state) => state.dirs);
-	const homeDir = useRoomsState((state) => state.homeDir);
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const pageStanding = useRoomsState((state) => state.standing);
 	const members = useConversationMembers(about?.conv ?? null);
 	const view = useMemo<MemberView | null>(() => {
@@ -109,8 +109,8 @@ export const MemberCard = memo(function MemberCard(
 		// itself draws, so the card and the lockup that opened it agree.
 		const grants = [...dirs.values()]
 			.filter((held) => held.nick !== "")
-			.map((held) => ({ id: held.id, nick: held.nick, where: directoryName(held.id, homeDir) }));
-		const home = [...dirs.values()].find((held) => held.id === homeDir && held.nick !== "") ??
+			.map((held) => ({ id: held.id, nick: held.nick, where: directoryName(held.id, homeDirectory) }));
+		const home = [...dirs.values()].find((held) => held.id === homeDirectory && held.nick !== "") ??
 			[...dirs.values()].find((held) => held.nick !== "") ?? null;
 		const on = dir ?? home;
 		const standing = members.get(about.name) ?? { online: false, away: "" };
@@ -127,12 +127,12 @@ export const MemberCard = memo(function MemberCard(
 			you,
 			room: conv === null || conv.type !== "room" ? null : conv.id,
 			dir: on,
-			dirName: on === null ? "" : directoryName(on.id, homeDir),
+			dirName: on === null ? "" : directoryName(on.id, homeDirectory),
 			grants,
 			reachable: on !== null && on.dmablePeers.has(about.name.toLowerCase()),
 			pageStanding,
 		};
-	}, [about, convs, dirs, homeDir, members, pageStanding]);
+	}, [about, convs, dirs, homeDirectory, members, pageStanding]);
 	const last = useRef<MemberView | null>(view);
 	if (view !== null) last.current = view;
 	const shown = last.current;

@@ -96,14 +96,15 @@ zig build ocapn-conformance                 # Run portable upstream OCapN module
 zig build fixture-gen-check                 # Regenerate Syrup fixtures via the upstream Racket Syrup encoder and diff against the committed corpus (needs racket + syrup); part of check-external
 zig build gen-capnp-fixtures                # Regenerate Cap'n Proto golden fixtures under test/codec/capnp_fixtures/
 zig build docs                              # Generate the Zig API reference (autodoc) under zig-out/docs/
-zig build site                              # Build and validate the documentation site (Zine + autodoc) under zig-out/site/
+zig build site                              # Build and validate the documentation site (Zine + autodoc) under zig-out/site/, with the Rooms page at rooms/app/: the website the pages workflow deploys (needs cargo + deno + wasm-bindgen + Playwright's Chromium)
 zig build site-captures                     # Capture the Rooms pictures the website shows into site/assets from the shipped page (needs cargo + deno + a Playwright Chromium); part of site, site-render-check, site-tabs-check
 zig build site-captures-rooms               # Capture the team room, direct line, IRC, operations, and shared-session pictures (needs cargo + deno + a Playwright Chromium); part of site-captures
 zig build site-captures-directories         # Capture the three-directory session and its phone pictures (needs cargo + deno + a Playwright Chromium); part of site-captures
+zig build site-rooms-page                   # Export the Rooms page into site/assets/rooms/app from the prepared browser generation, where the site and its preview serve it at /rooms/app/ with no Rooms server behind it (needs cargo + deno + wasm-bindgen); part of site, site-render-check, site-tabs-check
 zig build site-render-check                 # Render every built site page at four widths in the pinned Chromium (fails on console errors, horizontal overflow, or widows) (needs deno + the image-baked browser)
 zig build site-tabs-check                   # Press the code-tabs on every built site page in the pinned Chromium and prove each tab opens its own panel (needs deno + the image-baked browser)
 zig build mycelium-test                     # Prove touch devices skip the background and desktop animation respects visibility, motion preferences and teardown (needs deno + Playwright); part of site-render-check
-zig build site-serve                        # Serve the documentation site with Zine's development server and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; captures the Rooms pictures first only when site/assets has none, so run site-captures to refresh them)
+zig build site-serve                        # Serve the documentation site with Zine's development server, the Rooms page at /rooms/app/ included, and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; prepares the Rooms pictures and page first only when site/assets lacks them, so run site-captures or site-rooms-page to refresh either)
 zig build c-sdk-pack                        # Package and verify the C SDK (explicit Release mode and baseline CPU required)
 zig build c-sdk-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)
 zig build glowcap-install                   # Install the complete glowcap product and stage its deployment tree: CLI, Rooms runtimes, browser assets and skills (needs cargo + deno + wasm-bindgen); part of glowcap, glowcap-host-test, glowcap-install-test, runtime-check-build
@@ -241,8 +242,7 @@ zig build gen-rust-wasm-layouts-check   # Verify Rust layout constants and finge
 The Rooms application and terminal clients read their wire vocabulary from
 generated tables. `tools/gen/rooms_protocol.zig` declares it,
 `apps/rooms/lib/protocol.ts` documents it, and
-`apps/rooms/test/protocol_gen_test.ts` checks the projections against the
-application's readers.
+`apps/rooms/test/protocol_gen_test.ts` checks them against the app's readers.
 
 ```sh
 zig build gen-rooms-protocol       # Regenerate the Rooms application and client protocol tables from tools/gen/rooms_protocol.zig
@@ -256,12 +256,11 @@ zig build gen-doc-values-check     # Verify every value a doc quotes from a code
 zig build doc-impact               # List the docs that explain code changed since the fork from dev (or `-- <base>`)
 ```
 
-The project's mark is defined once, as the WebGPU shader in
-`ui/mark/field.ts`, and `tools/gen/mark/` traces every still
-picture of it from a render of that shader. These two steps run the pinned
-headless Chromium. `zig build source-check` covers the half that needs no
-browser: it holds the committed files to one geometry, so a hand edit to any of
-them fails in-tree.
+The project's mark is defined once, as the WebGPU shader in `ui/mark/field.ts`,
+and `tools/gen/mark/` traces every still picture of it from a render of that
+shader. These two steps run the pinned headless Chromium. `zig build
+source-check` covers the half that needs no browser: it holds the committed
+files to one geometry, so a hand edit to any of them fails in-tree.
 
 ```sh
 zig build gen-mark       # Re-trace the still mark from the shader and rewrite the unlit and lit artwork under site/assets/ with their rasters, plus the mark's generated blocks in ui/ (needs deno + the image-baked browser)
@@ -558,7 +557,8 @@ zig build rooms-irc-bridge                          # Serve one IRC channel as a
 zig build rooms-irc-bridge -- --irc-realname="bridge bot; admin: YOUR_IRC_NICK" # serve an IRC channel as a Rooms directory; policy prerequisites in apps/rooms/irc/README.md
 zig build rooms-server-build                        # Build and install the Rooms server (needs cargo); part of rooms-agent-test, rooms-archive-build, rooms-server, rooms-web-build
 zig build rooms-server                              # Run the Rooms server: the directory members register with and the rooms they enter; pass `-- [--state=<directory>] [--history] [--admin-listeners] [--diagnostics] [--operator] [--peering] [--trace]` (iroh by default, needs cargo)
-zig build rooms-web-build                           # Build and install the Rooms HTTP front and browser application (needs cargo + wasm-bindgen); part of glowcap-install, rooms-archive-test, rooms-dev, rooms-web, rooms-web-admission, rooms-web-archive, rooms-web-boot-theme, rooms-web-dm, rooms-web-dm-deno, rooms-web-dm-foreign, rooms-web-dm-noise, rooms-web-dm-reopen, rooms-web-dm-retarget, rooms-web-dm-session-webrtc, rooms-web-dm-tabs, rooms-web-dm-trace, rooms-web-dm-webrtc, rooms-web-hosted-session, rooms-web-link-preview, rooms-web-manager, rooms-web-operations-refresh, rooms-web-page, rooms-web-private, rooms-web-reconnect, rooms-web-relay-peer, rooms-web-responsiveness, rooms-web-routes, rooms-web-shared-session, rooms-web-test, rooms-web-tor-test, rooms-web-trace-lifecycle, site-captures-directories, site-captures-rooms
+zig build rooms-web-build                           # Build and install the Rooms HTTP front and browser application (needs cargo + wasm-bindgen); part of rooms-archive-test, rooms-dev, rooms-web, rooms-web-prepare, rooms-web-relay-peer
+zig build rooms-web-prepare                         # Build the Rooms server and write its browser assets as one prepared generation at zig-out/rooms-web/current, which the Rooms server binary's `--prepared` serves and `--export-static` exports (needs cargo + deno + wasm-bindgen); part of glowcap-install, rooms-server-test, rooms-web-admission, rooms-web-archive, rooms-web-boot-theme, rooms-web-dm, rooms-web-dm-deno, rooms-web-dm-foreign, rooms-web-dm-noise, rooms-web-dm-reopen, rooms-web-dm-retarget, rooms-web-dm-session-webrtc, rooms-web-dm-tabs, rooms-web-dm-trace, rooms-web-dm-webrtc, rooms-web-hosted-session, rooms-web-link-preview, rooms-web-manager, rooms-web-operations-refresh, rooms-web-page, rooms-web-private, rooms-web-reconnect, rooms-web-responsiveness, rooms-web-routes, rooms-web-shared-session, rooms-web-test, rooms-web-tor-test, rooms-web-trace-lifecycle, site-captures-directories, site-captures-rooms, site-rooms-page
 zig build rooms-web-test                            # Prove the installed web front's HTTP, relay admission and startup/shutdown custody (needs cargo + deno + python3); part of runtime-check
 zig build rooms-web-tor-test                        # Opt-in: prove the web front owns a private Tor and preserves its directory service key, with networking disabled (needs cargo + deno + python3 + tor)
 zig build rooms-web                                 # Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=iroh|tcp|onion` picks the room transport, default iroh. Server flags follow `--`: `--diagnostics` / `--admin-listeners` / `--operator` / `--peering` / `--trace` / `--irc` mint the operations capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN

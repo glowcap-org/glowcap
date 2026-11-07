@@ -7,6 +7,9 @@ pub struct Config {
 	pub(super) admission: super::admission::Config,
 	pub bind: String,
 	pub port: u16,
+	/// The address browsers reach this server at, when it is not the
+	/// loopback address of the bound port: what every printed link names.
+	pub(super) public: Option<url::Url>,
 	pub(super) browser_assets: BrowserAssets,
 	pub(super) browser_admission: super::browser_admission::Config,
 	pub server: PathBuf,
@@ -22,8 +25,10 @@ pub(super) enum BrowserAssets {
 	Prepared(PathBuf),
 	Disabled,
 }
-pub const HELP: &str = "rooms-web [http-port] [room-port] [options]
+pub const HELP: &str = concat!(
+	"rooms-web [http-port] [room-port] [options]
   --http-bind=<host> --http-port=<port>  HTTP listener (default: 0.0.0.0:8080)
+  --http-public=<url>  the address browsers reach this server at, named by every link it prints (default: http://localhost:<port>/, or GLOWCAP_ROOMS_HTTP_PUBLIC)
   --assets=<directory>  Rooms web source, or an artifact directory with --prepared (default: apps/rooms/web)
   --prepared  serve a prepared bundle without invoking browser build tools
   --no-browser-assets  serve Rooms endpoints without a browser bundle (development tooling)
@@ -36,6 +41,7 @@ pub const HELP: &str = "rooms-web [http-port] [room-port] [options]
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
   --http-admission-per-address=true|false  charge each source address its own budget (default: false)
+  --allow-origin=<origin|page,...>  Rooms pages served elsewhere that may use this server, as origins or page addresses (default: ", super::relay::site_page!(), ", the page the website publishes, and an empty value allows none). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach (or GLOWCAP_RELAY_ALLOW_ORIGINS)
   --http-trusted-proxies=<address|cidr,...>  proxies whose X-Forwarded-For client address selects the budget (default: none)
   --browser-admission-scale=<1..100> --browser-admission-rows=<1..65536>
   --browser-admission-rates=<class=burst/per-minute,...> --browser-admission-aggregate-scale=<1..100>
@@ -46,7 +52,9 @@ rooms-web --ui-version[=http://host:port]  print the running browser revision
 Status reads default to http://127.0.0.1:8080, or GLOWCAP_ROOMS_HTTP_PORT.
 rooms-web --prepare[=<output-directory>] [--assets=<source-directory>]  build self-contained browser assets
 Preparation defaults to zig-out/rooms-web; serve its current directory with --prepared.
-";
+rooms-web --export-static=<new-directory> --assets=<prepared-generation> [--base=/<path>/]  write a prepared generation as files for a static host at that base path (default /)
+"
+);
 impl Config {
 	pub fn parse(
 		args: impl IntoIterator<Item = String>,
@@ -61,12 +69,15 @@ impl Config {
 			}
 			if let Some(option) = arg.strip_prefix("--") {
 				let (key, value) = option.split_once('=').unwrap_or((option, "1"));
-				if (matches!(key, "http-bind" | "http-port" | "assets" | "server" | "session-state")
-					|| key.starts_with("http-admission-")
-					|| key.starts_with("browser-admission-"))
-					&& (!option.contains('=') || value.is_empty())
-				{
-					return Err(format!("--{key} requires a nonempty value"));
+				let takes_value = matches!(
+					key,
+					"http-bind" | "http-port" | "http-public" | "assets" | "server" | "session-state" | "allow-origin"
+				) || key.starts_with("http-admission-")
+					|| key.starts_with("browser-admission-");
+				// `--allow-origin=` is a value, the empty list, as its help says.
+				let empty_is_value = key == "allow-origin";
+				if takes_value && (!option.contains('=') || (value.is_empty() && !empty_is_value)) {
+					return Err(needs_value(key));
 				}
 				// Transport build variants supply a default before user arguments.
 				// Preserve the web command's last-option-wins convention.
@@ -97,6 +108,16 @@ impl Config {
 			Some(_) => return Err("--no-browser-assets takes a boolean".into()),
 		};
 		let bind = options.remove("http-bind").unwrap_or_else(|| "0.0.0.0".into());
+		let public = options
+			.remove("http-public")
+			.or_else(|| env("GLOWCAP_ROOMS_HTTP_PUBLIC"))
+			.filter(|value| !value.is_empty())
+			.map(|value| {
+				super::relay::exact_address(&value).ok_or_else(|| {
+					format!("--http-public (or GLOWCAP_ROOMS_HTTP_PUBLIC) must be an http(s) address ending in /, such as https://rooms.example/, not {value:?}")
+				})
+			})
+			.transpose()?;
 		let assets = options.remove("assets").map(PathBuf::from);
 		if no_browser_assets && (assets.is_some() || prepared) {
 			return Err("--no-browser-assets cannot be combined with --assets or --prepared".into());
@@ -147,11 +168,16 @@ impl Config {
 		}
 		options.remove("http-admission-per-address");
 		options.remove("http-trusted-proxies");
+		let allow_origin = options.remove("allow-origin");
 		let server_args: Vec<_> = options
 			.into_iter()
 			.map(|(key, value)| raw_options.remove(&key).unwrap_or_else(|| format!("--{key}={value}")))
 			.collect();
-		let relay = super::relay::Limits::read(&env)?;
+		// The option and the environment name one fact, and the option wins.
+		let relay = super::relay::Limits::read(|name| match name {
+			"GLOWCAP_RELAY_ALLOW_ORIGINS" => allow_origin.clone().or_else(|| env(name)),
+			_ => env(name),
+		})?;
 		let ice = super::ice::Config::read(&env)?;
 		let room = server::Config::parse(server_args.clone(), env)
 			.map_err(|e| e.to_string())?
@@ -159,6 +185,7 @@ impl Config {
 		Ok(Some(Self {
 			bind,
 			port,
+			public,
 			browser_assets,
 			browser_admission,
 			server,
@@ -171,6 +198,17 @@ impl Config {
 			tor,
 		}))
 	}
+}
+
+/// The refusal for an option given without its value, showing the form the
+/// help text gives it, so the two cannot disagree.
+pub(super) fn needs_value(key: &str) -> String {
+	let prefix = format!("--{key}=");
+	let form = HELP
+		.split_whitespace()
+		.find(|word| word.starts_with(&prefix))
+		.map_or_else(|| format!("{prefix}<value>"), str::to_owned);
+	format!("--{key} needs a value, as in {form}")
 }
 
 #[cfg(test)]
@@ -210,6 +248,109 @@ mod tests {
 		assert!(Config::parse(["--http-admission-rows=0".into()], |_| None).is_err());
 	}
 
+	#[test]
+	fn allowed_origins_come_from_the_option_over_the_environment_and_stay_out_of_server_args() {
+		let env = |key: &str| (key == "GLOWCAP_RELAY_ALLOW_ORIGINS").then(|| "https://env.example".into());
+		let config = Config::parse(["--allow-origin=https://glowcap.org,http://127.0.0.1:8093".into()], env)
+			.unwrap()
+			.unwrap();
+		let origins: Vec<_> = config
+			.relay
+			.origins
+			.iter()
+			.map(|origin| origin.ascii_serialization())
+			.collect();
+		assert_eq!(origins, ["https://glowcap.org", "http://127.0.0.1:8093"]);
+		assert!(!config.server_args.iter().any(|s| s.contains("allow-origin")));
+		let config = Config::parse([], env).unwrap().unwrap();
+		assert_eq!(config.relay.origins.len(), 1);
+		// The empty value the help names: no page but this server's own.
+		let config = Config::parse(["--allow-origin=".into()], env).unwrap().unwrap();
+		assert!(config.relay.origins.is_empty() && config.relay.pages.is_empty());
+		assert_eq!(
+			Config::parse(["--allow-origin".into()], |_| None).err().unwrap(),
+			"--allow-origin needs a value, as in --allow-origin=<origin|page,...>"
+		);
+		assert_eq!(
+			Config::parse(["--session-state".into()], |_| None).err().unwrap(),
+			"--session-state needs a value, as in --session-state=<directory>"
+		);
+		// A page's own address admits its origin, and is the page the banner
+		// links to. A path without its final `/` names no page exactly.
+		let config = Config::parse(
+			["--allow-origin=https://glowcap.org/rooms/app/,http://127.0.0.1:8093".into()],
+			|_| None,
+		)
+		.unwrap()
+		.unwrap();
+		assert_eq!(config.relay.origins.len(), 2);
+		assert_eq!(config.relay.origins[0].ascii_serialization(), "https://glowcap.org");
+		let pages: Vec<_> = config.relay.pages.iter().map(url::Url::as_str).collect();
+		assert_eq!(pages, ["https://glowcap.org/rooms/app/"]);
+		assert!(Config::parse(["--allow-origin=https://glowcap.org/rooms/app".into()], |_| None).is_err());
+		// A page at the root of its origin is written with its `/`, and a bare
+		// origin without one, so the two are told apart as written.
+		let config = Config::parse(
+			["--allow-origin=https://pages.example/,https://origin.example".into()],
+			|_| None,
+		)
+		.unwrap()
+		.unwrap();
+		let pages: Vec<_> = config.relay.pages.iter().map(url::Url::as_str).collect();
+		assert_eq!(pages, ["https://pages.example/"]);
+		assert_eq!(
+			config.relay.listed,
+			["https://pages.example/", "https://origin.example"]
+		);
+	}
+
+	#[test]
+	fn the_public_address_is_read_exactly_from_arguments_or_environment_and_stays_out_of_server_args() {
+		let config = Config::parse(["--http-public=https://rooms.example/".into()], |_| None)
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			config.public.as_ref().map(url::Url::as_str),
+			Some("https://rooms.example/")
+		);
+		assert!(!config.server_args.iter().any(|s| s.contains("http-public")));
+		let config = Config::parse([], |key| {
+			(key == "GLOWCAP_ROOMS_HTTP_PUBLIC").then(|| "https://rooms.example/app/".into())
+		})
+		.unwrap()
+		.unwrap();
+		assert_eq!(
+			config.public.as_ref().map(url::Url::as_str),
+			Some("https://rooms.example/app/")
+		);
+		assert!(parse(&[]).public.is_none());
+		// A bare origin is the address with the path `/`, as the URL standard
+		// reads it, and a path without its final `/` is refused whole.
+		let config = Config::parse(["--http-public=https://rooms.example".into()], |_| None)
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			config.public.as_ref().map(url::Url::as_str),
+			Some("https://rooms.example/")
+		);
+		for refused in [
+			"https://rooms.example/app",
+			"ws://rooms.example/",
+			"https://rooms.example/?x",
+			"rooms.example/",
+		] {
+			let error = Config::parse([format!("--http-public={refused}")], |_| None)
+				.err()
+				.expect("refused");
+			assert!(error.contains("--http-public") && error.contains(refused), "{error}");
+		}
+		assert_eq!(
+			Config::parse(["--http-public".into()], |_| None)
+				.err()
+				.expect("refused"),
+			"--http-public needs a value, as in --http-public=<url>"
+		);
+	}
 	#[test]
 	fn trusted_proxies_are_read_from_arguments_or_environment_and_stay_out_of_server_args() {
 		let config = Config::parse(["--http-trusted-proxies=10.0.0.0/8, fd00::1".into()], |_| None)

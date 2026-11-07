@@ -90,6 +90,30 @@
 .session-setup-choice > .field-row {
 	margin-top: 4px;
 }
+/* The Rooms server both doors reach through: one quiet line under the card,
+   the server's name, and the act that changes it. */
+.session-setup-server {
+	justify-self: center;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: center;
+	gap: var(--gap-tight) var(--gap-row);
+	max-width: 100%;
+	margin: 0;
+	text-align: center;
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+}
+/* One size across the line: the label by weight, the server by its face. */
+.session-setup-server-label {
+	font-weight: 600;
+	color: var(--ink);
+}
+.session-setup-server > .server-name,
+.session-setup-server > .button[data-variant="link"] {
+	font-size: inherit;
+}
 /* The card's foot: the two acts that take saved state away, folded under one
    word until asked for. */
 .session-setup-advanced {

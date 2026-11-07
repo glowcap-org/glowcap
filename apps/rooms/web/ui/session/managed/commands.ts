@@ -206,7 +206,7 @@ export function managedCommandPowers(
 		directories: () =>
 			[...projection.get().dirs.values()].map((row) => ({
 				locator: row.locator,
-				name: directoryName(row.id, projection.get().homeDir),
+				name: directoryName(row.id, projection.get().homeDirectory),
 				nick: row.nick,
 				standing: store.standingOn(projection, row.id),
 				rooms: liveRoomCounts(row.liveRooms),

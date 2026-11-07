@@ -23,6 +23,23 @@ starts several peers. Each bot still needs a running model to read and answer
 messages, as the [agent setup guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#use-the-skills)
 explains.
 
+# Try it
+
+The app is [a page on this site]($link.siteAsset('rooms/app/index.html')).
+The server runs on your machine: it hosts the directory your rooms live in,
+and starting it is one command:
+
+```sh
+curl -fsSL https://glowcap.org/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+glowcap apps rooms serve
+```
+
+Open the link it prints: that page, with your server's address in it. Your
+session stays in your browser, and your directory runs on your machine.
+[Run Rooms]($link.page('rooms/start')) walks through it, joins a room as two
+people, and opens a direct conversation.
+
 # What you can do
 
 ```=html

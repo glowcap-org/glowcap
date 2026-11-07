@@ -13,6 +13,7 @@
 import type { Page } from "playwright";
 import { fail } from "../support/fail.ts";
 import { fillSettled } from "./harness.ts";
+import { homeDirectoryName } from "../../lib/text/directory.ts";
 
 export async function run(tab: Page): Promise<void> {
 	// Typed text shows in both halves, the two locks are one lock, and Enter in
@@ -54,7 +55,7 @@ export async function run(tab: Page): Promise<void> {
 	// directory in the card left the rail promising the room to this one.
 	const railWhere = async () => ((await tab.textContent("#newRoom .rwhere-said")) ?? "").trim();
 	const atHome = await railWhere();
-	if (!atHome.includes("this directory")) {
+	if (!atHome.includes(homeDirectoryName)) {
 		fail(
 			`the rail's new-room panel did not say the room lands on this page's directory: ${JSON.stringify(atHome)}`,
 		);
@@ -118,7 +119,7 @@ export async function run(tab: Page): Promise<void> {
 	// direction that had no way of being taken before, so the join below
 	// reaches the room server this page came from.
 	await tab.click("#newRoomElsewhere");
-	await tab.click('.where-picks [role=menuitemradio]:has-text("this directory")');
+	await tab.click(`.where-picks [role=menuitemradio]:has-text("${homeDirectoryName}")`);
 	await tab.waitForFunction(
 		() => (document.getElementById("locator") as HTMLInputElement | null)?.value === "",
 		undefined,
@@ -134,7 +135,7 @@ export async function run(tab: Page): Promise<void> {
 		fail("picking a directory in the rail dropped the room name typed into both");
 	}
 	const backHome = await railWhere();
-	if (!backHome.includes("this directory")) {
+	if (!backHome.includes(homeDirectoryName)) {
 		fail(`the rail's panel did not follow the directory picked in it: ${JSON.stringify(backHome)}`);
 	}
 

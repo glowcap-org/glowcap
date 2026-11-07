@@ -49,8 +49,11 @@ Every command accepts `--dir <configuration-directory>` to pick the configuratio
 network, and volume names, so one Docker daemon runs one stack.
 
 The managed `compose.yml` is refreshed from the installed product during `up` and `reset`. Operator settings belong in
-`docker-compose.override.yml`, which is preserved. The example exposes only host loopback. To publish the page, add an
-HTTPS proxy or tunnel and choose the host port or ingress network there. Per-address admission behind that proxy needs
+`docker-compose.override.yml`, which is preserved.
+
+The example exposes only host loopback. To publish the page, add an
+HTTPS proxy or tunnel and choose the host port or ingress network there. Set `GLOWCAP_ROOMS_HTTP_PUBLIC` to that
+public address, so the **open the page** link the server prints is one other people can open. Per-address admission behind that proxy needs
 `GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES` set to the proxy's address, as the
 [work admission guide](../../../../docs/rooms/admission.md#deployment) describes. The iroh directory uses authenticated
 discovery separately, so a loopback HTTP port does not restrict membership in the directory.

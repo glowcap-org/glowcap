@@ -17,6 +17,8 @@ import { roomMarkGlyph, roomMarkTitle } from "../room_mark.tsx";
 import { roomPreset } from "../room_policy.ts";
 import { directoryName } from "../text.ts";
 import { useRoomsState } from "../hooks.ts";
+import { roomJoiningNow } from "../store/rooms.ts";
+import type { DirId, DirView } from "../directory.ts";
 import {
 	conversationBeginning,
 	conversationClosedDirect,
@@ -27,6 +29,7 @@ import {
 	conversationPendingDirect,
 	conversationPrivateRoom,
 	conversationPublicRoom,
+	conversationRoomDirectoryAway,
 	type EarlierHistory,
 	logNewMessages,
 } from "../../../lib/text/conversation.ts";
@@ -43,10 +46,12 @@ function rulePlace(unread: Unread): number | null {
 // A log that starts mid-air reads as though something failed to load, which is
 // why every kind opens by saying how far back the messages go. The sentences
 // are `lib/text/conversation.ts`.
-function introBody(conv: Conv): string {
+function introBody(conv: Conv, dirs: ReadonlyMap<DirId, DirView>): string {
 	if (conv.type === "directory") return conversationDirectory;
 	if (conv.type === "room") {
-		if (conv.membership === "joining") return conversationJoiningRoom;
+		if (conv.membership === "joining") {
+			return roomJoiningNow(conv, dirs) ? conversationJoiningRoom : conversationRoomDirectoryAway;
+		}
 		const beginning = conversationBeginning((conv.earlierHistory ?? "none") as EarlierHistory);
 		return beginning + (conv.held ? conversationPrivateRoom : conversationPublicRoom);
 	}
@@ -176,7 +181,8 @@ function LogPane(
 	// Closing over the string is the same behavior with none of that to argue.
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
-	const homeDir = useRoomsState((state) => state.homeDir);
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
+	const dirs = useRoomsState((state) => state.dirs);
 	const convKey = conv?.key;
 	const retry = useMemo(
 		() => (id: number) => convKey != null && session.retry(convKey, id),
@@ -223,9 +229,9 @@ function LogPane(
 								</span>
 							)}
 							{conv.type === "dm" && <Avatar name={conv.id} />}
-							{conv.type === "directory" ? directoryName(conv.dir, homeDir) : conv.id}
+							{conv.type === "directory" ? directoryName(conv.dir, homeDirectory) : conv.id}
 						</h2>
-						<p>{introBody(conv)}</p>
+						<p>{introBody(conv, dirs)}</p>
 						{conv.type === "dm" && conv.line === "closed" && <DirectReconnect key={conv.key} conv={conv} />}
 					</div>
 					{conv.type === "room" && conv.earlierHistory === "loading" && (

@@ -34,6 +34,10 @@ async fn start() -> Result<(), String> {
 		)
 		.await;
 	}
+	if let Some(export) = web::StaticExport::parse(&args)? {
+		println!("{}", export.run()?.display());
+		return Ok(());
+	}
 	if let Some(preparation) = web::Preparation::parse(&args)? {
 		let prepared = preparation
 			.run(async move {

@@ -1,4 +1,7 @@
 // Browser preferences carry presentation choices and no session authority.
+// This is the whole of them: what a presentation export carries and an import
+// restores. Where each is kept in the browser is the storage binding's
+// decision (ui/view_preferences.ts).
 import * as z from "zod/mini";
 import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "./application_data.ts";
 

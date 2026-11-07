@@ -12,6 +12,8 @@ import type { RoomsBrowserController } from "./browser.ts";
 import { coverForReload, finishCommittedMove, finishCoveredReload, uncoverReload } from "../boot.ts";
 import type { ManagedRoomsSession } from "../session/managed/session.ts";
 import { requestBrowserDataDeletion } from "./browser_data.ts";
+import { pagePath } from "../page_base.ts";
+import { serverInUse } from "../server_choice.ts";
 
 export function createRoomsBrowserController(
 	page: RoomsPageContext,
@@ -21,7 +23,7 @@ export function createRoomsBrowserController(
 ): RoomsBrowserController {
 	const backToRooms = <A extends unknown[]>(act: (...args: A) => void) => (...args: A): void => {
 		act(...args);
-		if (location.pathname.startsWith("/ops")) queueMicrotask(() => navigate(addressOfActive()));
+		if (pagePath().startsWith("/ops")) queueMicrotask(() => navigate(addressOfActive()));
 	};
 	const projection = page.projection;
 	let sharing: Promise<string> | null = null;
@@ -99,7 +101,7 @@ export function createRoomsBrowserController(
 			const address = addressOfActive();
 			// Acknowledging the visible conversation is not a fresh route act.
 			// Re-entering the directory route would cancel its pending room lookup.
-			if (address !== `${location.pathname}${location.search}`) navigate(address);
+			if (address !== `${pagePath()}${location.search}`) navigate(address);
 		},
 		cancelConversationOpening: () => {
 			conversationGesture++;
@@ -138,6 +140,8 @@ export function createRoomsBrowserController(
 				sharing = null;
 			}),
 		useLocalRoomsSession: () => selectLocal(true),
+		server: serverInUse,
+		serverHeld: () => page.managedSession != null,
 		leaveRoomsSession: () => selectLocal(false),
 		controllerSelection: page.controllerSelection,
 		resetBrowserWorkspace: async () => {

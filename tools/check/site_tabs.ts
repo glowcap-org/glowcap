@@ -27,6 +27,7 @@
 // Usage: deno run --allow-all tools/check/site_tabs.ts <site-root>
 
 import { chromium } from "playwright";
+import { sitePages } from "./site_pages.ts";
 
 const siteRoot = Deno.args[0];
 if (!siteRoot) {
@@ -58,15 +59,7 @@ const server = Deno.serve({ port: 0, onListen: () => {} }, async (req) => {
 });
 const base = `http://127.0.0.1:${server.addr.port}`;
 
-const pages: string[] = [];
-async function walk(dir: string, rel: string): Promise<void> {
-	for await (const entry of Deno.readDir(dir)) {
-		if (!entry.isDirectory && entry.name === "index.html") pages.push(`${rel}/`);
-		if (entry.isDirectory) await walk(`${dir}/${entry.name}`, `${rel}/${entry.name}`);
-	}
-}
-await walk(siteRoot, "");
-pages.sort();
+const pages = await sitePages(siteRoot);
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1024, height: 844 } });

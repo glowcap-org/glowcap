@@ -2,13 +2,20 @@
 // workspace opens.
 //
 // Two doors, each a launch row in one card: keep everything on this device, or
-// attach to a session another device or a server keeps. The advanced
+// attach to a session another device or a server keeps. Under the card, the
+// Rooms server both doors reach through (SessionServer). Attach with no server
+// asks for one first, and saving it attaches, so the link typed or offered is
+// never lost on the way. The advanced
 // disclosure under the card holds the two acts that take saved state away,
 // each behind the ordinary confirm. A refusal lands beside what asked for it:
 // a capability the session would not take stays under its own field, and
 // anything else stands under the card.
 
 import { useRef, useState } from "react";
+import { reloadNow } from "../boot.ts";
+import { useOpenModal } from "../modal.ts";
+import { withSessionOffer } from "../server_choice.ts";
+import { type ServerChoosing, SessionServer } from "./SessionServer.tsx";
 import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Field } from "../Field.tsx";
@@ -62,6 +69,12 @@ export function SessionSetup(
 	const [error, setError] = useState("");
 	const [confirmAction, setConfirmAction] = useState<"reset" | "delete" | null>(null);
 	const running = useRef<"local" | "attach" | "reset" | "delete" | null>(null);
+	// The server the opening session takes: the kept choice at load, and the
+	// one saved here after.
+	const [server, setServer] = useState(() => browser.server());
+	const [choosing, setChoosing] = useState<ServerChoosing>(null);
+	const attachButton = useRef<HTMLButtonElement>(null);
+	const openModalFrom = useOpenModal();
 	const useLocal = async () => {
 		if (running.current !== null) return;
 		running.current = "local";
@@ -86,6 +99,12 @@ export function SessionSetup(
 			return;
 		}
 		setAttachError("");
+		// A shared session is reached through the server, so with none, choosing
+		// one comes first, and saving it comes back here.
+		if (browser.server() == null) {
+			if (attachButton.current != null) openModalFrom(attachButton.current, () => setChoosing("attach"));
+			return;
+		}
 		running.current = "attach";
 		setBusy("attach");
 		try {
@@ -97,6 +116,28 @@ export function SessionSetup(
 			running.current = null;
 			setBusy(null);
 		}
+	};
+	// A session that has opened keeps its server, so a choice made after a
+	// failed attempt reloads the page, and the link rides along in its address.
+	// Otherwise the choice holds in place.
+	const held = browser.serverHeld();
+	const serverSaved = () => {
+		if (held) {
+			const kept = capability.trim();
+			if (kept !== "") {
+				globalThis.history.replaceState(
+					globalThis.history.state,
+					"",
+					withSessionOffer(new URL(location.href), kept),
+				);
+			}
+			reloadNow();
+			return;
+		}
+		const then = choosing;
+		setServer(browser.server());
+		setChoosing(null);
+		if (then === "attach") void attach();
 	};
 	const forgetWorkspace = async () => {
 		if (running.current !== null) return;
@@ -151,6 +192,9 @@ export function SessionSetup(
 						<Button
 							id="sessionUseLocal"
 							size="large"
+							// One door leads: a session link, offered or typed, makes
+							// Attach the next step.
+							variant={capability.trim() === "" ? "primary" : "quiet"}
 							busy={busy === "local"}
 							disabled={busy != null}
 							onClick={useLocal}
@@ -197,6 +241,7 @@ export function SessionSetup(
 								)}
 							</Field>
 							<Button
+								ref={attachButton}
 								id="sessionAttach"
 								type="submit"
 								size="large"
@@ -230,6 +275,14 @@ export function SessionSetup(
 						<span className="tag" id="signInSessionState">{sessionSignInState}</span>
 					</section>
 				</div>
+				<SessionServer
+					server={server}
+					held={held}
+					busy={busy != null}
+					choosing={choosing}
+					onChoosing={setChoosing}
+					onSaved={serverSaved}
+				/>
 				{error !== "" && <Said kind="failure">{error}</Said>}
 				<details className="disclosure session-setup-advanced" data-align="center">
 					<summary>{sessionAdvanced}</summary>

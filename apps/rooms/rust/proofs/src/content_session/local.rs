@@ -126,6 +126,11 @@ pub fn run() {
 	let connection = apply(&initial, "chooseConnection", &["webrtc"]).unwrap();
 	assert_eq!(connection.connection, workspace::Connection::Webrtc);
 	assert!(apply(&initial, "chooseConnection", &["quic"]).is_err());
+	let homeless = apply(&initial, "chooseHomeDirectory", &[""]).unwrap();
+	assert!(homeless.directories.as_slice().iter().all(|row| !row.home));
+	let home = apply(&homeless, "chooseHomeDirectory", &["directory"]).unwrap();
+	assert!(home.directories.as_slice()[0].home);
+	assert!(apply(&initial, "chooseHomeDirectory", &["missing"]).is_err());
 	assert!(apply(&initial, "chooseConnection", &["relay", "wss://elsewhere.test/"]).is_err());
 	let mut redirected = fixture();
 	redirected["traceOverride"] = "wss://elsewhere.test/".into();

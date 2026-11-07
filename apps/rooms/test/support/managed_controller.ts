@@ -78,12 +78,12 @@ export function fixture(listed: RoomInfo[] = [], duringRead: () => void = () => 
 	};
 	page.managedSession = session;
 	const files = presentationFiles(page.projection, () => null);
+	page.projection.set({ server: { base: "https://rooms.test/", chosen: false, directory: route } });
 	const controller = createManagedController(
 		page,
 		{ setTheme() {}, showRoster() {}, aboutConversation() {} },
 		session,
 		files,
-		route,
 		{ refresh: () => Promise.resolve() } as unknown as ManagedHistory,
 	);
 	return {

@@ -89,7 +89,8 @@ export function servedPageBuild(document: Document, location: Location): PageBui
 		current,
 		async served() {
 			try {
-				const response = await fetch("/ui-version", {
+				// Beside the page, so a page under a base path asks its own host.
+				const response = await fetch(new URL("ui-version", document.baseURI), {
 					cache: "no-store",
 					signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 				});

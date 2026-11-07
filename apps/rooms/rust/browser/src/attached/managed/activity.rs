@@ -22,20 +22,25 @@ impl RoomsManagedApplication {
 				.await
 				.map_err(|e| e.to_string())?;
 			let locator = match connection {
-				workspace::Connection::Relay => owner.reachable(&environment).await?,
+				workspace::Connection::Relay => owner.relay_locator(&environment).await?,
 				workspace::Connection::Webrtc => {
 					let host = environment.runtime.host();
 					let key = host.designator().map_err(|e| e.to_string())?;
 					let direct = glowcap::Locator::bare(glowcap::TRANSPORT_WEBRTC, &key);
-					let relay = owner.reachable(&environment).await?;
-					// Keep WebRTC first. This relay advice is scoped to each
-					// handoff; it is not a durable identity-route declaration.
-					// The relay's Noise channel independently authenticates its
-					// key. Node owns serial fallback when WebRTC is unavailable.
-					direct.with_hint(
-						"alt-locators",
-						glowcap::HintValue::String(glowcap::format_locator_uri(&relay).map_err(|e| e.to_string())?),
-					)
+					// With no Rooms server, the direct route is the only one.
+					if environment.front.is_none() {
+						direct
+					} else {
+						let relay = owner.relay_locator(&environment).await?;
+						// Keep WebRTC first. This relay advice is scoped to each
+						// handoff; it is not a durable identity-route declaration.
+						// The relay's Noise channel independently authenticates its
+						// key. Node owns serial fallback when WebRTC is unavailable.
+						direct.with_hint(
+							"alt-locators",
+							glowcap::HintValue::String(glowcap::format_locator_uri(&relay).map_err(|e| e.to_string())?),
+						)
+					}
 				}
 			};
 			environment
@@ -79,6 +84,25 @@ impl RoomsManagedApplication {
 			// The page displays this exact advertised locator; it cannot infer it
 			// from directory names or reconstruct the Host identity.
 			Ok(locator.into())
+		})
+	}
+	/// Report the page relay's registration to `report` as it changes: null
+	/// while this browser is reachable through it, or the reason it is not.
+	/// Call after `startRooms`, which starts the relay.
+	#[wasm_bindgen(js_name = observeRelay)]
+	pub fn observe_relay(&self, report: js_sys::Function) -> js_sys::Promise {
+		self.driver.submit(0, move |environment| async move {
+			let owner = owner(&environment)?;
+			let relay = owner.relay.lock().await;
+			let relay = relay.as_ref().ok_or("Rooms has not started its relay")?;
+			let trouble = environment.trouble.clone();
+			relay.observe(move |failure| {
+				let failure = failure.map_or(JsValue::NULL, JsValue::from);
+				if report.call1(&JsValue::UNDEFINED, &failure).is_err() {
+					trouble.report("Rooms relay", "The relay listener refused its report");
+				}
+			});
+			Ok(JsValue::UNDEFINED)
 		})
 	}
 	#[wasm_bindgen(js_name = retryRooms)]

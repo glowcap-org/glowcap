@@ -44,8 +44,14 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
+/// Where a configuration comes from: the Rooms server's policy, fetched for
+/// each read so credentials stay fresh, or a fixed list held by the page.
+enum Policy {
+	Fetched(String),
+	Fixed(Servers),
+}
 struct Inner {
-	url: String,
+	policy: Policy,
 	closed: Cell<bool>,
 	current: RefCell<Option<Rc<request::Attempt>>>,
 }
@@ -60,15 +66,23 @@ impl Drop for Inner {
 #[derive(Clone)]
 pub struct Source(Rc<Inner>);
 impl Source {
+	/// A source that reads the policy at `url` on each configuration.
 	pub fn new(url: impl Into<String>) -> Self {
+		Self::with(Policy::Fetched(url.into()))
+	}
+	/// The default STUN policy, for a page with no Rooms server to ask. Public
+	/// STUN finds a path between most peers; TURN needs a server's issuer.
+	pub fn stun_default() -> Result<Self, Error> {
+		Servers::stun(None, LIMITS)
+			.map(|servers| Self::with(Policy::Fixed(servers)))
+			.map_err(Error::Invalid)
+	}
+	fn with(policy: Policy) -> Self {
 		Self(Rc::new(Inner {
-			url: url.into(),
+			policy,
 			closed: Cell::new(false),
 			current: RefCell::new(None),
 		}))
-	}
-	pub fn deployment() -> Self {
-		Self::new("/ice")
 	}
 	/// Cancellation drops only this observation. A concurrent caller shares
 	/// the same admitted request. The source owns it through fetch retirement.
@@ -76,12 +90,16 @@ impl Source {
 		if self.0.closed.get() {
 			return Err(Error::Closed);
 		}
+		let url = match &self.0.policy {
+			Policy::Fetched(url) => url,
+			Policy::Fixed(servers) => return Ok(configuration(servers)),
+		};
 		let attempt = {
 			let mut current = self.0.current.borrow_mut();
 			match current.as_ref() {
 				Some(attempt) if attempt.running() => attempt.clone(),
 				_ => {
-					let attempt = request::Attempt::start(&self.0.url)?;
+					let attempt = request::Attempt::start(url)?;
 					*current = Some(attempt.clone());
 					attempt
 				}

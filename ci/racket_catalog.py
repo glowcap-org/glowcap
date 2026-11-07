@@ -41,9 +41,12 @@ API = "https://pkgd.racket-lang.org/api/package/modify-all"
 EMAIL, PASSWORD = "RACKET_CATALOG_EMAIL", "RACKET_CATALOG_PASSWORD"
 METADATA = "bindings/racket/catalog.json"
 TIMEOUT = 30
-# The catalog re-reads the archive as soon as the edit is saved and rebuilds
-# its public pages on a schedule of minutes, so the wait is bounded, not short.
-DEADLINE_SECONDS = 20 * 60
+# The catalog re-reads the archive as soon as the edit is saved, unless its
+# hourly sweep of every package holds the update lock: edits then wait for the
+# sweep, which has run for up to 45 minutes, and the public pages follow a few
+# minutes after the read. The wait covers the longest sweep seen, not the
+# common case.
+DEADLINE_SECONDS = 60 * 60
 POLL_SECONDS = 30
 
 
@@ -144,19 +147,31 @@ def save(found, source, description, tags, email, password):
 
 
 def wait(source, checksum, clock=time.monotonic, sleep=time.sleep):
-    """Poll the public catalog until it states the release, within the deadline."""
+    """Poll the public catalog until it states the release, within the deadline.
+
+    The edit is saved, so the two failures that clear with time, the catalog
+    answering an error status and the catalog not answering, are polled again
+    until the deadline. A read error on the release's archive is the catalog's
+    answer and ends the wait at once.
+    """
     deadline = clock() + DEADLINE_SECONDS
     while True:
-        found = entry()
-        if states(found, source, checksum):
-            return
-        # An error on the previous source is history; one on the release's
-        # archive is the catalog's answer.
-        error = (found or {}).get("checksum-error")
-        if error and found.get("source") == source:
-            raise Refused(f"the catalog could not read {source}: {error}")
+        try:
+            found = entry()
+        except (Refused, urllib.error.URLError) as unanswered:
+            found, last = None, str(unanswered)
+        else:
+            last = None
+            if states(found, source, checksum):
+                return
+            # An error on the previous source is history; one on the release's
+            # archive is the catalog's answer.
+            error = (found or {}).get("checksum-error")
+            if error and found.get("source") == source:
+                raise Refused(f"the catalog could not read {source}: {error}")
         if clock() >= deadline:
-            raise Refused(f"the catalog did not show {source} with checksum {checksum} within the deadline")
+            tail = f" (last: {last})" if last else ""
+            raise Refused(f"the catalog did not show {source} with checksum {checksum} within the deadline{tail}")
         sleep(POLL_SECONDS)
 
 

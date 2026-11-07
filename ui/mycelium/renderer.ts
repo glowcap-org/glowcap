@@ -245,7 +245,8 @@ export class GroundRenderer {
 				);
 				queue.writeBuffer(plane.uniform, 0, u);
 				pass.setBindGroup(0, plane.group);
-				pass.draw(6, firstBorn(plane.net, upTo[k] + 1));
+				const born = firstBorn(plane.net, upTo[k] + 1);
+				if (born > 0) pass.draw(6, born);
 			});
 			pass.end();
 		});
@@ -276,7 +277,10 @@ export class GroundRenderer {
 		if (frame.runs.length > 0) {
 			pass.setPipeline(this.#run);
 			pass.setBindGroup(0, this.#runGroup);
-			for (const run of frame.runs) pass.draw(6, this.#runLengths[run.slot], 0, run.slot * RUN_THREADS);
+			for (const run of frame.runs) {
+				const threads = this.#runLengths[run.slot];
+				if (threads > 0) pass.draw(6, threads, 0, run.slot * RUN_THREADS);
+			}
 		}
 		pass.end();
 		this.#device.queue.submit([encoder.finish()]);

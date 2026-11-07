@@ -20,9 +20,9 @@ export function dmBlockedWhile(phaseWord: string): string {
 	return `Not while this directory is ${phaseWord}`;
 }
 
-/** The directory this page came with, which a reader never chose, and the
- * fallback word for a transport-less designator too long to say. */
-export const thisDirectoryName = "this directory";
+/** What the session's home directory is called wherever directories are named,
+ * and the fallback word for a transport-less designator too long to say. */
+export const homeDirectoryName = "your home directory";
 export const peerFallback = "peer";
 
 /** The foot's word once a directory has granted a name. */

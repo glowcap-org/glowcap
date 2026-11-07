@@ -96,7 +96,11 @@ Do not turn off Gatekeeper globally.
 glowcap apps rooms serve
 ```
 
-Open the printed browser URL.
+Open the link it prints under **open the page**: the Rooms page published
+at glowcap.org/rooms/app/, with this server filled in. The **web ui** address
+is the same page served by this server itself, for a machine with no way to
+reach glowcap.org. It is a different origin, so a session opened there is its
+own, apart from one opened from the published page.
 
 - The web page listens on loopback port 8080 by default. The directory is
   reached separately, over encrypted iroh discovery, so a loopback web
@@ -107,6 +111,17 @@ Open the printed browser URL.
   directory, and `GLOWCAP_ROOMS_STATE` or `--state` sets the Rooms directory
   itself.
 - Ctrl-C stops the service and the directory it supervises.
+- The links it prints name `http://localhost:8080`. Behind an HTTPS proxy,
+  `--http-public=https://rooms.example/` (or `GLOWCAP_ROOMS_HTTP_PUBLIC`)
+  names the address browsers reach instead, so the **open the page** link is
+  one other people can open.
+- The published page may use this server. `--allow-origin` (or
+  `GLOWCAP_RELAY_ALLOW_ORIGINS`) lists other Rooms pages served elsewhere
+  instead, by origin or page address, and an empty value allows none:
+  `--allow-origin=https://rooms.example/rooms/app/`. A page address also
+  prints a link that opens that page with this server, and with
+  `--session-state` a second link that opens it ready to attach to the shared
+  session.
 
 ```sh
 glowcap apps rooms status

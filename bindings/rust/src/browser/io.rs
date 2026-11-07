@@ -19,7 +19,7 @@ impl PacketRead for Reader {
 			state.queued_bytes -= packet.len();
 			return Poll::Ready(Ok(Some(packet)));
 		}
-		if state.closed || state.closing {
+		if state.ending() {
 			return Poll::Ready(Ok(None));
 		}
 		state.reader = Some(cx.waker().clone());
@@ -30,7 +30,7 @@ impl PacketRead for Reader {
 pub(super) fn ready(shared: &Shared, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
 	let mut state = shared.state.borrow_mut();
 	state.result()?;
-	if state.closing || state.closed || (!shared.socket.open() && !shared.socket.connecting()) {
+	if state.ending() || (!shared.socket.open() && !shared.socket.connecting()) {
 		return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "browser channel closed")));
 	}
 	state.writer = Some(cx.waker().clone());
@@ -131,20 +131,23 @@ impl Closer {
 impl ChannelClose for Closer {
 	fn poll_close(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
 		self.shared.request_close();
-		if self.shared.state.borrow().closed {
+		// Close answers for retirement alone. A failure the channel met before it
+		// closed, such as a socket that never opened, is already the answer its
+		// reader, writer and readiness give.
+		if self.shared.state.borrow().closed() {
 			self.detach();
-			return Poll::Ready(self.shared.state.borrow().result());
+			return Poll::Ready(self.shared.state.borrow().retirement());
 		}
 		self.shared.state.borrow_mut().closer = Some(cx.waker().clone());
 		let deadline = self
 			.deadline
 			.get_or_insert_with(|| TimeoutFuture::new(BINDING_BROWSER_CHANNEL_CLOSE_TIMEOUT_MS as u32));
 		std::task::ready!(Pin::new(deadline).poll(cx));
+		// The close requested above already discarded the queue.
 		self.shared
-			.fail(io::ErrorKind::TimedOut, "browser channel physical close timed out");
-		self.shared.state.borrow_mut().closed = true;
+			.retirement_failed(io::ErrorKind::TimedOut, "browser channel physical close timed out");
 		self.detach();
-		Poll::Ready(self.shared.state.borrow().result())
+		Poll::Ready(self.shared.state.borrow().retirement())
 	}
 }
 impl Drop for Closer {

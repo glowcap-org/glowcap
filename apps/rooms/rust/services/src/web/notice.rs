@@ -12,14 +12,34 @@ pub enum Notice {
 	IceUnavailable(String),
 	HttpAcceptRefused(String),
 	HttpConnectionEnded(String),
-	RelayEnded { cause: String, times: u32 },
+	RelayEnded {
+		cause: String,
+		times: u32,
+	},
+	/// A page origin the relay turned away. `admitting` is the option value
+	/// that lets it in beside what is listed, when the value is exactly an
+	/// origin the option takes.
+	OriginRefused {
+		origin: String,
+		admitting: Option<String>,
+		times: u32,
+	},
 	ShutdownConnectionEnded(String),
 	AttachedDirectory(String),
 	DirectoryExited(String),
 	AttachedDirectoryEnded,
-	DirectoryRestartFailed { cause: String, delay_ms: u128 },
-	ChildOutputEnded { label: &'static str, cause: String },
-	ChildOutputTaskFailed { label: &'static str, cause: String },
+	DirectoryRestartFailed {
+		cause: String,
+		delay_ms: u128,
+	},
+	ChildOutputEnded {
+		label: &'static str,
+		cause: String,
+	},
+	ChildOutputTaskFailed {
+		label: &'static str,
+		cause: String,
+	},
 	ChildShutdownRequestFailed(String),
 	AnnouncementUnread(String),
 }
@@ -38,6 +58,26 @@ impl fmt::Display for Notice {
 			Self::HttpConnectionEnded(cause) => write!(f, "HTTP connection ended: {cause}"),
 			Self::RelayEnded { cause, times: 1 } => write!(f, "relay ended: {cause}"),
 			Self::RelayEnded { cause, times } => write!(f, "relay ended: {cause} ({times} times in a row)"),
+			Self::OriginRefused {
+				origin,
+				admitting,
+				times,
+			} => {
+				match admitting {
+					Some(list) => write!(
+						f,
+						"refused a Rooms page from {origin}. To let it in, start with --allow-origin={list}"
+					)?,
+					None => write!(
+						f,
+						"refused a Rooms page from {origin:?}, which is not an origin the option takes"
+					)?,
+				}
+				if *times > 1 {
+					write!(f, " ({times} times in a row)")?;
+				}
+				Ok(())
+			}
 			Self::ShutdownConnectionEnded(cause) => write!(f, "connection ended during shutdown: {cause}"),
 			Self::AttachedDirectory(locator) => write!(f, "attaching to the existing directory at {locator}"),
 			Self::DirectoryExited(status) => write!(f, "Rooms server exited ({status}); restarting"),

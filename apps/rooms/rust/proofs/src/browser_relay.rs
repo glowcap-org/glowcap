@@ -56,10 +56,10 @@ pub async fn rooms_browser_relay_contract(
 		.run_until(async move {
 			let caller = Host::with_options(rooms_glowcap::host_options()).unwrap();
 			let receiver = Host::with_options(rooms_glowcap::host_options()).unwrap();
-			let ice = ice::Source::deployment();
+			let ice = ice::Source::new("/ice");
 			let runtime = transport::open::<Platform, _>(
 				&caller,
-				transport::WebFront::deployment().unwrap(),
+				Some(super::page_server()),
 				|_, _| Err("relay fixture has no signaling directory".into()),
 				ice.clone(),
 			)

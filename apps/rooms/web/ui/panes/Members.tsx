@@ -22,6 +22,7 @@ import {
 	presenceAway,
 	presenceOffline,
 	presenceOnline,
+	rosterDirectoryAway,
 	rosterHere,
 	rosterHereOf,
 	rosterJoinARoom,
@@ -187,6 +188,7 @@ function MembersPane(
 	const members = useConversationMembers(conv?.key ?? null);
 	const roster = useMemo(() => rosterOf(members, nick), [members, nick]);
 	const paused = useSessionPaused();
+	const away = useRoomsState((state) => conv != null && state.dirs.get(conv.dir)?.session === "disconnected");
 	// Before the first join there is no room to have a roster, so the pane says
 	// what would fill it rather than reporting a wait that is not happening. Once
 	// there is a room, this line already says when the list is empty, so no
@@ -197,7 +199,7 @@ function MembersPane(
 		// that is closed to them, and the invitation reads as an explanation.
 		? paused ? nothingWhilePaused : rosterJoinARoom
 		: roster.rows.length === 0
-		? rosterWaiting
+		? away ? rosterDirectoryAway : rosterWaiting
 		: roster.online === roster.rows.length
 		? rosterHere(roster.online)
 		: rosterHereOf(roster.online, roster.rows.length);

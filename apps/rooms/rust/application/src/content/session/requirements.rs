@@ -133,6 +133,7 @@ pub const fn command(route: Route) -> Option<Requirements> {
 				| Command::Select
 				| Command::SetStanding
 				| Command::ChooseDirectoryNickname
+				| Command::ChooseHomeDirectory
 				| Command::SetDirectoryStanding
 				| Command::SetRoomStanding
 				| Command::SetEffectiveStanding

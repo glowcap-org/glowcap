@@ -35,6 +35,9 @@ export const conversationPrivateRoom =
 export const conversationPublicRoom = "Anyone who knows the name can join. Your name here is just a display name.";
 
 export const conversationJoiningRoom = "Joining this room. Its access policy and messages will appear when you arrive.";
+/** A room still to be joined whose directory is not answering. */
+export const conversationRoomDirectoryAway =
+	"This room's directory is not connected. Rooms keeps trying, and the room opens here once it answers.";
 
 /** A direct conversation. "Not through the server" is false for the relay
  * setting, which carries the bytes through it encrypted. Both settings keep
@@ -286,6 +289,8 @@ export function rosterMessageDirectly(name: string): string {
 }
 export const rosterJoinARoom = "Join a room to see who is here.";
 export const rosterWaiting = "Waiting for the room roster.";
+/** The roster of a room whose directory is not connected, which nothing is sending. */
+export const rosterDirectoryAway = "The roster arrives when this room's directory is connected.";
 // "Here" is the word this app uses for presence, on the topbar and under a
 // name in the sidebar. "Seen" would read as a read receipt. When everybody
 // known is here there is no second number to give.

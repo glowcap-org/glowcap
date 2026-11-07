@@ -51,11 +51,11 @@ import { ModalCard } from "../ModalCard.tsx";
  * it arrived. The open/closed decision still belongs out here: the dialog
  * hook keys on that boolean, not on its own mount. */
 export const DirectoryCard = memo(function DirectoryCard(
-	{ dir, mark, standing, homeDir, canInteract, askingLeave, onLayer }: {
+	{ dir, mark, standing, homeDirectory, canInteract, askingLeave, onLayer }: {
 		dir: DirView | null;
 		mark: string | undefined;
 		standing: string;
-		homeDir: DirId | null;
+		homeDirectory: DirId | null;
 		canInteract: boolean;
 		askingLeave: boolean;
 		onLayer: (held: boolean) => void;
@@ -80,7 +80,7 @@ export const DirectoryCard = memo(function DirectoryCard(
 		lines: number;
 		mark: string | undefined;
 		standing: string;
-		homeDir: DirId | null;
+		homeDirectory: DirId | null;
 		canInteract: boolean;
 	};
 	// The whole painted answer shares the card's held lifetime. Retaining only
@@ -93,7 +93,7 @@ export const DirectoryCard = memo(function DirectoryCard(
 			lines: occupancy.lines,
 			mark,
 			standing,
-			homeDir,
+			homeDirectory,
 			canInteract,
 		},
 	);
@@ -104,7 +104,7 @@ export const DirectoryCard = memo(function DirectoryCard(
 			lines: occupancy.lines,
 			mark,
 			standing,
-			homeDir,
+			homeDirectory,
 			canInteract,
 		};
 	}
@@ -137,7 +137,7 @@ function whatGoes(rooms: number, lines: number): string {
 }
 
 function DirectoryDialog(
-	{ open, onExited, dir, rooms, lines, mark, standing, homeDir, canInteract, askingLeave }: {
+	{ open, onExited, dir, rooms, lines, mark, standing, homeDirectory, canInteract, askingLeave }: {
 		open: boolean;
 		onExited: () => void;
 		dir: DirView;
@@ -145,7 +145,7 @@ function DirectoryDialog(
 		lines: number;
 		mark: string | undefined;
 		standing: string;
-		homeDir: DirId | null;
+		homeDirectory: DirId | null;
 		canInteract: boolean;
 		askingLeave: boolean;
 	},
@@ -171,7 +171,7 @@ function DirectoryDialog(
 	const retry = useAsyncAction(async (signal) => {
 		setRetryWhy("");
 		const why = await actionRefusal(() =>
-			session.reachDirectory(dir.locator, { kind: "exact", name: dir.requestedNick }, signal)
+			session.reachDirectory(dir.locator, { kind: "exact", name: dir.requestedNick }, { signal })
 		);
 		if (!signal.aborted) setRetryWhy(why);
 	});
@@ -179,7 +179,7 @@ function DirectoryDialog(
 		if (askingLeave) setAsking(true);
 		else if (open) setAsking(false);
 	}, [askingLeave, open]);
-	const name = directoryName(dir.id, homeDir);
+	const name = directoryName(dir.id, homeDirectory);
 	return (
 		// `modal` is the layer; its ::backdrop uses the same `--cover` paint as
 		// the phone's `#cover`. `modal-card` is the panel that rises in it. Naming

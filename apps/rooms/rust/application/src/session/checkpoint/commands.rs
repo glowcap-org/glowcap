@@ -19,6 +19,7 @@ crate::session::command::catalog! { Command {
 	LeaveDirectory,
 	SetDirectoryNick,
 	ChooseDirectoryNickname,
+	ChooseHomeDirectory,
 	JoinRoom,
 	StartDirect,
 	OpenDirect,

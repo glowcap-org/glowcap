@@ -63,6 +63,11 @@ export function joinAddressOf(act: { room?: Given<string>; locator?: Given<strin
 	});
 }
 
+/** A direct conversation, named by the nick it is with. */
+export function dmAddress(nick: string): string {
+	return withPageSearch(`/dm/${encodeURIComponent(nick)}`);
+}
+
 /** This page's directory is `/directory`; any other is `/directory?dir=`. */
 export function directoryAddress(options: { directory?: string } = {}): string {
 	const search = pageSearch();

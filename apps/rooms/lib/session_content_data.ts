@@ -193,6 +193,7 @@ export const SESSION_CONTENT = {
 			"setStanding",
 			"leaveDirectory",
 			"chooseDirectoryNickname",
+			"chooseHomeDirectory",
 			"openDirect",
 			"replaceOperationsCapabilities",
 			"replaceOperationsBundle",
@@ -318,6 +319,7 @@ export const SESSION_COMMAND_REQUIREMENTS = {
 	"leaveDirectory": { "conditional": [], "targets": [], "workspace": ["interactWorkspace"] },
 	"setDirectoryNick": { "conditional": [], "targets": ["directoryPresence"], "workspace": ["interactWorkspace"] },
 	"chooseDirectoryNickname": { "conditional": [], "targets": [], "workspace": ["interactWorkspace"] },
+	"chooseHomeDirectory": { "conditional": [], "targets": [], "workspace": ["interactWorkspace"] },
 	"joinRoom": {
 		"conditional": [],
 		"targets": ["roomAdmission", "membershipInbox"],

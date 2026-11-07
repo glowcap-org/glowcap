@@ -53,11 +53,17 @@ Registry identities live in
 | --- | --- | --- | --- |
 | Website and Zig API reference | [glowcap.org](https://glowcap.org/), GitHub Pages with the domain set in the repository's Pages settings | The [pages workflow](../.github/workflows/pages.yml) | Each time `main` moves to a checked commit, or on demand |
 | Installer | `https://glowcap.org/install.sh`, a static asset of the website | The pages workflow, from `site/assets/install.sh` | With the website |
+| Rooms page | `https://glowcap.org/rooms/app/`, static files beside the website | The pages workflow, exported into the site's assets by `zig build site-rooms-page` | With the website |
 | Archives, C SDK, checksums, and provenance | [GitHub Releases](https://github.com/glowcap-org/glowcap/releases) | The [release workflow](../.github/workflows/release.yml) | At each signed `v*` tag |
 | Rooms container image | `ghcr.io/glowcap-org/glowcap-rooms` | The release workflow, by digest | At each signed `v*` tag |
 | Rust crate, Python wheel, and JSR packages | crates.io, PyPI, and JSR | The [publish workflow](../.github/workflows/publish.yml), after the maintainer approves each registry | When the release becomes public |
 | Racket package | The Racket package catalog, pointing at the release's binding ZIP | The publish workflow, with the catalog account its `racket` environment holds, after the maintainer approves | When the release becomes public |
 | Repository docs and READMEs | GitHub, read at `main` | Promotion to `main` | Each time `main` moves |
+
+The Rooms page and the Rooms server are published apart: the page from `main`
+with the website, the server from a release. A change to the routes between
+them lands in a release before `main` publishes the page that needs it, so the
+published page never asks a released server for what it cannot answer.
 
 Website pages link repository docs at `blob/main`, so both show the same
 commit once the pages workflow finishes.
@@ -74,15 +80,17 @@ figures are committed snapshots that change only when someone runs
 `zig build bench-site-report` and lands the result
 ([benchmark index](../bench/README.md)).
 
-Locally, `zig build site-serve` previews the site, and
+Locally, `zig build site-serve` previews the site with the Rooms page at
+`/rooms/app/`, and
 `zig build site-render-check` renders every built page at four widths in the
 pinned Chromium.
 
 The pages workflow runs when `main` moves. It confirms that the commit is
 still `main` and passed the full check, builds the site in the devcontainer,
-and deploys `zig-out/site/` to GitHub Pages. It refuses to deploy if `main`
-moved during the build. A change to the site reaches glowcap.org only through
-`dev`, promotion, and that run.
+and deploys `zig-out/site/` to GitHub Pages. The site build exports the Rooms
+page into the site's assets first, so the deployment carries it at
+`rooms/app/`. It refuses to deploy if `main` moved during the build. A change
+to the site reaches glowcap.org only through `dev`, promotion, and that run.
 
 ## Integrating locally
 

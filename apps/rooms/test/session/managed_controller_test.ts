@@ -86,10 +86,12 @@ Deno.test("naming a room on a directory still registering reads its listing only
 Deno.test("showing the current address preserves a pending room acquisition; leaving it supersedes selection", async () => {
 	const f = fixture();
 	const prior = Object.getOwnPropertyDescriptor(globalThis, "location");
+	const priorDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
 	Object.defineProperty(globalThis, "location", {
 		configurable: true,
 		value: { pathname: "/directory", search: "?dir=held" },
 	});
+	Object.defineProperty(globalThis, "document", { configurable: true, value: { baseURI: "https://rooms.test/" } });
 	let active = "/directory?dir=held";
 	const navigated: string[] = [];
 	const openings = f.page.managedSession!.openings;
@@ -123,6 +125,8 @@ Deno.test("showing the current address preserves a pending room acquisition; lea
 		await pending;
 		if (prior != null) Object.defineProperty(globalThis, "location", prior);
 		else Reflect.deleteProperty(globalThis, "location");
+		if (priorDocument != null) Object.defineProperty(globalThis, "document", priorDocument);
+		else Reflect.deleteProperty(globalThis, "document");
 		f.close();
 	}
 });
@@ -163,8 +167,13 @@ for (const superseded of ["none", "conversation", "arrival"] as const) {
 		const f = fixture();
 		const priorLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
 		const priorHistory = Object.getOwnPropertyDescriptor(globalThis, "history");
+		const priorDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
 		const history = { state: { key: "operations-arrival" } };
 		Object.defineProperty(globalThis, "location", { configurable: true, value: { pathname: "/ops", search: "" } });
+		Object.defineProperty(globalThis, "document", {
+			configurable: true,
+			value: { baseURI: "https://rooms.test/" },
+		});
 		Object.defineProperty(globalThis, "history", { configurable: true, value: history });
 		let active = "/directory";
 		const navigated: string[] = [];
@@ -196,6 +205,8 @@ for (const superseded of ["none", "conversation", "arrival"] as const) {
 			else Reflect.deleteProperty(globalThis, "location");
 			if (priorHistory != null) Object.defineProperty(globalThis, "history", priorHistory);
 			else Reflect.deleteProperty(globalThis, "history");
+			if (priorDocument != null) Object.defineProperty(globalThis, "document", priorDocument);
+			else Reflect.deleteProperty(globalThis, "document");
 			f.close();
 		}
 	});
@@ -500,18 +511,53 @@ Deno.test("managed directory revisit reuses custody and nickname choice is local
 		f.close();
 	}
 });
-Deno.test("managed room link joins the exact authority without fetching it as a directory", async () => {
+// The served directory becomes home only in a session with no home directory.
+for (const holding of ["home", "other", "none"] as const) {
+	Deno.test(`managed room link joins the exact authority without fetching it as a directory, holding=${holding}`, async () => {
+		const f = fixture();
+		if (holding === "other") f.current.intent.directories[0].home = false;
+		if (holding === "none") f.current.intent.directories.length = 0;
+		try {
+			const link = "ocapn://127.0.0.1%3A1234.tcp/s/ZXhhY3Qtcm9vbQ";
+			assertEquals(await f.controller.join({ locator: link, room: "shared" }, { kind: "exact", name: "ada" }), {
+				ok: true,
+			});
+			assertEquals(f.calls, [["roomLink", f.id, link, "shared", {
+				route: f.route,
+				nick: { kind: "exact", name: "ada" },
+				home: holding !== "home",
+			}], ["select", ["room"]]]);
+		} finally {
+			f.close();
+		}
+	});
+}
+
+for (const holding of ["home", "none"] as const) {
+	for (const offered of [true, false]) {
+		Deno.test(`reaching a directory takes the home offer only without a home, holding=${holding} offered=${offered}`, async () => {
+			const f = fixture();
+			if (holding === "none") f.current.intent.directories[0].home = false;
+			try {
+				const other = "127.0.0.1:5678";
+				const nick = { kind: "exact", name: "ada" } as const;
+				// The fake holds no row afterward, so only the reach itself is read.
+				await f.controller.reachDirectory(other, nick, { home: offered });
+				const reached = f.calls.find((call) => call[0] === "directory");
+				assertEquals(reached?.[4], offered && holding === "none");
+			} finally {
+				f.close();
+			}
+		});
+	}
+}
+
+Deno.test("choosing a home directory names the row, or none", async () => {
 	const f = fixture();
 	try {
-		const link = "ocapn://127.0.0.1%3A1234.tcp/s/ZXhhY3Qtcm9vbQ";
-		assertEquals(await f.controller.join({ locator: link, room: "shared" }, { kind: "exact", name: "ada" }), {
-			ok: true,
-		});
-		assertEquals(f.calls, [["roomLink", f.id, link, "shared", {
-			route: f.route,
-			nick: { kind: "exact", name: "ada" },
-			home: true,
-		}], ["select", ["room"]]]);
+		assertEquals(await f.controller.chooseHomeDirectory(f.id), "");
+		assertEquals(await f.controller.chooseHomeDirectory(null), "");
+		assertEquals(f.calls, [["chooseHomeDirectory", [f.id]], ["chooseHomeDirectory", [""]]]);
 	} finally {
 		f.close();
 	}
@@ -553,12 +599,12 @@ for (const replaced of [false, true]) {
 			return Promise.resolve();
 		};
 		const files = presentationFiles(f.page.projection, () => null);
+		f.page.projection.set({ server: { base: "https://rooms.test/", chosen: false, directory: f.route } });
 		const controller = createManagedController(
 			f.page,
 			{ setTheme() {}, showRoster() {}, aboutConversation() {} },
 			session,
 			files,
-			f.route,
 			{ refresh: () => Promise.resolve() } as unknown as ManagedHistory,
 		);
 		try {

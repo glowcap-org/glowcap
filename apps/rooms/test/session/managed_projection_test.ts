@@ -216,7 +216,7 @@ Deno.test("managed unchanged intent preserves shared store identities across rec
 		}
 		f.current.intent.directories[0].home = false;
 		f.apply();
-		assertEquals(f.page.projection.get().homeDir, null);
+		assertEquals(f.page.projection.get().homeDirectory, null);
 	} finally {
 		f.close();
 	}

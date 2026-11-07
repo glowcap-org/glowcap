@@ -8,18 +8,25 @@ import {
 	dmConnectionTitle,
 	reachAboutDirectory,
 	reachBrowserTitle,
-	reachDirectoryTitle,
+	settingsBrowserUnreachable,
 	settingsConnectionRefused,
 	settingsConnectionSaving,
 	settingsCopyBrowser,
-	settingsCopyDirectory,
 	settingsDmDirectLabel,
 	settingsDmDirectSaid,
 	settingsDmRelayLabel,
 	settingsDmRelaySaid,
 	settingsDmReload,
+	settingsHomeAway,
+	settingsHomeChoice,
+	settingsHomeHint,
+	settingsHomeHintEmpty,
+	settingsHomeLabel,
+	settingsHomeNone,
+	settingsHomeOption,
+	settingsHomeServerName,
+	settingsHomeUseServer,
 	settingsShareBrowser,
-	settingsShareDirectory,
 } from "../../../lib/text/settings.ts";
 import { saveAndReload } from "../../../lib/text/controls.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
@@ -28,7 +35,14 @@ import { refusalText } from "../../../lib/text/failure.ts";
 import { current, type DmMode } from "../prefs.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";
+import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { CopyField } from "../Copy.tsx";
+import { directoryName } from "../text.ts";
+import { Field } from "../Field.tsx";
+import { Select } from "../Select.tsx";
+import { useRoomsState } from "../hooks.ts";
+import { dirId } from "../directory.ts";
+import { relayAway } from "../store/projection.ts";
 import { SettingsHead } from "./SettingsHead.tsx";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { type TabFace, Tabs } from "../Tabs.tsx";
@@ -39,6 +53,7 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { SessionSettings } from "./Session.tsx";
 import { Holdings } from "./Holdings.tsx";
 import { Said } from "../Said.tsx";
+import { ServerCard } from "./ServerCard.tsx";
 import { useSessionPermission } from "../hooks.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { settingsTitle } from "../../../lib/text/settings.ts";
@@ -128,7 +143,25 @@ function SettingsDialog(
 	);
 	const [dm, setDm] = useState<DmMode>(live.dm);
 	const [dmError, setDmError] = useState("");
-	const [roomLoc, setRoomLoc] = useState<string | null>(null);
+	const dirs = useRoomsState((state) => state.dirs);
+	const relay = useRoomsState((state) => state.relay);
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
+	const homeAway = homeDirectory !== null && dirs.get(homeDirectory)?.session === "disconnected";
+	// The directory this page's server hosts, offered as home when the session
+	// holds it and home is somewhere else: after a server restart, the one
+	// press that moves home to the directory that answers.
+	const roomLoc = useRoomsState((state) => state.server?.directory ?? null);
+	const served = roomLoc == null ? null : session.directoryId(roomLoc);
+	const servedHome = served !== null && served !== homeDirectory && dirs.has(served) ? served : null;
+	const [homeError, setHomeError] = useState("");
+	const [homeBusy, setHomeBusy] = useState(false);
+	const chooseHome = (id: Parameters<typeof session.chooseHomeDirectory>[0]) => {
+		setHomeBusy(true);
+		void session.chooseHomeDirectory(id).then((why) => {
+			setHomeError(why);
+			setHomeBusy(false);
+		});
+	};
 	const [selfLoc, setSelfLoc] = useState<string | null>(null);
 	const [dmBusy, setDmBusy] = useState(false);
 	const dmSaving = useRef(false);
@@ -148,7 +181,6 @@ function SettingsDialog(
 		};
 		showSelf();
 		void session.directoryReady.then(showSelf);
-		setRoomLoc(session.directoryLocator());
 		return () => {
 			cancelled = true;
 		};
@@ -262,35 +294,83 @@ function SettingsDialog(
 							role="tabpanel"
 							aria-labelledby="reachabilityTab"
 						>
-							<h3 className="well-title overline" id="directoryLegend">{reachDirectoryTitle}</h3>
-							<div className="group well" role="group" aria-labelledby="directoryLegend">
-								<CopyField
-									id="directoryLocator"
-									text={roomLoc}
-									label={settingsCopyDirectory}
-								/>
-								{
-									/* Its sibling below says what its locator is for, and this one
-											    said nothing. A room is a name on a directory, so this
-											    address is what a room here is reached through. */
-								}
-								<p className="hint">{settingsShareDirectory}</p>
-								{dir !== null && (
-									<div className="actions">
-										<Button
-											id="settingsAboutDir"
-											variant="quiet"
-											onClick={() => browser.showDirectory(dir.id)}
+							<ServerCard relay={relay} />
+							{canInteract && (
+								<>
+									<h3 className="well-title overline" id="homeLegend">{settingsHomeLabel}</h3>
+									<div className="group well" role="group" aria-labelledby="homeLegend">
+										<Field
+											id="homeDirectory"
+											label={settingsHomeChoice}
+											hint={dirs.size === 0 ? settingsHomeHintEmpty : settingsHomeHint}
+											said={homeError}
 										>
-											{reachAboutDirectory}
-										</Button>
+											{(wiring) => (
+												<span className="select-wrap">
+													<Select
+														id={wiring.id}
+														aria-describedby={wiring.describedBy}
+														aria-invalid={wiring.invalid}
+														value={homeDirectory ?? ""}
+														disabled={homeBusy || dirs.size === 0}
+														onChange={(event) => {
+															const chosen = event.target.value;
+															chooseHome(chosen === "" ? null : dirId(chosen));
+														}}
+													>
+														<option value="">{settingsHomeNone}</option>
+														{[...dirs.values()].map((held) => (
+															<option key={held.id} value={held.id}>
+																{settingsHomeOption(
+																	directoryName(held.id, null),
+																	held.session === "disconnected",
+																)}
+															</option>
+														))}
+													</Select>
+												</span>
+											)}
+										</Field>
+										{homeAway && <Said id="homeAway" kind="warning">{settingsHomeAway}</Said>}
+										{(dir !== null || servedHome !== null) && (
+											<EntryActs>
+												{servedHome !== null && (
+													<EntryAct
+														name={settingsHomeServerName}
+														id="settingsServerHome"
+														act={settingsHomeUseServer}
+														// The fix for a home that does not answer leads; otherwise
+														// it is one choice among the others.
+														variant={homeAway || homeDirectory === null
+															? "primary"
+															: "quiet"}
+														onClick={() => chooseHome(servedHome)}
+													/>
+												)}
+												{dir !== null && (
+													<EntryAct
+														name={settingsHomeLabel}
+														id="settingsAboutDir"
+														act={reachAboutDirectory}
+														onClick={() => browser.showDirectory(dir.id)}
+													/>
+												)}
+											</EntryActs>
+										)}
 									</div>
-								)}
-							</div>
+								</>
+							)}
 							<h3 className="well-title overline" id="browserLegend">{reachBrowserTitle}</h3>
 							<div className="group well" role="group" aria-labelledby="browserLegend">
 								<CopyField id="selfLocator" text={selfLoc} label={settingsCopyBrowser} />
-								<p className="hint">{settingsShareBrowser}</p>
+								{
+									/* The cause and its fix are the server card's. Here is
+									   what it means for the address a reader is about to
+									   hand out. */
+								}
+								{relayAway(relay)
+									? <Said id="selfUnreachable" kind="warning">{settingsBrowserUnreachable}</Said>
+									: <p className="hint">{settingsShareBrowser}</p>}
 							</div>
 							{canInteract && (
 								<>

@@ -215,6 +215,8 @@ Deno.test("peering publication and revoke update the pane from its held leases",
 		navigation: {},
 		drafts: { value: (_id: string, text: string) => text },
 		workspace: {
+			// No durable address, so the pane governs no directory it can name.
+			custodyRecipe: () => Promise.resolve(null),
 			peeringSnapshot: () =>
 				Promise.resolve(current.intent.peering.map((row) => ({
 					id: row.id,

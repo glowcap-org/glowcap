@@ -41,6 +41,7 @@ async function withPageGlobals(run: (reloads: () => number) => Promise<void>): P
 	const prior = {
 		location: Object.getOwnPropertyDescriptor(globalThis, "location"),
 		history: Object.getOwnPropertyDescriptor(globalThis, "history"),
+		document: Object.getOwnPropertyDescriptor(globalThis, "document"),
 	};
 	let reloads = 0;
 	Object.defineProperty(globalThis, "location", {
@@ -48,6 +49,7 @@ async function withPageGlobals(run: (reloads: () => number) => Promise<void>): P
 		value: { pathname: "/", href: "https://rooms.test/", reload: () => reloads++ },
 	});
 	Object.defineProperty(globalThis, "history", { configurable: true, value: { replaceState() {} } });
+	Object.defineProperty(globalThis, "document", { configurable: true, value: { baseURI: "https://rooms.test/" } });
 	try {
 		await run(() => reloads);
 	} finally {

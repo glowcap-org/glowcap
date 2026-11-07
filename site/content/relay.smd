@@ -39,7 +39,7 @@ the gateway must not read or alter the session.
 [The browser names the peer it wants. The relay dials it over tcp or iroh and pipes the two together. The keyed session runs end to end, and the relay only moves bytes.]($image.siteAsset('diagram-relay-dial.svg'))
 
 The app that hosts the relay sets the dial policy. [Rooms]($link.page('rooms'))
-pins its TCP target to the room server, so a TCP dial reaches the room
+pins its TCP target to its directory, so a TCP dial reaches the directory
 and nothing else. An iroh target may be any node that proves its key, so the app caps
 connections itself.
 

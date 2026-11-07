@@ -382,17 +382,17 @@ export function joinedRooms(projection: PageProjection, dir?: DirId): RoomConv[]
  * also spares every other row a directory caption to tell it apart from rooms
  * on a directory that is not on screen.
  *
- * Never this page's own. It has no rooms before the first join either, and a row
- * saying so at the moment the join card is asking for one is noise.  status-allow: state at observation */
+ * The home directory is listed like any other: a home that stops answering
+ * with no rooms open would otherwise have no row saying so. */
 export function emptyDirs(
-	s: Readonly<Pick<State, "convs" | "dirs" | "homeDir">>,
+	s: Readonly<Pick<State, "convs" | "dirs">>,
 ): DirView[] {
 	const busy = new Set<DirId>();
 	for (const conv of s.convs.values()) {
 		if (conv.type === "directory") continue;
 		busy.add(conv.dir);
 	}
-	return [...s.dirs.values()].filter((dir) => dir.id !== s.homeDir && !busy.has(dir.id));
+	return [...s.dirs.values()].filter((dir) => !busy.has(dir.id));
 }
 
 /** The open conversation with `peer`, if there is one.

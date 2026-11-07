@@ -12,7 +12,7 @@ durable application state. It combines [OCapN](https://github.com/ocapn/ocapn)
 and CapTP networking with [Loam](https://github.com/glowcap-org/glowcap/blob/main/docs/loam.md), its transactional storage and
 durable actor system. Applications control memory, I/O, and scheduling.
 
-**0.1.4 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
+**0.1.5 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
 change before 1.0. glowcap has not received an independent security audit.
 Read [what ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md) and the [known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md)
 before depending on it.
@@ -56,8 +56,10 @@ export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 
-Open the `web ui` address it prints. [Run Rooms](https://glowcap.org/rooms/start/) walks
-through joining a room and messaging another member directly.
+Open the link it prints: the Rooms page at
+[glowcap.org/rooms/app/](https://glowcap.org/rooms/app/), with your server
+filled in. [Run Rooms](https://glowcap.org/rooms/start/) walks through joining
+a room and messaging another member directly.
 
 ## Quick start
 
