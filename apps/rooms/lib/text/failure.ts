@@ -16,7 +16,7 @@
 import { ROOMS_FAILURES, roomsErrorInMessage, type RoomsFailureRetry } from "../error_codes.ts";
 
 type FailureRetry = RoomsFailureRetry | "unknown";
-interface FailureView {
+export interface FailureView {
 	readonly code: string;
 	readonly subject: string;
 	readonly retry: FailureRetry;
@@ -77,6 +77,23 @@ export function renderFailure(view: FailureView): string {
 export function refusalText(err: unknown): string {
 	return renderFailure(failureView(err));
 }
+
+/** An unexplained failure while the relay this browser connects through turns
+ * it away. Every connection goes through that relay, so it is the cause a
+ * person can do something about, and Settings > Reachability is where. */
+export const relayUnreachable = (host: string) =>
+	`Rooms can't reach the Rooms server at ${host}, which this browser connects through. Rooms keeps trying. To use another server, open Settings, then Reachability.`;
+
+/** A failure to reach a directory from a page with no Rooms server, which
+ * reaches only an address that carries its own WebSocket route. */
+export const noRoomsServer =
+	"Rooms couldn't reach that directory, because this page has no Rooms server to connect through. Choose one in Settings, under Reachability.";
+
+/** An unexplained failure to reach a directory while the relay answers. A
+ * browser sees only a closed socket, so the two causes it cannot tell apart are
+ * both named, and the original words follow for whoever is debugging. */
+export const directoryUnreachable = (host: string, detail: string) =>
+	`Rooms couldn't reach that directory. This browser connects through the Rooms server at ${host}, which may not forward to it, or the directory isn't answering. (${detail})`;
 
 /** Whether the rest of an error belongs in a card as well as where it
  * appeared.

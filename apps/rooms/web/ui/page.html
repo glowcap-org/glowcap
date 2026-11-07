@@ -2,6 +2,10 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
+		<!-- Where this build's files are served from. Every URL below is relative
+		     to it, and so is the router (ui/page_base.ts). A build for another
+		     path writes that path here. -->
+		<base href="/" />
 		<meta name="viewport"
 			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 		<!-- Locators and host:port strings are not phone numbers. Without this,
@@ -15,8 +19,8 @@
 		<meta name="theme-color" content="#211911" />
 		<title>glowcap rooms</title>
 		<link rel="preload" as="font" type="font/woff2"
-			href="/fonts/ibm-plex-sans-latin-wght-normal.woff2" crossorigin />
-		<link rel="stylesheet" href="/tokens.css" />
+			href="fonts/ibm-plex-sans-latin-wght-normal.woff2" crossorigin />
+		<link rel="stylesheet" href="tokens.css" />
 		<script>
 		// Two things are stamped here rather than left to the module, and for the
 		// same reason: this runs while the head is being parsed, so it lands
@@ -50,10 +54,10 @@
 			if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
 		} catch (_) { /* private mode: the stylesheet's default face answers */ }
 		</script>
-		<link rel="stylesheet" href="/page.css" />
+		<link rel="stylesheet" href="page.css" />
 		<!-- The mycelium under the page. Its own small entry, so it runs while
 		     page.js is still arriving. -->
-		<script type="module" src="/ground.js"></script>
+		<script type="module" src="ground.js"></script>
 	</head>
 	<body>
 		<!-- The interface is drawn by page.js and lives entirely under this
@@ -90,6 +94,13 @@
 				<p>If scripting is on and you are still reading this, the page
 					script did not load. Reloading is worth a try.</p>
 			</div>
+			<!-- The bundle ran, and a step it needed to open failed. ui/boot.ts
+			     writes the reason and wires the button. -->
+			<div class="boot-failed" role="alert">
+				<h1>Rooms couldn't open</h1>
+				<p class="boot-failed-why"></p>
+				<p><button type="button" class="button boot-setup" data-variant="primary" data-size="normal">Back to session setup</button></p>
+			</div>
 			<div class="boot-insecure">
 				<h1>glowcap rooms needs a secure address</h1>
 				<p>This tab is about to hold your links and your messages. Over
@@ -120,7 +131,7 @@
 			var pageScript = document.createElement("script");
 			pageScript.id = "pageScript";
 			pageScript.type = "module";
-			pageScript.src = "/page.js";
+			pageScript.src = "page.js";
 			pageScript.addEventListener("error", lost);
 			addEventListener("error", lost);
 			document.body.appendChild(pageScript);

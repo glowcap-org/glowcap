@@ -40,6 +40,13 @@ import type { ToastNotice } from "../toast.ts";
 // field a control writes. They are two files that have to agree.
 const mobileQuery = matchMedia("(max-width: 820px)");
 
+/** How a browser's registration at its Rooms server's relay stands. */
+export type RelayReach = "connecting" | "reached" | { away: string };
+/** Whether the registration closed, as opposed to open or still opening. */
+export function relayAway(relay: RelayReach | null): relay is { away: string } {
+	return relay != null && typeof relay === "object";
+}
+
 /** A conversation's unsent composer: what is typed, and what is attached.
  *
  * One shape rather than two parallel maps, because they are one thing, what a
@@ -106,12 +113,8 @@ export interface State {
 	 * all belong to one directory, and there is no "current" one to read them
 	 * from. */
 	dirs: ReadonlyMap<DirId, DirView>;
-	/** The directory this page came with, once it is known.
-	 *
-	 * Named rather than addressed: it is the one a reader never chose, so
-	 * showing them its locator answers a question they did not ask. Null until the
-	 * page has resolved it, which is also the state a page loaded offline stays
-	 * in. */
+	/** This session's home directory, or null while it has none. A session
+	 * chooses it, and the page's served directory is only its default. */
 	homeDir: DirId | null;
 	/** Ephemeral notices above the page, newest first. Not a directory's own
 	 * standing: that belongs to the directory, is drawn on the rows that are on
@@ -235,6 +238,10 @@ export interface State {
 	irc: IrcGatewayState | null;
 	/** Room stewardships reported by the held Rooms operator capability. */
 	operator: RoomsOperatorState | null;
+	/** The directory each held operations capability governs. A Rooms server
+	 * mints its capabilities on its directory's own address, so this is read off
+	 * the address each was taken from. Absent until a capability is read. */
+	opsDirs: Readonly<Partial<Record<OperationsCapability, DirId>>>;
 	/** Durable session operations awaiting explicit recovery. Bearer results stay in the session owner. */
 	sessionEffects: readonly string[];
 	managedAccess: UseView;
@@ -252,6 +259,14 @@ export interface State {
 	/** The page's bounded trouble journal, newest first; `store/trouble.ts`
 	 * owns the ring. */
 	trouble: readonly TroubleRow[];
+	/** Whether people can reach this browser through its Rooms server's relay:
+	 * still finding out, reached, or away with the reason the last attempt
+	 * failed. Null when this session does not register here, such as one
+	 * attached to a session kept elsewhere. */
+	relay: RelayReach | null;
+	/** Whether the page is joining its served directory as it opens, which is
+	 * the one time an empty session is waiting on a directory. */
+	openingDirectory: boolean;
 	/** Which operations pane is selected while more than one is held. */
 	opsPane: OperationsCapability;
 	/** Possession projected from canonical custody, independent of loaded rows. */
@@ -344,9 +359,12 @@ export function initialState(): State {
 		archiveShares: [],
 		irc: null,
 		operator: null,
+		opsDirs: {},
 		sessionEffects: [],
 		managedAccess: { status: "outOfScope" },
 		trouble: [],
+		relay: null,
+		openingDirectory: false,
 		diagnostics: null,
 		opsHeld: { listeners: false, diagnostics: false, irc: false, operator: false, peering: false, trace: false },
 		listeners: null,

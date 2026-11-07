@@ -156,9 +156,12 @@ Deno.test("peering only offers held durable entrances on another connected direc
 		[home, { session: "connected" } as DirView],
 		[away, { session: "connecting" } as DirView],
 	]);
-	assertEquals(peeringSourcesOf(convs, home, dirs).map((source) => source.key), []);
+	assertEquals(peeringSourcesOf(convs, home, home, dirs).map((source) => source.key), []);
 	dirs.set(away, { session: "reconnecting" } as DirView);
-	assertEquals(peeringSourcesOf(convs, home, dirs).map((source) => source.key), []);
+	assertEquals(peeringSourcesOf(convs, home, home, dirs).map((source) => source.key), []);
 	dirs.set(away, { session: "connected" } as DirView);
-	assertEquals(peeringSourcesOf(convs, home, dirs).map((source) => source.key), ["foreign"]);
+	assertEquals(peeringSourcesOf(convs, home, home, dirs).map((source) => source.key), ["foreign"]);
+	// Peering governed by another directory publishes into that one, so home's
+	// rooms are the sources and that directory's own are not.
+	assertEquals(peeringSourcesOf(convs, away, home, dirs).map((source) => source.key), ["local"]);
 });

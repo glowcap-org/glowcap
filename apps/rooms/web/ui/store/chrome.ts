@@ -448,6 +448,16 @@ export function setRoomsOperator(projection: PageProjection, operator: RoomsOper
 	patchOpsRows(projection, { operator });
 }
 
+/** Record the directory one held operations capability governs. */
+export function setOpsDirectory(projection: PageProjection, cap: OperationsCapability, dir: DirId | null): void {
+	const was = projection.get().opsDirs;
+	if ((was[cap] ?? null) === dir) return;
+	const next = { ...was };
+	if (dir == null) delete next[cap];
+	else next[cap] = dir;
+	projection.set({ opsDirs: next });
+}
+
 /** Loaded publication state. */
 export function setPeering(projection: PageProjection, peering: PeeringState | null): void {
 	patchOpsRows(projection, { peering });

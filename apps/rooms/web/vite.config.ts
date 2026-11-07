@@ -79,7 +79,7 @@ function externalApplicationWasm(): Plugin {
 			}
 			return source.replace(
 				generated,
-				'new URL(document.documentElement.dataset.roomsWasm ?? "/rooms_browser_bg.wasm", location.href)',
+				'new URL(document.documentElement.dataset.roomsWasm ?? "rooms_browser_bg.wasm", document.baseURI)',
 			);
 		},
 	};
@@ -162,6 +162,9 @@ export default defineConfig(({ command }) => {
 	const development = command === "serve";
 	return {
 		root: webRoot,
+		// Chunks and their preloads resolve relative to the module importing
+		// them, so one build loads under whatever base path page.html names.
+		base: development ? "/" : "./",
 		cacheDir: fileURLToPath(new URL("../../../zig-out/cache/rooms-vite/", import.meta.url)),
 		appType: "custom",
 		// The web server prints the room's locators before Vite starts.

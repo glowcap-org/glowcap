@@ -83,7 +83,7 @@ export function fixture(listed: RoomInfo[] = [], duringRead: () => void = () => 
 		{ setTheme() {}, showRoster() {}, aboutConversation() {} },
 		session,
 		files,
-		route,
+		{ host: "rooms.test", directory: route },
 		{ refresh: () => Promise.resolve() } as unknown as ManagedHistory,
 	);
 	return {

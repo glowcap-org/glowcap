@@ -1,6 +1,7 @@
 // The startup anchor and saved strong fields choose actual authority. A local
 // storage document or an inventory row cannot reconstruct an attached view.
 import { applicationModule } from "../../application.ts";
+import { serverInUse } from "../../server_choice.ts";
 import { managedSessionText } from "../../../../lib/text/managed_session.ts";
 import { ManagedRoomsSession } from "./session.ts";
 import type { WorkspaceSnapshot } from "./model.ts";
@@ -33,7 +34,12 @@ export async function openManagedSession(
 	local: boolean;
 }> {
 	const admission = document.documentElement.dataset.roomsSessionAdmission;
-	const application = new (applicationModule().RoomsManagedApplication)(tabIdentity(), report, admission);
+	const application = new (applicationModule().RoomsManagedApplication)(
+		tabIdentity(),
+		report,
+		admission,
+		serverInUse()?.base,
+	);
 	let custody: RoomsManagedWorkspace | null = null;
 	let workspace: RoomsManagedWorkspace | null = null;
 	let session: ManagedRoomsSession | null = null;

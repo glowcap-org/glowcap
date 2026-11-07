@@ -522,6 +522,41 @@ html:has(.app.covered) {
 		max-height: 100%;
 	}
 }
+/* ── Rooms server ──────────────────────────────────────────────────────
+   The server's name and its two WebSockets are addresses, read and compared
+   character by character, so they take the mono voice copy fields use. The
+   WebSockets are derived rather than chosen, so they sit a step quieter, and a
+   press selects one whole, because a reader who reaches for one wants all of
+   it. */
+.server-name {
+	font-family: var(--font-mono);
+	overflow-wrap: anywhere;
+}
+/* The directory's address is a copy field, which fills its row, with what to
+   do with it under it. */
+.server-facts dd:has(> .copy-field) {
+	display: block;
+}
+.server-facts dd > .hint {
+	display: block;
+	margin-top: var(--gap-line);
+}
+/* The address, what Test found, and the acts read as one column with the
+   form's own row rhythm, so a result never touches the buttons under it. */
+.server-form {
+	display: grid;
+	gap: var(--gap-row);
+}
+.server-route {
+	min-width: 0;
+	font-family: var(--font-mono);
+	font-size: var(--type-fine);
+	line-height: 1.45;
+	color: var(--ink-soft);
+	overflow-wrap: anywhere;
+	user-select: all;
+}
+
 /* The settings form is a dense inventory: keep its controls aligned while
    letting the descriptive line breathe below each capability on a phone. */
 @media (max-width: 430px) {

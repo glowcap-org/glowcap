@@ -5,6 +5,8 @@ import { removeCapability, takeCapability } from "./capability_set.ts";
 import { fail } from "../support/fail.ts";
 import { fillSettled } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
+import { titleAboutDirectory } from "../../lib/text/conversation.ts";
+import { homeDirectoryName } from "../../lib/text/directory.ts";
 
 export async function runOperatorScene(tab: Page, operatorSwiss: string): Promise<void> {
 	// Make one room whose moderator capability is definitely unissued, then take the
@@ -15,7 +17,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	// The home directory address selects the authority this operator owns,
 	// independently of the foreign directory the Operations rail last showed.
 	await tab.goto(new URL("/directory", tab.url()).href);
-	await tab.waitForSelector('#roomAbout[aria-label="About this directory"]');
+	await tab.waitForSelector(`#roomAbout[aria-label="${titleAboutDirectory(homeDirectoryName)}"]`);
 	await tab.click("#newRoomBtn");
 	await fillSettled(tab, "#newRoomInput", "operator-proof");
 	await tab.press("#newRoomInput", "Enter");

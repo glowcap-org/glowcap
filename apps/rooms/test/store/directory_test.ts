@@ -125,3 +125,17 @@ Deno.test("a directory is named in words however many are held, and colored only
 		}
 	}
 });
+
+Deno.test("an empty address means home, and a different served directory is offered by its own address", () => {
+	const home = dirId("ocapn://home.iroh");
+	const served = dirId("ocapn://restarted.iroh");
+	const resolve = (locator: string) => dirId(locator);
+	const held = joining.directoryDestinationContext({ id: home, locator: home }, served, resolve);
+	assert(held.defaultDirectory?.id === home, "an empty address named the served directory over home");
+	assert(held.served?.id === served, "the served directory was not offered beside home");
+	assert(joining.thisDirectoryLocator(served, held, served) === served, "the served address collapsed into home's");
+	const same = joining.directoryDestinationContext({ id: home, locator: home }, home, resolve);
+	assert(same.served == null, "home was offered twice");
+	const fresh = joining.directoryDestinationContext(null, served, resolve);
+	assert(fresh.defaultDirectory?.id === served, "a session with no home did not default to the served directory");
+});

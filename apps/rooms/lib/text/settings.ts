@@ -36,9 +36,28 @@ export const settingsConnectionRefused = "Couldn't save the connection choice.";
 
 export const settingsCopyDirectory = "Copy the address for this server";
 export const settingsCopyBrowser = "Copy this session's address";
-export const settingsShareDirectory =
-	"Share this address to let somebody reach this server and join its rooms by name.";
+export const settingsShareDirectory = "Lets anyone join this server's rooms by name.";
+export const settingsBrowserUnreachable = "Nobody can reach this address until the Rooms server connects.";
 export const settingsShareBrowser = "Share this address to let somebody start a direct conversation with you.";
+/** The relay this browser connects through, chosen on this device. */
+export const serverOfferTitle = "Use this Rooms server?";
+export const serverOfferSay = (host: string) =>
+	`This link asks Rooms to use the Rooms server at ${host}. People reach this browser through it, and it opens your connections to directories. Use it if you started that server or trust whoever runs it. You can change this later in Settings, under Reachability.`;
+export const serverOfferKeep = "Not now";
+export const serverOfferCommit = "Use this server";
+/** The server field's hint. A page from a static host has no server of its
+ * own to fall back to, so a blank field means none. What a server must allow
+ * is said where it matters: by Test, and by the card while it refuses. */
+export const settingsServerHint = (served: boolean) =>
+	served
+		? "Paste another Rooms server's address, or leave it blank to use the server this page came from."
+		: "As you would open it in a browser.";
+export const settingsServerExample = "https://rooms.example/";
+export const settingsServerRefused = "A Rooms server address starts with http:// or https:// and has no ? or # in it.";
+/** Said while the relay this browser is reached through turns it away. A
+ * browser sees only a closed socket, so both causes are named. */
+export const settingsRelayAway = (host: string, origin: string) =>
+	`People can't reach this browser right now. The Rooms server at ${host} isn't answering, or doesn't allow pages from ${origin}. Rooms keeps trying.`;
 
 /** Where direct messages go. Both are end-to-end encrypted, so the choice is
  * about who can start one, not about who can read them. */
@@ -81,8 +100,61 @@ export const archiveNeedsPeerAfter = ".";
 
 /** The Reachability tab's headings. Its sentences are the share and direct
  * message entries above. */
-export const reachDirectoryTitle = "This directory";
-export const reachAboutDirectory = "About this directory";
+export const reachServerTitle = "Rooms server";
+export const serverFactDirectory = "Directory";
+export const serverFactRelay = "Relay";
+export const serverFactReachable = "Reaches you";
+export const serverFromPage = "The server this page came from";
+export const serverChosenHere = "Chosen on this browser";
+export const serverConnected = "Connected";
+export const serverConnecting = "Connecting";
+export const serverNotAnswering = "Not answering";
+export const serverNotConnected = "Not connected";
+export const serverTurnsAway = "Turns this page away";
+/** Said while the server turns this page's origin away, with the one fix. */
+export const serverAwayRefuses = (origin: string) => `Restart it with --allow-origin=${origin} to let this page in.`;
+/** Said while nothing answers at the server's address. */
+export const serverAwaySilent = (host: string) => `Nothing answers at ${host}. Rooms keeps trying.`;
+export const serverNoDirectory = "None";
+export const serverChange = "Change server";
+export const serverChangeLead =
+	"Rooms reaches directories, and is reached, through one server. Saving reloads this window, so test the address first.";
+export const serverAddressName = "Address";
+export const serverChangeAct = "Change…";
+export const serverRemoveName = "Remove from this browser";
+export const serverRemoveAct = "Remove…";
+export const serverRemoveConfirm = "Remove this server?";
+/** What removing the chosen server leaves: the page's own server, or none. */
+export const serverRemoveSaid = (served: boolean) =>
+	served
+		? "This page goes back to the server it came from, and reloads."
+		: "This page will have no Rooms server, so nobody can reach this browser and rooms need a directory address. It reloads.";
+export const serverRemoveKeep = "Keep it";
+export const serverRemoveCommit = "Remove and reload";
+export const serverNoneTitle = "No Rooms server";
+export const serverTest = "Test";
+export const serverTestAnswers = "It answers, and hosts a directory.";
+export const serverTestElsewhere =
+	"Something answers at this address, but it serves no Rooms directory. Check the address, or try again if the server is starting.";
+export const serverTestRefuses = (origin: string) =>
+	`It answers, but doesn't allow pages from ${origin}. Restart it with --allow-origin=${origin}.`;
+export const serverTestSilent =
+	"Nothing answers at this address. Check that the server is running and the address is right.";
+export const serverNone =
+	"This page came from a static host, so it has no Rooms server of its own. Add a Rooms server's address to be reachable and to join rooms by name.";
+export const reachAboutDirectory = "About…";
+/** The home directory choice. A room joined with no directory address opens in it. */
+export const settingsHomeLabel = "Home directory";
+export const settingsHomeChoice = "Directory";
+export const settingsHomeNone = "None";
+export const settingsHomeHint = "A room you join without a directory address opens here.";
+export const settingsHomeAway =
+	"Your home directory is not connected. Rooms keeps trying, and a room you join without an address waits for it.";
+export const settingsHomeServerName = "This server's directory";
+export const settingsHomeUseServer = "Make it home";
+export const settingsHomeOption = (name: string, away: boolean): string => away ? `${name} (not connected)` : name;
+export const settingsHomeHintEmpty =
+	"This session has no home directory. Join a directory, then choose it here, so a room you join without an address opens there.";
 export const reachBrowserTitle = "This browser";
 export const dmConnectionTitle = "Direct message connection";
 export const operationsTitle = "Operations";

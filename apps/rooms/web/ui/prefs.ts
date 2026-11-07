@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 // The URL names this tab's DM transport; durable session intent supplies the
 // default. Changing it reloads the page because transport is chosen at startup.
+import { pageRoute } from "./page_base.ts";
 
 export type DmMode = "webrtc" | "relay";
 
@@ -20,13 +21,20 @@ export function current(intent?: { connection: DmMode }): { dm: DmMode } {
 	return { dm: dmMode(intent?.connection) };
 }
 
-/** The room directory this page is serving, from `/locator`. */
-export async function directoryLocator(): Promise<string | null> {
+/** The directory a Rooms server hosts, from its `locator` (by default the one
+ * under this page's base), or null when it names none. A static host has no
+ * `locator`, and one with a page fallback answers every path with HTML, so only
+ * a body `names` accepts as a directory address counts. */
+export async function servedDirectory(
+	names: (text: string) => boolean,
+	read: (address: URL) => Promise<Response> = fetch,
+	address: URL = pageRoute("locator"),
+): Promise<string | null> {
 	try {
-		const res = await fetch("/locator");
+		const res = await read(address);
+		if (!res.ok) return null;
 		const text = (await res.text()).trim();
-		if (!res.ok || text.length === 0) return null;
-		return text;
+		return text !== "" && names(text) ? text : null;
 	} catch {
 		return null;
 	}

@@ -171,6 +171,7 @@ export function OpsMain({ segment }: { segment: string | null }) {
 		trouble: state.trouble,
 		convs: state.convs,
 		homeDir: state.homeDir,
+		opsDirs: state.opsDirs,
 		dirs: state.dirs,
 	})));
 	const navigate = useNavigate();
@@ -256,7 +257,7 @@ export function OpsMain({ segment }: { segment: string | null }) {
 					>
 						<PeeringPane
 							state={s.peering}
-							sources={peeringSourcesOf(s.convs, s.homeDir, s.dirs)}
+							sources={peeringSourcesOf(s.convs, s.opsDirs.peering ?? null, s.homeDir, s.dirs)}
 						/>
 					</HeldPane>
 				)}

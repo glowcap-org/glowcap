@@ -4,7 +4,7 @@
   "tasks": {
     "check": "deno task static && deno task test",
     "static": "deno fmt --check && deno lint && deno check lib clients demos irc test tools web rust/proofs/browser",
-    "test": "deno test -A web/dev_test.ts web/dev_process_test.ts"
+    "test": "deno test -A web/dev_test.ts web/dev_process_test.ts web/static_host_test.ts"
   },
   "nodeModulesDir": "auto",
   "compilerOptions": {
@@ -115,7 +115,8 @@
   "test": {
     "include": [
       "web/dev_test.ts",
-      "web/dev_process_test.ts"
+      "web/dev_process_test.ts",
+      "web/static_host_test.ts"
     ]
   },
   "exclude": [

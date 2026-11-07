@@ -49,7 +49,22 @@ pub fn register(ctx: Context) *std.Build.Step {
     prepare.has_side_effects = true;
     prepare.step.dependOn(ctx.web_services);
     prepare.step.dependOn(ctx.browser_application);
+    b.step("rooms-web-prepare", "Build the Rooms HTTP front and write its browser assets as one prepared generation at zig-out/rooms-web/current, which `rooms-web --prepared` serves and `--export-static` exports (needs cargo + wasm-bindgen)")
+        .dependOn(&prepare.step);
     web_tests.register(b, ctx.runtime_gate, ctx.web_services, &prepare.step);
+
+    // The page glowcap.org/rooms/app/ serves, exported and served locally the
+    // way a static host serves it, with no Rooms server behind it.
+    const static_host = commands.addRootedSystemCommand(b, .service, &.{
+        "deno", "run", "-A", "--config=apps/rooms/deno.json", "apps/rooms/web/static_host.ts",
+    });
+    Binary.web.addAbsoluteArg(static_host);
+    static_host.addArg("zig-out/rooms-web/current");
+    static_host.addPassthruArgs();
+    static_host.has_side_effects = true;
+    static_host.step.dependOn(&prepare.step);
+    b.step("rooms-web-static", "Rebuild the Rooms page, export it as static files, and serve them the way GitHub Pages does at http://localhost:5173/rooms/app/, with no Rooms server behind it. `-- --base=/<path>/ --port=<port>` change either (needs cargo + deno + wasm-bindgen)")
+        .dependOn(&static_host.step);
 
     const staging = @import("../release/stage.zig");
     const product = staging.add(b, ctx.target, ctx.version, "product", staging.product);

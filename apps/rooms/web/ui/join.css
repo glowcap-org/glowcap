@@ -137,6 +137,13 @@
 	line-height: 1.4;
 	text-wrap: pretty;
 }
+/* The home offer is a sentence with its own mark, not a field's label, so it
+   keeps the column's gap on both sides. */
+.join label.check-row {
+	margin-bottom: 0;
+	font-weight: 500;
+	color: var(--ink);
+}
 .join label .optional {
 	font-weight: 500;
 	color: var(--ink-soft);

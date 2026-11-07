@@ -23,7 +23,7 @@ Deno.test("a directory conversation does not fill a directory's empty rail row",
 	store.ensureDirectory(projection, other);
 	const empty = store.emptyDirs(projection.get());
 	assert(empty.some((dir) => dir.id === other), "a directory with only its view hid its empty row");
-	assert(!empty.some((dir) => dir.id === home), "this page's directory wore an empty row");
+	assert(empty.some((dir) => dir.id === home), "the home directory, empty, had no rail row");
 	store.ensureRoom(projection, other, "lobby");
 	assert(
 		!store.emptyDirs(projection.get()).some((dir) => dir.id === other),
@@ -125,5 +125,19 @@ Deno.test("remembering a submission after its conversation left preserves the ne
 	assert(
 		store.lastSentFor(projection, leave.key) === undefined,
 		"last sent was revived on a conversation that had left",
+	);
+});
+
+Deno.test("a room waiting on a directory that is not connected is not joining", () => {
+	const projection = new store.PageProjection();
+	const away = dirId("away-dir");
+	store.openDir(projection, away, "away-dir");
+	const room = store.ensureRoom(projection, away, "garden");
+	assert(room.membership === "joining", "a new room was not joining");
+	assert(store.roomJoiningNow(room, projection.get().dirs), "a room on a reachable directory was not joining");
+	store.patchDir(projection, away, { session: "disconnected" });
+	assert(
+		!store.roomJoiningNow(room, projection.get().dirs),
+		"a room on a lost directory still claimed to be joining",
 	);
 });

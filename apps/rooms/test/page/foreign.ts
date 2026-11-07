@@ -6,6 +6,7 @@
 // the other.
 
 import type { Page } from "playwright";
+import { homeDirectoryName } from "../../lib/text/directory.ts";
 import { fail } from "../support/fail.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { fillSettled, reachDirectoryOnCard, waitForPostedLine } from "./harness.ts";
@@ -284,9 +285,9 @@ export async function run(
 		)
 	);
 	// The full list, on the row's title, in the rail's own directory vocabulary:
-	// the page's own directory is "this directory", never a raw locator.
+	// the home directory is called by its catalog name, never a raw locator.
 	const whoTitle = (await tab.getAttribute("#standingBtn .foot-names", "title")) ?? "";
-	if (!whoTitle.includes("web-alice on this directory") || !whoTitle.includes("bo on ")) {
+	if (!whoTitle.includes(`web-alice on ${homeDirectoryName}`) || !whoTitle.includes("bo on ")) {
 		fail(`the identity row's title does not list every grant with its directory: ${JSON.stringify(whoTitle)}`);
 	}
 	if (whoTitle.includes("://")) {

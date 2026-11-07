@@ -36,6 +36,7 @@ pub const HELP: &str = "rooms-web [http-port] [room-port] [options]
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
   --http-admission-per-address=true|false  charge each source address its own budget (default: false)
+  --allow-origin=<origin|page,...>  page origins besides this server's own that may use its relay and read its locator, such as https://glowcap.org; a page's address, such as https://glowcap.org/rooms/app/, also prints a link that opens it with this server (or GLOWCAP_RELAY_ALLOW_ORIGINS)
   --http-trusted-proxies=<address|cidr,...>  proxies whose X-Forwarded-For client address selects the budget (default: none)
   --browser-admission-scale=<1..100> --browser-admission-rows=<1..65536>
   --browser-admission-rates=<class=burst/per-minute,...> --browser-admission-aggregate-scale=<1..100>
@@ -46,6 +47,7 @@ rooms-web --ui-version[=http://host:port]  print the running browser revision
 Status reads default to http://127.0.0.1:8080, or GLOWCAP_ROOMS_HTTP_PORT.
 rooms-web --prepare[=<output-directory>] [--assets=<source-directory>]  build self-contained browser assets
 Preparation defaults to zig-out/rooms-web; serve its current directory with --prepared.
+rooms-web --export-static=<new-directory> --assets=<prepared-generation> [--base=/<path>/]  write a prepared generation as files for a static host at that base path (default /)
 ";
 impl Config {
 	pub fn parse(
@@ -61,8 +63,10 @@ impl Config {
 			}
 			if let Some(option) = arg.strip_prefix("--") {
 				let (key, value) = option.split_once('=').unwrap_or((option, "1"));
-				if (matches!(key, "http-bind" | "http-port" | "assets" | "server" | "session-state")
-					|| key.starts_with("http-admission-")
+				if (matches!(
+					key,
+					"http-bind" | "http-port" | "assets" | "server" | "session-state" | "allow-origin"
+				) || key.starts_with("http-admission-")
 					|| key.starts_with("browser-admission-"))
 					&& (!option.contains('=') || value.is_empty())
 				{
@@ -147,11 +151,16 @@ impl Config {
 		}
 		options.remove("http-admission-per-address");
 		options.remove("http-trusted-proxies");
+		let allow_origin = options.remove("allow-origin");
 		let server_args: Vec<_> = options
 			.into_iter()
 			.map(|(key, value)| raw_options.remove(&key).unwrap_or_else(|| format!("--{key}={value}")))
 			.collect();
-		let relay = super::relay::Limits::read(&env)?;
+		// The option and the environment name one fact, and the option wins.
+		let relay = super::relay::Limits::read(|name| match name {
+			"GLOWCAP_RELAY_ALLOW_ORIGINS" => allow_origin.clone().or_else(|| env(name)),
+			_ => env(name),
+		})?;
 		let ice = super::ice::Config::read(&env)?;
 		let room = server::Config::parse(server_args.clone(), env)
 			.map_err(|e| e.to_string())?
@@ -208,6 +217,38 @@ mod tests {
 		assert!(!config.server_args.iter().any(|s| s.starts_with("--http-admission")));
 		assert!(config.admission.settings.summary().contains("admission-rates=argument"));
 		assert!(Config::parse(["--http-admission-rows=0".into()], |_| None).is_err());
+	}
+
+	#[test]
+	fn allowed_origins_come_from_the_option_over_the_environment_and_stay_out_of_server_args() {
+		let env = |key: &str| (key == "GLOWCAP_RELAY_ALLOW_ORIGINS").then(|| "https://env.example".into());
+		let config = Config::parse(["--allow-origin=https://glowcap.org,http://127.0.0.1:8093".into()], env)
+			.unwrap()
+			.unwrap();
+		let origins: Vec<_> = config
+			.relay
+			.origins
+			.iter()
+			.map(|origin| origin.ascii_serialization())
+			.collect();
+		assert_eq!(origins, ["https://glowcap.org", "http://127.0.0.1:8093"]);
+		assert!(!config.server_args.iter().any(|s| s.contains("allow-origin")));
+		let config = Config::parse([], env).unwrap().unwrap();
+		assert_eq!(config.relay.origins.len(), 1);
+		assert!(Config::parse(["--allow-origin".into()], |_| None).is_err());
+		// A page's own address admits its origin, and is the page the banner
+		// links to. A path without its final `/` names no page exactly.
+		let config = Config::parse(
+			["--allow-origin=https://glowcap.org/rooms/app/,http://127.0.0.1:8093".into()],
+			|_| None,
+		)
+		.unwrap()
+		.unwrap();
+		assert_eq!(config.relay.origins.len(), 2);
+		assert_eq!(config.relay.origins[0].ascii_serialization(), "https://glowcap.org");
+		let pages: Vec<_> = config.relay.pages.iter().map(url::Url::as_str).collect();
+		assert_eq!(pages, ["https://glowcap.org/rooms/app/"]);
+		assert!(Config::parse(["--allow-origin=https://glowcap.org/rooms/app".into()], |_| None).is_err());
 	}
 
 	#[test]

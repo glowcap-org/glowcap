@@ -133,14 +133,14 @@ if [[ ${1:-} == zig && ${2:-} == build ]]; then
     for arg in "${@:3}"; do
         [[ ${arg} == -- ]] && break
         case "${arg}" in
-            glowcap | site-serve | ocapnviz-dev | rooms-chat | rooms-irc-server | rooms-irc-bridge | rooms-archive | rooms-session | rooms-server | rooms-trace-tail | rooms-web | rooms-dev)
+            glowcap | site-serve | ocapnviz-dev | rooms-chat | rooms-irc-server | rooms-irc-bridge | rooms-archive | rooms-session | rooms-server | rooms-trace-tail | rooms-web | rooms-web-static | rooms-dev)
                 service_build=true
                 break
                 ;;
         esac
     done
     case "${arg:-}" in
-        site-serve | rooms-dev | rooms-web | rooms-server)
+        site-serve | rooms-dev | rooms-web | rooms-web-static | rooms-server)
             echo "glowcap-dev: preparing ${arg}; the service has not started yet. Wait for its listening address." >&2
             if [[ ${arg} != site-serve ]]; then
                 echo "glowcap-dev: a cold Rooms build downloads dependencies and compiles Zig and Rust; browser commands also prepare WebAssembly and UI assets. This can take several minutes. Later runs reuse build caches." >&2

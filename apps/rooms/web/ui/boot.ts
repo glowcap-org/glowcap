@@ -22,6 +22,7 @@ import * as store from "./store.ts";
 import { stopBootAsides } from "./boot_note.ts";
 import type { MarkLive } from "../../../../ui/mark/live.ts";
 import type { PageProjection } from "./store/projection.ts";
+import { pageBase, pagePath } from "./page_base.ts";
 
 /** The two states this module puts the document in. `running` closes the window
  * in which page.html's watcher may call the page lost; `done` is the last word
@@ -92,7 +93,7 @@ export function coveringReload(): boolean {
  * `finishCoveredReload`, so this is only about what a *cold* arrival keeps. */
 export function standAtFrontOfPrivilegedAddress(): void {
 	if (typeof location === "undefined") return;
-	if (!location.pathname.startsWith("/ops")) return;
+	if (!pagePath().startsWith("/ops")) return;
 	standAtFront();
 }
 
@@ -101,8 +102,8 @@ export function standAtFrontOfPrivilegedAddress(): void {
 function standAtFront(): void {
 	if (typeof location === "undefined" || typeof history === "undefined") return;
 	const url = new URL(location.href);
-	if (url.pathname === "/") return;
-	url.pathname = "/";
+	if (pagePath(url.pathname) === "/") return;
+	url.pathname = pageBase().pathname;
 	history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
@@ -145,14 +146,20 @@ export function uncoverReload(): void {
 
 /** A required chunk or boot step failed while the opening screen was still
  * up. `import()` rejects rather than firing `window.onerror`, so page.html's
- * watcher would never hear it and the splash would sit forever. */
-export function pageDidNotOpen(reason: string): void {
+ * watcher would never hear it and the splash would sit forever. The page ran,
+ * so it says why, and its one action is `backToSetup`: a reload would retry
+ * the same remembered choice. */
+export function pageDidNotOpen(reason: string, backToSetup: () => void): void {
 	console.error("rooms: the page did not finish opening:", reason);
 	const root = bootRoot();
 	if (root == null) return;
 	const boot = root.dataset.boot;
 	if (boot !== "opening" && boot !== RUNNING) return;
-	root.dataset.boot = "lost";
+	const failed = document.querySelector("#boot .boot-failed");
+	const why = failed?.querySelector(".boot-failed-why");
+	if (why != null) why.textContent = reason;
+	failed?.querySelector(".boot-setup")?.addEventListener("click", backToSetup, { once: true });
+	root.dataset.boot = "failed";
 }
 
 /** The opening screen's mark, from the moment the bundle asks for it: the

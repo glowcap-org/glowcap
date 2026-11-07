@@ -171,7 +171,7 @@ function DirectoryDialog(
 	const retry = useAsyncAction(async (signal) => {
 		setRetryWhy("");
 		const why = await actionRefusal(() =>
-			session.reachDirectory(dir.locator, { kind: "exact", name: dir.requestedNick }, signal)
+			session.reachDirectory(dir.locator, { kind: "exact", name: dir.requestedNick }, { signal })
 		);
 		if (!signal.aborted) setRetryWhy(why);
 	});

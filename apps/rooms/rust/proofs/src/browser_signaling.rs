@@ -79,14 +79,9 @@ async fn runtime_dial(url: &str, location: &str, handoff: bool) {
 		observed.set(observed.get() + 1);
 		Ok(directory.signaling())
 	};
-	let runtime = rooms_browser::transport::open(
-		&caller,
-		rooms_browser::transport::WebFront::deployment().unwrap(),
-		select,
-		ice.clone(),
-	)
-	.await
-	.unwrap();
+	let runtime = rooms_browser::transport::open(&caller, super::page_server(), select, ice.clone())
+		.await
+		.unwrap();
 	receiver
 		.publish("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
 		.unwrap();

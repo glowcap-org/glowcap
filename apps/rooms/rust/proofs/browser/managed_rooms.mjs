@@ -1,5 +1,6 @@
 // The exported browser owner registers and chats through the actual process
 // directory. Files remain mediated by the exact acquiring session grant.
+
 export async function managedRooms({ location, moduleUrl = "/rooms_contract_proofs.js" }) {
 	const { managedRetention } = await import("/managed_retention.mjs");
 	const { managedDirect } = await import("/managed_direct.mjs");
@@ -9,6 +10,8 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 	const app = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
 		(source, reason) => console.error(source, reason),
+		undefined,
+		new URL(".", document.baseURI).href,
 	);
 	const held = [];
 	const files = [];
@@ -332,7 +335,12 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 		};
 		const openPeer = async () => {
 			peerStopped = false;
-			peerApp = new binding.RoomsManagedApplication(peerTab, (source, reason) => console.error(source, reason));
+			peerApp = new binding.RoomsManagedApplication(
+				peerTab,
+				(source, reason) => console.error(source, reason),
+				undefined,
+				new URL(".", document.baseURI).href,
+			);
 			peerSession = await peerApp.workspace();
 			held.push(peerSession);
 			const peerObserving = await peerSession.prepareObservation();

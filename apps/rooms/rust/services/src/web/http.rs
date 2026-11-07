@@ -175,7 +175,7 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 		);
 	}
 	if path == "/locator" {
-		return match environment.location.borrow().clone() {
+		let mut reply = match environment.location.borrow().clone() {
 			Some(locator) => response(
 				StatusCode::OK,
 				"text/plain; charset=utf-8",
@@ -187,6 +187,15 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 				"rooms: locator not ready\n".into(),
 			),
 		};
+		// A page origin the operator listed reads the address from its own
+		// page, such as a hosted Rooms page finding this server's directory.
+		reply
+			.headers_mut()
+			.insert("vary", hyper::header::HeaderValue::from_static("origin"));
+		if let Some(origin) = environment.relay.listed_origin(&request) {
+			reply.headers_mut().insert("access-control-allow-origin", origin);
+		}
+		return reply;
 	}
 
 	if path == "/ice" {
@@ -203,7 +212,7 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 		};
 	}
 	if path == "/link-preview" || path == "/link-preview/image" {
-		if !super::relay::origin_allowed(&request) {
+		if !super::relay::origin_allowed(&request, &[]) {
 			return response(
 				StatusCode::FORBIDDEN,
 				"text/plain",

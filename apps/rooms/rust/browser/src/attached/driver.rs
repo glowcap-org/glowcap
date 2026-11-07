@@ -94,18 +94,7 @@ impl Driver {
 			Ok(())
 		}
 	}
-	pub fn start_managed(
-		tab: String,
-		report_trouble: js_sys::Function,
-		admission: rooms_application::admission::Settings,
-	) -> Self {
-		Self::start_mode(tab, report_trouble, admission)
-	}
-	fn start_mode(
-		startup: String,
-		report_trouble: js_sys::Function,
-		admission: rooms_application::admission::Settings,
-	) -> Self {
+	pub fn start_managed(startup: Startup, report_trouble: js_sys::Function) -> Self {
 		let (jobs, incoming) = mpsc::channel(MAX_TASKS);
 		let (stop, stopping) = watch::channel(false);
 		let (ended, outcome) = watch::channel(None);
@@ -137,7 +126,6 @@ impl Driver {
 						stopping,
 						owned_budget.clone(),
 						startup,
-						admission,
 						trouble,
 						pending_retirement.clone(),
 					)
@@ -255,16 +243,24 @@ impl Driver {
 		})
 	}
 }
+/// What a managed application is opened with, settled before anything opens.
+pub struct Startup {
+	/// This tab's identity, which names its storage.
+	pub tab: String,
+	pub admission: rooms_application::admission::Settings,
+	/// The relay this browser dials through and is reached at, if its page
+	/// has a Rooms server.
+	pub front: Option<crate::transport::WebFront>,
+}
 async fn run(
 	mut incoming: mpsc::Receiver<Job>,
 	mut stop: watch::Receiver<bool>,
 	budget: Rc<Budget>,
-	startup: String,
-	admission: rooms_application::admission::Settings,
+	startup: Startup,
 	trouble: TroubleReporter,
 	retiring: Rc<RefCell<Option<Retirement>>>,
 ) -> Result<()> {
-	let (platform, prepared) = match Environment::prepare(&startup).await {
+	let (platform, prepared) = match Environment::prepare(&startup.tab).await {
 		Ok(prepared) => prepared,
 		Err(error) => {
 			// Storage preflight refused before any Host or session existed.
@@ -278,7 +274,7 @@ async fn run(
 			return Ok(());
 		}
 	};
-	let environment = match Environment::open(platform, prepared, trouble, admission).await {
+	let environment = match Environment::open(platform, prepared, trouble, startup.admission, startup.front).await {
 		Ok(environment) => Rc::new(environment),
 		Err(error) => {
 			incoming.close();

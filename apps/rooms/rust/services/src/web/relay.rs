@@ -8,7 +8,14 @@ use hyper::{Request, Response, StatusCode, body::Incoming};
 use rooms_application::web_relay;
 use rooms_platform::{serving::endpoint::Endpoint, websocket::WsBytes};
 
-use std::{cell::Cell, future::Future, pin::Pin, rc::Rc, sync::Arc, time::Duration};
+use std::{
+	cell::{Cell, RefCell},
+	future::Future,
+	pin::Pin,
+	rc::Rc,
+	sync::Arc,
+	time::Duration,
+};
 use tokio::{
 	io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
 	net::{TcpStream, UnixStream},
@@ -25,6 +32,12 @@ pub(super) struct Limits {
 	pub iroh: usize,
 	pub starts: usize,
 	pub tcp: Vec<(String, u16)>,
+	/// Page origins besides this server's own that may relay and register
+	/// through it, such as a static host serving the Rooms page.
+	pub origins: Vec<url::Origin>,
+	/// The listed entries that named a Rooms page's own address, not only its
+	/// origin, so the server can print a link that opens each with it.
+	pub pages: Vec<url::Url>,
 	pub registrations: usize,
 	pub per_identity: usize,
 }
@@ -52,7 +65,18 @@ impl Limits {
 			.filter(|s| !s.is_empty())
 			.map(|s| glowcap::designator_host_port(s).map_err(|e| e.to_string()))
 			.collect::<Result<_, _>>()?;
+		let listed = env("GLOWCAP_RELAY_ALLOW_ORIGINS")
+			.unwrap_or_default()
+			.split(',')
+			.map(str::trim)
+			.filter(|s| !s.is_empty())
+			.map(page_entry)
+			.collect::<Result<Vec<_>, _>>()?;
+		let origins = listed.iter().map(url::Url::origin).collect();
+		let pages = listed.into_iter().filter(|page| page.path() != "/").collect();
 		Ok(Self {
+			origins,
+			pages,
 			sessions: cap("GLOWCAP_RELAY_MAX_SESSIONS", DEFAULT_SESSIONS)?,
 			registrations: cap("GLOWCAP_RELAY_MAX_REGISTRATIONS", DEFAULT_REGISTRATIONS)?,
 			per_identity: cap("GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY", 4)?,
@@ -72,20 +96,46 @@ pub(super) struct Relay {
 	location: watch::Receiver<Option<Announcement>>,
 	jobs: mpsc::Sender<Job>,
 	stop: watch::Receiver<bool>,
+	report: super::Report,
+	refusals: RefCell<super::notice::Repeats>,
 }
 impl Relay {
+	/// The request's `Origin`, when it names a page origin the operator listed,
+	/// for a read such as `locator` to answer it by name.
+	pub(super) fn listed_origin<B>(&self, request: &Request<B>) -> Option<hyper::header::HeaderValue> {
+		let origin = request.headers().get("origin")?;
+		let parsed = url::Url::parse(origin.to_str().ok()?).ok()?;
+		self.limits.origins.contains(&parsed.origin()).then(|| origin.clone())
+	}
+	/// Whether this page origin may use the relay. A browser cannot say why its
+	/// socket closed, so a refused origin is told to the operator, with the
+	/// option that admits it.
+	fn admits<B>(&self, request: &Request<B>) -> bool {
+		if origin_allowed(request, &self.limits.origins) {
+			return true;
+		}
+		let origin = request.headers().get("origin").map_or_else(String::new, |origin| {
+			String::from_utf8_lossy(origin.as_bytes()).into_owned()
+		});
+		if let Some(times) = self.refusals.borrow_mut().observe(&origin) {
+			(self.report)(super::Notice::OriginRefused { origin, times });
+		}
+		false
+	}
 	#[cfg(test)]
 	pub fn new(
 		limits: Limits,
 		location: watch::Receiver<Option<Announcement>>,
 		jobs: mpsc::Sender<Job>,
 		stop: watch::Receiver<bool>,
+		report: super::Report,
 	) -> Rc<Self> {
 		Self::with_admission(
 			limits,
 			location,
 			jobs,
 			stop,
+			report,
 			super::admission::Admission::new(super::admission::Config {
 				settings: rooms_application::admission::Settings::defaults(
 					rooms_application::admission::HTTP_ROWS,
@@ -101,6 +151,7 @@ impl Relay {
 		location: watch::Receiver<Option<Announcement>>,
 		jobs: mpsc::Sender<Job>,
 		stop: watch::Receiver<bool>,
+		report: super::Report,
 		admission: Rc<super::admission::Admission>,
 	) -> Rc<Self> {
 		Rc::new(Self {
@@ -117,6 +168,8 @@ impl Relay {
 			location,
 			jobs,
 			stop,
+			report,
+			refusals: RefCell::default(),
 		})
 	}
 	pub fn upgrade(&self, mut request: Request<Incoming>, target: &str, rendezvous: bool) -> super::http::Reply {
@@ -125,7 +178,7 @@ impl Relay {
 		// its `rendezvous-relay` hint, and the redeemer follows that hint, so
 		// the Origin rule cannot apply. What bounds it instead is the registry's
 		// own per-identity claim rate.
-		if !rendezvous && !origin_allowed(&request) {
+		if !rendezvous && !self.admits(&request) {
 			return refusal(StatusCode::FORBIDDEN, "rooms: cross-origin relay refused\n");
 		}
 		let target = match if rendezvous {
@@ -193,7 +246,7 @@ impl Relay {
 		response
 	}
 	pub fn proxy(&self, mut request: Request<Incoming>, target: String) -> super::http::Reply {
-		if !origin_allowed(&request) {
+		if !origin_allowed(&request, &[]) {
 			return refusal(
 				StatusCode::FORBIDDEN,
 				"rooms: cross-origin timeline connection refused\n",
@@ -232,7 +285,7 @@ impl Relay {
 	}
 
 	pub fn register(&self, mut request: Request<Incoming>, identity: &str) -> super::http::Reply {
-		if !origin_allowed(&request) {
+		if !self.admits(&request) {
 			return refusal(StatusCode::FORBIDDEN, "rooms: cross-origin registration refused\n");
 		}
 		if !super::rendezvous::designator(identity) {
@@ -433,17 +486,38 @@ async fn retire_websocket(
 		.and_then(|result| result.map_err(|e| e.to_string()));
 	crate::cleanup::combine(result, retired)
 }
-pub(super) fn origin_allowed<B>(request: &Request<B>) -> bool {
+/// Whether a request may use this server: no `Origin` (not a browser), this
+/// server's own page, or a page origin in `listed`.
+pub(super) fn origin_allowed<B>(request: &Request<B>, listed: &[url::Origin]) -> bool {
 	let Some(origin) = request.headers().get("origin") else {
 		return true;
-	};
-	let Some(host) = request.headers().get("host").and_then(|v| v.to_str().ok()) else {
-		return false;
 	};
 	let Ok(origin) = origin.to_str().ok().and_then(|s| url::Url::parse(s).ok()).ok_or(()) else {
 		return false;
 	};
-	matches!(origin.scheme(), "http" | "https") && &origin[url::Position::BeforeHost..url::Position::AfterPort] == host
+	if !matches!(origin.scheme(), "http" | "https") {
+		return false;
+	}
+	let own = request.headers().get("host").and_then(|v| v.to_str().ok());
+	own == Some(&origin[url::Position::BeforeHost..url::Position::AfterPort]) || listed.contains(&origin.origin())
+}
+/// One `GLOWCAP_RELAY_ALLOW_ORIGINS` entry: an http or https origin, or the
+/// address of a Rooms page on one, which is a path ending in `/`. A path with
+/// no final `/` could be a file or a directory, so it is refused, not guessed.
+fn page_entry(entry: &str) -> Result<url::Url, String> {
+	let refused = || {
+		format!(
+			"GLOWCAP_RELAY_ALLOW_ORIGINS entry {entry:?} must be an origin such as https://rooms.example, or a page address such as https://rooms.example/rooms/app/"
+		)
+	};
+	let url = url::Url::parse(entry).map_err(|_| refused())?;
+	let exact = matches!(url.scheme(), "http" | "https")
+		&& url.username().is_empty()
+		&& url.password().is_none()
+		&& url.path().ends_with('/')
+		&& url.query().is_none()
+		&& url.fragment().is_none();
+	if exact { Ok(url) } else { Err(refused()) }
 }
 pub(super) fn refusal(status: StatusCode, text: &'static str) -> super::http::Reply {
 	let mut reply = Response::new(Full::new(Bytes::from_static(text.as_bytes())));

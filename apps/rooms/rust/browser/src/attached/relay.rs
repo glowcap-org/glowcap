@@ -20,8 +20,8 @@ struct Status {
 	closed: bool,
 }
 impl Status {
-	/// What a waiter for readiness learns now, or None to keep waiting. A
-	/// listener that has stopped is never ready, and its failure, when it has
+	/// What an observer learns now, or None while the first attempt is pending.
+	/// A listener that has stopped is never ready, and its failure, when it has
 	/// one, is the reason it gives.
 	fn verdict(&self, stopping: bool) -> Option<Result<()>> {
 		let ended = self.closed || stopping;
@@ -105,17 +105,30 @@ impl Relay {
 	pub fn locator(&self) -> &Locator {
 		&self.locator
 	}
-	pub async fn ready(&self) -> Result<()> {
-		let mut status = self.status.clone();
-		loop {
-			if let Some(verdict) = status.borrow_and_update().verdict(*self.stop.borrow()) {
-				return verdict;
+	/// Tell `each` whether a registration is held: `None` while one is, or the
+	/// reason the last attempt failed. Seats keep retrying in the background, so
+	/// a failure is a state, not an end, until the relay stops.
+	pub fn observe(&self, each: impl Fn(Option<&str>) + 'static) {
+		let (mut status, stop) = (self.status.clone(), self.stop.subscribe());
+		tokio::task::spawn_local(async move {
+			loop {
+				// The borrow ends before `each` runs, so a report that changes the
+				// status cannot meet a held borrow.
+				let (verdict, ended) = {
+					let state = status.borrow_and_update();
+					let stopped = *stop.borrow();
+					(state.verdict(stopped), state.closed || stopped)
+				};
+				match verdict {
+					Some(Ok(())) => each(None),
+					Some(Err(reason)) => each(Some(&reason)),
+					None => {}
+				}
+				if ended || status.changed().await.is_err() {
+					return;
+				}
 			}
-			status
-				.changed()
-				.await
-				.map_err(|_| "Rooms relay listener lost its supervisor")?;
-		}
+		});
 	}
 	pub async fn close(&self) -> Result<()> {
 		self.stop.send_replace(true);

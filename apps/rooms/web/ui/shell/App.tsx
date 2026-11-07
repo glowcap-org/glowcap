@@ -121,7 +121,7 @@ export function App() {
 	const directoryContext = useMemo(
 		() =>
 			directoryDestinationContext(
-				state.homeDir,
+				state.homeDir == null ? null : { id: state.homeDir, locator: session.dirAddress(state.homeDir) },
 				session.directoryLocator(),
 				(locator) => session.directoryId(locator),
 			),
@@ -294,7 +294,7 @@ export function App() {
 		state.navigationTarget.peer === conv.id;
 	const openingProgress = useProgress(openingHere, PRESENTATION.busy, conv?.key);
 	const joiningProgress = useProgress(
-		conv?.type === "room" && conv.membership === "joining",
+		conv?.type === "room" && store.roomJoiningNow(conv, state.dirs),
 		PRESENTATION.connection,
 		conv?.key,
 	);
@@ -522,7 +522,7 @@ export function App() {
 					: state.archiveShares.filter((share) => share.conversationKey === conv.key)}
 				initialPane={state.aboutConvPane}
 				request={state.aboutConvRequest}
-				administeredBridge={conv?.type === "room" && conv.dir === state.homeDir
+				administeredBridge={conv?.type === "room" && conv.dir === state.opsDirs.irc
 					? administeredBridgeFor(state.irc, conv.publicationId)
 					: null}
 				dir={conv === null ? null : state.dirs.get(conv.dir) ?? null}

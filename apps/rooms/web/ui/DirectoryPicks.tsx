@@ -11,8 +11,9 @@
 // every share surface hands out, because that value is what a submit dials and
 // the hints are part of what makes it dialable. Matching is by identity, so a
 // row stays marked whether the field holds the route or the bare authority.
-// Leaving it empty means this page's own directory, so that row clears rather
-// than fills.
+// Leaving it empty means the session's home directory, or the page's own when
+// there is no home, so that row clears rather than fills. With neither, empty
+// names nothing and the row is not offered.
 //
 // The last row is the way to an address this tab does not hold, and it belongs
 // to the menu rather than to a surface that adds it, because two menus
@@ -25,6 +26,8 @@ import { useRoomsSession } from "./controller/session.ts";
 import { MenuList, MenuRow } from "./Menu.tsx";
 import { directoryName } from "./text.ts";
 import { type DirectoryDestinationContext, thisDirectoryLocator } from "./joining.ts";
+import { homeDirectoryName } from "../../lib/text/directory.ts";
+import { joinLocatorHere } from "../../lib/text/join.ts";
 import type { DirId, DirView } from "./directory.ts";
 import { anotherAddress } from "../../lib/text/page.ts";
 
@@ -48,22 +51,42 @@ export function DirectoryPicks(
 	const others = [...dirs.values()].filter((dir) => dir.id !== homeDir);
 	const typedAs = session.directoryId(locator.trim());
 	const here = thisDirectoryLocator(locator, context, typedAs) === "";
+	const blank = homeDir != null ? homeDirectoryName : context.defaultDirectory != null ? joinLocatorHere : null;
+	// The served directory, when an empty address means home and this tab does
+	// not hold it. A server that restarts as a new directory is reached here.
+	const served = context.served != null && !dirs.has(context.served.id) ? context.served : null;
+	const lead = blank != null || served != null;
 	return (
 		<MenuList className={className}>
-			<MenuRow className="line-menu-row" first marked={here} onPick={() => onPick("")}>
-				this directory
-			</MenuRow>
-			{others.map((dir) => (
+			{blank != null && (
+				<MenuRow className="line-menu-row" first marked={here} onPick={() => onPick("")}>
+					{blank}
+				</MenuRow>
+			)}
+			{served != null && (
+				<MenuRow
+					className="line-menu-row"
+					first={blank == null}
+					marked={typedAs === served.id}
+					onPick={() => onPick(served.locator)}
+				>
+					{joinLocatorHere}
+				</MenuRow>
+			)}
+			{others.map((dir, index) => (
 				<MenuRow
 					key={dir.id}
 					className="line-menu-row"
+					first={!lead && index === 0}
 					marked={typedAs === dir.id}
 					onPick={() => onPick(session.dirAddress(dir.id))}
 				>
 					{directoryName(dir.id, homeDir)}
 				</MenuRow>
 			))}
-			<MenuRow className="line-menu-row" onPick={onElsewhere}>{anotherAddress}</MenuRow>
+			<MenuRow className="line-menu-row" first={!lead && others.length === 0} onPick={onElsewhere}>
+				{anotherAddress}
+			</MenuRow>
 		</MenuList>
 	);
 }

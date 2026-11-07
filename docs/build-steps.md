@@ -241,8 +241,7 @@ zig build gen-rust-wasm-layouts-check   # Verify Rust layout constants and finge
 The Rooms application and terminal clients read their wire vocabulary from
 generated tables. `tools/gen/rooms_protocol.zig` declares it,
 `apps/rooms/lib/protocol.ts` documents it, and
-`apps/rooms/test/protocol_gen_test.ts` checks the projections against the
-application's readers.
+`apps/rooms/test/protocol_gen_test.ts` checks them against the app's readers.
 
 ```sh
 zig build gen-rooms-protocol       # Regenerate the Rooms application and client protocol tables from tools/gen/rooms_protocol.zig
@@ -256,12 +255,11 @@ zig build gen-doc-values-check     # Verify every value a doc quotes from a code
 zig build doc-impact               # List the docs that explain code changed since the fork from dev (or `-- <base>`)
 ```
 
-The project's mark is defined once, as the WebGPU shader in
-`ui/mark/field.ts`, and `tools/gen/mark/` traces every still
-picture of it from a render of that shader. These two steps run the pinned
-headless Chromium. `zig build source-check` covers the half that needs no
-browser: it holds the committed files to one geometry, so a hand edit to any of
-them fails in-tree.
+The project's mark is defined once, as the WebGPU shader in `ui/mark/field.ts`,
+and `tools/gen/mark/` traces every still picture of it from a render of that
+shader. These two steps run the pinned headless Chromium. `zig build
+source-check` covers the half that needs no browser: it holds the committed
+files to one geometry, so a hand edit to any of them fails in-tree.
 
 ```sh
 zig build gen-mark       # Re-trace the still mark from the shader and rewrite the unlit and lit artwork under site/assets/ with their rasters, plus the mark's generated blocks in ui/ (needs deno + the image-baked browser)
@@ -558,10 +556,12 @@ zig build rooms-irc-bridge                          # Serve one IRC channel as a
 zig build rooms-irc-bridge -- --irc-realname="bridge bot; admin: YOUR_IRC_NICK" # serve an IRC channel as a Rooms directory; policy prerequisites in apps/rooms/irc/README.md
 zig build rooms-server-build                        # Build and install the Rooms server (needs cargo); part of rooms-agent-test, rooms-archive-build, rooms-server, rooms-web-build
 zig build rooms-server                              # Run the Rooms server: the directory members register with and the rooms they enter; pass `-- [--state=<directory>] [--history] [--admin-listeners] [--diagnostics] [--operator] [--peering] [--trace]` (iroh by default, needs cargo)
-zig build rooms-web-build                           # Build and install the Rooms HTTP front and browser application (needs cargo + wasm-bindgen); part of glowcap-install, rooms-archive-test, rooms-dev, rooms-web, rooms-web-admission, rooms-web-archive, rooms-web-boot-theme, rooms-web-dm, rooms-web-dm-deno, rooms-web-dm-foreign, rooms-web-dm-noise, rooms-web-dm-reopen, rooms-web-dm-retarget, rooms-web-dm-session-webrtc, rooms-web-dm-tabs, rooms-web-dm-trace, rooms-web-dm-webrtc, rooms-web-hosted-session, rooms-web-link-preview, rooms-web-manager, rooms-web-operations-refresh, rooms-web-page, rooms-web-private, rooms-web-reconnect, rooms-web-relay-peer, rooms-web-responsiveness, rooms-web-routes, rooms-web-shared-session, rooms-web-test, rooms-web-tor-test, rooms-web-trace-lifecycle, site-captures-directories, site-captures-rooms
+zig build rooms-web-build                           # Build and install the Rooms HTTP front and browser application (needs cargo + wasm-bindgen); part of rooms-archive-test, rooms-dev, rooms-web, rooms-web-prepare, rooms-web-relay-peer
+zig build rooms-web-prepare                         # Build the Rooms HTTP front and write its browser assets as one prepared generation at zig-out/rooms-web/current, which `rooms-web --prepared` serves and `--export-static` exports (needs cargo + wasm-bindgen); part of glowcap-install, rooms-server-test, rooms-web-admission, rooms-web-archive, rooms-web-boot-theme, rooms-web-dm, rooms-web-dm-deno, rooms-web-dm-foreign, rooms-web-dm-noise, rooms-web-dm-reopen, rooms-web-dm-retarget, rooms-web-dm-session-webrtc, rooms-web-dm-tabs, rooms-web-dm-trace, rooms-web-dm-webrtc, rooms-web-hosted-session, rooms-web-link-preview, rooms-web-manager, rooms-web-operations-refresh, rooms-web-page, rooms-web-private, rooms-web-reconnect, rooms-web-responsiveness, rooms-web-routes, rooms-web-shared-session, rooms-web-static, rooms-web-test, rooms-web-tor-test, rooms-web-trace-lifecycle, site-captures-directories, site-captures-rooms
 zig build rooms-web-test                            # Prove the installed web front's HTTP, relay admission and startup/shutdown custody (needs cargo + deno + python3); part of runtime-check
 zig build rooms-web-tor-test                        # Opt-in: prove the web front owns a private Tor and preserves its directory service key, with networking disabled (needs cargo + deno + python3 + tor)
 zig build rooms-web                                 # Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=iroh|tcp|onion` picks the room transport, default iroh. Server flags follow `--`: `--diagnostics` / `--admin-listeners` / `--operator` / `--peering` / `--trace` / `--irc` mint the operations capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN
+zig build rooms-web-static                          # Rebuild the Rooms page, export it as static files, and serve them the way GitHub Pages does at http://localhost:5173/rooms/app/, with no Rooms server behind it. `-- --base=/<path>/ --port=<port>` change either (needs cargo + deno + wasm-bindgen)
 zig build rooms-dev                                 # Serve Rooms with every operator capability minted and state under .local/.state/rooms; `-Dhot-reload=false` uses compiled-generation serving, and `-Dtransport` works as on rooms-web (needs cargo + deno)
 ```
 

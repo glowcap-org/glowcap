@@ -67,6 +67,7 @@ export const GESTURES = {
 	setIgnoredName: indicate("setting"),
 	chooseHistoryRetention: indicate("setting"),
 	chooseConnection: indicate("setting"),
+	chooseHomeDirectory: indicate("setting"),
 	selectArchive: indicate("setting"),
 	takeRoomLink: indicate("conversation"),
 	ensureRoomLink: indicate("conversation"),

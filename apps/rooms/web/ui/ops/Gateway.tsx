@@ -67,7 +67,9 @@ function primaryOnly(form: BridgeForm, action: string, send: () => Promise<strin
 
 export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 	const session = useRoomsSession();
-	const home = useRoomsState((current) => current.homeDir);
+	// The gateway's rooms live on the directory the gateway was minted on.
+	const bridged = useRoomsState((current) => current.opsDirs.irc ?? null);
+	const homeDir = useRoomsState((current) => current.homeDir);
 	const navigate = useNavigate();
 	const [confirmingRemove, setConfirmingRemove] = useState<string | null>(null);
 	const [confirmingClose, setConfirmingClose] = useState<string | null>(null);
@@ -133,9 +135,10 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 	};
 
 	const openRoom = (lease: GatewayLease) => {
-		if (home === null || lease.roomName === null) return;
-		session.pickRoom(home, lease.roomName);
-		navigate(roomAddress(lease.roomName));
+		if (bridged === null || lease.roomName === null) return;
+		session.pickRoom(bridged, lease.roomName);
+		// The router's own rule: an address names its directory unless it is home.
+		navigate(roomAddress(lease.roomName, bridged === homeDir ? {} : { directory: session.dirAddress(bridged) }));
 	};
 
 	return (
@@ -232,7 +235,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 																		)
 																		: (
 																			<div className="actions">
-																				{home !== null &&
+																				{bridged !== null &&
 																					lease.roomName !== null && (
 																					<Button
 																						variant="quiet"

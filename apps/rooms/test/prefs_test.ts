@@ -3,7 +3,7 @@
 import "./support/match_media.ts";
 import { assertEquals } from "./assert.ts";
 
-const { dmFrom, writeSearch } = await import("../web/ui/prefs.ts");
+const { dmFrom, servedDirectory, writeSearch } = await import("../web/ui/prefs.ts");
 const { roomAddress, directoryAddress } = await import("../web/ui/route_address.ts");
 
 Deno.test("dm: URL relay wins over stored webrtc", () => {
@@ -49,4 +49,46 @@ Deno.test("shared room and directory addresses carry only the DM startup choice"
 		if (prior) Object.defineProperty(globalThis, "location", prior);
 		else Reflect.deleteProperty(globalThis, "location");
 	}
+});
+
+// A page from a static host has no `/locator`. Whatever that host answers,
+// the page opens holding no directory, and only a directory address counts.
+const namesDirectory = (text: string) => text.startsWith("ocapn://");
+const { pageRoute, servedByRooms } = await import("../web/ui/page_base.ts");
+
+Deno.test("servedByRooms: only a page the static export marked has no server behind it", () => {
+	assertEquals(servedByRooms("static"), false, "static export");
+	assertEquals(servedByRooms(null), true, "served by Rooms");
+	assertEquals(servedByRooms("other"), true, "an unknown mark");
+});
+// A page served under a base path reads its route under that base.
+const locator = pageRoute("locator", new URL("https://pages.test/rooms/app/"));
+const answering = (response: Response | Error) => (address: URL) => {
+	assertEquals(address.href, "https://pages.test/rooms/app/locator", "the route under the page base");
+	return response instanceof Error ? Promise.reject(response) : Promise.resolve(response);
+};
+
+Deno.test("servedDirectory: a served directory address is the page's directory", async () => {
+	const read = answering(new Response("ocapn://directory.test\n"));
+	assertEquals(await servedDirectory(namesDirectory, read, locator), "ocapn://directory.test", "served");
+});
+
+Deno.test("servedDirectory: a missing route means no served directory", async () => {
+	const read = answering(new Response("not found", { status: 404 }));
+	assertEquals(await servedDirectory(namesDirectory, read, locator), null, "404");
+});
+
+Deno.test("servedDirectory: a page fallback answering HTML means no served directory", async () => {
+	const read = answering(new Response("<!doctype html><title>Rooms</title>", { status: 200 }));
+	assertEquals(await servedDirectory(namesDirectory, read, locator), null, "fallback page");
+});
+
+Deno.test("servedDirectory: an unreachable host means no served directory", async () => {
+	const read = answering(new TypeError("Failed to fetch"));
+	assertEquals(await servedDirectory(namesDirectory, read, locator), null, "network failure");
+});
+
+Deno.test("servedDirectory: an empty body means no served directory", async () => {
+	const read = answering(new Response("\n"));
+	assertEquals(await servedDirectory(namesDirectory, read, locator), null, "empty");
 });

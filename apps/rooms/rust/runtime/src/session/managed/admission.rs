@@ -213,6 +213,7 @@ fn command_class(route: Route) -> Option<Class> {
 			| Command::DismissInvitation
 			| Command::SetDirectoryNick
 			| Command::ChooseDirectoryNickname
+			| Command::ChooseHomeDirectory
 			| Command::ReplaceOperationsCapabilities
 			| Command::ReplaceOperationsBundle
 			| Command::SubmitRoomBridgeForm

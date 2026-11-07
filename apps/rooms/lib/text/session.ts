@@ -17,6 +17,10 @@ export const sessionLocalTitle = "This browser";
 export const sessionLocalHint =
 	"Your session stays in this browser. Clear the browser and it's gone, and there's no copy anywhere else.";
 export const sessionLocalCommit = "Use this browser";
+/** Said when the page could not open its session for a reason Rooms cannot
+ * name. The browser console holds the cause. */
+export const sessionDidNotOpen =
+	"Something stopped this session from starting. Go back to session setup to try again or choose another session. The browser console has the details.";
 
 export const sessionSharedTitle = "Shared session";
 /** The reader pastes a link. That the link is a capability is true but not

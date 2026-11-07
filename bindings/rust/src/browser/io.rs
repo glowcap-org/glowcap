@@ -131,20 +131,27 @@ impl Closer {
 impl ChannelClose for Closer {
 	fn poll_close(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
 		self.shared.request_close();
+		// Close answers for retirement alone. A failure the channel met before it
+		// closed, such as a socket that never opened, is already the answer its
+		// reader, writer and readiness give.
 		if self.shared.state.borrow().closed {
 			self.detach();
-			return Poll::Ready(self.shared.state.borrow().result());
+			return Poll::Ready(self.shared.state.borrow().retirement());
 		}
 		self.shared.state.borrow_mut().closer = Some(cx.waker().clone());
 		let deadline = self
 			.deadline
 			.get_or_insert_with(|| TimeoutFuture::new(BINDING_BROWSER_CHANNEL_CLOSE_TIMEOUT_MS as u32));
 		std::task::ready!(Pin::new(deadline).poll(cx));
-		self.shared
-			.fail(io::ErrorKind::TimedOut, "browser channel physical close timed out");
-		self.shared.state.borrow_mut().closed = true;
+		const TIMED_OUT: &str = "browser channel physical close timed out";
+		self.shared.fail(io::ErrorKind::TimedOut, TIMED_OUT);
+		{
+			let mut state = self.shared.state.borrow_mut();
+			state.unretired = Some(super::Failure(io::ErrorKind::TimedOut, TIMED_OUT.into()));
+			state.closed = true;
+		}
 		self.detach();
-		Poll::Ready(self.shared.state.borrow().result())
+		Poll::Ready(self.shared.state.borrow().retirement())
 	}
 }
 impl Drop for Closer {

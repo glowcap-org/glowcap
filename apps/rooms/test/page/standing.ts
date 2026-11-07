@@ -4,6 +4,7 @@
 // is that setting one moves exactly the rooms taking their answer from it.
 
 import type { Browser, Page } from "playwright";
+import { homeDirectoryName } from "../../lib/text/directory.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
 import { fillSettled, reachDirectoryOnCard } from "./harness.ts";
@@ -231,7 +232,7 @@ export async function run(
 		);
 		await answered(
 			"/directories",
-			["room advertised", "this directory"],
+			["room advertised", homeDirectoryName],
 			"/directories did not name the page's own directory",
 		);
 	}

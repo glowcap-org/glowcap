@@ -19,6 +19,7 @@
 // hides and shows, and the order underneath is the reader's.
 
 import { Link } from "react-router";
+import { homeDirectoryName } from "../../../lib/text/directory.ts";
 import { frontPage, railToggleLabel, yourRooms } from "../../../lib/text/controls.ts";
 import { railCreateOrOpenIn, railRoomNameNoun, railRoomNamePlaceholder } from "../../../lib/text/rail.ts";
 import { railHide, railShow } from "../../../lib/text/conversation.ts";
@@ -61,7 +62,7 @@ import { MAX_ROOM } from "../limits.ts";
 import { Foot } from "../sidebar/Foot.tsx";
 import { RailSection } from "../sidebar/Section.tsx";
 import type { AddField } from "../sidebar/NamePanel.tsx";
-import { useRoomsState } from "../hooks.ts";
+import { useRoomsProjection, useRoomsState } from "../hooks.ts";
 import { emptyDirs } from "../store.ts";
 
 /** Whether following this link is going to happen in this tab. A middle or
@@ -124,7 +125,7 @@ function SidebarPane(
 	const unreads = useRoomsState((state) => state.unreads);
 	/** Directories this tab holds with nothing open, which get a row of their
 	 * own: holding one is a session and a registered name whatever is open on it. */
-	const empty = emptyDirs({ convs, dirs, homeDir });
+	const empty = emptyDirs({ convs, dirs });
 	// The direct-message section needs to know whether this tab is in any room:
 	// a direct line starts from a roster, and any room's roster will do.
 	const inARoom = [...convs.values()].some((conv) => conv.type === "room");
@@ -137,6 +138,7 @@ function SidebarPane(
 	// each section's, so it is one value here instead of a flag in each.
 	const browser = useRoomsBrowser();
 	const rooms = useRoomsSession();
+	const projection = useRoomsProjection();
 	// How much of the rail this reader is looking at. It is a view and it is
 	// theirs, so it is held here rather than in the store: nothing outside the
 	// rail reads it, and no other tab is looking through this reader's eyes.
@@ -176,12 +178,12 @@ function SidebarPane(
 			rooms.directoryId(join.locator.value.trim()),
 			dirs,
 			directoryContext,
-			"this directory",
+			homeDirectoryName,
 		)
 		// The same classification, asked of a directory already in hand rather
 		// than of a field: naming the answer twice is how the panel and the card
 		// came to disagree, and this branch is the copy that was left behind.
-		: destination(here, here, dirs, directoryContext, "this directory");
+		: destination(here, here, dirs, directoryContext, homeDirectoryName);
 	// At most one "+" field is open anywhere in the rail, so this is the open
 	// panel's own id rather than a flag per place that could hold one.
 	const [open, setOpen] = useState<string | null>(null);
@@ -372,6 +374,24 @@ function SidebarPane(
 						onTake={rooms.acceptInvite}
 						onDrop={rooms.declineInvite}
 						onPick={(conv) => {
+							// A public room whose directory is not connected, with nothing of
+							// it to show, goes to the join form holding its name and directory:
+							// retry there, or pick a directory that answers. A room with lines
+							// opens, since its history is what the reader came for, and a
+							// private room's name alone gets nobody in.
+							if (
+								!conv.held && conv.membership !== "joined" &&
+								dirs.get(conv.dir)?.session === "disconnected" &&
+								!(projection.get().histories.get(conv.key)?.some((item) => item.kind === "chat") ??
+									false)
+							) {
+								browser.reachFor({
+									source: "press",
+									room: named(conv.id),
+									locator: named(rooms.dirAddress(conv.dir)),
+								});
+								return;
+							}
 							void browser.showActiveConversation(rooms.pickRoom(conv.dir, conv.id, conv.key));
 						}}
 						onLeave={rooms.leaveRoom}

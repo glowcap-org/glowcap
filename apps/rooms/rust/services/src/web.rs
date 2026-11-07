@@ -8,6 +8,7 @@ mod bundle;
 mod client_address;
 mod compiler;
 mod config;
+mod export;
 mod http;
 mod ice;
 mod notice;
@@ -24,6 +25,7 @@ mod tor;
 mod upgrade;
 use config::BrowserAssets;
 pub use config::{Config, HELP};
+pub use export::StaticExport;
 pub use notice::{Notice, Report};
 pub use prepare::Preparation;
 pub use status::StatusQuery;
@@ -143,6 +145,7 @@ async fn serve(
 		}
 	};
 	let public_locator = locator.location.clone();
+	let links = page_links(&limits.pages, port);
 	let shared = match session {
 		Some(mut config) => {
 			// The cohosted session must dial browser introductions too. Use
@@ -170,7 +173,14 @@ async fn serve(
 	};
 	let (location, current) = watch::channel(Some(locator));
 	let (jobs, incoming) = tokio::sync::mpsc::channel(32);
-	let relay = relay::Relay::with_admission(limits, current.clone(), jobs, stopping.clone(), admission);
+	let relay = relay::Relay::with_admission(
+		limits,
+		current.clone(),
+		jobs,
+		stopping.clone(),
+		report.clone(),
+		admission,
+	);
 	let mut workers = tokio::task::JoinSet::new();
 	if let Some(peer) = shared {
 		announce(
@@ -206,7 +216,7 @@ async fn serve(
 	announce(
 		&report,
 		&format!(
-			"rooms: serving\n\n  web ui           http://localhost:{port}\n  web locator      http://localhost:{port}/locator\n  room directory   {public_locator}\n\nrooms: ready"
+			"rooms: serving\n\n  web ui           http://localhost:{port}\n  web locator      http://localhost:{port}/locator\n  room directory   {public_locator}\n{links}\nrooms: ready"
 		),
 	);
 	let mut result = tokio::select! {
@@ -223,6 +233,20 @@ async fn serve(
 		crate::cleanup::retain(&mut result, tor.close().await);
 	}
 	result
+}
+
+/// One banner line per Rooms page listed by its address: the page, asked to
+/// use this server. The page confirms the offer once before it uses it.
+fn page_links(pages: &[url::Url], port: u16) -> String {
+	let server = format!("http://localhost:{port}/");
+	pages
+		.iter()
+		.map(|page| {
+			let mut link = page.clone();
+			link.query_pairs_mut().append_pair("server", &server);
+			format!("  open the page    {link}\n")
+		})
+		.collect()
 }
 
 fn local_relay_url(mut address: std::net::SocketAddr) -> String {
@@ -269,5 +293,16 @@ mod tests {
 		] {
 			assert_eq!(super::local_relay_url(bound.parse().unwrap()), expected);
 		}
+	}
+	/// The page reads this link in `apps/rooms/test/server_choice_test.ts`,
+	/// which holds the same text.
+	#[test]
+	fn a_listed_page_is_linked_with_this_server_as_its_offer() {
+		let pages = [url::Url::parse("https://glowcap.org/rooms/app/").unwrap()];
+		assert_eq!(
+			super::page_links(&pages, 8080),
+			"  open the page    https://glowcap.org/rooms/app/?server=http%3A%2F%2Flocalhost%3A8080%2F\n"
+		);
+		assert_eq!(super::page_links(&[], 8080), "");
 	}
 }

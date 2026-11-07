@@ -237,9 +237,31 @@ The relay admits only destinations the deployment allows:
 - the supervised onion service's own local endpoint
 - a peer registered for rendezvous
 
-It refuses a dial whose `Origin` names a host other than the one it was asked
-on, so a page from elsewhere cannot use a reader's relay. A request with no
-`Origin` (every non-browser client) passes.
+It refuses a dial or registration whose `Origin` names a host other than the
+one it was asked on, so a page from elsewhere cannot use a reader's relay. A
+request with no `Origin` (every non-browser client) passes. To serve a Rooms
+page hosted somewhere else, such as a static export, list that page's origin
+with `--allow-origin` or `GLOWCAP_RELAY_ALLOW_ORIGINS` (comma-separated, for
+example `--allow-origin=https://rooms.example,http://127.0.0.1:8093`). A
+listed origin may also read `locator`. A page uses one Rooms server for its
+relay, its registration, and the directory a blank address means. It is the
+server that sent the page unless the browser chose another under **Settings >
+Reachability**, or accepted a link carrying `?server=<address>`.
+
+List the page's own address instead of its origin, such as
+`--allow-origin=https://glowcap.org/rooms/app/`, and the server prints that
+link when it is ready. The page asks once before it uses the offered server.
+
+Browsers treat `localhost` and `127.0.0.1` as different origins, so list the
+one in the address bar. The server prints the exact option when it turns a
+page away.
+
+`zig build rooms-web-static` rebuilds the page, exports it, and serves the
+export at `http://localhost:5173/rooms/app/` the way GitHub Pages would, with
+no Rooms server behind it. Pass `-- --base=/<path>/ --port=<port>` to change
+either. To use it with a local server, start that server with
+`--allow-origin=http://localhost:5173/rooms/app/` and open the link it
+prints.
 
 Browser peers also register a rendezvous identity with the relay, so another
 tab or process can open a fresh connection to the held WebSocket without the

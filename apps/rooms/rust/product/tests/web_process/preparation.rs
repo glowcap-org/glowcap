@@ -45,17 +45,32 @@ async fn web_prepares_and_serves_without_a_source_tree_or_compiler() {
 		assert_eq!(web.status("check-ready").await, "rooms: ready");
 		let application = std::fs::read(current.join("rooms_browser_bg.wasm")).unwrap();
 		use sha2::{Digest, Sha256};
-		let path = format!(
-			"/rooms-{}.wasm",
-			rooms_application::fields::lower_hex(&Sha256::digest(&application))
-		);
-		let module = web.request("HEAD", &path, "").await;
+		let name = format!("rooms-{}.wasm", rooms_application::fields::lower_hex(&Sha256::digest(&application)));
+		let module = web.request("HEAD", &format!("/{name}"), "").await;
 		assert!(module.starts_with("HTTP/1.1 200"));
 		assert!(module.to_lowercase().contains("content-type: application/wasm"));
 		let entry = web.request("GET", "/page.js", "").await;
-		assert!(entry.contains(&path), "the page must name its own immutable module");
+		assert!(entry.contains(&format!("\"{name}\"")), "the page must name its own immutable module, relative to its base");
 		assert!(web.request("HEAD", "/fonts/ibm-plex-sans-latin-wght-normal.woff2", "").await.starts_with("HTTP/1.1 200"));
 		assert!(!fixture.0.join("compiler-called").exists(), "prepared serving needs no compiler");
 		web.stop().await;
+		// The same generation, written as files for a static host at a base path.
+		let exported = fixture.0.join("static");
+		let export = || {
+			Command::new(Web::binary()).arg(format!("--export-static={}", exported.display()))
+				.arg(format!("--assets={}", current.display())).arg("--base=/rooms/app/")
+				.kill_on_drop(true).output()
+		};
+		let written = export().await.unwrap();
+		assert!(written.status.success(), "{}", String::from_utf8_lossy(&written.stderr));
+		let index = std::fs::read_to_string(exported.join("index.html")).unwrap();
+		assert!(index.contains(r#"<base href="/rooms/app/" />"#), "the page names its base");
+		assert!(index.contains(r#"<meta http-equiv="Content-Security-Policy""#), "the page carries its policy");
+		assert!(index.contains(r#"<meta name="rooms-host" content="static" />"#), "the page knows no server stands behind it");
+		assert_eq!(std::fs::read_to_string(exported.join("404.html")).unwrap(), index, "a deep link opens the page");
+		assert!(std::fs::read_to_string(exported.join("page.js")).unwrap().contains(&format!("\"{name}\"")));
+		assert_eq!(std::fs::read(exported.join(&name)).unwrap(), application);
+		assert!(exported.join("fonts/ibm-plex-sans-latin-wght-normal.woff2").is_file());
+		assert!(!export().await.unwrap().status.success(), "an export never writes into an existing directory");
 	}).await.expect("browser preparation and prepared serving deadline");
 }

@@ -11,6 +11,16 @@ use serde_json::Value;
 fn row<'a>(intent: &'a Value, collection: &str, id: &str) -> Option<&'a Value> {
 	intent[collection].as_array()?.iter().find(|row| row["id"] == id)
 }
+/// The ids of the directory rows that carry the home mark.
+fn homes(intent: &Value) -> Option<alloc::vec::Vec<&Value>> {
+	let rows = intent["directories"].as_array()?;
+	Some(
+		rows.iter()
+			.filter(|row| row["home"] == true)
+			.map(|row| &row["id"])
+			.collect(),
+	)
+}
 fn same_row(before: &Value, after: &Value, collection: &str, id: Option<&String>) -> bool {
 	same_row_except(before, after, collection, id, &[])
 }
@@ -130,6 +140,7 @@ pub fn unchanged(name: &str, args: &[String], before: &Value, after: &Value) -> 
 		Route::Checkpoint(ChooseConnection) => {
 			before["connection"].is_string() && before["connection"] == after["connection"]
 		}
+		Route::Checkpoint(ChooseHomeDirectory) => homes(before).is_some() && homes(before) == homes(after),
 		Route::Checkpoint(SetIgnoredNames | SetIgnoredName) => {
 			before["ignored"].is_array() && before["ignored"] == after["ignored"]
 		}
@@ -248,6 +259,17 @@ mod tests {
 		after["historyErasure"] = json!("original-erasure");
 		assert!(!unchanged("chooseHistoryRetention", &args(), &before, &after));
 		assert!(!unchanged("replaceOperationsBundle", &args(), &before, &after));
+	}
+
+	#[test]
+	fn a_home_choice_fences_the_home_mark_alone() {
+		let row = |id: &str, home: bool| json!({"id": id, "home": home, "assignedNick": ""});
+		let before = json!({"directories": [row("a", true), row("b", false)]});
+		let mut supervised = before.clone();
+		supervised["directories"][1]["assignedNick"] = json!("cam+1");
+		assert!(unchanged("chooseHomeDirectory", &args(), &before, &supervised));
+		let moved = json!({"directories": [row("a", false), row("b", true)]});
+		assert!(!unchanged("chooseHomeDirectory", &args(), &before, &moved));
 	}
 
 	#[test]

@@ -37,6 +37,7 @@ pub fn recognizes(route: Route) -> bool {
 				| Command::DismissInvitation
 				| Command::SetStanding
 				| Command::ChooseDirectoryNickname
+				| Command::ChooseHomeDirectory
 				| Command::SetDirectoryStanding
 				| Command::SetRoomStanding
 				| Command::SetEffectiveStanding
@@ -102,6 +103,16 @@ pub fn apply<R: References>(
 			row.nick = Text::new((*nick).into()).ok_or(Refusal::Capacity)?;
 			row.nick_allocation = allocation;
 			row.assigned_nick = None;
+		}
+		// One held directory, or none for "", carries the home mark.
+		(Route::Checkpoint(Command::ChooseHomeDirectory), [id]) => {
+			let rows = intent.directories.as_mut_slice();
+			if !id.is_empty() && !rows.iter().any(|row| row.id.text().as_str() == Some(*id)) {
+				return Err(Refusal::Missing);
+			}
+			for row in rows {
+				row.home = row.id.text().as_str() == Some(*id);
+			}
 		}
 		(Route::Checkpoint(Command::OpenDirect), [raw]) => {
 			let mut next: workspace::Direct = crate::fields::json_object(raw).map_err(|_| Refusal::Arguments)?;

@@ -59,6 +59,7 @@ import {
 	withPageSearch,
 } from "./route_address.ts";
 import type { RoomsPageContext } from "./page.ts";
+import { routerBasename } from "./page_base.ts";
 import { crashReload, crashSessionKept, crashTitle } from "../../lib/text/page.ts";
 
 let routingPage: RoomsPageContext | null = null;
@@ -450,7 +451,7 @@ const router = createBrowserRouter([
 			},
 		],
 	},
-]);
+], { basename: routerBasename() });
 
 /** Navigate imperatively from outside the tree: the peer table's verbs run
  * in module scope, where no hook is available. */

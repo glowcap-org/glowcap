@@ -10,6 +10,14 @@
 import type { RoomConv } from "../conversation.ts";
 import type { PageProjection, State } from "./projection.ts";
 import { getConv, put } from "./convs.ts";
+import type { DirId, DirView } from "../directory.ts";
+
+/** Whether a room is being joined now. Its membership is sought until it is
+ * held, but while its directory is not connected nothing is underway: the room
+ * is waiting on that directory, and says so instead of showing progress. */
+export function roomJoiningNow(conv: RoomConv, dirs: ReadonlyMap<DirId, DirView>): boolean {
+	return conv.membership === "joining" && dirs.get(conv.dir)?.session !== "disconnected";
+}
 import { retireRoomLineIds } from "./items.ts";
 import { roomAuthorityToken } from "../application.ts";
 import type { RoomPolicy } from "../room_policy.ts";

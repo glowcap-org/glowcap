@@ -32,7 +32,8 @@ import {
 	composerStopEditing,
 	composerTakeBack,
 } from "../../../lib/text/controls.ts";
-import { useCoarsePointer, useConversationMembers, useDismissOnClickOutside } from "../hooks.ts";
+import { useCoarsePointer, useConversationMembers, useDismissOnClickOutside, useRoomsState } from "../hooks.ts";
+import { roomJoiningNow } from "../store/rooms.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { composerReducer, initialComposerState } from "./composer_state.ts";
 import { useRoomsSession } from "../controller/session.ts";
@@ -173,8 +174,12 @@ export function Composer(
 	// button's job.
 	const coarse = useCoarsePointer();
 	const roomWaiting = conv?.type === "room" && conv.membership !== "joined";
+	const dirs = useRoomsState((state) => state.dirs);
+	const joiningNow = conv?.type === "room" && roomJoiningNow(conv, dirs);
+	// Waiting on a directory that is not connected: there is nothing to press.
+	const directoryAway = conv?.type === "room" && conv.membership === "joining" && !joiningNow;
 	const joiningProgress = useProgress(
-		conv?.type === "room" && conv.membership === "joining",
+		joiningNow,
 		PRESENTATION.connection,
 		conv?.key,
 	);
@@ -589,16 +594,18 @@ export function Composer(
 							/>
 						)}
 					</div>
-					{roomWaiting && canInteract && (conv.membership !== "joining" || joiningProgress)
+					{roomWaiting && canInteract && (!joiningNow || joiningProgress)
 						? (
 							<Button
 								id="roomReconnect"
 								type="button"
-								busy={recoveringRoom || conv.membership === "joining"}
+								busy={recoveringRoom || joiningNow}
 								disabled={recoveringRoom || conv.membership === "joining"}
 								onClick={recoverRoom}
 							>
-								{conv.membership === "joining"
+								{directoryAway
+									? PHASE_SAID.disconnected
+									: joiningNow
 									? composerJoining
 									: conv.held && conv.linkToken == null
 									? composerRestoreAccess

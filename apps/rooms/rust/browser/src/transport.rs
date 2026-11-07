@@ -10,110 +10,132 @@ use web_sys::Url;
 
 /// A trusted Rooms web deployment. In particular, its host iroh handshake
 /// authenticates the remote node before forwarding opaque bytes to this page.
-/// Never construct this from a peer-supplied locator hint. The ordinary page
-/// uses deployment(). Explicit construction is for an embedding that chooses
-/// its web front as part of application configuration.
+/// Never construct this from a peer-supplied locator hint. The page uses
+/// `chosen`: the relay this device was set to use, else the page's own server.
+///
+/// Its routes sit under `base`, a URL ending in `/`: the base the page's files
+/// are served from, or the base of a Rooms server this device chose. A page
+/// from a static host with none chosen has no front: only an address that
+/// carries its own WebSocket route dials, and nothing reaches this browser
+/// through a relay.
+#[derive(Clone)]
 pub struct WebFront(String);
 impl WebFront {
-	pub fn new(page_url: &str) -> Result<Self, io::Error> {
-		let url = Url::new(page_url).map_err(|_| invalid("Rooms page URL is invalid"))?;
+	pub fn new(base: &str) -> Result<Self, io::Error> {
+		if !Url::new(base).is_ok_and(|base| base.pathname().ends_with('/')) {
+			return Err(invalid("Rooms relay base must be a URL ending in /"));
+		}
+		// Resolving a relative path drops the base's query and fragment.
+		let url = Url::new_with_base("relay", base).map_err(|_| invalid("Rooms relay URL is invalid"))?;
 		let scheme = match url.protocol().as_str() {
 			"http:" => "ws:",
 			"https:" => "wss:",
-			_ => return Err(invalid("Rooms web forwarding requires an HTTP or HTTPS page")),
+			_ => return Err(invalid("Rooms web forwarding requires an HTTP or HTTPS relay")),
 		};
 		if !url.username().is_empty() || !url.password().is_empty() {
 			return Err(invalid("Rooms web forwarding does not accept URL credentials"));
 		}
 		url.set_protocol(scheme);
-		url.set_pathname("/relay");
-		url.set_search("");
-		url.set_hash("");
 		Ok(Self(url.href()))
 	}
-	pub fn deployment() -> Result<Self, io::Error> {
-		Self::new(&page_url()?.href())
+	/// The WebSocket this front dials through.
+	pub(crate) fn relay(&self) -> &str {
+		&self.0
+	}
+	/// The WebSocket a browser registers at to be reached: `register`, beside
+	/// `relay` under the same base.
+	pub(crate) fn register(&self) -> Result<String, io::Error> {
+		Url::new_with_base("register", &self.0)
+			.map(|url| url.href())
+			.map_err(|_| invalid("Rooms relay URL is invalid"))
 	}
 	pub(crate) fn relay_route(&self, host: &Host) -> glowcap::Result<(Locator, String)> {
 		let locator = Locator::bare(glowcap::TRANSPORT_NOISE_RELAY, &host.designator()?)
 			.with_hint("rendezvous-relay", glowcap::HintValue::String(self.0.clone()));
-		let register = Url::new(&self.0).map_err(|_| invalid("Rooms relay URL is invalid"))?;
-		register.set_pathname("/register");
-		Ok((locator, register.href()))
+		Ok((locator, self.register()?))
 	}
-	fn connector(self) -> glowcap::Result<Connector> {
-		Connector::new(
-			&[
-				glowcap::TRANSPORT_TCP,
-				glowcap::TRANSPORT_KEYED_TCP,
-				glowcap::TRANSPORT_NOISE_TCP,
-				glowcap::TRANSPORT_IROH,
-				glowcap::TRANSPORT_ONION,
-			],
-			move |host, locator, _origin, options, timeout| {
-				let endpoint = self.target(locator);
-				Box::pin(async move {
-					if options.is_some() {
-						return Err(invalid("Rooms web forwarding has no per-operation byte options").into());
-					}
-					let timeout = timeout
-						.filter(|budget| !budget.is_zero())
-						.ok_or_else(|| invalid("Rooms web forwarding requires a finite handshake budget"))?;
-					let iroh = locator.transport == glowcap::TRANSPORT_IROH;
-					let timeout = if iroh {
-						timeout
-							.checked_add(Duration::from_millis(web_relay::IROH_DIAL_TIMEOUT_MS.into()))
-							.ok_or_else(|| invalid("Rooms web forwarding deadline overflow"))?
-					} else {
-						timeout
-					};
-					let channel = browser::open_websocket(&endpoint?)?;
-					// Only the explicitly trusted front's iroh QUIC leg proves a key.
-					// Onion names an address; TCP and relay bytes supply no such proof.
-					Session::dial_channel(
-						&host,
-						locator,
-						channel,
-						Some(timeout),
-						iroh.then_some(locator.designator.as_str()),
-					)
-					.await
-				})
-			},
-		)
-	}
-	fn target(&self, locator: &Locator) -> Result<String, io::Error> {
-		if let Some(advice) = locator.hints.get(rooms_application::web_channel::HINT) {
-			if locator.transport != glowcap::TRANSPORT_TCP {
-				return Err(invalid("WebSocket byte-channel advice requires cleartext TCP"));
-			}
-			let glowcap::HintValue::String(endpoint) = advice else {
-				return Err(invalid("WebSocket byte-channel advice must be a URL string"));
-			};
-			rooms_application::web_channel::endpoint(endpoint).map_err(invalid)?;
-			return Ok(endpoint.clone());
-		}
-		let target = glowcap::format_locator_uri(locator).map_err(io::Error::other)?;
-		if target.len() > web_relay::MAX_TARGET_BYTES {
-			return Err(invalid("Rooms web forwarding target exceeds its byte limit"));
-		}
+	fn relay_target(&self, target: &str) -> String {
 		// The full locator carries profile and routing hints. The front's
 		// admission policy is the authority for which host targets it serves.
-		let encoded: String = js_sys::encode_uri_component(&target).into();
-		Ok(format!("{}?target={encoded}", self.0))
+		let encoded: String = js_sys::encode_uri_component(target).into();
+		format!("{}?target={encoded}", self.0)
 	}
+}
+
+/// Why this browser cannot use a relay: the page has no Rooms server.
+pub(crate) const NO_SERVER: &str =
+	"This page has no Rooms server to relay through. Choose one in Settings, under Reachability.";
+
+fn connector(front: Option<WebFront>) -> glowcap::Result<Connector> {
+	Connector::new(
+		&[
+			glowcap::TRANSPORT_TCP,
+			glowcap::TRANSPORT_KEYED_TCP,
+			glowcap::TRANSPORT_NOISE_TCP,
+			glowcap::TRANSPORT_IROH,
+			glowcap::TRANSPORT_ONION,
+		],
+		move |host, locator, _origin, options, timeout| {
+			let endpoint = target(front.as_ref(), locator);
+			Box::pin(async move {
+				if options.is_some() {
+					return Err(invalid("Rooms web forwarding has no per-operation byte options").into());
+				}
+				let timeout = timeout
+					.filter(|budget| !budget.is_zero())
+					.ok_or_else(|| invalid("Rooms web forwarding requires a finite handshake budget"))?;
+				let iroh = locator.transport == glowcap::TRANSPORT_IROH;
+				let timeout = if iroh {
+					timeout
+						.checked_add(Duration::from_millis(web_relay::IROH_DIAL_TIMEOUT_MS.into()))
+						.ok_or_else(|| invalid("Rooms web forwarding deadline overflow"))?
+				} else {
+					timeout
+				};
+				let channel = browser::open_websocket(&endpoint?)?;
+				// Only the explicitly trusted front's iroh QUIC leg proves a key.
+				// Onion names an address; TCP and relay bytes supply no such proof.
+				Session::dial_channel(
+					&host,
+					locator,
+					channel,
+					Some(timeout),
+					iroh.then_some(locator.designator.as_str()),
+				)
+				.await
+			})
+		},
+	)
+}
+fn target(front: Option<&WebFront>, locator: &Locator) -> Result<String, io::Error> {
+	if let Some(advice) = locator.hints.get(rooms_application::web_channel::HINT) {
+		if locator.transport != glowcap::TRANSPORT_TCP {
+			return Err(invalid("WebSocket byte-channel advice requires cleartext TCP"));
+		}
+		let glowcap::HintValue::String(endpoint) = advice else {
+			return Err(invalid("WebSocket byte-channel advice must be a URL string"));
+		};
+		rooms_application::web_channel::endpoint(endpoint).map_err(invalid)?;
+		return Ok(endpoint.clone());
+	}
+	let front = front.ok_or_else(|| invalid(NO_SERVER))?;
+	let target = glowcap::format_locator_uri(locator).map_err(io::Error::other)?;
+	if target.len() > web_relay::MAX_TARGET_BYTES {
+		return Err(invalid("Rooms web forwarding target exceeds its byte limit"));
+	}
+	Ok(front.relay_target(&target))
 }
 
 /// Create the page's one Runtime around its already selected Host identity.
 /// Directory selection reads the application's held clients. ICE remains an
 /// application-owned resource whose close is observed at page retirement.
-pub async fn open<D, F>(host: &Host, front: WebFront, select: F, ice: ice::Source) -> glowcap::Result<Runtime>
+pub async fn open<D, F>(host: &Host, front: Option<WebFront>, select: F, ice: ice::Source) -> glowcap::Result<Runtime>
 where
 	D: Deadline + Tasks + Clone + 'static,
 	F: Fn(&glowcap::Locator, &DialOrigin) -> Result<Route<D>, String> + 'static,
 {
 	let connectors = [
-		front.connector()?,
+		connector(front)?,
 		browser::relay::connector()?,
 		signaling::connector(select, ice)?,
 	];
@@ -121,14 +143,4 @@ where
 }
 fn invalid(reason: &str) -> io::Error {
 	io::Error::new(io::ErrorKind::InvalidInput, reason)
-}
-
-pub(crate) fn page_url() -> Result<Url, io::Error> {
-	let location = js_sys::Reflect::get(&js_sys::global(), &"location".into())
-		.map_err(|_| invalid("the browser has no page location"))?;
-	let href = js_sys::Reflect::get(&location, &"href".into())
-		.ok()
-		.and_then(|value| value.as_string())
-		.ok_or_else(|| invalid("the browser has no page URL"))?;
-	Url::new(&href).map_err(|_| invalid("Rooms page URL is invalid"))
 }

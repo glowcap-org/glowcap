@@ -18,6 +18,8 @@ import { operationCommand, operationHolding, operationKind, operationSelection }
 import { OperationsAcquisitionRefused } from "./acquisition.ts";
 import { OPS_CATALOG } from "../../ops/catalog.ts";
 import { privateReadKey, revisionReadKey } from "./reads.ts";
+import { inspectCapability } from "../../application.ts";
+import { type DirId, dirId } from "../../directory.ts";
 
 /** Capabilities refreshed from the reader's generic snapshot, and the pane
  * each answer loads. Keyed exhaustively: a new snapshot capability without a
@@ -71,6 +73,26 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			}
 		});
 	}
+	/** The directory a held capability governs: the authority of the address
+	 * it was taken from. Read once per selection, since a held capability's
+	 * address never changes. */
+	const governing = new Map<string, DirId | null>();
+	// Only these act on a directory's rooms: the operator's stewardships, the
+	// gateway's bridged rooms, and peering's publication target.
+	const GOVERNS_A_DIRECTORY: ReadonlySet<OperationsCapability> = new Set(["operator", "irc", "peering"]);
+	async function governed(
+		cap: OperationsCapability,
+		row: { coordinate: Coordinate },
+		selection: string | null,
+	): Promise<DirId | null> {
+		const key = `${cap}:${selection}`;
+		if (governing.has(key)) return governing.get(key) ?? null;
+		const uri: string | null = await session.workspace.custodyRecipe(JSON.stringify(row.coordinate));
+		const authority = uri == null ? null : inspectCapability(uri)?.authority;
+		const dir = authority == null ? null : dirId(authority);
+		governing.set(key, dir);
+		return dir;
+	}
 	async function refresh(
 		cap: OperationsCapability,
 		query = "",
@@ -81,6 +103,10 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		const request = (refreshes.get(cap) ?? 0) + 1;
 		refreshes.set(cap, request);
 		const current = () => refreshApplies(cap, request, selection);
+		if (GOVERNS_A_DIRECTORY.has(cap)) {
+			const governs = await governed(cap, row, selection);
+			if (current()) store.setOpsDirectory(projection, cap, governs);
+		}
 		if (cap === "trace") {
 			const snapshot = await session.reads.run(
 				revisionReadKey("trace", row.coordinate, session.current?.revision),

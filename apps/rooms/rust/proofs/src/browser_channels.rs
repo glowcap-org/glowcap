@@ -18,7 +18,7 @@ pub async fn rooms_browser_websocket_contract(location: String) {
 			let runtime = std::rc::Rc::new(
 				rooms_browser::transport::open::<rooms_browser::platform::Platform, _>(
 					&host,
-					rooms_browser::transport::WebFront::deployment().unwrap(),
+					super::page_server(),
 					|_, _| Err("this scenario has no signaling directory".into()),
 					ice.clone(),
 				)
@@ -232,8 +232,9 @@ pub async fn rooms_browser_websocket_refusal(socket: WebSocket, location: String
 			.expect("cross-origin relay must refuse");
 			assert_eq!(error.kind(), glowcap::ErrorKind::Io);
 			assert!(error.to_string().contains("browser channel error"));
-			// The close barrier reports that this WebSocket failed to establish.
-			assert!(host.close(PendingWork::Cancel).await.is_err());
+			// The dial reported the refusal. The socket that never opened still
+			// retired, and close answers for retirement alone.
+			host.close(PendingWork::Cancel).await.unwrap();
 		})
 		.await;
 }

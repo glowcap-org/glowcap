@@ -30,7 +30,9 @@ export function useRoomCapabilityActs(
 ) {
 	const session = useRoomsSession();
 	const browser = useRoomsBrowser();
-	const directoryOperatorPossessed = useRoomsState((state) => state.operator !== null && state.homeDir === conv.dir);
+	const directoryOperatorPossessed = useRoomsState((state) =>
+		state.operator !== null && state.opsDirs.operator === conv.dir
+	);
 	const directoryOperatorCanManage = directoryOperatorPossessed && authoritySource === "local";
 	const [managerPasted, setManagerPasted] = useState("");
 	const [takingManager, setTakingManager] = useState<"take" | "recover" | null>(null);

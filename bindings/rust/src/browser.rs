@@ -71,6 +71,9 @@ struct State {
 	queue: VecDeque<Vec<u8>>,
 	queued_bytes: usize,
 	failure: Option<Failure>,
+	/// Why physical retirement itself failed: the socket refused to close, or
+	/// its close outlived the deadline. Only this answers a close.
+	unretired: Option<Failure>,
 	closing: bool,
 	closed: bool,
 	reader: Option<Waker>,
@@ -92,6 +95,9 @@ impl State {
 	}
 	fn result(&self) -> std_io::Result<()> {
 		self.failure.as_ref().map_or(Ok(()), |failure| Err(failure.error()))
+	}
+	fn retirement(&self) -> std_io::Result<()> {
+		self.unretired.as_ref().map_or(Ok(()), |failure| Err(failure.error()))
 	}
 }
 
@@ -136,6 +142,7 @@ impl Shared {
 				.get_or_insert_with(|| Failure(error.kind(), error.to_string()));
 			// A refusal is terminal for this barrier. Its error explicitly denies
 			// successful physical retirement; the closer detaches all callbacks.
+			state.unretired = Some(Failure(error.kind(), error.to_string()));
 			state.closed = true;
 			state.wake();
 		}

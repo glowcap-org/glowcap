@@ -1,11 +1,22 @@
 // Two actual application Hosts share exact issued use and control through the
 // production Noise relay. Descriptive grant IDs never reconstruct authority.
+
 export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" } = {}) {
 	const binding = await import(moduleUrl);
 	await binding.default();
-	const first = new binding.RoomsManagedApplication(crypto.randomUUID(), () => {});
+	const first = new binding.RoomsManagedApplication(
+		crypto.randomUUID(),
+		() => {},
+		undefined,
+		new URL(".", document.baseURI).href,
+	);
 	const receiverTab = crypto.randomUUID();
-	let second = new binding.RoomsManagedApplication(receiverTab, () => {});
+	let second = new binding.RoomsManagedApplication(
+		receiverTab,
+		() => {},
+		undefined,
+		new URL(".", document.baseURI).href,
+	);
 	const held = [];
 	let failure;
 	async function lifecycle(control, verb, revision) {
@@ -77,7 +88,12 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		}
 		await second.close();
 		second.free();
-		second = new binding.RoomsManagedApplication(receiverTab, () => {});
+		second = new binding.RoomsManagedApplication(
+			receiverTab,
+			() => {},
+			undefined,
+			new URL(".", document.baseURI).href,
+		);
 		remoteUse = await second.savedWorkspace("foreign");
 		remoteControl = await second.savedControl("foreign");
 		held.push(remoteUse, remoteControl);
