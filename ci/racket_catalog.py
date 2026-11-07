@@ -41,9 +41,12 @@ API = "https://pkgd.racket-lang.org/api/package/modify-all"
 EMAIL, PASSWORD = "RACKET_CATALOG_EMAIL", "RACKET_CATALOG_PASSWORD"
 METADATA = "bindings/racket/catalog.json"
 TIMEOUT = 30
-# The catalog re-reads the archive as soon as the edit is saved and rebuilds
-# its public pages on a schedule of minutes, so the wait is bounded, not short.
-DEADLINE_SECONDS = 20 * 60
+# The catalog re-reads the archive as soon as the edit is saved, unless its
+# hourly sweep of every package holds the update lock: edits then wait for the
+# sweep, which has run for up to 45 minutes, and the public pages follow a few
+# minutes after the read. The wait covers the longest sweep seen, not the
+# common case.
+DEADLINE_SECONDS = 60 * 60
 POLL_SECONDS = 30
 
 
