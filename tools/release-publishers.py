@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """tools/release-publishers.py [--check] [STAGE ...]: the registry setup publish.yml needs.
 
 The maintainer runs it from any directory, with gh authenticated for the
