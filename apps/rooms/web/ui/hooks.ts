@@ -3,13 +3,13 @@ import { managedSessionText as managedText } from "../../lib/text/managed_sessio
 
 import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
-import { NO_MEMBERS, type PageProjection, type State } from "./store.ts";
+import { NO_MEMBERS, type PageProjection, type RoomsServerView, type State } from "./store.ts";
 import type { RoomsPermission } from "../../lib/session_content_data.ts";
 import type { RoomConv, Standing } from "./conversation.ts";
 import { archiveShareBearer, roomBearer, type RoomBearerKind } from "./session/bearer.ts";
 import { useManagedSession } from "./session/managed/context.tsx";
 import { conversationById } from "./session/managed/conversation_lookup.ts";
-import { noteTrouble } from "./store.ts";
+import { noteTrouble, serverOrAsk } from "./store.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 
 const RoomsProjectionContext = createContext<PageProjection | null>(null);
@@ -26,6 +26,14 @@ export function useRoomsProjection(): PageProjection {
 		throw new Error("rooms: the page projection was requested outside its provider");
 	}
 	return projection;
+}
+
+/** A control's gate before an act that reaches through a Rooms server:
+ * `store.serverOrAsk`, bound to the page. A control calls it first and stops
+ * when it answers null, because the page is asking for the server instead. */
+export function useServerGate(): (resume?: () => string | null) => RoomsServerView | null {
+	const projection = useRoomsProjection();
+	return useCallback((resume: () => string | null = () => null) => serverOrAsk(projection, resume), [projection]);
 }
 
 /** The bearer string behind a room's authority token, read from the session

@@ -18,7 +18,7 @@ import {
 } from "../../../lib/text/settings.ts";
 import { Button } from "../Button.tsx";
 import { useRoomsSession } from "../controller/session.ts";
-import { actionRefusal, locatorRefusal } from "../error_text.ts";
+import { actionRefusal } from "../error_text.ts";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
 import type { RoomConv } from "../conversation.ts";
@@ -49,7 +49,7 @@ export function RoomRecovery({ conv, blocked }: { conv: RoomConv; blocked: boole
 		setRecovering(true);
 		setSaid("");
 		void actionRefusal(() => session.recoverRoom(conv.key, conv.held ? link : undefined)).then((refused) => {
-			setSaid(locatorRefusal(refused, "current room entry link"));
+			setSaid(refused);
 			if (refused === "") setLink("");
 		}).finally(() => {
 			setRecovering(false);

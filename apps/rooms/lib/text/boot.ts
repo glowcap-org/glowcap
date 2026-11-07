@@ -35,3 +35,6 @@ export const bootAsides: readonly string[] = [
 /** The note line once the wait has a reason. The caller shows the reason
  * under this line. */
 export const bootStillOpening = "Still opening. The server may still be building this page…";
+/** The same line on a page a static host serves: nothing is building, so the
+ * one thing that changes it is a reload. */
+export const bootStillOpeningStatic = "Still opening. Reloading is worth a try.";

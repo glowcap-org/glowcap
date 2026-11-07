@@ -1,4 +1,5 @@
 // The session chooser: the first screen a browser holding nothing meets, and
+import { serverUnreachable } from "./failure.ts";
 // the two acts under it that take saved state away.
 //
 // A session is where this browser's rooms, messages and settings live. It is
@@ -56,6 +57,10 @@ export const sessionServerAttachLead =
 	"A shared session is reached through a Rooms server, and this page has none. Test a server's address, and saving it attaches.";
 export const sessionServerSave = "Save";
 export const sessionServerSaveAttach = "Save and attach";
+/** A session act that broke on the way, while this browser has a Rooms
+ * server to go through: that server is the likeliest cause. */
+export const sessionServerUnreachable = (host: string, detail: string) =>
+	serverUnreachable(host, "Check that it is running, or change it.", detail);
 /** The same dialog in the open workspace, opened by an act that reaches
  * through a Rooms server when the page has none. The session keeps its
  * server, so saving reloads, and the act is waiting on the other side. */

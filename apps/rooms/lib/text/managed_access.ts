@@ -119,6 +119,8 @@ export const managedAccessText = {
 	"copyAccessOnce": "Copy the link now. It is shown only once.",
 	"copyAccess": "Copy access link",
 	"recoverReturned": "Finish setting it up",
+	"issueLinkPending": "Its link isn't made yet, so nobody can use it. Finish setting it up to get the link.",
+	"issueBusy": "Wait for the access to finish being created.",
 	"descriptive": "To manage one of these, open it from its own row.",
 	"unlabelled": "Unnamed access",
 	"notSaved": "Not saved",

@@ -23,6 +23,9 @@ export function dmBlockedWhile(phaseWord: string): string {
 /** What the session's home directory is called wherever directories are named,
  * and the fallback word for a transport-less designator too long to say. */
 export const homeDirectoryName = "your home directory";
+/** Where a room lands while this page has no directory of its own: the field
+ * says the reader chooses one rather than naming a home that does not exist. */
+export const noDirectoryName = "a directory you choose";
 export const peerFallback = "peer";
 
 /** The foot's word once a directory has granted a name. */

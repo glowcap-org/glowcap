@@ -40,8 +40,9 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
-import { actionRefusal, locatorRefusal } from "../error_text.ts";
+import { actionRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
+import { useServerGate } from "../hooks.ts";
 import { Said } from "../Said.tsx";
 import { Switch } from "../Switch.tsx";
 import { useRoomsSession } from "../controller/session.ts";
@@ -114,6 +115,7 @@ export function HistorySettings(
 export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTargetView }) {
 	const openModalFrom = useOpenModal();
 	const session = useRoomsSession();
+	const serverGate = useServerGate();
 	const [busy, setBusy] = useState<"own" | "reconnect" | null>(null);
 	const [why, setWhy] = useState("");
 	const [peerOpen, setPeerOpen] = useState(false);
@@ -176,7 +178,10 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 						type="button"
 						variant="quiet"
 						disabled={busy !== null}
-						onClick={(event) => openModalFrom(event.currentTarget, () => setPeerOpen(true))}
+						// An archive peer is reached through the server, so it comes first.
+						onClick={(event) => {
+							if (serverGate() != null) openModalFrom(event.currentTarget, () => setPeerOpen(true));
+						}}
 					>
 						{onPeer ? historyChangePeerAsk : historyUsePeerAsk}
 					</Button>
@@ -217,10 +222,7 @@ function ArchivePeerModal(
 		setWhy("");
 		setTaken("");
 		try {
-			const refused = locatorRefusal(
-				await actionRefusal(() => session.takeArchivePeer(link)),
-				"archive peer link",
-			);
+			const refused = await actionRefusal(() => session.takeArchivePeer(link));
 			setWhy(refused);
 			if (refused === "") {
 				setLink("");

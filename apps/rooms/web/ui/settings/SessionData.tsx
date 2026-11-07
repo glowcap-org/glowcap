@@ -12,12 +12,14 @@ import { sessionConfirmKeep } from "../../../lib/text/session.ts";
 import {
 	sessionDataClearLocalAsk,
 	sessionDataClearLocalCommit,
+	sessionDataClearLocalDone,
 	sessionDataClearLocalHint,
 	sessionDataClearLocalLabel,
 	sessionDataClearLocalSay,
 	sessionDataClearLocalTitle,
 	sessionDataClearSharedAsk,
 	sessionDataClearSharedCommit,
+	sessionDataClearSharedDone,
 	sessionDataClearSharedHint,
 	sessionDataClearSharedLabel,
 	sessionDataClearSharedSay,
@@ -69,6 +71,7 @@ export function SessionDataModal(
 	const [importError, setImportError] = useState("");
 	const [imported, setImported] = useState("");
 	const [clearError, setClearError] = useState("");
+	const [cleared, setCleared] = useState("");
 	const [confirming, setConfirming] = useState(false);
 	const selection = useRef(0);
 	// One data operation at a time: an export taken during an import or a
@@ -157,8 +160,16 @@ export function SessionDataModal(
 		operation.current = "clear";
 		setBusy("clear");
 		setClearError("");
+		setCleared("");
 		try {
-			setClearError(await actionRefusal(() => session.clearRoomsState()));
+			const why = await actionRefusal(() => session.clearRoomsState());
+			setClearError(why);
+			// The browser stays on the emptied session, so the pane says it went
+			// through and folds the question, or the row reads as still waiting.
+			if (why === "") {
+				setConfirming(false);
+				setCleared(sharedSession ? sessionDataClearSharedDone : sessionDataClearLocalDone);
+			}
 		} finally {
 			operation.current = null;
 			setBusy(null);
@@ -288,12 +299,16 @@ export function SessionDataModal(
 										type="button"
 										variant="quiet"
 										disabled={busy !== null}
-										onClick={() => setConfirming(true)}
+										onClick={() => {
+											setCleared("");
+											setConfirming(true);
+										}}
 									>
 										{sharedSession ? sessionDataClearSharedAsk : sessionDataClearLocalAsk}
 									</Button>
 								</div>
 							)}
+						{cleared !== "" && <Said kind="success">{cleared}</Said>}
 						{clearError !== "" && <Said kind="failure">{clearError}</Said>}
 					</div>
 				</>

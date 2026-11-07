@@ -12,7 +12,7 @@ import { roomAccessNow, roomCapabilityWait } from "../../lib/text/room_authority
 import { useRoomsSession } from "./controller/session.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsState } from "./hooks.ts";
-import { actionRefusal, locatorRefusal } from "./error_text.ts";
+import { actionRefusal } from "./error_text.ts";
 import type { RoomConv } from "./conversation.ts";
 import { useChangeGroup, useCommitSettling } from "./commitment.tsx";
 import { policyForRoomPreset, type RoomPreset } from "./room_policy.ts";
@@ -94,7 +94,7 @@ export function useRoomCapabilityActs(
 		setTakeSaid("");
 		void actionRefusal(() => session.stewardRoom(conv.key, link)).then((refused) => {
 			if (from === "claim") setClaimSaid(refused);
-			else setTakeSaid(locatorRefusal(refused, "room moderator link"));
+			else setTakeSaid(refused);
 			if (refused === "" && from === "form") setPasted("");
 		}).finally(() => {
 			setTaking(null);
@@ -106,7 +106,7 @@ export function useRoomCapabilityActs(
 		setTakingManager("take");
 		setManagerSaid("");
 		void actionRefusal(() => session.managerRoom(conv.key, managerPasted)).then((refused) => {
-			setManagerSaid(locatorRefusal(refused, "room manager link"));
+			setManagerSaid(refused);
 			if (refused === "") setManagerPasted("");
 		}).finally(() => {
 			setTakingManager(null);

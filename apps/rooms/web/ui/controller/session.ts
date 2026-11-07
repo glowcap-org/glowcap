@@ -55,18 +55,23 @@ export interface RoomsDirectoryController {
 	directoryId(locator: string): DirId | null;
 	/** The room's final answer to a join. Expected protocol failures retain their
 	 * code so the field that can repair one receives it. Unknown failures still
-	 * carry reader-facing text through the same boundary. */
+	 * carry reader-facing text through the same boundary. Every verb here that
+	 * reaches through a Rooms server first asks the page for one when it has
+	 * none, and then answers as nothing happened: the ask is the answer, and
+	 * the act picks up after the reload a chosen server takes. */
 	join(destination: RoomDestination, nick: JoinNicknameIntent, signal?: AbortSignal): Promise<JoinOutcome>;
 	/** Reach a directory without entering a room in it, so a card can offer its
 	 * listing before asking which room. An empty locator names this page's own.
-	 * Answers the refusal, or the empty string when the directory is reached. */
+	 * Answers the refusal, or the empty string when the directory is reached
+	 * or the page is asking for a server. */
 	reachDirectory(locator: string, nick: JoinNicknameIntent, options?: ReachOptions): Promise<string>;
 }
 
 export interface RoomsConversationController {
 	/** Settles when the conversation opens. Its failure has already been told. */
 	startDm(who: string): Promise<void>;
-	/** Reconnect to the exact peer registration. An empty string is success. */
+	/** Reconnect to the exact peer registration. An empty string is success,
+	 * or the page asking for a server. */
 	recoverDm(key: string): Promise<string>;
 	retry(key: string, id: number): void;
 	withdraw(key: string, id: number): void;

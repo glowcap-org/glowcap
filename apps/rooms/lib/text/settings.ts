@@ -58,6 +58,8 @@ export const settingsServerHint = (served: boolean) =>
 		? "Paste another Rooms server's address, or leave it blank to use the server this page came from."
 		: "As you would open it in a browser.";
 export const settingsServerExample = "https://rooms.example/";
+/** The trouble row's source for a link's server offer the page could not read. */
+export const settingsServerOffer = "Server offer";
 export const settingsServerRefused =
 	"A Rooms server address starts with http:// or https://, ends with /, and has no ? or # in it.";
 /** Said while the relay this browser is reached through turns it away. A

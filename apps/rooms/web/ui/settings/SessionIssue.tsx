@@ -47,16 +47,16 @@ export function SessionIssueModal(
 	const done = issue?.phase === "committed" && issue.control?.saved === true && link !== "";
 	const group = "settings-session-issue";
 	useChangeGroup(group, {
-		// A finished issuance has nothing left to lose; closing completes it.
-		dirty: !done && (label !== "" || issue != null || paused || depth !== 0 ||
+		// Only the form holds unsaved work. An issuance under way is kept by
+		// management whether or not this card is up, and its row offers to
+		// resume it, so closing over one loses nothing. A request in flight is
+		// waited for, because its answer lands here.
+		dirty: busy || (issue == null && (label !== "" || paused || depth !== 0 ||
 			permissions.length !== 1 || permissions[0] !== "observeWorkspace" ||
 			ceilings.editCeiling.mode !== starting.editCeiling.mode ||
-			ceilings.issueCeiling.mode !== starting.issueCeiling.mode),
+			ceilings.issueCeiling.mode !== starting.issueCeiling.mode)),
 		discard: () => {
-			if (busy || (issue != null && issue.phase !== "conflict")) {
-				throw new Error("Recover and save the original issuance before discarding this form.");
-			}
-			management.finishIssue();
+			if (busy) throw new Error(text.issueBusy);
 			setLabel("");
 			setPermissions(["observeWorkspace"]);
 			setCeilings(starting);
@@ -101,6 +101,8 @@ export function SessionIssueModal(
 			}
 		});
 	const delegable = source.powers.delegateControl === true;
+	// A finished issuance has nothing left to do, so closing completes it. One
+	// still waiting on its link, or on an answer, stays with management.
 	const close = () => {
 		if (done) management.finishIssue();
 		onClose();
@@ -121,7 +123,7 @@ export function SessionIssueModal(
 					<div className="group well">
 						<Said kind="success">{text.committedIssue}</Said>
 						{link && <CopyField text={link} label={text.copyAccess} />}
-						{link && <p className="hint">{text.copyAccessOnce}</p>}
+						<p className="hint">{link ? text.copyAccessOnce : text.issueLinkPending}</p>
 						{!done && (
 							<div className="actions">
 								<Button busy={busy} disabled={busy} onClick={() => void submit()}>
