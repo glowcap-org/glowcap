@@ -40,15 +40,15 @@
       "npm:zod@4.6.5"
     ],
     "links": {
-      "jsr:@glowcap/abi@0.1.4": {},
-      "jsr:@glowcap/inproc@0.1.4": {},
-      "jsr:@glowcap/iroh@0.1.4": {},
-      "jsr:@glowcap/onion@0.1.4": {},
-      "jsr:@glowcap/relay@0.1.4": {},
-      "jsr:@glowcap/runtime@0.1.4": {},
-      "jsr:@glowcap/tcp@0.1.4": {},
-      "jsr:@glowcap/web@0.1.4": {},
-      "jsr:@glowcap/webrtc@0.1.4": {}
+      "jsr:@glowcap/abi@0.1.5": {},
+      "jsr:@glowcap/inproc@0.1.5": {},
+      "jsr:@glowcap/iroh@0.1.5": {},
+      "jsr:@glowcap/onion@0.1.5": {},
+      "jsr:@glowcap/relay@0.1.5": {},
+      "jsr:@glowcap/runtime@0.1.5": {},
+      "jsr:@glowcap/tcp@0.1.5": {},
+      "jsr:@glowcap/web@0.1.5": {},
+      "jsr:@glowcap/webrtc@0.1.5": {}
     }
   }
 }
