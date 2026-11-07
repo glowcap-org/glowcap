@@ -1,12 +1,7 @@
 // Whether a refusal is too much to keep next to the control it answers.
 
-import {
-	actionRefusal,
-	attachRefusal,
-	errorDetailTitle,
-	needsErrorDetail,
-	sessionCapabilityRefusal,
-} from "../web/ui/error_text.ts";
+import { actionRefusal, errorDetailTitle, needsErrorDetail, sessionCapabilityRefusal } from "../web/ui/error_text.ts";
+import { attachedSessionFailureText } from "../web/ui/session/attached_failure.ts";
 import { assertEquals } from "./assert.ts";
 import { NICK_TAKEN, RoomsError, roomsErrorInMessage } from "../lib/error_codes.ts";
 import { failureView, refusalText, renderFailure, transportBreak } from "../lib/text/failure.ts";
@@ -124,19 +119,21 @@ Deno.test("a break on the way is told apart from a value or a denial", () => {
 	assertEquals(transportBreak(new Error("That name is taken.")), null);
 });
 
-Deno.test("an attach that broke on the way names the server this browser goes through", () => {
-	const said = (host: string, detail: string) => `server ${host}: ${detail}`;
+Deno.test("a session act that broke on the way names the server this browser goes through", () => {
+	const server = { base: "https://rooms.example/", chosen: true };
 	const broke = new Error("glowcap error -12: glowcap error -8: browser channel error");
+	const named = attachedSessionFailureText(broke, server);
+	assertEquals(named.includes("rooms.example"), true);
+	assertEquals(named.includes("browser channel error"), true);
+	// With no server to name, the failure stands in its own words.
+	const bare = attachedSessionFailureText(broke, null);
+	assertEquals(bare.includes("rooms.example"), false);
+	assertEquals(bare.includes("browser channel error"), true);
+	// A refusal that is about the link never blames the server.
 	assertEquals(
-		attachRefusal(broke, { base: "https://rooms.example/" }, said),
-		"server rooms.example: glowcap error -12: glowcap error -8: browser channel error",
+		attachedSessionFailureText(new Error("glowcap error -12: Denied"), server).includes("rooms.example"),
+		false,
 	);
-	// With no server to name, and for a failure that is about the link, the
-	// refusal is the failure in the reader's words.
-	assertEquals(attachRefusal(broke, null, said).includes("browser channel error"), true);
-	assertEquals(attachRefusal(broke, null, said).startsWith("server "), false);
-	const denied = attachRefusal(new Error("glowcap error -12: Denied"), { base: "https://rooms.example/" }, said);
-	assertEquals(denied.startsWith("server "), false);
 });
 
 Deno.test("a UI action preserves expected refusals and contains unexpected failures", async () => {

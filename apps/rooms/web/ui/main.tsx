@@ -237,7 +237,7 @@ async function start(): Promise<void> {
 		opened = await openWorkspace();
 	} catch (error) {
 		standAtFrontOfPrivilegedAddress();
-		await showSessionSetup("", attachedSessionFailureText(error));
+		await showSessionSetup("", attachedSessionFailureText(error, serverInUse()));
 		return;
 	}
 	const { session: managed, local } = opened;

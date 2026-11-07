@@ -43,7 +43,7 @@ export function createRoomsBrowserController(
 			else localStorage.removeItem(chosenKey());
 		} catch (error) {
 			uncoverReload();
-			return attachedSessionFailureText(error);
+			return attachedSessionFailureText(error, serverInUse());
 		}
 		await finishCommittedMove(() => session.close(), toFront);
 		return "";
@@ -134,7 +134,7 @@ export function createRoomsBrowserController(
 					page.controllerSelection.set({ kind: local ? "hosted" : "attached", sturdyref: uri });
 					return "";
 				} catch (error) {
-					return attachedSessionFailureText(error);
+					return attachedSessionFailureText(error, serverInUse());
 				}
 			})().finally(() => {
 				sharing = null;
@@ -149,14 +149,14 @@ export function createRoomsBrowserController(
 				await (await managed()).actions.clear();
 				return await selectLocal(false);
 			} catch (error) {
-				return attachedSessionFailureText(error);
+				return attachedSessionFailureText(error, serverInUse());
 			}
 		},
 		deleteBrowserData: () => {
 			try {
 				requestBrowserDataDeletion();
 			} catch (error) {
-				return Promise.resolve(attachedSessionFailureText(error));
+				return Promise.resolve(attachedSessionFailureText(error, serverInUse()));
 			}
 			coverForReload();
 			finishCoveredReload(true);

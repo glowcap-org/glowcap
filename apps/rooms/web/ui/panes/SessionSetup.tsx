@@ -23,7 +23,7 @@ import { identifierField } from "../field.ts";
 import { Icon, Wordmark } from "../icons.tsx";
 import { Said } from "../Said.tsx";
 import { ErrorDetail } from "./ErrorDetail.tsx";
-import { actionRefusal, attachRefusal, sessionCapabilityRefusal } from "../error_text.ts";
+import { actionRefusal, sessionCapabilityRefusal } from "../error_text.ts";
 import {
 	sessionAdvanced,
 	sessionChangeLabel,
@@ -37,7 +37,6 @@ import {
 	sessionResetAsk,
 	sessionResetCommit,
 	sessionResetSay,
-	sessionServerUnreachableBelow,
 	sessionSetupLead,
 	sessionSetupTitle,
 	sessionSharedCommit,
@@ -109,9 +108,7 @@ export function SessionSetup(
 		running.current = "attach";
 		setBusy("attach");
 		try {
-			await browser.attachRoomsSession(candidate);
-		} catch (error) {
-			setAttachError(attachRefusal(error, server, sessionServerUnreachableBelow));
+			setAttachError(await actionRefusal(() => browser.attachRoomsSession(candidate)));
 		} finally {
 			running.current = null;
 			setBusy(null);

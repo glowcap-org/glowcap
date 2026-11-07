@@ -55,10 +55,9 @@ import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
-import { attachRefusal, sessionCapabilityRefusal } from "../error_text.ts";
-import { sessionServerUnreachableInSettings } from "../../../lib/text/session.ts";
+import { actionRefusal, sessionCapabilityRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
-import { useRoomsState, useServerGate } from "../hooks.ts";
+import { useServerGate } from "../hooks.ts";
 import { Said } from "../Said.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Submodal } from "../Submodal.tsx";
@@ -203,7 +202,6 @@ function AttachModal(
 ) {
 	const browser = useRoomsBrowser();
 	const commitments = useCommitments();
-	const server = useRoomsState((state) => state.server);
 	const [link, setLink] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [why, setWhy] = useState("");
@@ -231,7 +229,8 @@ function AttachModal(
 		setBusy(true);
 		setWhy("");
 		try {
-			await browser.attachRoomsSession(candidate);
+			const refusal = await actionRefusal(() => browser.attachRoomsSession(candidate));
+			setWhy(refusal);
 			// Emptied once it has been used, because a filled field is a pending
 			// change and this one is spent. A capability that moves this browser
 			// reloads the page and takes the form with it, so this is invisible
@@ -239,9 +238,7 @@ function AttachModal(
 			// deliberately does not reload, and left filled it is a form that looks
 			// unsubmitted and stops the reader on the way out to ask about work that
 			// is already done.
-			setLink("");
-		} catch (error) {
-			setWhy(attachRefusal(error, server, sessionServerUnreachableInSettings));
+			if (refusal === "") setLink("");
 		} finally {
 			running.current = false;
 			setBusy(false);

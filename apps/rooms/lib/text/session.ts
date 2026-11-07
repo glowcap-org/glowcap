@@ -57,13 +57,10 @@ export const sessionServerAttachLead =
 	"A shared session is reached through a Rooms server, and this page has none. Test a server's address, and saving it attaches.";
 export const sessionServerSave = "Save";
 export const sessionServerSaveAttach = "Save and attach";
-/** An attach that broke on the way to the session, while this browser has a
- * Rooms server to go through: that server is the likeliest cause, named
- * with where the screen saying it changes the server. */
-export const sessionServerUnreachableBelow = (host: string, detail: string) =>
-	serverUnreachable(host, "Check that it is running, or change it below.", detail);
-export const sessionServerUnreachableInSettings = (host: string, detail: string) =>
-	serverUnreachable(host, "Check that it is running, or change it under Reachability.", detail);
+/** A session act that broke on the way, while this browser has a Rooms
+ * server to go through: that server is the likeliest cause. */
+export const sessionServerUnreachable = (host: string, detail: string) =>
+	serverUnreachable(host, "Check that it is running, or change it.", detail);
 /** The same dialog in the open workspace, opened by an act that reaches
  * through a Rooms server when the page has none. The session keeps its
  * server, so saving reloads, and the act is waiting on the other side. */
