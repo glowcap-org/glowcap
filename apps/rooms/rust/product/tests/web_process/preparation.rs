@@ -71,6 +71,18 @@ async fn web_prepares_and_serves_without_a_source_tree_or_compiler() {
 		assert_eq!(std::fs::read(exported.join(&name)).unwrap(), application);
 		assert!(exported.join("fonts/ibm-plex-sans-latin-wght-normal.woff2").is_file());
 		assert!(export().await.unwrap().status.success(), "an export replaces the one it wrote before");
+		// The swap into place is the commit point: an export that did not finish
+		// leaves its staging directory, which refuses the next export without
+		// touching the page already in place.
+		let staging = fixture.0.join("static.writing");
+		std::fs::create_dir(&staging).unwrap();
+		let held = export().await.unwrap();
+		assert!(!held.status.success(), "a staging directory left behind refuses an export");
+		assert!(String::from_utf8_lossy(&held.stderr).contains("static.writing"), "the refusal names the directory to remove");
+		assert_eq!(std::fs::read_to_string(exported.join("index.html")).unwrap(), index, "the page in place is untouched");
+		std::fs::remove_dir(&staging).unwrap();
+		assert!(export().await.unwrap().status.success(), "removing it is the remedy");
+		assert!(!staging.exists(), "a finished export leaves no staging directory");
 		let stranger = fixture.0.join("stranger");
 		std::fs::create_dir(&stranger).unwrap();
 		std::fs::write(stranger.join("index.html"), "mine").unwrap();
