@@ -5,7 +5,15 @@
 
 import type { Browser } from "playwright";
 import { fail } from "../support/fail.ts";
-import { sessionDidNotOpen } from "../../lib/text/session.ts";
+import { establishLocalSession } from "../support/session_setup.ts";
+import { loopbackTcpDesignator } from "../../lib/locator.ts";
+import { saveAndReload } from "../../lib/text/controls.ts";
+import {
+	serverAskLead,
+	sessionDidNotOpen,
+	sessionServerNone,
+	sessionServerSaveAttach,
+} from "../../lib/text/session.ts";
 import {
 	serverAwayRefuses,
 	serverConnected,
@@ -118,18 +126,13 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 			.catch(() => fail("a server that turns the page away kept its session from opening"));
 		await open.click("#settingsBtn");
 		await open.click("#reachabilityTab");
-		// The card names the chosen server and the WebSockets that one address
-		// means, read from the front the session dials through.
+		// The card names the chosen server, with its address to copy for
+		// another browser's server field.
 		const shown = {
 			name: await open.textContent("#serverName"),
-			relay: await open.textContent("#serverRelay"),
-			register: await open.textContent("#serverRegister"),
+			address: (await open.textContent("#serverBase"))?.trim(),
 		};
-		const expected = {
-			name: `localhost:${httpPort}`,
-			relay: `ws://localhost:${httpPort}/relay`,
-			register: `ws://localhost:${httpPort}/register`,
-		};
+		const expected = { name: `localhost:${httpPort}`, address: away };
 		if (JSON.stringify(shown) !== JSON.stringify(expected)) {
 			fail(`the server card did not show the chosen server: ${JSON.stringify(shown)}`);
 		}
@@ -190,6 +193,126 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 			fail(`the saved server did not connect: ${JSON.stringify(await open.textContent("#serverConnection"))}`)
 		);
 		await elsewhere.close();
+	}
+
+	// A link that offers a shared session opens session choice with it filled
+	// in, and takes it out of the address before anything else can read it.
+	// Attach is the answer, so the link attaches nothing by itself.
+	{
+		const linked = await browser.newContext();
+		const open = await linked.newPage();
+		const capability = "ocapn://offered.example/s/workspace";
+		await open.goto(`http://127.0.0.1:${httpPort}/#attach=${encodeURIComponent(capability)}`);
+		await open.waitForSelector("#sessionSetupCapability", { timeout: 60_000 })
+			.catch(() => fail("a link that offers a shared session did not open session choice"));
+		if (new URL(open.url()).hash !== "") fail("the session offer stayed in the address");
+		const filled = await open.inputValue("#sessionSetupCapability");
+		if (filled !== capability) fail(`the offered session filled ${JSON.stringify(filled)}`);
+		await linked.close();
+	}
+
+	// A static page names no server under the session choices, and Attach asks
+	// for one first. The page here is this server's own, marked the way the
+	// static export marks it, so its server answers from the same origin.
+	// Saving the server attaches with the link still filled in.
+	{
+		const bare = await browser.newContext();
+		const open = await bare.newPage();
+		await open.route(`http://127.0.0.1:${httpPort}/`, async (route) => {
+			const served = await route.fetch();
+			const page = (await served.text()).replace("<head>", '<head><meta name="rooms-host" content="static" />');
+			await route.fulfill({ response: served, body: page });
+		});
+		await open.goto(`http://127.0.0.1:${httpPort}/`);
+		await open.waitForSelector("#sessionServer", { timeout: 60_000 })
+			.catch(() => fail("session choice did not name its Rooms server"));
+		if (!((await open.textContent("#sessionServer")) ?? "").includes(sessionServerNone)) {
+			fail(
+				`a static page's server line did not say it has none: ${
+					JSON.stringify(await open.textContent("#sessionServer"))
+				}`,
+			);
+		}
+		const capability = "ocapn://offered.example/s/workspace";
+		await open.fill("#sessionSetupCapability", capability);
+		await open.click("#sessionAttach");
+		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
+			.catch(() => fail("Attach with no Rooms server did not ask for one"));
+		if ((await open.textContent("#serverSave")) !== sessionServerSaveAttach) {
+			fail(
+				`the server dialog over Attach did not say saving attaches: ${
+					JSON.stringify(await open.textContent("#serverSave"))
+				}`,
+			);
+		}
+		await open.fill("#serverAddress", `http://127.0.0.1:${httpPort}/`);
+		await open.press("#serverAddress", "Enter");
+		await open.waitForSelector("#serverTestSaid", { timeout: 30_000 });
+		await open.press("#serverAddress", "Enter");
+		await open.waitForSelector("#serverAddress", { state: "detached", timeout: 30_000 })
+			.catch(() => fail("saving the server did not close its dialog"));
+		if ((await open.textContent("#sessionServerName")) !== `127.0.0.1:${httpPort}`) {
+			fail("the saved server was not named under the session choices");
+		}
+		if ((await open.inputValue("#sessionSetupCapability")) !== capability) {
+			fail("choosing a server lost the session link");
+		}
+		// The attach ran: this link names no reachable session, so it is refused
+		// under its own field rather than asking for a server again.
+		await open.waitForSelector("#sessionSetupCapability[aria-invalid='true']", { timeout: 45_000 })
+			.catch(() => fail("saving the server did not go on to attach"));
+		await bare.close();
+	}
+
+	// Connecting to a directory address from a static page with no Rooms
+	// server asks for one in place, the way Attach does, and says nothing under
+	// the join form. Saving the server reloads the page at that act, with the
+	// address still named.
+	{
+		const bare = await browser.newContext();
+		const open = await bare.newPage();
+		await open.route(`http://127.0.0.1:${httpPort}/**`, async (route) => {
+			if (route.request().resourceType() !== "document") return route.fallback();
+			const served = await route.fetch();
+			const page = (await served.text()).replace("<head>", '<head><meta name="rooms-host" content="static" />');
+			await route.fulfill({ response: served, body: page });
+		});
+		await open.goto(`http://127.0.0.1:${httpPort}/`);
+		await establishLocalSession(open);
+		const elsewhere = loopbackTcpDesignator(httpPort);
+		await open.fill("#locator", elsewhere);
+		await open.fill("#nick", "asker");
+		await open.click("#joinBtn");
+		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
+			.catch(() => fail("connecting through a Rooms server the page has none of did not ask for one"));
+		await open.getByText(serverAskLead, { exact: true }).waitFor({ timeout: 5_000 })
+			.catch(() => fail("the server ask did not say why it is asking"));
+		if ((await open.textContent("#serverSave")) !== saveAndReload) {
+			fail(`the server ask did not say saving reloads: ${JSON.stringify(await open.textContent("#serverSave"))}`);
+		}
+		if (await open.locator("#joinError").count() !== 0) {
+			fail(
+				`the join form said a failure the ask already answers: ${
+					JSON.stringify(await open.textContent("#joinError"))
+				}`,
+			);
+		}
+		await open.fill("#serverAddress", `http://127.0.0.1:${httpPort}/`);
+		await open.press("#serverAddress", "Enter");
+		await open.waitForSelector("#serverTestSaid", { timeout: 30_000 });
+		await Promise.all([
+			open.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30_000 })
+				.catch(() => fail("saving the server did not reload the page")),
+			open.press("#serverAddress", "Enter"),
+		]);
+		const landed = new URL(open.url());
+		if (landed.pathname !== "/join" || landed.searchParams.get("locator") !== elsewhere) {
+			fail(`the reload did not land on the act that asked: ${landed.pathname}${landed.search}`);
+		}
+		await open.waitForSelector("#locator", { timeout: 60_000 })
+			.catch(() => fail("the join form did not come back after the reload"));
+		if ((await open.inputValue("#locator")) !== elsewhere) fail("the reload lost the address being reached");
+		await bare.close();
 	}
 
 	// A link that offers a relay asks before anything opens, and its offer

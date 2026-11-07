@@ -1,32 +1,33 @@
 // The Rooms server this browser uses, shown as facts a person can check: which
 // server, whether it answers, what its one address means, and the directory it
-// hosts. The two WebSockets are read from the same Rust front the session
-// dials through, so what this card says is what the session does.
+// hosts. Every fact is the page's own state, the server in use, the relay's
+// reach, and the directory it hosts, so what this card says is what the
+// session does.
 //
 // The card follows the Session card's shape: a mark, the server's name with its
 // state as a chip, the facts its one address means, and one line per act. A
 // page with no server shows the address field in place, because choosing one
 // is the next thing it needs.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { Icon } from "../icons.tsx";
 import { useOpenModal } from "../modal.ts";
-import { Submodal } from "../Submodal.tsx";
 import {
 	reachServerTitle,
 	serverAddressName,
+	serverAwayBlocked,
 	serverAwayRefuses,
 	serverAwaySilent,
+	serverBlockedByBrowser,
 	serverChange,
 	serverChangeAct,
 	serverChangeLead,
+	serverChangeName,
 	serverChosenHere,
 	serverConnected,
 	serverConnecting,
 	serverFactDirectory,
-	serverFactReachable,
-	serverFactRelay,
 	serverFromPage,
 	serverNoDirectory,
 	serverNone,
@@ -41,57 +42,50 @@ import {
 	serverRemoveSaid,
 	serverTurnsAway,
 	settingsCopyDirectory,
+	settingsCopyServer,
 	settingsRelayAway,
 	settingsShareDirectory,
 } from "../../../lib/text/settings.ts";
-import { namesDirectory, serverRoutes } from "../application.ts";
+import { saveAndReload } from "../../../lib/text/controls.ts";
+import { namesDirectory } from "../application.ts";
+import { reloadNow } from "../boot.ts";
 import { CopyField } from "../Copy.tsx";
 import { Said } from "../Said.tsx";
-import { chooseServer, probeServer, serverInUse, type ServerProbe } from "../server_choice.ts";
+import { chooseServer, probeServer, serverName, type ServerProbe } from "../server_choice.ts";
+import { useRoomsState } from "../hooks.ts";
 import { servedByRooms } from "../page_base.ts";
 import { Confirm } from "../Confirm.tsx";
 import { relayAway, type RelayReach } from "../store/projection.ts";
 import { ServerChoice } from "./ServerChoice.tsx";
+import { ServerDialog } from "./ServerDialog.tsx";
 
 /** The registration's phase as a chip, toned the way the access chips are. A
  * registration that closed says why once the server has been asked: a server
  * that turns this page away answered, so it is not "not answering". */
 function phase(
 	relay: RelayReach,
-	cause: ServerProbe["kind"] | null,
+	cause: ServerProbe | null,
 ): { tone: "quiet" | "warn" | undefined; said: string } {
 	if (relay === "reached") return { tone: undefined, said: serverConnected };
 	if (relay === "connecting") return { tone: "quiet", said: serverConnecting };
-	if (cause === "refuses") return { tone: "warn", said: serverTurnsAway };
+	if (cause?.kind === "refuses") return { tone: "warn", said: serverTurnsAway };
+	if (cause?.kind === "blocked") return { tone: "warn", said: serverBlockedByBrowser };
 	// Anything that answered is up, so the chip says only that this browser is
 	// not connected through it.
-	return { tone: "warn", said: cause === "silent" ? serverNotAnswering : serverNotConnected };
+	return { tone: "warn", said: cause?.kind === "silent" ? serverNotAnswering : serverNotConnected };
 }
 
-/** A server named the way a person typed it: its host, and its path when it
- * lives below the root. */
-function serverName(base: string): string {
-	const url = new URL(base);
-	return url.pathname === "/" ? url.host : url.host + url.pathname.replace(/\/$/, "");
-}
-
-export function ServerCard(
-	{ directory, relay, reload = () => location.reload() }: {
-		directory: string | null;
-		relay: RelayReach | null;
-		reload?: () => void;
-	},
-) {
+export function ServerCard({ relay }: { relay: RelayReach | null }) {
 	// The server is fixed for this page's life: choosing another reloads it.
-	const [server] = useState(() => serverInUse());
-	const routes = useMemo(() => server == null ? null : serverRoutes(server.base), [server]);
+	const server = useRoomsState((state) => state.server);
+	const directory = server?.directory ?? null;
 	const [changing, setChanging] = useState(false);
 	const [removing, setRemoving] = useState(false);
 	const openModalFrom = useOpenModal();
 	const away = relayAway(relay);
 	// While the registration is closed, ask the server what Test would, so the
 	// card names the one cause and its fix rather than both possibilities.
-	const [cause, setCause] = useState<ServerProbe["kind"] | null>(null);
+	const [cause, setCause] = useState<ServerProbe | null>(null);
 	useEffect(() => {
 		if (!away || server == null) {
 			setCause(null);
@@ -99,7 +93,7 @@ export function ServerCard(
 		}
 		let current = true;
 		void probeServer(server.base, namesDirectory).then((probe) => {
-			if (current) setCause(probe.kind);
+			if (current) setCause(probe);
 		});
 		return () => {
 			current = false;
@@ -131,8 +125,13 @@ export function ServerCard(
 						</p>
 					</div>
 				</div>
-				{server != null && routes != null && (
+				{server != null && (
 					<dl className="dirfacts server-facts">
+						{/* The address as another browser's server field takes it. */}
+						<dt>{serverAddressName}</dt>
+						<dd>
+							<CopyField id="serverBase" text={server.base} label={settingsCopyServer} />
+						</dd>
 						{directoryKnown && (
 							<>
 								<dt>{serverFactDirectory}</dt>
@@ -150,21 +149,15 @@ export function ServerCard(
 								</dd>
 							</>
 						)}
-						<dt>{serverFactRelay}</dt>
-						<dd>
-							<code className="server-route" id="serverRelay">{routes.relay}</code>
-						</dd>
-						<dt>{serverFactReachable}</dt>
-						<dd>
-							<code className="server-route" id="serverRegister">{routes.register}</code>
-						</dd>
 					</dl>
 				)}
 				{away && server != null && (
 					<Said id="relayAway" kind="warning">
-						{cause === "refuses"
+						{cause?.kind === "refuses"
 							? serverAwayRefuses(location.origin)
-							: cause === "silent"
+							: cause?.kind === "blocked"
+							? serverAwayBlocked(cause.permission)
+							: cause?.kind === "silent"
 							? serverAwaySilent(serverName(server.base))
 							: settingsRelayAway(serverName(server.base), location.origin)}
 					</Said>
@@ -172,7 +165,7 @@ export function ServerCard(
 				{server == null ? <ServerChoice /> : (
 					<EntryActs>
 						<EntryAct
-							name={serverAddressName}
+							name={serverChangeName}
 							id="serverChange"
 							act={serverChangeAct}
 							onClick={(event) => openModalFrom(event.currentTarget, () => setChanging(true))}
@@ -191,7 +184,7 @@ export function ServerCard(
 										onKeep={() => setRemoving(false)}
 										onCommit={() => {
 											chooseServer(null);
-											reload();
+											reloadNow();
 										}}
 									/>
 								</li>
@@ -208,15 +201,14 @@ export function ServerCard(
 				)}
 			</div>
 			{server != null && (
-				<Submodal
+				<ServerDialog
 					title={serverChange}
 					titleId="serverChangeTitle"
+					lead={serverChangeLead}
+					saveLabel={saveAndReload}
 					open={changing}
 					onClose={() => setChanging(false)}
-				>
-					<p className="lead">{serverChangeLead}</p>
-					<ServerChoice framed />
-				</Submodal>
+				/>
 			)}
 		</>
 	);

@@ -38,7 +38,15 @@ const Launch = struct {
     hot_reload: bool = false,
 };
 
-pub fn register(ctx: Context) *std.Build.Step {
+pub const Registered = struct {
+    /// The prepared generation at zig-out/rooms-web/current.
+    prepare: *std.Build.Step,
+    /// The Rooms page exported under the site's assets, which the site
+    /// render and preview serve at /rooms/app/.
+    site_page: *std.Build.Step,
+};
+
+pub fn register(ctx: Context) Registered {
     const b = ctx.b;
 
     // One immutable production generation serves process and browser proofs
@@ -49,22 +57,21 @@ pub fn register(ctx: Context) *std.Build.Step {
     prepare.has_side_effects = true;
     prepare.step.dependOn(ctx.web_services);
     prepare.step.dependOn(ctx.browser_application);
-    b.step("rooms-web-prepare", "Build the Rooms HTTP front and write its browser assets as one prepared generation at zig-out/rooms-web/current, which `rooms-web --prepared` serves and `--export-static` exports (needs cargo + wasm-bindgen)")
+    b.step("rooms-web-prepare", "Build the Rooms server and write its browser assets as one prepared generation at zig-out/rooms-web/current, which the Rooms server binary's `--prepared` serves and `--export-static` exports (needs cargo + deno + wasm-bindgen)")
         .dependOn(&prepare.step);
     web_tests.register(b, ctx.runtime_gate, ctx.web_services, &prepare.step);
 
-    // The page glowcap.org/rooms/app/ serves, exported and served locally the
-    // way a static host serves it, with no Rooms server behind it.
-    const static_host = commands.addRootedSystemCommand(b, .service, &.{
-        "deno", "run", "-A", "--config=apps/rooms/deno.json", "apps/rooms/web/static_host.ts",
-    });
-    Binary.web.addAbsoluteArg(static_host);
-    static_host.addArg("zig-out/rooms-web/current");
-    static_host.addPassthruArgs();
-    static_host.has_side_effects = true;
-    static_host.step.dependOn(&prepare.step);
-    b.step("rooms-web-static", "Rebuild the Rooms page, export it as static files, and serve them the way GitHub Pages does at http://localhost:5173/rooms/app/, with no Rooms server behind it. `-- --base=/<path>/ --port=<port>` change either (needs cargo + deno + wasm-bindgen)")
-        .dependOn(&static_host.step);
+    // The page the website publishes at glowcap.org/rooms/app/: the prepared
+    // generation exported for that base path into the site's assets, where
+    // Zine serves it as a static directory, in the render and in the preview
+    // alike, and `.gitignore` keeps it out of the tree.
+    const site_page = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
+    Binary.web.addAbsoluteArg(site_page);
+    site_page.addArgs(&.{ "--export-static=site/assets/rooms/app", "--assets=zig-out/rooms-web/current", "--base=/rooms/app/" });
+    site_page.has_side_effects = true;
+    site_page.step.dependOn(&prepare.step);
+    b.step("site-rooms-page", "Export the Rooms page into site/assets/rooms/app from the prepared browser generation, where the site and its preview serve it at /rooms/app/ with no Rooms server behind it (needs cargo + deno + wasm-bindgen)")
+        .dependOn(&site_page.step);
 
     const staging = @import("../release/stage.zig");
     const product = staging.add(b, ctx.target, ctx.version, "product", staging.product);
@@ -128,7 +135,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     b.step("rooms-dev", "Serve Rooms with every operator capability minted and state under .local/.state/rooms; `-Dhot-reload=false` uses compiled-generation serving, and `-Dtransport` works as on rooms-web (needs cargo + deno)")
         .dependOn(&rooms_dev.step);
 
-    return &prepare.step;
+    return .{ .prepare = &prepare.step, .site_page = &site_page.step };
 }
 
 fn addLaunch(ctx: Context, transport: Transport, launch: Launch) *std.Build.Step.Run {

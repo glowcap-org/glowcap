@@ -69,7 +69,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 	const session = useRoomsSession();
 	// The gateway's rooms live on the directory the gateway was minted on.
 	const bridged = useRoomsState((current) => current.opsDirs.irc ?? null);
-	const homeDir = useRoomsState((current) => current.homeDir);
+	const homeDirectory = useRoomsState((current) => current.homeDirectory);
 	const navigate = useNavigate();
 	const [confirmingRemove, setConfirmingRemove] = useState<string | null>(null);
 	const [confirmingClose, setConfirmingClose] = useState<string | null>(null);
@@ -138,7 +138,9 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 		if (bridged === null || lease.roomName === null) return;
 		session.pickRoom(bridged, lease.roomName);
 		// The router's own rule: an address names its directory unless it is home.
-		navigate(roomAddress(lease.roomName, bridged === homeDir ? {} : { directory: session.dirAddress(bridged) }));
+		navigate(
+			roomAddress(lease.roomName, bridged === homeDirectory ? {} : { directory: session.dirAddress(bridged) }),
+		);
 	};
 
 	return (

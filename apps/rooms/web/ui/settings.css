@@ -547,15 +547,6 @@ html:has(.app.covered) {
 	display: grid;
 	gap: var(--gap-row);
 }
-.server-route {
-	min-width: 0;
-	font-family: var(--font-mono);
-	font-size: var(--type-fine);
-	line-height: 1.45;
-	color: var(--ink-soft);
-	overflow-wrap: anywhere;
-	user-select: all;
-}
 
 /* The settings form is a dense inventory: keep its controls aligned while
    letting the descriptive line breathe below each capability on a phone. */

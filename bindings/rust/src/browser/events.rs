@@ -19,7 +19,7 @@ pub(super) struct Events {
 impl Events {
 	pub(super) fn install(shared: &Rc<Shared>) -> Self {
 		let message = callback(shared, |shared, event| {
-			if shared.state.borrow().closing || shared.state.borrow().closed {
+			if shared.state.borrow().ending() {
 				return;
 			}
 			let Some(event) = event.dyn_ref::<MessageEvent>() else {
@@ -65,7 +65,7 @@ impl Events {
 				}
 			}
 			let mut state = shared.state.borrow_mut();
-			state.closed = true;
+			state.retire();
 			state.wake();
 		});
 		let error = callback(shared, |shared, _| {
@@ -81,7 +81,7 @@ impl Events {
 		events.set(&shared.socket, true);
 		if shared.socket.closed() {
 			shared.fail(io::ErrorKind::NotConnected, "browser channel closed before adoption");
-			shared.state.borrow_mut().closed = true;
+			shared.state.borrow_mut().retire();
 		}
 		events
 	}

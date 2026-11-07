@@ -1,0 +1,7 @@
+{
+	"page": "https://glowcap.org/rooms/app/",
+	"server": "http://localhost:8080/",
+	"session": "ocapn://abc.iroh/s/x?y=1",
+	"pageLink": "https://glowcap.org/rooms/app/?server=http%3A%2F%2Flocalhost%3A8080%2F",
+	"sessionLink": "https://glowcap.org/rooms/app/?server=http%3A%2F%2Flocalhost%3A8080%2F#attach=ocapn%3A%2F%2Fabc.iroh%2Fs%2Fx%3Fy%3D1"
+}

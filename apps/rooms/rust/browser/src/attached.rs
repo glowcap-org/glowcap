@@ -66,7 +66,10 @@ impl Environment {
 			.map_err(|error| error.to_string())?;
 		let managed_signaling = Rc::new(managed::signaling::Routes::default());
 		let routes = managed_signaling.clone();
-		let ice = ice::Source::deployment();
+		let ice = match &front {
+			Some(front) => ice::Source::new(front.ice()),
+			None => ice::Source::stun_default().map_err(|error| error.to_string())?,
+		};
 		let runtime = match transport::open(
 			&host,
 			front.clone(),

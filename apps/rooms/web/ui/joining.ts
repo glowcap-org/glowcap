@@ -454,7 +454,7 @@ function reached(view: DirView | undefined): boolean {
 export function resolveJoin(
 	answers: JoinAnswers,
 	dirs: ReadonlyMap<DirId, DirView>,
-	homeDir: DirId | null,
+	homeDirectory: DirId | null,
 	directoryOf: (locator: string) => DirId | null,
 ): JoinResolution {
 	const wanted = answers.room.value.trim();
@@ -465,7 +465,7 @@ export function resolveJoin(
 	// nobody has to: the first act here has always been to name a room.
 	const typed = answers.locator.value.trim();
 	const named = typed !== "";
-	const dir = named ? directoryOf(typed) : homeDir;
+	const dir = named ? directoryOf(typed) : homeDirectory;
 	const view = dir == null ? undefined : dirs.get(dir);
 	// A pasted room link carries its own way in. No directory listing decides
 	// anything about it, so neither phase nor standing is in question.

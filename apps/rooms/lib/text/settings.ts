@@ -34,15 +34,20 @@ export const recoveryWait = "Wait for the room recovery to finish.";
 export const settingsConnectionSaving = "Wait for the connection setting to finish saving.";
 export const settingsConnectionRefused = "Couldn't save the connection choice.";
 
-export const settingsCopyDirectory = "Copy the address for this server";
+export const settingsCopyDirectory = "Copy the directory address";
+export const settingsCopyServer = "Copy the server address";
 export const settingsCopyBrowser = "Copy this session's address";
 export const settingsShareDirectory = "Lets anyone join this server's rooms by name.";
 export const settingsBrowserUnreachable = "Nobody can reach this address until the Rooms server connects.";
 export const settingsShareBrowser = "Share this address to let somebody start a direct conversation with you.";
 /** The relay this browser connects through, chosen on this device. */
 export const serverOfferTitle = "Use this Rooms server?";
-export const serverOfferSay = (host: string) =>
-	`This link asks Rooms to use the Rooms server at ${host}. People reach this browser through it, and it opens your connections to directories. Use it if you started that server or trust whoever runs it. You can change this later in Settings, under Reachability.`;
+export const serverOfferSay = (host: string, local: boolean) =>
+	`This link asks Rooms to use the Rooms server at ${host}. People reach this browser through it, it opens your connections to directories, and link previews in messages are fetched through it. Use it if you started that server or trust whoever runs it. You can change this later in Settings, under Reachability.${
+		local
+			? " Your browser may first ask to let this page reach a server on your computer or network. Allow it."
+			: ""
+	}`;
 export const serverOfferKeep = "Not now";
 export const serverOfferCommit = "Use this server";
 /** The server field's hint. A page from a static host has no server of its
@@ -53,7 +58,8 @@ export const settingsServerHint = (served: boolean) =>
 		? "Paste another Rooms server's address, or leave it blank to use the server this page came from."
 		: "As you would open it in a browser.";
 export const settingsServerExample = "https://rooms.example/";
-export const settingsServerRefused = "A Rooms server address starts with http:// or https:// and has no ? or # in it.";
+export const settingsServerRefused =
+	"A Rooms server address starts with http:// or https://, ends with /, and has no ? or # in it.";
 /** Said while the relay this browser is reached through turns it away. A
  * browser sees only a closed socket, so both causes are named. */
 export const settingsRelayAway = (host: string, origin: string) =>
@@ -102,8 +108,6 @@ export const archiveNeedsPeerAfter = ".";
  * message entries above. */
 export const reachServerTitle = "Rooms server";
 export const serverFactDirectory = "Directory";
-export const serverFactRelay = "Relay";
-export const serverFactReachable = "Reaches you";
 export const serverFromPage = "The server this page came from";
 export const serverChosenHere = "Chosen on this browser";
 export const serverConnected = "Connected";
@@ -111,15 +115,26 @@ export const serverConnecting = "Connecting";
 export const serverNotAnswering = "Not answering";
 export const serverNotConnected = "Not connected";
 export const serverTurnsAway = "Turns this page away";
+export const serverBlockedByBrowser = "Blocked by this browser";
 /** Said while the server turns this page's origin away, with the one fix. */
 export const serverAwayRefuses = (origin: string) => `Restart it with --allow-origin=${origin} to let this page in.`;
 /** Said while nothing answers at the server's address. */
 export const serverAwaySilent = (host: string) => `Nothing answers at ${host}. Rooms keeps trying.`;
+/** This browser stands between a public page and a server on the person's own
+ * computer or network, asking once or refusing until they allow it. */
+const browserBlocks = (permission: "prompt" | "denied") =>
+	permission === "denied"
+		? "This browser blocks this page from reaching servers on your computer or network. Allow local network access for this site in the browser's site settings"
+		: "This browser asks before this page reaches a server on your computer or network. Allow it when the browser asks";
+export const serverAwayBlocked = (permission: "prompt" | "denied") =>
+	`${browserBlocks(permission)}, then Rooms connects.`;
+export const serverTestBlocked = (permission: "prompt" | "denied") => `${browserBlocks(permission)}, then test again.`;
 export const serverNoDirectory = "None";
 export const serverChange = "Change server";
 export const serverChangeLead =
 	"Rooms reaches directories, and is reached, through one server. Saving reloads this window, so test the address first.";
 export const serverAddressName = "Address";
+export const serverChangeName = "Another server";
 export const serverChangeAct = "Change…";
 export const serverRemoveName = "Remove from this browser";
 export const serverRemoveAct = "Remove…";

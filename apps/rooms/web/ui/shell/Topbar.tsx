@@ -120,7 +120,7 @@ function TopbarPane(
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
 	const members = useRoomsState((state) => state.members);
-	const homeDir = useRoomsState((state) => state.homeDir);
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const unread = useRoomsState(unreadTotal);
 	const convs = useRoomsState((state) => conv?.type === "dm" ? state.convs : NO_CONVS);
 	const memberCount = conv?.type === "room" ? membersHere(members.get(conv.key) ?? NO_MEMBERS) : 0;
@@ -157,7 +157,7 @@ function TopbarPane(
 			</header>
 		);
 	}
-	const title = titleOf(conv, homeDir);
+	const title = titleOf(conv, homeDirectory);
 	const isRoom = conv?.type === "room";
 	const isDirectory = conv?.type === "directory";
 	// How many people are here now, rather than how many the room has ever seen:
@@ -190,7 +190,7 @@ function TopbarPane(
 	const about = conv === null
 		? undefined
 		: conv.type === "directory"
-		? titleAboutDirectory(directoryName(conv.dir, homeDir))
+		? titleAboutDirectory(directoryName(conv.dir, homeDirectory))
 		: conv.type === "room"
 		? titleAboutRoom(roomCalled(conv.id, conv.held))
 		: titleAboutDm(conv.id);

@@ -181,6 +181,11 @@
     text-align: center;
   }
 
+  /* The lockup is a flex row, so centered text does not center it. */
+  .hero-lockup {
+    justify-content: center;
+  }
+
   .hero-actions {
     justify-content: center;
   }

@@ -52,6 +52,7 @@ import { useRoomsState } from "./hooks.ts";
 import type { DmConv } from "./conversation.ts";
 import {
 	directoryAddress,
+	dmAddress,
 	joinAddress,
 	joinAddressOf,
 	pageSearch,
@@ -131,15 +132,15 @@ export function addressOfActive(): string {
 		return s.reaching.source === "link" ? joinAddressOf(s.reaching) : withPageSearch("/", search);
 	}
 	if (conv.type === "directory") {
-		return directoryAddress(conv.dir === s.homeDir ? {} : { directory: net.dirAddress(routing(), conv.dir) });
+		return directoryAddress(conv.dir === s.homeDirectory ? {} : { directory: net.dirAddress(s.dirs, conv.dir) });
 	}
-	if (conv.type === "dm") return withPageSearch(`/dm/${encodeURIComponent(conv.id)}`, search);
+	if (conv.type === "dm") return dmAddress(conv.id);
 	if (conv.held) {
 		// The label is on screen already; the key is the reference and stays
 		// out of the address.
 		return roomAddress(conv.id, { private: true });
 	}
-	return roomAddress(conv.id, conv.dir === s.homeDir ? {} : { directory: net.dirAddress(routing(), conv.dir) });
+	return roomAddress(conv.id, conv.dir === s.homeDirectory ? {} : { directory: net.dirAddress(s.dirs, conv.dir) });
 }
 
 /** Say where the reader ended up, when it is not where they asked to go.
@@ -180,7 +181,7 @@ function RoomRoute() {
 	const session = useRoomsSession();
 	const { name = "" } = useParams();
 	const routed = useLocation();
-	const homeDir = useRoomsState((state) => state.homeDir);
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const dirs = useRoomsState((state) => state.dirs);
 	const heldRoomKey = useRoomsState((state) =>
 		[...state.convs.values()].find((conv) => conv.type === "room" && conv.held && conv.id === name)?.key
@@ -215,7 +216,7 @@ function RoomRoute() {
 				arrival.mark();
 				return;
 			}
-			if (routing().projection.get().homeDir === null) return; // the effect refires when the directory lands
+			if (routing().projection.get().homeDirectory === null) return; // the effect refires when the directory lands
 			if (policyPending) return; // the effect refires when its policy lands
 			// The card names no room, so neither does its address; what it keeps
 			// is that this was about somewhere on this page's directory, which
@@ -228,7 +229,9 @@ function RoomRoute() {
 			const known = net.directoryId(dirParam);
 			if (known !== null && routing().projection.get().dirs.has(known)) {
 				if (!net.showRoom(routing(), session, known, name)) {
-					replaceWith(joinAddress({ room: name, directory: net.dirAddress(routing(), known) }));
+					replaceWith(
+						joinAddress({ room: name, directory: net.dirAddress(routing().projection.get().dirs, known) }),
+					);
 				}
 			} else {
 				replaceWith(joinAddress({ room: name, locator: dirParam }));
@@ -236,7 +239,7 @@ function RoomRoute() {
 			arrival.mark();
 			return;
 		}
-		const home = routing().projection.get().homeDir;
+		const home = routing().projection.get().homeDirectory;
 		if (home === null) return; // the effect refires when the directory lands
 		// A room the page's own directory does not hold yet, with no name to status-allow: pending state or quoted runtime label
 		// enter it under, is the card asking for one: the room named, the
@@ -249,7 +252,7 @@ function RoomRoute() {
 		// because a session was re-established would navigate a reader who is
 		// already where this sent them.
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the address, reads the session as it stands
-	}, [arrival, name, dirParam, isPrivate, homeDir, dirs, heldRoomKey, policyPending]);
+	}, [arrival, name, dirParam, isPrivate, homeDirectory, dirs, heldRoomKey, policyPending]);
 	return null;
 }
 
@@ -257,7 +260,7 @@ function DmRoute() {
 	const session = useRoomsSession();
 	const { nick = "" } = useParams();
 	const routed = useLocation();
-	const homeDir = useRoomsState((state) => state.homeDir);
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const dirs = useRoomsState((state) => state.dirs);
 	const conversations = useRoomsState((state) => state.convs);
 	const arrival = useArrival(routed);
@@ -294,7 +297,7 @@ function DmRoute() {
 		// As the room route above: on the address, reading the session as it
 		// stands.
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the address, reads the session as it stands
-	}, [arrival, nick, homeDir, dirs, conversations]);
+	}, [arrival, nick, homeDirectory, dirs, conversations]);
 	return null;
 }
 
@@ -331,7 +334,7 @@ function JoinRoute() {
  * one to recreate. */
 function DirectoryRoute() {
 	const routed = useLocation();
-	const homeDir = useRoomsState((state) => state.homeDir);
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const dirs = useRoomsState((state) => state.dirs);
 	const arrival = useArrival(routed);
 	const dirParam = new URLSearchParams(routed.search).get("dir") ?? "";
@@ -349,7 +352,7 @@ function DirectoryRoute() {
 			arrival.mark();
 			return;
 		}
-		const home = routing().projection.get().homeDir;
+		const home = routing().projection.get().homeDirectory;
 		if (home === null) return;
 		net.showDirectory(routing(), home);
 		arrival.mark();
@@ -357,7 +360,7 @@ function DirectoryRoute() {
 		// sent the reader, so depending on it would re-enter the check that
 		// exists to stop exactly that.
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the address, reads the location as it stands
-	}, [arrival, dirParam, homeDir, dirs]);
+	}, [arrival, dirParam, homeDirectory, dirs]);
 	return null;
 }
 

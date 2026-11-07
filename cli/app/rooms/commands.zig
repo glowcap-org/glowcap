@@ -48,8 +48,10 @@ const serve = directory ++ [_]Flag{
     value("browser-admission-rows", "Browser-local accounting row cap (1..65536)"),
     value("browser-admission-aggregate-scale", "Browser-local session allowance multiplier (1..100)"),
     value("session-state", "Also serve a shared workspace from this directory and print its use and management links"),
+    value("allow-origin", "Rooms pages served elsewhere that may use this server, as origins or page addresses separated by commas (default: https://glowcap.org/rooms/app/, the page the website publishes, and an empty value allows none). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach"),
     value("http-bind", "HTTP listener address (default 127.0.0.1, so a public address is never chosen for you)"),
     value("http-port", "HTTP listener port (default 8080)"),
+    value("http-public", "The address browsers reach this server at, named by every link it prints (default http://localhost:<port>/)"),
     value("assets", "Serve these prepared browser assets instead of the installed ones (never compiles source)"),
 };
 const status = [_]Flag{value("url", "Rooms HTTP base URL (default http://127.0.0.1:8080)")};

@@ -41,14 +41,6 @@ export function directoryId(locator: string): DirId | null {
 	return authority == null ? null : dirId(authority);
 }
 
-/** The WebSockets the Rooms server at `base` relays and registers through, as
- * the Rust front derives them. */
-export function serverRoutes(base: string): { relay: string; register: string } {
-	const [relay, register] = applicationModule().serverRoutes(base);
-	if (relay == null || register == null) throw new Error("the Rooms application answered no server routes");
-	return { relay, register };
-}
-
 /** Whether `text` reads as a directory address. A malformed one is no address. */
 export function namesDirectory(text: string): boolean {
 	try {

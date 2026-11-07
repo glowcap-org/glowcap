@@ -14,11 +14,11 @@ pub async fn rooms_browser_websocket_contract(location: String) {
 	tokio::task::LocalSet::new()
 		.run_until(async move {
 			let host = Host::with_options(rooms_glowcap::host_options()).unwrap();
-			let ice = rooms_browser::ice::Source::deployment();
+			let ice = rooms_browser::ice::Source::new("/ice");
 			let runtime = std::rc::Rc::new(
 				rooms_browser::transport::open::<rooms_browser::platform::Platform, _>(
 					&host,
-					super::page_server(),
+					Some(super::page_server()),
 					|_, _| Err("this scenario has no signaling directory".into()),
 					ice.clone(),
 				)

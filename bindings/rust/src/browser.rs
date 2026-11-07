@@ -66,16 +66,25 @@ impl Failure {
 	}
 }
 
+/// Where the channel stands between open and retired. `Unretired` is a close
+/// that failed: the socket refused it, or it outlived the deadline. Only that
+/// answers a close.
+#[derive(Default)]
+enum Phase {
+	#[default]
+	Open,
+	/// A close was requested, and the socket's own close event is awaited.
+	Closing,
+	Closed,
+	Unretired(Failure),
+}
+
 #[derive(Default)]
 struct State {
 	queue: VecDeque<Vec<u8>>,
 	queued_bytes: usize,
 	failure: Option<Failure>,
-	/// Why physical retirement itself failed: the socket refused to close, or
-	/// its close outlived the deadline. Only this answers a close.
-	unretired: Option<Failure>,
-	closing: bool,
-	closed: bool,
+	phase: Phase,
 	reader: Option<Waker>,
 	writer: Option<Waker>,
 	closer: Option<Waker>,
@@ -96,8 +105,23 @@ impl State {
 	fn result(&self) -> std_io::Result<()> {
 		self.failure.as_ref().map_or(Ok(()), |failure| Err(failure.error()))
 	}
+	fn ending(&self) -> bool {
+		!matches!(self.phase, Phase::Open)
+	}
+	fn closed(&self) -> bool {
+		matches!(self.phase, Phase::Closed | Phase::Unretired(_))
+	}
+	/// The socket is gone. A retirement that failed keeps saying so.
+	fn retire(&mut self) {
+		if !self.closed() {
+			self.phase = Phase::Closed;
+		}
+	}
 	fn retirement(&self) -> std_io::Result<()> {
-		self.unretired.as_ref().map_or(Ok(()), |failure| Err(failure.error()))
+		match &self.phase {
+			Phase::Unretired(failure) => Err(failure.error()),
+			_ => Ok(()),
+		}
 	}
 }
 
@@ -128,24 +152,29 @@ impl Shared {
 	fn request_close(&self) {
 		{
 			let mut state = self.state.borrow_mut();
-			if state.closing || state.closed {
+			if state.ending() {
 				return;
 			}
-			state.closing = true;
+			state.phase = Phase::Closing;
 			state.discard();
 			state.wake();
 		}
 		if let Err(error) = self.socket.close() {
-			let mut state = self.state.borrow_mut();
-			state
-				.failure
-				.get_or_insert_with(|| Failure(error.kind(), error.to_string()));
 			// A refusal is terminal for this barrier. Its error explicitly denies
 			// successful physical retirement; the closer detaches all callbacks.
-			state.unretired = Some(Failure(error.kind(), error.to_string()));
-			state.closed = true;
-			state.wake();
+			self.retirement_failed(error.kind(), error.to_string());
 		}
+	}
+	/// Physical retirement itself failed: the socket refused to close, or its
+	/// close outlived the deadline. The channel is closed either way, the
+	/// failure stands as its first if it has none, and only this answers the
+	/// closer.
+	fn retirement_failed(&self, kind: std_io::ErrorKind, message: impl Into<String>) {
+		let mut state = self.state.borrow_mut();
+		let failure = Failure(kind, message.into());
+		state.failure.get_or_insert_with(|| failure.clone());
+		state.phase = Phase::Unretired(failure);
+		state.wake();
 	}
 	fn inbound_limit(&self) -> usize {
 		match self.socket {

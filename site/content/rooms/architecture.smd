@@ -81,7 +81,7 @@ page meets WebAssembly.
 | `rooms-glowcap` | The clients for each Rooms reference, and the checks on what arrives over the wire, on top of glowcap's C ABI. |
 | `rooms-runtime` | The order work runs in, what gets accepted, recovery, cleanup, and turning saved state into what the screen shows. |
 | `rooms-platform` | Tokio, clocks, randomness, files, listening sockets, TLS, and WebSocket connections. |
-| `rooms-services` | The server programs: the room server, the session service, the archive, the web server, and the IRC bridge and IRC server. |
+| `rooms-services` | The server programs: the directory, the session service, the archive, the Rooms server that serves the page and relays for it, and the IRC bridge and IRC server. |
 | `rooms-browser` | Browser storage, WebRTC, the JavaScript side, and the WebAssembly entry points. |
 
 Checks in the build keep each crate's imports going one way. The shared crates
@@ -96,12 +96,14 @@ uses. JavaScript supplies the clock and the byte connections. The Rust
 browser code owns your session, what is saved, and WebRTC. TypeScript draws
 the screen and turns what you do into requests.
 
-Your browser reaches the room server through the web server's byte relay. The
+Your browser reaches a directory through the Rooms server's byte relay. The
 relay forwards bytes without parsing them and holds nothing of yours. It could
-still read them, and on an [iroh]($link.page('transports/iroh')) route it checks the room server's key on your
-behalf, so you are trusting the web server that gave you the page. For a direct
-message, WebRTC puts the two peers on one channel, and the server only passes
-along the connection details.
+still read them, and on an [iroh]($link.page('transports/iroh')) route it checks the directory's key on your
+behalf, so you are trusting the Rooms server your page uses: the one you chose,
+or the one that served the page. Whoever serves the page is trusted with your
+session too, because the page's code is what runs in your browser: this site,
+or a server of your own. For a direct message, WebRTC puts the two peers on
+one channel, and the server only passes along the connection details.
 
 # When something goes wrong
 

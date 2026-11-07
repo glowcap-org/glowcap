@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 // Real HTTP bodies: Fetch and stream cancellation remain browser operations.
 export function iceFixtures() {
 	let rotating = 0, retry = 0;
+	// The origin the cross-origin read named, as the browser sent it.
+	let elsewhere = null;
 	let closed;
 	const pendingClosed = new Promise((resolve) => {
 		closed = resolve;
@@ -12,6 +14,18 @@ export function iceFixtures() {
 			if (!request.url.startsWith("/ice/")) return false;
 			response.setHeader("Content-Type", "application/json");
 			switch (request.url) {
+				case "/ice/elsewhere":
+					elsewhere = request.headers.origin ?? "(no origin header)";
+					response.setHeader("Access-Control-Allow-Origin", elsewhere);
+					response.setHeader("Vary", "Origin");
+					response.end(
+						JSON.stringify([{
+							urls: ["turn:fixture.invalid"],
+							username: "fixture",
+							credential: "elsewhere",
+						}]),
+					);
+					break;
 				case "/ice/rotating":
 					response.end(
 						JSON.stringify([{
@@ -49,13 +63,17 @@ export function iceFixtures() {
 			return true;
 		},
 		async check(page) {
+			// The same server by its other loopback name is another origin to the page.
+			const origin = new URL(page.url()).origin;
+			const across = new URL("/ice/elsewhere", origin);
+			across.hostname = across.hostname === "localhost" ? "127.0.0.1" : "localhost";
 			let deadline;
 			try {
 				await Promise.race([
 					(async () => {
-						await page.evaluate(async () => {
+						await page.evaluate(async (across) => {
 							const binding = await import("/rooms_contract_proofs.js");
-							await binding.rooms_browser_ice_contract();
+							await binding.rooms_browser_ice_contract(across);
 							const prototype = ReadableStreamDefaultReader.prototype;
 							const read = prototype.read;
 							let reads = 0, active = 0, notify;
@@ -77,13 +95,18 @@ export function iceFixtures() {
 							} finally {
 								prototype.read = read;
 							}
-						});
+						}, across.href);
 						await pendingClosed;
 					})(),
 					new Promise((_, reject) => {
 						deadline = setTimeout(() => reject(new Error("browser ICE contract timed out")), 15_000);
 					}),
 				]);
+				assert.equal(
+					elsewhere,
+					origin,
+					"the cross-origin ICE read must reach the server with the page's origin",
+				);
 				assert.equal(
 					rotating,
 					2,

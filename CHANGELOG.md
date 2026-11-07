@@ -9,11 +9,32 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- The Rooms page is published at https://glowcap.org/rooms/app/ with the
+  website. A Rooms server lets that page use it unless `--allow-origin` (or
+  `GLOWCAP_RELAY_ALLOW_ORIGINS`) lists other pages. The link it prints under
+  **open the page** opens the page with this server. The page names the
+  browser's local network permission when that is what stands in the way.
+- `--http-public` (or `GLOWCAP_ROOMS_HTTP_PUBLIC`) names the address browsers
+  reach a Rooms server at, so the links a deployed server prints are ones
+  other people can open.
+- The Rooms server card in Settings shows the server's address to copy.
+- The theme chosen on the website or in the Rooms page it publishes is one
+  choice: both keep it under the same browser key. A presentation export
+  still carries it with the other view preferences.
+- Joining a room, connecting to a directory, or messaging someone from a page
+  with no Rooms server asks for one in place, the way Attach does, and the
+  page comes back to that act once the server is saved.
+
 ### Changed
 
 - The release workflow points the Racket package catalog at each release's
   binding archive and installs the package from the catalog, so a release
   reaches Racket users without a maintainer editing the catalog entry.
+- Closing a Rust browser channel answers only a failure to retire the socket
+  itself. A channel that failed earlier closes cleanly, and that first failure
+  stays the answer to its reads and writes.
 
 ## [0.1.4] - 2026-11-06
 

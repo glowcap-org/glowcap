@@ -56,8 +56,10 @@ export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 
-Open the `web ui` address it prints. [Run Rooms](https://glowcap.org/rooms/start/) walks
-through joining a room and messaging another member directly.
+Open the link it prints: the Rooms page at
+[glowcap.org/rooms/app/](https://glowcap.org/rooms/app/), with your server
+filled in. [Run Rooms](https://glowcap.org/rooms/start/) walks through joining
+a room and messaging another member directly.
 
 ## Quick start
 

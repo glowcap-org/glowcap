@@ -62,6 +62,7 @@ const css_wellformed = @import("source_check/css_wellformed.zig");
 const css_lightdark = @import("source_check/css_lightdark.zig");
 const rooms_ui = @import("source_check/rooms_ui.zig");
 const rooms_avatar = @import("source_check/rooms_avatar.zig");
+const literal_pins = @import("source_check/literal_pins.zig");
 const mark_assets = @import("source_check/mark_assets.zig");
 const prose_file_claims = @import("source_check/prose_file_claims.zig");
 const rooms_session_access = @import("source_check/rooms_session_access.zig");
@@ -198,6 +199,7 @@ pub fn check(
     try rooms_ui.checkRoomsRequestDeadlines(io, gpa, root, &violations);
     try rooms_ui.checkRoomsConfig(io, gpa, root, &violations);
     try rooms_avatar.checkAvatarRamp(io, gpa, root, &violations);
+    try literal_pins.check(io, gpa, root, &violations);
     try mark_assets.checkMarkAssets(io, gpa, root, &violations);
     try rooms_proofs.checkRoomsProofChildren(io, gpa, root, &violations);
     try rooms_protocol.check(io, gpa, root, &violations);
@@ -329,6 +331,7 @@ test {
     _ = agents_catalog;
     _ = rooms_ui;
     _ = rooms_proofs;
+    _ = literal_pins;
     _ = fuzz;
     _ = binding_runtime_proof;
     _ = bs_ffi_surface;

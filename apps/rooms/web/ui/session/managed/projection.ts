@@ -150,7 +150,7 @@ export class ManagedProjection {
 			this.#cancelled = [];
 			this.#identities.clear();
 			this.#announcedShares.clear();
-			projection.set({ homeDir: null, opsHeld: operationsHeld() });
+			projection.set({ homeDirectory: null, opsHeld: operationsHeld() });
 			return;
 		}
 		if (
@@ -190,8 +190,10 @@ export class ManagedProjection {
 			}
 		}
 		for (const id of projection.get().dirs.keys()) if (!directories.has(id)) store.forgetDir(projection, id);
-		const homeDir = intent.directories.find((row) => row.home)?.id ?? null;
-		if (projection.get().homeDir !== homeDir) projection.set({ homeDir: homeDir == null ? null : dirId(homeDir) });
+		const homeDirectory = intent.directories.find((row) => row.home)?.id ?? null;
+		if (projection.get().homeDirectory !== homeDirectory) {
+			projection.set({ homeDirectory: homeDirectory == null ? null : dirId(homeDirectory) });
+		}
 		for (const row of intent.directories) {
 			const id = dirId(row.id);
 			store.openDir(projection, id, projection.get().dirs.get(id)?.locator ?? "");

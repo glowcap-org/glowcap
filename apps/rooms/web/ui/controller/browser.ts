@@ -2,6 +2,7 @@
 // the established session is local or attached.
 
 import { createContext, useContext, useSyncExternalStore } from "react";
+import type { ServerInUse } from "../server_choice.ts";
 import type { RoomsControllerSelection } from "../../../lib/rooms_state.ts";
 import type { RoomPreset } from "../room_policy.ts";
 import type { Reach } from "../intent.ts";
@@ -71,6 +72,12 @@ export interface RoomsBrowserController {
 	attachRoomsSession(sturdyref: string): Promise<string>;
 	shareRoomsSession(): Promise<string>;
 	useLocalRoomsSession(): Promise<string>;
+	/** The Rooms server a session opened on this page would use: the one this
+	 * device chose, else the one that served the page, else none. */
+	server(): ServerInUse | null;
+	/** Whether this page has opened a workspace, which keeps the Rooms server it
+	 * opened with, so another server takes a reload. */
+	serverHeld(): boolean;
 	leaveRoomsSession(): Promise<string>;
 	readonly controllerSelection: {
 		getSnapshot(): RoomsControllerSelection;

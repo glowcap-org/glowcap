@@ -8,8 +8,10 @@ import { Confirm } from "../Confirm.tsx";
 import { Icon, Wordmark } from "../icons.tsx";
 import { serverOfferCommit, serverOfferKeep, serverOfferSay, serverOfferTitle } from "../../../lib/text/settings.ts";
 
+/** `local` says the server is on the person's own computer or network while
+ * this page is not, so the browser may ask before the page reaches it. */
 export function ServerOffer(
-	{ host, onAnswer }: { host: string; onAnswer: (use: boolean) => void },
+	{ host, local, onAnswer }: { host: string; local: boolean; onAnswer: (use: boolean) => void },
 ) {
 	// The session opens after the answer. Until it does, the question stays on
 	// screen without taking a second one.
@@ -31,7 +33,7 @@ export function ServerOffer(
 				</div>
 				<Confirm
 					label={serverOfferTitle}
-					say={serverOfferSay(host)}
+					say={serverOfferSay(host, local)}
 					keep={serverOfferKeep}
 					commit={serverOfferCommit}
 					tone="primary"

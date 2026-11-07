@@ -4,7 +4,7 @@ import "./support/match_media.ts";
 import { assertEquals } from "./assert.ts";
 
 const { dmFrom, servedDirectory, writeSearch } = await import("../web/ui/prefs.ts");
-const { roomAddress, directoryAddress } = await import("../web/ui/route_address.ts");
+const { roomAddress, directoryAddress, dmAddress } = await import("../web/ui/route_address.ts");
 
 Deno.test("dm: URL relay wins over stored webrtc", () => {
 	assertEquals(dmFrom(new URLSearchParams("dm=relay"), "webrtc"), "relay", "url relay");
@@ -45,6 +45,7 @@ Deno.test("shared room and directory addresses carry only the DM startup choice"
 	try {
 		assertEquals(roomAddress("lobby"), "/room/lobby?dm=relay", "room configuration");
 		assertEquals(directoryAddress(), "/directory?dm=relay", "directory configuration");
+		assertEquals(dmAddress("grace hopper"), "/dm/grace%20hopper?dm=relay", "direct configuration");
 	} finally {
 		if (prior) Object.defineProperty(globalThis, "location", prior);
 		else Reflect.deleteProperty(globalThis, "location");

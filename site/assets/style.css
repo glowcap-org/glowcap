@@ -16,6 +16,11 @@
   --shadow-far: color-mix(in srgb, var(--ink) 8%, transparent);
   --sidebar-w: 16rem;
   --content-max: 60rem;
+  /* The header's side inset, shared by the brand row and the controls the
+     narrow layout pins to its corner, and the icon button size the theme
+     switch and the application link beside it share. */
+  --header-inset: clamp(1rem, 4vw, 2.5rem);
+  --icon-button-size: 36px;
   /* Core palette, type, mark, and product ink/radius/cover come from
      ui/tokens.css, linked first. */
   /* The diagrams override these two, so they need a light-theme identity of
@@ -161,7 +166,7 @@ a:focus-visible,
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: calc(0.7rem + var(--accent-line)) clamp(1rem, 4vw, 2.5rem) 0.7rem;
+  padding: calc(0.7rem + var(--accent-line)) var(--header-inset) 0.7rem;
   background: color-mix(in srgb, var(--paper-raised) 70%, transparent);
   backdrop-filter: blur(var(--frost));
   -webkit-backdrop-filter: blur(var(--frost));
@@ -278,6 +283,21 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
   color: var(--ink-soft);
 }
 
+/* The application link: a small pill, so the one thing in the header that
+   opens an app rather than a page reads as an action. */
+.top-nav .top-nav-app {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  font-weight: 700;
+  color: var(--accent-ink);
+}
+
+.top-nav .top-nav-app:hover {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 /* The theme switch. It shows the theme you would move to, not the one you are
    in, so the icon reads as an action. Which icon that is comes straight from
    the same conditions that pick the palette, so the button cannot fall out of
@@ -296,8 +316,8 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 36px;
-  height: 36px;
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
   padding: 0;
   cursor: pointer;
   color: var(--ink-soft);
@@ -352,10 +372,17 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
   gap: clamp(1.25rem, 2.5vw, 2rem);
   max-width: 84rem;
   margin: 0 auto;
-  padding: 0 clamp(1rem, 4vw, 2.5rem);
+  padding: 0 var(--header-inset);
 }
 
 .sidebar {
+  /* The index spans the article's row and the footer's, so the area a sticky
+     box is held inside reaches the end of the page. Ending it with the
+     article would let the footer push the index up under the header. An item
+     with a definite row is placed before the auto-placed article, so the
+     rails name their columns too, or one of them takes the article's. */
+  grid-column: 1;
+  grid-row: 1 / span 2;
   align-self: start;
   position: sticky;
   top: 4.2rem;
@@ -412,6 +439,8 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
 
   body.has-toc .toc {
     display: block;
+    grid-column: 3;
+    grid-row: 1 / span 2;
     align-self: start;
     position: sticky;
     top: 4.2rem;

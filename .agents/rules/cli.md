@@ -81,6 +81,7 @@ Never committed. `source-check` holds each against `.gitignore` and the index:
 - `.serena/memories/`
 - `bindings/rust/target/`
 - `bindings/rust/Cargo.lock`
+- `site/assets/rooms/` (the exported Rooms page)
 
 Committed FFI tiers and headers are generated, and their first lines name the
 `gen-*` step that writes them. A C signature change edits the Zig export, its

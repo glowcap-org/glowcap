@@ -599,12 +599,12 @@ for (const replaced of [false, true]) {
 			return Promise.resolve();
 		};
 		const files = presentationFiles(f.page.projection, () => null);
+		f.page.projection.set({ server: { base: "https://rooms.test/", chosen: false, directory: f.route } });
 		const controller = createManagedController(
 			f.page,
 			{ setTheme() {}, showRoster() {}, aboutConversation() {} },
 			session,
 			files,
-			{ host: "rooms.test", directory: f.route },
 			{ refresh: () => Promise.resolve() } as unknown as ManagedHistory,
 		);
 		try {

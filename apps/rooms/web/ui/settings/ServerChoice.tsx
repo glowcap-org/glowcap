@@ -1,9 +1,10 @@
-// The Rooms server this browser uses, under Settings > Reachability. The
-// choice belongs to the device, so it is open whatever the session allows, and
-// saving reloads the page, because the server is chosen once as the session
-// opens. Test asks the typed server the question the session will ask, and
-// only a change that answered can be saved, so a server that turns this page
-// away is found before the reload, not after.
+// The Rooms server this browser uses, chosen in Settings > Reachability and on
+// session setup. The choice belongs to the device, so it is open whatever the
+// session allows. A session keeps the server it opened with, so saving under an
+// open session reloads the page, and the caller says what saving leads to.
+// Test asks the typed server the question the session will ask, and only a
+// change that answered can be saved, so a server that turns this page away is
+// found before it is kept, not after.
 
 import { useState } from "react";
 import { saveAndReload } from "../../../lib/text/controls.ts";
@@ -11,6 +12,7 @@ import {
 	serverAddressName,
 	serverTest,
 	serverTestAnswers,
+	serverTestBlocked,
 	serverTestElsewhere,
 	serverTestRefuses,
 	serverTestSilent,
@@ -18,6 +20,7 @@ import {
 	settingsServerHint,
 	settingsServerRefused,
 } from "../../../lib/text/settings.ts";
+import { reloadNow } from "../boot.ts";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
@@ -28,9 +31,15 @@ import { Said } from "../Said.tsx";
 import { pageBase, servedByRooms } from "../page_base.ts";
 
 /** `framed` is the dialog's own well around the form, and focus on the field
- * the reader opened it for. In a card the card is the well already. */
+ * the reader opened it for. In a card the card is the well already. `onSaved`
+ * runs once the choice is kept, by default the covered reload every server
+ * change takes, and `saveLabel` says what it leads to. */
 export function ServerChoice(
-	{ reload = () => location.reload(), framed = false }: { reload?: () => void; framed?: boolean },
+	{ onSaved = reloadNow, saveLabel = saveAndReload, framed = false }: {
+		onSaved?: () => void;
+		saveLabel?: string;
+		framed?: boolean;
+	},
 ) {
 	const [saved] = useState(chosenServer);
 	const [typed, setTyped] = useState(saved ?? "");
@@ -54,7 +63,7 @@ export function ServerChoice(
 	};
 	// A result belongs to the address it tested, so typing past it clears it.
 	const result = probe != null && probe.base === testBase ? probe.said : null;
-	// Saving reloads into the server, so only a server that answered is saved.
+	// Only a server that answered is kept.
 	// Choosing none, on a page with no server of its own, has nothing to ask.
 	const proven = testBase == null || result?.kind === "answers";
 	const savable = "base" in read && changed && proven;
@@ -75,7 +84,7 @@ export function ServerChoice(
 				}
 				if (!changed) return;
 				chooseServer(read.base);
-				reload();
+				onSaved();
 			}}
 		>
 			<div className="field-row">
@@ -100,6 +109,10 @@ export function ServerChoice(
 								setTyped(event.currentTarget.value);
 								setWhy("");
 							}}
+							// What is typed is judged when the field is left, not on each key.
+							onBlur={() => {
+								if (typed.trim() !== "" && !("base" in read)) setWhy(settingsServerRefused);
+							}}
 							// A browser drops Enter while the submit button is off, and
 							// Save is off until a test passes, so Enter submits here and
 							// the form tests first.
@@ -117,7 +130,9 @@ export function ServerChoice(
 					// The next step leads: Test until the change has answered.
 					variant={changed && !proven ? "primary" : "quiet"}
 					busy={testing}
-					disabled={testBase == null}
+					// Off only when there is nothing to test: a blank field on a page
+					// with no server. A refused address is tested so the test can say why.
+					disabled={"base" in read && testBase == null}
 					onClick={() => void test()}
 				>
 					{serverTest}
@@ -131,6 +146,8 @@ export function ServerChoice(
 						? serverTestElsewhere
 						: result.kind === "refuses"
 						? serverTestRefuses(location.origin)
+						: result.kind === "blocked"
+						? serverTestBlocked(result.permission)
 						: serverTestSilent}
 				</Said>
 			)}
@@ -143,7 +160,7 @@ export function ServerChoice(
 					variant={savable ? "primary" : "quiet"}
 					disabled={!savable}
 				>
-					{saveAndReload}
+					{saveLabel}
 				</Button>
 			</div>
 		</form>

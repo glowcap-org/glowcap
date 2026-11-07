@@ -24,10 +24,11 @@ export function current(intent?: { connection: DmMode }): { dm: DmMode } {
 /** The directory a Rooms server hosts, from its `locator` (by default the one
  * under this page's base), or null when it names none. A static host has no
  * `locator`, and one with a page fallback answers every path with HTML, so only
- * a body `names` accepts as a directory address counts. */
+ * a body `names` accepts as a directory address counts. `read` is the caller's
+ * fetch, with the deadline the caller gives it. */
 export async function servedDirectory(
 	names: (text: string) => boolean,
-	read: (address: URL) => Promise<Response> = fetch,
+	read: (address: URL) => Promise<Response>,
 	address: URL = pageRoute("locator"),
 ): Promise<string | null> {
 	try {

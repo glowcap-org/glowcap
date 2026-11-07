@@ -28,6 +28,7 @@ import { useRoomsSession } from "../controller/session.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { Topbar } from "./Topbar.tsx";
 import { SessionEffectNotice } from "../panes/SessionEffectNotice.tsx";
+import { ServerAsk } from "../panes/ServerAsk.tsx";
 import { SessionPausedNotice } from "../panes/SessionPausedNotice.tsx";
 import { Stream } from "../panes/Stream.tsx";
 import { Members } from "../panes/Members.tsx";
@@ -121,18 +122,20 @@ export function App() {
 	const directoryContext = useMemo(
 		() =>
 			directoryDestinationContext(
-				state.homeDir == null ? null : { id: state.homeDir, locator: session.dirAddress(state.homeDir) },
-				session.directoryLocator(),
+				state.homeDirectory == null
+					? null
+					: { id: state.homeDirectory, locator: session.dirAddress(state.homeDirectory) },
+				state.server?.directory ?? null,
 				(locator) => session.directoryId(locator),
 			),
-		// The locator this asks the session for lives on the live checkpoint, not
+		// The home address this asks the session for lives on the live checkpoint, not
 		// in the store, so React cannot see it move and no dependency can name
 		// it. `state.dirs` and `controller.kind` are what move when that
 		// checkpoint's directory list does, which makes them the signal; they are
 		// listed because they are the invalidation key, not because the body
 		// reads them.
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what moves the session's own directory list
-		[state.homeDir, state.dirs, controller.kind],
+		[state.homeDirectory, state.server, state.dirs, controller.kind],
 	);
 	const returns = state.returns;
 	// What is half-written here, which belongs to this conversation and not to the
@@ -165,7 +168,7 @@ export function App() {
 		? (conv.type === "dm"
 			? "@" + conv.id
 			: conv.type === "directory"
-			? directoryName(conv.dir, state.homeDir)
+			? directoryName(conv.dir, state.homeDirectory)
 			: roomCalled(conv.id, conv.held))
 		: "";
 
@@ -237,7 +240,7 @@ export function App() {
 	// The directory this page came from: Settings still names its locator, and
 	// a button there opens the same card a room caption would. Null when this
 	// tab does not hold that session, before it has answered, or after Leave.
-	const onDir = state.homeDir === null ? null : state.dirs.get(state.homeDir) ?? null;
+	const onDir = state.homeDirectory === null ? null : state.dirs.get(state.homeDirectory) ?? null;
 
 	// Everything a directory says belongs to one directory, so the page reads it
 	// from the one the open conversation is on. The join card, with nothing open,
@@ -277,14 +280,14 @@ export function App() {
 	// own signature, so handing it exactly that makes the compiler the one
 	// holding the two in step. Widening what `answers` reads fails here
 	// instead of quietly returning a held answer.
-	const { homeDir, reaching, edits, remembered } = state;
+	const { homeDirectory, reaching, edits, remembered } = state;
 	const joining = useMemo(
-		() => store.answers(projection, { homeDir, reaching, edits, remembered }, directoryContext),
-		[projection, homeDir, reaching, edits, remembered, directoryContext],
+		() => store.answers(projection, { homeDirectory, reaching, edits, remembered }, directoryContext),
+		[projection, homeDirectory, reaching, edits, remembered, directoryContext],
 	);
 	const joinResolution = useMemo(
-		() => resolveJoin(joining, state.dirs, state.homeDir, (locator) => session.directoryId(locator)),
-		[joining, state.dirs, state.homeDir, session],
+		() => resolveJoin(joining, state.dirs, state.homeDirectory, (locator) => session.directoryId(locator)),
+		[joining, state.dirs, state.homeDirectory, session],
 	);
 
 	// Leave persists `none` and reloads. That write can notify this tree before
@@ -370,7 +373,7 @@ export function App() {
 				canInteract={canInteract}
 				cardUp={conv === null && !ops.on}
 				dirs={state.dirs}
-				homeDir={state.homeDir}
+				homeDirectory={state.homeDirectory}
 				directoryContext={directoryContext}
 				activeKey={ops.on ? null : state.activeKey}
 				acting={acting?.id ?? null}
@@ -402,7 +405,9 @@ export function App() {
 			}
 			<div
 				className="workarea"
-				data-dir={ops.on || conv === null ? "unknown" : dirWhere(conv.dir, state.homeDir, state.dirs).mark}
+				data-dir={ops.on || conv === null
+					? "unknown"
+					: dirWhere(conv.dir, state.homeDirectory, state.dirs).mark}
 				inert={mobile && state.listScreen ? true : undefined}
 			>
 				<Topbar
@@ -419,12 +424,13 @@ export function App() {
 						: conv.type === "room"
 						? conv.standing ?? state.dirs.get(conv.dir)?.standing ?? state.standing
 						: state.standing}
-					follows={conv === null ? "" : directoryName(conv.dir, state.homeDir)}
+					follows={conv === null ? "" : directoryName(conv.dir, state.homeDirectory)}
 					aboutConv={state.aboutConv}
 					aboutDir={state.aboutDir !== null}
 				/>
 				<SessionPausedNotice />
 				<SessionEffectNotice />
+				<ServerAsk />
 				<div className={noMembers ? "content no-members" : "content"} id="content">
 					{ops.on
 						? (
@@ -499,9 +505,9 @@ export function App() {
 			<DirectoryCard
 				canInteract={canInteract}
 				dir={state.aboutDir === null ? null : state.dirs.get(state.aboutDir) ?? null}
-				mark={state.aboutDir === null ? undefined : dirMarkIn(state.aboutDir, state.homeDir, state.dirs)}
+				mark={state.aboutDir === null ? undefined : dirMarkIn(state.aboutDir, state.homeDirectory, state.dirs)}
 				standing={state.standing}
-				homeDir={state.homeDir}
+				homeDirectory={state.homeDirectory}
 				askingLeave={state.aboutDirLeave}
 				onLayer={onDirLayer}
 			/>
@@ -526,12 +532,12 @@ export function App() {
 					? administeredBridgeFor(state.irc, conv.publicationId)
 					: null}
 				dir={conv === null ? null : state.dirs.get(conv.dir) ?? null}
-				homeDir={state.homeDir}
-				mark={conv === null ? undefined : dirMarkIn(conv.dir, state.homeDir, state.dirs)}
+				homeDirectory={state.homeDirectory}
+				mark={conv === null ? undefined : dirMarkIn(conv.dir, state.homeDirectory, state.dirs)}
 				standing={conv == null || conv.type !== "room"
 					? ""
 					: conv.standing ?? state.dirs.get(conv.dir)?.standing ?? state.standing}
-				follows={conv === null ? "" : directoryName(conv.dir, state.homeDir)}
+				follows={conv === null ? "" : directoryName(conv.dir, state.homeDirectory)}
 				online={directOnline}
 				open={state.aboutConv && conv?.type !== "directory" && state.aboutDir === null && !layersHeld.dir}
 				retain={state.aboutConv}

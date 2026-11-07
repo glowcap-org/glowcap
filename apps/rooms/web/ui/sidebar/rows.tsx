@@ -7,6 +7,7 @@ import { Said } from "../Said.tsx";
 import { PRESENTATION, useProgress } from "../presentation.ts";
 import type { DirId, DirView, SessionPhase } from "../directory.ts";
 import { type Invitation, membersHere, type RoomConv } from "../conversation.ts";
+import { roomJoiningOn } from "../store/rooms.ts";
 import { useConversationMembers } from "../hooks.ts";
 import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, phaseWord, roomCalled } from "../text.ts";
 import { Icon } from "../icons.tsx";
@@ -157,9 +158,7 @@ export function RoomRow(
 	// with nothing wrong with it.
 	const progress = useProgress(phase === "connecting" || phase === "reconnecting", PRESENTATION.connection, phase);
 	const standing = phase === "disconnected" || progress ? dirStanding(phase) : "";
-	// A room waiting on a directory that is not connected shows no progress: the
-	// line under its name already says the directory is not connected.
-	const joiningNow = conv.membership === "joining" && phase !== "disconnected";
+	const joiningNow = roomJoiningOn(conv, phase);
 	const joining = useProgress(joiningNow, PRESENTATION.connection, conv.key);
 	// The row opens the room and carries a second control beside it to leave.
 	// Both are real buttons: an interactive control nested inside another is a

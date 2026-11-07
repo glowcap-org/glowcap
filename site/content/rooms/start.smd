@@ -12,10 +12,16 @@ another device.
 
 # Start Rooms
 
+Rooms is two parts. The page is the app, and it is
+[on this site]($link.siteAsset('rooms/app/index.html')). The server runs on
+your machine: it hosts the directory your rooms live in, and it is how other
+people reach you. The page is nothing to install, and the server is one
+command.
+
 Install the [CLI + Rooms product](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)
-and start Rooms. The installer verifies the release checksum, and the product
-includes the services and prepared browser files, so it needs no compiler. To
-install by hand, download `glowcap-vVERSION-ARCH-OS.tar.gz` from
+and start the server. The installer verifies the release checksum, and the
+product includes the server and its own copy of the page, so it needs no
+compiler. To install by hand, download `glowcap-vVERSION-ARCH-OS.tar.gz` from
 [GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
 
 ```sh
@@ -24,9 +30,26 @@ export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 
-Open the `web ui` address it prints. Peers reach the directory over encrypted
-[iroh]($link.page('transports/iroh')). The web page listens on loopback by
-default. See the [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
+The link it prints under **open the page** opens the page on this site with
+your server's address in it. The page asks once whether to use that server,
+and your browser may ask whether this site may reach a server on your
+computer. Say yes to both. The page loads from here, your session stays in
+your browser, and your directory runs on your machine.
+
+The page also works on its own.
+[Open it]($link.siteAsset('rooms/app/index.html')), and its first screen
+names the Rooms server it will use. With none, it offers **Choose…**: paste the
+**web ui** address your server printed, press **Test**, then **Save**. The same
+choice is in Settings, under **Reachability**, and this browser keeps it.
+
+The **web ui** address is also that same page, served by your server itself,
+for a machine that cannot reach this site. A browser keeps a session per
+origin, so the page there has a session of its own, apart from the one you
+open here.
+
+Peers reach the directory over encrypted [iroh]($link.page('transports/iroh')).
+The server listens on loopback by default. See the
+[deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
 for Docker and public hosting, or [developing Rooms](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/developing.md)
 to build and run from a checkout.
 
@@ -46,14 +69,14 @@ same Rooms features. You can switch later in Settings.
 
 # Join a room
 
-The join card already points at the server that gave you the page. Type a
-room name such as `workshop`. If no room has that name, joining creates
+The join card already points at your server. Type a room name such as
+`workshop`. If no room has that name, joining creates
 it. You can leave **Display name** empty: the grey suggestion is a name the
 server can give you right now, and joining with the field empty takes it.
 
-[The join card, pointed at the server that gave you the page, with a room name typed. The display name can stay empty.]($image.siteAsset('rooms-join-dark.webp'))
+[The join card, pointed at your server, with a room name typed. The display name can stay empty.]($image.siteAsset('rooms-join-dark.webp'))
 
-[The join card, pointed at the server that gave you the page, with a room name typed. The display name can stay empty.]($image.siteAsset('rooms-join-light.webp'))
+[The join card, pointed at your server, with a room name typed. The display name can stay empty.]($image.siteAsset('rooms-join-light.webp'))
 
 If the name you type is taken, the card shows the next free one and will not
 send a join it knows would fail. Rooms never quietly changes a name you typed.

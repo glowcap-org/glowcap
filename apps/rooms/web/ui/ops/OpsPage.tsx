@@ -170,7 +170,7 @@ export function OpsMain({ segment }: { segment: string | null }) {
 		trace: state.trace,
 		trouble: state.trouble,
 		convs: state.convs,
-		homeDir: state.homeDir,
+		homeDirectory: state.homeDirectory,
 		opsDirs: state.opsDirs,
 		dirs: state.dirs,
 	})));
@@ -257,7 +257,7 @@ export function OpsMain({ segment }: { segment: string | null }) {
 					>
 						<PeeringPane
 							state={s.peering}
-							sources={peeringSourcesOf(s.convs, s.opsDirs.peering ?? null, s.homeDir, s.dirs)}
+							sources={peeringSourcesOf(s.convs, s.opsDirs.peering ?? null, s.homeDirectory, s.dirs)}
 						/>
 					</HeldPane>
 				)}

@@ -47,11 +47,11 @@ export function DirectoryPicks(
 	},
 ) {
 	const session = useRoomsSession();
-	const homeDir = context.home;
-	const others = [...dirs.values()].filter((dir) => dir.id !== homeDir);
+	const homeDirectory = context.home;
+	const others = [...dirs.values()].filter((dir) => dir.id !== homeDirectory);
 	const typedAs = session.directoryId(locator.trim());
 	const here = thisDirectoryLocator(locator, context, typedAs) === "";
-	const blank = homeDir != null ? homeDirectoryName : context.defaultDirectory != null ? joinLocatorHere : null;
+	const blank = homeDirectory != null ? homeDirectoryName : context.defaultDirectory != null ? joinLocatorHere : null;
 	// The served directory, when an empty address means home and this tab does
 	// not hold it. A server that restarts as a new directory is reached here.
 	const served = context.served != null && !dirs.has(context.served.id) ? context.served : null;
@@ -81,7 +81,7 @@ export function DirectoryPicks(
 					marked={typedAs === dir.id}
 					onPick={() => onPick(session.dirAddress(dir.id))}
 				>
-					{directoryName(dir.id, homeDir)}
+					{directoryName(dir.id, homeDirectory)}
 				</MenuRow>
 			))}
 			<MenuRow className="line-menu-row" first={!lead && others.length === 0} onPick={onElsewhere}>

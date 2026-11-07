@@ -28,6 +28,15 @@ test "Rooms exposes one product tree with one session and team lifecycle" {
     try std.testing.expect(rooms.findChild("directory").?.findChild("serve").?.run != null);
 }
 
+test "Rooms serve owns the options a page served elsewhere needs to reach it" {
+    const serve = cli.tree.root.findChild("apps").?.findChild("rooms").?.findChild("serve").?;
+    for ([_][]const u8{ "allow-origin", "session-state", "http-port", "http-public" }) |name| {
+        var found = false;
+        for (serve.flags) |flag| found = found or std.mem.eql(u8, flag.long, name);
+        try std.testing.expect(found);
+    }
+}
+
 test "Rooms completion follows the installed session and team grammar" {
     const gpa = std.testing.allocator;
     for ([_]cli.cmd_completion.Shell{ .bash, .zsh, .fish }) |shell| {

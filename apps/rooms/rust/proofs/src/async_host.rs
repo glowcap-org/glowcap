@@ -32,12 +32,16 @@ pub async fn rooms_browser_host_contract() -> Result<(), JsValue> {
 }
 
 /// The Rooms server that served the proof page, whose routes sit at the root
-/// of the page's origin.
-pub(crate) fn page_server() -> Option<rooms_browser::transport::WebFront> {
-	let document = js_sys::Reflect::get(&js_sys::global(), &"document".into()).ok()?;
-	let base = js_sys::Reflect::get(&document, &"baseURI".into()).ok()?.as_string()?;
-	let page = web_sys::Url::new_with_base("/", &base).ok()?;
-	Some(rooms_browser::transport::WebFront::new(&page.href()).expect("the proof page's base is a Rooms server"))
+/// of the page's origin. A proof page always has one, so a lookup that fails
+/// is a defect in the harness, never a page with no server.
+pub(crate) fn page_server() -> rooms_browser::transport::WebFront {
+	let document = js_sys::Reflect::get(&js_sys::global(), &"document".into()).expect("the proof runs in a document");
+	let base = js_sys::Reflect::get(&document, &"baseURI".into())
+		.ok()
+		.and_then(|base| base.as_string())
+		.expect("the proof page has a base URI");
+	let page = web_sys::Url::new_with_base("/", &base).expect("the proof page's base is a URL");
+	rooms_browser::transport::WebFront::new(&page.href()).expect("the proof page's base is a Rooms server")
 }
 
 pub(crate) fn install_panic_hook() {

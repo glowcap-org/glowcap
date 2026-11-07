@@ -13,6 +13,7 @@ import { coverForReload, finishCommittedMove, finishCoveredReload, uncoverReload
 import type { ManagedRoomsSession } from "../session/managed/session.ts";
 import { requestBrowserDataDeletion } from "./browser_data.ts";
 import { pagePath } from "../page_base.ts";
+import { serverInUse } from "../server_choice.ts";
 
 export function createRoomsBrowserController(
 	page: RoomsPageContext,
@@ -139,6 +140,8 @@ export function createRoomsBrowserController(
 				sharing = null;
 			}),
 		useLocalRoomsSession: () => selectLocal(true),
+		server: serverInUse,
+		serverHeld: () => page.managedSession != null,
 		leaveRoomsSession: () => selectLocal(false),
 		controllerSelection: page.controllerSelection,
 		resetBrowserWorkspace: async () => {

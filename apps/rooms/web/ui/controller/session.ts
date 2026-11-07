@@ -51,7 +51,6 @@ export interface RoomsDirectoryController {
 	 * Answers the refusal, or the empty string. */
 	chooseHomeDirectory(dir: DirId | null): Promise<string>;
 	selfLocator(): string | null;
-	directoryLocator(): string | null;
 	dirAddress(dir: DirId): string;
 	directoryId(locator: string): DirId | null;
 	/** The room's final answer to a join. Expected protocol failures retain their

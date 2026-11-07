@@ -38,10 +38,45 @@ pub(super) struct Limits {
 	/// The listed entries that named a Rooms page's own address, not only its
 	/// origin, so the server can print a link that opens each with it.
 	pub pages: Vec<url::Url>,
+	/// The entries as the operator wrote them, so a refusal can print the
+	/// list that admits one page more.
+	pub listed: Vec<String>,
 	pub registrations: usize,
 	pub per_identity: usize,
 }
+/// The Rooms page the website publishes, which a server lets use it unless
+/// `--allow-origin` or `GLOWCAP_RELAY_ALLOW_ORIGINS` names other pages, or
+/// none. A macro, so the option's help carries the same literal.
+macro_rules! site_page {
+	() => {
+		"https://glowcap.org/rooms/app/"
+	};
+}
+pub(super) use site_page;
+pub const SITE_PAGE: &str = site_page!();
+
 impl Limits {
+	/// Admit the shared session this server runs beside its directory, by its
+	/// use link, and say whether a browser can reach it through this relay. An
+	/// iroh session is reachable by key already. A session on a TCP transport
+	/// is reached at the endpoint its link names, which the relay forwards to
+	/// like a listed peer. Any other transport (onion) is out of this relay's
+	/// reach, so nothing offers it to a browser.
+	pub fn admit_own_session(&mut self, link: &str) -> bool {
+		let Ok(locator) = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).map(|link| link.locator) else {
+			return false;
+		};
+		if locator.transport == glowcap::TRANSPORT_IROH {
+			return true;
+		}
+		let Some(endpoint) = tcp_endpoint(&locator) else {
+			return false;
+		};
+		if !self.tcp.contains(&endpoint) {
+			self.tcp.push(endpoint);
+		}
+		true
+	}
 	pub fn read(env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
 		// Relays share the HTTP front's connection table. Reserve one eighth for
 		// page assets, locators, ICE, status, and proxy requests; rendezvous rows
@@ -65,18 +100,31 @@ impl Limits {
 			.filter(|s| !s.is_empty())
 			.map(|s| glowcap::designator_host_port(s).map_err(|e| e.to_string()))
 			.collect::<Result<_, _>>()?;
-		let listed = env("GLOWCAP_RELAY_ALLOW_ORIGINS")
-			.unwrap_or_default()
+		let listed: Vec<String> = env("GLOWCAP_RELAY_ALLOW_ORIGINS")
+			.unwrap_or_else(|| SITE_PAGE.to_owned())
 			.split(',')
 			.map(str::trim)
 			.filter(|s| !s.is_empty())
-			.map(page_entry)
+			.map(str::to_owned)
+			.collect();
+		let addresses = listed
+			.iter()
+			.map(|entry| page_entry(entry))
 			.collect::<Result<Vec<_>, _>>()?;
-		let origins = listed.iter().map(url::Url::origin).collect();
-		let pages = listed.into_iter().filter(|page| page.path() != "/").collect();
+		let origins = addresses.iter().map(url::Url::origin).collect();
+		// An entry written with its path, `/` included, names a page, even one
+		// at the root of its origin. An entry written as a bare origin names the
+		// origin alone, and its address reads as the path `/`.
+		let pages = listed
+			.iter()
+			.zip(addresses)
+			.filter(|(entry, _)| entry.ends_with('/'))
+			.map(|(_, page)| page)
+			.collect();
 		Ok(Self {
 			origins,
 			pages,
+			listed,
 			sessions: cap("GLOWCAP_RELAY_MAX_SESSIONS", DEFAULT_SESSIONS)?,
 			registrations: cap("GLOWCAP_RELAY_MAX_REGISTRATIONS", DEFAULT_REGISTRATIONS)?,
 			per_identity: cap("GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY", 4)?,
@@ -110,7 +158,7 @@ impl Relay {
 	/// Whether this page origin may use the relay. A browser cannot say why its
 	/// socket closed, so a refused origin is told to the operator, with the
 	/// option that admits it.
-	fn admits<B>(&self, request: &Request<B>) -> bool {
+	pub(super) fn admits<B>(&self, request: &Request<B>) -> bool {
 		if origin_allowed(request, &self.limits.origins) {
 			return true;
 		}
@@ -118,7 +166,25 @@ impl Relay {
 			String::from_utf8_lossy(origin.as_bytes()).into_owned()
 		});
 		if let Some(times) = self.refusals.borrow_mut().observe(&origin) {
-			(self.report)(super::Notice::OriginRefused { origin, times });
+			// The option is suggested only for a value that is exactly an origin,
+			// one `page_entry` takes, and it carries what is listed already,
+			// because the option replaces the default.
+			let exact = url::Url::parse(&origin).is_ok_and(|url| url.origin().ascii_serialization() == origin);
+			let admitting = exact.then(|| {
+				let entries: Vec<&str> = self
+					.limits
+					.listed
+					.iter()
+					.map(String::as_str)
+					.chain([origin.as_str()])
+					.collect();
+				entries.join(",")
+			});
+			(self.report)(super::Notice::OriginRefused {
+				origin,
+				admitting,
+				times,
+			});
 		}
 		false
 	}
@@ -357,14 +423,7 @@ impl Relay {
 						"rooms: directory forwarding unavailable\n",
 					));
 				}
-				glowcap::TRANSPORT_TCP => glowcap::designator_host_port(&locator.designator).map_err(|_| invalid)?,
-				glowcap::TRANSPORT_NOISE_TCP | glowcap::TRANSPORT_KEYED_TCP => {
-					let Some(HintValue::String(address)) = locator.hints.get(glowcap::HINT_DIRECT_ADDRESSES) else {
-						return Err(invalid);
-					};
-					glowcap::designator_host_port(address).map_err(|_| invalid)?
-				}
-				_ => return Err(invalid),
+				_ => tcp_endpoint(&locator).ok_or(invalid)?,
 			}
 		} else {
 			glowcap::designator_host_port(input).map_err(|_| invalid)?
@@ -507,17 +566,24 @@ pub(super) fn origin_allowed<B>(request: &Request<B>, listed: &[url::Origin]) ->
 fn page_entry(entry: &str) -> Result<url::Url, String> {
 	let refused = || {
 		format!(
-			"GLOWCAP_RELAY_ALLOW_ORIGINS entry {entry:?} must be an origin such as https://rooms.example, or a page address such as https://rooms.example/rooms/app/"
+			"--allow-origin (or GLOWCAP_RELAY_ALLOW_ORIGINS) entry {entry:?} must be an origin such as https://rooms.example, or a page address such as https://rooms.example/rooms/app/"
 		)
 	};
-	let url = url::Url::parse(entry).map_err(|_| refused())?;
+	exact_address(entry).ok_or_else(refused)
+}
+/// An http(s) address written as a page or server base: no credentials, a
+/// path ending in `/`, and no query or fragment, so the path the operator
+/// typed is the path every link carries. A bare origin reads as the path `/`,
+/// the one form the URL standard gives it.
+pub(super) fn exact_address(entry: &str) -> Option<url::Url> {
+	let url = url::Url::parse(entry).ok()?;
 	let exact = matches!(url.scheme(), "http" | "https")
 		&& url.username().is_empty()
 		&& url.password().is_none()
 		&& url.path().ends_with('/')
 		&& url.query().is_none()
 		&& url.fragment().is_none();
-	if exact { Ok(url) } else { Err(refused()) }
+	exact.then_some(url)
 }
 pub(super) fn refusal(status: StatusCode, text: &'static str) -> super::http::Reply {
 	let mut reply = Response::new(Full::new(Bytes::from_static(text.as_bytes())));
@@ -553,6 +619,22 @@ async fn pump<A: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unp
 			.map_err(|_| "relay shutdown timed out".to_owned())
 			.and_then(|r| r),
 	)
+}
+
+/// The TCP endpoint a locator names outright: a cleartext tcp designator, or
+/// the direct address a noise-tcp or keyed-tcp locator carries. Keyed
+/// transports the relay reaches another way (iroh, onion) name none.
+fn tcp_endpoint(locator: &Locator) -> Option<(String, u16)> {
+	match locator.transport.as_str() {
+		glowcap::TRANSPORT_TCP => glowcap::designator_host_port(&locator.designator).ok(),
+		glowcap::TRANSPORT_NOISE_TCP | glowcap::TRANSPORT_KEYED_TCP => {
+			match locator.hints.get(glowcap::HINT_DIRECT_ADDRESSES) {
+				Some(HintValue::String(address)) => glowcap::designator_host_port(address).ok(),
+				_ => None,
+			}
+		}
+		_ => None,
+	}
 }
 
 #[cfg(test)]

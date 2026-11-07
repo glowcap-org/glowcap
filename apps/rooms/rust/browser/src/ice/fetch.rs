@@ -25,8 +25,10 @@ impl Drop for Reader {
 pub(super) async fn read(url: &str, abort: &AbortController) -> Result<Servers, Error> {
 	let options = RequestInit::new();
 	options.set_signal(Some(&abort.signal()));
-	options.set_mode(RequestMode::SameOrigin);
-	options.set_credentials(RequestCredentials::SameOrigin);
+	// The Rooms server may be on another origin than the page, which it lists
+	// by `--allow-origin`, and nothing of the page's identity rides along.
+	options.set_mode(RequestMode::Cors);
+	options.set_credentials(RequestCredentials::Omit);
 	options.set_redirect(RequestRedirect::Error);
 	options.set_cache(RequestCache::NoStore);
 	let response = JsFuture::from(fetch(url, &options).map_err(|_| Error::Platform("starting ICE fetch failed"))?)

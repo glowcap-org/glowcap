@@ -14,6 +14,11 @@ import { failureView } from "../lib/text/failure.ts";
 Deno.test("Rooms errors parse only from the carrier position that owns the code", () => {
 	assertEquals(roomsErrorInMessage(new RoomsError(NICK_TAKEN, "alice"))?.code, NICK_TAKEN);
 	assertEquals(roomsErrorInMessage(new Error("glowcap error -14: nick-taken: alice"))?.detail, "alice");
+	// A dial refused inside the runtime climbs through two layers, each adding its status.
+	assertEquals(
+		roomsErrorInMessage(new Error("glowcap error -12: glowcap error -8: no-server: none chosen"))?.code,
+		"no-server",
+	);
 	assertEquals(roomsErrorInMessage(new Error("transport: nick-taken: alice")), null);
 	assertEquals(roomsErrorInMessage(new Error("glowcap error 999999999999: nick-taken: alice")), null);
 	assertEquals(roomsErrorInMessage(new Error("glowcap error +14: nick-taken: alice")), null);

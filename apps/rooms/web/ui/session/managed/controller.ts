@@ -9,6 +9,7 @@ import type { ManagedRoomsSession } from "./session.ts";
 import type { AttachedSessionFiles } from "../attached_files.ts";
 import type { PresentedFile } from "./files.ts";
 import { directoryId } from "../../application.ts";
+import { dirAddress } from "../../page_bootstrap.ts";
 import { type DirId, dirId } from "../../directory.ts";
 import { relayAway } from "../../store/projection.ts";
 import { planJoinDestination, type RoomDestination } from "../../joining.ts";
@@ -16,12 +17,12 @@ import {
 	directoryUnreachable,
 	type FailureView,
 	failureView,
-	noRoomsServer,
 	refusalText,
 	relayUnreachable,
 	renderFailure,
 } from "../../../../lib/text/failure.ts";
-import { roomsErrorInMessage } from "../../../../lib/error_codes.ts";
+import { NO_SERVER, RoomsError, roomsErrorInMessage } from "../../../../lib/error_codes.ts";
+import { dmAddress, joinAddress, roomAddress } from "../../route_address.ts";
 import {
 	activeRefusal,
 	admissionRefusal,
@@ -42,26 +43,28 @@ import type { RoomInfo } from "../../../../lib/directory_publications.ts";
 import { directDirectoryUnavailable, directNoRegistration } from "../../../../lib/text/conversation.ts";
 import { policyForRoomPreset, type RoomPolicy } from "../../room_policy.ts";
 
-/** The Rooms server this browser uses: the one this device chose, else the
- * one that sent the page. */
-export interface RoomsServer {
-	/** Its host, which a person knows it by when it does not answer, or null
-	 * when the page has no Rooms server. */
-	host: string | null;
-	/** The directory it hosts, which a blank address names, or null. */
-	directory: string | null;
-}
+/** Where an act picks up after the reload a newly chosen Rooms server takes:
+ * a page address, built only when the act is refused for want of one, or null
+ * to reload where the page stands. */
+type Resume = (() => string) | null;
 
 export function createManagedController(
 	page: RoomsPageContext,
 	browser: Pick<RoomsBrowserController, "setTheme" | "showRoster" | "aboutConversation">,
 	session: ManagedRoomsSession,
 	files: AttachedSessionFiles<PresentedFile>,
-	server: RoomsServer,
 	history: ManagedHistory,
 	selfLocator: () => string | null = () => null,
 ): RoomsSessionController {
 	const projection = page.projection;
+	// The Rooms server this page uses is a fact on the page, held with the
+	// directory it hosts, so an act reads what the page holds now. Its host is
+	// what a person knows it by when it does not answer.
+	const served = () => projection.get().server;
+	const servedHost = () => {
+		const server = served();
+		return server == null ? null : new URL(server.base).host;
+	};
 	// An empty address means the home directory, else the served one, which a
 	// page from a static host does not have. The join card's labels read the
 	// same rule through `directoryDestinationContext`.
@@ -70,7 +73,7 @@ export function createManagedController(
 		if (locator !== "") return { id: directoryId(locator), route: locator };
 		const home = homeRow();
 		if (home == null) {
-			const route = server.directory ?? "";
+			const route = served()?.directory ?? "";
 			return { id: directoryId(route), route };
 		}
 		// Home is held, so its identity is known even before its view is.
@@ -81,30 +84,47 @@ export function createManagedController(
 	// the served directory nor an offer takes the mark from a chosen one. The
 	// served directory is home by default, and anything else by request.
 	const takesHome = (route: string, requested: boolean): boolean =>
-		(requested || route === server.directory) &&
+		(requested || route === served()?.directory) &&
 		!(session.current?.intent.directories.some((row) => row.home) ?? false);
-	// A failure Rooms cannot name is said by its likeliest cause: the relay
-	// while it is not answering, otherwise whatever the act was reaching for.
-	const explainedAs = (otherwise: (view: FailureView) => string) => (error: unknown): string => {
-		const view = failureView(error);
-		if (view.code !== "unexpected") return renderFailure(view);
-		return relayAway(projection.get().relay) && server.host != null
-			? relayUnreachable(server.host)
-			: otherwise(view);
-	};
+	// A reach refused for want of a Rooms server is not said at all: the page
+	// asks for one, and `resume` names the address the act picks up at after
+	// the reload a chosen server takes, read only then. Any other failure
+	// Rooms cannot name is said by its likeliest cause: the relay while it is
+	// not answering, otherwise whatever the act was reaching for.
+	const explainedAs =
+		(otherwise: (view: FailureView) => string) => (error: unknown, resume: Resume): string | null => {
+			const view = failureView(error);
+			if (view.code === NO_SERVER) {
+				store.askServer(projection, resume?.() ?? null);
+				return null;
+			}
+			if (view.code !== "unexpected") return renderFailure(view);
+			const host = servedHost();
+			return relayAway(projection.get().relay) && host != null
+				? relayUnreachable(host, view.detail)
+				: otherwise(view);
+		};
 	const explained = explainedAs(renderFailure);
-	const unreached = explainedAs((view) =>
-		server.host == null ? noRoomsServer : directoryUnreachable(server.host, view.detail)
-	);
-	const failure = (error: unknown) => store.toast(projection, "failure", explained(error));
+	const unreached = explainedAs((view) => {
+		const host = servedHost();
+		return host == null ? renderFailure(view) : directoryUnreachable(host, view.detail);
+	});
+	const failure = (error: unknown, resume: Resume) => {
+		const said = explained(error, resume);
+		if (said != null) store.toast(projection, "failure", said);
+	};
 	// A verb settles when its work does and never rejects: the toast is where
 	// its failure is told, so a control awaiting it only learns it is done.
-	const act = (work: Promise<unknown>, inlineJoin = false): Promise<void> =>
+	const act = (
+		work: Promise<unknown>,
+		{ resume = null, inlineJoin = false }: { resume?: Resume; inlineJoin?: boolean } = {},
+	): Promise<void> =>
 		work.then(() => undefined, (error: unknown) => {
 			if (error instanceof DOMException && error.name === "AbortError") return;
 			if (inlineJoin && admissionRefusal(error) != null) return;
-			failure(error);
+			failure(error, resume);
 		});
+	const dirAddressOf = (id: DirId) => dirAddress(projection.get().dirs, id);
 	const current = () => store.activeConv(projection);
 	const run = (name: string, ...args: string[]) => session.actions.run(name, args);
 	const directory = () => current()?.dir ?? dirId(homeRow()?.id ?? "");
@@ -203,7 +223,14 @@ export function createManagedController(
 		signal?: AbortSignal,
 	): Promise<DirId> {
 		const { id, route } = destinationOf(locator);
-		if (id == null) throw new Error("This address does not name a directory");
+		if (id == null) {
+			// A blank address means the served directory, which a page with no
+			// Rooms server has none of.
+			if (locator === "" && served() == null) {
+				throw new RoomsError(NO_SERVER, "a blank address means the server's directory, and this page has none");
+			}
+			throw new Error("This address does not name a directory");
+		}
 		const name = nick.kind === "exact" ? nick.name : nick.base;
 		const allocation = nick.kind === "exact" ? "exact" : "automatic";
 		const row = session.current?.intent.directories.find((row) => row.id === id);
@@ -230,13 +257,22 @@ export function createManagedController(
 		directoryReady: Promise.resolve(),
 		pickRoom: (id, name, key) => {
 			const row = key == null ? null : store.getConv(projection, key);
-			return act(row != null && row.type !== "directory" ? select(row.persistId) : pick(id, name), row == null);
+			return act(row != null && row.type !== "directory" ? select(row.persistId) : pick(id, name), {
+				resume: () => roomAddress(name, { directory: dirAddressOf(id) }),
+				inlineJoin: row == null,
+			});
 		},
 		openManagedRoom: (id, name, policy) =>
-			act(session.openings.run(async (opening) => {
-				const room = await session.actions.createRoom(id, name, policy, opening);
-				await opening.select(room);
-			}, { kind: "room", directory: id, name })),
+			act(
+				session.openings.run(async (opening) => {
+					const room = await session.actions.createRoom(id, name, policy, opening);
+					await opening.select(room);
+				}, { kind: "room", directory: id, name }),
+				{
+					resume: () =>
+						roomAddress(name, { directory: dirAddressOf(id), private: policy.visibility === "secret" }),
+				},
+			),
 		acceptInvite: (id) => act(session.actions.acceptInvitation(id)),
 		declineInvite: (id) => act(run("dismissInvitation", id)),
 		leaveRoom: (key) => {
@@ -277,8 +313,7 @@ export function createManagedController(
 			}
 		},
 		selfLocator,
-		directoryLocator: () => server.directory,
-		dirAddress: (id) => projection.get().dirs.get(id)?.locator || id,
+		dirAddress: dirAddressOf,
 		directoryId,
 		join: (destination: RoomDestination, nick, signal) =>
 			session.openings.run(
@@ -321,12 +356,16 @@ export function createManagedController(
 				}
 				const plan = planJoinDestination(destination);
 				const id = plan.kind === "room-link" ? plan.directory : destinationOf(plan.locator).id ?? "";
-				rememberJoinRefusal(projection, id, destination.room, error);
+				const said = explained(error, () =>
+					plan.kind === "room-link"
+						? joinAddress({ locator: plan.link, room: plan.label || undefined })
+						: joinAddress({ room: plan.room, locator: plan.locator || undefined }));
+				if (said != null) rememberJoinRefusal(projection, id, destination.room, error);
 				return {
 					ok: false,
 					code: roomsErrorInMessage(error)?.code ?? null,
 					failure: roomsErrorInMessage(error) ?? undefined,
-					text: explained(error),
+					text: said ?? "",
 				};
 			}),
 		reachDirectory: async (locator, nick, { home = false, signal } = {}) => {
@@ -335,19 +374,25 @@ export function createManagedController(
 				await session.openings.run((opening) => reach(locator, nick, home, opening.signal), null, signal);
 				return "";
 			} catch (error) {
+				const said = unreached(error, () => joinAddress({ locator: locator || undefined }));
+				if (said == null) return "";
 				rememberJoinRefusal(projection, destinationOf(locator).id ?? "", "", error);
-				return unreached(error);
+				return said;
 			}
 		},
 		startDm: (peer) =>
-			act(session.openings.run(async (opening) => {
-				const id = await session.actions.direct(directory(), peer, false, undefined, opening);
-				await opening.select(id);
-			}, { kind: "direct", peer })),
-		recoverDm: (key) =>
-			session.openings.run(async (opening) => {
+			act(
+				session.openings.run(async (opening) => {
+					const id = await session.actions.direct(directory(), peer, false, undefined, opening);
+					await opening.select(id);
+				}, { kind: "direct", peer }),
+				{ resume: () => dmAddress(peer) },
+			),
+		recoverDm: (key) => {
+			const row = store.getConv(projection, key);
+			const resume = row?.type === "dm" ? () => dmAddress(row.id) : null;
+			return session.openings.run(async (opening) => {
 				try {
-					const row = store.getConv(projection, key);
 					if (row?.type !== "dm" || row.peerRegistrationId === "") {
 						return directNoRegistration;
 					}
@@ -360,9 +405,12 @@ export function createManagedController(
 					await opening.select(next);
 					return "";
 				} catch (error) {
-					return explained(error);
+					return explained(error, resume) ?? "";
 				}
-			}).catch((error) => error instanceof DOMException && error.name === "AbortError" ? "" : explained(error)),
+			}).catch((error) =>
+				error instanceof DOMException && error.name === "AbortError" ? "" : explained(error, resume) ?? ""
+			);
+		},
 		openFile: (key, id) => files.open(key, id),
 		openViewer: (key, id) => files.openViewer(key, id),
 		stepViewer: (direction) => files.stepViewer(direction),

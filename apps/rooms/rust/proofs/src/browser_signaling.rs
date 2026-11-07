@@ -64,7 +64,7 @@ async fn runtime_dial(url: &str, location: &str, handoff: bool) {
 	let receiver = Host::with_options(Default::default()).unwrap();
 	let selected = Rc::new(RefCell::new(None::<Directory<Platform>>));
 	let attempts = Rc::new(Cell::new(0));
-	let ice = rooms_browser::ice::Source::deployment();
+	let ice = rooms_browser::ice::Source::new("/ice");
 	let route = selected.clone();
 	let observed = attempts.clone();
 	let select = move |_: &glowcap::Locator, origin: &glowcap::DialOrigin| {
@@ -79,7 +79,7 @@ async fn runtime_dial(url: &str, location: &str, handoff: bool) {
 		observed.set(observed.get() + 1);
 		Ok(directory.signaling())
 	};
-	let runtime = rooms_browser::transport::open(&caller, super::page_server(), select, ice.clone())
+	let runtime = rooms_browser::transport::open(&caller, Some(super::page_server()), select, ice.clone())
 		.await
 		.unwrap();
 	receiver

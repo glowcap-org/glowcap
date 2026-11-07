@@ -67,10 +67,16 @@ async fn web_prepares_and_serves_without_a_source_tree_or_compiler() {
 		assert!(index.contains(r#"<base href="/rooms/app/" />"#), "the page names its base");
 		assert!(index.contains(r#"<meta http-equiv="Content-Security-Policy""#), "the page carries its policy");
 		assert!(index.contains(r#"<meta name="rooms-host" content="static" />"#), "the page knows no server stands behind it");
-		assert_eq!(std::fs::read_to_string(exported.join("404.html")).unwrap(), index, "a deep link opens the page");
 		assert!(std::fs::read_to_string(exported.join("page.js")).unwrap().contains(&format!("\"{name}\"")));
 		assert_eq!(std::fs::read(exported.join(&name)).unwrap(), application);
 		assert!(exported.join("fonts/ibm-plex-sans-latin-wght-normal.woff2").is_file());
-		assert!(!export().await.unwrap().status.success(), "an export never writes into an existing directory");
+		assert!(export().await.unwrap().status.success(), "an export replaces the one it wrote before");
+		let stranger = fixture.0.join("stranger");
+		std::fs::create_dir(&stranger).unwrap();
+		std::fs::write(stranger.join("index.html"), "mine").unwrap();
+		let refused = Command::new(Web::binary()).arg(format!("--export-static={}", stranger.display()))
+			.arg(format!("--assets={}", current.display())).kill_on_drop(true).output().await.unwrap();
+		assert!(!refused.status.success(), "an export never replaces a directory it did not write");
+		assert_eq!(std::fs::read_to_string(stranger.join("index.html")).unwrap(), "mine");
 	}).await.expect("browser preparation and prepared serving deadline");
 }

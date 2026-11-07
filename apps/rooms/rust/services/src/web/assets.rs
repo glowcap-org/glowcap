@@ -270,11 +270,11 @@ impl Assets {
 	}
 }
 impl Generation {
-	/// Every served route and its asset, `/` being the page.
 	/// The build this generation is, as `/ui-version` answers it.
 	pub(super) fn revision(&self) -> &Asset {
 		&self.revision
 	}
+	/// Every served route and its asset, `/` being the page.
 	pub(super) fn files(&self) -> impl Iterator<Item = (&str, &Asset)> {
 		self.files.iter().map(|(route, asset)| (route.as_str(), asset))
 	}
@@ -452,11 +452,12 @@ pub(super) fn content_policy(page: &str) -> Result<String, String> {
 		hashes.push_str(&format!(" 'sha256-{hash}'"));
 		rest = tail;
 	}
-	// A chosen relay may be another server, and the page reads its `locator`.
-	// Its sockets may already reach any host, so `http:` and `https:` reach
-	// nothing new.
+	// A chosen Rooms server may be another host: the page reads its `locator`,
+	// `ice`, and link previews there, and shows preview images through it. Its
+	// sockets may already reach any host, so `http:` and `https:` reach nothing
+	// new, and the page names no other remote image.
 	Ok(format!(
-		"default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss: http: https:; font-src 'self'; form-action 'self'; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'{hashes}; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+		"default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss: http: https:; font-src 'self'; form-action 'self'; img-src 'self' blob: data: http: https:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'{hashes}; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
 	))
 }
 fn security(page: &str) -> Result<HeaderMap, String> {

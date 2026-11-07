@@ -566,6 +566,9 @@ pub fn build(b: *std.Build) void {
     // render always waits for a fresh capture. The preview launcher owns its
     // cold-start capture so local output files never change the build graph.
     site_reg.render.dependOn(rooms.site_captures);
+    // The Rooms page is exported under the site's assets the same way, so the
+    // render carries the current page at rooms/app/.
+    site_reg.render.dependOn(rooms.site_page);
     const rooms_services_install = rooms.services_install;
     release_build.register(b, target, optimize, abi_version, &.{ iroh_abi_step, webrtc_reg.abi_step }, check_step, .{
         .static_archives = release_static_archives.items,

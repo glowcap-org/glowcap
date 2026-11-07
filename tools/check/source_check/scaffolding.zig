@@ -212,6 +212,7 @@ pub fn checkRequiredSubstrings(
     try expectGlowcapMcpServer(io, gpa, root, violations, ".mcp.json", .claude);
     try expectFileContains(io, gpa, root, violations, ".gitignore", &.{
         ".local/",
+        "site/assets/rooms/",
     });
     try expectFileContains(io, gpa, root, violations, ".serena/.gitignore", &.{
         "/cache",

@@ -32,6 +32,16 @@ export function toast(projection: PageProjection, kind: ToastKind, text: string)
 	projection.set({ toasts: toasts.length > MAX_TOASTS ? toasts.slice(0, MAX_TOASTS) : toasts });
 }
 
+/** Ask for a Rooms server on behalf of an act that reaches through one, with
+ * the page address the act picks up at after the reload, or null for here. */
+export function askServer(projection: PageProjection, resume: string | null): void {
+	projection.set({ serverAsk: { resume } });
+}
+
+export function dismissServerAsk(projection: PageProjection): void {
+	if (projection.get().serverAsk != null) projection.set({ serverAsk: null });
+}
+
 /** Take one notice off, by the id it was given. Unknown ids are a no-op so a
  * timer and a press can race without the second one inventing a failure. */
 export function dismissToast(projection: PageProjection, id: number): void {
@@ -101,7 +111,8 @@ export function setDraft(
 	setDraftOn(projection, key, {
 		...draft,
 		text,
-		previews: draft.changing == null && conversationCarries(getConv(projection, key), "previews")
+		previews: draft.changing == null && projection.get().server != null &&
+				conversationCarries(getConv(projection, key), "previews")
 			? reconcileDraftPreviews(draft.previews, text, () => projection.allocItemId())
 			: [],
 	});

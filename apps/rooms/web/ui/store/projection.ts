@@ -47,6 +47,19 @@ export function relayAway(relay: RelayReach | null): relay is { away: string } {
 	return relay != null && typeof relay === "object";
 }
 
+/** The Rooms server this page uses: the one this device chose, else the one
+ * that sent the page. */
+export interface RoomsServerView {
+	/** Its HTTP base, as the server field takes it. */
+	readonly base: string;
+	/** Whether this device chose it, else the page came from it. */
+	readonly chosen: boolean;
+	/** The directory it hosts, which a blank address names, or null while none
+	 * is known: it is read when the page opens and again when the server is
+	 * first reached. */
+	readonly directory: string | null;
+}
+
 /** A conversation's unsent composer: what is typed, and what is attached.
  *
  * One shape rather than two parallel maps, because they are one thing, what a
@@ -115,7 +128,11 @@ export interface State {
 	dirs: ReadonlyMap<DirId, DirView>;
 	/** This session's home directory, or null while it has none. A session
 	 * chooses it, and the page's served directory is only its default. */
-	homeDir: DirId | null;
+	homeDirectory: DirId | null;
+	/** The Rooms server this page uses, or null when it has none. Fixed for the
+	 * page's life, since choosing another reloads it. Link previews are fetched
+	 * through it, so null is previews off. */
+	server: RoomsServerView | null;
 	/** Ephemeral notices above the page, newest first. Not a directory's own
 	 * standing: that belongs to the directory, is drawn on the rows that are on
 	 * it, and stays until that directory says otherwise. */
@@ -264,6 +281,10 @@ export interface State {
 	 * failed. Null when this session does not register here, such as one
 	 * attached to a session kept elsewhere. */
 	relay: RelayReach | null;
+	/** An act waiting on a Rooms server this page has none of. The page asks
+	 * for one, and `resume` is the page address the act picks up at after the
+	 * reload a new server takes, or null to reload where the page stands. */
+	serverAsk: { readonly resume: string | null } | null;
 	/** Whether the page is joining its served directory as it opens, which is
 	 * the one time an empty session is waiting on a directory. */
 	openingDirectory: boolean;
@@ -322,7 +343,8 @@ export function initialState(): State {
 		invites: [],
 		convs: new Map(),
 		dirs: new Map(),
-		homeDir: null,
+		homeDirectory: null,
+		server: null,
 		toasts: [],
 		actionRefusals: new Map(),
 		visible: true,
@@ -364,6 +386,7 @@ export function initialState(): State {
 		managedAccess: { status: "outOfScope" },
 		trouble: [],
 		relay: null,
+		serverAsk: null,
 		openingDirectory: false,
 		diagnostics: null,
 		opsHeld: { listeners: false, diagnostics: false, irc: false, operator: false, peering: false, trace: false },

@@ -81,13 +81,8 @@ export function refusalText(err: unknown): string {
 /** An unexplained failure while the relay this browser connects through turns
  * it away. Every connection goes through that relay, so it is the cause a
  * person can do something about, and Settings > Reachability is where. */
-export const relayUnreachable = (host: string) =>
-	`Rooms can't reach the Rooms server at ${host}, which this browser connects through. Rooms keeps trying. To use another server, open Settings, then Reachability.`;
-
-/** A failure to reach a directory from a page with no Rooms server, which
- * reaches only an address that carries its own WebSocket route. */
-export const noRoomsServer =
-	"Rooms couldn't reach that directory, because this page has no Rooms server to connect through. Choose one in Settings, under Reachability.";
+export const relayUnreachable = (host: string, detail: string) =>
+	`Rooms can't reach the Rooms server at ${host}, which this browser connects through. Rooms keeps trying. To use another server, open Settings, then Reachability. (${detail})`;
 
 /** An unexplained failure to reach a directory while the relay answers. A
  * browser sees only a closed socket, so the two causes it cannot tell apart are

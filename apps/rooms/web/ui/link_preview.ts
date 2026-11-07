@@ -91,12 +91,18 @@ export function reconcileDraftPreviews(
 	);
 }
 
-export async function fetchPreview(url: string, signal: AbortSignal, refresh = false): Promise<OpenGraphMetadata> {
+/** Ask the Rooms server at `service` for what a link shows. */
+export async function fetchPreview(
+	service: string,
+	url: string,
+	signal: AbortSignal,
+	refresh = false,
+): Promise<OpenGraphMetadata> {
 	const query = new URLSearchParams({ url });
 	if (refresh) query.set("refresh", "1");
-	const response = await fetch(`/link-preview?${query}`, {
+	const response = await fetch(new URL(`link-preview?${query}`, service), {
 		signal,
-		credentials: "same-origin",
+		credentials: "omit",
 		cache: "no-store",
 		headers: { accept: "application/json" },
 	});
@@ -155,6 +161,6 @@ export function previewFailure(error: unknown): PreviewFailure {
 	};
 }
 
-export function previewImageUrl(url: string): string {
-	return `/link-preview/image?url=${encodeURIComponent(url)}`;
+export function previewImageUrl(service: string, url: string): string {
+	return new URL(`link-preview/image?url=${encodeURIComponent(url)}`, service).href;
 }

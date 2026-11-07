@@ -143,17 +143,16 @@ function SettingsDialog(
 	);
 	const [dm, setDm] = useState<DmMode>(live.dm);
 	const [dmError, setDmError] = useState("");
-	// The directory the Rooms server this browser uses hosts, or null.
-	const roomLoc = session.directoryLocator();
 	const dirs = useRoomsState((state) => state.dirs);
 	const relay = useRoomsState((state) => state.relay);
-	const homeDir = useRoomsState((state) => state.homeDir);
-	const homeAway = homeDir !== null && dirs.get(homeDir)?.session === "disconnected";
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
+	const homeAway = homeDirectory !== null && dirs.get(homeDirectory)?.session === "disconnected";
 	// The directory this page's server hosts, offered as home when the session
 	// holds it and home is somewhere else: after a server restart, the one
 	// press that moves home to the directory that answers.
+	const roomLoc = useRoomsState((state) => state.server?.directory ?? null);
 	const served = roomLoc == null ? null : session.directoryId(roomLoc);
-	const servedHome = served !== null && served !== homeDir && dirs.has(served) ? served : null;
+	const servedHome = served !== null && served !== homeDirectory && dirs.has(served) ? served : null;
 	const [homeError, setHomeError] = useState("");
 	const [homeBusy, setHomeBusy] = useState(false);
 	const chooseHome = (id: Parameters<typeof session.chooseHomeDirectory>[0]) => {
@@ -295,7 +294,7 @@ function SettingsDialog(
 							role="tabpanel"
 							aria-labelledby="reachabilityTab"
 						>
-							<ServerCard directory={roomLoc} relay={relay} />
+							<ServerCard relay={relay} />
 							{canInteract && (
 								<>
 									<h3 className="well-title overline" id="homeLegend">{settingsHomeLabel}</h3>
@@ -312,7 +311,7 @@ function SettingsDialog(
 														id={wiring.id}
 														aria-describedby={wiring.describedBy}
 														aria-invalid={wiring.invalid}
-														value={homeDir ?? ""}
+														value={homeDirectory ?? ""}
 														disabled={homeBusy || dirs.size === 0}
 														onChange={(event) => {
 															const chosen = event.target.value;
@@ -342,7 +341,9 @@ function SettingsDialog(
 														act={settingsHomeUseServer}
 														// The fix for a home that does not answer leads; otherwise
 														// it is one choice among the others.
-														variant={homeAway || homeDir === null ? "primary" : "quiet"}
+														variant={homeAway || homeDirectory === null
+															? "primary"
+															: "quiet"}
 														onClick={() => chooseHome(servedHome)}
 													/>
 												)}

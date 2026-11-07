@@ -6,17 +6,26 @@
 
 import "../support/match_media.ts";
 import { assert } from "../assert.ts";
+import { initializeApplication } from "../support/application.ts";
 
+await initializeApplication();
 const store = await import("../../web/ui/store.ts");
 const { dirId } = await import("../../web/ui/directory.ts");
 const { previewSelection } = await import("../../web/ui/link_preview.ts");
 
-function setup(name: string) {
+function setup(name: string, service: string | null = "http://rooms.example/") {
 	const projection = new store.PageProjection();
+	projection.set({ server: service == null ? null : { base: service, chosen: false, directory: null } });
 	const room = store.ensureRoom(projection, dirId(`preview-${name}`), name);
 	store.switchTo(projection, room.key);
 	return { projection, room };
 }
+
+Deno.test("a page with no Rooms server offers no previews", () => {
+	const { projection } = setup("unserved", null);
+	store.setDraft(projection, "See https://example.com/a");
+	assert(store.activeDraft(projection).previews.length === 0, "a preview was offered with nothing to fetch it");
+});
 
 Deno.test("unchanged targets preserve outcome and removal intent", () => {
 	const { projection, room } = setup("stable");

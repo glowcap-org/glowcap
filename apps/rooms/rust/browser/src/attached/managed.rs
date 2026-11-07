@@ -204,7 +204,7 @@ impl Owner {
 			let (locator, register) = environment
 				.front
 				.as_ref()
-				.ok_or(crate::transport::NO_SERVER)?
+				.ok_or_else(crate::transport::no_server)?
 				.relay_route(environment.runtime.host())
 				.map_err(|e| e.to_string())?;
 			*relay = Some(super::relay::Relay::start(

@@ -40,6 +40,12 @@ services:
       GLOWCAP_ROOMS_HTTP_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_HTTP_ADMISSION_AGGREGATE_SCALE:-}
       GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS: ${GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS:-}
       GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES: ${GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES:-}
+      # The address browsers reach this server at through the proxy, named by
+      # every link it prints. Blank names the loopback address.
+      GLOWCAP_ROOMS_HTTP_PUBLIC: ${GLOWCAP_ROOMS_HTTP_PUBLIC:-}
+      # The Rooms pages served elsewhere that may use this server, as origins
+      # or page addresses separated by commas. Blank allows none.
+      GLOWCAP_RELAY_ALLOW_ORIGINS: ${GLOWCAP_RELAY_ALLOW_ORIGINS:-https://glowcap.org/rooms/app/}
       GLOWCAP_ROOMS_BROWSER_ADMISSION_SCALE: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_SCALE:-}
       GLOWCAP_ROOMS_BROWSER_ADMISSION_RATES: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_RATES:-}
       GLOWCAP_ROOMS_BROWSER_ADMISSION_ROWS: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_ROWS:-}

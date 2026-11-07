@@ -146,6 +146,11 @@ review needs that review before its first step.
     type. Each binding should hold its own short list of the symbols it skips
     and why, beside its generated table, and the generators join the two
     ([plan to plan](planning/plan-to-plan.md)).
+14. **Room locators off the host's log.** A join address carries its room
+    locator in the query string, which the host serving the page records in
+    its access log. Move it into the fragment, where the page reads it and
+    the host never sees it, the way a session link already carries its
+    attach capability ([plan to plan](planning/plan-to-plan.md)).
 
 The [Loam guide](loam.md) covers the Loam foundation, its managed access
 module, and persistence research. The C/Rust and browser fixed-resource

@@ -181,7 +181,7 @@ function LogPane(
 	// Closing over the string is the same behavior with none of that to argue.
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
-	const homeDir = useRoomsState((state) => state.homeDir);
+	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const dirs = useRoomsState((state) => state.dirs);
 	const convKey = conv?.key;
 	const retry = useMemo(
@@ -229,7 +229,7 @@ function LogPane(
 								</span>
 							)}
 							{conv.type === "dm" && <Avatar name={conv.id} />}
-							{conv.type === "directory" ? directoryName(conv.dir, homeDir) : conv.id}
+							{conv.type === "directory" ? directoryName(conv.dir, homeDirectory) : conv.id}
 						</h2>
 						<p>{introBody(conv, dirs)}</p>
 						{conv.type === "dm" && conv.line === "closed" && <DirectReconnect key={conv.key} conv={conv} />}

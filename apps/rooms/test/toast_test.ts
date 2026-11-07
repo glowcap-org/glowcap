@@ -1,7 +1,8 @@
 // The page-notice stack: several may be up, dismissing one leaves the others
 // in order, and a looping failure cannot grow it without bound. An operations
 // capability that stops answering says so here too, which is the one way one
-// of them ends that the reader neither asked for nor can see coming.
+// of them ends that the reader neither asked for nor can see coming. The
+// server ask an act raises on a page with no Rooms server is held here too.
 
 /// <reference lib="dom" />
 
@@ -50,4 +51,15 @@ Deno.test("dismissing a notice that is already gone is nothing", () => {
 	store.dismissToast(projection, id);
 	store.dismissToast(projection, id);
 	assertEquals(projection.get().toasts.length, 0);
+});
+
+Deno.test("an act that needs a Rooms server holds where it resumes until the ask is answered", () => {
+	store.askServer(projection, "/join?room=general");
+	assertEquals(projection.get().serverAsk, { resume: "/join?room=general" }, "the ask names where to resume");
+	store.askServer(projection, null);
+	assertEquals(projection.get().serverAsk, { resume: null }, "a later ask replaces the first");
+	store.dismissServerAsk(projection);
+	assertEquals(projection.get().serverAsk, null, "dismissing takes the ask down");
+	store.dismissServerAsk(projection);
+	assertEquals(projection.get().serverAsk, null, "dismissing an ask that is gone is nothing");
 });

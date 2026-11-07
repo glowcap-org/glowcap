@@ -10,8 +10,9 @@ use web_sys::Url;
 
 /// A trusted Rooms web deployment. In particular, its host iroh handshake
 /// authenticates the remote node before forwarding opaque bytes to this page.
-/// Never construct this from a peer-supplied locator hint. The page uses
-/// `chosen`: the relay this device was set to use, else the page's own server.
+/// Never construct this from a peer-supplied locator hint. The page builds it
+/// from the Rooms server in use: the one this device chose, else the one that
+/// served the page.
 ///
 /// Its routes sit under `base`, a URL ending in `/`: the base the page's files
 /// are served from, or the base of a Rooms server this device chose. A page
@@ -19,7 +20,16 @@ use web_sys::Url;
 /// carries its own WebSocket route dials, and nothing reaches this browser
 /// through a relay.
 #[derive(Clone)]
-pub struct WebFront(String);
+pub struct WebFront {
+	/// The WebSocket this front dials through: `relay` under the server's base.
+	relay: String,
+	/// The WebSocket a browser registers at to be reached: `register`, beside
+	/// `relay` under the same base.
+	register: String,
+	/// The ICE policy for WebRTC direct messages: `ice` under the same base,
+	/// read over HTTP.
+	ice: String,
+}
 impl WebFront {
 	pub fn new(base: &str) -> Result<Self, io::Error> {
 		if !Url::new(base).is_ok_and(|base| base.pathname().ends_with('/')) {
@@ -36,35 +46,41 @@ impl WebFront {
 			return Err(invalid("Rooms web forwarding does not accept URL credentials"));
 		}
 		url.set_protocol(scheme);
-		Ok(Self(url.href()))
+		// Both sit under the base beside `relay`, so a base this constructor
+		// accepted resolves them, and no reader of them can fail.
+		let register = Url::new_with_base("register", &url.href())
+			.map_err(|_| invalid("Rooms relay URL is invalid"))?
+			.href();
+		let ice = Url::new_with_base("ice", base)
+			.map_err(|_| invalid("Rooms server URL is invalid"))?
+			.href();
+		Ok(Self {
+			relay: url.href(),
+			register,
+			ice,
+		})
 	}
-	/// The WebSocket this front dials through.
-	pub(crate) fn relay(&self) -> &str {
-		&self.0
-	}
-	/// The WebSocket a browser registers at to be reached: `register`, beside
-	/// `relay` under the same base.
-	pub(crate) fn register(&self) -> Result<String, io::Error> {
-		Url::new_with_base("register", &self.0)
-			.map(|url| url.href())
-			.map_err(|_| invalid("Rooms relay URL is invalid"))
+	pub(crate) fn ice(&self) -> &str {
+		&self.ice
 	}
 	pub(crate) fn relay_route(&self, host: &Host) -> glowcap::Result<(Locator, String)> {
 		let locator = Locator::bare(glowcap::TRANSPORT_NOISE_RELAY, &host.designator()?)
-			.with_hint("rendezvous-relay", glowcap::HintValue::String(self.0.clone()));
-		Ok((locator, self.register()?))
+			.with_hint("rendezvous-relay", glowcap::HintValue::String(self.relay.clone()));
+		Ok((locator, self.register.clone()))
 	}
 	fn relay_target(&self, target: &str) -> String {
 		// The full locator carries profile and routing hints. The front's
 		// admission policy is the authority for which host targets it serves.
 		let encoded: String = js_sys::encode_uri_component(target).into();
-		format!("{}?target={encoded}", self.0)
+		format!("{}?target={encoded}", self.relay)
 	}
 }
 
-/// Why this browser cannot use a relay: the page has no Rooms server.
-pub(crate) const NO_SERVER: &str =
-	"This page has no Rooms server to relay through. Choose one in Settings, under Reachability.";
+/// The refusal for a reach that needs a relay on a page with no Rooms server:
+/// a typed line, so the page can ask for a server instead of showing it.
+pub(crate) fn no_server() -> String {
+	rooms_application::failure::FailureCode::NoServer.line("no server is chosen and none sent this page")
+}
 
 fn connector(front: Option<WebFront>) -> glowcap::Result<Connector> {
 	Connector::new(
@@ -118,7 +134,7 @@ fn target(front: Option<&WebFront>, locator: &Locator) -> Result<String, io::Err
 		rooms_application::web_channel::endpoint(endpoint).map_err(invalid)?;
 		return Ok(endpoint.clone());
 	}
-	let front = front.ok_or_else(|| invalid(NO_SERVER))?;
+	let front = front.ok_or_else(|| invalid(&no_server()))?;
 	let target = glowcap::format_locator_uri(locator).map_err(io::Error::other)?;
 	if target.len() > web_relay::MAX_TARGET_BYTES {
 		return Err(invalid("Rooms web forwarding target exceeds its byte limit"));

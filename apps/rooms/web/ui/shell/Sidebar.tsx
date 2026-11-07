@@ -78,7 +78,7 @@ function SidebarPane(
 		canInteract,
 		cardUp,
 		dirs,
-		homeDir,
+		homeDirectory,
 		directoryContext,
 		activeKey,
 		acting,
@@ -97,7 +97,7 @@ function SidebarPane(
 		cardUp: boolean;
 		/** Every directory this tab holds, in the order it opened them. */
 		dirs: ReadonlyMap<DirId, DirView>;
-		homeDir: DirId | null;
+		homeDirectory: DirId | null;
 		directoryContext: DirectoryDestinationContext;
 		activeKey: string | null;
 		/** The directory the page is acting on, from the store's one answer: the
@@ -143,7 +143,7 @@ function SidebarPane(
 	// theirs, so it is held here rather than in the store: nothing outside the
 	// rail reads it, and no other tab is looking through this reader's eyes.
 	const [filter, setFilter] = useState<FilterAnswers>(askedNothing);
-	const criteria = useMemo(() => railCriteria(dirs, homeDir), [dirs, homeDir]);
+	const criteria = useMemo(() => railCriteria(dirs, homeDirectory), [dirs, homeDirectory]);
 	const shows = (row: RailRow) => rowShows(criteria, filter, row);
 	// Counted over every row the rail holds, in one place, because the filter is
 	// one control over both lists and has to answer for both. Each list still
@@ -155,7 +155,7 @@ function SidebarPane(
 			const unread = unreads.get(conv.key) ?? CAUGHT_UP;
 			return [conv.type === "room" ? roomRow(conv, unread) : dmRow(conv, unread)];
 		}),
-		...empty.map((dir) => dirRow(dir, homeDir)),
+		...empty.map((dir) => dirRow(dir, homeDirectory)),
 	];
 	const shown = railRows.filter(shows).length;
 	// With the join card up, this panel is a second view of it: one room name,
@@ -366,7 +366,7 @@ function SidebarPane(
 						convs={convs}
 						unreads={unreads}
 						dirs={dirs}
-						home={homeDir}
+						home={homeDirectory}
 						activeKey={activeKey}
 						empty={empty}
 						invites={invites}
@@ -410,7 +410,7 @@ function SidebarPane(
 					activeKey={activeKey}
 					inARoom={inARoom}
 					dirs={dirs}
-					home={homeDir}
+					home={homeDirectory}
 					shows={shows}
 					open={open === "newDm"}
 					onOpen={opener("newDm")}
@@ -428,7 +428,7 @@ function SidebarPane(
 			<Foot
 				canInteract={canInteract}
 				dirs={dirs}
-				home={homeDir}
+				home={homeDirectory}
 				standing={standing}
 			/>
 		</nav>

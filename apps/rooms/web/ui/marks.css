@@ -82,8 +82,8 @@
 	background: var(--danger);
 }
 
-/* One mark per held directory, handed out in order by the store. The page's
-   own directory is not a ramp slot: it is the product and wears teal. */
+/* One mark per held directory, handed out in order by the store. The home
+   directory is not a ramp slot: it wears teal. */
 [data-dir="home"] {
 	--dir-mark: var(--teal);
 }

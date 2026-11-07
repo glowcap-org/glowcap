@@ -8,6 +8,7 @@ const violation_log = @import("../violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
 const paths = @import("paths.zig");
+const source_tree = @import("../source_tree.zig");
 
 /// The site content pages are `.smd` (Zine), whose intra-site links use
 /// `$link.page('id')` and asset references use `$image.siteAsset('name')` rather
@@ -315,21 +316,15 @@ pub fn checkSiteSvgAscii(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const dir_path = "site/assets";
-    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to open for SVG ASCII check with {s}", .{ dir_path, @errorName(err) });
+    const files = (try source_tree.collectSourceFiles(io, gpa, root, dir_path, isSvg)) orelse {
+        try appendViolation(gpa, violations, "{s}: failed to open for SVG ASCII check", .{dir_path});
         return;
     };
-    defer dir.close(io);
-
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".svg")) continue;
-
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
-        defer gpa.free(path);
-
+    defer {
+        for (files) |path| gpa.free(path);
+        gpa.free(files);
+    }
+    for (files) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for SVG ASCII check with {s}", .{ path, @errorName(err) });
             continue;
@@ -353,6 +348,19 @@ pub fn checkSiteSvgAscii(
     }
 }
 
+fn isSvg(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".svg");
+}
+
+/// The files a site surface is drawn from: styles, markup, and inline SVG.
+fn isSiteSurface(path: []const u8) bool {
+    const exts = [_][]const u8{ ".svg", ".css", ".shtml", ".smd" };
+    for (exts) |ext| {
+        if (std.mem.endsWith(u8, path, ext)) return true;
+    }
+    return false;
+}
+
 /// A site surface that declares an animation must also carry the
 /// `prefers-reduced-motion` guard that turns it off. The animated diagrams
 /// and the why-page walkthrough all pair `@keyframes` with a reduced-motion
@@ -367,26 +375,16 @@ pub fn checkSiteMotionReducedGuard(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const dirs = [_][]const u8{ "site/assets", "site/layouts", "site/content" };
-    const exts = [_][]const u8{ ".svg", ".css", ".shtml", ".smd" };
     for (dirs) |dir_path| {
-        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to open for motion-guard check with {s}", .{ dir_path, @errorName(err) });
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, dir_path, isSiteSurface)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to open for motion-guard check", .{dir_path});
             continue;
         };
-        defer dir.close(io);
-
-        var walker = try dir.walk(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind != .file) continue;
-            const matches_ext = for (exts) |ext| {
-                if (std.mem.endsWith(u8, entry.path, ext)) break true;
-            } else false;
-            if (!matches_ext) continue;
-
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
-            defer gpa.free(path);
-
+        defer {
+            for (files) |path| gpa.free(path);
+            gpa.free(files);
+        }
+        for (files) |path| {
             const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: failed to read for motion-guard check with {s}", .{ path, @errorName(err) });
                 continue;

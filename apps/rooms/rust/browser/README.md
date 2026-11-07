@@ -91,10 +91,12 @@ per attempt.
   names an exchange, not a caller key, so the accepting side never invents a
   verified identity.
 
-`ice::Source::deployment` reads the `rooms-web` server's `/ice` endpoint. Concurrent
-readers share one request and each receives its own configuration object. A
-later attempt refreshes credentials rather than caching them. Fetch and
-validation failures are reported as they are, with no fallback server list.
+`ice::Source::new` reads the Rooms server's `ice` route, across origins when
+the page is served elsewhere. Concurrent readers share one request and each
+receives its own configuration object. A later attempt refreshes credentials
+rather than caching them. Fetch and validation failures are reported as they
+are. `ice::Source::stun_default` is the fixed public STUN policy a page with no
+Rooms server holds, and it fetches nothing.
 
 ## Building and checking it
 

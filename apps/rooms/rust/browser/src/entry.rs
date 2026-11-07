@@ -16,19 +16,6 @@ pub fn direct_conversation_id(directory: js_sys::JsString, registration: js_sys:
 
 /// Stable directory identity uses the same policy and locator parser as host
 /// Rooms. This does not dial, create a Host, or install a JavaScript ABI adapter.
-/// The WebSockets the Rooms server at `base` relays and registers through, as
-/// `[relay, register]`: the same front a session opened with `base` uses, for
-/// showing a person what one server address means.
-#[wasm_bindgen(js_name = serverRoutes)]
-pub fn server_routes(base: String) -> Result<Vec<String>, JsValue> {
-	let front = crate::transport::WebFront::new(&base)
-		.map_err(|error| JsValue::from(js_sys::Error::new(&error.to_string())))?;
-	let register = front
-		.register()
-		.map_err(|error| JsValue::from(js_sys::Error::new(&error.to_string())))?;
-	Ok(vec![front.relay().to_owned(), register])
-}
-
 #[wasm_bindgen(js_name = directoryAuthority)]
 pub fn directory_authority(locator: js_sys::JsString) -> Result<Option<String>, JsValue> {
 	let Some(value) = address_text(locator) else {

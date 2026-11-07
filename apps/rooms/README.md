@@ -22,8 +22,9 @@ Once glowcap is installed and on your PATH:
 glowcap apps rooms serve
 ```
 
-Open the printed browser URL. The installation includes the prepared browser
-application and its services, so startup needs no checkout or build tools.
+Open the link it prints: the Rooms page at glowcap.org/rooms/app/, with your
+server filled in. The installation includes the prepared browser application
+and its services, so startup needs no checkout or build tools.
 Use `glowcap apps rooms session` to participate in an existing deployment and
 `glowcap apps rooms team` to coordinate several such peers.
 

@@ -42,7 +42,9 @@ export class RoomsError extends Error {
 	 * Code-shaped text inside detail is never promoted to a machine code. */
 	static from(reason: string): RoomsError | null {
 		let payload = reason;
-		if (payload.startsWith("glowcap error ")) {
+		// A line crosses one glowcap status per layer it climbs through, and a
+		// dial refused inside the runtime wears two. Each is a status, not a code.
+		while (payload.startsWith("glowcap error ")) {
 			const split = payload.indexOf(": ");
 			if (split < 0) return null;
 			const statusText = payload.slice("glowcap error ".length, split);
