@@ -38,6 +38,8 @@ export const settingsCopyDirectory = "Copy the directory address";
 export const settingsCopyServer = "Copy the server address";
 export const settingsCopyBrowser = "Copy this session's address";
 export const settingsShareDirectory = "Lets anyone join this server's rooms by name.";
+/** Said in place of the browser's address while the page has no Rooms server. */
+export const settingsBrowserNoServer = "Nobody can reach this browser without a Rooms server.";
 export const settingsBrowserUnreachable = "Nobody can reach this address until the Rooms server connects.";
 export const settingsShareBrowser = "Share this address to let somebody start a direct conversation with you.";
 /** The Rooms server this browser is reached through, chosen on this device. */

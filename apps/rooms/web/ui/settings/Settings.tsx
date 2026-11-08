@@ -8,6 +8,7 @@ import {
 	dmConnectionTitle,
 	reachAboutDirectory,
 	reachBrowserTitle,
+	settingsBrowserNoServer,
 	settingsBrowserUnreachable,
 	settingsConnectionRefused,
 	settingsConnectionSaving,
@@ -146,6 +147,7 @@ function SettingsDialog(
 	const serverGate = useServerGate();
 	const dirs = useRoomsState((state) => state.dirs);
 	const relay = useRoomsState((state) => state.relay);
+	const hasServer = useRoomsState((state) => state.server != null);
 	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const homeAway = homeDirectory !== null && dirs.get(homeDirectory)?.session === "disconnected";
 	// The directory this page's server hosts, offered as home when the session
@@ -365,13 +367,15 @@ function SettingsDialog(
 							)}
 							<h3 className="well-title overline" id="browserLegend">{reachBrowserTitle}</h3>
 							<div className="group well" role="group" aria-labelledby="browserLegend">
-								<CopyField id="selfLocator" text={selfLoc} label={settingsCopyBrowser} />
+								{hasServer && <CopyField id="selfLocator" text={selfLoc} label={settingsCopyBrowser} />}
 								{
 									/* The cause and its fix are the server card's. Here is
 									   what it means for the address a reader is about to
 									   hand out. */
 								}
-								{relayAway(relay)
+								{!hasServer
+									? <Said id="selfUnreachable" kind="warning">{settingsBrowserNoServer}</Said>
+									: relayAway(relay)
 									? <Said id="selfUnreachable" kind="warning">{settingsBrowserUnreachable}</Said>
 									: <p className="hint">{settingsShareBrowser}</p>}
 							</div>
