@@ -8,7 +8,6 @@ import {
 	dmConnectionTitle,
 	reachAboutDirectory,
 	reachBrowserTitle,
-	settingsBrowserNoServer,
 	settingsBrowserUnreachable,
 	settingsConnectionRefused,
 	settingsConnectionSaving,
@@ -34,7 +33,7 @@ import { saveAndReload } from "../../../lib/text/controls.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
-import { current, type DmMode, dmNeedsServer } from "../prefs.ts";
+import { current, type DmMode } from "../prefs.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
@@ -366,20 +365,30 @@ function SettingsDialog(
 									</div>
 								</>
 							)}
-							<h3 className="well-title overline" id="browserLegend">{reachBrowserTitle}</h3>
-							<div className="group well" role="group" aria-labelledby="browserLegend">
-								{hasServer && <CopyField id="selfLocator" text={selfLoc} label={settingsCopyBrowser} />}
-								{
-									/* The cause and its fix are the server card's. Here is
-									   what it means for the address a reader is about to
-									   hand out. */
-								}
-								{!hasServer
-									? <Said id="selfUnreachable" kind="warning">{settingsBrowserNoServer}</Said>
-									: relayAway(relay)
-									? <Said id="selfUnreachable" kind="warning">{settingsBrowserUnreachable}</Said>
-									: <p className="hint">{settingsShareBrowser}</p>}
-							</div>
+							{
+								/* With no Rooms server this browser has no address, and the
+								   server card above says so. */
+							}
+							{hasServer && (
+								<>
+									<h3 className="well-title overline" id="browserLegend">{reachBrowserTitle}</h3>
+									<div className="group well" role="group" aria-labelledby="browserLegend">
+										<CopyField id="selfLocator" text={selfLoc} label={settingsCopyBrowser} />
+										{
+											/* The cause and its fix are the server card's. Here is
+											   what it means for the address a reader is about to
+											   hand out. */
+										}
+										{relayAway(relay)
+											? (
+												<Said id="selfUnreachable" kind="warning">
+													{settingsBrowserUnreachable}
+												</Said>
+											)
+											: <p className="hint">{settingsShareBrowser}</p>}
+									</div>
+								</>
+							)}
 							{canInteract && (
 								<>
 									<h3 className="well-title overline" id="dmLegend">{dmConnectionTitle}</h3>
@@ -421,7 +430,7 @@ function SettingsDialog(
 												</span>
 											</label>
 										</div>
-										{dmNeedsServer(dm, hasServer) && (
+										{dm === "relay" && !hasServer && (
 											<Said id="dmNeedsServer" kind="warning">{settingsDmRelayNeedsServer}</Said>
 										)}
 										<p className="hint" id="dmReloadHint">{settingsDmReload}</p>

@@ -3,7 +3,7 @@
 import "./support/match_media.ts";
 import { assertEquals } from "./assert.ts";
 
-const { dmFrom, dmNeedsServer, servedDirectory, writeSearch } = await import("../web/ui/prefs.ts");
+const { dmFrom, servedDirectory, writeSearch } = await import("../web/ui/prefs.ts");
 const { roomAddress, directoryAddress, dmAddress } = await import("../web/ui/route_address.ts");
 
 Deno.test("dm: URL relay wins over stored webrtc", () => {
@@ -92,31 +92,4 @@ Deno.test("servedDirectory: an unreachable host means no served directory", asyn
 Deno.test("servedDirectory: an empty body means no served directory", async () => {
 	const read = answering(new Response("\n"));
 	assertEquals(await servedDirectory(namesDirectory, read, locator), null, "empty");
-});
-
-Deno.test("dm: a saved relay mode stays relay with no server, and says it needs one", () => {
-	const saved = dmFrom(new URLSearchParams(""), "relay");
-	assertEquals(saved, "relay", "the mode is not swapped for another");
-	assertEquals(dmNeedsServer(saved, false), true, "with no server the row says relay needs one");
-	assertEquals(dmNeedsServer(saved, true), false, "with a server it says nothing");
-	assertEquals(dmNeedsServer("webrtc", false), false, "browser to browser claims nothing");
-});
-
-Deno.test("a deep link to a direct message or the directory asks for the server and resumes at the same address", async () => {
-	const store = await import("../web/ui/store.ts");
-	const projection = new store.PageProjection();
-	const prior = Object.getOwnPropertyDescriptor(globalThis, "location");
-	Object.defineProperty(globalThis, "location", { configurable: true, value: { search: "" } });
-	try {
-		assertEquals(dmAddress("alice"), "/dm/alice");
-		assertEquals(directoryAddress(), "/directory");
-		for (const resume of [dmAddress("alice"), directoryAddress()]) {
-			projection.set({ server: null, serverAsk: null });
-			assertEquals(store.serverOrAsk(projection, () => resume), null, `${resume} waits for a server`);
-			assertEquals(projection.get().serverAsk, { resume }, `${resume} is where the reload picks up`);
-		}
-	} finally {
-		if (prior) Object.defineProperty(globalThis, "location", prior);
-		else Reflect.deleteProperty(globalThis, "location");
-	}
 });

@@ -21,12 +21,6 @@ export function current(intent?: { connection: DmMode }): { dm: DmMode } {
 	return { dm: dmMode(intent?.connection) };
 }
 
-/** Whether the saved mode is one a page with no Rooms server cannot use. The
- * row keeps showing the mode, and this is the line that says why it is idle. */
-export function dmNeedsServer(dm: DmMode, hasServer: boolean): boolean {
-	return dm === "relay" && !hasServer;
-}
-
 /** The directory a Rooms server hosts, from its `locator` (by default the one
  * under this page's base), or null when it names none. A static host has no
  * `locator`, and one with a page fallback answers every path with HTML, so only

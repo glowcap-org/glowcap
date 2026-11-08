@@ -14,7 +14,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //
 // The process also listens for WebRTC: it registers its webrtc locator first,
 // with its TCP one as the fallback, and files an answering inbox with the
-// room. A second member, one who chose the room relay, opens a conversation
+// room. A second member, one who chose the Rooms server, opens a conversation
 // with it. That member registered a relay locator, whose designator is its
 // Host key, so the room names its offer by that key and the process answers
 // it. Each conversation must open a webrtc session the live trace had not

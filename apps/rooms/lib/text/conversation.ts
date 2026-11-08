@@ -43,7 +43,7 @@ export const conversationRoomDirectoryAway =
  * setting, which carries the bytes through it encrypted. Both settings keep
  * the server from reading them, so that is what this says. */
 export const conversationLiveDirect =
-	"The server never reads these. They go straight to the other person, or encrypted through the server's relay. The conversation follows the person, not the name.";
+	"The server never reads these. They go straight to the other person, or encrypted through the Rooms server. The conversation follows the person, not the name.";
 
 export const conversationPendingDirect =
 	"Not open yet. Your first message asks the server to introduce you. If the name changed hands since, it won't go through.";
@@ -96,7 +96,7 @@ export const factDirectory = "Directory";
 export const factLineOpen = "Open";
 export const factLineClosed = "Closed";
 export const factLineNotOpen = "Not open yet";
-export const factDmRelay = "Through the room relay, encrypted end to end";
+export const factDmRelay = "Through the Rooms server, encrypted end to end";
 export const factDmDirect = "WebRTC, encrypted peer to peer";
 export const factDirectoryLocator = "Directory locator";
 export function factCopyLocatorFor(directory: string): string {

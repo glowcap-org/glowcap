@@ -3,6 +3,8 @@
 // Mostly operator-adjacent, so these stay precise. The subject is whoever is
 // reading, not the machinery.
 
+import { serverModel } from "./session.ts";
+
 /** Session message retention and the archive capability it selects. */
 export const historyOffSession =
 	"Nothing is saved. Messages show up in whatever windows are open, and are gone after that.";
@@ -38,8 +40,6 @@ export const settingsCopyDirectory = "Copy the directory address";
 export const settingsCopyServer = "Copy the server address";
 export const settingsCopyBrowser = "Copy this session's address";
 export const settingsShareDirectory = "Lets anyone join this server's rooms by name.";
-/** Said in place of the browser's address while the page has no Rooms server. */
-export const settingsBrowserNoServer = "Nobody can reach this browser without a Rooms server.";
 export const settingsBrowserUnreachable = "Nobody can reach this address until the Rooms server connects.";
 export const settingsShareBrowser = "Share this address to let somebody start a direct conversation with you.";
 /** The Rooms server this browser is reached through, chosen on this device. */
@@ -74,11 +74,11 @@ export const settingsRelayAway = (host: string, origin: string) =>
 export const settingsDmDirectLabel = "Browser to browser";
 export const settingsDmDirectSaid =
 	"Encrypted between browsers. A client that isn't a browser can only reply after you write first.";
-export const settingsDmRelayLabel = "Through the room relay";
+export const settingsDmRelayLabel = "Through the Rooms server";
 export const settingsDmRelaySaid =
 	"Encrypted end to end, and the Rooms server only carries the encrypted bytes. A client that isn't a browser can write to you first.";
 /** The saved mode is shown as it is while the page has no Rooms server. */
-export const settingsDmRelayNeedsServer = "Relay direct messages need a Rooms server, and this page has none.";
+export const settingsDmRelayNeedsServer = "This page has no Rooms server for direct messages to go through.";
 export const settingsDmReload = "Saving reloads this window.";
 
 export const sessionShareLabel = "Share this session";
@@ -137,8 +137,7 @@ export const serverAwayBlocked = (permission: "prompt" | "denied") =>
 export const serverTestBlocked = (permission: "prompt" | "denied") => `${browserBlocks(permission)}, then test again.`;
 export const serverNoDirectory = "None";
 export const serverChange = "Change server";
-export const serverChangeLead =
-	"A Rooms server is how this browser reaches directories and people, and how they reach it. Saving reloads this window, so test the address first.";
+export const serverChangeLead = `${serverModel} Saving reloads this window, so test the address first.`;
 export const serverAddressName = "Address";
 export const serverChangeName = "Another server";
 export const serverChangeAct = "Change…";
@@ -161,8 +160,7 @@ export const serverTestRefuses = (origin: string) =>
 	`It answers, but doesn't allow pages from ${origin}. Restart it with --allow-origin=${origin}.`;
 export const serverTestSilent =
 	"Nothing answers at this address. Check that the server is running and the address is right.";
-export const serverNone =
-	"This page has no Rooms server. One is how this browser reaches directories and people, and how they reach it.";
+export const serverNone = serverModel;
 export const reachAboutDirectory = "About…";
 /** The home directory choice. A room joined with no directory address opens in it. */
 export const settingsHomeLabel = "Home directory";

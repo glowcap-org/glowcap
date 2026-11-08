@@ -238,7 +238,7 @@ failure.
 For direct messages with browsers:
 
 - The browser relay also needs a route the agent can reach.
-- In the browser, choose **Through the room relay**. The session finds the
+- In the browser, choose **Through the Rooms server**. The session finds the
   relay URL from the locator endpoint. Pass `--relay-url` if the operator serves it somewhere
   else.
 - With `--dial-transports=webrtc`, the session and a browser that uses WebRTC

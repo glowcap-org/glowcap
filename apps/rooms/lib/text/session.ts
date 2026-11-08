@@ -51,8 +51,10 @@ export const sessionServerChoose = "Choose…";
 /** The server dialog over setup. Nothing has opened, so saving keeps the
  * choice in place. Opened by Attach, it says why, and saving attaches. */
 export const sessionServerTitle = "Choose a Rooms server";
-export const sessionServerLead =
-	"A Rooms server is how this browser reaches directories and people, and how they reach it. Test its address, then save it.";
+/** What a Rooms server is, said once and composed into every dialog that
+ * asks for one. */
+export const serverModel = "A Rooms server is how this browser reaches directories and people, and how they reach it.";
+export const sessionServerLead = `${serverModel} Test its address, then save it.`;
 export const sessionServerAttachLead =
 	"A shared session is reached through a Rooms server, and this page has none. Test a server's address, and saving it attaches.";
 export const sessionServerSave = "Save";

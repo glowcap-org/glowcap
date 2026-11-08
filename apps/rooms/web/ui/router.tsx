@@ -291,13 +291,12 @@ function DmRoute() {
 			arrival.mark();
 			return;
 		}
-		// With no Rooms server there is no directory to wait for: the page asks
-		// for one and picks this address up after the reload it takes.
-		if (store.serverOrAsk(routing().projection, () => dmAddress(nick)) == null) {
-			arrival.mark();
+		if (store.actingDir(routing().projection, state) === null) {
+			// A page with no Rooms server has no directory to wait for: it asks
+			// for one and picks this address up after the reload it takes.
+			if (store.serverOrAsk(routing().projection, () => dmAddress(nick)) == null) arrival.mark();
 			return;
 		}
-		if (store.actingDir(routing().projection, state) === null) return; // wait for a directory
 		session.startDm(nick);
 		arrival.mark();
 		// As the room route above: on the address, reading the session as it
