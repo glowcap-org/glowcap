@@ -26,6 +26,23 @@ pub fn directory_authority(locator: js_sys::JsString) -> Result<Option<String>, 
 		.map_err(|error| js_sys::Error::new(&error.to_string()).into())
 }
 
+/// How this browser, with no Rooms server, would reach a typed address: the
+/// relay of the door it opens by itself, and whether a door needs a server.
+#[wasm_bindgen(js_name = browserDoors)]
+pub fn browser_doors(value: js_sys::JsString) -> Result<Option<String>, JsValue> {
+	let Some(value) = address_text(value) else {
+		return Ok(None);
+	};
+	let Some(doors) =
+		crate::transport::browser_doors(&value).map_err(|error| js_sys::Error::new(&error.to_string()))?
+	else {
+		return Ok(None);
+	};
+	Ok(Some(
+		serde_json::json!({ "relay": doors.relay, "throughServer": doors.through_server }).to_string(),
+	))
+}
+
 #[wasm_bindgen(js_name = directoryCapability)]
 pub fn directory_capability(route: js_sys::JsString) -> Result<String, JsValue> {
 	let route = address_text(route).ok_or_else(|| js_sys::Error::new("Invalid directory address"))?;

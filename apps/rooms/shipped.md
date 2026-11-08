@@ -78,10 +78,18 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   failures, and termination signals. These checks do not claim that any archive or release has been published.
 - *Published page.* `rooms-web --export-static` writes the page as plain files for a static host at one base path,
   and the website publishes that export at `/rooms/app/`. A browser uses one Rooms server: the one that served the
-  page, one a link offers and the reader accepts, or one chosen in Settings. With none, an act that reaches
-  through a server asks for one before it does anything, and the act picks up once the server is saved. A Rooms
-  server admits the published page by default and other pages through `--allow-origin`, and every printed link
-  names the address `--http-public` gives it.
+  page, one a link offers and the reader accepts, or one chosen in Settings. A Rooms server admits the published
+  page by default and other pages through `--allow-origin`, and every printed link names the address
+  `--http-public` gives it.
+- *Page with no server.* The server is the browser's way to addresses it cannot open itself. An address it can
+  open, such as a directory's sealed relay door, is reached with no server, and the directory's card says the
+  route the connection took. When that door does not answer, the join card names the relay, or the browser
+  standing between the page and it. An act that needs a server on a page with none asks for one before it does
+  anything, saying which door failed when one did, and the act picks up once the server is saved.
+- *Declared listeners.* `rooms-server` and `rooms-web` take `--listen=<transport>[,<name>=<value>...]` once per
+  transport beside the announced one. Every declared door is open before the server is ready, and `/locator`
+  then names the directory by its key with the doors listed, sealed routes first. A relay door registers at this
+  server's own relay unless `GLOWCAP_ROOMS_RELAY_URL` or the `relay` option names another.
 - *Running from a checkout.* The checkout launcher builds the product if it is missing, then runs the complete staged
   installation without build tools. After editing source, run `glowcap-install` explicitly. The runtime proof exercises
   this path without a binary override.

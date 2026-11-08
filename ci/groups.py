@@ -23,7 +23,7 @@ them. `shards` is the number of build jobs. Zero means the phases compile in
 a nested build at run time and hand nothing over. Only compiles no Cargo or
 Deno build reaches can leave the first shard, so a count above one pays only
 where those compiles are many. What each step proves is its description in
-docs/build-steps.md.
+docs/build-steps.md or docs/build-steps-apps.md.
 """
 
 from typing import NamedTuple

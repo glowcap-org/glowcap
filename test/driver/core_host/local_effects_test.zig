@@ -334,7 +334,7 @@ test "core host local callback effects warmed admission charges metadata and ove
             if (!tell) {
                 const row = host.vows.get(vow).?;
                 const reply = row.owner.owning.destination.public;
-                if (@sizeOf(usize) == 8) try std.testing.expectEqual(@as(usize, 384), @sizeOf(@TypeOf(reply.*)));
+                if (@sizeOf(usize) == 8) try std.testing.expectEqual(@as(usize, 400), @sizeOf(@TypeOf(reply.*)));
             }
             while (try host.takeAction()) |action| {
                 defer host.freeAction(action);

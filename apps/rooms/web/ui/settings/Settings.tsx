@@ -366,10 +366,12 @@ function SettingsDialog(
 								</>
 							)}
 							{
-								/* With no Rooms server this browser has no address, and the
-								   server card above says so. */
+								/* This browser has an address once its own route is open:
+								   browser to browser with or without a Rooms server, and
+								   through the server otherwise, where the server card above
+								   says why there is none. */
 							}
-							{hasServer && (
+							{selfLoc != null && selfLoc !== "" && (
 								<>
 									<h3 className="well-title overline" id="browserLegend">{reachBrowserTitle}</h3>
 									<div className="group well" role="group" aria-labelledby="browserLegend">

@@ -3,6 +3,7 @@
 // Mostly operator-adjacent, so these stay precise. The subject is whoever is
 // reading, not the machinery.
 
+import { browserBlocks } from "./failure.ts";
 import { serverModel } from "./session.ts";
 
 /** Session message retention and the archive capability it selects. */
@@ -126,12 +127,6 @@ export const serverBlockedByBrowser = "Blocked by this browser";
 export const serverAwayRefuses = (origin: string) => `Restart it with --allow-origin=${origin} to let this page in.`;
 /** Said while nothing answers at the server's address. */
 export const serverAwaySilent = (host: string) => `Nothing answers at ${host}. Rooms keeps trying.`;
-/** This browser stands between a public page and a server on the person's own
- * computer or network, asking once or refusing until they allow it. */
-const browserBlocks = (permission: "prompt" | "denied") =>
-	permission === "denied"
-		? "This browser blocks this page from reaching servers on your computer or network. Allow local network access for this site in the browser's site settings"
-		: "This browser asks before this page reaches a server on your computer or network. Allow it when the browser asks";
 export const serverAwayBlocked = (permission: "prompt" | "denied") =>
 	`${browserBlocks(permission)}, then Rooms connects.`;
 export const serverTestBlocked = (permission: "prompt" | "denied") => `${browserBlocks(permission)}, then test again.`;
@@ -148,7 +143,7 @@ export const serverRemoveConfirm = "Remove this server?";
 export const serverRemoveSaid = (served: boolean) =>
 	served
 		? "This page goes back to the server it came from, and reloads."
-		: "This page will have no Rooms server, so it reaches no directory and nobody reaches it. It reloads.";
+		: "This page will have no Rooms server, so it reaches only addresses this browser can open on its own, and nobody reaches it. It reloads.";
 export const serverRemoveKeep = "Keep it";
 export const serverRemoveCommit = "Remove and reload";
 export const serverNoneTitle = "No Rooms server";

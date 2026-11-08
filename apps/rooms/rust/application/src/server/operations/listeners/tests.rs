@@ -62,6 +62,34 @@ fn an_up_is_read_exactly() {
 }
 
 #[test]
+fn a_declaration_reads_as_an_up_does() {
+	let (transport, ask) = Ask::parse("noise-tcp,port=7,bind=::1,advertise=rooms.example").unwrap();
+	assert_eq!(transport, Transport::NoiseTcp);
+	assert_eq!(ask.port, Some(7));
+	assert_eq!(ask.bind.as_deref(), Some("::1"));
+	assert_eq!(ask.advertise.as_deref(), Some("rooms.example"));
+	let (transport, ask) = Ask::parse("noise-relay,relay=wss://rooms.example/relay").unwrap();
+	assert_eq!(transport, Transport::NoiseRelay);
+	assert_eq!(ask.relay.as_deref(), Some("wss://rooms.example/relay"));
+	assert_eq!(Ask::parse("iroh").unwrap(), (Transport::Iroh, Ask::default()));
+	let refused = |text: &str| Ask::parse(text).unwrap_err().reason();
+	assert!(refused("").starts_with("a listener is declared as <transport>[,<name>=<value>...]"));
+	assert!(refused("carrier-pigeon").starts_with("listener-unsupported: \"carrier-pigeon\" names no transport"));
+	assert_eq!(
+		refused("tcp,port"),
+		"a listener option is written <name>=<value>, not \"port\""
+	);
+	assert_eq!(refused("tcp,port=x"), "port is an integer between 0 and 65535");
+	assert_eq!(refused("tcp,port=70000"), "port is an integer between 0 and 65535");
+	assert_eq!(
+		refused("tcp,port=1,port=2"),
+		"the port listener option was supplied twice"
+	);
+	assert_eq!(refused("iroh,port=1"), "a iroh listener has no \"port\" option");
+	assert_eq!(refused("keyed-relay,relay="), "relay is a non-empty string under 4 KiB");
+}
+
+#[test]
 fn seats_admit_one_listener_per_transport_and_keep_the_announced_one() {
 	let env = Env(BTreeMap::new());
 	let mut seats = Seats::default();

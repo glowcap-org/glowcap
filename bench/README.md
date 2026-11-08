@@ -8,7 +8,7 @@ sources:
 # Benchmarks
 
 The benchmarks measure what glowcap costs. They never decide behavior, which
-is the tests' job. [Build steps](../docs/build-steps.md) lists every `bench-*`
+is the tests' job. [Application build steps](../docs/build-steps-apps.md) lists every `bench-*`
 step. Absolute figures come from `-Doptimize=ReleaseFast` runs, and a smoke
 run only proves a bench still runs.
 

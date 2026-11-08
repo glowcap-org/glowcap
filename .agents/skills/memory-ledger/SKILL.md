@@ -438,7 +438,9 @@ declaration under `src/`.
   - The Host footprint test pins the added bytes.
 - **Owning local completion**: `local_delivery.Producer` and `VowRow` sizes
   are pinned in `test/driver/core_host/local_delivery_test.zig`. The reply
-  destination tag adds one inline word.
+  destination tag adds one inline word, and the delivering session
+  (`Producer.via`, an optional peer handle a trusted forwarder sets so
+  `HostTurn.deliveringSession` can name it) adds two.
   - Warm admission allocates those two owners. `Host.Call` separately allocates
     its operation (size pinned in the same test) and exactly the configured reply
     backing.

@@ -396,7 +396,13 @@ impl Relay {
 			return Err(invalid);
 		}
 		let current = self.location.borrow().clone();
-		let own = current.as_ref().and_then(|s| glowcap::parse_locator(&s.location).ok());
+		// The directory's own doors: its one locator, or every route and
+		// fallback inside the identity route it advertises.
+		let own: Vec<Locator> = current
+			.as_ref()
+			.and_then(|s| glowcap::parse_locator(&s.location).ok())
+			.map(|location| rooms_glowcap::routes::doors(&location))
+			.unwrap_or_default();
 		let local = current.and_then(|s| s.local_endpoint);
 		let target = if input.contains("://") {
 			let locator = glowcap::parse_locator(input).map_err(|_| invalid)?;
@@ -413,9 +419,10 @@ impl Relay {
 					return Ok(Target::Iroh(locator));
 				}
 				glowcap::TRANSPORT_ONION => {
-					if !own.as_ref().is_some_and(|own| {
-						own.transport == glowcap::TRANSPORT_ONION && own.designator == locator.designator
-					}) {
+					if !own
+						.iter()
+						.any(|door| door.transport == glowcap::TRANSPORT_ONION && door.designator == locator.designator)
+					{
 						return Err((StatusCode::FORBIDDEN, "rooms: foreign onion relay refused\n"));
 					}
 					return local.map(Target::Local).ok_or((
@@ -428,10 +435,7 @@ impl Relay {
 		} else {
 			glowcap::designator_host_port(input).map_err(|_| invalid)?
 		};
-		let advertised = own
-			.filter(|s| s.transport == glowcap::TRANSPORT_TCP)
-			.and_then(|s| glowcap::designator_host_port(&s.designator).ok());
-		if advertised.as_ref() == Some(&target) {
+		if own.iter().filter_map(tcp_endpoint).any(|door| door == target) {
 			return local.map(Target::Local).ok_or((
 				StatusCode::SERVICE_UNAVAILABLE,
 				"rooms: directory forwarding unavailable\n",

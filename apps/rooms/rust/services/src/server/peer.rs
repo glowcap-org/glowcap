@@ -145,7 +145,7 @@ impl Peer {
 	}
 	/// What the program that started this server prints.
 	pub fn ready(&self) -> Result<Ready, Error> {
-		let location = self.state.borrow().location.clone();
+		let location = self.state.borrow().advertised();
 		let trace = self.owners.trace.as_ref().map(|trace| trace.sturdyref.clone());
 		let trace_port = self.owners.trace.as_ref().map(|trace| trace.port);
 		let announcement = Ready::render(
@@ -164,7 +164,7 @@ impl Peer {
 	}
 	/// The locator partners dial, which `advertisedLocation` also answers.
 	pub fn location(&self) -> String {
-		self.state.borrow().location.clone()
+		self.state.borrow().advertised()
 	}
 	/// Accept and serve partners until `halt` resolves. Either way the peer
 	/// is closed before this returns, and every accepted connection, queued
@@ -436,6 +436,14 @@ async fn assemble(
 			announced,
 		);
 		state.restore_links().map_err(Error::refused)?;
+	}
+	if futures_util::FutureExt::now_or_never(halt.as_mut()).is_some() {
+		return Ok(None);
+	}
+	// The declared listeners are part of being ready, so a reader of the
+	// announcement never dials a route the server has not opened.
+	if let Some(writer) = &owners.operations {
+		operations::listeners::open_declared(&state, &writer.store(), &config.listen).await?;
 	}
 	if futures_util::FutureExt::now_or_never(halt.as_mut()).is_some() {
 		return Ok(None);

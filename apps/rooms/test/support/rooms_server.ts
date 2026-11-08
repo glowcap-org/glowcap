@@ -5,16 +5,12 @@
 // leaked one fails whichever test runs next rather than the one that leaked it.
 // All scenarios start the installed Rust server. The build owns that prerequisite.
 
-import { designatorHostPort, type Host, type Runtime, type Session } from "@glowcap/runtime";
+import { designatorHostPort, type Host, type Runtime, type Session, TRANSPORT_TCP } from "@glowcap/runtime";
 import { Reachability } from "@glowcap/iroh";
 
-import {
-	dial as dialWithRuntime,
-	isUriLocator,
-	roomsHost,
-	roomsLocator,
-	roomsSturdyrefLocator,
-} from "../../lib/locator.ts";
+import { dial as dialWithRuntime, roomsHost, roomsLocator, roomsSturdyrefLocator } from "../../lib/locator.ts";
+import { isUriLocator } from "../../lib/doors.ts";
+import { roomsIdentityDoors } from "../../lib/routes.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { assert } from "../assert.ts";
 import { drainStdout, readAnnounced, readAnnouncedPort } from "./announce.ts";
@@ -166,9 +162,13 @@ export async function roomLocator(port: number, who = "rooms-web"): Promise<stri
 
 /** The TCP port of the room the front on `httpPort` supervises, read from the
  * locator it serves. A front started with room port 0 learns it there, and a
- * second front that attaches to the room is handed it. */
+ * second front that attaches to the room is handed it. A front with declared
+ * listeners serves an identity route, whose tcp door carries the port. */
 export async function roomPortOf(httpPort: number, who = "rooms-web"): Promise<number> {
-	return designatorHostPort(roomsLocator(await roomLocator(httpPort, who)).designator).port;
+	const served = await roomLocator(httpPort, who);
+	const door = roomsIdentityDoors(roomsLocator(served)).find((door) => door.transport === TRANSPORT_TCP);
+	if (door === undefined) throw new Error(`${who} serves a locator with no tcp door: ${served}`);
+	return designatorHostPort(door.designator).port;
 }
 
 /** The TCP port a session process announced in its sturdyref. */

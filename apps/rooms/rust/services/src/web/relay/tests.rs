@@ -84,6 +84,39 @@ fn the_servers_own_shared_session_is_a_relay_target_by_iroh_or_tcp_and_not_by_on
 }
 
 #[test]
+fn an_identity_route_location_owns_every_door_inside_it() {
+	let key = "cd".repeat(32);
+	let onion = format!("{}.onion", "b".repeat(56));
+	let route = rooms_glowcap::routes::identity_route(
+		&key,
+		&[
+			"127.0.0.1:9301".to_owned(),
+			format!("ocapn://{onion}"),
+			format!("ocapn://{key}.noise-relay?rendezvous-relay=ws%3A%2F%2F127.0.0.1%3A8080%2Frelay"),
+		],
+	)
+	.expect("three doors make a route");
+	let announcement = Announcement::new(
+		glowcap::format_locator_uri(&route).unwrap(),
+		None,
+		Some(Endpoint::tcp("127.0.0.1", 9301)),
+	);
+	let (_, location) = watch::channel(Some(announcement));
+	let (jobs, _) = mpsc::channel(1);
+	let (_, stop) = watch::channel(false);
+	let relay = Relay::new(Limits::read(|_| None).unwrap(), location, jobs, stop, Rc::new(|_| {}));
+	// The tcp fallback and the onion route both forward to the local directory.
+	assert!(matches!(relay.target("127.0.0.1:9301"), Ok(Target::Local(_))));
+	assert!(matches!(
+		relay.target(&format!("ocapn://{onion}")),
+		Ok(Target::Local(_))
+	));
+	// A foreign onion and an unlisted tcp address stay refused.
+	assert!(relay.target(&format!("ocapn://{}.onion", "c".repeat(56))).is_err());
+	assert!(relay.target("127.0.0.1:9302").is_err());
+}
+
+#[test]
 fn origin_admission_refuses_foreign_and_opaque_browser_origins() {
 	for (origin, allowed) in [
 		(None, true),

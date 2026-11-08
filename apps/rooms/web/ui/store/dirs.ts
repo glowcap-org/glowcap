@@ -54,6 +54,7 @@ export function openDir(projection: PageProjection, dir: DirId, locator: string)
 		// Empty is settled: the foot derives its resting words, and the net
 		// layer writes a sentence here only while an act or failure needs one.
 		statusText: "",
+		transport: "",
 		dmUnreachable: "",
 		standing: null,
 	});

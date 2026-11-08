@@ -67,7 +67,7 @@ export async function openManagedSession(
 			? await application.workspace()
 			: await application.savedWorkspace(ACTIVE_VIEW);
 		workspace = heldWorkspace;
-		session = new ManagedRoomsSession(application, heldWorkspace, heldCustody, report);
+		session = new ManagedRoomsSession(application, heldWorkspace, heldCustody, report, local);
 		await session.start();
 		// Restore management by the separately saved strong fields. The active
 		// view's inventory supplies no new control and cannot widen this set.

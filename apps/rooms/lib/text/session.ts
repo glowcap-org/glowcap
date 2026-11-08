@@ -46,14 +46,16 @@ export const sessionSignInState = "Not available";
 /** The Rooms server line under the session choices. It is how this browser is
  * reached, so setup names it before anything opens. */
 export const sessionServerName = "Rooms server";
-export const sessionServerNone = "None. Directories, people, and links you issue go through one.";
+export const sessionServerNone =
+	"None. Addresses this browser cannot open on its own, and links you issue, go through one.";
 export const sessionServerChoose = "Choose…";
 /** The server dialog over setup. Nothing has opened, so saving keeps the
  * choice in place. Opened by Attach, it says why, and saving attaches. */
 export const sessionServerTitle = "Choose a Rooms server";
 /** What a Rooms server is, said once and composed into every dialog that
  * asks for one. */
-export const serverModel = "A Rooms server is how this browser reaches directories and people, and how they reach it.";
+export const serverModel =
+	"A Rooms server is how this browser reaches addresses it cannot open on its own, and how people reach it.";
 export const sessionServerLead = `${serverModel} Test its address, then save it.`;
 export const sessionServerAttachLead =
 	"A shared session is reached through a Rooms server, and this page has none. Test a server's address, and saving it attaches.";
@@ -66,8 +68,11 @@ export const sessionServerUnreachable = (host: string, detail: string) =>
 /** The same dialog in the open workspace, opened by an act that needs a
  * Rooms server when the page has none. The session keeps its
  * server, so saving reloads, and the act is waiting on the other side. */
-export const serverAskLead =
-	"What you asked for goes through a Rooms server, and this page has none. Test a server's address, and saving it reloads the page where you left off.";
+const serverAskHow = "Test a server's address, and saving it reloads the page where you left off.";
+export const serverAskLead = `What you asked for needs a Rooms server, and this page has none. ${serverAskHow}`;
+/** The same ask after the door this browser opens by itself did not get
+ * through: `door` says so, and a Rooms server is the other way in. */
+export const serverAskAfterDoor = (door: string) => `${door} A Rooms server can reach it another way. ${serverAskHow}`;
 
 /** The advanced section and the two confirmations under it. Each
  * confirmation names what survives as well as what goes, since "delete" alone

@@ -136,7 +136,7 @@ fn beginForwarding(owner: *h.Attachment, op: *calls.Operation) Flow {
     // the selected request rather than accepting rewritten arguments.
     const request = if (op.completion != .protected) op.dispatch.? else h.Call.Intent{ .verb = action.verb, .args = action.args };
     const arena = op.memory.input.allocator();
-    op.forwarded.begin(&op.lifetime, action.target, request.verb, request.args, arena, owner.options.forward_reply_bytes) catch |err| {
+    op.forwarded.begin(&op.lifetime, action.target, request.verb, request.args, arena, owner.options.forward_reply_bytes, op.peer) catch |err| {
         op.failure = err;
         op.phase = .failed;
         return .next_operation;

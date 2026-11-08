@@ -399,6 +399,26 @@ impl State {
 	pub fn reserve(&self) -> Option<mpsc::Permit<'_, Work>> {
 		self.work.try_reserve().ok()
 	}
+	/// The identity route across every listener this server holds, or
+	/// `None` while one listener is the whole of it.
+	pub fn identity_route(&self) -> Option<Locator> {
+		let locators: Vec<String> = self
+			.listeners
+			.locators()
+			.into_iter()
+			.map(|(_, locator)| locator)
+			.collect();
+		let key = self.host.designator().ok()?;
+		rooms_glowcap::routes::identity_route(&key, &locators)
+	}
+	/// The location this server announces and `advertisedLocation` answers a
+	/// peer that speaks routes: the identity route across its listeners, else
+	/// the announced listener's locator.
+	pub fn advertised(&self) -> String {
+		self.identity_route()
+			.and_then(|route| glowcap::format_locator_uri(&route).ok())
+			.unwrap_or_else(|| self.location.clone())
+	}
 	/// The location a caller is advertised: the identity route across every
 	/// listener when the caller negotiated the route vocabulary, else the
 	/// listener its own connection came in through, else the announced one.
@@ -411,21 +431,8 @@ impl State {
 			profile.captp_version == glowcap::CaptpVersion::Next
 				&& profile.features.contains(glowcap::FeatureSet::MULTI_LOCATION)
 		});
-		if routes_spoken {
-			let locators: Vec<String> = self
-				.listeners
-				.locators()
-				.into_iter()
-				.map(|(_, locator)| locator)
-				.collect();
-			if let Some(route) = self
-				.host
-				.designator()
-				.ok()
-				.and_then(|key| rooms_glowcap::routes::identity_route(&key, &locators))
-			{
-				return route;
-			}
+		if routes_spoken && let Some(route) = self.identity_route() {
+			return route;
 		}
 		let transport = caller.transport_name().ok();
 		let announced = self.listeners.seats.announced();

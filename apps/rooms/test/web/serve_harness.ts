@@ -22,7 +22,9 @@ function before<T>(start: () => Promise<T>, what: string, deadline: number): Pro
 }
 
 /** Fetch the served index page once the web UI answers on `port`. Not the
- * `/locator` readiness probe in support: this reads the page body. */
+ * `/locator` readiness probe in support: this reads the page body, which the
+ * front serves before its directory is up, so a test that acts on the
+ * directory waits on `waitForHttp` first. */
 export async function waitForIndex(port: number, deadline = Date.now() + 10_000): Promise<string> {
 	let lastError: unknown;
 	while (Date.now() < deadline) {
@@ -40,10 +42,14 @@ export async function waitForIndex(port: number, deadline = Date.now() + 10_000)
 }
 
 /** Start a front that chooses its own ports and read the HTTP port it bound.
- * A front handed `roomPort` attaches to the room server already holding it. */
-export async function startWeb(roomPort = 0): Promise<{ proc: Deno.ChildProcess; httpPort: number }> {
+ * A front handed `roomPort` attaches to the room server already holding it.
+ * `options` are passed to the front after the ports. */
+export async function startWeb(
+	roomPort = 0,
+	options: readonly string[] = [],
+): Promise<{ proc: Deno.ChildProcess; httpPort: number }> {
 	const proc = spawnOwned(WEB, {
-		args: ["--transport=tcp", "0", String(roomPort)],
+		args: ["--transport=tcp", "0", String(roomPort), ...options],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "piped",

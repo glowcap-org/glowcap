@@ -3,6 +3,7 @@
 //! document behind. Every option may come from the environment as
 //! `GLOWCAP_ROOMS_<NAME>`, and an argument wins.
 use super::{error::Error, operations::Asked};
+use rooms_application::server::operations::listeners::{self, Ask};
 pub use rooms_platform::serving::Transport;
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -12,7 +13,12 @@ pub struct Config {
 	/// one the server is process-local: a fresh identity each start, and
 	/// nothing kept past it.
 	pub state: Option<PathBuf>,
+	/// The announced listener, the one every printed locator names.
 	pub transport: Transport,
+	/// The listeners declared beside it, up before the server is ready and
+	/// held only for this run. One declaration per transport, none for the
+	/// announced one.
+	pub listen: Vec<(listeners::Transport, Ask)>,
 	/// Whether rooms keep their last lines. They persist under the
 	/// state directory, or stay in memory when there is none.
 	pub history: bool,
@@ -28,8 +34,10 @@ pub struct Config {
 /// The timeline endpoint's port when nothing overrides it.
 pub const TRACE_PORT: u16 = 9300;
 
-pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=iroh|tcp|onion] [--history]
+pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=iroh|tcp|onion] [--listen=<transport>[,<name>=<value>...]]... [--history]
   --state=<directory>  keep the server document, history, and operator choices here across restarts
+  --listen=<transport>[,<name>=<value>...]  also listen over tcp, keyed-tcp, noise-tcp, iroh, keyed-relay, noise-relay, or onion; repeatable, one per transport
+      tcp, keyed-tcp, noise-tcp take bind, port, advertise; keyed-relay, noise-relay take relay (or GLOWCAP_ROOMS_RELAY_URL)
   --history  keep the last lines of each room
   --admission-scale=<1..100>  scale default work allowances (default: 1)
   --admission-rates=<class=burst/per-minute,...>  absolute per-class overrides
@@ -53,6 +61,8 @@ For a minted timeline, also set GLOWCAP_ROOMS_TRACE_LOCATOR to its advertised lo
 
 /// The options beyond the transport's own that take a value.
 const KEYS: &[&str] = &["state", "trace-port", "trace-publish", "trace-connect"];
+/// The one option that repeats, read in the listener seats' own grammar.
+pub const LISTEN: &str = "listen";
 /// The options that are flags: present, or `1`/`true`/`yes` in the environment.
 const FLAGS: &[&str] = &[
 	"history",
@@ -71,6 +81,7 @@ impl Config {
 		env: impl Fn(&str) -> Option<String>,
 	) -> Result<Option<Self>, Error> {
 		let mut named = BTreeMap::new();
+		let mut declared = Vec::new();
 		for arg in args {
 			if arg == "--help" || arg == "-h" {
 				return Ok(None);
@@ -79,6 +90,13 @@ impl Config {
 				return Err(Error::refused("options use --name=value"));
 			};
 			let (key, value) = option.split_once('=').unwrap_or((option, "1"));
+			if key == LISTEN {
+				if !option.contains('=') {
+					return Err(Error::refused(format!("--{key} takes a value")));
+				}
+				declared.push(value.to_owned());
+				continue;
+			}
 			if !KEYS.contains(&key)
 				&& !FLAGS.contains(&key)
 				&& !Transport::OPTIONS.contains(&key)
@@ -109,6 +127,14 @@ impl Config {
 			}
 		};
 		let transport = Transport::parse(value, &env, "server").map_err(Error::refused)?;
+		// The environment stands in only when no argument declared one, the
+		// way every other option's argument wins over its variable.
+		if declared.is_empty()
+			&& let Some(listed) = env("GLOWCAP_ROOMS_LISTEN")
+		{
+			declared.extend(listed.split_whitespace().map(str::to_owned));
+		}
+		let listen = Self::listeners(&transport, &declared)?;
 		let history = flag("history")?.unwrap_or(false);
 		let asked = Asked {
 			admin_listeners: flag("admin-listeners")?.unwrap_or(false),
@@ -145,6 +171,7 @@ impl Config {
 			.map_err(Error::refused)?,
 			state: value("state").map(PathBuf::from),
 			transport,
+			listen,
 			history,
 			asked,
 			trace_port,
@@ -162,6 +189,30 @@ impl Config {
 				.transpose()?,
 		}))
 	}
+	/// The declared listeners, each read the way `up` reads it, refused
+	/// whole when one repeats a transport or names the announced one.
+	fn listeners(announced: &Transport, declared: &[String]) -> Result<Vec<(listeners::Transport, Ask)>, Error> {
+		let boot = super::operations::listeners::boot_transport(announced);
+		let mut listen: Vec<(listeners::Transport, Ask)> = Vec::with_capacity(declared.len());
+		for text in declared {
+			let (transport, ask) = Ask::parse(text)
+				.map_err(|refusal| Error::refused(format!("--{LISTEN}={text}: {}", refusal.detail())))?;
+			if transport == boot {
+				return Err(Error::refused(format!(
+					"--{LISTEN}={text} names the announced transport; --transport already listens over {}",
+					transport.name()
+				)));
+			}
+			if listen.iter().any(|(held, _)| *held == transport) {
+				return Err(Error::refused(format!(
+					"--{LISTEN}={text} repeats a transport; a server holds one {} listener",
+					transport.name()
+				)));
+			}
+			listen.push((transport, ask));
+		}
+		Ok(listen)
+	}
 	/// The history directory under the state directory. With history on and
 	/// no state directory, lines live in memory.
 	pub fn history_directory(&self) -> Option<PathBuf> {
@@ -169,5 +220,45 @@ impl Config {
 			return None;
 		}
 		self.state.as_ref().map(|root| root.join("history"))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn parse(args: &[&str], env: impl Fn(&str) -> Option<String>) -> Result<Config, String> {
+		match Config::parse(args.iter().map(|arg| (*arg).to_owned()), env) {
+			Ok(config) => Ok(config.expect("a launch")),
+			Err(error) => Err(error.to_string()),
+		}
+	}
+
+	#[test]
+	fn declared_listeners_repeat_once_per_transport_beside_the_announced_one() {
+		let config = parse(
+			&[
+				"--transport=tcp",
+				"--listen=noise-relay",
+				"--listen=noise-tcp,port=7,bind=::1",
+			],
+			|_| None,
+		)
+		.unwrap();
+		let declared: Vec<_> = config.listen.iter().map(|(transport, _)| transport.name()).collect();
+		assert_eq!(declared, ["noise-relay", "noise-tcp"]);
+		assert_eq!(config.listen[1].1.port, Some(7));
+		let refused = |args: &[&str]| parse(args, |_| None).err().expect("a refusal");
+		assert!(refused(&["--listen"]).contains("--listen takes a value"));
+		assert!(refused(&["--listen=iroh"]).contains("names the announced transport"));
+		assert!(refused(&["--listen=noise-tcp", "--listen=noise-tcp,port=1"]).contains("repeats a transport"));
+		assert!(refused(&["--listen=tcp,port=x"]).contains("--listen=tcp,port=x: port is an integer"));
+		// The environment stands in only when no argument declared one.
+		let env = |key: &str| (key == "GLOWCAP_ROOMS_LISTEN").then(|| "noise-relay noise-tcp,port=0".to_owned());
+		let config = parse(&[], env).unwrap();
+		assert_eq!(config.listen.len(), 2);
+		let config = parse(&["--listen=keyed-tcp"], env).unwrap();
+		assert_eq!(config.listen.len(), 1);
+		assert_eq!(config.listen[0].0, listeners::Transport::KeyedTcp);
 	}
 }

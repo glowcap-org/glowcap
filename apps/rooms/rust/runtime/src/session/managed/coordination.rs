@@ -44,6 +44,10 @@ pub enum MembershipEvent<'a> {
 	},
 	Notification {
 		arguments: &'a [Argument],
+		/// The session the notice arrived on. A directory's notices carry it,
+		/// so the registered notice can name the transport the directory is
+		/// reached over. A room's carry none.
+		delivering: Option<glowcap::Session>,
 		/// The exact initiating workspace endpoint, already checked by the inbox.
 		/// Consumers retain this occurrence when mediating returned files.
 		origin: &'a super::InboxOrigin,
@@ -384,15 +388,25 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 					}
 					Desired::Directory(row) => {
 						session
-							.supervise_directory(row, locator, entropy, move |arguments, origin| {
-								receiver(MembershipEvent::Notification { arguments, origin }).map(|_| ())
+							.supervise_directory(row, locator, entropy, move |arguments, delivering, origin| {
+								receiver(MembershipEvent::Notification {
+									arguments,
+									delivering,
+									origin,
+								})
+								.map(|_| ())
 							})
 							.await
 					}
 					Desired::Room(row, _) => {
 						session
 							.supervise_room(row, intent, entropy, move |arguments, origin| {
-								receiver(MembershipEvent::Notification { arguments, origin }).map(|_| ())
+								receiver(MembershipEvent::Notification {
+									arguments,
+									delivering: None,
+									origin,
+								})
+								.map(|_| ())
 							})
 							.await
 					}

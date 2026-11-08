@@ -78,6 +78,25 @@ export function inspectDirectory(value: string): RoomsAddress | null {
 	return encoded == null ? null : projected(encoded, RoomsAddressSchema, "directory address");
 }
 
+/** How this browser, with no Rooms server, would reach a typed address: the
+ * relay of the first door it opens by itself, or null when the address names
+ * none it can open, and whether any door needs a Rooms server. Null for text
+ * that is not a directory address. */
+export interface BrowserDoors {
+	readonly relay: URL | null;
+	readonly throughServer: boolean;
+}
+
+const BrowserDoorsSchema = z.object({ relay: z.nullable(z.string()), throughServer: z.boolean() });
+
+export function browserDoors(address: string): BrowserDoors | null {
+	const encoded = applicationModule().browserDoors(address);
+	if (encoded == null) return null;
+	const doors = projected(encoded, BrowserDoorsSchema, "door list");
+	// The application admitted the relay as an absolute WebSocket URL.
+	return { relay: doors.relay === null ? null : new URL(doors.relay), throughServer: doors.throughServer };
+}
+
 export function inspectCapability(value: string): RoomsAddress | null {
 	const encoded = applicationModule().inspectCapability(value);
 	return encoded == null ? null : projected(encoded, RoomsAddressSchema, "capability address");

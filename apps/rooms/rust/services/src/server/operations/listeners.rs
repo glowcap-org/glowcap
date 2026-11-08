@@ -114,6 +114,38 @@ pub(crate) fn adopt_boot(state: &mut State, transport: Transport, locator: Strin
 	state.listeners.seats.adopt_boot(transport, locator);
 }
 
+/// Bring up the listeners the command line declared, in its order, before
+/// the server announces itself ready. None is remembered: the command line
+/// says them again next start. One that cannot come up is fatal, because
+/// an operator who declared a listener is not served by a server without
+/// it, and the refusal names the declaration.
+pub(crate) async fn open_declared(
+	shared: &Shared,
+	writer: &Store,
+	declared: &[(Transport, Ask)],
+) -> Result<(), super::super::error::Error> {
+	for (transport, ask) in declared {
+		let Err(refusal) = up(shared, writer, *transport, ask.clone(), false).await else {
+			continue;
+		};
+		let mut error = super::super::error::Error::refused(format!(
+			"the declared {} listener did not come up: {}",
+			transport.name(),
+			refusal.detail()
+		));
+		// The ones already up close here, because the state they live in
+		// never reaches the peer whose shutdown would close them.
+		let open = shared.borrow_mut().listeners.drain();
+		for listener in open {
+			if let Err(closing) = listener.close().await {
+				error = error.retain(Err(closing.into()));
+			}
+		}
+		return Err(error);
+	}
+	Ok(())
+}
+
 /// Replay the kept intents: each seat not already held comes up without
 /// being remembered again, and one that cannot is noted rather than fatal.
 pub(crate) async fn restore(shared: &Shared, writer: &Store) {
@@ -410,10 +442,11 @@ async fn probe_register_endpoint(register: &str, designator: &str) -> Result<(),
 	let url = format!("{register}?id={designator}");
 	let connect = tokio_tungstenite::connect_async(&url);
 	match tokio::time::timeout(RELAY_REGISTER_DEADLINE, connect).await {
-		Ok(Ok((socket, _))) => {
-			// The probe consumed nothing: dropping the socket ends it, and the
-			// relay drops the registration with it.
-			drop(socket);
+		Ok(Ok((mut socket, _))) => {
+			// The probe registered nothing to keep: a close frame ends it, and
+			// the relay drops the registration with it. A relay that is gone
+			// before the frame lands has still answered the probe.
+			drop(socket.close(None).await); // tolerant: the probe's answer is the open, not the close
 			Ok(())
 		}
 		Ok(Err(_)) => Err(Refusal::unsupported(format!(

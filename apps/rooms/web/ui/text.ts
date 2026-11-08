@@ -23,8 +23,25 @@ import {
 	phaseConnecting,
 	phaseDisconnected,
 	phaseReconnecting,
+	routeIroh,
+	routeKeyedTcp,
+	routeNoiseTcp,
+	routeOnion,
+	routeRelay,
+	routeTcp,
+	routeThroughServer,
 	tooLongSaid,
 } from "../../lib/text/directory.ts";
+import {
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
+	TRANSPORT_TCP,
+} from "@glowcap/abi";
+import { BROWSER_OWN_DOORS } from "../../lib/doors.ts";
 
 /** What a surface says while this browser's access to the session is paused and
  * there is consequently nothing in it to show.
@@ -88,12 +105,42 @@ export interface DirConnection {
 	/** What this directory is doing, when that says more than the phase word
 	 * already does, and empty otherwise. */
 	why: string;
+	/** How the connection reaches the directory, once it does, and empty
+	 * before then or when the transport is not one this page can name. */
+	route: string;
 }
 
-export function dirConnection(session: SessionPhase, statusText: string): DirConnection {
+/** The route words for a transport, or empty for one this page cannot name.
+ * Which of them a browser opens by itself is `BROWSER_OWN_DOORS`. */
+const ROUTE_SAID: ReadonlyMap<string, string> = new Map([
+	[TRANSPORT_NOISE_RELAY, routeRelay],
+	[TRANSPORT_KEYED_RELAY, routeRelay],
+	[TRANSPORT_IROH, routeIroh],
+	[TRANSPORT_NOISE_TCP, routeNoiseTcp],
+	[TRANSPORT_KEYED_TCP, routeKeyedTcp],
+	[TRANSPORT_TCP, routeTcp],
+	[TRANSPORT_ONION, routeOnion],
+]);
+
+export function dirConnection(
+	session: SessionPhase,
+	statusText: string,
+	/** The transport the directory's connection runs over, or empty while
+	 * unknown. */
+	transport = "",
+	/** Whether this browser runs the session, so a transport it cannot open
+	 * itself reaches the directory through its Rooms server. */
+	local = false,
+): DirConnection {
+	const route = ROUTE_SAID.get(transport);
 	return {
 		said: PHASE_SAID[session],
 		why: statusText !== "" && statusText !== phaseWord(session) ? statusText : "",
+		route: session !== "connected" || route === undefined
+			? ""
+			: local && !BROWSER_OWN_DOORS.has(transport)
+			? routeThroughServer(route)
+			: route,
 	};
 }
 

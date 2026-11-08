@@ -62,6 +62,9 @@ export interface DirView {
 	reached: boolean;
 	session: SessionPhase;
 	statusText: string;
+	/** The transport the live connection runs over, as the registered notice
+	 * named it, and empty before one has. */
+	transport: string;
 	dmUnreachable: string;
 	standing: string | null;
 }

@@ -3,6 +3,8 @@ import {
 	HINT_ALT_LOCATORS,
 	HINT_VIA,
 	type Locator,
+	parseLocator,
+	stringHint,
 	TRANSPORT_ID,
 	TRANSPORT_IROH,
 	TRANSPORT_KEYED_RELAY,
@@ -54,4 +56,25 @@ export function roomsIdentityRoute(hostKey: string, locatorUris: readonly string
 		hints,
 		hintWireForm: "map",
 	};
+}
+
+/** The concrete locators a location opens into: the location itself, unless
+ * it is an identity route, whose proving routes and fallbacks are its doors,
+ * in the order the route lists them. A door that does not parse is left out
+ * rather than failing the rest. */
+export function roomsIdentityDoors(location: Locator): Locator[] {
+	if (location.transport !== TRANSPORT_ID) return [location];
+	const doors: Locator[] = [];
+	for (const name of [HINT_VIA, HINT_ALT_LOCATORS]) {
+		for (const uri of (stringHint(location, name) ?? "").split("|")) {
+			if (uri === "") continue;
+			try {
+				doors.push(parseLocator(uri));
+			} catch {
+				// A door the route lists in a form this reader does not parse is
+				// not one this reader can open, so it is not a door for it.
+			}
+		}
+	}
+	return doors;
 }

@@ -240,7 +240,7 @@ async fn supervised_directory(
 			&mut Entropy::new(),
 			{
 				let received = received.clone();
-				move |_, _| {
+				move |_, _, _| {
 					received.set(received.get() + 1);
 					Ok(())
 				}

@@ -9,6 +9,35 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-08
+
+### Added
+
+- `rooms-server --listen=<transport>[,<name>=<value>...]` (or
+  `GLOWCAP_ROOMS_LISTEN`) opens another listener to the same directory, once
+  per transport, and the server starts only once every declared listener is
+  open. The address it prints then names the directory by its key with every
+  listener listed.
+- The Rooms page reaches a directory through a sealed relay listener the
+  directory declares, with no Rooms server chosen, and the directory's card
+  says the route the connection took.
+
+### Changed
+
+- A page with no Rooms server asks for one only for an address the browser
+  cannot open itself, and says which listener failed when one did. A relay
+  that does not answer is named on the join card.
+- `rooms-web` serves its page before its directory is up, so the directory's
+  relay listeners can register with it, and `/locator` waits for the directory
+  instead of answering that there is none.
+
+### Fixed
+
+- A call forwarded inside a Rooms server across a Loam hop kept no delivering
+  session, so the directory card showed no transport and direct messages from
+  different senders counted as one sender. `current_session()` in the Rust
+  binding now names that session.
+
 ## [0.1.5] - 2026-11-07
 
 ### Added
@@ -229,7 +258,8 @@ The release build failed before publication. Its changes ship in 0.1.4.
   Rooms application with its container image. [What ships](docs/shipped.md)
   describes the release in full.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/glowcap-org/glowcap/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/glowcap-org/glowcap/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/glowcap-org/glowcap/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/glowcap-org/glowcap/compare/v0.1.2...v0.1.3

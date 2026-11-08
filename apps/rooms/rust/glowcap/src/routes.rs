@@ -140,6 +140,29 @@ pub fn identity_route(host_key: &str, locators: &[String]) -> Option<Locator> {
 		hint_wire_form: HintWireForm::Map,
 	})
 }
+/// The doors of a typed directory address, in the order a dial tries them,
+/// or `None` for text that is not a directory address.
+pub fn directory_doors(value: &str) -> Result<Option<Vec<Locator>>> {
+	Ok(input(directory_locator(value))?.map(|location| doors(&location)))
+}
+/// The concrete locators an advertised location names: the location itself,
+/// or every `via` route and `alt-locators` door of an identity route. A
+/// reader that must recognize its own addresses in a dial target reads this
+/// instead of the route's transport.
+pub fn doors(location: &Locator) -> Vec<Locator> {
+	if location.transport != TRANSPORT_ID {
+		return vec![location.clone()];
+	}
+	[HINT_VIA, HINT_ALT_LOCATORS]
+		.iter()
+		.filter_map(|hint| match location.hints.get(*hint) {
+			Some(HintValue::String(list)) => Some(list),
+			_ => None,
+		})
+		.flat_map(|list| list.split('|'))
+		.filter_map(|uri| glowcap::parse_locator(uri).ok())
+		.collect()
+}
 /// Publication identity carried by a Rooms authority. Fatal UTF-8 decoding
 /// matches the document contract, including stripping a leading BOM.
 pub fn authority_token(value: &str) -> Result<Option<String>> {
@@ -196,6 +219,31 @@ impl rooms_application::session::checkpoint::Routes for CheckpointRoutes {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn an_identity_route_opens_back_into_its_doors() {
+		let key = "ab".repeat(32);
+		let listeners = [
+			"127.0.0.1:9000".to_owned(),
+			format!("ocapn://{key}.noise-relay?rendezvous-relay=ws%3A%2F%2F127.0.0.1%3A8080%2Frelay"),
+		];
+		let route = super::identity_route(&key, &listeners).expect("two doors make a route");
+		let doors = super::doors(&route);
+		let transports: Vec<&str> = doors.iter().map(|door| door.transport.as_str()).collect();
+		assert_eq!(transports, ["noise-relay", "tcp"]);
+		assert_eq!(doors[1].designator, "127.0.0.1:9000");
+		// A concrete location is its own one door.
+		assert_eq!(super::doors(&doors[1]).len(), 1);
+		// One listener is a concrete locator, not a route.
+		assert!(super::identity_route(&key, &listeners[1..]).is_none());
+		// A typed address opens into the same doors, and the shorthand is one TCP door.
+		let typed = glowcap::format_locator_uri(&route).unwrap();
+		assert_eq!(super::directory_doors(&typed).unwrap().unwrap().len(), 2);
+		assert_eq!(
+			super::directory_doors("127.0.0.1:9000").unwrap().unwrap()[0].transport,
+			"tcp"
+		);
+		assert!(super::directory_doors("not an address").unwrap().is_none());
+	}
 	#[test]
 	fn address_input_preserves_runtime_failures() {
 		assert!(super::Address::directory("not an address").unwrap().is_none());

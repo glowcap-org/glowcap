@@ -4,7 +4,14 @@ import { actionRefusal, errorDetailTitle, needsErrorDetail, sessionCapabilityRef
 import { attachedSessionFailureText } from "../web/ui/session/attached_failure.ts";
 import { assertEquals } from "./assert.ts";
 import { NICK_TAKEN, RoomsError, roomsErrorInMessage } from "../lib/error_codes.ts";
-import { failureView, refusalText, renderFailure, transportBreak } from "../lib/text/failure.ts";
+import {
+	doorBlocked,
+	doorUnreachable,
+	failureView,
+	refusalText,
+	renderFailure,
+	transportBreak,
+} from "../lib/text/failure.ts";
 
 Deno.test("Rooms errors parse only from the carrier position that owns the code", () => {
 	assertEquals(roomsErrorInMessage(new RoomsError(NICK_TAKEN, "alice"))?.code, NICK_TAKEN);
@@ -117,6 +124,16 @@ Deno.test("a break on the way is told apart from a value or a denial", () => {
 	assertEquals(transportBreak(new Error("glowcap error -12: Denied")), null);
 	assertEquals(transportBreak(new Error("glowcap error -2: host: MalformedPath")), null);
 	assertEquals(transportBreak(new Error("That name is taken.")), null);
+});
+
+Deno.test("a reach through the browser's own relay door names the relay, and keeps the break when it has one", () => {
+	const broke = doorUnreachable("127.0.0.1:8080", "glowcap error -12: glowcap error -8: browser channel error");
+	assertEquals(broke.startsWith("Rooms couldn't reach that directory through its relay at 127.0.0.1:8080."), true);
+	assertEquals(broke.endsWith("(glowcap error -12: glowcap error -8: browser channel error)"), true);
+	// The dial reported another door's refusal, so there is no break to quote.
+	assertEquals(doorUnreachable("127.0.0.1:8080", "").endsWith("isn't answering."), true);
+	assertEquals(doorBlocked("prompt", "x").includes("Allow it when the browser asks, then connect again."), true);
+	assertEquals(doorBlocked("denied", "x").includes("site settings, then connect again."), true);
 });
 
 Deno.test("a session act that broke on the way names the server this browser goes through", () => {

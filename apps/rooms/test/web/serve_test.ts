@@ -14,11 +14,16 @@ import { assert, assertEquals } from "../assert.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { ROOT, WEB } from "../support/paths.ts";
-import { reachRoomThroughRelay, waitForIndex, withWeb } from "./serve_harness.ts";
+import { reachRoomThroughRelay, startWeb, waitForIndex, withWeb } from "./serve_harness.ts";
+import { roomLocator, roomPortOf } from "../support/rooms_server.ts";
+import { HINT_RENDEZVOUS_RELAY } from "../../lib/doors.ts";
+import { roomsIdentityDoors } from "../../lib/routes.ts";
+import { parseLocator, stringHint, TRANSPORT_ID, TRANSPORT_NOISE_RELAY, TRANSPORT_TCP } from "@glowcap/runtime";
 
 Deno.test("the web supervisor prints one pasteable capability bundle", async () => {
 	// This test reads the front's stdout whole once it has stopped, so it cannot
-	// also read the announcement of a port it asked for as 0.
+	// also read the announcement of a port it asked for as 0. The bundle prints
+	// once the directory is up, which `/locator` answering says.
 	const httpPort = nonEphemeralPort();
 	const state = await Deno.makeTempDir({ prefix: "glowcap-rooms-web-output-" });
 	const proc = spawnOwned(WEB, {
@@ -33,7 +38,7 @@ Deno.test("the web supervisor prints one pasteable capability bundle", async () 
 	let output = "";
 	try {
 		try {
-			await waitForIndex(httpPort);
+			await roomLocator(httpPort);
 		} finally {
 			await stopOwned(proc);
 		}
@@ -45,6 +50,30 @@ Deno.test("the web supervisor prints one pasteable capability bundle", async () 
 	assertEquals(operators.length, 1);
 	assertEquals(parseOpsBundle(output).get("operator"), operators[0][1]);
 	assert(!output.includes("operator capabilities, paste"), "the supervisor printed a second capability projection");
+});
+
+// A declared relay listener registers at this front's own relay, so the room
+// it supervises is reachable without the front standing between the bytes.
+// The location the front serves then names the room by its key, with the
+// sealed relay door first and the tcp door behind it, and a reader that needs
+// the tcp port still finds it there.
+Deno.test("a declared relay listener puts a sealed door on the served location", async () => {
+	const { proc, httpPort } = await startWeb(0, ["--listen=noise-relay"]);
+	try {
+		const served = parseLocator(await roomLocator(httpPort));
+		assertEquals(served.transport, TRANSPORT_ID, "the location did not name the room by its key");
+		const doors = roomsIdentityDoors(served);
+		assertEquals(doors.map((door) => door.transport), [TRANSPORT_NOISE_RELAY, TRANSPORT_TCP]);
+		assertEquals(doors[0].designator, served.designator, "the relay door did not prove the room's key");
+		assertEquals(
+			stringHint(doors[0], HINT_RENDEZVOUS_RELAY),
+			`ws://127.0.0.1:${httpPort}/relay`,
+			"the relay door did not name this front's relay",
+		);
+		assert(await roomPortOf(httpPort) > 0, "the tcp door did not carry the room's port");
+	} finally {
+		await stopOwned(proc);
+	}
 });
 
 Deno.test("the IRC Operations stylesheet is a served asset", async () => {

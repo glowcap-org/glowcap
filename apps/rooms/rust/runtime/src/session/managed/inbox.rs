@@ -109,6 +109,9 @@ impl InboxOrigin {
 #[derive(Clone, Copy)]
 enum Kind {
 	Notification,
+	/// A directory's notifications. The delivering session is kept with each
+	/// so the registered notice can say which transport carries the directory.
+	Directory,
 	Direct,
 	Line,
 }
@@ -360,10 +363,10 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 			Some(synchronized),
 		),
 		Admission::Install { workspace, selected } => {
-			let kind = if matches!(selected, InboxSelection::Direct { .. }) {
-				Kind::Direct
-			} else {
-				Kind::Notification
+			let kind = match selected {
+				InboxSelection::Direct { .. } => Kind::Direct,
+				InboxSelection::Directory { .. } => Kind::Directory,
+				InboxSelection::Room { .. } => Kind::Notification,
 			};
 			(
 				workspace,
@@ -430,7 +433,7 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 			.map_err(|_| "Session inbox queue is unavailable")?;
 		let bytes = demand(args)?;
 		let charge = Charge::reserve(&live.budget.custody, bytes, cleanup)?;
-		let delivering = if matches!(kind, Kind::Direct) {
+		let delivering = if matches!(kind, Kind::Direct | Kind::Directory) {
 			glowcap::current_session().map_err(|e| e.to_string())?
 		} else {
 			None

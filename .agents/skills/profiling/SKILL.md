@@ -12,7 +12,7 @@ instructions go. Attribute before changing, and measure after.
 
 A bench's `profile-*` step runs it under callgrind, built ReleaseFast for the
 baseline CPU with valgrind client requests on, and writes
-`zig-out/bench-reports/<bench>-profile.md`. `docs/build-steps.md` lists the
+`zig-out/bench-reports/<bench>-profile.md`. `docs/build-steps-apps.md` lists the
 profiled benches, and `bench/README.md` says how to read a report. Pass the
 bench's own filters after `--`, as in
 `zig build profile-loam -- --tasks-only --engine=sqlite`, so one run

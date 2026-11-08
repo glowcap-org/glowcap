@@ -10,6 +10,9 @@ struct Config {
 	server: PathBuf,
 	server_args: Vec<String>,
 	room: crate::server::Config,
+	/// The relay the directory's relay listeners register at unless a
+	/// declaration names its own.
+	relay_url: String,
 }
 use crate::{cleanup, server::Transport};
 use glowcap::{ConnectOptions, PendingWork, Runtime, RuntimeConfig, tcp};
@@ -32,6 +35,7 @@ impl Supervisor {
 		server: PathBuf,
 		server_args: Vec<String>,
 		room: crate::server::Config,
+		relay_url: String,
 		stop: watch::Receiver<bool>,
 		report: Report,
 	) -> Result<Option<(Self, Announcement)>, String> {
@@ -42,6 +46,7 @@ impl Supervisor {
 			server,
 			server_args,
 			room,
+			relay_url,
 		};
 		let (state, temporary) = Temporary::state(config.room.state.clone()).await?;
 		let mut owner = Self {
@@ -164,6 +169,7 @@ impl Supervisor {
 			.args(&self.config.server_args)
 			.env("GLOWCAP_ROOMS_STATE", &self.state)
 			.env("GLOWCAP_ROOMS_SUPERVISED", "1")
+			.env("GLOWCAP_ROOMS_RELAY_URL", &self.config.relay_url)
 			.env("GLOWCAP_ROOMS_READY_FORMAT", "json");
 		if matches!(&self.config.room.transport, Transport::Onion(config) if config.port == 0 && config.forward.is_none())
 		{
@@ -287,7 +293,10 @@ async fn probe(endpoint: &Endpoint, mut stop: watch::Receiver<bool>) -> Result<S
 	let Endpoint::Tcp { host, port } = endpoint else {
 		return Err("only TCP directories support external attachment".into());
 	};
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+	// The probe wears the Rooms profile, so the directory advertises it the
+	// identity route across every listener, not the one tcp door it dialed.
+	let identity = glowcap::Host::with_options(rooms_glowcap::host_options()).map_err(|e| e.to_string())?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&identity))
 		.await
 		.map_err(|e| e.to_string())?;
 	let check = async {

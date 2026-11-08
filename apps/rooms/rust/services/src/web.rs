@@ -58,6 +58,7 @@ async fn serve(
 		room,
 		session,
 		relay: mut limits,
+		relay_url,
 		admission: admission_config,
 		ice,
 		tor,
@@ -113,39 +114,15 @@ async fn serve(
 		},
 		None => None,
 	};
-	let opened = {
-		let opening = supervisor::Supervisor::open(server, server_args, room, stopping.clone(), report.clone());
-		tokio::pin!(opening);
-		tokio::select! {
-			opened = &mut opening => opened,
-			ended = tor_ended(&mut tor) => {
-				stop.send_replace(true);
-				let retired = match opening.await {
-					Ok(Some((owner, _))) => owner.close().await,
-					Ok(None) => Ok(()),
-					Err(error) => Err(error),
-				};
-				Err(crate::cleanup::failed(ended, retired))
-			}
-		}
-	};
-	let (supervisor, locator) = match opened {
-		Ok(Some(started)) => started,
-		Ok(None) => {
-			if let Some(tor) = tor {
-				tor.close().await?;
-			}
-			return Ok(());
-		}
-		Err(error) => {
-			let cleanup = match tor {
-				Some(tor) => tor.close().await,
-				None => Ok(()),
-			};
-			return crate::cleanup::combine(Err(error), cleanup);
-		}
-	};
-	let public_locator = locator.location.clone();
+	// The directory's relay listeners register where browsers reach this
+	// server: the public address when one is named, else the bound one.
+	let relay_url = relay_url.unwrap_or_else(|| {
+		public
+			.as_ref()
+			.map_or_else(|| local_relay_url(address), config::public_relay_url)
+	});
+	// The shared session opens first: its TCP endpoint joins the relay's
+	// allowed targets, which the relay reads once, at construction.
 	let shared = match session {
 		Some(mut config) => {
 			// The cohosted session must dial browser introductions too. Use
@@ -161,11 +138,11 @@ async fn serve(
 			{
 				Ok(peer) => Some(peer),
 				Err(error) => {
-					let mut result = crate::cleanup::combine(Err(error.to_string()), supervisor.close().await);
-					if let Some(tor) = tor {
-						crate::cleanup::retain(&mut result, tor.close().await);
-					}
-					return result;
+					let cleanup = match tor {
+						Some(tor) => tor.close().await,
+						None => Ok(()),
+					};
+					return crate::cleanup::combine(Err(error.to_string()), cleanup);
 				}
 			}
 		}
@@ -181,7 +158,11 @@ async fn serve(
 	// the loopback address of the port this process bound.
 	let reached_at = public.map_or_else(|| format!("http://localhost:{port}/"), |public| public.to_string());
 	let links = page_links(&limits.pages, &reached_at, attach);
-	let (location, current) = watch::channel(Some(locator));
+	// HTTP serves before the directory announces, so the location starts
+	// empty: the directory's relay listeners register at this front's
+	// `/register` on their way up, and `/locator` answers "not ready" until
+	// the announcement fills it.
+	let (location, current) = watch::channel(None);
 	let (jobs, incoming) = tokio::sync::mpsc::channel(32);
 	let relay = relay::Relay::with_admission(
 		limits,
@@ -207,7 +188,6 @@ async fn serve(
 	if let Some(assets) = &assets {
 		workers.spawn_local(assets.clone().run());
 	}
-	workers.spawn_local(supervisor.run(location, stopping.clone()));
 	workers.spawn_local(http::serve(
 		listener,
 		Rc::new(http::Environment {
@@ -223,6 +203,31 @@ async fn serve(
 		stop.clone(),
 		stopping.clone(),
 	));
+	let opened = {
+		let opening =
+			supervisor::Supervisor::open(server, server_args, room, relay_url, stopping.clone(), report.clone());
+		tokio::pin!(opening);
+		tokio::select! {
+			opened = &mut opening => opened,
+			ended = tor_ended(&mut tor) => {
+				stop.send_replace(true);
+				let retired = match opening.await {
+					Ok(Some((owner, _))) => owner.close().await,
+					Ok(None) => Ok(()),
+					Err(error) => Err(error),
+				};
+				Err(crate::cleanup::failed(ended, retired))
+			}
+		}
+	};
+	let (supervisor, locator) = match opened {
+		Ok(Some(started)) => started,
+		Ok(None) => return settle(Ok(()), &stop, workers, tor).await,
+		Err(error) => return settle(Err(error), &stop, workers, tor).await,
+	};
+	let public_locator = locator.location.clone();
+	location.send_replace(Some(locator));
+	workers.spawn_local(supervisor.run(location, stopping.clone()));
 	let shown = reached_at.trim_end_matches('/');
 	announce(
 		&report,
@@ -230,12 +235,23 @@ async fn serve(
 			"rooms: serving\n\n{links}  web ui           {shown}\n  web locator      {shown}/locator\n  room directory   {public_locator}\n\nrooms: ready"
 		),
 	);
-	let mut result = tokio::select! {
+	let result = tokio::select! {
 		_ = stopped(&mut stopping) => Ok(()),
 		ended = tor_ended(&mut tor) => Err(ended),
 		ended = workers.join_next() => ended.ok_or("web service owner disappeared".to_owned())
 			.and_then(|r| r.map_err(|e| e.to_string())).and_then(|r| r),
 	};
+	settle(result, &stop, workers, tor).await
+}
+
+/// Stop every worker, wait for each, and retire Tor, keeping the first
+/// failure and every later one it did not already name.
+async fn settle(
+	mut result: Result<(), String>,
+	stop: &watch::Sender<bool>,
+	mut workers: tokio::task::JoinSet<Result<(), String>>,
+	tor: Option<tor::Tor>,
+) -> Result<(), String> {
 	stop.send_replace(true);
 	while let Some(ended) = workers.join_next().await {
 		crate::cleanup::retain(&mut result, ended.map_err(|e| e.to_string()).and_then(|r| r));
@@ -313,6 +329,19 @@ mod tests {
 			("[::1]:4321", "ws://[::1]:4321/relay"),
 		] {
 			assert_eq!(super::local_relay_url(bound.parse().unwrap()), expected);
+		}
+	}
+	#[test]
+	fn a_public_address_names_its_relay_at_the_same_origin() {
+		for (public, expected) in [
+			("https://rooms.example/", "wss://rooms.example/relay"),
+			("https://rooms.example/sub/", "wss://rooms.example/relay"),
+			("http://rooms.example:8080/", "ws://rooms.example:8080/relay"),
+		] {
+			assert_eq!(
+				super::config::public_relay_url(&url::Url::parse(public).unwrap()),
+				expected
+			);
 		}
 	}
 	/// The links as printed, held in one fixture with the page's reader test

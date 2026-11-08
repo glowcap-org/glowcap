@@ -24,11 +24,13 @@ const GlowcapHostTurn = c.GlowcapHostTurn;
 const GLOWCAP_OK = shared.GLOWCAP_OK;
 const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 
-/// Borrow the session whose Port delivered this callback turn. Trusted local
-/// owning delivery succeeds with a null session. The returned nonnull
-/// handle is Host-owned and valid for the same lifetime as that session. The
-/// caller must not release it. This is a projection of authority already held
-/// by the turn, not a second session lookup or routing decision.
+/// Borrow the session that delivered this callback turn: the one whose Port
+/// carried it, or the one an in-Host forwarder such as a Loam endpoint
+/// continued across a local hop. Work the application itself originated
+/// succeeds with a null session. The returned nonnull handle is Host-owned
+/// and valid for the same lifetime as that session. The caller must not
+/// release it. This is a projection of authority already held by the turn,
+/// not a routing decision: replies and sends still follow the turn itself.
 pub fn glowcap_host_turn_session(
     turn: ?*GlowcapHostTurn,
     out_session: ?*?*c.GlowcapHostSession,
@@ -37,7 +39,7 @@ pub fn glowcap_host_turn_session(
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
     const host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
-    slot.* = if (host_turn.session) |session| @ptrCast(session) else null;
+    slot.* = if (host_turn.deliveringSession()) |session| @ptrCast(session) else null;
     return GLOWCAP_OK;
 }
 

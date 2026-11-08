@@ -20,6 +20,20 @@ export function dmBlockedWhile(phaseWord: string): string {
 	return `Not while this directory is ${phaseWord}`;
 }
 
+/** How a connected directory is reached, by the transport its connection runs
+ * over. Sealed means the bytes are encrypted to the directory's own key. */
+export const routeRelay = "Sealed, through a relay";
+export const routeIroh = "Sealed, over iroh";
+export const routeNoiseTcp = "Sealed, over TCP";
+export const routeKeyedTcp = "Over TCP, to a named key";
+export const routeTcp = "Over TCP, in the clear";
+export const routeOnion = "Over Tor";
+/** The same route when this browser's bytes reach it through the Rooms server
+ * it uses, which is every route a browser cannot open on its own. */
+export function routeThroughServer(route: string): string {
+	return `${route}, through the Rooms server`;
+}
+
 /** What the session's home directory is called wherever directories are named,
  * and the fallback word for a transport-less designator too long to say. */
 export const homeDirectoryName = "your home directory";

@@ -54,7 +54,11 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 			})?;
 			Ok(Argument::Void)
 		}
-		MembershipEvent::Notification { arguments, origin } => {
+		MembershipEvent::Notification {
+			arguments,
+			delivering,
+			origin,
+		} => {
 			let values = rooms_glowcap::values(arguments).collect::<Vec<_>>();
 			let mut files = Vec::new();
 			let mut recorded = None;
@@ -65,7 +69,12 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 						.map_err(|e| e.to_string())?
 					{
 						Some(registration::Notice::Registered { nick, id }) => {
-							json!({"kind":"registered", "nick":nick, "registration":id.as_str()})
+							// The transport this directory is reached over, read from
+							// the session the notice arrived on. A session that closed
+							// between delivery and this read names none, and the
+							// registration still stands.
+							let transport = delivering.as_ref().and_then(|session| session.transport_name().ok()); // tolerant: a closed session leaves the row's route unsaid
+							json!({"kind":"registered", "nick":nick, "registration":id.as_str(), "transport":transport})
 						}
 						Some(registration::Notice::Event(event)) => {
 							if event.kind == registration::Kind::MintInboxFor {

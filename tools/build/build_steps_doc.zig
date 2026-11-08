@@ -1,17 +1,18 @@
-//! The build-step inventory in `docs/build-steps.md`, written from the graph.
+//! The build-step inventories, `docs/build-steps.md` and
+//! `docs/build-steps-apps.md`, written from the graph.
 //!
-//! The document owns one fact by hand: which subject each step belongs to,
-//! as the section a bare `zig build <name>` row sits in. Every other fact on
+//! The documents own one fact by hand: which subject each step belongs to,
+//! as the document and section a bare `zig build <name>` row sits in. Every other fact on
 //! a row comes from the default host build graph at configure time. The
 //! description is the one the step declares, and "part of" names the steps
 //! that run it, derived from dependencies and reduced to nearest containers.
 //! Gate membership can never be asserted by hand. A row with arguments
 //! after the name is a usage example and stays as written.
 //!
-//! `gen-build-steps` rewrites the document. `gen-build-steps-check`, part of
-//! `source-check`, refuses a stale document, a row that names no step, and a
-//! step with no row. Both register last, after every other registrar, so the
-//! graph they read is complete, and the document is a configure input, so an
+//! `gen-build-steps` rewrites both documents. `gen-build-steps-check`, part
+//! of `source-check`, refuses a stale document, a row that names no step, and
+//! a step with no row in either. Both register last, after every other registrar, so the
+//! graph they read is complete, and each document is a configure input, so an
 //! edit to it reruns the configure phase that reads it.
 //! Optioned invocations delegate only these documentation steps to an option-free
 //! build. Product gates keep their configured graph; the inventory has one
@@ -22,15 +23,16 @@ const execution = @import("execution.zig");
 const listing = @import("listing.zig");
 const Step = std.Build.Step;
 
-pub const doc_path = "docs/build-steps.md";
+/// The library inventory first, then the applications, demos, and benchmarks.
+pub const doc_paths = [_][]const u8{ "docs/build-steps.md", "docs/build-steps-apps.md" };
 
 /// Zig's own top-level steps: never declared here, never listed.
 const builtin_steps = [_][]const u8{ "install", "uninstall" };
 
 pub fn register(b: *std.Build, source_check_step: *Step) void {
-    const check_step = b.step("gen-build-steps-check", "Verify every bare `zig build` row in docs/build-steps.md carries its step's description and containing steps, and every step has a row (fails if stale)");
+    const check_step = b.step("gen-build-steps-check", "Verify every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md carries its step's description and containing steps, and every step has a row (fails if stale)");
     source_check_step.dependOn(check_step);
-    const gen_step = b.step("gen-build-steps", "Rewrite every bare `zig build` row in docs/build-steps.md from the build graph");
+    const gen_step = b.step("gen-build-steps", "Rewrite every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md from the build graph");
     const tests = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("tools/build/build_steps_doc.zig"), .target = b.graph.host }) });
     source_check_step.dependOn(&execution.addZigTest(b, tests, .unit_test).step);
     // A cold configure with lazy dependencies still to fetch is run again by
@@ -52,28 +54,36 @@ pub fn register(b: *std.Build, source_check_step: *Step) void {
         return;
     }
 
-    // Configure output is cached; the document is read here, so its
-    // contents are a configure input or an edit to it would go unseen.
-    b.dependOnFileContents(b.path(doc_path));
+    // Configure output is cached; the documents are read here, so their
+    // contents are configure inputs or an edit to one would go unseen.
     const gpa = b.allocator;
-    const current = b.root.root_dir.handle.readFileAlloc(b.graph.io, doc_path, gpa, .limited(1 << 20)) catch |err| {
-        const fail = b.addFail(b.fmt("{s}: cannot read the step inventory ({s})", .{ doc_path, @errorName(err) }));
-        check_step.dependOn(&fail.step);
-        gen_step.dependOn(&fail.step);
-        return;
-    };
     const inventory = inventoryOf(b);
-    const rendered = render(gpa, current, inventory) catch @panic("OOM");
-
+    const seen = gpa.alloc(bool, inventory.len) catch @panic("OOM");
+    @memset(seen, false);
+    var problems: std.ArrayList([]const u8) = .empty;
+    var stale: ?[]const u8 = null;
     const update = b.addUpdateSourceFiles();
-    update.addBytesToSource(rendered.text, doc_path);
+    for (doc_paths) |doc_path| {
+        b.dependOnFileContents(b.path(doc_path));
+        const current = b.root.root_dir.handle.readFileAlloc(b.graph.io, doc_path, gpa, .limited(1 << 20)) catch |err| {
+            const fail = b.addFail(b.fmt("{s}: cannot read the step inventory ({s})", .{ doc_path, @errorName(err) }));
+            check_step.dependOn(&fail.step);
+            gen_step.dependOn(&fail.step);
+            return;
+        };
+        const rendered = render(gpa, doc_path, current, inventory, seen) catch @panic("OOM");
+        update.addBytesToSource(rendered.text, doc_path);
+        problems.appendSlice(gpa, rendered.problems) catch @panic("OOM");
+        if (stale == null and !std.mem.eql(u8, rendered.text, current)) stale = doc_path;
+    }
+    unlisted(gpa, inventory, seen, &problems) catch @panic("OOM");
     gen_step.dependOn(&update.step);
 
-    if (rendered.problems.len > 0) {
-        const joined = std.mem.join(gpa, "\n", rendered.problems) catch @panic("OOM");
+    if (problems.items.len > 0) {
+        const joined = std.mem.join(gpa, "\n", problems.items) catch @panic("OOM");
         check_step.dependOn(&b.addFail(joined).step);
-    } else if (!std.mem.eql(u8, rendered.text, current)) {
-        check_step.dependOn(&b.addFail(doc_path ++ " is stale against the build graph; run `zig build gen-build-steps`").step);
+    } else if (stale) |doc_path| {
+        check_step.dependOn(&b.addFail(b.fmt("{s} is stale against the build graph; run `zig build gen-build-steps`", .{doc_path})).step);
     }
 }
 
@@ -165,11 +175,11 @@ pub const Rendered = struct {
 /// The document with every bare row inside a fenced block rewritten from
 /// `inventory`, and the problems the rows and the inventory have with each
 /// other.
-pub fn render(gpa: std.mem.Allocator, current: []const u8, inventory: []const Entry) !Rendered {
+/// Rewrite the rows of one inventory at `doc_path`, marking the steps it
+/// lists in `seen`, which the caller shares across every inventory.
+pub fn render(gpa: std.mem.Allocator, doc_path: []const u8, current: []const u8, inventory: []const Entry, seen: []bool) !Rendered {
     var by_name = std.StringHashMap(usize).init(gpa);
     for (inventory, 0..) |entry, i| try by_name.put(entry.name, i);
-    const seen = try gpa.alloc(bool, inventory.len);
-    @memset(seen, false);
 
     var text: std.ArrayList(u8) = .empty;
     var problems: std.ArrayList([]const u8) = .empty;
@@ -202,11 +212,15 @@ pub fn render(gpa: std.mem.Allocator, current: []const u8, inventory: []const En
         try appendRow(gpa, &text, inventory[index], width);
         if (lines.peek() != null) try text.append(gpa, '\n');
     }
+    return .{ .text = text.items, .problems = problems.items };
+}
+
+/// Report every step no inventory listed.
+pub fn unlisted(gpa: std.mem.Allocator, inventory: []const Entry, seen: []const bool, problems: *std.ArrayList([]const u8)) !void {
     for (inventory, 0..) |entry, i| {
         if (seen[i]) continue;
-        try problems.append(gpa, try std.fmt.allocPrint(gpa, "{s}: step `{s}` has no row; add `zig build {s}` under its subject and run `zig build gen-build-steps`", .{ doc_path, entry.name, entry.name }));
+        try problems.append(gpa, try std.fmt.allocPrint(gpa, "step `{s}` has no row; add `zig build {s}` under its subject in {s} or {s} and run `zig build gen-build-steps`", .{ entry.name, entry.name, doc_paths[0], doc_paths[1] }));
     }
-    return .{ .text = text.items, .problems = problems.items };
 }
 
 /// The step name of a bare row: `zig build <name>` followed by nothing but
@@ -270,7 +284,9 @@ test "bare rows are rewritten, examples and prose stay, and the rest is reported
         \\```
         \\zig build check # outside a fence, prose
     ;
-    const rendered = try render(arena.allocator(), current, &inventory);
+    const seen = try arena.allocator().alloc(bool, inventory.len);
+    @memset(seen, false);
+    const rendered = try render(arena.allocator(), doc_paths[0], current, &inventory, seen);
     try std.testing.expectEqualStrings(
         \\Prose with `zig build check` inline.
         \\
@@ -282,9 +298,12 @@ test "bare rows are rewritten, examples and prose stay, and the rest is reported
         \\```
         \\zig build check # outside a fence, prose
     , rendered.text);
-    try std.testing.expectEqual(@as(usize, 2), rendered.problems.len);
-    try std.testing.expect(std.mem.indexOf(u8, rendered.problems[0], "`zig build missing` names no step") != null);
-    try std.testing.expect(std.mem.indexOf(u8, rendered.problems[1], "step `orphan` has no row") != null);
+    var problems: std.ArrayList([]const u8) = .empty;
+    try problems.appendSlice(arena.allocator(), rendered.problems);
+    try unlisted(arena.allocator(), &inventory, seen, &problems);
+    try std.testing.expectEqual(@as(usize, 2), problems.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, problems.items[0], "`zig build missing` names no step") != null);
+    try std.testing.expect(std.mem.indexOf(u8, problems.items[1], "step `orphan` has no row") != null);
 }
 
 test "a second row for one step is reported" {
@@ -292,7 +311,9 @@ test "a second row for one step is reported" {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const inventory = [_]Entry{.{ .name = "check", .description = "the gate", .part_of = &.{} }};
-    const rendered = try render(arena.allocator(), "```\nzig build check\nzig build check #\n```\n", &inventory);
+    const seen = try arena.allocator().alloc(bool, inventory.len);
+    @memset(seen, false);
+    const rendered = try render(arena.allocator(), doc_paths[0], "```\nzig build check\nzig build check #\n```\n", &inventory, seen);
     try std.testing.expectEqualStrings("```\nzig build check # the gate\nzig build check # the gate\n```\n", rendered.text);
     try std.testing.expectEqual(@as(usize, 1), rendered.problems.len);
 }

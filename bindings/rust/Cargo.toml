@@ -6,7 +6,7 @@ name = "glowcap"
 authors = ["Glowcap LLC"]
 description = "Call and host OCapN objects, with async sessions and optional durable storage."
 readme = "README.md"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 license = "Apache-2.0"
 

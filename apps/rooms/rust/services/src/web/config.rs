@@ -19,6 +19,10 @@ pub struct Config {
 	pub(super) tor: Option<super::tor::Plan>,
 	pub(super) ice: super::ice::Config,
 	pub(super) relay: super::relay::Limits,
+	/// The relay URL the supervised directory registers relay listeners at,
+	/// when the operator named one. Otherwise the directory is handed this
+	/// server's own relay once the HTTP address is known.
+	pub(super) relay_url: Option<String>,
 }
 pub(super) enum BrowserAssets {
 	Source(PathBuf),
@@ -34,6 +38,8 @@ pub const HELP: &str = concat!(
   --no-browser-assets  serve Rooms endpoints without a browser bundle (development tooling)
   --server=<executable>  rooms-server binary (default: beside rooms-web)
   --transport=iroh|tcp|onion  supervised directory (default: iroh)
+  --listen=<transport>[,<name>=<value>...]  also listen over another transport, as rooms-server; repeatable
+      a relay listener registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or its relay option names another
   --state=<directory>  keep the directory identity and state across restarts
   --session-state=<directory>  also serve a durable shared workspace and print its use and management links
   --history --bind=<host> --announce-host=<host>
@@ -63,12 +69,22 @@ impl Config {
 		let mut options = BTreeMap::new();
 		let mut positional = Vec::new();
 		let mut raw_options = BTreeMap::new();
+		let mut declared = Vec::new();
 		for arg in args {
 			if arg == "--help" || arg == "-h" {
 				return Ok(None);
 			}
 			if let Some(option) = arg.strip_prefix("--") {
 				let (key, value) = option.split_once('=').unwrap_or((option, "1"));
+				// The one repeatable option: every declaration reaches the
+				// directory, which reads them in its listeners' own grammar.
+				if key == server::LISTEN {
+					if !option.contains('=') {
+						return Err(needs_value(key));
+					}
+					declared.push(arg.clone());
+					continue;
+				}
 				let takes_value = matches!(
 					key,
 					"http-bind" | "http-port" | "http-public" | "assets" | "server" | "session-state" | "allow-origin"
@@ -169,10 +185,14 @@ impl Config {
 		options.remove("http-admission-per-address");
 		options.remove("http-trusted-proxies");
 		let allow_origin = options.remove("allow-origin");
-		let server_args: Vec<_> = options
+		let mut server_args: Vec<_> = options
 			.into_iter()
 			.map(|(key, value)| raw_options.remove(&key).unwrap_or_else(|| format!("--{key}={value}")))
 			.collect();
+		server_args.extend(declared);
+		let relay_url = env("GLOWCAP_ROOMS_RELAY_URL")
+			.map(|url| url.trim().to_owned())
+			.filter(|url| !url.is_empty());
 		// The option and the environment name one fact, and the option wins.
 		let relay = super::relay::Limits::read(|name| match name {
 			"GLOWCAP_RELAY_ALLOW_ORIGINS" => allow_origin.clone().or_else(|| env(name)),
@@ -193,11 +213,23 @@ impl Config {
 			room,
 			session,
 			relay,
+			relay_url,
 			admission,
 			ice,
 			tor,
 		}))
 	}
+}
+
+/// The relay browsers reach at `public`: the same origin over WebSocket,
+/// at the `/relay` route this server serves at its root.
+pub(super) fn public_relay_url(public: &url::Url) -> String {
+	let origin = public.origin().ascii_serialization();
+	let scheme = if public.scheme() == "https" { "wss" } else { "ws" };
+	let authority = origin
+		.split_once("://")
+		.map_or(origin.as_str(), |(_, authority)| authority);
+	format!("{scheme}://{authority}/relay")
 }
 
 /// The refusal for an option given without its value, showing the form the
@@ -246,6 +278,35 @@ mod tests {
 		assert!(!config.server_args.iter().any(|s| s.starts_with("--http-admission")));
 		assert!(config.admission.settings.summary().contains("admission-rates=argument"));
 		assert!(Config::parse(["--http-admission-rows=0".into()], |_| None).is_err());
+	}
+
+	#[test]
+	fn every_listen_declaration_reaches_the_directory() {
+		let config = parse(&["--listen=noise-relay", "--transport=tcp", "--listen=noise-tcp,port=0"]);
+		let declared: Vec<_> = config
+			.server_args
+			.iter()
+			.filter(|arg| arg.starts_with("--listen="))
+			.collect();
+		assert_eq!(declared, ["--listen=noise-relay", "--listen=noise-tcp,port=0"]);
+		assert_eq!(config.room.listen.len(), 2);
+		assert!(config.relay_url.is_none());
+		let refused = |args: &[&str]| {
+			Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None)
+				.err()
+				.expect("a refusal")
+		};
+		assert_eq!(
+			refused(&["--listen"]),
+			"--listen needs a value, as in --listen=<transport>[,<name>=<value>...]"
+		);
+		assert!(refused(&["--listen=iroh"]).contains("names the announced transport"));
+		let config = Config::parse([], |key| {
+			(key == "GLOWCAP_ROOMS_RELAY_URL").then(|| " wss://relay.example/relay ".into())
+		})
+		.unwrap()
+		.unwrap();
+		assert_eq!(config.relay_url.as_deref(), Some("wss://relay.example/relay"));
 	}
 
 	#[test]
