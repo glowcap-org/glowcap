@@ -16,7 +16,9 @@ changing how direct messages travel does not change how sessions are shared.
 
 The page people open is [on this site]($link.siteAsset('rooms/app/index.html')),
 and every Rooms server lets that page use it unless `--allow-origin` says
-otherwise. Give the server the address
+otherwise. To let in a page of your own as well, list both, with commas or by
+repeating the option: `--allow-origin=https://glowcap.org/rooms/app/,https://rooms.example/`.
+Give the server the address
 browsers reach it at, `--http-public=https://rooms.example/`, and the
 **open the page** link it prints is one you can share:
 `https://glowcap.org/rooms/app/?server=https://rooms.example/`. The server

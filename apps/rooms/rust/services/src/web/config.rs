@@ -47,7 +47,7 @@ pub const HELP: &str = concat!(
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
   --http-admission-per-address=true|false  charge each source address its own budget (default: false)
-  --allow-origin=<origin|page,...>  Rooms pages served elsewhere that may use this server, as origins or page addresses (default: ", super::relay::site_page!(), ", the page the website publishes, and an empty value allows none). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach (or GLOWCAP_RELAY_ALLOW_ORIGINS)
+  --allow-origin=<origin|page,...>  Rooms pages served elsewhere that may use this server, as origins or page addresses, listed with commas or by repeating the option (default: ", super::relay::site_page!(), ", the page the website publishes, and an empty value allows none). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach (or GLOWCAP_RELAY_ALLOW_ORIGINS)
   --http-trusted-proxies=<address|cidr,...>  proxies whose X-Forwarded-For client address selects the budget (default: none)
   --browser-admission-scale=<1..100> --browser-admission-rows=<1..65536>
   --browser-admission-rates=<class=burst/per-minute,...> --browser-admission-aggregate-scale=<1..100>
@@ -66,7 +66,7 @@ impl Config {
 		args: impl IntoIterator<Item = String>,
 		env: impl Fn(&str) -> Option<String>,
 	) -> Result<Option<Self>, String> {
-		let mut options = BTreeMap::new();
+		let mut options: BTreeMap<String, String> = BTreeMap::new();
 		let mut positional = Vec::new();
 		let mut raw_options = BTreeMap::new();
 		let mut declared = Vec::new();
@@ -96,8 +96,16 @@ impl Config {
 					return Err(needs_value(key));
 				}
 				// Transport build variants supply a default before user arguments.
-				// Preserve the web command's last-option-wins convention.
-				options.insert(key.to_owned(), value.to_owned());
+				// Preserve the web command's last-option-wins convention, except
+				// for the origin list, where every value given is kept: dropping
+				// one a person typed would refuse their page without a word.
+				let value = match options.get(key) {
+					Some(prior) if key == "allow-origin" && !prior.is_empty() && !value.is_empty() => {
+						format!("{prior},{value}")
+					}
+					_ => value.to_owned(),
+				};
+				options.insert(key.to_owned(), value);
 				raw_options.insert(key.to_owned(), arg.clone());
 			} else {
 				positional.push(arg);
@@ -348,6 +356,26 @@ mod tests {
 		assert_eq!(config.relay.origins[0].ascii_serialization(), "https://glowcap.org");
 		let pages: Vec<_> = config.relay.pages.iter().map(url::Url::as_str).collect();
 		assert_eq!(pages, ["https://glowcap.org/rooms/app/"]);
+		// The option repeated keeps every value, in order, the same as one list.
+		let repeated = Config::parse(
+			[
+				"--allow-origin=https://glowcap.org/rooms/app/".into(),
+				"--allow-origin=http://127.0.0.1:8093".into(),
+			],
+			|_| None,
+		)
+		.unwrap()
+		.unwrap();
+		assert_eq!(repeated.relay.origins, config.relay.origins);
+		assert_eq!(repeated.relay.pages, config.relay.pages);
+		// An empty value among others adds nothing, and alone it allows none.
+		let mixed = Config::parse(
+			["--allow-origin=".into(), "--allow-origin=http://127.0.0.1:8093".into()],
+			|_| None,
+		)
+		.unwrap()
+		.unwrap();
+		assert_eq!(mixed.relay.origins.len(), 1);
 		assert!(Config::parse(["--allow-origin=https://glowcap.org/rooms/app".into()], |_| None).is_err());
 		// A page at the root of its origin is written with its `/`, and a bare
 		// origin without one, so the two are told apart as written.

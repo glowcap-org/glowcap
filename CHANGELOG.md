@@ -33,6 +33,8 @@ and storage formats before 1.0.
 
 ### Fixed
 
+- `rooms-web --allow-origin` given more than once keeps every value instead
+  of only the last, the same as one comma-separated list.
 - A call forwarded inside a Rooms server across a Loam hop kept no delivering
   session, so the directory card showed no transport and direct messages from
   different senders counted as one sender. `current_session()` in the Rust
