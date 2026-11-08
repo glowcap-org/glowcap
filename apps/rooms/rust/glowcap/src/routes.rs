@@ -52,7 +52,9 @@ impl Address {
 		locator.map(Self::from_locator).transpose()
 	}
 	pub fn capability(value: &str) -> Result<Option<Self>> {
-		capability_link(value)?.map(|link| Self::from_locator(link.locator)).transpose()
+		capability_link(value)?
+			.map(|link| Self::from_locator(link.locator))
+			.transpose()
 	}
 	pub fn from_locator(locator: Locator) -> Result<Self> {
 		let authority = peer_uri(&locator)?;
