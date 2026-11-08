@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "glowcap"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "getrandom",
  "gloo-timers",
@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "interface-bench"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "glowcap",
  "tokio",

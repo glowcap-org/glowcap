@@ -415,15 +415,15 @@
       "npm:zustand@5.0.15"
     ],
     "links": {
-      "jsr:@glowcap/abi@0.1.5": {},
-      "jsr:@glowcap/inproc@0.1.5": {},
-      "jsr:@glowcap/iroh@0.1.5": {},
-      "jsr:@glowcap/onion@0.1.5": {},
-      "jsr:@glowcap/relay@0.1.5": {},
-      "jsr:@glowcap/runtime@0.1.5": {},
-      "jsr:@glowcap/tcp@0.1.5": {},
-      "jsr:@glowcap/web@0.1.5": {},
-      "jsr:@glowcap/webrtc@0.1.5": {}
+      "jsr:@glowcap/abi@0.1.6": {},
+      "jsr:@glowcap/inproc@0.1.6": {},
+      "jsr:@glowcap/iroh@0.1.6": {},
+      "jsr:@glowcap/onion@0.1.6": {},
+      "jsr:@glowcap/relay@0.1.6": {},
+      "jsr:@glowcap/runtime@0.1.6": {},
+      "jsr:@glowcap/tcp@0.1.6": {},
+      "jsr:@glowcap/web@0.1.6": {},
+      "jsr:@glowcap/webrtc@0.1.6": {}
     }
   }
 }

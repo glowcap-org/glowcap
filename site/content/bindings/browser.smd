@@ -12,7 +12,7 @@ JavaScript supplies the byte channel and scheduling.
 
 # Start with the browser bundle
 
-Download the [v0.1.5 browser bundle](https://github.com/glowcap-org/glowcap/releases/download/v0.1.5/glowcap-web-v0.1.5-browser.tar.gz),
+Download the [v0.1.6 browser bundle](https://github.com/glowcap-org/glowcap/releases/download/v0.1.6/glowcap-web-v0.1.6-browser.tar.gz),
 extract it into a new directory your web server serves, and open `index.html`.
 It includes JavaScript, matching Wasm, and a complete WebRTC greeter example.
 The [package README](https://jsr.io/@glowcap/web) has local serving commands.
