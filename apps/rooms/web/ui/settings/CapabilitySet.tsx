@@ -19,6 +19,8 @@ import { Said } from "../Said.tsx";
 import { Textarea } from "../Textarea.tsx";
 import { CapabilityValueEditor, useCapabilitySetModel } from "./CapabilitySetModel.tsx";
 import { useServerGate } from "../hooks.ts";
+import { linkNeedsServer } from "../application.ts";
+import { serverNeedAddress } from "../../../lib/text/session.ts";
 
 export function CapabilitySetForm() {
 	const model = useCapabilitySetModel();
@@ -49,9 +51,9 @@ export function CapabilitySetForm() {
 			if (wanted.size > 0 && !opsBundleReady(wanted)) {
 				throw new Error(capabilitySetIncomplete);
 			}
-			// A capability is acquired from the server it names, through this
-			// page's own, so holding any needs that server first.
-			if (wanted.size > 0 && serverGate() == null) return;
+			// A capability is acquired from the address it names, so one this
+			// browser cannot open on its own needs the Rooms server first.
+			if ([...wanted.values()].some(linkNeedsServer) && serverGate(serverNeedAddress) == null) return;
 			void model.commit(wanted);
 		} catch (cause) {
 			model.setError(cause instanceof Error ? cause.message : String(cause));

@@ -4,6 +4,9 @@ import { actionRefusal, errorDetailTitle, needsErrorDetail, sessionCapabilityRef
 import { attachedSessionFailureText } from "../web/ui/session/attached_failure.ts";
 import { assertEquals } from "./assert.ts";
 import { NICK_TAKEN, RoomsError, roomsErrorInMessage } from "../lib/error_codes.ts";
+import { parseLocator } from "@glowcap/runtime";
+import { HINT_RENDEZVOUS_RELAY } from "../lib/doors.ts";
+import { formatRoomsSturdyref } from "../lib/locator.ts";
 import {
 	doorBlocked,
 	doorUnreachable,
@@ -127,11 +130,15 @@ Deno.test("a break on the way is told apart from a value or a denial", () => {
 });
 
 Deno.test("a reach through the browser's own relay door names the relay, and keeps the break when it has one", () => {
-	const broke = doorUnreachable("127.0.0.1:8080", "glowcap error -12: glowcap error -8: browser channel error");
+	const broke = doorUnreachable(
+		"directory",
+		"127.0.0.1:8080",
+		"glowcap error -12: glowcap error -8: browser channel error",
+	);
 	assertEquals(broke.startsWith("Rooms couldn't reach that directory through its relay at 127.0.0.1:8080."), true);
 	assertEquals(broke.endsWith("(glowcap error -12: glowcap error -8: browser channel error)"), true);
 	// The dial reported another door's refusal, so there is no break to quote.
-	assertEquals(doorUnreachable("127.0.0.1:8080", "").endsWith("isn't answering."), true);
+	assertEquals(doorUnreachable("directory", "127.0.0.1:8080", "").endsWith("isn't answering."), true);
 	assertEquals(doorBlocked("prompt", "x").includes("Allow it when the browser asks, then connect again."), true);
 	assertEquals(doorBlocked("denied", "x").includes("site settings, then connect again."), true);
 });
@@ -146,6 +153,18 @@ Deno.test("a session act that broke on the way names the server this browser goe
 	const bare = attachedSessionFailureText(broke, null);
 	assertEquals(bare.includes("rooms.example"), false);
 	assertEquals(bare.includes("browser channel error"), true);
+	// Attaching through a relay door with no server names the relay instead.
+	const relayLink = formatRoomsSturdyref(
+		parseLocator(`ocapn://${"ab".repeat(32)}.noise-relay?${HINT_RENDEZVOUS_RELAY}=ws://relay.example/relay`),
+		"workspace",
+	);
+	assertEquals(
+		attachedSessionFailureText(broke, null, relayLink),
+		doorUnreachable("session", "relay.example", transportBreak(broke) ?? ""),
+	);
+	// A link only a server opens has no door of this browser's to name.
+	const tcpLink = formatRoomsSturdyref(parseLocator("ocapn://offered.example.tcp"), "workspace");
+	assertEquals(attachedSessionFailureText(broke, null, tcpLink).includes("relay.example"), false);
 	// A refusal that is about the link never blames the server.
 	assertEquals(
 		attachedSessionFailureText(new Error("glowcap error -12: Denied"), server).includes("rooms.example"),

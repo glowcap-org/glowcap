@@ -57,8 +57,16 @@ export const sessionServerTitle = "Choose a Rooms server";
 export const serverModel =
 	"A Rooms server is how this browser reaches addresses it cannot open on its own, and how people reach it.";
 export const sessionServerLead = `${serverModel} Test its address, then save it.`;
-export const sessionServerAttachLead =
-	"A shared session is reached through a Rooms server, and this page has none. Test a server's address, and saving it attaches.";
+/** What an act needs a Rooms server for, said first in every ask. An address
+ * or link is judged by its doors: one this browser opens itself needs no
+ * server, and one it cannot open does. A link that leads to this browser, and
+ * a direct message through the server, need the server because that is where
+ * other people reach this browser. */
+export const serverNeedAddress = "This browser can't reach this address on its own. A Rooms server can.";
+export const serverNeedHome = "A blank address, or a name alone, means the home directory of the page's Rooms server.";
+export const serverNeedLink = "A link to this browser works through its Rooms server.";
+export const serverNeedDm = "In this mode, direct messages go through the Rooms server.";
+export const sessionServerAttachLead = `${serverNeedAddress} Test a server's address, and saving it attaches.`;
 export const sessionServerSave = "Save";
 export const sessionServerSaveAttach = "Save and attach";
 /** A session act that broke on the way, while this browser has a Rooms
@@ -66,10 +74,11 @@ export const sessionServerSaveAttach = "Save and attach";
 export const sessionServerUnreachable = (host: string, detail: string) =>
 	serverUnreachable(host, "Check that it is running, or change it.", detail);
 /** The same dialog in the open workspace, opened by an act that needs a
- * Rooms server when the page has none. The session keeps its
- * server, so saving reloads, and the act is waiting on the other side. */
-const serverAskHow = "Test a server's address, and saving it reloads the page where you left off.";
-export const serverAskLead = `What you asked for needs a Rooms server, and this page has none. ${serverAskHow}`;
+ * Rooms server when the page has none: `need` is one of the needs above. The
+ * session keeps its server, so saving reloads, and the act is waiting on the
+ * other side. */
+const serverAskHow = "Test a server's address, then save it to reload where you left off.";
+export const serverAskFor = (need: string) => `${need} This page has none. ${serverAskHow}`;
 /** The same ask after the door this browser opens by itself did not get
  * through: `door` says so, and a Rooms server is the other way in. */
 export const serverAskAfterDoor = (door: string) => `${door} A Rooms server can reach it another way. ${serverAskHow}`;

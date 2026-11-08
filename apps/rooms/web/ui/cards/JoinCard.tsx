@@ -15,7 +15,7 @@ import { MAKE_HOME_FIELD, MakeHomeChoice } from "./MakeHomeChoice.tsx";
 import { identifierField } from "../field.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { useRoomsState, useServerGate, useSessionPaused } from "../hooks.ts";
+import { useRoomsState, useSessionPaused } from "../hooks.ts";
 import { useSuggest } from "../Suggest.tsx";
 import { Avatar } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";
@@ -37,7 +37,6 @@ import {
 	typedRoomLink,
 } from "../joining.ts";
 import { answerJoinNick, joinNickAvailability } from "../join_nick.ts";
-import { joinAddress } from "../route_address.ts";
 import { NICK_TAKEN, NO_SERVER } from "../../../lib/error_codes.ts";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
 import { JoinLocator } from "./JoinLocator.tsx";
@@ -63,6 +62,7 @@ import {
 	joinLocatorHintFor,
 	joinLocatorLabel,
 	joinLocatorOptional,
+	joinNeedsAddress,
 	joinNeedsAddressServerQuiet,
 	joinNickHint,
 	joinNickLabel,
@@ -125,7 +125,7 @@ export const JoinCard = memo(function JoinCard(
 	 * Asked separately from `canInteract`, because that answers what the reader
 	 * may do and this answers what there is to do it to. */
 	const paused = useSessionPaused();
-	const serverGate = useServerGate();
+	const server = useRoomsState((state) => state.server);
 	const homeDirectory = directoryContext.home;
 	const room = answers.room.value;
 	const locator = answers.locator.value;
@@ -200,13 +200,14 @@ export const JoinCard = memo(function JoinCard(
 			const typedNick = String(form.get("nick") ?? "");
 			const typedRoom = String(form.get("room") ?? "");
 			if (addressRequired && typedText.trim() === "") {
-				// A blank address names the server's directory. With no server the
-				// page asks for one, and the card picks up here once it has it. Past
-				// the gate, an address is required only while the server has not
-				// answered with its directory, and that is what the reader waits on.
-				const server = serverGate(() => joinAddress({ room: typedRoom.trim() || undefined }));
-				if (server == null) return null;
-				return { field: "locator", text: joinNeedsAddressServerQuiet(new URL(server.base).host) };
+				// A blank address names the home directory, and this page has none to
+				// mean: with no Rooms server there is none to come, and with one the
+				// server has not answered. Either way the field is what the reader
+				// fills, so the refusal stands on it rather than asking for a server.
+				return {
+					field: "locator",
+					text: server == null ? joinNeedsAddress : joinNeedsAddressServerQuiet(new URL(server.base).host),
+				};
 			}
 			// What was typed is judged here, where it entered, before any act.
 			// Resolving it belongs to the locator: even an unexpected classifier

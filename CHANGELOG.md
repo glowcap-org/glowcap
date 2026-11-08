@@ -27,6 +27,21 @@ and storage formats before 1.0.
 - A page with no Rooms server asks for one only for an address the browser
   cannot open itself, and says which listener failed when one did. A relay
   that does not answer is named on the join card.
+- Every ask for a Rooms server says what the act needs one for. The needs
+  are an address this browser cannot open on its own, the home directory a
+  blank address means, a link other people reach this browser through, and
+  direct messages in the mode that goes through the server.
+- Attaching to a session, holding a management control, taking an archive
+  peer, and holding an operations capability judge the pasted link by its
+  doors, so a session shared from another browser attaches with no Rooms
+  server. The ask comes only for a link this browser cannot open on its own,
+  and a break on the way to a session reached through its relay door names
+  that relay.
+- A blank directory address on a page with no Rooms server is refused on its
+  own field instead of asking for a server.
+- The Session tab offers its unfinished-changes list only while a change is
+  unfinished, and Reachability no longer shows this browser's own address,
+  which nothing on the page accepted.
 - `rooms-web` serves its page before its directory is up, so the directory's
   relay listeners can register with it, and `/locator` waits for the directory
   instead of answering that there is none.

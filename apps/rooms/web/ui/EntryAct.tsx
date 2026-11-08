@@ -31,6 +31,7 @@ export function EntryAct(
 	);
 }
 
-export function EntryActs({ children }: { children: ReactNode }) {
-	return <ul className="entries" data-acts>{children}</ul>;
+/** `busy` marks the list while a read decides which acts it offers. */
+export function EntryActs({ children, busy = false }: { children: ReactNode; busy?: boolean }) {
+	return <ul className="entries" data-acts aria-busy={busy || undefined}>{children}</ul>;
 }

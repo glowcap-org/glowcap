@@ -5,9 +5,10 @@
 // observers. Archive peers, room authority and operations live under Holdings.
 //
 // Attaching a session and replacing stored state open cards of their own. A
-// bearer link needs a line to itself and a sentence about what it hands over;
-// Operations needing a decision are promoted by the persistent notice. Their
-// retained receipts also stay reachable here after an observation ends.
+// bearer link needs a line to itself and a sentence about what it hands over.
+// Operations needing a decision are promoted by the persistent notice, which
+// Settings covers, and retained receipts the notice does not count stay
+// reachable here, so the unfinished-changes list is offered while it has rows.
 
 import { useState } from "react";
 import type { ArchiveTargetView } from "../archive_model.ts";
@@ -22,6 +23,8 @@ import { SessionDataModal } from "./SessionData.tsx";
 import { SessionMoves } from "./SessionMoves.tsx";
 import { SessionAccessModal } from "./SessionAccess.tsx";
 import { SessionRecoveryModal } from "../panes/SessionRecovery.tsx";
+import { useManagedSession } from "../session/managed/context.tsx";
+import { useOpenChanges } from "../session/managed/open_changes.ts";
 import { useSessionPermission } from "../hooks.ts";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 import { sessionShareLinkCopy } from "../../../lib/text/settings.ts";
@@ -66,6 +69,11 @@ export function SessionSettings(
 	const [accessOpen, setAccessOpen] = useState(false);
 	const [recoveryOpen, setRecoveryOpen] = useState(false);
 	const canResolve = useSessionPermission("resolvePending");
+	// The list's own rows decide whether it is offered, and a read that failed
+	// is offered too, so the card can say what it could not read.
+	const session = useManagedSession();
+	const open = useOpenChanges(session, canResolve);
+	const unfinished = open.changes.length > 0 || open.failure !== "";
 	// Read only is what the last arm here means, so a capability carrying nothing
 	// has to be answered before it. While paused, this said the link was read
 	// only, its future state rather than its present one.
@@ -122,8 +130,8 @@ export function SessionSettings(
 						label={sessionShareLinkCopy}
 					/>
 				)}
-				<EntryActs>
-					{canResolve && (
+				<EntryActs busy={canResolve && open.rows == null && open.failure === ""}>
+					{canResolve && unfinished && (
 						<EntryAct
 							name={sessionChangesName}
 							id="sessionChangesOpen"

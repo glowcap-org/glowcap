@@ -30,12 +30,24 @@ pub fn directory_authority(locator: js_sys::JsString) -> Result<Option<String>, 
 /// relay of the door it opens by itself, and whether a door needs a server.
 #[wasm_bindgen(js_name = browserDoors)]
 pub fn browser_doors(value: js_sys::JsString) -> Result<Option<String>, JsValue> {
+	doors(value, crate::transport::browser_doors)
+}
+
+/// The same for a pasted capability link: a session, a management control, an
+/// archive peer, or an operations capability.
+#[wasm_bindgen(js_name = browserCapabilityDoors)]
+pub fn browser_capability_doors(value: js_sys::JsString) -> Result<Option<String>, JsValue> {
+	doors(value, crate::transport::browser_capability_doors)
+}
+
+fn doors(
+	value: js_sys::JsString,
+	read: fn(&str) -> rooms_glowcap::routes::Result<Option<crate::transport::Doors>>,
+) -> Result<Option<String>, JsValue> {
 	let Some(value) = address_text(value) else {
 		return Ok(None);
 	};
-	let Some(doors) =
-		crate::transport::browser_doors(&value).map_err(|error| js_sys::Error::new(&error.to_string()))?
-	else {
+	let Some(doors) = read(&value).map_err(|error| js_sys::Error::new(&error.to_string()))? else {
 		return Ok(None);
 	};
 	Ok(Some(

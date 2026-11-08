@@ -197,8 +197,7 @@ export async function run(browser: Browser, port: number, transport: "TCP" | "ir
 		// failed, or unconfirmed state. The flushed replies of the cancelled
 		// joins may still be proving their outcomes with nothing drawn to show
 		// for it, so the proof then asks the page the question directly: the
-		// session's own receipt inventory, which stays open in Settings and
-		// re-reads until a read finds nothing held.
+		// Session tab offers its unfinished-changes list only while one is.
 		await alice.waitForFunction(
 			() =>
 				[...document.querySelectorAll(".bubble")].every((node) =>
@@ -209,23 +208,13 @@ export async function run(browser: Browser, port: number, transport: "TCP" | "ir
 		).catch(() => fail("a line was still unsettled when the proof reloaded"));
 		await alice.click("#settingsBtn").catch(() => fail("settings did not open for the receipt drain"));
 		await alice.click("#sessionTab");
-		await alice.click("#sessionChangesOpen").catch(() => fail("the receipt inventory did not open"));
-		await alice.waitForFunction(
-			() => {
-				const list = document.querySelector("#sessionRecoveryList");
-				return list != null && list.getAttribute("aria-busy") === "false" &&
-					list.querySelectorAll("li").length === 0;
-			},
-			undefined,
-			{ timeout: 10_000 },
-		).catch(() => fail("the receipt inventory never emptied before the reload"));
-		const drained = (await alice.textContent(".session-recovery-modal .lead"))?.trim() ?? "";
-		if (drained !== "There are no unfinished changes to review.") {
-			fail(`the receipt inventory was not empty at the reload: ${JSON.stringify(drained)}`);
-		}
-		await alice.keyboard.press("Escape");
-		await alice.waitForSelector("#sessionRecoveryTitle", { state: "hidden", timeout: 5_000 })
-			.catch(() => fail("the receipt inventory stayed open after Escape"));
+		// The Session tab offers the unfinished-changes list only while a change
+		// is unfinished, read since the tab opened and re-read as the session
+		// settles, so once a read has landed the row's absence is the drain.
+		await alice.waitForSelector('#sessionPanel [data-acts]:not([aria-busy="true"])', { timeout: 10_000 })
+			.catch(() => fail("the Session tab never finished reading its unfinished changes"));
+		await alice.waitForSelector("#sessionChangesOpen", { state: "detached", timeout: 10_000 })
+			.catch(() => fail("a change was still unfinished before the reload"));
 		await alice.keyboard.press("Escape");
 		await alice.waitForSelector("#settingsTitle", { state: "hidden", timeout: 5_000 })
 			.catch(() => fail("settings stayed open after Escape"));

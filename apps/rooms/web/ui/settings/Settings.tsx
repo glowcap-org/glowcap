@@ -3,15 +3,12 @@
 // from explicitly saved bearer authority. While any operations capability is
 // live, the head also offers the Operations page that can use it.
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import {
 	dmConnectionTitle,
 	reachAboutDirectory,
-	reachBrowserTitle,
-	settingsBrowserUnreachable,
 	settingsConnectionRefused,
 	settingsConnectionSaving,
-	settingsCopyBrowser,
 	settingsDmDirectLabel,
 	settingsDmDirectSaid,
 	settingsDmRelayLabel,
@@ -27,9 +24,9 @@ import {
 	settingsHomeOption,
 	settingsHomeServerName,
 	settingsHomeUseServer,
-	settingsShareBrowser,
 } from "../../../lib/text/settings.ts";
 import { saveAndReload } from "../../../lib/text/controls.ts";
+import { serverNeedDm } from "../../../lib/text/session.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
@@ -37,13 +34,11 @@ import { current, type DmMode } from "../prefs.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
-import { CopyField } from "../Copy.tsx";
 import { directoryName } from "../text.ts";
 import { Field } from "../Field.tsx";
 import { Select } from "../Select.tsx";
 import { useRoomsState, useServerGate } from "../hooks.ts";
 import { dirId } from "../directory.ts";
-import { relayAway } from "../store/projection.ts";
 import { SettingsHead } from "./SettingsHead.tsx";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { type TabFace, Tabs } from "../Tabs.tsx";
@@ -165,7 +160,6 @@ function SettingsDialog(
 			setHomeBusy(false);
 		});
 	};
-	const [selfLoc, setSelfLoc] = useState<string | null>(null);
 	const [dmBusy, setDmBusy] = useState(false);
 	const dmSaving = useRef(false);
 	useModalDialog(
@@ -176,18 +170,6 @@ function SettingsDialog(
 		onExited,
 		retain,
 	);
-
-	useEffect(() => {
-		let cancelled = false;
-		const showSelf = () => {
-			if (!cancelled) setSelfLoc(session.selfLocator());
-		};
-		showSelf();
-		void session.directoryReady.then(showSelf);
-		return () => {
-			cancelled = true;
-		};
-	}, [session]);
 
 	const dirty = dm !== live.dm;
 	useChangeGroup("settings-direct-message", {
@@ -214,7 +196,7 @@ function SettingsDialog(
 			return;
 		}
 		// Reaching this browser through the relay needs a Rooms server to relay.
-		if (dm === "relay" && serverGate() == null) return;
+		if (dm === "relay" && serverGate(serverNeedDm) == null) return;
 		dmSaving.current = true;
 		setDmBusy(true);
 		setDmError("");
@@ -362,32 +344,6 @@ function SettingsDialog(
 												)}
 											</EntryActs>
 										)}
-									</div>
-								</>
-							)}
-							{
-								/* This browser has an address once its own route is open:
-								   browser to browser with or without a Rooms server, and
-								   through the server otherwise, where the server card above
-								   says why there is none. */
-							}
-							{selfLoc != null && selfLoc !== "" && (
-								<>
-									<h3 className="well-title overline" id="browserLegend">{reachBrowserTitle}</h3>
-									<div className="group well" role="group" aria-labelledby="browserLegend">
-										<CopyField id="selfLocator" text={selfLoc} label={settingsCopyBrowser} />
-										{
-											/* The cause and its fix are the server card's. Here is
-											   what it means for the address a reader is about to
-											   hand out. */
-										}
-										{relayAway(relay)
-											? (
-												<Said id="selfUnreachable" kind="warning">
-													{settingsBrowserUnreachable}
-												</Said>
-											)
-											: <p className="hint">{settingsShareBrowser}</p>}
 									</div>
 								</>
 							)}

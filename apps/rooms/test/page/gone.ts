@@ -588,12 +588,19 @@ export async function run(
 		if (await pendingRow.locator(".delivery-failure button").count() !== 0) {
 			fail("reconnection changed unknown delivery into permission to resend");
 		}
-		await openRetainedChanges(tab);
-		await tab.getByRole("dialog", { name: /^Unfinished change/ }).waitFor();
-		if (await tab.locator(`dialog[open] [data-operation="${originalPending}"]`).count() !== 0) {
+		// The Session tab offers the unfinished-changes list only while it has
+		// rows, read since the tab opened, so once the read has landed the row's
+		// absence says the released receipt stayed released and nothing else is
+		// kept.
+		await tab.click("#settingsBtn");
+		await tab.getByRole("tab", { name: "Session", exact: true }).click();
+		await tab.waitForSelector('#sessionPanel [data-acts]:not([aria-busy="true"])', { timeout: 30_000 })
+			.catch(() => fail("the Session tab never finished reading its unfinished changes"));
+		if (await tab.locator("#sessionChangesOpen").count() !== 0) {
 			fail("reconnection restored a receipt the reader explicitly released");
 		}
-		await closeRetainedChanges(tab);
+		await tab.keyboard.press("Escape");
+		await tab.locator("dialog[open]").waitFor({ state: "hidden" });
 	}
 }
 

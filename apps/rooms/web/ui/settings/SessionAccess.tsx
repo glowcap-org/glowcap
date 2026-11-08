@@ -25,6 +25,8 @@ import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { useOpenModal } from "../modal.ts";
 import { useServerGate } from "../hooks.ts";
+import { linkNeedsServer } from "../application.ts";
+import { serverNeedAddress, serverNeedLink } from "../../../lib/text/session.ts";
 import { useAsyncAction } from "../async_action.ts";
 import { Input } from "../Input.tsx";
 
@@ -65,9 +67,10 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	const [opening, setOpening] = useState(0);
 	const pending = management.issue;
 	const go = (event: { currentTarget: HTMLElement }, next: Door) => {
-		// A new access is a link minted on the server, and a pasted management
-		// link is reached through it, so either door needs the server first.
-		if (next.kind !== "manage" && serverGate() == null) return;
+		// A new access is a link that leads to this browser, which people reach
+		// through its Rooms server, so the server comes first. A pasted
+		// management link is judged by its own doors once it is pasted.
+		if (next.kind === "issue" && serverGate(serverNeedLink) == null) return;
 		openModalFrom(event.currentTarget, () => {
 			setDoor(next);
 			setOpening((value) => value + 1);
@@ -173,6 +176,7 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 /** A pasted management control, held and saved on a card of its own. */
 function HoldControlModal({ open, onClose }: { open: boolean; onClose(): void }) {
 	const { management } = useManagedSession();
+	const serverGate = useServerGate();
 	const commitments = useCommitments();
 	const [uri, setUri] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -187,6 +191,9 @@ function HoldControlModal({ open, onClose }: { open: boolean; onClose(): void })
 		},
 	});
 	const hold = async () => {
+		// The control is reached at the address its link names, so one this
+		// browser cannot open on its own needs the Rooms server first.
+		if (linkNeedsServer(uri.trim()) && serverGate(serverNeedAddress) == null) return;
 		setBusy(true);
 		setWhy("");
 		try {

@@ -45,9 +45,12 @@ const joinLocatorHintHome = (home: string) =>
  * directory served with the page. */
 const joinLocatorHintRequired =
 	"Paste a directory's OCapN locator to reach its rooms, or paste the link to one room somebody sent you.";
-/** A blank address with no home directory to name, because the page's
- * Rooms server has not answered with its own: the server is what the reader
- * waits on. */
+/** A blank address with no home directory to name, on a page with no Rooms
+ * server whose directory it could mean: the field is what the reader fills. */
+export const joinNeedsAddress =
+	"Paste a directory's address. Blank means the Rooms server's home directory, and this page has none.";
+/** The same, because the page's Rooms server has not answered with its own
+ * directory: the server is what the reader waits on. */
 export const joinNeedsAddressServerQuiet = (host: string) =>
 	`Paste a directory's address. The Rooms server at ${host} hasn't answered, so there's no home directory to use when it's blank.`;
 /** Typed text that is neither a directory's locator nor a room link. The

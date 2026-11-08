@@ -43,6 +43,8 @@ import { identifierField } from "../field.ts";
 import { actionRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
 import { useServerGate } from "../hooks.ts";
+import { linkNeedsServer } from "../application.ts";
+import { serverNeedAddress } from "../../../lib/text/session.ts";
 import { Said } from "../Said.tsx";
 import { Switch } from "../Switch.tsx";
 import { useRoomsSession } from "../controller/session.ts";
@@ -115,7 +117,6 @@ export function HistorySettings(
 export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTargetView }) {
 	const openModalFrom = useOpenModal();
 	const session = useRoomsSession();
-	const serverGate = useServerGate();
 	const [busy, setBusy] = useState<"own" | "reconnect" | null>(null);
 	const [why, setWhy] = useState("");
 	const [peerOpen, setPeerOpen] = useState(false);
@@ -178,10 +179,7 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 						type="button"
 						variant="quiet"
 						disabled={busy !== null}
-						// An archive peer is reached through the server, so it comes first.
-						onClick={(event) => {
-							if (serverGate() != null) openModalFrom(event.currentTarget, () => setPeerOpen(true));
-						}}
+						onClick={(event) => openModalFrom(event.currentTarget, () => setPeerOpen(true))}
 					>
 						{onPeer ? historyChangePeerAsk : historyUsePeerAsk}
 					</Button>
@@ -200,6 +198,7 @@ function ArchivePeerModal(
 	{ open, onClose }: { open: boolean; onClose(): void },
 ) {
 	const session = useRoomsSession();
+	const serverGate = useServerGate();
 	const commitments = useCommitments();
 	const [link, setLink] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -217,6 +216,9 @@ function ArchivePeerModal(
 		settling: commit.current,
 	});
 	const take = async () => {
+		// An archive peer is reached at the address its capability names, so
+		// one this browser cannot open on its own needs the Rooms server first.
+		if (linkNeedsServer(link.trim()) && serverGate(serverNeedAddress) == null) return;
 		commit.begin();
 		setBusy(true);
 		setWhy("");

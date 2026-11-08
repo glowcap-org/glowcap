@@ -52,13 +52,7 @@ impl Address {
 		locator.map(Self::from_locator).transpose()
 	}
 	pub fn capability(value: &str) -> Result<Option<Self>> {
-		let Some(link) = input(glowcap::parse_sturdyref(value, CaptpVersion::V1_0))? else {
-			return Ok(None);
-		};
-		if link.swissnum.is_empty() {
-			return Ok(None);
-		}
-		Self::from_locator(link.locator).map(Some)
+		capability_link(value)?.map(|link| Self::from_locator(link.locator)).transpose()
 	}
 	pub fn from_locator(locator: Locator) -> Result<Self> {
 		let authority = peer_uri(&locator)?;
@@ -74,6 +68,11 @@ impl Address {
 			designator: locator.designator,
 		})
 	}
+}
+/// A Rooms v1.0 capability the text names, or `None` for text that is not one.
+/// A link with no swiss number names an address, not a capability.
+fn capability_link(value: &str) -> Result<Option<glowcap::SturdyRef>> {
+	Ok(input(glowcap::parse_sturdyref(value, CaptpVersion::V1_0))?.filter(|link| !link.swissnum.is_empty()))
 }
 // Only a typed grammar refusal is ordinary invalid input. Resource and ABI
 // failures must reach the caller rather than asking it to retry a valid address.
@@ -144,6 +143,11 @@ pub fn identity_route(host_key: &str, locators: &[String]) -> Option<Locator> {
 /// or `None` for text that is not a directory address.
 pub fn directory_doors(value: &str) -> Result<Option<Vec<Locator>>> {
 	Ok(input(directory_locator(value))?.map(|location| doors(&location)))
+}
+/// The doors of a Rooms v1.0 capability's address, in the order a dial tries
+/// them, or `None` for text that is not a capability.
+pub fn capability_doors(value: &str) -> Result<Option<Vec<Locator>>> {
+	Ok(capability_link(value)?.map(|link| doors(&link.locator)))
 }
 /// The concrete locators an advertised location names: the location itself,
 /// or every `via` route and `alt-locators` door of an identity route. A

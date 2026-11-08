@@ -50,7 +50,6 @@ export interface RoomsDirectoryController {
 	/** Mark one held directory as this session's home directory, or none.
 	 * Answers the refusal, or the empty string. */
 	chooseHomeDirectory(dir: DirId | null): Promise<string>;
-	selfLocator(): string | null;
 	dirAddress(dir: DirId): string;
 	directoryId(locator: string): DirId | null;
 	/** The room's final answer to a join. Expected protocol failures retain their

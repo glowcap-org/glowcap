@@ -76,7 +76,7 @@ impl WebFront {
 	}
 }
 
-/// How this browser, with no Rooms server, reaches a directory address.
+/// How this browser, with no Rooms server, reaches an address or a link.
 pub(crate) struct Doors {
 	/// The relay of the first door this browser opens by itself, or `None`
 	/// when the address names none it can open.
@@ -87,24 +87,34 @@ pub(crate) struct Doors {
 }
 
 /// The doors of a typed directory address, as this browser would take them,
-/// or `None` for text that is not one. A relay door whose relay the dial
-/// would refuse is not one this browser can open.
+/// or `None` for text that is not one.
 pub(crate) fn browser_doors(address: &str) -> rooms_glowcap::routes::Result<Option<Doors>> {
-	let Some(doors) = rooms_glowcap::routes::directory_doors(address)? else {
-		return Ok(None);
-	};
-	let mut seen = Doors {
-		relay: None,
-		through_server: false,
-	};
-	for door in &doors {
-		if !browser::relay::TRANSPORTS.contains(&door.transport.as_str()) {
-			seen.through_server = true;
-		} else if seen.relay.is_none() {
-			seen.relay = browser::relay::relay_url(door).ok();
+	Ok(rooms_glowcap::routes::directory_doors(address)?.map(|doors| Doors::taken(&doors)))
+}
+
+/// The doors of a pasted capability link, as this browser would take them, or
+/// `None` for text that is not one.
+pub(crate) fn browser_capability_doors(link: &str) -> rooms_glowcap::routes::Result<Option<Doors>> {
+	Ok(rooms_glowcap::routes::capability_doors(link)?.map(|doors| Doors::taken(&doors)))
+}
+
+impl Doors {
+	/// How this browser takes `doors`. A relay door whose relay the dial would
+	/// refuse is not one this browser can open.
+	fn taken(doors: &[Locator]) -> Self {
+		let mut seen = Doors {
+			relay: None,
+			through_server: false,
+		};
+		for door in doors {
+			if !browser::relay::TRANSPORTS.contains(&door.transport.as_str()) {
+				seen.through_server = true;
+			} else if seen.relay.is_none() {
+				seen.relay = browser::relay::relay_url(door).ok();
+			}
 		}
+		seen
 	}
-	Ok(Some(seen))
 }
 
 /// The refusal for a reach that needs a relay on a page with no Rooms server:

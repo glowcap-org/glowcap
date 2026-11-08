@@ -58,6 +58,9 @@ import { identifierField } from "../field.ts";
 import { actionRefusal, sessionCapabilityRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
 import { useServerGate } from "../hooks.ts";
+import { linkNeedsServer } from "../application.ts";
+import { withSessionOffer } from "../server_choice.ts";
+import { serverNeedAddress, serverNeedLink } from "../../../lib/text/session.ts";
 import { Said } from "../Said.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Submodal } from "../Submodal.tsx";
@@ -145,21 +148,17 @@ export function SessionMoves(
 									id="sessionAttachOpen"
 									act="Attach…"
 									variant="primary"
-									// A shared session is reached through the server, and sharing
-									// this one mints its link there, so either door needs it first.
-									onClick={(event) => {
-										if (serverGate() != null) {
-											openModalFrom(event.currentTarget, () => setOpen(true));
-										}
-									}}
+									onClick={(event) => openModalFrom(event.currentTarget, () => setOpen(true))}
 								/>
 								{sessionKind === "local" && (
 									<EntryAct
 										name={sessionMoveThis}
 										id="sessionShareAsk"
 										act="Share…"
+										// The link sharing makes leads to this browser, which people
+										// reach through its Rooms server, so the server comes first.
 										onClick={() => {
-											if (serverGate() != null) setAsking("share");
+											if (serverGate(serverNeedLink) != null) setAsking("share");
 										}}
 									/>
 								)}
@@ -201,6 +200,7 @@ function AttachModal(
 	},
 ) {
 	const browser = useRoomsBrowser();
+	const serverGate = useServerGate();
 	const commitments = useCommitments();
 	const [link, setLink] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -223,6 +223,16 @@ function AttachModal(
 		const shape = sessionCapabilityRefusal(candidate);
 		if (shape !== "") {
 			setWhy(shape);
+			return;
+		}
+		// The session is reached at the address its link names, so a link this
+		// browser cannot open on its own needs the Rooms server first. The
+		// reload a chosen server takes lands on session choice with the link
+		// filled in, the way a link that offers a session does.
+		if (
+			linkNeedsServer(candidate) &&
+			serverGate(serverNeedAddress, () => withSessionOffer(new URL(location.href), candidate).hash) == null
+		) {
 			return;
 		}
 		running.current = true;

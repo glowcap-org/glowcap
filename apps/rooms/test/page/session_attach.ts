@@ -34,6 +34,23 @@ function attachRefusal(page: Page): Promise<string> {
 		.then((said) => said?.trim() ?? "", () => "");
 }
 
+/** Share the local session this browser keeps, and answer the link others
+ * attach with. The page stays hosting until it reloads or closes. */
+export async function shareThroughSettings(page: Page): Promise<string> {
+	await page.click("#settingsBtn");
+	await page.click("#sessionTab");
+	await page.click("#sessionShareAsk");
+	await page.getByRole("button", { name: "Share this session", exact: true }).click();
+	await page.waitForSelector("#sessionShareAsk", { state: "detached", timeout: 60_000 });
+	await page.getByText("Hosted session", { exact: true }).waitFor({ timeout: 10_000 });
+	await page.getByText("This browser is hosting", { exact: true }).waitFor({ timeout: 10_000 });
+	await page.click("#holdingsTab");
+	await page.waitForSelector("#currentSessionCapability", { timeout: 60_000 });
+	const sturdyref = (await page.textContent("#currentSessionCapability"))?.trim() ?? "";
+	if (sturdyref === "") fail("Share produced no hosted session capability");
+	return sturdyref;
+}
+
 /** Move a browser onto the session a capability names. */
 export async function attachThroughSettings(page: Page, capability: string, what: string): Promise<void> {
 	await openAttachForm(page, capability);
