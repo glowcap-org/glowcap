@@ -94,9 +94,9 @@ export function refusalText(err: unknown): string {
 	return renderFailure(failureView(err));
 }
 
-/** An unexplained failure while the relay this browser connects through turns
- * it away. Every connection goes through that relay, so it is the cause a
- * person can do something about, and Settings > Reachability is where. */
+/** An unexplained failure while the Rooms server this browser connects through
+ * turns it away. That server is the cause a person can do something about,
+ * and Settings > Reachability is where. */
 export const relayUnreachable = (host: string, detail: string) =>
 	serverUnreachable(host, "Rooms keeps trying. To use another server, open Settings, then Reachability.", detail);
 /** A break through the Rooms server this browser connects through. `remedy`
