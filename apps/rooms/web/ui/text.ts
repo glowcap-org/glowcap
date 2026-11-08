@@ -40,7 +40,7 @@ import {
 	TRANSPORT_NOISE_TCP,
 	TRANSPORT_ONION,
 	TRANSPORT_TCP,
-} from "@glowcap/runtime";
+} from "@glowcap/abi";
 import { BROWSER_OWN_DOORS } from "../../lib/doors.ts";
 
 /** What a surface says while this browser's access to the session is paused and

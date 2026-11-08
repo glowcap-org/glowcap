@@ -9,7 +9,8 @@ import { designatorHostPort, type Host, type Runtime, type Session, TRANSPORT_TC
 import { Reachability } from "@glowcap/iroh";
 
 import { dial as dialWithRuntime, roomsHost, roomsLocator, roomsSturdyrefLocator } from "../../lib/locator.ts";
-import { isUriLocator, roomsIdentityDoors } from "../../lib/doors.ts";
+import { isUriLocator } from "../../lib/doors.ts";
+import { roomsIdentityDoors } from "../../lib/routes.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { assert } from "../assert.ts";
 import { drainStdout, readAnnounced, readAnnouncedPort } from "./announce.ts";

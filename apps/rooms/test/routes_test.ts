@@ -8,8 +8,8 @@ import {
 	stringHint,
 	TRANSPORT_ID,
 } from "@glowcap/runtime";
-import { roomsIdentityRoute } from "../lib/routes.ts";
-import { BROWSER_OWN_DOORS, HINT_RENDEZVOUS_RELAY, roomsIdentityDoors } from "../lib/doors.ts";
+import { roomsIdentityDoors, roomsIdentityRoute } from "../lib/routes.ts";
+import { BROWSER_OWN_DOORS, HINT_RENDEZVOUS_RELAY } from "../lib/doors.ts";
 import { browserDoors } from "../web/ui/application.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../lib/locator.ts";
 import { assert } from "./assert.ts";
