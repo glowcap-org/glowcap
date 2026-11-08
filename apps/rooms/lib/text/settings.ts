@@ -45,7 +45,7 @@ export const settingsShareBrowser = "Share this address to let somebody start a 
 /** The Rooms server this browser is reached through, chosen on this device. */
 export const serverOfferTitle = "Use this Rooms server?";
 export const serverOfferSay = (host: string, local: boolean) =>
-	`This link asks Rooms to use the Rooms server at ${host}. People reach this browser through it, it carries your connections to directories that have no browser route, and link previews in messages are fetched through it. Use it if you started that server or trust whoever runs it. You can change this later in Settings, under Reachability.${
+	`This link asks Rooms to use the Rooms server at ${host}. People reach this browser through it, it carries your connections to directories, and link previews in messages are fetched through it. Use it if you started that server or trust whoever runs it. You can change this later in Settings, under Reachability.${
 		local
 			? " Your browser may first ask to let this page reach a server on your computer or network. Allow it."
 			: ""
@@ -138,7 +138,7 @@ export const serverTestBlocked = (permission: "prompt" | "denied") => `${browser
 export const serverNoDirectory = "None";
 export const serverChange = "Change server";
 export const serverChangeLead =
-	"A Rooms server is how this browser is reached. Saving reloads this window, so test the address first.";
+	"A Rooms server is how this browser reaches directories and people, and how they reach it. Saving reloads this window, so test the address first.";
 export const serverAddressName = "Address";
 export const serverChangeName = "Another server";
 export const serverChangeAct = "Change…";
@@ -149,7 +149,7 @@ export const serverRemoveConfirm = "Remove this server?";
 export const serverRemoveSaid = (served: boolean) =>
 	served
 		? "This page goes back to the server it came from, and reloads."
-		: "This page will have no Rooms server, so nobody can reach this browser. It reloads.";
+		: "This page will have no Rooms server, so it reaches no directory and nobody reaches it. It reloads.";
 export const serverRemoveKeep = "Keep it";
 export const serverRemoveCommit = "Remove and reload";
 export const serverNoneTitle = "No Rooms server";
@@ -162,7 +162,7 @@ export const serverTestRefuses = (origin: string) =>
 export const serverTestSilent =
 	"Nothing answers at this address. Check that the server is running and the address is right.";
 export const serverNone =
-	"This page has no Rooms server, which is how this browser is reached. Links you issue, direct messages, and an archive peer need one, and so does a directory whose address has no browser route.";
+	"This page has no Rooms server. One is how this browser reaches directories and people, and how they reach it.";
 export const reachAboutDirectory = "About…";
 /** The home directory choice. A room joined with no directory address opens in it. */
 export const settingsHomeLabel = "Home directory";
