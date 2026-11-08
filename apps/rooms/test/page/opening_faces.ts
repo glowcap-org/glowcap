@@ -315,6 +315,38 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await bare.close();
 	}
 
+	// A direct-message or directory address opened on a static page with no
+	// Rooms server asks for one instead of waiting for a directory that never
+	// comes, and saving the server reloads the page at that same address.
+	for (const path of ["/dm/alice", "/directory"]) {
+		const bare = await browser.newContext();
+		const open = await bare.newPage();
+		await open.route(`http://127.0.0.1:${httpPort}/**`, async (route) => {
+			if (route.request().resourceType() !== "document") return route.fallback();
+			const served = await route.fetch();
+			const page = (await served.text()).replace("<head>", '<head><meta name="rooms-host" content="static" />');
+			await route.fulfill({ response: served, body: page });
+		});
+		await open.goto(`http://127.0.0.1:${httpPort}${path}`);
+		await establishLocalSession(open);
+		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
+			.catch(() => fail(`opening ${path} with no Rooms server did not ask for one`));
+		await open.getByText(serverAskLead, { exact: true }).waitFor({ timeout: 5_000 })
+			.catch(() => fail("the server ask did not say why it is asking"));
+		await open.fill("#serverAddress", `http://127.0.0.1:${httpPort}/`);
+		await open.press("#serverAddress", "Enter");
+		await open.waitForSelector("#serverTestSaid", { timeout: 30_000 });
+		await Promise.all([
+			open.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30_000 })
+				.catch(() => fail("saving the server did not reload the page")),
+			open.press("#serverAddress", "Enter"),
+		]);
+		if (new URL(open.url()).pathname !== path) {
+			fail(`the reload did not land on the address that asked: ${new URL(open.url()).pathname}`);
+		}
+		await bare.close();
+	}
+
 	// A link that offers a relay asks before anything opens, and its offer
 	// leaves the address whatever the answer. Only the answer changes the relay.
 	for (const use of [true, false]) {

@@ -43,16 +43,18 @@ export const sessionSignInHint =
 	"Keep your session on a server and sign in from any device, instead of carrying a link around.";
 export const sessionSignInState = "Not available";
 
-/** The Rooms server line under the session choices. A shared session and every
- * directory are reached through it, so setup names it before anything opens. */
+/** The Rooms server line under the session choices. It is how this browser is
+ * reached, so setup names it before anything opens. */
 export const sessionServerName = "Rooms server";
-export const sessionServerNone = "None. A shared session and directories need one.";
+export const sessionServerNone = "None. Directories, people, and links you issue go through one.";
 export const sessionServerChoose = "Choose…";
 /** The server dialog over setup. Nothing has opened, so saving keeps the
  * choice in place. Opened by Attach, it says why, and saving attaches. */
 export const sessionServerTitle = "Choose a Rooms server";
-export const sessionServerLead =
-	"Rooms reaches shared sessions and directories through one server. Test its address, then save it.";
+/** What a Rooms server is, said once and composed into every dialog that
+ * asks for one. */
+export const serverModel = "A Rooms server is how this browser reaches directories and people, and how they reach it.";
+export const sessionServerLead = `${serverModel} Test its address, then save it.`;
 export const sessionServerAttachLead =
 	"A shared session is reached through a Rooms server, and this page has none. Test a server's address, and saving it attaches.";
 export const sessionServerSave = "Save";
@@ -61,11 +63,11 @@ export const sessionServerSaveAttach = "Save and attach";
  * server to go through: that server is the likeliest cause. */
 export const sessionServerUnreachable = (host: string, detail: string) =>
 	serverUnreachable(host, "Check that it is running, or change it.", detail);
-/** The same dialog in the open workspace, opened by an act that reaches
- * through a Rooms server when the page has none. The session keeps its
+/** The same dialog in the open workspace, opened by an act that needs a
+ * Rooms server when the page has none. The session keeps its
  * server, so saving reloads, and the act is waiting on the other side. */
 export const serverAskLead =
-	"Rooms reaches directories, rooms, and people through a Rooms server, and this page has none. Test a server's address, and saving it reloads the page where you left off.";
+	"What you asked for goes through a Rooms server, and this page has none. Test a server's address, and saving it reloads the page where you left off.";
 
 /** The advanced section and the two confirmations under it. Each
  * confirmation names what survives as well as what goes, since "delete" alone

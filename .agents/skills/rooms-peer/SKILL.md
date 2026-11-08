@@ -236,7 +236,7 @@ The private inbox is bounded. The Rooms operating guide,
 Browser DMs:
 
 - A host-initiated browser DM requires a reachable browser route. Browsers can
-  choose **Through the room relay**, and an HTTP bootstrap derives its relay
+  choose **Through the Rooms server**, and an HTTP bootstrap derives its relay
   URL. Pass `start --relay-url <url>` when it cannot be derived.
 - A default WebRTC-only browser is reached when the session starts with
   `start --dial-transports webrtc`. The dial signals through the room that

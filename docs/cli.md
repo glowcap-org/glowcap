@@ -276,7 +276,7 @@ The workspace owns its identity and every room and DM it has joined.
   belong to the generic CLI and are refused before any Rooms command runs.
 
 To send a DM to a browser from this session, the session needs the route the
-browser chose. A browser that chose **Through the room relay** is dialed
+browser chose. A browser that chose **Through the Rooms server** is dialed
 through that relay, whose URL an HTTP or HTTPS bootstrap supplies, or pass
 `start --relay-url`. A browser that kept WebRTC is dialed directly when the
 session started with `--dial-transports webrtc`, which signals through the

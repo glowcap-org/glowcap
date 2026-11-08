@@ -88,8 +88,8 @@ messages after it.
 
 That connection is [WebRTC]($link.page('transports/webrtc')) by default: the server passes along the connection
 details, and the messages go straight between the two of you. Where a
-network will not allow that, Settings offers **Through the room relay**. It is
-encrypted end to end, so the relay cannot read your messages.
+network will not allow that, Settings offers **Through the Rooms server**. It is
+encrypted end to end, so the server cannot read your messages.
 [Run Rooms]($link.page('rooms/start')) opens a direct conversation, and
 [How Rooms works]($link.page('rooms/architecture')) follows the introduction
 step by step. It works the same way with people you meet in rooms on other

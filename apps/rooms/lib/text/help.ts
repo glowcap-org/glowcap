@@ -56,7 +56,7 @@ export const helpAbout: readonly { title: string; said: string; link?: HelpLink 
 	{
 		title: "Direct messages",
 		said:
-			"The server doesn't read messages you send to one person. Depending on your settings they go straight to them, or encrypted through the server's relay. Room messages it does read.",
+			"The server doesn't read messages you send to one person. Depending on your settings they go straight to them, or encrypted through the Rooms server. Room messages it does read.",
 	},
 	{
 		title: "Names",

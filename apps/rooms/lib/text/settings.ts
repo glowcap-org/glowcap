@@ -3,6 +3,8 @@
 // Mostly operator-adjacent, so these stay precise. The subject is whoever is
 // reading, not the machinery.
 
+import { serverModel } from "./session.ts";
+
 /** Session message retention and the archive capability it selects. */
 export const historyOffSession =
 	"Nothing is saved. Messages show up in whatever windows are open, and are gone after that.";
@@ -40,10 +42,10 @@ export const settingsCopyBrowser = "Copy this session's address";
 export const settingsShareDirectory = "Lets anyone join this server's rooms by name.";
 export const settingsBrowserUnreachable = "Nobody can reach this address until the Rooms server connects.";
 export const settingsShareBrowser = "Share this address to let somebody start a direct conversation with you.";
-/** The relay this browser connects through, chosen on this device. */
+/** The Rooms server this browser is reached through, chosen on this device. */
 export const serverOfferTitle = "Use this Rooms server?";
 export const serverOfferSay = (host: string, local: boolean) =>
-	`This link asks Rooms to use the Rooms server at ${host}. People reach this browser through it, it opens your connections to directories, and link previews in messages are fetched through it. Use it if you started that server or trust whoever runs it. You can change this later in Settings, under Reachability.${
+	`This link asks Rooms to use the Rooms server at ${host}. People reach this browser through it, it carries your connections to directories, and link previews in messages are fetched through it. Use it if you started that server or trust whoever runs it. You can change this later in Settings, under Reachability.${
 		local
 			? " Your browser may first ask to let this page reach a server on your computer or network. Allow it."
 			: ""
@@ -72,9 +74,11 @@ export const settingsRelayAway = (host: string, origin: string) =>
 export const settingsDmDirectLabel = "Browser to browser";
 export const settingsDmDirectSaid =
 	"Encrypted between browsers. A client that isn't a browser can only reply after you write first.";
-export const settingsDmRelayLabel = "Through the room relay";
+export const settingsDmRelayLabel = "Through the Rooms server";
 export const settingsDmRelaySaid =
-	"Encrypted end to end, and the relay only carries the encrypted bytes. A client that isn't a browser can write to you first.";
+	"Encrypted end to end, and the Rooms server only carries the encrypted bytes. A client that isn't a browser can write to you first.";
+/** The saved mode is shown as it is while the page has no Rooms server. */
+export const settingsDmRelayNeedsServer = "This page has no Rooms server for direct messages to go through.";
 export const settingsDmReload = "Saving reloads this window.";
 
 export const sessionShareLabel = "Share this session";
@@ -133,8 +137,7 @@ export const serverAwayBlocked = (permission: "prompt" | "denied") =>
 export const serverTestBlocked = (permission: "prompt" | "denied") => `${browserBlocks(permission)}, then test again.`;
 export const serverNoDirectory = "None";
 export const serverChange = "Change server";
-export const serverChangeLead =
-	"Rooms reaches directories, and is reached, through one server. Saving reloads this window, so test the address first.";
+export const serverChangeLead = `${serverModel} Saving reloads this window, so test the address first.`;
 export const serverAddressName = "Address";
 export const serverChangeName = "Another server";
 export const serverChangeAct = "Change…";
@@ -145,7 +148,7 @@ export const serverRemoveConfirm = "Remove this server?";
 export const serverRemoveSaid = (served: boolean) =>
 	served
 		? "This page goes back to the server it came from, and reloads."
-		: "This page will have no Rooms server, so nobody can reach this browser and rooms need a directory address. It reloads.";
+		: "This page will have no Rooms server, so it reaches no directory and nobody reaches it. It reloads.";
 export const serverRemoveKeep = "Keep it";
 export const serverRemoveCommit = "Remove and reload";
 export const serverNoneTitle = "No Rooms server";
@@ -157,8 +160,7 @@ export const serverTestRefuses = (origin: string) =>
 	`It answers, but doesn't allow pages from ${origin}. Restart it with --allow-origin=${origin}.`;
 export const serverTestSilent =
 	"Nothing answers at this address. Check that the server is running and the address is right.";
-export const serverNone =
-	"This page came from a static host, so it has no Rooms server of its own. Add a Rooms server's address to be reachable and to join rooms by name.";
+export const serverNone = serverModel;
 export const reachAboutDirectory = "About…";
 /** The home directory choice. A room joined with no directory address opens in it. */
 export const settingsHomeLabel = "Home directory";

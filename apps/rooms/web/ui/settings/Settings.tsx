@@ -15,6 +15,7 @@ import {
 	settingsDmDirectLabel,
 	settingsDmDirectSaid,
 	settingsDmRelayLabel,
+	settingsDmRelayNeedsServer,
 	settingsDmRelaySaid,
 	settingsDmReload,
 	settingsHomeAway,
@@ -146,6 +147,7 @@ function SettingsDialog(
 	const serverGate = useServerGate();
 	const dirs = useRoomsState((state) => state.dirs);
 	const relay = useRoomsState((state) => state.relay);
+	const hasServer = useRoomsState((state) => state.server != null);
 	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const homeAway = homeDirectory !== null && dirs.get(homeDirectory)?.session === "disconnected";
 	// The directory this page's server hosts, offered as home when the session
@@ -363,18 +365,30 @@ function SettingsDialog(
 									</div>
 								</>
 							)}
-							<h3 className="well-title overline" id="browserLegend">{reachBrowserTitle}</h3>
-							<div className="group well" role="group" aria-labelledby="browserLegend">
-								<CopyField id="selfLocator" text={selfLoc} label={settingsCopyBrowser} />
-								{
-									/* The cause and its fix are the server card's. Here is
-									   what it means for the address a reader is about to
-									   hand out. */
-								}
-								{relayAway(relay)
-									? <Said id="selfUnreachable" kind="warning">{settingsBrowserUnreachable}</Said>
-									: <p className="hint">{settingsShareBrowser}</p>}
-							</div>
+							{
+								/* With no Rooms server this browser has no address, and the
+								   server card above says so. */
+							}
+							{hasServer && (
+								<>
+									<h3 className="well-title overline" id="browserLegend">{reachBrowserTitle}</h3>
+									<div className="group well" role="group" aria-labelledby="browserLegend">
+										<CopyField id="selfLocator" text={selfLoc} label={settingsCopyBrowser} />
+										{
+											/* The cause and its fix are the server card's. Here is
+											   what it means for the address a reader is about to
+											   hand out. */
+										}
+										{relayAway(relay)
+											? (
+												<Said id="selfUnreachable" kind="warning">
+													{settingsBrowserUnreachable}
+												</Said>
+											)
+											: <p className="hint">{settingsShareBrowser}</p>}
+									</div>
+								</>
+							)}
 							{canInteract && (
 								<>
 									<h3 className="well-title overline" id="dmLegend">{dmConnectionTitle}</h3>
@@ -416,6 +430,9 @@ function SettingsDialog(
 												</span>
 											</label>
 										</div>
+										{dm === "relay" && !hasServer && (
+											<Said id="dmNeedsServer" kind="warning">{settingsDmRelayNeedsServer}</Said>
+										)}
 										<p className="hint" id="dmReloadHint">{settingsDmReload}</p>
 										{dmError !== "" && <Said kind="failure">{dmError}</Said>}
 										<div className="actions">
