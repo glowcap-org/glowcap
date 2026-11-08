@@ -101,3 +101,22 @@ Deno.test("dm: a saved relay mode stays relay with no server, and says it needs 
 	assertEquals(dmNeedsServer(saved, true), false, "with a server it says nothing");
 	assertEquals(dmNeedsServer("webrtc", false), false, "browser to browser claims nothing");
 });
+
+Deno.test("a deep link to a direct message or the directory asks for the server and resumes at the same address", async () => {
+	const store = await import("../web/ui/store.ts");
+	const projection = new store.PageProjection();
+	const prior = Object.getOwnPropertyDescriptor(globalThis, "location");
+	Object.defineProperty(globalThis, "location", { configurable: true, value: { search: "" } });
+	try {
+		assertEquals(dmAddress("alice"), "/dm/alice");
+		assertEquals(directoryAddress(), "/directory");
+		for (const resume of [dmAddress("alice"), directoryAddress()]) {
+			projection.set({ server: null, serverAsk: null });
+			assertEquals(store.serverOrAsk(projection, () => resume), null, `${resume} waits for a server`);
+			assertEquals(projection.get().serverAsk, { resume }, `${resume} is where the reload picks up`);
+		}
+	} finally {
+		if (prior) Object.defineProperty(globalThis, "location", prior);
+		else Reflect.deleteProperty(globalThis, "location");
+	}
+});

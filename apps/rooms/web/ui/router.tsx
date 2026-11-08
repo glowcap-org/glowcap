@@ -291,6 +291,12 @@ function DmRoute() {
 			arrival.mark();
 			return;
 		}
+		// With no Rooms server there is no directory to wait for: the page asks
+		// for one and picks this address up after the reload it takes.
+		if (store.serverOrAsk(routing().projection, () => dmAddress(nick)) == null) {
+			arrival.mark();
+			return;
+		}
 		if (store.actingDir(routing().projection, state) === null) return; // wait for a directory
 		session.startDm(nick);
 		arrival.mark();
@@ -353,7 +359,11 @@ function DirectoryRoute() {
 			return;
 		}
 		const home = routing().projection.get().homeDirectory;
-		if (home === null) return;
+		if (home === null) {
+			// A page with no Rooms server has no home directory to wait for.
+			if (store.serverOrAsk(routing().projection, () => directoryAddress()) == null) arrival.mark();
+			return;
+		}
 		net.showDirectory(routing(), home);
 		arrival.mark();
 		// As the routes above. `routed` is compared against where this already
