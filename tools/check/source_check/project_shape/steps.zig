@@ -30,7 +30,7 @@ const fixed_command_docs = [_][]const u8{
 /// invocation may name several steps (`zig build fmt-check arch-check …`): a
 /// `zig build <step>` here must name a real step and a `bash <script>` must
 /// resolve.
-/// That every step has a row in `docs/build-steps.md` is held by
+/// That every step has a row in a build-step inventory (`docs/build-steps*.md`) is held by
 /// `gen-build-steps-check`, which reads the build graph itself.
 const ci_command_dirs = [_][]const u8{".github/workflows"};
 const ci_command_files = [_][]const u8{"ci/groups.py"};

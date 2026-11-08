@@ -73,9 +73,24 @@ Deno.test("a directory's card says what it is doing beside the phase", () => {
 	assertEquals(dirConnection("reconnecting", "could not reach the room directory. Retrying…"), {
 		said: "Reconnecting…",
 		why: "could not reach the room directory. Retrying…",
+		route: "",
 	});
-	assertEquals(dirConnection("connected", ""), { said: "Connected", why: "" });
-	assertEquals(dirConnection("disconnected", "not connected"), { said: "Not connected", why: "" });
+	assertEquals(dirConnection("connected", ""), { said: "Connected", why: "", route: "" });
+	assertEquals(dirConnection("disconnected", "not connected"), { said: "Not connected", why: "", route: "" });
+});
+
+// The route is said once the directory is connected, by the transport the
+// connection runs over. A browser running its own session opens only the
+// relay doors itself, so every other transport is said to go through its
+// Rooms server. A transport that is reconnecting names no route: the words
+// would be about a connection that is not there.
+Deno.test("a connected directory says how it is reached", () => {
+	assertEquals(dirConnection("connected", "", "noise-relay", true).route, "Sealed, through a relay");
+	assertEquals(dirConnection("connected", "", "tcp", true).route, "Over TCP, in the clear, through the Rooms server");
+	assertEquals(dirConnection("connected", "", "tcp", false).route, "Over TCP, in the clear");
+	assertEquals(dirConnection("connected", "", "iroh", false).route, "Sealed, over iroh");
+	assertEquals(dirConnection("reconnecting", "", "noise-relay", true).route, "");
+	assertEquals(dirConnection("connected", "", "webrtc", true).route, "");
 });
 
 Deno.test("direct messages on a directory that is not live use the same connection words", () => {

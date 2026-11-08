@@ -18,6 +18,12 @@ pub(super) struct Environment {
 }
 pub(super) type Reply = Response<Full<Bytes>>;
 pub(super) const MAX_CONNECTIONS: usize = 256;
+/// How long a route that needs the announced directory waits for it. HTTP
+/// serves before the directory comes up, so its relay listeners can register
+/// here on their way, and a page asking in that moment would otherwise read
+/// "not ready" as a server with no directory. Shorter than the page's own
+/// 5 s read deadline, so the page sees either the address or a plain refusal.
+const LOCATION_WAIT: Duration = Duration::from_secs(4);
 pub(super) async fn serve(
 	listener: TcpListener,
 	environment: Rc<Environment>,
@@ -156,7 +162,15 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 			.map(|value| (value, true))
 			.or_else(|| parameter("target").map(|value| (value, false)));
 		return match target {
-			Some((target, rendezvous)) => environment.relay.upgrade(request, &target, rendezvous),
+			Some((target, rendezvous)) => {
+				// A target is judged against the directory's own doors, so it
+				// waits for the directory the way `/locator` does. A rendezvous
+				// names a registered key and needs no directory.
+				if !rendezvous {
+					located(environment).await;
+				}
+				environment.relay.upgrade(request, &target, rendezvous)
+			}
 			None => response(
 				StatusCode::BAD_REQUEST,
 				"text/plain",
@@ -175,7 +189,7 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 		);
 	}
 	if path == "/locator" {
-		let reply = match environment.location.borrow().clone() {
+		let reply = match located(environment).await {
 			Some(locator) => response(
 				StatusCode::OK,
 				"text/plain; charset=utf-8",
@@ -236,8 +250,7 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 		};
 	}
 	if matches!(path, "/trace" | "/trace/locator" | "/trace/captp" | "/publish") {
-		let current = environment.location.borrow().clone();
-		let Some(current) = current else {
+		let Some(current) = located(environment).await else {
 			return response(
 				StatusCode::SERVICE_UNAVAILABLE,
 				"text/plain",
@@ -308,6 +321,16 @@ fn for_listed_origin<B>(mut reply: Reply, environment: &Environment, request: &R
 		reply.headers_mut().insert("access-control-allow-origin", origin);
 	}
 	reply
+}
+
+/// The announced directory, waited for up to `LOCATION_WAIT` while it comes
+/// up, and `None` once that passes or the front is stopping.
+async fn located(environment: &Environment) -> Option<crate::server::readiness::Announcement> {
+	let mut location = environment.location.clone();
+	match tokio::time::timeout(LOCATION_WAIT, location.wait_for(Option::is_some)).await {
+		Ok(Ok(current)) => current.clone(),
+		_ => None,
+	}
 }
 
 pub(super) fn response(status: StatusCode, content_type: &'static str, body: Bytes) -> Reply {

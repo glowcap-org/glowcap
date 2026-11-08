@@ -5,7 +5,7 @@
 // it picks up there.
 
 import { saveAndReload } from "../../../lib/text/controls.ts";
-import { serverAskLead, sessionServerTitle } from "../../../lib/text/session.ts";
+import { serverAskAfterDoor, serverAskLead, sessionServerTitle } from "../../../lib/text/session.ts";
 import { reloadNow } from "../boot.ts";
 import { useRoomsProjection, useRoomsState } from "../hooks.ts";
 import { pageBase } from "../page_base.ts";
@@ -28,7 +28,7 @@ export function ServerAsk() {
 		<ServerDialog
 			title={sessionServerTitle}
 			titleId="serverAskTitle"
-			lead={serverAskLead}
+			lead={ask?.why == null ? serverAskLead : serverAskAfterDoor(ask.why)}
 			saveLabel={saveAndReload}
 			open={ask != null}
 			onClose={() => store.dismissServerAsk(projection)}

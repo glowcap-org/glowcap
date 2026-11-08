@@ -106,6 +106,7 @@ Deno.test("a row with no conversation behind it stays in view either way", () =>
 	const bare: DirView = {
 		id: home,
 		locator: home,
+		transport: "",
 		liveRooms: new Map(),
 		dmablePeers: new Map(),
 		requestedNick: "alice",

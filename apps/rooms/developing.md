@@ -44,7 +44,7 @@ different production compiler.
 | `zig build goblins-rooms`, `goblins-rooms-dm`, `goblins-rooms-iroh` | A real Goblins vat in the room, and direct messages with it | Racket with Goblins, Deno |
 | `zig build rooms-web-page`, `rooms-web-dm`, `rooms-web-reconnect`, … | The browser proofs, each driving a real Chromium through the shipped page | Cargo, Deno, Playwright Chromium |
 
-[`docs/build-steps.md`](../../docs/build-steps.md) documents every step,
+[`docs/build-steps-apps.md`](../../docs/build-steps-apps.md) documents every Rooms step,
 including which ride `zig build check`, `runtime-check`, or `check-external`.
 The devcontainer image carries the Chromium the browser proofs use.
 

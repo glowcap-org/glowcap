@@ -292,8 +292,8 @@ function DmRoute() {
 			return;
 		}
 		if (store.actingDir(routing().projection, state) === null) {
-			// A page with no Rooms server has no directory to wait for: it asks
-			// for one and picks this address up after the reload it takes.
+			// A page with no directory has none to find the person in: it asks
+			// for a Rooms server and picks this address up after the reload.
 			if (store.serverOrAsk(routing().projection, () => dmAddress(nick)) == null) arrival.mark();
 			return;
 		}

@@ -38,13 +38,13 @@ test "core host retained work refuses completed and cancelled leases before effe
     var work = try host.admitPendingWork();
     work.complete();
     try std.testing.expectError(error.NoPendingWork, work.fork());
-    try std.testing.expectError(error.NoPendingWork, work.call(failing.allocator(), target, "get", &.{}, 512));
+    try std.testing.expectError(error.NoPendingWork, work.call(failing.allocator(), target, "get", &.{}, 512, null));
     try std.testing.expectError(error.NoPendingWork, work.enliven(&host, failing.allocator(), sturdy));
     work = try host.admitPendingWork();
     defer work.complete();
     host.beginClose(.cancel, 0);
     try std.testing.expectError(error.HostClosing, work.fork());
-    try std.testing.expectError(error.HostClosing, work.call(failing.allocator(), target, "get", &.{}, 512));
+    try std.testing.expectError(error.HostClosing, work.call(failing.allocator(), target, "get", &.{}, 512, null));
     try std.testing.expectError(error.HostClosing, work.enliven(&host, failing.allocator(), sturdy));
     try std.testing.expect(!failing.has_induced_failure);
     try std.testing.expectEqual(@as(usize, 1), host.pending_operations);

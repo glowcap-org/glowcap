@@ -55,9 +55,17 @@ Deno.test("dismissing a notice that is already gone is nothing", () => {
 
 Deno.test("an act that needs a Rooms server holds where it resumes until the ask is answered", () => {
 	store.askServer(projection, "/join?room=general");
-	assertEquals(projection.get().serverAsk, { resume: "/join?room=general" }, "the ask names where to resume");
-	store.askServer(projection, null);
-	assertEquals(projection.get().serverAsk, { resume: null }, "a later ask replaces the first");
+	assertEquals(
+		projection.get().serverAsk,
+		{ resume: "/join?room=general", why: null },
+		"the ask names where to resume",
+	);
+	store.askServer(projection, null, "Its relay did not answer.");
+	assertEquals(
+		projection.get().serverAsk,
+		{ resume: null, why: "Its relay did not answer." },
+		"a later ask replaces the first, and says why a server is wanted",
+	);
 	store.dismissServerAsk(projection);
 	assertEquals(projection.get().serverAsk, null, "dismissing takes the ask down");
 	store.dismissServerAsk(projection);
@@ -69,7 +77,7 @@ Deno.test("an act that reaches through a Rooms server is gated on one before it 
 	assertEquals(store.serverOrAsk(projection, () => "/join?room=general"), null, "with no server the act waits");
 	assertEquals(
 		projection.get().serverAsk,
-		{ resume: "/join?room=general" },
+		{ resume: "/join?room=general", why: null },
 		"and the page asks, naming where to resume",
 	);
 	store.dismissServerAsk(projection);

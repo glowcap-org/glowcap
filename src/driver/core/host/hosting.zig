@@ -41,6 +41,18 @@ pub const HostTurn = struct {
         return .{ .host = producer.host, .session = null, .turn = turn };
     }
 
+    /// The session on whose behalf this turn runs: the Port that delivered
+    /// it, or the one a trusted in-Host forwarder carried across a local hop.
+    /// Provenance for the behavior, never routing context: replies, fresh
+    /// exports, and sends still follow `session`. Null for work the
+    /// application itself originated, or once that session has closed.
+    pub fn deliveringSession(self: *const HostTurn) ?*HostSession {
+        if (self.session) |session| return session;
+        const producer = @import("local_delivery.zig").producer(self.turn) catch return null;
+        const via = producer.via orelse return null;
+        return self.host.sessionForPeer(via);
+    }
+
     pub fn beginLocal(self: *HostTurn) !void {
         try (try @import("local_delivery.zig").producer(self.turn)).enroll(self.turn);
     }

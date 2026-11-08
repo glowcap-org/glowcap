@@ -96,6 +96,9 @@ pub(super) struct Sender {
 	last: Option<(Session, [u8; 32])>,
 }
 impl Sender {
+	/// The admission key of the session that delivered a call. A proved durable
+	/// identity keys its own row. An unproved session, and a call with no
+	/// session, which only this application originates, share the zero row.
 	pub fn key(&mut self, session: Option<&Session>) -> Result<[u8; 32], String> {
 		let Some(session) = session else {
 			return Ok([0; 32]);

@@ -269,6 +269,7 @@ pub(super) async fn run() {
 							if !args.is_empty() {
 								project(managed::MembershipEvent::Notification {
 									arguments: args,
+									delivering: None,
 									origin,
 								})?;
 								return Ok(());
@@ -283,7 +284,10 @@ pub(super) async fn run() {
 								&intent.directories.as_slice()[0],
 								"ocapn://member.id",
 								&mut realization::Entropy::new(),
-								receive,
+								{
+									let mut receive = receive;
+									move |args: &[Argument], _, origin: &managed::InboxOrigin| receive(args, origin)
+								},
 							)
 							.await
 					} else {

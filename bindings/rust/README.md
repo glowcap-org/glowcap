@@ -192,8 +192,10 @@ Host and adds no protocol state or lifecycle hook.
 ### Inside a behavior
 
 `current_session()` returns the session that delivered the current call, including a session
-reached through a handoff. Keep the returned view to send replies. It returns `None` outside a
-callback. A local call can carry a session too, so a `Some` does not prove the caller is remote.
+reached through a handoff, and the session whose turn an in-Host forwarder such as a Loam endpoint
+continued across a local hop. Keep the returned view to send replies. It returns `None` outside a
+callback and for work the application itself originated. A local call can carry a session too, so
+a `Some` does not prove the caller is remote.
 
 `Host::defer_turn` lets a behavior reply later. It returns the one resolver that settles the reply.
 

@@ -96,9 +96,10 @@ uses. JavaScript supplies the clock and the byte connections. The Rust
 browser code owns your session, what is saved, and WebRTC. TypeScript draws
 the screen and turns what you do into requests.
 
-Your browser reaches a directory through the Rooms server's byte relay. The
-relay forwards bytes without parsing them and holds nothing of yours. It could
-still read them, and on an [iroh]($link.page('transports/iroh')) route it checks the directory's key on your
+Your browser reaches a directory through a sealed relay door the directory
+declares, or, for an address it cannot open itself, through the Rooms server's
+byte relay. That relay forwards bytes without parsing them and holds nothing of
+yours. It could still read them, and on an [iroh]($link.page('transports/iroh')) route it checks the directory's key on your
 behalf, so you are trusting the Rooms server your page uses: the one you chose,
 or the one that served the page. Whoever serves the page is trusted with your
 session too, because the page's code is what runs in your browser: this site,

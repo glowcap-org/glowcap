@@ -40,9 +40,11 @@ export function toast(projection: PageProjection, kind: ToastKind, text: string)
 }
 
 /** Ask for a Rooms server on behalf of an act that reaches through one, with
- * the page address the act picks up at after the reload, or null for here. */
-export function askServer(projection: PageProjection, resume: string | null): void {
-	projection.set({ serverAsk: { resume } });
+ * the page address the act picks up at after the reload, or null for here.
+ * `why` is the failure of the door this browser tried by itself first, when
+ * the address had one, so the ask says what a server is for. */
+export function askServer(projection: PageProjection, resume: string | null, why: string | null = null): void {
+	projection.set({ serverAsk: { resume, why } });
 }
 
 /** The gate before an act that reaches through a Rooms server: links are

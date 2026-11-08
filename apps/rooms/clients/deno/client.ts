@@ -33,7 +33,8 @@ import { enterOrOpen } from "../../lib/enter_room.ts";
 // `tools/gen/rooms_protocol.zig` beside the same table every sibling client
 // reads; `test/protocol_gen_test.ts` holds it to the server's own readers.
 import { MEMBERSHIP_ENDED, NOTIFY, POST, ROOM_SENDER, SESSION_DEADLINE_MS, SUBSCRIBE } from "./protocol_gen.ts";
-import { dialDirectory, isUriLocator, type RoomsDirectoryDial } from "../../lib/locator.ts";
+import { dialDirectory, type RoomsDirectoryDial } from "../../lib/locator.ts";
+import { isUriLocator } from "../../lib/doors.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { Reachability } from "@glowcap/iroh";
 

@@ -156,7 +156,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		row: &workspace::Directory,
 		locator: &str,
 		entropy: &mut dyn crate::entropy::Entropy,
-		mut receive: impl FnMut(&[Argument], &super::InboxOrigin) -> core::result::Result<(), String> + 'static,
+		mut receive: impl FnMut(
+			&[Argument],
+			Option<glowcap::Session>,
+			&super::InboxOrigin,
+		) -> core::result::Result<(), String>
+		+ 'static,
 	) -> Result<Membership<P>> {
 		if locator.len() > 16384 {
 			return Err(loam::refusal("Membership locator exceeds its bound"));
@@ -171,9 +176,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			locator: locator.into(),
 			name: key(entropy)?,
 		};
-		self.start_membership(source, selection, target, entropy, permit, move |_, args, _, origin| {
-			receive(args, origin).map(|()| Argument::Void)
-		})
+		self.start_membership(
+			source,
+			selection,
+			target,
+			entropy,
+			permit,
+			move |_, args, delivering, origin| receive(args, delivering, origin).map(|()| Argument::Void),
+		)
 		.await
 	}
 	pub async fn supervise_room(

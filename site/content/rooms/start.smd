@@ -40,7 +40,8 @@ The page also works on its own.
 [Open it]($link.siteAsset('rooms/app/index.html')), and its first screen
 names the Rooms server it will use. With none, it offers **Choose…**: paste the
 **web ui** address your server printed, press **Test**, then **Save**. The same
-choice is in Settings, under **Reachability**, and this browser keeps it.
+choice is in Settings, under **Reachability**, and this browser keeps it. A
+directory that declares a sealed relay door is reached without one.
 
 The **web ui** address is also that same page, served by your server itself,
 for a machine that cannot reach this site. A browser keeps a session per

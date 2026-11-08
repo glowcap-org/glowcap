@@ -432,7 +432,7 @@ test "core host retained child allocation refusal preserves parent custody for r
         defer parent.complete();
         host.beginClose(.{ .finish = .unbounded }, 0);
         failing.fail_index = failing.alloc_index + failure_index;
-        const attempt = parent.call(failing.allocator(), ref, "echo", &.{.{ .list = &.{ .{ .string = "kept" }, .{ .capability = ref } } }}, 512);
+        const attempt = parent.call(failing.allocator(), ref, "echo", &.{.{ .list = &.{ .{ .string = "kept" }, .{ .capability = ref } } }}, 512, null);
         const call = if (attempt) |value| value else |err| retry: {
             try std.testing.expectEqual(error.OutOfMemory, err);
             try std.testing.expectEqual(@as(usize, 1), host.pending_operations);
@@ -441,7 +441,7 @@ test "core host retained child allocation refusal preserves parent custody for r
             try std.testing.expectEqual(@as(?u64, 1), host.capabilities.retainCount(ref));
             try std.testing.expectEqual(@as(usize, 0), host.vat.local_ingress.pending_turns);
             failing.fail_index = std.math.maxInt(usize);
-            break :retry try parent.call(failing.allocator(), ref, "echo", &.{.{ .integer = 91 }}, 512);
+            break :retry try parent.call(failing.allocator(), ref, "echo", &.{.{ .integer = 91 }}, 512, null);
         };
         defer call.deinit();
         // Constructor refusals, rather than callback failures, are the sweep.
@@ -524,9 +524,11 @@ test "core host owning local warmed custody allocates only its producer and vow 
             // The row's watching promise (ADR-0068) is an optional id, and
             // its held completion is a value with its arena state or a
             // failure with its message, under one tag. Whether the row keeps
-            // that completion's retains shares the flag bytes.
+            // that completion's retains shares the flag bytes. The producer
+            // keeps the delivering session as an optional peer handle, two
+            // words a forwarder sets and `HostTurn.deliveringSession` reads.
             try std.testing.expectEqual(@as(usize, 240), @sizeOf(Row));
-            try std.testing.expectEqual(@as(usize, 312), @sizeOf(Producer));
+            try std.testing.expectEqual(@as(usize, 328), @sizeOf(Producer));
         }
         try std.testing.expectEqual(@as(usize, 2), counted.allocs);
         try std.testing.expectEqual(before + @sizeOf(Row) + @sizeOf(Producer), live.liveBytes());

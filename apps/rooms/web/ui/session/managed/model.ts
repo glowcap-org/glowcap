@@ -186,6 +186,9 @@ export const ActivityNoticeSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("registered"),
 		nick: z.optional(z.string()),
 		registration: z.optional(z.string()),
+		/** The transport the directory's connection runs over, or null when the
+		 * session had closed before the runtime could read it. */
+		transport: z.optional(z.nullable(z.string())),
 	}),
 	z.object({
 		kind: z.enum(["mintInboxFor", "directRequested", "introducible"]),

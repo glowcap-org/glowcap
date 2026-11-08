@@ -8,19 +8,23 @@ import type { ConversationOpening } from "./openings.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { AttachedSessionFiles } from "../attached_files.ts";
 import type { PresentedFile } from "./files.ts";
-import { directoryId } from "../../application.ts";
+import { browserDoors, directoryId } from "../../application.ts";
 import { dirAddress } from "../../page_bootstrap.ts";
 import { type DirId, dirId } from "../../directory.ts";
 import { relayAway } from "../../store/projection.ts";
 import { planJoinDestination, type RoomDestination, roomLinkDestination, typedRoomLink } from "../../joining.ts";
 import {
 	directoryUnreachable,
+	doorBlocked,
+	doorUnreachable,
 	type FailureView,
 	failureView,
 	refusalText,
 	relayUnreachable,
 	renderFailure,
+	transportBreak,
 } from "../../../../lib/text/failure.ts";
+import { localNetworkBlock } from "../../server_choice.ts";
 import { NO_SERVER, RoomsError, roomsErrorInMessage } from "../../../../lib/error_codes.ts";
 import { dmAddress, joinAddress, roomAddress } from "../../route_address.ts";
 import {
@@ -82,17 +86,17 @@ export function createManagedController(
 	};
 	// A newly held directory becomes home only in a session with none, so neither
 	// the served directory nor an offer takes the mark from a chosen one. The
-	// served directory is home by default, and anything else by request.
+	// served directory is home by default. On a page with no server, the first
+	// directory reached is, since a blank address and a route that waits on a
+	// directory would otherwise have nowhere to go. Anything else is by request.
 	const takesHome = (route: string, requested: boolean): boolean =>
-		(requested || route === served()?.directory) &&
+		(requested || route === (served()?.directory ?? route)) &&
 		!(session.current?.intent.directories.some((row) => row.home) ?? false);
 	// A reach refused for want of a Rooms server is not said at all: the page
 	// asks for one, and `resume` names the address the act picks up at after
-	// the reload a chosen server takes, read only then. The verbs below ask
-	// before they act, so this arm is the net for a need found only on the
-	// way, such as a publish inside a verb with a server. Any other failure
-	// Rooms cannot name is said by its likeliest cause: the relay while it is
-	// not answering, otherwise whatever the act was reaching for.
+	// the reload a chosen server takes, read only then. Any other failure Rooms
+	// cannot name is said by its likeliest cause: the relay while it is not
+	// answering, otherwise whatever the act was reaching for.
 	const explainedAs =
 		(otherwise: (view: FailureView) => string) => (error: unknown, resume: Resume): string | null => {
 			const view = failureView(error);
@@ -107,10 +111,38 @@ export function createManagedController(
 				: otherwise(view);
 		};
 	const explained = explainedAs(renderFailure);
-	const unreached = explainedAs((view) => {
+	// A reach for a directory that broke on the way. Through a Rooms server,
+	// the server or the directory is the cause. With none, the page dialed the
+	// doors the address names, this browser's own first, and the dial reports
+	// whichever door failed last, so the doors say what happened: this browser
+	// standing between the page and the relay, else the relay not answering.
+	// An address with doors only a server reaches asks for one, with the
+	// relay's failure as the reason, since a server is the other way in.
+	const unreached = async (error: unknown, resume: Resume, locator: string): Promise<string | null> => {
+		const view = failureView(error);
 		const host = servedHost();
-		return host == null ? renderFailure(view) : directoryUnreachable(host, view.detail);
-	});
+		if (host != null) {
+			if (view.code !== "unexpected") return renderFailure(view);
+			return relayAway(projection.get().relay)
+				? relayUnreachable(host, view.detail)
+				: directoryUnreachable(host, view.detail);
+		}
+		const broke = transportBreak(error);
+		if (view.code !== NO_SERVER && broke == null) return renderFailure(view);
+		// A blank address on a page with no server is refused before any dial
+		// and names no door, so a server is the only way.
+		const doors = browserDoors(destinationOf(locator).route);
+		const relay = doors?.relay ?? null;
+		const throughServer = doors?.throughServer ?? true;
+		const blocked = relay == null ? null : await localNetworkBlock(relay);
+		if (blocked === "prompt" || blocked === "denied") return doorBlocked(blocked, view.detail);
+		const door = relay == null ? null : doorUnreachable(relay.host, broke ?? "");
+		if (throughServer) {
+			store.askServer(projection, resume?.() ?? null, door);
+			return null;
+		}
+		return door ?? renderFailure(view);
+	};
 	const failure = (error: unknown, resume: Resume) => {
 		const said = explained(error, resume);
 		if (said != null) store.toast(projection, "failure", said);
@@ -126,6 +158,15 @@ export function createManagedController(
 			if (inlineJoin && admissionRefusal(error) != null) return;
 			failure(error, resume);
 		});
+	// A direct message needs this browser to have an address of its own.
+	// Browser to browser, it has one with or without a Rooms server. Through
+	// the Rooms server, the server is the address, so a page with none asks
+	// for one before anything opens, with the conversation to come back to.
+	const reachableForDm = (resume: () => string | null): boolean => {
+		if (projection.get().server != null || (selfLocator() ?? "") !== "") return true;
+		store.askServer(projection, resume());
+		return false;
+	};
 	const dirAddressOf = (id: DirId) => dirAddress(projection.get().dirs, id);
 	const current = () => store.activeConv(projection);
 	const run = (name: string, ...args: string[]) => session.actions.run(name, args);
@@ -325,9 +366,6 @@ export function createManagedController(
 				linked === null
 					? joinAddress({ room: destination.room, locator: destination.locator || undefined })
 					: joinAddress({ locator: linked.link, room: linked.label || undefined });
-			if (store.serverOrAsk(projection, resume) == null) {
-				return Promise.resolve({ ok: false, code: NO_SERVER, text: "" });
-			}
 			return session.openings.run(
 				async (opening): Promise<JoinOutcome> => {
 					const signal = opening.signal;
@@ -362,14 +400,18 @@ export function createManagedController(
 				},
 				null,
 				signal,
-			).catch((error): JoinOutcome => {
+			).catch(async (error): Promise<JoinOutcome> => {
 				if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
 					return { ok: true };
 				}
 				const id = linked === null
 					? destinationOf(destination.locator).id ?? ""
 					: roomLinkDestination(linked.link, linked.label)?.directory ?? "";
-				const said = explained(error, resume);
+				// A typed address was dialed on the way to its room, so a break is
+				// said by the door it took. A room link names its directory itself.
+				const said = linked === null
+					? await unreached(error, resume, destination.locator)
+					: explained(error, resume);
 				if (said != null) rememberJoinRefusal(projection, id, destination.room, error);
 				return {
 					ok: false,
@@ -382,19 +424,18 @@ export function createManagedController(
 		reachDirectory: async (locator, nick, { home = false, signal } = {}) => {
 			if (signal?.aborted) return "";
 			const resume = () => joinAddress({ locator: locator || undefined });
-			if (store.serverOrAsk(projection, resume) == null) return "";
 			try {
 				await session.openings.run((opening) => reach(locator, nick, home, opening.signal), null, signal);
 				return "";
 			} catch (error) {
-				const said = unreached(error, resume);
+				const said = await unreached(error, resume, locator);
 				if (said == null) return "";
 				rememberJoinRefusal(projection, destinationOf(locator).id ?? "", "", error);
 				return said;
 			}
 		},
 		startDm: (peer) => {
-			if (store.serverOrAsk(projection, () => dmAddress(peer)) == null) return Promise.resolve();
+			if (!reachableForDm(() => dmAddress(peer))) return Promise.resolve();
 			return act(
 				session.openings.run(async (opening) => {
 					const id = await session.actions.direct(directory(), peer, false, undefined, opening);
@@ -406,7 +447,7 @@ export function createManagedController(
 		recoverDm: (key) => {
 			const row = store.getConv(projection, key);
 			const resume = row?.type === "dm" ? () => dmAddress(row.id) : null;
-			if (store.serverOrAsk(projection, () => resume?.() ?? null) == null) return Promise.resolve("");
+			if (!reachableForDm(() => resume?.() ?? null)) return Promise.resolve("");
 			return session.openings.run(async (opening) => {
 				try {
 					if (row?.type !== "dm" || row.peerRegistrationId === "") {

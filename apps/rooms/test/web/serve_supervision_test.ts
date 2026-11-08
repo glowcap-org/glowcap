@@ -5,7 +5,7 @@
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { ROOT, WEB } from "../support/paths.ts";
 import { delay } from "../support/wait.ts";
-import { roomPortOf } from "../support/rooms_server.ts";
+import { roomPortOf, waitForHttp } from "../support/rooms_server.ts";
 import { reachRoomThroughRelay, startWeb, waitForIndex } from "./serve_harness.ts";
 import { assert } from "../assert.ts";
 
@@ -45,11 +45,11 @@ Deno.test("rooms web UI attaches to a room server already on its port", async ()
 	const { proc: first, httpPort: httpFirst } = await startWeb();
 	let second: Deno.ChildProcess | null = null;
 	try {
-		await waitForIndex(httpFirst);
 		const roomPort = await roomPortOf(httpFirst); // the first owns it
 		const attached = await startWeb(roomPort);
 		second = attached.proc;
 		const httpSecond = attached.httpPort;
+		await waitForHttp(httpSecond);
 		const page = await waitForIndex(httpSecond);
 		assert(
 			page.includes("glowcap rooms"),
@@ -70,12 +70,13 @@ Deno.test("rooms web UI takes over when an attached room server dies", async () 
 	const { proc: first, httpPort: httpFirst } = await startWeb();
 	let second: Deno.ChildProcess | null = null;
 	try {
-		await waitForIndex(httpFirst);
 		const roomPort = await roomPortOf(httpFirst);
 		const attached = await startWeb(roomPort);
 		second = attached.proc;
 		const httpSecond = attached.httpPort;
-		await waitForIndex(httpSecond);
+		// The page serves before the attach finishes, so the owner falls only
+		// once the second holds the directory.
+		await waitForHttp(httpSecond);
 
 		try {
 			first.kill("SIGINT");

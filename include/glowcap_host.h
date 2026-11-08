@@ -888,10 +888,12 @@ int32_t glowcap_host_resolver_break(GlowcapHost *host, uint64_t resolver_id, con
    session teardown or settlement is complete cleanup. Unminted ids refuse
    NOT_FOUND; other failures leave the operation retryable. */
 int32_t glowcap_host_resolver_abandon(GlowcapHost *host, uint64_t resolver_id, const uint8_t *message, size_t message_len);
-/* Borrow the session whose Port delivered this callback turn. Trusted local
-   owning delivery succeeds with a null session. A nonnull handle is Host-owned
-   and lives with that session; do not release it. This identifies the arriving
-   connection without reconstructing delivery state outside the core. */
+/* Borrow the session that delivered this callback turn: the one whose Port
+   carried it, or the one an in-Host forwarder such as a Loam endpoint continued
+   across a local hop. Work the application itself originated succeeds with a
+   null session. A nonnull handle is Host-owned and lives with that session; do
+   not release it. This identifies the arriving connection without
+   reconstructing delivery state outside the core. */
 int32_t glowcap_host_turn_session(GlowcapHostTurn *turn, GlowcapHostSession **out_session);
 /* From inside a behavior callback, forward this turn's call to an opaque
    Host-scoped target and let this object's own answer settle on the forwarded

@@ -105,6 +105,26 @@ export const relayUnreachable = (host: string, detail: string) =>
 export const serverUnreachable = (host: string, remedy: string, detail: string) =>
 	`Rooms can't reach the Rooms server at ${host}, which this browser connects through. ${remedy} (${detail})`;
 
+/** This browser stands between a public page and a server on the person's own
+ * computer or network, asking once or refusing until they allow it. */
+export const browserBlocks = (permission: "prompt" | "denied") =>
+	permission === "denied"
+		? "This browser blocks this page from reaching servers on your computer or network. Allow local network access for this site in the browser's site settings"
+		: "This browser asks before this page reaches a server on your computer or network. Allow it when the browser asks";
+
+/** A reach on a page with no Rooms server, through the relay door the
+ * directory named, that did not get through. The relay is the one address a
+ * person can check. `detail` is the break's own words when the dial reported
+ * them, and empty when it reported another door's refusal instead. */
+export const doorUnreachable = (relayHost: string, detail: string) =>
+	`Rooms couldn't reach that directory through its relay at ${relayHost}. The directory may be off, or its relay isn't answering.${
+		detail === "" ? "" : ` (${detail})`
+	}`;
+/** The same reach while this browser stands between the page and a relay on
+ * the person's own computer or network. */
+export const doorBlocked = (permission: "prompt" | "denied", detail: string) =>
+	`${browserBlocks(permission)}, then connect again. (${detail})`;
+
 /** An unexplained failure to reach a directory while the relay answers. A
  * browser sees only a closed socket, so the two causes it cannot tell apart are
  * both named, and the original words follow for whoever is debugging. */

@@ -1,6 +1,9 @@
 //! Sleep, activation, and durable visibility use the ordinary Vat call path.
 const std = @import("std");
 const f = @import("fixture.zig");
+const host_support = @import("../../support/core_host.zig");
+const pairs = @import("../../support/host_pair.zig");
+const CapturedRef = @import("../../support/capture.zig").CapturedRef;
 
 test "loam attachment creation refuses an unsubmitted transaction without consuming it" {
     var fixture: f.Fixture = undefined;
@@ -55,6 +58,61 @@ test "loam generic forwarded calls retain exact owning results through preparati
     try std.testing.expectEqual(@as(usize, 1), source.calls);
     try std.testing.expectEqual(@as(usize, 0), fixture.attached.pending_bytes);
     for (fixture.data.store.cache.pins) |pin| try std.testing.expectEqual(@as(u64, 0), pin.sequence);
+}
+
+/// Records what a forwarded target learns about the turn that reached it.
+const ProvenanceTarget = struct {
+    const Seen = struct { delivering: ?*f.driver.HostSession = null, routing: ?*f.driver.HostSession = null, calls: usize = 0 };
+    seen: *Seen,
+    pub fn handle(self: *ProvenanceTarget, turn: *f.driver.HostTurn, _: ?[]const u8, args: f.driver.Args) !f.driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
+        self.seen.calls += 1;
+        self.seen.delivering = turn.deliveringSession();
+        self.seen.routing = turn.session;
+        return arg_values[0];
+    }
+};
+
+test "loam forwarded calls carry the delivering session across the local hop" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    var seen: ProvenanceTarget.Seen = .{};
+    const actor = try fixture.host.vat.spawn(f.driver.Hosting(ProvenanceTarget), .{ .inner = .{ .seen = &seen } });
+    const target = try fixture.host.liftLocalActor(actor);
+    defer fixture.host.releaseCapabilityTerminal(target, null);
+    var source: GenericForward = .{ .target = target };
+    const behaviors = [_]f.hosting.Behavior{.{ .schema = 7, .context = &source, .invoke = GenericForward.invoke }};
+    fixture.attached.behaviors = &behaviors;
+    var caller = host_support.init(std.testing.allocator, @splat(0x72), f.driver.Host.Options.withFrameCap(4096));
+    defer caller.deinit();
+    const swiss = try fixture.host.publishDurableCapability(@splat(0x38), fixture.root);
+    const pair = try pairs.openPair(&caller, &fixture.host, "127.0.0.1:9745");
+    var fetched: CapturedRef = .{};
+    try caller.vowOn(try caller.fetch(pair.a, swiss.slice()), .{ .ctx = &fetched, .func = CapturedRef.record });
+    try pairs.pumpToQuiescence(&.{pair});
+    const root = try caller.liftCapability(pair.a, try fetched.require());
+    defer caller.releaseCapabilityTerminal(root, null);
+    const call = try caller.callCapability(std.testing.allocator, pair.a, root, "echo", &.{.{ .integer = 7 }}, 4096);
+    defer call.deinit();
+    var slot: [1]f.hosting.Worker.Slot = undefined;
+    var worker: f.hosting.Worker = .init(&slot, fixture.data.backend.readerCapacity());
+    for (0..64) |_| {
+        try caller.flushSession(pair.a);
+        try fixture.host.flushSession(pair.b);
+        try pairs.pumpToQuiescence(&.{pair});
+        _ = try fixture.host.vat.driveIngressBudgeted(.local, 64);
+        try fixture.attached.advance();
+        try worker.drive(fixture.attached, &fixture.data.backend);
+        if (call.result() != .pending) break;
+    }
+    try std.testing.expectEqual(@as(i64, 7), call.result().ready.integer);
+    try std.testing.expectEqual(@as(usize, 1), seen.calls);
+    // The local hop keeps the wire session as provenance and nothing more:
+    // the target's own replies still route through its local producer.
+    try std.testing.expectEqual(pair.b, seen.delivering.?);
+    try std.testing.expect(seen.routing == null);
 }
 
 test "loam near forwarding refuses without losing the eventual effect" {

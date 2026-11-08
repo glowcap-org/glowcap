@@ -35,11 +35,7 @@ import {
 } from "@glowcap/runtime";
 import type { Ref } from "@glowcap/runtime";
 import { roomsHostOptions, type RoomsHostPosture } from "./profile.ts";
-
-/** Whether `locator` is an `ocapn://` URI rather than a `hostname:port`. */
-export function isUriLocator(locator: string): boolean {
-	return locator.includes("://");
-}
+import { isUriLocator } from "./doors.ts";
 
 /** The token the server prints after `ROOMS-SERVER-LISTENING`. */
 const ANNOUNCE_RE = /ROOMS-SERVER-LISTENING (\S+)/;

@@ -90,25 +90,32 @@ impl Registration {
 	}
 }
 
+/// The relay profiles a browser opens by itself: a WebSocket to the relay a
+/// locator names, with no byte-channel server of its own between.
+pub const TRANSPORTS: [&str; 2] = [TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY];
+
 /// Compose both relay profiles without linking an FFI transport archive.
 pub fn connector() -> Result<Connector> {
-	Connector::new(
-		&[TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY],
-		|host, locator, _origin, options, timeout| {
-			Box::pin(async move {
-				if options.is_some() {
-					return Err(invalid("browser relay has no per-operation byte options"));
-				}
-				let channel = super::open_websocket(&dial_url(locator)?)?;
-				Session::dial_channel(&host, locator, channel, timeout, None).await
-			})
-		},
-	)
+	Connector::new(&TRANSPORTS, |host, locator, _origin, options, timeout| {
+		Box::pin(async move {
+			if options.is_some() {
+				return Err(invalid("browser relay has no per-operation byte options"));
+			}
+			let channel = super::open_websocket(&dial_url(locator)?)?;
+			Session::dial_channel(&host, locator, channel, timeout, None).await
+		})
+	})
 }
 
 /// Validate a relay locator and render its rendezvous URL without opening I/O.
 pub fn dial_url(locator: &Locator) -> Result<String> {
 	Ok(route(locator)?.append("rendezvous", &locator.designator))
+}
+
+/// The relay endpoint a relay locator names, admitted by the rule the dial
+/// uses, so a reader that says the relay says the one the dial would open.
+pub fn relay_url(locator: &Locator) -> Result<String> {
+	Ok(route(locator)?.0.to_owned())
 }
 
 /// Hold one registration until a caller pairs with it, then accept that
@@ -126,10 +133,7 @@ pub async fn accept(host: &Host, locator: &Locator, registration_url: &str, hand
 }
 
 fn route(locator: &Locator) -> Result<Route<'_>> {
-	if !matches!(
-		locator.transport.as_str(),
-		TRANSPORT_KEYED_RELAY | TRANSPORT_NOISE_RELAY
-	) {
+	if !TRANSPORTS.contains(&locator.transport.as_str()) {
 		return Err(invalid("browser relay requires keyed-relay or noise-relay"));
 	}
 	if locator.designator.len() != 64

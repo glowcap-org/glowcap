@@ -393,6 +393,7 @@ export class ManagedProjection {
 						session: "connected",
 						reached: true,
 						statusText: "",
+						transport: notice.transport ?? "",
 					});
 				}
 				return;

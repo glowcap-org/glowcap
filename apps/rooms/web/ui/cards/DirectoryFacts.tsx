@@ -10,6 +10,7 @@
 // the name you go by on one is not a name you own anywhere else.
 
 import type { DirView } from "../directory.ts";
+import { useManagedSession } from "../session/managed/context.tsx";
 import { dirConnection, directoryDmBlocked } from "../text.ts";
 import {
 	directoryConnection,
@@ -51,8 +52,9 @@ export function grantedNameSaid(dir: Pick<DirView, "nick"> | null): string {
 export function DirectoryFacts({ dir, rooms }: { dir: DirView; rooms: number }) {
 	// The same derivation the rows on this directory read, so a reader comparing
 	// the two is comparing two readings of one connection rather than two
-	// opinions about it.
-	const connection = dirConnection(dir.session, dir.statusText);
+	// opinions about it. The route is this card's alone: a row has no room for
+	// it, and this is the surface that is about the directory.
+	const connection = dirConnection(dir.session, dir.statusText, dir.transport, useManagedSession().local);
 	return (
 		<dl className="dirfacts">
 			<dt>{directoryConnection}</dt>
@@ -72,6 +74,7 @@ export function DirectoryFacts({ dir, rooms }: { dir: DirView; rooms: number }) 
 					    directory rather than about the reader. */
 				}
 				{connection.why !== "" && <span className="dirfact-why">{connection.why}</span>}
+				{connection.route !== "" && <span className="dirfact-why" id="dirfactRoute">{connection.route}</span>}
 			</dd>
 			<dt>{factYourName}</dt>
 			<dd>{grantedNameSaid(dir)}</dd>

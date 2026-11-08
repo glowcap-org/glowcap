@@ -66,6 +66,9 @@ export class ManagedRoomsSession {
 		workspace: RoomsManagedWorkspace,
 		custody: RoomsManagedWorkspace,
 		report: (source: string, error: unknown) => void,
+		/** Whether this browser runs the session, dialing every directory
+		 * itself, or is attached to one a process elsewhere runs. */
+		readonly local = true,
 	) {
 		this.application = application;
 		this.workspace = workspace;

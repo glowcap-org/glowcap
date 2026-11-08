@@ -2,6 +2,7 @@
 //! turn participant keep the producer alive independently of its observer.
 const std = @import("std");
 const actors = @import("actors");
+const engine = @import("engine");
 const host_mod = @import("../host.zig");
 const value_mod = @import("../value.zig");
 const value_copy = @import("../value_copy.zig");
@@ -24,6 +25,11 @@ pub const Producer = struct {
     outcome: union(enum) { pending, fulfilled, broken: FailureText } = .pending,
     failure_kind: @import("action.zig").VowFailure = .broken,
     lease: ?@import("admission.zig").PendingWorkLease = null,
+    /// The session on whose behalf an in-Host forwarder placed this local
+    /// delivery, when its own turn came from that session's Port. Provenance
+    /// the behavior may read, never routing: the reply and fresh exports still
+    /// follow the local producer. Only trusted forwarders set it.
+    via: ?engine.PeerHandle = null,
 
     pub fn retain(self: *Producer) void {
         std.debug.assert(self.refs != std.math.maxInt(usize));
@@ -218,18 +224,20 @@ pub fn arguments(turn: *actors.Turn) !struct { verb: ?[]const u8, args: []const 
 /// Queued inputs belong to the Host/Vat, while
 /// the operation and bounded reply buffer belong to `allocator`.
 pub fn callLocalCapability(host: *host_mod.Host, allocator: std.mem.Allocator, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value, reply_bytes: usize) !*owned.Call {
-    return callAdmitted(host, allocator, target, verb, args, reply_bytes, .application);
+    return callAdmitted(host, allocator, target, verb, args, reply_bytes, .application, null);
 }
 
 /// One constructor for top-level and lease-authorized retained child calls.
-pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value, reply_bytes: usize, admission: @import("admission.zig").WorkAdmission) !*owned.Call {
+/// `via` names the session whose turn the forwarder is continuing, or null for
+/// a call the application itself originates.
+pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value, reply_bytes: usize, admission: @import("admission.zig").WorkAdmission, via: ?engine.PeerHandle) !*owned.Call {
     try host.refuseReentry();
     try admission.check(host);
     if (host.localActorFor(target) == null) return error.UnknownCapability;
     const charge = try inputCharge(host, verb, args);
     const id = try vows.peekVowId(host);
     const source = try host.allocator.create(Producer);
-    source.* = .{ .host = host };
+    source.* = .{ .host = host, .via = via };
     errdefer source.release();
     source.lease = try admission.retain(host);
     const call = try owned.createLocal(host, allocator, reply_bytes, source);

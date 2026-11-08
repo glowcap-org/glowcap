@@ -143,8 +143,10 @@ qualify.
 ## Adding a build step
 
 Add `zig build <name>` on its own line in the section of
-[Build steps](docs/build-steps.md) that matches what the step proves, beside
-its closest sibling, then run `zig build gen-build-steps`.
+[Build steps](docs/build-steps.md), or of
+[application build steps](docs/build-steps-apps.md) for an application, demo,
+or benchmark, that matches what the step proves, beside its closest sibling,
+then run `zig build gen-build-steps`.
 The comment on every bare row is written from the build graph: the step's own
 description, then `part of` and the nearest steps that run it, derived from
 the step dependencies. The description says what the step proves and ends with

@@ -224,6 +224,6 @@ links. Startup summaries describe the session and HTTP profile. Capacity
 counters record table pressure even when the cleanup reserve admits the
 operation, and admitted and refused counters record the final outcome.
 
-[`bench-rooms-admission`](../build-steps.md) enforces zero steady policy
+[`bench-rooms-admission`](../build-steps-apps.md) enforces zero steady policy
 allocations, and the [cost record](../../bench/rooms/session-costs.md) describes
 its measurement scope.

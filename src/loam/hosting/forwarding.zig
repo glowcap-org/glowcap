@@ -10,9 +10,11 @@ pub const Forwarding = struct {
     /// One Call owns exact returned capabilities for local and wire delivery.
     /// Neither completion borrows admission leases.
     /// The input arena survives rechecks. Ordinary forwarding may use working.
-    pub fn begin(self: *Forwarding, work: *const driver.Host.PendingWorkLease, target: driver.Capability, verb: []const u8, args: []const driver.Value, arena: std.mem.Allocator, reply_bytes: usize) !void {
+    /// `via` is the admitting turn's session, so a local target still learns
+    /// who delivered the operation it is completing.
+    pub fn begin(self: *Forwarding, work: *const driver.Host.PendingWorkLease, target: driver.Capability, verb: []const u8, args: []const driver.Value, arena: std.mem.Allocator, reply_bytes: usize, via: ?@FieldType(driver.HostSession, "peer_handle")) !void {
         std.debug.assert(self.call == null);
-        self.call = try work.call(arena, target, verb, args, reply_bytes);
+        self.call = try work.call(arena, target, verb, args, reply_bytes, via);
     }
 
     pub fn poll(self: *Forwarding) Result {

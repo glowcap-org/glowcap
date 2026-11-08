@@ -91,6 +91,15 @@ impl Transport {
 	pub fn parse(name: &str) -> Option<Self> {
 		TRANSPORTS.into_iter().find(|transport| transport.name() == name)
 	}
+	/// The transport `name` names, or the refusal listing the ones that exist.
+	pub fn named(name: &str) -> Result<Self, Refusal> {
+		Self::parse(name).ok_or_else(|| {
+			Refusal::unsupported(format!(
+				"\"{name}\" names no transport this server knows ({})",
+				TRANSPORTS.map(Transport::name).join(", ")
+			))
+		})
+	}
 	pub const fn name(self) -> &'static str {
 		match self {
 			Self::Tcp => "tcp",
@@ -160,6 +169,12 @@ pub fn unsupported(detail: impl Into<String>) -> Refusal {
 	Refusal::coded(FailureCode::ListenerUnsupported, detail)
 }
 
+/// One option value as the wire or a command line gave it.
+enum Given<'a> {
+	Integer(i128),
+	Text(Option<&'a str>),
+}
+
 /// What an `up` asked for, read from the wire and checked against the
 /// seat's declared options.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -183,12 +198,7 @@ impl Ask {
 			.text()
 			.filter(|text| text.len() <= MAX_TRANSPORT_NAME)
 			.ok_or_else(|| Refusal::plain("up takes the transport as a short string"))?;
-		let transport = Transport::parse(named).ok_or_else(|| {
-			Refusal::unsupported(format!(
-				"\"{named}\" names no transport this server knows ({})",
-				TRANSPORTS.map(Transport::name).join(", ")
-			))
-		})?;
+		let transport = Transport::named(named)?;
 		let mut ask = Self::default();
 		let Some(options) = args.get(1) else {
 			return Ok((transport, ask));
@@ -206,45 +216,98 @@ impl Ask {
 			let Some(name) = name.text() else {
 				return Err(Refusal::plain("an up option is a [name, value] pair"));
 			};
-			if seen.contains(&name.to_string()) {
-				return Err(Refusal::plain(format!("the {name} listener option was supplied twice")));
-			}
-			seen.push(name.to_string());
-			let declared = transport.options();
-			if !declared.contains(&name) {
-				let takes = if declared.is_empty() {
-					String::new()
-				} else {
-					format!(" (it takes {})", declared.join(", "))
-				};
-				return Err(Refusal::plain(format!(
-					"a {} listener has no \"{name}\" option{takes}",
-					transport.name()
-				)));
-			}
 			let Some(value) = pair.at(1) else {
 				return Err(Refusal::plain("an up option is a [name, value] pair"));
 			};
-			if name == "port" {
-				let port = value
-					.integer()
-					.and_then(|port| u16::try_from(port).ok())
-					.ok_or_else(|| Refusal::plain("port is an integer between 0 and 65535"))?;
-				ask.port = Some(port);
-				continue;
-			}
-			let text = value
-				.text()
-				.filter(|text| !text.is_empty() && text.len() <= MAX_ASK_VALUE)
-				.ok_or_else(|| Refusal::plain(format!("{name} is a non-empty string under 4 KiB")))?;
-			match name {
-				"bind" => ask.bind = Some(text.into()),
-				"advertise" => ask.advertise = Some(text.into()),
-				"relay" => ask.relay = Some(text.into()),
-				_ => unreachable!("the declared options are the four above"),
-			}
+			let given = match value.integer() {
+				Some(integer) => Given::Integer(integer),
+				None => Given::Text(value.text()),
+			};
+			ask.take(transport, &mut seen, name, given)?;
 		}
 		Ok((transport, ask))
+	}
+	/// Read a listener declaration written as text, the form a command line
+	/// takes: `<transport>[,<name>=<value>...]`, with the same options and
+	/// the same refusals as `up` on the wire.
+	pub fn parse(text: &str) -> Result<(Transport, Self), Refusal> {
+		let mut parts = text.split(',');
+		let named = parts.next().unwrap_or_default().trim();
+		if named.is_empty() || named.len() > MAX_TRANSPORT_NAME {
+			return Err(Refusal::plain(format!(
+				"a listener is declared as <transport>[,<name>=<value>...], naming one of {}",
+				TRANSPORTS.map(Transport::name).join(", ")
+			)));
+		}
+		let transport = Transport::named(named)?;
+		let mut ask = Self::default();
+		let mut seen = Vec::new();
+		for (count, part) in parts.enumerate() {
+			if count >= MAX_ASK_OPTIONS {
+				return Err(Refusal::plain("a listener declaration names at most 8 options"));
+			}
+			let Some((name, value)) = part.split_once('=') else {
+				return Err(Refusal::plain(format!(
+					"a listener option is written <name>=<value>, not {part:?}"
+				)));
+			};
+			let given = if name == "port" {
+				Given::Integer(
+					value
+						.parse::<i128>()
+						.map_err(|_| Refusal::plain("port is an integer between 0 and 65535"))?,
+				)
+			} else {
+				Given::Text(Some(value))
+			};
+			ask.take(transport, &mut seen, name, given)?;
+		}
+		Ok((transport, ask))
+	}
+	/// Accept one named option against the transport's declared ones.
+	fn take(
+		&mut self,
+		transport: Transport,
+		seen: &mut Vec<String>,
+		name: &str,
+		given: Given<'_>,
+	) -> Result<(), Refusal> {
+		if seen.iter().any(|earlier| earlier == name) {
+			return Err(Refusal::plain(format!("the {name} listener option was supplied twice")));
+		}
+		seen.push(name.to_string());
+		let declared = transport.options();
+		if !declared.contains(&name) {
+			let takes = if declared.is_empty() {
+				String::new()
+			} else {
+				format!(" (it takes {})", declared.join(", "))
+			};
+			return Err(Refusal::plain(format!(
+				"a {} listener has no \"{name}\" option{takes}",
+				transport.name()
+			)));
+		}
+		if name == "port" {
+			let port = match given {
+				Given::Integer(port) => u16::try_from(port).ok(),
+				Given::Text(_) => None,
+			}
+			.ok_or_else(|| Refusal::plain("port is an integer between 0 and 65535"))?;
+			self.port = Some(port);
+			return Ok(());
+		}
+		let text = match given {
+			Given::Text(Some(text)) if !text.is_empty() && text.len() <= MAX_ASK_VALUE => text,
+			_ => return Err(Refusal::plain(format!("{name} is a non-empty string under 4 KiB"))),
+		};
+		match name {
+			"bind" => self.bind = Some(text.into()),
+			"advertise" => self.advertise = Some(text.into()),
+			"relay" => self.relay = Some(text.into()),
+			_ => unreachable!("the declared options are the four above"),
+		}
+		Ok(())
 	}
 	/// The intent kept for a listener brought up with this ask.
 	pub fn intent(&self, transport: Transport) -> ListenerIntent {

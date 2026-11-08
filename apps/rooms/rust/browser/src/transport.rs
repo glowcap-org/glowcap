@@ -76,6 +76,37 @@ impl WebFront {
 	}
 }
 
+/// How this browser, with no Rooms server, reaches a directory address.
+pub(crate) struct Doors {
+	/// The relay of the first door this browser opens by itself, or `None`
+	/// when the address names none it can open.
+	pub relay: Option<String>,
+	/// Whether any door needs a Rooms server, which every transport outside
+	/// the relay profiles does.
+	pub through_server: bool,
+}
+
+/// The doors of a typed directory address, as this browser would take them,
+/// or `None` for text that is not one. A relay door whose relay the dial
+/// would refuse is not one this browser can open.
+pub(crate) fn browser_doors(address: &str) -> rooms_glowcap::routes::Result<Option<Doors>> {
+	let Some(doors) = rooms_glowcap::routes::directory_doors(address)? else {
+		return Ok(None);
+	};
+	let mut seen = Doors {
+		relay: None,
+		through_server: false,
+	};
+	for door in &doors {
+		if !browser::relay::TRANSPORTS.contains(&door.transport.as_str()) {
+			seen.through_server = true;
+		} else if seen.relay.is_none() {
+			seen.relay = browser::relay::relay_url(door).ok();
+		}
+	}
+	Ok(Some(seen))
+}
+
 /// The refusal for a reach that needs a relay on a page with no Rooms server:
 /// a typed line, so the page can ask for a server instead of showing it.
 pub(crate) fn no_server() -> String {
