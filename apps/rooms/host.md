@@ -128,8 +128,8 @@ own, apart from one opened from the published page.
   instead, by origin or page address, and an empty value allows none:
   `--allow-origin=https://rooms.example/rooms/app/`. A page address also
   prints a link that opens that page with this server, and with
-  `--session-state` a second link that opens it ready to attach to the shared
-  session.
+  `--session-state` (or `GLOWCAP_ROOMS_SESSION_STATE`) a second link that
+  opens it ready to attach to the shared session.
 
 ```sh
 glowcap apps rooms status

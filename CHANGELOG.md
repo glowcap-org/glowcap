@@ -30,11 +30,20 @@ and storage formats before 1.0.
 - `rooms-web` serves its page before its directory is up, so the directory's
   relay listeners can register with it, and `/locator` waits for the directory
   instead of answering that there is none.
+- `GLOWCAP_ROOMS_SESSION_STATE` serves the shared workspace the way
+  `--session-state` does, and the option wins when both are set.
 
 ### Fixed
 
-- `rooms-web --allow-origin` given more than once keeps every value instead
-  of only the last, the same as one comma-separated list.
+- `rooms-web` took the last of a repeated option and dropped the rest without
+  a word, so `--allow-origin` given twice let only the second page in. It now
+  reads its options the way every other Rooms command does. A repeated option,
+  an unknown one, or a port named both as an option and positionally is
+  refused by name. `--allow-origin` repeated extends the list, the same as one
+  comma-separated list. The defaults `zig build rooms-web` and `rooms-dev`
+  supply arrive as environment, so an option typed after `--` is the only one
+  of its name. `rooms-dev` names the backend options it owns instead of letting
+  `rooms-web` refuse them as repeats.
 - A call forwarded inside a Rooms server across a Loam hop kept no delivering
   session, so the directory card showed no transport and direct messages from
   different senders counted as one sender. `current_session()` in the Rust

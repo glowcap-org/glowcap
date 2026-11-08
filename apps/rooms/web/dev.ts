@@ -17,6 +17,9 @@ export interface DevelopmentLaunch {
 	args: string[];
 }
 
+/** The rooms-web options this front sets itself when it launches the backend. */
+const OWNED_BACKEND_OPTIONS = ["--http-bind", "--http-port", "--no-browser-assets"];
+
 export function parseDevelopmentLaunch(args: string[]): DevelopmentLaunch {
 	if (args.length < 2 || args[0]?.trim() === "") {
 		throw new Error("rooms-dev needs the rooms-web executable and public port");
@@ -24,6 +27,17 @@ export function parseDevelopmentLaunch(args: string[]): DevelopmentLaunch {
 	const port = Number(args[1]);
 	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 		throw new Error("rooms-dev public port must be an integer from 1 through 65535");
+	}
+	// The backend's bind, port, and asset mode are this front's own: it serves
+	// the page itself and proxies to a loopback backend, so a value given for
+	// them here would be refused as a repeat by rooms-web with no word of why.
+	const owned = args.slice(2).find((arg) =>
+		OWNED_BACKEND_OPTIONS.some((option) => arg === option || arg.startsWith(`${option}=`))
+	);
+	if (owned != null) {
+		throw new Error(
+			`rooms-dev owns the backend's ${owned.split("=")[0]}: it serves the page and proxies to a loopback backend`,
+		);
 	}
 	return { web: args[0], port, args: args.slice(2) };
 }

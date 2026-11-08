@@ -10,6 +10,18 @@ Deno.test("the development launch keeps server arguments separate from its publi
 	});
 	assertThrows(() => parseDevelopmentLaunch([]), Error, "rooms-web executable");
 	assertThrows(() => parseDevelopmentLaunch(["rooms-web", "0"]), Error, "integer from 1 through 65535");
+	// The backend options this front sets are refused here by name, not by
+	// rooms-web as a repeat.
+	assertThrows(
+		() => parseDevelopmentLaunch(["rooms-web", "8123", "--http-port=8080"]),
+		Error,
+		"rooms-dev owns the backend's --http-port",
+	);
+	assertThrows(
+		() => parseDevelopmentLaunch(["rooms-web", "8123", "--no-browser-assets"]),
+		Error,
+		"--no-browser-assets",
+	);
 });
 
 Deno.test("the readiness report yields only a loopback backend", () => {

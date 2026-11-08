@@ -1,7 +1,8 @@
 //! The Rooms browser front owns one production asset generation, the serve
 //! step, the Vite development supervisor, and its process proofs.
-//! All launches share one transport option and
-//! one dependency recipe.
+//! All launches share one transport choice and one dependency recipe. The
+//! build's choices reach the front as environment, so every argument on the
+//! command line is the person's own and none is given twice.
 
 const std = @import("std");
 const commands = @import("../commands.zig");
@@ -141,29 +142,28 @@ pub fn register(ctx: Context) Registered {
 fn addLaunch(ctx: Context, transport: Transport, launch: Launch) *std.Build.Step.Run {
     const b = ctx.b;
     const run = commands.addInstalledSystemRun(b, postureFor(transport), &.{"env"});
-    addEnvironment(run, b, launch);
+    addEnvironment(run, b, transport, launch);
     if (launch.hot_reload) run.addArgs(&.{
         "deno", "run", "-A", "--config=apps/rooms/deno.json", "apps/rooms/web/dev.ts",
     });
     Binary.web.addAbsoluteArg(run);
     if (ctx.pin_port != null or launch.hot_reload) run.addArg(b.fmt("{d}", .{ctx.pin_port orelse 8080}));
-    addOptions(run, b, transport, launch);
+    run.addPassthruArgs();
     addDependencies(run, ctx, transport);
     return run;
 }
 
-fn addEnvironment(run: *std.Build.Step.Run, b: *std.Build, launch: Launch) void {
+fn addEnvironment(run: *std.Build.Step.Run, b: *std.Build, transport: Transport, launch: Launch) void {
     Binary.server.addEnv(run);
+    run.addArg(b.fmt("GLOWCAP_ROOMS_TRANSPORT={s}", .{@tagName(transport)}));
     if (launch.state_dir) |dir| run.addArg(b.fmt("GLOWCAP_ROOMS_STATE={s}", .{dir}));
-}
-
-fn addOptions(run: *std.Build.Step.Run, b: *std.Build, transport: Transport, launch: Launch) void {
-    run.addArg(b.fmt("--transport={s}", .{@tagName(transport)}));
     if (launch.mint_everything) {
-        run.addArgs(&.{ "--admin-listeners", "--diagnostics", "--irc", "--operator", "--peering", "--trace" });
-        run.addArg(b.fmt("--session-state={s}", .{commands.rootPath(b, ".local/.state/rooms-session")}));
+        run.addArgs(&.{
+            "GLOWCAP_ROOMS_ADMIN_LISTENERS=1", "GLOWCAP_ROOMS_DIAGNOSTICS=1", "GLOWCAP_ROOMS_IRC=1",
+            "GLOWCAP_ROOMS_OPERATOR=1",        "GLOWCAP_ROOMS_PEERING=1",     "GLOWCAP_ROOMS_TRACE=1",
+        });
+        run.addArg(b.fmt("GLOWCAP_ROOMS_SESSION_STATE={s}", .{commands.rootPath(b, ".local/.state/rooms-session")}));
     }
-    run.addPassthruArgs();
 }
 
 fn addDependencies(run: *std.Build.Step.Run, ctx: Context, transport: Transport) void {
