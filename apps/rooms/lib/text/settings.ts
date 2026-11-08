@@ -77,6 +77,8 @@ export const settingsDmDirectSaid =
 export const settingsDmRelayLabel = "Through the room relay";
 export const settingsDmRelaySaid =
 	"Encrypted end to end, and the Rooms server only carries the encrypted bytes. A client that isn't a browser can write to you first.";
+/** The saved mode is shown as it is while the page has no Rooms server. */
+export const settingsDmRelayNeedsServer = "Relay direct messages need a Rooms server, and this page has none.";
 export const settingsDmReload = "Saving reloads this window.";
 
 export const sessionShareLabel = "Share this session";

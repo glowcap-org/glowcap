@@ -4,7 +4,13 @@
 
 import { assertEquals } from "./assert.ts";
 import { serverAskLead, sessionServerLead, sessionServerNone } from "../lib/text/session.ts";
-import { serverChangeLead, serverNone, serverRemoveSaid, settingsBrowserNoServer } from "../lib/text/settings.ts";
+import {
+	serverChangeLead,
+	serverNone,
+	serverRemoveSaid,
+	settingsBrowserNoServer,
+	settingsDmRelayNeedsServer,
+} from "../lib/text/settings.ts";
 
 const flat = /\bdirector(y|ies)\b[^.]*\bneeds?\b|reaches (shared sessions and )?directories/i;
 
@@ -17,6 +23,7 @@ Deno.test("every line that explains the Rooms server ties it to how this browser
 		serverNone,
 		serverRemoveSaid(false),
 		settingsBrowserNoServer,
+		settingsDmRelayNeedsServer,
 	];
 	for (const line of lines) {
 		assertEquals(flat.test(line.replace(/whose address has no browser route/, "")), false, line);

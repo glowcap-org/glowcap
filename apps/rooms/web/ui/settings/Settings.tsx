@@ -16,6 +16,7 @@ import {
 	settingsDmDirectLabel,
 	settingsDmDirectSaid,
 	settingsDmRelayLabel,
+	settingsDmRelayNeedsServer,
 	settingsDmRelaySaid,
 	settingsDmReload,
 	settingsHomeAway,
@@ -33,7 +34,7 @@ import { saveAndReload } from "../../../lib/text/controls.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
-import { current, type DmMode } from "../prefs.ts";
+import { current, type DmMode, dmNeedsServer } from "../prefs.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
@@ -420,6 +421,9 @@ function SettingsDialog(
 												</span>
 											</label>
 										</div>
+										{dmNeedsServer(dm, hasServer) && (
+											<Said id="dmNeedsServer" kind="warning">{settingsDmRelayNeedsServer}</Said>
+										)}
 										<p className="hint" id="dmReloadHint">{settingsDmReload}</p>
 										{dmError !== "" && <Said kind="failure">{dmError}</Said>}
 										<div className="actions">
