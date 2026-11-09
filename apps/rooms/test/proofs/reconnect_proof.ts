@@ -71,7 +71,7 @@ import { fail } from "../support/fail.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 const web = spawnWeb({
-	args: ["--transport=tcp", "0", "0", "--transport=iroh"],
+	args: ["--transport=iroh", "0", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",

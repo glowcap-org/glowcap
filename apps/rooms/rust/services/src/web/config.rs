@@ -41,13 +41,13 @@ pub const HELP: &str = concat!(
   --listen=<transport>[,<name>=<value>...]  also listen over another transport, as rooms-server; repeatable
       a relay listener registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or its relay option names another
   --state=<directory>  keep the directory identity and state across restarts
-  --session-state=<directory>  also serve a durable shared workspace and print its use and management links
+  --session-state=<directory>  also serve a durable shared workspace and print its use and management links (or GLOWCAP_ROOMS_SESSION_STATE)
   --history --bind=<host> --announce-host=<host>
   --admin-listeners --diagnostics --operator --peering --irc --trace
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
   --http-admission-per-address=true|false  charge each source address its own budget (default: false)
-  --allow-origin=<origin|page,...>  Rooms pages served elsewhere that may use this server, as origins or page addresses (default: ", super::relay::site_page!(), ", the page the website publishes, and an empty value allows none). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach (or GLOWCAP_RELAY_ALLOW_ORIGINS)
+  --allow-origin=<origin|page,...>  Rooms pages served elsewhere that may use this server, as origins or page addresses, listed with commas or by repeating the option (default: ", super::relay::site_page!(), ", the page the website publishes, and an empty value allows none). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach (or GLOWCAP_RELAY_ALLOW_ORIGINS)
   --http-trusted-proxies=<address|cidr,...>  proxies whose X-Forwarded-For client address selects the budget (default: none)
   --browser-admission-scale=<1..100> --browser-admission-rows=<1..65536>
   --browser-admission-rates=<class=burst/per-minute,...> --browser-admission-aggregate-scale=<1..100>
@@ -66,7 +66,7 @@ impl Config {
 		args: impl IntoIterator<Item = String>,
 		env: impl Fn(&str) -> Option<String>,
 	) -> Result<Option<Self>, String> {
-		let mut options = BTreeMap::new();
+		let mut options: BTreeMap<String, String> = BTreeMap::new();
 		let mut positional = Vec::new();
 		let mut raw_options = BTreeMap::new();
 		let mut declared = Vec::new();
@@ -95,9 +95,20 @@ impl Config {
 				if takes_value && (!option.contains('=') || (value.is_empty() && !empty_is_value)) {
 					return Err(needs_value(key));
 				}
-				// Transport build variants supply a default before user arguments.
-				// Preserve the web command's last-option-wins convention.
-				options.insert(key.to_owned(), value.to_owned());
+				// Every option is given once, as every Rooms front reads them: a
+				// second value would replace or be dropped without a word, so it
+				// is refused. The origin list is the exception, where repeating
+				// the option extends the list, the same as one list with commas.
+				let value = match options.get(key) {
+					Some(prior) if key == "allow-origin" => [prior.as_str(), value]
+						.into_iter()
+						.filter(|part| !part.is_empty())
+						.collect::<Vec<_>>()
+						.join(","),
+					Some(_) => return Err(format!("repeated option: --{key}")),
+					None => value.to_owned(),
+				};
+				options.insert(key.to_owned(), value);
 				raw_options.insert(key.to_owned(), arg.clone());
 			} else {
 				positional.push(arg);
@@ -105,6 +116,13 @@ impl Config {
 		}
 		if positional.len() > 2 {
 			return Err("rooms-web accepts HTTP and room ports as its two positional arguments".into());
+		}
+		// A port named both ways is one value given twice, like a repeated option.
+		if options.contains_key("http-port") && !positional.is_empty() {
+			return Err("the HTTP port is given twice, as --http-port and as the first positional argument".into());
+		}
+		if options.contains_key("port") && positional.len() > 1 {
+			return Err("the room port is given twice, as --port and as the second positional argument".into());
 		}
 		let port = options
 			.remove("http-port")
@@ -160,6 +178,8 @@ impl Config {
 			})?;
 		let session = options
 			.remove("session-state")
+			.or_else(|| env("GLOWCAP_ROOMS_SESSION_STATE"))
+			.filter(|state| !state.is_empty())
 			.map(|state| {
 				crate::session::Config::parse([format!("--state={state}")], &env)
 					.map_err(|error| error.to_string())?
@@ -348,6 +368,25 @@ mod tests {
 		assert_eq!(config.relay.origins[0].ascii_serialization(), "https://glowcap.org");
 		let pages: Vec<_> = config.relay.pages.iter().map(url::Url::as_str).collect();
 		assert_eq!(pages, ["https://glowcap.org/rooms/app/"]);
+		// The option repeated keeps every value, in order, the same as one list.
+		let repeated = Config::parse(
+			[
+				"--allow-origin=https://glowcap.org/rooms/app/".into(),
+				"--allow-origin=http://127.0.0.1:8093".into(),
+			],
+			|_| None,
+		)
+		.unwrap()
+		.unwrap();
+		assert_eq!(repeated.relay.origins, config.relay.origins);
+		assert_eq!(repeated.relay.pages, config.relay.pages);
+		// An empty value among others adds nothing, and alone it allows none.
+		for mixed in [
+			["--allow-origin=", "--allow-origin=http://127.0.0.1:8093"],
+			["--allow-origin=http://127.0.0.1:8093", "--allow-origin="],
+		] {
+			assert_eq!(parse(&mixed).relay.origins.len(), 1, "{mixed:?}");
+		}
 		assert!(Config::parse(["--allow-origin=https://glowcap.org/rooms/app".into()], |_| None).is_err());
 		// A page at the root of its origin is written with its `/`, and a bare
 		// origin without one, so the two are told apart as written.
@@ -363,6 +402,48 @@ mod tests {
 			config.relay.listed,
 			["https://pages.example/", "https://origin.example"]
 		);
+	}
+
+	#[test]
+	fn every_other_option_is_given_once_and_a_port_is_named_one_way() {
+		let refused = |args: &[&str]| {
+			Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None)
+				.err()
+				.unwrap()
+		};
+		assert_eq!(
+			refused(&["--http-port=8081", "--http-port=8082"]),
+			"repeated option: --http-port"
+		);
+		assert_eq!(
+			refused(&["--transport=iroh", "--transport=tcp"]),
+			"repeated option: --transport"
+		);
+		assert_eq!(refused(&["--operator", "--operator"]), "repeated option: --operator");
+		assert_eq!(
+			refused(&["8081", "--http-port=8081"]),
+			"the HTTP port is given twice, as --http-port and as the first positional argument"
+		);
+		assert_eq!(
+			refused(&["8081", "9100", "--port=9100"]),
+			"the room port is given twice, as --port and as the second positional argument"
+		);
+		// The environment supplies a default the argument replaces, never a
+		// second value, so a launcher's choice and a person's coexist.
+		let env = |key: &str| (key == "GLOWCAP_ROOMS_TRANSPORT").then(|| "iroh".into());
+		let config = Config::parse(["--transport=tcp".into()], env).unwrap().unwrap();
+		assert!(config.server_args.contains(&"--transport=tcp".to_owned()));
+	}
+
+	#[test]
+	fn the_session_workspace_is_read_from_the_argument_or_the_environment() {
+		let env = |key: &str| (key == "GLOWCAP_ROOMS_SESSION_STATE").then(|| "/tmp/env-session".into());
+		assert!(Config::parse([], env).unwrap().unwrap().session.is_some());
+		assert!(Config::parse([], |_| None).unwrap().unwrap().session.is_none());
+		let config = Config::parse(["--session-state=/tmp/arg-session".into()], env)
+			.unwrap()
+			.unwrap();
+		assert_eq!(config.session.unwrap().state, Path::new("/tmp/arg-session"));
 	}
 
 	#[test]

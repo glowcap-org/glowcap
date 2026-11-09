@@ -102,13 +102,13 @@ impl Config {
 				&& !Transport::OPTIONS.contains(&key)
 				&& !rooms_application::admission::Settings::OPTIONS.contains(&key)
 			{
-				return Err(Error::refused(format!("unknown server option: --{key}")));
+				return Err(Error::refused(format!("unknown option: --{key}")));
 			}
 			if !FLAGS.contains(&key) && !option.contains('=') {
 				return Err(Error::refused(format!("--{key} takes a value")));
 			}
 			if named.insert(key.to_owned(), value.to_owned()).is_some() {
-				return Err(Error::refused(format!("repeated server option: --{key}")));
+				return Err(Error::refused(format!("repeated option: --{key}")));
 			}
 		}
 		let value = |key: &str| {
