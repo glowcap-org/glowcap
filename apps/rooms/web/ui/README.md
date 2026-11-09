@@ -122,7 +122,7 @@ returns focus to the action that asked.
 Session setup, the Settings tabs, the room and directory cards, and every Operations page use only these parts. The
 Settings tabs divide by subject:
 
-- **Connection** holds the locators.
+- **Connection** holds the directory and server addresses.
 - **Session** holds where the session lives and what it keeps.
 - **Holdings** holds what the session is holding: room links, archive peers and their shares, operations capabilities,
   the attached-session link, and access grants.

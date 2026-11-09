@@ -229,7 +229,7 @@ try {
 				rosterOpen: true,
 				settingsTab: "session",
 				opsPane: "listeners",
-				remembered: { locator: "ocapn://elsewhereelsewhere.iroh", room: "lobby", nick: "ada" },
+				remembered: { address: "ocapn://elsewhereelsewhere.iroh", room: "lobby", nick: "ada" },
 			}),
 		);
 	});

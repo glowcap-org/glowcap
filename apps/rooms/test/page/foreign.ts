@@ -17,7 +17,7 @@ export async function run(
 	hangPort: number,
 ): Promise<string> {
 	// ── A room owned by another server ──────────────────────────────────
-	// The locator changes which directory the room is entered on; the page does
+	// The address changes which directory the room is entered on; the page does
 	// not proxy a foreign room through the server that served its HTML. Staying in
 	// the local room while doing it is the point: a second directory is opened
 	// beside the first, not instead of it.
@@ -82,7 +82,7 @@ export async function run(
 	const aimed = await tab.inputValue("#joinAddressField");
 	if (aimed !== "") {
 		fail(
-			`the join card did not keep this directory selected; the locator holds ${JSON.stringify(aimed)}`,
+			`the join card did not keep this directory selected; the address holds ${JSON.stringify(aimed)}`,
 		);
 	}
 
@@ -105,7 +105,7 @@ export async function run(
 	// Stopping an act that is still waiting. An address this tab has not reached
 	// is a connect rather than a join, and the busy button keeps saying so rather
 	// than becoming a second press of it; the × beside it is the stop, the same
-	// mark that takes a file chip back. The locator has to hang, not refuse:
+	// mark that takes a file chip back. The address has to hang, not refuse:
 	// a port nobody is holding is reset in a millisecond, and the card would
 	// settle before the × had a frame to be the thing this proof pressed.
 	const cancelled = `127.0.0.1:${hangPort}`;
@@ -168,7 +168,7 @@ export async function run(
 		() => (document.getElementById("joinError")?.textContent ?? "").length > 0,
 		undefined,
 		{ timeout: 30_000 },
-	).catch(() => fail("a locator that cannot be reached never settled; the card waits for good"));
+	).catch(() => fail("an address that cannot be reached never settled; the card waits for good"));
 	// And the line under the rail stops claiming an attempt that has ended.
 	await tab.waitForFunction(
 		() => !(document.getElementById("status")?.textContent ?? "").startsWith("reaching"),
@@ -177,17 +177,17 @@ export async function run(
 	).catch(() => fail("the status line went on reaching for a server the page had given up on"));
 	const kept = await tab.inputValue("#joinAddressField");
 	if (kept !== typo) {
-		fail(`a refused locator was not left in the field to correct; it holds ${JSON.stringify(kept)}`);
+		fail(`a refused address was not left in the field to correct; it holds ${JSON.stringify(kept)}`);
 	}
-	const locatorSaid = await tab.evaluate(() => {
+	const addressSaid = await tab.evaluate(() => {
 		const field = document.getElementById("joinAddressField");
 		return {
 			invalid: field?.getAttribute("aria-invalid"),
 			described: field?.getAttribute("aria-describedby"),
 		};
 	});
-	if (locatorSaid.invalid !== "true" || locatorSaid.described !== "joinError") {
-		fail(`a refused locator was not marked on the field Connect is about; ${JSON.stringify(locatorSaid)}`);
+	if (addressSaid.invalid !== "true" || addressSaid.described !== "joinError") {
+		fail(`a refused address was not marked on the field Connect is about; ${JSON.stringify(addressSaid)}`);
 	}
 	// Nothing was kept for it. A second server would have made every row in the
 	// rail say which of the two it was on.
@@ -201,7 +201,7 @@ export async function run(
 	// enough the error screen instead of a correction, losing the room they were in.
 	// Checked as a crash rather than as a message: the interface has to still be
 	// there afterwards.
-	await tab.fill("#joinAddressField", "not a locator at all");
+	await tab.fill("#joinAddressField", "not an address at all");
 	await tab.click("#joinBtn");
 	await tab.waitForFunction(
 		() => (document.getElementById("joinError")?.textContent ?? "").length > 0,
@@ -215,7 +215,7 @@ export async function run(
 	}));
 	if (!survived.rail) fail("text that is not an address took the whole interface down to the error screen");
 	if (survived.rooms === 0) fail("text that is not an address cost the reader the room they were already in");
-	if (survived.kept !== "not a locator at all") {
+	if (survived.kept !== "not an address at all") {
 		fail(`what was typed was not left to correct; the field holds ${JSON.stringify(survived.kept)}`);
 	}
 

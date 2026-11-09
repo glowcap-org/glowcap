@@ -11,7 +11,7 @@ export class PageBootstrap {
 }
 
 /** The address a directory is reached at, as a link that leaves the page says
- * it: its locator, or its id while no locator is known. */
+ * it: its address, or its id while no address is known. */
 export function dirAddress(dirs: ReadonlyMap<DirId, DirView>, id: DirId): string {
 	return dirs.get(id)?.address || id;
 }
