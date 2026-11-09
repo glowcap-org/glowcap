@@ -16,16 +16,6 @@ and storage formats before 1.0.
 - `glowcap apps rooms page` prints the link that opens the Rooms page with
   the running server filled in. `rooms-web --page-link` and the server's
   `/page` route answer the same link, and `deployment up` prints it first.
-- `--capabilities=all`, or `--capabilities=<name>[,<name>...]`, tells
-  `rooms-server` and `rooms-web` which operator capabilities to mint, with
-  `GLOWCAP_ROOMS_CAPABILITIES` as the variable. It replaces the six flags
-  `--admin-listeners`, `--diagnostics`, `--operator`, `--peering`, `--irc`, and
-  `--trace` and their variables, so name the capabilities you want in one list.
-  A deployment or script that set those variables mints nothing until it
-  names the capabilities in `GLOWCAP_ROOMS_CAPABILITIES`.
-  `rooms-server --capabilities[=<state-directory>]`, which prints the kept
-  capabilities, is `--print-capabilities`, and `rooms-web` takes the same
-  option, reading the locators from the directory it runs.
 - `rooms-server` and `rooms-web` announce any of the seven listener
   transports with `--transport=<transport>`. A relay transport registers at
   `--relay=<ws-url>` or `GLOWCAP_ROOMS_RELAY_URL`, and under `rooms-web` at
@@ -61,12 +51,24 @@ and storage formats before 1.0.
 
 ### Changed
 
+- `--capabilities=all`, or `--capabilities=<name>[,<name>...]`, tells
+  `rooms-server` and `rooms-web` which operator capabilities to mint, with
+  `GLOWCAP_ROOMS_CAPABILITIES` as the variable. It replaces the six flags
+  `--admin-listeners`, `--diagnostics`, `--operator`, `--peering`, `--irc`, and
+  `--trace` and their variables, so name the capabilities you want in one list.
+  A deployment or script that set those variables mints nothing until it
+  names the capabilities in `GLOWCAP_ROOMS_CAPABILITIES`. Reading the kept
+  capabilities again is `glowcap apps rooms capabilities`, or
+  `rooms-web --print-capabilities`, which takes the locators from the running
+  web server, from `--url`, or from `GLOWCAP_ROOMS_LOCATOR`. `rooms-server`
+  no longer reads them, and `glowcap apps rooms directory capabilities` is
+  gone.
 - The shared session writes its use link to `use.sturdyref` and its management
   link to `management.sturdyref` in the state directory, the names every page
   gives those links. The managed deployment's readiness file is
   `/run/rooms-session/use.sturdyref`. Both files are rewritten at every start,
   so an existing state directory needs no change.
-- Three Rooms page names changed. The Settings tab **Reachability** is
+- Four Rooms page names changed. The Settings tab **Reachability** is
   **Connection**. The Operations tab **Directory** is **Operator**. The
   Settings act **Delete local session** is **Empty this session**, since it
   empties the open session and the browser stays on it, and the shared

@@ -72,6 +72,7 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                 try arguments.append(alloc, if (parsed.flagString("url")) |url| try std.fmt.allocPrint(alloc, "--{s}={s}", .{ option, url }) else try std.fmt.allocPrint(alloc, "--{s}", .{option}));
             } else if (mode == .capabilities) {
                 try arguments.append(alloc, if (parsed.flagString("state")) |state| try std.fmt.allocPrint(alloc, "--print-capabilities={s}", .{state}) else "--print-capabilities");
+                if (parsed.flagString("url")) |url| try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--url={s}", .{url}));
             } else {
                 if (mode == .session_serve) {
                     if (parsed.flagString("dir") == null) {

@@ -255,7 +255,7 @@ docker exec glowcap-rooms-session /runtime/bin/glowcap apps rooms session ready 
 This form prints the operator capabilities alone:
 
 ```sh
-docker exec glowcap-rooms-directory /runtime/bin/glowcap apps rooms directory capabilities
+docker exec glowcap-rooms-directory /runtime/bin/glowcap apps rooms capabilities
 ```
 
 Deployment output prints two independent links to the shared session, the use link and the management link

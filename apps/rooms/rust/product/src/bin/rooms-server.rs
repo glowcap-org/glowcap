@@ -31,10 +31,6 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 				.map_err(|_| Error::Refused("server options must be Unicode".into()))
 		})
 		.collect::<Result<Vec<_>, _>>()?;
-	if let Some(query) = server::CapabilityQuery::parse(&args, |key| std::env::var(key).ok())? {
-		println!("{}", query.run().await?);
-		return Ok(());
-	}
 	let Some(config) = Config::parse(args, |key| std::env::var(key).ok())? else {
 		print!("{}", server::HELP);
 		return Ok(());

@@ -100,13 +100,13 @@ pub fn links(docker: Docker) !void {
     const session = try rooms(docker, "session", &.{}, &.{ "session", "ready", "--file=/run/rooms-session/use.sturdyref" });
     const management = try rooms(docker, "session", &.{}, &.{ "session", "ready", "--file=/session-state/management.sturdyref" });
     const trace = try rooms(docker, "directory", &.{}, &.{ "trace", "--state=/state", "--print-link" });
-    // The capabilities print as complete recipes with the locators the running
+    // The capabilities print as complete links with the locators the running
     // directory advertises, which the container's own command reads from it.
-    const capabilities = try rooms(docker, "directory", &.{}, &.{ "directory", "capabilities" });
+    const capabilities = try rooms(docker, "directory", &.{}, &.{"capabilities"});
     // The page link leads, because opening it is what a person does next. A
     // deployment that allows no page prints none.
     if (page.len != 0) try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nOpen the page:\n{s}\n", .{page}));
-    try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nDirectory operator capabilities:\n{s}\n\nDirectory locator:\n{s}\n\nBrowser revision:\n{s}\n\nShared session capability:\n{s}\n\nShared session management capability:\n{s}\n", .{ capabilities, locator, revision, session, management }));
+    try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nDirectory operator capabilities:\n{s}\n\nDirectory locator:\n{s}\n\nBrowser revision:\n{s}\n\nShared session use link:\n{s}\n\nShared session management link:\n{s}\n", .{ capabilities, locator, revision, session, management }));
     if (trace.len != 0) try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nROOMS-TRACE-LISTENING {s}\nFollow protocol events: glowcap apps rooms deployment trace\n", .{trace}));
 }
 

@@ -57,7 +57,7 @@ pub const HELP: &str = concat!(
       a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --session-relay names another, and --session-relay-public applies only with --session-relay
   --session-<option>=<value>  any other rooms-session option, such as --session-bind or --session-reachability (or GLOWCAP_ROOMS_SESSION_<OPTION>)
   --history --bind=<host> --announce-host=<host>
-  --capabilities=all|<name>[,<name>...]  mint operator capabilities, as rooms-server: all, or names from admin-listeners, diagnostics, operator, peering, irc, trace (or GLOWCAP_ROOMS_CAPABILITIES)
+  --capabilities=all|<name>[,<name>...]  mint operator capabilities, as rooms-server (or GLOWCAP_ROOMS_CAPABILITIES)
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
   --http-admission-per-address=true|false  charge each source address its own budget (default: false)
@@ -70,7 +70,7 @@ rooms-web --check-ready[=http://host:port]  check directory and browser assets (
 rooms-web --locator[=http://host:port]  print the running directory locator
 rooms-web --ui-version[=http://host:port]  print the running browser revision
 rooms-web --page-link[=http://host:port]  print the link that opens the Rooms page with this server, or nothing when no page is allowed
-rooms-web --print-capabilities[=<state-directory>]  print the kept operator capabilities as complete recipes, with the locators the running front advertises (or GLOWCAP_ROOMS_LOCATOR and GLOWCAP_ROOMS_TRACE_LOCATOR)
+rooms-web --print-capabilities[=<state-directory>] [--url=http://host:port]  print the kept operator capabilities as complete links, with the locators the running front advertises (or GLOWCAP_ROOMS_LOCATOR and GLOWCAP_ROOMS_TRACE_LOCATOR); the directory defaults to GLOWCAP_ROOMS_STATE
 Status reads default to http://127.0.0.1:8080, or GLOWCAP_ROOMS_HTTP_PORT.
 rooms-web --prepare[=<output-directory>] [--assets=<source-directory>]  build self-contained browser assets
 Preparation defaults to zig-out/rooms-web; serve its current directory with --prepared.

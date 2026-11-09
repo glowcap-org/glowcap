@@ -120,20 +120,21 @@ secret part of its link) in the state directory. At startup it prints the
 complete `ocapn://` link as a `ROOMS-*` line. A capability you did not name
 does not exist.
 
-`glowcap apps rooms directory capabilities --state=<state-directory>` prints the
-saved capabilities again as complete recipes. Under Docker, run
+`glowcap apps rooms capabilities --state=<state-directory>` prints the saved
+capabilities again as complete links. Under Docker, run
 `glowcap apps rooms deployment links`, or the `docker exec` form the
-[deployment guide](web/deploy/README.md#read-your-links-again) shows. Beside a
-running web server it reads the directory's advertised locators from it, and a
-kept timeline the server isn't serving prints with the option that starts it.
-Without a running server, set the locator in `GLOWCAP_ROOMS_LOCATOR` and the
-timeline's in `GLOWCAP_ROOMS_TRACE_LOCATOR`, or that one line says so while the
-rest still print.
+[deployment guide](web/deploy/README.md#read-your-links-again) shows. It reads
+the directory's advertised locators from the running web server, at
+`http://127.0.0.1:8080` or the one `--url` names, and a kept timeline the
+server isn't serving prints with the option that starts it. Without a running
+server, set the locator in `GLOWCAP_ROOMS_LOCATOR` and the timeline's in
+`GLOWCAP_ROOMS_TRACE_LOCATOR`, or that one line says so while the rest still
+print.
 
 | Name | Prints | Grants |
 | --- | --- | --- |
-| `diagnostics` | `ROOMS-DIAGNOSTICS` | Inspect: the names the directory holds and its recent failures |
 | `admin-listeners` | `ROOMS-ADMIN-LISTENERS` | List the server's listeners, bring one up on a transport it can realize, take one down |
+| `diagnostics` | `ROOMS-DIAGNOSTICS` | Inspect: the names the directory holds and its recent failures |
 | `operator` | `ROOMS-OPERATOR` | Recover and revoke every local room's manager and moderator links, including the lists and bulk removal on the Operator page |
 | `peering` | `ROOMS-PEERING` | List a durable room from another directory |
 | `irc` | `ROOMS-IRC` | Open IRC networks and bridge channels as rooms |

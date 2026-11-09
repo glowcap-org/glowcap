@@ -22,19 +22,6 @@ pub struct CapabilityQuery {
 	trace: TraceLocator,
 }
 impl CapabilityQuery {
-	/// The read `--print-capabilities[=<state-directory>]` asks for, with the
-	/// locators the environment supplies. `None` when `args` is another command.
-	pub fn parse(args: &[String], env: impl Fn(&str) -> Option<String>) -> Result<Option<Self>, Error> {
-		let Some(directory) = Self::arguments(args, &env)? else {
-			return Ok(None);
-		};
-		let (locator, trace) = Self::environment_locators(&env)?.ok_or_else(|| {
-			Error::refused(
-				"set GLOWCAP_ROOMS_LOCATOR to the server's advertised locator when reading durable capability recipes",
-			)
-		})?;
-		Self::new(directory, locator, trace).map(Some)
-	}
 	/// The locators `GLOWCAP_ROOMS_LOCATOR` and `GLOWCAP_ROOMS_TRACE_LOCATOR`
 	/// supply. With the first set, the environment is the whole answer, and a
 	/// trace locator it leaves out stays unknown. `None` when it is unset, so
@@ -51,28 +38,7 @@ impl CapabilityQuery {
 		};
 		Ok(Some((glowcap::parse_locator(&locator)?, trace)))
 	}
-	/// The state directory the arguments name, or `GLOWCAP_ROOMS_STATE`, so a
-	/// caller that fetches the locators elsewhere refuses bad arguments first.
-	pub(crate) fn arguments(args: &[String], env: impl Fn(&str) -> Option<String>) -> Result<Option<PathBuf>, Error> {
-		let Some(first) = args.first() else { return Ok(None) };
-		let directory = if first == "--print-capabilities" {
-			env("GLOWCAP_ROOMS_STATE")
-		} else if let Some(path) = first.strip_prefix("--print-capabilities=") {
-			Some(path.to_owned())
-		} else {
-			return Ok(None);
-		};
-		if args.len() != 1 {
-			return Err(Error::refused(
-				"--print-capabilities takes a state directory, without server options",
-			));
-		}
-		directory
-			.filter(|s| !s.trim().is_empty())
-			.map(|directory| Some(directory.into()))
-			.ok_or_else(|| Error::refused("use --print-capabilities=<state-directory> or set GLOWCAP_ROOMS_STATE"))
-	}
-	/// A read of `directory` that prints each recipe against the directory's
+	/// A read of `directory` that prints each link against the directory's
 	/// `locator`, and the timeline's against `trace` when it is advertised.
 	pub(crate) fn new(directory: PathBuf, locator: glowcap::Locator, trace: TraceLocator) -> Result<Self, Error> {
 		if let TraceLocator::Advertised(locator) = &trace {
@@ -118,7 +84,7 @@ impl CapabilityQuery {
 						swiss: swiss.into(),
 					};
 					// Without the timeline's locator its line says why, like
-					// an unminted one, and every other recipe still prints.
+					// an unminted one, and every other link still prints.
 					if capability.kind != Kind::Trace {
 						minted.line(&self.locator)?
 					} else {
@@ -147,18 +113,20 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn an_unknown_timeline_locator_names_its_remedy_and_keeps_every_other_recipe() {
+	fn an_unknown_timeline_locator_names_its_remedy_and_keeps_every_other_link() {
 		let directory = rooms_testing::scratch::Scratch::create("capability-read");
 		for capability in &BOOT_CAPABILITIES {
 			std::fs::write(directory.join(capability.name), "a".repeat(64)).unwrap();
 		}
-		let args = [format!("--print-capabilities={}", directory.display())];
-		let query = CapabilityQuery::parse(&args, |name| {
+		let (locator, trace) = CapabilityQuery::environment_locators(|name| {
 			(name == "GLOWCAP_ROOMS_LOCATOR").then(|| "ocapn://directory.id".to_owned())
 		})
 		.unwrap()
 		.unwrap();
-		let printed = query.read().unwrap();
+		let printed = CapabilityQuery::new(directory.to_path_buf(), locator, trace)
+			.unwrap()
+			.read()
+			.unwrap();
 		for capability in &BOOT_CAPABILITIES {
 			let line = printed.lines().find(|line| line.starts_with(capability.token)).unwrap();
 			if capability.kind == Kind::Trace {

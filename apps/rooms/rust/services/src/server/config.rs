@@ -51,15 +51,12 @@ pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=<transpo
   --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)
   --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port
   --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)
-  --capabilities=all|<name>[,<name>...]  mint operator capabilities and print each swiss: all, or names from admin-listeners, diagnostics, operator, peering, irc, trace (or GLOWCAP_ROOMS_CAPABILITIES); none by default
+  --capabilities=all|<name>[,<name>...]  mint operator capabilities and print each one's link: all, or names from admin-listeners, diagnostics, operator, peering, irc, trace (or GLOWCAP_ROOMS_CAPABILITIES, and none by default)
   --trace-port=<port>  the loopback port the live timeline endpoint binds (default: 9300; 0 takes any)
   --trace-connect=<ws-url>  advertise the CapTP byte-channel endpoint through a deployment proxy
   --trace-publish=<ws-url>  advertise the producer endpoint through a deployment proxy
 Options override GLOWCAP_ROOMS_* environment variables. TCP defaults to 127.0.0.1:0.
-rooms-server --print-capabilities[=<state-directory>]  print kept operator capabilities without starting a server
-The directory defaults to GLOWCAP_ROOMS_STATE. Kept capabilities may be disabled in the current server.
-Set GLOWCAP_ROOMS_LOCATOR to the server's advertised locator to print complete recipes.
-For a minted timeline, also set GLOWCAP_ROOMS_TRACE_LOCATOR to its advertised locator.
+rooms-web --print-capabilities reads the kept capabilities again as complete links.
 ";
 
 /// The options beyond the transport's own that take a value.

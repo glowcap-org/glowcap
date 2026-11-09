@@ -42,7 +42,7 @@ services:
       # in the override, for example GLOWCAP_ROOMS_CAPABILITIES:
       # "admin-listeners,diagnostics,operator,peering,trace" leaves IRC out.
       # Read them any time with
-      #   docker exec glowcap-rooms-directory /runtime/bin/glowcap apps rooms directory capabilities
+      #   docker exec glowcap-rooms-directory /runtime/bin/glowcap apps rooms capabilities
       GLOWCAP_ROOMS_CAPABILITIES: all
       # Rooms keep their last lines and serve them to members who join later.
       GLOWCAP_ROOMS_HISTORY: "1"

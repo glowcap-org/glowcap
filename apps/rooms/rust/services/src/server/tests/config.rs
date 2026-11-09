@@ -141,15 +141,13 @@ fn capabilities_name_what_to_mint_and_the_rest_stay_withheld() {
 }
 
 #[test]
-fn every_boot_capability_is_mintable_alone_and_both_help_texts_list_the_table() {
+fn every_boot_capability_is_mintable_alone_and_the_help_lists_the_table() {
 	let names = BOOT_CAPABILITIES
 		.iter()
 		.map(|capability| capability.name)
 		.collect::<Vec<_>>()
 		.join(", ");
-	for help in [super::super::HELP, crate::web::HELP] {
-		assert!(help.contains(&names), "help lists {names}");
-	}
+	assert!(super::super::HELP.contains(&names), "help lists {names}");
 	for capability in &BOOT_CAPABILITIES {
 		let one = Asked::parse(capability.name).unwrap();
 		assert!(one.holds(capability.kind), "{} is mintable on its own", capability.name);

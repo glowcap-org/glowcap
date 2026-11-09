@@ -249,8 +249,8 @@ def lifecycle(deploy, root):
     started = call("up", "--image", "example/rooms:test")
     page = "Open the page:\nhttps://glowcap.org/rooms/app/?server=http%3A%2F%2Flocalhost%3A8080%2F"
     assert started.stdout.index(page) < started.stdout.index("Directory operator capabilities:"), started.stdout
-    assert "Shared session capability:\nocapn://fixture" in started.stdout, started.stdout
-    assert "Shared session management capability:\nocapn://management" in started.stdout, started.stdout
+    assert "Shared session use link:\nocapn://fixture" in started.stdout, started.stdout
+    assert "Shared session management link:\nocapn://management" in started.stdout, started.stdout
     assert "ROOMS-TRACE-LISTENING ocapn://127.0.0.1%3A9300.tcp/s/" in started.stdout, started.stdout
     before_trace = len(log.read_text())
     call("trace", "--json")
@@ -277,7 +277,7 @@ def lifecycle(deploy, root):
     capabilities = next(
         json.loads(line)
         for line in log.read_text()[len(before_up) :].splitlines()
-        if json.loads(line)[-2:] == ["directory", "capabilities"]
+        if json.loads(line)[-3:] == ["apps", "rooms", "capabilities"]
     )
     assert "-e" not in capabilities, capabilities
     selection = (workspace / "image").read_text()
@@ -301,7 +301,7 @@ def lifecycle(deploy, root):
     assert (
         "Directory locator:\nocapn://fixture-directory.tcp\n\nBrowser revision:\nfixture-browser-revision\n" in links
     ), links
-    assert "Shared session capability:\nocapn://fixture\n" in links, links
+    assert "Shared session use link:\nocapn://fixture\n" in links, links
     assert "ROOMS-TRACE-LISTENING ocapn://127.0.0.1%3A9300.tcp/s/" in links, links
     no_page = deploy.call("links", env={"ROOMS_FIXTURE_NO_PAGE": "1"}).stdout
     assert "Open the page:" not in no_page and "Directory operator capabilities:" in no_page, no_page
