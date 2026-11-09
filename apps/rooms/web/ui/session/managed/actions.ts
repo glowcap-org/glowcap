@@ -81,17 +81,14 @@ export class ManagedActions {
 		)
 			.map(([id]) => id);
 	}
-	/** Let a held acquisition go without an outcome: the request is freed and
-	 * never resubmitted. The session's own state says what it holds, so a
-	 * change that did go through stays done there. One still running, or one
-	 * that went through and awaits its receiver, is not let go. */
+	/** Let a held acquisition go: the request is freed and never resubmitted.
+	 * The session's own state says what it holds, so a change that did go
+	 * through stays saved there, and only this page's step of showing it is
+	 * dropped. One still running is not let go. */
 	release(id: string): Promise<void> {
 		const record = this.#acquisitions.get(id);
 		if (record == null) return Promise.reject(new Error("This acquisition is no longer held"));
 		if (record.task != null) return Promise.reject(new Error("This acquisition is still running"));
-		if (record.lifecycle.outcome === "committed") {
-			return Promise.reject(new Error("This change went through. Finish it to keep what it returned."));
-		}
 		record.request?.free();
 		record.request = undefined;
 		this.#forget(id);

@@ -46,10 +46,10 @@ export function openChanges(session: ManagedRoomsSession, rows: readonly EffectV
 				status: committed ? "committed" : "unknown",
 				state: ready ? (committed ? "saving" : "unknown") : "working",
 				act: ready ? "acquire" : null,
-				// One that went through still needs its original receiver here.
-				// One nothing settled may be let go: the session's own state
-				// says what it holds.
-				letGo: ready && !committed,
+				// Every row has an exit. The session's own state says what it
+				// holds, so letting go drops only this page's part: a request
+				// nothing settled, or the showing of one that went through.
+				letGo: ready,
 			};
 		}),
 		...(rows ?? []).filter((row) => row.status !== "committed" || holding.has(row.operation)).map(

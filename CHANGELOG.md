@@ -98,7 +98,9 @@ and storage formats before 1.0.
   directory's current address on its card to re-route it.
 - The page frees a change the session refused and reports the reason, for
   every kind of change it submits. Before, it listed such a change as gone
-  through, with a **Finish** that resubmitted it. A change nothing settled is
+  through, with a **Finish** that resubmitted it. A change that went through
+  but could not be shown here can now be let go, and stays saved in the
+  session. A change nothing settled is
   listed with its outcome unknown and can be let go.
 - **New access** and **Prepare control** from a held management control ask
   for a Rooms server only when the control is this browser's own, whose links

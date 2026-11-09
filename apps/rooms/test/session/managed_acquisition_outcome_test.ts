@@ -74,6 +74,47 @@ Deno.test("a directory acquisition nothing settled is listed with its outcome un
 	}
 });
 
+Deno.test("a directory acquisition that went through but could not be shown here can be let go", async () => {
+	let committed = false;
+	let reads = 0;
+	const session = viewer({
+		snapshot: () => {
+			if (committed) {
+				reads++;
+				return Promise.reject(new Error("the session did not answer"));
+			}
+			return Promise.resolve(snapshot());
+		},
+		prepareDirectory: () =>
+			Promise.resolve({
+				submit: () => {
+					committed = true;
+					return Promise.resolve({ status: "committed" });
+				},
+				free() {},
+			}),
+	});
+	try {
+		const outcome: unknown = await session.actions
+			.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true)
+			.then(() => null, (error: unknown) => error);
+		assert(outcome instanceof Error && outcome.message.includes("the session did not answer"), String(outcome));
+		const [row] = openChanges(session, []);
+		assertEquals(
+			{ status: row.status, state: row.state, act: row.act, letGo: row.letGo },
+			{ status: "committed", state: "saving", act: "acquire", letGo: true },
+		);
+		// Finishing reads the session again and fails the same way; letting go
+		// is the exit, and the change itself stays saved in the session.
+		await session.actions.recoverAcquisition("directory:directory").catch(() => {});
+		assertEquals(reads, 2);
+		await session.releaseOperation("directory:directory");
+		assertEquals([session.actions.pending, openChanges(session, [])], [[], []]);
+	} finally {
+		await session.close();
+	}
+});
+
 Deno.test("a workspace selection the session refused is freed and the next selection prepares afresh", async () => {
 	let preparations = 0;
 	let freed = 0;
