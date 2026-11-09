@@ -76,6 +76,9 @@ and storage formats before 1.0.
   instead of answering that there is none.
 - `GLOWCAP_ROOMS_SESSION_STATE` serves the shared workspace the way
   `--session-state` does, and the option wins when both are set.
+- A byte-fed Host in the Rust, TypeScript, and Racket bindings names a
+  transport it has no connector for as `UnknownTransport`, the Zig Host's name
+  for the same condition, so one reader recognizes it from every Host.
 
 ### Fixed
 
@@ -87,6 +90,12 @@ and storage formats before 1.0.
   then answered a directory join with a bare `PromiseBroken`. Both options
   still apply to a peer whose `--relay` or `--session-relay` names another
   relay.
+- A directory whose saved address uses a transport the shared session cannot
+  reach is reported once, as a standing refusal with its own code, and dialed
+  again only on an explicit retry or a changed address. Before, the session
+  dialed it on every recovery wake and told the operator a bare
+  `RestorationFailed: UnknownTransport` every few seconds. Enter the
+  directory's current address on its card to re-route it.
 - The page frees a change the session refused and reports the reason, for
   every kind of change it submits. Before, it listed such a change as gone
   through, with a **Finish** that resubmitted it. A change nothing settled is

@@ -46,7 +46,10 @@ pub(crate) async fn dial_exporter(locator: &Locator, host: Rc<HostShared>, origi
 	let connector = host.shared().connector(&locator.transport).ok_or_else(|| {
 		Error::with_detail(
 			sys::ERR_INVALID_ARGUMENT,
-			format!("byte-fed Host has no connector for transport {:?}", locator.transport),
+			format!(
+				"UnknownTransport: byte-fed Host has no connector for transport {:?}",
+				locator.transport
+			),
 		)
 	})?;
 	dial_with_connector(connector, locator, host, origin, None, Some(HANDSHAKE_TIMEOUT)).await

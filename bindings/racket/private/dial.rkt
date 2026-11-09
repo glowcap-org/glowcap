@@ -195,7 +195,7 @@
      (define connector (host-connector-for (runtime-host rt) transport))
      (unless connector
        (raise-glowcap 'runtime-connect ERR-INVALID-ARGUMENT
-                      "Runtime has no connector for transport \"~a\""
+                      "UnknownTransport: Runtime has no connector for transport \"~a\""
                       transport))
      (dial-byte-fed connector (runtime-host rt) loc
                     (runtime-handshake-timeout-ms rt))]))

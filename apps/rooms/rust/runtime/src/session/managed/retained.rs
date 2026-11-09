@@ -5,8 +5,35 @@ use glowcap::{
 	Argument, Ref, Result,
 	loam::{Call, Invocation, ReferenceRequest},
 };
-use rooms_application::content::session::{custody, records as codec};
+use rooms_application::{
+	content::session::{custody, records as codec},
+	failure::FailureCode,
+};
 use rooms_glowcap::client::{Deadline, Tasks};
+
+/// The Host restores a saved address by dialing it, and names a transport it
+/// has no dialer for as the restoration's cause: `UnknownTransport`, from the
+/// Zig Host's error set and from a byte-fed Host's connector refusal alike.
+/// That condition clears only when the row or the session's dial transports
+/// change, so the session names it with its wire code instead of letting a
+/// bare break stand.
+fn name_undialable(error: glowcap::Error) -> glowcap::Error {
+	let undialable = error.kind() == glowcap::ErrorKind::Broken
+		&& error
+			.message()
+			.and_then(|message| message.split_once("RestorationFailed: "))
+			.is_some_and(|(_, cause)| {
+				cause
+					.split(|c: char| !c.is_ascii_alphanumeric())
+					.any(|word| word == "UnknownTransport")
+			});
+	if !undialable {
+		return error;
+	}
+	refuse(
+		&FailureCode::SavedTransportUnavailable.line("the saved address names a transport this session does not dial"),
+	)
+}
 
 fn coordinates(args: &[Argument]) -> Result<Vec<custody::Coordinate>> {
 	let values = match args {
@@ -161,7 +188,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		if with_uris {
 			request.push(Argument::Boolean(true));
 		}
-		let result = self.state.writer.idempotent("restore-custody", &request).await?;
+		let result = self
+			.state
+			.writer
+			.idempotent("restore-custody", &request)
+			.await
+			.map_err(name_undialable)?;
 		let Argument::List(held) = result else {
 			return Err(refuse("invalid private custody result"));
 		};

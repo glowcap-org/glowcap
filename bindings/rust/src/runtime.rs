@@ -218,7 +218,7 @@ impl Runtime {
 				let transport_options = options.transport_options(locator)?;
 				let connector = self.host.shared().connector(&locator.transport).ok_or_else(|| {
 					composition_error(format!(
-						"Runtime has no connector for transport {:?}",
+						"UnknownTransport: Runtime has no connector for transport {:?}",
 						locator.transport
 					))
 				})?;
