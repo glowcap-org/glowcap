@@ -92,8 +92,10 @@ and storage formats before 1.0.
   resubmitted it. A change nothing settled is listed with its outcome
   unknown and can be let go. An access edit or issuance the session refused
   frees its request the same way.
-- **New access** on a session attached by its own address asks for no Rooms
-  server: the session publishes the access where it is reached.
+- **New access** and **Prepare control** from a held management control ask
+  for a Rooms server only when the control is this browser's own, whose links
+  lead here. Any other control, such as one for a session attached by its own
+  address, publishes the access at the session it manages.
 - A sturdyref naming a peer by its key through a sealed listener, such as a
   directory's bare `noise-relay` address, redeems over the sealed session
   whatever listener the peer's hello advertised. Before, the Rooms page

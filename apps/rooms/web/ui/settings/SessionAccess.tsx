@@ -43,7 +43,7 @@ const rowSaid = (control: HeldControl): string | null =>
 type Door = { kind: "manage" | "issue"; control: HeldControl } | { kind: "hold" };
 
 export function SessionAccessModal({ open, onClose }: { open: boolean; onClose(): void }) {
-	const { management, local } = useManagedSession();
+	const { management } = useManagedSession();
 	useSyncExternalStore(management.subscribe, management.getVersion, management.getVersion);
 	const openModalFrom = useOpenModal();
 	const serverGate = useServerGate();
@@ -67,12 +67,11 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	const [opening, setOpening] = useState(0);
 	const pending = management.issue;
 	const go = (event: { currentTarget: HTMLElement }, next: Door) => {
-		// A new access from a session this browser hosts is a link that leads
+		// A new access from this browser's own control is a link that leads
 		// here, which people reach through its Rooms server, so the server
-		// comes first. A session attached by its own address publishes the
-		// access where it is reached, and asks for nothing. A pasted
-		// management link is judged by its own doors once it is pasted.
-		if (next.kind === "issue" && local && serverGate(serverNeedLink) == null) return;
+		// comes first. Any other control publishes the access at the session
+		// it manages, reached as it already is, so it asks for nothing.
+		if (next.kind === "issue" && next.control.id === OWN_CONTROL && serverGate(serverNeedLink) == null) return;
 		openModalFrom(event.currentTarget, () => {
 			setDoor(next);
 			setOpening((value) => value + 1);
