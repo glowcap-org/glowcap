@@ -255,8 +255,9 @@ link carrying `?server=<address>`.
 A listed page address, the default included, is also printed as a link that
 opens that page with this server once it is ready. The page asks once before
 it uses the offered server.
-With `--session-state` on iroh or TCP, it also prints a link that opens the
-page with this server's shared session filled in, ready to attach. The session
+With `--session-state` on iroh, TCP, or a relay door, it also prints a link
+that opens the page with this server's shared session filled in, ready to
+attach. The session
 link is a capability, so it rides after the `#`, which browsers never send to
 the page's host, and the page takes it out of the address before anything else
 runs.

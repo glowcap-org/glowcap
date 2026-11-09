@@ -27,7 +27,7 @@ pub const Context = struct {
     pin_port: ?u16,
 };
 
-const Transport = enum { iroh, tcp, onion };
+const Transport = enum { tcp, @"keyed-tcp", @"noise-tcp", iroh, @"keyed-relay", @"noise-relay", onion };
 
 const Launch = struct {
     /// A state directory for the room server, or the front's temporary one.
@@ -119,10 +119,10 @@ pub fn register(ctx: Context) Registered {
 
     // The room transport is one option because the production and development
     // fronts forward the same `--transport=` contract to the room server.
-    const transport = b.option(Transport, "transport", "The room transport rooms-web and rooms-dev serve: iroh (default, encrypted QUIC), tcp (cleartext, for a peer that speaks nothing else), or onion (a Tor onion service that requires tor)") orelse .iroh;
+    const transport = b.option(Transport, "transport", "The room transport rooms-web and rooms-dev announce: iroh (default, encrypted QUIC), noise-tcp or noise-relay (Noise-sealed), tcp, keyed-tcp, or keyed-relay (cleartext, for a peer that speaks nothing else), or onion (a Tor onion service that requires tor)") orelse .iroh;
 
     const production = addLaunch(ctx, transport, .{});
-    b.step("rooms-web", "Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=iroh|tcp|onion` picks the room transport, default iroh. Server flags follow `--`: `--diagnostics` / `--admin-listeners` / `--operator` / `--peering` / `--trace` / `--irc` mint the operations capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN")
+    b.step("rooms-web", "Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=<transport>` picks the announced room transport from the seven the server accepts, default iroh. Server flags follow `--`: `--diagnostics` / `--admin-listeners` / `--operator` / `--peering` / `--trace` / `--irc` mint the operations capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN")
         .dependOn(&production.step);
 
     // Both development fronts share state, grants, transport, and dependencies.
@@ -171,7 +171,7 @@ fn addDependencies(run: *std.Build.Step.Run, ctx: Context, transport: Transport)
     run.step.dependOn(ctx.web_services);
     switch (transport) {
         .iroh => run.step.dependOn(ctx.iroh_abi_step),
-        .tcp => {
+        .tcp, .@"keyed-tcp", .@"noise-tcp", .@"keyed-relay", .@"noise-relay" => {
             run.step.dependOn(ctx.ocapn_install);
             run.step.dependOn(ctx.host_install);
             run.step.dependOn(ctx.driver_install);

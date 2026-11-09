@@ -10,9 +10,10 @@ struct Config {
 	server: PathBuf,
 	server_args: Vec<String>,
 	room: crate::server::Config,
-	/// The relay the directory's relay listeners register at unless a
-	/// declaration names its own.
-	relay_url: String,
+	/// What this front hands the directory: the relay its relay doors
+	/// register at unless a declaration names its own, and the private Tor
+	/// an onion door publishes through.
+	handed: super::config::PeerEnvironment,
 }
 use crate::{cleanup, server::Transport};
 use glowcap::{ConnectOptions, PendingWork, Runtime, RuntimeConfig, tcp};
@@ -35,7 +36,7 @@ impl Supervisor {
 		server: PathBuf,
 		server_args: Vec<String>,
 		room: crate::server::Config,
-		relay_url: String,
+		handed: super::config::PeerEnvironment,
 		stop: watch::Receiver<bool>,
 		report: Report,
 	) -> Result<Option<(Self, Announcement)>, String> {
@@ -46,7 +47,7 @@ impl Supervisor {
 			server,
 			server_args,
 			room,
-			relay_url,
+			handed,
 		};
 		let (state, temporary) = Temporary::state(config.room.state.clone()).await?;
 		let mut owner = Self {
@@ -90,7 +91,12 @@ impl Supervisor {
 
 	fn attach_target(&self) -> Option<(String, u16)> {
 		match &self.config.room.transport {
-			Transport::Tcp { bind, port, .. } if *port != 0 => Some((bind.clone(), *port)),
+			Transport::Tcp {
+				profile: rooms_platform::serving::TcpProfile::Plain,
+				bind,
+				port,
+				..
+			} if *port != 0 => Some((bind.clone(), *port)),
 			Transport::Onion(config) if config.port != 0 => Some(("127.0.0.1".into(), config.port)),
 			_ => None,
 		}
@@ -169,8 +175,12 @@ impl Supervisor {
 			.args(&self.config.server_args)
 			.env("GLOWCAP_ROOMS_STATE", &self.state)
 			.env("GLOWCAP_ROOMS_SUPERVISED", "1")
-			.env("GLOWCAP_ROOMS_RELAY_URL", &self.config.relay_url)
 			.env("GLOWCAP_ROOMS_READY_FORMAT", "json");
+		for (key, value) in self.config.handed.variables() {
+			if let Some(value) = value {
+				command.env(key, value);
+			}
+		}
 		if matches!(&self.config.room.transport, Transport::Onion(config) if config.port == 0 && config.forward.is_none())
 		{
 			let (directory, owner) = Temporary::create(Temporary::plan()?).await?;

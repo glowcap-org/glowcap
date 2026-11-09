@@ -103,6 +103,12 @@ pub fn attachment(reason: &str) -> Option<Advice> {
 /// capability id selects the exact server token that repairs this intent.
 /// Unknown failures stay verbatim in the runtime issue ledger.
 pub fn operations(capability: &str, reason: &str) -> Option<String> {
+	if reason.contains("PeerIdentityUnverified") {
+		return Some(
+			"That address names the directory by a key its listener does not prove, so this browser cannot trust the answer. Use a door that proves the key: noise-relay, noise-tcp, or iroh."
+				.into(),
+		);
+	}
 	if !reason.contains("unknown swissnum") {
 		return None;
 	}
@@ -190,6 +196,10 @@ mod tests {
 			Some(
 				"The directory does not recognize that swiss number. Use the value it currently prints as ROOMS-ADMIN-LISTENERS."
 			)
+		);
+		assert!(
+			operations("listeners", "glowcap error -12: PeerIdentityUnverified")
+				.is_some_and(|advice| advice.contains("does not prove") && advice.contains("noise-relay"))
 		);
 		assert_eq!(operations("listeners", "connection closed"), None);
 		assert_eq!(operations("unknown", "unknown swissnum"), None);

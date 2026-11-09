@@ -49,12 +49,18 @@ async fn start() -> Result<(), String> {
 		}
 		return Ok(());
 	}
-	let Some(config) = Config::parse(args, |key| std::env::var(key).ok())? else {
+	let environment = |key: &str| std::env::var(key).ok();
+	let Some(config) = Config::parse(args, environment)? else {
 		print!("{}", web::HELP);
 		return Ok(());
 	};
-	web::run(config, Rc::new(|notice| eprintln!("rooms web: {notice}")), async move {
-		tokio::select! { _ = interrupt.recv() => (), _ = terminate.recv() => () }
-	})
+	web::run(
+		config,
+		environment,
+		Rc::new(|notice| eprintln!("rooms web: {notice}")),
+		async move {
+			tokio::select! { _ = interrupt.recv() => (), _ = terminate.recv() => () }
+		},
+	)
 	.await
 }

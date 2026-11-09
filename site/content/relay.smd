@@ -451,7 +451,7 @@ the relay. This reference relay does not use iroh discovery.
 The relay allows any target and reclaims silent sessions after the idle timeout
 that `GLOWCAP_RELAY_IDLE_MS` sets. Allowed targets and connection limits belong to the app that hosts the relay,
 as in the Rooms
-[`relay.rs`](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/rust/services/src/web/relay.rs).
+[`limits.rs`](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/rust/services/src/web/relay/limits.rs).
 The [relay README](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/relay/README.md)
 covers the package. The browser peer lives in
 [the TypeScript binding]($link.page('bindings/ts')).

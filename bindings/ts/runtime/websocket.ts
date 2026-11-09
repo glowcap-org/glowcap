@@ -128,6 +128,23 @@ function waitForOpen(ws: WebSocket): Promise<void> {
 	});
 }
 
+/** Close codes a browser makes up itself when no Close frame arrived. */
+const NO_STATUS_RECEIVED = 1005;
+const ABNORMAL_CLOSURE = 1006;
+
+/** The cause the peer put in its Close frame, if it gave one. A relay that
+ * could not complete a dial says why there, and the dialer learns it nowhere
+ * else. The frame's word stands whether or not the TCP teardown after it was
+ * clean, since the browser reports the same code and reason either way. A
+ * normal close (1000) and a browser-made code carry no cause, and neither
+ * does the echo of a Close this channel sent itself, which the caller tells
+ * apart by what it asked for. */
+function peerCause(event: CloseEvent): Error | null {
+	if (event.reason.length === 0) return null;
+	if (event.code === 1000 || event.code === NO_STATUS_RECEIVED || event.code === ABNORMAL_CLOSURE) return null;
+	return new Error(`WebSocket closed by the peer (code ${event.code}): ${event.reason}`);
+}
+
 /** Adapt `ws` (already open, or opening: messages cannot arrive before the
  * open event) to a `Channel`. Inbound frames flow through a `ReadableStream`
  * reader; a close or error ends the stream. Outbound `write` resolves once the
@@ -144,6 +161,8 @@ export function webSocketChannel(
 	const closeLimitMs = closeTimeoutMs(options);
 	let queuedBytes = 0;
 	let closeRequested = false;
+	/** The Close frame this channel sent, which the peer echoes back. */
+	let sentClose: { readonly code: number; readonly reason: string } | null = null;
 	let closeSettled = false;
 	let closeFailure: { readonly error: unknown } | null = null;
 	let resolveClose!: () => void;
@@ -175,6 +194,10 @@ export function webSocketChannel(
 		const suffix = event.reason.length === 0 ? "" : `: ${event.reason}`;
 		return new Error(`WebSocket closed abnormally (code ${event.code})${suffix}`);
 	};
+	const echoesSentClose = (event: CloseEvent): boolean =>
+		sentClose != null && event.code === sentClose.code && event.reason === sentClose.reason;
+	const failureOf = (event: CloseEvent): Error | null =>
+		(echoesSentClose(event) ? null : peerCause(event)) ?? (event.wasClean === false ? abnormalClose(event) : null);
 	const requestClose = (code?: number, reason?: string): Promise<void> => {
 		if (closeRequested) return closeBarrier;
 		if (ws.readyState === WebSocket.CLOSED) {
@@ -182,6 +205,7 @@ export function webSocketChannel(
 			return closeBarrier;
 		}
 		closeRequested = true;
+		sentClose = { code: code ?? NO_STATUS_RECEIVED, reason: reason ?? "" };
 		try {
 			ws.close(code, reason);
 		} catch (error) {
@@ -222,7 +246,7 @@ export function webSocketChannel(
 				} catch { /* stream already closed */ }
 			};
 			ws.onclose = (event: CloseEvent) => {
-				const failure = event.wasClean === false ? abnormalClose(event) : null;
+				const failure = failureOf(event);
 				if (failure != null) retainCloseFailure(failure);
 				finishClose();
 				try {

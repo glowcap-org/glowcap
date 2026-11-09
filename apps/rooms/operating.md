@@ -52,13 +52,23 @@ address members dial. For a loopback TCP room that is just the port, and with
 `GLOWCAP_ROOMS_READY_FORMAT=json` prints the same announcement as JSON.
 
 Options use `--name=value` and can also come from `GLOWCAP_ROOMS_*`
-environment variables. Unknown or repeated options are refused. Choose the
-transport with these:
+environment variables. Unknown or repeated options are refused.
+`--transport=<transport>` chooses the announced listener from the same seven
+the Listeners page offers: `tcp`, `keyed-tcp`, `noise-tcp`, `iroh`,
+`keyed-relay`, `noise-relay`, or `onion`.
 
 - The default is iroh with discovery.
 - `--reachability=direct` is for a self-contained run on one host.
 - `--transport=tcp --port=0` is cleartext loopback. Add `--bind` and
-  `--announce-host` to serve a LAN.
+  `--announce-host` to serve a LAN. `keyed-tcp` and `noise-tcp` take the
+  same options and are dialed by the server's key.
+- `--transport=noise-relay` registers at a relay named by `--relay=<ws-url>`
+  or `GLOWCAP_ROOMS_RELAY_URL`. Under `rooms-web` the relay defaults to that
+  server's own `/relay`, so a browser reaches the directory through its
+  sealed door with no Rooms server chosen. The door advertises the relay as
+  peers dial it, so behind a port forward or a proxy `rooms-web` takes
+  `--http-public=<url>` and a standalone server takes
+  `--relay-public=<ws-url>` (or `GLOWCAP_ROOMS_RELAY_PUBLIC_URL`).
 
 `SIGINT` and `SIGTERM` stop admitting members, close the listeners, finish the
 writes already admitted, and release the state directory.
@@ -253,7 +263,7 @@ sturdyref and sends new history there.
   archive kept. From an archive peer it can instead give a durable share that
   lasts until revoked.
 
-All three services also accept `--transport=onion`. Put a running Tor
+Every service also accepts `--transport=onion`. Put a running Tor
 daemon's endpoints in `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL`. The
 services keep `onion-key` in the state directory and never start Tor
 themselves.
@@ -435,7 +445,7 @@ The relay's limits are environment variables, also set in the deployment's
 - `GLOWCAP_RELAY_MAX_SESSIONS`, `GLOWCAP_RELAY_MAX_REGISTRATIONS`, and
   `GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY` limit WebSocket sessions and
   rendezvous registrations.
-- `GLOWCAP_RELAY_MAX_IROH_SESSIONS` (<!-- value rust/services/src/web/relay.rs DEFAULT_IROH_SESSIONS -->16<!-- /value -->) and
+- `GLOWCAP_RELAY_MAX_IROH_SESSIONS` (<!-- value rust/services/src/web/relay/limits.rs DEFAULT_IROH_SESSIONS -->16<!-- /value -->) and
   `GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE` (twice the session limit) limit the
   iroh connections, each of which runs its own endpoint runtime.
 

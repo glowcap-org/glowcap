@@ -55,7 +55,7 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
             const relay = backend.relay orelse return error.NoRendezvousConfigured;
             const hints = [_]model.HintEntry{.{
                 .name = route.rendezvous_relay_hint,
-                .value = .{ .string = relay.routes.relay_url_text },
+                .value = .{ .string = relay.routes.advertisedRelayUrlText() },
             }};
             return model.clonePeerLocator(allocator, .{
                 .transport = transport,

@@ -85,6 +85,7 @@ export async function run(browser: Browser): Promise<void> {
 				}`,
 			)
 		);
+		await reroutesHeldDirectory(open, host.origin, address);
 		await deadDoorsAreNamed(await bare.newPage(), host.origin, address);
 		await attachesThroughRelayDoor(browser, `http://127.0.0.1:${port}`, host.origin);
 	} finally {
@@ -130,6 +131,37 @@ async function attachesThroughRelayDoor(browser: Browser, front: string, origin:
 	} finally {
 		await attaching.close();
 		await hosting.close();
+	}
+}
+
+/** The directory is held through the address it was first reached by. Its
+ * bare relay door typed on the join card re-routes it through that door
+ * alone, so the page reaches it again with no Rooms server asked for. */
+async function reroutesHeldDirectory(open: Page, origin: string, address: string): Promise<void> {
+	const relay = roomsIdentityDoors(parseLocator(address)).find((door) => door.transport === TRANSPORT_NOISE_RELAY);
+	if (relay == null) fail(`the front's address did not list a relay door: ${address}`);
+	// The page is in the room it reached; the join card is the join route.
+	await open.goto(`${origin}/join`);
+	await open.waitForSelector("#locator", { timeout: 60_000 }).catch(() =>
+		fail("the join card did not come back for a page already in a room")
+	);
+	await fillSettled(open, "#locator", formatLocatorUri(relay));
+	await fillSettled(open, "#nick", "door");
+	if (await reachDirectoryOnCard(open, "garden") === "question") {
+		await fillSettled(open, "#room", "garden");
+		await open.click("#joinBtn");
+	}
+	await open.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () =>
+		fail(
+			"re-routing a held directory through its bare relay door did not reach it: " +
+				JSON.stringify({
+					refused: await open.textContent("#joinError").catch(() => null),
+					asked: await open.locator("#serverAddress").count(),
+				}),
+		)
+	);
+	if (await open.locator("#serverAddress").count() !== 0) {
+		fail("re-routing a held directory through a door the browser opens itself asked for a Rooms server");
 	}
 }
 

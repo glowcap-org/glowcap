@@ -185,6 +185,36 @@ Deno.test("webSocketChannel rejects an abnormal close through its shared barrier
 	throw new Error("expected abnormal close to reject the close barrier");
 });
 
+Deno.test("webSocketChannel keeps the peer's Close reason whether or not the teardown was clean", async () => {
+	for (const wasClean of [true, false]) {
+		const ws = new FakeWebSocket();
+		ws.autoClose = false;
+		const channel = webSocketChannel(ws as unknown as WebSocket);
+		const closed = channel.close();
+		ws.finishClose(wasClean, 1011, "Connection refused (os error 111)");
+		let failure = "";
+		await closed.catch((error) => failure = String(error));
+		assertIncludes(failure, "closed by the peer (code 1011): Connection refused (os error 111)");
+	}
+});
+
+Deno.test("webSocketChannel does not read the echo of its own Close as the peer's cause", async () => {
+	const ws = new FakeWebSocket();
+	ws.autoClose = false;
+	const channel = webSocketChannel(ws as unknown as WebSocket);
+	const closed = channel.close(1001, "relay stopped");
+	ws.finishClose(true, 1001, "relay stopped");
+	await closed;
+	const answered = new FakeWebSocket();
+	answered.autoClose = false;
+	const answering = webSocketChannel(answered as unknown as WebSocket);
+	const closing = answering.close(1001, "relay stopped");
+	answered.finishClose(true, 1011, "rendezvous peer is not registered");
+	let failure = "";
+	await closing.catch((error) => failure = String(error));
+	assertIncludes(failure, "closed by the peer (code 1011): rendezvous peer is not registered");
+});
+
 Deno.test("webSocketChannel keeps an I/O error primary while joining physical close", async () => {
 	const ws = new FakeWebSocket();
 	ws.autoClose = false;

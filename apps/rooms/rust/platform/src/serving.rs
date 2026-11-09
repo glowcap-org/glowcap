@@ -3,12 +3,14 @@
 //! end. A peer composes these. None of them knows what the peer answers, so
 //! the session peer, the archive peer, and the next one share exactly one
 //! listener, one option grammar, and one account of a partner leaving.
-use glowcap::{ErrorKind, PendingWork, Session, iroh, tcp};
+use glowcap::{ErrorKind, Locator, PendingWork, Session, iroh, tcp};
+use rooms_application::server::operations::listeners::{self, Transport as Profile};
 use std::{fmt, time::Duration};
 pub mod onion;
 pub use onion::Config as OnionConfig;
 pub mod endpoint;
 mod opening;
+pub mod relay;
 pub use opening::{BindError, OpenError};
 
 /// iroh's idle timeout for a peer's listener and its dial endpoint alike.
@@ -46,37 +48,114 @@ impl Retry {
 	}
 }
 
-/// How a peer is reached.
+/// How a peer is reached: one of the listener profiles the seat table
+/// names, with the options that profile takes.
 pub enum Transport {
+	/// The three tcp-socket profiles, told apart by `profile`.
 	Tcp {
+		profile: TcpProfile,
 		bind: String,
 		port: u16,
 		announce: Option<String>,
 	},
 	Iroh(iroh::Reachability),
+	/// The two relay-registered profiles, told apart by `profile`.
+	Relay {
+		profile: relay::Profile,
+		address: relay::Address,
+	},
 	Onion(onion::Config),
 }
 
+/// Which tcp profile a tcp listener speaks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TcpProfile {
+	/// Cleartext, dialed by address.
+	Plain,
+	/// Cleartext, dialed by key designator.
+	Keyed,
+	/// Noise_XK sealed, dialed by key designator.
+	Noise,
+}
+
+/// What a seat-table row is to this platform: the listener family it opens
+/// and, for a tcp or relay row, the profile inside it. `of` and `seat` are
+/// the one mapping between the table and the typed profiles, and every
+/// opener reads the table through it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Family {
+	Tcp(TcpProfile),
+	Iroh,
+	Relay(relay::Profile),
+	Onion,
+}
+
+impl Family {
+	pub fn of(profile: Profile) -> Self {
+		match profile {
+			Profile::Tcp => Self::Tcp(TcpProfile::Plain),
+			Profile::KeyedTcp => Self::Tcp(TcpProfile::Keyed),
+			Profile::NoiseTcp => Self::Tcp(TcpProfile::Noise),
+			Profile::Iroh => Self::Iroh,
+			Profile::KeyedRelay => Self::Relay(relay::Profile::Keyed),
+			Profile::NoiseRelay => Self::Relay(relay::Profile::Noise),
+			Profile::Onion => Self::Onion,
+		}
+	}
+	pub fn seat(self) -> Profile {
+		match self {
+			Self::Tcp(TcpProfile::Plain) => Profile::Tcp,
+			Self::Tcp(TcpProfile::Keyed) => Profile::KeyedTcp,
+			Self::Tcp(TcpProfile::Noise) => Profile::NoiseTcp,
+			Self::Iroh => Profile::Iroh,
+			Self::Relay(relay::Profile::Keyed) => Profile::KeyedRelay,
+			Self::Relay(relay::Profile::Noise) => Profile::NoiseRelay,
+			Self::Onion => Profile::Onion,
+		}
+	}
+}
+
 impl Transport {
-	/// Read the transport from named options, `value` answering each option
-	/// name from the argument list or the environment. `peer` names the
+	/// Read the transport from named options. `named` answers an option from
+	/// the argument list, and an absent one is read from the environment at
+	/// the variable `variable` names for this peer. The facts a deployment
+	/// shares across its peers stand in under one name each, whatever the
+	/// peer: the relay at `GLOWCAP_ROOMS_RELAY_URL` and
+	/// `GLOWCAP_ROOMS_RELAY_PUBLIC_URL`, and the running Tor at
+	/// `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL`. `peer` names the
 	/// program in a refusal. TCP defaults to `127.0.0.1:0`. A wildcard bind
 	/// needs an announced host, because the listener's own address is not one
-	/// anybody can dial.
+	/// anybody can dial. A relay profile needs the relay it registers at.
 	pub fn parse(
-		value: impl Fn(&str) -> Option<String>,
+		named: impl Fn(&str) -> Option<String>,
 		env: impl Fn(&str) -> Option<String>,
+		variable: impl Fn(&str) -> String,
 		peer: &str,
 	) -> Result<Self, String> {
-		match value("transport").as_deref().unwrap_or("iroh") {
-			"iroh" => Ok(Self::Iroh(
+		let value = |key: &str| {
+			named(key).or_else(|| {
+				env(&variable(key))
+					.map(|s| s.trim().to_owned())
+					.filter(|s| !s.is_empty())
+			})
+		};
+		let shared = |key: &str, global: &str| named(key).or_else(|| env(global));
+		let name = value("transport").unwrap_or_else(|| "iroh".into());
+		let profile = Profile::parse(&name).ok_or_else(|| {
+			format!(
+				"{peer} transport must be one of {}",
+				listeners::TRANSPORTS.map(Profile::name).join(", ")
+			)
+		})?;
+		match Family::of(profile) {
+			Family::Iroh => Ok(Self::Iroh(
 				match value("reachability").as_deref().unwrap_or("discovery") {
 					"discovery" => iroh::Reachability::Discovery,
 					"direct" => iroh::Reachability::Direct,
 					_ => return Err(format!("{peer} reachability must be discovery or direct")),
 				},
 			)),
-			"tcp" => {
+			Family::Tcp(profile) => {
 				let bind = value("bind").unwrap_or_else(|| "127.0.0.1".into());
 				let announce = value("announce-host");
 				let port = value("port")
@@ -86,10 +165,27 @@ impl Transport {
 				if (bind == "0.0.0.0" || bind == "::" || bind == "[::]") && announce.is_none() {
 					return Err(format!("{peer} wildcard bind needs --announce-host=<dialable-host>"));
 				}
-				Ok(Self::Tcp { bind, port, announce })
+				Ok(Self::Tcp {
+					profile,
+					bind,
+					port,
+					announce,
+				})
 			}
-			"onion" => onion::Config::parse(value, env, peer).map(Self::Onion),
-			_ => Err(format!("{peer} transport must be iroh, tcp or onion")),
+			Family::Relay(profile) => {
+				let address = relay::Address::configured(
+					shared("relay", "GLOWCAP_ROOMS_RELAY_URL"),
+					shared("relay-public", "GLOWCAP_ROOMS_RELAY_PUBLIC_URL"),
+				)
+				.map_err(|refusal| format!("{peer} {}", refusal.detail()))?
+				.ok_or_else(|| {
+					format!(
+						"{peer} {name} transport registers at a relay: name its WebSocket URL with --relay=<ws-url> or GLOWCAP_ROOMS_RELAY_URL"
+					)
+				})?;
+				Ok(Self::Relay { profile, address })
+			}
+			Family::Onion => onion::Config::parse(value, shared, peer).map(Self::Onion),
 		}
 	}
 	/// The option names `parse` reads.
@@ -99,18 +195,45 @@ impl Transport {
 		"bind",
 		"port",
 		"announce-host",
+		"relay",
+		"relay-public",
 		"onion-socks",
 		"onion-control",
 		"onion-forward",
 	];
+	/// The seat-table row this listener stands in.
+	pub fn profile(&self) -> Profile {
+		match self {
+			Self::Tcp { profile, .. } => Family::Tcp(*profile),
+			Self::Iroh(_) => Family::Iroh,
+			Self::Relay { profile, .. } => Family::Relay(*profile),
+			Self::Onion(_) => Family::Onion,
+		}
+		.seat()
+	}
 	/// What an operator is told the peer listens over.
 	pub fn describe(&self) -> &'static str {
-		match self {
-			Self::Tcp { .. } => "tcp (cleartext)",
-			Self::Iroh(_) => "iroh (encrypted QUIC)",
-			Self::Onion(_) => "onion (Tor hidden service)",
+		match self.profile() {
+			Profile::Tcp => "tcp (cleartext)",
+			Profile::KeyedTcp => "keyed-tcp (cleartext, dialed by key)",
+			Profile::NoiseTcp => "noise-tcp (Noise_XK sealed)",
+			Profile::Iroh => "iroh (encrypted QUIC)",
+			Profile::KeyedRelay => "keyed-relay (cleartext through a relay)",
+			Profile::NoiseRelay => "noise-relay (Noise_XK sealed through a relay)",
+			Profile::Onion => "onion (Tor hidden service)",
 		}
 	}
+}
+
+/// The string a listener's locator is announced as: a plain tcp seat by its
+/// bare address, the way the announce line names it; every other transport
+/// by its complete locator, because the key, not the address, is the name
+/// a peer dials.
+pub fn announced(locator: &Locator) -> Result<String, TransportError> {
+	if locator.transport == glowcap::TRANSPORT_TCP {
+		return Ok(locator.designator.clone());
+	}
+	Ok(glowcap::format_locator_uri(locator)?)
 }
 
 pub fn iroh_config(reachability: iroh::Reachability) -> iroh::Config {
@@ -257,6 +380,18 @@ impl fmt::Display for PartnerNotice {
 			Self::Ended(ended) => write!(f, "a peer connection ended: {ended}"),
 			Self::TaskFailed(cause) => write!(f, "a peer connection task failed: {cause}"),
 			Self::AcceptRefused(cause) => write!(f, "accepting a connection failed, trying again: {cause}"),
+		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn every_seat_row_round_trips_through_its_family() {
+		for profile in listeners::TRANSPORTS {
+			assert_eq!(Family::of(profile).seat(), profile);
 		}
 	}
 }

@@ -182,7 +182,7 @@ impl<D: Deadline + Clone> OperationsAcquisition<D> {
 		Ok(Self {
 			original: self.original.clone(),
 			replacement: self.replacement.clone(),
-			acquisition: self.acquisition.recompose(snapshot.revision, &candidate)?,
+			acquisition: self.acquisition.recompose(snapshot.revision, &[], &candidate)?,
 			conflicted: Cell::new(false),
 		})
 	}

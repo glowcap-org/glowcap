@@ -219,7 +219,7 @@ async fn scenario() {
 			],
 		)
 		.await
-		.contains("No relay answered a register socket")
+		.contains("No relay answered a register request")
 	);
 	assert!(
 		refused(

@@ -37,12 +37,14 @@ pub fn matchSturdyrefPeer(
 
     if (try self.designatorScheme(session.transport) == .key) {
         const identity = try self.partnerIdentity(session);
+        // The sturdyref names a durable key, and only authenticated channel
+        // evidence proves it (ADR-0028). The hello's signed locator claim may
+        // advertise another of the peer's transports, so it decides nothing
+        // here beyond telling an unproved claim of this key from another peer.
+        const peer = session.served.port.peer;
+        if (peer.partnerDurableProvenance(locator.designator) == .authenticated_transport) return .verified;
         if (!std.mem.eql(u8, locator.designator, identity.designator)) return error.PeerIdentityMismatch;
-        // The provenance-bearing predicate, not key equality (ADR-0028): this
-        // needs a proved durable peer. The fresh session key verifies the hello;
-        // only authenticated channel evidence proves the durable designator.
-        if (!identity.durableIdentityAuthenticated()) return error.PeerIdentityUnverified;
-        return .verified;
+        return error.PeerIdentityUnverified;
     }
 
     switch (session.role) {

@@ -1,13 +1,16 @@
 //! A peer becomes reachable only after its listener's restoration state is
 //! safe. Failed startup closes the acquired listener before returning.
-use super::{Listener, Transport, TransportError, iroh_config, onion::KeyStore};
+use super::{Listener, TcpProfile, Transport, TransportError, iroh_config, onion::KeyStore, relay};
 use glowcap::{Host, ListenerIdentity, Locator, iroh, tcp};
+use rooms_application::server::operations::listeners::Refusal;
 use std::fmt;
 
 #[derive(Debug)]
 pub enum OpenError {
 	Transport(TransportError),
 	Bind(BindError),
+	/// The relay refused the registration, in the seat table's own words.
+	Relay(Refusal),
 	Restoration(String),
 	Cleanup {
 		primary: Box<Self>,
@@ -24,6 +27,7 @@ impl fmt::Display for OpenError {
 		match self {
 			Self::Transport(error) => error.fmt(f),
 			Self::Bind(error) => error.fmt(f),
+			Self::Relay(refusal) => f.write_str(refusal.detail()),
 			Self::Restoration(reason) => write!(f, "onion service restoration failed: {reason}"),
 			Self::Cleanup { primary, cleanup } => write!(f, "{primary}; closing the listener also failed: {cleanup}"),
 		}
@@ -75,19 +79,27 @@ impl Listener {
 	) -> Result<(Self, Locator), OpenError> {
 		let mut saved = None;
 		let listener = match transport {
-			Transport::Tcp { bind, port, announce } => Self::Tcp(
-				tcp::listen(
-					bind,
-					*port,
-					tcp::ListenOptions {
-						identity: ListenerIdentity::Host(host.clone()),
-						advertised_host: announce.clone(),
-						..Default::default()
-					},
-				)
-				.await
-				.map_err(|error| OpenError::Bind(BindError::new(bind, *port, error)))?,
-			),
+			Transport::Tcp {
+				profile,
+				bind,
+				port,
+				announce,
+			} => {
+				let options = tcp::ListenOptions {
+					identity: ListenerIdentity::Host(host.clone()),
+					advertised_host: announce.clone(),
+					..Default::default()
+				};
+				let bound = match profile {
+					TcpProfile::Plain => tcp::listen(bind, *port, options).await,
+					TcpProfile::Keyed => tcp::keyed::listen(bind, *port, options).await,
+					TcpProfile::Noise => tcp::noise::listen(bind, *port, options).await,
+				};
+				Self::Tcp(bound.map_err(|error| OpenError::Bind(BindError::new(bind, *port, error)))?)
+			}
+			Transport::Relay { profile, address } => {
+				Self::Relay(relay::listen(*profile, address, host).await.map_err(OpenError::Relay)?)
+			}
 			Transport::Iroh(reachability) => Self::Iroh(
 				iroh::listen(
 					iroh_config(*reachability),
@@ -154,7 +166,7 @@ impl Listener {
 					}
 					server.locator()?
 				}
-				Self::Relay(_) => unreachable!("relay listeners are runtime operations"),
+				Self::Relay(server) => server.locator()?,
 			};
 			Ok(locator)
 		}

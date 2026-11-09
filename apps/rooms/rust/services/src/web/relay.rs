@@ -23,117 +23,34 @@ use tokio::{
 	time::Instant,
 };
 
-pub(super) type Job = Pin<Box<dyn Future<Output = Result<(), String>>>>;
-/// iroh sessions a relay runs at once unless the operator sets a limit.
-const DEFAULT_IROH_SESSIONS: usize = 16;
-#[derive(Clone)]
-pub(super) struct Limits {
-	pub sessions: usize,
-	pub iroh: usize,
-	pub starts: usize,
-	pub tcp: Vec<(String, u16)>,
-	/// Page origins besides this server's own that may relay and register
-	/// through it, such as a static host serving the Rooms page.
-	pub origins: Vec<url::Origin>,
-	/// The listed entries that named a Rooms page's own address, not only its
-	/// origin, so the server can print a link that opens each with it.
-	pub pages: Vec<url::Url>,
-	/// The entries as the operator wrote them, so a refusal can print the
-	/// list that admits one page more.
-	pub listed: Vec<String>,
-	pub registrations: usize,
-	pub per_identity: usize,
-}
-/// The Rooms page the website publishes, which a server lets use it unless
-/// `--allow-origin` or `GLOWCAP_RELAY_ALLOW_ORIGINS` names other pages, or
-/// none. A macro, so the option's help carries the same literal.
-macro_rules! site_page {
-	() => {
-		"https://glowcap.org/rooms/app/"
-	};
-}
-pub(super) use site_page;
-pub const SITE_PAGE: &str = site_page!();
+mod limits;
+pub(super) use limits::{Limits, exact_address, origin_allowed, site_page};
 
-impl Limits {
-	/// Admit the shared session this server runs beside its directory, by its
-	/// use link, and say whether a browser can reach it through this relay. An
-	/// iroh session is reachable by key already. A session on a TCP transport
-	/// is reached at the endpoint its link names, which the relay forwards to
-	/// like a listed peer. Any other transport (onion) is out of this relay's
-	/// reach, so nothing offers it to a browser.
-	pub fn admit_own_session(&mut self, link: &str) -> bool {
-		let Ok(locator) = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).map(|link| link.locator) else {
-			return false;
-		};
-		if locator.transport == glowcap::TRANSPORT_IROH {
-			return true;
+pub(super) type Job = Pin<Box<dyn Future<Output = Result<(), String>>>>;
+/// How a browser reaches the shared session this server runs beside its
+/// directory, read from the session's use link.
+pub(super) enum SessionReach {
+	/// By its key, or through the relay its link names: nothing for this
+	/// relay to forward.
+	Direct,
+	/// At the TCP endpoint its link names, which this relay forwards to as it
+	/// does a listed peer.
+	Forwarded(Endpoint),
+}
+/// `None` is a door no browser reaches through this relay (onion), so no
+/// page is offered the session.
+pub(super) fn session_reach(link: &str) -> Option<SessionReach> {
+	let locator = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0)
+		.ok()?
+		.locator;
+	match locator.transport.as_str() {
+		glowcap::TRANSPORT_IROH | glowcap::TRANSPORT_KEYED_RELAY | glowcap::TRANSPORT_NOISE_RELAY => {
+			Some(SessionReach::Direct)
 		}
-		let Some(endpoint) = tcp_endpoint(&locator) else {
-			return false;
-		};
-		if !self.tcp.contains(&endpoint) {
-			self.tcp.push(endpoint);
-		}
-		true
-	}
-	pub fn read(env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
-		// Relays share the HTTP front's connection table. Reserve one eighth for
-		// page assets, locators, ICE, status, and proxy requests; rendezvous rows
-		// each retain one of the same HTTP connections, so their independent cap
-		// cannot usefully exceed the table itself.
-		const DEFAULT_SESSIONS: usize = super::http::MAX_CONNECTIONS * 7 / 8;
-		const DEFAULT_REGISTRATIONS: usize = super::http::MAX_CONNECTIONS;
-		let cap = |name, fallback| match env(name).filter(|s| !s.is_empty()) {
-			None => Ok(fallback),
-			Some(value) => value
-				.parse::<usize>()
-				.ok()
-				.filter(|n| *n > 0 && *n <= Semaphore::MAX_PERMITS)
-				.ok_or_else(|| format!("{name} must be a positive capacity")),
-		};
-		let iroh = cap("GLOWCAP_RELAY_MAX_IROH_SESSIONS", DEFAULT_IROH_SESSIONS)?;
-		let tcp = env("GLOWCAP_RELAY_TCP_PEERS")
-			.unwrap_or_default()
-			.split(',')
-			.map(str::trim)
-			.filter(|s| !s.is_empty())
-			.map(|s| glowcap::designator_host_port(s).map_err(|e| e.to_string()))
-			.collect::<Result<_, _>>()?;
-		let listed: Vec<String> = env("GLOWCAP_RELAY_ALLOW_ORIGINS")
-			.unwrap_or_else(|| SITE_PAGE.to_owned())
-			.split(',')
-			.map(str::trim)
-			.filter(|s| !s.is_empty())
-			.map(str::to_owned)
-			.collect();
-		let addresses = listed
-			.iter()
-			.map(|entry| page_entry(entry))
-			.collect::<Result<Vec<_>, _>>()?;
-		let origins = addresses.iter().map(url::Url::origin).collect();
-		// An entry written with its path, `/` included, names a page, even one
-		// at the root of its origin. An entry written as a bare origin names the
-		// origin alone, and its address reads as the path `/`.
-		let pages = listed
-			.iter()
-			.zip(addresses)
-			.filter(|(entry, _)| entry.ends_with('/'))
-			.map(|(_, page)| page)
-			.collect();
-		Ok(Self {
-			origins,
-			pages,
-			listed,
-			sessions: cap("GLOWCAP_RELAY_MAX_SESSIONS", DEFAULT_SESSIONS)?,
-			registrations: cap("GLOWCAP_RELAY_MAX_REGISTRATIONS", DEFAULT_REGISTRATIONS)?,
-			per_identity: cap("GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY", 4)?,
-			iroh,
-			starts: cap("GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE", iroh.saturating_mul(2))?,
-			tcp,
-		})
+		_ => tcp_endpoint(&locator).map(|(host, port)| SessionReach::Forwarded(Endpoint::Tcp { host, port })),
 	}
 }
+
 pub(super) struct Relay {
 	admission: Rc<super::admission::Admission>,
 	slots: Arc<Semaphore>,
@@ -142,6 +59,9 @@ pub(super) struct Relay {
 	starts: Cell<(f64, Instant)>,
 	limits: Limits,
 	location: watch::Receiver<Option<Announcement>>,
+	/// The shared session's TCP endpoint once the session is open, forwarded
+	/// to as a listed peer is.
+	session: watch::Receiver<Option<Endpoint>>,
 	jobs: mpsc::Sender<Job>,
 	stop: watch::Receiver<bool>,
 	report: super::Report,
@@ -192,6 +112,7 @@ impl Relay {
 	pub fn new(
 		limits: Limits,
 		location: watch::Receiver<Option<Announcement>>,
+		session: watch::Receiver<Option<Endpoint>>,
 		jobs: mpsc::Sender<Job>,
 		stop: watch::Receiver<bool>,
 		report: super::Report,
@@ -199,6 +120,7 @@ impl Relay {
 		Self::with_admission(
 			limits,
 			location,
+			session,
 			jobs,
 			stop,
 			report,
@@ -215,6 +137,7 @@ impl Relay {
 	pub fn with_admission(
 		limits: Limits,
 		location: watch::Receiver<Option<Announcement>>,
+		session: watch::Receiver<Option<Endpoint>>,
 		jobs: mpsc::Sender<Job>,
 		stop: watch::Receiver<bool>,
 		report: super::Report,
@@ -232,6 +155,7 @@ impl Relay {
 			starts: Cell::new((limits.iroh as f64, Instant::now())),
 			limits,
 			location,
+			session,
 			jobs,
 			stop,
 			report,
@@ -446,7 +370,7 @@ impl Relay {
 			host: target.0,
 			port: target.1,
 		};
-		if allowed || local.as_ref() == Some(&endpoint) {
+		if allowed || local.as_ref() == Some(&endpoint) || self.session.borrow().as_ref() == Some(&endpoint) {
 			Ok(Target::Local(endpoint))
 		} else {
 			Err((StatusCode::FORBIDDEN, "rooms: relay target not allowed\n"))
@@ -530,64 +454,27 @@ async fn connect_and_pump(
 		}
 	}
 }
+/// A WebSocket control frame holds 125 payload bytes, two of them the code.
+const CLOSE_REASON_MAX_BYTES: usize = 123;
 async fn retire_websocket(
 	ws: &mut WsBytes<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>,
 	result: Result<(), String>,
 ) -> Result<(), String> {
-	// Even failure before a far stream exists owes the browser a Close. A pump
-	// that already closed the pair only flushes its existing reply.
-	let frame = result
-		.as_ref()
-		.err()
-		.map(|_| tokio_tungstenite::tungstenite::protocol::CloseFrame {
+	// Even failure before a far stream exists owes the browser a Close carrying
+	// the cause: the page learns nothing else about why its socket ended. A
+	// pump that already closed the pair only flushes its existing reply.
+	let frame = result.as_ref().err().map(|cause| {
+		let end = cause.floor_char_boundary(CLOSE_REASON_MAX_BYTES);
+		tokio_tungstenite::tungstenite::protocol::CloseFrame {
 			code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Error,
-			reason: "Rooms relay could not complete the connection".into(),
-		});
+			reason: cause.get(..end).unwrap_or_default().to_owned().into(),
+		}
+	});
 	let retired = tokio::time::timeout(Duration::from_secs(3), ws.close(frame))
 		.await
 		.map_err(|_| "relay WebSocket shutdown timed out".to_owned())
 		.and_then(|result| result.map_err(|e| e.to_string()));
 	crate::cleanup::combine(result, retired)
-}
-/// Whether a request may use this server: no `Origin` (not a browser), this
-/// server's own page, or a page origin in `listed`.
-pub(super) fn origin_allowed<B>(request: &Request<B>, listed: &[url::Origin]) -> bool {
-	let Some(origin) = request.headers().get("origin") else {
-		return true;
-	};
-	let Ok(origin) = origin.to_str().ok().and_then(|s| url::Url::parse(s).ok()).ok_or(()) else {
-		return false;
-	};
-	if !matches!(origin.scheme(), "http" | "https") {
-		return false;
-	}
-	let own = request.headers().get("host").and_then(|v| v.to_str().ok());
-	own == Some(&origin[url::Position::BeforeHost..url::Position::AfterPort]) || listed.contains(&origin.origin())
-}
-/// One `GLOWCAP_RELAY_ALLOW_ORIGINS` entry: an http or https origin, or the
-/// address of a Rooms page on one, which is a path ending in `/`. A path with
-/// no final `/` could be a file or a directory, so it is refused, not guessed.
-fn page_entry(entry: &str) -> Result<url::Url, String> {
-	let refused = || {
-		format!(
-			"--allow-origin (or GLOWCAP_RELAY_ALLOW_ORIGINS) entry {entry:?} must be an origin such as https://rooms.example, or a page address such as https://rooms.example/rooms/app/"
-		)
-	};
-	exact_address(entry).ok_or_else(refused)
-}
-/// An http(s) address written as a page or server base: no credentials, a
-/// path ending in `/`, and no query or fragment, so the path the operator
-/// typed is the path every link carries. A bare origin reads as the path `/`,
-/// the one form the URL standard gives it.
-pub(super) fn exact_address(entry: &str) -> Option<url::Url> {
-	let url = url::Url::parse(entry).ok()?;
-	let exact = matches!(url.scheme(), "http" | "https")
-		&& url.username().is_empty()
-		&& url.password().is_none()
-		&& url.path().ends_with('/')
-		&& url.query().is_none()
-		&& url.fragment().is_none();
-	exact.then_some(url)
 }
 pub(super) fn refusal(status: StatusCode, text: &'static str) -> super::http::Reply {
 	let mut reply = Response::new(Full::new(Bytes::from_static(text.as_bytes())));

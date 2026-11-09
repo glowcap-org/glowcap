@@ -34,8 +34,19 @@ pub const pins = [_]Pin{
     .{
         .what = "the Rooms page the website publishes, the one a server admits by default",
         .literal = "https://glowcap.org/rooms/app/",
-        .owner = "apps/rooms/rust/services/src/web/relay.rs",
+        .owner = "apps/rooms/rust/services/src/web/relay/limits.rs",
         .mirrors = &.{ "cli/app/rooms/commands.zig", "apps/rooms/web/deploy/docker-compose.yml" },
+    },
+    .{
+        .what = "the listener transports a Rooms peer announces, as every help names them",
+        .literal = "tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion",
+        .owner = "apps/rooms/rust/services/src/server/config.rs",
+        .mirrors = &.{
+            "apps/rooms/rust/services/src/session/config.rs",
+            "apps/rooms/rust/services/src/web/config.rs",
+            "apps/rooms/rust/services/src/archive/peer/config.rs",
+            "cli/app/rooms/commands.zig",
+        },
     },
 };
 

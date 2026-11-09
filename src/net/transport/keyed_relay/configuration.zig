@@ -16,8 +16,10 @@ pub fn validateUrls(relay_url: []const u8, register_url: []const u8) !void {
 }
 
 /// Borrowed deployment routes. The alias names the same relay registry as
-/// `relay_url`, reachable through a different ingress. Only that exact route
-/// is redirected. Unrelated peer hints retain their own destination.
+/// `relay_url`, reachable through a different ingress: the route peers dial
+/// the registry by, where `relay_url` is how this process reaches it. A
+/// listener advertises the alias, and a dial toward that exact route goes
+/// to `relay_url`. Unrelated peer hints retain their own destination.
 pub const Options = struct {
     relay_url: []const u8,
     register_url: ?[]const u8 = null,
@@ -46,6 +48,7 @@ pub const Config = struct {
     storage: []u8,
     relay_url_text: []const u8,
     relay_url: RelayUrl,
+    relay_alias_url_text: ?[]const u8,
     relay_alias_url: ?RelayUrl,
     registration: Registration,
 
@@ -85,18 +88,26 @@ pub const Config = struct {
         @memcpy(storage[routes_len..], alias_url);
         const owned_relay = storage[0..relay_url.len];
         const owned_register = storage[relay_url.len..routes_len];
+        const owned_alias: ?[]const u8 = if (options.relay_alias_url != null) storage[routes_len..] else null;
         const parsed_relay = try RelayUrl.parse(owned_relay);
         return .{
             .allocator = allocator,
             .storage = storage,
             .relay_url_text = owned_relay,
             .relay_url = parsed_relay,
-            .relay_alias_url = if (options.relay_alias_url != null) try RelayUrl.parse(storage[routes_len..]) else null,
+            .relay_alias_url_text = owned_alias,
+            .relay_alias_url = if (owned_alias) |alias| try RelayUrl.parse(alias) else null,
             .registration = if (options.register_url != null) .{ .registered = .{
                 .url_text = owned_register,
                 .public_key = options.public_key,
             } } else .dial_only,
         };
+    }
+
+    /// The route a listener advertises in its `rendezvous-relay` hint: the
+    /// alias when one names how peers dial the registry, else `relay_url`.
+    pub fn advertisedRelayUrlText(self: Config) []const u8 {
+        return self.relay_alias_url_text orelse self.relay_url_text;
     }
 
     pub fn selectDialRoute(self: Config, hint: ?RelayUrl) RelayUrl {

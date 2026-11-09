@@ -15,6 +15,7 @@ import { spawnOwned, stopOwned } from "../support/children.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { ROOT, WEB } from "../support/paths.ts";
 import { reachRoomThroughRelay, startWeb, waitForIndex, withWeb } from "./serve_harness.ts";
+import { webPort } from "../support/web_front.ts";
 import { roomLocator, roomPortOf } from "../support/rooms_server.ts";
 import { HINT_RENDEZVOUS_RELAY } from "../../lib/doors.ts";
 import { roomsIdentityDoors } from "../../lib/routes.ts";
@@ -74,6 +75,36 @@ Deno.test("a declared relay listener puts a sealed door on the served location",
 	} finally {
 		await stopOwned(proc);
 	}
+});
+
+// The directory's own announced listener can be the sealed relay door, with
+// no tcp door at all. The front still serves a location, the door registers
+// at this front's relay, and it proves the room's key.
+Deno.test("a relay transport announces the directory through this front's relay", async () => {
+	const proc = spawnOwned(WEB, {
+		args: ["--transport=noise-relay", "0"],
+		cwd: ROOT,
+		stdout: "piped",
+		stderr: "piped",
+	});
+	const stderr = new Response(proc.stderr).text();
+	try {
+		const httpPort = await webPort(proc);
+		const served = parseLocator(await roomLocator(httpPort));
+		const door = served.transport === TRANSPORT_ID ? roomsIdentityDoors(served)[0] : served;
+		assertEquals(door.transport, TRANSPORT_NOISE_RELAY, "the announced listener was not the relay door");
+		assertEquals(
+			stringHint(door, HINT_RENDEZVOUS_RELAY),
+			`ws://127.0.0.1:${httpPort}/relay`,
+			"the relay door did not name this front's relay",
+		);
+	} finally {
+		await stopOwned(proc);
+	}
+	// The directory stands on this front's relay, so the front retires the
+	// directory before the relay, and the directory leaves on its own terms.
+	const reported = await stderr;
+	assert(!reported.includes("exited during shutdown"), reported);
 });
 
 Deno.test("the IRC Operations stylesheet is a served asset", async () => {

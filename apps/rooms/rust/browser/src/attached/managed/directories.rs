@@ -35,8 +35,38 @@ impl RoomsManagedDirectoryAcquisition {
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
+	/// Whether a held directory is reached through `route` already: the recipe
+	/// its access capability was saved under is the one `route` yields. A
+	/// directory the session does not hold is reached through nothing.
+	#[wasm_bindgen(js_name = directoryRouteHeld)]
+	pub fn directory_route_held(&self, id: js_sys::JsString, route: js_sys::JsString) -> js_sys::Promise {
+		let input = (|| {
+			let id = scalar(id, 1024)?;
+			let route = scalar(route, glowcap::loam::ReferenceRequest::MAX_URI_BYTES)?;
+			let uri = rooms_glowcap::routes::directory_recipe(&route).map_err(|error| error.to_string())?;
+			Ok((Text::new(id.into()).ok_or("Invalid directory row identity")?, uri))
+		})();
+		let (id, uri) = match input {
+			Ok(input) => input,
+			Err(error) => return rejected(error),
+		};
+		let workspace = self.workspace.clone();
+		self.driver.submit(0, move |_| async move {
+			let snapshot = workspace.snapshot().await.map_err(|error| error.to_string())?;
+			let Some(row) = snapshot.intent.directories.as_slice().iter().find(|row| row.id == id) else {
+				return Ok(JsValue::FALSE);
+			};
+			let held = workspace
+				.custody_recipe(custody::Coordinate::new(custody::Role::DirectoryAccess, row.access))
+				.await
+				.map_err(|error| error.to_string())?;
+			Ok(JsValue::from_bool(held.as_deref() == Some(uri.as_str())))
+		})
+	}
 	/// Preparation fetches once and retains the complete candidate. Submission
 	/// compares the saved revision. It never overwrites an intervening workspace.
+	/// A held id re-routes that directory: the capability fetched through
+	/// `route` replaces the held one under the same id and source.
 	#[wasm_bindgen(js_name = prepareDirectory)]
 	pub fn prepare_directory(
 		&self,
@@ -84,17 +114,19 @@ impl RoomsManagedWorkspace {
 			// Fetching holds no workspace candidate. Session activity may commit
 			// while it waits; select intent only after the capability is held.
 			let snapshot = workspace.snapshot().await.map_err(|error| error.to_string())?;
-			if snapshot.intent.directories.as_slice().iter().any(|row| row.id == id) {
-				return Err("Directory row already exists; recover its original request".into());
-			}
-			if snapshot.intent.directories.as_slice().len() == workspace::MAX_DIRECTORIES {
+			let held = snapshot.intent.directories.as_slice().iter().find(|row| row.id == id);
+			if held.is_none() && snapshot.intent.directories.as_slice().len() == workspace::MAX_DIRECTORIES {
 				return Err("Directory capacity is exhausted".into());
 			}
 			let mut platform = environment.platform.clone();
+			let source = match held {
+				Some(held) => held.source,
+				None => Some(key(&mut platform)?),
+			};
 			let row = workspace::Directory {
 				id,
 				access: key(&mut platform)?,
-				source: Some(key(&mut platform)?),
+				source,
 				name: None,
 				inbox: None,
 				home,

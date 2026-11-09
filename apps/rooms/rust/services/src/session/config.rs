@@ -22,7 +22,10 @@ pub struct Config {
 	pub ice_servers: Vec<glowcap::webrtc::IceServer>,
 }
 
-pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|onion]
+pub const HELP: &str = "rooms-session --state=<directory> [--transport=<transport>]
+  --transport=<transport>  tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
+  --relay=<ws-url>  the relay a keyed-relay or noise-relay listener registers at (or GLOWCAP_ROOMS_RELAY_URL)
+  --relay-public=<ws-url>  that relay as peers dial it, behind a port forward or proxy (or GLOWCAP_ROOMS_RELAY_PUBLIC_URL)
   --local-control  expose this session through <state>/control.sock
   --admission-scale=<1..100>  scale default work allowances (default: 1)
   --admission-rates=<class=burst/per-minute,...>  absolute per-class overrides
@@ -38,7 +41,7 @@ pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|
   --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)
   --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port
   --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)
-  --relay-url=<url>  dial browser members through this rendezvous relay
+  --relay-url=<url>  the rendezvous relay this peer dials browser members through (a listener registers at --relay)
   --relay-alias-url=<url>  redirect this advertised route to --relay-url (same registry)
 Options override GLOWCAP_ROOMS_SESSION_* environment variables. TCP defaults to 127.0.0.1:0.
 rooms-session --check-ready=<path>  print the sturdyref a running peer wrote to its readiness file, or exit nonzero
@@ -56,6 +59,16 @@ const KEYS: &[&str] = &[
 ];
 
 impl Config {
+	/// Whether `parse` reads an option of this name.
+	pub fn accepts(key: &str) -> bool {
+		KEYS.contains(&key)
+			|| Transport::OPTIONS.contains(&key)
+			|| rooms_application::admission::Settings::OPTIONS.contains(&key)
+	}
+	/// The environment variable that stands in for an absent `--<key>`.
+	pub fn variable(key: &str) -> String {
+		format!("GLOWCAP_ROOMS_SESSION_{}", key.replace('-', "_").to_uppercase())
+	}
 	/// `None` means help was asked for. Every option may also come from
 	/// `GLOWCAP_ROOMS_SESSION_<NAME>`. An argument wins over the environment.
 	pub fn parse(
@@ -71,10 +84,7 @@ impl Config {
 				.strip_prefix("--")
 				.and_then(|s| s.split_once('='))
 				.ok_or_else(|| Error::refused("options use --name=value"))?;
-			if !KEYS.contains(&key)
-				&& !Transport::OPTIONS.contains(&key)
-				&& !rooms_application::admission::Settings::OPTIONS.contains(&key)
-			{
+			if !Self::accepts(key) {
 				return Err(Error::refused(format!("unknown session option: --{key}")));
 			}
 			if named.insert(key.to_owned(), value.to_owned()).is_some() {
@@ -83,18 +93,16 @@ impl Config {
 		}
 		let value = |key: &str| {
 			named.get(key).cloned().or_else(|| {
-				env(&format!(
-					"GLOWCAP_ROOMS_SESSION_{}",
-					key.replace('-', "_").to_uppercase()
-				))
-				.map(|s| s.trim().to_owned())
-				.filter(|s| !s.is_empty())
+				env(&Self::variable(key))
+					.map(|s| s.trim().to_owned())
+					.filter(|s| !s.is_empty())
 			})
 		};
 		let state = value("state").filter(|s| !s.is_empty()).ok_or_else(|| {
 			Error::refused("name durable storage with --state=<directory> or GLOWCAP_ROOMS_SESSION_STATE")
 		})?;
-		let transport = Transport::parse(value, &env, "session").map_err(Error::refused)?;
+		let transport =
+			Transport::parse(|key| named.get(key).cloned(), &env, Self::variable, "session").map_err(Error::refused)?;
 		let dial_transports: Vec<String> = value("dial-transports")
 			.map(|value| value.split(',').map(str::to_owned).collect())
 			.unwrap_or_default();

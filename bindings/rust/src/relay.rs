@@ -100,6 +100,10 @@ pub struct ListenOptions<'a> {
 	pub identity: crate::ListenerIdentity,
 	/// Trust used when the registration or relay route selects WSS.
 	pub trust: Trust<'a>,
+	/// The route peers dial this relay by when a port forward or a proxy
+	/// gives it another address than `relay_url`. The listener advertises
+	/// it, and a dial toward it goes to `relay_url`.
+	pub relay_alias_url: Option<&'a str>,
 }
 
 /// A registered relay listener, the relay sibling of [`crate::tcp::Server`].
@@ -158,7 +162,7 @@ async fn listen_relay_profile(
 		relay_url,
 		register_url: Some(register_url),
 		trust: options.trust,
-		relay_alias_url: None,
+		relay_alias_url: options.relay_alias_url,
 	};
 	// The provider registers as the listener opens, so a completed open is
 	// the commit point: the relay answered and holds this peer's sockets. The
@@ -194,8 +198,9 @@ pub struct Config<'a> {
 	pub register_url: Option<&'a str>,
 	/// Trust used when any validated route selects WSS.
 	pub trust: Trust<'a>,
-	/// Redirect this exact advertised dial route to `relay_url`. Both routes
-	/// must reach the same registry. Other peers retain their advertised route.
+	/// The route peers dial the same registry by. A listener advertises it,
+	/// and a dial toward this exact route goes to `relay_url`. Other peers
+	/// retain their advertised route.
 	pub relay_alias_url: Option<&'a str>,
 }
 
