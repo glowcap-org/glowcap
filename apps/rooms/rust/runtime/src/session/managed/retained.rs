@@ -16,8 +16,9 @@ use rooms_glowcap::client::{Deadline, Tasks};
 /// Zig Host's error set and from a byte-fed Host's connector refusal alike.
 /// That condition clears only when the row or the session's dial transports
 /// change, so the session names it with its wire code instead of letting a
-/// bare break stand.
-fn name_undialable(error: glowcap::Error) -> glowcap::Error {
+/// bare break stand. The session's own custody restoration and a worker's
+/// call through its source both read the Host's answer here.
+pub(super) fn name_undialable(error: glowcap::Error) -> glowcap::Error {
 	let undialable = error.kind() == glowcap::ErrorKind::Broken
 		&& error
 			.message()

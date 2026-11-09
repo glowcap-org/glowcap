@@ -1,11 +1,11 @@
 //! One directory discovery worker per exact saved selection. This registry
 //! owns views only. The session retains each worker and upstream cancellation.
-use super::super::{DirectoryWatch, MembershipEvent, MembershipReceiver, MembershipReport, MembershipTarget, Session};
-use glowcap::Result;
-use rooms_application::{
-	content::session::workspace::{self, Intent},
-	failure::{Failure, Retry},
+use super::super::{
+	DirectoryWatch, MembershipEvent, MembershipReceiver, MembershipReport, MembershipTarget, Session,
+	coordination::stands,
 };
+use glowcap::Result;
+use rooms_application::content::session::workspace::{self, Intent};
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
@@ -27,12 +27,6 @@ struct Watching<P: Tasks> {
 	snapshot_delivered: bool,
 	failure: Option<glowcap::Error>,
 	snapshot: Option<rooms_application::directory::Snapshot>,
-}
-/// A coded refusal names a condition that clears only with a change, so the
-/// registry holds it and reports it standing. An uncoded failure is the
-/// network's, and the recovery timer reattempts it.
-fn stands(failure: &glowcap::Error) -> bool {
-	Failure::parse(&failure.to_string()).is_some_and(|coded| !matches!(coded.code.definition().retry, Retry::Soon))
 }
 pub(super) struct Discoveries<P: Tasks>(BTreeMap<String, Entry<P>>);
 impl<P: Tasks> Default for Discoveries<P> {

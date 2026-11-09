@@ -90,12 +90,14 @@ and storage formats before 1.0.
   then answered a directory join with a bare `PromiseBroken`. Both options
   still apply to a peer whose `--relay` or `--session-relay` names another
   relay.
-- A directory whose saved address uses a transport the shared session cannot
-  reach is reported once, as a standing refusal with its own code, and dialed
-  again only on an explicit retry or a changed address. Before, the session
-  dialed it on every recovery wake and told the operator a bare
-  `RestorationFailed: UnknownTransport` every few seconds. Enter the
-  directory's current address on its card to re-route it.
+- A saved directory, room, or direct conversation whose address uses a
+  transport the shared session cannot reach is reported once, as a standing
+  refusal with its own code, and dialed again only on an explicit retry or a
+  changed address. The session's recovery timer rests while only such
+  refusals stand. Before, the session dialed the address on every recovery
+  wake and told the operator a bare `RestorationFailed: UnknownTransport`
+  every few seconds. Enter the directory's current address on its card to
+  re-route it.
 - The page frees a change the session refused and reports the reason, for
   every kind of change it submits. Before, it listed such a change as gone
   through, with a **Finish** that resubmitted it. A change that went through

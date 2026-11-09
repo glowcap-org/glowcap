@@ -307,7 +307,13 @@ where
 						None => Ok(()),
 					}));
 					(self.report)(Ok(&report));
-					if report.failures.is_empty() && recovery_generation == self.refresh.recovery_generation.get() {
+					// A standing refusal holds no timer: an explicit retry or a
+					// changed row wakes this loop itself.
+					let settled = report
+						.failures
+						.iter()
+						.all(|(_, failure)| super::coordination::stands(failure));
+					if settled && recovery_generation == self.refresh.recovery_generation.get() {
 						self.refresh.recovering.set(false);
 						self.recovery_delay = 200;
 					}

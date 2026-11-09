@@ -62,7 +62,7 @@ async fn explicit_retry_does_not_restart_ready_pending_or_retiring_workers() {
 						introduction: None,
 						source: custody::FieldKey::new(field, field),
 					},
-					membership,
+					worker: Worker::Running(membership),
 				},
 			);
 		}

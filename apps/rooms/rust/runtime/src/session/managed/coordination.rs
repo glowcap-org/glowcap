@@ -86,11 +86,20 @@ impl MembershipKinds {
 }
 
 /// Presentation facts only. Failure retains the corresponding worker and its
-/// original request. Another reconcile retries that worker, not its effect.
+/// original request. Another reconcile retries that worker, not its effect,
+/// unless its failure stands.
 #[derive(Default)]
 pub struct MembershipReport {
 	pub ready: usize,
 	pub failures: Vec<(MembershipTarget, glowcap::Error)>,
+}
+/// A coded refusal names a condition that clears only with a change (the row,
+/// the session's transports, an explicit retry), so a registry holds it and
+/// reports it standing. An uncoded failure is the network's, and the recovery
+/// timer reattempts it.
+pub(super) fn stands(failure: &glowcap::Error) -> bool {
+	rooms_application::failure::Failure::parse(&failure.to_string())
+		.is_some_and(|coded| !matches!(coded.code.definition().retry, rooms_application::failure::Retry::Soon))
 }
 /// One nickname copy per directory, bounded by 32 UTF-16 units and the directory
 /// capacity. It outlives the borrowed snapshot so user edits can retire a worker.
@@ -159,9 +168,15 @@ impl Origin {
 		})
 	}
 }
+/// One saved row's worker. A start refused for a reason that stands is kept as
+/// the refusal, so no recovery wake dials the address again.
 struct Entry<P: Tasks> {
 	origin: Origin,
-	membership: Membership<P>,
+	worker: Worker<P>,
+}
+enum Worker<P: Tasks> {
+	Refused(glowcap::Error),
+	Running(Membership<P>),
 }
 
 /// One bounded registry of scalar row identity and membership handles. It
@@ -260,26 +275,38 @@ impl Desired<'_> {
 }
 impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 	/// Only an explicit outer retry opens a new attempt window for retained
-	/// failed workers. Workspace wakes and recovery timers cannot renew it.
-	pub(super) fn retry_failed(&self) {
-		for entry in self.entries.values() {
-			if entry.membership.retirement_status().is_none() && matches!(entry.membership.status(), Some(Err(_))) {
-				entry.membership.retry();
+	/// failed workers and refused starts. Workspace wakes and recovery timers
+	/// cannot renew it.
+	pub(super) fn retry_failed(&mut self) {
+		self.entries.retain(|_, entry| match &entry.worker {
+			Worker::Refused(_) => false,
+			Worker::Running(membership) => {
+				if membership.retirement_status().is_none() && matches!(membership.status(), Some(Err(_))) {
+					membership.retry();
+				}
+				true
 			}
-		}
+		});
 	}
 	/// Sample failures before reconciliation waits on another target's startup.
 	/// Connection loss is already known by the session-owned worker. Restoring
 	/// a sibling must not hide that fact from the embedding.
 	pub(super) fn append_status(&self, report: &mut MembershipReport) {
 		for (target, entry) in &self.entries {
-			if let Some(result) = entry.membership.retirement_status() {
+			let membership = match &entry.worker {
+				Worker::Refused(failure) => {
+					report.failures.push((target.clone(), failure.clone()));
+					continue;
+				}
+				Worker::Running(membership) => membership,
+			};
+			if let Some(result) = membership.retirement_status() {
 				if let Err(error) = result {
 					report.failures.push((target.clone(), error));
 				}
 				continue;
 			}
-			match entry.membership.status() {
+			match membership.status() {
 				Some(Err(error)) => report.failures.push((target.clone(), error)),
 				Some(Ok(())) => report.ready += 1,
 				None => {}
@@ -347,13 +374,18 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 				));
 				continue;
 			};
-			if let Err(error) = entry.membership.close().await {
+			if let Worker::Running(membership) = &mut entry.worker
+				&& let Err(error) = membership.close().await
+			{
 				report.failures.push((target, error));
 				continue;
 			}
 			self.entries.remove(&target);
 		}
-		self.entries.retain(|_, entry| entry.membership.is_active());
+		self.entries.retain(|_, entry| match &entry.worker {
+			Worker::Refused(_) => true,
+			Worker::Running(membership) => membership.is_active(),
+		});
 		for ((kind, id), row) in desired {
 			let target = match kind {
 				Kind::Discovery => unreachable!("discovery has an independent observation owner"),
@@ -413,9 +445,18 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 				};
 				match membership {
 					Ok(membership) => {
-						entry.insert(Entry { origin, membership });
+						entry.insert(Entry {
+							origin,
+							worker: Worker::Running(membership),
+						});
 					}
 					Err(error) => {
+						if stands(&error) {
+							entry.insert(Entry {
+								origin,
+								worker: Worker::Refused(error.clone()),
+							});
+						}
 						report.failures.push((target, error));
 						continue;
 					}
@@ -433,11 +474,21 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 			));
 			return;
 		};
-		let membership = &entry.membership;
+		let membership = match &entry.worker {
+			Worker::Refused(failure) => {
+				report.failures.push((target.clone(), failure.clone()));
+				return;
+			}
+			Worker::Running(membership) => membership,
+		};
 		if let Some(Err(error)) = membership.status() {
-			let reason = error.to_string();
-			let advice = rooms_application::failure::Failure::parse(&reason).and_then(|failure| failure.retry_advice());
-			if advice.is_none() {
+			// A standing refusal waits for an explicit retry or a changed row,
+			// and a throttled start keeps the delay its advice named. Any other
+			// failure is the network's, and this wake reattempts it.
+			let throttled = rooms_application::failure::Failure::parse(&error.to_string())
+				.and_then(|failure| failure.retry_advice())
+				.is_some();
+			if !stands(&error) && !throttled {
 				membership.retry();
 			}
 		}
@@ -461,7 +512,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 	pub async fn close(&mut self) -> Result<()> {
 		let mut result: Result<()> = Ok(());
 		for (target, entry) in &mut self.entries {
-			if let Err(error) = entry.membership.close().await {
+			let Worker::Running(membership) = &mut entry.worker else {
+				continue;
+			};
+			if let Err(error) = membership.close().await {
 				let error = error.with_context(&format!("closing {target:?} membership"));
 				result = match result {
 					Ok(()) => Err(error),
@@ -469,7 +523,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 				};
 			}
 		}
-		self.entries.retain(|_, entry| entry.membership.is_active());
+		self.entries
+			.retain(|_, entry| matches!(&entry.worker, Worker::Running(membership) if membership.is_active()));
 		result
 	}
 }

@@ -169,6 +169,19 @@ pub(super) async fn run() {
 				.unwrap();
 				owner.import(access, target.clone(), Some(uri)).await.unwrap();
 				owner.import(initiating, source.clone(), None).await.unwrap();
+				// A membership realizes through a source with the session's full
+				// authority. The observe-only source above keeps this proof's thesis.
+				let supported: Vec<_> = session::SUPPORTED.iter().map(|p| p.key()).collect();
+				let full = policy.value_for_kind(session::KIND, &supported, &[]).unwrap();
+				let (member_source, _) = owner.derive(full, 0, ControlPowers::default()).await.unwrap();
+				owner
+					.import(
+						requests::coordinate(custody::Role::SessionAccess, 4),
+						member_source,
+						None,
+					)
+					.await
+					.unwrap();
 				// A directory saved at a door this Host dials no connector for once
 				// the session that imported it has ended.
 				let stale_exporter = Host::from_seed([173; 32]).unwrap();
