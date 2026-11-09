@@ -59,8 +59,10 @@ async fn host_trace_discovers_private_authority_and_follows_the_carried_feed() {
 async fn trace_discovery_distinguishes_a_disabled_feed_from_a_dead_service() {
 	tokio::time::timeout(Duration::from_secs(10), async {
 		let state = startup::Fixture::new();
-		let mut command = Web::endpoint_command(0);
-		command.args(["--no-browser-assets", "--trace=false"]);
+		let mut options = Web::options(0);
+		options.insert("trace", "false".to_owned());
+		let mut command = Web::endpoint_command_with(options);
+		command.arg("--no-browser-assets");
 		let mut web = Web::spawn(command);
 		web.ready().await;
 		let query = |print| {

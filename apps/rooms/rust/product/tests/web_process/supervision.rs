@@ -35,10 +35,12 @@ async fn web_attaches_by_local_address_and_takes_over_the_same_kept_directory() 
 		let operator = std::fs::read(state.join("operator")).unwrap();
 		let identity = std::fs::read(state.join("rooms.json")).unwrap();
 		let web_command = || {
-			let mut command = Web::command(0);
+			let mut options = Web::options(0);
+			options.insert("trace", "0".to_owned());
+			options.insert("port", port.to_string());
+			let mut command = Web::command_with(options);
 			command
-				.args(["--trace=0", "--operator", "--announce-host=127.0.0.2"])
-				.arg(format!("--port={port}"))
+				.args(["--operator", "--announce-host=127.0.0.2"])
 				.arg(format!("--state={}", state.display()));
 			command
 		};

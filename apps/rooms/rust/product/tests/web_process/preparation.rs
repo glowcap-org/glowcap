@@ -36,9 +36,10 @@ async fn web_prepares_and_serves_without_a_source_tree_or_compiler() {
 			.kill_on_drop(true).output().await.unwrap();
 		assert!(!refused.status.success());
 		assert_eq!(std::fs::read_link(&current).unwrap(), generation);
-		let mut command = Web::command(0);
-		command.arg("--prepared").arg(format!("--assets={}", current.display()))
-			.current_dir(&fixture.0);
+		let mut options = Web::options(0);
+		options.insert("assets", current.display().to_string());
+		let mut command = Web::command_with(options);
+		command.arg("--prepared").current_dir(&fixture.0);
 		fixture.env(&mut command);
 		let mut web = Web::spawn(command);
 		web.ready().await;
