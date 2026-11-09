@@ -73,7 +73,7 @@ test "Loam attach refuses a registration with more methods than the C boundary c
     try f.open();
     defer f.close();
     // One past the bound: the registration is refused whole, by name, and nothing of it is kept.
-    var methods: [c.max_content_methods + 1]c.GlowcapLoamMethod = undefined;
+    var methods: [c.prose_limits.max_content_methods + 1]c.GlowcapLoamMethod = undefined;
     for (&methods) |*method| method.* = one_method[0];
     var attachment: ?*c.GlowcapLoamAttachment = null;
     try std.testing.expectEqual(shared.GLOWCAP_ERR_INVALID_ARGUMENT, f.attach(&methods, &attachment));

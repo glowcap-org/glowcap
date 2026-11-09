@@ -20,15 +20,15 @@ Rooms runs on Linux and macOS hosts and in Chromium-class browsers. One Rust
 implementation runs every Rooms service and the browser application, and
 TypeScript draws the page.
 
-- Windows, file locking on other filesystems, and reaching a public Tor
-  circuit are untested, and no throughput or latency figure is published.
+Windows, file locking on other filesystems, and reaching a public Tor circuit
+are untested, and no throughput or latency figure is published.
 
 [Install glowcap](host.md#install) says how the macOS packages are signed and
 what to do when macOS refuses one.
 
 ## One host per deployment
 
-Everything durable, kept lines included, lives in the directory and session
+Everything durable, kept messages included, lives in the directory and session
 state volumes. Back each up as one unit while the stack is stopped. Rooms
 cannot snapshot a running store, and one directory's rooms cannot be spread
 across hosts.
@@ -43,9 +43,9 @@ use.
 
 ## Sessions instead of accounts
 
-No login or server account owns a shared session. Holding the session link
-(a sturdyref, a secret address) is what lets you attach, and each part you
-delegate can be revoked on its own.
+No login or server account owns a shared session. Holding the session link,
+which is a secret, is what lets you attach, and each part you delegate can be
+revoked on its own.
 
 ## What a shared session keeps
 
@@ -69,16 +69,16 @@ the password is stored.
 
 ## Attachments and shares
 
-- A live attachment stays available only while its room, direct line, and
-  session are open. A member archive the reader chose may keep the same
+- A live attachment stays available only while its room or direct
+  conversation, and its session, are open. A member archive the reader chose may keep the same
   message's bytes and serve them after a restart through its own scoped
   capability. The session stores neither copy, and it never records that an
   archive kept one.
 - Room-link invitations are saved with the session. A browser session and a
   shared session both keep the link until the reader accepts or dismisses it.
 - Received archive shares last only while the session runs. A live share ends
-  with its session or after one read. A durable offer's link is published at
-  this tab's address. The reminder on the conversation card is not saved, so a
+  with its session or after one read. A durable offer's link is served by this
+  browser tab. The reminder on the conversation card is not saved, so a
   restart forgets the reminder and leaves the share in force.
 
 ## One-shot invitations
@@ -103,7 +103,8 @@ recovery key until they resolve.
 
 ## Delivery receipts
 
-A room's senders share one allowance of <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGES -->256<!-- /value --> messages and
+A room's senders fill each reader's unread allowance
+([Unread messages](#unread-messages)) and
 <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGE_BYTES bytes -->2 MiB<!-- /value --> across pending text and unread messages. Receipts keep order and
 match each answer to its send, but a retry is still unsafe. An upload is
 reused without a second read only when its source cannot change, it was
@@ -141,7 +142,7 @@ shared session.
 
 ## Links in a room subject
 
-A member can set a room subject that links an object by its `ocapn://` address, and
+A member can set a room subject that holds an `ocapn://` link to an object, and
 every reader sees the link. The browser and terminal clients offer it to copy
 and do not redeem it or draw the object, so you take part through whatever
 client that object comes with. The room passes the link on unchanged, so
@@ -165,13 +166,13 @@ offers.
   read-only unless the operator chooses two-way mode with TLS and SASL
   credentials. Two-way posts use the bridge's registered nick and a visible
   `<nick>` prefix. IRC sends no acknowledgement for a channel message, so a
-  TCP failure at the wrong moment may repeat or lose the last line, even
+  TCP failure at the wrong moment may repeat or lose the last message, even
   though the queue survives a write failure the bridge sees.
 - The IRC server maps only existing room names IRC can address. It fixes a
   nickname for the connection, because Rooms grants names per capability and
   cannot rename across several memberships at once. Rooms names outside IRC's
   alphabet get aliases that hold for the connection, and the server says so.
-- Lines, subjects, and file capabilities that do not fit IRC are reported
+- Messages, subjects, and file links that do not fit IRC are reported
   instead of cut short or dropped. `LIST` leaves out, with a notice, foreign
   room publications that carry no member count and Rooms names IRC cannot
   address.

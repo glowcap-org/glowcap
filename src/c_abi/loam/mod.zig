@@ -49,11 +49,11 @@ pub const GlowcapLoamGraph = t.GlowcapLoamGraph;
 pub const GlowcapLoamPage = t.GlowcapLoamPage;
 pub const GlowcapLoamGraphField = t.GlowcapLoamGraphField;
 pub const GlowcapLoamPageReplacement = t.GlowcapLoamPageReplacement;
-/// The most methods one content registration may declare, named so a test
-/// can stand one past it.
-pub const max_content_methods = callbacks.Content.max_methods;
 /// Limits the header prose quotes, read from their owners.
 pub const prose_limits = struct {
+    /// Methods one content registration may declare. Attach refuses more as
+    /// an invalid argument before copying any.
+    pub const max_content_methods = callbacks.Content.max_methods;
     pub const max_graph_verbs = access.hosting.graph.Spec.max_requirement_verbs;
     pub const max_graph_verb_bytes = access.hosting.graph.Spec.max_requirement_verb_bytes;
     pub const max_accounting_path = @import("graph_abi.zig").max_accounting_path;

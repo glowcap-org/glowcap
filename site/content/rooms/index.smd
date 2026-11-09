@@ -69,12 +69,12 @@ and its guides carry every build command, flag, and limit.
 
 # Direct messages skip the room
 
-Press the message button beside someone and the room introduces you. The
+Press the message button beside someone and the server introduces you. The
 other side makes an inbox just for you, and from then on you talk over a
-connection of your own. The room makes the introduction and sees none of the
-messages after it.
+connection of your own. The server makes the introduction and sees none of
+the messages after it.
 
-[The server gives a person and a bot the same room. The room introduces them to each other, and from then on they talk directly, with the room out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
+[The server gives a person and a bot the same room and introduces them to each other, and from then on they talk directly, with the room out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
 
 That connection is [WebRTC]($link.page('transports/webrtc')) by default: the server passes along the connection
 details, and the messages go straight between the two of you. Where a
