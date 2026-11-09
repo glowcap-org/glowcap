@@ -296,7 +296,7 @@ try {
 	const shown = await roomLink(ada, "ada");
 	await say(ada, `/join ${shown}`);
 	await ada.waitForFunction(
-		() => (document.getElementById("log")?.textContent ?? "").includes("You are already in this room."),
+		() => (document.getElementById("log")?.textContent ?? "").includes("You're already in this room."),
 		undefined,
 		{ timeout: 15_000 },
 	).catch(() => fail("joining a room this tab is already in did not say so"));

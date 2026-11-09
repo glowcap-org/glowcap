@@ -27,7 +27,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	await takeCapability(tab, "#opsOperatorToggle", operatorSwiss);
 	await tab.waitForSelector("#opsBtn");
 	await tab.click("#opsBtn");
-	await tab.waitForFunction(() => location.pathname === "/ops/directory");
+	await tab.waitForFunction(() => location.pathname === "/ops/operator");
 	const moderationSection = tab.locator("#operatorRoomModeration");
 	const sectionShape = await moderationSection.evaluate((section) => {
 		const title = section.querySelector(":scope > #roomModerationTitle");
@@ -61,7 +61,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	}
 	const operated = tab.locator("#roomModerationCapabilities .entry", { hasText: "operator-proof" });
 	await operated.waitFor({ timeout: 10_000 });
-	await operated.getByRole("button", { name: "Grant moderator capability" }).click();
+	await operated.getByRole("button", { name: "Grant moderator link" }).click();
 	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
 	const moderatorLink = await operated.locator(".copy-field-text").textContent();
 	if (moderatorLink === null || !moderatorLink.startsWith("ocapn://")) {
@@ -71,12 +71,12 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	if (await operated.getByText("Every old copy stops moderating this room immediately").count() !== 1) {
 		fail("the revoke affordance did not say that live old holders lose authority");
 	}
-	await operated.getByRole("button", { name: "Revoke old moderator capability" }).click();
-	await operated.getByRole("button", { name: "Grant moderator capability" }).waitFor({ timeout: 10_000 });
+	await operated.getByRole("button", { name: "Revoke old moderator link" }).click();
+	await operated.getByRole("button", { name: "Grant moderator link" }).waitFor({ timeout: 10_000 });
 	if (await operated.locator(".copy-field").count() !== 0) {
 		fail("a revoked moderator capability still exposed its old copyable capability");
 	}
-	await operated.getByRole("button", { name: "Grant moderator capability" }).click();
+	await operated.getByRole("button", { name: "Grant moderator link" }).click();
 	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
 	const rotatedModeratorLink = await operated.locator(".copy-field-text").textContent();
 	if (rotatedModeratorLink === null || rotatedModeratorLink === moderatorLink) {
@@ -126,8 +126,8 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	await linked.getByRole("button", { name: "Remove…" }).click();
 	await linked.getByRole("button", { name: "Remove room entry link" }).click();
 	await linked.waitFor({ state: "detached", timeout: 10_000 });
-	await operated.getByRole("button", { name: "Grant moderator capability" }).waitFor({ timeout: 10_000 });
-	await operated.getByRole("button", { name: "Grant moderator capability" }).click();
+	await operated.getByRole("button", { name: "Grant moderator link" }).waitFor({ timeout: 10_000 });
+	await operated.getByRole("button", { name: "Grant moderator link" }).click();
 	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
 	const reissuedAfterRoomRevoke = await operated.locator(".copy-field-text").textContent();
 	if (reissuedAfterRoomRevoke === null || reissuedAfterRoomRevoke === rotatedModeratorLink) {
@@ -161,7 +161,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	// give them a line of their own instead of letting a long label widen the page.
 	await tab.setViewportSize({ width: 390, height: 844 });
 	const mobileLayout = await tab.evaluate(() => {
-		const panel = document.getElementById("directoryOpsPanel");
+		const panel = document.getElementById("operatorOpsPanel");
 		if (panel === null) return null;
 		const bounds = panel.getBoundingClientRect();
 		const actions = [...panel.querySelectorAll<HTMLButtonElement>(".entry-head .button")];

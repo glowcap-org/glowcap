@@ -24,10 +24,10 @@ export async function establishTestSession(tab: Page): Promise<void> {
 		fail(`the session establishment layout is unfinished: ${JSON.stringify(setupLayout)}`);
 	}
 	await tab.locator(".session-setup-advanced summary").click();
-	await tab.getByRole("button", { name: "Reset workspace…" }).click();
+	await tab.getByRole("button", { name: "Forget rooms and settings…" }).click();
 	await Promise.all([
 		tab.waitForNavigation({ waitUntil: "domcontentloaded" }),
-		tab.getByRole("button", { name: "Reset workspace", exact: true }).click(),
+		tab.getByRole("button", { name: "Forget rooms and settings", exact: true }).click(),
 	]);
 	await tab.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 	await tab.waitForSelector("#sessionSetup");

@@ -4,7 +4,7 @@
 
 /** A part of the page failed, and the rest did not. */
 export const crashTitle = "The page ran into a problem";
-export const crashSessionKept = "Your session is not lost. The peer keeps running under this screen.";
+export const crashSessionKept = "Your session isn't lost. It keeps running behind this screen.";
 export const crashReload = "Reload";
 export const partSessionKept = "Your session is still open, so nothing has been lost.";
 export const partTryAgain = "Try again";
@@ -18,7 +18,7 @@ export const brandName = "glowcap";
 export const brandRooms = "rooms";
 export const brandRoomsTitle = "glowcap rooms";
 
-export const copyRefused = "Your browser would not let the page copy that.";
+export const copyRefused = "Your browser wouldn't let the page copy that.";
 export const chooseAFile = "Choose a file";
 export function loadingWhat(what: string): string {
 	return `Loading ${what}`;

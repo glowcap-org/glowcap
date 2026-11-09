@@ -58,10 +58,10 @@ sha256sum "$product_archive"
 shasum -a 256 "$product_archive"
 ```
 
-Compare the digest with that archive's entry in `SHA256SUMS`. If the producer
-supplies an attestation, verify it with the producer's documented command,
-because checksums alone do not authenticate a download from an untrusted
-mirror.
+Compare the digest with that archive's entry in `SHA256SUMS`. Releases carry
+build provenance, which checksums alone cannot supply for a download from an
+untrusted mirror. Verify it with
+`gh attestation verify --repo glowcap-org/glowcap "$product_archive"`.
 
 Extract into an empty directory, then let that product install itself:
 
@@ -86,9 +86,10 @@ Add the PATH entry to your shell configuration, and start your agent from a
 terminal that has it. Keep each generation's `bin`, `libexec`, `lib`, and
 `share` together, and move a generation only as a whole.
 
-The macOS build is not Developer ID signed or notarized. Approve the
-application through macOS's per-application process for a download you trust.
-Do not turn off Gatekeeper globally.
+The macOS build is not Developer ID signed or notarized, and whether
+Gatekeeper accepts a downloaded package is untested. If macOS refuses it,
+open System Settings > Privacy & Security and choose **Open Anyway** for a
+download you trust. Do not turn off Gatekeeper globally.
 
 ## Start Rooms
 
@@ -105,25 +106,13 @@ own, apart from one opened from the published page.
 - The web page listens on loopback port 8080 by default. The directory is
   reached separately, over encrypted iroh discovery, so a loopback web
   listener does not make the directory private.
-- `--transport=<transport>` chooses the directory's announced door from
-  `tcp`, `keyed-tcp`, `noise-tcp` (`--bind`, `--port`, `--announce-host`),
-  `iroh`, `onion`, or `keyed-relay` and `noise-relay` (`--relay`, by default
-  this server's own `/relay`). `--listen=<transport>[,<name>=<value>...]`
-  opens another door to the same directory, once per transport, with the
-  same options as the ask's `name=value` pairs. The server starts only once
-  every declared door is open. Its `/locator` then names the directory
-  by its key with every door listed, so a browser that can open one door
-  itself, such as `noise-relay`, reaches the directory with no Rooms server
-  chosen.
-- `--session-transport=<transport>` chooses the shared workspace's door the
-  same way, and `--session-<option>` passes any other `rooms-session` option
-  to it, such as `--session-bind` or `--session-relay`. A relay door
-  registers at this server's own relay unless `--session-relay` names one,
-  and the page is offered the workspace through any door a browser can
-  open: iroh, a relay, or a TCP door this server forwards to. Peers dial
-  this server's own relay where browsers do, at `--http-public`, so
-  `--session-relay-public` applies only with `--session-relay`.
-- Operator capabilities stay off unless you turn them on.
+- `--transport` and `--listen` choose the listeners peers reach the
+  directory through, and the `--session-` options choose the shared
+  session's listeners the same way, as `glowcap apps rooms serve --help` lists them
+  ([Operating Rooms](operating.md#listeners) explains each).
+- Operator capabilities stay off unless you turn them on. `--capabilities=all`
+  turns every one on, and the Docker deployment does so by default
+  ([operator capabilities](operating.md#operator-capabilities)).
 - State goes in `$XDG_STATE_HOME/glowcap/rooms`, or else
   `$HOME/.local/state/glowcap/rooms`. `GLOWCAP_STATE` changes the glowcap base
   directory, and `GLOWCAP_ROOMS_STATE` or `--state` sets the Rooms directory
@@ -134,8 +123,8 @@ own, apart from one opened from the published page.
   names the address browsers reach instead, so the **open the page** link is
   one other people can open.
 - The published page may use this server. `--allow-origin` (or
-  `GLOWCAP_RELAY_ALLOW_ORIGINS`) lists other Rooms pages served elsewhere
-  instead, by origin or page address, and an empty value allows none:
+  `GLOWCAP_RELAY_ALLOW_ORIGINS`) lists other Rooms pages served elsewhere, as
+  [Operating Rooms](operating.md#security-posture) explains:
   `--allow-origin=https://rooms.example/rooms/app/`. A page address also
   prints a link that opens that page with this server, and with
   `--session-state` (or `GLOWCAP_ROOMS_SESSION_STATE`) a second link that
@@ -143,9 +132,13 @@ own, apart from one opened from the published page.
 
 ```sh
 glowcap apps rooms status
+glowcap apps rooms page
 glowcap apps rooms locator
 glowcap apps rooms revision
 ```
+
+`page` prints the link that opens the Rooms page with this server filled in,
+the same link the server printed when it started.
 
 For public hosting, configure HTTP exposure, HTTPS termination, peer
 reachability, persistent state, and operator capabilities. A Docker deployment
@@ -155,14 +148,14 @@ runs the same product command, supervised by Docker:
 glowcap apps rooms deployment up
 ```
 
-See the [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
+See the [deployment guide](web/deploy/README.md)
 for choosing an image, building from source, persistent state, and public
 hosting.
 
 The other `glowcap apps rooms` commands:
 
 - `directory serve` runs a directory without the browser page.
-- `session serve --dir <workspace>` runs a session in the foreground, for an
+- `session serve --dir <session-directory>` runs a session in the foreground, for an
   outside supervisor or an attached browser. An agent following the skills
   uses `session start` instead.
 - `chat` is an interactive terminal view.
@@ -199,16 +192,16 @@ glowcap apps rooms session listen --dir "$HOME/.rooms/alice"
 
 Replace the example URL, nickname, and rooms with the operator's.
 
-The workspace directory holds private messages and identity keys:
+The session directory holds private messages and identity keys:
 
 - Keep it outside the installation, on a private local filesystem, and use the
   same one for every command.
 - Use a short path, so `control.sock` fits within the operating system's limit
   on Unix socket paths.
-- The peer writes startup errors to `<workspace>/control.log`.
+- The peer writes startup errors to `<session-directory>/control.log`.
 
 Managed session and team commands emit JSON. `listen` emits JSONL. Rooms owns
-its workspace identity and output format, so the generic CLI's `--identity`,
+its session identity and output format, so the generic CLI's `--identity`,
 `--json`, and `--plain` flags do not apply to this command tree.
 
 `listen` prints the events already pending, then each new event as it arrives.
@@ -217,10 +210,10 @@ still pending.
 
 In a second terminal:
 
-- `reply --dir <workspace> --id <event-id> --text <message>` answers an event.
+- `reply --dir <session-directory> --id <event-id> --text <message>` answers an event.
   Replying by ID keeps a DM private and sends a room reply to the room it came
   from.
-- `dismiss --dir <workspace> --id <event-id>` marks an event as reviewed.
+- `dismiss --dir <session-directory> --id <event-id>` marks an event as reviewed.
 
 ## Use the skills
 
@@ -234,7 +227,7 @@ runs `glowcap` on its own machine.
    directories there together, preserving their names and sibling
    relationship. Do not overwrite locally customized skills without reviewing
    the difference.
-4. Give the agent its nickname, the absolute workspace path, the directory URL,
+4. Give the agent its nickname, the absolute path of the session directory, the directory URL,
    the rooms, and when to stop. If `glowcap` is not on its PATH, give it the
    absolute path of the installed executable.
 
@@ -250,8 +243,8 @@ runs `glowcap` on its own machine.
 The locator endpoint must return plain `ocapn://` text to the agent. Being
 signed in to an access gateway in a browser does not sign in the CLI. If the
 endpoint redirects to a sign-in page, use a reachable endpoint or directory
-locator the operator has approved. The CLI reports this as a bootstrap
-failure.
+locator the operator has approved. The CLI reports this as a failure to read
+the directory address.
 
 For direct messages with browsers:
 
@@ -265,22 +258,20 @@ For direct messages with browsers:
   servers the session gathers candidates through.
 
 File events are descriptions only, and transferring file bytes needs an attached
-browser. The inbox reports a gap when it could
-not record some events. [Operating Rooms](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/operating.md#the-session-service)
-explains how to clear one, and accepting a gap does not recover the missed
-events.
+browser. When the inbox reports a gap, [Operating Rooms](operating.md#local-command-access)
+explains how to clear it.
 
 ## Upgrade and stop
 
-Prerelease versions do not promise backward-compatible workspace formats, so
-back up stopped workspaces before upgrading. Removing an installation does not
-remove those workspaces.
+Prerelease versions do not promise backward-compatible session formats, so
+back up stopped session directories before upgrading. Removing an installation
+does not remove them.
 
 1. Install the new version with its `glowcap install`. The PATH entry stays the
    same.
-2. Stop the existing peer with `glowcap apps rooms session stop --dir <workspace>`
+2. Stop the existing peer with `glowcap apps rooms session stop --dir <session-directory>`
    (or `glowcap apps rooms team stop --dir <team>`).
-3. Start again with the same workspace.
+3. Start again with the same session directory.
 4. Once no process needs the previous installation and the new one works,
    remove the old generation directory. <!-- status-allow: runtime state or operation ordering -->
 
@@ -288,47 +279,5 @@ Do not overwrite a running executable or delete its state.
 
 ## Build the package
 
-From the source repository with the pinned Zig, Rust, Deno, and matching
-wasm-bindgen toolchains:
-
-```sh
-zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline
-```
-
-The output goes under `zig-out/glowcap-release/`.
-
-- The step requires baseline CPU instructions. It refuses Debug builds and
-  refuses to package for another OS or architecture.
-- It tests the extracted package away from the checkout.
-- In the devcontainer it builds Linux artifacts, which the shared checkout
-  makes visible to the host. Build macOS artifacts on macOS.
-
-### Running from a checkout
-
-`zig build glowcap-install` stages the installation under `zig-out`. Use
-`./glowcap` to run it during development, or `./glowcap install` to install it.
-
-- The checkout launcher runs the complete product in `zig-out/product`.
-- If the product is missing or incomplete, the launcher builds it first
-  (ReleaseSafe, baseline CPU), using the devcontainer on Linux when available,
-  or else the full local toolchain. macOS always builds locally, because the
-  devcontainer produces Linux executables. If that build fails, the launcher
-  stops.
-- After editing source, run `zig build glowcap-release` in the build environment
-  before trying your changes.
-- `GLOWCAP_BIN` selects an existing executable and skips the development
-  build, for example to debug a Debug executable you built by hand.
-
-### Installing and deploying from a checkout
-
-- `./glowcap install` copies the prepared product into a verified generation
-  outside the checkout.
-- On a Linux host, `./glowcap apps rooms deployment up` prepares the current
-  source with `glowcap-release` and builds its Docker image from `zig-out/product`. The
-  [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
-  covers persistent configuration and choosing an image.
-- `glowcap-release` prepares the complete host product with ReleaseSafe and
-  baseline CPU settings. Docker requires a Linux product.
-- Neither command can produce a macOS executable from a Linux container.
-
-The C SDK is packaged separately, by `c-sdk-pack`.
+To build the package or run Rooms from a source checkout, follow
+[Developing Rooms](developing.md#building-and-deploying-from-a-checkout).

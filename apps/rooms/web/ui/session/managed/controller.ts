@@ -94,7 +94,7 @@ export function createManagedController(
 		}
 		// Home is held, so its identity is known even before its view is.
 		const id = dirId(home.id);
-		return { id, route: projection.get().dirs.get(id)?.locator || home.id };
+		return { id, route: projection.get().dirs.get(id)?.address || home.id };
 	};
 	// A newly held directory becomes home only in a session with none, so neither
 	// the served directory nor an offer takes the mark from a chosen one. The

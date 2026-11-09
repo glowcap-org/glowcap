@@ -16,8 +16,8 @@ export async function takeAndInspectDiagnostics(tab: Page, diagnosticsSwiss: str
 	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await tab.click("#opsBtn");
 	await tab.waitForSelector("#opsNav");
-	await tab.click("#directoryOpsLink");
-	await tab.waitForFunction(() => location.pathname === "/ops/directory");
+	await tab.click("#operatorOpsLink");
+	await tab.waitForFunction(() => location.pathname === "/ops/operator");
 
 	// Inspect reads the directory's inventories under the operator's own
 	// headings, so a holder of either capability lands on one page. What it
@@ -25,7 +25,7 @@ export async function takeAndInspectDiagnostics(tab: Page, diagnosticsSwiss: str
 	// disabled one.
 	await tab.waitForFunction(
 		() => {
-			const named = [...document.querySelectorAll("#directoryOpsPanel .entry-name")]
+			const named = [...document.querySelectorAll("#operatorOpsPanel .entry-name")]
 				.map((row) => row.textContent ?? "");
 			return named.includes("directory");
 		},
@@ -33,7 +33,7 @@ export async function takeAndInspectDiagnostics(tab: Page, diagnosticsSwiss: str
 		{ timeout: 10_000 },
 	).catch(() => fail("the diagnostics pane did not name the published bootstrap"));
 	const inspectShape = await tab.evaluate(() => {
-		const panel = document.getElementById("directoryOpsPanel");
+		const panel = document.getElementById("operatorOpsPanel");
 		return {
 			sections: [...(panel?.querySelectorAll(".ops-section .well-title") ?? [])]
 				.map((title) => (title.textContent ?? "").replace(/\d+$/, "").trim()),
@@ -43,7 +43,7 @@ export async function takeAndInspectDiagnostics(tab: Page, diagnosticsSwiss: str
 				.filter((control) => control.closest(".ops-head") === null).length,
 		};
 	});
-	for (const heading of ["Room access", "Connections and live references", "Room moderator authority"]) {
+	for (const heading of ["Room access", "Connections and live references", "Room moderators"]) {
 		if (!inspectShape.sections.includes(heading)) {
 			fail(`the diagnostics pane did not report ${heading}: ${JSON.stringify(inspectShape)}`);
 		}

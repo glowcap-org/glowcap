@@ -25,7 +25,7 @@ try {
 			"0",
 		],
 		cwd: root,
-		env: { GLOWCAP_ROOMS_STATE: state, GLOWCAP_ROOMS_OPERATOR: "1" },
+		env: { GLOWCAP_ROOMS_STATE: state, GLOWCAP_ROOMS_CAPABILITIES: "operator" },
 		stdout: "piped",
 		stderr: "inherit",
 	});

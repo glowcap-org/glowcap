@@ -48,7 +48,9 @@ export function dirMarkIn(
 
 export interface DirView {
 	id: DirId;
-	locator: string;
+	/** Where this tab reaches the directory: the address the session dialed,
+	 * `host:port` for TCP, else the locator. Empty until one is known. */
+	address: string;
 	liveRooms: LiveRooms;
 	dmablePeers: ReadonlyMap<string, DirectoryMember>;
 	/** The exact nickname this workspace will ask for on reconstruction. */

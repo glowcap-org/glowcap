@@ -510,13 +510,20 @@ pub struct RoomsManagedWorkspace {
 }
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
+	/// The page's snapshot: revision, intent, and one dialed address or null
+	/// per `intent.directories` row, in row order.
 	pub fn snapshot(&self) -> js_sys::Promise {
 		let workspace = self.workspace.clone();
 		self.driver.submit(0, move |_| async move {
-			let snapshot = workspace.snapshot().await.map_err(|e| e.to_string())?;
+			let addressed = workspace.addressed_snapshot().await.map_err(|e| e.to_string())?;
+			let snapshot = addressed.snapshot();
 			json(
-				&serde_json::json!({ "revision": snapshot.revision.to_string(), "intent": snapshot.intent })
-					.to_string(),
+				&serde_json::json!({
+					"revision": snapshot.revision.to_string(),
+					"intent": snapshot.intent,
+					"addresses": addressed.addresses(),
+				})
+				.to_string(),
 			)
 		})
 	}

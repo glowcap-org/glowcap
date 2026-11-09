@@ -131,6 +131,29 @@ async fn run_case(role: &str) {
 					]
 				};
 				let before = host.send(&source, "snapshot", &[]).await.unwrap();
+				// An observer reads each directory's dialed address without the
+				// ShareCustody permission that discloses the saved recipe.
+				let observe = descriptor
+					.value_for_kind(
+						session::KIND,
+						&[rooms_application::content::permissions::Permission::ObserveWorkspace.key()],
+						&[],
+					)
+					.unwrap();
+				let (observer, _) = owner.derive(observe, 0, ControlPowers::default()).await.unwrap();
+				let observer = Workspace::local(host.clone(), platform.clone(), observer);
+				assert_eq!(
+					observer.addressed_snapshot().await.unwrap().addresses(),
+					[Some(locator.designator.clone())],
+					"a TCP directory is addressed by host and port"
+				);
+				assert!(
+					observer
+						.custody_recipe(coordinate(custody::Role::DirectoryAccess, 1))
+						.await
+						.is_err(),
+					"the saved recipe stays behind ShareCustody"
+				);
 				let fake = host.spawn(|_, _| Ok(Argument::Void)).unwrap();
 				assert!(
 					host.send(&source, "retire-room-authority", &args(&fake, &token))

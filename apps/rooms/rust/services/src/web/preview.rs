@@ -278,7 +278,7 @@ fn json(status: StatusCode, value: &impl Serialize) -> Reply {
 		Err(_) => response(
 			StatusCode::INTERNAL_SERVER_ERROR,
 			"application/json; charset=utf-8",
-			Bytes::from_static(br#"{"ok":false,"failure":{"code":"link-preview-failed","summary":"Rooms could not build that link preview.","action":"Retry once. The link itself is still available.","retry":"soon"}}"#),
+			Bytes::from_static(br#"{"ok":false,"failure":{"code":"link-preview-failed","summary":"Rooms couldn't build that link preview.","action":"Retry once. The link itself is still available.","retry":"soon"}}"#),
 		),
 	}
 }

@@ -34,8 +34,8 @@ pub const HELP: &str = "rooms-session --state=<directory> [--transport=<transpor
   --checkpoint=<Rooms JSON>  import capability-free managed workspace intent
   --dial-transports=tcp,iroh,onion,webrtc  install outgoing transport families before restoration
   --ice-servers=<url,...>  STUN servers for webrtc dials, or a JSON list of ICE server records (default: a public STUN server)
-  --readiness-file=<path>  write the workspace use sturdyref (default: <state>/workspace.sturdyref)
-  Management is published separately in <state>/control.sturdyref
+  --readiness-file=<path>  write the session use link (default: <state>/use.sturdyref)
+  Management is published separately in <state>/management.sturdyref
   --reachability=discovery|direct  iroh reachability (default: discovery)
   --bind=<host> --port=<port> --announce-host=<host>  TCP listener options
   --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)
@@ -145,6 +145,6 @@ impl Config {
 	pub fn readiness_path(&self) -> PathBuf {
 		self.readiness_file
 			.clone()
-			.unwrap_or_else(|| self.state.join("workspace.sturdyref"))
+			.unwrap_or_else(|| self.state.join("use.sturdyref"))
 	}
 }

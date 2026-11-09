@@ -9,11 +9,8 @@ async fn host_authority_requires_reconciliation_after_uncertain_replacement() {
 }
 async fn scenario() {
 	let temp = Scratch::create("server");
-	let asked = Asked {
-		operator: true,
-		..Default::default()
-	};
-	let running = start_with(temp.to_path_buf(), tcp(), asked.clone()).await;
+	let asked = Asked::parse("operator").unwrap();
+	let running = start_with(temp.to_path_buf(), tcp(), asked).await;
 	let runtime = runtime().await;
 	let session = runtime
 		.connect(

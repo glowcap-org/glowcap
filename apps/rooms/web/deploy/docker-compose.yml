@@ -1,15 +1,19 @@
-# Serve the Rooms browser UI over a WebSocket relay to an iroh room server from
-# a light, toolchain-free container. This tracked base publishes no host port
-# and joins one shared Docker network. How this machine reaches the page is
-# the ignored docker-compose.override.yml's business, so a host's ports and
-# network names never enter the repository. Terminal CapTP peers need neither: they dial
-# over iroh Discovery.
+# The Rooms deployment: the web server with its directory, and one shared
+# session. `glowcap apps rooms deployment up` writes this file as compose.yml
+# from the installed product on every run, so an edit here does not last. Every
+# setting a host chooses lives in docker-compose.override.yml, which `up`
+# copies once from docker-compose.override.yml.example and never rewrites. The
+# override's `environment` entries add to and replace the ones here.
 #
-# `glowcap apps rooms deployment up` installs this template into the selected
-# configuration directory, preserves the operator override, selects an
-# immutable product image, and waits for service health. With the example
-# override the page is at http://127.0.0.1:8080 on the Docker host.
-# Runtime binaries and browser assets are inside the image, never live mounts.
+# The deployment binds no host port itself, so the override publishes a
+# loopback port or joins the network of a proxy or tunnel container.
+# `glowcap apps rooms serve --help` lists the directory's settings, and
+# `glowcap apps rooms session serve --help` the session's. Each goes in the
+# override as its variable, by the rule the deployment guide's "Settings as
+# variables" section states (README.md beside this file).
+# Unset, `GLOWCAP_RELAY_ALLOW_ORIGINS` admits the published page
+# https://glowcap.org/rooms/app/, and the first page it lists is the one `up`
+# prints a link for.
 
 name: glowcap-rooms
 
@@ -18,82 +22,29 @@ services:
     image: ${GLOWCAP_ROOMS_IMAGE:?select an image through glowcap apps rooms deployment up}
     container_name: glowcap-rooms-directory
     working_dir: /runtime
-    # The web front serves the prepared page and owns its directory child.
+    # The web server serves the prepared page and runs the directory as its
+    # child. It listens on every container interface, since only the override
+    # decides what reaches the container.
     command:
       - --http-port=8080
       - --http-bind=0.0.0.0
-      - --transport=iroh
     environment:
       GLOWCAP_LIB_DIR: /runtime/lib
-      # One room authority across child and container restarts. This keeps the
-      # iroh endpoint id and every issued durable room link stable.
-      # Listed rooms' kept lines live here too, under history/.
+      # One directory identity across child and container restarts. This keeps
+      # the iroh node id and every issued durable room link stable. Public
+      # rooms keep their history in this volume too.
       GLOWCAP_ROOMS_STATE: /state
-      # Rate overrides are absolute class=burst/per-minute pairs.
-      GLOWCAP_ROOMS_ADMISSION_SCALE: ${GLOWCAP_ROOMS_ADMISSION_SCALE:-}
-      GLOWCAP_ROOMS_ADMISSION_RATES: ${GLOWCAP_ROOMS_ADMISSION_RATES:-}
-      GLOWCAP_ROOMS_ADMISSION_ROWS: ${GLOWCAP_ROOMS_ADMISSION_ROWS:-}
-      GLOWCAP_ROOMS_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_ADMISSION_AGGREGATE_SCALE:-}
-      GLOWCAP_ROOMS_HTTP_ADMISSION_SCALE: ${GLOWCAP_ROOMS_HTTP_ADMISSION_SCALE:-}
-      GLOWCAP_ROOMS_HTTP_ADMISSION_RATES: ${GLOWCAP_ROOMS_HTTP_ADMISSION_RATES:-}
-      GLOWCAP_ROOMS_HTTP_ADMISSION_ROWS: ${GLOWCAP_ROOMS_HTTP_ADMISSION_ROWS:-}
-      GLOWCAP_ROOMS_HTTP_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_HTTP_ADMISSION_AGGREGATE_SCALE:-}
-      GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS: ${GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS:-}
-      GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES: ${GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES:-}
-      # The address browsers reach this server at through the proxy, named by
-      # every link it prints. Blank names the loopback address.
-      GLOWCAP_ROOMS_HTTP_PUBLIC: ${GLOWCAP_ROOMS_HTTP_PUBLIC:-}
-      # The Rooms pages served elsewhere that may use this server, as origins
-      # or page addresses separated by commas. Blank allows none.
-      GLOWCAP_RELAY_ALLOW_ORIGINS: ${GLOWCAP_RELAY_ALLOW_ORIGINS:-https://glowcap.org/rooms/app/}
-      GLOWCAP_ROOMS_BROWSER_ADMISSION_SCALE: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_SCALE:-}
-      GLOWCAP_ROOMS_BROWSER_ADMISSION_RATES: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_RATES:-}
-      GLOWCAP_ROOMS_BROWSER_ADMISSION_ROWS: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_ROWS:-}
-      GLOWCAP_ROOMS_BROWSER_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_AGGREGATE_SCALE:-}
-      # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-peer / cross-container).
+      # Dial by iroh node id over the iroh relays and DNS discovery, so peers in
+      # other containers and on other hosts reach the directory.
       GLOWCAP_ROOMS_REACHABILITY: discovery
-      # The web relay's deployment admission. Blank takes the in-process
-      # defaults; exporting one before compose starts overrides only the
-      # resource its name describes.
-      GLOWCAP_RELAY_MAX_SESSIONS: ${GLOWCAP_RELAY_MAX_SESSIONS:-}
-      GLOWCAP_RELAY_MAX_REGISTRATIONS: ${GLOWCAP_RELAY_MAX_REGISTRATIONS:-}
-      GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY: ${GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY:-}
-      GLOWCAP_RELAY_MAX_IROH_SESSIONS: ${GLOWCAP_RELAY_MAX_IROH_SESSIONS:-}
-      GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE: ${GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE:-}
-      # Browser-to-browser WebRTC uses the application's public STUN default.
-      # Empty means host candidates only; a comma-separated STUN list replaces it.
-      # GLOWCAP_ROOMS_ICE_SERVERS: ""
-      # A credential issuer gives restrictive-NAT peers short-lived TURN reach.
-      # The bearer token stays in this server; browsers receive only temporary
-      # username/password rows from GET /ice. Blank keeps the STUN-only posture.
-      GLOWCAP_ROOMS_TURN_CREDENTIALS_URL: ${GLOWCAP_ROOMS_TURN_CREDENTIALS_URL:-}
-      GLOWCAP_ROOMS_TURN_BEARER_TOKEN: ${GLOWCAP_ROOMS_TURN_BEARER_TOKEN:-}
-      GLOWCAP_ROOMS_TURN_TTL_SECONDS: ${GLOWCAP_ROOMS_TURN_TTL_SECONDS:-86400}
-      # Every operator capability, on by default: each swiss number persists in
-      # the state volume and prints in the logs; comment one out to withhold
-      # that authority from this deployment. Read them any time with
+      # Every operator capability. Each one's secret persists in the state
+      # volume and prints in the logs. To withhold some, list the ones you want
+      # in the override, for example GLOWCAP_ROOMS_CAPABILITIES:
+      # "admin-listeners,diagnostics,operator,peering,trace" leaves IRC out.
+      # Read them any time with
       #   docker exec glowcap-rooms-directory /runtime/bin/glowcap apps rooms directory capabilities
-      # Same as starting with --diagnostics: mint inspect.
-      GLOWCAP_ROOMS_DIAGNOSTICS: "1"
-      # Same as --admin-listeners: mint the listener-admin capability.
-      GLOWCAP_ROOMS_ADMIN_LISTENERS: "1"
-      # Same as --operator: mint the server-wide authority that gives and
-      # revokes room stewardships.
-      GLOWCAP_ROOMS_OPERATOR: "1"
-      # Same as --peering: mint the directory-peering capability.
-      GLOWCAP_ROOMS_PEERING: "1"
-      # Same as --trace: serve the live timeline endpoint (default port 9300;
-      # GLOWCAP_ROOMS_TRACE_PORT only changes the port) and mint the trace
-      # capability it requires of every socket.
-      GLOWCAP_ROOMS_TRACE: "1"
-      # Public WebSocket routes for viewers and session producers. Blank keeps
-      # local endpoint advice; deployment trace itself uses the internal proxy.
-      GLOWCAP_ROOMS_TRACE_CONNECT: ${GLOWCAP_ROOMS_TRACE_CONNECT:-}
-      GLOWCAP_ROOMS_TRACE_PUBLISH: ${GLOWCAP_ROOMS_TRACE_PUBLISH:-}
-      # Same as --irc: mint the IRC gateway capability.
-      GLOWCAP_ROOMS_IRC: "1"
-      # Same as --history: rooms keep their last lines and serve them
-      # to members who join later.
+      GLOWCAP_ROOMS_CAPABILITIES: all
+      # Rooms keep their last lines and serve them to members who join later.
       GLOWCAP_ROOMS_HISTORY: "1"
     volumes:
       - directory-state:/state
@@ -103,18 +54,17 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      # The room server is spawned at startup and announces when it is ready;
-      # until then the container is starting rather than unhealthy.
+      # The directory is spawned at startup and announces when it is ready.
+      # Until then the container is starting rather than unhealthy.
       start_period: 90s
     restart: unless-stopped
     networks:
       - glowcap-rooms-net
 
-  # One durable user workspace, separate from the directory's authority.
-  # Its workspace and management sturdyrefs never cross HTTP: deployment up reads the
-  # current-start mirrors from this container. The owner attaches the workspace
-  # and separately holds management in Session access. The page's existing
-  # relay can dial this iroh identity without a published container port.
+  # One durable shared session, separate from the directory's authority. Its
+  # use and management links never cross HTTP: `deployment up` reads them from
+  # this container. The page's relay dials the session's iroh identity, so no
+  # container port is published for it.
   session:
     image: ${GLOWCAP_ROOMS_IMAGE:?select an image through glowcap apps rooms deployment up}
     container_name: glowcap-rooms-session
@@ -122,27 +72,23 @@ services:
     entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "session", "serve"]
     command:
       - --dir=/session-state
-      - --readiness-file=/run/rooms-session/admin.sturdyref
+      - --readiness-file=/run/rooms-session/use.sturdyref
     environment:
       GLOWCAP_LIB_DIR: /runtime/lib
       GLOWCAP_ROOMS_SESSION_STATE: /session-state
-      GLOWCAP_ROOMS_SESSION_ADMISSION_SCALE: ${GLOWCAP_ROOMS_SESSION_ADMISSION_SCALE:-}
-      GLOWCAP_ROOMS_SESSION_ADMISSION_RATES: ${GLOWCAP_ROOMS_SESSION_ADMISSION_RATES:-}
-      GLOWCAP_ROOMS_SESSION_ADMISSION_ROWS: ${GLOWCAP_ROOMS_SESSION_ADMISSION_ROWS:-}
-      GLOWCAP_ROOMS_SESSION_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_SESSION_ADMISSION_AGGREGATE_SCALE:-}
       GLOWCAP_ROOMS_SESSION_TRANSPORT: iroh
       GLOWCAP_ROOMS_SESSION_REACHABILITY: discovery
-      # Browser introductions carry a Noise relay locator, including the
-      # fallback for WebRTC. Install that dial family on the shared peer.
+      # Browser introductions carry a relay locator, including the fallback for
+      # WebRTC. The session dials those relay locators through the directory's
+      # relay.
+      # When public ingress needs a browser login, the override sets
+      # GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL to the public relay address, and
+      # the session reaches it here instead.
       GLOWCAP_ROOMS_SESSION_RELAY_URL: ws://directory:8080/relay
-      # When public ingress requires a browser login, map its exact advertised
-      # relay URL to the same registry on the private network. Other peer relay
-      # hints keep their destinations. Set the public URL in the override.
-      GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL: ${GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL:-}
     volumes:
       - session-state:/session-state
-    # Readiness is an incarnation fact, not user state. A tmpfs makes a crash,
-    # container restart, or recreation begin without a stale ready marker.
+    # The readiness file belongs to one start, not to user state. A tmpfs makes
+    # a crash, container restart, or recreation begin without a stale marker.
     tmpfs:
       - /run/rooms-session:mode=0700
     healthcheck:
@@ -153,7 +99,7 @@ services:
         "rooms",
         "session",
         "ready",
-        "--file=/run/rooms-session/admin.sturdyref",
+        "--file=/run/rooms-session/use.sturdyref",
       ]
       interval: 30s
       timeout: 10s
@@ -164,9 +110,8 @@ services:
       - glowcap-rooms-net
 
 networks:
-  # Shared fabric with the glowcap devcontainer: a bot there reaches this
-  # container's internal CapTP over this network. Fixed name, external so both
-  # compose projects use the one network (deployment up creates it once).
+  # One network, created by `deployment up` and shared with a proxy or tunnel
+  # container and with terminal peers on this host, so it outlives the stack.
   glowcap-rooms-net:
     name: glowcap-rooms-net
     external: true

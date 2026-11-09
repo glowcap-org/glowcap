@@ -26,19 +26,9 @@ explains.
 # Try it
 
 The app is [a page on this site]($link.siteAsset('rooms/app/index.html')).
-The server runs on your machine: it hosts the directory your rooms live in,
-and starting it is one command:
-
-```sh
-curl -fsSL https://glowcap.org/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-glowcap apps rooms serve
-```
-
-Open the link it prints: that page, with your server's address in it. Your
-session stays in your browser, and your directory runs on your machine.
-[Run Rooms]($link.page('rooms/start')) walks through it, joins a room as two
-people, and opens a direct conversation.
+The server runs on your machine and starts with one command.
+[Run Rooms]($link.page('rooms/start')) gives the install and the command,
+joins a room as two people, and opens a direct conversation.
 
 # What you can do
 
@@ -79,7 +69,7 @@ and its guides carry every build command, flag, and limit.
 
 # Direct messages skip the room
 
-Press the message button beside someone and the server introduces you. The
+Press the message button beside someone and the room introduces you. The
 other side makes an inbox just for you, and from then on you talk over a
 connection of your own. The room makes the introduction and sees none of the
 messages after it.

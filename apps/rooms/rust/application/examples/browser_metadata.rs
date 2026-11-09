@@ -148,7 +148,7 @@ fn main() -> Result<(), String> {
 	let _ = writeln!(text, "export const ROOM_MENTIONS: readonly string[] = [{mentions}];");
 	text.push_str("export const BOOT_CAPS = {\n");
 	for cap in server::operations::BOOT_CAPABILITIES {
-		let mut words = cap.flag.trim_start_matches("--").split('-');
+		let mut words = cap.name.split('-');
 		let mut key = words.next().unwrap_or_default().to_string();
 		for word in words {
 			let mut chars = word.chars();
@@ -156,19 +156,7 @@ fn main() -> Result<(), String> {
 			key.extend(chars);
 		}
 		let _ = writeln!(text, "\t{key}: {{");
-		for (name, value) in [
-			("id", cap.id),
-			("flag", cap.flag),
-			("env", cap.env),
-			("file", cap.file),
-			("token", cap.token),
-			(
-				"label",
-				cap.flag
-					.strip_prefix("--")
-					.ok_or_else(|| format!("boot capability flag {} lacks its -- prefix", cap.flag))?,
-			),
-		] {
+		for (name, value) in [("id", cap.id), ("name", cap.name), ("token", cap.token)] {
 			let _ = writeln!(text, "\t\t{name}: {},", json!(value));
 		}
 		text.push_str("\t},\n");

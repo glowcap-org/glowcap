@@ -42,7 +42,7 @@
 ;; watching while you type is that this member is not a glowcap peer: the room
 ;; settles this one session on the OCapN v1.0 Syrup baseline while every glowcap
 ;; member on the same server keeps glowcap's own profile. Start the server
-;; with `--trace` and the ocapnviz viewer draws that split live.
+;; with `--capabilities=trace` and the ocapnviz viewer draws that split live.
 ;;
 ;; Set `GLOWCAP_ROOMS_TRACE_URL` to that endpoint's address and this vat publishes its own
 ;; trace there too, so the sessions it holds appear beside every other peer's:

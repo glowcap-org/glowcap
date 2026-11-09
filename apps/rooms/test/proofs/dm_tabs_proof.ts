@@ -389,7 +389,7 @@ try {
 	await directOpened(alice.tab, "web-bob", 10_000);
 	// The reopened line stands on what this device kept of the first one: the
 	// remembered messages, then the divider saying where they came from.
-	await alice.tab.waitForSelector('.sys-line:has-text("Earlier messages, kept on this device")', {
+	await alice.tab.waitForSelector('.sys-line:has-text("Messages above are saved on this device")', {
 		timeout: 10_000,
 	}).catch(() => fail("the reopened direct line did not hydrate the device's kept history"));
 	await alice.tab.waitForSelector(`.bubble:has-text("${DM_TEXT}")`, { timeout: 5_000 })

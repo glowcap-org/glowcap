@@ -1,36 +1,59 @@
-# Copy to docker-compose.override.yml to say how this Docker host reaches the
-# Rooms web surface. The tracked base publishes no port and joins one shared
-# network, so every machine-local exposure choice lives here, in a file Git
-# ignores. This host's port and this site's network names stay out of the
-# repository.
+# Copied once to docker-compose.override.yml by `glowcap apps rooms deployment
+# up`, and never rewritten. Every setting this host chooses lives here. The
+# managed compose.yml is replaced on each `up`, so a change there is lost.
 #
-# There are two ways in, and a host may use either or both. A published
-# loopback port reaches the page from a browser on this machine. A shared
-# Docker network reaches it from a reverse proxy or tunnel container running
-# beside it, which sends plain HTTP to http://glowcap-rooms-directory:8080 and needs no
-# published port at all.
+# There are two ways to the page, and a host may use either or both. A
+# published loopback port reaches it from a browser on this machine. A shared
+# Docker network reaches it from a reverse proxy or tunnel container beside it,
+# which sends plain HTTP to http://glowcap-rooms-directory:8080 and needs no
+# published port.
 services:
   directory:
     # Keep the interface named. Dropping the `127.0.0.1:` prefix publishes the
-    # page on every interface this machine has, including its LAN address.
+    # page on every interface this machine has, including its LAN address. A
+    # different host port also needs GLOWCAP_ROOMS_HTTP_PUBLIC below, or the
+    # printed links keep naming port 8080.
     ports:
       - "127.0.0.1:8080:8080"
-    # For remote viewers and browser/session publication, advertise routes
-    # through this page's origin. Replace these examples with this site's URLs.
+    # Public hosting behind an HTTPS proxy. Replace rooms.example with the
+    # address people open. The proxy must pass WebSocket upgrades and the
+    # original Host header. Uncomment `environment:` together with any line
+    # below it.
     # environment:
+    #   # The address browsers reach this server at, named by every link it prints.
+    #   GLOWCAP_ROOMS_HTTP_PUBLIC: "https://rooms.example/"
+    #   # Charge each client its own HTTP allowance, reading the client address
+    #   # from X-Forwarded-For when the proxy is this address. Name the address
+    #   # the container sees the proxy at. For a proxy on this host that is the
+    #   # network's gateway, which this prints:
+    #   #   docker network inspect glowcap-rooms-net --format '{{(index .IPAM.Config 0).Gateway}}'
+    #   # A range would trust every container on the network, terminal peers included.
+    #   GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS: "true"
+    #   GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES: "172.18.0.1"
+    #   # Other Rooms pages that may use this server. Unset, only the published
+    #   # glowcap.org page is allowed, and setting this replaces that default.
+    #   GLOWCAP_RELAY_ALLOW_ORIGINS: "https://glowcap.org/rooms/app/"
+    #   # Public WebSocket routes for trace viewers and session producers.
     #   GLOWCAP_ROOMS_TRACE_CONNECT: "wss://rooms.example/trace/captp"
     #   GLOWCAP_ROOMS_TRACE_PUBLISH: "wss://rooms.example/publish"
-    # Uncomment to also join the network that proxy or tunnel already runs on.
-    # Keep glowcap-rooms-net in the list: the glowcap devcontainer's terminal peers
-    # dial the room over it, and an override naming only the new network takes
-    # that reach away.
+    #   # List the operator capabilities this deployment mints. This one
+    #   # leaves IRC out.
+    #   GLOWCAP_ROOMS_CAPABILITIES: "admin-listeners,diagnostics,operator,peering,trace"
+    # Also join the network the proxy or tunnel already runs on. Keep
+    # glowcap-rooms-net in the list, since terminal peers on this host reach
+    # the directory over it.
     # networks:
     #   - glowcap-rooms-net
     #   - site-ingress
+  # session:
+  #   environment:
+  #     # Behind a browser login, the session reaches the public relay address
+  #     # through the private network.
+  #     GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL: "wss://rooms.example/relay"
 
-# The site network is declared here as well, so Compose knows it belongs to
-# somebody else. Give `name` whatever `docker network ls` calls it.
+# The site network is declared here as well, so Compose knows it is managed
+# outside this file. Give `name` whatever `docker network ls` calls it.
 # networks:
 #   site-ingress:
-#     name: CHANGE-ME
+#     name: site-ingress
 #     external: true

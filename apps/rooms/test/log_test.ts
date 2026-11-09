@@ -68,7 +68,7 @@ Deno.test("consecutive local lines share one Only-you run", () => {
 			{
 				kind: "sys",
 				id: 1,
-				text: "Ignoring alice in this window. Their lines still reach the room.",
+				text: "Ignoring alice in this window. Their messages still reach the room.",
 				at: 0,
 				audience: "here",
 			},
@@ -84,7 +84,7 @@ Deno.test("consecutive local lines share one Only-you run", () => {
 			className: "sys here",
 			who: ONLY_YOU,
 			lines: [
-				{ key: "b-1", text: "Ignoring alice in this window. Their lines still reach the room." },
+				{ key: "b-1", text: "Ignoring alice in this window. Their messages still reach the room." },
 				{ key: "b-2", text: "No longer ignoring alice." },
 			],
 		},

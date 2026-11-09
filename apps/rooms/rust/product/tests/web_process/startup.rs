@@ -163,7 +163,7 @@ async fn web_cancels_an_attachment_probe_and_closes_its_runtime() {
 	tokio::time::timeout(Duration::from_secs(45), async {
 		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let mut options = Web::options(0);
-		options.insert("trace", "0".to_owned());
+		options.remove("capabilities");
 		options.insert("port", listener.local_addr().unwrap().port().to_string());
 		let command = Web::command_with(options);
 		let mut web = Web::spawn(command);

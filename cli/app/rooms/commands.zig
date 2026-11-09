@@ -47,12 +47,7 @@ const directory = transport ++ admission ++ [_]Flag{
     many("listen", "Also listen over <transport>[,<name>=<value>...] (repeat once per transport)"),
     state,
     .{ .long = "history", .help = "Retain listed-room history" },
-    .{ .long = "admin-listeners", .help = "Mint listener administration capability" },
-    .{ .long = "diagnostics", .help = "Mint diagnostics capability" },
-    .{ .long = "operator", .help = "Mint operator capability" },
-    .{ .long = "peering", .help = "Mint directory peering capability" },
-    .{ .long = "irc", .help = "Mint IRC administration capability" },
-    .{ .long = "trace", .help = "Mint trace capability and start its loopback endpoint" },
+    value("capabilities", "Operator capabilities to mint: all, or names from admin-listeners, diagnostics, operator, peering, irc, trace, separated by commas (or GLOWCAP_ROOMS_CAPABILITIES)"),
     value("trace-port", "Trace port (default 9300, 0 chooses an ephemeral port)"),
     value("trace-connect", "Advertised trace CapTP WebSocket URL through a proxy"),
     value("trace-publish", "Advertised trace producer WebSocket URL through a proxy"),
@@ -68,12 +63,12 @@ const serve = directory ++ [_]Flag{
     value("browser-admission-rates", "Browser-local class=burst/per-minute overrides"),
     value("browser-admission-rows", "Browser-local accounting row cap (1..65536)"),
     value("browser-admission-aggregate-scale", "Browser-local session allowance multiplier (1..100)"),
-    value("session-state", "Also serve a shared workspace from this directory and print its use and management links"),
-} ++ prefixed("session-", "Shared workspace: ", &transport) ++ [_]Flag{
-    value("allow-origin", "Rooms pages served elsewhere that may use this server, as origins or page addresses separated by commas (default: https://glowcap.org/rooms/app/, the page the website publishes, and an empty value allows none). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach"),
+    value("session-state", "Also serve a shared session from this directory and print its use and management links"),
+} ++ prefixed("session-", "Shared session: ", &transport) ++ [_]Flag{
+    value("allow-origin", "Rooms pages served elsewhere that may use this server, as origins or page addresses separated by commas (default: https://glowcap.org/rooms/app/, the page the website publishes, and an empty value allows none, or GLOWCAP_RELAY_ALLOW_ORIGINS). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach"),
     value("http-bind", "HTTP listener address (default 127.0.0.1, so a public address is never chosen for you)"),
     value("http-port", "HTTP listener port (default 8080)"),
-    value("http-public", "The address browsers reach this server at, named by every link it prints (default http://localhost:<port>/)"),
+    value("http-public", "The address browsers reach this server at, named by every link it prints (default http://localhost:<port>/, or GLOWCAP_ROOMS_HTTP_PUBLIC)"),
     value("assets", "Serve these prepared browser assets instead of the installed ones (never compiles source)"),
 };
 const status = [_]Flag{value("url", "Rooms HTTP base URL (default http://127.0.0.1:8080)")};
@@ -111,12 +106,13 @@ pub const commands = [_]types.Command{
     .{ .name = "status", .short_help = "Check the running directory and browser assets", .flags = &status, .run = run("rooms-web", .status) },
     .{ .name = "locator", .short_help = "Print the running directory locator", .flags = &status, .run = run("rooms-web", .locator) },
     .{ .name = "revision", .short_help = "Print the served browser revision", .flags = &status, .run = run("rooms-web", .revision) },
+    .{ .name = "page", .short_help = "Print the link that opens the Rooms page with the running directory", .flags = &status, .run = run("rooms-web", .page) },
     .{ .name = "trace", .short_help = "Follow the live protocol trace, including replay", .flags = &.{ state, status[0], .{ .long = "json", .help = "Print complete records as JSON lines" }, .{ .long = "print-link", .help = "Print the full capability and exit" } }, .positionals = &.{.{ .name = "capability", .help = "Trace sturdyref (found from local HTTP and private --state when left out)", .required = false }}, .run = run("rooms-web", .trace) },
     .{ .name = "session", .short_help = "Join, converse, and keep listening through a durable session", .children = &@import("session.zig").commands },
     .{ .name = "team", .short_help = "Coordinate a roster through the same durable session lifecycle", .children = &@import("session_commands.zig").team_commands },
     .{ .name = "directory", .short_help = "Operate a standalone Rooms directory", .children = &.{
         .{ .name = "serve", .short_help = "Run a directory without HTTP or browser assets", .flags = &directory, .run = run("rooms-server", .service) },
-        .{ .name = "capabilities", .short_help = "Read kept operator capabilities without starting a server", .flags = &.{state}, .run = run("rooms-server", .capabilities) },
+        .{ .name = "capabilities", .short_help = "Print the kept operator capabilities, with the running directory's locators", .flags = &.{state}, .run = run("rooms-web", .capabilities) },
     } },
     .{ .name = "chat", .short_help = "Chat interactively from the terminal", .positionals = &.{
         .{ .name = "locator", .help = "Directory locator" },

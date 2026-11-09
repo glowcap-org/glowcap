@@ -39,12 +39,15 @@ import {
 import { answerJoinNick, joinNickAvailability } from "../join_nick.ts";
 import { NICK_TAKEN, NO_SERVER } from "../../../lib/error_codes.ts";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
-import { JoinLocator } from "./JoinLocator.tsx";
+import { JoinAddress } from "./JoinAddress.tsx";
 import { MenuLayer } from "../Menu.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import {
 	joinAccessFixedLabel,
 	joinAccessLabel,
+	joinAddressHintFor,
+	joinAddressLabel,
+	joinAddressOptional,
 	joinBrowseLiveRooms,
 	joinCallIt,
 	joinChooseAnotherName,
@@ -58,10 +61,6 @@ import {
 	joinLeadPaused,
 	joinLeadReadOnly,
 	joinLinkLabel,
-	joinLocatorHere,
-	joinLocatorHintFor,
-	joinLocatorLabel,
-	joinLocatorOptional,
 	joinNeedsAddress,
 	joinNeedsAddressServerQuiet,
 	joinNickHint,
@@ -138,7 +137,7 @@ export const JoinCard = memo(function JoinCard(
 	// no home. With neither, the address is the one answer that names anything.
 	const addressRequired = defaultDirectoryAddress == null;
 	const homeName = homeDirectory == null ? null : directoryName(homeDirectory, null);
-	const locatorHint = joinLocatorHintFor(homeName, defaultDirectoryAddress != null);
+	const addressHint = joinAddressHintFor(homeName, defaultDirectoryAddress != null);
 	const asLink = typedRoomLink(locator, room) !== null;
 	// What the world says about what has been asked for. Resolved on every
 	// render and never written back: the reader's own standing outlives a
@@ -394,18 +393,15 @@ export const JoinCard = memo(function JoinCard(
 					<label htmlFor="locator">
 						{asLink ? joinLinkLabel : (
 							<>
-								{joinLocatorLabel} {!addressRequired && (
-									<span className="optional">
-										{homeDirectory == null ? joinLocatorHere : joinLocatorOptional}
-									</span>
-								)}
+								{joinAddressLabel}{" "}
+								{!addressRequired && <span className="optional">{joinAddressOptional}</span>}
 							</>
 						)}
 					</label>
 					{error?.field === "locator" && error.text !== "" && (
 						<Said id="joinError" kind="failure">{error.text}</Said>
 					)}
-					<JoinLocator
+					<JoinAddress
 						locator={locator}
 						dirs={dirs}
 						defaultAddress={defaultDirectoryAddress}
@@ -421,8 +417,8 @@ export const JoinCard = memo(function JoinCard(
 					    follows the box it describes. */
 					}
 					{!asLink && (
-						<p className="hint" id="locatorHint">
-							{locatorHint}
+						<p className="hint" id="addressHint">
+							{addressHint}
 						</p>
 					)}
 					{reaching && homeDirectory == null && <MakeHomeChoice />}

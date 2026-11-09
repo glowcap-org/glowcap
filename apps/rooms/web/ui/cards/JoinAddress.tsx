@@ -3,14 +3,14 @@
 
 import { identifierField } from "../field.ts";
 import { Icon } from "../icons.tsx";
-import { type DirectoryDestinationContext, joinLocatorPlaceholder } from "../joining.ts";
+import { type DirectoryDestinationContext, joinAddressPlaceholder } from "../joining.ts";
 import { joinChooseDirectory, joinHideDirectories } from "../../../lib/text/join.ts";
 import { DirectoryPicks, typeAnotherAddress } from "../DirectoryPicks.tsx";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
 import { MenuLayer, useMenu } from "../Menu.tsx";
 import type { DirId, DirView } from "../directory.ts";
 
-export function JoinLocator(
+export function JoinAddress(
 	{ locator, dirs, defaultAddress, directoryContext, invalid, onPick, onType }: {
 		locator: string;
 		dirs: ReadonlyMap<DirId, DirView>;
@@ -26,7 +26,7 @@ export function JoinLocator(
 		<div className="join-field-wrap" ref={holder}>
 			<JoinField invalid={invalid}>
 				<JoinPrefix
-					id="joinLocator"
+					id="joinAddress"
 					ref={trigger}
 					className="join-prefix-dir"
 					label={open ? joinHideDirectories : joinChooseDirectory}
@@ -42,7 +42,7 @@ export function JoinLocator(
 					type="text"
 					inputMode="url"
 					enterKeyHint="next"
-					placeholder={joinLocatorPlaceholder(defaultAddress)}
+					placeholder={joinAddressPlaceholder(defaultAddress)}
 					value={locator}
 					aria-describedby={invalid === true ? "joinError" : undefined}
 					aria-invalid={invalid === true}

@@ -28,7 +28,7 @@ Deno.test("the web supervisor prints one pasteable capability bundle", async () 
 	const httpPort = nonEphemeralPort();
 	const state = await Deno.makeTempDir({ prefix: "glowcap-rooms-web-output-" });
 	const proc = spawnOwned(WEB, {
-		args: ["--transport=tcp", String(httpPort), "0", "--operator"],
+		args: ["--transport=tcp", String(httpPort), "0", "--capabilities=operator"],
 		cwd: ROOT,
 		env: { GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",

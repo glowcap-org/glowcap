@@ -85,10 +85,10 @@ Deno.test("a directory's card says what it is doing beside the phase", () => {
 // Rooms server. A transport that is reconnecting names no route: the words
 // would be about a connection that is not there.
 Deno.test("a connected directory says how it is reached", () => {
-	assertEquals(dirConnection("connected", "", "noise-relay", true).route, "Sealed, through a relay");
+	assertEquals(dirConnection("connected", "", "noise-relay", true).route, "Encrypted, through a relay");
 	assertEquals(dirConnection("connected", "", "tcp", true).route, "Over TCP, in the clear, through the Rooms server");
 	assertEquals(dirConnection("connected", "", "tcp", false).route, "Over TCP, in the clear");
-	assertEquals(dirConnection("connected", "", "iroh", false).route, "Sealed, over iroh");
+	assertEquals(dirConnection("connected", "", "iroh", false).route, "Encrypted, direct over iroh");
 	assertEquals(dirConnection("reconnecting", "", "noise-relay", true).route, "");
 	assertEquals(dirConnection("connected", "", "webrtc", true).route, "");
 });

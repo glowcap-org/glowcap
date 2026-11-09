@@ -178,7 +178,7 @@ pub fn register(ctx: Context) Registered {
     const rooms_client_step = b.step("rooms-client", "Run the Zig rooms chat client (one-shot); pass `-- <locator> <room> <nick> <line> [roster]`");
     rooms_client_step.dependOn(&rooms_client_run.step);
 
-    // Read a server's live trace as lines. `--trace` has only ever had one
+    // Read a server's live trace as lines. The trace capability has only ever had one
     // consumer, a browser, and a picture is the wrong tool for "what did this
     // peer do just now, in order". A convenience runner like the client above:
     // it runs until interrupted, so it belongs to no gate, and its posture is

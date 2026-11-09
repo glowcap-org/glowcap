@@ -233,7 +233,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 	let custody = Custody::acquire(&config.state)?;
 	owners.readiness = Some(Readiness::clear(config.readiness_path(), custody.directory().clone()).await?);
 	owners.management_readiness =
-		Some(Readiness::clear(config.state.join("control.sturdyref"), custody.directory().clone()).await?);
+		Some(Readiness::clear(config.state.join("management.sturdyref"), custody.directory().clone()).await?);
 	let prepared = custody.prepare()?;
 	let mut listener_keys = rooms_platform::serving::onion::KeyFile(Some(prepared.directory().clone()));
 	let host = Host::from_seed_with_options(prepared.seed(), rooms_glowcap::host_options())?;

@@ -9,14 +9,15 @@
 The address you followed does not name a page on this site. The link may be
 stale, or the page may have moved.
 
-The sidebar lists every page. The likeliest destinations:
+Browse documentation lists every page. The likeliest destinations:
 
-- [Start building]($link.page('start')) is the first call, in every language.
+- [Start building]($link.page('start')) makes a first call in each language.
 - [Why OCapN]($link.page('why')) compares the ideas with the protocols you
   already use.
 - [Concepts]($link.page('concepts')) explains the machinery one level down.
 - [Choosing a transport]($link.page('transports/choosing')) compares the
   transports side by side.
+- [Rooms]($link.page('rooms')) is a chat app built on glowcap.
 
 If a link on this site brought you here, that is a defect worth reporting:
 [open an issue](https://github.com/glowcap-org/glowcap/issues).

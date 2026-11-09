@@ -26,6 +26,7 @@ pub(super) mod reads;
 pub(super) mod recording;
 mod retention;
 mod signaling;
+mod snapshot;
 use super::{
 	State, bridge,
 	records::{self, Field, References},
@@ -286,7 +287,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				};
 				effect_requirement(intent, &[])
 			}
-			"snapshot" | "resource-key" | "bridge-witnesses" => Requirement::new(&[ObserveWorkspace.key()], &[]),
+			"snapshot" | "addressed-snapshot" => {
+				snapshot::requirement(input)?;
+				Requirement::new(&[ObserveWorkspace.key()], &[])
+			}
+			"resource-key" | "bridge-witnesses" => Requirement::new(&[ObserveWorkspace.key()], &[]),
 			"check-inbox" => {
 				inbox::selection(input)?;
 				Requirement::new(&[ObserveWorkspace.key()], &[])
@@ -489,17 +494,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			// conveys no authority and keeps the private root out of the request.
 			return Ok(Argument::Bytes(input.bound_resource.object.to_vec()));
 		}
-		if input.verb == "snapshot" {
-			if !input.args.is_empty() {
-				return Err(refuse("snapshot takes no arguments"));
-			}
-			let record = records::metadata(input)?;
-			let revision = i64::try_from(input.content_revision).map_err(|_| refuse("workspace revision exhausted"))?;
-			let intent = serde_json::to_string(&record.intent).map_err(|_| refuse("invalid workspace"))?;
-			return Ok(Argument::List(vec![
-				Argument::Integer(revision),
-				Argument::String(intent),
-			]));
+		if matches!(input.verb, "snapshot" | "addressed-snapshot") {
+			return snapshot::invoke(call, input);
 		}
 		if input.verb == "command" {
 			let record = records::metadata(input)?;

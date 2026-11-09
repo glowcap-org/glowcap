@@ -21,8 +21,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 		input.graph.ok_or_else(|| refuse("session graph is not prepared"))?;
 		if matches!(
 			input.verb,
-			"snapshot"
-				| "discovery-selected"
+			"discovery-selected"
 				| "signaling-selected"
 				| "initialize"
 				| "retire-host-registrations"
@@ -54,6 +53,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			"acquire-activity" | "activity-recipe" | "retain-incoming" => {
 				activity::references(&self.owner(input.verb)?, input, &metadata)?
 			}
+			"snapshot" | "addressed-snapshot" => snapshot::references(input, &metadata)?,
 			"typing-sender" => presence::references(input, &metadata)?,
 			"signaling-route" => signaling::references(input, &metadata)?,
 			"directory-reader" => discovery::references(input, &metadata)?,

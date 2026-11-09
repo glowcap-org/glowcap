@@ -22,7 +22,7 @@ encrypted scenario. It is an adapter kept here, not a transport Goblins ships.) 
 9099:
 
 ```sh
-zig build rooms-web -Dtransport=tcp -- --trace
+zig build rooms-web -Dtransport=tcp -- --capabilities=trace
 ```
 
 Open `http://localhost:8080`, enter the room `general`, and pick a nickname. That is your glowcap member.

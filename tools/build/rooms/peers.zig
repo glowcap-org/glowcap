@@ -174,7 +174,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     Binary.server.addArg(server_run);
     server_run.addPassthruArgs();
     server_run.step.dependOn(&server_install.step);
-    b.step("rooms-server", "Run the Rooms server: the directory members register with and the rooms they enter; pass `-- [--state=<directory>] [--history] [--admin-listeners] [--diagnostics] [--operator] [--peering] [--trace]` (iroh by default, needs cargo)").dependOn(&server_run.step);
+    b.step("rooms-server", "Run the Rooms server: the directory members register with and the rooms they enter. Pass `-- [--state=<directory>] [--history] [--capabilities=all|<name>[,<name>...]]` (iroh by default, needs cargo)").dependOn(&server_run.step);
 
     const compile_tests = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
     commands.addLibDirArg(compile_tests, .host);

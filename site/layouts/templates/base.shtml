@@ -78,7 +78,7 @@
 				     screen, so a reader can open it from any page. -->
 				<a href="$site.page('rooms').link()">Rooms</a>
 				<a class="top-nav-app" href="$site.asset('rooms/app/index.html').link()" data-rooms-app>Open Rooms</a>
-				<button type="button" id="themeToggle" class="theme-toggle" title="Switch between light and syrup" aria-label="Switch between the light and syrup themes">
+				<button type="button" id="themeToggle" class="theme-toggle" title="Switch between light and dark" aria-label="Switch between light and dark themes">
 					<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"/></svg>
 					<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.1M12 19.3v2.1M4.3 4.3l1.5 1.5M18.2 18.2l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.3 19.7l1.5-1.5M18.2 5.8l1.5-1.5"/></svg>
 				</button>
@@ -133,7 +133,7 @@
 					<a class="$site.page('protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('protocol').link()">Protocol cheatsheet</a>
 					<a class="$site.page('reference').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('reference').link()">API reference</a>
 					<div class="nav-sub">
-						<a class="$site.page('reference/api').isCurrent().then('is-current', '')" href="$site.page('reference/api').link()">Zig API (autodoc)</a>
+						<a class="$site.page('reference/api').isCurrent().then('is-current', '')" href="$site.page('reference/api').link()">Zig API</a>
 					</div>
 					<span class="nav-heading">Rooms</span>
 					<a class="$site.page('rooms').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms').link()">Overview</a>
@@ -168,32 +168,47 @@
 					</a>
 					<p>OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library with explicit control over memory, I/O, and scheduling.</p>
 				</div>
-				<nav aria-label="Learn">
-					<h2>Learn</h2>
+				<nav aria-label="Understand">
+					<h2>Understand</h2>
 					<a href="$site.page('why').link()">Why OCapN</a>
 					<a href="$site.page('concepts').link()">Concepts</a>
 					<a href="$site.page('identity').link()">What about identity?</a>
 					<a href="$site.page('loam').link()">Durable objects</a>
-					<a href="$site.page('protocol').link()">Protocol cheatsheet</a>
 				</nav>
 				<nav aria-label="Build">
 					<h2>Build</h2>
-					<a href="$site.page('rooms').link()">Rooms</a>
 					<a href="$site.page('start').link()">Start building</a>
+					<a href="$site.page('surfaces').link()">Choose an API</a>
+					<a href="$site.page('cli').link()">CapTP CLI</a>
 					<a href="$site.page('bindings').link()">Bindings</a>
-					<a href="$site.page('reference').link()">API reference</a>
+					<a href="$site.page('examples').link()">Examples</a>
 				</nav>
-				<nav aria-label="Project">
-					<h2>Project</h2>
+				<nav aria-label="Explore">
+					<h2>Explore</h2>
+					<a href="$site.page('modules').link()">The modules</a>
+					<a href="$site.page('transports').link()">Transports</a>
+					<a href="$site.page('codecs').link()">Codecs</a>
+				</nav>
+				<nav aria-label="Know">
+					<h2>Know</h2>
 					<a href="$site.page('project').link()">Project &amp; status</a>
 					<a href="$site.page('stability').link()">What you can depend on</a>
-					<a href="https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md">Security policy</a>
+					<a href="$site.page('performance').link()">Performance</a>
+					<a href="$site.page('protocol').link()">Protocol cheatsheet</a>
+					<a href="$site.page('reference').link()">API reference</a>
 					<a href="https://github.com/glowcap-org/glowcap">Source</a>
+					<a href="https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md">Security policy</a>
 					<a href="https://github.com/glowcap-org/glowcap/actions/workflows/check.yml">Checks</a>
 					<a href="https://github.com/sponsors/glowcap-org">Sponsor</a>
 				</nav>
+				<nav aria-label="Rooms">
+					<h2>Rooms</h2>
+					<a href="$site.page('rooms').link()">Overview</a>
+					<a href="$site.page('rooms/start').link()">Run Rooms</a>
+					<a href="$site.page('rooms/architecture').link()">How it works</a>
+				</nav>
 			</div>
-			<p class="footer-legal">Copyright 2026 Glowcap LLC. glowcap 0.1.0 alpha. Apache-2.0.</p>
+			<p class="footer-legal">Copyright 2026 Glowcap LLC. Apache-2.0.</p>
 			</footer>
 		</div>
 		<!-- These enhancements are separate script elements on purpose. In one
@@ -211,6 +226,18 @@
 					const open = docsNav.classList.toggle("is-open");
 					docsNavToggle.setAttribute("aria-expanded", String(open));
 				});
+			}
+		</script>
+		<script>
+			// Bring the current page's entry into view in the index. On a
+			// short screen the sidebar scrolls inside itself, and a page deep
+			// in the list would otherwise sit below the fold of the index.
+			// Only the sidebar scrolls, never the page.
+			const sidebar = document.querySelector(".sidebar");
+			const current = sidebar && sidebar.querySelector(".is-current");
+			if (sidebar && current && sidebar.scrollHeight > sidebar.clientHeight) {
+				const top = current.getBoundingClientRect().top - sidebar.getBoundingClientRect().top + sidebar.scrollTop;
+				sidebar.scrollTop = Math.max(0, top - sidebar.clientHeight / 3);
 			}
 		</script>
 		<script>

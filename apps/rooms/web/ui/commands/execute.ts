@@ -156,7 +156,7 @@ export function applyCommandPlan(
 						dir.standing,
 						dir.rooms.size,
 						dir.joined,
-						dir.locator,
+						dir.address,
 					)
 				).join("\n"),
 			);
@@ -229,7 +229,7 @@ function pickDirectory(powers: CommandPowers, asked: string): HeldDirectory | st
 	const wanted = asked.toLowerCase();
 	const held = powers.directories();
 	const hit = held.filter((directory) =>
-		directory.name.toLowerCase().includes(wanted) || directory.locator.toLowerCase().includes(wanted)
+		directory.name.toLowerCase().includes(wanted) || directory.address.toLowerCase().includes(wanted)
 	);
 	if (hit.length === 1) return hit[0];
 	if (hit.length === 0) {

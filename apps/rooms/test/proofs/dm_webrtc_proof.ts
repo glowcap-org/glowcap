@@ -86,7 +86,7 @@ const deadline = setTimeout(() => fail("web-dm-webrtc scenario timed out after 2
 const web = spawnWeb({
 	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
-	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: "0" },
+	env: { GLOWCAP_ROOMS_CAPABILITIES: "trace", GLOWCAP_ROOMS_TRACE_PORT: "0" },
 	stdout: "piped",
 	stderr: "piped",
 });

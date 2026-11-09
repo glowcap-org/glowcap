@@ -2,6 +2,7 @@
 
 import { Button } from "../Button.tsx";
 import {
+	capabilitySetDiscard,
 	capabilitySetEditUri,
 	capabilitySetInclude,
 	capabilitySetIncomplete,
@@ -112,13 +113,13 @@ export function CapabilitySetForm() {
 										<div className="switch-row">
 											<div className="capability-set-label">
 												<p className="group-label" id={`opsCapabilitySet-${capability}-label`}>
-													{face.label}
+													{face.short}
 												</p>
 												<span className="capability-set-edit-slot">
 													{enabled && (
 														<IconButton
 															icon="pencil"
-															label={capabilitySetEditUri(face.label)}
+															label={capabilitySetEditUri(face.short)}
 															size="small"
 															variant="ghost"
 															onClick={() => model.edit(capability)}
@@ -129,8 +130,9 @@ export function CapabilitySetForm() {
 											<Switch
 												id={face.toggleId}
 												checked={enabled}
-												label={capabilitySetInclude(face.label)}
+												label={capabilitySetInclude(face.short)}
 												aria-labelledby={`opsCapabilitySet-${capability}-label`}
+												aria-describedby={`opsCapabilitySet-${capability}-hint`}
 												disabled={model.busy || !model.loaded}
 												onClick={() => {
 													if (!enabled) {
@@ -144,6 +146,9 @@ export function CapabilitySetForm() {
 												}}
 											/>
 										</div>
+										<p className="hint" id={`opsCapabilitySet-${capability}-hint`}>
+											{face.lead}
+										</p>
 									</div>
 								);
 							})}
@@ -157,7 +162,7 @@ export function CapabilitySetForm() {
 						disabled={!dirty || model.busy}
 						onClick={model.discard}
 					>
-						Discard
+						{capabilitySetDiscard}
 					</Button>
 					<Button
 						id="opsCapabilitySetSave"

@@ -54,7 +54,7 @@ start fresh.
 
 Switch the top-bar mode to **Live** and give the left panel the trace sturdyref
 printed as `ROOMS-TRACE-LISTENING`. The rooms server publishes one when started
-with `--trace` (see
+with `--capabilities=trace` (see
 [rooms operating](../rooms/operating.md#watching-the-room-live)). ocapnviz loads
 its WebAssembly Host on demand and connects to the trace. The endpoint accepts a
 socket only from a viewer that presents the sturdyref's secret part (its

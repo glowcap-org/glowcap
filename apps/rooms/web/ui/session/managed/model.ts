@@ -135,6 +135,10 @@ export interface WorkspaceIntent {
 export interface WorkspaceSnapshot {
 	revision: string;
 	intent: WorkspaceIntent;
+	/** The address each `intent.directories` row was dialed through, in row
+	 * order: `ocapn://<key>.iroh` or `host:port`, never a secret. Null for a
+	 * row whose saved link the session cannot show. */
+	addresses: (string | null)[];
 }
 export interface UseView {
 	status: "active" | "paused" | "revoked" | "outOfScope";

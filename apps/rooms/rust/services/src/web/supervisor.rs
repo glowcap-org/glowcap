@@ -144,7 +144,12 @@ impl Supervisor {
 			}
 		};
 		(self.report)(Notice::AttachedDirectory(locator.clone()));
-		let trace = if self.config.room.asked.trace {
+		let trace = if self
+			.config
+			.room
+			.asked
+			.holds(rooms_application::server::operations::Kind::Trace)
+		{
 			if self.config.room.trace_port == 0 {
 				return Err("an attached directory needs an explicit timeline port".into());
 			}

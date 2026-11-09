@@ -53,7 +53,7 @@ pub async fn run(
 				return if print_link {
 					Ok(())
 				} else {
-					Err("trace is disabled; start the directory with --trace".into())
+					Err("trace is disabled; start the directory with --capabilities=trace".into())
 				};
 			};
 			// Discovery uses this HTTP front's carried channel. Its advertised

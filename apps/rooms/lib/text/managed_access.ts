@@ -4,15 +4,15 @@ export const managedAccessText = {
 	"heldTitle": "Access",
 	"held": "Unnamed access",
 	"revokedName": "Revoked access",
-	"ownControl": "This workspace",
+	"ownControl": "This session",
 	"ownSaid": "Your own access",
 	"ownEditLead":
-		"Your own access to this workspace. Everything you share comes from it, so it can't be paused or revoked.",
+		"Your own access to this session. Everything you share comes from it, so it can't be paused or revoked.",
 	"advancedSaid": "Onward sharing and future changes",
 	"sharingLead":
-		"Give a person or device its own link to this workspace, allowing only what you choose. Pause or revoke it any time.",
+		"Give a person or device its own link to this session, allowing only what you choose. Pause or revoke it any time.",
 	"issuancePolicy": "Pause, revoke or rename it later from its card.",
-	"noControl": "Nothing to manage. A workspace link someone gave you lets you use it, not manage it.",
+	"noControl": "Nothing to manage. A session link someone gave you lets you use it, not manage it.",
 	"editLead": "Change what this access allows, pause it, or revoke it.",
 	"endedLead": "This access was revoked. It no longer works, and nothing about it can change.",
 	"ancestor": "An access it was created under is paused or revoked, which limits this one too.",
@@ -41,13 +41,13 @@ export const managedAccessText = {
 	"powerless":
 		"This access was created without any way to manage it, so it can't be changed, paused or revoked from here.",
 	"copyControl": "Copy management link",
-	"observeWorkspace": "See the workspace",
-	"interactWorkspace": "Act in the workspace",
-	"replaceWorkspace": "Replace the workspace",
+	"observeWorkspace": "See the session",
+	"interactWorkspace": "Act in the session",
+	"replaceWorkspace": "Replace the session's rooms and settings",
 	"manageCustody": "Add or remove keys and links",
 	"shareCustody": "Share keys and links",
 	"resolvePending": "Finish interrupted changes",
-	"useOperations": "Use operator tools",
+	"useOperations": "Use the Operations pages",
 	"history": "Read message history",
 	"readArchive": "Read the saved archive",
 	"readFile": "Open files",
@@ -71,7 +71,7 @@ export const managedAccessText = {
 	"activeLabel": "Active",
 	"statusLabel": "Status",
 	"activeSaid": "Works now. Turn it off to pause it until you turn it back on.",
-	"pausedNowSaid": "Paused. It does nothing until you turn it back on.",
+	"pausedNowSaid": "Paused. It stays idle until you turn it back on.",
 	"revokeRow": "Revoke",
 	"revokeRowSaid": "Ends this access for good, along with any access created from it.",
 	"removeRow": "Remove from your list",
@@ -127,16 +127,16 @@ export const managedAccessText = {
 	"permissionsTitle": "Permissions",
 	"shareTitle": "Let someone else manage it",
 	"more": "Show more",
-	"presentation": "Workspace presentation",
-	"observation": "Workspace observation",
-	"management": "Workspace management",
-	"activity": "Workspace activity",
+	"presentation": "Session presentation",
+	"observation": "Session observation",
+	"management": "Session management",
+	"activity": "Session activity",
 	"manage": "Manage…",
 	"done": "Done",
 } as const;
 export const issueLead = (label: string | null): string =>
 	label == null
-		? "A new link to this workspace, allowing only what you choose."
+		? "A new link to this session, allowing only what you choose."
 		: `A new link under ${label}, allowing only what you choose within it.`;
 /** A row's short account of its access: the picker's names, side by side. */
 export const permissionLine = (names: readonly string[]): string =>

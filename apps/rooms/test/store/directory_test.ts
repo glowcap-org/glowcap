@@ -37,31 +37,31 @@ Deno.test("an empty locator field hints at this directory's shared address", () 
 	// (`peer.dirAddress`), so the hint agrees with the Settings and directory
 	// cards rather than showing the store's bare authority key.
 	assert(
-		joining.joinLocatorPlaceholder(null) === joining.JOIN_LOCATOR_SHAPE,
+		joining.joinAddressPlaceholder(null) === joining.JOIN_LOCATOR_SHAPE,
 		"a page with no home invented an address",
 	);
 	assert(
-		joining.joinLocatorPlaceholder("ocapn://abc.iroh") === "ocapn://abc.iroh",
+		joining.joinAddressPlaceholder("ocapn://abc.iroh") === "ocapn://abc.iroh",
 		"a short locator was shortened",
 	);
 	assert(
-		joining.joinLocatorPlaceholder(
+		joining.joinAddressPlaceholder(
 			"ocapn://abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr.iroh",
 		) === "ocapn://abcd…mnopqr.iroh",
 		"a long locator was not shown as head, tail, and transport",
 	);
 	assert(
-		joining.joinLocatorPlaceholder(
+		joining.joinAddressPlaceholder(
 			"ocapn://abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr.iroh?direct-addresses=127.0.0.1:1",
 		) === "ocapn://abcd…mnopqr.iroh",
 		"the shared hinted route kept its query parameters in the hint",
 	);
 	assert(
-		joining.joinLocatorPlaceholder("127.0.0.1:8000") === "127.0.0.1:8000",
+		joining.joinAddressPlaceholder("127.0.0.1:8000") === "127.0.0.1:8000",
 		"a host locator was rewritten as an ocapn URI",
 	);
 	assert(
-		joining.joinLocatorPlaceholder("ocapn://127.0.0.1%3A8000.tcp") === "127.0.0.1:8000",
+		joining.joinAddressPlaceholder("ocapn://127.0.0.1%3A8000.tcp") === "127.0.0.1:8000",
 		"a host TCP URI hid its host and port behind abbreviation",
 	);
 });

@@ -33,7 +33,7 @@ async fn scenario() {
 		let mut process = Process::new(
 			command()
 				.arg(format!("--state={}", temp.display()))
-				.args(["--transport=tcp", "--operator"])
+				.args(["--transport=tcp", "--capabilities=operator"])
 				.stdout(Stdio::piped())
 				.stderr(Stdio::piped())
 				.spawn()

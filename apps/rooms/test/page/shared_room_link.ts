@@ -31,7 +31,7 @@ export async function proveSharedRoomLink(directory: Directory, views: readonly 
 				.catch(async () => {
 					const states = await Promise.all(views.map((page) => page.evaluate(() => document.body.innerText)));
 					fail(
-						`a room link pasted in an attached view did not reach the shared workspace: ${
+						`a room link pasted in an attached view did not reach the shared session: ${
 							JSON.stringify(states)
 						}`,
 					);

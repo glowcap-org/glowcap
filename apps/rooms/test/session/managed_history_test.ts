@@ -44,6 +44,7 @@ function fixture(read: (filter: { conversation: string }) => Promise<ArchivePage
 			operators: [],
 			peering: [],
 		},
+		addresses: [],
 	};
 	const failures: unknown[] = [];
 	const admissions: string[] = [];

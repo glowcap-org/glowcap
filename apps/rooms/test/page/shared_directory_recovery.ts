@@ -69,7 +69,7 @@ export async function proveSharedDirectoryRecovery(page: Page, port: number): Pr
 			.catch(() => fail("an attached session could not join another room after its directory restarted"));
 
 		await page.click("#settingsBtn");
-		await page.click("#reachabilityTab");
+		await page.click("#connectionTab");
 		await openDirectoryCardFromSettings(page);
 		const centered = await page.evaluate(() => {
 			const dialog = document.querySelector<HTMLDialogElement>("#dircardTitle")?.closest("dialog");

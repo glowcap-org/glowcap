@@ -16,7 +16,14 @@ async fn start() -> Result<(), String> {
 		.map(|s| s.into_string().map_err(|_| "web options must be Unicode".to_owned()))
 		.collect::<Result<Vec<_>, _>>()?;
 	if let Some(query) = web::StatusQuery::parse(&args, |key| std::env::var(key).ok())? {
-		println!("{}", query.run().await?);
+		// A page query with no page allowed prints nothing, not an empty line.
+		if let Some(answer) = query.run().await? {
+			println!("{answer}");
+		}
+		return Ok(());
+	}
+	if let Some(read) = web::CapabilityRead::parse(&args, |key| std::env::var(key).ok())? {
+		println!("{}", read.run(|key| std::env::var(key).ok()).await?);
 		return Ok(());
 	}
 	let mut interrupt =

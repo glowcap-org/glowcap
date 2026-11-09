@@ -23,7 +23,6 @@ pub mod session;
 pub mod text;
 pub mod web_channel;
 pub mod web_relay;
-pub mod workspace;
 
 pub mod signaling;
 pub mod slash;

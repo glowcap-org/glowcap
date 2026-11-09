@@ -42,7 +42,7 @@ import {
 	directoryRetryStop,
 	directoryRoomsCount,
 	directoryThisCloses,
-	factCopyLocatorFor,
+	factCopyAddressFor,
 } from "../../../lib/text/conversation.ts";
 import { memberYouAre } from "../../../lib/text/conversation.ts";
 import { ModalCard } from "../ModalCard.tsx";
@@ -171,7 +171,7 @@ function DirectoryDialog(
 	const retry = useAsyncAction(async (signal) => {
 		setRetryWhy("");
 		const why = await actionRefusal(() =>
-			session.reachDirectory(dir.locator, { kind: "exact", name: dir.requestedNick }, { signal })
+			session.reachDirectory(dir.address, { kind: "exact", name: dir.requestedNick }, { signal })
 		);
 		if (!signal.aborted) setRetryWhy(why);
 	});
@@ -218,9 +218,9 @@ function DirectoryDialog(
 					}
 					<div className="group well">
 						<CopyField
-							id="dircardLocator"
-							text={dir.locator}
-							label={factCopyLocatorFor(name)}
+							id="dircardAddress"
+							text={dir.address}
+							label={factCopyAddressFor(name)}
 						/>
 						<DirectoryFacts dir={dir} rooms={rooms} />
 						<GrantedNameNote />

@@ -429,7 +429,7 @@ function CapabilityValueModal(
 						<Field
 							id="capabilityValueUri"
 							label={capabilityUriLabel}
-							hint={capabilitySetMintedSaid(face.flag, face.how)}
+							hint={capabilitySetMintedSaid(face.flag)}
 							said={why}
 						>
 							{(wiring) => (

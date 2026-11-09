@@ -266,7 +266,7 @@ try {
 		browser,
 		first,
 		httpPort,
-		(await Deno.readTextFile(`${state}/control.sturdyref`)).trim(),
+		(await Deno.readTextFile(`${state}/management.sturdyref`)).trim(),
 	);
 	// Destroy only this proof's owned state, as deployment reset session does.
 	await stopOwned(peer);

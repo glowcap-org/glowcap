@@ -11,6 +11,7 @@ pub(in crate::session::managed) fn registration<P: Tasks + Deadline + Clone + 's
 			("initialize", Retry::Receipt),
 			("retire-host-registrations", Retry::Receipt),
 			("snapshot", Retry::ReadOnly),
+			("addressed-snapshot", Retry::ReadOnly),
 			("continue-workspace", Retry::Idempotent),
 			("activity-reader", Retry::ReadOnly),
 			("activity-file", Retry::ReadOnly),

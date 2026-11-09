@@ -4,7 +4,7 @@
   width="760"
   height="300"
   role="img"
-  aria-label="Two browsers meet through the relay when neither can be dialed. One browser registers its keyed identity and leaves an inbound socket held at the relay; the other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers."
+  aria-label="Two browsers meet through the relay when neither can be dialed. One browser registers its keyed identity and leaves an inbound socket held at the relay. The other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers."
 >
   <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .head { font-size: 15px; font-weight: 700; }

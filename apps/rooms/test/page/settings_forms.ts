@@ -158,7 +158,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 			"#capabilityValueUri",
 			"ocapn://127.0.0.1%3A1234.tcp/s/ZGlzY2FyZC10aGlzLWNhcGFiaWxpdHktZHJhZnQ",
 		);
-		await page.getByRole("button", { name: "Save to capability set" }).click();
+		await page.getByRole("button", { name: "Save", exact: true }).click();
 		await page.waitForSelector("#capabilityValueTitle", { state: "detached" });
 		if (await page.getAttribute("#opsListenersToggle", "aria-checked") !== "true") {
 			fail("the capability draft did not survive its value editor");
@@ -177,10 +177,10 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		if (await page.getAttribute("#opsListenersToggle", "aria-checked") !== "false") {
 			fail("discarding Settings left the capability draft in its long-lived provider");
 		}
-		await page.click("#reachabilityTab");
+		await page.click("#connectionTab");
 		await page.click('input[name="dm"][value="relay"]');
 		await page.click("#sessionTab");
-		await page.click("#reachabilityTab");
+		await page.click("#connectionTab");
 		if (!await page.isChecked('input[name="dm"][value="relay"]')) {
 			fail("a tab switch discarded the direct-message draft");
 		}
@@ -201,9 +201,9 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		await page.click("#holdingsTab");
 		await page.click("#opsListenersToggle");
 		await page.fill("#capabilityValueUri", "ocapn://127.0.0.1%3A1234.tcp/s/ZGlzY2FyZC1iZWZvcmUtcmVsb2Fk");
-		await page.getByRole("button", { name: "Save to capability set" }).click();
+		await page.getByRole("button", { name: "Save", exact: true }).click();
 		await page.waitForSelector("#capabilityValueTitle", { state: "detached" });
-		await page.click("#reachabilityTab");
+		await page.click("#connectionTab");
 		await page.click("#dmSave");
 		await page.waitForSelector("#settingsUnsavedTitle");
 		await Promise.all([
@@ -217,7 +217,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 			[...document.querySelectorAll("#members li")].some((row) => row.textContent?.includes("refresh-member"))
 		).catch(() => fail("refresh rejoined under no name or a changed nickname"));
 		await page.click("#settingsBtn");
-		await page.click("#reachabilityTab");
+		await page.click("#connectionTab");
 		if (!await page.isChecked('input[name="dm"][value="relay"]')) {
 			fail("Save and reload did not preserve the selected direct-message connection");
 		}
@@ -272,7 +272,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 			if (await page.evaluate(() => document.documentElement.dataset.theme) !== importedTheme) {
 				fail("imported preferences did not survive reload");
 			}
-			await proveReturnToSetupDoesNotFlashACrash(page, "Leave workspace");
+			await proveReturnToSetupDoesNotFlashACrash(page, "Leave session");
 		} finally {
 			await Deno.remove(importPath).catch(() => {});
 		}

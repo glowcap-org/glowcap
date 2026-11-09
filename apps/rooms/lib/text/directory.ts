@@ -21,10 +21,10 @@ export function dmBlockedWhile(phaseWord: string): string {
 }
 
 /** How a connected directory is reached, by the transport its connection runs
- * over. Sealed means the bytes are encrypted to the directory's own key. */
-export const routeRelay = "Sealed, through a relay";
-export const routeIroh = "Sealed, over iroh";
-export const routeNoiseTcp = "Sealed, over TCP";
+ * over. Encrypted means the bytes are encrypted to the directory's own key. */
+export const routeRelay = "Encrypted, through a relay";
+export const routeIroh = "Encrypted, direct over iroh";
+export const routeNoiseTcp = "Encrypted, over TCP";
 export const routeKeyedTcp = "Over TCP, to a named key";
 export const routeTcp = "Over TCP, in the clear";
 export const routeOnion = "Over Tor";
@@ -56,9 +56,9 @@ export function tooLongSaid(noun: string, max: number, unit: string): string {
 
 /** Why a line from somebody else cannot be shown. The page refuses it instead
  * of cutting it, since half a sentence can say the opposite. */
-export const lineFromNameTooLong = "A line arrived under a name longer than any this app grants, so it is not here.";
+export const lineFromNameTooLong = "A message arrived under a name longer than any this app grants, so it isn't here.";
 export function lineTooLong(from: string): string {
-	return `${from} sent a line longer than this app will show, so it is not here.`;
+	return `${from} sent a message longer than this app will show, so it isn't here.`;
 }
 
 /** The composer's counter, once a line is within a fifth of its cap. */

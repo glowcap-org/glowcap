@@ -143,7 +143,7 @@ export async function run(tab: Page): Promise<void> {
 	// included. Two menus offering the same choice offer the same list, and on
 	// the card the row is the short way round: the field it hands over is the
 	// one the menu hangs from.
-	await tab.click("#joinLocator");
+	await tab.click("#joinAddress");
 	await tab.waitForSelector('.locator-picks [role=menuitem]:has-text("Another address")', { timeout: 5_000 })
 		.catch(() => fail("the join card's own directory menu does not offer the way to an address not held"));
 	await tab.click('.locator-picks [role=menuitem]:has-text("Another address")');

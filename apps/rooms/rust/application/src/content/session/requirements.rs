@@ -99,7 +99,7 @@ pub const fn method(method: Method) -> Option<Requirements> {
 	use Method::*;
 	use Target::*;
 	Some(match method {
-		Snapshot | Watch => required(&[ObserveWorkspace], &[], &[]),
+		Snapshot | AddressedSnapshot | Watch => required(&[ObserveWorkspace], &[], &[]),
 		Command => required(&[InteractWorkspace], &[NestedCommand], &[]),
 		Typing => required(&[InteractWorkspace], &[ConversationPost], &[]),
 		SendFiles => required(&[InteractWorkspace], &[ConversationUpload], &[]),

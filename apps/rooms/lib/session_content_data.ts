@@ -273,6 +273,7 @@ export const SESSION_CONTENT = {
 } as const;
 export const SESSION_METHOD_REQUIREMENTS = {
 	"snapshot": { "conditional": [], "targets": [], "workspace": ["observeWorkspace"] },
+	"addressed-snapshot": { "conditional": [], "targets": [], "workspace": ["observeWorkspace"] },
 	"watch": { "conditional": [], "targets": [], "workspace": ["observeWorkspace"] },
 	"replaceCheckpoint": { "conditional": ["importsAuthority"], "targets": [], "workspace": ["replaceWorkspace"] },
 	"adoptWorkspace": { "conditional": ["importsAuthority"], "targets": [], "workspace": ["replaceWorkspace"] },

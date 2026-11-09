@@ -17,9 +17,9 @@ export const opsIrcLabel = "IRC gateway";
 export const opsIrcShort = "IRC";
 export const opsIrcLead = "Bridges IRC channels into this server as ordinary rooms.";
 
-export const opsOperatorLabel = "Rooms operator";
+export const opsOperatorLabel = "Operator";
 export const opsOperatorShort = "Operator";
-export const opsOperatorLead = "Lists and changes the authorities, names and live sessions this server has issued.";
+export const opsOperatorLead = "Lists and changes the links, names and live connections this server has issued.";
 
 export const opsPeeringLabel = "Directory peering";
 export const opsPeeringShort = "Peering";
@@ -38,20 +38,14 @@ export const opsTraceShort = "Trace";
 export const opsTraceLead =
 	"Publishes which peers this session talks to and what it does with them, direct messages included. Not the text of your messages.";
 
-/** Each complete URI names the exporter and authority to acquire. */
-export const opsHowSession = "Paste its complete URI here and Rooms acquires it from the server it names.";
-export const opsHowTrace = "Paste its complete URI here and Rooms acquires the trace endpoint it names.";
-
 /** Holdings, where the toggles live. The lead separates holding something now
  * from having saved it for next time. */
-export const holdingsSharedLead =
-	"This shared session is holding live capabilities. The links below are saved so they can be taken again.";
-export const holdingsLocalLead =
-	"This session is holding live capabilities. The links below are saved so they can be taken again.";
-export const holdingsSetChanged = "The saved capability set changed. Your unsaved edits are still here.";
-export const holdingsSetSaved = "Capability set saved.";
-export const holdingsEditAsText = "Edit capability set as text";
-export const holdingsEditAsControls = "Edit capability set as controls";
+export const holdingsSharedLead = "Links this shared session has saved so it can use them again.";
+export const holdingsLocalLead = "Links this session has saved so it can use them again.";
+export const holdingsSetChanged = "The saved links changed. Your unsaved edits are still here.";
+export const holdingsSetSaved = "Links saved.";
+export const holdingsEditAsText = "Edit links as text";
+export const holdingsEditAsControls = "Edit links as controls";
 
 export const opsSearchLabel = "Search everything this directory holds";
 export const opsSearchPlaceholder = "Search rooms, names, connections, references…";
@@ -73,14 +67,14 @@ export const traceReconnecting = "reconnecting…";
 export const opsListenersLoading = "listeners";
 export const opsPeeredRoomsLoading = "peered rooms";
 export const opsVisualizerStatusLoading = "visualizer status";
-export const opsOperatorStateLoading = "operator state";
-export const opsDirectoryHoldingsLoading = "what this directory holds";
+export const opsOperatorStateLoading = "the operator page";
+export const opsDirectoryHoldingsLoading = "what this server holds";
 export const opsOperatorPane = "operator page";
 export const opsInspectPane = "inspect page";
 
 /** Destinations in the operations navigation. */
 export const opsPaneListeners = "Listeners";
-export const opsPaneDirectory = "Directory";
+export const opsPaneOperator = "Operator";
 export const opsPaneIrc = "IRC";
 export const opsPanePeering = "Peering";
 export const opsPaneVisualizer = "Visualizer";
@@ -98,7 +92,7 @@ export const inspectLinks: OpsInspectSection = {
 	empty: "This directory publishes no durable room entry link.",
 };
 export const inspectRegistrations: OpsInspectSection = {
-	title: "Names and reachability",
+	title: "Names and connections",
 	lead: "A registered nickname holds direct-message inboxes and signaling routes on one exact session.",
 	empty: "No nickname is registered here.",
 };
@@ -118,9 +112,8 @@ export const inspectOccupants: OpsInspectSection = {
 	empty: "Nobody is in a room right now.",
 };
 export const inspectModerators: OpsInspectSection = {
-	title: "Room moderator authority",
-	lead:
-		"Rooms this server can grant moderation over. Inspect sees whether a capability is out, never the capability.",
+	title: "Room moderators",
+	lead: "Whether a moderator link has been issued, never the link itself.",
 	empty: "This server owns no rooms right now.",
 };
 export const inspectBootstrap: OpsInspectSection = {
@@ -138,7 +131,7 @@ export const inspectLead =
 
 /** Retained references, on the operator page. */
 export const referencesMembership = "Room memberships";
-export const referencesLine = "Direct lines";
+export const referencesLine = "Direct messages";
 export const referencesUpload = "Uploads in flight";
 export const referencesForeignRoom = "Peered rooms";
 export const referencesPendingPeering = "Peerings being set up";
@@ -148,17 +141,15 @@ export const referencesSignaling = "Signaling routes";
 export const referencesSignalExchange = "Signaling exchanges";
 export const referencesTitle = "Retained references";
 export const referencesLead =
-	"These are individual live references held by this server. Releasing one updates its owner here without revoking copies held by remote peers.";
+	"Live connections this server is holding. Releasing one frees this server's copy and leaves anyone else's alone.";
 export const referencesEmpty = "This server holds no independently releasable references.";
 export function referencesSearchFor(label: string): string {
 	return `Search this directory for ${label}`;
 }
-export const referenceReleaseEffect =
-	"Only this server's copy is released. Remote holders keep their copies and their authority.";
-export const referenceRelease = "Release retained reference";
+export const referenceReleaseEffect = "Frees this server's copy only.";
+export const referenceRelease = "Release this server's copy";
 export const referencesSweepSubject = "references";
-export const referencesSweepEffect =
-	"Only this server's copies are released. Remote holders keep their copies and their authority.";
+export const referencesSweepEffect = "Only this server's copies are released. Whoever else holds one can still use it.";
 
 /** The operator search box, and what the lists below it count. */
 export const operatorSearching = "Searching this directory…";
@@ -188,7 +179,7 @@ export function sectionCountMore(count: number): string {
 export const tracePublisherShared = "The shared session publishes every connection it opens";
 export const tracePublisherTab = "This tab publishes every session it opens";
 export function traceLead(publisher: string): string {
-	return `${publisher}, direct messages included, to the live timeline. What leaves here is who it talked to and when, never the words. Room messages still show their contents on the timeline, published by the room server from its own side. The server never reads a direct message, so its words never reach the timeline.`;
+	return `${publisher}, direct messages included, to the live timeline: who it talked to and when, never the words. Room messages show their contents, published by the room server from its side.`;
 }
 export const traceNowTitle = "Publishing now";
 export const traceEndpointLabel = "Endpoint";
@@ -219,19 +210,26 @@ export const peeringPublishedTitle = "Published by this tab";
 export const peeringPublishedEmpty = "No rooms published from this tab yet.";
 
 /** The operations index and its permission note. */
-export const opsEditCapabilitySet = "Edit capability set";
-export const opsNeedsAdmin = "An administrator session capability is required to change this set.";
+export const opsEditCapabilitySet = "Edit operations links";
+export const opsNeedsAdmin = "Only a link that can administer this session can change these.";
 export const opsNotFoundTitle = "Nothing answers this address";
 export function opsNotFoundSaid(segment: string): string {
-	return `/ops/${segment} is not one of the operations pages.`;
+	return `/ops/${segment} isn't one of the operations pages.`;
 }
-export const opsPanesAre = "The pages are";
-export const opsPanesJoin = ", ";
-export const opsPanesJoinLast = ", and ";
-export const opsPanesEach = ". Each opens when this tab holds a capability that fills it.";
+/** The sentence naming every pane, whole, so it reads in one place. Each
+ * pane is passed through untouched, so the caller can make it a link. */
+export function opsPanesSentence<T>(panes: readonly T[]): (T | string)[] {
+	const parts: (T | string)[] = ["The pages are "];
+	panes.forEach((pane, at) => {
+		if (at > 0) parts.push(at < panes.length - 1 ? ", " : panes.length === 2 ? " and " : ", and ");
+		parts.push(pane);
+	});
+	parts.push(". Each opens when this tab holds a link that fills it.");
+	return parts;
+}
 export const opsIndex = "The operations index";
 export const opsNothingHeld =
-	"Nothing is held yet. Each page below opens when this tab takes its capability from the server that issued it.";
+	"Nothing is held yet. Each page below opens when this tab takes its link from the server that issued it.";
 export const opsBrowserTroubleTitle = "Browser trouble";
 
 /** The IRC gateway page. Its nouns come from the server's form description,
@@ -241,10 +239,10 @@ export function gatewayNoneYet(connectionsNoun: string): string {
 	return `No ${connectionsNoun} yet.`;
 }
 export function gatewayOpenOneBelow(leaseNoun: string): string {
-	return `Open one below. A ${leaseNoun} is not required.`;
+	return `Open one below. A ${leaseNoun} isn't required.`;
 }
 export function gatewayNoLeases(leasesNoun: string, connectionNoun: string): string {
-	return `No ${leasesNoun}. This ${connectionNoun} is retained without a live transport.`;
+	return `No ${leasesNoun}. This ${connectionNoun} is kept, but not connected.`;
 }
 export function gatewayRemoveLeaseSay(label: string, lease: string, connection: string, say: string): string {
 	return `${label} ${lease} from ${connection}? ${say}`;
@@ -259,7 +257,7 @@ export function gatewayCloseAsk(connectionNoun: string): string {
 }
 /** Which server flag grants an operations capability. */
 export function opsMintedWithFlag(flag: string): string {
-	return `The server mints it with the ${flag} flag.`;
+	return `The server prints it when started with ${flag}.`;
 }
 export function gatewayDeleteSavedSay(connection: string, connectionNoun: string): string {
 	return `Delete the saved ${connection} ${connectionNoun}?`;

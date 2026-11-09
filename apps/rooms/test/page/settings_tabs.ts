@@ -8,7 +8,7 @@ import { inkContrast } from "../ink_contrast.ts";
 export async function provePhoneSettingsTabs(page: Page): Promise<void> {
 	const shape = await page.evaluate(() => {
 		const bar = document.querySelector<HTMLElement>('.tabs[data-count="3"]');
-		const ids = ["sessionTab", "holdingsTab", "reachabilityTab"];
+		const ids = ["sessionTab", "holdingsTab", "connectionTab"];
 		if (bar == null) return null;
 		const bounds = bar.getBoundingClientRect();
 		const cells = ids.map((id) => document.getElementById(id)?.getBoundingClientRect()).filter((cell) =>
@@ -83,7 +83,7 @@ export async function proveSessionActsLieAsEntries(page: Page): Promise<void> {
 export async function proveActionRowsStayShort(page: Page): Promise<void> {
 	const shown = await page.evaluate(() => document.querySelector('.tabs .tab[aria-selected="true"]')?.id ?? null);
 	const crowded: string[] = [];
-	for (const id of ["sessionTab", "holdingsTab", "reachabilityTab"]) {
+	for (const id of ["sessionTab", "holdingsTab", "connectionTab"]) {
 		if (await page.$(`#${id}`) == null) continue;
 		await page.click(`#${id}`);
 		crowded.push(

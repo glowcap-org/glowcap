@@ -222,13 +222,13 @@ try {
 	// first profile disappears, so the proof never races a fire-and-forget put.
 	await confirmTitleLeave(alice.tab);
 	await openDm(alice.tab, "archive-bob");
-	await alice.tab.waitForSelector('.sys-line:has-text("kept by the shared Rooms session archive peer")', {
+	await alice.tab.waitForSelector(`.sys-line:has-text("from the archive peer")`, {
 		timeout: 30_000,
 	}).catch(async () =>
 		fail(
 			`the archive read did not identify peer custody: ${
 				JSON.stringify(
-					await alice.tab.locator('.sys-line:has-text("Earlier messages")').allTextContents(),
+					await alice.tab.locator('.sys-line:has-text("Messages above are")').allTextContents(),
 				)
 			}`,
 		)
@@ -237,9 +237,9 @@ try {
 	// The combined read: the device-kept line stands beside the peer-kept one,
 	// each exactly once, under one divider naming both keepers (ADR-0044).
 	await see(alice.tab, KEPT_DEVICE, "Alice's device-kept line");
-	const dividers = await alice.tab.locator('.sys-line:has-text("Earlier messages")').allTextContents();
-	const combined = dividers.filter((text) => text.includes("kept by the shared Rooms session archive peer"));
-	if (combined.length !== 1 || !combined[0].includes("and on this device")) {
+	const dividers = await alice.tab.locator('.sys-line:has-text("Messages above are")').allTextContents();
+	const combined = dividers.filter((text) => text.includes("from the archive peer"));
+	if (combined.length !== 1 || !combined[0].includes("and are saved on this device")) {
 		fail(`the split generation's divider did not name both keepers: ${JSON.stringify(dividers)}`);
 	}
 	for (const text of [KEPT, KEPT_DEVICE]) {
@@ -251,7 +251,7 @@ try {
 	const returned = await join(browser, httpPort, "archive-returned");
 	await chooseArchive(returned.tab, sturdyref);
 	await openDm(returned.tab, "archive-bob");
-	await returned.tab.waitForSelector('.sys-line:has-text("kept by the shared Rooms session archive peer")', {
+	await returned.tab.waitForSelector(`.sys-line:has-text("from the archive peer")`, {
 		timeout: 30_000,
 	});
 	await see(returned.tab, KEPT, "Alice's fresh profile");

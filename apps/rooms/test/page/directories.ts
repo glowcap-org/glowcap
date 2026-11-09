@@ -213,7 +213,7 @@ export async function run(
 	await tab.waitForSelector("#settingsTitle", { timeout: 10_000 });
 	// The dialog reopens on whichever panel was last selected, so name the
 	// one this check reads.
-	await tab.click("#reachabilityTab");
+	await tab.click("#connectionTab");
 	await tab.waitForSelector("#settingsAboutDir");
 	const aboutBox = await tab.evaluate(() => {
 		const about = document.querySelector("#settingsAboutDir");
@@ -326,7 +326,7 @@ export async function run(
 	}
 	const cardSaid = await tab.evaluate(() => ({
 		title: document.getElementById("dircardTitle")?.textContent?.trim() ?? "",
-		locator: document.getElementById("dircardLocator")?.textContent?.trim() ?? "",
+		locator: document.getElementById("dircardAddress")?.textContent?.trim() ?? "",
 		facts: [...document.querySelectorAll(".dircard-title, #dircardTitle")].length,
 		rows: document.querySelectorAll(".modal .dirfacts dt").length,
 	}));

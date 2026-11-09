@@ -1,7 +1,7 @@
 // The operator's hand on a directory's listeners, taken as a capability.
 //
 // Like inspect, the listeners object is a second Host publication under an
-// unguessable name (`--admin-listeners`), and holding that name is the
+// unguessable name (`--capabilities=admin-listeners`), and holding that name is the
 // authority. Taking it is the shared operations flow in `operations.ts`. This
 // module owns what it answers: the listener rows, `up`, and `down`. Rust's
 // server side lives under `server/operations`.

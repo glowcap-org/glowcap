@@ -19,11 +19,11 @@ import {
 	factBridgedVia,
 	factCarries,
 	factCarriesSaid,
-	factCopyLocatorFor,
+	factCopyAddressFor,
 	factCopyRoomLink,
 	factDirectMessage,
 	factDirectory,
-	factDirectoryLocator,
+	factDirectoryAddress,
 	factDmDirect,
 	factDmRelay,
 	factIrcChannel,
@@ -81,8 +81,8 @@ export function ConvFacts(
 	const bearer = useRoomBearer(conv.type === "room" && conv.held ? conv : null, "link");
 	const roomLink = bearer ?? undefined;
 	const locator = roomLink ?? (dir === null ? null : rooms.dirAddress(dir.id));
-	const locatorKind = roomLink === undefined ? factDirectoryLocator : roomLinkTitle;
-	const locatorLabel = roomLink === undefined ? factCopyLocatorFor(directory) : factCopyRoomLink;
+	const addressKind = roomLink === undefined ? factDirectoryAddress : roomLinkTitle;
+	const addressLabel = roomLink === undefined ? factCopyAddressFor(directory) : factCopyRoomLink;
 	return (
 		<div className="group well">
 			<dl className="dirfacts">
@@ -179,11 +179,11 @@ export function ConvFacts(
 					</>
 				)}
 			</dl>
-			<p className="field-label" id="convcardUriKind">{locatorKind}</p>
+			<p className="field-label" id="convcardUriKind">{addressKind}</p>
 			<CopyField
 				id="convcardLocator"
 				text={locator}
-				label={locatorLabel}
+				label={addressLabel}
 			/>
 			{conv.type !== "directory" && <p className="hint" id="convcardReach">{conversationReach(conv)}</p>}
 		</div>

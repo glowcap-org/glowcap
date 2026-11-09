@@ -532,12 +532,12 @@ function aimedAt(answers: JoinAnswers, where: string): string | null {
 	return null;
 }
 
-/** Hint in an empty locator field: this page's address, shortened so it reads
- * as a locator rather than as a value already typed. `address` is the shared
+/** Hint in an empty address field: this page's address, shortened so it reads
+ * as a shape rather than as a value already typed. `address` is the shared
  * route every other surface hands out (`peer.dirAddress`), so the hint and the
  * copyable address name the same thing. Null when the page has no home
  * directory yet.  status-allow: pending state or quoted runtime label */
-export function joinLocatorPlaceholder(address: string | null): string {
+export function joinAddressPlaceholder(address: string | null): string {
 	if (address == null) return JOIN_LOCATOR_SHAPE;
 	let locator = address.trim();
 	if (locator === "") return JOIN_LOCATOR_SHAPE;

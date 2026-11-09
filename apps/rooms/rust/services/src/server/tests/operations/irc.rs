@@ -32,7 +32,7 @@ async fn scenario() {
 	// pauses of ordinary use; keep that work separate from the churn budget proof.
 	let config = Config::parse(
 		[
-			"--irc".into(),
+			"--capabilities=irc".into(),
 			"--transport=tcp".into(),
 			"--admission-rates=room-join=8/12".into(),
 		],
@@ -40,7 +40,7 @@ async fn scenario() {
 	)
 	.unwrap()
 	.unwrap();
-	assert!(config.asked.irc);
+	assert!(config.asked.holds(rooms_application::server::operations::Kind::Irc));
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let port = listener.local_addr().unwrap().port();
 	let (said, mut heard) = mpsc::channel(32);
@@ -93,14 +93,8 @@ async fn scenario() {
 		}
 	});
 	let temp = Scratch::create("server");
-	let asked = Asked {
-		irc: true,
-		operator: true,
-		diagnostics: true,
-		trace: true,
-		..Default::default()
-	};
-	let running = start_with_admission(temp.to_path_buf(), tcp(), asked.clone(), config.admission).await;
+	let asked = Asked::parse("irc,operator,diagnostics,trace").unwrap();
+	let running = start_with_admission(temp.to_path_buf(), tcp(), asked, config.admission).await;
 	let viewer = super::trace::Viewer::subscribe(running.trace.as_deref().unwrap()).await;
 	let runtime = runtime().await;
 	let session = runtime

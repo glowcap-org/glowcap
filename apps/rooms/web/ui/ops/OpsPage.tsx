@@ -11,7 +11,7 @@
 // `OpsRoute` is the navigation logic and draws nothing. This module is what
 // `App` puts in the content cell, loaded when the address stands in /ops.
 
-import { Fragment, lazy, type ReactNode, Suspense, useEffect } from "react";
+import { lazy, type ReactNode, Suspense, useEffect } from "react";
 import {
 	opsEditCapabilitySet,
 	opsIndex,
@@ -21,10 +21,7 @@ import {
 	opsNotFoundSaid,
 	opsNotFoundTitle,
 	opsNothingHeld,
-	opsPanesAre,
-	opsPanesEach,
-	opsPanesJoin,
-	opsPanesJoinLast,
+	opsPanesSentence,
 } from "../../../lib/text/ops.ts";
 import { Link, useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -38,7 +35,7 @@ import { loadIrcPane, loadListenersPane, loadOpsPane, loadPeeringPane, loadTrace
 import { OPS_CATALOG } from "./catalog.ts";
 import { OPS_PANES, opsAddress, type OpsPaneFace, paneCapsHeld, paneOf } from "./panes.ts";
 import { useSessionPermission } from "../hooks.ts";
-import { DirectoryPane } from "./Directory.tsx";
+import { OperatorPane } from "./OperatorPane.tsx";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
 import { opsListenersLoading, opsPeeredRoomsLoading, opsVisualizerStatusLoading } from "../../../lib/text/ops.ts";
@@ -196,13 +193,9 @@ export function OpsMain({ segment }: { segment: string | null }) {
 							   right one. */
 						}
 						<p className="hint">
-							{opsPanesAre} {OPS_PANES.map((face, at) => (
-								<Fragment key={face.id}>
-									{at > 0 && (at === OPS_PANES.length - 1 ? opsPanesJoinLast : opsPanesJoin)}
-									<Link to={opsAddress(face)}>{face.label}</Link>
-								</Fragment>
-							))}
-							{opsPanesEach}
+							{opsPanesSentence(
+								OPS_PANES.map((face) => <Link key={face.id} to={opsAddress(face)}>{face.label}</Link>),
+							)}
 						</p>
 						<div className="actions">
 							<Button
@@ -232,9 +225,9 @@ export function OpsMain({ segment }: { segment: string | null }) {
 						<ListenersPane rows={s.listeners} />
 					</HeldPane>
 				)}
-				{open && pane?.id === "directory" && (
-					<div id="directoryOpsPanel" className="ops-panel card-plane">
-						<DirectoryPane
+				{open && pane?.id === "operator" && (
+					<div id="operatorOpsPanel" className="ops-panel card-plane">
+						<OperatorPane
 							operatorHeld={held.operator}
 							operator={s.operator}
 							inspectHeld={held.diagnostics}

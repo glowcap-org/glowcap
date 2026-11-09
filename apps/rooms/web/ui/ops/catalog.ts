@@ -5,13 +5,11 @@
 // modal's ask. Four lists about one fact would drift, so this table is the one they all read, keyed by the `OperationsCapability` vocabulary the
 // store already speaks.
 
-import type { OperationsCapability } from "../application_data.ts";
+import { BOOT_CAPS, type OperationsCapability } from "../application_data.ts";
 import {
 	opsDiagnosticsLabel,
 	opsDiagnosticsLead,
 	opsDiagnosticsShort,
-	opsHowSession,
-	opsHowTrace,
 	opsIrcLabel,
 	opsIrcLead,
 	opsIrcShort,
@@ -36,61 +34,56 @@ export interface OpsCapFace {
 	toggleId: string;
 	/** The capability's short name, as a toast about losing it says it. */
 	short: string;
-	/** The knob that mints it on the server, named in the value modal. */
+	/** The option that mints it on the server, named in the value modal. */
 	flag: string;
-	/** How the pasted swiss is redeemed. */
-	how: string;
 	/** What holding the capability does. */
 	lead: string;
 }
+
+/** The server option that mints one capability, from the name the server's table owns. */
+const mintOption = (cap: { readonly name: string }): string => `--capabilities=${cap.name}`;
 
 export const OPS_CATALOG: Record<OperationsCapability, OpsCapFace> = {
 	listeners: {
 		label: opsListenersLabel,
 		toggleId: "opsListenersToggle",
 		short: opsListenersShort,
-		flag: "--admin-listeners",
-		how: opsHowSession,
+		flag: mintOption(BOOT_CAPS.adminListeners),
 		lead: opsListenersLead,
 	},
 	diagnostics: {
 		label: opsDiagnosticsLabel,
 		toggleId: "opsDiagnosticsToggle",
 		short: opsDiagnosticsShort,
-		flag: "--diagnostics",
-		how: opsHowSession,
+		flag: mintOption(BOOT_CAPS.diagnostics),
 		lead: opsDiagnosticsLead,
 	},
 	irc: {
 		label: opsIrcLabel,
 		toggleId: "opsIrcToggle",
 		short: opsIrcShort,
-		flag: "--irc",
-		how: opsHowSession,
+		flag: mintOption(BOOT_CAPS.irc),
 		lead: opsIrcLead,
 	},
 	operator: {
 		label: opsOperatorLabel,
 		toggleId: "opsOperatorToggle",
 		short: opsOperatorShort,
-		flag: "--operator",
-		how: opsHowSession,
+		flag: mintOption(BOOT_CAPS.operator),
 		lead: opsOperatorLead,
 	},
 	peering: {
 		label: opsPeeringLabel,
 		toggleId: "opsPeeringToggle",
 		short: opsPeeringShort,
-		flag: "--peering",
-		how: opsHowSession,
+		flag: mintOption(BOOT_CAPS.peering),
 		lead: opsPeeringLead,
 	},
 	trace: {
 		label: opsTraceLabel,
 		toggleId: "opsTraceToggle",
 		short: opsTraceShort,
-		flag: "--trace",
-		how: opsHowTrace,
+		flag: mintOption(BOOT_CAPS.trace),
 		lead: opsTraceLead,
 	},
 };

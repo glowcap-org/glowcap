@@ -11,10 +11,10 @@ export type CommandKind = "tab" | "line" | "granted";
  *
  * A room's worth of facts about a place, gathered where the state lives so a
  * command can answer questions about a directory the reader is not
- * in. `locator` is what they would hand to somebody else; `name` is what the
+ * in. `address` is what they would hand to somebody else; `name` is what the
  * rail calls it, which is all the page's own directory ever needs. */
 export interface HeldDirectory {
-	locator: string;
+	address: string;
 	name: string;
 	/** The name this directory granted, or empty until it has. */
 	nick: string;

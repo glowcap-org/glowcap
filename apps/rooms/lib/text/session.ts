@@ -1,10 +1,11 @@
 // The session chooser: the first screen a browser holding nothing meets, and
-import { serverUnreachable } from "./failure.ts";
 // the two acts under it that take saved state away.
 //
 // A session is where this browser's rooms, messages and settings live. It is
 // the one protocol term on this screen that is also an ordinary English word,
 // so it stands without explanation. Everything else is named for what it does.
+
+import { serverUnreachable } from "./failure.ts";
 
 export const sessionSetupTitle = "Choose a session";
 export const sessionSetupLead =
@@ -46,8 +47,7 @@ export const sessionSignInState = "Not available";
 /** The Rooms server line under the session choices. It is how this browser is
  * reached, so setup names it before anything opens. */
 export const sessionServerName = "Rooms server";
-export const sessionServerNone =
-	"None. Addresses this browser cannot open on its own, and links you issue, go through one.";
+export const sessionServerNone = "None yet. You need one to reach some addresses and to share links to this browser.";
 export const sessionServerChoose = "Choose…";
 /** The server dialog over setup. Nothing has opened, so saving keeps the
  * choice in place. Opened by Attach, it says why, and saving attaches. */
@@ -55,7 +55,7 @@ export const sessionServerTitle = "Choose a Rooms server";
 /** What a Rooms server is, said once and composed into every dialog that
  * asks for one. */
 export const serverModel =
-	"A Rooms server is how this browser reaches addresses it cannot open on its own, and how people reach it.";
+	"A Rooms server is how this browser reaches addresses it can't open on its own, and how people reach it.";
 export const sessionServerLead = `${serverModel} Test its address, then save it.`;
 /** What an act needs a Rooms server for, said first in every ask. An address
  * or link is judged by its doors: one this browser opens itself needs no
@@ -87,16 +87,16 @@ export const serverAskAfterDoor = (door: string) => `${door} A Rooms server can 
  * confirmation names what survives as well as what goes, since "delete" alone
  * reads as "delete everything, everywhere". */
 export const sessionAdvanced = "Advanced";
-export const sessionResetAsk = "Reset workspace…";
+export const sessionResetAsk = "Forget rooms and settings…";
 export const sessionDeleteAsk = "Delete browser data…";
 export const sessionChangeLabel = "Change saved browser data";
-/** Both name their contents instead of saying "workspace", a word the reader
- * has never been given. They differ in one way: the first keeps your messages
- * and the second does not. */
+/** Both name their contents instead of a collective noun the reader has
+ * never been given. They differ in one way: the first keeps your messages
+ * and the second does not. They read as a pair of questions. */
 export const sessionResetSay =
 	"Forget the rooms and settings saved in this browser and start again from this screen? Your saved messages stay.";
 export const sessionDeleteSay =
-	"Delete everything saved in this browser: rooms, settings, saved links and messages. Anything kept on another device or server stays.";
+	"Delete everything this page saved in this browser: sessions, messages, saved links, your preferences, and the theme this site's pages share? Anything kept on another device or server stays.";
 export const sessionConfirmKeep = "Keep it";
-export const sessionResetCommit = "Reset workspace";
+export const sessionResetCommit = "Forget rooms and settings";
 export const sessionDeleteCommit = "Delete browser data";

@@ -84,5 +84,5 @@ export function footReleasedName(nick: string, where: string): string {
 /** The names are already a comma list, so where you are starts a new
  * sentence, which a screen reader pauses on. */
 export function footStandingLabel(who: string, said: string): string {
-	return `${who}. Where you are: ${said}`;
+	return `${who}. Your standing: ${said}`;
 }

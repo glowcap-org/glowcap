@@ -114,7 +114,7 @@ fn boot_block(
 		capabilities
 			.iter()
 			.map(|cap| {
-				if cap.capability.id == "trace" {
+				if cap.capability.kind == rooms_application::server::operations::Kind::Trace {
 					let recipe = trace.ok_or_else(|| {
 						Error::Refused("the minted timeline capability has no advertised recipe".into())
 					})?;

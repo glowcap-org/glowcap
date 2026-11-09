@@ -3,36 +3,36 @@
 
 /** Why a command could not enter a room on this tab, when the missing handle
  * is a directory. */
-export const notOnADirectory = "This browser is not on a directory.";
+export const notOnADirectory = "This browser isn't on a directory.";
 /** Why `/quit` could not give a directory back. */
 export const noDirectoryToGiveBack = "There is no directory to give back.";
 /** Why a direct line cannot open to this reader. */
 export const directNotSelf = "You can't start a direct message with yourself.";
 /** Why a room entry link was not a room entry link. */
-export const notARoomEntryLink = "That link did not open a room: that is not a room entry link";
+export const notARoomEntryLink = "That link didn't open a room: that isn't a room entry link";
 /** Why a room entry link did not open, once the adapter knows the cause. */
 export function thatLinkDidNotOpen(why: string): string {
-	return `That link did not open a room: ${why}`;
+	return `That link didn't open a room: ${why}`;
 }
 /** Why a direct line cannot open to `who`. */
 export function notRegisteredForDirect(who: string): string {
-	return `${who} is not registered for direct messages here.`;
+	return `${who} isn't registered for direct messages here.`;
 }
 
 /** /ignore and /unignore. */
-export const ignoringNobody = "You are not ignoring anybody.";
+export const ignoringNobody = "You aren't ignoring anybody.";
 export function ignoringThese(names: string): string {
-	return `You are ignoring ${names}.`;
+	return `You're ignoring ${names}.`;
 }
 export function ignoringNow(name: string): string {
-	return `Ignoring ${name} in this window. Their lines still reach the room.`;
+	return `Ignoring ${name} in this window. Their messages still reach the room.`;
 }
 export const ignoringYourOwnName = " That is also your own name here, so your own messages stay shown.";
 export function noLongerIgnoring(name: string): string {
 	return `No longer ignoring ${name}.`;
 }
 export function wereNotIgnoring(name: string): string {
-	return `You were not ignoring ${name}.`;
+	return `You weren't ignoring ${name}.`;
 }
 
 /** /list and /directories. */

@@ -36,9 +36,9 @@ export async function run(
 		// roster can show it: what a member's row says is the room's word about
 		// them, not this tab's intention.
 		await tab.click("#standingBtn");
-		// The label ends with the "Where you are" sentence, and the grants live
+		// The label ends with the "Your standing" sentence, and the grants live
 		// before it, so cut the label at that sentence's start.
-		const identity = ((await tab.getAttribute("#standingBtn", "aria-label")) ?? "").split(". Where you are")[0];
+		const identity = ((await tab.getAttribute("#standingBtn", "aria-label")) ?? "").split(". Your standing")[0];
 		// Every row the menu holds, compared whole rather than filtered: one
 		// reading of the reader first, then exactly one release per live grant.
 		// Whole, because a filter would let a junk row in beside the ones it

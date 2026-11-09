@@ -228,8 +228,8 @@ const roomsServer = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") ??
 const server = new Deno.Command(roomsServer, {
 	// iroh addresses an endpoint by id, so there is no port to pin.
 	args: IROH
-		? ["--transport=iroh", "--reachability=direct", "--trace", "--trace-port=0"]
-		: ["--transport=tcp", "--port=0", "--trace", "--trace-port=0"],
+		? ["--transport=iroh", "--reachability=direct", "--capabilities=trace", "--trace-port=0"]
+		: ["--transport=tcp", "--port=0", "--capabilities=trace", "--trace-port=0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "piped",

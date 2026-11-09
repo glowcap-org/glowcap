@@ -10,7 +10,7 @@ export const RoomsViewStateSchema = z.strictObject({
 	notifyOn: z.boolean(),
 	railOpen: z.boolean(),
 	rosterOpen: z.boolean(),
-	settingsTab: z.enum(["session", "holdings", "reachability"]),
+	settingsTab: z.enum(["session", "holdings", "connection"]),
 	opsPane: z.custom<OperationsCapability>((value) => (OPERATIONS_CAPABILITIES as readonly unknown[]).includes(value)),
 	remembered: z.strictObject({ room: z.string(), locator: z.string(), nick: z.string() }),
 });

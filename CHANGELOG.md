@@ -13,6 +13,19 @@ and storage formats before 1.0.
 
 ### Added
 
+- `glowcap apps rooms page` prints the link that opens the Rooms page with
+  the running server filled in. `rooms-web --page-link` and the server's
+  `/page` route answer the same link, and `deployment up` prints it first.
+- `--capabilities=all`, or `--capabilities=<name>[,<name>...]`, tells
+  `rooms-server` and `rooms-web` which operator capabilities to mint, with
+  `GLOWCAP_ROOMS_CAPABILITIES` as the variable. It replaces the six flags
+  `--admin-listeners`, `--diagnostics`, `--operator`, `--peering`, `--irc`, and
+  `--trace` and their variables, so name the capabilities you want in one list.
+  A deployment or script that set those variables mints nothing until it
+  names the capabilities in `GLOWCAP_ROOMS_CAPABILITIES`.
+  `rooms-server --capabilities[=<state-directory>]`, which prints the kept
+  capabilities, is `--print-capabilities`, and `rooms-web` takes the same
+  option, reading the locators from the directory it runs.
 - `rooms-server` and `rooms-web` announce any of the seven listener
   transports with `--transport=<transport>`. A relay transport registers at
   `--relay=<ws-url>` or `GLOWCAP_ROOMS_RELAY_URL`, and under `rooms-web` at
@@ -20,21 +33,20 @@ and storage formats before 1.0.
   peers dial it when a port forward or a proxy gives it another address, and
   `rooms-web --http-public=<url>` does the same for its own relay. The
   installed `glowcap apps rooms` commands take the same listener options,
-  `serve` with `--listen` and the shared workspace's as `--session-<option>`,
+  `serve` with `--listen` and the shared session's as `--session-<option>`,
   and `session start` keeps every one of them in its settings.
-- `rooms-web --session-transport=<transport>` chooses the shared workspace's
+- `rooms-web --session-transport=<transport>` chooses the shared session's
   announced listener the same way, and `--session-<option>` passes any other
   `rooms-session` option to it. A relay listener registers at that server's
   own relay unless `--session-relay` names one, an onion listener publishes
   through the private Tor the server runs, and the page is offered the
-  workspace through any listener a browser can open.
+  session through any listener a browser can open.
 - A relay listener whose configuration names a relay alias advertises the
   alias in its `rendezvous-relay` hint. Behind a port forward or a proxy,
   peers dial the route they reach while the listener's own register socket
   opens at the route it reaches.
-- The relay admits claims against one registered door at the rate its peer
-  may register, where it admitted four a minute and refused the fifth dial of
-  a relay-announced directory.
+- The relay admits dials of one registered directory at the rate its peer
+  may register, so a tighter registration bound throttles the whole directory.
 - A relay that cannot complete a dial closes the browser's socket with the
   cause, and the page's channel reports that cause instead of a bare
   connection close.
@@ -49,6 +61,33 @@ and storage formats before 1.0.
 
 ### Changed
 
+- The shared session writes its use link to `use.sturdyref` and its management
+  link to `management.sturdyref` in the state directory, the names every page
+  gives those links. The managed deployment's readiness file is
+  `/run/rooms-session/use.sturdyref`. Both files are rewritten at every start,
+  so an existing state directory needs no change.
+- Three Rooms page names changed. The Settings tab **Reachability** is
+  **Connection**. The Operations tab **Directory** is **Operator**. The
+  Settings act **Delete local session** is **Empty this session**, since it
+  empties the open session and the browser stays on it, and the shared
+  session's **Reset shared session** is **Empty this session for everyone**
+  for the same reason.
+- Rooms page copy says link, session, and message where it said capability,
+  workspace, and line. On a room card, the **Capabilities** tab is **Links**,
+  and every button on it grants, revokes, or discards a link.
+- The Rooms deployment's managed Compose file holds only the settings every
+  deployment shares. Every setting a host chooses lives in
+  `docker-compose.override.yml`: the public address, allowed pages, trusted
+  proxies, trace routes, TURN, and admission overrides. The example override
+  shows public hosting behind an HTTPS proxy. A variable exported in the
+  shell that runs `deployment up` does not reach the services: move it
+  into the override.
+- `glowcap apps rooms deployment reset directory` names the unit that was
+  `state`, and `deployment up` prints the directory locator and the shared
+  session's use and management capabilities under those names.
+- **Delete browser data** in the Rooms page also forgets every Rooms
+  preference this browser kept: the chosen server, other tabs' session
+  choices, and the theme. Other open Rooms tabs reload.
 - Every exported symbol of the nine `@glowcap` JSR packages carries a doc
   comment, including the generated C ABI constants and struct layouts, so
   each package's documentation score on jsr.io reports no undocumented
@@ -61,30 +100,37 @@ and storage formats before 1.0.
   blank address means, a link other people reach this browser through, and
   direct messages in the mode that goes through the server.
 - Attaching to a session, holding a management control, taking an archive
-  peer, and holding an operations capability judge the pasted link by its
-  doors, so a session shared from another browser attaches with no Rooms
-  server. The ask comes only for a link this browser cannot open on its own,
-  and a break on the way to a session reached through its relay door names
-  that relay.
+  peer, and holding an operator capability judge the pasted link by the
+  listeners its address names, so a session shared from another browser
+  attaches with no Rooms server. The ask comes only for a link this browser
+  cannot open on its own, and a break on the way to a session reached through
+  its relay listener names that relay.
 - A blank directory address on a page with no Rooms server is refused on its
   own field instead of asking for a server.
 - The Session tab offers its unfinished-changes list only while a change is
-  unfinished, and Reachability no longer shows this browser's own address,
+  unfinished, and the Connection tab drops this browser's own address,
   which nothing on the page accepted.
 - `rooms-web` serves its page before its directory is up, so the directory's
   relay listeners can register with it, and `/locator` waits for the directory
   instead of answering that there is none.
-- `GLOWCAP_ROOMS_SESSION_STATE` serves the shared workspace the way
+- `GLOWCAP_ROOMS_SESSION_STATE` serves the shared session the way
   `--session-state` does, and the option wins when both are set.
-- A byte-fed Host in the Rust, TypeScript, and Racket bindings names a
-  transport it has no connector for as `UnknownTransport`, the Zig Host's name
-  for the same condition, so one reader recognizes it from every Host.
+- The host bindings in Rust, TypeScript, and Racket name a transport they have
+  no connector for as `UnknownTransport`, the name the Zig host uses for the
+  same condition, so one reader recognizes it from every binding.
+- A C ABI content registration holds up to 128 methods, where it held 64. A
+  registration over the cap is refused with `GLOWCAP_ERR_INVALID_ARGUMENT`
+  and the last error `loam: TooManyMethods`, so a too-long method table is
+  told apart from a missing callback.
 
 ### Fixed
 
+- Every Rooms tab, including a reloaded one, shows and shares the address
+  each directory was dialed through instead of its bare identity. A page
+  opened with any access link reads that address, never the link's secret.
 - Under `rooms-web`, the directory and the shared session dial the server's
   own relay at the address `--http-public` names, which reaches both of
-  them. `rooms-web` now refuses `--relay-public` and `--session-relay-public`
+  them. `rooms-web` refuses `--relay-public` and `--session-relay-public`
   for a peer on its own relay. An address given to one peer left the other
   dialing the relay's bound address, and a shared session in a container
   then answered a directory join with a bare `PromiseBroken`. Both options
@@ -102,7 +148,7 @@ and storage formats before 1.0.
 - The page frees a change the session refused and reports the reason, for
   every kind of change it submits. Before, it listed such a change as gone
   through, with a **Finish** that resubmitted it. A change that went through
-  but could not be shown here can now be let go, and stays saved in the
+  but could not be shown here can be let go, and stays saved in the
   session. A change nothing settled is listed with its outcome unknown and
   can be let go.
 - **New access** and **Prepare control** from a held management control ask
@@ -114,23 +160,25 @@ and storage formats before 1.0.
   whatever listener the peer's hello advertised. Before, the Rooms page
   failed such a join with `PeerIdentityMismatch`.
 - A directory address typed on the join card re-routes a directory the
-  session already holds: the capability is fetched through the typed doors
-  and replaces the held one under the same id, keeping its home mark and
-  standing. Before, the held route was kept whatever was typed, so a page
-  with no Rooms server asked for one when that route needed a server. The
-  held route typed again changes the nickname at most.
+  session already holds. The capability is fetched through the listeners the
+  typed address names and replaces the held one under the same id, and a
+  directory that was your home directory stays it. Before, the held route was
+  kept whatever was typed, so a page with no Rooms server asked for one when
+  that route needed a server. The held route typed again changes the nickname
+  at most.
 - A `keyed-tcp` or `noise-tcp` directory under `rooms-web` is forwarded to
   from the page the server serves. Before, the server announced no local
   endpoint for those listeners and the relay answered `directory forwarding
   unavailable`.
-- Saving an operations capability whose address names the directory by a
+- Saving an operator capability whose address names the directory by a
   key its listener does not prove (`keyed-relay`, `keyed-tcp`) says so and
-  names the proving doors, where it showed a bare `PeerIdentityUnverified`.
+  names the listeners that prove it, where it showed a bare
+  `PeerIdentityUnverified`.
 - The relay transport and the Rooms server reject TLS certificate paths
   through the distrusted emSign intermediates (rustls-webpki 0.103.16,
   RUSTSEC-2026-0382).
 - `rooms-web` took the last of a repeated option and dropped the rest without
-  a word, so `--allow-origin` given twice let only the second page in. It now
+  a word, so `--allow-origin` given twice let only the second page in. It
   reads its options the way every other Rooms command does. A repeated option,
   an unknown one, or a port named both as an option and positionally is
   refused by name. `--allow-origin` repeated extends the list, the same as one
@@ -138,10 +186,10 @@ and storage formats before 1.0.
   supply arrive as environment, so an option typed after `--` is the only one
   of its name. `rooms-dev` names the backend options it owns instead of letting
   `rooms-web` refuse them as repeats.
-- A call forwarded inside a Rooms server across a Loam hop kept no delivering
+- A forwarded call inside a Rooms server kept no delivering
   session, so the directory card showed no transport and direct messages from
   different senders counted as one sender. `current_session()` in the Rust
-  binding now names that session.
+  binding names that session.
 
 ## [0.1.5] - 2026-11-07
 

@@ -27,7 +27,7 @@ import { MenuList, MenuRow } from "./Menu.tsx";
 import { directoryName } from "./text.ts";
 import { type DirectoryDestinationContext, thisDirectoryLocator } from "./joining.ts";
 import { homeDirectoryName } from "../../lib/text/directory.ts";
-import { joinLocatorHere } from "../../lib/text/join.ts";
+import { joinAddressHere } from "../../lib/text/join.ts";
 import type { DirId, DirView } from "./directory.ts";
 import { anotherAddress } from "../../lib/text/page.ts";
 
@@ -51,7 +51,7 @@ export function DirectoryPicks(
 	const others = [...dirs.values()].filter((dir) => dir.id !== homeDirectory);
 	const typedAs = session.directoryId(locator.trim());
 	const here = thisDirectoryLocator(locator, context, typedAs) === "";
-	const blank = homeDirectory != null ? homeDirectoryName : context.defaultDirectory != null ? joinLocatorHere : null;
+	const blank = homeDirectory != null ? homeDirectoryName : context.defaultDirectory != null ? joinAddressHere : null;
 	// The served directory, when an empty address means home and this tab does
 	// not hold it. A server that restarts as a new directory is reached here.
 	const served = context.served != null && !dirs.has(context.served.id) ? context.served : null;
@@ -70,7 +70,7 @@ export function DirectoryPicks(
 					marked={typedAs === served.id}
 					onPick={() => onPick(served.locator)}
 				>
-					{joinLocatorHere}
+					{joinAddressHere}
 				</MenuRow>
 			)}
 			{others.map((dir, index) => (

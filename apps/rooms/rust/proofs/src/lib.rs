@@ -76,7 +76,6 @@ mod signaling_client;
 mod snapshot;
 mod sources;
 mod stewardship;
-mod workspace;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rooms_contract_proof() -> u32 {
@@ -108,7 +107,6 @@ pub extern "C" fn rooms_contract_proof() -> u32 {
 	inbox_publication::run();
 	grants::run();
 	checkpoint::run();
-	workspace::run();
 	command_admission::run();
 	content_session::run();
 	session_capacity::run();

@@ -298,7 +298,10 @@ fn every_other_option_is_given_once_and_a_port_is_named_one_way() {
 		refused(&["--transport=iroh", "--transport=tcp"]),
 		"repeated option: --transport"
 	);
-	assert_eq!(refused(&["--operator", "--operator"]), "repeated option: --operator");
+	assert_eq!(
+		refused(&["--capabilities=operator", "--capabilities=irc"]),
+		"repeated option: --capabilities"
+	);
 	assert_eq!(
 		refused(&["8081", "--http-port=8081"]),
 		"the HTTP port is given twice, as --http-port and as the first positional argument"

@@ -12,7 +12,7 @@ conversation you have open: a topbar, the message log, and the composer at the b
 - **The conversation card.** Pressing the room or direct-message name in the topbar (or `/details`, or `/info`) opens a
   card with what this tab knows about the conversation: the directory that carries it, the session, and the path a
   direct line takes. A room's card is where you set your place and leave. A direct line's card closes the conversation.
-- **The room link.** The room card's **Capabilities** tab creates the room's durable link on a button press and shows it for
+- **The room link.** The room card's **Links** tab creates the room's durable link on a button press and shows it for
   copying. `/link` does the same from the composer.
 - **Joining.** `/join` takes a room name or a locator, never the conversation it was typed in.
 
@@ -122,7 +122,7 @@ returns focus to the action that asked.
 Session setup, the Settings tabs, the room and directory cards, and every Operations page use only these parts. The
 Settings tabs divide by subject:
 
-- **Reachability** holds the locators.
+- **Connection** holds the locators.
 - **Session** holds where the session lives and what it keeps.
 - **Holdings** holds what the session is holding: room links, archive peers and their shares, operations capabilities,
   the attached-session link, and access grants.

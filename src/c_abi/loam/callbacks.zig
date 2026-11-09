@@ -19,12 +19,13 @@ pub const Content = struct {
     graph: ?access.hosting.graph.Spec = null,
     host: *driver.Host = undefined,
     attachment: *@import("attachment.zig").Attachment = undefined,
-    pub const max_methods = 64;
+    pub const max_methods = 128;
     /// Copy names because foreign declaration buffers may die after attach.
     /// At most `max_methods` methods of 256 bytes belong to this registration and are
     /// freed on refused construction or successful detach. Contexts stay borrowed.
     pub fn init(gpa: std.mem.Allocator, raw: c.GlowcapLoamContent) !Content {
-        if (raw.requirement == null or raw.invoke == null or raw.method_count == 0 or raw.method_count > max_methods) return error.InvalidArgument;
+        if (raw.requirement == null or raw.invoke == null or raw.method_count == 0) return error.InvalidArgument;
+        if (raw.method_count > max_methods) return error.TooManyMethods;
         const methods = try gpa.dupe(c.GlowcapLoamMethod, try foreign_values.slice(c.GlowcapLoamMethod, raw.methods, raw.method_count));
         var count: usize = 0;
         errdefer {

@@ -27,14 +27,16 @@
 
 /* Both marks fill the box: the shader's canvas where a device drew one, the
    still artwork where it could not. The still mark carries no bloom of its
-   own here. Its windows are dark, because the artwork is the unlit pose, and
-   a halo around dark windows reads as a mistake rather than as light. The
-   light belongs to the shader, which is what runs in this box wherever it
-   can. */
+   own here. Its windows take the lit tone, so the first image is a mushroom
+   that makes its own light even where the shader cannot run. */
 .hero-mark .mark-live,
 .hero-mark .icon-mark {
   width: 100%;
   height: 100%;
+}
+
+.hero-mark > .icon-mark .mark-windows {
+  background: var(--mark-light);
 }
 
 .hero-copy {

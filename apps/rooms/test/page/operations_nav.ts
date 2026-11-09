@@ -129,16 +129,16 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 	}
 	await tab.setViewportSize({ width: 760, height: 800 });
 
-	await tab.click("#directoryOpsLink");
-	await tab.waitForFunction(() => location.pathname === "/ops/directory");
+	await tab.click("#operatorOpsLink");
+	await tab.waitForFunction(() => location.pathname === "/ops/operator");
 	await tab.waitForFunction(
-		() => document.getElementById("directoryOpsLink")?.getAttribute("aria-current") === "page",
+		() => document.getElementById("operatorOpsLink")?.getAttribute("aria-current") === "page",
 	).catch(() => fail("the selected operations address is not named as the current page"));
 
 	// The capability's own word still answers, so a bookmark from before the
 	// directory pane lands on the pane that draws it.
 	await tab.goto(new URL("/ops/operator", tab.url()).href);
-	await tab.waitForFunction(() => location.pathname === "/ops/directory")
+	await tab.waitForFunction(() => location.pathname === "/ops/operator")
 		.catch(() => fail("an operator bookmark did not land on the directory pane"));
 
 	// Finish with no deployment authority retained in this browser.

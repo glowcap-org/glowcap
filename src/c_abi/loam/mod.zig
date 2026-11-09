@@ -49,6 +49,9 @@ pub const GlowcapLoamGraph = t.GlowcapLoamGraph;
 pub const GlowcapLoamPage = t.GlowcapLoamPage;
 pub const GlowcapLoamGraphField = t.GlowcapLoamGraphField;
 pub const GlowcapLoamPageReplacement = t.GlowcapLoamPageReplacement;
+/// The most methods one content registration may declare, named so a test
+/// can stand one past it.
+pub const max_content_methods = callbacks.Content.max_methods;
 /// Limits the header prose quotes, read from their owners.
 pub const prose_limits = struct {
     pub const max_graph_verbs = access.hosting.graph.Spec.max_requirement_verbs;

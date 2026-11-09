@@ -125,7 +125,7 @@ export async function withPeeringServer(
 ): Promise<void> {
 	const state = await Deno.makeTempDir();
 	const proc = spawnOwned(SERVER, {
-		args: ["--transport=tcp", "--port=0", "--peering"],
+		args: ["--transport=tcp", "--port=0", "--capabilities=peering"],
 		cwd: ROOT,
 		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",

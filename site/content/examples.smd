@@ -1,6 +1,6 @@
 ---
 .title = "Examples",
-.description = "Choose a runnable glowcap example: Zig API chapters, handoff, pipelining, using it from C, or a complete application.",
+.description = "Choose a runnable glowcap example: Zig API examples, handoff, pipelining, using it from C, or a complete application.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -25,7 +25,7 @@ Run it from a [working checkout](https://github.com/glowcap-org/glowcap/blob/mai
 It starts both peers and checks a `Hello, world` reply. Use
 `zig build examples --summary all` to run every example.
 
-Three later chapters isolate the moves that are easiest to miss:
+Three later examples isolate the moves that are easiest to miss:
 
 - [02_introduce_and_redeem.zig](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig)
   hands a capability to a third peer and leaves the introducer behind.

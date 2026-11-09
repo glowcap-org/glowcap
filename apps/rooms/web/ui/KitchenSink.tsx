@@ -178,8 +178,8 @@ export function KitchenSink() {
 					<div className="field-row">
 						<Field
 							id="kitchenFieldRow"
-							label="Session capability"
-							said="Paste the session's ocapn:// capability link."
+							label="Session link"
+							said="Paste the session's ocapn:// link."
 						>
 							{(wiring) => (
 								<Input
@@ -223,7 +223,7 @@ export function KitchenSink() {
 						<Button variant="quiet">Discard</Button>
 						<Button>Save changes</Button>
 					</div>
-					<Said kind="success">Capability set saved.</Said>
+					<Said kind="success">Links saved.</Said>
 					<div className="actions" data-fill>
 						<Button size="large" variant="quiet">Stay</Button>
 						<Button size="large">Join room</Button>

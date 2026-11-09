@@ -38,7 +38,7 @@ export function direct(): DirectIntent {
 	};
 }
 
-export function fixture(conversation: ConversationIntent = room()) {
+export function fixture(conversation: ConversationIntent = room(), addresses: (string | null)[] = []) {
 	const page = new RoomsPage();
 	const current: WorkspaceSnapshot = {
 		revision: "1",
@@ -64,6 +64,7 @@ export function fixture(conversation: ConversationIntent = room()) {
 			operators: [],
 			peering: [],
 		},
+		addresses,
 	};
 	let staged: string | undefined;
 	const pending: string[] = [];

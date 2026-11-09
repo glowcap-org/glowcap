@@ -18,15 +18,7 @@ async fn operator() {
 	};
 	use std::{cell::RefCell, rc::Rc};
 	let temp = Scratch::create("server");
-	let running = start_with(
-		temp.to_path_buf(),
-		tcp(),
-		Asked {
-			operator: true,
-			..Default::default()
-		},
-	)
-	.await;
+	let running = start_with(temp.to_path_buf(), tcp(), Asked::parse("operator").unwrap()).await;
 	let swiss = running.capabilities[0].swiss.clone();
 	let runtime = runtime().await;
 	let dial = glowcap::parse_locator(&running.location).unwrap();

@@ -61,9 +61,7 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 		let mut cmd = command();
 		cmd.arg(format!("--state={}", state.display()))
 			.arg("--transport=tcp")
-			.arg("--diagnostics")
-			.arg("--admin-listeners")
-			.arg("--irc")
+			.arg("--capabilities=diagnostics,admin-listeners,irc")
 			.stdout(Stdio::piped())
 			.stderr(Stdio::piped());
 		cmd
@@ -114,7 +112,7 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	}
 	assert!(!block.contains("ROOMS-OPERATOR"), "{block}");
 	let printed = command()
-		.arg(format!("--capabilities={}", state.display()))
+		.arg(format!("--print-capabilities={}", state.display()))
 		.env("GLOWCAP_ROOMS_LOCATOR", locator)
 		.current_dir(std::env::temp_dir())
 		.output()
@@ -127,7 +125,7 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	assert_eq!(recipe_of("ROOMS-ADMIN-LISTENERS", &printed), listeners);
 	assert_eq!(recipe_of("ROOMS-DIAGNOSTICS", &printed), diagnostics);
 	assert_eq!(recipe_of("ROOMS-IRC", &printed), irc);
-	assert!(printed.contains("ROOMS-OPERATOR (not minted here; start with --operator to mint it)"));
+	assert!(printed.contains("ROOMS-OPERATOR (not minted here; start with --capabilities=operator to mint it)"));
 	process.signal("-TERM");
 	// Supervised, only complete recipes print. A new listening address changes
 	// their route, while the saved publication identities remain exact.
@@ -149,7 +147,7 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	again.signal("-TERM");
 	std::fs::write(state.join("diagnostics"), "invalid state").unwrap();
 	let refused = command()
-		.arg(format!("--capabilities={}", state.display()))
+		.arg(format!("--print-capabilities={}", state.display()))
 		.env("GLOWCAP_ROOMS_LOCATOR", locator)
 		.output()
 		.unwrap();

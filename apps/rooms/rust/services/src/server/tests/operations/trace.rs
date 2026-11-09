@@ -27,15 +27,7 @@ struct Endpoint {
 }
 
 async fn endpoint(temp: &Scratch) -> Endpoint {
-	let running = start_with(
-		temp.to_path_buf(),
-		tcp(),
-		Asked {
-			trace: true,
-			..Default::default()
-		},
-	)
-	.await;
+	let running = start_with(temp.to_path_buf(), tcp(), Asked::parse("trace").unwrap()).await;
 	let swiss = running.capabilities[0].swiss.clone();
 	let sturdyref = running.trace.clone().expect("the endpoint announced its sturdyref");
 	let parsed = glowcap::parse_sturdyref(&sturdyref, glowcap::CaptpVersion::V1_0).unwrap();

@@ -4,7 +4,7 @@
   width="720"
   height="300"
   role="img"
-  aria-label="You deliver a call to a partner and immediately hold a promise; when the partner resolves the call, the promise settles to its result."
+  aria-label="You deliver a call to a partner and immediately hold a promise. When the partner resolves the call, the promise settles to its result."
 >
   <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .head { font-size: 15px; font-weight: 700; }

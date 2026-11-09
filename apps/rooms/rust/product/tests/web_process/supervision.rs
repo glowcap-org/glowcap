@@ -19,7 +19,12 @@ async fn web_attaches_by_local_address_and_takes_over_the_same_kept_directory() 
 		}
 		command.as_std_mut().process_group(0);
 		command
-			.args(["--transport=tcp", "--port=0", "--announce-host=127.0.0.2", "--operator"])
+			.args([
+				"--transport=tcp",
+				"--port=0",
+				"--announce-host=127.0.0.2",
+				"--capabilities=operator",
+			])
 			.arg(format!("--state={}", state.display()))
 			.env("GLOWCAP_ROOMS_READY_FORMAT", "json")
 			.stdout(Stdio::piped())
@@ -36,11 +41,11 @@ async fn web_attaches_by_local_address_and_takes_over_the_same_kept_directory() 
 		let identity = std::fs::read(state.join("rooms.json")).unwrap();
 		let web_command = || {
 			let mut options = Web::options(0);
-			options.insert("trace", "0".to_owned());
+			options.remove("capabilities");
 			options.insert("port", port.to_string());
 			let mut command = Web::command_with(options);
 			command
-				.args(["--operator", "--announce-host=127.0.0.2"])
+				.args(["--capabilities=operator", "--announce-host=127.0.0.2"])
 				.arg(format!("--state={}", state.display()));
 			command
 		};

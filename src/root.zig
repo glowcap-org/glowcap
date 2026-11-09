@@ -16,9 +16,10 @@
 //!     state and checks every message against the protocol before applying it.
 //!   - `ocapn.engine` is the `Peer` you hold and drive. It's synchronous
 //!     and does no I/O of its own: no sockets, no threads, no hidden scheduler.
-//! - `actors` is the Goblins-shaped layer above the engine: a `Vat` of local
-//!   objects, plus session `Port`s that route far sends over the owning peer. It
-//!   stays in the sync, no-I/O core and adds no protocol the engine lacks.
+//! - `actors` is the actor layer in the style of Spritely Goblins, above the
+//!   engine: a `Vat` of local objects, plus session `Port`s that route far sends
+//!   over the owning peer. It stays in the sync, no-I/O core and adds no
+//!   protocol the engine lacks.
 //! - `loam.access` supplies portable resource identity, owned containment, and scope
 //!   evaluation. Its graph is application data and creates no actors or Host.
 //! - `net` owns transport realization and connection loops. It drives a `Peer`
@@ -33,17 +34,10 @@
 //!   that sharing is what lets an introduction from one partner settle as a
 //!   live capability from another. It composes. It adds no protocol.
 //!
-//! More layers live under `src/` but not on this namespace, because a Zig
-//! consumer reaches them through sharper roots. `c_abi` is the C interface. It
-//! is compiled into archive families, and a C consumer reaches it through the
-//! generated headers. `diagnostics` is an opt-in module root.
-//!
 //! The protocol layers, foundation through engine, are deterministic,
 //! synchronous, and free of I/O. So are `actors`, Loam, and `driver.core`:
-//! every layer `build.zig` marks `.core`, which `tools/check/arch_check.zig`
-//! keeps free of `std.Io`, sockets, and threads. `net`, `driver`, and `c_abi`
-//! are where the outside world gets in. For the bigger picture, see
-//! `docs/architecture.md`.
+//! none of them touches `std.Io`, sockets, or threads. `net` and `driver` are
+//! where the outside world gets in.
 
 pub const foundation = @import("foundation");
 

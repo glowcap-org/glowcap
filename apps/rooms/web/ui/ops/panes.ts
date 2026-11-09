@@ -11,9 +11,9 @@
 import { type OpsHeld } from "./capabilities.ts";
 import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "../application_data.ts";
 import {
-	opsPaneDirectory,
 	opsPaneIrc,
 	opsPaneListeners,
+	opsPaneOperator,
 	opsPanePeering,
 	opsPaneVisualizer,
 } from "../../../lib/text/ops.ts";
@@ -32,7 +32,7 @@ export interface OpsPaneFace {
 
 export const OPS_PANES: readonly OpsPaneFace[] = [
 	{ id: "listeners", path: "admin-listeners", label: opsPaneListeners, caps: ["listeners"] },
-	{ id: "directory", path: "directory", label: opsPaneDirectory, caps: ["diagnostics", "operator"] },
+	{ id: "operator", path: "operator", label: opsPaneOperator, caps: ["diagnostics", "operator"] },
 	{ id: "irc", path: "irc", label: opsPaneIrc, caps: ["irc"] },
 	{ id: "peering", path: "peering", label: opsPanePeering, caps: ["peering"] },
 	{ id: "trace", path: "trace", label: opsPaneVisualizer, caps: ["trace"] },

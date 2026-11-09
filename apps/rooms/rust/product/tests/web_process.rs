@@ -19,6 +19,8 @@ struct Web {
 }
 /// A launch's `--name=value` options, one value per name.
 type Options = std::collections::BTreeMap<&'static str, String>;
+#[path = "web_process/capabilities.rs"]
+mod capabilities;
 #[path = "web_process/ice.rs"]
 mod ice;
 #[path = "web_process/preparation.rs"]
@@ -45,7 +47,7 @@ impl Web {
 			("http-port", "0".to_owned()),
 			("port", "0".to_owned()),
 			("transport", "tcp".to_owned()),
-			("trace", "1".to_owned()),
+			("capabilities", "trace".to_owned()),
 			("trace-port", trace.to_string()),
 			("server", Path::new(&server).display().to_string()),
 		])
@@ -210,8 +212,8 @@ async fn web_shared_session_announces_independent_links_and_releases_custody() {
 			command.env("GLOWCAP_ROOMS_SESSION_REACHABILITY", "discovery");
 			let mut web = Web::spawn(command);
 			web.ready().await;
-			let use_link = std::fs::read_to_string(state.join("workspace.sturdyref")).unwrap();
-			let management = std::fs::read_to_string(state.join("control.sturdyref")).unwrap();
+			let use_link = std::fs::read_to_string(state.join("use.sturdyref")).unwrap();
+			let management = std::fs::read_to_string(state.join("management.sturdyref")).unwrap();
 			assert_eq!(
 				web.shared,
 				[
@@ -226,8 +228,8 @@ async fn web_shared_session_announces_independent_links_and_releases_custody() {
 			previous = Some((use_link, management));
 			assert!(web.get("/locator").await.starts_with("HTTP/1.1 200"));
 			web.stop().await;
-			assert!(!state.join("workspace.sturdyref").exists());
-			assert!(!state.join("control.sturdyref").exists());
+			assert!(!state.join("use.sturdyref").exists());
+			assert!(!state.join("management.sturdyref").exists());
 		}
 	})
 	.await
@@ -361,6 +363,18 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 		assert_eq!(
 			web.status("ui-version").await,
 			version.split_once("\r\n\r\n").unwrap().1.trim()
+		);
+		let page = web.get("/page").await;
+		assert!(page.starts_with("HTTP/1.1 200"), "{page}");
+		let page = page.split_once("\r\n\r\n").unwrap().1.trim();
+		assert_eq!(web.status("page-link").await, page);
+		assert_eq!(
+			web.links
+				.first()
+				.and_then(|link| link.strip_prefix("page"))
+				.map(str::trim),
+			Some(page),
+			"/page answers the banner's first page link"
 		);
 		let ice = web.get("/ice").await;
 		assert!(ice.contains("stun:stun.cloudflare.com:3478"), "{ice}");

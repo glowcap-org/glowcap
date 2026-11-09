@@ -462,7 +462,37 @@ fn renderBindingCommon(
     const body = canonical orelse return;
     if (out.items.len != 0) try out.appendSlice(gpa, "\n\n");
     try out.appendSlice(gpa, "From here, the CapTP workflow is the same for every transport:\n\n");
-    try out.print(gpa, "```{s}\n{s}\n```", .{ fence, body });
+    try out.print(gpa, "```{s}\n", .{fence});
+    if (std.mem.eql(u8, fence, "zig")) {
+        try appendZigFunctionTail(gpa, out, body);
+    } else {
+        try out.appendSlice(gpa, body);
+    }
+    try out.appendSlice(gpa, "\n```");
+}
+
+/// A Zig dial continuation sits inside the function the setup half opens:
+/// indented one level and closed by a lone brace. Shown alone it reads as the
+/// bottom of a function whose top is missing, so it drops the closing brace and
+/// the indent. Any other continuation is whole declarations and stays as is.
+fn appendZigFunctionTail(gpa: std.mem.Allocator, out: *std.ArrayList(u8), body: []const u8) !void {
+    if (!isIndentedFunctionTail(body)) return out.appendSlice(gpa, body);
+    var lines = std.mem.splitScalar(u8, body[0 .. body.len - 2], '\n');
+    var first = true;
+    while (lines.next()) |line| {
+        if (!first) try out.append(gpa, '\n');
+        first = false;
+        try out.appendSlice(gpa, if (line.len == 0) line else line[4..]);
+    }
+}
+
+/// Whether `body` ends in a lone closing brace with every line above it
+/// indented one level.
+fn isIndentedFunctionTail(body: []const u8) bool {
+    if (!std.mem.endsWith(u8, body, "\n}")) return false;
+    var lines = std.mem.splitScalar(u8, body[0 .. body.len - 2], '\n');
+    while (lines.next()) |line| if (line.len != 0 and !std.mem.startsWith(u8, line, "    ")) return false;
+    return true;
 }
 
 fn examplePart(source: []const u8, part: ExamplePart) ![]const u8 {

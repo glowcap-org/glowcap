@@ -89,7 +89,7 @@ export async function run(
 	// The addresses already in hand live on the locator field, behind the
 	// directory mark that opens them, not as a row between this question and
 	// the next. Opening that mark has to put the list under the field it fills.
-	await tab.click("#joinLocator");
+	await tab.click("#joinAddress");
 	const placed = await tab.evaluate(() => {
 		const field = document.getElementById("locator")?.closest(".join-field");
 		const picks = document.querySelector(".locator-picks");
@@ -315,7 +315,7 @@ export async function run(
 	await tab.waitForSelector("#settingsTitle");
 	// The dialog reopens on whichever panel was last selected, so name the
 	// one this check reads.
-	await tab.click("#reachabilityTab");
+	await tab.click("#connectionTab");
 	const shownLocator = (await tab.textContent("#directoryLocator"))?.trim() ?? "";
 	if (shownLocator === foreignLocator) {
 		fail("Settings described the directory of the room being read, not the one the page came from");

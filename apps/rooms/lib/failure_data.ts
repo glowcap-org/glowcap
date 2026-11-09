@@ -100,7 +100,7 @@ export const ROOMS_FAILURES = {
 		subject: "server",
 		retry: "after-state-change",
 		summary: "This page has no Rooms server to reach through.",
-		action: "Choose one in Settings, under Reachability.",
+		action: "Choose one in Settings, under Connection.",
 	},
 	"request-too-large": {
 		subject: "operation",
@@ -135,7 +135,7 @@ export const ROOMS_FAILURES = {
 	"too-many-directs": {
 		subject: "session",
 		retry: "after-state-change",
-		summary: "You hold as many direct lines as this connection allows.",
+		summary: "You have as many direct messages open as this connection allows.",
 		action: "Close one first.",
 	},
 	"too-many-rooms": {
@@ -213,8 +213,8 @@ export const ROOMS_FAILURES = {
 	"workspace-revision-changed": {
 		subject: "workspace",
 		retry: "after-state-change",
-		summary: "The workspace changed before this was admitted.",
-		action: "Nothing was applied. Refresh the workspace before trying again.",
+		summary: "This session changed while you were saving.",
+		action: "Nothing was applied. Reload this session, then try again.",
 	},
 	"room-retired": {
 		subject: "room",
@@ -291,59 +291,57 @@ export const ROOMS_FAILURES = {
 	"session-unreachable": {
 		subject: "session-peer",
 		retry: "after-state-change",
-		summary: "The shared session peer could not be reached.",
-		action:
-			"Make sure it is running and retry the capability it currently announces. An iroh session needs a reachable advertised address or working iroh discovery and relay access.",
+		summary: "Rooms couldn't reach the session this link opens.",
+		action: "Check that the device or server keeping it is still running, then try again.",
 	},
 	"session-handshake-incomplete": {
 		subject: "session-peer",
 		retry: "after-state-change",
-		summary: "The session peer was reached, but it did not finish the OCapN handshake.",
-		action: "Check that the Rooms session peer is running compatible code, then retry.",
+		summary: "Rooms reached the session, but it didn't finish connecting.",
+		action: "Check that it is running a compatible version of Rooms, then try again.",
 	},
 	"session-capability-gone": {
 		subject: "session-capability",
 		retry: "after-request-change",
-		summary: "The session peer does not know this capability.",
-		action: "It was probably revoked or belongs to a session that no longer exists. Use one the session shows now.",
+		summary: "This session link no longer works.",
+		action: "Ask for a current one.",
 	},
 	"session-restoration-failed": {
 		subject: "session-capability",
 		retry: "after-state-change",
-		summary: "The saved session access could not be restored.",
+		summary: "Rooms couldn't restore the saved session link.",
 		action: "Check that the session is running. If it was reset, attach its new session link.",
 	},
 	"saved-transport-unavailable": {
 		subject: "saved-address",
 		retry: "after-state-change",
-		summary: "The saved address uses a transport this session cannot reach.",
+		summary: "The saved address uses a transport this session can't reach.",
 		action: "Enter its current address again, or start the session with a transport that reaches it.",
 	},
 	"session-signaling-host-offline": {
 		subject: "hosting-tab",
 		retry: "after-state-change",
-		summary: "The hosting tab is not answering WebRTC on the directory this capability names.",
+		summary: "The hosting tab isn't answering on the directory this link names.",
 		action: "On that tab, share the session and leave it open. Reloading it ends sharing.",
 	},
 	"session-signaling-unavailable": {
 		subject: "signaling-directory",
 		retry: "after-state-change",
-		summary: "This browser could not signal through the directory the capability names.",
-		action: "Retry after that directory is reachable from here.",
+		summary: "This browser couldn't connect through the directory the link names.",
+		action: "Try again once that directory is reachable from here.",
 	},
 	"session-webrtc-no-route": {
 		subject: "webrtc-route",
 		retry: "after-request-or-state-change",
-		summary: "The browsers exchanged the session offer, but WebRTC found no route between them.",
+		summary: "The two browsers found each other, but couldn't open a connection between them.",
 		action:
-			"STUN can discover a direct route. If the networks permit none, configure TURN or select Relay and share a new capability. An already-issued .webrtc capability keeps its original route.",
+			"If the networks allow no direct connection, configure TURN or select Relay and share a new link. A link already issued keeps its original route.",
 	},
 	"session-peer-unverified": {
 		subject: "session-peer",
 		retry: "after-request-change",
-		summary:
-			"The session peer answered, but this browser could not authenticate it as the peer the capability names.",
-		action: "Retry with a capability the session shows now.",
+		summary: "The session answered, but this browser couldn't confirm it is the one the link names.",
+		action: "Try again with a link the session shows now.",
 	},
 	"link-preview-invalid-url": {
 		subject: "link-preview",
@@ -378,7 +376,7 @@ export const ROOMS_FAILURES = {
 	"link-preview-redirect-refused": {
 		subject: "link-preview",
 		retry: "after-request-or-state-change",
-		summary: "That site's redirect could not be followed safely.",
+		summary: "That site's redirect couldn't be followed safely.",
 		action: "Open the link directly, or retry after the site fixes its redirect.",
 	},
 	"link-preview-http-refused": {
@@ -390,7 +388,7 @@ export const ROOMS_FAILURES = {
 	"link-preview-content-unsupported": {
 		subject: "link-preview",
 		retry: "after-state-change",
-		summary: "That address is not an HTML page or supported preview image.",
+		summary: "That address isn't an HTML page or supported preview image.",
 		action: null,
 	},
 	"link-preview-too-large": {
@@ -402,7 +400,7 @@ export const ROOMS_FAILURES = {
 	"link-preview-metadata-missing": {
 		subject: "link-preview",
 		retry: "after-state-change",
-		summary: "That page does not publish useful preview details.",
+		summary: "That page doesn't publish useful preview details.",
 		action: null,
 	},
 	"link-preview-busy": {
@@ -414,7 +412,7 @@ export const ROOMS_FAILURES = {
 	"link-preview-failed": {
 		subject: "link-preview",
 		retry: "soon",
-		summary: "Rooms could not build that link preview.",
+		summary: "Rooms couldn't build that link preview.",
 		action: "Retry once. The link itself is still available.",
 	},
 } as const;

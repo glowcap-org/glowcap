@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run -A
 // Tail a Rooms server's live trace as lines.
 //
-// `--trace` makes a server publish every OCapN session it and its members open,
+// `--capabilities=trace` makes a server publish every OCapN session it and its members open,
 // and ocapnviz in a browser is the other way to read that. A picture
 // is the right tool for topology and the wrong one for "what did this peer do
 // just now, in order", which is the question a terminal answers.
@@ -22,7 +22,7 @@ const usage = `Tail a Rooms server's live trace.
   rooms-trace-tail <sturdyref> [--json]
 
 <sturdyref> is what the server prints after ROOMS-TRACE-LISTENING when it is
-started with --trace. --json passes each record through unchanged, one per
+started with --capabilities=trace. --json passes each record through unchanged, one per
 line, for piping into something else.
 `;
 
