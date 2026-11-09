@@ -33,7 +33,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // Needs deno, the wasm module (`zig build wasm-host`), the installed archives
 // (the room server is the Rust process), and a Playwright Chromium
 // (the devcontainer image ships one).
-// Run: `.agents/skills/work/bin/glowcap-dev zig build rooms-web-dm-tabs`.
+// Run: `zig build rooms-web-dm-tabs`.
 
 import { Buffer } from "node:buffer";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";

@@ -39,7 +39,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //
 // Needs deno, the wasm module (`zig build wasm-host`), the installed archives
 // (the web front and room server run Rust), and a Playwright Chromium.
-// Run: `deno run --allow-all apps/rooms/test/web/private_room_test.ts`.
+// Run: `zig build rooms-web-private`.
 
 import { SERVER } from "../support/paths.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../../lib/locator.ts";

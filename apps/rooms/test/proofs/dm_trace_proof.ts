@@ -27,7 +27,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //
 // Needs deno, the wasm module (`zig build wasm-host`), the installed archives,
 // and a Playwright Chromium (the devcontainer image ships one).
-// Run: `deno run --allow-all apps/rooms/test/web/dm_trace_proof.ts`.
+// Run: `zig build rooms-web-dm-trace`.
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
