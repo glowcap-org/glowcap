@@ -150,7 +150,7 @@ const QUIET: CommandPowers = {
 	withdrawLast: () => false,
 	setSubject: () => true,
 	setAway: () => true,
-	invite: () => true,
+	invite: () => null,
 	kick: () => true,
 	steward: () => true,
 	roomLink: () => true,
@@ -335,7 +335,7 @@ Deno.test("handing a room or a line to yourself is refused before any line opens
 		you: () => "Alice",
 		invite: (who) => {
 			invited = who;
-			return true;
+			return null;
 		},
 		directMessage: (who) => {
 			messaged = who;
@@ -366,7 +366,7 @@ Deno.test("a room-wide word is refused as a person to message or invite", () => 
 		...QUIET,
 		invite: (who) => {
 			invited = who;
-			return true;
+			return null;
 		},
 		directMessage: (who) => {
 			messaged = who;

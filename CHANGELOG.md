@@ -9,6 +9,11 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- `/invite` in a room you joined by name says you hold a seat in it and not
+  the room, and names the way in. It said there was no room here.
+
 ## [0.1.6] - 2026-11-09
 
 ### Added

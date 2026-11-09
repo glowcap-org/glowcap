@@ -89,9 +89,11 @@ export interface CommandPowers {
 	/** Hand the room this was typed in to a member: the live reference crosses
 	 * the direct line to them as a handoff, and they may take it up or not.
 	 * Nothing durable is minted anywhere. That distinguishes it from `roomLink`.
-	 * False when there is no room membership to hand over, or when
-	 * `nick` is this reader. They already hold the room. */
-	invite(nick: string): CommandResult<boolean>;
+	 * Null once the handoff is sent. Otherwise the sentence saying why not:
+	 * there is no room here, or this membership is a seat in the room and
+	 * not the room itself, as when it was joined by name. `nick` being this
+	 * reader is refused before this runs. They already hold the room. */
+	invite(nick: string): CommandResult<string | null>;
 	/** Ask a member to leave the room this was typed in, through the room's
 	 * steward capability. The room answers that capability only to the
 	 * connection that opened it, so for everyone else the room's own refusal

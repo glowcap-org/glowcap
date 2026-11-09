@@ -217,7 +217,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 				} else if let Some(why) = invite_refusal(&who, context.you) {
 					refused(why)
 				} else {
-					effect("invite", who, Some("There is no room here to hand over."))
+					effect("invite", who, None)
 				}
 			}
 			Kick => {

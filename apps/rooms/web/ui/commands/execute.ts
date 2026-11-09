@@ -194,7 +194,7 @@ export function applyCommandPlan(
 		case "moderator":
 			return granted(powers.steward(text === "" ? undefined : text));
 		case "invite":
-			return granted(powers.invite(text));
+			return committed(powers.invite(text));
 		case "kick":
 			return granted(powers.kick(text));
 		default:

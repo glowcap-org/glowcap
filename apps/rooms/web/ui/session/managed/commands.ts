@@ -11,7 +11,12 @@ import type { ManagedRoomsSession } from "./session.ts";
 import type { CommandPowers } from "../../commands.ts";
 import { type DirId, liveRoomCounts } from "../../directory.ts";
 import { directoryName, roomCalled } from "../../text.ts";
-import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY } from "../../commands/targets.ts";
+import {
+	inviteWithoutTheRoom,
+	NO_DIRECTORY_TO_GIVE_BACK,
+	NO_ROOM_TO_HAND_OVER,
+	NOT_ON_A_DIRECTORY,
+} from "../../commands/targets.ts";
 import { JOIN_DEFAULT_NICK, roomLinkDestination } from "../../joining.ts";
 import { alreadyInRoom } from "../../../../lib/text/attached.ts";
 import { thatLinkDidNotOpen } from "../../../../lib/text/commands.ts";
@@ -148,11 +153,16 @@ export function managedCommandPowers(
 			return true;
 		},
 		invite: async (who) => {
+			const live = active();
 			const row = selected();
-			if (row?.kind !== "room" || row.access == null) return false;
+			if (live?.type !== "room" || row?.kind !== "room") return NO_ROOM_TO_HAND_OVER;
+			// A seat in the room is not the room. Joining a listed room by name
+			// seats the member; the room itself is held by whoever made it or
+			// was handed it, and only that reference can cross to somebody.
+			if (row.access == null) return inviteWithoutTheRoom(live.id, live.policy.visibility === "listed");
 			const direct = await session.actions.direct(row.directory, who, false);
 			await session.actions.run("offerRoom", [row.id, direct]);
-			return true;
+			return null;
 		},
 		kick: async (who) => {
 			const row = active();

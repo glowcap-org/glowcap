@@ -43,6 +43,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 
 import { SERVER } from "../support/paths.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../../lib/locator.ts";
+import { inviteWithoutTheRoom } from "../../lib/text/commands.ts";
 import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
@@ -191,6 +192,21 @@ try {
 	}
 
 	// ── Handed over ──────────────────────────────────────────────────────
+	// A seat in a room is not the room. cy joined the lobby by its name after
+	// ada made it, so she holds nothing to hand over, and the refusal says the
+	// way in instead of claiming there is no room.
+	await say(cy, "/invite bo");
+	await cy.waitForFunction(
+		(sentence) => (document.getElementById("log")?.textContent ?? "").includes(sentence),
+		inviteWithoutTheRoom(ROOM, true),
+		{ timeout: 15_000 },
+	).catch(async () =>
+		fail(
+			`a member seated in a room she does not hold was not told the way in: ${
+				JSON.stringify((await said(cy)).slice(-200))
+			}`,
+		)
+	);
 	await say(ada, "/invite bo");
 	await bo.waitForSelector(".inviterow", { timeout: 30_000 })
 		.catch(async () => {

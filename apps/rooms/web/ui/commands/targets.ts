@@ -11,7 +11,9 @@ export function addressesEveryone(who: string): boolean {
  * command modules read them by. */
 export {
 	directNotSelf as DIRECT_NOT_SELF,
+	inviteWithoutTheRoom,
 	noDirectoryToGiveBack as NO_DIRECTORY_TO_GIVE_BACK,
+	noRoomToHandOver as NO_ROOM_TO_HAND_OVER,
 	notARoomEntryLink as NOT_A_ROOM_ENTRY_LINK,
 	notOnADirectory as NOT_ON_A_DIRECTORY,
 	notRegisteredForDirect,

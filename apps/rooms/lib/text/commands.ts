@@ -14,6 +14,16 @@ export const notARoomEntryLink = "That link didn't open a room: that isn't a roo
 export function thatLinkDidNotOpen(why: string): string {
 	return `That link didn't open a room: ${why}`;
 }
+/** Why `/invite` found nothing to hand over: the conversation is not a room
+ * this session holds a row for. */
+export const noRoomToHandOver = "There is no room here to hand over.";
+/** Why `/invite` could not hand this room over: the member holds a seat in
+ * it, not the room itself. A listed room says the way in instead. */
+export function inviteWithoutTheRoom(room: string, listed: boolean): string {
+	return listed
+		? `You don't hold this room to hand over. Anyone can join it by name: tell them #${room}.`
+		: "You don't hold this room to hand over. Ask whoever let you in to hand it on.";
+}
 /** Why a direct line cannot open to `who`. */
 export function notRegisteredForDirect(who: string): string {
 	return `${who} isn't registered for direct messages here.`;
