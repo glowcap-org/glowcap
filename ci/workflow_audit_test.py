@@ -102,6 +102,16 @@ class WorkflowAudit(unittest.TestCase):
         checkout = found["registries"]["steps"][0]
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "refs/tags/v${{ needs.newest.outputs.version }}")
+        # The job runs the four package proofs, so it installs every tool they run.
+        installs = "\n".join(f"{step.get('uses', '')}\n{step.get('run', '')}" for step in found["registries"]["steps"])
+        for tool in (
+            "actions/setup-python@",
+            'pip install "uv==$UV_VERSION"',
+            "denoland/setup-deno@",
+            'rustup default "$RUST_VERSION"',
+            "Bogdanp/setup-racket@",
+        ):
+            self.assertIn(tool, installs)
 
 
 if __name__ == "__main__":
