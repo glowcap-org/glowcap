@@ -54,6 +54,9 @@ and storage formats before 1.0.
 
 ### Fixed
 
+- The relay transport and the Rooms server reject TLS certificate paths
+  through the distrusted emSign intermediates (rustls-webpki 0.103.16,
+  RUSTSEC-2026-0382).
 - `rooms-web` took the last of a repeated option and dropped the rest without
   a word, so `--allow-origin` given twice let only the second page in. It now
   reads its options the way every other Rooms command does. A repeated option,
