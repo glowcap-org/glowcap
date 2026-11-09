@@ -10,7 +10,13 @@ import type {
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
-import { AcquisitionConflict, type SubmissionOutcome, submitAcquisition } from "./acquisition.ts";
+import {
+	AcquisitionConflict,
+	type SettledOutcome,
+	type SubmissionOutcome,
+	submitAcquisition,
+	throwUnlessCommitted,
+} from "./acquisition.ts";
 
 export interface PolicyView {
 	permissions: RoomsPermission[];
@@ -100,6 +106,11 @@ export interface HeldControl {
 }
 /** The local workspace's own control: the root every other access descends from. */
 export const OWN_CONTROL = "current";
+/** Whether links this control publishes lead to this browser, which people
+ * reach through its Rooms server. Only the browser's own control manages a
+ * session this browser runs. Every other control publishes at the session it
+ * manages, reached as it already is. */
+export const publishesHere = (control: HeldControl): boolean => control.id === OWN_CONTROL;
 /** The label this viewer knows the control's access to have. */
 export function knownLabel(control: HeldControl): string {
 	return control.grant?.label ?? control.committed?.label ?? "";
@@ -296,9 +307,9 @@ export class ManagedAccess {
 		this.#checkOpen();
 		saving.free();
 		delete control.saving;
-		control.saved = outcome === "committed";
+		control.saved = outcome.status === "committed";
 		this.#changed();
-		if (outcome === "conflict") throw new AcquisitionConflict();
+		throwUnlessCommitted(outcome);
 	}
 	prepareIssue(
 		source: HeldControl,
@@ -573,10 +584,16 @@ export class ManagedAccess {
 			const release: RoomsManagedAcquisition | null = await this.#workspace.prepareForgetControl(control.id);
 			if (release == null) break;
 			this.#accept(release);
+			let outcome: SettledOutcome;
 			try {
-				if (await submitAcquisition(release) === "committed") break;
+				outcome = await submitAcquisition(release);
 			} finally {
 				release.free();
+			}
+			// A refusal ends the attempts with its reason. Only a conflict rereads.
+			if (outcome.status !== "conflict") {
+				throwUnlessCommitted(outcome);
+				break;
 			}
 			if (attempt === 3) throw new AcquisitionConflict();
 		}

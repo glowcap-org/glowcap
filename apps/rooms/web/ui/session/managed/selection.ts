@@ -6,7 +6,7 @@ import type {
 	RoomsManagedApplication,
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
-import { AcquisitionConflict, submitAcquisition } from "./acquisition.ts";
+import { submitAcquisition, throwUnlessCommitted } from "./acquisition.ts";
 import type { WorkspaceSnapshot } from "./model.ts";
 
 export class ManagedSelection {
@@ -77,7 +77,7 @@ export class ManagedSelection {
 		const outcome = await submitAcquisition(this.#selection.request);
 		this.#selection.request.free();
 		this.#selection = null;
-		if (outcome === "conflict") throw new AcquisitionConflict();
+		throwUnlessCommitted(outcome);
 	}
 	stop(): void {
 		this.#stopped = true;

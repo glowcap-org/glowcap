@@ -1,4 +1,6 @@
-// Only an explicit acquisition conflict proves absence of custody acquisition.
+// A proved conflict or a refusal settles an acquisition and frees its request.
+// Only a conflict permits re-preparation, and only an outcome nothing settled
+// keeps the request for replay.
 import { managedSessionText } from "../../../../lib/text/managed_session.ts";
 import type { OperationsCapability } from "../../application_data.ts";
 
@@ -13,37 +15,41 @@ export class AcquisitionConflict extends Error {
 	}
 }
 
-/** An acquisition the session answered with a refusal, so it admitted nothing
- * and the request has no replay value. The message is the session's reason. */
+/** An acquisition the session answered with a refusal: it admitted nothing,
+ * so the request is settled and freed. The message is the session's reason. */
 export class AcquisitionRefused extends Error {}
 
-/** What Rust reports for a submitted request: committed, a proved conflict,
- * a refusal that admitted nothing, or an outcome nothing settled. */
-export type SubmissionOutcome = {
-	readonly status: "committed" | "conflict" | "refused" | "uncertain";
+/** An outcome that settled the request, which its holder then frees: a
+ * committed or refused request has nothing left to replay, and a conflict is
+ * replayed only through re-preparation. */
+export type SettledOutcome = {
+	readonly status: "committed" | "conflict" | "refused";
 	readonly reason?: string;
 };
 
-function submissionOutcome(value: unknown): SubmissionOutcome | null {
-	if (typeof value !== "object" || value == null || !("status" in value)) return null;
-	const { status } = value;
-	if (status !== "committed" && status !== "conflict" && status !== "refused" && status !== "uncertain") return null;
-	const reason = "reason" in value && typeof value.reason === "string" ? value.reason : undefined;
-	return { status, reason };
-}
+/** What Rust reports for a submitted request: a settled outcome, or one
+ * nothing settled, which keeps the request for replay. */
+export type SubmissionOutcome = SettledOutcome | { readonly status: "uncertain"; readonly reason?: string };
 
-/** Submit a prepared acquisition. A refusal throws `AcquisitionRefused`, and
- * any outcome Rust could not settle throws so the caller keeps the request. */
-export async function submitAcquisition(request: { submit(): Promise<unknown> }): Promise<"committed" | "conflict"> {
-	const outcome = submissionOutcome(await request.submit());
-	if (outcome?.status === "committed" || outcome?.status === "conflict") return outcome.status;
-	if (outcome?.status === "refused") {
-		throw new AcquisitionRefused(outcome.reason ?? managedSessionText.acquisitionRefused);
-	}
-	const reason = outcome?.reason;
+/** Submit a prepared acquisition. An outcome Rust could not settle throws, and
+ * the holder keeps the request. */
+export async function submitAcquisition(request: { submit(): Promise<SubmissionOutcome> }): Promise<SettledOutcome> {
+	const outcome = await request.submit();
+	if (outcome.status !== "uncertain") return outcome;
+	const { reason } = outcome;
 	throw new Error(
 		reason == null ? managedSessionText.acquisitionUnknown : `${managedSessionText.acquisitionUnknown} (${reason})`,
 	);
+}
+
+/** A settled outcome as its holder's caller sees it, once the request is
+ * freed: a committed one returns, a conflict throws `AcquisitionConflict`,
+ * and a refusal throws `AcquisitionRefused` with the session's reason. */
+export function throwUnlessCommitted(outcome: SettledOutcome): void {
+	if (outcome.status === "conflict") throw new AcquisitionConflict();
+	if (outcome.status === "refused") {
+		throw new AcquisitionRefused(outcome.reason ?? managedSessionText.acquisitionRefused);
+	}
 }
 
 /** An operations acquisition the session refused, one failure per capability it would not hand over. */

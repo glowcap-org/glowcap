@@ -87,11 +87,10 @@ and storage formats before 1.0.
   then answered a directory join with a bare `PromiseBroken`. Both options
   still apply to a peer whose `--relay` or `--session-relay` names another
   relay.
-- The page forgets a change the session refused and reports the refusal,
-  where it listed the change as gone through with a **Finish** that
-  resubmitted it. A change nothing settled is listed with its outcome
-  unknown and can be let go. An access edit or issuance the session refused
-  frees its request the same way.
+- The page frees a change the session refused and reports the reason, for
+  every kind of change it submits. Before, it listed such a change as gone
+  through, with a **Finish** that resubmitted it. A change nothing settled is
+  listed with its outcome unknown and can be let go.
 - **New access** and **Prepare control** from a held management control ask
   for a Rooms server only when the control is this browser's own, whose links
   lead here. Any other control, such as one for a session attached by its own

@@ -3,6 +3,8 @@
 // settled stays listed until it is picked back up or let go.
 import { assert, assertEquals } from "../assert.ts";
 import { snapshot, viewer } from "../support/managed_viewer.ts";
+import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
+import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { AcquisitionRefused } from "../../web/ui/session/managed/acquisition.ts";
 import { openChanges } from "../../web/ui/session/managed/open_changes.ts";
 
@@ -67,6 +69,44 @@ Deno.test("a directory acquisition nothing settled is listed with its outcome un
 		);
 		await session.releaseOperation("directory:directory");
 		assertEquals([session.actions.pending, openChanges(session, []), submissions], [[], [], 1]);
+	} finally {
+		await session.close();
+	}
+});
+
+Deno.test("a workspace selection the session refused is freed and the next selection prepares afresh", async () => {
+	let preparations = 0;
+	let freed = 0;
+	const custody = {
+		free() {},
+		prepareSelectWorkspace: () => {
+			preparations++;
+			return Promise.resolve({
+				submit: () =>
+					Promise.resolve(
+						preparations === 1 ? { status: "refused", reason: "no such view" } : { status: "committed" },
+					),
+				free() {
+					freed++;
+				},
+			});
+		},
+	} as unknown as RoomsManagedWorkspace;
+	const application = {
+		attachWorkspace: () => Promise.resolve({ free() {} }),
+		close: () => Promise.resolve(),
+		free() {},
+	} as unknown as RoomsManagedApplication;
+	const session = new ManagedRoomsSession(application, custody, custody, () => {});
+	try {
+		const outcome: unknown = await session.selectWorkspace("original").then(() => null, (error: unknown) => error);
+		assert(outcome instanceof AcquisitionRefused, "the session's refusal is the caller's");
+		assertEquals(outcome.message, "no such view");
+		assertEquals(freed, 1, "a refused selection is not held");
+		// Nothing is held, so a different selection is a fresh gesture, not a
+		// replacement the retained one refuses.
+		await session.selectWorkspace("replacement");
+		assertEquals([preparations, freed], [2, 2]);
 	} finally {
 		await session.close();
 	}

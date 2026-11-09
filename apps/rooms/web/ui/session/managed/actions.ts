@@ -15,10 +15,10 @@ import type { JoinNicknameIntent } from "../../controller/session.ts";
 import type { RoomPolicy } from "../../room_policy.ts";
 import {
 	AcquisitionConflict,
-	AcquisitionRefused,
 	MAX_CONFLICT_REPREPARATIONS,
 	OperationsAcquisitionRefused,
 	submitAcquisition,
+	throwUnlessCommitted,
 } from "./acquisition.ts";
 import { retainedIntentConversation } from "./admission.ts";
 import { CompletedLine } from "./completed_line.ts";
@@ -92,15 +92,11 @@ export class ManagedActions {
 		if (record.lifecycle.outcome === "committed") {
 			return Promise.reject(new Error("This change went through. Finish it to keep what it returned."));
 		}
-		this.#drop(record, id);
-		return Promise.resolve();
-	}
-	/** Hold nothing of an acquisition: its request is freed and its record dropped. */
-	#drop(record: AcquisitionRecord, id: string): void {
 		record.request?.free();
 		record.request = undefined;
 		this.#forget(id);
 		this.#session.acquisitionChanged();
+		return Promise.resolve();
 	}
 	/** Only new conversations belong to acquisitions. Keep cancelled results
 	 * out of presentation until this owner proves non-admission or departure. */
@@ -217,47 +213,36 @@ export class ManagedActions {
 		const original = record.request;
 		if (original == null) throw new Error("This acquisition is no longer held");
 		let request: Acquisition = original;
-		let outcome;
-		try {
-			for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
-				outcome = await submitAcquisition(request);
-				if (
-					outcome !== "conflict" || !isRepreparable(request) || this.#stopped ||
-					attempt + 1 === MAX_CONFLICT_REPREPARATIONS || record.signal?.aborted === true
-				) break;
-				// Only a proved conflict permits a new revision. Rust re-preparation
-				// retains the exact acquired target, source, coordinates and recipe.
-				// Failure leaves the original held; uncertainty never enters this path.
-				const replacement: Acquisition = await request.reprepare();
-				record.request = replacement;
-				request.free();
-				request = replacement;
-				if (record.signal?.aborted) break;
-			}
-		} catch (error) {
-			// The session answered that it admitted nothing, so the request has
-			// no replay value: free it and let the reason reach the caller. Any
-			// other failure keeps the request, because its outcome is unknown.
-			if (error instanceof AcquisitionRefused) {
-				record.lifecycle.outcome = "notAdmitted";
-				this.#drop(record, id);
-			}
-			throw error;
+		let outcome = await submitAcquisition(request);
+		// Only a proved conflict permits a new revision. Rust re-preparation
+		// retains the exact acquired target, source, coordinates and recipe.
+		// Failure leaves the original held; uncertainty never enters this path.
+		for (
+			let attempt = 1;
+			outcome.status === "conflict" && isRepreparable(request) && !this.#stopped &&
+			attempt < MAX_CONFLICT_REPREPARATIONS && record.signal?.aborted !== true;
+			attempt++
+		) {
+			const replacement: Acquisition = await request.reprepare();
+			record.request = replacement;
+			request.free();
+			request = replacement;
+			if (record.signal?.aborted) break;
+			outcome = await submitAcquisition(request);
 		}
-		if (outcome === "committed" && id.startsWith("arrival:")) this.#receivedArrival = id;
-		record.lifecycle.outcome = outcome === "committed" ? "committed" : "notAdmitted";
+		const committed = outcome.status === "committed";
+		if (committed && id.startsWith("arrival:")) this.#receivedArrival = id;
+		record.lifecycle.outcome = committed ? "committed" : "notAdmitted";
 		request.free();
 		record.request = undefined;
-		if (outcome !== "committed") this.#forget(id);
+		if (!committed) this.#forget(id);
 		this.#session.acquisitionChanged();
 		if (id === "workspace-import" && this.#importing == null) this.#importState = null;
 		await this.#session.refresh();
-		if (outcome === "committed") await record.completed?.();
+		if (committed) await record.completed?.();
 		this.#forget(id);
-		if (outcome === "conflict") {
-			record.signal?.throwIfAborted();
-			throw new AcquisitionConflict();
-		}
+		if (outcome.status === "conflict") record.signal?.throwIfAborted();
+		throwUnlessCommitted(outcome);
 	}
 	async directory(
 		id: string,

@@ -6,7 +6,7 @@ import type {
 	RoomsManagedResultAcquisition,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { Coordinate, FieldKey, WorkspaceSnapshot } from "./model.ts";
-import { AcquisitionConflict, submitAcquisition } from "./acquisition.ts";
+import { submitAcquisition, throwUnlessCommitted } from "./acquisition.ts";
 import { ResultRecipe } from "./result_recipe.ts";
 
 /** Admission proved that no effect or receipt was installed. */
@@ -185,7 +185,7 @@ export class ManagedOperation {
 		const outcome = await submitAcquisition(this.#acquisition!);
 		this.#acquisition!.free();
 		this.#acquisition = null;
-		if (outcome === "conflict") throw new AcquisitionConflict();
+		throwUnlessCommitted(outcome);
 		this.#acquired = true;
 	}
 	get acquired(): boolean {
