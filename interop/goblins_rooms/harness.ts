@@ -254,24 +254,37 @@ try {
 	const publishUrl = tracePublishUrlOf(traceRef);
 
 	// Both members enter the same room and each waits to hear the other. The
-	// glowcap client posts once its whole roster is present; the Goblins vat
-	// posts as soon as it has subscribed and waits for the glowcap member's line.
+	// glowcap client posts once its whole roster is present, and the Goblins
+	// vat posts as soon as it has subscribed, so the vat enters second: a room
+	// delivers a line to the members it has, and a line posted before the
+	// glowcap member subscribed would be one it never hears. The client's first
+	// room line is the room calling it back, which is the proof it is in.
 	const roster = `${GLOWCAP_NICK},${GOBLINS_NICK}`;
+	const { promise: glowcapIn, resolve: glowcapEntered } = Promise.withResolvers<void>();
+	const glowcapRun = runChild(
+		"deno",
+		[
+			...DENO_FLAGS,
+			`${ROOT}/apps/rooms/clients/deno/client.ts`,
+			locator,
+			ROOM,
+			GLOWCAP_NICK,
+			GLOWCAP_LINE,
+			roster,
+		],
+		ROOT,
+		{
+			echo: GLOWCAP_NICK,
+			onLine: (line) => {
+				if (line.startsWith(`[${GLOWCAP_NICK}] room: `)) glowcapEntered();
+			},
+		},
+	);
+	// A client that ends without entering settles the wait too, and is judged
+	// by its exit below.
+	await Promise.race([glowcapIn, glowcapRun]);
 	const [glowcap, goblins] = await Promise.all([
-		runChild(
-			"deno",
-			[
-				...DENO_FLAGS,
-				`${ROOT}/apps/rooms/clients/deno/client.ts`,
-				locator,
-				ROOM,
-				GLOWCAP_NICK,
-				GLOWCAP_LINE,
-				roster,
-			],
-			ROOT,
-			{ echo: GLOWCAP_NICK },
-		),
+		glowcapRun,
 		runChild(
 			"racket",
 			[

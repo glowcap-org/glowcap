@@ -158,11 +158,15 @@ export async function pythonCanImport(moduleImport: string): Promise<boolean> {
  * process already has, so a caller names only what the child needs to be
  * told. With `echo`, each line is also printed as it arrives under that name,
  * so a run stopped at its deadline leaves what the child had said in the log. */
+/** Run a child to its end and collect its output. With `echo`, each complete
+ * line is printed as it arrives under that name, and with `onLine` it is also
+ * handed to the caller, so a harness can sequence another child on what this
+ * one has reached. */
 export async function runChild(
 	cmd: string,
 	args: string[],
 	root: string,
-	options: { env?: Record<string, string>; echo?: string } = {},
+	options: { env?: Record<string, string>; echo?: string; onLine?: (line: string) => void } = {},
 ): Promise<{ code: number; out: string }> {
 	const child = new Deno.Command(cmd, {
 		args,
@@ -172,31 +176,38 @@ export async function runChild(
 		env: options.env,
 	}).spawn();
 	const [stdout, stderr, status] = await Promise.all([
-		readAll(child.stdout, options.echo),
-		readAll(child.stderr, options.echo),
+		readAll(child.stdout, options),
+		readAll(child.stderr, options),
 		child.status,
 	]);
 	return { code: status.code, out: stdout + stderr };
 }
 
-/** Read a pipe to its end. With `echo`, print each complete line as it
- * arrives, prefixed with that name, and the unterminated tail at the end. */
-async function readAll(stream: ReadableStream<Uint8Array>, echo?: string): Promise<string> {
+/** Read a pipe to its end. Each complete line, and the unterminated tail at the
+ * end, is printed under `echo` when one is named and handed to `onLine`. */
+async function readAll(
+	stream: ReadableStream<Uint8Array>,
+	{ echo, onLine }: { echo?: string; onLine?: (line: string) => void },
+): Promise<string> {
 	const decoder = new TextDecoder();
 	let text = "";
 	let pending = "";
+	const arrived = (line: string) => {
+		if (echo != null) console.log(`${echo}: ${line}`);
+		onLine?.(line);
+	};
 	for await (const chunk of stream) {
 		const piece = decoder.decode(chunk, { stream: true });
 		text += piece;
-		if (echo == null) continue;
+		if (echo == null && onLine == null) continue;
 		pending += piece;
 		const lines = pending.split("\n");
 		pending = lines.pop() ?? "";
-		for (const line of lines) console.log(`${echo}: ${line}`);
+		for (const line of lines) arrived(line);
 	}
 	const tail = decoder.decode();
 	text += tail;
-	if (echo != null && (pending + tail).length > 0) console.log(`${echo}: ${pending + tail}`);
+	if ((pending + tail).length > 0) arrived(pending + tail);
 	return text;
 }
 
