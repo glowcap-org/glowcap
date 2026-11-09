@@ -124,12 +124,17 @@ export const noise: { locator(designator: string, relayUrl: string): Locator } =
 	},
 };
 
+/** Read the relay dial route from a locator's rendezvous-relay hint. Returns the admitted route, or `null` when the
+ * locator carries no such hint, and throws a `GlowcapError` with `INVALID_ARGUMENT` when the hint is not an admissible
+ * route. */
 export function routeFromLocator(locator: Locator): string | null {
 	const value = locator.hints.get(RENDEZVOUS_RELAY_HINT);
 	if (value == null) return null;
 	return relayRoute(value);
 }
 
+/** Build the WebSocket URL a peer dials for `designator` through `route`. Both are validated first, and either
+ * failure throws a `GlowcapError` with `INVALID_ARGUMENT`. The designator becomes the rendezvous query parameter. */
 export function dialUrl(route: string, designator: string): string {
 	validateDesignator(designator);
 	const admitted = relayRoute(route);

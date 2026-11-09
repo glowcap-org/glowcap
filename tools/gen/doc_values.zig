@@ -114,14 +114,23 @@ fn render(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, doc: []const u8, 
 /// The value of `const NAME: T = expr;` in `source`, or of a struct field
 /// default `NAME: T = expr,` on its own line or after `{` or `,` (the first one
 /// in the file): a product of integer literals, `Duration::from_secs`/
-/// `from_millis` calls, and other constants in the same file.
+/// `from_millis` calls, and other constants in the same file. When `expr` is a
+/// struct literal, the value is its `.value` member, so a constant that
+/// carries its own doc sentence beside the number still quotes.
 fn constant(source: []const u8, name: []const u8, depth: u8) EvalError!Value {
     if (depth > 8) return error.ConstantChainTooDeep;
     const decl = declaration(source, name) orelse return error.ConstantNotFound;
     const eq = std.mem.indexOfScalarPos(u8, source, decl.start, '=') orelse return error.ConstantHasNoValue;
     const end = std.mem.indexOfAnyPos(u8, source, eq, if (decl.field) ",\n}" else ";") orelse return error.ConstantHasNoValue;
+    var expr = source[eq + 1 .. end];
+    if (std.mem.startsWith(u8, std.mem.trimStart(u8, expr, " \t\n"), ".{")) {
+        const member = std.mem.indexOf(u8, expr, ".value") orelse return error.ConstantHasNoValue;
+        const member_eq = std.mem.indexOfScalarPos(u8, expr, member, '=') orelse return error.ConstantHasNoValue;
+        const member_end = std.mem.indexOfAnyPos(u8, expr, member_eq, ",}") orelse return error.ConstantHasNoValue;
+        expr = expr[member_eq + 1 .. member_end];
+    }
     var result = Value{ .n = 1 };
-    var factors = std.mem.splitScalar(u8, source[eq + 1 .. end], '*');
+    var factors = std.mem.splitScalar(u8, expr, '*');
     while (factors.next()) |raw| {
         const factor = try term(source, std.mem.trim(u8, raw, " \t\n"), depth);
         result.n = std.math.mul(u64, result.n, factor.n) catch return error.ValueOverflows;
@@ -150,7 +159,8 @@ fn term(source: []const u8, text: []const u8, depth: u8) EvalError!Value {
     if (call(text, "Duration::from_millis(")) |inner| return .{ .n = try integer(inner), .millis = true };
     if (text.len > 0 and std.ascii.isDigit(text[0])) return .{ .n = try integer(text) };
     const last = if (std.mem.lastIndexOf(u8, text, "::")) |sep| text[sep + 2 ..] else text;
-    return constant(source, last, depth + 1);
+    const bare = if (std.mem.endsWith(u8, last, ".value")) last[0 .. last.len - ".value".len] else last;
+    return constant(source, bare, depth + 1);
 }
 
 fn call(text: []const u8, prefix: []const u8) ?[]const u8 {
@@ -220,6 +230,9 @@ test "constants evaluate through products, durations and names" {
         \\    call_bytes: usize = 16 * 1024,
         \\};
         \\pub const Inline = struct { max_names: usize = 16, max_fetches: usize = LINES_KEPT };
+        \\pub const Policy = struct { value: usize, doc: []const u8 };
+        \\pub const chunk: Policy = .{ .value = 64 * 1024, .doc = "Bytes per read." };
+        \\pub const relay_chunk: Policy = .{ .value = chunk.value, .doc = "The relay reads the same." };
     ;
     try std.testing.expectEqual(@as(u64, 500), (try constant(source, "LINES_KEPT", 0)).n);
     try std.testing.expectEqual(@as(u64, 1000), (try constant(source, "COMPACT_AT", 0)).n);
@@ -228,6 +241,8 @@ test "constants evaluate through products, durations and names" {
     try std.testing.expectEqual(@as(u64, 16384), (try constant(source, "call_bytes", 0)).n);
     try std.testing.expectEqual(@as(u64, 16), (try constant(source, "max_names", 0)).n);
     try std.testing.expectEqual(@as(u64, 500), (try constant(source, "max_fetches", 0)).n);
+    try std.testing.expectEqual(@as(u64, 65536), (try constant(source, "chunk", 0)).n);
+    try std.testing.expectEqual(@as(u64, 65536), (try constant(source, "relay_chunk", 0)).n);
     const gpa = std.testing.allocator;
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(gpa);

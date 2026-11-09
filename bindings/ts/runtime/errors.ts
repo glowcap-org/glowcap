@@ -50,6 +50,8 @@ export function abortDomainLabel(
 	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown abort domain ${domainNum}`);
 }
 
+/** An error carrying a glowcap ABI result `code`. `detail`, `abort`, and `carrierFailure` carry the diagnostic, the peer
+ * abort cause, and the carrier failure when they apply. */
 export class GlowcapError extends Error {
 	/** The thread-local diagnostic captured when this error was raised, if any. */
 	readonly detail: string | null;

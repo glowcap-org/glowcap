@@ -16,8 +16,13 @@ import { HOST_DURABLE_ENTROPY_LEN } from "@glowcap/abi";
 import { Context } from "./context.ts";
 import { type CaptpVersion, type Codec, type FeatureSet } from "./value.ts";
 
+/** The exact length in bytes of the durable entropy a Host accepts for minting swiss numbers, as the core defines it. */
 export const DURABLE_SWISS_ENTROPY_BYTES = HOST_DURABLE_ENTROPY_LEN;
+/** A coherent codec and CapTP version pair authored by the core. `interop` is the pair that speaks to other OCapN
+ * implementations, and `glowcap` is the pair for glowcap-to-glowcap peers. */
 export type HostProfile = "interop" | "glowcap";
+/** Options for constructing a `Host`. Choose a `profile`, or set `codec` and `captpVersion` directly, because a profile
+ * refuses either. `features`, `context`, `frameCap`, and `localTurnBudget` apply either way. */
 export interface HostOptions {
 	/** Select a core-authored coherent codec/version pair. */
 	profile?: HostProfile;
@@ -30,6 +35,8 @@ export interface HostOptions {
 }
 export type { SessionLimitOptions } from "./host/application.ts";
 
+import { HostDrive } from "./host/drive.ts";
+
 /** The CapTP host: one identity, one session directory, one routing and redeem
  * authority, shared by every session minted against it. Owns `engine.Node`
  * (the sans-io handoff router). The cross-host machinery lives in the Zig
@@ -37,9 +44,6 @@ export type { SessionLimitOptions } from "./host/application.ts";
  * over it: the `Session` registry, the vow table, the serialized action
  * drain that performs the I/O the host asks for (dial, flush, settle,
  * entropy), and explicitly installed byte-channel connectors. */
-
-import { HostDrive } from "./host/drive.ts";
-
 export class Host extends HostDrive {
 	constructor(seed?: Uint8Array, opts: HostOptions = {}) {
 		super(seed, opts);

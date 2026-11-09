@@ -22,6 +22,8 @@ import type { Codec, DriverLoop } from "@glowcap/runtime/transport";
 import { installProvider, type TlsTrust } from "./transport.ts";
 import { relayRoute } from "./route.ts";
 
+/** Options for opening a relay listener. `relayUrl` and `registerUrl` are required, and the remaining fields choose
+ * trust, codec, cancellation, and which Host or identity the listener uses. */
 export interface RelayListenOptions {
 	/** WebSocket URL peers dial through, carried in the announced locator. */
 	readonly relayUrl: string;

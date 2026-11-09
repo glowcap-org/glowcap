@@ -45,7 +45,9 @@ import {
 } from "@glowcap/abi";
 import { type DurableProvenance, provenanceFromAbi } from "./session/identity.ts";
 
+/** The wire codec of a traced session, either `syrup` or `capnp`. */
 export type TraceCodec = "syrup" | "capnp";
+/** The CapTP profile of a traced session, either the interop `1.0` or the glowcap-to-glowcap `glowcap-next`. */
 export type TraceCaptpVersion = "1.0" | "glowcap-next";
 
 /** One wire event in the versioned timeline schema. */
@@ -166,6 +168,8 @@ export const CAPTP_VERSION_WIRE = {
  * states a different word and must keep stating it. */
 const SELF_PROFILE = "glowcap";
 
+/** A function that receives each `TraceEvent` when the binding drains a Host's trace ring. A throw is journaled as an
+ * `application-observer` failure and does not propagate. */
 export type TraceSink = (ev: TraceEvent) => void;
 
 let sink: TraceSink | null = null;

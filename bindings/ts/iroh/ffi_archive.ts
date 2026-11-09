@@ -25,6 +25,8 @@ import {
 } from "@glowcap/runtime/ffi";
 import { irohS } from "./ffi.ts";
 
+/** Build an iroh `Locator` for the node with the given ID. Pass `directAddresses` to carry them in the locator's
+ * direct-addresses hint, so a dialer can reach the node without discovery. */
 export function locator(nodeId: string, directAddresses?: string): Locator {
 	return {
 		transport: TRANSPORT_IROH,

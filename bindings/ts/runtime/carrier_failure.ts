@@ -14,6 +14,7 @@ import {
 } from "@glowcap/abi";
 import { GlowcapError } from "./errors.ts";
 
+/** The stage of a carrier connection at which a transport failure occurred, from `resolve` through `shutdown`. */
 export type CarrierPhase =
 	| "resolve"
 	| "connect"
@@ -24,6 +25,9 @@ export type CarrierPhase =
 	| "transmit"
 	| "shutdown";
 
+/** Carrier-level detail attached to a `GlowcapError` that came from a transport. It names the `phase`, the neutral
+ * certificate `verificationFlags`, the TLS alert byte the peer sent as `peerAlert`, and the carrier engine's private
+ * failure code as `engineCode`, with `null` where none applies. */
 export interface CarrierFailure {
 	readonly phase: CarrierPhase;
 	readonly verificationFlags: number;

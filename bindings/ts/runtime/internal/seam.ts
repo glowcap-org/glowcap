@@ -11,8 +11,8 @@ import { ocapnS as s } from "./ffi/ocapn.ts";
 import { ffi, net, type NetConn, type NetListener, NULL, type Ptr } from "./ffi/runtime.ts";
 import { L } from "./layout.ts";
 
-// Our buffers are always ArrayBuffer-backed; this bridges Deno's FFI/pointer
-// BufferSource typing, which rejects the `Uint8Array<ArrayBufferLike>` generic.
+/** Narrow a `Uint8Array` to an `ArrayBuffer`-backed one, because Deno's FFI typing rejects the `ArrayBufferLike`
+ * generic and every buffer here is `ArrayBuffer`-backed. It returns the same array and copies nothing. */
 export function ab(b: Uint8Array): Uint8Array<ArrayBuffer> {
 	return b as Uint8Array<ArrayBuffer>;
 }

@@ -20,6 +20,7 @@ const MAX_PENDING_ICE_CANDIDATES = WEBRTC_MAX_PENDING_ICE_CANDIDATES;
 const MAX_ICE_CANDIDATE_BYTES = WEBRTC_MAX_ICE_CANDIDATE_BYTES;
 const MAX_PENDING_ICE_CANDIDATE_BYTES = WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES;
 
+/** Options for creating an `RtcPeer`. `offerer` picks the role, and `iceServers` supplies STUN or TURN servers. */
 export interface RtcPeerInit {
 	/** The offerer creates the data channel and the SDP offer; the answerer
 	 * receives the channel and produces the answer. */
@@ -71,6 +72,8 @@ function snapshotCandidate(value: unknown): IceCandidateSnapshot {
 	return { candidate: snapshot, textBytes };
 }
 
+/** One side of a WebRTC data-channel connection. The caller ferries SDP and ICE candidates to the far peer, waits for
+ * the channel to open, then takes the `Channel` a keyed session runs over. */
 export class RtcPeer {
 	readonly #pc: RTCPeerConnection;
 	#dc: RTCDataChannel | null = null;

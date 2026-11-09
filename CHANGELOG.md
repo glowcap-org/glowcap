@@ -24,6 +24,10 @@ and storage formats before 1.0.
 
 ### Changed
 
+- Every exported symbol of the nine `@glowcap` JSR packages carries a doc
+  comment, including the generated C ABI constants and struct layouts, so
+  each package's documentation score on jsr.io reports no undocumented
+  symbol.
 - A page with no Rooms server asks for one only for an address the browser
   cannot open itself, and says which listener failed when one did. A relay
   that does not answer is named on the join card.

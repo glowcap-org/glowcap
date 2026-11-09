@@ -10,7 +10,6 @@
 export * from "@glowcap/abi";
 export * from "./abi.ts";
 
-// Cycle break message when a local Forward chain exceeds MAX_LOCAL_FORWARD_HOPS
-// (from abi.ts / GLOWCAP_MAX_LOCAL_FORWARD_HOPS). Binding-local string, not a
-// C ABI constant.
+/** The error message raised when a local Forward chain exceeds `MAX_LOCAL_FORWARD_HOPS`. It is a binding-local string,
+ * not a C ABI constant. */
 export const FORWARD_CYCLE_MESSAGE = "forward cycle: the local forward chain never terminates";

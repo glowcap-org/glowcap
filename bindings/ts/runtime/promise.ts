@@ -362,6 +362,21 @@ export function sendFar(
 	return promiseFor(h, vow);
 }
 
+/** The state of a `RemotePromise`: `far`, `observer`, `local`, or `failed`. */
+export type PromiseState =
+	| { readonly tag: "far"; readonly vow: bigint; readonly hostOwner: VowOutcomeOwner }
+	| { readonly tag: "observer"; readonly vow: bigint; readonly hostOwner: VowOutcomeOwner }
+	// A local result borrows its wrappers. This bit carries selection only to
+	// a fresh native operation reached through Forward, without a new adapter.
+	| { readonly tag: "local"; trackGc: boolean }
+	// A send that could not be issued at all (a closed session, an argument
+	// that would not lower). It is a state rather than a thrown error because
+	// `send` must return its handle *synchronously*, so pipelining can project
+	// at the answer before it settles (ADR-0004). Throwing instead would put a
+	// synchronous failure channel on a promise-returning method, and a caller's
+	// `.catch` could not see it.
+	| { readonly tag: "failed"; readonly error: unknown };
+
 /** The handle `Session.send` returns: the eventual result of one eventual-send,
  * and (the point of promise pipelining, ADR-0003) a target you can `send` to
  * before it resolves.
@@ -391,20 +406,6 @@ export function sendFar(
  * each returns a new `RemotePromise` for the projected value, addressed at this
  * answer, so `task.untag("cell").index(0)` or `task.get("name")` costs no
  * extra round trip. */
-export type PromiseState =
-	| { readonly tag: "far"; readonly vow: bigint; readonly hostOwner: VowOutcomeOwner }
-	| { readonly tag: "observer"; readonly vow: bigint; readonly hostOwner: VowOutcomeOwner }
-	// A local result borrows its wrappers. This bit carries selection only to
-	// a fresh native operation reached through Forward, without a new adapter.
-	| { readonly tag: "local"; trackGc: boolean }
-	// A send that could not be issued at all (a closed session, an argument
-	// that would not lower). It is a state rather than a thrown error because
-	// `send` must return its handle *synchronously*, so pipelining can project
-	// at the answer before it settles (ADR-0004). Throwing instead would put a
-	// synchronous failure channel on a promise-returning method, and a caller's
-	// `.catch` could not see it.
-	| { readonly tag: "failed"; readonly error: unknown };
-
 export class RemotePromise extends Promise<Argument> {
 	/** A promise is a passable send argument in any state (ADR-0068). */
 	readonly [promiseArgument]: true = true;

@@ -50,12 +50,16 @@ function reportLateFailure(recipient: LateFailureRecipient, error: unknown): voi
  * mandatory whenever a signal can win: a late rejection has no return caller,
  * and a late value owner may itself refuse. */
 export function abortable<T>(pending: Promise<T>): Promise<T>;
+/** Race `pending` against `signal`, rejecting when the signal aborts. `onLateFailure` receives a rejection that arrives
+ * after cancellation, and `onLateValue` takes ownership of a value that does. A `signal` with no `onLateFailure` is a
+ * `TypeError`, because a late outcome would have no owner. */
 export function abortable<T>(
 	pending: Promise<T>,
 	signal: AbortSignal | undefined,
 	onLateFailure: LateFailureRecipient,
 	onLateValue?: LateValueOwner<T>,
 ): Promise<T>;
+/** This implementation serves both overloads. */
 export async function abortable<T>(
 	pending: Promise<T>,
 	signal?: AbortSignal,

@@ -41,6 +41,8 @@ export type WasmSource =
 	| Response
 	| Promise<Response>;
 
+/** Options for the browser's managed default Runtime. They choose its wire profile, identity seed, extra byte
+ * connectors, and handshake budget. */
 export interface WebRuntimeOptions {
 	/** Core-authored coherent codec/version pair. */
 	profile?: HostProfile;
@@ -58,6 +60,8 @@ export interface WebRuntimeOptions {
 	handshakeTimeoutMs?: number | null;
 }
 
+/** Options for `init`. `wasm` supplies the core module, and the inherited runtime options configure the managed
+ * Runtime. */
 export interface WebInitOptions extends WebRuntimeOptions {
 	/** The `glowcap_host.wasm` module: compiled module, raw bytes, or a
 	 * `fetch` response (streamed when the host supports it). */

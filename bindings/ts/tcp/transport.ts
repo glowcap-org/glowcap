@@ -41,16 +41,22 @@ import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_T
 
 const OK = 0;
 
+/** TCP keepalive settings. `idleSeconds` is the idle time before the first probe, `intervalSeconds` the gap between
+ * probes, and `count` the unanswered probes that end the connection. All three zero turns keepalive off, and a mix of
+ * zero and nonzero values is refused. */
 export interface Keepalive {
 	readonly idleSeconds: number;
 	readonly intervalSeconds: number;
 	readonly count: number;
 }
 
+/** Socket-level options applied to every dialed or accepted TCP stream. */
 export interface StreamOptions {
 	readonly keepalive?: Keepalive;
 }
 
+/** Provider-wide TCP configuration, inherited by every dialed or accepted stream. A dial's `OperationOptions` can
+ * override it. */
 export interface Config {
 	readonly stream?: StreamOptions;
 }

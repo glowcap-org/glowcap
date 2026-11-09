@@ -43,6 +43,8 @@ import { dialUrl, routeFromLocator } from "./route.ts";
 const OK = 0;
 const encoder = new TextEncoder();
 
+/** Options for installing the relay provider. `relayUrl` serves outbound legs, and `registerUrl` is set only when the
+ * provider also hosts listeners. */
 export interface RelayOptions {
 	/** WebSocket URL used for outbound relay legs. */
 	readonly relayUrl: string;
@@ -55,6 +57,8 @@ export interface RelayOptions {
 	readonly trust?: TlsTrust;
 }
 
+/** Which certificate authorities a WSS open trusts. `system` uses the platform trust store, and `copied-pem` trusts the
+ * PEM-encoded certificates in `pem`, which the archive copies when the provider is installed. */
 export type TlsTrust =
 	| { readonly kind: "system" }
 	| { readonly kind: "copied-pem"; readonly pem: Uint8Array };

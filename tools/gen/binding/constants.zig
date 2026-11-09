@@ -280,23 +280,23 @@ const constants = [_]Const{
     con("WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES", cw.GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES, .usize, null),
     con("WEBRTC_DATA_CHANNEL_QUEUE_BYTES", cw.GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES, .usize, null),
     // Binding-only policy shared by async bindings.
-    con("BINDING_UNOBSERVED_OUTCOME_CAP", binding_policy.unobserved_outcome_cap, .usize, null),
-    con("BINDING_READINESS_DRAIN_CAP", binding_policy.readiness_drain_cap, .usize, null),
-    con("BINDING_STREAM_READ_CHUNK_BYTES", binding_policy.stream_read_chunk_bytes, .usize, null),
+    con("BINDING_UNOBSERVED_OUTCOME_CAP", binding_policy.unobserved_outcome_cap.value, .usize, null),
+    con("BINDING_READINESS_DRAIN_CAP", binding_policy.readiness_drain_cap.value, .usize, null),
+    con("BINDING_STREAM_READ_CHUNK_BYTES", binding_policy.stream_read_chunk_bytes.value, .usize, null),
     con("BINDING_IROH_READ_CHUNK_BYTES", ci.GLOWCAP_IROH_READ_CHUNK_BYTES, .usize, null),
-    con("BINDING_TRACE_PAYLOAD_CAP_BYTES", binding_policy.trace_payload_cap_bytes, .usize, null),
-    con("BINDING_SECONDARY_FAILURE_CAP", binding_policy.secondary_failure_cap, .usize, null),
-    con("BINDING_RELAY_IDLE_TIMEOUT_MS", binding_policy.relay_idle_timeout_ms, .usize, null),
-    con("BINDING_RELAY_MAX_BYTES_PER_SESSION", binding_policy.relay_max_bytes_per_session, .usize, null),
-    con("BINDING_RELAY_READ_CHUNK_BYTES", binding_policy.relay_read_chunk_bytes, .usize, null),
-    con("BINDING_RELAY_TCP_DIAL_TIMEOUT_MS", binding_policy.relay_tcp_dial_timeout_ms, .usize, null),
-    con("BINDING_RELAY_WEBSOCKET_BUFFER_BYTES", binding_policy.relay_websocket_buffer_bytes, .usize, null),
-    con("BINDING_WEBSOCKET_MESSAGE_CAP_BYTES", binding_policy.websocket_message_cap_bytes, .usize, null),
-    con("BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES", binding_policy.websocket_send_high_water_bytes, .usize, null),
-    con("BINDING_WEBSOCKET_DRAIN_POLL_MS", binding_policy.websocket_drain_poll_ms, .usize, null),
-    con("BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS", binding_policy.websocket_close_timeout_ms, .usize, null),
-    con("BINDING_BROWSER_CHANNEL_CLOSE_TIMEOUT_MS", binding_policy.browser_channel_close_timeout_ms, .usize, null),
-    con("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", binding_policy.websocket_inbound_high_water_bytes, .usize, null),
+    con("BINDING_TRACE_PAYLOAD_CAP_BYTES", binding_policy.trace_payload_cap_bytes.value, .usize, null),
+    con("BINDING_SECONDARY_FAILURE_CAP", binding_policy.secondary_failure_cap.value, .usize, null),
+    con("BINDING_RELAY_IDLE_TIMEOUT_MS", binding_policy.relay_idle_timeout_ms.value, .usize, null),
+    con("BINDING_RELAY_MAX_BYTES_PER_SESSION", binding_policy.relay_max_bytes_per_session.value, .usize, null),
+    con("BINDING_RELAY_READ_CHUNK_BYTES", binding_policy.relay_read_chunk_bytes.value, .usize, null),
+    con("BINDING_RELAY_TCP_DIAL_TIMEOUT_MS", binding_policy.relay_tcp_dial_timeout_ms.value, .usize, null),
+    con("BINDING_RELAY_WEBSOCKET_BUFFER_BYTES", binding_policy.relay_websocket_buffer_bytes.value, .usize, null),
+    con("BINDING_WEBSOCKET_MESSAGE_CAP_BYTES", binding_policy.websocket_message_cap_bytes.value, .usize, null),
+    con("BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES", binding_policy.websocket_send_high_water_bytes.value, .usize, null),
+    con("BINDING_WEBSOCKET_DRAIN_POLL_MS", binding_policy.websocket_drain_poll_ms.value, .usize, null),
+    con("BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS", binding_policy.websocket_close_timeout_ms.value, .usize, null),
+    con("BINDING_BROWSER_CHANNEL_CLOSE_TIMEOUT_MS", binding_policy.browser_channel_close_timeout_ms.value, .usize, null),
+    con("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", binding_policy.websocket_inbound_high_water_bytes.value, .usize, null),
 };
 
 fn isReturnCode(k: Const) bool {
@@ -359,11 +359,11 @@ fn generateRustRelay(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\
     );
-    try out.print(gpa, "pub const RELAY_IDLE_TIMEOUT_MS: u64 = {d};\n", .{binding_policy.relay_idle_timeout_ms});
-    try out.print(gpa, "pub const RELAY_MAX_BYTES_PER_SESSION: usize = {d};\n", .{binding_policy.relay_max_bytes_per_session});
-    try out.print(gpa, "pub const RELAY_READ_CHUNK_BYTES: usize = {d};\n", .{binding_policy.relay_read_chunk_bytes});
-    try out.print(gpa, "pub const RELAY_WEBSOCKET_BUFFER_BYTES: usize = {d};\n", .{binding_policy.relay_websocket_buffer_bytes});
-    try out.print(gpa, "pub const WEBSOCKET_MESSAGE_CAP_BYTES: usize = {d};\n", .{binding_policy.websocket_message_cap_bytes});
+    try out.print(gpa, "pub const RELAY_IDLE_TIMEOUT_MS: u64 = {d};\n", .{binding_policy.relay_idle_timeout_ms.value});
+    try out.print(gpa, "pub const RELAY_MAX_BYTES_PER_SESSION: usize = {d};\n", .{binding_policy.relay_max_bytes_per_session.value});
+    try out.print(gpa, "pub const RELAY_READ_CHUNK_BYTES: usize = {d};\n", .{binding_policy.relay_read_chunk_bytes.value});
+    try out.print(gpa, "pub const RELAY_WEBSOCKET_BUFFER_BYTES: usize = {d};\n", .{binding_policy.relay_websocket_buffer_bytes.value});
+    try out.print(gpa, "pub const WEBSOCKET_MESSAGE_CAP_BYTES: usize = {d};\n", .{binding_policy.websocket_message_cap_bytes.value});
     return out.toOwnedSlice(gpa);
 }
 

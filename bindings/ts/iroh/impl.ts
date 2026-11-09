@@ -29,6 +29,8 @@ import { type IrohConfig, IrohConnection, IrohNetlayer } from "./ffi_archive.ts"
 export { Reachability } from "@glowcap/runtime";
 export { type IrohConfig, IrohConnection, IrohNetlayer, locator } from "./ffi_archive.ts";
 
+/** Options for listening over iroh. Supply either a `seed` to reuse an identity across restarts or an existing `host` to
+ * share its session directory, never both. */
 export type ListenOptions =
 	| {
 		/** Reuse this 32-byte identity seed across restarts. */

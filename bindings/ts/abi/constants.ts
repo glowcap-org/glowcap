@@ -6,236 +6,460 @@
 
 // ── Constants (values mirror src/c_abi declarations) ─────────────────────
 
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_OK`. */
 export const OK = 0;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_INVALID_ARGUMENT`. */
 export const INVALID_ARGUMENT = -2;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_CODEC`. */
 export const CODEC = -4;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_INTERNAL`. */
 export const INTERNAL = -5;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_WOULD_BLOCK`. */
 export const WOULD_BLOCK = -6;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_CLOSED`. */
 export const CLOSED = -7;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_IO`. */
 export const IO = -8;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_FRAME_TOO_LARGE`. */
 export const FRAME_TOO_LARGE = -10;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_BUFFER_TOO_SMALL`. */
 export const BUFFER_TOO_SMALL = -14;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_NOT_FOUND`. */
 export const NOT_FOUND = -13;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_UNSUPPORTED_VALUE`. */
 export const UNSUPPORTED_VALUE = -11;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_BROKEN`. */
 export const BROKEN = -12;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_TIMEOUT`. */
 export const TIMEOUT = -15;
+/** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_CORE`. */
 export const FAILURE_LAYER_CORE = 0;
+/** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_DRIVER`. */
 export const FAILURE_LAYER_DRIVER = 1;
+/** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_TRANSPORT`. */
 export const FAILURE_LAYER_TRANSPORT = 2;
+/** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_BINDING`. */
 export const FAILURE_LAYER_BINDING = 3;
+/** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_APPLICATION_OBSERVER`. */
 export const FAILURE_LAYER_APPLICATION_OBSERVER = 4;
+/** A `GlowcapFailureReport.scope` value: the owner a journaled failure belongs to. Mirrors `GLOWCAP_FAILURE_SCOPE_PROCESS`. */
 export const FAILURE_SCOPE_PROCESS = 0;
+/** A `GlowcapFailureReport.scope` value: the owner a journaled failure belongs to. Mirrors `GLOWCAP_FAILURE_SCOPE_CONTEXT`. */
 export const FAILURE_SCOPE_CONTEXT = 1;
+/** A `GlowcapFailureReport.scope` value: the owner a journaled failure belongs to. Mirrors `GLOWCAP_FAILURE_SCOPE_HOST`. */
 export const FAILURE_SCOPE_HOST = 2;
+/** A `GlowcapFailureReport.scope` value: the owner a journaled failure belongs to. Mirrors `GLOWCAP_FAILURE_SCOPE_SESSION`. */
 export const FAILURE_SCOPE_SESSION = 3;
+/** A `GlowcapFailureReport.scope` value: the owner a journaled failure belongs to. Mirrors `GLOWCAP_FAILURE_SCOPE_LISTENER`. */
 export const FAILURE_SCOPE_LISTENER = 4;
+/** A `GlowcapFailureReport.scope` value: the owner a journaled failure belongs to. Mirrors `GLOWCAP_FAILURE_SCOPE_TRANSPORT`. */
 export const FAILURE_SCOPE_TRANSPORT = 5;
+/** A `GlowcapFailureReport.scope` value: the owner a journaled failure belongs to. Mirrors `GLOWCAP_FAILURE_SCOPE_OPERATION`. */
 export const FAILURE_SCOPE_OPERATION = 6;
+/** A default bound of the failure journal: how many reports it keeps, and how many payload bytes each keeps. Mirrors `GLOWCAP_DEFAULT_FAILURE_CAPACITY`. */
 export const DEFAULT_FAILURE_CAPACITY = 64;
+/** A default bound of the failure journal: how many reports it keeps, and how many payload bytes each keeps. Mirrors `GLOWCAP_DEFAULT_FAILURE_PAYLOAD_CAP`. */
 export const DEFAULT_FAILURE_PAYLOAD_CAP = 512;
+/** A `GlowcapFrame.shape` value: byte-addressed storage, or 8-byte-word storage. Mirrors `GLOWCAP_FRAME_SHAPE_BYTE`. */
 export const FRAME_SHAPE_BYTE = 0;
+/** A `GlowcapFrame.shape` value: byte-addressed storage, or 8-byte-word storage. Mirrors `GLOWCAP_FRAME_SHAPE_WORD`. */
 export const FRAME_SHAPE_WORD = 1;
+/** A `GlowcapHostAction.kind` value: one effect the byte-fed host (libglowcap_host) asks its embedder to perform. Mirrors `GLOWCAP_HOST_ACTION_DIAL`. */
 export const HOST_ACTION_DIAL = 0;
+/** A `GlowcapHostAction.kind` value: one effect the byte-fed host (libglowcap_host) asks its embedder to perform. Mirrors `GLOWCAP_HOST_ACTION_FLUSH`. */
 export const HOST_ACTION_FLUSH = 1;
+/** A `GlowcapHostAction.kind` value: one effect the byte-fed host (libglowcap_host) asks its embedder to perform. Mirrors `GLOWCAP_HOST_ACTION_NEED_GIFT_ID`. */
 export const HOST_ACTION_NEED_GIFT_ID = 2;
+/** A `GlowcapHostAction.kind` value: one effect the byte-fed host (libglowcap_host) asks its embedder to perform. Mirrors `GLOWCAP_HOST_ACTION_SETTLE`. */
 export const HOST_ACTION_SETTLE = 3;
+/** A `GlowcapHostAction.kind` value: one effect the byte-fed host (libglowcap_host) asks its embedder to perform. Mirrors `GLOWCAP_HOST_ACTION_FAIL`. */
 export const HOST_ACTION_FAIL = 4;
+/** A `GlowcapHostAction.kind` value: one effect the byte-fed host (libglowcap_host) asks its embedder to perform. Mirrors `GLOWCAP_HOST_ACTION_CLOSE`. */
 export const HOST_ACTION_CLOSE = 5;
+/** A `GlowcapHostAction.kind` value: one effect the byte-fed host (libglowcap_host) asks its embedder to perform. Mirrors `GLOWCAP_HOST_ACTION_RESUME`. */
 export const HOST_ACTION_RESUME = 6;
+/** A `GlowcapHostAction.kind` value: one effect the byte-fed host (libglowcap_host) asks its embedder to perform. Mirrors `GLOWCAP_HOST_ACTION_CANCEL_DIAL`. */
 export const HOST_ACTION_CANCEL_DIAL = 7;
+/** A `GlowcapCloseOptions.pending` value: whether a close cancels admitted work or finishes it before the terminal close. Mirrors `GLOWCAP_PENDING_CANCEL`. */
 export const PENDING_CANCEL = 0;
+/** A `GlowcapCloseOptions.pending` value: whether a close cancels admitted work or finishes it before the terminal close. Mirrors `GLOWCAP_PENDING_FINISH`. */
 export const PENDING_FINISH = 1;
+/** A lifecycle state of a Host, driver loop, or driver session, from admitting work to past its close barrier. Mirrors `GLOWCAP_LIFECYCLE_ACTIVE`. */
 export const LIFECYCLE_ACTIVE = 0;
+/** A lifecycle state of a Host, driver loop, or driver session, from admitting work to past its close barrier. Mirrors `GLOWCAP_LIFECYCLE_FINISHING`. */
 export const LIFECYCLE_FINISHING = 1;
+/** A lifecycle state of a Host, driver loop, or driver session, from admitting work to past its close barrier. Mirrors `GLOWCAP_LIFECYCLE_TERMINATING`. */
 export const LIFECYCLE_TERMINATING = 2;
+/** A lifecycle state of a Host, driver loop, or driver session, from admitting work to past its close barrier. Mirrors `GLOWCAP_LIFECYCLE_CLOSED`. */
 export const LIFECYCLE_CLOSED = 3;
+/** A `GlowcapCloseOptions` version, grace mode, or grace bound for closing a host-owned object. Mirrors `GLOWCAP_CLOSE_OPTIONS_ABI_VERSION`. */
 export const CLOSE_OPTIONS_ABI_VERSION = 1;
+/** A `GlowcapCloseOptions` version, grace mode, or grace bound for closing a host-owned object. Mirrors `GLOWCAP_CLOSE_MAX_GRACE_MS`. */
 export const CLOSE_MAX_GRACE_MS = 4294967295;
+/** A `GlowcapCloseOptions` version, grace mode, or grace bound for closing a host-owned object. Mirrors `GLOWCAP_CLOSE_GRACE_UNSPECIFIED`. */
 export const CLOSE_GRACE_UNSPECIFIED = 0;
+/** A `GlowcapCloseOptions` version, grace mode, or grace bound for closing a host-owned object. Mirrors `GLOWCAP_CLOSE_GRACE_FINITE`. */
 export const CLOSE_GRACE_FINITE = 1;
+/** A `GlowcapCloseOptions` version, grace mode, or grace bound for closing a host-owned object. Mirrors `GLOWCAP_CLOSE_GRACE_UNBOUNDED`. */
 export const CLOSE_GRACE_UNBOUNDED = 2;
+/** The `GlowcapSessionLimitOptions.abi_version` the host expects. Mirrors `GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION`. */
 export const SESSION_LIMIT_OPTIONS_ABI_VERSION = 1;
+/** A default maximum frame size in bytes: the host's protocol admission cap, or the raw transport shuttle cap. Mirrors `GLOWCAP_DEFAULT_FRAME_CAP`. */
 export const DEFAULT_FRAME_CAP = 1048576;
+/** A default maximum frame size in bytes: the host's protocol admission cap, or the raw transport shuttle cap. Mirrors `GLOWCAP_RAW_TRANSPORT_DEFAULT_FRAME_CAP`. */
 export const RAW_TRANSPORT_DEFAULT_FRAME_CAP = 4096;
+/** A host default or bound (libglowcap_host) for forwarding, handshakes, accepts, and discovery dials. Mirrors `GLOWCAP_MAX_LOCAL_FORWARD_HOPS`. */
 export const MAX_LOCAL_FORWARD_HOPS = 256;
+/** A host default or bound (libglowcap_host) for forwarding, handshakes, accepts, and discovery dials. Mirrors `GLOWCAP_HANDSHAKE_TIMEOUT_MS`. */
 export const HANDSHAKE_TIMEOUT_MS = 10000;
+/** A host default or bound (libglowcap_host) for forwarding, handshakes, accepts, and discovery dials. Mirrors `GLOWCAP_DEFAULT_PENDING_ACCEPTS`. */
 export const DEFAULT_PENDING_ACCEPTS = 128;
+/** A host default or bound (libglowcap_host) for forwarding, handshakes, accepts, and discovery dials. Mirrors `GLOWCAP_DEFAULT_HANDSHAKE_CONCURRENCY`. */
 export const DEFAULT_HANDSHAKE_CONCURRENCY = 16;
+/** A host default or bound (libglowcap_host) for forwarding, handshakes, accepts, and discovery dials. Mirrors `GLOWCAP_MAX_HANDSHAKE_CONCURRENCY`. */
 export const MAX_HANDSHAKE_CONCURRENCY = 32;
+/** A host default or bound (libglowcap_host) for forwarding, handshakes, accepts, and discovery dials. Mirrors `GLOWCAP_DISCOVERY_DIAL_RETRY_MS`. */
 export const DISCOVERY_DIAL_RETRY_MS = 3000;
+/** A host default or bound (libglowcap_host) for forwarding, handshakes, accepts, and discovery dials. Mirrors `GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS`. */
 export const DISCOVERY_DIAL_MAX_ATTEMPTS = 24;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_OPTIONS_ABI_VERSION`. */
 export const DRIVER_OPTIONS_ABI_VERSION = 1;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_FAILURE_ABI_VERSION`. */
 export const DRIVER_FAILURE_ABI_VERSION = 2;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_MAX_WAIT_MS`. */
 export const DRIVER_MAX_WAIT_MS = 2147483647;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_WAIT_UNBOUNDED`. */
 export const DRIVER_WAIT_UNBOUNDED = 0;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES`. */
 export const DRIVER_DEFAULT_WIRE_BUFFER_BYTES = 16384;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS`. */
 export const DRIVER_DEFAULT_MAX_PENDING_OPENS = 256;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS`. */
 export const DRIVER_DEFAULT_HANDSHAKE_MS = 10000;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS`. */
 export const DRIVER_DEFAULT_LISTENER_SETUP_MS = 10000;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_DEFAULT_SETTLE_MS`. */
 export const DRIVER_DEFAULT_SETTLE_MS = 10000;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS`. */
 export const DRIVER_DEFAULT_BUSY_POLL_NS = 0;
+/** A driver loop options or failure layout version, default, or bound (libglowcap_driver). Mirrors `GLOWCAP_DRIVER_MAX_BUSY_POLL_NS`. */
 export const DRIVER_MAX_BUSY_POLL_NS = 100000000;
+/** A `GlowcapTraceEvent` kind, or the digest length a trace event carries (libglowcap_host). Mirrors `GLOWCAP_TRACE_SESSION_OPEN`. */
 export const TRACE_SESSION_OPEN = 0;
+/** A `GlowcapTraceEvent` kind, or the digest length a trace event carries (libglowcap_host). Mirrors `GLOWCAP_TRACE_MESSAGE`. */
 export const TRACE_MESSAGE = 1;
+/** A `GlowcapTraceEvent` kind, or the digest length a trace event carries (libglowcap_host). Mirrors `GLOWCAP_TRACE_SESSION_CLOSE`. */
 export const TRACE_SESSION_CLOSE = 2;
+/** A `GlowcapTraceEvent` kind, or the digest length a trace event carries (libglowcap_host). Mirrors `GLOWCAP_TRACE_DIGEST_BYTES`. */
 export const TRACE_DIGEST_BYTES = 16;
+/** A `GlowcapTransportProfile.designator_scheme` value: whether a transport's locator designator is a dialable address or a peer key. Mirrors `GLOWCAP_DESIGNATOR_SCHEME_ADDRESS`. */
 export const DESIGNATOR_SCHEME_ADDRESS = 0;
+/** A `GlowcapTransportProfile.designator_scheme` value: whether a transport's locator designator is a dialable address or a peer key. Mirrors `GLOWCAP_DESIGNATOR_SCHEME_KEY`. */
 export const DESIGNATOR_SCHEME_KEY = 1;
+/** A host outbound buffer capacity, or a durable swiss-number entropy or length, in bytes (libglowcap_host). Mirrors `GLOWCAP_HOST_OUTBOUND_PREFIX_CAP`. */
 export const HOST_OUTBOUND_PREFIX_CAP = 32;
+/** A host outbound buffer capacity, or a durable swiss-number entropy or length, in bytes (libglowcap_host). Mirrors `GLOWCAP_HOST_DURABLE_ENTROPY_LEN`. */
 export const HOST_DURABLE_ENTROPY_LEN = 16;
+/** A host outbound buffer capacity, or a durable swiss-number entropy or length, in bytes (libglowcap_host). Mirrors `GLOWCAP_HOST_DURABLE_SWISS_LEN`. */
 export const HOST_DURABLE_SWISS_LEN = 50;
+/** A `GlowcapDriverEvent.kind` value from the driver archive's event queue (libglowcap_driver, ADR-0024). Mirrors `GLOWCAP_DRIVER_EVENT_OPENED`. */
 export const DRIVER_EVENT_OPENED = 0;
+/** A `GlowcapDriverEvent.kind` value from the driver archive's event queue (libglowcap_driver, ADR-0024). Mirrors `GLOWCAP_DRIVER_EVENT_OPEN_FAILED`. */
 export const DRIVER_EVENT_OPEN_FAILED = 1;
+/** A `GlowcapDriverEvent.kind` value from the driver archive's event queue (libglowcap_driver, ADR-0024). Mirrors `GLOWCAP_DRIVER_EVENT_ACCEPTED`. */
 export const DRIVER_EVENT_ACCEPTED = 2;
+/** A `GlowcapDriverEvent.kind` value from the driver archive's event queue (libglowcap_driver, ADR-0024). Mirrors `GLOWCAP_DRIVER_EVENT_SESSION_CLOSED`. */
 export const DRIVER_EVENT_SESSION_CLOSED = 3;
+/** A `GlowcapDriverEvent.kind` value from the driver archive's event queue (libglowcap_driver, ADR-0024). Mirrors `GLOWCAP_DRIVER_EVENT_COMPLETION`. */
 export const DRIVER_EVENT_COMPLETION = 4;
+/** A `GlowcapDriverEvent.kind` value from the driver archive's event queue (libglowcap_driver, ADR-0024). Mirrors `GLOWCAP_DRIVER_EVENT_LISTENER_READY`. */
 export const DRIVER_EVENT_LISTENER_READY = 5;
+/** A `GlowcapDriverEvent.kind` value from the driver archive's event queue (libglowcap_driver, ADR-0024). Mirrors `GLOWCAP_DRIVER_EVENT_LISTENER_FAILED`. */
 export const DRIVER_EVENT_LISTENER_FAILED = 6;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_NONE`. */
 export const CARRIER_PHASE_NONE = 0;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_RESOLVE`. */
 export const CARRIER_PHASE_RESOLVE = 1;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_CONNECT`. */
 export const CARRIER_PHASE_CONNECT = 2;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_SECURE_HANDSHAKE`. */
 export const CARRIER_PHASE_SECURE_HANDSHAKE = 3;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_WEBSOCKET_UPGRADE`. */
 export const CARRIER_PHASE_WEBSOCKET_UPGRADE = 4;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_REGISTRATION`. */
 export const CARRIER_PHASE_REGISTRATION = 5;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_RECEIVE`. */
 export const CARRIER_PHASE_RECEIVE = 6;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_TRANSMIT`. */
 export const CARRIER_PHASE_TRANSMIT = 7;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_PHASE_SHUTDOWN`. */
 export const CARRIER_PHASE_SHUTDOWN = 8;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_DETAIL_PEER_ALERT`. */
 export const CARRIER_DETAIL_PEER_ALERT = 1;
+/** A `GlowcapDriverFailure` carrier phase, or a detail flag saying which carrier detail fields are present. Mirrors `GLOWCAP_CARRIER_DETAIL_ENGINE_CODE`. */
 export const CARRIER_DETAIL_ENGINE_CODE = 2;
+/** How the driver loop adopted a session: this side dialed it, or a listener accepted it. Mirrors `GLOWCAP_DRIVER_ADOPT_DIALED`. */
 export const DRIVER_ADOPT_DIALED = 0;
+/** How the driver loop adopted a session: this side dialed it, or a listener accepted it. Mirrors `GLOWCAP_DRIVER_ADOPT_ACCEPTED`. */
 export const DRIVER_ADOPT_ACCEPTED = 1;
+/** A `GlowcapLocatorView` version, a hint value kind, or the wire form of a locator's hint set. Mirrors `GLOWCAP_LOCATOR_VIEW_ABI_VERSION`. */
 export const LOCATOR_VIEW_ABI_VERSION = 1;
+/** A `GlowcapLocatorView` version, a hint value kind, or the wire form of a locator's hint set. Mirrors `GLOWCAP_HINT_STRING`. */
 export const HINT_STRING = 1;
+/** A `GlowcapLocatorView` version, a hint value kind, or the wire form of a locator's hint set. Mirrors `GLOWCAP_HINT_BYTES`. */
 export const HINT_BYTES = 2;
+/** A `GlowcapLocatorView` version, a hint value kind, or the wire form of a locator's hint set. Mirrors `GLOWCAP_HINT_BOOLEAN`. */
 export const HINT_BOOLEAN = 3;
+/** A `GlowcapLocatorView` version, a hint value kind, or the wire form of a locator's hint set. Mirrors `GLOWCAP_HINT_INTEGER`. */
 export const HINT_INTEGER = 4;
+/** A `GlowcapLocatorView` version, a hint value kind, or the wire form of a locator's hint set. Mirrors `GLOWCAP_HINTS_MAP`. */
 export const HINTS_MAP = 0;
+/** A `GlowcapLocatorView` version, a hint value kind, or the wire form of a locator's hint set. Mirrors `GLOWCAP_HINTS_BOOLEAN_FALSE`. */
 export const HINTS_BOOLEAN_FALSE = 1;
+/** A `GlowcapPartnerIdentity.provenance` value: how the partner's advertised durable identity was authenticated (ADR-0028). Mirrors `GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT`. */
 export const DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT = 0;
+/** A `GlowcapPartnerIdentity.provenance` value: how the partner's advertised durable identity was authenticated (ADR-0028). Mirrors `GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED`. */
 export const DURABLE_PROVENANCE_UNAUTHENTICATED = 1;
+/** An onion transport control-port authentication mode, an onion service id length, or a service key capacity (libglowcap_net_transport_onion). Mirrors `GLOWCAP_ONION_AUTH_NONE`. */
 export const ONION_AUTH_NONE = 0;
+/** An onion transport control-port authentication mode, an onion service id length, or a service key capacity (libglowcap_net_transport_onion). Mirrors `GLOWCAP_ONION_AUTH_COOKIE`. */
 export const ONION_AUTH_COOKIE = 1;
+/** An onion transport control-port authentication mode, an onion service id length, or a service key capacity (libglowcap_net_transport_onion). Mirrors `GLOWCAP_ONION_AUTH_PASSWORD`. */
 export const ONION_AUTH_PASSWORD = 2;
+/** An onion transport control-port authentication mode, an onion service id length, or a service key capacity (libglowcap_net_transport_onion). Mirrors `GLOWCAP_ONION_SERVICE_ID_LEN`. */
 export const ONION_SERVICE_ID_LEN = 56;
+/** An onion transport control-port authentication mode, an onion service id length, or a service key capacity (libglowcap_net_transport_onion). Mirrors `GLOWCAP_ONION_SERVICE_KEY_CAP`. */
 export const ONION_SERVICE_KEY_CAP = 256;
+/** An iroh reachability posture, the redeem posture's default, an iroh id length or address bound, or a read chunk size (libglowcap_net_transport_iroh). Mirrors `GLOWCAP_IROH_REACH_DIRECT`. */
 export const IROH_REACH_DIRECT = 0;
+/** An iroh reachability posture, the redeem posture's default, an iroh id length or address bound, or a read chunk size (libglowcap_net_transport_iroh). Mirrors `GLOWCAP_IROH_REACH_DISCOVERY`. */
 export const IROH_REACH_DISCOVERY = 1;
+/** An iroh reachability posture, the redeem posture's default, an iroh id length or address bound, or a read chunk size (libglowcap_net_transport_iroh). Mirrors `GLOWCAP_IROH_REACH_DISCOVERY_NO_RELAY`. */
 export const IROH_REACH_DISCOVERY_NO_RELAY = 2;
+/** An iroh reachability posture, the redeem posture's default, an iroh id length or address bound, or a read chunk size (libglowcap_net_transport_iroh). Mirrors `GLOWCAP_IROH_REACH_LOCAL_DISCOVERY`. */
 export const IROH_REACH_LOCAL_DISCOVERY = 3;
+/** An iroh reachability posture, the redeem posture's default, an iroh id length or address bound, or a read chunk size (libglowcap_net_transport_iroh). Mirrors `GLOWCAP_IROH_REACH_REDEEM_DEFAULT`. */
 export const IROH_REACH_REDEEM_DEFAULT = 1;
+/** An iroh reachability posture, the redeem posture's default, an iroh id length or address bound, or a read chunk size (libglowcap_net_transport_iroh). Mirrors `GLOWCAP_IROH_NODE_ID_BYTES`. */
 export const IROH_NODE_ID_BYTES = 64;
+/** An iroh reachability posture, the redeem posture's default, an iroh id length or address bound, or a read chunk size (libglowcap_net_transport_iroh). Mirrors `GLOWCAP_IROH_MAX_DIRECT_ADDRESS_BYTES`. */
 export const IROH_MAX_DIRECT_ADDRESS_BYTES = 65536;
-export const IROH_EV_READABLE = 1;
-export const IROH_EV_WRITABLE = 2;
-export const IROH_EV_CLOSED = 4;
-export const IROH_EV_ACCEPT = 8;
-export const IROH_EV_CONNECT = 16;
-export const WEBRTC_EV_OPEN = 1;
-export const WEBRTC_EV_CANDIDATE = 2;
-export const WEBRTC_EV_READABLE = 4;
-export const WEBRTC_EV_WRITABLE = 8;
-export const WEBRTC_EV_CLOSED = 16;
-export const WEBRTC_MAX_SIGNAL_BYTES = 16384;
-export const WEBRTC_MAX_ICE_CANDIDATE_BYTES = 16384;
-export const WEBRTC_MAX_ICE_SERVERS = 16;
-export const WEBRTC_MAX_ICE_URLS_PER_SERVER = 16;
-export const WEBRTC_MAX_ICE_URL_BYTES = 2048;
-export const WEBRTC_MAX_ICE_CREDENTIAL_BYTES = 4096;
-export const WEBRTC_MAX_PENDING_ICE_CANDIDATES = 256;
-export const WEBRTC_MAX_ACCEPTS_IN_FLIGHT = 64;
-export const WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES = 65536;
-export const WEBRTC_DATA_CHANNEL_QUEUE_BYTES = 1048576;
-export const BINDING_UNOBSERVED_OUTCOME_CAP = 1024;
-export const BINDING_READINESS_DRAIN_CAP = 64;
-export const BINDING_STREAM_READ_CHUNK_BYTES = 65536;
+/** An iroh reachability posture, the redeem posture's default, an iroh id length or address bound, or a read chunk size (libglowcap_net_transport_iroh). Mirrors `GLOWCAP_IROH_READ_CHUNK_BYTES`. */
 export const BINDING_IROH_READ_CHUNK_BYTES = 65536;
+/** A bit of the readiness bitset an iroh drain record carries. Mirrors `GLOWCAP_IROH_EV_READABLE`. */
+export const IROH_EV_READABLE = 1;
+/** A bit of the readiness bitset an iroh drain record carries. Mirrors `GLOWCAP_IROH_EV_WRITABLE`. */
+export const IROH_EV_WRITABLE = 2;
+/** A bit of the readiness bitset an iroh drain record carries. Mirrors `GLOWCAP_IROH_EV_CLOSED`. */
+export const IROH_EV_CLOSED = 4;
+/** A bit of the readiness bitset an iroh drain record carries. Mirrors `GLOWCAP_IROH_EV_ACCEPT`. */
+export const IROH_EV_ACCEPT = 8;
+/** A bit of the readiness bitset an iroh drain record carries. Mirrors `GLOWCAP_IROH_EV_CONNECT`. */
+export const IROH_EV_CONNECT = 16;
+/** A bit of the readiness bitset a WebRTC drain record carries. Mirrors `GLOWCAP_WEBRTC_EV_OPEN`. */
+export const WEBRTC_EV_OPEN = 1;
+/** A bit of the readiness bitset a WebRTC drain record carries. Mirrors `GLOWCAP_WEBRTC_EV_CANDIDATE`. */
+export const WEBRTC_EV_CANDIDATE = 2;
+/** A bit of the readiness bitset a WebRTC drain record carries. Mirrors `GLOWCAP_WEBRTC_EV_READABLE`. */
+export const WEBRTC_EV_READABLE = 4;
+/** A bit of the readiness bitset a WebRTC drain record carries. Mirrors `GLOWCAP_WEBRTC_EV_WRITABLE`. */
+export const WEBRTC_EV_WRITABLE = 8;
+/** A bit of the readiness bitset a WebRTC drain record carries. Mirrors `GLOWCAP_WEBRTC_EV_CLOSED`. */
+export const WEBRTC_EV_CLOSED = 16;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES`. */
+export const WEBRTC_MAX_SIGNAL_BYTES = 16384;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES`. */
+export const WEBRTC_MAX_ICE_CANDIDATE_BYTES = 16384;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_MAX_ICE_SERVERS`. */
+export const WEBRTC_MAX_ICE_SERVERS = 16;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_MAX_ICE_URLS_PER_SERVER`. */
+export const WEBRTC_MAX_ICE_URLS_PER_SERVER = 16;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_MAX_ICE_URL_BYTES`. */
+export const WEBRTC_MAX_ICE_URL_BYTES = 2048;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_MAX_ICE_CREDENTIAL_BYTES`. */
+export const WEBRTC_MAX_ICE_CREDENTIAL_BYTES = 4096;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_MAX_PENDING_ICE_CANDIDATES`. */
+export const WEBRTC_MAX_PENDING_ICE_CANDIDATES = 256;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_MAX_ACCEPTS_IN_FLIGHT`. */
+export const WEBRTC_MAX_ACCEPTS_IN_FLIGHT = 64;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES`. */
+export const WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES = 65536;
+/** A WebRTC signaling, ICE, or queue bound (libglowcap_net_transport_webrtc). Mirrors `GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES`. */
+export const WEBRTC_DATA_CHANNEL_QUEUE_BYTES = 1048576;
+/** A resource policy the language bindings own, with no C declaration behind it. Settled Host vow outcomes retained for a caller that has not awaited yet. */
+export const BINDING_UNOBSERVED_OUTCOME_CAP = 1024;
+/** A resource policy the language bindings own, with no C declaration behind it. Readiness records a binding pulls from a transport endpoint per drain call. */
+export const BINDING_READINESS_DRAIN_CAP = 64;
+/** A resource policy the language bindings own, with no C declaration behind it. Bytes one binding-owned byte-stream read asks its language runtime for. */
+export const BINDING_STREAM_READ_CHUNK_BYTES = 65536;
+/** A resource policy the language bindings own, with no C declaration behind it. Default message-frame bytes a binding trace producer forwards per event. */
 export const BINDING_TRACE_PAYLOAD_CAP_BYTES = 4096;
+/** A resource policy the language bindings own, with no C declaration behind it. Exact cleanup and consequence failures retained beside a primary binding error. */
 export const BINDING_SECONDARY_FAILURE_CAP = 64;
+/** A resource policy the language bindings own, with no C declaration behind it. Reference relay idle timeout in milliseconds. Tests override it through GLOWCAP_RELAY_IDLE_MS. */
 export const BINDING_RELAY_IDLE_TIMEOUT_MS = 60000;
+/** A resource policy the language bindings own, with no C declaration behind it. Bytes relayed over one reference-relay session before the runaway backstop fires. */
 export const BINDING_RELAY_MAX_BYTES_PER_SESSION = 1073741824;
+/** A resource policy the language bindings own, with no C declaration behind it. Bytes one reference-relay target-channel read asks its runtime for. */
 export const BINDING_RELAY_READ_CHUNK_BYTES = 65536;
+/** A resource policy the language bindings own, with no C declaration behind it. Reference relay TCP connect deadline in milliseconds. */
 export const BINDING_RELAY_TCP_DIAL_TIMEOUT_MS = 5000;
+/** A resource policy the language bindings own, with no C declaration behind it. Per-connection WebSocket read and write buffer bytes of the standalone Rust relay. */
 export const BINDING_RELAY_WEBSOCKET_BUFFER_BYTES = 16384;
+/** A resource policy the language bindings own, with no C declaration behind it. Largest WebSocket transport message a binding adapter admits. */
 export const BINDING_WEBSOCKET_MESSAGE_CAP_BYTES = 1048576;
+/** A resource policy the language bindings own, with no C declaration behind it. WebSocket send buffer waterline before the shared adapter parks another write. */
 export const BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES = 1048576;
+/** A resource policy the language bindings own, with no C declaration behind it. Poll interval in milliseconds while a WebSocket send buffer drains. */
 export const BINDING_WEBSOCKET_DRAIN_POLL_MS = 4;
+/** A resource policy the language bindings own, with no C declaration behind it. WebSocket close deadline in milliseconds, the same policy as browser channel retirement. */
 export const BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS = 5000;
+/** A resource policy the language bindings own, with no C declaration behind it. Retained inbound WebSocket bytes before the shared adapter closes the channel. */
 export const BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES = 1048576;
+/** A relay transport config version, TLS trust mode, or hint bound (libglowcap_net_transport_relay). Mirrors `GLOWCAP_RELAY_CONFIG_ABI_VERSION`. */
 export const RELAY_CONFIG_ABI_VERSION = 1;
+/** A relay transport config version, TLS trust mode, or hint bound (libglowcap_net_transport_relay). Mirrors `GLOWCAP_RELAY_TRUST_SYSTEM`. */
 export const RELAY_TRUST_SYSTEM = 0;
+/** A relay transport config version, TLS trust mode, or hint bound (libglowcap_net_transport_relay). Mirrors `GLOWCAP_RELAY_TRUST_COPIED_PEM`. */
 export const RELAY_TRUST_COPIED_PEM = 1;
+/** A relay transport config version, TLS trust mode, or hint bound (libglowcap_net_transport_relay). Mirrors `GLOWCAP_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES`. */
 export const RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES = 4096;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_INTEGER`. */
 export const ARG_INTEGER = 0;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_FLOAT64`. */
 export const ARG_FLOAT64 = 1;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_BOOLEAN`. */
 export const ARG_BOOLEAN = 2;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_BYTES`. */
 export const ARG_BYTES = 3;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_STRING`. */
 export const ARG_STRING = 4;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_SYMBOL`. */
 export const ARG_SYMBOL = 5;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_VOID`. */
 export const ARG_VOID = 6;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_REFERENCE`. */
 export const ARG_REFERENCE = 7;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_LIST`. */
 export const ARG_LIST = 8;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_SET`. */
 export const ARG_SET = 9;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_TAGGED`. */
 export const ARG_TAGGED = 10;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_KEYWORD`. */
 export const ARG_KEYWORD = 11;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_BIG_INTEGER`. */
 export const ARG_BIG_INTEGER = 12;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_STRUCT`. */
 export const ARG_STRUCT = 13;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_ERROR`. */
 export const ARG_ERROR = 14;
+/** A `GlowcapArgument.kind` tag: the shape of value an argument carries. Mirrors `GLOWCAP_ARG_INTEGERS`. */
 export const ARG_INTEGERS = 15;
+/** A wire codec selector the host constructor and the transports take. Mirrors `GLOWCAP_CODEC_UNKNOWN`. */
 export const CODEC_UNKNOWN = 0;
+/** A wire codec selector the host constructor and the transports take. Mirrors `GLOWCAP_CODEC_SYRUP`. */
 export const CODEC_SYRUP = 1;
+/** A wire codec selector the host constructor and the transports take. Mirrors `GLOWCAP_CODEC_CAPNP`. */
 export const CODEC_CAPNP = 2;
+/** A CapTP profile selector: the pinned Goblins-compatible `1.0` profile, or the one tracking current OCapN direction. Mirrors `GLOWCAP_CAPTP_V1_0`. */
 export const CAPTP_V1_0 = 0;
+/** A CapTP profile selector: the pinned Goblins-compatible `1.0` profile, or the one tracking current OCapN direction. Mirrors `GLOWCAP_CAPTP_NEXT`. */
 export const CAPTP_NEXT = 1;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_PIPELINING`. */
 export const FEATURE_PIPELINING = 1;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_HANDOFF`. */
 export const FEATURE_HANDOFF = 2;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_WIRE_DELTA`. */
 export const FEATURE_WIRE_DELTA = 4;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_STURDYREF`. */
 export const FEATURE_STURDYREF = 8;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_UNTAG`. */
 export const FEATURE_UNTAG = 16;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_MULTI_LOCATION`. */
 export const FEATURE_MULTI_LOCATION = 32;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_MINIMUM`. */
 export const FEATURE_MINIMUM = 0;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_BASELINE`. */
 export const FEATURE_BASELINE = 15;
+/** A feature bit a host offers in its handshake, or a named set of them. Mirrors `GLOWCAP_FEATURE_FULL`. */
 export const FEATURE_FULL = 63;
+/** The codec, CapTP profile, or feature set a host uses when its caller names none, and the pairs for interoperating and for glowcap's own peers. Mirrors `GLOWCAP_DEFAULT_CODEC`. */
 export const DEFAULT_CODEC = 1;
+/** The codec, CapTP profile, or feature set a host uses when its caller names none, and the pairs for interoperating and for glowcap's own peers. Mirrors `GLOWCAP_DEFAULT_CAPTP_VERSION`. */
 export const DEFAULT_CAPTP_VERSION = 0;
+/** The codec, CapTP profile, or feature set a host uses when its caller names none, and the pairs for interoperating and for glowcap's own peers. Mirrors `GLOWCAP_DEFAULT_FEATURES`. */
 export const DEFAULT_FEATURES = 31;
+/** The codec, CapTP profile, or feature set a host uses when its caller names none, and the pairs for interoperating and for glowcap's own peers. Mirrors `GLOWCAP_INTEROP_CODEC`. */
 export const INTEROP_CODEC = 1;
+/** The codec, CapTP profile, or feature set a host uses when its caller names none, and the pairs for interoperating and for glowcap's own peers. Mirrors `GLOWCAP_INTEROP_CAPTP_VERSION`. */
 export const INTEROP_CAPTP_VERSION = 0;
+/** The codec, CapTP profile, or feature set a host uses when its caller names none, and the pairs for interoperating and for glowcap's own peers. Mirrors `GLOWCAP_OWN_CODEC`. */
 export const OWN_CODEC = 2;
+/** The codec, CapTP profile, or feature set a host uses when its caller names none, and the pairs for interoperating and for glowcap's own peers. Mirrors `GLOWCAP_OWN_CAPTP_VERSION`. */
 export const OWN_CAPTP_VERSION = 1;
+/** A `GlowcapLastAbort.domain` value: which layer classified the failure. Mirrors `GLOWCAP_ABORT_DOMAIN_CODEC`. */
 export const ABORT_DOMAIN_CODEC = 0;
+/** A `GlowcapLastAbort.domain` value: which layer classified the failure. Mirrors `GLOWCAP_ABORT_DOMAIN_SESSION`. */
 export const ABORT_DOMAIN_SESSION = 1;
+/** A `GlowcapLastAbort.domain` value: which layer classified the failure. Mirrors `GLOWCAP_ABORT_DOMAIN_FOREIGN`. */
 export const ABORT_DOMAIN_FOREIGN = 2;
+/** The C contract fingerprint of `libglowcap_ocapn`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const OCAPN_ARCHIVE_FINGERPRINT = 13062511112768652919n;
+/** The C contract fingerprint of `libglowcap_host`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const HOST_ARCHIVE_FINGERPRINT = 6557310503958970394n;
+/** The C contract fingerprint of `libglowcap_driver`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const DRIVER_ARCHIVE_FINGERPRINT = 4581111715335707390n;
+/** The C contract fingerprint of `libglowcap_net_transport_tcp`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const TCP_ARCHIVE_FINGERPRINT = 6845486134171235280n;
+/** The C contract fingerprint of `libglowcap_net_transport_inproc`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const INPROC_ARCHIVE_FINGERPRINT = 7458123350507466914n;
+/** The C contract fingerprint of `libglowcap_net_transport_onion`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const ONION_ARCHIVE_FINGERPRINT = 2093297113508582010n;
+/** The C contract fingerprint of `libglowcap_net_transport_iroh`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const IROH_ARCHIVE_FINGERPRINT = 9796433685985511873n;
+/** The C contract fingerprint of `libglowcap_net_transport_relay`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const RELAY_ARCHIVE_FINGERPRINT = 3734301492729129972n;
+/** The C contract fingerprint of `libglowcap_net_transport_webrtc`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const WEBRTC_ARCHIVE_FINGERPRINT = 2419055605704946174n;
+/** Locator hint name carrying dial addresses for a transport whose designator is a key. */
 export const HINT_DIRECT_ADDRESSES = "direct-addresses";
+/** Locator hint name carrying a pipe-separated list of complete peer URIs to try after this locator. The value is routing advice, and the exporter's locator stays the signed authority for a redeem. */
 export const HINT_ALT_LOCATORS = "alt-locators";
+/** Locator hint name carrying the `id` transport's route bundle. */
 export const HINT_VIA = "via";
+/** The transport symbol of `tcp` locators, whose designator is a dial address. */
 export const TRANSPORT_TCP = "tcp";
+/** The transport symbol of `onion` locators, whose designator is a dial address. */
 export const TRANSPORT_ONION = "onion";
+/** The transport symbol of `keyed-tcp` locators, whose designator is a peer key. */
 export const TRANSPORT_KEYED_TCP = "keyed-tcp";
+/** The transport symbol of `inproc` locators, whose designator is a dial address. */
 export const TRANSPORT_INPROC = "inproc";
+/** The transport symbol of `iroh` locators, whose designator is a peer key. */
 export const TRANSPORT_IROH = "iroh";
+/** The transport symbol of `keyed-relay` locators, whose designator is a peer key. */
 export const TRANSPORT_KEYED_RELAY = "keyed-relay";
+/** The transport symbol of `webrtc` locators, whose designator is a peer key. */
 export const TRANSPORT_WEBRTC = "webrtc";
+/** Largest wire packet the `webrtc` transport carries, in bytes. */
 export const TRANSPORT_WEBRTC_MAX_PACKET_BYTES = 16384;
+/** The transport symbol of `noise-tcp` locators, whose designator is a peer key. */
 export const TRANSPORT_NOISE_TCP = "noise-tcp";
+/** The transport symbol of `noise-relay` locators, whose designator is a peer key. */
 export const TRANSPORT_NOISE_RELAY = "noise-relay";
+/** The transport symbol of `id` locators, whose designator is a peer key. */
 export const TRANSPORT_ID = "id";
 
 // ── Wasm layout-descriptor manifest (glowcap_wasm_abi_layout) ────────────
-// Struct index i of the wasm32 module's layout descriptor is row i here;
-// the descriptor's offset words for that struct name its fields, in
-// declaration order. `ffiMirror` says whether the prefix also names
-// 64-bit FFI constants; false is vocabulary used only by the browser's
-// byte-fed embedder. Field order is declaration order on every target;
-// only the offset numbers are target-specific.
+/**
+ * Struct index i of the wasm32 module's layout descriptor is row i here,
+ * and the descriptor's offset words for that struct name its fields in
+ * declaration order. `ffiMirror` says whether the prefix also names
+ * 64-bit FFI constants. When it is false the prefix is vocabulary only the
+ * browser's byte-fed embedder uses. Field order is declaration order on
+ * every target, and only the offset numbers are target-specific.
+ */
 export const WASM_LAYOUT_STRUCTS = [
 	{ prefix: "MANAGED_FRAME", ffiMirror: true, fields: ["BYTES", "LEN", "SHAPE", "RELEASE", "PRIVATE_WORDS"] },
 	{ prefix: "REF", ffiMirror: true, fields: ["ID"] },
@@ -256,11 +480,13 @@ export const WASM_LAYOUT_STRUCTS = [
 	{ prefix: "FAILURE_EVENT", ffiMirror: true, fields: ["ABI_VERSION", "STRUCT_SIZE", "SEQUENCE", "DROPPED_BEFORE", "LAYER", "SCOPE_KIND", "SCOPE_ID", "OPERATION_ID", "PRIMARY_RESULT", "SECONDARY_RESULT", "SECONDARY_COUNT", "FLAGS", "OPERATION", "OPERATION_LEN", "PRIMARY_NAME", "PRIMARY_NAME_LEN", "PRIMARY_MESSAGE", "PRIMARY_MESSAGE_LEN", "SECONDARY_NAME", "SECONDARY_NAME_LEN", "SECONDARY_MESSAGE", "SECONDARY_MESSAGE_LEN"] },
 ] as const;
 
-// Layout prefixes that exist only in FFI archives the wasm32 module
-// never links (a browser has no iroh sidecar to link). A wasm
-// marshaller must never read these; the layout check requires every
-// other 64-bit prefix to have a manifest row above, and refuses a
-// prefix listed here that gains one.
+/**
+ * Layout prefixes that exist only in FFI archives the wasm32 module never
+ * links (a browser has no iroh sidecar to link). A wasm marshaller must
+ * never read these. The layout check requires every other 64-bit prefix
+ * to have a manifest row above, and refuses a prefix listed here that
+ * gains one.
+ */
 export const FFI_ONLY_LAYOUT_PREFIXES = [
 	"DRIVER_OPTIONS",
 	"DRIVER_FAILURE",

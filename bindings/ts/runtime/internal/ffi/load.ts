@@ -554,6 +554,10 @@ function libDir(): string | null {
 	return null;
 }
 
+/** Resolve the shared library path for `stem`. The stem comes back unchanged when the active adapter does no filesystem
+ * lookup. Otherwise the directory is `GLOWCAP_LIB_DIR`, the ABI-versioned cache, or a development checkout's
+ * `zig-out/lib`, and resolution may fill the cache by downloading a release. With no directory the call throws on
+ * Windows and returns the bare file name elsewhere. */
 export function libPath(stem: string): string {
 	// No host built-ins means no filesystem and no dlopen: the active adapter
 	// is the wasm one (ADR-0034), whose `dlopen` ignores the path. Hand back

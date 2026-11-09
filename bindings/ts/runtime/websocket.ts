@@ -31,6 +31,8 @@ const defaultWsCloseTimeoutMs = BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS;
 // cap so transport coalescing stays byte-transparent.
 const defaultWsInboundHighWaterBytes = BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES;
 
+/** Options for wrapping a browser `WebSocket` as a byte channel. They bound how much inbound data is buffered and how
+ * long a close waits. */
 export interface WebSocketChannelOptions {
 	/** Maximum bytes retained while the consumer is behind. Browser WebSockets
 	 * cannot be paused, so overflow closes with 1009. This is a transport-message
@@ -42,6 +44,8 @@ export interface WebSocketChannelOptions {
 	closeTimeoutMs?: number;
 }
 
+/** A `Channel` over a browser `WebSocket`. `close` requests a WebSocket close and waits for the browser's close event,
+ * and `cancel` stops reading inbound bytes and leaves the socket open. */
 export interface WebSocketByteChannel extends Channel {
 	/** Request a close and join the browser's close event. Every caller receives
 	 * the same barrier; an abnormal close or synchronous refusal rejects it. */

@@ -57,7 +57,10 @@ export {
 // FFI: parse copies every borrowed view into JS strings before releasing the
 // handle, and format renders through the same grammar.
 
+/** A locator hint value, which is a string, bytes, a boolean, or a bigint. */
 export type HintValue = string | Uint8Array<ArrayBuffer> | boolean | bigint;
+/** The wire form of an empty hint set: `boolean-false` is Goblins' `#f`, and `map` is a map that may be empty. The form
+ * round-trips because a location signature verifies only over the form it signed. */
 export type HintWireForm = "map" | "boolean-false";
 
 /** A complete OCapN locator. URI parsing yields string-valued hints; the
@@ -264,6 +267,8 @@ export function withOwnedLocator<T>(locator: Locator, run: (owned: OwnedLocator)
 	}
 }
 
+/** Read the hint `name` from a locator as a string. Returns `undefined` when the hint is absent or holds a non-string
+ * value. */
 export function stringHint(locator: Locator, name: string): string | undefined {
 	const value = locator.hints.get(name);
 	return typeof value === "string" ? value : undefined;

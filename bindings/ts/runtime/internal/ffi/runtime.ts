@@ -72,6 +72,8 @@ export interface SymbolDef {
 // deno-lint-ignore no-explicit-any
 export type Symbols = Record<string, (...args: any[]) => any>;
 
+/** The identity a binding expects of a loaded archive. `symbol` is the function that reports the archive's fingerprint,
+ * `expected` is the value this binding was generated against, and `archive` names it in errors. */
 export interface ArchiveFingerprint {
 	readonly symbol: string;
 	readonly expected: bigint;
@@ -284,12 +286,8 @@ export const net: RuntimeNet = {
 	listen: (host, port) => active().net.listen(host, port),
 };
 
-/** A lazily-opened archive: the library is `dlopen`ed on first symbol access,
- * not at module load, so a symbol table can be declared before the runtime is
- * ready (Bun) and a browser bundle carries no eager `dlopen` at import time.
- * `pathFn` is resolved on first open too (it reads `ffi.libSuffix()`, which
- * needs the runtime ready). Deno and the browser open on the first real call,
- * which is already past import. */
+/** Throw when `symbols` lacks the fingerprint reader `contract` names, or when it reports a fingerprint other than the
+ * one this binding was generated against. */
 export function requireArchiveFingerprint(symbols: Symbols, contract: ArchiveFingerprint): void {
 	const read = symbols[contract.symbol];
 	if (typeof read !== "function") {
@@ -310,6 +308,12 @@ export function requireArchiveFingerprint(symbols: Symbols, contract: ArchiveFin
 	}
 }
 
+/** A lazily-opened archive: the library is `dlopen`ed on first symbol access,
+ * not at module load, so a symbol table can be declared before the runtime is
+ * ready (Bun) and a browser bundle carries no eager `dlopen` at import time.
+ * `pathFn` is resolved on first open too (it reads `ffi.libSuffix()`, which
+ * needs the runtime ready). Deno and the browser open on the first real call,
+ * which is already past import. */
 export function lazySymbols(
 	pathFn: () => string,
 	defs: Record<string, SymbolDef>,

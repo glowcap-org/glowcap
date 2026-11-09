@@ -56,6 +56,7 @@ export class PSet<T = Argument> {
 export class Tagged<T = Argument> {
 	constructor(public readonly tag: string, public readonly value: T[]) {}
 }
+/** Build a `Tagged` record from a tag name and its value list. */
 export const tagged = <T = Argument>(tag: string, value: T[]): Tagged<T> => new Tagged(tag, value);
 
 /** An OCapN Struct: unordered, uniquely named String fields. */
@@ -63,15 +64,13 @@ export class PStruct<T = Argument> {
 	constructor(public readonly entries: Array<readonly [string, T]>) {}
 }
 
-// An argument is a plain JS value or a wrapper:
-//   bigint (integer), number (float64), boolean, Uint8Array (bytes), BigInt64Array (list of integers), string,
-//   Sym (symbol), Kw (keyword), Error (OCapN Error value), null (void), Ref, Argument[] (list),
-//   PSet (set), Tagged, or PStruct. A RemotePromise this Host returned is
-//   passable to `send`/`tell` in any state (ADR-0068): the Host passes it as
-//   a capability for its answer. A peer's promise arrives as a Ref, and an
-//   object this side hosts receives the RemotePromise itself. It enters the grammar
-//   through the `PromiseArgument` brand rather than as a Promise type, which
-//   would make the value grammar refer to itself through `then`.
+/** Any value that can be sent as a call argument or returned as a result: `bigint` (integer), `number` (float64),
+ * `boolean`, `Uint8Array` (bytes), `BigInt64Array` (list of integers), `string`, `Sym`, `Kw`, `Error` (OCapN Error),
+ * `null` (void), `Ref`, `Argument[]` (list), `PSet`, `Tagged`, or `PStruct`. A `RemotePromise` this Host returned is
+ * passable to `send` and `tell` in any state (ADR-0068): the Host passes it as a capability for its answer, a peer's
+ * promise arrives as a `Ref`, and an object this side hosts receives the `RemotePromise` itself. It enters the grammar
+ * through the `PromiseArgument` brand rather than as a Promise type, which would make the value grammar refer to
+ * itself through `then`. */
 export type Argument =
 	| bigint
 	| number
@@ -108,7 +107,10 @@ export type Codec = "syrup" | "capnp";
  * the pair with its partner. */
 export type CaptpVersion = "v1_0" | "next";
 
+/** One CapTP feature a Host can offer, named as it appears in a `FeatureSet` list. */
 export type FeatureName = "pipelining" | "handoff" | "wire_delta" | "sturdyref" | "untag" | "multi_location";
+/** The features a Host offers. Use `full`, `baseline`, or `minimum` for a core-defined preset, a number for an exact bit
+ * set, or a list of `FeatureName` values. */
 export type FeatureSet = "full" | "baseline" | "minimum" | number | readonly FeatureName[];
 
 /** The profile a live session settled with its partner. `features` is the exact
@@ -177,6 +179,7 @@ export {
 	FEATURE_WIRE_DELTA,
 };
 
+/** Return the ABI number for a `Codec`. Throws a `TypeError` for an unknown codec. */
 export function codecId(codec: Codec): number {
 	switch (codec) {
 		case "syrup":

@@ -26,6 +26,9 @@ function closedError(): GlowcapError {
 	return new GlowcapError(CLOSED, "the loop is closed");
 }
 
+/** One open listener of a driver loop. It reports the listener's `locator`, `restorationState`, and `host`, and `accept`
+ * yields each inbound session. After `close`, `accept` resolves `null`, `host` and `close` still answer, and `locator`,
+ * `restorationState`, `advertise`, and `select` throw. */
 export class DriverListener {
 	readonly #loop: ListenerLoop;
 	readonly #listener: bigint;

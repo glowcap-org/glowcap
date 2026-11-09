@@ -25,6 +25,7 @@ pub const step_name = "gen-ts-abi";
 /// The shared `tools/gen` emit/verify harness writes and staleness-checks each.
 const Output = @import("output").Output;
 const ffi = @import("ts_ffi.zig");
+const table = @import("ts_abi_constants.zig");
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/ts/abi/constants.ts", .generate = generateConstants },
@@ -59,67 +60,6 @@ const layouts_preamble =
     \\
 ;
 
-/// One generated constant: the TypeScript name and the `c_abi` declaration it
-/// mirrors. Referencing the declaration makes a C-side rename a compile error
-/// here rather than a stale mirror.
-const Const = struct {
-    ts: []const u8,
-    value: i64,
-};
-
-const BigConst = struct {
-    ts: []const u8,
-    value: u64,
-};
-
-const archive_fingerprints = [_]BigConst{
-    .{ .ts = "OCAPN_ARCHIVE_FINGERPRINT", .value = c.GLOWCAP_OCAPN_ARCHIVE_FINGERPRINT },
-    .{ .ts = "HOST_ARCHIVE_FINGERPRINT", .value = cd.GLOWCAP_HOST_ARCHIVE_FINGERPRINT },
-    .{ .ts = "DRIVER_ARCHIVE_FINGERPRINT", .value = cdr.GLOWCAP_DRIVER_ARCHIVE_FINGERPRINT },
-    .{ .ts = "TCP_ARCHIVE_FINGERPRINT", .value = ct.GLOWCAP_TCP_ARCHIVE_FINGERPRINT },
-    .{ .ts = "INPROC_ARCHIVE_FINGERPRINT", .value = cin.GLOWCAP_INPROC_ARCHIVE_FINGERPRINT },
-    .{ .ts = "ONION_ARCHIVE_FINGERPRINT", .value = con.GLOWCAP_ONION_ARCHIVE_FINGERPRINT },
-    .{ .ts = "IROH_ARCHIVE_FINGERPRINT", .value = ci.GLOWCAP_IROH_ARCHIVE_FINGERPRINT },
-    .{ .ts = "RELAY_ARCHIVE_FINGERPRINT", .value = cr.GLOWCAP_RELAY_ARCHIVE_FINGERPRINT },
-    .{ .ts = "WEBRTC_ARCHIVE_FINGERPRINT", .value = cw.GLOWCAP_WEBRTC_ARCHIVE_FINGERPRINT },
-};
-
-fn k(comptime ts: []const u8, comptime decl: []const u8) Const {
-    return .{ .ts = ts, .value = @intCast(@field(c, decl)) };
-}
-
-/// `k` reading from the byte-fed host archive (`c_abi_host`) instead of ocapn.
-fn kd(comptime ts: []const u8, comptime decl: []const u8) Const {
-    return .{ .ts = ts, .value = @intCast(@field(cd, decl)) };
-}
-
-/// `k` reading from the driver archive (`c_abi_driver`, ADR-0024).
-fn kdr(comptime ts: []const u8, comptime decl: []const u8) Const {
-    return .{ .ts = ts, .value = @intCast(@field(cdr, decl)) };
-}
-
-/// `k` reading from the iroh transport archive (`c_abi_net_transport_iroh`),
-/// reflected through the sidecar stub so generation stays cargo-free.
-fn ki(comptime ts: []const u8, comptime decl: []const u8) Const {
-    return .{ .ts = ts, .value = @intCast(@field(ci, decl)) };
-}
-
-fn kw(comptime ts: []const u8, comptime decl: []const u8) Const {
-    return .{ .ts = ts, .value = @intCast(@field(cw, decl)) };
-}
-
-fn kr(comptime ts: []const u8, comptime decl: []const u8) Const {
-    return .{ .ts = ts, .value = @intCast(@field(cr, decl)) };
-}
-
-fn ko(comptime ts: []const u8, comptime decl: []const u8) Const {
-    return .{ .ts = ts, .value = @intCast(@field(con, decl)) };
-}
-
-fn kp(comptime ts: []const u8, value: anytype) Const {
-    return .{ .ts = ts, .value = @intCast(value) };
-}
-
 fn writeTsTransportConstName(
     out: *std.ArrayList(u8),
     gpa: std.mem.Allocator,
@@ -133,230 +73,9 @@ fn writeTsTransportConstName(
     try out.appendSlice(gpa, suffix);
 }
 
-const constants = [_]Const{
-    // Return codes (the subset the binding branches on; the rest surface
-    // through `check` as thrown errors carrying the raw code).
-    k("OK", "GLOWCAP_OK"),
-    k("INVALID_ARGUMENT", "GLOWCAP_ERR_INVALID_ARGUMENT"),
-    k("CODEC", "GLOWCAP_ERR_CODEC"),
-    k("INTERNAL", "GLOWCAP_ERR_INTERNAL"),
-    k("WOULD_BLOCK", "GLOWCAP_ERR_WOULD_BLOCK"),
-    k("CLOSED", "GLOWCAP_ERR_CLOSED"),
-    k("IO", "GLOWCAP_ERR_IO"),
-    k("FRAME_TOO_LARGE", "GLOWCAP_ERR_FRAME_TOO_LARGE"),
-    k("BUFFER_TOO_SMALL", "GLOWCAP_ERR_BUFFER_TOO_SMALL"),
-    k("NOT_FOUND", "GLOWCAP_ERR_NOT_FOUND"),
-    k("UNSUPPORTED_VALUE", "GLOWCAP_ERR_UNSUPPORTED_VALUE"),
-    k("BROKEN", "GLOWCAP_ERR_BROKEN"),
-    k("TIMEOUT", "GLOWCAP_ERR_TIMEOUT"),
-    k("FAILURE_LAYER_CORE", "GLOWCAP_FAILURE_LAYER_CORE"),
-    k("FAILURE_LAYER_DRIVER", "GLOWCAP_FAILURE_LAYER_DRIVER"),
-    k("FAILURE_LAYER_TRANSPORT", "GLOWCAP_FAILURE_LAYER_TRANSPORT"),
-    k("FAILURE_LAYER_BINDING", "GLOWCAP_FAILURE_LAYER_BINDING"),
-    k("FAILURE_LAYER_APPLICATION_OBSERVER", "GLOWCAP_FAILURE_LAYER_APPLICATION_OBSERVER"),
-    k("FAILURE_SCOPE_PROCESS", "GLOWCAP_FAILURE_SCOPE_PROCESS"),
-    k("FAILURE_SCOPE_CONTEXT", "GLOWCAP_FAILURE_SCOPE_CONTEXT"),
-    k("FAILURE_SCOPE_HOST", "GLOWCAP_FAILURE_SCOPE_HOST"),
-    k("FAILURE_SCOPE_SESSION", "GLOWCAP_FAILURE_SCOPE_SESSION"),
-    k("FAILURE_SCOPE_LISTENER", "GLOWCAP_FAILURE_SCOPE_LISTENER"),
-    k("FAILURE_SCOPE_TRANSPORT", "GLOWCAP_FAILURE_SCOPE_TRANSPORT"),
-    k("FAILURE_SCOPE_OPERATION", "GLOWCAP_FAILURE_SCOPE_OPERATION"),
-    k("DEFAULT_FAILURE_CAPACITY", "GLOWCAP_DEFAULT_FAILURE_CAPACITY"),
-    k("DEFAULT_FAILURE_PAYLOAD_CAP", "GLOWCAP_DEFAULT_FAILURE_PAYLOAD_CAP"),
-    k("FRAME_SHAPE_BYTE", "GLOWCAP_FRAME_SHAPE_BYTE"),
-    k("FRAME_SHAPE_WORD", "GLOWCAP_FRAME_SHAPE_WORD"),
-    // The byte-fed host tier's action queue (libglowcap_host, ADR-0022):
-    // GlowcapHostAction.kind.
-    kd("HOST_ACTION_DIAL", "GLOWCAP_HOST_ACTION_DIAL"),
-    kd("HOST_ACTION_FLUSH", "GLOWCAP_HOST_ACTION_FLUSH"),
-    kd("HOST_ACTION_NEED_GIFT_ID", "GLOWCAP_HOST_ACTION_NEED_GIFT_ID"),
-    kd("HOST_ACTION_SETTLE", "GLOWCAP_HOST_ACTION_SETTLE"),
-    kd("HOST_ACTION_FAIL", "GLOWCAP_HOST_ACTION_FAIL"),
-    kd("HOST_ACTION_CLOSE", "GLOWCAP_HOST_ACTION_CLOSE"),
-    kd("HOST_ACTION_RESUME", "GLOWCAP_HOST_ACTION_RESUME"),
-    kd("HOST_ACTION_CANCEL_DIAL", "GLOWCAP_HOST_ACTION_CANCEL_DIAL"),
-    kd("PENDING_CANCEL", "GLOWCAP_PENDING_CANCEL"),
-    kd("PENDING_FINISH", "GLOWCAP_PENDING_FINISH"),
-    kd("LIFECYCLE_ACTIVE", "GLOWCAP_LIFECYCLE_ACTIVE"),
-    kd("LIFECYCLE_FINISHING", "GLOWCAP_LIFECYCLE_FINISHING"),
-    kd("LIFECYCLE_TERMINATING", "GLOWCAP_LIFECYCLE_TERMINATING"),
-    kd("LIFECYCLE_CLOSED", "GLOWCAP_LIFECYCLE_CLOSED"),
-    kd("CLOSE_OPTIONS_ABI_VERSION", "GLOWCAP_CLOSE_OPTIONS_ABI_VERSION"),
-    kd("CLOSE_MAX_GRACE_MS", "GLOWCAP_CLOSE_MAX_GRACE_MS"),
-    kd("CLOSE_GRACE_UNSPECIFIED", "GLOWCAP_CLOSE_GRACE_UNSPECIFIED"),
-    kd("CLOSE_GRACE_FINITE", "GLOWCAP_CLOSE_GRACE_FINITE"),
-    kd("CLOSE_GRACE_UNBOUNDED", "GLOWCAP_CLOSE_GRACE_UNBOUNDED"),
-    kd("SESSION_LIMIT_OPTIONS_ABI_VERSION", "GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION"),
-    // Frame-cap defaults: Host protocol admission and direct raw transport
-    // frame-shuttle helpers keep separate memory postures.
-    kd("DEFAULT_FRAME_CAP", "GLOWCAP_DEFAULT_FRAME_CAP"),
-    k("RAW_TRANSPORT_DEFAULT_FRAME_CAP", "GLOWCAP_RAW_TRANSPORT_DEFAULT_FRAME_CAP"),
-    kd("MAX_LOCAL_FORWARD_HOPS", "GLOWCAP_MAX_LOCAL_FORWARD_HOPS"),
-    kd("HANDSHAKE_TIMEOUT_MS", "GLOWCAP_HANDSHAKE_TIMEOUT_MS"),
-    kd("DEFAULT_PENDING_ACCEPTS", "GLOWCAP_DEFAULT_PENDING_ACCEPTS"),
-    kd("DEFAULT_HANDSHAKE_CONCURRENCY", "GLOWCAP_DEFAULT_HANDSHAKE_CONCURRENCY"),
-    kd("MAX_HANDSHAKE_CONCURRENCY", "GLOWCAP_MAX_HANDSHAKE_CONCURRENCY"),
-    kd("DISCOVERY_DIAL_RETRY_MS", "GLOWCAP_DISCOVERY_DIAL_RETRY_MS"),
-    kd("DISCOVERY_DIAL_MAX_ATTEMPTS", "GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS"),
-    kdr("DRIVER_OPTIONS_ABI_VERSION", "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION"),
-    kdr("DRIVER_FAILURE_ABI_VERSION", "GLOWCAP_DRIVER_FAILURE_ABI_VERSION"),
-    kdr("DRIVER_MAX_WAIT_MS", "GLOWCAP_DRIVER_MAX_WAIT_MS"),
-    kdr("DRIVER_WAIT_UNBOUNDED", "GLOWCAP_DRIVER_WAIT_UNBOUNDED"),
-    kdr("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", "GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES"),
-    kdr("DRIVER_DEFAULT_MAX_PENDING_OPENS", "GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS"),
-    kdr("DRIVER_DEFAULT_HANDSHAKE_MS", "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS"),
-    kdr("DRIVER_DEFAULT_LISTENER_SETUP_MS", "GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS"),
-    kdr("DRIVER_DEFAULT_SETTLE_MS", "GLOWCAP_DRIVER_DEFAULT_SETTLE_MS"),
-    kdr("DRIVER_DEFAULT_BUSY_POLL_NS", "GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS"),
-    kdr("DRIVER_MAX_BUSY_POLL_NS", "GLOWCAP_DRIVER_MAX_BUSY_POLL_NS"),
-    // Host trace event kinds (libglowcap_host).
-    kd("TRACE_SESSION_OPEN", "GLOWCAP_TRACE_SESSION_OPEN"),
-    kd("TRACE_MESSAGE", "GLOWCAP_TRACE_MESSAGE"),
-    kd("TRACE_SESSION_CLOSE", "GLOWCAP_TRACE_SESSION_CLOSE"),
-    kd("TRACE_DIGEST_BYTES", "GLOWCAP_TRACE_DIGEST_BYTES"),
-    kd("DESIGNATOR_SCHEME_ADDRESS", "GLOWCAP_DESIGNATOR_SCHEME_ADDRESS"),
-    kd("DESIGNATOR_SCHEME_KEY", "GLOWCAP_DESIGNATOR_SCHEME_KEY"),
-    kd("HOST_OUTBOUND_PREFIX_CAP", "GLOWCAP_HOST_OUTBOUND_PREFIX_CAP"),
-    kd("HOST_DURABLE_ENTROPY_LEN", "GLOWCAP_HOST_DURABLE_ENTROPY_LEN"),
-    kd("HOST_DURABLE_SWISS_LEN", "GLOWCAP_HOST_DURABLE_SWISS_LEN"),
-    // GlowcapDriverEvent.kind values the driver archive's event queue
-    // carries (libglowcap_driver, ADR-0024).
-    kdr("DRIVER_EVENT_OPENED", "GLOWCAP_DRIVER_EVENT_OPENED"),
-    kdr("DRIVER_EVENT_OPEN_FAILED", "GLOWCAP_DRIVER_EVENT_OPEN_FAILED"),
-    kdr("DRIVER_EVENT_ACCEPTED", "GLOWCAP_DRIVER_EVENT_ACCEPTED"),
-    kdr("DRIVER_EVENT_SESSION_CLOSED", "GLOWCAP_DRIVER_EVENT_SESSION_CLOSED"),
-    kdr("DRIVER_EVENT_COMPLETION", "GLOWCAP_DRIVER_EVENT_COMPLETION"),
-    kdr("DRIVER_EVENT_LISTENER_READY", "GLOWCAP_DRIVER_EVENT_LISTENER_READY"),
-    kdr("DRIVER_EVENT_LISTENER_FAILED", "GLOWCAP_DRIVER_EVENT_LISTENER_FAILED"),
-    kdr("CARRIER_PHASE_NONE", "GLOWCAP_CARRIER_PHASE_NONE"),
-    kdr("CARRIER_PHASE_RESOLVE", "GLOWCAP_CARRIER_PHASE_RESOLVE"),
-    kdr("CARRIER_PHASE_CONNECT", "GLOWCAP_CARRIER_PHASE_CONNECT"),
-    kdr("CARRIER_PHASE_SECURE_HANDSHAKE", "GLOWCAP_CARRIER_PHASE_SECURE_HANDSHAKE"),
-    kdr("CARRIER_PHASE_WEBSOCKET_UPGRADE", "GLOWCAP_CARRIER_PHASE_WEBSOCKET_UPGRADE"),
-    kdr("CARRIER_PHASE_REGISTRATION", "GLOWCAP_CARRIER_PHASE_REGISTRATION"),
-    kdr("CARRIER_PHASE_RECEIVE", "GLOWCAP_CARRIER_PHASE_RECEIVE"),
-    kdr("CARRIER_PHASE_TRANSMIT", "GLOWCAP_CARRIER_PHASE_TRANSMIT"),
-    kdr("CARRIER_PHASE_SHUTDOWN", "GLOWCAP_CARRIER_PHASE_SHUTDOWN"),
-    kdr("CARRIER_DETAIL_PEER_ALERT", "GLOWCAP_CARRIER_DETAIL_PEER_ALERT"),
-    kdr("CARRIER_DETAIL_ENGINE_CODE", "GLOWCAP_CARRIER_DETAIL_ENGINE_CODE"),
-    kdr("DRIVER_ADOPT_DIALED", "GLOWCAP_DRIVER_ADOPT_DIALED"),
-    kdr("DRIVER_ADOPT_ACCEPTED", "GLOWCAP_DRIVER_ADOPT_ACCEPTED"),
-    kdr("LOCATOR_VIEW_ABI_VERSION", "GLOWCAP_LOCATOR_VIEW_ABI_VERSION"),
-    kdr("HINT_STRING", "GLOWCAP_HINT_STRING"),
-    kdr("HINT_BYTES", "GLOWCAP_HINT_BYTES"),
-    kdr("HINT_BOOLEAN", "GLOWCAP_HINT_BOOLEAN"),
-    kdr("HINT_INTEGER", "GLOWCAP_HINT_INTEGER"),
-    kdr("HINTS_MAP", "GLOWCAP_HINTS_MAP"),
-    kdr("HINTS_BOOLEAN_FALSE", "GLOWCAP_HINTS_BOOLEAN_FALSE"),
-    // GlowcapPartnerIdentity.provenance: how the partner's advertised durable
-    // identity was authenticated (ADR-0028). A caller needing a proved durable
-    // peer reads this, never a designator-equals-session-key comparison.
-    kd("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", "GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT"),
-    kd("DURABLE_PROVENANCE_UNAUTHENTICATED", "GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED"),
-    ko("ONION_AUTH_NONE", "GLOWCAP_ONION_AUTH_NONE"),
-    ko("ONION_AUTH_COOKIE", "GLOWCAP_ONION_AUTH_COOKIE"),
-    ko("ONION_AUTH_PASSWORD", "GLOWCAP_ONION_AUTH_PASSWORD"),
-    ko("ONION_SERVICE_ID_LEN", "GLOWCAP_ONION_SERVICE_ID_LEN"),
-    ko("ONION_SERVICE_KEY_CAP", "GLOWCAP_ONION_SERVICE_KEY_CAP"),
-    // Iroh reachability postures and the redeem knob's starting value
-    // (libglowcap_net_transport_iroh). The stack's `Reachability` surface and
-    // its hint-less-redeem default read these instead of hand-typing numbers.
-    ki("IROH_REACH_DIRECT", "GLOWCAP_IROH_REACH_DIRECT"),
-    ki("IROH_REACH_DISCOVERY", "GLOWCAP_IROH_REACH_DISCOVERY"),
-    ki("IROH_REACH_DISCOVERY_NO_RELAY", "GLOWCAP_IROH_REACH_DISCOVERY_NO_RELAY"),
-    ki("IROH_REACH_LOCAL_DISCOVERY", "GLOWCAP_IROH_REACH_LOCAL_DISCOVERY"),
-    ki("IROH_REACH_REDEEM_DEFAULT", "GLOWCAP_IROH_REACH_REDEEM_DEFAULT"),
-    ki("IROH_NODE_ID_BYTES", "GLOWCAP_IROH_NODE_ID_BYTES"),
-    ki("IROH_MAX_DIRECT_ADDRESS_BYTES", "GLOWCAP_IROH_MAX_DIRECT_ADDRESS_BYTES"),
-    // Iroh readiness event bits: the GLOWCAP_IROH_EV_* bitset a drain_ready
-    // record carries.
-    ki("IROH_EV_READABLE", "GLOWCAP_IROH_EV_READABLE"),
-    ki("IROH_EV_WRITABLE", "GLOWCAP_IROH_EV_WRITABLE"),
-    ki("IROH_EV_CLOSED", "GLOWCAP_IROH_EV_CLOSED"),
-    ki("IROH_EV_ACCEPT", "GLOWCAP_IROH_EV_ACCEPT"),
-    ki("IROH_EV_CONNECT", "GLOWCAP_IROH_EV_CONNECT"),
-    kw("WEBRTC_EV_OPEN", "GLOWCAP_WEBRTC_EV_OPEN"),
-    kw("WEBRTC_EV_CANDIDATE", "GLOWCAP_WEBRTC_EV_CANDIDATE"),
-    kw("WEBRTC_EV_READABLE", "GLOWCAP_WEBRTC_EV_READABLE"),
-    kw("WEBRTC_EV_WRITABLE", "GLOWCAP_WEBRTC_EV_WRITABLE"),
-    kw("WEBRTC_EV_CLOSED", "GLOWCAP_WEBRTC_EV_CLOSED"),
-    kw("WEBRTC_MAX_SIGNAL_BYTES", "GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES"),
-    kw("WEBRTC_MAX_ICE_CANDIDATE_BYTES", "GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES"),
-    kw("WEBRTC_MAX_ICE_SERVERS", "GLOWCAP_WEBRTC_MAX_ICE_SERVERS"),
-    kw("WEBRTC_MAX_ICE_URLS_PER_SERVER", "GLOWCAP_WEBRTC_MAX_ICE_URLS_PER_SERVER"),
-    kw("WEBRTC_MAX_ICE_URL_BYTES", "GLOWCAP_WEBRTC_MAX_ICE_URL_BYTES"),
-    kw("WEBRTC_MAX_ICE_CREDENTIAL_BYTES", "GLOWCAP_WEBRTC_MAX_ICE_CREDENTIAL_BYTES"),
-    kw("WEBRTC_MAX_PENDING_ICE_CANDIDATES", "GLOWCAP_WEBRTC_MAX_PENDING_ICE_CANDIDATES"),
-    kw("WEBRTC_MAX_ACCEPTS_IN_FLIGHT", "GLOWCAP_WEBRTC_MAX_ACCEPTS_IN_FLIGHT"),
-    kw("WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES", "GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES"),
-    kw("WEBRTC_DATA_CHANNEL_QUEUE_BYTES", "GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES"),
-    kp("BINDING_UNOBSERVED_OUTCOME_CAP", binding_policy.unobserved_outcome_cap),
-    kp("BINDING_READINESS_DRAIN_CAP", binding_policy.readiness_drain_cap),
-    kp("BINDING_STREAM_READ_CHUNK_BYTES", binding_policy.stream_read_chunk_bytes),
-    ki("BINDING_IROH_READ_CHUNK_BYTES", "GLOWCAP_IROH_READ_CHUNK_BYTES"),
-    kp("BINDING_TRACE_PAYLOAD_CAP_BYTES", binding_policy.trace_payload_cap_bytes),
-    kp("BINDING_SECONDARY_FAILURE_CAP", binding_policy.secondary_failure_cap),
-    kp("BINDING_RELAY_IDLE_TIMEOUT_MS", binding_policy.relay_idle_timeout_ms),
-    kp("BINDING_RELAY_MAX_BYTES_PER_SESSION", binding_policy.relay_max_bytes_per_session),
-    kp("BINDING_RELAY_READ_CHUNK_BYTES", binding_policy.relay_read_chunk_bytes),
-    kp("BINDING_RELAY_TCP_DIAL_TIMEOUT_MS", binding_policy.relay_tcp_dial_timeout_ms),
-    kp("BINDING_RELAY_WEBSOCKET_BUFFER_BYTES", binding_policy.relay_websocket_buffer_bytes),
-    kp("BINDING_WEBSOCKET_MESSAGE_CAP_BYTES", binding_policy.websocket_message_cap_bytes),
-    kp("BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES", binding_policy.websocket_send_high_water_bytes),
-    kp("BINDING_WEBSOCKET_DRAIN_POLL_MS", binding_policy.websocket_drain_poll_ms),
-    kp("BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS", binding_policy.websocket_close_timeout_ms),
-    kp("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", binding_policy.websocket_inbound_high_water_bytes),
-    kr("RELAY_CONFIG_ABI_VERSION", "GLOWCAP_RELAY_CONFIG_ABI_VERSION"),
-    kr("RELAY_TRUST_SYSTEM", "GLOWCAP_RELAY_TRUST_SYSTEM"),
-    kr("RELAY_TRUST_COPIED_PEM", "GLOWCAP_RELAY_TRUST_COPIED_PEM"),
-    kr("RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES", "GLOWCAP_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES"),
-    // Argument kinds.
-    k("ARG_INTEGER", "GLOWCAP_ARG_INTEGER"),
-    k("ARG_FLOAT64", "GLOWCAP_ARG_FLOAT64"),
-    k("ARG_BOOLEAN", "GLOWCAP_ARG_BOOLEAN"),
-    k("ARG_BYTES", "GLOWCAP_ARG_BYTES"),
-    k("ARG_STRING", "GLOWCAP_ARG_STRING"),
-    k("ARG_SYMBOL", "GLOWCAP_ARG_SYMBOL"),
-    k("ARG_VOID", "GLOWCAP_ARG_VOID"),
-    k("ARG_REFERENCE", "GLOWCAP_ARG_REFERENCE"),
-    k("ARG_LIST", "GLOWCAP_ARG_LIST"),
-    k("ARG_SET", "GLOWCAP_ARG_SET"),
-    k("ARG_TAGGED", "GLOWCAP_ARG_TAGGED"),
-    k("ARG_KEYWORD", "GLOWCAP_ARG_KEYWORD"),
-    k("ARG_BIG_INTEGER", "GLOWCAP_ARG_BIG_INTEGER"),
-    k("ARG_STRUCT", "GLOWCAP_ARG_STRUCT"),
-    k("ARG_ERROR", "GLOWCAP_ARG_ERROR"),
-    k("ARG_INTEGERS", "GLOWCAP_ARG_INTEGERS"),
-    // Wire-grammar codec selectors (the host constructor and the transports).
-    k("CODEC_UNKNOWN", "GLOWCAP_CODEC_UNKNOWN"),
-    k("CODEC_SYRUP", "GLOWCAP_CODEC_SYRUP"),
-    k("CODEC_CAPNP", "GLOWCAP_CODEC_CAPNP"),
-    k("CAPTP_V1_0", "GLOWCAP_CAPTP_V1_0"),
-    k("CAPTP_NEXT", "GLOWCAP_CAPTP_NEXT"),
-    k("FEATURE_PIPELINING", "GLOWCAP_FEATURE_PIPELINING"),
-    k("FEATURE_HANDOFF", "GLOWCAP_FEATURE_HANDOFF"),
-    k("FEATURE_WIRE_DELTA", "GLOWCAP_FEATURE_WIRE_DELTA"),
-    k("FEATURE_STURDYREF", "GLOWCAP_FEATURE_STURDYREF"),
-    k("FEATURE_UNTAG", "GLOWCAP_FEATURE_UNTAG"),
-    k("FEATURE_MULTI_LOCATION", "GLOWCAP_FEATURE_MULTI_LOCATION"),
-    k("FEATURE_MINIMUM", "GLOWCAP_FEATURE_MINIMUM"),
-    k("FEATURE_BASELINE", "GLOWCAP_FEATURE_BASELINE"),
-    k("FEATURE_FULL", "GLOWCAP_FEATURE_FULL"),
-    k("DEFAULT_CODEC", "GLOWCAP_DEFAULT_CODEC"),
-    k("DEFAULT_CAPTP_VERSION", "GLOWCAP_DEFAULT_CAPTP_VERSION"),
-    k("DEFAULT_FEATURES", "GLOWCAP_DEFAULT_FEATURES"),
-    k("INTEROP_CODEC", "GLOWCAP_INTEROP_CODEC"),
-    k("INTEROP_CAPTP_VERSION", "GLOWCAP_INTEROP_CAPTP_VERSION"),
-    k("OWN_CODEC", "GLOWCAP_OWN_CODEC"),
-    k("OWN_CAPTP_VERSION", "GLOWCAP_OWN_CAPTP_VERSION"),
-    // GlowcapLastAbort.domain.
-    k("ABORT_DOMAIN_CODEC", "GLOWCAP_ABORT_DOMAIN_CODEC"),
-    k("ABORT_DOMAIN_SESSION", "GLOWCAP_ABORT_DOMAIN_SESSION"),
-    k("ABORT_DOMAIN_FOREIGN", "GLOWCAP_ABORT_DOMAIN_FOREIGN"),
-};
-
 /// One generated struct layout: the TS constant prefix and the extern struct.
-/// Every field is emitted as `<PREFIX>_<FIELD>_OFF` plus a `<PREFIX>_SIZE`.
+/// Every field is emitted as `<PREFIX>_<FIELD>_OFF` plus a `<PREFIX>_SIZE`,
+/// each with a doc naming the struct and field it pins.
 fn emitLayout(
     out: *std.ArrayList(u8),
     gpa: std.mem.Allocator,
@@ -374,8 +93,7 @@ fn emitLayout(
         }
         if (owners != 1) @compileError(prefix ++ " must belong to exactly one Wasm or FFI-only layout manifest");
     }
-    try out.print(gpa, "// {s}\n", .{note});
-    try out.print(gpa, "export const {s}_SIZE = {d};\n", .{ prefix, @sizeOf(T) });
+    try out.print(gpa, "/** Byte size of {s} in the 64-bit FFI layout. */\nexport const {s}_SIZE = {d};\n", .{ note, prefix, @sizeOf(T) });
     inline for (@typeInfo(T).@"struct".field_names) |field_name| {
         // C snake_case field names become the same name upper-cased, so the
         // TypeScript reader names the field it is reading.
@@ -383,7 +101,7 @@ fn emitLayout(
         comptime for (field_name, 0..) |ch, i| {
             upper[i] = std.ascii.toUpper(ch);
         };
-        try out.print(gpa, "export const {s}_{s}_OFF = {d};\n", .{ prefix, upper, @offsetOf(T, field_name) });
+        try out.print(gpa, "/** Byte offset of `{s}` in {s}. */\nexport const {s}_{s}_OFF = {d};\n", .{ field_name, note, prefix, upper, @offsetOf(T, field_name) });
     }
     try out.appendSlice(gpa, "\n");
 }
@@ -422,21 +140,43 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
 
     try out.appendSlice(gpa, constants_preamble);
     try out.appendSlice(gpa, "// ── Constants (values mirror src/c_abi declarations) ─────────────────────\n\n");
-    inline for (constants) |entry| {
-        try out.print(gpa, "export const {s} = {d};\n", .{ entry.ts, entry.value });
+    inline for (table.groups) |group| {
+        inline for (group.entries) |entry| {
+            try out.print(gpa, "/** {s} {s} */\nexport const {s} = {d};\n", .{ group.doc, entry.tail, entry.ts, entry.value });
+        }
     }
-    inline for (archive_fingerprints) |entry| {
-        try out.print(gpa, "export const {s} = {d}n;\n", .{ entry.ts, entry.value });
+    inline for (table.archive_fingerprints) |entry| {
+        try out.print(
+            gpa,
+            "/** The C contract fingerprint of `{s}`. The loader compares it with the library's own before the first call and refuses a stale companion. */\nexport const {s} = {d}n;\n",
+            .{ entry.archive, entry.ts, entry.value },
+        );
     }
-    try out.print(gpa, "export const HINT_DIRECT_ADDRESSES = \"{s}\";\n", .{model.transport.hint_direct_addresses});
-    try out.print(gpa, "export const HINT_ALT_LOCATORS = \"{s}\";\n", .{model.transport.hint_alt_locators});
-    try out.print(gpa, "export const HINT_VIA = \"{s}\";\n", .{model.transport.hint_via});
+    try out.print(
+        gpa,
+        "/** Locator hint name carrying dial addresses for a transport whose designator is a key. */\nexport const HINT_DIRECT_ADDRESSES = \"{s}\";\n",
+        .{model.transport.hint_direct_addresses},
+    );
+    try out.print(
+        gpa,
+        "/** Locator hint name carrying a pipe-separated list of complete peer URIs to try after this locator. The value is routing advice, and the exporter's locator stays the signed authority for a redeem. */\nexport const HINT_ALT_LOCATORS = \"{s}\";\n",
+        .{model.transport.hint_alt_locators},
+    );
+    try out.print(
+        gpa,
+        "/** Locator hint name carrying the `id` transport's route bundle. */\nexport const HINT_VIA = \"{s}\";\n",
+        .{model.transport.hint_via},
+    );
     inline for (std.enums.values(model.transport.Known)) |known| {
-        try out.appendSlice(gpa, "export const ");
+        const designator: []const u8 = switch (known.metadata().designator_scheme) {
+            .address => "a dial address",
+            .key => "a peer key",
+        };
+        try out.print(gpa, "/** The transport symbol of `{s}` locators, whose designator is {s}. */\nexport const ", .{ known.metadata().symbol, designator });
         try writeTsTransportConstName(&out, gpa, known, "");
         try out.print(gpa, " = \"{s}\";\n", .{known.metadata().symbol});
         if (known.metadata().max_packet_bytes != 0) {
-            try out.appendSlice(gpa, "export const ");
+            try out.print(gpa, "/** Largest wire packet the `{s}` transport carries, in bytes. */\nexport const ", .{known.metadata().symbol});
             try writeTsTransportConstName(&out, gpa, known, "_MAX_PACKET_BYTES");
             try out.print(gpa, " = {d};\n", .{known.metadata().max_packet_bytes});
         }
@@ -445,12 +185,14 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa,
         \\
         \\// ── Wasm layout-descriptor manifest (glowcap_wasm_abi_layout) ────────────
-        \\// Struct index i of the wasm32 module's layout descriptor is row i here;
-        \\// the descriptor's offset words for that struct name its fields, in
-        \\// declaration order. `ffiMirror` says whether the prefix also names
-        \\// 64-bit FFI constants; false is vocabulary used only by the browser's
-        \\// byte-fed embedder. Field order is declaration order on every target;
-        \\// only the offset numbers are target-specific.
+        \\/**
+        \\ * Struct index i of the wasm32 module's layout descriptor is row i here,
+        \\ * and the descriptor's offset words for that struct name its fields in
+        \\ * declaration order. `ffiMirror` says whether the prefix also names
+        \\ * 64-bit FFI constants. When it is false the prefix is vocabulary only the
+        \\ * browser's byte-fed embedder uses. Field order is declaration order on
+        \\ * every target, and only the offset numbers are target-specific.
+        \\ */
         \\export const WASM_LAYOUT_STRUCTS = [
         \\
     );
@@ -474,11 +216,13 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
 
     try out.appendSlice(gpa,
         \\
-        \\// Layout prefixes that exist only in FFI archives the wasm32 module
-        \\// never links (a browser has no iroh sidecar to link). A wasm
-        \\// marshaller must never read these; the layout check requires every
-        \\// other 64-bit prefix to have a manifest row above, and refuses a
-        \\// prefix listed here that gains one.
+        \\/**
+        \\ * Layout prefixes that exist only in FFI archives the wasm32 module never
+        \\ * links (a browser has no iroh sidecar to link). A wasm marshaller must
+        \\ * never read these. The layout check requires every other 64-bit prefix
+        \\ * to have a manifest row above, and refuses a prefix listed here that
+        \\ * gains one.
+        \\ */
         \\export const FFI_ONLY_LAYOUT_PREFIXES = [
         \\
     );

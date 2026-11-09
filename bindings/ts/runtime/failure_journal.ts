@@ -1,6 +1,9 @@
 import { DEFAULT_FAILURE_CAPACITY, DEFAULT_FAILURE_PAYLOAD_CAP, OK, TIMEOUT } from "@glowcap/abi";
 
+/** The tier that recorded a journaled failure: `core`, `driver`, `transport`, `binding`, or an `application-observer`
+ * callback. */
 export type FailureLayer = "core" | "driver" | "transport" | "binding" | "application-observer";
+/** The kind of owner a journaled failure's `scopeId` names. */
 export type FailureScope = "process" | "context" | "host" | "session" | "listener" | "transport" | "operation";
 
 /** One failure that had no remaining deterministic return recipient. */

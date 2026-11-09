@@ -5,326 +5,557 @@
 
 // ── Struct layouts (@sizeOf/@offsetOf on the extern structs) ─────────────
 
-// GlowcapReference
+/** Byte size of GlowcapReference in the 64-bit FFI layout. */
 export const REF_SIZE = 8;
+/** Byte offset of `id` in GlowcapReference. */
 export const REF_ID_OFF = 0;
 
-// GlowcapArgument
+/** Byte size of GlowcapArgument in the 64-bit FFI layout. */
 export const ARG_SIZE = 64;
+/** Byte offset of `kind` in GlowcapArgument. */
 export const ARG_KIND_OFF = 0;
+/** Byte offset of `boolean` in GlowcapArgument. */
 export const ARG_BOOLEAN_OFF = 4;
+/** Byte offset of `integer` in GlowcapArgument. */
 export const ARG_INTEGER_OFF = 8;
+/** Byte offset of `float64` in GlowcapArgument. */
 export const ARG_FLOAT64_OFF = 16;
+/** Byte offset of `bytes` in GlowcapArgument. */
 export const ARG_BYTES_OFF = 24;
+/** Byte offset of `bytes_len` in GlowcapArgument. */
 export const ARG_BYTES_LEN_OFF = 32;
+/** Byte offset of `reference` in GlowcapArgument. */
 export const ARG_REFERENCE_OFF = 40;
+/** Byte offset of `items` in GlowcapArgument. */
 export const ARG_ITEMS_OFF = 48;
+/** Byte offset of `items_len` in GlowcapArgument. */
 export const ARG_ITEMS_LEN_OFF = 56;
 
-// GlowcapFrame (borrowed)
+/** Byte size of GlowcapFrame (borrowed) in the 64-bit FFI layout. */
 export const FRAME_SIZE = 24;
+/** Byte offset of `bytes` in GlowcapFrame (borrowed). */
 export const FRAME_BYTES_OFF = 0;
+/** Byte offset of `len` in GlowcapFrame (borrowed). */
 export const FRAME_LEN_OFF = 8;
+/** Byte offset of `shape` in GlowcapFrame (borrowed). */
 export const FRAME_SHAPE_OFF = 16;
 
-// GlowcapManagedFrame (owned, self-releasing)
+/** Byte size of GlowcapManagedFrame (owned, self-releasing) in the 64-bit FFI layout. */
 export const MANAGED_FRAME_SIZE = 96;
+/** Byte offset of `bytes` in GlowcapManagedFrame (owned, self-releasing). */
 export const MANAGED_FRAME_BYTES_OFF = 0;
+/** Byte offset of `len` in GlowcapManagedFrame (owned, self-releasing). */
 export const MANAGED_FRAME_LEN_OFF = 8;
+/** Byte offset of `shape` in GlowcapManagedFrame (owned, self-releasing). */
 export const MANAGED_FRAME_SHAPE_OFF = 16;
+/** Byte offset of `release` in GlowcapManagedFrame (owned, self-releasing). */
 export const MANAGED_FRAME_RELEASE_OFF = 24;
+/** Byte offset of `private_words` in GlowcapManagedFrame (owned, self-releasing). */
 export const MANAGED_FRAME_PRIVATE_WORDS_OFF = 32;
 
-// GlowcapLastAbort
+/** Byte size of GlowcapLastAbort in the 64-bit FFI layout. */
 export const LAST_ABORT_SIZE = 96;
+/** Byte offset of `domain` in GlowcapLastAbort. */
 export const LAST_ABORT_DOMAIN_OFF = 0;
+/** Byte offset of `has_kind` in GlowcapLastAbort. */
 export const LAST_ABORT_HAS_KIND_OFF = 4;
+/** Byte offset of `kind_name` in GlowcapLastAbort. */
 export const LAST_ABORT_KIND_NAME_OFF = 8;
+/** Byte offset of `kind_name_len` in GlowcapLastAbort. */
 export const LAST_ABORT_KIND_NAME_LEN_OFF = 16;
+/** Byte offset of `message` in GlowcapLastAbort. */
 export const LAST_ABORT_MESSAGE_OFF = 24;
+/** Byte offset of `message_len` in GlowcapLastAbort. */
 export const LAST_ABORT_MESSAGE_LEN_OFF = 32;
+/** Byte offset of `error_name` in GlowcapLastAbort. */
 export const LAST_ABORT_ERROR_NAME_OFF = 40;
+/** Byte offset of `error_name_len` in GlowcapLastAbort. */
 export const LAST_ABORT_ERROR_NAME_LEN_OFF = 48;
+/** Byte offset of `abort_delivery_error_name` in GlowcapLastAbort. */
 export const LAST_ABORT_ABORT_DELIVERY_ERROR_NAME_OFF = 56;
+/** Byte offset of `abort_delivery_error_name_len` in GlowcapLastAbort. */
 export const LAST_ABORT_ABORT_DELIVERY_ERROR_NAME_LEN_OFF = 64;
+/** Byte offset of `secondary_error_name` in GlowcapLastAbort. */
 export const LAST_ABORT_SECONDARY_ERROR_NAME_OFF = 72;
+/** Byte offset of `secondary_error_name_len` in GlowcapLastAbort. */
 export const LAST_ABORT_SECONDARY_ERROR_NAME_LEN_OFF = 80;
+/** Byte offset of `secondary_error_count` in GlowcapLastAbort. */
 export const LAST_ABORT_SECONDARY_ERROR_COUNT_OFF = 88;
 
-// GlowcapAllocator (glowcap_context_new_with_allocator)
+/** Byte size of GlowcapAllocator (glowcap_context_new_with_allocator) in the 64-bit FFI layout. */
 export const ALLOCATOR_SIZE = 24;
+/** Byte offset of `alloc` in GlowcapAllocator (glowcap_context_new_with_allocator). */
 export const ALLOCATOR_ALLOC_OFF = 0;
+/** Byte offset of `free` in GlowcapAllocator (glowcap_context_new_with_allocator). */
 export const ALLOCATOR_FREE_OFF = 8;
+/** Byte offset of `user_data` in GlowcapAllocator (glowcap_context_new_with_allocator). */
 export const ALLOCATOR_USER_DATA_OFF = 16;
 
-// GlowcapFailureReport
+/** Byte size of GlowcapFailureReport in the 64-bit FFI layout. */
 export const FAILURE_REPORT_SIZE = 136;
+/** Byte offset of `abi_version` in GlowcapFailureReport. */
 export const FAILURE_REPORT_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapFailureReport. */
 export const FAILURE_REPORT_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `layer` in GlowcapFailureReport. */
 export const FAILURE_REPORT_LAYER_OFF = 16;
+/** Byte offset of `scope_kind` in GlowcapFailureReport. */
 export const FAILURE_REPORT_SCOPE_KIND_OFF = 20;
+/** Byte offset of `scope_id` in GlowcapFailureReport. */
 export const FAILURE_REPORT_SCOPE_ID_OFF = 24;
+/** Byte offset of `operation_id` in GlowcapFailureReport. */
 export const FAILURE_REPORT_OPERATION_ID_OFF = 32;
+/** Byte offset of `primary_result` in GlowcapFailureReport. */
 export const FAILURE_REPORT_PRIMARY_RESULT_OFF = 40;
+/** Byte offset of `secondary_result` in GlowcapFailureReport. */
 export const FAILURE_REPORT_SECONDARY_RESULT_OFF = 44;
+/** Byte offset of `secondary_count` in GlowcapFailureReport. */
 export const FAILURE_REPORT_SECONDARY_COUNT_OFF = 48;
+/** Byte offset of `operation` in GlowcapFailureReport. */
 export const FAILURE_REPORT_OPERATION_OFF = 56;
+/** Byte offset of `operation_len` in GlowcapFailureReport. */
 export const FAILURE_REPORT_OPERATION_LEN_OFF = 64;
+/** Byte offset of `primary_name` in GlowcapFailureReport. */
 export const FAILURE_REPORT_PRIMARY_NAME_OFF = 72;
+/** Byte offset of `primary_name_len` in GlowcapFailureReport. */
 export const FAILURE_REPORT_PRIMARY_NAME_LEN_OFF = 80;
+/** Byte offset of `primary_message` in GlowcapFailureReport. */
 export const FAILURE_REPORT_PRIMARY_MESSAGE_OFF = 88;
+/** Byte offset of `primary_message_len` in GlowcapFailureReport. */
 export const FAILURE_REPORT_PRIMARY_MESSAGE_LEN_OFF = 96;
+/** Byte offset of `secondary_name` in GlowcapFailureReport. */
 export const FAILURE_REPORT_SECONDARY_NAME_OFF = 104;
+/** Byte offset of `secondary_name_len` in GlowcapFailureReport. */
 export const FAILURE_REPORT_SECONDARY_NAME_LEN_OFF = 112;
+/** Byte offset of `secondary_message` in GlowcapFailureReport. */
 export const FAILURE_REPORT_SECONDARY_MESSAGE_OFF = 120;
+/** Byte offset of `secondary_message_len` in GlowcapFailureReport. */
 export const FAILURE_REPORT_SECONDARY_MESSAGE_LEN_OFF = 128;
 
-// GlowcapFailureEvent
+/** Byte size of GlowcapFailureEvent in the 64-bit FFI layout. */
 export const FAILURE_EVENT_SIZE = 152;
+/** Byte offset of `abi_version` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `sequence` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SEQUENCE_OFF = 16;
+/** Byte offset of `dropped_before` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_DROPPED_BEFORE_OFF = 24;
+/** Byte offset of `layer` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_LAYER_OFF = 32;
+/** Byte offset of `scope_kind` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SCOPE_KIND_OFF = 36;
+/** Byte offset of `scope_id` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SCOPE_ID_OFF = 40;
+/** Byte offset of `operation_id` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_OPERATION_ID_OFF = 48;
+/** Byte offset of `primary_result` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_PRIMARY_RESULT_OFF = 56;
+/** Byte offset of `secondary_result` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SECONDARY_RESULT_OFF = 60;
+/** Byte offset of `secondary_count` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SECONDARY_COUNT_OFF = 64;
+/** Byte offset of `flags` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_FLAGS_OFF = 68;
+/** Byte offset of `operation` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_OPERATION_OFF = 72;
+/** Byte offset of `operation_len` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_OPERATION_LEN_OFF = 80;
+/** Byte offset of `primary_name` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_PRIMARY_NAME_OFF = 88;
+/** Byte offset of `primary_name_len` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_PRIMARY_NAME_LEN_OFF = 96;
+/** Byte offset of `primary_message` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_PRIMARY_MESSAGE_OFF = 104;
+/** Byte offset of `primary_message_len` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_PRIMARY_MESSAGE_LEN_OFF = 112;
+/** Byte offset of `secondary_name` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SECONDARY_NAME_OFF = 120;
+/** Byte offset of `secondary_name_len` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SECONDARY_NAME_LEN_OFF = 128;
+/** Byte offset of `secondary_message` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SECONDARY_MESSAGE_OFF = 136;
+/** Byte offset of `secondary_message_len` in GlowcapFailureEvent. */
 export const FAILURE_EVENT_SECONDARY_MESSAGE_LEN_OFF = 144;
 
-// GlowcapHostAction (libglowcap_host, glowcap_host_next_action)
+/** Byte size of GlowcapHostAction (libglowcap_host, glowcap_host_next_action) in the 64-bit FFI layout. */
 export const HOST_ACTION_SIZE = 120;
+/** Byte offset of `kind` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_KIND_OFF = 0;
+/** Byte offset of `ticket` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_TICKET_OFF = 8;
+/** Byte offset of `route_index` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_ROUTE_INDEX_OFF = 16;
+/** Byte offset of `session` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_SESSION_OFF = 24;
+/** Byte offset of `value` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_VALUE_OFF = 32;
+/** Byte offset of `message` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_MESSAGE_OFF = 96;
+/** Byte offset of `message_len` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_MESSAGE_LEN_OFF = 104;
+/** Byte offset of `result` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_RESULT_OFF = 112;
 
-// GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain)
+/** Byte size of GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain) in the 64-bit FFI layout. */
 export const HOST_PUMP_HOOKS_SIZE = 48;
+/** Byte offset of `ctx` in GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain). */
 export const HOST_PUMP_HOOKS_CTX_OFF = 0;
+/** Byte offset of `flush` in GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain). */
 export const HOST_PUMP_HOOKS_FLUSH_OFF = 8;
+/** Byte offset of `close` in GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain). */
 export const HOST_PUMP_HOOKS_CLOSE_OFF = 16;
+/** Byte offset of `need_gift_id` in GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain). */
 export const HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF = 24;
+/** Byte offset of `complete` in GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain). */
 export const HOST_PUMP_HOOKS_COMPLETE_OFF = 32;
+/** Byte offset of `dial` in GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain). */
 export const HOST_PUMP_HOOKS_DIAL_OFF = 40;
 
-// GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity)
+/** Byte size of GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity) in the 64-bit FFI layout. */
 export const PARTNER_IDENTITY_SIZE = 56;
+/** Byte offset of `session_key` in GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity). */
 export const PARTNER_IDENTITY_SESSION_KEY_OFF = 0;
+/** Byte offset of `session_key_len` in GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity). */
 export const PARTNER_IDENTITY_SESSION_KEY_LEN_OFF = 8;
+/** Byte offset of `designator` in GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity). */
 export const PARTNER_IDENTITY_DESIGNATOR_OFF = 16;
+/** Byte offset of `designator_len` in GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity). */
 export const PARTNER_IDENTITY_DESIGNATOR_LEN_OFF = 24;
+/** Byte offset of `locator_record` in GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity). */
 export const PARTNER_IDENTITY_LOCATOR_RECORD_OFF = 32;
+/** Byte offset of `locator_record_len` in GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity). */
 export const PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF = 40;
+/** Byte offset of `provenance` in GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity). */
 export const PARTNER_IDENTITY_PROVENANCE_OFF = 48;
 
-// GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace)
+/** Byte size of GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace) in the 64-bit FFI layout. */
 export const TRACE_EVENT_SIZE = 144;
+/** Byte offset of `kind` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_KIND_OFF = 0;
+/** Byte offset of `session` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_SESSION_OFF = 8;
+/** Byte offset of `outbound` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_OUTBOUND_OFF = 16;
+/** Byte offset of `provenance` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_PROVENANCE_OFF = 20;
+/** Byte offset of `codec` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_CODEC_OFF = 24;
+/** Byte offset of `captp_version` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_CAPTP_VERSION_OFF = 28;
+/** Byte offset of `designator` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_DESIGNATOR_OFF = 32;
+/** Byte offset of `designator_len` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_DESIGNATOR_LEN_OFF = 40;
+/** Byte offset of `transport` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_TRANSPORT_OFF = 48;
+/** Byte offset of `transport_len` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_TRANSPORT_LEN_OFF = 56;
+/** Byte offset of `session_id` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_SESSION_ID_OFF = 64;
+/** Byte offset of `session_id_len` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_SESSION_ID_LEN_OFF = 72;
+/** Byte offset of `verb` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_VERB_OFF = 80;
+/** Byte offset of `verb_len` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_VERB_LEN_OFF = 88;
+/** Byte offset of `frame` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_FRAME_OFF = 96;
+/** Byte offset of `frame_len` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_FRAME_LEN_OFF = 104;
+/** Byte offset of `frame_total_len` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_FRAME_TOTAL_LEN_OFF = 112;
+/** Byte offset of `dropped` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_DROPPED_OFF = 120;
+/** Byte offset of `digest` in GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace). */
 export const TRACE_EVENT_DIGEST_OFF = 128;
 
-// GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host)
+/** Byte size of GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host) in the 64-bit FFI layout. */
 export const DRIVER_OPTIONS_SIZE = 56;
+/** Byte offset of `abi_version` in GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host). */
 export const DRIVER_OPTIONS_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host). */
 export const DRIVER_OPTIONS_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `wire_buffer_bytes` in GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host). */
 export const DRIVER_OPTIONS_WIRE_BUFFER_BYTES_OFF = 16;
+/** Byte offset of `max_pending_opens` in GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host). */
 export const DRIVER_OPTIONS_MAX_PENDING_OPENS_OFF = 24;
+/** Byte offset of `handshake_ms` in GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host). */
 export const DRIVER_OPTIONS_HANDSHAKE_MS_OFF = 32;
+/** Byte offset of `listener_setup_ms` in GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host). */
 export const DRIVER_OPTIONS_LISTENER_SETUP_MS_OFF = 36;
+/** Byte offset of `settle_ms` in GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host). */
 export const DRIVER_OPTIONS_SETTLE_MS_OFF = 40;
+/** Byte offset of `busy_poll_ns` in GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host). */
 export const DRIVER_OPTIONS_BUSY_POLL_NS_OFF = 48;
 
-// GlowcapDriverFailure (libglowcap_driver deterministic barriers)
+/** Byte size of GlowcapDriverFailure (libglowcap_driver deterministic barriers) in the 64-bit FFI layout. */
 export const DRIVER_FAILURE_SIZE = 80;
+/** Byte offset of `abi_version` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `primary_result` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_PRIMARY_RESULT_OFF = 16;
+/** Byte offset of `secondary_result` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_SECONDARY_RESULT_OFF = 20;
+/** Byte offset of `secondary_count` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_SECONDARY_COUNT_OFF = 24;
+/** Byte offset of `carrier_phase` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_CARRIER_PHASE_OFF = 28;
+/** Byte offset of `carrier_detail_flags` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_CARRIER_DETAIL_FLAGS_OFF = 32;
+/** Byte offset of `carrier_verification_flags` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_CARRIER_VERIFICATION_FLAGS_OFF = 36;
+/** Byte offset of `carrier_peer_alert` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_CARRIER_PEER_ALERT_OFF = 40;
+/** Byte offset of `carrier_engine_code` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_CARRIER_ENGINE_CODE_OFF = 44;
+/** Byte offset of `primary_name` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_PRIMARY_NAME_OFF = 48;
+/** Byte offset of `primary_name_len` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_PRIMARY_NAME_LEN_OFF = 56;
+/** Byte offset of `secondary_name` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_SECONDARY_NAME_OFF = 64;
+/** Byte offset of `secondary_name_len` in GlowcapDriverFailure (libglowcap_driver deterministic barriers). */
 export const DRIVER_FAILURE_SECONDARY_NAME_LEN_OFF = 72;
 
-// GlowcapCloseOptions (libglowcap_host and libglowcap_driver)
+/** Byte size of GlowcapCloseOptions (libglowcap_host and libglowcap_driver) in the 64-bit FFI layout. */
 export const CLOSE_OPTIONS_SIZE = 32;
+/** Byte offset of `abi_version` in GlowcapCloseOptions (libglowcap_host and libglowcap_driver). */
 export const CLOSE_OPTIONS_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapCloseOptions (libglowcap_host and libglowcap_driver). */
 export const CLOSE_OPTIONS_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `pending` in GlowcapCloseOptions (libglowcap_host and libglowcap_driver). */
 export const CLOSE_OPTIONS_PENDING_OFF = 16;
+/** Byte offset of `grace_mode` in GlowcapCloseOptions (libglowcap_host and libglowcap_driver). */
 export const CLOSE_OPTIONS_GRACE_MODE_OFF = 20;
+/** Byte offset of `grace_ms` in GlowcapCloseOptions (libglowcap_host and libglowcap_driver). */
 export const CLOSE_OPTIONS_GRACE_MS_OFF = 24;
 
-// GlowcapSessionLimitOptions (libglowcap_host)
+/** Byte size of GlowcapSessionLimitOptions (libglowcap_host) in the 64-bit FFI layout. */
 export const SESSION_LIMIT_OPTIONS_SIZE = 56;
+/** Byte offset of `abi_version` in GlowcapSessionLimitOptions (libglowcap_host). */
 export const SESSION_LIMIT_OPTIONS_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapSessionLimitOptions (libglowcap_host). */
 export const SESSION_LIMIT_OPTIONS_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `max_frame_bytes` in GlowcapSessionLimitOptions (libglowcap_host). */
 export const SESSION_LIMIT_OPTIONS_MAX_FRAME_BYTES_OFF = 16;
+/** Byte offset of `queue_cap` in GlowcapSessionLimitOptions (libglowcap_host). */
 export const SESSION_LIMIT_OPTIONS_QUEUE_CAP_OFF = 24;
+/** Byte offset of `outbound_high_water_bytes` in GlowcapSessionLimitOptions (libglowcap_host). */
 export const SESSION_LIMIT_OPTIONS_OUTBOUND_HIGH_WATER_BYTES_OFF = 32;
+/** Byte offset of `max_retained_sent_answer_bytes` in GlowcapSessionLimitOptions (libglowcap_host). */
 export const SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF = 40;
+/** Byte offset of `max_sessions` in GlowcapSessionLimitOptions (libglowcap_host). */
 export const SESSION_LIMIT_OPTIONS_MAX_SESSIONS_OFF = 48;
 
-// GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event)
+/** Byte size of GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event) in the 64-bit FFI layout. */
 export const DRIVER_EVENT_SIZE = 216;
+/** Byte offset of `kind` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_KIND_OFF = 0;
+/** Byte offset of `primary_result` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_PRIMARY_RESULT_OFF = 4;
+/** Byte offset of `secondary_result` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_SECONDARY_RESULT_OFF = 8;
+/** Byte offset of `secondary_count` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_SECONDARY_COUNT_OFF = 12;
+/** Byte offset of `carrier_phase` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_CARRIER_PHASE_OFF = 16;
+/** Byte offset of `carrier_detail_flags` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_CARRIER_DETAIL_FLAGS_OFF = 20;
+/** Byte offset of `carrier_verification_flags` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_CARRIER_VERIFICATION_FLAGS_OFF = 24;
+/** Byte offset of `carrier_peer_alert` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_CARRIER_PEER_ALERT_OFF = 28;
+/** Byte offset of `carrier_engine_code` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_CARRIER_ENGINE_CODE_OFF = 32;
+/** Byte offset of `operation_id` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_OPERATION_ID_OFF = 40;
+/** Byte offset of `listener_id` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_LISTENER_ID_OFF = 48;
+/** Byte offset of `session` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_SESSION_OFF = 56;
+/** Byte offset of `action` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_ACTION_OFF = 64;
+/** Byte offset of `primary_name` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_PRIMARY_NAME_OFF = 184;
+/** Byte offset of `primary_name_len` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_PRIMARY_NAME_LEN_OFF = 192;
+/** Byte offset of `secondary_name` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_SECONDARY_NAME_OFF = 200;
+/** Byte offset of `secondary_name_len` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_SECONDARY_NAME_LEN_OFF = 208;
 
-// GlowcapTransportOperationOptions (glowcap_driver_dial)
+/** Byte size of GlowcapTransportOperationOptions (glowcap_driver_dial) in the 64-bit FFI layout. */
 export const TRANSPORT_OPERATION_OPTIONS_SIZE = 16;
+/** Byte offset of `data` in GlowcapTransportOperationOptions (glowcap_driver_dial). */
 export const TRANSPORT_OPERATION_OPTIONS_DATA_OFF = 0;
+/** Byte offset of `size` in GlowcapTransportOperationOptions (glowcap_driver_dial). */
 export const TRANSPORT_OPERATION_OPTIONS_SIZE_OFF = 8;
 
-// GlowcapLocatorHintView (glowcap_transport_provider.h)
+/** Byte size of GlowcapLocatorHintView (glowcap_transport_provider.h) in the 64-bit FFI layout. */
 export const LOCATOR_HINT_VIEW_SIZE = 56;
+/** Byte offset of `name` in GlowcapLocatorHintView (glowcap_transport_provider.h). */
 export const LOCATOR_HINT_VIEW_NAME_OFF = 0;
+/** Byte offset of `name_len` in GlowcapLocatorHintView (glowcap_transport_provider.h). */
 export const LOCATOR_HINT_VIEW_NAME_LEN_OFF = 8;
+/** Byte offset of `kind` in GlowcapLocatorHintView (glowcap_transport_provider.h). */
 export const LOCATOR_HINT_VIEW_KIND_OFF = 16;
+/** Byte offset of `bytes` in GlowcapLocatorHintView (glowcap_transport_provider.h). */
 export const LOCATOR_HINT_VIEW_BYTES_OFF = 24;
+/** Byte offset of `bytes_len` in GlowcapLocatorHintView (glowcap_transport_provider.h). */
 export const LOCATOR_HINT_VIEW_BYTES_LEN_OFF = 32;
+/** Byte offset of `boolean_value` in GlowcapLocatorHintView (glowcap_transport_provider.h). */
 export const LOCATOR_HINT_VIEW_BOOLEAN_VALUE_OFF = 40;
+/** Byte offset of `integer_value` in GlowcapLocatorHintView (glowcap_transport_provider.h). */
 export const LOCATOR_HINT_VIEW_INTEGER_VALUE_OFF = 48;
 
-// GlowcapLocatorView (glowcap_transport_provider.h)
+/** Byte size of GlowcapLocatorView (glowcap_transport_provider.h) in the 64-bit FFI layout. */
 export const LOCATOR_VIEW_SIZE = 72;
+/** Byte offset of `abi_version` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `transport` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_TRANSPORT_OFF = 16;
+/** Byte offset of `transport_len` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_TRANSPORT_LEN_OFF = 24;
+/** Byte offset of `designator` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_DESIGNATOR_OFF = 32;
+/** Byte offset of `designator_len` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_DESIGNATOR_LEN_OFF = 40;
+/** Byte offset of `hints` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_HINTS_OFF = 48;
+/** Byte offset of `hint_count` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_HINT_COUNT_OFF = 56;
+/** Byte offset of `hint_wire_form` in GlowcapLocatorView (glowcap_transport_provider.h). */
 export const LOCATOR_VIEW_HINT_WIRE_FORM_OFF = 64;
 
-// GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider)
+/** Byte size of GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider) in the 64-bit FFI layout. */
 export const TRANSPORT_PROVIDER_SIZE = 64;
+/** Byte offset of `abi_version` in GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider). */
 export const TRANSPORT_PROVIDER_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider). */
 export const TRANSPORT_PROVIDER_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `entries` in GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider). */
 export const TRANSPORT_PROVIDER_ENTRIES_OFF = 16;
+/** Byte offset of `entry_count` in GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider). */
 export const TRANSPORT_PROVIDER_ENTRY_COUNT_OFF = 24;
+/** Byte offset of `lease_ctx` in GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider). */
 export const TRANSPORT_PROVIDER_LEASE_CTX_OFF = 32;
+/** Byte offset of `same_configuration` in GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider). */
 export const TRANSPORT_PROVIDER_SAME_CONFIGURATION_OFF = 40;
+/** Byte offset of `retain` in GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider). */
 export const TRANSPORT_PROVIDER_RETAIN_OFF = 48;
+/** Byte offset of `release` in GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider). */
 export const TRANSPORT_PROVIDER_RELEASE_OFF = 56;
 
-// GlowcapTcpStreamOptions (libglowcap_net_transport_tcp)
+/** Byte size of GlowcapTcpStreamOptions (libglowcap_net_transport_tcp) in the 64-bit FFI layout. */
 export const TCP_STREAM_OPTIONS_SIZE = 12;
+/** Byte offset of `keepalive_idle_sec` in GlowcapTcpStreamOptions (libglowcap_net_transport_tcp). */
 export const TCP_STREAM_OPTIONS_KEEPALIVE_IDLE_SEC_OFF = 0;
+/** Byte offset of `keepalive_interval_sec` in GlowcapTcpStreamOptions (libglowcap_net_transport_tcp). */
 export const TCP_STREAM_OPTIONS_KEEPALIVE_INTERVAL_SEC_OFF = 4;
+/** Byte offset of `keepalive_count` in GlowcapTcpStreamOptions (libglowcap_net_transport_tcp). */
 export const TCP_STREAM_OPTIONS_KEEPALIVE_COUNT_OFF = 8;
 
-// GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new)
+/** Byte size of GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new) in the 64-bit FFI layout. */
 export const TCP_CONFIG_SIZE = 12;
+/** Byte offset of `stream` in GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new). */
 export const TCP_CONFIG_STREAM_OFF = 0;
 
-// GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new)
+/** Byte size of GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new) in the 64-bit FFI layout. */
 export const RELAY_CONFIG_SIZE = 88;
+/** Byte offset of `abi_version` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_ABI_VERSION_OFF = 0;
+/** Byte offset of `struct_size` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_STRUCT_SIZE_OFF = 8;
+/** Byte offset of `relay_url` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_RELAY_URL_OFF = 16;
+/** Byte offset of `relay_url_len` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_RELAY_URL_LEN_OFF = 24;
+/** Byte offset of `register_url` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_REGISTER_URL_OFF = 32;
+/** Byte offset of `register_url_len` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_REGISTER_URL_LEN_OFF = 40;
+/** Byte offset of `trust` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_TRUST_OFF = 48;
+/** Byte offset of `trust_pem` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_TRUST_PEM_OFF = 56;
+/** Byte offset of `trust_pem_len` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_TRUST_PEM_LEN_OFF = 64;
+/** Byte offset of `relay_alias_url` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_RELAY_ALIAS_URL_OFF = 72;
+/** Byte offset of `relay_alias_url_len` in GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new). */
 export const RELAY_CONFIG_RELAY_ALIAS_URL_LEN_OFF = 80;
 
-// GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready)
+/** Byte size of GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready) in the 64-bit FFI layout. */
 export const IROH_READY_EVENT_SIZE = 16;
+/** Byte offset of `subject` in GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready). */
 export const IROH_READY_EVENT_SUBJECT_OFF = 0;
+/** Byte offset of `events` in GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready). */
 export const IROH_READY_EVENT_EVENTS_OFF = 8;
 
-// GlowcapWebrtcReadyEvent (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_drain_ready)
+/** Byte size of GlowcapWebrtcReadyEvent (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_drain_ready) in the 64-bit FFI layout. */
 export const WEBRTC_READY_EVENT_SIZE = 16;
+/** Byte offset of `subject` in GlowcapWebrtcReadyEvent (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_drain_ready). */
 export const WEBRTC_READY_EVENT_SUBJECT_OFF = 0;
+/** Byte offset of `events` in GlowcapWebrtcReadyEvent (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_drain_ready). */
 export const WEBRTC_READY_EVENT_EVENTS_OFF = 8;
 
-// GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new)
+/** Byte size of GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new) in the 64-bit FFI layout. */
 export const IROH_CONFIG_SIZE = 32;
+/** Byte offset of `reachability` in GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new). */
 export const IROH_CONFIG_REACHABILITY_OFF = 0;
+/** Byte offset of `connect_timeout_ms` in GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new). */
 export const IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF = 8;
+/** Byte offset of `idle_timeout_ms` in GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new). */
 export const IROH_CONFIG_IDLE_TIMEOUT_MS_OFF = 16;
+/** Byte offset of `worker_threads` in GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new). */
 export const IROH_CONFIG_WORKER_THREADS_OFF = 24;
 
-// GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new)
+/** Byte size of GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new) in the 64-bit FFI layout. */
 export const WEBRTC_CONFIG_SIZE = 64;
+/** Byte offset of `ice_servers` in GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new). */
 export const WEBRTC_CONFIG_ICE_SERVERS_OFF = 0;
+/** Byte offset of `ice_server_count` in GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new). */
 export const WEBRTC_CONFIG_ICE_SERVER_COUNT_OFF = 8;
+/** Byte offset of `include_loopback_candidates` in GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new). */
 export const WEBRTC_CONFIG_INCLUDE_LOOPBACK_CANDIDATES_OFF = 16;
+/** Byte offset of `worker_threads` in GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new). */
 export const WEBRTC_CONFIG_WORKER_THREADS_OFF = 20;
+/** Byte offset of `signaling` in GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new). */
 export const WEBRTC_CONFIG_SIGNALING_OFF = 24;
 
-// GlowcapWebrtcStringView (libglowcap_net_transport_webrtc, one borrowed ICE URL or credential)
+/** Byte size of GlowcapWebrtcStringView (libglowcap_net_transport_webrtc, one borrowed ICE URL or credential) in the 64-bit FFI layout. */
 export const WEBRTC_STRING_VIEW_SIZE = 16;
+/** Byte offset of `ptr` in GlowcapWebrtcStringView (libglowcap_net_transport_webrtc, one borrowed ICE URL or credential). */
 export const WEBRTC_STRING_VIEW_PTR_OFF = 0;
+/** Byte offset of `len` in GlowcapWebrtcStringView (libglowcap_net_transport_webrtc, one borrowed ICE URL or credential). */
 export const WEBRTC_STRING_VIEW_LEN_OFF = 8;
 
-// GlowcapWebrtcIceServer (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.ice_servers)
+/** Byte size of GlowcapWebrtcIceServer (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.ice_servers) in the 64-bit FFI layout. */
 export const WEBRTC_ICE_SERVER_SIZE = 48;
+/** Byte offset of `urls` in GlowcapWebrtcIceServer (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.ice_servers). */
 export const WEBRTC_ICE_SERVER_URLS_OFF = 0;
+/** Byte offset of `url_count` in GlowcapWebrtcIceServer (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.ice_servers). */
 export const WEBRTC_ICE_SERVER_URL_COUNT_OFF = 8;
+/** Byte offset of `username` in GlowcapWebrtcIceServer (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.ice_servers). */
 export const WEBRTC_ICE_SERVER_USERNAME_OFF = 16;
+/** Byte offset of `credential` in GlowcapWebrtcIceServer (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.ice_servers). */
 export const WEBRTC_ICE_SERVER_CREDENTIAL_OFF = 32;
 
-// GlowcapWebrtcSignaling (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.signaling)
+/** Byte size of GlowcapWebrtcSignaling (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.signaling) in the 64-bit FFI layout. */
 export const WEBRTC_SIGNALING_SIZE = 40;
+/** Byte offset of `ctx` in GlowcapWebrtcSignaling (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.signaling). */
 export const WEBRTC_SIGNALING_CTX_OFF = 0;
+/** Byte offset of `send_offer` in GlowcapWebrtcSignaling (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.signaling). */
 export const WEBRTC_SIGNALING_SEND_OFFER_OFF = 8;
+/** Byte offset of `send_answer` in GlowcapWebrtcSignaling (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.signaling). */
 export const WEBRTC_SIGNALING_SEND_ANSWER_OFF = 16;
+/** Byte offset of `send_candidate` in GlowcapWebrtcSignaling (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.signaling). */
 export const WEBRTC_SIGNALING_SEND_CANDIDATE_OFF = 24;
+/** Byte offset of `done` in GlowcapWebrtcSignaling (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.signaling). */
 export const WEBRTC_SIGNALING_DONE_OFF = 32;
