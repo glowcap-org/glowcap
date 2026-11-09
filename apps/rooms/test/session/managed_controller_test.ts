@@ -511,6 +511,20 @@ Deno.test("managed directory revisit reuses custody and nickname choice is local
 		f.close();
 	}
 });
+// A typed address the held directory is not reached through re-acquires it
+// through that address instead of changing the nickname on the held route.
+// The reach's home offer passes as given: the workspace keeps the held mark.
+Deno.test("managed directory reach re-routes a held directory through an address it is not held by", async () => {
+	const f = fixture();
+	f.page.managedSession!.workspace.directoryRouteHeld = () => Promise.resolve(false);
+	try {
+		const nick = { kind: "exact", name: "ada" } as const;
+		assertEquals(await f.controller.reachDirectory(f.route, nick), "");
+		assertEquals(f.calls, [["directory", f.id, f.route, nick, false]]);
+	} finally {
+		f.close();
+	}
+});
 // The served directory becomes home only in a session with no home directory.
 for (const holding of ["home", "other", "none"] as const) {
 	Deno.test(`managed room link joins the exact authority without fetching it as a directory, holding=${holding}`, async () => {

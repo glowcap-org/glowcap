@@ -62,6 +62,18 @@ impl Events {
 						io::ErrorKind::ConnectionAborted,
 						format!("WebSocket closed abnormally (code {})", event.code()),
 					);
+				} else if event.code() != 1000 && !event.reason().is_empty() {
+					// The peer ended the channel with a cause: a relay that could
+					// not complete a dial says why in its Close frame, and a
+					// browser learns it nowhere else. A normal close carries none.
+					shared.fail(
+						io::ErrorKind::ConnectionReset,
+						format!(
+							"WebSocket closed by the peer (code {}): {}",
+							event.code(),
+							event.reason()
+						),
+					);
 				}
 			}
 			let mut state = shared.state.borrow_mut();

@@ -38,7 +38,7 @@ pub fn open(
     channel_profile: ChannelProfile,
     config: netlayer.ListenConfig,
 ) netlayer.ListenError!*Box {
-    if (config_view.relay_url_text.len > route.max_rendezvous_relay_hint_bytes)
+    if (config_view.advertisedRelayUrlText().len > route.max_rendezvous_relay_hint_bytes)
         return error.BindFailed;
     const registered = switch (config_view.registration) {
         .dial_only => return error.InvalidAddress,
@@ -54,7 +54,7 @@ pub fn open(
     }
     const register_url_storage = allocator.dupe(u8, registered.url_text) catch return error.OutOfMemory;
     errdefer allocator.free(register_url_storage);
-    const relay_url_storage = allocator.dupe(u8, config_view.relay_url_text) catch return error.OutOfMemory;
+    const relay_url_storage = allocator.dupe(u8, config_view.advertisedRelayUrlText()) catch return error.OutOfMemory;
     errdefer allocator.free(relay_url_storage);
     const box = allocator.create(Box) catch return error.OutOfMemory;
     errdefer allocator.destroy(box);

@@ -22,7 +22,10 @@ pub struct Config {
 	pub ice_servers: Vec<glowcap::webrtc::IceServer>,
 }
 
-pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|onion]
+pub const HELP: &str = "rooms-session --state=<directory> [--transport=<transport>]
+  --transport=<transport>  tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
+  --relay=<ws-url>  the relay a keyed-relay or noise-relay listener registers at (or GLOWCAP_ROOMS_RELAY_URL)
+  --relay-public=<ws-url>  that relay as peers dial it, behind a port forward or proxy (or GLOWCAP_ROOMS_RELAY_PUBLIC_URL)
   --local-control  expose this session through <state>/control.sock
   --admission-scale=<1..100>  scale default work allowances (default: 1)
   --admission-rates=<class=burst/per-minute,...>  absolute per-class overrides

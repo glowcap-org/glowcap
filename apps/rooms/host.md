@@ -105,11 +105,13 @@ own, apart from one opened from the published page.
 - The web page listens on loopback port 8080 by default. The directory is
   reached separately, over encrypted iroh discovery, so a loopback web
   listener does not make the directory private.
-- `--listen=<transport>[,<name>=<value>...]` opens another door to the same
-  directory, once per transport: `tcp`, `keyed-tcp`, `noise-tcp` (`bind`,
-  `port`, `advertise`), `iroh`, `onion`, or `keyed-relay` and `noise-relay`
-  (`relay`, by default this server's own `/relay`). The server starts only
-  once every declared door is open. Its `/locator` then names the directory
+- `--transport=<transport>` chooses the directory's announced door from
+  `tcp`, `keyed-tcp`, `noise-tcp` (`--bind`, `--port`, `--announce-host`),
+  `iroh`, `onion`, or `keyed-relay` and `noise-relay` (`--relay`, by default
+  this server's own `/relay`). `--listen=<transport>[,<name>=<value>...]`
+  opens another door to the same directory, once per transport, with the
+  same options as the ask's `name=value` pairs. The server starts only once
+  every declared door is open. Its `/locator` then names the directory
   by its key with every door listed, so a browser that can open one door
   itself, such as `noise-relay`, reaches the directory with no Rooms server
   chosen.

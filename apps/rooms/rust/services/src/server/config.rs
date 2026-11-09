@@ -34,8 +34,9 @@ pub struct Config {
 /// The timeline endpoint's port when nothing overrides it.
 pub const TRACE_PORT: u16 = 9300;
 
-pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=iroh|tcp|onion] [--listen=<transport>[,<name>=<value>...]]... [--history]
+pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=<transport>] [--listen=<transport>[,<name>=<value>...]]... [--history]
   --state=<directory>  keep the server document, history, and operator choices here across restarts
+  --transport=<transport>  the announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
   --listen=<transport>[,<name>=<value>...]  also listen over tcp, keyed-tcp, noise-tcp, iroh, keyed-relay, noise-relay, or onion; repeatable, one per transport
       tcp, keyed-tcp, noise-tcp take bind, port, advertise; keyed-relay, noise-relay take relay (or GLOWCAP_ROOMS_RELAY_URL)
   --history  keep the last lines of each room
@@ -44,7 +45,9 @@ pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=iroh|tcp
   --admission-rows=<1..65536>  retained subject row cap (default: 8192)
   --admission-aggregate-scale=<1..100>  deployment pool multiplier (default: 1)
   --reachability=discovery|direct  iroh reachability (default: discovery)
-  --bind=<host> --port=<port> --announce-host=<host>  TCP listener options
+  --bind=<host> --port=<port> --announce-host=<host>  tcp, keyed-tcp, noise-tcp listener options
+  --relay=<ws-url>  the relay a keyed-relay or noise-relay listener registers at and peers dial (or GLOWCAP_ROOMS_RELAY_URL)
+  --relay-public=<ws-url>  the same relay as peers dial it, when a port forward or proxy gives it another address (or GLOWCAP_ROOMS_RELAY_PUBLIC_URL; default --relay)
   --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)
   --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port
   --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)
@@ -192,7 +195,7 @@ impl Config {
 	/// The declared listeners, each read the way `up` reads it, refused
 	/// whole when one repeats a transport or names the announced one.
 	fn listeners(announced: &Transport, declared: &[String]) -> Result<Vec<(listeners::Transport, Ask)>, Error> {
-		let boot = super::operations::listeners::boot_transport(announced);
+		let boot = announced.profile();
 		let mut listen: Vec<(listeners::Transport, Ask)> = Vec::with_capacity(declared.len());
 		for text in declared {
 			let (transport, ask) = Ask::parse(text)
@@ -260,5 +263,74 @@ mod tests {
 		let config = parse(&["--listen=keyed-tcp"], env).unwrap();
 		assert_eq!(config.listen.len(), 1);
 		assert_eq!(config.listen[0].0, listeners::Transport::KeyedTcp);
+	}
+
+	#[test]
+	fn every_listener_profile_is_an_announced_transport() {
+		let relay = |key: &str| (key == "GLOWCAP_ROOMS_RELAY_URL").then(|| "ws://127.0.0.1:8080/relay".to_owned());
+		for name in listeners::TRANSPORTS.map(listeners::Transport::name) {
+			let env = |key: &str| match key {
+				"GLOWCAP_ONION_SOCKS" | "GLOWCAP_ONION_CONTROL" => Some("127.0.0.1:1".to_owned()),
+				_ => relay(key),
+			};
+			let config = parse(&[&format!("--transport={name}")], env).unwrap();
+			assert_eq!(config.transport.profile().name(), name);
+			let listen = format!("--listen={name}");
+			let refused = parse(&[&format!("--transport={name}"), &listen], env)
+				.err()
+				.expect("a refusal");
+			assert!(refused.contains("names the announced transport"), "{refused}");
+		}
+		let config = parse(
+			&[
+				"--transport=noise-relay",
+				"--relay=wss://relay.example/relay",
+				"--listen=keyed-relay",
+			],
+			|_| None,
+		)
+		.unwrap();
+		let Transport::Relay { address, .. } = &config.transport else {
+			panic!("a relay transport");
+		};
+		assert_eq!(address.dial, "wss://relay.example/relay");
+		assert_eq!(address.reach, "wss://relay.example/relay");
+		// A declared relay listener reads its relay from its own option or
+		// the environment, as a declared tcp listener reads its bind.
+		assert_eq!(config.listen[0].1.relay, None);
+		// Behind a port forward the server reaches its relay at one address
+		// and the door advertises another.
+		let config = parse(
+			&[
+				"--transport=noise-relay",
+				"--relay=ws://127.0.0.1:8080/relay",
+				"--relay-public=wss://rooms.example/relay",
+			],
+			|_| None,
+		)
+		.unwrap();
+		let Transport::Relay { address, .. } = &config.transport else {
+			panic!("a relay transport");
+		};
+		assert_eq!(address.dial, "wss://rooms.example/relay");
+		assert_eq!(address.reach, "ws://127.0.0.1:8080/relay");
+		let refused = |args: &[&str]| parse(args, |_| None).err().expect("a refusal");
+		let refusal = refused(&["--transport=noise-relay"]);
+		assert!(
+			refusal.contains("--relay=<ws-url> or GLOWCAP_ROOMS_RELAY_URL"),
+			"{refusal}"
+		);
+		let refusal = refused(&["--transport=noise-relay", "--relay-public=wss://rooms.example/relay"]);
+		assert!(
+			refusal.contains("--relay or GLOWCAP_ROOMS_RELAY_URL must name"),
+			"{refusal}"
+		);
+		let refusal = refused(&["--transport=noise-relay", "--relay=http://x/"]);
+		assert!(refusal.contains("uses ws or wss"), "{refusal}");
+		let refusal = refused(&["--transport=quic"]);
+		assert!(
+			refusal.contains("tcp, keyed-tcp, noise-tcp, iroh, keyed-relay, noise-relay, onion"),
+			"{refusal}"
+		);
 	}
 }

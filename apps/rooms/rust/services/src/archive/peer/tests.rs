@@ -25,6 +25,7 @@ async fn scenario(use_iroh: bool) {
 			Transport::Iroh(iroh::Reachability::Direct)
 		} else {
 			Transport::Tcp {
+				profile: rooms_platform::serving::TcpProfile::Plain,
 				bind: "127.0.0.1".into(),
 				port: 0,
 				announce: None,

@@ -5,7 +5,7 @@ pub struct Config {
 	pub state: PathBuf,
 	pub transport: Transport,
 }
-pub const HELP: &str = "rooms-archive --state=<directory> [--transport=iroh|tcp|onion]\n  --reachability=discovery|direct  iroh reachability (default: discovery)\n  --bind=<host> --port=<port> --announce-host=<host>  TCP listener options\n  --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)\n  --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port\n  --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)\nOptions override GLOWCAP_ARCHIVE_* environment variables. TCP defaults to 127.0.0.1:0.\n";
+pub const HELP: &str = "rooms-archive --state=<directory> [--transport=<transport>]\n  --transport=<transport>  tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion\n  --relay=<ws-url>  the relay a keyed-relay or noise-relay listener registers at (or GLOWCAP_ROOMS_RELAY_URL)\n  --relay-public=<ws-url>  that relay as peers dial it, behind a port forward or proxy (or GLOWCAP_ROOMS_RELAY_PUBLIC_URL)\n  --reachability=discovery|direct  iroh reachability (default: discovery)\n  --bind=<host> --port=<port> --announce-host=<host>  TCP listener options\n  --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)\n  --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port\n  --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)\nOptions override GLOWCAP_ARCHIVE_* environment variables. TCP defaults to 127.0.0.1:0.\n";
 impl Config {
 	pub fn parse(
 		args: impl IntoIterator<Item = String>,

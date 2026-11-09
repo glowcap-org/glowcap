@@ -530,19 +530,22 @@ async fn connect_and_pump(
 		}
 	}
 }
+/// A WebSocket control frame holds 125 payload bytes, two of them the code.
+const CLOSE_REASON_MAX_BYTES: usize = 123;
 async fn retire_websocket(
 	ws: &mut WsBytes<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>,
 	result: Result<(), String>,
 ) -> Result<(), String> {
-	// Even failure before a far stream exists owes the browser a Close. A pump
-	// that already closed the pair only flushes its existing reply.
-	let frame = result
-		.as_ref()
-		.err()
-		.map(|_| tokio_tungstenite::tungstenite::protocol::CloseFrame {
+	// Even failure before a far stream exists owes the browser a Close carrying
+	// the cause: the page learns nothing else about why its socket ended. A
+	// pump that already closed the pair only flushes its existing reply.
+	let frame = result.as_ref().err().map(|cause| {
+		let end = cause.floor_char_boundary(CLOSE_REASON_MAX_BYTES);
+		tokio_tungstenite::tungstenite::protocol::CloseFrame {
 			code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Error,
-			reason: "Rooms relay could not complete the connection".into(),
-		});
+			reason: cause.get(..end).unwrap_or_default().to_owned().into(),
+		}
+	});
 	let retired = tokio::time::timeout(Duration::from_secs(3), ws.close(frame))
 		.await
 		.map_err(|_| "relay WebSocket shutdown timed out".to_owned())

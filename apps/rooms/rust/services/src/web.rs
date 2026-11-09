@@ -114,13 +114,7 @@ async fn serve(
 		},
 		None => None,
 	};
-	// The directory's relay listeners register where browsers reach this
-	// server: the public address when one is named, else the bound one.
-	let relay_url = relay_url.unwrap_or_else(|| {
-		public
-			.as_ref()
-			.map_or_else(|| local_relay_url(address), config::public_relay_url)
-	});
+	let (relay_url, relay_public) = directory_relay(relay_url, address, public.as_ref());
 	// The shared session opens first: its TCP endpoint joins the relay's
 	// allowed targets, which the relay reads once, at construction.
 	let shared = match session {
@@ -128,7 +122,13 @@ async fn serve(
 			// The cohosted session must dial browser introductions too. Use
 			// the bound port, including --http-port=0, and preserve an explicit
 			// operator route. Peer locators carry their own relay advice.
-			config.relay_url.get_or_insert_with(|| local_relay_url(address));
+			if config.relay_url.is_none() {
+				config.relay_url = Some(local_relay_url(address));
+				// A browser member advertises this relay as the page dialed it.
+				if config.relay_alias_url.is_none() {
+					config.relay_alias_url = relay_public.clone();
+				}
+			}
 			let session_report = report.clone();
 			match crate::session::Peer::open(
 				config,
@@ -204,8 +204,15 @@ async fn serve(
 		stopping.clone(),
 	));
 	let opened = {
-		let opening =
-			supervisor::Supervisor::open(server, server_args, room, relay_url, stopping.clone(), report.clone());
+		let opening = supervisor::Supervisor::open(
+			server,
+			server_args,
+			room,
+			relay_url,
+			relay_public,
+			stopping.clone(),
+			report.clone(),
+		);
 		tokio::pin!(opening);
 		tokio::select! {
 			opened = &mut opening => opened,
@@ -222,12 +229,16 @@ async fn serve(
 	};
 	let (supervisor, locator) = match opened {
 		Ok(Some(started)) => started,
-		Ok(None) => return settle(Ok(()), &stop, workers, tor).await,
-		Err(error) => return settle(Err(error), &stop, workers, tor).await,
+		Ok(None) => return settle(Ok(()), &stop, None, workers, tor).await,
+		Err(error) => return settle(Err(error), &stop, None, workers, tor).await,
 	};
 	let public_locator = locator.location.clone();
 	location.send_replace(Some(locator));
-	workers.spawn_local(supervisor.run(location, stopping.clone()));
+	// The directory's relay listeners stand on this front's relay, so the
+	// directory has its own stop and retires before the relay closes under it.
+	let (directory_stop, directory_stopping) = watch::channel(false);
+	let mut directory = tokio::task::JoinSet::new();
+	directory.spawn_local(supervisor.run(location, directory_stopping));
 	let shown = reached_at.trim_end_matches('/');
 	announce(
 		&report,
@@ -238,20 +249,32 @@ async fn serve(
 	let result = tokio::select! {
 		_ = stopped(&mut stopping) => Ok(()),
 		ended = tor_ended(&mut tor) => Err(ended),
+		Some(ended) = directory.join_next() => ended.map_err(|e| e.to_string()).and_then(|r| r),
 		ended = workers.join_next() => ended.ok_or("web service owner disappeared".to_owned())
 			.and_then(|r| r.map_err(|e| e.to_string())).and_then(|r| r),
 	};
-	settle(result, &stop, workers, tor).await
+	settle(result, &stop, Some((directory_stop, directory)), workers, tor).await
 }
 
-/// Stop every worker, wait for each, and retire Tor, keeping the first
-/// failure and every later one it did not already name.
+/// The directory's own stop and the task that runs it.
+type Directory = (watch::Sender<bool>, tokio::task::JoinSet<Result<(), String>>);
+
+/// Stop the directory first and wait for it, then every other worker, and
+/// retire Tor, keeping the first failure and every later one it did not
+/// already name.
 async fn settle(
 	mut result: Result<(), String>,
 	stop: &watch::Sender<bool>,
+	directory: Option<Directory>,
 	mut workers: tokio::task::JoinSet<Result<(), String>>,
 	tor: Option<tor::Tor>,
 ) -> Result<(), String> {
+	if let Some((directory_stop, mut directory)) = directory {
+		directory_stop.send_replace(true);
+		while let Some(ended) = directory.join_next().await {
+			crate::cleanup::retain(&mut result, ended.map_err(|e| e.to_string()).and_then(|r| r));
+		}
+	}
 	stop.send_replace(true);
 	while let Some(ended) = workers.join_next().await {
 		crate::cleanup::retain(&mut result, ended.map_err(|e| e.to_string()).and_then(|r| r));
@@ -284,6 +307,21 @@ fn page_links(pages: &[url::Url], server: &str, session: Option<&str>) -> String
 		}
 	}
 	lines
+}
+
+/// Where the supervised directory registers relay listeners, and where
+/// browsers dial that relay when the two differ: a named relay as it is, else
+/// this server's own relay at its bound address, dialed at `public` when one
+/// is named.
+fn directory_relay(
+	named: Option<String>,
+	address: std::net::SocketAddr,
+	public: Option<&url::Url>,
+) -> (String, Option<String>) {
+	match named {
+		Some(named) => (named, None),
+		None => (local_relay_url(address), public.map(config::public_relay_url)),
+	}
 }
 
 fn local_relay_url(mut address: std::net::SocketAddr) -> String {
@@ -330,6 +368,26 @@ mod tests {
 		] {
 			assert_eq!(super::local_relay_url(bound.parse().unwrap()), expected);
 		}
+	}
+	#[test]
+	fn the_directory_registers_locally_and_advertises_the_public_relay() {
+		let bound = "0.0.0.0:8080".parse().unwrap();
+		let public = url::Url::parse("http://localhost:19080/").unwrap();
+		assert_eq!(
+			super::directory_relay(None, bound, Some(&public)),
+			(
+				"ws://127.0.0.1:8080/relay".to_owned(),
+				Some("ws://localhost:19080/relay".to_owned())
+			)
+		);
+		assert_eq!(
+			super::directory_relay(None, bound, None),
+			("ws://127.0.0.1:8080/relay".to_owned(), None)
+		);
+		assert_eq!(
+			super::directory_relay(Some("wss://relay.example/relay".into()), bound, Some(&public)),
+			("wss://relay.example/relay".to_owned(), None)
+		);
 	}
 	#[test]
 	fn a_public_address_names_its_relay_at_the_same_origin() {

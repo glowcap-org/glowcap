@@ -480,7 +480,9 @@ impl Seats {
 					let configured = match takes.name {
 						"bind" => env.env("GLOWCAP_ROOMS_BIND"),
 						"advertise" => env.env("GLOWCAP_ROOMS_ANNOUNCE_HOST"),
-						"relay" => env.env("GLOWCAP_ROOMS_RELAY_URL"),
+						"relay" => env
+							.env("GLOWCAP_ROOMS_RELAY_PUBLIC_URL")
+							.or_else(|| env.env("GLOWCAP_ROOMS_RELAY_URL")),
 						_ => None,
 					};
 					(

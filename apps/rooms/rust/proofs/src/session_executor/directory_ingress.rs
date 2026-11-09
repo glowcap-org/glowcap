@@ -132,9 +132,72 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, source:
 		preparing(installed.revision, &installed.intent).is_err(),
 		"duplicate row refetched/replaced acquisition"
 	);
+	// A typed address re-routes the held directory: a new access coordinate
+	// replaces the held one under the same id and source, the held coordinate
+	// leaves custody, the home mark stays, and another source is refused.
+	let mut rerouted = row.clone();
+	rerouted.access = fresh(85);
+	rerouted.home = false;
+	rerouted.nick = rooms_application::fields::Text::new("door".into()).unwrap();
+	let reroute = remote
+		.prepare_directory(
+			installed.revision,
+			DirectoryImport {
+				row: rerouted.clone(),
+				reference: target.clone(),
+				uri: None,
+			},
+			&installed.intent,
+		)
+		.unwrap();
+	reroute.submit().await.unwrap();
+	let rerouted_snapshot = local.snapshot().await.unwrap();
+	let current = rerouted_snapshot
+		.intent
+		.directories
+		.as_slice()
+		.iter()
+		.find(|existing| existing.id == row.id)
+		.unwrap();
+	assert_eq!(current.access, rerouted.access);
+	assert_eq!(current.source, row.source);
+	assert_eq!(current.nick, rerouted.nick);
+	assert!(current.home, "a re-route dropped the home mark");
+	let held = owner
+		.restore_custody(&[requests::coordinate(custody::Role::DirectoryAccess, 85)])
+		.await
+		.unwrap();
+	assert_eq!(
+		&held[0], directory,
+		"the re-routed access is not the exact directory endpoint"
+	);
+	assert!(
+		owner
+			.restore_custody(&[requests::coordinate(custody::Role::DirectoryAccess, 84)])
+			.await
+			.is_err(),
+		"the replaced access stayed in custody"
+	);
+	let mut foreign = rerouted.clone();
+	foreign.access = fresh(86);
+	foreign.source = Some(fresh(86));
+	assert!(
+		remote
+			.prepare_directory(
+				rerouted_snapshot.revision,
+				DirectoryImport {
+					row: foreign,
+					reference: target.clone(),
+					uri: None,
+				},
+				&rerouted_snapshot.intent,
+			)
+			.is_err(),
+		"a re-route replaced the initiating source"
+	);
 	owner.replace_workspace(&original.intent).await.unwrap();
 	host.unpublish("directory-ingress").unwrap();
-	drop((acquisition, stale, remote, saved, pair, gateway, server));
+	drop((acquisition, reroute, stale, remote, saved, held, pair, gateway, server));
 	peer.close(PendingWork::Cancel).await.unwrap();
 }
 fn fresh<K>(slot: u64) -> custody::FieldKey<K> {

@@ -37,7 +37,8 @@ pub const HELP: &str = concat!(
   --prepared  serve a prepared bundle without invoking browser build tools
   --no-browser-assets  serve Rooms endpoints without a browser bundle (development tooling)
   --server=<executable>  rooms-server binary (default: beside rooms-web)
-  --transport=iroh|tcp|onion  supervised directory (default: iroh)
+  --transport=<transport>  the supervised directory's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
+      a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --relay names another; --http-public names that relay as browsers dial it
   --listen=<transport>[,<name>=<value>...]  also listen over another transport, as rooms-server; repeatable
       a relay listener registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or its relay option names another
   --state=<directory>  keep the directory identity and state across restarts
@@ -219,9 +220,20 @@ impl Config {
 			_ => env(name),
 		})?;
 		let ice = super::ice::Config::read(&env)?;
-		let room = server::Config::parse(server_args.clone(), env)
-			.map_err(|e| e.to_string())?
-			.ok_or("server configuration did not produce a launch")?;
+		// The directory's relay listeners register at this server's own relay
+		// unless one is named, dialed at the public address when one is named.
+		// The bound address is known once the HTTP listener binds, so
+		// validation here stands a loopback one in for it; the supervisor
+		// hands the directory the real one.
+		let room = server::Config::parse(server_args.clone(), |key| match key {
+			"GLOWCAP_ROOMS_RELAY_URL" => relay_url.clone().or_else(|| Some("ws://127.0.0.1/relay".into())),
+			"GLOWCAP_ROOMS_RELAY_PUBLIC_URL" if relay_url.is_none() => {
+				public.as_ref().map(public_relay_url).or_else(|| env(key))
+			}
+			_ => env(key),
+		})
+		.map_err(|e| e.to_string())?
+		.ok_or("server configuration did not produce a launch")?;
 		Ok(Some(Self {
 			bind,
 			port,
@@ -321,6 +333,14 @@ mod tests {
 			"--listen needs a value, as in --listen=<transport>[,<name>=<value>...]"
 		);
 		assert!(refused(&["--listen=iroh"]).contains("names the announced transport"));
+		// A relay transport for the directory itself needs no relay named:
+		// it registers at this server's own.
+		let config = parse(&["--transport=noise-relay"]);
+		assert!(config.server_args.contains(&"--transport=noise-relay".to_owned()));
+		assert!(matches!(
+			config.room.transport,
+			rooms_platform::serving::Transport::Relay { .. }
+		));
 		let config = Config::parse([], |key| {
 			(key == "GLOWCAP_ROOMS_RELAY_URL").then(|| " wss://relay.example/relay ".into())
 		})

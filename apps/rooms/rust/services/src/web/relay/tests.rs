@@ -87,15 +87,17 @@ fn the_servers_own_shared_session_is_a_relay_target_by_iroh_or_tcp_and_not_by_on
 fn an_identity_route_location_owns_every_door_inside_it() {
 	let key = "cd".repeat(32);
 	let onion = format!("{}.onion", "b".repeat(56));
+	let keyed = format!("ocapn://{key}.keyed-tcp?direct-addresses=127.0.0.1%3A9301");
 	let route = rooms_glowcap::routes::identity_route(
 		&key,
 		&[
 			"127.0.0.1:9301".to_owned(),
+			keyed.clone(),
 			format!("ocapn://{onion}"),
 			format!("ocapn://{key}.noise-relay?rendezvous-relay=ws%3A%2F%2F127.0.0.1%3A8080%2Frelay"),
 		],
 	)
-	.expect("three doors make a route");
+	.expect("four doors make a route");
 	let announcement = Announcement::new(
 		glowcap::format_locator_uri(&route).unwrap(),
 		None,
@@ -105,8 +107,10 @@ fn an_identity_route_location_owns_every_door_inside_it() {
 	let (jobs, _) = mpsc::channel(1);
 	let (_, stop) = watch::channel(false);
 	let relay = Relay::new(Limits::read(|_| None).unwrap(), location, jobs, stop, Rc::new(|_| {}));
-	// The tcp fallback and the onion route both forward to the local directory.
+	// The tcp fallback, the keyed tcp door, and the onion route all forward to
+	// the local directory.
 	assert!(matches!(relay.target("127.0.0.1:9301"), Ok(Target::Local(_))));
+	assert!(matches!(relay.target(&keyed), Ok(Target::Local(_))));
 	assert!(matches!(
 		relay.target(&format!("ocapn://{onion}")),
 		Ok(Target::Local(_))

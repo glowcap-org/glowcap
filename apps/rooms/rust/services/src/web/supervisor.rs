@@ -11,8 +11,10 @@ struct Config {
 	server_args: Vec<String>,
 	room: crate::server::Config,
 	/// The relay the directory's relay listeners register at unless a
-	/// declaration names its own.
+	/// declaration names its own, and that relay as browsers dial it when
+	/// the two differ.
 	relay_url: String,
+	relay_public: Option<String>,
 }
 use crate::{cleanup, server::Transport};
 use glowcap::{ConnectOptions, PendingWork, Runtime, RuntimeConfig, tcp};
@@ -36,6 +38,7 @@ impl Supervisor {
 		server_args: Vec<String>,
 		room: crate::server::Config,
 		relay_url: String,
+		relay_public: Option<String>,
 		stop: watch::Receiver<bool>,
 		report: Report,
 	) -> Result<Option<(Self, Announcement)>, String> {
@@ -47,6 +50,7 @@ impl Supervisor {
 			server_args,
 			room,
 			relay_url,
+			relay_public,
 		};
 		let (state, temporary) = Temporary::state(config.room.state.clone()).await?;
 		let mut owner = Self {
@@ -90,7 +94,12 @@ impl Supervisor {
 
 	fn attach_target(&self) -> Option<(String, u16)> {
 		match &self.config.room.transport {
-			Transport::Tcp { bind, port, .. } if *port != 0 => Some((bind.clone(), *port)),
+			Transport::Tcp {
+				profile: rooms_platform::serving::TcpProfile::Plain,
+				bind,
+				port,
+				..
+			} if *port != 0 => Some((bind.clone(), *port)),
 			Transport::Onion(config) if config.port != 0 => Some(("127.0.0.1".into(), config.port)),
 			_ => None,
 		}
@@ -171,6 +180,9 @@ impl Supervisor {
 			.env("GLOWCAP_ROOMS_SUPERVISED", "1")
 			.env("GLOWCAP_ROOMS_RELAY_URL", &self.config.relay_url)
 			.env("GLOWCAP_ROOMS_READY_FORMAT", "json");
+		if let Some(public) = &self.config.relay_public {
+			command.env("GLOWCAP_ROOMS_RELAY_PUBLIC_URL", public);
+		}
 		if matches!(&self.config.room.transport, Transport::Onion(config) if config.port == 0 && config.forward.is_none())
 		{
 			let (directory, owner) = Temporary::create(Temporary::plan()?).await?;

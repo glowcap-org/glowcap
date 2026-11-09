@@ -140,7 +140,11 @@ impl Class {
 			Self::Transfer => Rate::new(4096, 8192),
 			Self::Preview => Rate::new(32, 120),
 			Self::Registration => Rate::new(32, 120),
-			Self::Rendezvous => Rate::new(4, 4),
+			// A claim consumes one registration of the door it names, so claims
+			// against an identity are admitted at the rate its peer may register:
+			// every dial of a relay-announced directory is one claim, and a
+			// tighter bound throttles the whole directory.
+			Self::Rendezvous => Self::Registration.default_rate(),
 			Self::Cleanup => Rate::new(512, 1024),
 		}
 	}
