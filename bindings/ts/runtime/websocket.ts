@@ -128,13 +128,6 @@ function waitForOpen(ws: WebSocket): Promise<void> {
 	});
 }
 
-/** Adapt `ws` (already open, or opening: messages cannot arrive before the
- * open event) to a `Channel`. Inbound frames flow through a `ReadableStream`
- * reader; a close or error ends the stream. Outbound `write` resolves once the
- * socket's send buffer is at or below the high-water, so a fast producer is
- * backpressured rather than growing tab memory unbounded. Since browser
- * WebSockets cannot be paused, inbound messages are admitted only while this
- * adapter's own byte budget has room. */
 /** Close codes a browser makes up itself when no Close frame arrived. */
 const NO_STATUS_RECEIVED = 1005;
 const ABNORMAL_CLOSURE = 1006;
@@ -150,6 +143,13 @@ function peerCause(event: CloseEvent): Error | null {
 	return new Error(`WebSocket closed by the peer (code ${event.code}): ${event.reason}`);
 }
 
+/** Adapt `ws` (already open, or opening: messages cannot arrive before the
+ * open event) to a `Channel`. Inbound frames flow through a `ReadableStream`
+ * reader; a close or error ends the stream. Outbound `write` resolves once the
+ * socket's send buffer is at or below the high-water, so a fast producer is
+ * backpressured rather than growing tab memory unbounded. Since browser
+ * WebSockets cannot be paused, inbound messages are admitted only while this
+ * adapter's own byte budget has room. */
 export function webSocketChannel(
 	ws: WebSocket,
 	options?: WebSocketChannelOptions,
