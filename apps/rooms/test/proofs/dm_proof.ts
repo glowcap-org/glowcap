@@ -39,7 +39,7 @@ const deadline = setTimeout(() => fail("web-dm scenario timed out after 120s"), 
 // serve.ts hosts the page and an iroh room + relay; its room server picks its own
 // iroh endpoint (no port to pin).
 const front = spawnWeb({
-	args: ["--transport=tcp", "--transport=iroh", "--reachability=direct", "0"],
+	args: ["--transport=iroh", "--reachability=direct", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
