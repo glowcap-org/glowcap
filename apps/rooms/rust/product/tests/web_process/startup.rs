@@ -97,8 +97,10 @@ signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 pathlib.Path(os.environ['GLOWCAP_ROOMS_TEST_FIXTURE'], 'waiting').write_text(json.dumps({'pid': os.getpid(), 'owned': os.environ['GLOWCAP_ROOMS_STATE']}))
 while True: signal.pause()
 "#);
-        let mut command = Web::command(0);
-        command.arg(format!("--server={}", script.display())); fixture.env(&mut command);
+        let mut options = Web::options(0);
+        options.insert("server", script.display().to_string());
+        let mut command = Web::command_with(options);
+        fixture.env(&mut command);
         let mut web = Web::spawn(command);
         let waiting = fixture.marker(&mut web).await;
         tokio::time::timeout(Duration::from_secs(5), web.stop()).await.expect("cancel server startup promptly");
@@ -125,8 +127,9 @@ async fn web_reaps_the_browser_compiler_during_startup_and_after_a_request_disco
 			let fixture = Fixture::new();
 			fixture.script("deno", COMPILER);
 			let assets = fixture.assets();
-			let mut command = Web::command(0);
-			command.arg(format!("--assets={}", assets.display()));
+			let mut options = Web::options(0);
+			options.insert("assets", assets.display().to_string());
+			let mut command = Web::command_with(options);
 			fixture.env(&mut command);
 			if during_request {
 				command.env("GLOWCAP_ROOMS_TEST_FIRST_BUILD", "1");
@@ -159,10 +162,10 @@ async fn web_reaps_the_browser_compiler_during_startup_and_after_a_request_disco
 async fn web_cancels_an_attachment_probe_and_closes_its_runtime() {
 	tokio::time::timeout(Duration::from_secs(45), async {
 		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-		let mut command = Web::command(0);
-		command
-			.arg(format!("--port={}", listener.local_addr().unwrap().port()))
-			.arg("--trace=0");
+		let mut options = Web::options(0);
+		options.insert("trace", "0".to_owned());
+		options.insert("port", listener.local_addr().unwrap().port().to_string());
+		let command = Web::command_with(options);
 		let mut web = Web::spawn(command);
 		let (mut pending, _) = listener.accept().await.unwrap();
 		tokio::time::timeout(Duration::from_secs(5), web.stop())
@@ -191,10 +194,11 @@ pathlib.Path(os.environ['GLOWCAP_ROOMS_TEST_FIXTURE'], 'waiting').write_text(jso
 while True: signal.pause()
 "#,
 		);
-		let mut command = Web::command(0);
+		let mut options = Web::options(0);
+		options.insert("transport", "onion".to_owned());
+		let mut command = Web::command_with(options);
 		fixture.env(&mut command);
 		command
-			.arg("--transport=onion")
 			.env_remove("GLOWCAP_ONION_SOCKS")
 			.env_remove("GLOWCAP_ONION_CONTROL");
 		let mut web = Web::spawn(command);
@@ -230,10 +234,11 @@ os.execv(tor, [tor] + sys.argv[1:] + ['--DisableNetwork', '1'])
 "#,
 		);
 		let state = fixture.0.join("directory");
-		let mut command = Web::command(0);
+		let mut options = Web::options(0);
+		options.insert("transport", "onion".to_owned());
+		let mut command = Web::command_with(options);
 		fixture.env(&mut command);
 		command
-			.arg("--transport=onion")
 			.arg(format!("--state={}", state.display()))
 			.env_remove("GLOWCAP_ONION_SOCKS")
 			.env_remove("GLOWCAP_ONION_CONTROL")

@@ -15,6 +15,8 @@ struct Web {
 	port: u16,
 	shared: Vec<String>,
 }
+/// A launch's `--name=value` options, one value per name.
+type Options = std::collections::BTreeMap<&'static str, String>;
 #[path = "web_process/ice.rs"]
 mod ice;
 #[path = "web_process/preparation.rs"]
@@ -31,17 +33,41 @@ impl Web {
 			.unwrap_or_else(|| env!("CARGO_BIN_EXE_rooms-web").into())
 			.into()
 	}
-	fn command(trace: u16) -> Command {
-		let mut command = Self::endpoint_command(trace);
-		let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web");
-		command.arg(format!("--assets={}", assets.display()));
-		command
-	}
-	fn endpoint_command(trace: u16) -> Command {
-		let installed = std::env::var_os("GLOWCAP_ROOMS_WEB_TEST_BIN");
-		let mut command = Command::new(Self::binary());
+	/// The options every launch starts from. rooms-web reads each option once,
+	/// so a test that needs another value replaces it here before the command
+	/// is built.
+	fn options(trace: u16) -> Options {
 		let server = std::env::var_os("GLOWCAP_ROOMS_SERVER_TEST_BIN")
 			.unwrap_or_else(|| env!("CARGO_BIN_EXE_rooms-server").into());
+		Options::from([
+			("http-port", "0".to_owned()),
+			("port", "0".to_owned()),
+			("transport", "tcp".to_owned()),
+			("trace", "1".to_owned()),
+			("trace-port", trace.to_string()),
+			("server", Path::new(&server).display().to_string()),
+		])
+	}
+	fn command(trace: u16) -> Command {
+		Self::command_with(Self::options(trace))
+	}
+	/// A launch serving the checkout's browser sources, unless `options` names
+	/// other assets.
+	fn command_with(mut options: Options) -> Command {
+		options.entry("assets").or_insert_with(|| {
+			Path::new(env!("CARGO_MANIFEST_DIR"))
+				.join("../../web")
+				.display()
+				.to_string()
+		});
+		Self::endpoint_command_with(options)
+	}
+	fn endpoint_command(trace: u16) -> Command {
+		Self::endpoint_command_with(Self::options(trace))
+	}
+	fn endpoint_command_with(options: Options) -> Command {
+		let installed = std::env::var_os("GLOWCAP_ROOMS_WEB_TEST_BIN");
+		let mut command = Command::new(Self::binary());
 		if installed.is_some() {
 			command.env_remove("LD_LIBRARY_PATH").env_remove("DYLD_LIBRARY_PATH");
 		}
@@ -53,10 +79,10 @@ impl Web {
 				command.env_remove(key);
 			}
 		}
+		for (key, value) in &options {
+			command.arg(format!("--{key}={value}"));
+		}
 		command
-			.args(["0", "0", "--transport=tcp", "--trace"])
-			.arg(format!("--trace-port={trace}"))
-			.arg(format!("--server={}", Path::new(&server).display()))
 			.env("GLOWCAP_RELAY_MAX_SESSIONS", "1")
 			.env("GLOWCAP_RELAY_MAX_REGISTRATIONS", "2")
 			.env("GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY", "2")
@@ -365,13 +391,12 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn web_relays_the_directory_through_tcp_and_iroh() {
-	for options in [
-		vec!["--transport=tcp", "--announce-host=127.0.0.2"],
-		vec!["--transport=iroh", "--reachability=direct"],
-	] {
+	for (transport, option) in [("tcp", "--announce-host=127.0.0.2"), ("iroh", "--reachability=direct")] {
 		tokio::time::timeout(Duration::from_secs(20), async {
-			let mut command = Web::command(0);
-			command.args(options);
+			let mut options = Web::options(0);
+			options.insert("transport", transport.to_owned());
+			let mut command = Web::command_with(options);
+			command.arg(option);
 			let mut web = Web::spawn(command);
 			web.ready().await;
 			web.reach().await;
