@@ -43,12 +43,12 @@ import {
 
 export const JOIN_DEFAULT_ROOM = "general";
 export const JOIN_DEFAULT_NICK = "guest";
-/** Shape of a locator, used when this page's own address is not known yet.  status-allow: pending state or quoted runtime label */
-export const JOIN_LOCATOR_SHAPE = "ocapn://designator.transport";
+/** Shape of an address, used when this page's own address is not known yet.  status-allow: pending state or quoted runtime label */
+export const JOIN_ADDRESS_SHAPE = "ocapn://designator.transport";
 
 export interface DirectoryDestination {
 	readonly id: DirId;
-	readonly locator: string;
+	readonly address: string;
 }
 export interface DirectoryDestinationContext {
 	readonly home: DirId | null;
@@ -62,11 +62,11 @@ export interface DirectoryDestinationContext {
 
 export function directoryDestinationContext(
 	home: DirectoryDestination | null,
-	servedLocator: string | null,
-	resolve: (locator: string) => DirId | null,
+	servedAddress: string | null,
+	resolve: (address: string) => DirId | null,
 ): DirectoryDestinationContext {
-	const servedId = servedLocator == null ? null : resolve(servedLocator);
-	const served = servedId == null || servedLocator == null ? null : { id: servedId, locator: servedLocator };
+	const servedId = servedAddress == null ? null : resolve(servedAddress);
+	const served = servedId == null || servedAddress == null ? null : { id: servedId, address: servedAddress };
 	if (home == null) return { home: null, defaultDirectory: served, served: null };
 	return { home: home.id, defaultDirectory: home, served: served?.id === home.id ? null : served };
 }
@@ -116,14 +116,14 @@ export function listedOccupancy(listed: boolean | undefined, name: string): bool
 
 /** A room link typed into a join, and what to call the room it opens.
  *
- * The locator field is the natural place to paste an `ocapn://` string, and a
+ * The address field is the natural place to paste an `ocapn://` string, and a
  * `/link` sturdyref belongs there even though it is not a directory address.
  * A paste into the room field is the same link in the wrong box. Null when
  * neither field is a link, so the ordinary name-on-a-directory join applies.
  * An empty label is not "a room": the live room still has a name, and redeem
  * asks it. */
-export function typedRoomLink(locator: string, room: string): { link: string; label: string } | null {
-	const loc = locator.trim();
+export function typedRoomLink(address: string, room: string): { link: string; label: string } | null {
+	const loc = address.trim();
 	const roomLink = room.trim();
 	if (looksLikeRoomLink(loc)) return { link: loc, label: room };
 	if (looksLikeRoomLink(roomLink)) return { link: roomLink, label: "" };
@@ -145,7 +145,7 @@ export function submittedRoomName(
 
 export interface RoomDestination {
 	room: string;
-	locator: string;
+	address: string;
 	hidden?: boolean;
 	policy?: RoomPolicy;
 }
@@ -163,30 +163,30 @@ export function submittedRoomDestination(
 	context: DirectoryDestinationContext,
 	typedAs: DirId | null,
 ): RoomDestination {
-	const locator = thisDirectoryLocator(typedText, context, typedAs);
-	const linked = typedRoomLink(locator, typedRoom);
+	const address = thisDirectoryAddress(typedText, context, typedAs);
+	const linked = typedRoomLink(address, typedRoom);
 	const room = submittedRoomName(linked, typedRoom, roomFrom);
 	if (linked !== null || fixed) {
-		return { room, locator: linked?.link ?? locator, hidden: false, policy: undefined };
+		return { room, address: linked?.link ?? address, hidden: false, policy: undefined };
 	}
-	return { room, locator, hidden: roomPreset === "private", policy: policyForRoomPreset(roomPreset) };
+	return { room, address, hidden: roomPreset === "private", policy: policyForRoomPreset(roomPreset) };
 }
 
 /** One submitted join, classified before either the local or attached owner
  * performs it. A room sturdyref remains authority. It never falls through to
- * the directory-locator path merely because that owner is remote. */
+ * the directory-address path merely because that owner is remote. */
 export type JoinDestinationPlan =
 	| { kind: "room-link"; link: string; label: string; directory: DirId; address: string }
-	| { kind: "directory"; room: string; locator: string; policy: RoomPolicy };
+	| { kind: "directory"; room: string; address: string; policy: RoomPolicy };
 export type RoomLinkDestination = Extract<JoinDestinationPlan, { kind: "room-link" }>;
 
 export function planJoinDestination(destination: RoomDestination): JoinDestinationPlan {
-	const linked = typedRoomLink(destination.locator, destination.room);
+	const linked = typedRoomLink(destination.address, destination.room);
 	if (linked === null) {
 		return {
 			kind: "directory",
 			room: destination.room,
-			locator: destination.locator,
+			address: destination.address,
 			policy: destination.policy ?? (destination.hidden === true ? privateRoomPolicy() : openRoomPolicy()),
 		};
 	}
@@ -214,10 +214,10 @@ export function roomLinkDestination(
 	};
 }
 
-/** Empty and this page's own locator are one destination: the field that means
- * "here" stays empty, so a paste of the home locator does not become a second
+/** Empty and this page's own address are one destination: the field that means
+ * "here" stays empty, so a paste of the home address does not become a second
  * way to say the same thing. */
-export function thisDirectoryLocator(
+export function thisDirectoryAddress(
 	value: string,
 	context: DirectoryDestinationContext,
 	typedAs: DirId | null = null,
@@ -228,12 +228,12 @@ export function thisDirectoryLocator(
 	const defaultDirectory = context.defaultDirectory;
 	if (
 		defaultDirectory != null &&
-		(typed === defaultDirectory.locator || typedAs === defaultDirectory.id)
+		(typed === defaultDirectory.address || typedAs === defaultDirectory.id)
 	) return "";
 	return value;
 }
 
-/** Where a locator field is aimed: the mark that destination wears, and what to
+/** Where a address field is aimed: the mark that destination wears, and what to
  * call it.
  *
  * One classification, read by everything that draws the answer. The card's top
@@ -253,7 +253,7 @@ export function thisDirectoryLocator(
  * them and the rest of this module answers without them.
  */
 export function destination(
-	locator: string,
+	address: string,
 	typedAs: DirId | null,
 	dirs: ReadonlyMap<DirId, DirView>,
 	context: DirectoryDestinationContext,
@@ -273,7 +273,7 @@ export function destination(
 	//
 	// The arm below does ask it, because there a color really is one directory's
 	// answer against the others, and past the ramp there is no answer to give.
-	if (thisDirectoryLocator(locator, context, typedAs) === "") {
+	if (thisDirectoryAddress(address, context, typedAs) === "") {
 		// With no directory of its own, the page has no "here" to name.
 		return context.defaultDirectory != null
 			? { mark: "home", name: hereWord }
@@ -311,7 +311,7 @@ export function destination(
 export interface JoinAnswers {
 	source: Source;
 	room: Answer<string>;
-	locator: Answer<string>;
+	address: Answer<string>;
 	nick: Answer<string>;
 	roomPreset: Answer<RoomPreset>;
 }
@@ -319,7 +319,7 @@ export interface JoinAnswers {
 /** What the card shows, given how the reader got in front of it.
  *
  * The order is `intent.ts`'s and is not repeated here. What this adds is which
- * tiers each field has: a room and locator are worth offering back from a past
+ * tiers each field has: a room and address are worth offering back from a past
  * visit. A nickname is not. Its successful outcome belongs to the connected
  * directory and supplies the empty field's offer. Treating that outcome as a
  * new exact answer would make clearing a prefill reveal the same text as its
@@ -336,7 +336,7 @@ export function joinAnswers(
 	return {
 		source: act.source,
 		room: settle(mine.room, act.room, keepable(memory.room, JOIN_DEFAULT_ROOM), ""),
-		locator: locatorAnswer(mine.locator, act.locator, memory.locator, context),
+		address: addressAnswer(mine.locator, act.locator, memory.locator, context),
 		nick: settle(mine.nick, act.nick, undefined, ""),
 		roomPreset: settle(mine.roomPreset, act.roomPreset, undefined, "open"),
 	};
@@ -344,14 +344,14 @@ export function joinAnswers(
 
 /** Both naming surfaces offer rooms only from the draft's actual destination. */
 export function joinRoomOffers(
-	locator: string,
+	address: string,
 	room: string,
 	dirs: ReadonlyMap<DirId, DirView>,
 	context: DirectoryDestinationContext,
-	directoryOf: (locator: string) => DirId | null,
+	directoryOf: (address: string) => DirId | null,
 ): string[] {
-	if (typedRoomLink(locator, room) != null) return [];
-	const typed = locator.trim();
+	if (typedRoomLink(address, room) != null) return [];
+	const typed = address.trim();
 	const target = typed === "" ? context.defaultDirectory?.id ?? context.home : directoryOf(typed);
 	return target == null ? [] : liveRoomNames(dirs.get(target)?.liveRooms ?? new Map());
 }
@@ -361,14 +361,14 @@ export function joinRoomOffers(
  * falls back to the application's guest offer. Presentation and submission
  * share this answer. */
 export function suggestedJoinNick(
-	locator: string,
+	address: string,
 	dirs: ReadonlyMap<DirId, DirView>,
 	context: DirectoryDestinationContext,
-	directoryOf: (locator: string) => DirId | null,
+	directoryOf: (address: string) => DirId | null,
 ): string {
-	const typed = locator.trim();
+	const typed = address.trim();
 	// An attached session may not call any directory `home`, while still having
-	// a default directory whose locator the empty field means. That directory is
+	// a default directory whose address the empty field means. That directory is
 	// the destination authority in both cases; `home` is the fallback only for a
 	// session without a separately identified default.
 	const target = typed === "" ? context.defaultDirectory?.id ?? context.home : directoryOf(typed);
@@ -378,39 +378,39 @@ export function suggestedJoinNick(
 
 /** The room identity a join draft names, if its directory can be resolved. */
 export function joinNickTarget(
-	locator: string,
+	address: string,
 	room: string,
 	context: DirectoryDestinationContext,
-	directoryOf: (locator: string) => DirId | null,
+	directoryOf: (address: string) => DirId | null,
 ): JoinNickTarget | null {
-	const linked = typedRoomLink(locator, room);
+	const linked = typedRoomLink(address, room);
 	if (linked !== null) {
 		const destination = roomLinkDestination(linked.link, linked.label);
 		return destination === null
 			? null
 			: { directory: destination.directory, link: destination.link, room: destination.label };
 	}
-	const typed = locator.trim();
+	const typed = address.trim();
 	const directory = typed === "" ? context.defaultDirectory?.id ?? context.home : directoryOf(typed);
 	return directory === null ? null : { directory, link: null, room: room || JOIN_DEFAULT_ROOM };
 }
 
-/** The locator field, whose every tier means one extra thing: this page's own
+/** The address field, whose every tier means one extra thing: this page's own
  * directory is the empty field.
  *
  * Reading each tier through that rule before they are weighed is what makes an
  * act that implies home beat a remembered foreign address. The act implies the
  * empty field, and an empty field named by an act is an answer, where an empty
  * memory is only a habit nobody has formed. It also keeps the caption accurate,
- * since a remembered locator that turns out to name this page would otherwise
+ * since a remembered address that turns out to name this page would otherwise
  * present a blank field claiming to be what the reader used last. */
-function locatorAnswer(
+function addressAnswer(
 	edited: string | undefined,
 	given: Given<string> | undefined,
 	memory: string,
 	context: DirectoryDestinationContext,
 ): Answer<string> {
-	const here = (value: string) => thisDirectoryLocator(value, context);
+	const here = (value: string) => thisDirectoryAddress(value, context);
 	return settle(
 		edited === undefined ? undefined : here(edited),
 		given === undefined ? undefined : { value: here(given.value), firmness: given.firmness },
@@ -456,21 +456,21 @@ export function resolveJoin(
 	answers: JoinAnswers,
 	dirs: ReadonlyMap<DirId, DirView>,
 	homeDirectory: DirId | null,
-	directoryOf: (locator: string) => DirId | null,
+	directoryOf: (address: string) => DirId | null,
 ): JoinResolution {
 	const wanted = answers.room.value.trim();
 	const intended = answers.roomPreset.value;
-	// An empty locator names this page's own directory, which the application
+	// An empty address names this page's own directory, which the application
 	// opens by itself. Asking a reader who has just arrived to connect that
 	// before they may name a room would be asking them to do the one thing
 	// nobody has to: the first act here has always been to name a room.
-	const typed = answers.locator.value.trim();
+	const typed = answers.address.value.trim();
 	const named = typed !== "";
 	const dir = named ? directoryOf(typed) : homeDirectory;
 	const view = dir == null ? undefined : dirs.get(dir);
 	// A pasted room link carries its own way in. No directory listing decides
 	// anything about it, so neither phase nor standing is in question.
-	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) {
+	if (typedRoomLink(answers.address.value, answers.room.value) !== null) {
 		return { standing: intended, fixed: false, act: "join" };
 	}
 	// Offering to connect is for a directory the reader named and this tab has
@@ -521,10 +521,10 @@ export function joinLead(answers: JoinAnswers, where: string): string {
  * destination is how the card would start sounding certain about a guess.
  * Which is why an offer answers null here and takes the plain lead. */
 function aimedAt(answers: JoinAnswers, where: string): string | null {
-	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) return joinLeadLink;
+	if (typedRoomLink(answers.address.value, answers.room.value) !== null) return joinLeadLink;
 	if (answers.source === "link") {
 		if (answers.room.from === "named") return joinLeadNamedRoom(answers.room.value, where);
-		if (answers.locator.from === "named") return joinLeadNamedDirectory(where);
+		if (answers.address.from === "named") return joinLeadNamedDirectory(where);
 	}
 	if (answers.source === "press" && answers.room.from === "named") {
 		return joinLeadPressedRoom(answers.room.value, where);
@@ -538,16 +538,16 @@ function aimedAt(answers: JoinAnswers, where: string): string | null {
  * copyable address name the same thing. Null when the page has no home
  * directory yet.  status-allow: pending state or quoted runtime label */
 export function joinAddressPlaceholder(address: string | null): string {
-	if (address == null) return JOIN_LOCATOR_SHAPE;
-	let locator = address.trim();
-	if (locator === "") return JOIN_LOCATOR_SHAPE;
+	if (address == null) return JOIN_ADDRESS_SHAPE;
+	let typed = address.trim();
+	if (typed === "") return JOIN_ADDRESS_SHAPE;
 	// Preserve the shared route reader's TCP host:port display form.
-	locator = inspectDirectory(locator)?.address ?? locator;
-	return shortenLocator(locator);
+	typed = inspectDirectory(typed)?.address ?? typed;
+	return shortenAddress(typed);
 }
 
-function shortenLocator(locator: string): string {
-	const bare = locator.split("?")[0];
+function shortenAddress(address: string): string {
+	const bare = address.split("?")[0];
 	const schemeAt = bare.indexOf("://");
 	if (schemeAt < 0) return bare;
 	const scheme = bare.slice(0, schemeAt + 3);

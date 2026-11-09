@@ -23,7 +23,7 @@ export async function proveSharedRoomLink(directory: Directory, views: readonly 
 		await joining.press("#newRoomElsewhere", "Enter");
 		await joining.waitForSelector("#joinForm", { state: "visible" });
 		await joining.fill("#room", ROOM);
-		await joining.fill("#locator", managed.roomLink);
+		await joining.fill("#joinAddressField", managed.roomLink);
 		await joining.fill("#nick", "durable-member");
 		await joining.click("#joinBtn");
 		for (const view of views) {

@@ -124,9 +124,9 @@ export function App() {
 			directoryDestinationContext(
 				state.homeDirectory == null
 					? null
-					: { id: state.homeDirectory, locator: session.dirAddress(state.homeDirectory) },
+					: { id: state.homeDirectory, address: session.dirAddress(state.homeDirectory) },
 				state.server?.directory ?? null,
-				(locator) => session.directoryId(locator),
+				(address) => session.directoryId(address),
 			),
 		// The home address this asks the session for lives on the live checkpoint, not
 		// in the store, so React cannot see it move and no dependency can name
@@ -286,7 +286,7 @@ export function App() {
 		[projection, homeDirectory, reaching, edits, remembered, directoryContext],
 	);
 	const joinResolution = useMemo(
-		() => resolveJoin(joining, state.dirs, state.homeDirectory, (locator) => session.directoryId(locator)),
+		() => resolveJoin(joining, state.dirs, state.homeDirectory, (address) => session.directoryId(address)),
 		[joining, state.dirs, state.homeDirectory, session],
 	);
 

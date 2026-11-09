@@ -39,14 +39,9 @@ import { DmArchiveHistory, RoomArchiveHistory } from "./ArchiveHistory.tsx";
 import { bridgedOrigin, roomPublication } from "../store/dirs.ts";
 import { useCommitments } from "../commitment.tsx";
 import { useAsyncAction } from "../async_action.ts";
-import { memberYouAre } from "../../../lib/text/conversation.ts";
+import { memberStanding } from "../../../lib/text/conversation.ts";
 import { directoryLeaveKeep } from "../../../lib/text/conversation.ts";
-import {
-	roomAboutTab,
-	roomBridgeDefault,
-	roomCapabilitiesTab,
-	roomModerationTab,
-} from "../../../lib/text/room_authority.ts";
+import { roomAboutTab, roomBridgeDefault, roomLinksTab, roomModerationTab } from "../../../lib/text/room_authority.ts";
 import {
 	leaveDmAsk,
 	leaveDmCommit,
@@ -218,7 +213,7 @@ const ABOUT_TAB: TabFace<RoomPane> = {
 const CAPABILITIES_TAB: TabFace<RoomPane> = {
 	id: "capabilities",
 	domId: "convcardCapabilitiesTab",
-	label: roomCapabilitiesTab,
+	label: roomLinksTab,
 	panelId: "convcardCapabilitiesPanel",
 };
 const MODERATION_TAB: TabFace<RoomPane> = {
@@ -315,7 +310,7 @@ function RoomCardBody(
 				<ConvFacts conv={conv} dir={dir} directory={directory} bridgeOrigin={bridgeOrigin} />
 				<div className="group well">
 					<div className="dircard-standing">
-						<span>{memberYouAre}</span>
+						<span>{memberStanding}</span>
 						<StandingMenu
 							id="convcardStanding"
 							own={conv.standing}

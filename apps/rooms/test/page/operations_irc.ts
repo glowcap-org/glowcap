@@ -62,8 +62,8 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	// Operations has no selected conversation. Its rail names the first held
 	// directory, which can be foreign; explicitly choose the gateway's home.
 	await tab.click("#newRoomElsewhere");
-	await tab.waitForSelector("#locator");
-	await tab.fill("#locator", "");
+	await tab.waitForSelector("#joinAddressField");
+	await tab.fill("#joinAddressField", "");
 	await tab.fill("#newRoomInput", "deadnet");
 	await tab.waitForSelector('#newRoomOffers .complete-row:has-text("deadnet/#nowhere")', { timeout: 10_000 })
 		.catch(() => fail("the rail field does not offer the bridged channel's name"));

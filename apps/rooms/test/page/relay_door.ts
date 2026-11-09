@@ -47,7 +47,7 @@ export async function run(browser: Browser): Promise<void> {
 		const open = await bare.newPage();
 		await open.goto(`${host.origin}/`);
 		await establishLocalSession(open);
-		await fillSettled(open, "#locator", address);
+		await fillSettled(open, "#joinAddressField", address);
 		await fillSettled(open, "#nick", "door");
 		if (await reachDirectoryOnCard(open, "garden") === "question") {
 			await fillSettled(open, "#room", "garden");
@@ -142,10 +142,10 @@ async function reroutesHeldDirectory(open: Page, origin: string, address: string
 	if (relay == null) fail(`the front's address did not list a relay door: ${address}`);
 	// The page is in the room it reached; the join card is the join route.
 	await open.goto(`${origin}/join`);
-	await open.waitForSelector("#locator", { timeout: 60_000 }).catch(() =>
+	await open.waitForSelector("#joinAddressField", { timeout: 60_000 }).catch(() =>
 		fail("the join card did not come back for a page already in a room")
 	);
-	await fillSettled(open, "#locator", formatLocatorUri(relay));
+	await fillSettled(open, "#joinAddressField", formatLocatorUri(relay));
 	await fillSettled(open, "#nick", "door");
 	if (await reachDirectoryOnCard(open, "garden") === "question") {
 		await fillSettled(open, "#room", "garden");
@@ -181,7 +181,7 @@ async function deadDoorsAreNamed(open: Page, origin: string, address: string): P
 	await establishLocalSession(open);
 	await fillSettled(open, "#nick", "door");
 	// The relay door alone: the refusal stays on the card and names the relay.
-	await fillSettled(open, "#locator", dead);
+	await fillSettled(open, "#joinAddressField", dead);
 	await open.click("#joinBtn");
 	await open.waitForFunction(
 		(said) => (document.getElementById("joinError")?.textContent ?? "").startsWith(said),
@@ -200,7 +200,7 @@ async function deadDoorsAreNamed(open: Page, origin: string, address: string): P
 	// ask says the relay did not answer.
 	const mixed = roomsIdentityRoute(route.designator, [dead, formatLocatorUri(other)]);
 	if (mixed == null) fail("a relay door and a TCP door did not make an identity route");
-	await fillSettled(open, "#locator", formatLocatorUri(mixed));
+	await fillSettled(open, "#joinAddressField", formatLocatorUri(mixed));
 	await open.click("#joinBtn");
 	const lead = open.locator('dialog[aria-labelledby="serverAskTitle"] .lead');
 	await lead.waitFor({ state: "visible", timeout: 30_000 }).catch(async () =>

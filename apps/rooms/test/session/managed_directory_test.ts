@@ -59,7 +59,7 @@ for (const holding of ["home", "other", "none"] as const) {
 		if (holding === "none") f.current.intent.directories.length = 0;
 		try {
 			const link = "ocapn://127.0.0.1%3A1234.tcp/s/ZXhhY3Qtcm9vbQ";
-			assertEquals(await f.controller.join({ locator: link, room: "shared" }, { kind: "exact", name: "ada" }), {
+			assertEquals(await f.controller.join({ address: link, room: "shared" }, { kind: "exact", name: "ada" }), {
 				ok: true,
 			});
 			assertEquals(f.calls, [["roomLink", f.id, link, "shared", {

@@ -29,13 +29,13 @@ import { actionRefusal } from "../error_text.ts";
 import { useAsyncAction } from "../async_action.ts";
 import {
 	directoryAnd,
+	directoryDirectCount,
 	directoryLeaveAsk,
 	directoryLeaveCommit,
 	directoryLeaveDoor,
 	directoryLeaveKeep,
 	directoryLeaveLabel,
 	directoryLeaveNameGoesBack,
-	directoryLinesCount,
 	directoryNothingOpen,
 	directoryRetry,
 	directoryRetrying,
@@ -44,7 +44,7 @@ import {
 	directoryThisCloses,
 	factCopyAddressFor,
 } from "../../../lib/text/conversation.ts";
-import { memberYouAre } from "../../../lib/text/conversation.ts";
+import { memberStanding } from "../../../lib/text/conversation.ts";
 import { ModalCard } from "../ModalCard.tsx";
 
 /** Stays mounted through the close transition so the card can leave the way
@@ -131,7 +131,7 @@ export const DirectoryCard = memo(function DirectoryCard(
 function whatGoes(rooms: number, lines: number): string {
 	const said: string[] = [];
 	if (rooms > 0) said.push(directoryRoomsCount(rooms));
-	if (lines > 0) said.push(directoryLinesCount(lines));
+	if (lines > 0) said.push(directoryDirectCount(lines));
 	if (said.length === 0) return directoryNothingOpen;
 	return directoryThisCloses(said.join(directoryAnd));
 }
@@ -235,7 +235,7 @@ function DirectoryDialog(
 					}
 					<div className="group well">
 						<div className="dircard-standing">
-							<span>{memberYouAre}</span>
+							<span>{memberStanding}</span>
 							<StandingMenu
 								id="dircardStanding"
 								own={dir.standing}

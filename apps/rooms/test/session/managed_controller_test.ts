@@ -222,7 +222,7 @@ Deno.test("managed name join reads the directory and retains an existing local p
 		offers: "participant",
 	}]);
 	try {
-		assertEquals(await f.controller.join({ locator: "", room: "lobby" }, { kind: "exact", name: "ada" }), {
+		assertEquals(await f.controller.join({ address: "", room: "lobby" }, { kind: "exact", name: "ada" }), {
 			ok: true,
 		});
 		assertEquals(f.calls, [
@@ -269,8 +269,8 @@ for (const kind of ["name", "link", "creation"] as const) {
 					null)
 				: f.controller.join(
 					kind === "link"
-						? { locator: "ocapn://127.0.0.1%3A1234.tcp/s/ZXhhY3Qtcm9vbQ", room: "Room" }
-						: { locator: "", room: "new-room" },
+						? { address: "ocapn://127.0.0.1%3A1234.tcp/s/ZXhhY3Qtcm9vbQ", room: "Room" }
+						: { address: "", room: "new-room" },
 					{ kind: "exact", name: "ada" },
 				);
 			await entered.promise;
@@ -317,7 +317,7 @@ for (const savedPublication of ["held-publication", undefined, null]) {
 			if (savedPublication === null) {
 				f.current.intent.conversations.push({ ...f.current.intent.conversations[0], id: "second-room" });
 			}
-			const joined = await f.controller.join({ locator: "", room: "lobby" }, { kind: "exact", name: "ada" });
+			const joined = await f.controller.join({ address: "", room: "lobby" }, { kind: "exact", name: "ada" });
 			assertEquals(joined.ok, savedPublication !== null);
 			if (savedPublication === null) {
 				await f.controller.pickRoom(f.id, "lobby");
@@ -361,7 +361,7 @@ Deno.test("managed name join does not reuse a namesake from another publication 
 				draft: "",
 			});
 		}
-		assertEquals(await f.controller.join({ locator: "", room: "lobby" }, { kind: "exact", name: "ada" }), {
+		assertEquals(await f.controller.join({ address: "", room: "lobby" }, { kind: "exact", name: "ada" }), {
 			ok: true,
 		});
 		assertEquals(f.calls[2], ["publicRoom", f.id, "lobby", "current-publication"]);
@@ -380,7 +380,7 @@ Deno.test("managed name join refuses an invitation-only publication without crea
 		offers: null,
 	}]);
 	try {
-		const result = await f.controller.join({ locator: "", room: "lobby" }, { kind: "exact", name: "ada" });
+		const result = await f.controller.join({ address: "", room: "lobby" }, { kind: "exact", name: "ada" });
 		assertEquals(result.ok, false);
 		assertEquals(f.calls, [["directoryReader", f.id], ["freeReader"]]);
 	} finally {
@@ -392,7 +392,7 @@ Deno.test("managed name join refuses directory authority replaced during its rea
 		f.current.intent.directories[0] = { ...f.current.intent.directories[0], access: "replacement" };
 	});
 	try {
-		const result = await f.controller.join({ locator: "", room: "lobby" }, { kind: "exact", name: "ada" });
+		const result = await f.controller.join({ address: "", room: "lobby" }, { kind: "exact", name: "ada" });
 		assertEquals(result.ok, false);
 		assertEquals(f.calls, [["directoryReader", f.id], ["freeReader"]]);
 	} finally {
@@ -404,7 +404,7 @@ Deno.test("managed name join canceled during its read releases the reader withou
 	const f = fixture([], () => cancellation.abort());
 	try {
 		const result = await f.controller.join(
-			{ locator: "", room: "lobby" },
+			{ address: "", room: "lobby" },
 			{ kind: "exact", name: "ada" },
 			cancellation.signal,
 		);

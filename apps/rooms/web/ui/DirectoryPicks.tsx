@@ -1,13 +1,13 @@
 // The directories this tab holds, as a menu.
 //
 // Two surfaces offer this choice and they are choosing the same thing from the
-// same list: the join card's locator field, and the rail's new-room panel while
+// same list: the join card's address field, and the rail's new-room panel while
 // that card is up. Which rows appear, the order they appear in, and which one
 // is marked live here rather than in each of them, because a reader picking a
 // directory in one and reading it back in the other has to be shown the same
 // list either way.
 //
-// A pick fills a locator field with the full hinted route, the same address
+// A pick fills a address field with the full hinted route, the same address
 // every share surface hands out, because that value is what a submit dials and
 // the hints are part of what makes it dialable. Matching is by identity, so a
 // row stays marked whether the field holds the route or the bare authority.
@@ -25,21 +25,21 @@ import { flushSync } from "react-dom";
 import { useRoomsSession } from "./controller/session.ts";
 import { MenuList, MenuRow } from "./Menu.tsx";
 import { directoryName } from "./text.ts";
-import { type DirectoryDestinationContext, thisDirectoryLocator } from "./joining.ts";
+import { type DirectoryDestinationContext, thisDirectoryAddress } from "./joining.ts";
 import { homeDirectoryName } from "../../lib/text/directory.ts";
 import { joinAddressHere } from "../../lib/text/join.ts";
 import type { DirId, DirView } from "./directory.ts";
 import { anotherAddress } from "../../lib/text/page.ts";
 
 export function DirectoryPicks(
-	{ className, locator, dirs, context, onPick, onElsewhere }: {
+	{ className, address, dirs, context, onPick, onElsewhere }: {
 		className: string;
-		/** The locator field these rows are choosing for, which decides which row
+		/** The address field these rows are choosing for, which decides which row
 		 * is marked. */
-		locator: string;
+		address: string;
 		dirs: ReadonlyMap<DirId, DirView>;
 		context: DirectoryDestinationContext;
-		onPick: (locator: string) => void;
+		onPick: (address: string) => void;
 		/** Take the reader where an address this tab does not hold can be typed.
 		 * `typeAnotherAddress` below is the whole of it on the card. The rail
 		 * brings the card forward and then calls the same thing. */
@@ -49,8 +49,8 @@ export function DirectoryPicks(
 	const session = useRoomsSession();
 	const homeDirectory = context.home;
 	const others = [...dirs.values()].filter((dir) => dir.id !== homeDirectory);
-	const typedAs = session.directoryId(locator.trim());
-	const here = thisDirectoryLocator(locator, context, typedAs) === "";
+	const typedAs = session.directoryId(address.trim());
+	const here = thisDirectoryAddress(address, context, typedAs) === "";
 	const blank = homeDirectory != null ? homeDirectoryName : context.defaultDirectory != null ? joinAddressHere : null;
 	// The served directory, when an empty address means home and this tab does
 	// not hold it. A server that restarts as a new directory is reached here.
@@ -68,7 +68,7 @@ export function DirectoryPicks(
 					className="line-menu-row"
 					first={blank == null}
 					marked={typedAs === served.id}
-					onPick={() => onPick(served.locator)}
+					onPick={() => onPick(served.address)}
 				>
 					{joinAddressHere}
 				</MenuRow>
@@ -92,7 +92,7 @@ export function DirectoryPicks(
 }
 
 /** Take the reader to where an address this tab does not hold can be typed:
- * the join card's locator field, with what is there selected so the next thing
+ * the join card's address field, with what is there selected so the next thing
  * typed replaces it.
  *
  * Every way in ends here as one offer. They differ only in what it takes to
@@ -110,7 +110,7 @@ export function DirectoryPicks(
  * page from the field it is handing over. */
 export function typeAnotherAddress(arrive: () => void): void {
 	flushSync(arrive);
-	const field = document.querySelector<HTMLInputElement>("#locator");
+	const field = document.querySelector<HTMLInputElement>("#address");
 	if (field === null) return;
 	field.focus();
 	field.select();

@@ -38,7 +38,7 @@ const HOME = dirId("ocapn://home.iroh");
 const AWAY = "ocapn://elsewhere.iroh";
 const HOME_CONTEXT: import("../web/ui/joining.ts").DirectoryDestinationContext = {
 	home: HOME,
-	defaultDirectory: { id: HOME, locator: HOME },
+	defaultDirectory: { id: HOME, address: HOME },
 };
 const NOTHING: import("../web/ui/intent.ts").Remembered = { room: "", locator: "", nick: "" };
 
@@ -73,8 +73,8 @@ Deno.test("an act naming an empty value still outranks what was used last", () =
 	// remembered address, or every link to a room on this page offers to join
 	// it on the last directory anybody visited.
 	const answers = card({ source: "link", room: named("arrivals"), locator: implied("") }, { locator: AWAY });
-	assert(answers.locator.value === "", "a link to a room here offered another directory");
-	assert(answers.locator.from === "implied", "the link's own directory was not the reason for the field");
+	assert(answers.address.value === "", "a link to a room here offered another directory");
+	assert(answers.address.from === "implied", "the link's own directory was not the reason for the field");
 	assert(answers.room.value === "arrivals", "the link did not name its room");
 });
 
@@ -86,16 +86,16 @@ Deno.test("a link that gates a room here reads as this directory, however it say
 	const byAddress = card({ source: "link", room: named("arrivals"), locator: implied(HOME as string) }, {
 		locator: AWAY,
 	});
-	assert(byAddress.locator.value === "", "the page's own address was offered as a foreign directory");
-	assert(byAddress.locator.from === "implied", "naming home by address lost the link's own evidence");
+	assert(byAddress.address.value === "", "the page's own address was offered as a foreign directory");
+	assert(byAddress.address.from === "implied", "naming home by address lost the link's own evidence");
 });
 
 Deno.test("a link that names a directory is answered there, whatever was used last", () => {
 	const answers = card({ source: "link", room: named("arrivals"), locator: named(AWAY) }, {
 		locator: "ocapn://third.iroh",
 	});
-	assert(answers.locator.value === AWAY, "the link's directory lost to a remembered one");
-	assert(answers.locator.from === "named", "a directory the link named did not read as named");
+	assert(answers.address.value === AWAY, "the link's directory lost to a remembered one");
+	assert(answers.address.from === "named", "a directory the link named did not read as named");
 });
 
 Deno.test("effective nicknames are offers, not prefilled exact intent", () => {
@@ -142,7 +142,7 @@ Deno.test("paired room fields follow the draft destination across multiple direc
 		joining.joinRoomOffers("ocapn://unknown.iroh", "", dirs, HOME_CONTEXT, resolve).length === 0,
 		"an unknown explicit destination claimed home offers",
 	);
-	const attached = { home: null, defaultDirectory: { id: away, locator: AWAY } };
+	const attached = { home: null, defaultDirectory: { id: away, address: AWAY } };
 	assert(
 		joining.joinRoomOffers("", "", dirs, attached, resolve)[0] === "elsewhere",
 		"an attached workspace ignored its default directory",
@@ -165,7 +165,7 @@ Deno.test("an empty nickname means the granted name on the aimed connected direc
 		joining.suggestedJoinNick("", dirs, HOME_CONTEXT, resolve) === "home-name",
 		"an empty home join did not reuse the name home actually granted",
 	);
-	const attached = { home: null, defaultDirectory: { id: away, locator: AWAY } };
+	const attached = { home: null, defaultDirectory: { id: away, address: AWAY } };
 	assert(
 		joining.suggestedJoinNick("", dirs, attached, resolve) === "away-name",
 		"an attached session's empty locator ignored its connected default directory",
@@ -450,7 +450,7 @@ Deno.test("where a locator field is aimed is one answer, whoever is drawing it",
 	// resolves to it however it was written.
 	assert(aimed("", null).name === "this directory", "an empty field was not read as this page's directory");
 	assert(aimed("", null).mark === "home", "this page's directory did not wear its own mark");
-	const resetContext = { home: null, defaultDirectory: { id: HOME, locator: HOME } };
+	const resetContext = { home: null, defaultDirectory: { id: HOME, address: HOME } };
 	assert(
 		joining.destination("", null, new Map(), resetContext, "this directory").mark === "home",
 		"an unheld page-default directory did not wear the home mark",

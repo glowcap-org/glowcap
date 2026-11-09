@@ -385,10 +385,10 @@ export function createManagedController(
 		join: (destination: RoomDestination, nick, signal) => {
 			// Where the act picks up after a reload, read from what was typed
 			// rather than the plan, which refuses a link that is not a room's.
-			const linked = typedRoomLink(destination.locator, destination.room);
+			const linked = typedRoomLink(destination.address, destination.room);
 			const resume = () =>
 				linked === null
-					? joinAddress({ room: destination.room, locator: destination.locator || undefined })
+					? joinAddress({ room: destination.room, locator: destination.address || undefined })
 					: joinAddress({ locator: linked.link, room: linked.label || undefined });
 			return session.openings.run(
 				async (opening): Promise<JoinOutcome> => {
@@ -397,7 +397,7 @@ export function createManagedController(
 					const plan = planJoinDestination(destination);
 					const id = plan.kind === "room-link"
 						? plan.directory
-						: await reach(plan.locator, nick, false, signal);
+						: await reach(plan.address, nick, false, signal);
 					if (!signal?.aborted) {
 						if (plan.kind === "room-link") {
 							const room = await session.actions.roomLink(id, plan.link, plan.label, {
@@ -415,7 +415,7 @@ export function createManagedController(
 						if (plan.kind !== "room-link") {
 							store.remember(projection, {
 								room: plan.room,
-								locator: plan.locator,
+								locator: plan.address,
 								nick: nick.kind === "exact" ? nick.name : nick.base,
 							});
 						}
@@ -429,12 +429,12 @@ export function createManagedController(
 					return { ok: true };
 				}
 				const id = linked === null
-					? destinationOf(destination.locator).id ?? ""
+					? destinationOf(destination.address).id ?? ""
 					: roomLinkDestination(linked.link, linked.label)?.directory ?? "";
 				// A typed address was dialed on the way to its room, so a break is
 				// said by the door it took. A room link names its directory itself.
 				const said = linked === null
-					? await unreached(error, resume, destination.locator)
+					? await unreached(error, resume, destination.address)
 					: explained(error, resume);
 				if (said != null) rememberJoinRefusal(projection, id, destination.room, error);
 				return {

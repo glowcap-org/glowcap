@@ -3,9 +3,8 @@
 // The directory card answers for the place this room or line lives on. This
 // answers for the conversation itself: what kind of thing it is, how this tab
 // reaches it, and the facts a reader would open the title to check. The
-// directory's name is the door to that directory's conversation. The locator
-// below the facts is that directory's address for a public room. A private room
-// has no name-based entry, so its held room link is the only accurate locator.
+// directory's name is the door to that directory's conversation. A room shows
+// its held room link below the facts, and a directory shows its address.
 // Durable authority for either kind remains visible in the separate
 // Capabilities tab.
 
@@ -80,7 +79,7 @@ export function ConvFacts(
 	const here = conv.type === "room" ? membersHere(roster) : 0;
 	const bearer = useRoomBearer(conv.type === "room" && conv.held ? conv : null, "link");
 	const roomLink = bearer ?? undefined;
-	const locator = roomLink ?? (dir === null ? null : rooms.dirAddress(dir.id));
+	const shared = roomLink ?? (dir === null ? null : rooms.dirAddress(dir.id));
 	const addressKind = roomLink === undefined ? factDirectoryAddress : roomLinkTitle;
 	const addressLabel = roomLink === undefined ? factCopyAddressFor(directory) : factCopyRoomLink;
 	return (
@@ -181,8 +180,8 @@ export function ConvFacts(
 			</dl>
 			<p className="field-label" id="convcardUriKind">{addressKind}</p>
 			<CopyField
-				id="convcardLocator"
-				text={locator}
+				id="convcardAddress"
+				text={shared}
 				label={addressLabel}
 			/>
 			{conv.type !== "directory" && <p className="hint" id="convcardReach">{conversationReach(conv)}</p>}

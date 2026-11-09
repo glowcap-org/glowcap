@@ -87,7 +87,7 @@ export async function run(
 	// Filled with the directory's own identity rather than with what was once
 	// typed, so the check is that it names that peer, not that it matches a
 	// spelling of it.
-	const aimed = await tab.inputValue("#locator");
+	const aimed = await tab.inputValue("#joinAddressField");
 	if (!aimed.includes(String(foreignRoomPort))) {
 		fail(`joining from a directory's own row aimed at ${JSON.stringify(aimed)} rather than that directory`);
 	}
@@ -182,17 +182,17 @@ export async function run(
 		activeText: document.activeElement?.textContent ?? "",
 		activeClass: (document.activeElement as HTMLElement | null)?.className ?? "",
 		activeRole: document.activeElement?.getAttribute("role") ?? "",
-		locatorVisible: (document.getElementById("locator") as HTMLElement | null)?.checkVisibility() ?? false,
+		addressVisible: (document.getElementById("joinAddressField") as HTMLElement | null)?.checkVisibility() ?? false,
 		panelVisible: (document.getElementById("newRoom") as HTMLElement | null)?.checkVisibility() ?? false,
 	}));
-	if (focus.active !== "locator") {
+	if (focus.active !== "joinAddressField") {
 		fail(
 			`changing directory from the rail left the reader in front of the card with the caret nowhere: ${
 				JSON.stringify(focus)
 			}`,
 		);
 	}
-	await tab.fill("#locator", foreignLocator);
+	await tab.fill("#joinAddressField", foreignLocator);
 	await tab.fill("#nick", "bo");
 	if (await reachDirectoryOnCard(tab, "elsewhere") === "question") await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
@@ -244,7 +244,7 @@ export async function run(
 	await tab.waitForSelector("#joinForm", { timeout: 10_000 })
 		.catch(() => fail("leaving this page's own directory did not offer a way back through the join card"));
 	await tab.click("#joinAddress");
-	await tab.waitForSelector(".locator-picks [role=menuitemradio]", { timeout: 5_000 })
+	await tab.waitForSelector(".address-picks [role=menuitemradio]", { timeout: 5_000 })
 		.catch(() => fail("the join card did not offer this page's own directory after it was left"));
 	await tab.getByRole("menuitemradio", { name: joinAddressHere, exact: true }).click();
 	await tab.fill("#nick", "cam");
@@ -289,17 +289,17 @@ export async function run(
 	await tab.focus("#newRoomElsewhere");
 	await tab.press("#newRoomElsewhere", "Enter");
 	await tab.waitForSelector("#joinForm", { timeout: 10_000 });
-	const kept = await tab.inputValue("#locator");
+	const kept = await tab.inputValue("#joinAddressField");
 	if (!kept.includes(String(foreignRoomPort))) {
 		fail(
 			`the join card did not keep the directory the rail's field was naming; it holds ${JSON.stringify(kept)}`,
 		);
 	}
 	await tab.click("#joinAddress");
-	await tab.waitForSelector(".locator-picks [role=menuitemradio]", { timeout: 5_000 })
+	await tab.waitForSelector(".address-picks [role=menuitemradio]", { timeout: 5_000 })
 		.catch(() => fail("the join card's directory mark did not open the held addresses"));
 	const offered = await tab.evaluate(() =>
-		[...document.querySelectorAll(".locator-picks [role=menuitemradio]")].map((b) => b.textContent?.trim() ?? "")
+		[...document.querySelectorAll(".address-picks [role=menuitemradio]")].map((b) => b.textContent?.trim() ?? "")
 	);
 	if (!offered.includes(homeDirectoryName)) {
 		fail(`the join card did not offer this page's own directory; it offered ${JSON.stringify(offered)}`);
@@ -312,7 +312,7 @@ export async function run(
 		fail(`the join card offered no held directory beside this one: ${JSON.stringify(offered)}`);
 	}
 	await tab.getByRole("menuitemradio", { name: other, exact: true }).click();
-	const filled = await tab.inputValue("#locator");
+	const filled = await tab.inputValue("#joinAddressField");
 	if (filled === "") fail("pressing a held directory did not fill the locator field");
 	// And fills it with the exact address sharing hands out, the route this
 	// tab dialed, hints and all, not the bare authority the store keys by. The
@@ -331,10 +331,10 @@ export async function run(
 	await tab.waitForSelector("#joinAddress", { state: "visible", timeout: 10_000 })
 		.catch(() => fail("closing the directory did not put the join card back"));
 	await tab.click("#joinAddress");
-	await tab.waitForSelector(".locator-picks [role=menuitemradio]", { timeout: 5_000 })
+	await tab.waitForSelector(".address-picks [role=menuitemradio]", { timeout: 5_000 })
 		.catch(() => fail("the join card's directory mark did not open again to clear the field"));
 	await tab.getByRole("menuitemradio", { name: homeDirectoryName, exact: true }).click();
-	const cleared = await tab.inputValue("#locator");
+	const cleared = await tab.inputValue("#joinAddressField");
 	if (cleared !== "") {
 		fail(`pressing "this directory" left ${JSON.stringify(cleared)} in the field instead of clearing it`);
 	}

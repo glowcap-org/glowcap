@@ -137,7 +137,7 @@ export function moderationBridgeTitle(badge: string): string {
 }
 export const roomBridgeDefault = "Bridge";
 export const roomAboutTab = "About";
-export const roomCapabilitiesTab = "Links";
+export const roomLinksTab = "Links";
 export const roomModerationTab = "Moderation";
 export function moderationBridgeAuthorityHeld(badge: string): string {
 	return `${badge} gateway link held by this session`;

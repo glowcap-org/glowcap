@@ -251,7 +251,7 @@ export function leaveRoomSay(named: string): string {
 export function directoryRoomsCount(rooms: number): string {
 	return rooms === 1 ? "1 room" : `${rooms} rooms`;
 }
-export function directoryLinesCount(lines: number): string {
+export function directoryDirectCount(lines: number): string {
 	return lines === 1 ? "1 direct message" : `${lines} direct messages`;
 }
 export const directoryNothingOpen = "Nothing is open on it.";
@@ -361,7 +361,7 @@ export const memberNoNameYet = "No directory has granted you one yet";
 export const memberGrantedBy = "Granted by";
 export const memberNoDirectoryNamed = "No directory has granted this name";
 export const memberDirectMessages = "Direct messages";
-export const memberYouAre = "Your standing";
+export const memberStanding = "Your standing";
 export const memberPresence = "Presence";
 export const memberNetwork = "Network";
 export const memberOffline = "Offline";

@@ -303,7 +303,7 @@ export async function run(
 			await finger.press("#newRoomElsewhere", "Enter");
 			await finger.waitForSelector("#joinForm", { timeout: 10_000 })
 				.catch(() => fail("the rail under a finger offered no way to reach another directory"));
-			await fillSettled(finger, "#locator", foreignLocator);
+			await fillSettled(finger, "#joinAddressField", foreignLocator);
 			if (await reachDirectoryOnCard(finger, "faraway") === "question") await finger.click("#joinBtn");
 			await finger.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
 				.catch(() => fail("the tab under a finger could not reach a room on the second directory"));

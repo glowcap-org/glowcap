@@ -94,7 +94,7 @@ async function joinElsewhere(page: Page, dir: Directory, nick: string): Promise<
 	await page.fill("#newRoomInput", dir.name);
 	await page.click("#newRoomElsewhere");
 	await page.waitForSelector("#joinForm", { timeout: 10_000 });
-	await page.fill("#locator", dir.locator);
+	await page.fill("#joinAddressField", dir.locator);
 	await page.fill("#nick", nick);
 	await reachDirectoryOnCard(page);
 	await page.fill("#room", dir.name);

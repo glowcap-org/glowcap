@@ -64,7 +64,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 				translate: el.translate,
 			};
 		};
-		return { locator: of("locator"), room: of("room"), nick: of("nick") };
+		return { address: of("joinAddressField"), room: of("room"), nick: of("nick") };
 	});
 	for (const [id, keys] of Object.entries(identifierKeys)) {
 		if (keys == null) fail(`#${id} is not on the join card`);

@@ -292,7 +292,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		);
 		if (await open.locator("#serverAddress").count() !== 0) fail("a blank address asked for a Rooms server");
 		const elsewhere = loopbackTcpDesignator(httpPort);
-		await open.fill("#locator", elsewhere);
+		await open.fill("#joinAddressField", elsewhere);
 		await open.click("#joinBtn");
 		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
 			.catch(() => fail("connecting through a Rooms server the page has none of did not ask for one"));
@@ -320,9 +320,11 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		if (landed.pathname !== "/join" || landed.searchParams.get("locator") !== elsewhere) {
 			fail(`the reload did not land on the act that asked: ${landed.pathname}${landed.search}`);
 		}
-		await open.waitForSelector("#locator", { timeout: 60_000 })
+		await open.waitForSelector("#joinAddressField", { timeout: 60_000 })
 			.catch(() => fail("the join form did not come back after the reload"));
-		if ((await open.inputValue("#locator")) !== elsewhere) fail("the reload lost the address being reached");
+		if ((await open.inputValue("#joinAddressField")) !== elsewhere) {
+			fail("the reload lost the address being reached");
+		}
 		await bare.close();
 	}
 

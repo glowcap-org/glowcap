@@ -243,7 +243,9 @@ try {
 		FIRST,
 		{ timeout: 30_000 },
 	).catch(() => fail("a room link did not name its room over a remembered one"));
-	const gatedAt = await back.evaluate(() => (document.querySelector("#locator") as HTMLInputElement | null)?.value);
+	const gatedAt = await back.evaluate(() =>
+		(document.querySelector("#joinAddressField") as HTMLInputElement | null)?.value
+	);
 	if (gatedAt !== "") {
 		fail(`the gate on a room here offered another directory: ${gatedAt}`);
 	}
@@ -265,7 +267,7 @@ try {
 	await establishLocalSession(back);
 	await back.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 	await back.waitForFunction(
-		() => (document.querySelector("#locator") as HTMLInputElement | null)?.value !== "",
+		() => (document.querySelector("#joinAddressField") as HTMLInputElement | null)?.value !== "",
 		undefined,
 		{ timeout: 30_000 },
 	).catch(() => fail("asking for the card with nothing named forgot the directory last used"));

@@ -174,8 +174,8 @@ function SidebarPane(
 	const linked = cardUp;
 	const aimed = linked
 		? destination(
-			join.locator.value,
-			rooms.directoryId(join.locator.value.trim()),
+			join.address.value,
+			rooms.directoryId(join.address.value.trim()),
 			dirs,
 			directoryContext,
 			homeDirectoryName,
@@ -203,7 +203,7 @@ function SidebarPane(
 	// other field's, and they subscribe there so a join does not rebuild this
 	// list.
 	const roomOffers = linked
-		? joinRoomOffers(join.locator.value, join.room.value, dirs, directoryContext, rooms.directoryId)
+		? joinRoomOffers(join.address.value, join.room.value, dirs, directoryContext, rooms.directoryId)
 		: liveRoomNames(dirs.get(here)?.liveRooms ?? new Map());
 	// The one field that names a room, whatever this tab holds. Where the room
 	// lands is stated on the field rather than decided by where the field sits,
@@ -270,11 +270,11 @@ function SidebarPane(
 			? (close: () => void) => (
 				<DirectoryPicks
 					className="where-picks"
-					locator={join.locator.value}
+					address={join.address.value}
 					dirs={dirs}
 					context={directoryContext}
-					onPick={(locator) => {
-						browser.editJoin({ locator });
+					onPick={(address) => {
+						browser.editJoin({ locator: address });
 						close();
 					}}
 					onElsewhere={() =>

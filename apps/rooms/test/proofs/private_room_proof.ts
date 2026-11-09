@@ -344,7 +344,7 @@ try {
 	await di.goto(`http://127.0.0.1:${httpPort}/`);
 	await establishLocalSession(di);
 	await di.waitForSelector("#joinBtn", { timeout: 20_000 });
-	await di.fill("#locator", foreignLocator);
+	await di.fill("#joinAddressField", foreignLocator);
 	await di.fill("#nick", "di");
 	// The room question is behind the directory, so reach it before answering.
 	await reachDirectoryOnCard(di);

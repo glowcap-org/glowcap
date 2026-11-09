@@ -62,7 +62,7 @@ export async function run(tab: Page): Promise<void> {
 	}
 	// Naming a directory in the card retargets the panel where it stands, with
 	// no reopening in between.
-	await fillSettled(tab, "#locator", "ocapn://elsewhere-tester.tcp");
+	await fillSettled(tab, "#joinAddressField", "ocapn://elsewhere-tester.tcp");
 	if (!await railShowing()) fail("naming a directory in the join card put the rail's panel away");
 	// An address this tab does not hold wears a mark of its own. Every part of
 	// the card that colours itself reads that one mark, so leaving it off let
@@ -103,11 +103,11 @@ export async function run(tab: Page): Promise<void> {
 	// so far where it is, the panel included, because handing over a field is
 	// the plainest case of one half acting on the other.
 	await tab.click('.where-picks [role=menuitem]:has-text("Another address")');
-	if (await tab.evaluate(() => document.activeElement?.id ?? "") !== "locator") {
+	if (await tab.evaluate(() => document.activeElement?.id ?? "") !== "joinAddressField") {
 		fail("the way to an address the tab does not hold did not hand the reader the field that names one");
 	}
 	if (!await railShowing()) fail("handing over the card's field put the rail's panel away");
-	const stillAimed = await tab.inputValue("#locator");
+	const stillAimed = await tab.inputValue("#joinAddressField");
 	if (stillAimed !== "ocapn://elsewhere-tester.tcp") {
 		fail(`reaching for the card from the rail dropped the address it was aimed at: ${JSON.stringify(stillAimed)}`);
 	}
@@ -121,13 +121,13 @@ export async function run(tab: Page): Promise<void> {
 	await tab.click("#newRoomElsewhere");
 	await tab.click(`.where-picks [role=menuitemradio]:has-text("${homeDirectoryName}")`);
 	await tab.waitForFunction(
-		() => (document.getElementById("locator") as HTMLInputElement | null)?.value === "",
+		() => (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value === "",
 		undefined,
 		{ timeout: 5_000 },
 	).catch(async () =>
 		fail(
 			`picking a directory in the rail did not reach the join card's field; it holds ${
-				JSON.stringify(await tab.inputValue("#locator"))
+				JSON.stringify(await tab.inputValue("#joinAddressField"))
 			}`,
 		)
 	);
@@ -144,10 +144,10 @@ export async function run(tab: Page): Promise<void> {
 	// the card the row is the short way round: the field it hands over is the
 	// one the menu hangs from.
 	await tab.click("#joinAddress");
-	await tab.waitForSelector('.locator-picks [role=menuitem]:has-text("Another address")', { timeout: 5_000 })
+	await tab.waitForSelector('.address-picks [role=menuitem]:has-text("Another address")', { timeout: 5_000 })
 		.catch(() => fail("the join card's own directory menu does not offer the way to an address not held"));
-	await tab.click('.locator-picks [role=menuitem]:has-text("Another address")');
-	if (await tab.evaluate(() => document.activeElement?.id ?? "") !== "locator") {
+	await tab.click('.address-picks [role=menuitem]:has-text("Another address")');
+	if (await tab.evaluate(() => document.activeElement?.id ?? "") !== "joinAddressField") {
 		fail("the join card's own way to another address did not hand over its field");
 	}
 }

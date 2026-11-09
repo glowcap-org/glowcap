@@ -94,7 +94,7 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#convcardTitle").catch(() => fail("the room title did not open what is known about it"));
 	const about = await tab.evaluate(() => ({
 		title: document.getElementById("convcardTitle")?.textContent?.trim() ?? "",
-		locator: document.getElementById("convcardLocator")?.textContent?.trim() ?? "",
+		locator: document.getElementById("convcardAddress")?.textContent?.trim() ?? "",
 		facts: document.querySelector("#convcardTitle")?.closest(".modal-card")?.querySelector(".dirfacts")
 			?.textContent ?? "",
 		pressed: document.getElementById("roomAbout")?.getAttribute("aria-expanded"),
