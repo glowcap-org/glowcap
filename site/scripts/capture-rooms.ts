@@ -160,7 +160,7 @@ const web = spawnWeb({
 		"--transport=tcp",
 		String(http),
 		"0",
-		"--capabilities=all",
+		"--capabilities=admin-listeners,diagnostics,operator,peering,irc",
 	],
 	stdout: "piped",
 	stderr: "piped",
