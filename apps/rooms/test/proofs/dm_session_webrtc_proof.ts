@@ -22,7 +22,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //
 // Needs deno, the wasm module (`zig build wasm-host`), the installed Rooms
 // executables, and a Playwright Chromium (the devcontainer image ships one).
-// Run: `deno run --allow-all apps/rooms/test/proofs/dm_session_webrtc_proof.ts`.
+// Run: `zig build rooms-web-dm-session-webrtc`.
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";

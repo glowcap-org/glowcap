@@ -27,7 +27,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // Needs deno, the wasm module (`zig build wasm-host`), the built archives
 // (serve.ts's room server and the Deno peer dlopen them), and a Playwright
 // Chromium (the devcontainer image ships one).
-// Run: `deno run --allow-all apps/rooms/test/web/dm_deno_dial_proof.ts`.
+// Run: `zig build rooms-web-dm-deno`.
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";

@@ -56,7 +56,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //
 // Needs deno, cargo for the iroh sidecar, the wasm module (`zig build
 // wasm-host`), the installed archives, and a Playwright Chromium.
-// Run: `deno run --allow-all apps/rooms/test/web/reconnect_test.ts`.
+// Run: `zig build rooms-web-reconnect`.
 
 /// <reference lib="dom" />
 
