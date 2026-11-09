@@ -135,6 +135,21 @@ function waitForOpen(ws: WebSocket): Promise<void> {
  * backpressured rather than growing tab memory unbounded. Since browser
  * WebSockets cannot be paused, inbound messages are admitted only while this
  * adapter's own byte budget has room. */
+/** Close codes a browser makes up itself when no Close frame arrived. */
+const NO_STATUS_RECEIVED = 1005;
+const ABNORMAL_CLOSURE = 1006;
+
+/** The cause the peer put in its Close frame, if it gave one. A relay that
+ * could not complete a dial says why there, and the dialer learns it nowhere
+ * else. The frame's word stands whether or not the TCP teardown after it was
+ * clean, since the browser reports the same code and reason either way. A
+ * normal close (1000) and a browser-made code carry no cause. */
+function peerCause(event: CloseEvent): Error | null {
+	if (event.reason.length === 0) return null;
+	if (event.code === 1000 || event.code === NO_STATUS_RECEIVED || event.code === ABNORMAL_CLOSURE) return null;
+	return new Error(`WebSocket closed by the peer (code ${event.code}): ${event.reason}`);
+}
+
 export function webSocketChannel(
 	ws: WebSocket,
 	options?: WebSocketChannelOptions,
@@ -175,6 +190,8 @@ export function webSocketChannel(
 		const suffix = event.reason.length === 0 ? "" : `: ${event.reason}`;
 		return new Error(`WebSocket closed abnormally (code ${event.code})${suffix}`);
 	};
+	const failureOf = (event: CloseEvent): Error | null =>
+		peerCause(event) ?? (event.wasClean === false ? abnormalClose(event) : null);
 	const requestClose = (code?: number, reason?: string): Promise<void> => {
 		if (closeRequested) return closeBarrier;
 		if (ws.readyState === WebSocket.CLOSED) {
@@ -222,7 +239,7 @@ export function webSocketChannel(
 				} catch { /* stream already closed */ }
 			};
 			ws.onclose = (event: CloseEvent) => {
-				const failure = event.wasClean === false ? abnormalClose(event) : null;
+				const failure = failureOf(event);
 				if (failure != null) retainCloseFailure(failure);
 				finishClose();
 				try {

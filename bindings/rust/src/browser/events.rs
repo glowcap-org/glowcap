@@ -57,22 +57,12 @@ impl Events {
 		});
 		let close = callback(shared, |shared, event| {
 			if let Some(event) = event.dyn_ref::<CloseEvent>() {
-				if !event.was_clean() {
+				if let Some(cause) = peer_cause(event) {
+					shared.fail(io::ErrorKind::ConnectionReset, cause);
+				} else if !event.was_clean() {
 					shared.fail(
 						io::ErrorKind::ConnectionAborted,
 						format!("WebSocket closed abnormally (code {})", event.code()),
-					);
-				} else if event.code() != 1000 && !event.reason().is_empty() {
-					// The peer ended the channel with a cause: a relay that could
-					// not complete a dial says why in its Close frame, and a
-					// browser learns it nowhere else. A normal close carries none.
-					shared.fail(
-						io::ErrorKind::ConnectionReset,
-						format!(
-							"WebSocket closed by the peer (code {}): {}",
-							event.code(),
-							event.reason()
-						),
 					);
 				}
 			}
@@ -118,6 +108,22 @@ impl Events {
 			}
 		}
 	}
+}
+
+/// Close codes a browser makes up itself when no Close frame arrived.
+const NO_STATUS_RECEIVED: u16 = 1005;
+const ABNORMAL_CLOSURE: u16 = 1006;
+
+/// The cause the peer put in its Close frame, if it gave one. A relay that
+/// could not complete a dial says why there, and a browser learns it nowhere
+/// else. The frame's word stands whether or not the TCP teardown after it was
+/// clean, since the browser reports the same code and reason either way. A
+/// normal close (1000) and a browser-made code carry no cause.
+fn peer_cause(event: &CloseEvent) -> Option<String> {
+	let code = event.code();
+	let reason = event.reason();
+	(!matches!(code, 1000 | NO_STATUS_RECEIVED | ABNORMAL_CLOSURE) && !reason.is_empty())
+		.then(|| format!("WebSocket closed by the peer (code {code}): {reason}"))
 }
 
 fn handler(closure: &Closure<dyn FnMut(Event)>, attached: bool) -> Option<&js_sys::Function> {

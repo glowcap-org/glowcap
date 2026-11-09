@@ -185,6 +185,19 @@ Deno.test("webSocketChannel rejects an abnormal close through its shared barrier
 	throw new Error("expected abnormal close to reject the close barrier");
 });
 
+Deno.test("webSocketChannel keeps the peer's Close reason whether or not the teardown was clean", async () => {
+	for (const wasClean of [true, false]) {
+		const ws = new FakeWebSocket();
+		ws.autoClose = false;
+		const channel = webSocketChannel(ws as unknown as WebSocket);
+		const closed = channel.close();
+		ws.finishClose(wasClean, 1011, "Connection refused (os error 111)");
+		let failure = "";
+		await closed.catch((error) => failure = String(error));
+		assertIncludes(failure, "closed by the peer (code 1011): Connection refused (os error 111)");
+	}
+});
+
 Deno.test("webSocketChannel keeps an I/O error primary while joining physical close", async () => {
 	const ws = new FakeWebSocket();
 	ws.autoClose = false;
