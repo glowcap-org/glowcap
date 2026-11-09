@@ -335,7 +335,7 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 		match absent.next().await.unwrap().unwrap() {
 			Message::Close(Some(frame)) => {
 				assert_eq!(u16::from(frame.code), 1011);
-				assert_eq!(frame.reason, "rendezvous peer is not registered");
+				assert_eq!(frame.reason, "Rooms relay could not complete the connection");
 			}
 			other => panic!("failed dial must close with a reason: {other:?}"),
 		}
