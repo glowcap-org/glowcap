@@ -1,7 +1,7 @@
 // Directory presentation treats home identity, locator spelling, naming, and color as one coherent destination.
 import "../support/browser_application.ts";
 import { assert } from "../assert.ts";
-// How this page names and colors directories, and how a locator field treats
+// How this page names and colors directories, and how an address field treats
 // this directory as the empty destination rather than a second address.
 
 const types = await import("../../web/ui/directory.ts");
@@ -32,7 +32,7 @@ Deno.test("empty and this directory's locator are one destination", () => {
 	);
 });
 
-Deno.test("an empty locator field hints at this directory's shared address", () => {
+Deno.test("an empty address field hints at this directory's shared address", () => {
 	// The placeholder shortens the same route every share surface hands out
 	// (`peer.dirAddress`), so the hint agrees with the Settings and directory
 	// cards rather than showing the store's bare authority key.

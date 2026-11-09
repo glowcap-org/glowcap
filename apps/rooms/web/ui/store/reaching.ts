@@ -45,7 +45,7 @@ export function showJoinFor(projection: PageProjection, act: Reach): void {
  * answering. */
 export function editJoin(projection: PageProjection, patch: {
 	room?: string;
-	locator?: string;
+	address?: string;
 	nick?: string;
 	roomPreset?: RoomPreset;
 }): void {
@@ -63,16 +63,16 @@ export function editJoin(projection: PageProjection, patch: {
 /** What this browser should offer next time, written when a join has actually
  * worked.
  *
- * On success rather than on every keystroke, because a locator typed halfway
+ * On success rather than on every keystroke, because an address typed halfway
  * and abandoned is not something the reader did, and offering it back would
  * present it as though it were. */
-export function remember(projection: PageProjection, patch: { room?: string; locator?: string; nick?: string }): void {
+export function remember(projection: PageProjection, patch: { room?: string; address?: string; nick?: string }): void {
 	const was = projection.get().remembered;
 	const next = { ...was, ...patch };
 	// A reader re-entering the room they always enter is the ordinary case, and
 	// it changes nothing here. Saying so anyway would replace the object every
 	// other surface resolves against and redraw the page for it.
-	if (next.room === was.room && next.locator === was.locator && next.nick === was.nick) return;
+	if (next.room === was.room && next.address === was.address && next.nick === was.nick) return;
 	projection.set({ remembered: next });
 }
 

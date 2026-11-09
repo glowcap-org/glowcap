@@ -237,7 +237,7 @@ export function App() {
 	// What the peering pane could publish: rooms joined on a directory other
 	// than this one. Memoised on the maps it reads, the same reason the roster
 	// is: the pane sits behind a modal, and a keystroke must not rebuild it.
-	// The directory this page came from: Settings still names its locator, and
+	// The directory this page came from: Settings still names its address, and
 	// a button there opens the same card a room caption would. Null when this
 	// tab does not hold that session, before it has answered, or after Leave.
 	const onDir = state.homeDirectory === null ? null : state.dirs.get(state.homeDirectory) ?? null;

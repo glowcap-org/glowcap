@@ -94,7 +94,7 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#convcardTitle").catch(() => fail("the room title did not open what is known about it"));
 	const about = await tab.evaluate(() => ({
 		title: document.getElementById("convcardTitle")?.textContent?.trim() ?? "",
-		locator: document.getElementById("convcardAddress")?.textContent?.trim() ?? "",
+		shared: document.getElementById("convcardShared")?.textContent?.trim() ?? "",
 		facts: document.querySelector("#convcardTitle")?.closest(".modal-card")?.querySelector(".dirfacts")
 			?.textContent ?? "",
 		pressed: document.getElementById("roomAbout")?.getAttribute("aria-expanded"),
@@ -102,10 +102,10 @@ export async function run(tab: Page): Promise<void> {
 	if (!about.title.includes("lobby")) {
 		fail(`the conversation card is titled ${JSON.stringify(about.title)}`);
 	}
-	if (about.locator === "" || about.locator === "…") {
+	if (about.shared === "" || about.shared === "…") {
 		fail("the conversation card did not offer a locator to copy");
 	}
-	if (about.locator.includes("/s/")) {
+	if (about.shared.includes("/s/")) {
 		fail("a public room joined by name offered a sturdyref instead of the directory locator");
 	}
 	const kind = (await tab.textContent("#convcardUriKind"))?.trim() ?? "";

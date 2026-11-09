@@ -7,7 +7,7 @@
 // directory in one and reading it back in the other has to be shown the same
 // list either way.
 //
-// A pick fills a address field with the full hinted route, the same address
+// A pick fills an address field with the full hinted route, the same address
 // every share surface hands out, because that value is what a submit dials and
 // the hints are part of what makes it dialable. Matching is by identity, so a
 // row stays marked whether the field holds the route or the bare authority.

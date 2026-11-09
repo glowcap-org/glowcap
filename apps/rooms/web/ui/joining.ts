@@ -233,7 +233,7 @@ export function thisDirectoryAddress(
 	return value;
 }
 
-/** Where a address field is aimed: the mark that destination wears, and what to
+/** Where an address field is aimed: the mark that destination wears, and what to
  * call it.
  *
  * One classification, read by everything that draws the answer. The card's top
@@ -336,7 +336,7 @@ export function joinAnswers(
 	return {
 		source: act.source,
 		room: settle(mine.room, act.room, keepable(memory.room, JOIN_DEFAULT_ROOM), ""),
-		address: addressAnswer(mine.locator, act.locator, memory.locator, context),
+		address: addressAnswer(mine.address, act.address, memory.address, context),
 		nick: settle(mine.nick, act.nick, undefined, ""),
 		roomPreset: settle(mine.roomPreset, act.roomPreset, undefined, "open"),
 	};

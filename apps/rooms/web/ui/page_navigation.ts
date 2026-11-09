@@ -1,6 +1,6 @@
 // Browser presentation gestures. Session commands go through the Rust controller.
 import * as store from "./store.ts";
-import { actLocator } from "./page_bootstrap.ts";
+import { actAddress } from "./page_bootstrap.ts";
 import type { RoomsPageContext } from "./page.ts";
 import type { DirId } from "./directory.ts";
 import type { MemberRef } from "./member_ref.ts";
@@ -33,7 +33,7 @@ export function reachFor(page: RoomsPageContext, act: Reach): void {
 	// screen to the conversation column the card fills; on a wide layout the
 	// rail is a column beside it and closing it would take the rooms away at the
 	// moment the reader most wants to see which ones they have.
-	store.showJoinFor(page.projection, { ...act, locator: act.locator && actLocator(page, act.locator) });
+	store.showJoinFor(page.projection, { ...act, address: act.address && actAddress(page, act.address) });
 }
 
 export function aboutDirectory(page: RoomsPageContext, dir: DirId | null, askingLeave = false): void {

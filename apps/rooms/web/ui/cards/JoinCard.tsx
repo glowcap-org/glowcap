@@ -407,8 +407,8 @@ export const JoinCard = memo(function JoinCard(
 						defaultAddress={defaultDirectoryAddress}
 						directoryContext={directoryContext}
 						invalid={error?.field === "address"}
-						onPick={(next) => browser.editJoin({ locator: next })}
-						onType={(next) => browser.editJoin({ locator: next })}
+						onPick={(next) => browser.editJoin({ address: next })}
+						onType={(next) => browser.editJoin({ address: next })}
 					/>
 					{
 						/* Connect is reaching this address, so a refusal stands over it
@@ -475,7 +475,7 @@ export const JoinCard = memo(function JoinCard(
 									const text = e.clipboardData.getData("text").trim();
 									if (!looksLikeRoomLink(text)) return;
 									e.preventDefault();
-									browser.editJoin({ locator: text });
+									browser.editJoin({ address: text });
 								}}
 								onKeyDown={(e) => {
 									// The list first: while a row is picked, the arrows,

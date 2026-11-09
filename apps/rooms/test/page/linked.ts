@@ -48,7 +48,7 @@ export async function run(tab: Page): Promise<void> {
 	}
 
 	// The third thing they share is where the room lands. The rail's panel says
-	// which directory that is, and while the card is up the card's locator field
+	// which directory that is, and while the card is up the card's address field
 	// is what decides it, one name being typed into two places cannot be going
 	// to two directories. The panel states the directory the card is aimed at,
 	// not the one the reader is standing on, so naming another
@@ -88,7 +88,7 @@ export async function run(tab: Page): Promise<void> {
 	// And the destination is changed from here rather than by sending the reader
 	// to the card to change it. The line opens the directories this tab holds:
 	// the same rows, in the same box, that the card's own directory mark opens.
-	// Picking one writes the card's locator, so the two agree without either
+	// Picking one writes the card's address, so the two agree without either
 	// copying the other.
 	//
 	// A pick is an edit and files no act, so every other answer stands. Filing

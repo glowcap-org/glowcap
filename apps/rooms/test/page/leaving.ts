@@ -313,7 +313,7 @@ export async function run(
 	}
 	await tab.getByRole("menuitemradio", { name: other, exact: true }).click();
 	const filled = await tab.inputValue("#joinAddressField");
-	if (filled === "") fail("pressing a held directory did not fill the locator field");
+	if (filled === "") fail("pressing a held directory did not fill the address field");
 	// And fills it with the exact address sharing hands out, the route this
 	// tab dialed, hints and all, not the bare authority the store keys by. The
 	// directory card's copy field is the sharing answer, so the two are compared

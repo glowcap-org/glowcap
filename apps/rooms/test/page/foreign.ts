@@ -86,7 +86,7 @@ export async function run(
 		);
 	}
 
-	// The addresses already in hand live on the locator field, behind the
+	// The addresses already in hand live on the address field, behind the
 	// directory mark that opens them, not as a row between this question and
 	// the next. Opening that mark has to put the list under the field it fills.
 	await tab.click("#joinAddress");
@@ -98,7 +98,7 @@ export async function run(
 	});
 	if (placed === null) fail("the join form's directory mark did not offer the held addresses");
 	else if (placed < 0 || placed > 24) {
-		fail(`the held addresses opened ${placed.toFixed(0)}px from the locator field, not under it`);
+		fail(`the held addresses opened ${placed.toFixed(0)}px from the address field, not under it`);
 	}
 	await tab.keyboard.press("Escape");
 
@@ -123,14 +123,14 @@ export async function run(
 	).catch(() => fail("stopping a connect left the card waiting"));
 	const afterStop = await tab.evaluate(() => ({
 		error: (document.getElementById("joinError")?.textContent ?? "").trim(),
-		locator: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value ?? "",
+		address: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value ?? "",
 		named: document.querySelectorAll("#roomList .rwhere").length,
 	}));
 	if (afterStop.error !== "") {
 		fail(`stopping a join was reported as a refusal: ${JSON.stringify(afterStop.error)}`);
 	}
-	if (afterStop.locator !== cancelled) {
-		fail(`stopping a join did not leave the locator to correct; it holds ${JSON.stringify(afterStop.locator)}`);
+	if (afterStop.address !== cancelled) {
+		fail(`stopping a join did not leave the address to correct; it holds ${JSON.stringify(afterStop.address)}`);
 	}
 	if (afterStop.named !== 0) {
 		fail("stopping a join kept the abandoned address as a server in the rail");
@@ -241,7 +241,7 @@ export async function run(
 		.catch(async () => {
 			const card = await tab.evaluate(() => ({
 				room: (document.getElementById("room") as HTMLInputElement | null)?.value,
-				locator: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value,
+				address: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value,
 				nick: (document.getElementById("nick") as HTMLInputElement | null)?.value,
 				refused: document.getElementById("joinError")?.textContent,
 				status: document.getElementById("status")?.textContent,

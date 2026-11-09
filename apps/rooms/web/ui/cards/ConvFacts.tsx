@@ -180,7 +180,7 @@ export function ConvFacts(
 			</dl>
 			<p className="field-label" id="convcardUriKind">{addressKind}</p>
 			<CopyField
-				id="convcardAddress"
+				id="convcardShared"
 				text={shared}
 				label={addressLabel}
 			/>

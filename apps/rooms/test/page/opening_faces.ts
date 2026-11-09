@@ -317,7 +317,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 			open.press("#serverAddress", "Enter"),
 		]);
 		const landed = new URL(open.url());
-		if (landed.pathname !== "/join" || landed.searchParams.get("locator") !== elsewhere) {
+		if (landed.pathname !== "/join" || landed.searchParams.get("address") !== elsewhere) {
 			fail(`the reload did not land on the act that asked: ${landed.pathname}${landed.search}`);
 		}
 		await open.waitForSelector("#joinAddressField", { timeout: 60_000 })

@@ -12,7 +12,7 @@ export const RoomsViewStateSchema = z.strictObject({
 	rosterOpen: z.boolean(),
 	settingsTab: z.enum(["session", "holdings", "connection"]),
 	opsPane: z.custom<OperationsCapability>((value) => (OPERATIONS_CAPABILITIES as readonly unknown[]).includes(value)),
-	remembered: z.strictObject({ room: z.string(), locator: z.string(), nick: z.string() }),
+	remembered: z.strictObject({ room: z.string(), address: z.string(), nick: z.string() }),
 });
 export type RoomsViewState = z.infer<typeof RoomsViewStateSchema>;
 export type RoomsSettingsTab = RoomsViewState["settingsTab"];
@@ -25,7 +25,7 @@ export const DEFAULT_ROOMS_VIEW_STATE: RoomsViewState = {
 	rosterOpen: true,
 	settingsTab: "session",
 	opsPane: "listeners",
-	remembered: { room: "", locator: "", nick: "" },
+	remembered: { room: "", address: "", nick: "" },
 };
 
 export function parseRoomsViewState(value: unknown): RoomsViewState {

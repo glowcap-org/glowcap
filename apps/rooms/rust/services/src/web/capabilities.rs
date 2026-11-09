@@ -27,19 +27,14 @@ impl CapabilityRead {
 		} else {
 			return Ok(None);
 		};
+		const SHAPE: &str = "--print-capabilities takes a state directory and at most --url=http://host:port";
 		let url = match &args[1..] {
 			[] => None,
 			[option] => match option.strip_prefix("--url=").filter(|url| !url.trim().is_empty()) {
 				Some(url) => Some(url.to_owned()),
-				None => {
-					return Err(
-						"--print-capabilities takes a state directory and at most --url=http://host:port".into(),
-					);
-				}
+				None => return Err(SHAPE.into()),
 			},
-			_ => {
-				return Err("--print-capabilities takes a state directory and at most --url=http://host:port".into());
-			}
+			_ => return Err(SHAPE.into()),
 		};
 		let directory = directory
 			.filter(|s| !s.trim().is_empty())
@@ -67,7 +62,7 @@ impl CapabilityRead {
 				};
 				let remedy = |failure| match failure {
 					Failure::Unreachable(cause) => format!(
-						"nothing answered at {address} ({cause}); start the server with glowcap apps rooms serve or glowcap apps rooms deployment up, or set GLOWCAP_ROOMS_LOCATOR to the directory's advertised locator"
+						"nothing answered at {address} ({cause}). Start the server with glowcap apps rooms serve or glowcap apps rooms deployment up, or set GLOWCAP_ROOMS_LOCATOR to the directory's advertised locator"
 					),
 					Failure::Answered(cause) => cause,
 				};

@@ -10,7 +10,7 @@
 // Four remembered fields that the whole application writes into could not
 // tell those apart, so the card would answer all three the same way and get two
 // of them wrong. A link to a room in this page's directory would arrive with
-// the locator of some other directory sitting in the field, because that was
+// the address of some other directory sitting in the field, because that was
 // the last one anybody had typed.
 //
 // So an act is recorded rather than its consequences. Each act says where it
@@ -85,7 +85,7 @@ export function implied<T>(value: T): Given<T> {
  *
  * A field left out is a field this act says nothing about, which is different
  * from one it names as empty: a link to a room in this page's directory
- * implies an empty locator, and that empty is an answer that outranks whatever
+ * implies an empty address, and that empty is an answer that outranks whatever
  * was typed last week. So every reader tests for absence rather than for
  * emptiness. */
 export interface Act {
@@ -95,9 +95,9 @@ export interface Act {
 	 * behind. */
 	readonly seq: number;
 	readonly room?: Given<string>;
-	/** The directory, as a locator somebody could dial. Empty means the
+	/** The directory, as an address somebody could dial. Empty means the
 	 * directory serving this page, which is the one way the card says "here". */
-	readonly locator?: Given<string>;
+	readonly address?: Given<string>;
 	readonly nick?: Given<string>;
 	readonly roomPreset?: Given<RoomPreset>;
 }
@@ -108,26 +108,26 @@ export type Reach = Omit<Act, "seq">;
 /** What the reader changed by hand, and which act they were answering when
  * they changed it.
  *
- * The act is what makes an override stop applying. Typing a locator sticks for
+ * The act is what makes an override stop applying. Typing an address sticks for
  * as long as the reader is answering the question that asked for it, and going
  * somewhere else asks a new question, so the override falls away with the act
  * it belonged to. Nothing has to remember to clear it. */
 export interface Edits {
 	readonly seq: number;
 	readonly room?: string;
-	readonly locator?: string;
+	readonly address?: string;
 	readonly nick?: string;
 	readonly roomPreset?: RoomPreset;
 }
 
 /** What this browser did last, offered when no act has anything to say.
  *
- * Written when a join succeeds, never while one is being typed. A locator
+ * Written when a join succeeds, never while one is being typed. An address
  * half-entered and abandoned is not something the reader did, and remembering
  * it would offer it back as though it were. */
 export interface Remembered {
 	readonly room: string;
-	readonly locator: string;
+	readonly address: string;
 	readonly nick: string;
 }
 

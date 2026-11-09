@@ -16,7 +16,7 @@ export function dirAddress(dirs: ReadonlyMap<DirId, DirView>, id: DirId): string
 	return dirs.get(id)?.address || id;
 }
 
-export function actLocator(page: RoomsPageContext, given: Given<string>): Given<string> {
+export function actAddress(page: RoomsPageContext, given: Given<string>): Given<string> {
 	if (given.value.trim() === "") return given;
 	const known = directoryId(given.value);
 	if (known == null) return given;

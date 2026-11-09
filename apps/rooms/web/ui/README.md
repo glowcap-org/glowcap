@@ -14,7 +14,7 @@ conversation you have open: a topbar, the message log, and the composer at the b
   direct line takes. A room's card is where you set your place and leave. A direct line's card closes the conversation.
 - **The room link.** The room card's **Links** tab creates the room's durable link on a button press and shows it for
   copying. `/link` does the same from the composer.
-- **Joining.** `/join` takes a room name or a locator, never the conversation it was typed in.
+- **Joining.** `/join` takes a room name or an address, never the conversation it was typed in.
 
 Visual rules:
 
@@ -194,10 +194,10 @@ The join card, in `joining.ts`, is where this is used.
 
 - It states what it is answering once, in its opening line: the address that was followed, or nothing in particular
   when opened from the sidebar.
-- Pasting a room link into the locator field retitles that field and redeems the link, instead of asking for a room name
+- Pasting a room link into the address field retitles that field and redeems the link, instead of asking for a room name
   on a peer.
 - Until the named directory answers this tab, the card's one button is **Connect**. Pressing it waits for an answer and
-  shows any refusal on the locator field. An address that has never answered is dropped rather than redialed.
+  shows any refusal on the address field. An address that has never answered is dropped rather than redialed.
 
 The connection words separate a directory that never answered from one that answered and then dropped:
 
@@ -220,13 +220,13 @@ the workspace refuses that update, the closing is kept for a retry.
 While the join card fills the workarea, the sidebar's room panel is a second view of the same card: one room name, one
 lock, one destination. Both read from the card's answers, and a change on either side shows on both.
 
-- Picking a directory in the panel writes the card's locator, and typing in the panel's field writes the card's room
+- Picking a directory in the panel writes the card's address, and typing in the panel's field writes the card's room
   name. These picks are edits, so they file no act and leave every other answer in place.
 - The last row of the directory menu is for an address this tab does not know yet. On the card, it puts the caret in the <!-- status-allow: runtime state or operation ordering -->
   field the menu hangs from. The panel has nowhere to type an address, so it hands over that same field.
 - Opening a conversation puts the panel away.
 - With a room open, the panel names the directory of the room you are reading. Switching to another directory is an
-  ordinary press that files an act and ends in the card's locator field.
+  ordinary press that files an act and ends in the card's address field.
 
 ## Failures and pending work
 

@@ -1,7 +1,7 @@
 // Finishing a name somebody is part-way through typing.
 //
 // Two patterns live in this page and they answer different questions. A value
-// too long to type is picked from a menu: the join card's locator hangs one off
+// too long to type is picked from a menu: the join card's address hangs one off
 // its own mark, because forty characters of address is not something anybody
 // retypes. A value short enough to type is finished as it is typed, which is
 // this, and which the composer already does for commands, people, rooms and

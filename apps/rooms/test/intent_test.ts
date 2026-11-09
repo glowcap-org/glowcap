@@ -6,7 +6,7 @@
 // these was a way the card got an answer wrong before there was a model to get
 // it right, and the first of them is the one anybody could see: following a
 // link to a room in this page's directory put up a gate offering to join it
-// somewhere else, because the locator field still held the last address that
+// somewhere else, because the address field still held the last address that
 // had been typed and nothing in the link contradicted it.
 //
 // Validated by breaking what it covers, since a suite that has only ever run
@@ -40,7 +40,7 @@ const HOME_CONTEXT: import("../web/ui/joining.ts").DirectoryDestinationContext =
 	home: HOME,
 	defaultDirectory: { id: HOME, address: HOME },
 };
-const NOTHING: import("../web/ui/intent.ts").Remembered = { room: "", locator: "", nick: "" };
+const NOTHING: import("../web/ui/intent.ts").Remembered = { room: "", address: "", nick: "" };
 
 /** The card, answered. `edits` defaults to the act's own, which is the state
  * every act starts in. */
@@ -72,7 +72,7 @@ Deno.test("an act naming an empty value still outranks what was used last", () =
 	// empty field, and an empty field carrying an answer has to beat a
 	// remembered address, or every link to a room on this page offers to join
 	// it on the last directory anybody visited.
-	const answers = card({ source: "link", room: named("arrivals"), locator: implied("") }, { locator: AWAY });
+	const answers = card({ source: "link", room: named("arrivals"), address: implied("") }, { address: AWAY });
 	assert(answers.address.value === "", "a link to a room here offered another directory");
 	assert(answers.address.from === "implied", "the link's own directory was not the reason for the field");
 	assert(answers.room.value === "arrivals", "the link did not name its room");
@@ -83,16 +83,16 @@ Deno.test("a link that gates a room here reads as this directory, however it say
 	// empty field, because it is naming a place rather than describing a form.
 	// Reading every tier through "this page's own directory is the empty field"
 	// is what makes the two the same answer.
-	const byAddress = card({ source: "link", room: named("arrivals"), locator: implied(HOME as string) }, {
-		locator: AWAY,
+	const byAddress = card({ source: "link", room: named("arrivals"), address: implied(HOME as string) }, {
+		address: AWAY,
 	});
 	assert(byAddress.address.value === "", "the page's own address was offered as a foreign directory");
 	assert(byAddress.address.from === "implied", "naming home by address lost the link's own evidence");
 });
 
 Deno.test("a link that names a directory is answered there, whatever was used last", () => {
-	const answers = card({ source: "link", room: named("arrivals"), locator: named(AWAY) }, {
-		locator: "ocapn://third.iroh",
+	const answers = card({ source: "link", room: named("arrivals"), address: named(AWAY) }, {
+		address: "ocapn://third.iroh",
 	});
 	assert(answers.address.value === AWAY, "the link's directory lost to a remembered one");
 	assert(answers.address.from === "named", "a directory the link named did not read as named");
@@ -102,7 +102,7 @@ Deno.test("effective nicknames are offers, not prefilled exact intent", () => {
 	// A link names a room and says nothing about who the reader will be. The
 	// last successful nickname is an outcome, not a new answer: the connected
 	// directory may offer it as a placeholder, while the value remains empty.
-	const answers = card({ source: "link", room: named("arrivals"), locator: implied("") }, {
+	const answers = card({ source: "link", room: named("arrivals"), address: implied("") }, {
 		nick: "alice",
 		room: "lobby",
 	});
@@ -129,10 +129,10 @@ Deno.test("paired room fields follow the draft destination across multiple direc
 			liveRooms: new Map([[name, { name }]]),
 		}) as unknown as import("../web/ui/directory.ts").DirView;
 	const dirs = new Map([[HOME, directory(HOME, "deadnet/#nowhere")], [away, directory(away, "elsewhere")]]);
-	const resolve = (locator: string) => locator === AWAY ? away : null;
+	const resolve = (address: string) => address === AWAY ? away : null;
 	assert(
 		joining.joinRoomOffers("", "deadnet", dirs, HOME_CONTEXT, resolve)[0] === "deadnet/#nowhere",
-		"the linked rail offered the previous foreign directory instead of the empty locator's destination",
+		"the linked rail offered the previous foreign directory instead of the empty address's destination",
 	);
 	assert(
 		joining.joinRoomOffers(AWAY, "", dirs, HOME_CONTEXT, resolve)[0] === "elsewhere",
@@ -160,7 +160,7 @@ Deno.test("an empty nickname means the granted name on the aimed connected direc
 		[HOME, directory(HOME, "home-name", "connected")],
 		[away, directory(away, "away-name", "connected")],
 	]);
-	const resolve = (locator: string) => locator === AWAY ? away : null;
+	const resolve = (address: string) => address === AWAY ? away : null;
 	assert(
 		joining.suggestedJoinNick("", dirs, HOME_CONTEXT, resolve) === "home-name",
 		"an empty home join did not reuse the name home actually granted",
@@ -168,7 +168,7 @@ Deno.test("an empty nickname means the granted name on the aimed connected direc
 	const attached = { home: null, defaultDirectory: { id: away, address: AWAY } };
 	assert(
 		joining.suggestedJoinNick("", dirs, attached, resolve) === "away-name",
-		"an attached session's empty locator ignored its connected default directory",
+		"an attached session's empty address ignored its connected default directory",
 	);
 	assert(
 		joining.suggestedJoinNick(AWAY, dirs, HOME_CONTEXT, resolve) === "away-name",
@@ -308,7 +308,7 @@ Deno.test("a lock is never offered from a past visit", () => {
 });
 
 Deno.test("what the reader typed applies to the act they typed it under, and no other", () => {
-	const gate = { source: "link" as const, room: named("arrivals"), locator: implied(""), seq: 4 };
+	const gate = { source: "link" as const, room: named("arrivals"), address: implied(""), seq: 4 };
 	const mine = card(gate, {}, { seq: 4, room: "somewhere-else" });
 	assert(mine.room.value === "somewhere-else", "an override of the link's room did not take");
 	assert(mine.room.from === "edited", "typing did not read as the reader's own");
@@ -323,29 +323,29 @@ Deno.test("an override made under an older act does not ride back in on a new ed
 	// Filing an act does not clear what the reader typed under the last one;
 	// the act it belongs to is what makes it apply. So anything that *writes*
 	// an override has to build on the ones that still apply rather than on
-	// whatever is stored, or a locator typed two rooms ago comes back the
+	// whatever is stored, or an address typed two rooms ago comes back the
 	// moment the reader touches any other field.
-	const stale = { seq: 4, locator: "ocapn://somewhere-old.iroh" };
-	const now = { source: "link" as const, room: named("arrivals"), locator: implied(""), seq: 7 };
+	const stale = { seq: 4, address: "ocapn://somewhere-old.iroh" };
+	const now = { source: "link" as const, room: named("arrivals"), address: implied(""), seq: 7 };
 	const kept = intent.current(stale, now);
-	assert(kept.locator === undefined, "an override from an earlier act was carried into this one");
+	assert(kept.address === undefined, "an override from an earlier act was carried into this one");
 	assert(kept.seq === 7, "the surviving overrides were not filed against the act on the table");
 	// And the ones made under this act do survive, which is the half that makes
 	// the guard a rule rather than a reset.
-	const mine = { seq: 7, locator: "ocapn://chosen.iroh" };
-	assert(intent.current(mine, now).locator === "ocapn://chosen.iroh", "the reader's own answer was dropped");
+	const mine = { seq: 7, address: "ocapn://chosen.iroh" };
+	assert(intent.current(mine, now).address === "ocapn://chosen.iroh", "the reader's own answer was dropped");
 });
 
 Deno.test("a room link pasted into the join card is a link, not a directory", () => {
 	const link = "ocapn://peer.tcp/s/swissnum";
 	assert(joining.looksLikeRoomLink(link), "a sturdyref was not read as a room link");
-	assert(!joining.looksLikeRoomLink("ocapn://peer.tcp"), "a directory locator was read as a room link");
+	assert(!joining.looksLikeRoomLink("ocapn://peer.tcp"), "a directory address was read as a room link");
 	assert(!joining.looksLikeRoomLink("lobby"), "a room name was read as a room link");
 
 	const fromLocator = joining.typedRoomLink(link, "plans");
 	assert(
 		fromLocator !== null && fromLocator.link === link && fromLocator.label === "plans",
-		"a link in the locator field was not taken as one",
+		"a link in the address field was not taken as one",
 	);
 	const exactLabel = joining.typedRoomLink(link, " plans ");
 	assert(exactLabel?.label === " plans ", "a room-link label was silently trimmed");
@@ -373,7 +373,7 @@ Deno.test("a room link pasted into the join card is a link, not a directory", ()
 	assert(!joining.listedOccupancy(undefined, "general"), "an older room's silence is not a listed room");
 	assert(!joining.listedOccupancy(true, ""), "a listed arrival with no name has nothing to sit in");
 
-	const answers = card({ source: "press" }, {}, { seq: 1, locator: link, room: "plans" });
+	const answers = card({ source: "press" }, {}, { seq: 1, address: link, room: "plans" });
 	const lead = joining.joinLead(answers, "this page's directory");
 	assert(
 		lead.includes(text.joinLeadLink),
@@ -394,7 +394,7 @@ Deno.test("a private room cannot impersonate a live room label in the join UI", 
 });
 
 Deno.test("the card says what it is for once, and only an address gets to say it", () => {
-	const gate = card({ source: "link", room: named("arrivals"), locator: implied("") });
+	const gate = card({ source: "link", room: named("arrivals"), address: implied("") });
 	assert(
 		joining.joinLead(gate, "this page's directory").includes(
 			text.joinLeadNamedRoom("arrivals", "this page's directory"),
@@ -403,14 +403,14 @@ Deno.test("the card says what it is for once, and only an address gets to say it
 	);
 	// A directory named with no room is still an address worth stating, and it
 	// asks for the one thing it is missing.
-	const toADirectory = card({ source: "link", locator: named(AWAY) });
+	const toADirectory = card({ source: "link", address: named(AWAY) });
 	assert(
 		joining.joinLead(toADirectory, "elsewhere").includes(text.joinLeadNamedDirectory("elsewhere")),
 		"a link naming only a directory did not ask for a room",
 	);
 	// A press that already named the room is a gate on that room: say so, and
 	// ask for the name, without talking like an address they followed.
-	const pressed = card({ source: "press", room: named("arrivals"), locator: implied("") });
+	const pressed = card({ source: "press", room: named("arrivals"), address: implied("") });
 	assert(
 		!joining.joinLead(pressed, "this page's directory").includes(
 			text.joinLeadNamedRoom("arrivals", "this page's directory"),
@@ -424,14 +424,14 @@ Deno.test("the card says what it is for once, and only an address gets to say it
 		"a pressed room gate did not ask for a name",
 	);
 	// And what this browser merely remembers is an offer, never a destination.
-	const cold = card({ source: "restore" }, { room: "lobby", locator: AWAY });
+	const cold = card({ source: "restore" }, { room: "lobby", address: AWAY });
 	assert(
 		!joining.joinLead(cold, "elsewhere").includes(text.joinLeadNamedDirectory("elsewhere")),
 		"what was used last was described as somewhere the reader was going",
 	);
 });
 
-Deno.test("where a locator field is aimed is one answer, whoever is drawing it", () => {
+Deno.test("where an address field is aimed is one answer, whoever is drawing it", () => {
 	// The card's stripe, the card's opening line, and the rail panel's line all
 	// ask this, and asking it three times is how they came to disagree while the
 	// reader was typing into the one field they all answer to.
@@ -443,8 +443,8 @@ Deno.test("where a locator field is aimed is one answer, whoever is drawing it",
 		import("../web/ui/directory.ts").DirId,
 		import("../web/ui/directory.ts").DirView
 	>;
-	const aimed = (locator: string, typedAs: import("../web/ui/directory.ts").DirId | null) =>
-		joining.destination(locator, typedAs, held, HOME_CONTEXT, "this directory");
+	const aimed = (address: string, typedAs: import("../web/ui/directory.ts").DirId | null) =>
+		joining.destination(address, typedAs, held, HOME_CONTEXT, "this directory");
 
 	// The empty field is this page's own directory, and so is an address that
 	// resolves to it however it was written.
@@ -483,7 +483,7 @@ Deno.test("a named directory this tab has not reached is a connect", () => {
 		import("../web/ui/directory.ts").DirId,
 		import("../web/ui/directory.ts").DirView
 	>;
-	const away = card({ source: "press" }, {}, { seq: 1, locator: AWAY });
+	const away = card({ source: "press" }, {}, { seq: 1, address: AWAY });
 	assert(
 		joining.resolveJoin(away, none, HOME, () => null).act === "connect",
 		"an address this tab has not reached was offered as a join",
