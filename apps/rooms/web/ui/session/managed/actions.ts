@@ -92,11 +92,15 @@ export class ManagedActions {
 		if (record.lifecycle.outcome === "committed") {
 			return Promise.reject(new Error("This change went through. Finish it to keep what it returned."));
 		}
+		this.#drop(record, id);
+		return Promise.resolve();
+	}
+	/** Hold nothing of an acquisition: its request is freed and its record dropped. */
+	#drop(record: AcquisitionRecord, id: string): void {
 		record.request?.free();
 		record.request = undefined;
 		this.#forget(id);
 		this.#session.acquisitionChanged();
-		return Promise.resolve();
 	}
 	/** Only new conversations belong to acquisitions. Keep cancelled results
 	 * out of presentation until this owner proves non-admission or departure. */
@@ -236,10 +240,7 @@ export class ManagedActions {
 			// other failure keeps the request, because its outcome is unknown.
 			if (error instanceof AcquisitionRefused) {
 				record.lifecycle.outcome = "notAdmitted";
-				request.free();
-				record.request = undefined;
-				this.#forget(id);
-				this.#session.acquisitionChanged();
+				this.#drop(record, id);
 			}
 			throw error;
 		}

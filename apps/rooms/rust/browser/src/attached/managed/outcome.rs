@@ -48,9 +48,11 @@ pub(super) fn failed(error: rooms_glowcap::client::Error) -> Result<JsValue> {
 		}
 		_ => false,
 	};
+	// Only a proved absence is a refusal: a bare break, a closed connection,
+	// or a missed deadline leaves the outcome unknown and the request held.
 	let status = if conflict {
 		"conflict"
-	} else if error.refused() {
+	} else if error.known_absent() {
 		"refused"
 	} else {
 		"uncertain"

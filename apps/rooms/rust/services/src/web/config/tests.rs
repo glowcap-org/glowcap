@@ -131,7 +131,9 @@ fn a_public_address_for_this_servers_own_relay_is_refused() {
 			.expect("a refusal")
 	};
 	let message = |option: &str| {
-		format!("{option} names how peers dial the relay named with it; this server's own relay is dialed at --http-public")
+		format!(
+			"{option} names how peers dial the relay named with it; this server's own relay is dialed at --http-public"
+		)
 	};
 	assert_eq!(
 		refused(&["--transport=noise-relay", "--relay-public=wss://rooms.example/relay"]),
@@ -152,9 +154,16 @@ fn a_public_address_for_this_servers_own_relay_is_refused() {
 		"--relay=wss://relay.example/relay",
 		"--relay-public=wss://rooms.example/relay",
 	]);
-	assert!(named.server_args.contains(&"--relay-public=wss://rooms.example/relay".to_owned()));
+	assert!(
+		named
+			.server_args
+			.contains(&"--relay-public=wss://rooms.example/relay".to_owned())
+	);
 	let environment = Config::parse(
-		["--transport=noise-relay".into(), "--relay-public=wss://rooms.example/relay".into()],
+		[
+			"--transport=noise-relay".into(),
+			"--relay-public=wss://rooms.example/relay".into(),
+		],
 		|key| (key == "GLOWCAP_ROOMS_RELAY_URL").then(|| "wss://relay.example/relay".into()),
 	)
 	.unwrap()
