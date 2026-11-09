@@ -11,7 +11,7 @@ Deno.test("terminal observation wakes admission and releases its completed wrapp
 	let status = "pending";
 	let submissions = 0;
 	const waiting = deferred<void>();
-	const failure = "No relay answered a register socket";
+	const failure = "No relay answered a register request";
 	const received = deferred<string>();
 	let freed = 0;
 	const session = viewer({
