@@ -9,7 +9,6 @@ const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
 const Binary = @import("peers.zig").Binary;
 const web_tests = @import("web.zig");
-const boot = @import("../../../cli/app/rooms/boot_capabilities.zig");
 
 pub const Context = struct {
     b: *std.Build,
@@ -123,7 +122,7 @@ pub fn register(ctx: Context) Registered {
     const transport = b.option(Transport, "transport", "The room transport rooms-web and rooms-dev announce: iroh (default, encrypted QUIC), noise-tcp or noise-relay (Noise-sealed), tcp, keyed-tcp, or keyed-relay (cleartext, for a peer that speaks nothing else), or onion (a Tor onion service that requires tor)") orelse .iroh;
 
     const production = addLaunch(ctx, transport, .{});
-    b.step("rooms-web", "Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=<transport>` picks the announced room transport from the seven the server accepts, default iroh. Server flags follow `--`: `--capabilities=all` or a comma-separated list from " ++ boot.names ++ " mints the operator capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN")
+    b.step("rooms-web", "Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=<transport>` picks the announced room transport from the seven the server accepts, default iroh. Server flags follow `--`: `--capabilities=all` or a comma-separated list of the names in `apps/rooms/operating.md` mints the operator capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN")
         .dependOn(&production.step);
 
     // Both development fronts share state, grants, transport, and dependencies.

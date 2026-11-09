@@ -37,8 +37,9 @@ fn main() -> Result<(), String> {
 	));
 	let operating_path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../operating.md"));
 	let content = session_content::generate()?;
-	// The product CLI and the build steps name the capabilities in their help,
-	// so the table's names reach Zig as one generated constant.
+	// The product CLI names the capabilities in its flag help, so the table's
+	// names reach Zig as one generated constant under cli/, where the build
+	// script never imports: the Zig package ships tools/ without cli/.
 	let names = server::operations::BOOT_CAPABILITIES
 		.iter()
 		.map(|cap| cap.name)
