@@ -5,8 +5,40 @@ use glowcap::{
 	Argument, Ref, Result,
 	loam::{Call, Invocation, ReferenceRequest},
 };
-use rooms_application::content::session::{custody, records as codec};
+use rooms_application::{
+	content::session::{custody, records as codec},
+	failure::FailureCode,
+};
 use rooms_glowcap::client::{Deadline, Tasks};
+
+/// The Host restores a saved address by dialing it, and names a transport it
+/// has no dialer for as the restoration's cause: `UnknownTransport`, from the
+/// Zig Host's error set and from a byte-fed Host's connector refusal alike.
+/// That condition clears only when the row or the session's dial transports
+/// change, so the session names it with its wire code instead of letting a
+/// bare break stand. The session's own custody restoration and a worker's
+/// call through its source both read the Host's answer here.
+pub(super) fn name_undialable(error: glowcap::Error) -> glowcap::Error {
+	if !undialable(error.kind(), error.message()) {
+		return error;
+	}
+	refuse(
+		&FailureCode::SavedTransportUnavailable.line("the saved address names a transport this session does not dial"),
+	)
+}
+
+/// Whether a Host's answer is a restoration that failed for want of a dialer:
+/// a break whose restoration cause names `UnknownTransport` as one word.
+fn undialable(kind: glowcap::ErrorKind, message: Option<&str>) -> bool {
+	kind == glowcap::ErrorKind::Broken
+		&& message
+			.and_then(|message| message.split_once("RestorationFailed: "))
+			.is_some_and(|(_, cause)| {
+				cause
+					.split(|c: char| !c.is_ascii_alphanumeric())
+					.any(|word| word == "UnknownTransport")
+			})
+}
 
 fn coordinates(args: &[Argument]) -> Result<Vec<custody::Coordinate>> {
 	let values = match args {
@@ -161,7 +193,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		if with_uris {
 			request.push(Argument::Boolean(true));
 		}
-		let result = self.state.writer.idempotent("restore-custody", &request).await?;
+		let result = self
+			.state
+			.writer
+			.idempotent("restore-custody", &request)
+			.await
+			.map_err(name_undialable)?;
 		let Argument::List(held) = result else {
 			return Err(refuse("invalid private custody result"));
 		};
@@ -169,5 +206,46 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			return Err(refuse("invalid private custody result"));
 		}
 		Ok(held)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::undialable;
+	use glowcap::ErrorKind;
+
+	#[test]
+	fn a_restoration_without_a_dialer_is_undialable_from_the_zig_host_and_a_byte_fed_host_alike() {
+		assert!(undialable(
+			ErrorKind::Broken,
+			Some("RestorationFailed: UnknownTransport")
+		));
+		assert!(undialable(
+			ErrorKind::Broken,
+			Some(
+				"session Discovery(\"ocapn://d.id\"): glowcap error -12: RestorationFailed: UnknownTransport: byte-fed Host has no connector for transport \"tcp\""
+			)
+		));
+	}
+
+	#[test]
+	fn every_other_answer_stays_the_networks() {
+		assert!(!undialable(
+			ErrorKind::Broken,
+			Some("RestorationFailed: ConnectionRefused")
+		));
+		assert!(!undialable(
+			ErrorKind::Broken,
+			Some("RestorationFailed: UnknownTransportation")
+		));
+		assert!(!undialable(
+			ErrorKind::Broken,
+			Some("UnknownTransport: byte-fed Host has no connector for transport \"tcp\"")
+		));
+		assert!(!undialable(
+			ErrorKind::Closed,
+			Some("RestorationFailed: UnknownTransport")
+		));
+		assert!(!undialable(ErrorKind::Broken, None));
 	}
 }

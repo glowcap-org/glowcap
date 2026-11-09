@@ -45,19 +45,6 @@ fn connection_failure(reason: &str) -> Option<ConnectionFailure> {
 	None
 }
 
-/// Explain a directory connection failure at the owner that also knows it will
-/// retry. Unknown peer and transport diagnostics remain intact for operators.
-pub fn directory(reason: &str) -> Option<&'static str> {
-	match connection_failure(reason)? {
-		ConnectionFailure::Unreachable => Some(
-			"The room directory could not be reached. This session will keep retrying; check that the directory is running and reachable.",
-		),
-		ConnectionFailure::Handshake => Some(
-			"The room directory was reached, but it did not finish the OCapN handshake. This session will keep retrying; check that the directory is running compatible code.",
-		),
-	}
-}
-
 pub fn attachment(reason: &str) -> Option<Advice> {
 	// The browser's own restoration timeouts carry this code in their line;
 	// the binding's `RestorationFailed` kind arrives as its rendered name,
@@ -171,22 +158,6 @@ mod tests {
 			"session-webrtc-no-route"
 		);
 		assert_eq!(attachment("unexpected observer failure"), None);
-	}
-
-	#[test]
-	fn directory_connection_failures_name_recovery_without_hiding_unknown_diagnostics() {
-		for reason in [
-			"host: NetworkUnreachable",
-			"Connection refused (os error 111)",
-			"glowcap error -7: connection closed during the OCapN handshake",
-			"peer did not finish the OCapN handshake",
-		] {
-			let advice = directory(reason).unwrap();
-			assert!(advice.contains("retrying"), "{advice}");
-			assert!(advice.contains("reach"), "{advice}");
-			assert!(!advice.starts_with("glowcap error"), "{advice}");
-		}
-		assert_eq!(directory("unexpected observer failure"), None);
 	}
 
 	#[test]

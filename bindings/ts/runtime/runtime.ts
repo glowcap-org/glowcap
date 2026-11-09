@@ -142,7 +142,7 @@ export class Runtime {
 		if (connector == null) {
 			throw new GlowcapError(
 				INVALID_ARGUMENT,
-				`Runtime has no connector for transport ${JSON.stringify(partner.transport)}`,
+				`UnknownTransport: Runtime has no connector for transport ${JSON.stringify(partner.transport)}`,
 			);
 		}
 		return await dialWithConnector(

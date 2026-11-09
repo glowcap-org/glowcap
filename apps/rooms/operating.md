@@ -69,6 +69,8 @@ the Listeners page offers: `tcp`, `keyed-tcp`, `noise-tcp`, `iroh`,
   peers dial it, so behind a port forward or a proxy `rooms-web` takes
   `--http-public=<url>` and a standalone server takes
   `--relay-public=<ws-url>` (or `GLOWCAP_ROOMS_RELAY_PUBLIC_URL`).
+  `rooms-web` refuses `--relay-public` for its own relay, which `--http-public`
+  names, and accepts it with `--relay`.
 
 `SIGINT` and `SIGTERM` stop admitting members, close the listeners, finish the
 writes already admitted, and release the state directory.

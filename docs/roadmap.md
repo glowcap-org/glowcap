@@ -151,6 +151,13 @@ review needs that review before its first step.
     its access log. Move it into the fragment, where the page reads it and
     the host never sees it, the way a session link already carries its
     attach capability ([plan to plan](planning/plan-to-plan.md)).
+15. **A failed dial keeps its cause.** When the shared session cannot reach a
+    directory, the page is told `PromiseBroken` and nothing more. The Host
+    settles the promise with a bare break, and the dial's own failure (no
+    route, a refused connection, an unfinished handshake) is not carried into
+    it. Carry the dial failure into the break at the Host, so every holder of
+    the promise reads the cause and the Rooms page can name a remedy
+    ([plan to plan](planning/plan-to-plan.md)).
 
 The [Loam guide](loam.md) covers the Loam foundation, its managed access
 module, and persistence research. The C/Rust and browser fixed-resource

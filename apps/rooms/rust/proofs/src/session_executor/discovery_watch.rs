@@ -9,9 +9,41 @@ use rooms_application::{
 use rooms_glowcap::client::workspace::Workspace;
 use std::cell::RefCell;
 mod resynchronization;
+mod undialable;
 
 fn key<K>(value: u64) -> custody::FieldKey<K> {
 	custody::FieldKey::new(NonZeroU64::new(value).unwrap(), NonZeroU64::new(1).unwrap())
+}
+
+/// Counts every restoration asked of one saved coordinate: each is a dial of
+/// the address it names.
+struct CountRestorations {
+	inner: Box<dyn Content>,
+	coordinate: String,
+	count: Rc<Cell<usize>>,
+}
+impl Content for CountRestorations {
+	fn dependent_requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
+		self.inner.dependent_requirement(input)
+	}
+	fn requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
+		self.inner.requirement(input)
+	}
+	fn references(&self, input: Invocation<'_>) -> Result<Vec<loam::ReferenceRequest>> {
+		let asked = input.verb == "restore-custody"
+			&& input
+				.args
+				.get(1)
+				.and_then(Argument::as_list)
+				.is_some_and(|items| items.iter().any(|item| item.as_str() == Some(self.coordinate.as_str())));
+		if asked {
+			self.count.set(self.count.get() + 1);
+		}
+		self.inner.references(input)
+	}
+	fn invoke(&self, call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
+		self.inner.invoke(call, input)
+	}
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -45,7 +77,15 @@ pub(super) async fn run() {
 					platform.clone(),
 					std::num::NonZeroUsize::new(256 * 1024).unwrap(),
 				);
-				let mut attachment = store.attach(&host, vec![owner.registration()]).unwrap();
+				let stale_access = requests::coordinate(custody::Role::DirectoryAccess, 3);
+				let dials = Rc::new(Cell::new(0));
+				let mut registration = owner.registration();
+				registration.content = Box::new(CountRestorations {
+					inner: registration.content,
+					coordinate: serde_json::to_string(&stale_access).unwrap(),
+					count: dials.clone(),
+				});
+				let mut attachment = store.attach(&host, vec![registration]).unwrap();
 				environment::start_live(&attachment, None, 64).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control.clone()).unwrap();
@@ -129,6 +169,50 @@ pub(super) async fn run() {
 				.unwrap();
 				owner.import(access, target.clone(), Some(uri)).await.unwrap();
 				owner.import(initiating, source.clone(), None).await.unwrap();
+				// A membership realizes through a source with the session's full
+				// authority. The observe-only source above keeps this proof's thesis.
+				let supported: Vec<_> = session::SUPPORTED.iter().map(|p| p.key()).collect();
+				let full = policy.value_for_kind(session::KIND, &supported, &[]).unwrap();
+				let (member_source, _) = owner.derive(full, 0, ControlPowers::default()).await.unwrap();
+				owner
+					.import(
+						requests::coordinate(custody::Role::SessionAccess, 4),
+						member_source,
+						None,
+					)
+					.await
+					.unwrap();
+				// A directory saved at a door this Host dials no connector for once
+				// the session that imported it has ended.
+				let stale_exporter = Host::from_seed([173; 32]).unwrap();
+				stale_exporter
+					.publish("stale-directory", || Box::new(|_, _| Ok(Argument::Void)))
+					.unwrap();
+				let stale_locator = glowcap::Locator::bare("tcp", "127.0.0.1:9150");
+				let (left, right) = tokio::io::duplex(8192);
+				let (stale_client, stale_accepted) = tokio::join!(
+					glowcap::Session::dial_over(&host, &stale_locator, left, Some(std::time::Duration::from_secs(2))),
+					glowcap::Session::accept_over(
+						&stale_exporter,
+						"tcp",
+						"127.0.0.1:9150",
+						"127.0.0.1:9151",
+						right,
+						Some(std::time::Duration::from_secs(2))
+					)
+				);
+				let (stale_client, stale_accepted) = (stale_client.unwrap(), stale_accepted.unwrap());
+				let stale_target = stale_client.fetch("stale-directory").await.unwrap();
+				let stale_uri =
+					glowcap::format_sturdyref(&stale_locator, b"stale-directory", glowcap::CaptpVersion::V1_0).unwrap();
+				owner
+					.import(stale_access, stale_target.clone(), Some(stale_uri))
+					.await
+					.unwrap();
+				drop(stale_target);
+				stale_client.close(PendingWork::Cancel).await.unwrap();
+				drop(stale_accepted);
+				stale_exporter.close(PendingWork::Cancel).await.unwrap();
 				let row = workspace::Directory {
 					id: Text::new("directory".into()).unwrap(),
 					access: key(1),
@@ -141,8 +225,14 @@ pub(super) async fn run() {
 					nick_allocation: directory::registration::NicknameAllocation::Exact,
 					standing: None,
 				};
+				let mut stale = row.clone();
+				stale.id = Text::new("stale".into()).unwrap();
+				stale.access = key(3);
+				stale.home = false;
 				let mut intent = Intent::empty();
 				intent.directories = List::new(vec![row.clone()]).unwrap();
+				let mut both = Intent::empty();
+				both.directories = List::new(vec![row.clone(), stale.clone()]).unwrap();
 				owner.replace_workspace(&intent).await.unwrap();
 				let workspace = Workspace::local(host.clone(), platform.clone(), source.clone());
 				let selected = workspace::DiscoverySelection::directory(&row).unwrap();
@@ -185,6 +275,8 @@ pub(super) async fn run() {
 				exporter.send(&callback, "notify", &event).await.unwrap();
 				assert_eq!(notifications.get(), 2);
 				view.close().await.unwrap();
+				undialable::run(&owner, &workspace, &both, &stale, &dials).await;
+				owner.replace_workspace(&intent).await.unwrap();
 				resynchronization::run(&owner, &workspace, &exporter, &state, &watches, &refuse_cancel).await;
 				view = owner.watch_directory(&row, |_, _| Ok(())).await.unwrap();
 				view.snapshot().await.unwrap();

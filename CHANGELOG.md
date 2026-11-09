@@ -9,7 +9,7 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
-## [0.1.6] - 2026-11-08
+## [0.1.6] - 2026-11-09
 
 ### Added
 
@@ -76,9 +76,39 @@ and storage formats before 1.0.
   instead of answering that there is none.
 - `GLOWCAP_ROOMS_SESSION_STATE` serves the shared workspace the way
   `--session-state` does, and the option wins when both are set.
+- A byte-fed Host in the Rust, TypeScript, and Racket bindings names a
+  transport it has no connector for as `UnknownTransport`, the Zig Host's name
+  for the same condition, so one reader recognizes it from every Host.
 
 ### Fixed
 
+- Under `rooms-web`, the directory and the shared session dial the server's
+  own relay at the address `--http-public` names, which reaches both of
+  them. `rooms-web` now refuses `--relay-public` and `--session-relay-public`
+  for a peer on its own relay. An address given to one peer left the other
+  dialing the relay's bound address, and a shared session in a container
+  then answered a directory join with a bare `PromiseBroken`. Both options
+  still apply to a peer whose `--relay` or `--session-relay` names another
+  relay.
+- A saved directory, room, or direct conversation the shared session refuses
+  to start is reported once as a standing refusal when its code says the
+  condition clears only with a change. It is started again only on an
+  explicit retry or a changed row, and the session's recovery timer rests
+  while only such refusals stand. A saved address on a transport the session
+  does not dial is one such refusal, `saved-transport-unavailable`. Before,
+  the session dialed the address on every recovery wake and told the operator
+  a bare `RestorationFailed: UnknownTransport` every few seconds. Enter the
+  directory's current address on its card to re-route it.
+- The page frees a change the session refused and reports the reason, for
+  every kind of change it submits. Before, it listed such a change as gone
+  through, with a **Finish** that resubmitted it. A change that went through
+  but could not be shown here can now be let go, and stays saved in the
+  session. A change nothing settled is listed with its outcome unknown and
+  can be let go.
+- **New access** and **Prepare control** from a held management control ask
+  for a Rooms server only when the control is this browser's own, whose links
+  lead here. Any other control, such as one for a session attached by its own
+  address, publishes the access at the session it manages.
 - A sturdyref naming a peer by its key through a sealed listener, such as a
   directory's bare `noise-relay` address, redeems over the sealed session
   whatever listener the peer's hello advertised. Before, the Rooms page

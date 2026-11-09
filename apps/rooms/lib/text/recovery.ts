@@ -32,7 +32,7 @@ export const recoveryRowHint: Record<"pending" | "committed" | "unknown" | "unse
 	committed: "It went through. Finish to keep what it returned in this session.",
 	unknown: "Rooms can't tell whether it went through. Pick it back up to resume waiting for the original reply.",
 	unsent: "It never left this session.",
-	saving: "It went through, and what it returned still needs saving here.",
+	saving: "It went through and is saved in the session. Finish to show it here.",
 	working: "Rooms is still working on this one. It waits here in case it stops.",
 };
 export const recoveryPickUp = "Pick back up";
@@ -45,7 +45,8 @@ export const recoveryLetGoSay: Record<"committed" | "unknown" | "unsent" | "savi
 		"Rooms stops asking and won't send it again. If it already went through, it stays done, and Rooms won't find out.",
 	committed:
 		"It went through, but what it returned won't be kept in this session. A room, link, or access it made won't be held here.",
-	saving: "It went through, but this session won't save what it returned.",
+	saving:
+		"It went through and stays saved in the session. Rooms stops trying to show it here until the page next reads the session.",
 	unsent: "It never went out. Rooms forgets it.",
 };
 /** Added for a send: where its words still are. */

@@ -47,13 +47,14 @@ pub const HELP: &str = concat!(
   --no-browser-assets  serve Rooms endpoints without a browser bundle (development tooling)
   --server=<executable>  rooms-server binary (default: beside rooms-web)
   --transport=<transport>  the supervised directory's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
-      a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --relay names another; --http-public names that relay as browsers dial it
+      a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --relay names another, and --relay-public applies only with --relay
+      --http-public names this server's own relay as browsers and peers dial it
   --listen=<transport>[,<name>=<value>...]  also listen over another transport, as rooms-server; repeatable
       a relay listener registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or its relay option names another
   --state=<directory>  keep the directory identity and state across restarts
   --session-state=<directory>  also serve a durable shared workspace and print its use and management links (or GLOWCAP_ROOMS_SESSION_STATE)
   --session-transport=<transport>  the shared workspace's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
-      a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --session-relay names another
+      a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --session-relay names another, and --session-relay-public applies only with --session-relay
   --session-<option>=<value>  any other rooms-session option, such as --session-bind or --session-reachability (or GLOWCAP_ROOMS_SESSION_<OPTION>)
   --history --bind=<host> --announce-host=<host>
   --admin-listeners --diagnostics --operator --peering --irc --trace
@@ -260,6 +261,13 @@ impl Config {
 		let relay_url = env("GLOWCAP_ROOMS_RELAY_URL")
 			.map(|url| url.trim().to_owned())
 			.filter(|url| !url.is_empty());
+		if relay_url.is_none()
+			&& let Some(option) = public_without_relay(&server_args, &session)
+		{
+			return Err(format!(
+				"{option} names how peers dial the relay named with it; this server's own relay is dialed at --http-public"
+			));
+		}
 		// The option and the environment name one fact, and the option wins.
 		let relay = super::relay::Limits::read(|name| match name {
 			"GLOWCAP_RELAY_ALLOW_ORIGINS" => allow_origin.clone().or_else(|| env(name)),
@@ -335,6 +343,22 @@ impl PeerEnvironment {
 			.map(str::to_owned)
 			.or_else(|| env(key))
 	}
+}
+
+/// The option that names a public address for a relay a peer under this
+/// front registers at without naming the relay, when one does. That peer
+/// registers at this server's own relay, which browsers and peers dial at
+/// `--http-public`'s relay, so a public address for it alone would be a
+/// second answer to one question and leave the other peer dialing the
+/// relay's bound address.
+fn public_without_relay(server_args: &[String], session: &BTreeMap<String, String>) -> Option<String> {
+	let names = |option: &str| server_args.iter().any(|arg| arg.starts_with(&format!("--{option}=")));
+	if names("relay-public") && !names("relay") {
+		return Some("--relay-public".into());
+	}
+	// A `--listen` declaration takes no public address: the directory refuses
+	// one itself, so its relay door is dialed as its relay option says.
+	(session.contains_key("relay-public") && !session.contains_key("relay")).then(|| "--session-relay-public".into())
 }
 
 /// This server's own relay: reached at `reach`, the `/relay` route of its

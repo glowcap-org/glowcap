@@ -77,7 +77,7 @@ for (const upload of ["post", { refile: 7 }]) {
 				const [mapping] = JSON.parse(mappings);
 				assertEquals(mapping[0], { role: "line", key: "returned-line" });
 				acquisitions++;
-				return Promise.resolve({ submit: () => Promise.resolve("committed"), free() {} });
+				return Promise.resolve({ submit: () => Promise.resolve({ status: "committed" }), free() {} });
 			},
 			free() {},
 		} as unknown as RoomsManagedCommand);
@@ -204,7 +204,7 @@ for (const held of [false, true]) {
 				return Promise.resolve({
 					submit: () => {
 						acquired = true;
-						return Promise.resolve("committed");
+						return Promise.resolve({ status: "committed" });
 					},
 					free() {},
 				});
@@ -248,7 +248,7 @@ Deno.test("room link adoption replaces its entrance while retaining the exact pu
 			Promise.resolve({
 				submit: () => {
 					current.intent = JSON.parse(intent);
-					return Promise.resolve("committed");
+					return Promise.resolve({ status: "committed" });
 				},
 				free() {},
 			}),
@@ -301,10 +301,10 @@ for (const change of ["unrelated", "registration"] as const) {
 							current.revision = "2";
 							current.intent.standing = "away";
 							if (change === "registration") current.intent.directories[0].name = "replacement-name";
-							return Promise.resolve("conflict");
+							return Promise.resolve({ status: "conflict" });
 						}
 						current.intent = JSON.parse(args[3]);
-						return Promise.resolve("committed");
+						return Promise.resolve({ status: "committed" });
 					},
 					free() {},
 				});
@@ -395,11 +395,11 @@ for (const first of ["conflict", "uncertain", "replaced"]) {
 							current.revision = "2";
 							current.intent.standing = "unrelated edit";
 							if (first === "replaced") current.intent.directories[0].access = "replacement-access";
-							return Promise.resolve("conflict");
+							return Promise.resolve({ status: "conflict" });
 						}
 						current.revision = "3";
 						current.intent = JSON.parse(args[3]);
-						return Promise.resolve("committed");
+						return Promise.resolve({ status: "committed" });
 					},
 					free: () => candidatesFreed++,
 				});
@@ -477,7 +477,7 @@ Deno.test("viewer result completion and recovery share adoption and release the 
 					await release.promise;
 					current.intent = JSON.parse(intent);
 					current.revision = "2";
-					return "committed";
+					return { status: "committed" };
 				},
 				free: () => candidates++,
 			}),
@@ -514,7 +514,7 @@ Deno.test("operation close drains result preparation before releasing Wasm wrapp
 		standing: null,
 	});
 	const started = deferred<void>();
-	const prepared = deferred<{ submit(): Promise<string>; free(): void }>();
+	const prepared = deferred<{ submit(): Promise<{ status: string }>; free(): void }>();
 	let receipts = 0;
 	let candidates = 0;
 	let submissions = 0;
@@ -537,7 +537,7 @@ Deno.test("operation close drains result preparation before releasing Wasm wrapp
 		prepared.resolve({
 			submit: () => {
 				submissions++;
-				return Promise.resolve("committed");
+				return Promise.resolve({ status: "committed" });
 			},
 			free: () => candidates++,
 		});
@@ -575,7 +575,7 @@ Deno.test("direct receipt adoption preserves sender provenance and a later ident
 			return Promise.resolve({
 				submit: () => {
 					current.intent = JSON.parse(intent);
-					return Promise.resolve("committed");
+					return Promise.resolve({ status: "committed" });
 				},
 				free() {},
 			});

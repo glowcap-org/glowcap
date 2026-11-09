@@ -52,7 +52,8 @@ export const LOCAL_GESTURES = {
 	receive: acquire("receipt"),
 	roomLink: acquire("directory"),
 	recoverAcquisition: acquire("receipt"),
-} satisfies Record<Exclude<Method<ManagedActions>, "close" | "stop">, LocalPolicy>;
+	// close, stop, and release reach no session, so they carry no policy.
+} satisfies Record<Exclude<Method<ManagedActions>, "close" | "stop" | "release">, LocalPolicy>;
 
 type ReadPattern =
 	| `read${string}`

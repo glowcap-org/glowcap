@@ -10,6 +10,7 @@ import {
 	knownPermissions,
 	knownStatus,
 	OWN_CONTROL,
+	publishesHere,
 } from "../session/managed/access.ts";
 import { permissionSummary } from "./PermissionFields.tsx";
 import { Button } from "../Button.tsx";
@@ -67,10 +68,10 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	const [opening, setOpening] = useState(0);
 	const pending = management.issue;
 	const go = (event: { currentTarget: HTMLElement }, next: Door) => {
-		// A new access is a link that leads to this browser, which people reach
-		// through its Rooms server, so the server comes first. A pasted
-		// management link is judged by its own doors once it is pasted.
-		if (next.kind === "issue" && serverGate(serverNeedLink) == null) return;
+		// A new access that leads here works through this browser's Rooms
+		// server, so the server comes first. A pasted management link is
+		// judged by its own doors once it is pasted.
+		if (next.kind === "issue" && publishesHere(next.control) && serverGate(serverNeedLink) == null) return;
 		openModalFrom(event.currentTarget, () => {
 			setDoor(next);
 			setOpening((value) => value + 1);

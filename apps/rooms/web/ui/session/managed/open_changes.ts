@@ -35,15 +35,23 @@ export function openChanges(session: ManagedRoomsSession, rows: readonly EffectV
 	const receipted = new Set((rows ?? []).map((row) => row.operation));
 	const known = (status: string): OpenChangeState =>
 		(status in recoveryStatus ? status : "unknown") as OpenChangeState;
+	// What each held acquisition's lifecycle knows of its outcome.
+	const outcomes = new Map(session.actions.diagnostics.map((row) => [row.operation, row.outcome]));
 	return [
-		...session.actions.pending.map((id): OpenChange => ({
-			id,
-			status: "committed",
-			state: recoverable.has(id) ? "saving" : "working",
-			act: recoverable.has(id) ? "acquire" : null,
-			// An uncertain local commit still needs its original receiver.
-			letGo: false,
-		})),
+		...session.actions.pending.map((id): OpenChange => {
+			const committed = outcomes.get(id) === "committed";
+			const ready = recoverable.has(id);
+			return {
+				id,
+				status: committed ? "committed" : "unknown",
+				state: ready ? (committed ? "saving" : "unknown") : "working",
+				act: ready ? "acquire" : null,
+				// Every row has an exit. The session's own state says what it
+				// holds, so letting go drops only this page's part: a request
+				// nothing settled, or the showing of one that went through.
+				letGo: ready,
+			};
+		}),
 		...(rows ?? []).filter((row) => row.status !== "committed" || holding.has(row.operation)).map(
 			(row): OpenChange => {
 				const id = row.operation;

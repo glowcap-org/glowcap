@@ -59,7 +59,7 @@ export async function dialExporter(
 	if (connector == null) {
 		throw new GlowcapError(
 			INVALID_ARGUMENT,
-			`byte-fed Host has no connector for transport ${JSON.stringify(locator.transport)}`,
+			`UnknownTransport: byte-fed Host has no connector for transport ${JSON.stringify(locator.transport)}`,
 		);
 	}
 	return await dialWithConnector(

@@ -66,6 +66,7 @@ export const SESSION_UNREACHABLE = "session-unreachable";
 export const SESSION_HANDSHAKE_INCOMPLETE = "session-handshake-incomplete";
 export const SESSION_CAPABILITY_GONE = "session-capability-gone";
 export const SESSION_RESTORATION_FAILED = "session-restoration-failed";
+export const SAVED_TRANSPORT_UNAVAILABLE = "saved-transport-unavailable";
 export const SESSION_SIGNALING_HOST_OFFLINE = "session-signaling-host-offline";
 export const SESSION_SIGNALING_UNAVAILABLE = "session-signaling-unavailable";
 export const SESSION_WEBRTC_NO_ROUTE = "session-webrtc-no-route";
@@ -311,6 +312,12 @@ export const ROOMS_FAILURES = {
 		retry: "after-state-change",
 		summary: "The saved session access could not be restored.",
 		action: "Check that the session is running. If it was reset, attach its new session link.",
+	},
+	"saved-transport-unavailable": {
+		subject: "saved-address",
+		retry: "after-state-change",
+		summary: "The saved address uses a transport this session cannot reach.",
+		action: "Enter its current address again, or start the session with a transport that reaches it.",
 	},
 	"session-signaling-host-offline": {
 		subject: "hosting-tab",

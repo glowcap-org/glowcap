@@ -512,7 +512,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 }
 fn error(error: rooms_glowcap::client::Error) -> glowcap::Error {
 	match error {
-		rooms_glowcap::client::Error::Binding(error) | rooms_glowcap::client::Error::Unsent(error) => *error,
+		rooms_glowcap::client::Error::Binding(error) | rooms_glowcap::client::Error::Unsent(error) => {
+			super::retained::name_undialable(*error)
+		}
 		rooms_glowcap::client::Error::Observation(reason)
 		| rooms_glowcap::client::Error::RefusedObservation(reason) => {
 			// The retained reason already crossed the binding wrapper. Normalize only

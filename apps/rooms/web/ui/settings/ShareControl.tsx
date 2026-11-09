@@ -4,7 +4,7 @@
 import { managedAccessText as text } from "../../../lib/text/managed_access.ts";
 import { type ReactNode, useState } from "react";
 import { useManagedSession } from "../session/managed/context.tsx";
-import type { HeldControl } from "../session/managed/access.ts";
+import { type HeldControl, publishesHere } from "../session/managed/access.ts";
 import { useAsyncAction } from "../async_action.ts";
 import { useServerGate } from "../hooks.ts";
 import { serverNeedLink } from "../../../lib/text/session.ts";
@@ -84,10 +84,10 @@ export function ShareControl({ control }: { control: HeldControl }) {
 						variant="quiet"
 						busy={share.busy}
 						disabled={share.busy}
-						// The link leads to this browser, which people reach through its
+						// A control link that leads here works through this browser's
 						// Rooms server, so the server comes first.
 						onClick={() => {
-							if (serverGate(serverNeedLink) != null) void share.run();
+							if (!publishesHere(control) || serverGate(serverNeedLink) != null) void share.run();
 						}}
 					>
 						{text.prepareControl}

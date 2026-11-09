@@ -1,12 +1,26 @@
 //! One directory discovery worker per exact saved selection. This registry
 //! owns views only. The session retains each worker and upstream cancellation.
-use super::super::{DirectoryWatch, MembershipEvent, MembershipReceiver, MembershipReport, MembershipTarget, Session};
+use super::super::{
+	DirectoryWatch, MembershipEvent, MembershipReceiver, MembershipReport, MembershipTarget, Session,
+	coordination::stands,
+};
 use glowcap::Result;
 use rooms_application::content::session::workspace::{self, Intent};
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
-struct Entry<P: Tasks> {
+enum Entry<P: Tasks> {
+	/// Starting the watch refused for a reason that clears only with a change:
+	/// the row, the session's transports, or an explicit retry. Reconciliation
+	/// reports the refusal standing and never dials the address again on a
+	/// recovery wake.
+	Failed {
+		selected: workspace::DiscoverySelection,
+		failure: glowcap::Error,
+	},
+	Watching(Watching<P>),
+}
+struct Watching<P: Tasks> {
 	selected: workspace::DiscoverySelection,
 	watch: DirectoryWatch<P>,
 	receive: Rc<RefCell<MembershipReceiver>>,
@@ -23,17 +37,25 @@ impl<P: Tasks> Default for Discoveries<P> {
 impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 	pub(super) fn append_status(&self, report: &mut MembershipReport) {
 		for (id, entry) in &self.0 {
-			let failure = match entry.watch.status() {
-				Some(Err(error)) => error,
-				_ if !entry.watch.is_active() => glowcap::loam::refusal("Directory discovery connection ended"),
-				Some(Ok(())) if entry.snapshot_delivered => {
-					report.ready += 1;
-					continue;
-				}
-				_ => continue,
+			let failure = match entry {
+				Entry::Failed { failure, .. } => failure.clone(),
+				Entry::Watching(watching) => match watching.watch.status() {
+					Some(Err(error)) => error,
+					_ if !watching.watch.is_active() => glowcap::loam::refusal("Directory discovery connection ended"),
+					Some(Ok(())) if watching.snapshot_delivered => {
+						report.ready += 1;
+						continue;
+					}
+					_ => continue,
+				},
 			};
 			report.failures.push((MembershipTarget::Discovery(id.clone()), failure));
 		}
+	}
+	/// Only an explicit outer retry reopens a standing startup refusal. The
+	/// next reconciliation finds the slot vacant and dials the address again.
+	pub(super) fn retry_failed(&mut self) {
+		self.0.retain(|_, entry| matches!(entry, Entry::Watching(_)));
 	}
 	pub async fn reconcile(
 		&mut self,
@@ -62,25 +84,34 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 						.failures
 						.iter()
 						.any(|(target, _)| target == &MembershipTarget::Discovery((*id).clone()))
-						&& (!entry.watch.is_active()
-							|| desired
-								.get(id.as_str())
-								.is_none_or(|(_, selected)| selected != &entry.selected))
+						&& match entry {
+							Entry::Failed { selected, .. } => {
+								desired.get(id.as_str()).is_none_or(|(_, wanted)| wanted != selected)
+							}
+							Entry::Watching(watching) => {
+								!watching.watch.is_active()
+									|| desired
+										.get(id.as_str())
+										.is_none_or(|(_, wanted)| wanted != &watching.selected)
+							}
+						}
 				})
 				.map(|(id, _)| id.clone());
 			let Some(id) = obsolete else { break };
-			let Some(entry) = self.0.get_mut(&id) else {
-				report.failures.push((
+			match self.0.get_mut(&id) {
+				None => report.failures.push((
 					MembershipTarget::Discovery(id),
 					glowcap::loam::refusal("directory discovery observer is not retained"),
-				));
-				continue;
-			};
-			match entry.watch.close().await {
-				Ok(()) => {
+				)),
+				Some(Entry::Failed { .. }) => {
 					self.0.remove(&id);
 				}
-				Err(error) => report.failures.push((MembershipTarget::Discovery(id), error)),
+				Some(Entry::Watching(watching)) => match watching.watch.close().await {
+					Ok(()) => {
+						self.0.remove(&id);
+					}
+					Err(error) => report.failures.push((MembershipTarget::Discovery(id), error)),
+				},
 			}
 		}
 		for (id, (row, selected)) in desired {
@@ -98,27 +129,40 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 					.await
 				{
 					Ok(watch) => {
-						slot.insert(Entry {
+						slot.insert(Entry::Watching(Watching {
 							selected,
 							watch,
 							receive: receiver,
 							snapshot_delivered: false,
 							failure: None,
 							snapshot: None,
-						});
+						}));
 					}
 					Err(error) => {
+						if stands(&error) {
+							slot.insert(Entry::Failed {
+								selected,
+								failure: error.clone(),
+							});
+						}
 						report.failures.push((target, error));
 						continue;
 					}
 				}
 			}
-			let Some(entry) = self.0.get_mut(id) else {
-				report.failures.push((
-					target,
-					glowcap::loam::refusal("directory discovery observer is not retained"),
-				));
-				continue;
+			let entry = match self.0.get_mut(id) {
+				Some(Entry::Watching(watching)) => watching,
+				Some(Entry::Failed { failure, .. }) => {
+					report.failures.push((target, failure.clone()));
+					continue;
+				}
+				None => {
+					report.failures.push((
+						target,
+						glowcap::loam::refusal("directory discovery observer is not retained"),
+					));
+					continue;
+				}
 			};
 			if let Some(failure) = &entry.failure {
 				let closed = entry.watch.close().await;
@@ -193,14 +237,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 	pub async fn close(&mut self) -> Result<()> {
 		let mut result = Ok(());
 		for entry in self.0.values_mut() {
-			if let Err(error) = entry.watch.close().await {
+			let Entry::Watching(watching) = entry else { continue };
+			if let Err(error) = watching.watch.close().await {
 				result = match result {
 					Ok(()) => Err(error),
 					Err(first) => Err(first.with_cleanup(Err(error))),
 				};
 			}
 		}
-		self.0.retain(|_, entry| entry.watch.is_active());
+		self.0
+			.retain(|_, entry| matches!(entry, Entry::Watching(watching) if watching.watch.is_active()));
 		result
 	}
 }

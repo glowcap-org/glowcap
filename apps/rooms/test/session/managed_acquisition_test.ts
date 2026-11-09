@@ -37,7 +37,7 @@ Deno.test("a cancelled uncertain room admission recovers and leaves its exact me
 						standing: null,
 						draft: "",
 					});
-					return Promise.resolve("committed");
+					return Promise.resolve({ status: "committed" });
 				},
 				free() {},
 			});
@@ -83,7 +83,7 @@ Deno.test("cancelling initial directory preparation frees the request before adm
 			return {
 				submit: () => {
 					submitted++;
-					return Promise.resolve("committed");
+					return Promise.resolve({ status: "committed" });
 				},
 				free: () => freed++,
 			};
@@ -130,7 +130,7 @@ Deno.test("a fresh directory press waits for cancelled preparation before acquir
 			return {
 				submit: () => {
 					submitted++;
-					return Promise.resolve("committed");
+					return Promise.resolve({ status: "committed" });
 				},
 				free() {},
 			};
@@ -167,7 +167,7 @@ Deno.test("cancelling after a proved directory conflict stops re-admission and p
 	const request = (first: boolean) => ({
 		submit: () => {
 			submitted++;
-			return Promise.resolve(first ? "conflict" : "committed");
+			return Promise.resolve({ status: first ? "conflict" : "committed" });
 		},
 		reprepare: async () => {
 			entered.resolve();
@@ -223,7 +223,7 @@ Deno.test("repeated public room acquisition shares one admitted request", async 
 			const selected = JSON.parse(selection);
 			return Promise.resolve({
 				submit: () => {
-					if (current.intent.conversations.length !== 0) return Promise.resolve("conflict");
+					if (current.intent.conversations.length !== 0) return Promise.resolve({ status: "conflict" });
 					current.intent.conversations.push({
 						kind: "room",
 						id: selected.id,
@@ -238,7 +238,7 @@ Deno.test("repeated public room acquisition shares one admitted request", async 
 						draft: "",
 					});
 					current.revision = "2";
-					return Promise.resolve("committed");
+					return Promise.resolve({ status: "committed" });
 				},
 				free: () => freed++,
 			});
@@ -321,7 +321,7 @@ Deno.test("managed custody conflict releases its candidate and permits a reviewe
 		snapshot: () => Promise.resolve(snapshot()),
 		prepareAcquisition: () => {
 			const outcome = preparations++ === 0 ? "conflict" : "committed";
-			return Promise.resolve({ submit: () => Promise.resolve(outcome), free: () => freed++ });
+			return Promise.resolve({ submit: () => Promise.resolve({ status: outcome }), free: () => freed++ });
 		},
 	});
 	try {
@@ -350,9 +350,9 @@ for (const initial of ["conflict", "uncertain"]) {
 		const freed: string[] = [];
 		const candidate = (id: string) => ({
 			submit: () => {
-				if (id === "replacement") return Promise.resolve("committed");
+				if (id === "replacement") return Promise.resolve({ status: "committed" });
 				if (initial === "uncertain" && submitted++ === 0) return Promise.reject(new Error("lost reply"));
-				return Promise.resolve("conflict");
+				return Promise.resolve({ status: "conflict" });
 			},
 			reprepare: () => {
 				reprepared++;
@@ -402,10 +402,10 @@ for (const first of ["conflict", "uncertain"]) {
 					submit: () => {
 						if (attempts++ === 0) {
 							return first === "conflict"
-								? Promise.resolve("conflict")
+								? Promise.resolve({ status: "conflict" })
 								: Promise.reject(new Error("lost acknowledgement"));
 						}
-						return Promise.resolve("committed");
+						return Promise.resolve({ status: "committed" });
 					},
 					free: () => candidatesFreed++,
 				});
@@ -457,7 +457,9 @@ Deno.test("lost public-room acquisition reply retries the exact request and conv
 			adopted = JSON.parse(raw).id;
 			return Promise.resolve({
 				submit: () =>
-					++submitted === 1 ? Promise.reject(new Error("reply lost")) : Promise.resolve("committed"),
+					++submitted === 1
+						? Promise.reject(new Error("reply lost"))
+						: Promise.resolve({ status: "committed" }),
 				free() {},
 			});
 		},
@@ -489,7 +491,7 @@ Deno.test("committed acquisition with a failed refresh retries only the refresh"
 			return Promise.resolve({
 				submit: () => {
 					submitted++;
-					return Promise.resolve("committed");
+					return Promise.resolve({ status: "committed" });
 				},
 				free: () => freed++,
 			});

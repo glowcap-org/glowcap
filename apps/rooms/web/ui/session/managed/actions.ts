@@ -1,5 +1,4 @@
 import { conversationById } from "./conversation_lookup.ts";
-import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 // Page gestures acquire exact receipt occurrences. Rust executes all effects.
 import type {
 	RoomsManagedAcquisition,
@@ -14,15 +13,16 @@ import { createManagedRoom } from "./create_room.ts";
 import { type ActivityPage, type Coordinate, fieldKey, type WorkspaceIntent, type WorkspaceSnapshot } from "./model.ts";
 import type { JoinNicknameIntent } from "../../controller/session.ts";
 import type { RoomPolicy } from "../../room_policy.ts";
-import { applicationModule } from "../../application.ts";
 import {
 	AcquisitionConflict,
 	MAX_CONFLICT_REPREPARATIONS,
 	OperationsAcquisitionRefused,
 	submitAcquisition,
+	throwUnlessCommitted,
 } from "./acquisition.ts";
 import { retainedIntentConversation } from "./admission.ts";
 import { CompletedLine } from "./completed_line.ts";
+import { stageRoomLink } from "./room_link.ts";
 
 import { LOCAL_LIMITS } from "./local_gestures.ts";
 import { gestureScope } from "./gestures.ts";
@@ -80,6 +80,20 @@ export class ManagedActions {
 			!record.cancellation?.pending
 		)
 			.map(([id]) => id);
+	}
+	/** Let a held acquisition go: the request is freed and never resubmitted.
+	 * The session's own state says what it holds, so a change that did go
+	 * through stays saved there, and only this page's step of showing it is
+	 * dropped. One still running is not let go. */
+	release(id: string): Promise<void> {
+		const record = this.#acquisitions.get(id);
+		if (record == null) return Promise.reject(new Error("This acquisition is no longer held"));
+		if (record.task != null) return Promise.reject(new Error("This acquisition is still running"));
+		record.request?.free();
+		record.request = undefined;
+		this.#forget(id);
+		this.#session.acquisitionChanged();
+		return Promise.resolve();
 	}
 	/** Only new conversations belong to acquisitions. Keep cancelled results
 	 * out of presentation until this owner proves non-admission or departure. */
@@ -196,36 +210,36 @@ export class ManagedActions {
 		const original = record.request;
 		if (original == null) throw new Error("This acquisition is no longer held");
 		let request: Acquisition = original;
-		let outcome;
-		for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
-			outcome = await submitAcquisition(request);
-			if (
-				outcome !== "conflict" || !isRepreparable(request) || this.#stopped ||
-				attempt + 1 === MAX_CONFLICT_REPREPARATIONS || record.signal?.aborted === true
-			) break;
-			// Only a proved refusal permits a new revision. Rust re-preparation
-			// retains the exact acquired target, source, coordinates and recipe.
-			// Failure leaves the original held; uncertainty never enters this path.
+		let outcome = await submitAcquisition(request);
+		// Only a proved conflict permits a new revision. Rust re-preparation
+		// retains the exact acquired target, source, coordinates and recipe.
+		// Failure leaves the original held; uncertainty never enters this path.
+		for (
+			let attempt = 1;
+			outcome.status === "conflict" && isRepreparable(request) && !this.#stopped &&
+			attempt < MAX_CONFLICT_REPREPARATIONS && record.signal?.aborted !== true;
+			attempt++
+		) {
 			const replacement: Acquisition = await request.reprepare();
 			record.request = replacement;
 			request.free();
 			request = replacement;
 			if (record.signal?.aborted) break;
+			outcome = await submitAcquisition(request);
 		}
-		if (outcome === "committed" && id.startsWith("arrival:")) this.#receivedArrival = id;
-		record.lifecycle.outcome = outcome === "committed" ? "committed" : "notAdmitted";
+		const committed = outcome.status === "committed";
+		if (committed && id.startsWith("arrival:")) this.#receivedArrival = id;
+		record.lifecycle.outcome = committed ? "committed" : "notAdmitted";
 		request.free();
 		record.request = undefined;
-		if (outcome !== "committed") this.#forget(id);
+		if (!committed) this.#forget(id);
 		this.#session.acquisitionChanged();
 		if (id === "workspace-import" && this.#importing == null) this.#importState = null;
 		await this.#session.refresh();
-		if (outcome === "committed") await record.completed?.();
+		if (committed) await record.completed?.();
 		this.#forget(id);
-		if (outcome === "conflict") {
-			record.signal?.throwIfAborted();
-			throw new AcquisitionConflict();
-		}
+		if (outcome.status === "conflict") record.signal?.throwIfAborted();
+		throwUnlessCommitted(outcome);
 	}
 	async directory(
 		id: string,
@@ -574,49 +588,7 @@ export class ManagedActions {
 			return held.result!;
 		}
 		const snapshot = await this.#session.candidate();
-		const id = crypto.randomUUID();
-		const access = fieldKey();
-		const source = fieldKey();
-		const imports = [{ coordinate: { role: "roomAccess", key: access }, uri }];
-		const nick = selection.nick.kind === "exact" ? selection.nick.name : selection.nick.base;
-		const nickAllocation = selection.nick.kind === "exact" ? "exact" : "automatic";
-		const row = snapshot.intent.directories.find((row) => row.id === directory);
-		if (row == null) {
-			const directoryAccess = fieldKey();
-			imports.push({
-				coordinate: { role: "directoryAccess", key: directoryAccess },
-				uri: applicationModule().directoryCapability(selection.route),
-			});
-			if (selection.home) { for (const directory of snapshot.intent.directories) directory.home = false; }
-			snapshot.intent.directories.push({
-				id: directory,
-				access: directoryAccess,
-				source,
-				home: selection.home,
-				nick,
-				nickAllocation,
-				standing: null,
-			});
-		} else if (row.nick !== nick || row.nickAllocation !== nickAllocation) {
-			row.nick = nick;
-			row.nickAllocation = nickAllocation;
-			delete row.assignedNick;
-		}
-		// One gesture stages nickname intent, optional directory custody and room
-		// authority together. Supervisors cannot replace its inbox between two
-		// separate page mutations, and a refused fetch changes no directory.
-		snapshot.intent.conversations.push({
-			kind: "room",
-			id,
-			directory,
-			name: name || managedText.sharedRoom,
-			source,
-			access,
-			control: null,
-			reconnect: "requested",
-			standing: null,
-			draft: "",
-		});
+		const { id, source, imports } = stageRoomLink(snapshot, directory, uri, name, selection);
 		await this.#acquire(
 			acquisition,
 			() =>

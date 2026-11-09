@@ -307,7 +307,13 @@ where
 						None => Ok(()),
 					}));
 					(self.report)(Ok(&report));
-					if report.failures.is_empty() && recovery_generation == self.refresh.recovery_generation.get() {
+					// A standing refusal holds no timer: an explicit retry or a
+					// changed row wakes this loop itself.
+					let settled = report
+						.failures
+						.iter()
+						.all(|(_, failure)| super::coordination::stands(failure));
+					if settled && recovery_generation == self.refresh.recovery_generation.get() {
 						self.refresh.recovering.set(false);
 						self.recovery_delay = 200;
 					}
@@ -324,6 +330,7 @@ where
 	async fn retry(&mut self) {
 		if self.signals.retrying.changed().await.is_ok() {
 			self.memberships.retry_failed();
+			self.discovery.retry_failed();
 		}
 	}
 	async fn changed(&mut self) {
@@ -334,7 +341,7 @@ where
 			biased;
 			_ = self.refresh.wake.notified() => return,
 			result = self.signals.retrying.changed() => {
-				if result.is_ok() { self.memberships.retry_failed(); }
+				if result.is_ok() { self.memberships.retry_failed(); self.discovery.retry_failed(); }
 				return;
 			},
 			_ = self.platform.within(self.recovery_delay, std::future::pending::<()>()), if self.refresh.recovering.get() => {
