@@ -145,7 +145,7 @@ export function refusalAbout(tab: Page): Promise<string> {
 	return tab.evaluate(() =>
 		[...document.querySelectorAll("#log .sys")]
 			.map((row) => row.textContent ?? "")
-			.filter((text) => text.includes("That link did not open a room"))
+			.filter((text) => text.includes("That link didn't open a room"))
 			.at(-1) ?? ""
 	);
 }

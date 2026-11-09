@@ -86,7 +86,7 @@ and storage formats before 1.0.
   into the override.
 - `glowcap apps rooms deployment reset directory` names the unit that was
   `state`, and `deployment up` prints the directory locator and the shared
-  session's use and management capabilities under those names.
+  session's use link and management link under those names.
 - **Delete browser data** in the Rooms page also forgets every Rooms
   preference this browser kept: the chosen server, other tabs' session
   choices, and the theme. Other open Rooms tabs reload.

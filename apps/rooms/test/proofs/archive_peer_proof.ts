@@ -193,7 +193,7 @@ try {
 	await openArchive(bob.tab);
 	await bob.tab.waitForSelector('.archive-share-offer:has-text("archive-alice")', { timeout: 30_000 });
 	await bob.tab.click(".archive-share-read");
-	await bob.tab.waitForSelector('.sys-line:has-text("Earlier messages shared by archive-alice")', {
+	await bob.tab.waitForSelector('.sys-line:has-text("Earlier messages archive-alice shared from their archive")', {
 		timeout: 30_000,
 	});
 	await bob.tab.waitForSelector(".archive-share-offer", { state: "detached", timeout: 30_000 });
@@ -228,7 +228,7 @@ try {
 		fail(
 			`the archive read did not identify peer custody: ${
 				JSON.stringify(
-					await alice.tab.locator('.sys-line:has-text("Messages above are")').allTextContents(),
+					await alice.tab.locator('.sys-line:has-text("Messages above")').allTextContents(),
 				)
 			}`,
 		)
@@ -237,7 +237,7 @@ try {
 	// The combined read: the device-kept line stands beside the peer-kept one,
 	// each exactly once, under one divider naming both keepers (ADR-0044).
 	await see(alice.tab, KEPT_DEVICE, "Alice's device-kept line");
-	const dividers = await alice.tab.locator('.sys-line:has-text("Messages above are")').allTextContents();
+	const dividers = await alice.tab.locator('.sys-line:has-text("Messages above")').allTextContents();
 	const combined = dividers.filter((text) => text.includes("from the archive peer"));
 	if (combined.length !== 1 || !combined[0].includes("and are saved on this device")) {
 		fail(`the split generation's divider did not name both keepers: ${JSON.stringify(dividers)}`);

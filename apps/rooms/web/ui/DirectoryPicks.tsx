@@ -110,7 +110,7 @@ export function DirectoryPicks(
  * page from the field it is handing over. */
 export function typeAnotherAddress(arrive: () => void): void {
 	flushSync(arrive);
-	const field = document.querySelector<HTMLInputElement>("#address");
+	const field = document.querySelector<HTMLInputElement>("#joinAddressField");
 	if (field === null) return;
 	field.focus();
 	field.select();

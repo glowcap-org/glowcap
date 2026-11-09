@@ -70,9 +70,9 @@ the password is stored.
 ## Attachments and shares
 
 - A live attachment stays available only while its room or direct
-  conversation, and its session, are open. A member archive the reader chose may keep the same
-  message's bytes and serve them after a restart through its own scoped
-  capability. The session stores neither copy, and it never records that an
+  conversation, and its session, are open. A member archive the reader chose
+  may keep the same message's bytes and serve them after a restart through its
+  own scoped capability. The session stores neither copy, and it never records that an
   archive kept one.
 - Room-link invitations are saved with the session. A browser session and a
   shared session both keep the link until the reader accepts or dismisses it.
@@ -103,7 +103,7 @@ recovery key until they resolve.
 
 ## Delivery receipts
 
-A room's senders fill each reader's unread allowance
+A room's senders share each reader's unread allowance
 ([Unread messages](#unread-messages)) and
 <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGE_BYTES bytes -->2 MiB<!-- /value --> across pending text and unread messages. Receipts keep order and
 match each answer to its send, but a retry is still unsafe. An upload is

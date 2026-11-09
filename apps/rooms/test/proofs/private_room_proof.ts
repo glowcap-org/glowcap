@@ -375,7 +375,7 @@ try {
 	await cy.waitForFunction(
 		() =>
 			[...document.querySelectorAll("#log .sys")].some((row) =>
-				(row.textContent ?? "").includes("That link did not open a room") &&
+				(row.textContent ?? "").includes("That link didn't open a room") &&
 				(row.textContent ?? "").includes("WebSocket closed by the peer (code 1011)")
 			),
 		undefined,
@@ -402,7 +402,7 @@ try {
 	await cy.waitForFunction(
 		() =>
 			[...document.querySelectorAll("#log .sys")].some((row) =>
-				(row.textContent ?? "").includes("That link did not open a room") &&
+				(row.textContent ?? "").includes("That link didn't open a room") &&
 				(row.textContent ?? "").includes("unknown swissnum")
 			),
 		undefined,
