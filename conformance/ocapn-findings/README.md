@@ -7,10 +7,11 @@ sources:
 
 # Pinned OCapN findings
 
-Each protocol discrepancy found while reviewing glowcap is a small,
-reproducible check over the upstream revisions pinned in this repository. The
-checks do not decide which participant is correct and leave every upstream
-checkout unmodified.
+Each protocol discrepancy found while reviewing glowcap is pinned by a text
+check over the upstream revisions this repository pins, and a finding about
+live behavior names the build step that reproduces it. The checks do not
+decide which participant is correct and leave every upstream checkout
+unmodified.
 
 Run them all:
 
@@ -99,6 +100,8 @@ glowcap keeps accepted replay authority on each Receiver-Exporter session. Its
 automatic V1 path uses a Node-lifetime issuance cursor to interoperate across
 replacement sessions of one Node. Independent nodes share no protocol state,
 because sharing would erase the session scope the certificate names.
+`zig build goblins-rooms-matrix-iroh` reproduces the rejection against a live
+Goblins vat before its rooms matrix runs.
 
 ## Gift-id width
 
@@ -141,10 +144,21 @@ workaround, because the verdict is unaffected while the tests pass.
 
 ## Pre-handshake `op:abort` teardown
 
-The draft says `op:abort` severs the connection. Goblins replaces its
-pre-handshake handler with a no-op and keeps the read loop alive. The suite
-accepts a timeout or clean EOF after sending more data, but not the TCP reset a
-peer can observe when the receiver closes with that data unread.
+The three pinned sources accept different outcomes after a pre-handshake
+`op:abort`:
+
+| Source | Says |
+| ------ | ---- |
+| draft CapTP specification | "when this is sent the connection should" close |
+| OCapN test suite (`tests/op_abort.py`) | data sent after the abort raises `TimeoutError` or `ConnectionAbortedError` |
+| Spritely Goblins (`goblins/ocapn/captp.rkt`) | the pre-handshake handler becomes `(bcom (lambda _ (void)))` and the read loop stays alive |
+
+glowcap closes with the abort's trailing data unread, which Linux reports to
+the sender as a TCP reset, an outcome the suite's accepted pair leaves out. So
+`zig build ocapn-conformance` runs a local probe that accepts EOF, reset, or
+broken pipe in place of that module, and
+`bash conformance/ocapn-conformance/run-against-glowcap.sh tests.op_abort`
+runs the raw module as a diagnostic.
 
 ## Unrecognized labels on a live session
 

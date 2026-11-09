@@ -1,12 +1,14 @@
 # How glowcap is built
 
 Glowcap LLC maintains glowcap with AI coding assistants. Its maintainer
-directs the work, signs every commit that lands, and is answerable for the
-result.
+directs the work, approves every change that lands, and is answerable for
+the result.
 
 Each commit is a development checkpoint rather than every intermediate edit.
-Commits carry no per-tool trailers, because tools differ in what they emit
-and some emit none. This disclosure describes maintainer-led development.
+A change lands as one commit that carries its pull request's description,
+including the assistance note the contribution policy asks for. Commits
+carry no other per-tool record, because tools differ in what they emit and
+some emit none. This disclosure describes maintainer-led development.
 Contributions may be written with or without AI assistance. Pull requests
 record assistance under the [contribution policy](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#tools-and-responsibility).
 
@@ -42,8 +44,9 @@ from an agent-produced packet.
 ## Responsibility and licensing
 
 The maintainer uses glowcap and stands behind the repository. The author
-field records who wrote a change, and the maintainer's signature on every
-`dev` and `main` commit records who accepted responsibility for landing it.
+field records who wrote a change. A commit on `dev` or `main` is signed by
+the maintainer's key, or by GitHub when the maintainer merges a pull request,
+and that landing records who accepted responsibility for it.
 Neither is evidence of independent review, and neither creates an exception
 to another project's policy.
 
