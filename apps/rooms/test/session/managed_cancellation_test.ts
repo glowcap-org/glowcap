@@ -31,7 +31,7 @@ for (const timing of ["before failure", "after failure"] as const) {
 							throw new Error("lost admission reply");
 						}
 						current.intent.conversations.push({ kind: "room", ...row, draft: "" });
-						return "committed";
+						return { status: "committed" };
 					},
 					free: () => freed++,
 				});

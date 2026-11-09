@@ -280,7 +280,7 @@ for (const existing of [true, false]) {
 						await finish.promise;
 						if (submissions === 1) throw new Error("Acquisition acknowledgment unavailable");
 						accepted.intent = candidate;
-						return "committed";
+						return { status: "committed" };
 					},
 					free() {
 						frees++;

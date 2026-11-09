@@ -43,7 +43,7 @@ for (const owner of ["acquisition", "creation"] as const) {
 							await reply.promise;
 							current.intent.conversations.push({ ...room(), ...row, seat: "late-seat" });
 							current.revision = "2";
-							return "committed";
+							return { status: "committed" };
 						},
 						free() {},
 					});

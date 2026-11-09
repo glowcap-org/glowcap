@@ -198,8 +198,8 @@ Deno.test("a running gesture hides its retained command through result acquisiti
 });
 
 Deno.test("an acquisition decision appears after uncertainty and disappears during exact retry", async () => {
-	const submitted = deferred<string>();
-	const retry = deferred<string>();
+	const submitted = deferred<{ status: "uncertain" }>();
+	const retry = deferred<{ status: "committed" }>();
 	let attempts = 0;
 	const session = viewer({
 		snapshot: () => Promise.resolve(snapshot()),
@@ -214,12 +214,12 @@ Deno.test("an acquisition decision appears after uncertainty and disappears duri
 	for (let turn = 0; turn < 4; turn++) await Promise.resolve();
 	assertEquals(session.actions.pending.length, 1);
 	assertEquals(session.actions.recoverable, []);
-	submitted.resolve("unknown");
+	submitted.resolve({ status: "uncertain" });
 	await uncertain;
 	assertEquals(session.actions.recoverable, session.actions.pending);
 	const recovering = session.actions.recoverAcquisition(session.actions.pending[0]);
 	assertEquals(session.actions.recoverable, []);
-	retry.resolve("committed");
+	retry.resolve({ status: "committed" });
 	await recovering;
 	assertEquals(session.actions.recoverable, []);
 	assertEquals(attempts, 2);
@@ -336,7 +336,8 @@ Deno.test("an uncertain result acquisition keeps its receipt until the original 
 	const request = {
 		submit: () => Promise.resolve("committed"),
 		status: () => Promise.resolve("committed"),
-		prepareResultAcquisition: () => Promise.resolve({ submit: () => Promise.resolve("unknown"), free() {} }),
+		prepareResultAcquisition: () =>
+			Promise.resolve({ submit: () => Promise.resolve({ status: "uncertain" }), free() {} }),
 		free() {},
 	} as unknown as RoomsManagedCommand;
 	const operation = await session.perform("acquiring", () => Promise.resolve(request));

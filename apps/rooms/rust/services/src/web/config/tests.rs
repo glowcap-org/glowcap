@@ -70,6 +70,7 @@ fn the_shared_sessions_options_pass_in_its_grammar_and_need_its_state() {
 		[
 			"--session-state=/tmp/s".into(),
 			"--session-transport=noise-relay".into(),
+			"--session-relay=wss://relay.example/relay".into(),
 			"--session-relay-public=wss://rooms.example/relay".into(),
 		],
 		|_| None,
@@ -79,6 +80,7 @@ fn the_shared_sessions_options_pass_in_its_grammar_and_need_its_state() {
 	assert_eq!(
 		config.session.unwrap().args,
 		[
+			"--relay=wss://relay.example/relay",
 			"--relay-public=wss://rooms.example/relay",
 			"--state=/tmp/s",
 			"--transport=noise-relay"
@@ -121,6 +123,45 @@ fn the_shared_sessions_options_pass_in_its_grammar_and_need_its_state() {
 	assert!(onion.tor.is_some());
 	assert!(onion.server_args.iter().all(|arg| !arg.starts_with("--onion-")));
 }
+#[test]
+fn a_public_address_for_this_servers_own_relay_is_refused() {
+	let refused = |args: &[&str]| {
+		Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None)
+			.err()
+			.expect("a refusal")
+	};
+	let message = |option: &str| {
+		format!("{option} names how peers dial the relay named with it; this server's own relay is dialed at --http-public")
+	};
+	assert_eq!(
+		refused(&["--transport=noise-relay", "--relay-public=wss://rooms.example/relay"]),
+		message("--relay-public")
+	);
+	assert_eq!(
+		refused(&[
+			"--session-state=/tmp/s",
+			"--session-transport=noise-relay",
+			"--session-relay-public=wss://rooms.example/relay",
+		]),
+		message("--session-relay-public")
+	);
+	// Naming the relay the peer registers at takes its public address too,
+	// as an option or as the environment every peer under this front reads.
+	let named = parse(&[
+		"--transport=noise-relay",
+		"--relay=wss://relay.example/relay",
+		"--relay-public=wss://rooms.example/relay",
+	]);
+	assert!(named.server_args.contains(&"--relay-public=wss://rooms.example/relay".to_owned()));
+	let environment = Config::parse(
+		["--transport=noise-relay".into(), "--relay-public=wss://rooms.example/relay".into()],
+		|key| (key == "GLOWCAP_ROOMS_RELAY_URL").then(|| "wss://relay.example/relay".into()),
+	)
+	.unwrap()
+	.unwrap();
+	assert_eq!(environment.relay_url.as_deref(), Some("wss://relay.example/relay"));
+}
+
 #[test]
 fn every_listen_declaration_reaches_the_directory() {
 	let config = parse(&["--listen=noise-relay", "--transport=tcp", "--listen=noise-tcp,port=0"]);

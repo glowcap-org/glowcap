@@ -6,6 +6,8 @@ export const managedSessionText = {
 	workspaceConflict: "The workspace changed. Review the current selection before reapplying this action.",
 	acquisitionConflict:
 		"The workspace changed before access was saved. Review the current selection before trying again.",
+	acquisitionRefused: "The session refused this change, so nothing was saved.",
+	acquisitionUnknown: "Rooms can't tell whether this change was saved. Pick it back up from Unfinished changes.",
 	startupRecovery: "Workspace startup and cleanup need recovery",
 	composerBusy: "Two sends are still in progress. Keep this draft and send it when they finish.",
 	archiveOfferMissing: "The original archive offer is no longer held",

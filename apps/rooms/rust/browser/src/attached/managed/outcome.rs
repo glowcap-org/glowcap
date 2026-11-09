@@ -1,5 +1,7 @@
 //! Retained management requests distinguish a proved admission conflict from
-//! a missing acknowledgement. Only the former permits explicit reapplication.
+//! a refusal that admitted nothing and from a missing acknowledgement. Only a
+//! conflict permits explicit reapplication, only an acknowledgement that never
+//! came keeps the request for replay, and a refusal frees it with its reason.
 use super::control::RoomsManagedEdit;
 use super::*;
 
@@ -17,25 +19,43 @@ pub(super) fn result(value: core::result::Result<Argument, rooms_glowcap::client
 	}
 }
 
+/// A submitted request's outcome as the page reads it: `committed`, a proved
+/// `conflict`, a `refused` request the peer admitted nothing of, or
+/// `uncertain` when nothing settled the question. Every outcome but the
+/// first carries the reason the client saw.
+fn submission(status: &str, reason: Option<&str>) -> Result<JsValue> {
+	let mut outcome = serde_json::json!({ "status": status });
+	if let Some(reason) = reason {
+		outcome["reason"] = reason.into();
+	}
+	json(&outcome.to_string())
+}
+
 pub(super) fn acquisition(result: core::result::Result<(), rooms_glowcap::client::Error>) -> Result<JsValue> {
 	match result {
-		Ok(()) => Ok("committed".into()),
-		Err(rooms_glowcap::client::Error::WorkspaceConflict) => Ok("conflict".into()),
-		Err(error) => Err(error.to_string()),
+		Ok(()) => submission("committed", None),
+		Err(error) => failed(error),
 	}
 }
 
 pub(super) fn failed(error: rooms_glowcap::client::Error) -> Result<JsValue> {
-	let conflict = matches!(&error,
-		rooms_glowcap::client::Error::Binding(error)
-			if error.kind() == glowcap::ErrorKind::Broken && matches!(error.message(), Some("RevisionConflict" | "OperationConflict")));
-	json(
-		&serde_json::json!({
-			"status": if conflict { "conflict" } else { "uncertain" },
-			"reason": error.to_string(),
-		})
-		.to_string(),
-	)
+	use rooms_glowcap::client::Error;
+	let conflict = match &error {
+		Error::WorkspaceConflict => true,
+		Error::Binding(error) => {
+			error.kind() == glowcap::ErrorKind::Broken
+				&& matches!(error.message(), Some("RevisionConflict" | "OperationConflict"))
+		}
+		_ => false,
+	};
+	let status = if conflict {
+		"conflict"
+	} else if error.refused() {
+		"refused"
+	} else {
+		"uncertain"
+	};
+	submission(status, Some(&error.to_string()))
 }
 
 #[wasm_bindgen]
@@ -47,7 +67,7 @@ impl RoomsManagedEdit {
 		let request = self.request.clone();
 		self.driver.submit(0, move |_| async move {
 			match request.submit().await {
-				Ok(()) => json(r#"{"status":"committed"}"#),
+				Ok(()) => submission("committed", None),
 				Err(error) => failed(error),
 			}
 		})

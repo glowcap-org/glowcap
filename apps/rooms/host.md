@@ -120,7 +120,9 @@ own, apart from one opened from the published page.
   to it, such as `--session-bind` or `--session-relay`. A relay door
   registers at this server's own relay unless `--session-relay` names one,
   and the page is offered the workspace through any door a browser can
-  open: iroh, a relay, or a TCP door this server forwards to.
+  open: iroh, a relay, or a TCP door this server forwards to. Peers dial
+  this server's own relay where browsers do, at `--http-public`, so
+  `--session-relay-public` applies only with `--session-relay`.
 - Operator capabilities stay off unless you turn them on.
 - State goes in `$XDG_STATE_HOME/glowcap/rooms`, or else
   `$HOME/.local/state/glowcap/rooms`. `GLOWCAP_STATE` changes the glowcap base

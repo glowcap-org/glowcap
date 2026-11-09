@@ -362,8 +362,10 @@ export class ManagedRoomsSession {
 	execute(...args: Parameters<ManagedEffects["execute"]>): Promise<void> {
 		return this.effects.execute(...args);
 	}
+	/** Give up on one open change for good: a held acquisition is freed here,
+	 * and a receipt is released at the workspace. */
 	releaseOperation(id: string): Promise<void> {
-		return this.effects.releaseOperation(id);
+		return this.actions.pending.includes(id) ? this.actions.release(id) : this.effects.releaseOperation(id);
 	}
 	completeOperation(id: string): Promise<boolean> {
 		return this.effects.completeOperation(id);

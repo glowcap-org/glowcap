@@ -101,6 +101,18 @@ impl Error {
 			_ => self.admission_refusal().is_some(),
 		}
 	}
+	/// The request admitted nothing: the peer answered it with a break, which
+	/// a Rooms session verb sends only before its commit point, or the binding
+	/// never sent it. A closed connection, a missed deadline, a reply this
+	/// client could not read, or a failed observation leaves the outcome
+	/// unknown, so the request keeps its replay value.
+	pub fn refused(&self) -> bool {
+		match self {
+			Self::WorkspaceConflict | Self::Unsent(_) | Self::RefusedObservation(_) => true,
+			Self::Binding(error) => error.kind() == glowcap::ErrorKind::Broken,
+			_ => false,
+		}
+	}
 	/// A protocol refusal leaves the selected capability usable. Transport loss
 	/// and a missed deadline mean this client no longer has a proved live peer. status-allow: lifecycle transition
 	pub fn connection_failed(&self) -> bool {

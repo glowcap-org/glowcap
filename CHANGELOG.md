@@ -9,7 +9,7 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
-## [0.1.6] - 2026-11-08
+## [0.1.6] - 2026-11-09
 
 ### Added
 
@@ -79,6 +79,21 @@ and storage formats before 1.0.
 
 ### Fixed
 
+- Under `rooms-web`, the directory and the shared session dial the server's
+  own relay at the address `--http-public` names, which reaches both of
+  them. `rooms-web` now refuses `--relay-public` and `--session-relay-public`
+  for a peer on its own relay. An address given to one peer left the other
+  dialing the relay's bound address, and a shared session in a container
+  then answered a directory join with a bare `PromiseBroken`. Both options
+  still apply to a peer whose `--relay` or `--session-relay` names another
+  relay.
+- The page forgets a change the session refused and reports the refusal,
+  where it listed the change as gone through with a **Finish** that
+  resubmitted it. A change nothing settled is listed with its outcome
+  unknown and can be let go. An access edit or issuance the session refused
+  frees its request the same way.
+- **New access** on a session attached by its own address asks for no Rooms
+  server: the session publishes the access where it is reached.
 - A sturdyref naming a peer by its key through a sealed listener, such as a
   directory's bare `noise-relay` address, redeems over the sealed session
   whatever listener the peer's hello advertised. Before, the Rooms page

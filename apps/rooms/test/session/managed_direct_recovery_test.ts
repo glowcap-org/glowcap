@@ -64,10 +64,10 @@ for (const change of ["none", "draft", "source", "removed", "peer"] as const) {
 							if (change === "draft") current.intent.conversations[0].draft = "latest draft";
 							if (change === "source") current.intent.conversations[0].source = "replacement-source";
 							if (change === "removed") current.intent.conversations = [];
-							return Promise.resolve("conflict");
+							return Promise.resolve({ status: "conflict" });
 						}
 						current.intent = JSON.parse(intent);
-						return Promise.resolve("committed");
+						return Promise.resolve({ status: "committed" });
 					},
 					free() {},
 				});

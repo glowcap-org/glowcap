@@ -355,7 +355,7 @@ Deno.test("managed workspace selection rejects a different gesture while origina
 		free() {},
 		prepareSelectWorkspace: () => {
 			preparations++;
-			return Promise.resolve({ submit: () => Promise.resolve("committed"), free() {} });
+			return Promise.resolve({ submit: () => Promise.resolve({ status: "committed" }), free() {} });
 		},
 	} as unknown as RoomsManagedWorkspace;
 	const application = {
@@ -511,7 +511,7 @@ for (
 								submissions++;
 								accepted.intent = JSON.parse(intent);
 								failRefresh = true;
-								return Promise.resolve("committed");
+								return Promise.resolve({ status: "committed" });
 							},
 							free() {},
 						});
@@ -540,7 +540,9 @@ Deno.test("managed acquisition refusal wakes recovery and retry retires the orig
 		prepareDirectory: () =>
 			Promise.resolve({
 				submit: () =>
-					fail ? Promise.reject(new Error("missing acknowledgement")) : Promise.resolve("committed"),
+					fail
+						? Promise.reject(new Error("missing acknowledgement"))
+						: Promise.resolve({ status: "committed" }),
 				free: () => {
 					freed++;
 				},

@@ -47,7 +47,7 @@ for (const kind of ["room", "direct"] as const) {
 							acquired = true;
 							return change === "uncertain" && submissions === 1
 								? Promise.reject(new Error("reply lost after acquisition"))
-								: Promise.resolve("committed");
+								: Promise.resolve({ status: "committed" });
 						},
 						free() {},
 					});
@@ -125,7 +125,7 @@ for (const failure of ["result read", "preparation", "submission", "conflicts", 
 						submissions++;
 						return failure === "submission"
 							? Promise.reject(reason)
-							: Promise.resolve(failure === "conflicts" ? "conflict" : "committed");
+							: Promise.resolve({ status: failure === "conflicts" ? "conflict" : "committed" });
 					},
 					free() {},
 				});
