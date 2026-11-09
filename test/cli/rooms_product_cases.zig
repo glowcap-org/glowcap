@@ -28,13 +28,38 @@ test "Rooms exposes one product tree with one session and team lifecycle" {
     try std.testing.expect(rooms.findChild("directory").?.findChild("serve").?.run != null);
 }
 
+fn flagNamed(command: *const cli.cmd_types.Command, name: []const u8) ?cli.cmd_types.Flag {
+    for (command.flags) |flag| if (std.mem.eql(u8, flag.long, name)) return flag;
+    return null;
+}
 test "Rooms serve owns the options a page served elsewhere needs to reach it" {
     const serve = cli.tree.root.findChild("apps").?.findChild("rooms").?.findChild("serve").?;
     for ([_][]const u8{ "allow-origin", "session-state", "http-port", "http-public" }) |name| {
-        var found = false;
-        for (serve.flags) |flag| found = found or std.mem.eql(u8, flag.long, name);
-        try std.testing.expect(found);
+        try std.testing.expect(flagNamed(serve, name) != null);
     }
+}
+test "Rooms peers take every listener transport and its options" {
+    const rooms = cli.tree.root.findChild("apps").?.findChild("rooms").?;
+    const listeners = [_]*const cli.cmd_types.Command{
+        rooms.findChild("serve").?,
+        rooms.findChild("directory").?.findChild("serve").?,
+        rooms.findChild("archive").?.findChild("serve").?,
+        rooms.findChild("session").?.findChild("serve").?,
+        rooms.findChild("session").?.findChild("start").?,
+    };
+    for (listeners) |command| {
+        for ([_][]const u8{ "transport", "relay", "relay-public", "bind", "port", "announce-host", "onion-socks", "onion-control" }) |name| {
+            try std.testing.expect(flagNamed(command, name) != null);
+        }
+        try std.testing.expectEqualStrings(cli.rooms_commands.transport_help, flagNamed(command, "transport").?.help);
+    }
+    // The directory fronts take more listeners, once per transport, and the
+    // web front takes the shared workspace's listener options beside its own.
+    for (listeners[0..2]) |command| try std.testing.expect(flagNamed(command, "listen").?.repeatable);
+    for ([_][]const u8{ "session-transport", "session-relay", "session-relay-public", "session-bind", "session-onion-socks" }) |name| {
+        try std.testing.expect(flagNamed(listeners[0], name) != null);
+    }
+    try std.testing.expect(flagNamed(listeners[1], "session-transport") == null);
 }
 
 test "Rooms completion follows the installed session and team grammar" {

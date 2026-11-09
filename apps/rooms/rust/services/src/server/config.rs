@@ -78,6 +78,10 @@ const FLAGS: &[&str] = &[
 ];
 
 impl Config {
+	/// The environment variable that stands in for an absent `--<key>`.
+	pub fn variable(key: &str) -> String {
+		format!("GLOWCAP_ROOMS_{}", key.replace('-', "_").to_uppercase())
+	}
 	/// `None` means help was asked for. An argument wins over the environment.
 	pub fn parse(
 		args: impl IntoIterator<Item = String>,
@@ -116,7 +120,7 @@ impl Config {
 		}
 		let value = |key: &str| {
 			named.get(key).cloned().or_else(|| {
-				env(&format!("GLOWCAP_ROOMS_{}", key.replace('-', "_").to_uppercase()))
+				env(&Self::variable(key))
 					.map(|s| s.trim().to_owned())
 					.filter(|s| !s.is_empty())
 			})
@@ -129,7 +133,8 @@ impl Config {
 				Some(other) => Err(Error::refused(format!("--{key} takes no value, not {other:?}"))),
 			}
 		};
-		let transport = Transport::parse(value, &env, "server").map_err(Error::refused)?;
+		let transport =
+			Transport::parse(|key| named.get(key).cloned(), &env, Self::variable, "server").map_err(Error::refused)?;
 		// The environment stands in only when no argument declared one, the
 		// way every other option's argument wins over its variable.
 		if declared.is_empty()

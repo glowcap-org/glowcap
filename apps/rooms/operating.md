@@ -445,7 +445,7 @@ The relay's limits are environment variables, also set in the deployment's
 - `GLOWCAP_RELAY_MAX_SESSIONS`, `GLOWCAP_RELAY_MAX_REGISTRATIONS`, and
   `GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY` limit WebSocket sessions and
   rendezvous registrations.
-- `GLOWCAP_RELAY_MAX_IROH_SESSIONS` (<!-- value rust/services/src/web/relay.rs DEFAULT_IROH_SESSIONS -->16<!-- /value -->) and
+- `GLOWCAP_RELAY_MAX_IROH_SESSIONS` (<!-- value rust/services/src/web/relay/limits.rs DEFAULT_IROH_SESSIONS -->16<!-- /value -->) and
   `GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE` (twice the session limit) limit the
   iroh connections, each of which runs its own endpoint runtime.
 

@@ -367,7 +367,8 @@ try {
 
 	// Two ways a link can be no good, and they are not the same news. This one
 	// names a peer that is not there, so it fails on the way to the room.
-	// The relay closes before CapTP connects; the notice must keep that cause.
+	// The relay closes before CapTP connects, naming the cause in its Close
+	// frame; the notice must keep that cause.
 	const nowhere = elsewhere.replace(`%3A${foreignRoomPort}.`, `%3A${deadPort}.`);
 	if (nowhere === elsewhere) fail("could not aim a link at a port nothing is holding");
 	await say(cy, `/join ${nowhere} nowhere`);
@@ -375,10 +376,7 @@ try {
 		() =>
 			[...document.querySelectorAll("#log .sys")].some((row) =>
 				(row.textContent ?? "").includes("That link did not open a room") &&
-				[
-					"connection closed during the OCapN handshake",
-					"WebSocket closed abnormally (code 1011)",
-				].some((cause) => (row.textContent ?? "").includes(cause))
+				(row.textContent ?? "").includes("WebSocket closed by the peer (code 1011)")
 			),
 		undefined,
 		{ timeout: 60_000 },

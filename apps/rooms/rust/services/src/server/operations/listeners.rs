@@ -309,13 +309,9 @@ async fn down(shared: &Shared, writer: &Store, id: u64) -> Result<(), Refusal> {
 /// hints named, so a blank field means what the list said it means.
 async fn bring_up(host: &glowcap::Host, transport: Transport, ask: &Ask) -> Result<(Listener, String), Refusal> {
 	let env = Env;
-	let asked = match transport {
-		Transport::Tcp | Transport::KeyedTcp | Transport::NoiseTcp => serving::Transport::Tcp {
-			profile: match transport {
-				Transport::Tcp => serving::TcpProfile::Plain,
-				Transport::KeyedTcp => serving::TcpProfile::Keyed,
-				_ => serving::TcpProfile::Noise,
-			},
+	let asked = match serving::Family::of(transport) {
+		serving::Family::Tcp(profile) => serving::Transport::Tcp {
+			profile,
 			bind: ask
 				.bind
 				.clone()
@@ -324,30 +320,32 @@ async fn bring_up(host: &glowcap::Host, transport: Transport, ask: &Ask) -> Resu
 			port: ask.port.unwrap_or(0),
 			announce: ask.advertise.clone().or_else(|| env.env("GLOWCAP_ROOMS_ANNOUNCE_HOST")),
 		},
-		Transport::KeyedRelay | Transport::NoiseRelay => {
-			let configured = serving::relay::Address::configured(
-				env.env("GLOWCAP_ROOMS_RELAY_URL"),
-				env.env("GLOWCAP_ROOMS_RELAY_PUBLIC_URL"),
-			)?;
+		serving::Family::Relay(profile) => {
+			// The server's own relay, as the boot listener's environment names
+			// it. An ask that names a relay consults it only to reach the own
+			// relay the way the server does, so an environment that names none,
+			// or a broken one, refuses only an ask that leaves the relay to it.
+			let configured = || {
+				serving::relay::Address::configured(
+					env.env("GLOWCAP_ROOMS_RELAY_URL"),
+					env.env("GLOWCAP_ROOMS_RELAY_PUBLIC_URL"),
+				)
+			};
 			let address = match ask.relay.clone() {
-				Some(url) => serving::relay::Address::named(url, configured.as_ref())?,
-				None => configured.ok_or_else(|| {
+				Some(url) => {
+					let own = configured().ok().flatten(); // tolerant: the own relay only tells its public address apart
+					serving::relay::Address::named(url, own.as_ref())?
+				}
+				None => configured()?.ok_or_else(|| {
 					Refusal::unsupported(format!(
 						"A {} listener registers at a relay. Name its WebSocket URL with the ask, or start the server with GLOWCAP_ROOMS_RELAY_URL.",
 						transport.name()
 					))
 				})?,
 			};
-			serving::Transport::Relay {
-				profile: if transport == Transport::KeyedRelay {
-					serving::relay::Profile::Keyed
-				} else {
-					serving::relay::Profile::Noise
-				},
-				address,
-			}
+			serving::Transport::Relay { profile, address }
 		}
-		Transport::Iroh => serving::Transport::Iroh(match env.env("GLOWCAP_ROOMS_REACHABILITY").as_deref() {
+		serving::Family::Iroh => serving::Transport::Iroh(match env.env("GLOWCAP_ROOMS_REACHABILITY").as_deref() {
 			None | Some("direct") => glowcap::iroh::Reachability::Direct,
 			Some("discovery") => glowcap::iroh::Reachability::Discovery,
 			Some(other) => {
@@ -356,7 +354,7 @@ async fn bring_up(host: &glowcap::Host, transport: Transport, ask: &Ask) -> Resu
 				)));
 			}
 		}),
-		Transport::Onion => {
+		serving::Family::Onion => {
 			// glowcap starts no Tor, so the endpoints of an already-running
 			// daemon must have arrived in the environment. A runtime service
 			// takes a fresh address: the stored key belongs to the boot service.

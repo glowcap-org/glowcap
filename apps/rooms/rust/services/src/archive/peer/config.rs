@@ -7,6 +7,10 @@ pub struct Config {
 }
 pub const HELP: &str = "rooms-archive --state=<directory> [--transport=<transport>]\n  --transport=<transport>  tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion\n  --relay=<ws-url>  the relay a keyed-relay or noise-relay listener registers at (or GLOWCAP_ROOMS_RELAY_URL)\n  --relay-public=<ws-url>  that relay as peers dial it, behind a port forward or proxy (or GLOWCAP_ROOMS_RELAY_PUBLIC_URL)\n  --reachability=discovery|direct  iroh reachability (default: discovery)\n  --bind=<host> --port=<port> --announce-host=<host>  TCP listener options\n  --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)\n  --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port\n  --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)\nOptions override GLOWCAP_ARCHIVE_* environment variables. TCP defaults to 127.0.0.1:0.\n";
 impl Config {
+	/// The environment variable that stands in for an absent `--<key>`.
+	pub fn variable(key: &str) -> String {
+		format!("GLOWCAP_ARCHIVE_{}", key.replace('-', "_").to_uppercase())
+	}
 	pub fn parse(
 		args: impl IntoIterator<Item = String>,
 		env: impl Fn(&str) -> Option<String>,
@@ -29,7 +33,7 @@ impl Config {
 		}
 		let value = |key: &str| {
 			named.get(key).cloned().or_else(|| {
-				env(&format!("GLOWCAP_ARCHIVE_{}", key.replace('-', "_").to_uppercase()))
+				env(&Self::variable(key))
 					.map(|s| s.trim().to_owned())
 					.filter(|s| !s.is_empty())
 			})
@@ -37,7 +41,7 @@ impl Config {
 		let state = value("state")
 			.filter(|s| !s.is_empty())
 			.ok_or("name durable storage with --state=<directory> or GLOWCAP_ARCHIVE_STATE")?;
-		let transport = Transport::parse(value, &env, "archive")?;
+		let transport = Transport::parse(|key| named.get(key).cloned(), &env, Self::variable, "archive")?;
 		Ok(Some(Self {
 			state: state.into(),
 			transport,

@@ -85,10 +85,13 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   open, such as a directory's sealed relay door, is reached with no server, and the directory's card says the
   route the connection took. When that door does not answer, the join card names the relay, or the browser
   standing between the page and it. An act that needs a server on a page with none asks for one before it does
-  anything, saying which door failed when one did, and the act picks up once the server is saved.
+  anything, saying which door failed when one did, and the act picks up once the server is saved. Typing a held
+  directory's address through another of its doors re-routes the directory through that door, and it keeps its
+  home mark, nickname, and registration.
 - *Declared listeners.* `rooms-server` and `rooms-web` announce any of the seven listener transports with
-  `--transport=<transport>`, and take `--listen=<transport>[,<name>=<value>...]` once per transport beside it. Every declared door is open before the server is ready, and `/locator`
-  then names the directory by its key with the doors listed, sealed routes first. A relay door registers at this
+  `--transport=<transport>`, and take `--listen=<transport>[,<name>=<value>...]` once per transport beside it.
+  Every declared door is open before the server is ready, and `/locator` then names the directory by its key
+  with the doors listed, sealed routes first. A relay door registers at this
   server's own relay unless `GLOWCAP_ROOMS_RELAY_URL` or the `relay` option names another.
 - *Running from a checkout.* The checkout launcher builds the product if it is missing, then runs the complete staged
   installation without build tools. After editing source, run `glowcap-install` explicitly. The runtime proof exercises

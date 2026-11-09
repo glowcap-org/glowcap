@@ -14,6 +14,8 @@ struct Web {
 	group: i32,
 	port: u16,
 	shared: Vec<String>,
+	/// The banner's `open the ...` links, as printed.
+	links: Vec<String>,
 }
 /// A launch's `--name=value` options, one value per name.
 type Options = std::collections::BTreeMap<&'static str, String>;
@@ -99,6 +101,7 @@ impl Web {
 			group,
 			port: 0,
 			shared: Vec::new(),
+			links: Vec::new(),
 		}
 	}
 	async fn start(trace: u16) -> Self {
@@ -113,6 +116,9 @@ impl Web {
 			let line = lines.next_line().await.unwrap().expect("web readiness before EOF");
 			if line.starts_with("ROOMS-SESSION-") {
 				web.shared.push(line.clone());
+			}
+			if let Some(link) = line.strip_prefix("  open the ") {
+				web.links.push(link.to_owned());
 			}
 			if let Some(port) = line.strip_prefix("ROOMS-WEB-LISTENING ") {
 				web.port = port.parse().unwrap();
@@ -226,6 +232,82 @@ async fn web_shared_session_announces_independent_links_and_releases_custody() {
 	})
 	.await
 	.expect("shared session lifecycle deadline");
+}
+
+// The session's relay door registers at this front's relay, which must be
+// serving by then, and the page is offered the session through it.
+#[tokio::test(flavor = "current_thread")]
+async fn web_shared_session_opens_a_relay_door_at_this_servers_relay_and_a_tcp_door_it_forwards_to() {
+	tokio::time::timeout(Duration::from_secs(30), async {
+		let state = rooms_testing::scratch::Scratch::create("web-session-doors");
+		let mut command = Web::endpoint_command(0);
+		command
+			.arg("--no-browser-assets")
+			.arg(format!("--session-state={}", state.display()))
+			.arg("--session-transport=noise-relay");
+		let mut web = Web::spawn(command);
+		web.ready().await;
+		let link = web.shared[0]
+			.strip_prefix("ROOMS-SESSION-LISTENING ")
+			.unwrap()
+			.to_owned();
+		let door = glowcap::parse_sturdyref(&link, glowcap::CaptpVersion::V1_0)
+			.unwrap()
+			.locator;
+		assert_eq!(door.transport, glowcap::TRANSPORT_NOISE_RELAY);
+		assert_eq!(
+			door.hints.get("rendezvous-relay"),
+			Some(&glowcap::HintValue::String(format!(
+				"ws://127.0.0.1:{}/relay",
+				web.port
+			))),
+			"the session's relay door did not name this server's relay"
+		);
+		assert_offered(&web, &link);
+		web.stop().await;
+		// A TCP door is forwarded to at the endpoint its link names: the relay
+		// reads the target before it asks for an upgrade, so a plain request
+		// from this server's own page is refused for the door it does not
+		// forward to and asked to upgrade for the one it does.
+		let mut command = Web::endpoint_command(0);
+		command
+			.arg("--no-browser-assets")
+			.arg(format!("--session-state={}", state.display()))
+			.arg("--session-transport=tcp");
+		let mut web = Web::spawn(command);
+		web.ready().await;
+		let link = web.shared[0]
+			.strip_prefix("ROOMS-SESSION-LISTENING ")
+			.unwrap()
+			.to_owned();
+		let door = glowcap::parse_sturdyref(&link, glowcap::CaptpVersion::V1_0)
+			.unwrap()
+			.locator;
+		assert_eq!(door.transport, glowcap::TRANSPORT_TCP);
+		assert_offered(&web, &link);
+		let origin = format!("Origin: http://127.0.0.1:{}\r\n", web.port);
+		let forwarded = web
+			.request("GET", &format!("/relay?target={}", door.designator), &origin)
+			.await;
+		assert!(forwarded.starts_with("HTTP/1.1 400"), "{forwarded}");
+		let refused = web.request("GET", "/relay?target=127.0.0.1:1", &origin).await;
+		assert!(refused.starts_with("HTTP/1.1 403"), "{refused}");
+		web.stop().await;
+	})
+	.await
+	.expect("shared session doors deadline");
+}
+
+/// The banner offers the page the session through a door a browser can open:
+/// the link that opens the page with this server also attaches the session.
+fn assert_offered(web: &Web, session: &str) {
+	let attach = url::form_urlencoded::Serializer::new(String::new())
+		.append_pair("attach", session)
+		.finish();
+	let offered = web.links.iter().any(|link| {
+		link.starts_with("session https://glowcap.org/rooms/app/?server=") && link.ends_with(&format!("#{attach}"))
+	});
+	assert!(offered, "the banner offers no page the session: {:?}", web.links);
 }
 
 #[tokio::test(flavor = "current_thread")]

@@ -150,12 +150,6 @@ impl Transport {
 	pub fn options(self) -> Vec<&'static str> {
 		self.takes().iter().map(|takes| takes.name).collect()
 	}
-	pub const fn is_tcp_family(self) -> bool {
-		matches!(self, Self::Tcp | Self::KeyedTcp | Self::NoiseTcp)
-	}
-	pub const fn is_relay_family(self) -> bool {
-		matches!(self, Self::KeyedRelay | Self::NoiseRelay)
-	}
 }
 
 /// Why a missing Tor stops an onion listener, the standing answer in `list`
@@ -480,9 +474,7 @@ impl Seats {
 					let configured = match takes.name {
 						"bind" => env.env("GLOWCAP_ROOMS_BIND"),
 						"advertise" => env.env("GLOWCAP_ROOMS_ANNOUNCE_HOST"),
-						"relay" => env
-							.env("GLOWCAP_ROOMS_RELAY_PUBLIC_URL")
-							.or_else(|| env.env("GLOWCAP_ROOMS_RELAY_URL")),
+						"relay" => env.env("GLOWCAP_ROOMS_RELAY_URL"),
 						_ => None,
 					};
 					(

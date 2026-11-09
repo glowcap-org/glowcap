@@ -18,7 +18,16 @@ and storage formats before 1.0.
   `--relay=<ws-url>` or `GLOWCAP_ROOMS_RELAY_URL`, and under `rooms-web` at
   that server's own relay. `--relay-public=<ws-url>` names that relay as
   peers dial it when a port forward or a proxy gives it another address, and
-  `rooms-web --http-public=<url>` does the same for its own relay.
+  `rooms-web --http-public=<url>` does the same for its own relay. The
+  installed `glowcap apps rooms` commands take the same listener options,
+  `serve` with `--listen` and the shared workspace's as `--session-<option>`,
+  and `session start` keeps every one of them in its settings.
+- `rooms-web --session-transport=<transport>` chooses the shared workspace's
+  announced listener the same way, and `--session-<option>` passes any other
+  `rooms-session` option to it. A relay listener registers at that server's
+  own relay unless `--session-relay` names one, an onion listener publishes
+  through the private Tor the server runs, and the page is offered the
+  workspace through any listener a browser can open.
 - A relay listener whose configuration names a relay alias advertises the
   alias in its `rendezvous-relay` hint. Behind a port forward or a proxy,
   peers dial the route they reach while the listener's own register socket

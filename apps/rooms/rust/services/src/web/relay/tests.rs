@@ -1,4 +1,4 @@
-use super::*;
+use super::{limits::SITE_PAGE, *};
 
 #[test]
 fn defaults_derive_from_the_http_fronts_connection_budget() {
@@ -30,7 +30,8 @@ fn tcp_admission_names_exact_endpoints_and_rejects_a_malformed_configuration() {
 	)));
 	let (jobs, _) = mpsc::channel(1);
 	let (_, stop) = watch::channel(false);
-	let relay = Relay::new(limits, location, jobs, stop, Rc::new(|_| {}));
+	let (_, session) = watch::channel(None);
+	let relay = Relay::new(limits, location, session, jobs, stop, Rc::new(|_| {}));
 	for target in ["127.0.0.1:9099", "127.0.0.2:9099", "127.0.0.1:9200", "[::1]:9201"] {
 		assert!(matches!(relay.target(target), Ok(Target::Local(_))), "{target}");
 	}
@@ -60,22 +61,41 @@ fn tcp_admission_names_exact_endpoints_and_rejects_a_malformed_configuration() {
 }
 
 #[test]
-fn the_servers_own_shared_session_is_a_relay_target_by_iroh_or_tcp_and_not_by_onion() {
-	let mut limits = Limits::read(|_| None).unwrap();
-	assert!(limits.admit_own_session(&format!("ocapn://{}.iroh/s/Ym9hcmQ", "ab".repeat(32))));
-	assert!(limits.tcp.is_empty());
-	assert!(limits.admit_own_session("ocapn://127.0.0.1%3A9201.tcp/s/Ym9hcmQ"));
-	assert!(limits.admit_own_session("ocapn://127.0.0.1%3A9201.tcp/s/Ym9hcmQ"));
-	assert_eq!(limits.tcp, vec![("127.0.0.1".to_owned(), 9201)]);
+fn the_servers_own_shared_session_is_reached_by_key_or_relay_or_forwarded_tcp_and_not_by_onion() {
+	assert!(matches!(
+		session_reach(&format!("ocapn://{}.iroh/s/Ym9hcmQ", "ab".repeat(32))),
+		Some(SessionReach::Direct)
+	));
+	assert!(matches!(
+		session_reach(&format!(
+			"ocapn://{}.noise-relay/s/Ym9hcmQ?rendezvous-relay=ws%3A%2F%2F127.0.0.1%3A8080%2Frelay",
+			"ab".repeat(32)
+		)),
+		Some(SessionReach::Direct)
+	));
+	let Some(SessionReach::Forwarded(endpoint)) = session_reach("ocapn://127.0.0.1%3A9201.tcp/s/Ym9hcmQ") else {
+		panic!("a tcp session is forwarded to");
+	};
+	assert_eq!(endpoint, Endpoint::tcp("127.0.0.1", 9201));
 	// A session the relay cannot forward to is not offered to a browser.
-	assert!(!limits.admit_own_session(&format!("ocapn://{}.onion/s/Ym9hcmQ", "a".repeat(56))));
-	assert!(!limits.admit_own_session("not a link"));
-	assert_eq!(limits.tcp.len(), 1);
+	assert!(session_reach(&format!("ocapn://{}.onion/s/Ym9hcmQ", "a".repeat(56))).is_none());
+	assert!(session_reach("not a link").is_none());
 	let (_, location) = watch::channel(None);
+	let (session, forwarding) = watch::channel(None);
 	let (jobs, _) = mpsc::channel(1);
 	let (_, stop) = watch::channel(false);
-	let relay = Relay::new(limits, location, jobs, stop, Rc::new(|_| {}));
-	// The browser asks for the link's locator, the session's own address.
+	let relay = Relay::new(
+		Limits::read(|_| None).unwrap(),
+		location,
+		forwarding,
+		jobs,
+		stop,
+		Rc::new(|_| {}),
+	);
+	// The browser asks for the link's locator, the session's own address,
+	// which the relay forwards to once the session is open and not before.
+	assert!(relay.target("ocapn://127.0.0.1%3A9201.tcp").is_err());
+	session.send_replace(Some(endpoint));
 	assert!(matches!(
 		relay.target("ocapn://127.0.0.1%3A9201.tcp"),
 		Ok(Target::Local(_))
@@ -106,7 +126,15 @@ fn an_identity_route_location_owns_every_door_inside_it() {
 	let (_, location) = watch::channel(Some(announcement));
 	let (jobs, _) = mpsc::channel(1);
 	let (_, stop) = watch::channel(false);
-	let relay = Relay::new(Limits::read(|_| None).unwrap(), location, jobs, stop, Rc::new(|_| {}));
+	let (_, session) = watch::channel(None);
+	let relay = Relay::new(
+		Limits::read(|_| None).unwrap(),
+		location,
+		session,
+		jobs,
+		stop,
+		Rc::new(|_| {}),
+	);
 	// The tcp fallback, the keyed tcp door, and the onion route all forward to
 	// the local directory.
 	assert!(matches!(relay.target("127.0.0.1:9301"), Ok(Target::Local(_))));
@@ -164,7 +192,8 @@ fn a_listed_page_origin_may_relay_and_nothing_near_it_may() {
 	let (_, location) = watch::channel(None);
 	let (jobs, _) = mpsc::channel(1);
 	let (_, stop) = watch::channel(false);
-	let relay = Relay::new(limits, location, jobs, stop, Rc::new(|_| {}));
+	let (_, session) = watch::channel(None);
+	let relay = Relay::new(limits, location, session, jobs, stop, Rc::new(|_| {}));
 	for (origin, named) in [
 		("https://pages.example", true),
 		("http://127.0.0.1:8093", true),
@@ -188,9 +217,11 @@ fn a_refused_page_origin_is_told_to_the_operator_with_the_option_that_admits_it(
 	let (_, stop) = watch::channel(false);
 	let told = Rc::new(std::cell::RefCell::new(Vec::new()));
 	let sink = told.clone();
+	let (_, session) = watch::channel(None);
 	let relay = Relay::new(
 		limits,
 		location,
+		session,
 		jobs,
 		stop,
 		Rc::new(move |notice| sink.borrow_mut().push(notice.to_string())),

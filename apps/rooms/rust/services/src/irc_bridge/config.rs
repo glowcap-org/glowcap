@@ -100,6 +100,8 @@ impl Config {
 				}
 			},
 			|_| None,
+			// The bridge reads no environment, so no variable stands in.
+			str::to_owned,
 			"IRC bridge",
 		)?;
 		Ok(Some(Self {

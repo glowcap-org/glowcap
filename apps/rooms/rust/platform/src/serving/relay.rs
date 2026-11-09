@@ -1,16 +1,20 @@
 //! Registering a listener at a WebSocket relay, for the boot listener and a
-//! runtime seat alike. The host provider keeps registration retries in the
-//! background, so a completed listen is not the evidence the relay exists:
-//! one register socket opened and closed first is, and the registration
-//! itself answers within one deadline or the listener refuses.
+//! runtime seat alike. The host provider registers in the background and
+//! keeps retrying there, so a completed listen is not the evidence the relay
+//! exists. One probe is: a register request the relay refuses as a Rooms
+//! relay does, which registers nothing and touches no live registration.
 use glowcap::{Host, ListenerIdentity, relay};
 use rooms_application::server::operations::listeners::{Refusal, register_url};
 use std::time::Duration;
 
-/// How long the relay has to answer a register socket, and then the
-/// registration, before the listener refuses instead of standing behind
-/// a row nothing answers.
+/// How long the relay has to answer the probe before the listener refuses
+/// instead of standing behind a row nothing answers.
 pub const REGISTER_DEADLINE: Duration = Duration::from_secs(5);
+/// The identity the probe registers under: not a designator, so a Rooms
+/// relay refuses it before any effect, and that refusal is the proof.
+const PROBE_IDENTITY: &str = "probe";
+/// The line a Rooms relay refuses a non-designator identity with.
+const PROBE_REFUSAL: &str = "invalid rendezvous identity";
 
 /// Which relay profile a relay listener speaks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,56 +72,122 @@ impl Address {
 			dial: url,
 		})
 	}
+	/// The dial route when it differs from the reach route: the alias a
+	/// listener advertises, and what a supervised directory is told.
+	pub fn public(&self) -> Option<&str> {
+		(self.dial != self.reach).then_some(self.dial.as_str())
+	}
 }
 
 /// Register the Host at `address`. An unsupported refusal names the relay
-/// that did not answer; a plain one is the provider's own failure.
+/// that did not answer as one; a plain one is the provider's own failure.
+/// The open completes once the provider holds the registration to retry,
+/// in process, so it waits on no partner.
 pub async fn listen(profile: Profile, address: &Address, host: &Host) -> Result<relay::Server, Refusal> {
-	let Address { reach, dial } = address;
+	let reach = &address.reach;
 	let register = register_url(reach)?;
-	let designator = host.designator().map_err(|e| Refusal::plain(e.to_string()))?;
-	probe(&register, &designator).await?;
+	probe(&register).await?;
 	let options = relay::ListenOptions {
 		identity: ListenerIdentity::Host(host.clone()),
 		trust: Default::default(),
-		relay_alias_url: (dial != reach).then_some(dial.as_str()),
+		relay_alias_url: address.public(),
 	};
-	let registering = async {
-		match profile {
-			Profile::Keyed => relay::keyed::listen(reach, &register, options).await,
-			Profile::Noise => relay::noise::listen(reach, &register, options).await,
-		}
-	};
-	tokio::time::timeout(REGISTER_DEADLINE, registering)
-		.await
-		.map_err(|_| Refusal::unsupported("The relay did not answer a register socket in time."))?
-		.map_err(|error| Refusal::plain(error.to_string()))
+	match profile {
+		Profile::Keyed => relay::keyed::listen(reach, &register, options).await,
+		Profile::Noise => relay::noise::listen(reach, &register, options).await,
+	}
+	.map_err(|error| Refusal::plain(error.to_string()))
 }
 
-/// Open one register socket to prove the relay answers, then close it.
-async fn probe(register: &str, designator: &str) -> Result<(), Refusal> {
-	let url = format!("{register}?id={designator}");
+/// Ask `register` to register an identity no relay admits, and read a Rooms
+/// relay's refusal of it. Anything else at the address is not one.
+async fn probe(register: &str) -> Result<(), Refusal> {
+	let url = format!("{register}?id={PROBE_IDENTITY}");
 	let connect = tokio_tungstenite::connect_async(&url);
+	use tokio_tungstenite::tungstenite::{Error, http::StatusCode};
 	match tokio::time::timeout(REGISTER_DEADLINE, connect).await {
-		Ok(Ok((mut socket, _))) => {
-			// The probe registered nothing to keep: a close frame ends it, and
-			// the relay drops the registration with it. A relay that is gone
-			// before the frame lands has still answered the probe.
-			drop(socket.close(None).await); // tolerant: the probe's answer is the open, not the close
+		// The status is the answer. The body arrives with the headers or
+		// after the handshake stopped reading, so it sharpens the answer
+		// only when it came along.
+		Ok(Err(Error::Http(response)))
+			if response.status() == StatusCode::BAD_REQUEST
+				&& response.body().as_deref().is_none_or(|body| {
+					body.is_empty() || body.windows(PROBE_REFUSAL.len()).any(|w| w == PROBE_REFUSAL.as_bytes())
+				}) =>
+		{
 			Ok(())
 		}
+		Ok(Err(Error::Http(response))) => Err(Refusal::unsupported(format!(
+			"What answers at {register} is not a Rooms relay: it answered a register request with {}.",
+			response.status()
+		))),
+		Ok(Ok((mut socket, _))) => {
+			drop(socket.close(None).await); // tolerant: the socket is refused either way
+			Err(Refusal::unsupported(format!(
+				"What answers at {register} is not a Rooms relay: it registered an identity no relay admits."
+			)))
+		}
 		Ok(Err(_)) => Err(Refusal::unsupported(format!(
-			"No relay answered a register socket at {register}."
+			"No relay answered a register request at {register}."
 		))),
 		Err(_) => Err(Refusal::unsupported(
-			"The relay did not answer a register socket in time.",
+			"The relay did not answer a register request in time.",
 		)),
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use super::Address;
+	use super::{Address, PROBE_REFUSAL, probe};
+	use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+	/// One HTTP server answering every request with `reply`, at its register
+	/// URL, serving until `served` is dropped.
+	async fn answering(reply: String, served: &mut tokio::task::JoinSet<()>) -> String {
+		let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+		let port = listener.local_addr().unwrap().port();
+		served.spawn_local(async move {
+			while let Ok((mut socket, _)) = listener.accept().await {
+				let mut request = [0u8; 1024];
+				let _ = socket.read(&mut request).await;
+				let _ = socket.write_all(reply.as_bytes()).await;
+			}
+		});
+		format!("ws://127.0.0.1:{port}/register")
+	}
+
+	#[tokio::test]
+	async fn the_probe_reads_a_rooms_relays_refusal_and_nothing_else() {
+		tokio::task::LocalSet::new()
+			.run_until(async {
+				let mut served = tokio::task::JoinSet::new();
+				let body = format!("rooms: {PROBE_REFUSAL}\n");
+				let relay = answering(
+					format!(
+						"HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+						body.len()
+					),
+					&mut served,
+				)
+				.await;
+				assert!(probe(&relay).await.is_ok());
+				let other = answering(
+					"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),
+					&mut served,
+				)
+				.await;
+				let refused = probe(&other).await.unwrap_err();
+				assert!(refused.detail().contains("not a Rooms relay"), "{}", refused.detail());
+				assert!(refused.detail().contains("404"), "{}", refused.detail());
+				let closed = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+				let nobody = format!("ws://127.0.0.1:{}/register", closed.local_addr().unwrap().port());
+				drop(closed);
+				let refused = probe(&nobody).await.unwrap_err();
+				assert!(refused.detail().contains("No relay answered"), "{}", refused.detail());
+				served.shutdown().await;
+			})
+			.await;
+	}
 
 	#[test]
 	fn a_relay_named_by_its_public_address_is_reached_the_way_the_server_reaches_it() {
