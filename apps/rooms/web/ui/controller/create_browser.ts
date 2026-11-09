@@ -43,7 +43,7 @@ export function createRoomsBrowserController(
 			else localStorage.removeItem(chosenKey());
 		} catch (error) {
 			uncoverReload();
-			return attachedSessionFailureText(error, serverInUse());
+			return attachedSessionFailureText(error, serverInUse(), uri);
 		}
 		await finishCommittedMove(() => session.close(), toFront);
 		return "";

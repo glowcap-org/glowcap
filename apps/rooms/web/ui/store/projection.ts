@@ -284,9 +284,8 @@ export interface State {
 	/** An act waiting on a Rooms server this page has none of. The page asks
 	 * for one, and `resume` is the page address the act picks up at after the
 	 * reload a new server takes, or null to reload where the page stands.
-	 * `why` is the failure of the door this browser opened by itself first,
-	 * or null when the address had none. */
-	serverAsk: { readonly resume: string | null; readonly why: string | null } | null;
+	 * `lead` is the ask's words for what the act needs a server for. */
+	serverAsk: { readonly resume: string | null; readonly lead: string } | null;
 	/** Whether the page is joining its served directory as it opens, which is
 	 * the one time an empty session is waiting on a directory. */
 	openingDirectory: boolean;

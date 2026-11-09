@@ -3,13 +3,13 @@
 //
 // Two doors, each a launch row in one card: keep everything on this device, or
 // attach to a session another device or a server keeps. Under the card, the
-// Rooms server both doors reach through (SessionServer). Attach with no server
-// asks for one first, and saving it attaches, so the link typed or offered is
-// never lost on the way. The advanced
-// disclosure under the card holds the two acts that take saved state away,
-// each behind the ordinary confirm. A refusal lands beside what asked for it:
-// a capability the session would not take stays under its own field, and
-// anything else stands under the card.
+// Rooms server the page reaches through what it cannot open on its own
+// (SessionServer). Attach to a link that needs one, with none, asks for it
+// first, and saving it attaches, so the link typed or offered is never lost
+// on the way. The advanced disclosure under the card holds the two acts that
+// take saved state away, each behind the ordinary confirm. A refusal lands
+// beside what asked for it: a capability the session would not take stays
+// under its own field, and anything else stands under the card.
 
 import { useRef, useState } from "react";
 import { reloadNow } from "../boot.ts";
@@ -24,6 +24,7 @@ import { Icon, Wordmark } from "../icons.tsx";
 import { Said } from "../Said.tsx";
 import { ErrorDetail } from "./ErrorDetail.tsx";
 import { actionRefusal, sessionCapabilityRefusal } from "../error_text.ts";
+import { linkNeedsServer } from "../application.ts";
 import {
 	sessionAdvanced,
 	sessionChangeLabel,
@@ -99,9 +100,10 @@ export function SessionSetup(
 			return;
 		}
 		setAttachError("");
-		// A shared session is reached through the server, so with none, choosing
-		// one comes first, and saving it comes back here.
-		if (browser.server() == null) {
+		// The session is reached at the address its link names. A link this
+		// browser cannot open on its own needs a Rooms server, so with none,
+		// choosing one comes first, and saving it comes back here.
+		if (browser.server() == null && linkNeedsServer(candidate)) {
 			if (attachButton.current != null) openModalFrom(attachButton.current, () => setChoosing("attach"));
 			return;
 		}

@@ -7,6 +7,7 @@ import { useManagedSession } from "../session/managed/context.tsx";
 import type { HeldControl } from "../session/managed/access.ts";
 import { useAsyncAction } from "../async_action.ts";
 import { useServerGate } from "../hooks.ts";
+import { serverNeedLink } from "../../../lib/text/session.ts";
 import { Button } from "../Button.tsx";
 import { Checkbox } from "../Checkbox.tsx";
 import { CopyField } from "../Copy.tsx";
@@ -83,9 +84,10 @@ export function ShareControl({ control }: { control: HeldControl }) {
 						variant="quiet"
 						busy={share.busy}
 						disabled={share.busy}
-						// The link is minted on the server, so the server comes first.
+						// The link leads to this browser, which people reach through its
+						// Rooms server, so the server comes first.
 						onClick={() => {
-							if (serverGate() != null) void share.run();
+							if (serverGate(serverNeedLink) != null) void share.run();
 						}}
 					>
 						{text.prepareControl}

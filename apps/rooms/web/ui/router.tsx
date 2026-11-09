@@ -62,6 +62,7 @@ import {
 import type { RoomsPageContext } from "./page.ts";
 import { routerBasename } from "./page_base.ts";
 import { crashReload, crashSessionKept, crashTitle } from "../../lib/text/page.ts";
+import { serverAskFor, serverNeedHome } from "../../lib/text/session.ts";
 
 let routingPage: RoomsPageContext | null = null;
 let mirrored: string | null = null;
@@ -294,7 +295,9 @@ function DmRoute() {
 		if (store.actingDir(routing().projection, state) === null) {
 			// A page with no directory has none to find the person in: it asks
 			// for a Rooms server and picks this address up after the reload.
-			if (store.serverOrAsk(routing().projection, () => dmAddress(nick)) == null) arrival.mark();
+			if (store.serverOrAsk(routing().projection, serverAskFor(serverNeedHome), () => dmAddress(nick)) == null) {
+				arrival.mark();
+			}
 			return;
 		}
 		session.startDm(nick);
@@ -360,7 +363,11 @@ function DirectoryRoute() {
 		const home = routing().projection.get().homeDirectory;
 		if (home === null) {
 			// A page with no Rooms server has no home directory to wait for.
-			if (store.serverOrAsk(routing().projection, () => directoryAddress()) == null) arrival.mark();
+			if (
+				store.serverOrAsk(routing().projection, serverAskFor(serverNeedHome), () => directoryAddress()) == null
+			) {
+				arrival.mark();
+			}
 			return;
 		}
 		net.showDirectory(routing(), home);

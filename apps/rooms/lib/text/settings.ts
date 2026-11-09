@@ -4,7 +4,7 @@
 // reading, not the machinery.
 
 import { browserBlocks } from "./failure.ts";
-import { serverModel } from "./session.ts";
+import { serverModel, serverNeedDm } from "./session.ts";
 
 /** Session message retention and the archive capability it selects. */
 export const historyOffSession =
@@ -39,10 +39,7 @@ export const settingsConnectionRefused = "Couldn't save the connection choice.";
 
 export const settingsCopyDirectory = "Copy the directory address";
 export const settingsCopyServer = "Copy the server address";
-export const settingsCopyBrowser = "Copy this session's address";
 export const settingsShareDirectory = "Lets anyone join this server's rooms by name.";
-export const settingsBrowserUnreachable = "Nobody can reach this address until the Rooms server connects.";
-export const settingsShareBrowser = "Share this address to let somebody start a direct conversation with you.";
 /** The Rooms server this browser is reached through, chosen on this device. */
 export const serverOfferTitle = "Use this Rooms server?";
 export const serverOfferSay = (host: string, local: boolean) =>
@@ -79,7 +76,7 @@ export const settingsDmRelayLabel = "Through the Rooms server";
 export const settingsDmRelaySaid =
 	"Encrypted end to end, and the Rooms server only carries the encrypted bytes. A client that isn't a browser can write to you first.";
 /** The saved mode is shown as it is while the page has no Rooms server. */
-export const settingsDmRelayNeedsServer = "This page has no Rooms server for direct messages to go through.";
+export const settingsDmRelayNeedsServer = `${serverNeedDm} This page has none.`;
 export const settingsDmReload = "Saving reloads this window.";
 
 export const sessionShareLabel = "Share this session";
@@ -169,7 +166,6 @@ export const settingsHomeUseServer = "Make it home";
 export const settingsHomeOption = (name: string, away: boolean): string => away ? `${name} (not connected)` : name;
 export const settingsHomeHintEmpty =
 	"This session has no home directory. Join a directory, then choose it here, so a room you join without an address opens there.";
-export const reachBrowserTitle = "This browser";
 export const dmConnectionTitle = "Direct message connection";
 export const operationsTitle = "Operations";
 export const settingsTitle = "Settings";

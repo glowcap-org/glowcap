@@ -112,12 +112,13 @@ export const browserBlocks = (permission: "prompt" | "denied") =>
 		? "This browser blocks this page from reaching servers on your computer or network. Allow local network access for this site in the browser's site settings"
 		: "This browser asks before this page reaches a server on your computer or network. Allow it when the browser asks";
 
-/** A reach on a page with no Rooms server, through the relay door the
- * directory named, that did not get through. The relay is the one address a
- * person can check. `detail` is the break's own words when the dial reported
- * them, and empty when it reported another door's refusal instead. */
-export const doorUnreachable = (relayHost: string, detail: string) =>
-	`Rooms couldn't reach that directory through its relay at ${relayHost}. The directory may be off, or its relay isn't answering.${
+/** A reach on a page with no Rooms server, through the relay door a
+ * directory's address or a session's link named, that did not get through.
+ * The relay is the one address a person can check. `detail` is the break's
+ * own words when the dial reported them, and empty when it reported another
+ * door's refusal instead. */
+export const doorUnreachable = (subject: "directory" | "session", relayHost: string, detail: string) =>
+	`Rooms couldn't reach that ${subject} through its relay at ${relayHost}. It may be off, or its relay isn't answering.${
 		detail === "" ? "" : ` (${detail})`
 	}`;
 /** The same reach while this browser stands between the page and a relay on

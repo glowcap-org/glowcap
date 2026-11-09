@@ -45,12 +45,24 @@ import type { ManagedHistory } from "./history.ts";
 import { managedArchiveReading } from "./archive_shares.ts";
 import type { RoomInfo } from "../../../../lib/directory_publications.ts";
 import { directDirectoryUnavailable, directNoRegistration } from "../../../../lib/text/conversation.ts";
+import {
+	serverAskAfterDoor,
+	serverAskFor,
+	serverNeedAddress,
+	serverNeedDm,
+	serverNeedHome,
+} from "../../../../lib/text/session.ts";
 import { policyForRoomPreset, type RoomPolicy } from "../../room_policy.ts";
 
 /** Where an act picks up after the reload a newly chosen Rooms server takes:
  * a page address, built only when the act is refused for want of one, or null
  * to reload where the page stands. */
 type Resume = (() => string) | null;
+
+/** What a refused reach needed a Rooms server for: a blank address carries
+ * the home directory's sentence as its detail, and any other address is one
+ * this browser cannot open on its own. */
+const serverNeedOf = (view: FailureView): string => view.detail === serverNeedHome ? serverNeedHome : serverNeedAddress;
 
 export function createManagedController(
 	page: RoomsPageContext,
@@ -101,7 +113,7 @@ export function createManagedController(
 		(otherwise: (view: FailureView) => string) => (error: unknown, resume: Resume): string | null => {
 			const view = failureView(error);
 			if (view.code === NO_SERVER) {
-				store.askServer(projection, resume?.() ?? null);
+				store.askServer(projection, resume?.() ?? null, serverAskFor(serverNeedOf(view)));
 				return null;
 			}
 			if (view.code !== "unexpected") return renderFailure(view);
@@ -136,9 +148,13 @@ export function createManagedController(
 		const throughServer = doors?.throughServer ?? true;
 		const blocked = relay == null ? null : await localNetworkBlock(relay);
 		if (blocked === "prompt" || blocked === "denied") return doorBlocked(blocked, view.detail);
-		const door = relay == null ? null : doorUnreachable(relay.host, broke ?? "");
+		const door = relay == null ? null : doorUnreachable("directory", relay.host, broke ?? "");
 		if (throughServer) {
-			store.askServer(projection, resume?.() ?? null, door);
+			store.askServer(
+				projection,
+				resume?.() ?? null,
+				door == null ? serverAskFor(serverNeedOf(view)) : serverAskAfterDoor(door),
+			);
 			return null;
 		}
 		return door ?? renderFailure(view);
@@ -164,7 +180,7 @@ export function createManagedController(
 	// for one before anything opens, with the conversation to come back to.
 	const reachableForDm = (resume: () => string | null): boolean => {
 		if (projection.get().server != null || (selfLocator() ?? "") !== "") return true;
-		store.askServer(projection, resume());
+		store.askServer(projection, resume(), serverAskFor(serverNeedDm));
 		return false;
 	};
 	const dirAddressOf = (id: DirId) => dirAddress(projection.get().dirs, id);
@@ -268,10 +284,9 @@ export function createManagedController(
 		const { id, route } = destinationOf(locator);
 		if (id == null) {
 			// A blank address means the served directory, which a page with no
-			// Rooms server has none of.
-			if (locator === "" && served() == null) {
-				throw new RoomsError(NO_SERVER, "a blank address means the server's directory, and this page has none");
-			}
+			// Rooms server has none of. The refusal carries the catalog's sentence
+			// for that as its detail, so the ask it raises leads with it.
+			if (locator === "" && served() == null) throw new RoomsError(NO_SERVER, serverNeedHome);
 			throw new Error("This address does not name a directory");
 		}
 		const name = nick.kind === "exact" ? nick.name : nick.base;
@@ -355,7 +370,6 @@ export function createManagedController(
 				return refusalText(error);
 			}
 		},
-		selfLocator,
 		dirAddress: dirAddressOf,
 		directoryId,
 		join: (destination: RoomDestination, nick, signal) => {

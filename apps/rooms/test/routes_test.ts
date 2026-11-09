@@ -10,7 +10,7 @@ import {
 } from "@glowcap/runtime";
 import { roomsIdentityDoors, roomsIdentityRoute } from "../lib/routes.ts";
 import { BROWSER_OWN_DOORS, HINT_RENDEZVOUS_RELAY } from "../lib/doors.ts";
-import { browserDoors } from "../web/ui/application.ts";
+import { browserDoors, capabilityDoors } from "../web/ui/application.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../lib/locator.ts";
 import { assert } from "./assert.ts";
 
@@ -82,6 +82,21 @@ Deno.test("a browser with no Rooms server knows which doors it opens itself", ()
 		"nor one with a bad key",
 	);
 	assert(browserDoors("") === null, "empty text is no address");
+});
+
+Deno.test("a pasted link is judged by the doors of the address it names", () => {
+	const key = "cd".repeat(32);
+	const relayDoor = parseLocator(`ocapn://${key}.noise-relay?${HINT_RENDEZVOUS_RELAY}=ws://relay.example/relay`);
+	// A session shared from a browser is a relay door, which this browser opens
+	// itself, so attaching to it needs no Rooms server.
+	const shared = capabilityDoors(formatRoomsSturdyref(relayDoor, "workspace"));
+	assert(shared?.relay?.host === "relay.example" && !shared.throughServer, "a relay-door link needs no server");
+	// A session a server keeps is behind a door only a Rooms server opens.
+	const kept = capabilityDoors(formatRoomsSturdyref(parseLocator("ocapn://offered.example.tcp"), "workspace"));
+	assert(kept?.relay === null && kept.throughServer, "a TCP link needs a Rooms server");
+	// Text that is not a link has no doors, and an address is not a link.
+	assert(capabilityDoors("not a link") === null, "words are no link");
+	assert(capabilityDoors(formatLocatorUri(relayDoor)) === null, "an address with no swiss number is no link");
 });
 
 Deno.test("one proving route plus onion gives new peers identity and old peers reachability", () => {

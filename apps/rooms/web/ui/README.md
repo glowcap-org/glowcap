@@ -255,8 +255,8 @@ outcome separately.
 - Every step, from preparing to completing, stays owned while notifications arrive.
 - The session-effect bar lists kept changes that lost their owner after a failure or a restore. A reply that was cut
   off never proves that a change failed.
-- **Session settings** also opens the list of kept receipts, including final unknown outcomes nobody is watching any
-  more. An empty list says there are no unfinished changes.
+- **Session settings** opens the same list while any change is unfinished, including final unknown outcomes nobody
+  is watching any more, and offers nothing when there are none.
 
 `session/managed/gestures.ts` covers the generated list of commands:
 

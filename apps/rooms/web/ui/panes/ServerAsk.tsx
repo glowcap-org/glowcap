@@ -1,11 +1,11 @@
-// The server dialog an act opens in the workspace when it reaches through a
-// Rooms server and the page has none: the question session choice asks before
-// Attach, asked where the act was. A session that has opened keeps its
-// server, so saving reloads the page, standing at the act's own address so
-// it picks up there.
+// The server dialog an act opens in the workspace when it needs a Rooms
+// server and the page has none: the question session choice asks before
+// Attach, asked where the act was, leading with what the act needs a server
+// for. A session that has opened keeps its server, so saving reloads the page,
+// standing at the act's own address so it picks up there.
 
 import { saveAndReload } from "../../../lib/text/controls.ts";
-import { serverAskAfterDoor, serverAskLead, sessionServerTitle } from "../../../lib/text/session.ts";
+import { sessionServerTitle } from "../../../lib/text/session.ts";
 import { reloadNow } from "../boot.ts";
 import { useRoomsProjection, useRoomsState } from "../hooks.ts";
 import { pageBase } from "../page_base.ts";
@@ -28,7 +28,7 @@ export function ServerAsk() {
 		<ServerDialog
 			title={sessionServerTitle}
 			titleId="serverAskTitle"
-			lead={ask?.why == null ? serverAskLead : serverAskAfterDoor(ask.why)}
+			lead={ask?.lead ?? ""}
 			saveLabel={saveAndReload}
 			open={ask != null}
 			onClose={() => store.dismissServerAsk(projection)}

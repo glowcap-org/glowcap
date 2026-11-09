@@ -90,11 +90,26 @@ export interface BrowserDoors {
 const BrowserDoorsSchema = z.object({ relay: z.nullable(z.string()), throughServer: z.boolean() });
 
 export function browserDoors(address: string): BrowserDoors | null {
-	const encoded = applicationModule().browserDoors(address);
+	return doorsFrom(applicationModule().browserDoors(address));
+}
+
+/** The same for a pasted capability link, or null for text that is not one. */
+export function capabilityDoors(link: string): BrowserDoors | null {
+	return doorsFrom(applicationModule().browserCapabilityDoors(link));
+}
+
+function doorsFrom(encoded: string | undefined): BrowserDoors | null {
 	if (encoded == null) return null;
 	const doors = projected(encoded, BrowserDoorsSchema, "door list");
 	// The application admitted the relay as an absolute WebSocket URL.
 	return { relay: doors.relay === null ? null : new URL(doors.relay), throughServer: doors.throughServer };
+}
+
+/** Whether reaching a pasted link takes a Rooms server: one of its doors is a
+ * door this browser cannot open on its own. Text that is no link has no doors,
+ * and the act that takes it refuses it for what it is. */
+export function linkNeedsServer(link: string): boolean {
+	return capabilityDoors(link)?.throughServer ?? false;
 }
 
 export function inspectCapability(value: string): RoomsAddress | null {

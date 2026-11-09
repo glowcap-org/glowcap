@@ -39,24 +39,26 @@ export function toast(projection: PageProjection, kind: ToastKind, text: string)
 	projection.set({ toasts: toasts.length > MAX_TOASTS ? toasts.slice(0, MAX_TOASTS) : toasts });
 }
 
-/** Ask for a Rooms server on behalf of an act that reaches through one, with
- * the page address the act picks up at after the reload, or null for here.
- * `why` is the failure of the door this browser tried by itself first, when
- * the address had one, so the ask says what a server is for. */
-export function askServer(projection: PageProjection, resume: string | null, why: string | null = null): void {
-	projection.set({ serverAsk: { resume, why } });
+/** Ask for a Rooms server on behalf of an act that needs one, with the page
+ * address the act picks up at after the reload, or null for here, and `lead`,
+ * the ask's own words for what the act needs a server for. */
+export function askServer(projection: PageProjection, resume: string | null, lead: string): void {
+	projection.set({ serverAsk: { resume, lead } });
 }
 
-/** The gate before an act that reaches through a Rooms server: links are
- * minted on it, and every dial goes through it. Answers the server, or asks
- * the page for one on the act's behalf and answers null, and the act goes no
- * further, so nothing it would have done is done before the server exists.
- * `resume` names the address the act picks up at after the reload a chosen
- * server takes, or null for the page as it stands. It is read only when the
- * ask is made, so an act with a server pays nothing for it. */
-export function serverOrAsk(projection: PageProjection, resume: () => string | null): RoomsServerView | null {
+/** The gate before an act that needs a Rooms server. Answers the server, or
+ * asks the page for one on the act's behalf with `lead` and answers null, and
+ * the act goes no further, so nothing it would have done is done before the
+ * server exists. `resume` names the address the act picks up at after the
+ * reload a chosen server takes, or null for the page as it stands. It is read
+ * only when the ask is made, so an act with a server pays nothing for it. */
+export function serverOrAsk(
+	projection: PageProjection,
+	lead: string,
+	resume: () => string | null,
+): RoomsServerView | null {
 	const server = projection.get().server;
-	if (server == null) askServer(projection, resume());
+	if (server == null) askServer(projection, resume(), lead);
 	return server;
 }
 

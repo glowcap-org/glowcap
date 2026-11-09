@@ -7,7 +7,9 @@
 // origin, the server ask never appears, and the directory's card says the
 // route the connection took. When the relay does not answer, the page names
 // it: alone, as the refusal on the join card, and beside a door only a Rooms
-// server reaches, as the reason the page asks for one.
+// server reaches, as the reason the page asks for one. A session another
+// browser shares is a relay door too, so the static page attaches to it with
+// no server.
 
 import { formatLocatorUri, parseLocator, TRANSPORT_NOISE_RELAY } from "@glowcap/runtime";
 import type { Browser, Page } from "playwright";
@@ -17,11 +19,13 @@ import { roomsIdentityDoors, roomsIdentityRoute } from "../../lib/routes.ts";
 import { routeRelay } from "../../lib/text/directory.ts";
 import { doorUnreachable } from "../../lib/text/failure.ts";
 import { serverAskAfterDoor } from "../../lib/text/session.ts";
+import { currentSessionAttached } from "../../lib/text/session_settings.ts";
 import { stopOwned } from "../support/children.ts";
 import { fail } from "../support/fail.ts";
 import { ROOT } from "../support/paths.ts";
 import { roomLocator } from "../support/rooms_server.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
+import { shareThroughSettings } from "./session_attach.ts";
 import { serveStaticExport } from "../support/static_host.ts";
 import { spawnWeb, webPort } from "../support/web_front.ts";
 import { fillSettled, openDirectoryCard, reachDirectoryOnCard } from "./harness.ts";
@@ -38,7 +42,8 @@ export async function run(browser: Browser): Promise<void> {
 	const host = await serveStaticExport();
 	const bare = await browser.newContext();
 	try {
-		const address = await roomLocator(await webPort(front), "the front with a relay door");
+		const port = await webPort(front);
+		const address = await roomLocator(port, "the front with a relay door");
 		const open = await bare.newPage();
 		await open.goto(`${host.origin}/`);
 		await establishLocalSession(open);
@@ -81,10 +86,50 @@ export async function run(browser: Browser): Promise<void> {
 			)
 		);
 		await deadDoorsAreNamed(await bare.newPage(), host.origin, address);
+		await attachesThroughRelayDoor(browser, `http://127.0.0.1:${port}`, host.origin);
 	} finally {
 		await bare.close();
 		await host.close();
 		await stopOwned(front);
+	}
+}
+
+/** A session shared from a browser on the front's own page is a relay door
+ * keyed to that browser, so the static page attaches to it with no Rooms
+ * server and is never asked for one. */
+async function attachesThroughRelayDoor(browser: Browser, front: string, origin: string): Promise<void> {
+	const hosting = await browser.newContext();
+	const attaching = await browser.newContext();
+	try {
+		const host = await hosting.newPage();
+		await host.goto(`${front}/`);
+		await establishLocalSession(host);
+		const link = await shareThroughSettings(host);
+		const open = await attaching.newPage();
+		await open.goto(`${origin}/`);
+		await open.waitForSelector("#sessionSetupCapability", { timeout: 60_000 });
+		await fillSettled(open, "#sessionSetupCapability", link);
+		await open.click("#sessionAttach");
+		await open.waitForSelector("#settingsBtn", { timeout: 60_000 }).catch(async () =>
+			fail(
+				"the published page did not attach to a session shared through a relay door: " +
+					JSON.stringify({
+						refused: await open.textContent("#sessionSetupCapabilitySaid").catch(() => null),
+						asked: await open.locator("#serverAddress").count(),
+					}),
+			)
+		);
+		if (await open.locator("#serverAddress").count() !== 0) {
+			fail("attaching through a door the browser opens itself asked for a Rooms server");
+		}
+		await open.click("#settingsBtn");
+		await open.click("#sessionTab");
+		await open.getByText(currentSessionAttached, { exact: true }).waitFor({ timeout: 10_000 }).catch(() =>
+			fail("the attached page's Session tab did not say it is attached")
+		);
+	} finally {
+		await attaching.close();
+		await hosting.close();
 	}
 }
 
@@ -99,7 +144,7 @@ async function deadDoorsAreNamed(open: Page, origin: string, address: string): P
 	if (relay == null || other == null) fail(`the front's address did not list a relay door and another: ${address}`);
 	const silent = `127.0.0.1:${nonEphemeralPort()}`;
 	const dead = formatLocatorUri({ ...relay, hints: new Map([[HINT_RENDEZVOUS_RELAY, `ws://${silent}/relay`]]) });
-	const said = doorUnreachable(silent, "");
+	const said = doorUnreachable("directory", silent, "");
 	await open.goto(`${origin}/`);
 	await establishLocalSession(open);
 	await fillSettled(open, "#nick", "door");

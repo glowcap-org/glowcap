@@ -10,6 +10,7 @@ import "./support/match_media.ts";
 const store = await import("../web/ui/store.ts");
 const projection = new store.PageProjection();
 const { assertEquals } = await import("./assert.ts");
+const { serverAskFor, serverNeedAddress } = await import("../lib/text/session.ts");
 
 function clearToasts(): void {
 	for (const notice of [...projection.get().toasts]) store.dismissToast(projection, notice.id);
@@ -54,17 +55,17 @@ Deno.test("dismissing a notice that is already gone is nothing", () => {
 });
 
 Deno.test("an act that needs a Rooms server holds where it resumes until the ask is answered", () => {
-	store.askServer(projection, "/join?room=general");
+	store.askServer(projection, "/join?room=general", "This address needs one.");
 	assertEquals(
 		projection.get().serverAsk,
-		{ resume: "/join?room=general", why: null },
-		"the ask names where to resume",
+		{ resume: "/join?room=general", lead: "This address needs one." },
+		"the ask names where to resume and what for",
 	);
 	store.askServer(projection, null, "Its relay did not answer.");
 	assertEquals(
 		projection.get().serverAsk,
-		{ resume: null, why: "Its relay did not answer." },
-		"a later ask replaces the first, and says why a server is wanted",
+		{ resume: null, lead: "Its relay did not answer." },
+		"a later ask replaces the first",
 	);
 	store.dismissServerAsk(projection);
 	assertEquals(projection.get().serverAsk, null, "dismissing takes the ask down");
@@ -74,17 +75,21 @@ Deno.test("an act that needs a Rooms server holds where it resumes until the ask
 
 Deno.test("an act that reaches through a Rooms server is gated on one before it does anything", () => {
 	projection.set({ server: null, serverAsk: null });
-	assertEquals(store.serverOrAsk(projection, () => "/join?room=general"), null, "with no server the act waits");
+	assertEquals(
+		store.serverOrAsk(projection, serverAskFor(serverNeedAddress), () => "/join?room=general"),
+		null,
+		"with no server the act waits",
+	);
 	assertEquals(
 		projection.get().serverAsk,
-		{ resume: "/join?room=general", why: null },
-		"and the page asks, naming where to resume",
+		{ resume: "/join?room=general", lead: serverAskFor(serverNeedAddress) },
+		"and the page asks with the act's own lead, naming where to resume",
 	);
 	store.dismissServerAsk(projection);
 	const held = { base: "https://rooms.example/", chosen: true, directory: null };
 	projection.set({ server: held });
 	assertEquals(
-		store.serverOrAsk(projection, () => {
+		store.serverOrAsk(projection, serverAskFor(serverNeedAddress), () => {
 			throw new Error("the resume address is not read while a server is held");
 		}),
 		held,

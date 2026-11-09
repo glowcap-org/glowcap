@@ -6,10 +6,14 @@
 import type { Browser } from "playwright";
 import { fail } from "../support/fail.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { loopbackTcpDesignator } from "../../lib/locator.ts";
+import { parseLocator } from "@glowcap/runtime";
+import { formatRoomsSturdyref, loopbackTcpDesignator } from "../../lib/locator.ts";
 import { saveAndReload } from "../../lib/text/controls.ts";
+import { joinNeedsAddress } from "../../lib/text/join.ts";
 import {
-	serverAskLead,
+	serverAskFor,
+	serverNeedAddress,
+	serverNeedHome,
 	sessionDidNotOpen,
 	sessionServerNone,
 	sessionServerSaveAttach,
@@ -20,7 +24,6 @@ import {
 	serverTestAnswers,
 	serverTestRefuses,
 	serverTurnsAway,
-	settingsBrowserUnreachable,
 	settingsRelayAway,
 } from "../../lib/text/settings.ts";
 
@@ -98,14 +101,6 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 			fail(
 				`the unreachable relay was not described in the catalog's words: ${
 					JSON.stringify(await said.textContent())
-				}`,
-			);
-		}
-		// The address a reader would hand out says it leads nowhere while the relay is away.
-		if ((await open.textContent("#selfUnreachable .said-clamp")) !== settingsBrowserUnreachable) {
-			fail(
-				`the browser's address did not say it is unreachable: ${
-					JSON.stringify(await open.textContent("#selfUnreachable"))
 				}`,
 			);
 		}
@@ -233,7 +228,8 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 				}`,
 			);
 		}
-		const capability = "ocapn://offered.example/s/workspace";
+		// A session link behind a door only a Rooms server opens.
+		const capability = formatRoomsSturdyref(parseLocator("ocapn://offered.example.tcp"), "workspace");
 		await open.fill("#sessionSetupCapability", capability);
 		await open.click("#sessionAttach");
 		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
@@ -264,10 +260,12 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await bare.close();
 	}
 
-	// Connecting to a directory address from a static page with no Rooms
-	// server asks for one in place, the way Attach does, and says nothing under
-	// the join form. Saving the server reloads the page at that act, with the
-	// address still named.
+	// A blank address on a static page with no Rooms server is refused on its
+	// own field, because the field is what the reader fills, and no server is
+	// asked for. Connecting to a directory address this browser cannot open on
+	// its own asks for one in place, the way Attach does, saying what for, and
+	// says nothing under the join form. Saving the server reloads the page at
+	// that act, with the address still named.
 	{
 		const bare = await browser.newContext();
 		const open = await bare.newPage();
@@ -279,14 +277,27 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		});
 		await open.goto(`http://127.0.0.1:${httpPort}/`);
 		await establishLocalSession(open);
+		await open.fill("#nick", "asker");
+		await open.click("#joinBtn");
+		await open.waitForFunction(
+			(said) => document.querySelector("#joinError .said-clamp")?.textContent === said,
+			joinNeedsAddress,
+			{ timeout: 10_000 },
+		).catch(async () =>
+			fail(
+				`a blank address was not refused on its field: ${
+					JSON.stringify(await open.textContent("#joinError .said-clamp").catch(() => null))
+				}`,
+			)
+		);
+		if (await open.locator("#serverAddress").count() !== 0) fail("a blank address asked for a Rooms server");
 		const elsewhere = loopbackTcpDesignator(httpPort);
 		await open.fill("#locator", elsewhere);
-		await open.fill("#nick", "asker");
 		await open.click("#joinBtn");
 		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
 			.catch(() => fail("connecting through a Rooms server the page has none of did not ask for one"));
-		await open.getByText(serverAskLead, { exact: true }).waitFor({ timeout: 5_000 })
-			.catch(() => fail("the server ask did not say why it is asking"));
+		await open.getByText(serverAskFor(serverNeedAddress), { exact: true }).waitFor({ timeout: 5_000 })
+			.catch(() => fail("the server ask did not say what the address needs a server for"));
 		if ((await open.textContent("#serverSave")) !== saveAndReload) {
 			fail(`the server ask did not say saving reloads: ${JSON.stringify(await open.textContent("#serverSave"))}`);
 		}
@@ -317,7 +328,9 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 
 	// A direct-message or directory address opened on a static page with no
 	// Rooms server asks for one instead of waiting for a directory that never
-	// comes, and saving the server reloads the page at that same address.
+	// comes, says that a name alone or a blank address means the home directory
+	// the page has none of, and saving the server reloads the page at that same
+	// address.
 	for (const path of ["/dm/alice", "/directory"]) {
 		const bare = await browser.newContext();
 		const open = await bare.newPage();
@@ -331,8 +344,8 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await establishLocalSession(open);
 		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
 			.catch(() => fail(`opening ${path} with no Rooms server did not ask for one`));
-		await open.getByText(serverAskLead, { exact: true }).waitFor({ timeout: 5_000 })
-			.catch(() => fail("the server ask did not say why it is asking"));
+		await open.getByText(serverAskFor(serverNeedHome), { exact: true }).waitFor({ timeout: 5_000 })
+			.catch(() => fail(`the server ask over ${path} did not say what it needs a server for`));
 		await open.fill("#serverAddress", `http://127.0.0.1:${httpPort}/`);
 		await open.press("#serverAddress", "Enter");
 		await open.waitForSelector("#serverTestSaid", { timeout: 30_000 });

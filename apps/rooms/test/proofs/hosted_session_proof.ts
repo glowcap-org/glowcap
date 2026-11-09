@@ -12,7 +12,7 @@ import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
 import { reachDirectoryOnCard } from "../page/harness.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
-import { attachThroughSettings, reattachThroughSettings } from "../page/session_attach.ts";
+import { attachThroughSettings, reattachThroughSettings, shareThroughSettings } from "../page/session_attach.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
@@ -48,21 +48,6 @@ async function joinHome(page: Page): Promise<void> {
 	await page.waitForSelector("#line:not([disabled])", { timeout: 60_000 });
 }
 
-async function share(page: Page): Promise<string> {
-	await page.click("#settingsBtn");
-	await page.click("#sessionTab");
-	await page.click("#sessionShareAsk");
-	await page.getByRole("button", { name: "Share this session", exact: true }).click();
-	await page.waitForSelector("#sessionShareAsk", { state: "detached", timeout: 60_000 });
-	await page.getByText("Hosted session", { exact: true }).waitFor({ timeout: 10_000 });
-	await page.getByText("This browser is hosting", { exact: true }).waitFor({ timeout: 10_000 });
-	await page.click("#holdingsTab");
-	await page.waitForSelector("#currentSessionCapability", { timeout: 60_000 });
-	const sturdyref = (await page.textContent("#currentSessionCapability"))?.trim() ?? "";
-	if (sturdyref === "") fail("Share produced no hosted session capability");
-	return sturdyref;
-}
-
 const deadline = setTimeout(() => fail("cross-directory hosted session scenario timed out after 180s"), 180_000);
 
 const hostHttp = await serveRooms();
@@ -73,7 +58,7 @@ try {
 	await Promise.all([waitForHttp(hostHttp), waitForHttp(attachingHttp)]);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const host = await pageAt(browser, hostHttp, "host");
-	const sturdyref = await share(host.page);
+	const sturdyref = await shareThroughSettings(host.page);
 	await host.page.click("#settingsClose");
 	await reattachThroughSettings(host.page, sturdyref, "the hosting browser");
 
