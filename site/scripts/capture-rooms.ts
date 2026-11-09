@@ -309,7 +309,7 @@ try {
 		await mira.click('#opsCapabilitySetForm button[type="submit"]');
 		await mira.waitForSelector("#opsCapabilitySetSaved", { timeout: 30_000 });
 		await mira.click("#settingsClose");
-		await mira.goto(`${url}ops/directory`, { waitUntil: "domcontentloaded" });
+		await mira.goto(`${url}ops/operator`, { waitUntil: "domcontentloaded" });
 		await mira.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 		await mira.waitForSelector("#operatorOpsPanel", { timeout: 60_000 });
 		await mira.waitForSelector("#operatorRooms", { timeout: 60_000 });

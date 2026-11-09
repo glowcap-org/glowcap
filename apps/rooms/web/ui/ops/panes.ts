@@ -1,11 +1,11 @@
 // The destinations under /ops, and which capabilities fill each one.
 //
 // A pane is an address, not a capability. Most are one of each, but the
-// directory is two: inspecting what it holds and changing what it holds are
-// separately minted authorities over the same subject, and a reader who takes
-// the second is not visiting somewhere else. So the pane opens when either is
-// held and draws as much as this tab can reach. The operator capability then
-// reads as a step up rather than a second page listing the
+// operator pane is two: inspecting what the directory holds and changing it
+// are separately minted authorities over the same subject, and a reader who
+// takes the second is not visiting somewhere else. So the pane opens when
+// either is held and draws as much as this tab can reach. The operator
+// capability then reads as a step up rather than a second page listing the
 // same rooms.
 
 import { type OpsHeld } from "./capabilities.ts";
@@ -38,9 +38,9 @@ export const OPS_PANES: readonly OpsPaneFace[] = [
 	{ id: "trace", path: "trace", label: opsPaneVisualizer, caps: ["trace"] },
 ];
 
-/** The address a capability's own word resolves to. `/ops/diagnostics` and
- * `/ops/operator` were addresses of their own before the directory pane, so
- * they still answer rather than becoming a bookmark that leads nowhere. */
+/** The pane at an address segment: a pane's own path, or a capability's
+ * word, so `/ops/diagnostics` answers with the operator pane that capability
+ * fills rather than becoming a bookmark that leads nowhere. */
 export function paneOf(segment: string): OpsPaneFace | null {
 	for (const pane of OPS_PANES) if (pane.path === segment) return pane;
 	for (const cap of OPERATIONS_CAPABILITIES) {
