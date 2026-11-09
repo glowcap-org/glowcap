@@ -31,13 +31,16 @@ Deno.test("Rooms errors parse only from the carrier position that owns the code"
 });
 
 Deno.test("an unexpected failure keeps its diagnostic without inventing retry authority", () => {
-	assertEquals(refusalText(new Error("transport retired")).endsWith("again. (transport retired)"), true);
+	assertEquals(
+		refusalText(new Error("transport retired")).endsWith("says what to report. (transport retired)"),
+		true,
+	);
 	assertEquals(failureView(new Error("transport retired")), {
 		code: "unexpected",
 		subject: "operation",
 		retry: "unknown",
 		summary: "Rooms couldn't complete that action.",
-		action: "Check the diagnostic before trying again.",
+		action: "Try again. If it keeps failing, the text in parentheses says what to report.",
 		detail: "transport retired",
 	});
 });
@@ -135,7 +138,7 @@ Deno.test("a reach through the browser's own relay door names the relay, and kee
 		"127.0.0.1:8080",
 		"glowcap error -12: glowcap error -8: browser channel error",
 	);
-	assertEquals(broke.startsWith("Rooms couldn't reach that directory through its relay at 127.0.0.1:8080."), true);
+	assertEquals(broke.startsWith("Rooms couldn't reach that directory through the server at 127.0.0.1:8080."), true);
 	assertEquals(broke.endsWith("(glowcap error -12: glowcap error -8: browser channel error)"), true);
 	// The dial reported another door's refusal, so there is no break to quote.
 	assertEquals(doorUnreachable("directory", "127.0.0.1:8080", "").endsWith("isn't answering."), true);

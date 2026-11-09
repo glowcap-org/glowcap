@@ -1,5 +1,5 @@
-// The Rooms operator page: the lists a directory operator can change, and what
-// each act on them leaves standing.
+// The Rooms operator page: the lists an operator can change, the diagnostics
+// beside them, and what each act on them leaves standing.
 //
 // Operator copy, so precision beats plainness here as it does in `ops.ts`. A
 // reader is deciding whether to retire a session, a name, a room, or a whole
@@ -51,7 +51,7 @@ export const operatorResetAll: OperatorReset = {
 	act: "Factory reset",
 	label: "Factory reset Rooms authority",
 	effect:
-		"The room-authority secret is rotated. Active links, tombstones, and moderator grants are cleared, and then all rooms, nickname claims, other peer sessions, and current trouble are retired. This operator connection, server identity, and retained message history remain. Old authorities stay revoked, and room names can mint unrelated new links.",
+		"The room-authority secret is rotated. Active links, records of revoked links, and moderator grants are cleared. Then all rooms, nickname claims, other peer sessions, and current trouble are retired. This operator connection, server identity, and retained message history remain. Old authorities stay revoked, and room names can mint unrelated new links.",
 };
 
 /** The two chips on a room row: what kind of room it is, and how its origin
@@ -69,21 +69,21 @@ export const operatorProofBridge = "through the bridge";
 
 export const operatorLoadMore = "Load more";
 export const operatorLead =
-	"This tab holds the Rooms operator capability. Its lists show what it can change, not roles inferred from a nickname or room membership.";
+	"Everything this server holds that you can change, and the diagnostics that show how it is running.";
 
 /** Room access: the durable entry links. */
 export const operatorLinksTitle = "Room access";
 export const operatorLinksLead =
-	"Durable room entry links admit future holders and already-live copies. Removing one invalidates both.";
+	"Anyone with one of these links can enter the room. Removing a link stops every copy of it.";
 export const operatorLinksEmpty = "No durable room entry links are active.";
 export const operatorPrivateRoom = "Private room";
 export const operatorRemoveAsk = "Remove…";
 export const operatorLinkRemoveEffect =
-	"Copied links and references already in use stop opening this room. A later link for the same room will be a fresh capability.";
+	"Copied links and references already in use stop opening this room. A later link for the same room will be new.";
 export const operatorLinkRemove = "Remove room entry link";
 export const operatorLinksSweepSubject = "room entry links";
 export const operatorLinksSweepEffect =
-	"Copied links and references already in use stop opening those rooms. Later links for the same rooms will be fresh capabilities.";
+	"Copied links and references already in use stop opening those rooms. Later links for the same rooms will be new.";
 export const operatorSweepRevoke = "Revoke";
 export const operatorSweepRevoked = "Revoked";
 export const operatorSweepRemove = "Remove";
@@ -93,8 +93,8 @@ export const operatorSweepDisconnected = "Disconnected";
 export const operatorSweepRelease = "Release";
 export const operatorSweepReleased = "Released";
 
-/** Names and reachability: nickname registrations. */
-export const operatorNamesTitle = "Names and reachability";
+/** Names and connections: nickname registrations. */
+export const operatorNamesTitle = "Names and connections";
 export const operatorNamesLead =
 	"A registered nickname holds direct-message inboxes and signaling routes on one exact session.";
 export const operatorNamesEmpty = "No nicknames are registered.";
@@ -108,8 +108,7 @@ export const operatorNamesSweepEffect =
 
 /** Connections and live references: peer sessions. */
 export const operatorSessionsTitle = "Connections and live references";
-export const operatorSessionsLead =
-	"Disconnecting retires the session's memberships, registrations, imports, exports, and object references together.";
+export const operatorSessionsLead = "Disconnecting someone ends their memberships and names here.";
 export const operatorSessionsEmpty = "No peer sessions are connected.";
 export const operatorUnnamedPeer = "Unnamed peer";
 export const operatorDisconnectAsk = "Disconnect…";
@@ -121,9 +120,9 @@ export const operatorSessionsSweepEffect =
 	"Those connections close with every membership, publication, import, and export they own.";
 
 /** Rooms and object capabilities: the application owners. */
-export const operatorRoomsTitle = "Rooms and object capabilities";
+export const operatorRoomsTitle = "Rooms and their connections";
 export const operatorRoomsLead =
-	"Each row is an application owner the directory can retire as one transaction. Local rooms release membership capabilities, peered rooms release their retained room reference, and IRC rooms part through the bridge that owns their sockets.";
+	"Each row is a room or connection the directory can close in one step. Local rooms release their membership links. Peered rooms release their room link. IRC rooms disconnect through the bridge that owns their sockets.";
 export const operatorRoomsEmpty = "No room owners are live.";
 export const operatorUnnamedPrivateRoom = "Unnamed private room";
 /** The act and its effect for one room owner, by kind of owner. */
@@ -133,13 +132,13 @@ export function operatorRoomRemoveAct(kind: string): { action: string; effect: s
 			return {
 				action: "Remove peered publication",
 				effect:
-					"The directory releases its retained room capability and removes this exact publication. References already handed to members stay with those sessions.",
+					"The directory releases its retained room link and removes this exact publication. References already handed to members stay with those sessions.",
 			};
 		case "pending-peered":
 			return {
 				action: "Cancel pending publication",
 				effect:
-					"The pending handoff is cancelled through its peering owner, its retained room reference is released, and its readiness promise is refused.",
+					"The unfinished connection to the other directory is cancelled and its room link is released. Anyone waiting on it is told it was refused.",
 			};
 		case "irc":
 			return {
@@ -149,7 +148,7 @@ export function operatorRoomRemoveAct(kind: string): { action: string; effect: s
 			};
 		default:
 			return {
-				action: "Close room generation",
+				action: "Close this room",
 				effect:
 					"Every membership and live reference held by this room is released. The peer sessions and any separately issued durable link remain.",
 			};
@@ -168,22 +167,22 @@ export function operatorRoomWith(members: readonly { nick: string; state: string
 }
 export const operatorRoomsSweepSubject = "room owners";
 export const operatorRoomsSweepEffect =
-	"Each room closes as one transaction, releasing its memberships and the live references it holds.";
+	"Each room closes in one step, releasing its memberships and the live references it holds.";
 
 /** Room moderator authority. */
 export const operatorModerationTitle = "Room moderator authority";
 export const operatorModerationLead =
-	"Grant a room moderator capability for recovery or handoff. Rotating it stops copied and already-live old holders. Active IRC bridges appear through their own source authority, and peered rooms remain with their remote source.";
+	"Grant a room moderator link for recovery or handoff. Rotating it stops copied and already-live old holders. Active IRC bridges appear through their own source authority, and peered rooms remain with their remote source.";
 export const operatorModerationEmpty = "This server owns no rooms right now.";
 export const operatorRotateAsk = "Rotate…";
 export const operatorGranting = "Granting…";
-export const operatorGrantModerator = "Grant moderator capability";
+export const operatorGrantModerator = "Grant moderator link";
 export function operatorCopyModerator(title: string): string {
-	return `Copy ${title}'s room moderator capability`;
+	return `Copy ${title}'s room moderator link`;
 }
 export const operatorModeratorRevokeEffect =
 	"Every old copy stops moderating this room immediately, including references already in use.";
-export const operatorModeratorRevoke = "Revoke old moderator capability";
+export const operatorModeratorRevoke = "Revoke old moderator link";
 
 /** Directory trouble: the failures diagnostics reports. */
 export const operatorTroubleTitle = "Directory trouble";

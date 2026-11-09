@@ -13,8 +13,9 @@ import type { Page } from "playwright";
 import { fail } from "../support/fail.ts";
 import { openDirectoryCard } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { reachPublicRoom } from "../../lib/text/conversation.ts";
-import { roomManagerDiscardSay } from "../../lib/text/room_authority.ts";
+import { factDirectoryAddress, factPublicRoom, reachPublicRoom } from "../../lib/text/conversation.ts";
+import { phaseConnected } from "../../lib/text/directory.ts";
+import { roomManagerDiscardSay, roomManagerHeldHint } from "../../lib/text/room_authority.ts";
 
 export async function run(tab: Page): Promise<void> {
 	// ── A long refusal stays in its slot ─────────────────────────────────
@@ -93,7 +94,7 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#convcardTitle").catch(() => fail("the room title did not open what is known about it"));
 	const about = await tab.evaluate(() => ({
 		title: document.getElementById("convcardTitle")?.textContent?.trim() ?? "",
-		locator: document.getElementById("convcardLocator")?.textContent?.trim() ?? "",
+		shared: document.getElementById("convcardShared")?.textContent?.trim() ?? "",
 		facts: document.querySelector("#convcardTitle")?.closest(".modal-card")?.querySelector(".dirfacts")
 			?.textContent ?? "",
 		pressed: document.getElementById("roomAbout")?.getAttribute("aria-expanded"),
@@ -101,14 +102,14 @@ export async function run(tab: Page): Promise<void> {
 	if (!about.title.includes("lobby")) {
 		fail(`the conversation card is titled ${JSON.stringify(about.title)}`);
 	}
-	if (about.locator === "" || about.locator === "…") {
+	if (about.shared === "" || about.shared === "…") {
 		fail("the conversation card did not offer a locator to copy");
 	}
-	if (about.locator.includes("/s/")) {
+	if (about.shared.includes("/s/")) {
 		fail("a public room joined by name offered a sturdyref instead of the directory locator");
 	}
 	const kind = (await tab.textContent("#convcardUriKind"))?.trim() ?? "";
-	if (kind !== "Directory locator") {
+	if (kind !== factDirectoryAddress) {
 		fail(`the conversation card labeled the locator ${JSON.stringify(kind)}`);
 	}
 	// Compare with the text catalog so the proof shares the application
@@ -117,7 +118,7 @@ export async function run(tab: Page): Promise<void> {
 	if (reach !== reachPublicRoom("#lobby")) {
 		fail(`the conversation card did not say why the locator is the directory's: ${JSON.stringify(reach)}`);
 	}
-	if (!about.facts.includes("Public room") || !about.facts.includes("Connected")) {
+	if (!about.facts.includes(factPublicRoom) || !about.facts.includes(phaseConnected)) {
 		fail(`the conversation card did not say what this room is: ${JSON.stringify(about.facts)}`);
 	}
 	if ((await tab.getAttribute("#convcardAboutTab", "aria-selected")) !== "true") {
@@ -143,7 +144,7 @@ export async function run(tab: Page): Promise<void> {
 		fail("keeping a room capability draft did not return to the intact form");
 	}
 	await tab.fill("#convcardStewardTake", "");
-	const capGroup = (await tab.locator('[aria-label="Room capabilities"]').textContent()) ?? "";
+	const capGroup = (await tab.locator('[aria-label="Room links"]').textContent()) ?? "";
 	if (!capGroup.includes("Available through the held room manager")) {
 		fail(`the conversation card did not show its moderation capability: ${JSON.stringify(capGroup)}`);
 	}
@@ -151,8 +152,8 @@ export async function run(tab: Page): Promise<void> {
 	if (!manager.startsWith("ocapn://") || !manager.includes("/s/")) {
 		fail(`the conversation card did not expose its passable room manager: ${JSON.stringify(manager)}`);
 	}
-	if (!capGroup.includes("does not grant entry or moderation") || !capGroup.includes("delegates management")) {
-		fail("the room manager did not explain the bounds and consequence of sharing it");
+	if (!capGroup.replace(/\s+/g, " ").includes(roomManagerHeldHint)) {
+		fail(`the room manager did not explain the bounds and consequence of sharing it: ${JSON.stringify(capGroup)}`);
 	}
 	if (await tab.locator("#convcardStewardClaim").count() !== 1) {
 		fail("the held room manager did not offer moderator capability issuance");
@@ -162,7 +163,7 @@ export async function run(tab: Page): Promise<void> {
 	}
 	await tab.click("#convcardStewardClaim");
 	await tab.waitForFunction(() =>
-		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this session") ===
+		document.querySelector('[aria-label="Room links"]')?.textContent?.includes("Held by this session") ===
 			true
 	).catch(async () => {
 		const state = await tab.evaluate(() => ({
@@ -184,7 +185,7 @@ export async function run(tab: Page): Promise<void> {
 		fail(`the conversation card exposed an invalid moderator capability: ${JSON.stringify(steward)}`);
 	}
 	const stewardHint = (await tab.textContent("#convcardStewardHint")) ?? "";
-	if (!stewardHint.includes("bearer authority") || !stewardHint.includes("Share it only")) {
+	if (!stewardHint.includes("holds this link") || !stewardHint.includes("Share it only")) {
 		fail(`the moderator capability did not explain the authority being copied: ${JSON.stringify(stewardHint)}`);
 	}
 	await tab.waitForSelector("#convcardModerationTab").catch(() =>
@@ -197,11 +198,11 @@ export async function run(tab: Page): Promise<void> {
 	await tab.click("#convcardCapabilitiesTab");
 	const linkBeforeDrop = (await tab.textContent("#convcardRoomLink"))?.trim() ?? "";
 	await tab.click("#convcardStewardDropAsk");
-	const dropQuestion = tab.getByRole("group", { name: "Discard room moderator capability" });
+	const dropQuestion = tab.getByRole("group", { name: "Discard room moderator link" });
 	if (!(await dropQuestion.textContent())?.includes("Other copies still work")) {
 		fail("discarding moderation did not distinguish local release from revocation");
 	}
-	await dropQuestion.getByRole("button", { name: "Discard capability" }).click();
+	await dropQuestion.getByRole("button", { name: "Discard link" }).click();
 	await tab.waitForSelector("#convcardSteward", { state: "detached" });
 	if ((await tab.textContent("#convcardRoomLink"))?.trim() !== linkBeforeDrop) {
 		fail("discarding moderation also discarded the room link");
@@ -210,18 +211,18 @@ export async function run(tab: Page): Promise<void> {
 		fail("discarding moderation left live moderation operations visible");
 	}
 	await tab.fill("#convcardStewardTake", steward);
-	await tab.getByRole("button", { name: "Take capability" }).click();
+	await tab.getByRole("button", { name: "Take link" }).click();
 	await tab.waitForFunction(() =>
-		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this session") ===
+		document.querySelector('[aria-label="Room links"]')?.textContent?.includes("Held by this session") ===
 			true
 	).catch(() => fail("a moderator capability discarded locally could not be taken again"));
 	await tab.waitForSelector("#convcardModerationTab");
 	await tab.click("#convcardManagerDropAsk");
-	const discardManager = tab.getByRole("group", { name: "Discard room manager capability" });
+	const discardManager = tab.getByRole("group", { name: "Discard room manager link" });
 	if (!(await discardManager.textContent())?.includes(roomManagerDiscardSay)) {
 		fail("discarding room management did not distinguish local custody from revocation");
 	}
-	await discardManager.getByRole("button", { name: "Discard capability" }).click();
+	await discardManager.getByRole("button", { name: "Discard link" }).click();
 	await tab.waitForSelector("#convcardManager", { state: "detached" });
 	if ((await tab.textContent("#convcardRoomLink"))?.trim() !== linkBeforeDrop) {
 		fail("discarding room management changed the room link");
@@ -230,7 +231,7 @@ export async function run(tab: Page): Promise<void> {
 		fail("discarding room management changed the retained moderator capability");
 	}
 	await tab.fill("#convcardManagerTake", manager);
-	await tab.getByRole("button", { name: "Take manager capability" }).click();
+	await tab.getByRole("button", { name: "Take manager link" }).click();
 	await tab.waitForSelector("#convcardManager").catch(() =>
 		fail("a discarded room manager capability could not be taken again")
 	);

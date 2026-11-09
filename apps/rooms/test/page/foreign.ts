@@ -17,7 +17,7 @@ export async function run(
 	hangPort: number,
 ): Promise<string> {
 	// ── A room owned by another server ──────────────────────────────────
-	// The locator changes which directory the room is entered on; the page does
+	// The address changes which directory the room is entered on; the page does
 	// not proxy a foreign room through the server that served its HTML. Staying in
 	// the local room while doing it is the point: a second directory is opened
 	// beside the first, not instead of it.
@@ -79,37 +79,37 @@ export async function run(
 	if (carried !== "elsewhere") {
 		fail(`the room name did not travel to the join card; it holds ${JSON.stringify(carried)}`);
 	}
-	const aimed = await tab.inputValue("#locator");
+	const aimed = await tab.inputValue("#joinAddressField");
 	if (aimed !== "") {
 		fail(
-			`the join card did not keep this directory selected; the locator holds ${JSON.stringify(aimed)}`,
+			`the join card did not keep this directory selected; the address holds ${JSON.stringify(aimed)}`,
 		);
 	}
 
-	// The addresses already in hand live on the locator field, behind the
+	// The addresses already in hand live on the address field, behind the
 	// directory mark that opens them, not as a row between this question and
 	// the next. Opening that mark has to put the list under the field it fills.
-	await tab.click("#joinLocator");
+	await tab.click("#joinAddress");
 	const placed = await tab.evaluate(() => {
-		const field = document.getElementById("locator")?.closest(".join-field");
-		const picks = document.querySelector(".locator-picks");
+		const field = document.getElementById("joinAddressField")?.closest(".join-field");
+		const picks = document.querySelector(".address-picks");
 		if (!(field instanceof HTMLElement) || !(picks instanceof HTMLElement)) return null;
 		return picks.getBoundingClientRect().top - field.getBoundingClientRect().bottom;
 	});
 	if (placed === null) fail("the join form's directory mark did not offer the held addresses");
 	else if (placed < 0 || placed > 24) {
-		fail(`the held addresses opened ${placed.toFixed(0)}px from the locator field, not under it`);
+		fail(`the held addresses opened ${placed.toFixed(0)}px from the address field, not under it`);
 	}
 	await tab.keyboard.press("Escape");
 
 	// Stopping an act that is still waiting. An address this tab has not reached
 	// is a connect rather than a join, and the busy button keeps saying so rather
 	// than becoming a second press of it; the × beside it is the stop, the same
-	// mark that takes a file chip back. The locator has to hang, not refuse:
+	// mark that takes a file chip back. The address has to hang, not refuse:
 	// a port nobody is holding is reset in a millisecond, and the card would
 	// settle before the × had a frame to be the thing this proof pressed.
 	const cancelled = `127.0.0.1:${hangPort}`;
-	await tab.fill("#locator", cancelled);
+	await tab.fill("#joinAddressField", cancelled);
 	await tab.click("#joinBtn");
 	await tab.waitForSelector("#joinStop", { timeout: 10_000 })
 		.catch(() => fail("joining did not offer a way to stop waiting"));
@@ -123,14 +123,14 @@ export async function run(
 	).catch(() => fail("stopping a connect left the card waiting"));
 	const afterStop = await tab.evaluate(() => ({
 		error: (document.getElementById("joinError")?.textContent ?? "").trim(),
-		locator: (document.getElementById("locator") as HTMLInputElement | null)?.value ?? "",
+		address: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value ?? "",
 		named: document.querySelectorAll("#roomList .rwhere").length,
 	}));
 	if (afterStop.error !== "") {
 		fail(`stopping a join was reported as a refusal: ${JSON.stringify(afterStop.error)}`);
 	}
-	if (afterStop.locator !== cancelled) {
-		fail(`stopping a join did not leave the locator to correct; it holds ${JSON.stringify(afterStop.locator)}`);
+	if (afterStop.address !== cancelled) {
+		fail(`stopping a join did not leave the address to correct; it holds ${JSON.stringify(afterStop.address)}`);
 	}
 	if (afterStop.named !== 0) {
 		fail("stopping a join kept the abandoned address as a server in the rail");
@@ -162,32 +162,32 @@ export async function run(
 	// and it must leave what was typed in the field, because correcting an
 	// address is an edit and not a retype.
 	const typo = `127.0.0.1:${nonEphemeralPort()}`;
-	await tab.fill("#locator", typo);
+	await tab.fill("#joinAddressField", typo);
 	await tab.click("#joinBtn");
 	await tab.waitForFunction(
 		() => (document.getElementById("joinError")?.textContent ?? "").length > 0,
 		undefined,
 		{ timeout: 30_000 },
-	).catch(() => fail("a locator that cannot be reached never settled; the card waits for good"));
+	).catch(() => fail("an address that cannot be reached never settled; the card waits for good"));
 	// And the line under the rail stops claiming an attempt that has ended.
 	await tab.waitForFunction(
 		() => !(document.getElementById("status")?.textContent ?? "").startsWith("reaching"),
 		undefined,
 		{ timeout: 10_000 },
 	).catch(() => fail("the status line went on reaching for a server the page had given up on"));
-	const kept = await tab.inputValue("#locator");
+	const kept = await tab.inputValue("#joinAddressField");
 	if (kept !== typo) {
-		fail(`a refused locator was not left in the field to correct; it holds ${JSON.stringify(kept)}`);
+		fail(`a refused address was not left in the field to correct; it holds ${JSON.stringify(kept)}`);
 	}
-	const locatorSaid = await tab.evaluate(() => {
-		const field = document.getElementById("locator");
+	const addressSaid = await tab.evaluate(() => {
+		const field = document.getElementById("joinAddressField");
 		return {
 			invalid: field?.getAttribute("aria-invalid"),
 			described: field?.getAttribute("aria-describedby"),
 		};
 	});
-	if (locatorSaid.invalid !== "true" || locatorSaid.described !== "joinError") {
-		fail(`a refused locator was not marked on the field Connect is about; ${JSON.stringify(locatorSaid)}`);
+	if (addressSaid.invalid !== "true" || addressSaid.described !== "joinError") {
+		fail(`a refused address was not marked on the field Connect is about; ${JSON.stringify(addressSaid)}`);
 	}
 	// Nothing was kept for it. A second server would have made every row in the
 	// rail say which of the two it was on.
@@ -201,7 +201,7 @@ export async function run(
 	// enough the error screen instead of a correction, losing the room they were in.
 	// Checked as a crash rather than as a message: the interface has to still be
 	// there afterwards.
-	await tab.fill("#locator", "not a locator at all");
+	await tab.fill("#joinAddressField", "not an address at all");
 	await tab.click("#joinBtn");
 	await tab.waitForFunction(
 		() => (document.getElementById("joinError")?.textContent ?? "").length > 0,
@@ -211,11 +211,11 @@ export async function run(
 	const survived = await tab.evaluate(() => ({
 		rail: document.getElementById("roomList") !== null,
 		rooms: document.querySelectorAll("#roomList li").length,
-		kept: (document.getElementById("locator") as HTMLInputElement | null)?.value ?? null,
+		kept: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value ?? null,
 	}));
 	if (!survived.rail) fail("text that is not an address took the whole interface down to the error screen");
 	if (survived.rooms === 0) fail("text that is not an address cost the reader the room they were already in");
-	if (survived.kept !== "not a locator at all") {
+	if (survived.kept !== "not an address at all") {
 		fail(`what was typed was not left to correct; the field holds ${JSON.stringify(survived.kept)}`);
 	}
 
@@ -223,7 +223,7 @@ export async function run(
 	// it for itself alone, so being alice on one and bo on another is ordinary
 	// rather than exotic, and it is the state in which anything claiming a single
 	// name for every room a reader is in has to be wrong about some of them.
-	await fillSettled(tab, "#locator", foreignLocator);
+	await fillSettled(tab, "#joinAddressField", foreignLocator);
 	await fillSettled(tab, "#nick", "bo");
 	// The directory first, then the room: this address has not been reached, so
 	// the card's act is a connect until it has been.
@@ -241,7 +241,7 @@ export async function run(
 		.catch(async () => {
 			const card = await tab.evaluate(() => ({
 				room: (document.getElementById("room") as HTMLInputElement | null)?.value,
-				locator: (document.getElementById("locator") as HTMLInputElement | null)?.value,
+				address: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value,
 				nick: (document.getElementById("nick") as HTMLInputElement | null)?.value,
 				refused: document.getElementById("joinError")?.textContent,
 				status: document.getElementById("status")?.textContent,
@@ -315,7 +315,7 @@ export async function run(
 	await tab.waitForSelector("#settingsTitle");
 	// The dialog reopens on whichever panel was last selected, so name the
 	// one this check reads.
-	await tab.click("#reachabilityTab");
+	await tab.click("#connectionTab");
 	const shownLocator = (await tab.textContent("#directoryLocator"))?.trim() ?? "";
 	if (shownLocator === foreignLocator) {
 		fail("Settings described the directory of the room being read, not the one the page came from");

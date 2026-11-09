@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { Avatar, PresenceAvatar } from "./Avatar.tsx";
-import { JOIN_DEFAULT_NICK, JOIN_DEFAULT_ROOM, JOIN_LOCATOR_SHAPE } from "./joining.ts";
+import { JOIN_ADDRESS_SHAPE, JOIN_DEFAULT_NICK, JOIN_DEFAULT_ROOM } from "./joining.ts";
 import { Button } from "./Button.tsx";
 import { Confirm } from "./Confirm.tsx";
 import { Field } from "./Field.tsx";
@@ -178,8 +178,8 @@ export function KitchenSink() {
 					<div className="field-row">
 						<Field
 							id="kitchenFieldRow"
-							label="Session capability"
-							said="Paste the session's ocapn:// capability link."
+							label="Session link"
+							said="Paste the session's ocapn:// link."
 						>
 							{(wiring) => (
 								<Input
@@ -223,7 +223,7 @@ export function KitchenSink() {
 						<Button variant="quiet">Discard</Button>
 						<Button>Save changes</Button>
 					</div>
-					<Said kind="success">Capability set saved.</Said>
+					<Said kind="success">Links saved.</Said>
 					<div className="actions" data-fill>
 						<Button size="large" variant="quiet">Stay</Button>
 						<Button size="large">Join room</Button>
@@ -450,7 +450,7 @@ export function KitchenSink() {
 						<JoinPrefix className="join-prefix-dir" label="Choose one of your directories">
 							<Icon name="directory" size={18} />
 						</JoinPrefix>
-						<input readOnly placeholder={JOIN_LOCATOR_SHAPE} />
+						<input readOnly placeholder={JOIN_ADDRESS_SHAPE} />
 					</JoinField>
 					<JoinField>
 						<JoinPrefix label="Make this room private, so only people you hand it to can reach it">

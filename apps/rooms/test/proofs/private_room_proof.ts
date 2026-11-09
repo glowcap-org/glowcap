@@ -296,7 +296,7 @@ try {
 	const shown = await roomLink(ada, "ada");
 	await say(ada, `/join ${shown}`);
 	await ada.waitForFunction(
-		() => (document.getElementById("log")?.textContent ?? "").includes("You are already in this room."),
+		() => (document.getElementById("log")?.textContent ?? "").includes("You're already in this room."),
 		undefined,
 		{ timeout: 15_000 },
 	).catch(() => fail("joining a room this tab is already in did not say so"));
@@ -344,7 +344,7 @@ try {
 	await di.goto(`http://127.0.0.1:${httpPort}/`);
 	await establishLocalSession(di);
 	await di.waitForSelector("#joinBtn", { timeout: 20_000 });
-	await di.fill("#locator", foreignLocator);
+	await di.fill("#joinAddressField", foreignLocator);
 	await di.fill("#nick", "di");
 	// The room question is behind the directory, so reach it before answering.
 	await reachDirectoryOnCard(di);
@@ -375,7 +375,7 @@ try {
 	await cy.waitForFunction(
 		() =>
 			[...document.querySelectorAll("#log .sys")].some((row) =>
-				(row.textContent ?? "").includes("That link did not open a room") &&
+				(row.textContent ?? "").includes("That link didn't open a room") &&
 				(row.textContent ?? "").includes("WebSocket closed by the peer (code 1011)")
 			),
 		undefined,
@@ -402,7 +402,7 @@ try {
 	await cy.waitForFunction(
 		() =>
 			[...document.querySelectorAll("#log .sys")].some((row) =>
-				(row.textContent ?? "").includes("That link did not open a room") &&
+				(row.textContent ?? "").includes("That link didn't open a room") &&
 				(row.textContent ?? "").includes("unknown swissnum")
 			),
 		undefined,

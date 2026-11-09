@@ -74,7 +74,7 @@ export async function proveSharedSessionMoveLayout(page: Page): Promise<void> {
 
 export async function proveReturnToSetupDoesNotFlashACrash(
 	page: Page,
-	commit: "Detach browser" | "Leave workspace",
+	commit: "Detach browser" | "Leave session",
 ): Promise<void> {
 	const here = new URL(page.url());
 	if (!here.pathname.startsWith("/ops")) {

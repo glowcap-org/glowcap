@@ -27,10 +27,7 @@ async fn dormant() {
 	let running = super::super::start_with(
 		temp.to_path_buf(),
 		tcp(),
-		crate::server::Asked {
-			operator: true,
-			..Default::default()
-		},
+		crate::server::Asked::parse("operator").unwrap(),
 	)
 	.await;
 	let locator = glowcap::parse_locator(&running.location).unwrap();

@@ -31,7 +31,6 @@ The proof module named beside each file is under `src/`.
 | `session-events.json` | `session_events` | Event-reader decisions: header and integer bounds, mutation identity, archive coordinates, presence and room facts, escaped tags, surrogates, nulls, and positional arrays. A valid attachment guard outlives delivery. A malformed one leaves no guard behind. |
 | `snapshots.json` | `snapshot` | Snapshot-reader cases for all four facet projections and the overflow degradation order. Large overflow inputs are rebuilt from bounded rows by the proof. Only their answers are stored. |
 | `operator-views.json` | `operator_views` | Operator page rows for every category, member bounds, stewardship relations, decimal revisions, listener relationships, and bridge gateway records. Nested objects refuse positional arrays. |
-| `workspaces.json` | `workspace` | Saved workspace documents decoded, normalized, and exported against a fixture route authority. |
 | `conversation.json` | `conversation` | Room history under its line and byte bounds, file transfer state through chunked upload progress, and the authority a file post needs. |
 | `membership.json` | `membership` | Membership answers, and the inbox's messages, notices, presence, and queue behavior. |
 | `room-protocol.json` | `room` | Every room mode combination, public offers, the line and file limits, and line edit and withdraw sequences with their admission outcomes and notifications. Emoji cases separate UTF-8 wire bytes from character counts. |

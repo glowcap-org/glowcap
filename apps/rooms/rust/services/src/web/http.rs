@@ -11,6 +11,9 @@ pub(super) struct Environment {
 	pub assets: Option<Rc<super::assets::Assets>>,
 	pub ice: super::ice::Policy,
 	pub location: watch::Receiver<Option<crate::server::readiness::Announcement>>,
+	/// The link that opens the first allowed Rooms page with this server, which
+	/// `/page` answers and the startup banner prints. None allows no page.
+	pub page: Option<String>,
 	pub previews: Rc<super::preview::Preview>,
 	pub relay: Rc<super::relay::Relay>,
 	pub report: super::Report,
@@ -204,6 +207,15 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 		// A page origin the operator listed reads the address from its own
 		// page, such as a hosted Rooms page finding this server's directory.
 		return for_listed_origin(reply, environment, &request);
+	}
+
+	// The same link the banner prints, for `rooms-web --page-link` and the
+	// deployment's `up`, which read it from the running service.
+	if path == "/page" {
+		return match &environment.page {
+			Some(link) => response(StatusCode::OK, "text/plain; charset=utf-8", format!("{link}\n").into()),
+			None => response(StatusCode::NO_CONTENT, "text/plain", Bytes::new()),
+		};
 	}
 
 	if path == "/ice" {

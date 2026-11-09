@@ -17,22 +17,22 @@ export const sessionAccessLabel: Readonly<Record<SessionAccessLevel, string>> = 
 
 /** Rooms and settings: what this browser works from. */
 export const currentSessionTitle = "Rooms and settings";
-export const currentSessionPaused = "This capability is paused.";
-export const currentSessionAdmin = "This capability can administer it.";
-export const currentSessionInteract = "This capability can interact with it.";
-export const currentSessionObserve = "This capability is read only.";
+export const currentSessionPaused = "This link is paused.";
+export const currentSessionAdmin = "This link can administer it.";
+export const currentSessionInteract = "This link can interact with it.";
+export const currentSessionObserve = "This link is read only.";
 export const currentSessionHosted = "Hosted session";
 export const currentSessionAttached = "Attached session";
 export const currentSessionLocal = "Local session";
 export const currentSessionHostedTag = "This browser is hosting";
-export const currentSessionAttachedTag = "Session capability";
+export const currentSessionAttachedTag = "Session link";
 export const currentSessionLocalTag = "This browser";
 export const currentSessionHostedHint =
 	"This page is hosting this session. Open it anywhere else with the link below. Closing or reloading this page ends sharing.";
 export function currentSessionAttachedHint(accessSaid: string): string {
-	return `A durable session peer keeps this workspace, so wherever you open it you see the same rooms and settings. ${accessSaid}`;
+	return `A session peer keeps this session, so you see the same rooms and settings wherever you open it. ${accessSaid}`;
 }
-export const currentSessionLocalHint = "This browser keeps this workspace. Its rooms and settings stay on this device.";
+export const currentSessionLocalHint = "This browser keeps this session. Its rooms and settings stay on this device.";
 export const currentSessionExportOrReset = "Export or reset…";
 export const currentSessionExport = "Export a copy…";
 
@@ -41,13 +41,13 @@ export const sessionMovesTitle = "Where this browser works";
 export const sessionLeaveHostingSay =
 	"This browser stops hosting. Everyone attached to it loses the session. Rooms and settings stay saved here.";
 export const sessionLeaveSharedSay =
-	"This browser leaves the shared session. That session keeps running for everyone else attached to it. Names stay with it, so rooms here are for reading until you join under a name of your own. Coming back needs that link again.";
+	"This browser leaves the shared session. That session keeps running for everyone else attached to it. Names stay with it. Rooms here are for reading until you join under a name of your own, and coming back needs that link again.";
 export const sessionLeaveLocalSay =
 	"This browser goes back to choosing a session. Its rooms, settings, and message archive stay saved here.";
 export const sessionLeaveKeep = "Stay";
 export const sessionStopHosting = "Stop hosting";
 export const sessionDetachBrowser = "Detach browser";
-export const sessionLeaveWorkspace = "Leave workspace";
+export const sessionLeaveWorkspace = "Leave session";
 export const sessionMoveAnother = "Another session";
 export const sessionMoveThis = "This session";
 export const sessionMoveThisBrowser = "This browser";
@@ -57,15 +57,15 @@ export const sessionReturnToSetupAsk = "Return to setup…";
 export const sessionAttachAnotherTitle = "Attach to another session";
 export const sessionAttachTitle = "Attach a session";
 export const sessionAttachHostingLead =
-	"This browser stops hosting. Everyone attached to it loses this session. Then this browser shows the session the capability names.";
+	"This browser stops hosting. Everyone attached to it loses this session. Then this browser shows the session the link names.";
 export const sessionAttachSharedLead =
-	"This browser moves to the session the capability names, and shows what that session keeps.";
+	"This browser moves to the session the link names, and shows what that session keeps.";
 export const sessionAttachLocalLead =
-	"A session peer keeps your rooms and settings, so every browser you attach sees the same workspace.";
+	"A session peer keeps your rooms and settings, so every browser you attach sees the same rooms and settings.";
 export const sessionAttachHostingHint =
-	"A capability for another session ends hosting for everyone attached here. A capability for this same session leaves hosting as it is.";
+	"A link for another session ends hosting for everyone attached here. A link for this same session leaves hosting as it is.";
 export const sessionAttachSharedHint =
-	"A capability for another session moves this browser to it, and the session it is on now keeps running for everyone else. A second capability for that same session only changes which one this browser uses.";
+	"A link to another session moves this browser there, and your current session keeps running for everyone else. A second link to the same session swaps which one this browser uses.";
 export const sessionAttachLocalHint =
 	"An empty session takes this browser's rooms and settings with it. One that already keeps rooms and settings shows those instead.";
 export const sessionAttachCommit = "Attach this browser";
@@ -76,50 +76,50 @@ export const sessionDataLocalTitle = "Local session data";
 export const sessionDataSharedAdminLead =
 	"The rooms and settings everyone attached to this session shares, plus this browser's own view preferences.";
 export const sessionDataSharedLead =
-	"The rooms and settings this capability can see, plus this browser's own view preferences. It cannot replace or reset them.";
+	"The rooms and settings this link can see, plus this browser's own view preferences. It can't replace or reset them.";
 export const sessionDataLocalLead = "The rooms, settings, and view preferences this browser keeps.";
 export const sessionDataMessagesApart = "Messages are kept separately, under Message history.";
 export const sessionDataExportTitle = "Export a copy";
-export const sessionDataIncludeCapabilities = "Include remembered capabilities";
+export const sessionDataIncludeCapabilities = "Include saved links";
 export function sessionDataIncludeCapabilitiesSaid(shared: boolean): string {
 	return `The file will also hold the selected links that grant access to rooms, operations, moderation, and any archive${
-		shared ? " in the shared workspace" : ""
-	}. Anyone with the file could use them. It does not include session management.`;
+		shared ? " in the shared session" : ""
+	}. Anyone with the file could use them. It doesn't include session management.`;
 }
 export const sessionDataExport = "Export state";
 export const sessionDataImportTitle = "Replace from a file";
 export const sessionDataImportSharedHint =
-	"Importing replaces the shared session's rooms and settings once the file checks out, and this browser stays attached. A file that carries capabilities grants every one of them.";
+	"Importing replaces the shared session's rooms and settings once the file checks out, and this browser stays attached. A file that carries saved links grants access with every one of them.";
 export const sessionDataImportLocalHint =
-	"Importing replaces this browser's rooms and settings once the file checks out. A file that carries capabilities grants every one of them.";
+	"Importing replaces this browser's rooms and settings once the file checks out. A file that carries saved links grants access with every one of them.";
 export const sessionDataImport = "Import state";
 export const sessionDataImported = (name: string) => `Imported ${name}.`;
-export const sessionDataClearSharedTitle = "Start the session over";
-export const sessionDataClearLocalTitle = "Start over";
+export const sessionDataClearSharedTitle = "Empty this session for everyone";
+export const sessionDataClearLocalTitle = "Empty this session";
 export const sessionDataClearSharedHint =
-	"Everyone attached starts again from no rooms and no settings. The session itself stays, and message archives are not erased.";
+	"Everyone attached starts again from no rooms and no settings. The session itself stays, and message archives aren't erased.";
 export const sessionDataClearLocalHint =
-	"This session forgets its rooms, settings, and remembered capabilities. This browser stays on the empty session. Rooms on servers and archives elsewhere are not erased.";
-export const sessionDataClearSharedLabel = "Reset the shared session";
-export const sessionDataClearLocalLabel = "Delete this browser's session";
+	"This session forgets its rooms, settings, and saved links. This browser stays on the empty session. Rooms on servers and archives elsewhere aren't erased.";
+export const sessionDataClearSharedLabel = "Empty this session for everyone";
+export const sessionDataClearLocalLabel = "Empty this session";
 export const sessionDataClearSharedSay = "Every attached browser sees an empty session the moment this goes through.";
 export const sessionDataClearLocalSay = "This browser's message archive goes with it.";
-export const sessionDataClearSharedCommit = "Reset shared session";
-export const sessionDataClearLocalCommit = "Delete local session";
-export const sessionDataClearSharedAsk = "Reset shared session…";
-export const sessionDataClearLocalAsk = "Delete local session…";
-export const sessionDataClearSharedDone = "Reset. Everyone attached is on the empty session now.";
-export const sessionDataClearLocalDone = "Deleted. This browser is on an empty session now.";
+export const sessionDataClearSharedCommit = "Empty for everyone";
+export const sessionDataClearLocalCommit = "Empty this session";
+export const sessionDataClearSharedAsk = "Empty for everyone…";
+export const sessionDataClearLocalAsk = "Empty this session…";
+export const sessionDataClearSharedDone = "Emptied. Everyone attached is on the empty session now.";
+export const sessionDataClearLocalDone = "Emptied. This browser is on an empty session now.";
 
 /** Message history. */
 export function historyKeptBy(label: string): string {
-	return `New room and direct messages are kept by ${label}. Turning this off stops new messages from being saved. It cannot erase the session.`;
+	return `New room and direct messages are kept by ${label}. Turning this off stops new messages from being saved. It can't erase the session.`;
 }
 export function historyPeerUnavailableSaid(label: string): string {
-	return `The selected ${label} is unavailable. New messages are not silently copied into this browser.`;
+	return `The selected ${label} is unavailable. New messages aren't silently copied into this browser.`;
 }
 export const historyTitle = "Message history";
-export const historyArchiveTitle = "Archive capability";
+export const historyArchiveTitle = "Archive link";
 export const historyOwnedSession = "Keeps this session's message history.";
 export const historyUseSessionArchive = "Use session archive";
 export const historyChangePeerAsk = "Change archive peer…";
@@ -128,20 +128,20 @@ export const historyPeerTaken = "This archive peer keeps new history now.";
 export const historyPeerModalLead =
 	"A separate glowcap peer keeps your history. Rooms and message recipients never receive it.";
 export const historyPeerSessionRetains =
-	"This session retains the archive capability across reloads and for every attached view.";
+	"This session retains the archive link across reloads and for every attached view.";
 export const historyPeerCommit = "Use archive peer";
 
 /** Holdings: the capabilities this session has. The lead is in `ops.ts` and
  * the access title is in `settings.ts`. */
-export const holdingsCopyHosted = "Copy the hosted session capability";
-export const holdingsCopyAttached = "Copy the attached session capability";
-export const holdingsSavedTitle = "Saved bearer authority";
-export const holdingsSavedEmpty = "This session has saved no room authority.";
+export const holdingsCopyHosted = "Copy the hosted session link";
+export const holdingsCopyAttached = "Copy the attached session link";
+export const holdingsSavedTitle = "Saved room links";
+export const holdingsSavedEmpty = "This session has no saved room links.";
 export const holdingsEntryLink = "Entry link";
 export const holdingsModerator = "Moderator";
 export const holdingsManager = "Manager";
 export const holdingsOpenRoomControls = "Open room controls";
-export const holdingsOpsTitle = "Operations capabilities";
+export const holdingsOpsTitle = "Operations links";
 /** The session card's acts, one per line like "Where this browser works":
  * what the line is about, then the act. */
 export const sessionChangesName = "Unfinished changes";

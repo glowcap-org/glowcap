@@ -85,8 +85,8 @@ export function createManagedController(
 	// page from a static host does not have. The join card's labels read the
 	// same rule through `directoryDestinationContext`.
 	const homeRow = () => session.current?.intent.directories.find((row) => row.home);
-	const destinationOf = (locator: string): { id: DirId | null; route: string } => {
-		if (locator !== "") return { id: directoryId(locator), route: locator };
+	const destinationOf = (address: string): { id: DirId | null; route: string } => {
+		if (address !== "") return { id: directoryId(address), route: address };
 		const home = homeRow();
 		if (home == null) {
 			const route = served()?.directory ?? "";
@@ -94,7 +94,7 @@ export function createManagedController(
 		}
 		// Home is held, so its identity is known even before its view is.
 		const id = dirId(home.id);
-		return { id, route: projection.get().dirs.get(id)?.locator || home.id };
+		return { id, route: projection.get().dirs.get(id)?.address || home.id };
 	};
 	// A newly held directory becomes home only in a session with none, so neither
 	// the served directory nor an offer takes the mark from a chosen one. The
@@ -130,7 +130,7 @@ export function createManagedController(
 	// standing between the page and the relay, else the relay not answering.
 	// An address with doors only a server reaches asks for one, with the
 	// relay's failure as the reason, since a server is the other way in.
-	const unreached = async (error: unknown, resume: Resume, locator: string): Promise<string | null> => {
+	const unreached = async (error: unknown, resume: Resume, address: string): Promise<string | null> => {
 		const view = failureView(error);
 		const host = servedHost();
 		if (host != null) {
@@ -143,7 +143,7 @@ export function createManagedController(
 		if (view.code !== NO_SERVER && broke == null) return renderFailure(view);
 		// A blank address on a page with no server is refused before any dial
 		// and names no door, so a server is the only way.
-		const doors = browserDoors(destinationOf(locator).route);
+		const doors = browserDoors(destinationOf(address).route);
 		const relay = doors?.relay ?? null;
 		const throughServer = doors?.throughServer ?? true;
 		const blocked = relay == null ? null : await localNetworkBlock(relay);
@@ -276,17 +276,17 @@ export function createManagedController(
 		}
 	}
 	async function reach(
-		locator: string,
+		address: string,
 		nick: JoinNicknameIntent,
 		home: boolean,
 		signal?: AbortSignal,
 	): Promise<DirId> {
-		const { id, route } = destinationOf(locator);
+		const { id, route } = destinationOf(address);
 		if (id == null) {
 			// A blank address means the served directory, which a page with no
 			// Rooms server has none of. The refusal carries the catalog's sentence
 			// for that as its detail, so the ask it raises leads with it.
-			if (locator === "" && served() == null) throw new RoomsError(NO_SERVER, serverNeedHome);
+			if (address === "" && served() == null) throw new RoomsError(NO_SERVER, serverNeedHome);
 			throw new Error("This address does not name a directory");
 		}
 		const name = nick.kind === "exact" ? nick.name : nick.base;
@@ -299,7 +299,7 @@ export function createManagedController(
 			// typed doors and replaces the held one, which keeps its home mark and
 			// takes it under the one rule a new directory does. A blank address,
 			// or the held route again, changes the nickname at most.
-			const reroute = locator !== "" && !(await session.workspace.directoryRouteHeld(id, route));
+			const reroute = address !== "" && !(await session.workspace.directoryRouteHeld(id, route));
 			if (signal?.aborted) return id;
 			if (reroute) await session.actions.directory(id, route, nick, takesHome(route, home), signal);
 			else if (row.nick !== name || row.nickAllocation !== allocation) {
@@ -385,11 +385,11 @@ export function createManagedController(
 		join: (destination: RoomDestination, nick, signal) => {
 			// Where the act picks up after a reload, read from what was typed
 			// rather than the plan, which refuses a link that is not a room's.
-			const linked = typedRoomLink(destination.locator, destination.room);
+			const linked = typedRoomLink(destination.address, destination.room);
 			const resume = () =>
 				linked === null
-					? joinAddress({ room: destination.room, locator: destination.locator || undefined })
-					: joinAddress({ locator: linked.link, room: linked.label || undefined });
+					? joinAddress({ room: destination.room, address: destination.address || undefined })
+					: joinAddress({ address: linked.link, room: linked.label || undefined });
 			return session.openings.run(
 				async (opening): Promise<JoinOutcome> => {
 					const signal = opening.signal;
@@ -397,7 +397,7 @@ export function createManagedController(
 					const plan = planJoinDestination(destination);
 					const id = plan.kind === "room-link"
 						? plan.directory
-						: await reach(plan.locator, nick, false, signal);
+						: await reach(plan.address, nick, false, signal);
 					if (!signal?.aborted) {
 						if (plan.kind === "room-link") {
 							const room = await session.actions.roomLink(id, plan.link, plan.label, {
@@ -415,7 +415,7 @@ export function createManagedController(
 						if (plan.kind !== "room-link") {
 							store.remember(projection, {
 								room: plan.room,
-								locator: plan.locator,
+								address: plan.address,
 								nick: nick.kind === "exact" ? nick.name : nick.base,
 							});
 						}
@@ -429,12 +429,12 @@ export function createManagedController(
 					return { ok: true };
 				}
 				const id = linked === null
-					? destinationOf(destination.locator).id ?? ""
+					? destinationOf(destination.address).id ?? ""
 					: roomLinkDestination(linked.link, linked.label)?.directory ?? "";
 				// A typed address was dialed on the way to its room, so a break is
 				// said by the door it took. A room link names its directory itself.
 				const said = linked === null
-					? await unreached(error, resume, destination.locator)
+					? await unreached(error, resume, destination.address)
 					: explained(error, resume);
 				if (said != null) rememberJoinRefusal(projection, id, destination.room, error);
 				return {
@@ -445,16 +445,16 @@ export function createManagedController(
 				};
 			});
 		},
-		reachDirectory: async (locator, nick, { home = false, signal } = {}) => {
+		reachDirectory: async (address, nick, { home = false, signal } = {}) => {
 			if (signal?.aborted) return "";
-			const resume = () => joinAddress({ locator: locator || undefined });
+			const resume = () => joinAddress({ address: address || undefined });
 			try {
-				await session.openings.run((opening) => reach(locator, nick, home, opening.signal), null, signal);
+				await session.openings.run((opening) => reach(address, nick, home, opening.signal), null, signal);
 				return "";
 			} catch (error) {
-				const said = await unreached(error, resume, locator);
+				const said = await unreached(error, resume, address);
 				if (said == null) return "";
-				rememberJoinRefusal(projection, destinationOf(locator).id ?? "", "", error);
+				rememberJoinRefusal(projection, destinationOf(address).id ?? "", "", error);
 				return said;
 			}
 		},

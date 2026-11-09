@@ -65,7 +65,7 @@ export interface RoomsBrowserController {
 	closeViewer(): void;
 	editJoin(patch: {
 		room?: string;
-		locator?: string;
+		address?: string;
 		nick?: string;
 		roomPreset?: RoomPreset;
 	}): void;

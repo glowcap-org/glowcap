@@ -27,7 +27,7 @@ async function awaitServerAnnouncement(stdout: ReadableStream<Uint8Array>): Prom
 }
 
 const server = spawnOwned(SERVER, {
-	args: ["--transport=tcp", "--port=0", "--trace", "--trace-port=0"],
+	args: ["--transport=tcp", "--port=0", "--capabilities=trace", "--trace-port=0"],
 	stdout: "piped",
 	stderr: "piped",
 });

@@ -64,7 +64,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 				translate: el.translate,
 			};
 		};
-		return { locator: of("locator"), room: of("room"), nick: of("nick") };
+		return { address: of("joinAddressField"), room: of("room"), nick: of("nick") };
 	});
 	for (const [id, keys] of Object.entries(identifierKeys)) {
 		if (keys == null) fail(`#${id} is not on the join card`);
@@ -144,7 +144,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		await delayed.close();
 	}
 
-	// The dialog opens on Session; Reachability owns locators and connection paths.
+	// The dialog opens on Session. Connection owns locators and connection paths.
 	// It has to be there before join, and a URL that names a transport still
 	// wins over whatever this browser last saved. The opening screen has to
 	// have left first: it covers the topbar until then.
@@ -181,7 +181,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (red == null || red > 0.03) {
 		fail(`page cover is not darkness (got ${coverPaint.dim[0]})`);
 	}
-	await tab.click("#reachabilityTab");
+	await tab.click("#connectionTab");
 	await tab.waitForFunction(() => {
 		const loc = document.getElementById("directoryLocator")?.textContent ?? "";
 		return loc.length > 1 && loc !== "…";
@@ -213,7 +213,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	);
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#reachabilityTab");
+	await tab.click("#connectionTab");
 
 	// A copy has no visible result, because the clipboard is somewhere the page
 	// cannot show. So the control answers for it: a tick and a short "Copied"
@@ -448,10 +448,10 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (helpAfter !== "false") {
 		fail("closing Help left its control pressed");
 	}
-	// Three tabs: Session, Holdings, Reachability. The arrows walk them and carry
+	// Three tabs: Session, Holdings, Connection. The arrows walk them and carry
 	// focus with the selection; the ends clamp rather than wrap.
-	await tab.click("#reachabilityTab");
-	await tab.waitForSelector("#reachabilityPanel", { state: "attached" });
+	await tab.click("#connectionTab");
+	await tab.waitForSelector("#connectionPanel", { state: "attached" });
 	await tab.keyboard.press("ArrowLeft");
 	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await tab.keyboard.press("ArrowLeft");
@@ -460,11 +460,11 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	await tab.waitForFunction(() =>
 		document.activeElement?.id === "sessionTab" &&
 		document.getElementById("sessionTab")?.getAttribute("tabindex") === "0" &&
-		document.getElementById("reachabilityTab")?.getAttribute("tabindex") === "-1"
+		document.getElementById("connectionTab")?.getAttribute("tabindex") === "-1"
 	).catch(() => fail("the Settings tabs did not move selection and focus together"));
 	await tab.keyboard.press("ArrowRight");
 	await tab.keyboard.press("ArrowRight");
-	await tab.waitForSelector("#reachabilityPanel", { state: "attached" });
+	await tab.waitForSelector("#connectionPanel", { state: "attached" });
 	const reachabilityForm = await tab.evaluate(() => {
 		const form = document.getElementById("dmSettingsForm");
 		const hint = document.getElementById("dmReloadHint");
@@ -473,7 +473,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 			ownsHint: hint?.closest("form") === form,
 			ownsSave: save?.closest("form") === form,
 			historyAbsent:
-				document.getElementById("reachabilityPanel")?.contains(document.getElementById("historyLegend")) ===
+				document.getElementById("connectionPanel")?.contains(document.getElementById("historyLegend")) ===
 					false,
 		};
 	});
@@ -509,7 +509,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		await relayTab.waitForSelector("#settingsTitle");
 		await provePhoneSettingsTabs(relayTab);
 		await proveSessionActsLieAsEntries(relayTab);
-		await relayTab.click("#reachabilityTab");
+		await relayTab.click("#connectionTab");
 		const relayDm = await relayTab.evaluate(() =>
 			(document.querySelector('input[name="dm"]:checked') as HTMLInputElement | null)?.value ?? ""
 		);
@@ -562,7 +562,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	await tab.waitForSelector("#settingsTitle");
 	// The dialog reopens on whichever panel was last selected, so name the
 	// one holding the directory button.
-	await tab.click("#reachabilityTab");
+	await tab.click("#connectionTab");
 	await openDirectoryCardFromSettings(tab);
 	await tab.waitForFunction(
 		() => {

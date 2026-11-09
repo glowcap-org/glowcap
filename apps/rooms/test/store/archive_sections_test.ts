@@ -81,7 +81,7 @@ Deno.test("re-reading a shared account revises in place and never doubles a line
 			"first, reconsidered",
 			"",
 			"third",
-			"Earlier messages shared by alice, recorded by archive source alice-so, conversation alice-ge. This is alice's archive account, not live traffic.",
+			"Earlier messages alice shared from their archive (alice-so, conversation alice-ge). A record, not live chat.",
 			"live words",
 		],
 		"the account keeps its section; the live line never joins it",
@@ -138,7 +138,7 @@ Deno.test("shared archive rereads refresh file metadata without recording or bor
 			height: 1,
 			archiveDigest: "b".repeat(64),
 			lost: true,
-			error: "These archived file bytes are not available in this view.",
+			error: "These archived file bytes aren't available in this view.",
 		});
 		reconcileSharedArchive(page, conv.key, [replacement], "alice");
 		assertEquals(drawn() === changed, true, "an unchanged shared read does not redraw");

@@ -14,7 +14,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import type { DiagnosticRow } from "../../../lib/room/client.ts";
 import type { RoomsOperatorState, TroubleRow } from "./capabilities.ts";
-import { loadDiagnosticsPane, loadOperatorPane, prefetch } from "../chunks.ts";
+import { loadDiagnosticsPane, loadOperatorBody, prefetch } from "../chunks.ts";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
 import { SectionTitle } from "./Section.tsx";
@@ -26,10 +26,10 @@ import {
 	opsOperatorStateLoading,
 } from "../../../lib/text/ops.ts";
 
-const OperatorPane = lazy(() => loadOperatorPane());
+const OperatorBody = lazy(() => loadOperatorBody());
 const DiagnosticsPane = lazy(() => loadDiagnosticsPane());
 
-export function DirectoryPane(
+export function OperatorPane(
 	{ operatorHeld, operator, inspectHeld, rows, trouble }: {
 		operatorHeld: boolean;
 		operator: RoomsOperatorState | null;
@@ -39,7 +39,7 @@ export function DirectoryPane(
 	},
 ) {
 	useEffect(() => {
-		if (operatorHeld) prefetch(loadOperatorPane);
+		if (operatorHeld) prefetch(loadOperatorBody);
 		else if (inspectHeld) prefetch(loadDiagnosticsPane);
 	}, [operatorHeld, inspectHeld]);
 	const wait = operatorHeld ? opsOperatorStateLoading : opsDirectoryHoldingsLoading;
@@ -51,7 +51,7 @@ export function DirectoryPane(
 					{operatorHeld
 						? (operator === null
 							? <OpsLoading what={opsOperatorStateLoading} />
-							: <OperatorPane state={operator} />)
+							: <OperatorBody state={operator} />)
 						: inspectHeld
 						? (rows === null
 							? <OpsLoading what={opsDirectoryHoldingsLoading} />

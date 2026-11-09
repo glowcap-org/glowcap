@@ -52,12 +52,12 @@ pub const HELP: &str = concat!(
   --listen=<transport>[,<name>=<value>...]  also listen over another transport, as rooms-server; repeatable
       a relay listener registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or its relay option names another
   --state=<directory>  keep the directory identity and state across restarts
-  --session-state=<directory>  also serve a durable shared workspace and print its use and management links (or GLOWCAP_ROOMS_SESSION_STATE)
-  --session-transport=<transport>  the shared workspace's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
+  --session-state=<directory>  also serve a durable shared session and print its use and management links (or GLOWCAP_ROOMS_SESSION_STATE)
+  --session-transport=<transport>  the shared session's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
       a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --session-relay names another, and --session-relay-public applies only with --session-relay
   --session-<option>=<value>  any other rooms-session option, such as --session-bind or --session-reachability (or GLOWCAP_ROOMS_SESSION_<OPTION>)
   --history --bind=<host> --announce-host=<host>
-  --admin-listeners --diagnostics --operator --peering --irc --trace
+  --capabilities=all|<name>[,<name>...]  mint operator capabilities, as rooms-server (or GLOWCAP_ROOMS_CAPABILITIES)
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
   --http-admission-per-address=true|false  charge each source address its own budget (default: false)
@@ -69,6 +69,8 @@ Server options and GLOWCAP_ROOMS_* variables have the same meaning as rooms-serv
 rooms-web --check-ready[=http://host:port]  check directory and browser assets (5 second deadline)
 rooms-web --locator[=http://host:port]  print the running directory locator
 rooms-web --ui-version[=http://host:port]  print the running browser revision
+rooms-web --page-link[=http://host:port]  print the link that opens the Rooms page with this server, or nothing when no page is allowed
+rooms-web --print-capabilities[=<state-directory>] [--url=http://host:port]  print the kept operator capabilities as complete links, with the locators the running front advertises (or GLOWCAP_ROOMS_LOCATOR and GLOWCAP_ROOMS_TRACE_LOCATOR); the directory defaults to GLOWCAP_ROOMS_STATE
 Status reads default to http://127.0.0.1:8080, or GLOWCAP_ROOMS_HTTP_PORT.
 rooms-web --prepare[=<output-directory>] [--assets=<source-directory>]  build self-contained browser assets
 Preparation defaults to zig-out/rooms-web; serve its current directory with --prepared.
@@ -101,7 +103,7 @@ impl Config {
 				}
 				let takes_value = matches!(
 					key,
-					"http-bind" | "http-port" | "http-public" | "assets" | "server" | "allow-origin"
+					"http-bind" | "http-port" | "http-public" | "assets" | "server" | "allow-origin" | "capabilities"
 				) || key.starts_with("http-admission-")
 					|| key.starts_with("browser-admission-")
 					|| key.starts_with("session-");

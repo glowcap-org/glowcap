@@ -48,7 +48,7 @@ export function archiveDmLead(nick: string): string {
 	return `Hand ${nick} a read-only copy of what your archive kept of this conversation. It reaches nothing else you have.`;
 }
 export const archiveRoomLead =
-	"A room keeps no past of its own. What you have of this one is yours, and you can hand a read-only copy of it to one member over a direct line. It does not put them in the room.";
+	"A room keeps no past of its own. What you have of this one is yours. You can hand a read-only copy of it to one member in a direct message. It doesn't put them in the room.";
 export const archivePeerHintNobody =
 	"Nobody in this room can receive one. It travels over a direct message, and that needs a member who has registered for them here.";
 export const archivePeerHint =

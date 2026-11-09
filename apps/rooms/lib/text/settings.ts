@@ -12,7 +12,7 @@ export const historyOffSession =
 export const historyOnSession = "Messages are saved in this session. Turn this off and new ones stop being saved.";
 
 export const historyKeepLabel = "Keep message history";
-export const historyArchivePeerLabel = "Archive peer capability";
+export const historyArchivePeerLabel = "Archive peer link";
 export const historyArchivePeerTitle = "Archive peer";
 export const historyBuiltInSession = "Built-in session archive";
 export const historyPeerUnavailable = "That archive can't be reached right now.";
@@ -22,7 +22,7 @@ export const historyPeerReconnect = "Reconnect";
 export const historyPeerLead =
 	"A link that can read and write the archive. A new one starts keeping messages from now on, and doesn't copy what's already there.";
 
-/** Getting back into a room a saved workspace remembers. The private case
+/** Getting back into a room a saved session remembers. The private case
  * needs care: a name is not enough, and rejoining a public room by name can
  * land somewhere else. */
 export const recoveryPrivateNeedsLink = "This private room needs a current link. The name on its own won't find it.";
@@ -30,12 +30,12 @@ export const recoveryPrivateRetry = "Retry the saved link for this private room,
 export const recoveryLinkRevoked =
 	"The saved link was revoked. You can rejoin by name, but that may reach a different room using the same name now.";
 export const recoveryPublicRetry = "Retry joining this public room by name.";
-export const recoveryLinkLabel = "Current room entry link";
+export const recoveryLinkLabel = "Current room link";
 export const recoveryWait = "Wait for the room recovery to finish.";
 
 /** Saving, and how it can fail. */
 export const settingsConnectionSaving = "Wait for the connection setting to finish saving.";
-export const settingsConnectionRefused = "Couldn't save the connection choice.";
+export const settingsConnectionRefused = "Rooms couldn't save the connection choice. Try again in a moment.";
 
 export const settingsCopyDirectory = "Copy the directory address";
 export const settingsCopyServer = "Copy the server address";
@@ -43,7 +43,7 @@ export const settingsShareDirectory = "Lets anyone join this server's rooms by n
 /** The Rooms server this browser is reached through, chosen on this device. */
 export const serverOfferTitle = "Use this Rooms server?";
 export const serverOfferSay = (host: string, local: boolean) =>
-	`This link asks Rooms to use the Rooms server at ${host}. People reach this browser through it, it carries your connections to directories, and link previews in messages are fetched through it. Use it if you started that server or trust whoever runs it. You can change this later in Settings, under Reachability.${
+	`This link asks Rooms to use the server at ${host}. People reach this browser through it, and link previews are fetched through it. Use it only if you started it or trust whoever runs it. You can change this later in Settings, under Connection.${
 		local
 			? " Your browser may first ask to let this page reach a server on your computer or network. Allow it."
 			: ""
@@ -71,10 +71,10 @@ export const settingsRelayAway = (host: string, origin: string) =>
  * about who can start one, not about who can read them. */
 export const settingsDmDirectLabel = "Browser to browser";
 export const settingsDmDirectSaid =
-	"Encrypted between browsers. A client that isn't a browser can only reply after you write first.";
+	"Encrypted between browsers. Someone using another app can reply only after you write first.";
 export const settingsDmRelayLabel = "Through the Rooms server";
 export const settingsDmRelaySaid =
-	"Encrypted end to end, and the Rooms server only carries the encrypted bytes. A client that isn't a browser can write to you first.";
+	"Encrypted end to end, and the Rooms server only passes on encrypted messages. Someone using another app can write to you first.";
 /** The saved mode is shown as it is while the page has no Rooms server. */
 export const settingsDmRelayNeedsServer = `${serverNeedDm} This page has none.`;
 export const settingsDmReload = "Saving reloads this window.";
@@ -83,19 +83,19 @@ export const sessionShareLabel = "Share this session";
 export const sessionShareLinkCopy = "Copy the link to this session";
 export const sessionLocalCopyLabel = "Continue with a local session copy";
 export const sessionLeaveLabel = "Leave current Rooms session";
-export const sessionCapabilityLabel = "Session capability";
+export const sessionCapabilityLabel = "Session link";
 export const sessionShareSay =
 	"You get a link to this session that opens it anywhere, including from a different Rooms page. Close or reload this page and sharing ends for everyone holding it.";
 export const sessionGoLocalSay =
-	"You get a copy of the rooms and settings and work from that. The shared session keeps running without you. Your name stays with it, so rooms here are read-only until you join under a name of your own, and coming back needs the link again.";
+	"You get a copy of the rooms and settings and work from that. The shared session keeps running without you. Your name stays with it. Rooms here are read-only until you join under a name of your own, and coming back needs the link again.";
 export const sessionKeepLocal = "Keep it local";
 export const sessionStayAttached = "Stay attached";
 export const sessionContinueLocally = "Continue locally";
 export const sessionAccessTitle = "Session access";
 export const sessionStateFile = "State file";
-/** What the capability value field takes: the whole URI the server prints,
- * not a swiss number alone. */
-export const capabilityUriLabel = "Capability URI";
+/** What the link field takes: the whole link the server prints, not just
+ * the secret name inside it. */
+export const capabilityUriLabel = "Link";
 export const capabilitySetPlaceholder = "ROOMS-ADMIN-LISTENERS …";
 
 /** Why a keepable link is not on offer, and where to go about it.
@@ -104,11 +104,11 @@ export const capabilitySetPlaceholder = "ROOMS-ADMIN-LISTENERS …";
  * this sentence and the choice it names is in Settings, so the control takes
  * the reader there. */
 export const archiveNeedsPeerLead =
-	"Needs an archive peer to hold it. The archive built into this browser cannot create one. Choose one in";
-export const archiveNeedsPeerLink = "Session settings";
+	"Needs an archive peer to hold it. The archive built into this browser can't create one. Choose one in";
+export const archiveNeedsPeerLink = "Settings, under Session";
 export const archiveNeedsPeerAfter = ".";
 
-/** The Reachability tab's headings. Its sentences are the share and direct
+/** The Connection tab's headings. Its sentences are the share and direct
  * message entries above. */
 export const reachServerTitle = "Rooms server";
 export const serverFactDirectory = "Directory";
@@ -156,11 +156,11 @@ export const serverNone = serverModel;
 export const reachAboutDirectory = "About…";
 /** The home directory choice. A room joined with no directory address opens in it. */
 export const settingsHomeLabel = "Home directory";
-export const settingsHomeChoice = "Directory";
+export const settingsHomeChoice = "Home directory";
 export const settingsHomeNone = "None";
 export const settingsHomeHint = "A room you join without a directory address opens here.";
 export const settingsHomeAway =
-	"Your home directory is not connected. Rooms keeps trying, and a room you join without an address waits for it.";
+	"Your home directory isn't connected. Rooms keeps trying, and a room you join without an address waits for it.";
 export const settingsHomeServerName = "This server's directory";
 export const settingsHomeUseServer = "Make it home";
 export const settingsHomeOption = (name: string, away: boolean): string => away ? `${name} (not connected)` : name;
@@ -172,11 +172,11 @@ export const settingsTitle = "Settings";
 export const operationsLoadingNoun = "operations";
 export const settingsSessionTab = "Session";
 export const settingsHoldingsTab = "Holdings";
-export const settingsReachabilityTab = "Reachability";
+export const settingsConnectionTab = "Connection";
 
 /** The title row every card shares: the theme and the notification bell. */
 export const themeToLight = "Switch to light";
-export const themeToDark = "Switch to syrup (dark)";
+export const themeToDark = "Switch to dark";
 export const notifyChanging = "Changing mention notifications";
 export const notifyToggle = "Toggle mention notifications";
 export const notifyOnMention = "Notify me when I'm mentioned";
@@ -186,27 +186,28 @@ export const notifyBlocked =
 /** Issued archive shares. */
 export const archiveSharesTitle = "Issued archive shares";
 export const archiveSharesLead =
-	"These are independently revocable publications from the selected archive peer. Revoking one unpublishes its sturdyref. A live one-shot handover is a different object and is not affected.";
-export const archiveSharesEmpty = "This archive has issued no durable shares.";
+	"Links this archive has shared. Revoking one stops it working. A link handed over once isn't affected.";
+export const archiveSharesEmpty = "This archive has shared nothing yet.";
 
 /** The operations capability set. */
-export const capabilitySetTitle = "Capability set";
+export const capabilitySetTitle = "Operations links";
 export function capabilitySetEditUri(label: string): string {
-	return `Edit ${label} capability URI`;
+	return `Edit ${label} link`;
 }
 export function capabilitySetInclude(label: string): string {
 	return `Include ${label}`;
 }
 export const capabilitySetRetry = "Retry";
+export const capabilitySetDiscard = "Discard";
 export const capabilitySetSave = "Save changes";
-export const capabilitySetUriRefused = "Enter the complete capability URI printed by the server.";
-export const capabilitySetIncomplete = "Supply a complete capability URI for every enabled capability.";
-export function capabilitySetMintedSaid(flag: string, how: string): string {
-	return `The server mints it with ${flag}. ${how} It is bearer authority and is retained by this session.`;
+export const capabilitySetUriRefused = "Enter the complete link the server printed.";
+export const capabilitySetIncomplete = "Enter the complete link for every item you turned on.";
+export function capabilitySetMintedSaid(flag: string): string {
+	return `The server prints it when started with ${flag}. Paste the full link here and Rooms fetches it from the server it names. Anyone holding it has this access, so this session keeps it private.`;
 }
-export const capabilitySetSaveTo = "Save to capability set";
+export const capabilitySetSaveTo = "Save";
 
-/** Restoring a room a saved workspace remembers. */
+/** Restoring a room a saved session remembers. */
 export const roomRecoveryTitle = "Restore room access";
 export const recoveryRestoring = "Restoring room…";
 export const recoveryRetrySaved = "Retry saved link";

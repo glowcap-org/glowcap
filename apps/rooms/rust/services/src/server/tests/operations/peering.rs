@@ -25,15 +25,7 @@ async fn peering() {
 	};
 	let (source_state, destination_state) = (Scratch::create("server"), Scratch::create("server"));
 	let source = start_with(source_state.to_path_buf(), tcp(), Asked::default()).await;
-	let destination = start_with(
-		destination_state.to_path_buf(),
-		tcp(),
-		Asked {
-			peering: true,
-			..Default::default()
-		},
-	)
-	.await;
+	let destination = start_with(destination_state.to_path_buf(), tcp(), Asked::parse("peering").unwrap()).await;
 	let swiss = destination.capabilities[0].swiss.clone();
 	let source_dial = glowcap::parse_locator(&source.location).unwrap();
 	let destination_dial = glowcap::parse_locator(&destination.location).unwrap();

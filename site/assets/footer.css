@@ -16,12 +16,13 @@
    a single line of legal text. */
 .footer-cols {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 1.5rem 2rem;
   margin-bottom: 1.5rem;
 }
 
 .footer-brand {
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
@@ -70,9 +71,5 @@
 @media (max-width: 52rem) {
   .footer-cols {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .footer-brand {
-    grid-column: 1 / -1;
   }
 }

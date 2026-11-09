@@ -105,7 +105,7 @@ Deno.test("a row with no conversation behind it stays in view either way", () =>
 	const invite: Invitation = { id: "1", dir: home, way: "handed", label: "orchard", from: "alice", link: "" };
 	const bare: DirView = {
 		id: home,
-		locator: home,
+		address: home,
 		transport: "",
 		liveRooms: new Map(),
 		dmablePeers: new Map(),

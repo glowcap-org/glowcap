@@ -5,6 +5,7 @@ mod admission;
 mod assets;
 mod browser_admission;
 mod bundle;
+mod capabilities;
 mod client_address;
 mod compiler;
 mod config;
@@ -23,6 +24,7 @@ mod status;
 mod supervisor;
 mod tor;
 mod upgrade;
+pub use capabilities::CapabilityRead;
 use config::BrowserAssets;
 pub use config::{Config, HELP};
 pub use export::StaticExport;
@@ -157,6 +159,9 @@ async fn serve(
 		report.clone(),
 		admission,
 	);
+	// The address every printed link names: the operator's public one, else
+	// the loopback address of the port this process bound.
+	let reached_at = public.map_or_else(|| format!("http://localhost:{port}/"), |public| public.to_string());
 	let mut workers = tokio::task::JoinSet::new();
 	if let Some(assets) = &assets {
 		workers.spawn_local(assets.clone().run());
@@ -167,6 +172,7 @@ async fn serve(
 			assets,
 			ice,
 			location: current,
+			page: pages.first().map(|page| page_link(page, &reached_at).to_string()),
 			previews: Rc::new(previews),
 			relay,
 			report: report.clone(),
@@ -215,9 +221,6 @@ async fn serve(
 		let mut session_stop = peers_stopping.clone();
 		peers.spawn_local(async move { peer.run(stopped(&mut session_stop)).await.map_err(|e| e.to_string()) });
 	}
-	// The address every printed link names: the operator's public one, else
-	// the loopback address of the port this process bound.
-	let reached_at = public.map_or_else(|| format!("http://localhost:{port}/"), |public| public.to_string());
 	let links = page_links(&pages, &reached_at, attach.as_deref());
 	// A worker or the shared session that fails while the directory opens is
 	// read at the select below, so the open runs to its own end first, inside
@@ -298,8 +301,7 @@ async fn settle(
 fn page_links(pages: &[url::Url], server: &str, session: Option<&str>) -> String {
 	let mut lines = String::new();
 	for page in pages {
-		let mut link = page.clone();
-		link.query_pairs_mut().append_pair("server", server);
+		let mut link = page_link(page, server);
 		lines.push_str(&format!("  open the page    {link}\n"));
 		if let Some(session) = session {
 			let attach: String = url::form_urlencoded::Serializer::new(String::new())
@@ -310,6 +312,13 @@ fn page_links(pages: &[url::Url], server: &str, session: Option<&str>) -> String
 		}
 	}
 	lines
+}
+
+/// A Rooms page offered this server, which the page asks about before using.
+fn page_link(page: &url::Url, server: &str) -> url::Url {
+	let mut link = page.clone();
+	link.query_pairs_mut().append_pair("server", server);
+	link
 }
 
 fn local_relay_url(mut address: std::net::SocketAddr) -> String {

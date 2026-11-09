@@ -134,6 +134,95 @@ supervisor and their tests, remove `web/vite.config.ts` and the Vite imports
 from `deno.json`, then update the app's check task and regenerate its
 lockfile.
 
+## Building and deploying from a checkout
+
+These commands run from the source repository with the pinned Zig, Rust, Deno,
+and matching wasm-bindgen toolchains. A host that only runs Rooms installs the
+[product package](host.md) instead.
+
+### Build the package
+
+```sh
+zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline
+```
+
+The output goes under `zig-out/glowcap-release/`.
+
+- The step requires baseline CPU instructions. It refuses Debug builds and
+  refuses to package for another OS or architecture.
+- It tests the extracted package away from the checkout.
+- In the devcontainer it builds Linux artifacts, which the shared checkout
+  makes visible to the host. Build macOS artifacts on macOS.
+
+### Run from a checkout
+
+`zig build glowcap-install` stages the installation under `zig-out`. Use
+`./glowcap` to run it during development, or `./glowcap install` to copy the
+prepared product into a verified generation outside the checkout.
+
+- The checkout launcher runs the complete product in `zig-out/product`.
+- If the product is missing or incomplete, the launcher builds it first
+  (ReleaseSafe, baseline CPU), using the devcontainer on Linux when available,
+  or else the full local toolchain. macOS always builds locally, because the
+  devcontainer produces Linux executables. If that build fails, the launcher
+  stops.
+- After editing source, run `zig build glowcap-release` in the build environment
+  before trying your changes. It prepares the complete host product with
+  ReleaseSafe and baseline CPU settings.
+- `GLOWCAP_BIN` selects an existing executable and skips the development
+  build, for example to debug a Debug executable you built by hand.
+
+### Deploy from a checkout
+
+On a Linux host, run:
+
+```sh
+./glowcap apps rooms deployment up
+```
+
+Each checkout `up` prepares the current source, including uncommitted edits,
+with the `glowcap-release` build. It uses the matching devcontainer when one is
+available, then builds an immutable image from the complete product. Docker requires a
+Linux product, so neither this nor `glowcap-release` can produce a macOS
+executable from a Linux container.
+
+- Checkout `reset` uses the same preparation before asking for confirmation.
+- Explicit `--image` or `--build` sources take precedence and skip source
+  preparation.
+- An installed `glowcap` keeps its selected image across ordinary `up` calls and
+  never builds application source.
+- Deployment inspection, `restart`, and session commands run the prepared
+  product without build tools, so a stopped development container does not
+  block them.
+- Preparation progress goes to stderr, and a preparation failure stops before
+  the deployment command starts.
+
+To prepare a Linux product separately, run `zig build glowcap-release` inside
+the devcontainer. Then, on the Docker host with glowcap installed:
+
+```sh
+glowcap apps rooms deployment up --build /path/to/checkout/zig-out/product
+```
+
+On macOS, use a macOS host installation to control Docker, and a Linux product
+from the devcontainer as the image build context.
+
+The Dockerfile copies the complete product into the image and mounts no
+checkout, compiler output, or browser source at runtime, so a rebuild cannot
+replace executables underneath the daemon. The distroless Debian base supplies
+glibc, the GCC runtime, and certificates, without a shell or package manager.
+Directory and session containers share the same image layers. Dependency pins
+live in [pins.sh](../../.devcontainer/pins.sh). The
+[deployment guide](web/deploy/README.md) covers the deployment itself.
+
+### Watch the trace from a checkout
+
+`zig build rooms-trace-tail -- '<trace-link>'` reads the same feed as
+`glowcap apps rooms trace`. `zig build ocapnviz-dev` starts the
+[ocapnviz](../ocapnviz/README.md) protocol viewer, which
+[Operating Rooms](operating.md#watching-the-room-live) shows how to point at a
+trace link.
+
 ## Running the pieces by hand
 
 Start a cleartext server on a known port and join it from a terminal:
@@ -249,7 +338,7 @@ replaces the default, and an empty value lists none.
 A listed origin may also read `locator`, `ice`, and link previews. A page uses
 one Rooms server for its relay, its registration, its link previews, and the
 directory a blank address means. It is the server that sent the page unless
-the browser chose another under **Settings > Reachability**, or accepted a
+the browser chose another under **Settings**, **Connection**, or accepted a
 link carrying `?server=<address>`.
 
 A listed page address, the default included, is also printed as a link that

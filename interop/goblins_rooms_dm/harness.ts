@@ -211,7 +211,7 @@ try {
 	// and the room server as its child. The TCP arm names the vat's address as a
 	// cleartext peer the relay may dial; the iroh arm names nothing, because an
 	// iroh destination has to be a peer holding a key.
-	const env: Record<string, string> = { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: "0" };
+	const env: Record<string, string> = { GLOWCAP_ROOMS_CAPABILITIES: "trace", GLOWCAP_ROOMS_TRACE_PORT: "0" };
 	if (!IROH) env.GLOWCAP_RELAY_TCP_PEERS = loopbackTcpDesignator(vatPort);
 	web = new Deno.Command(WEB, {
 		args: [

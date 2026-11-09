@@ -1,36 +1,47 @@
 //! Read the operator capabilities kept on disk without taking server custody.
 //! The boot catalog and the state's swiss validator own the printed contract.
 use super::{Error, operations::Minted};
-use rooms_application::server::operations::{BOOT_CAPABILITIES, is_swiss};
+use rooms_application::server::operations::{BOOT_CAPABILITIES, Kind, is_swiss};
 use std::path::PathBuf;
+
+/// Where the timeline's locator comes from. It is chosen when the server
+/// starts (its port and any proxy endpoints), so an offline read knows it only
+/// when the operator supplies it, and the trace line says which case it is in
+/// when there is none.
+pub enum TraceLocator {
+	Advertised(glowcap::Locator),
+	/// The running front answered that no timeline is up.
+	NotRunning,
+	/// Nothing running was asked, and the environment named none.
+	Unknown,
+}
 
 pub struct CapabilityQuery {
 	directory: PathBuf,
 	locator: glowcap::Locator,
-	trace_locator: Option<glowcap::Locator>,
+	trace: TraceLocator,
 }
 impl CapabilityQuery {
-	pub fn parse(args: &[String], env: impl Fn(&str) -> Option<String>) -> Result<Option<Self>, Error> {
-		let Some(first) = args.first() else { return Ok(None) };
-		let directory = if first == "--capabilities" {
-			env("GLOWCAP_ROOMS_STATE")
-		} else if let Some(path) = first.strip_prefix("--capabilities=") {
-			Some(path.to_owned())
-		} else {
+	/// The locators `GLOWCAP_ROOMS_LOCATOR` and `GLOWCAP_ROOMS_TRACE_LOCATOR`
+	/// supply. With the first set, the environment is the whole answer, and a
+	/// trace locator it leaves out stays unknown. `None` when it is unset, so
+	/// a caller may read both from a running front instead.
+	pub(crate) fn environment_locators(
+		env: impl Fn(&str) -> Option<String>,
+	) -> Result<Option<(glowcap::Locator, TraceLocator)>, Error> {
+		let Some(locator) = env("GLOWCAP_ROOMS_LOCATOR") else {
 			return Ok(None);
 		};
-		if args.len() != 1 {
-			return Err(Error::refused(
-				"--capabilities takes a state directory, without server options",
-			));
-		}
-		let directory = directory
-			.filter(|s| !s.trim().is_empty())
-			.ok_or_else(|| Error::refused("use --capabilities=<state-directory> or set GLOWCAP_ROOMS_STATE"))?;
-		let trace_locator = env("GLOWCAP_ROOMS_TRACE_LOCATOR")
-			.map(|locator| glowcap::parse_locator(&locator))
-			.transpose()?;
-		if let Some(locator) = &trace_locator {
+		let trace = match env("GLOWCAP_ROOMS_TRACE_LOCATOR") {
+			Some(trace) => TraceLocator::Advertised(glowcap::parse_locator(&trace)?),
+			None => TraceLocator::Unknown,
+		};
+		Ok(Some((glowcap::parse_locator(&locator)?, trace)))
+	}
+	/// A read of `directory` that prints each link against the directory's
+	/// `locator`, and the timeline's against `trace` when it is advertised.
+	pub(crate) fn new(directory: PathBuf, locator: glowcap::Locator, trace: TraceLocator) -> Result<Self, Error> {
+		if let TraceLocator::Advertised(locator) = &trace {
 			let Some(glowcap::HintValue::String(endpoint)) = locator.hints.get("trace-publish") else {
 				return Err(Error::refused(
 					"the trace locator must advertise its exact trace-publish endpoint",
@@ -38,15 +49,11 @@ impl CapabilityQuery {
 			};
 			rooms_application::server::trace::producer_endpoint(endpoint).map_err(Error::refused)?;
 		}
-		Ok(Some(Self {
-			directory: directory.into(),
-			locator: glowcap::parse_locator(&env("GLOWCAP_ROOMS_LOCATOR").ok_or_else(|| {
-				Error::refused(
-					"set GLOWCAP_ROOMS_LOCATOR to the server's advertised locator when reading durable capability recipes",
-				)
-			})?)?,
-			trace_locator,
-		}))
+		Ok(Self {
+			directory,
+			locator,
+			trace,
+		})
 	}
 	pub async fn run(self) -> Result<String, Error> {
 		tokio::task::spawn_blocking(move || self.read())
@@ -59,10 +66,10 @@ impl CapabilityQuery {
 		}
 		let mut lines = Vec::new();
 		for capability in &BOOT_CAPABILITIES {
-			let line = match rooms_platform::storage::read(&self.directory.join(capability.file), 256)? {
+			let line = match rooms_platform::storage::read(&self.directory.join(capability.name), 256)? {
 				None => format!(
-					"{} (not minted here; start with {} to mint it)",
-					capability.token, capability.flag
+					"{} (not minted here; start with --capabilities={} to mint it)",
+					capability.token, capability.name
 				),
 				Some(bytes) => {
 					let swiss = std::str::from_utf8(&bytes)
@@ -70,28 +77,28 @@ impl CapabilityQuery {
 						.map(str::trim)
 						.filter(|s| is_swiss(s))
 						.ok_or_else(|| {
-							Error::refused(format!("{} state is not a complete swiss number", capability.file))
+							Error::refused(format!("{} state is not a complete swiss number", capability.name))
 						})?;
-					// The timeline's locator is chosen when the server starts
-					// (its port and any proxy endpoints), so this offline read
-					// can name it only when the operator supplies it. Without
-					// it the line says so, like an unminted one, and every
-					// other recipe still prints.
-					let locator = if capability.id == "trace" {
-						self.trace_locator.as_ref()
-					} else {
-						Some(&self.locator)
+					let minted = Minted {
+						capability,
+						swiss: swiss.into(),
 					};
-					match locator {
-						Some(locator) => Minted {
-							capability,
-							swiss: swiss.into(),
+					// Without the timeline's locator its line says why, like
+					// an unminted one, and every other link still prints.
+					if capability.kind != Kind::Trace {
+						minted.line(&self.locator)?
+					} else {
+						match &self.trace {
+							TraceLocator::Advertised(locator) => minted.line(locator)?,
+							TraceLocator::NotRunning => format!(
+								"{} (kept here, not running; start with --capabilities=trace to serve it)",
+								capability.token
+							),
+							TraceLocator::Unknown => format!(
+								"{} (minted; set GLOWCAP_ROOMS_TRACE_LOCATOR to the timeline's advertised locator to print it)",
+								capability.token
+							),
 						}
-						.line(locator)?,
-						None => format!(
-							"{} (minted; set GLOWCAP_ROOMS_TRACE_LOCATOR to the timeline's advertised locator to print it)",
-							capability.token
-						),
 					}
 				}
 			};
@@ -106,25 +113,36 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn an_unknown_timeline_locator_names_its_remedy_and_keeps_every_other_recipe() {
+	fn an_unknown_timeline_locator_names_its_remedy_and_keeps_every_other_link() {
 		let directory = rooms_testing::scratch::Scratch::create("capability-read");
 		for capability in &BOOT_CAPABILITIES {
-			std::fs::write(directory.join(capability.file), "a".repeat(64)).unwrap();
+			std::fs::write(directory.join(capability.name), "a".repeat(64)).unwrap();
 		}
-		let args = [format!("--capabilities={}", directory.display())];
-		let query = CapabilityQuery::parse(&args, |name| {
+		let (locator, trace) = CapabilityQuery::environment_locators(|name| {
 			(name == "GLOWCAP_ROOMS_LOCATOR").then(|| "ocapn://directory.id".to_owned())
 		})
 		.unwrap()
 		.unwrap();
-		let printed = query.read().unwrap();
+		let printed = CapabilityQuery::new(directory.to_path_buf(), locator, trace)
+			.unwrap()
+			.read()
+			.unwrap();
 		for capability in &BOOT_CAPABILITIES {
 			let line = printed.lines().find(|line| line.starts_with(capability.token)).unwrap();
-			if capability.id == "trace" {
+			if capability.kind == Kind::Trace {
 				assert!(line.contains("set GLOWCAP_ROOMS_TRACE_LOCATOR"), "{line}");
 			} else {
 				assert!(line.contains("ocapn://directory.id"), "{line}");
 			}
 		}
+		// A front that answered with no timeline names the start option, not
+		// a variable, because the server already said the timeline is off.
+		let locator = glowcap::parse_locator("ocapn://directory.id").unwrap();
+		let printed = CapabilityQuery::new(directory.to_path_buf(), locator, TraceLocator::NotRunning)
+			.unwrap()
+			.read()
+			.unwrap();
+		let line = printed.lines().find(|line| line.starts_with("ROOMS-TRACE")).unwrap();
+		assert!(line.contains("--capabilities=trace"), "{line}");
 	}
 }

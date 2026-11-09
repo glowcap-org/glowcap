@@ -11,8 +11,8 @@ export function recoveryTitle(count: number): string {
 export function recoveryLead(count: number): string {
 	if (count === 0) return "There are no unfinished changes to review.";
 	return count === 1
-		? "Something you started didn't finish, and Rooms can't tell whether it went through."
-		: "Some things you started didn't finish, and Rooms can't tell whether they went through.";
+		? "Something you started didn't finish, and Rooms couldn't tell whether it went through."
+		: "Some things you started didn't finish, and Rooms couldn't tell whether they went through.";
 }
 
 export const recoveryKeep = "Go back";
@@ -28,9 +28,9 @@ export const recoveryStatus: Record<"pending" | "committed" | "unknown" | "unsen
 };
 /** What the act on a row does, said under its name. */
 export const recoveryRowHint: Record<"pending" | "committed" | "unknown" | "unsent" | "saving" | "working", string> = {
-	pending: "The other side has not answered yet. Pick it back up to keep waiting for it.",
+	pending: "The other side hasn't answered yet. Pick it back up to keep waiting for it.",
 	committed: "It went through. Finish to keep what it returned in this session.",
-	unknown: "Rooms can't tell whether it went through. Pick it back up to resume waiting for the original reply.",
+	unknown: "Rooms couldn't tell whether it went through. Pick it back up to resume waiting for the original reply.",
 	unsent: "It never left this session.",
 	saving: "It went through and is saved in the session. Finish to show it here.",
 	working: "Rooms is still working on this one. It waits here in case it stops.",

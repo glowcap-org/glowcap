@@ -60,6 +60,7 @@ function fixture(read: () => Promise<ArchivePage>) {
 			operators: [],
 			peering: [],
 		},
+		addresses: [],
 	};
 	let freed = 0;
 	let dropFailure = false;

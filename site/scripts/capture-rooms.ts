@@ -160,11 +160,7 @@ const web = spawnWeb({
 		"--transport=tcp",
 		String(http),
 		"0",
-		"--diagnostics",
-		"--admin-listeners",
-		"--operator",
-		"--peering",
-		"--irc",
+		"--capabilities=admin-listeners,diagnostics,operator,peering,irc",
 	],
 	stdout: "piped",
 	stderr: "piped",
@@ -212,7 +208,7 @@ try {
 	await post(
 		leadPage,
 		mira,
-		"Ack. Strategy: fan-out then fan-in, three independent reads merged here. Speak policy: I answer @mira in-room, members take DMs. Cap 4 incl. lead.",
+		"Plan: @wren takes the architecture page, @juno the intro, @pike the phone layout. I'll answer @mira here, and you can DM me.",
 	);
 	await post(
 		bots.get("wren")!,
@@ -238,7 +234,7 @@ try {
 	await post(
 		leadPage,
 		mira,
-		`Ack, replanning. @pike owns the list rewrite, @juno owns the intro sentence. @wren carry on.`,
+		"Thanks. @pike rewrites the list, @juno fixes the intro sentence, @wren keep going.",
 	);
 
 	// A direct line: mira presses the roster's direct control for the lead,
@@ -263,7 +259,7 @@ try {
 	// exchange, the rail shows the direct line beside it.
 	const roomRow = mira.locator("#roomList li .rname-text", { hasText: new RegExp(`^${room}$`) });
 	await roomRow.click();
-	await mira.locator(".bubble", { hasText: "carry on" }).last().waitFor({ timeout: 30_000 });
+	await mira.locator(".bubble", { hasText: "keep going" }).last().waitFor({ timeout: 30_000 });
 	await shot(mira, "rooms-conversation");
 
 	// An IRC client enters the same room through the IRC server: the registration
@@ -313,9 +309,9 @@ try {
 		await mira.click('#opsCapabilitySetForm button[type="submit"]');
 		await mira.waitForSelector("#opsCapabilitySetSaved", { timeout: 30_000 });
 		await mira.click("#settingsClose");
-		await mira.goto(`${url}ops/directory`, { waitUntil: "domcontentloaded" });
+		await mira.goto(`${url}ops/operator`, { waitUntil: "domcontentloaded" });
 		await mira.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
-		await mira.waitForSelector("#directoryOpsPanel", { timeout: 60_000 });
+		await mira.waitForSelector("#operatorOpsPanel", { timeout: 60_000 });
 		await mira.waitForSelector("#operatorRooms", { timeout: 60_000 });
 		await shot(mira, "rooms-operations");
 		await mira.goto(url, { waitUntil: "domcontentloaded" });

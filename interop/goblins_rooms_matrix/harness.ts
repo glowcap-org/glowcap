@@ -400,7 +400,7 @@ const web = new Deno.Command(WEB, {
 		"0",
 	],
 	cwd: ROOT,
-	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: "0" },
+	env: { GLOWCAP_ROOMS_CAPABILITIES: "trace", GLOWCAP_ROOMS_TRACE_PORT: "0" },
 	// Piped for the HTTP port the front announces first. `webPort` drains the rest.
 	stdout: "piped",
 	// Read rather than inherited, because the trace capability is announced on

@@ -55,7 +55,7 @@ promise-resolver bootstrap object, the recipient's give redeem, and the
 gifter's enliven claim. The file's header inventories them.
 
 ```sh
-zig build ocapn-conformance              # default: every upstream test module
+zig build ocapn-conformance              # default: five of the six upstream test modules
 zig build ocapn-conformance -Dport=23055 # move the peer off 22055 when that port is taken
 bash conformance/ocapn-conformance/run-against-glowcap.sh tests.op_deliver  # one module
 ```

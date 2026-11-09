@@ -1,5 +1,5 @@
 // The page's settings dialog: session custody, capability holdings, and
-// reachability. Holdings separates live session possession
+// connection. Holdings separates live session possession
 // from explicitly saved bearer authority. While any operations capability is
 // live, the head also offers the Operations page that can use it.
 
@@ -53,7 +53,7 @@ import { ServerCard } from "./ServerCard.tsx";
 import { useSessionPermission } from "../hooks.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { settingsTitle } from "../../../lib/text/settings.ts";
-import { settingsHoldingsTab, settingsReachabilityTab, settingsSessionTab } from "../../../lib/text/settings.ts";
+import { settingsConnectionTab, settingsHoldingsTab, settingsSessionTab } from "../../../lib/text/settings.ts";
 import { ModalCard } from "../ModalCard.tsx";
 
 interface SettingsProps {
@@ -128,10 +128,10 @@ function SettingsDialog(
 			] as const
 			: []),
 		{
-			id: "reachability",
-			domId: "reachabilityTab",
-			label: settingsReachabilityTab,
-			panelId: "reachabilityPanel",
+			id: "connection",
+			domId: "connectionTab",
+			label: settingsConnectionTab,
+			panelId: "connectionPanel",
 		},
 	];
 	const [pane, setPane] = useState<RoomsSettingsTab>(
@@ -275,11 +275,11 @@ function SettingsDialog(
 							<Holdings archiveTarget={archiveTarget} />
 						</div>
 					)}
-					{pane === "reachability" && (
+					{pane === "connection" && (
 						<div
-							id="reachabilityPanel"
+							id="connectionPanel"
 							role="tabpanel"
-							aria-labelledby="reachabilityTab"
+							aria-labelledby="connectionTab"
 						>
 							<ServerCard relay={relay} />
 							{canInteract && (

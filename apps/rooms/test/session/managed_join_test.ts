@@ -345,7 +345,7 @@ for (const policy of [OPEN_ROOM_POLICY, PRIVATE_ROOM_POLICY]) {
 				_releases: string,
 				intent: string,
 			) => {
-				candidate = { revision: accepted.revision, intent: JSON.parse(intent) };
+				candidate = { revision: accepted.revision, intent: JSON.parse(intent), addresses: [] };
 				return Promise.resolve({
 					submit: () => Promise.reject(new Error("acquisition acknowledgement missing")),
 					free() {},

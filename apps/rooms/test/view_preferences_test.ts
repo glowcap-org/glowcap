@@ -56,3 +56,14 @@ Deno.test("view preferences: a record of another shape is refused once and the t
 	assertEquals(projection.get().trouble.length, 1, "said once");
 	stop();
 });
+
+Deno.test("view preferences: a stored tab id nothing parses falls back to the default record", () => {
+	kept.clear();
+	kept.set(VIEW_PREFERENCES_KEY, JSON.stringify({ ...defaultRecord, railOpen: false, settingsTab: "nowhere" }));
+	const projection = new store.PageProjection();
+	const stop = bindViewPreferences(projection);
+	assertEquals(projection.get().settingsTab, DEFAULT_ROOMS_VIEW_STATE.settingsTab, "the default tab");
+	assertEquals(projection.get().railOpen, defaultRecord.railOpen, "the whole stale record is refused");
+	assertEquals(projection.get().trouble.length, 1, "said once");
+	stop();
+});

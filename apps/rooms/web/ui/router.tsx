@@ -235,7 +235,7 @@ function RoomRoute() {
 					);
 				}
 			} else {
-				replaceWith(joinAddress({ room: name, locator: dirParam }));
+				replaceWith(joinAddress({ room: name, address: dirParam }));
 			}
 			arrival.mark();
 			return;
@@ -316,20 +316,20 @@ function JoinRoute() {
 		if (arrival.done) return;
 		const search = new URLSearchParams(routed.search);
 		const room = search.get("room");
-		const locator = search.get("locator");
+		const address = search.get("address");
 		// `dir=` is the directory the address stands on rather than one the link
 		// named: a room route that could not open its room lands here with that
 		// much still true. Named outranks implied when an address carries both.
 		const directory = search.get("dir");
 		// A bare /join is a reader asking for the card and naming nothing, so
 		// every field falls through to what this browser last used. Naming a
-		// room or a locator is a deep link, and each part it names is named
+		// room or an address is a deep link, and each part it names is named
 		// outright: a link that says where is answered there whatever was used
 		// last, and one that says only which room leaves the where alone.
 		net.reachFor(routing(), {
 			source: "link",
 			room: room === null ? undefined : named(room),
-			locator: locator !== null ? named(locator) : directory !== null ? implied(directory) : undefined,
+			address: address !== null ? named(address) : directory !== null ? implied(directory) : undefined,
 		});
 		arrival.mark();
 	}, [arrival, routed.search]);
@@ -337,7 +337,7 @@ function JoinRoute() {
 }
 
 /** A directory conversation's address: `/directory` for this page's directory,
- * `/directory?dir=` for any other, the same locator query a room on another
+ * `/directory?dir=` for any other, the same address query a room on another
  * directory uses. The view is not a workspace row; the address names which
  * one to recreate. */
 function DirectoryRoute() {
@@ -356,7 +356,7 @@ function DirectoryRoute() {
 			const known = net.directoryId(dirParam);
 			if (known !== null && routing().projection.get().dirs.has(known)) {
 				net.showDirectory(routing(), known);
-			} else replaceWith(joinAddress({ locator: dirParam }));
+			} else replaceWith(joinAddress({ address: dirParam }));
 			arrival.mark();
 			return;
 		}

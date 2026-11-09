@@ -7,7 +7,7 @@
 // here and does not spell them again.
 
 /** What the operator listeners object answers, when the process is started with
- * `--admin-listeners`.
+ * `--capabilities=admin-listeners`.
  *
  * Like inspect, it is not a directory method. It is a second Host publication
  * under an unguessable swiss, and holding that swiss is the authority to

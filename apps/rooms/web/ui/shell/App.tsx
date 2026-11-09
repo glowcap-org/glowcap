@@ -124,9 +124,9 @@ export function App() {
 			directoryDestinationContext(
 				state.homeDirectory == null
 					? null
-					: { id: state.homeDirectory, locator: session.dirAddress(state.homeDirectory) },
+					: { id: state.homeDirectory, address: session.dirAddress(state.homeDirectory) },
 				state.server?.directory ?? null,
-				(locator) => session.directoryId(locator),
+				(address) => session.directoryId(address),
 			),
 		// The home address this asks the session for lives on the live checkpoint, not
 		// in the store, so React cannot see it move and no dependency can name
@@ -237,7 +237,7 @@ export function App() {
 	// What the peering pane could publish: rooms joined on a directory other
 	// than this one. Memoised on the maps it reads, the same reason the roster
 	// is: the pane sits behind a modal, and a keystroke must not rebuild it.
-	// The directory this page came from: Settings still names its locator, and
+	// The directory this page came from: Settings still names its address, and
 	// a button there opens the same card a room caption would. Null when this
 	// tab does not hold that session, before it has answered, or after Leave.
 	const onDir = state.homeDirectory === null ? null : state.dirs.get(state.homeDirectory) ?? null;
@@ -286,7 +286,7 @@ export function App() {
 		[projection, homeDirectory, reaching, edits, remembered, directoryContext],
 	);
 	const joinResolution = useMemo(
-		() => resolveJoin(joining, state.dirs, state.homeDirectory, (locator) => session.directoryId(locator)),
+		() => resolveJoin(joining, state.dirs, state.homeDirectory, (address) => session.directoryId(address)),
 		[joining, state.dirs, state.homeDirectory, session],
 	);
 

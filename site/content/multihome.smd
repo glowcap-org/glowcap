@@ -104,7 +104,7 @@ draw each of these flows.
 # Rooms uses it
 
 Directory peering in [Rooms]($link.page('rooms')) uses multi-homing. A Rooms
-server started with `--peering` can list one of its durable rooms in another
+server started with `--capabilities=peering` can list one of its durable rooms in another
 Rooms server's directory, the list of rooms people find there, under a single
 `id` locator. Its iroh and
 Noise listeners, which prove the key, go under `via`. Its onion and plain

@@ -66,7 +66,7 @@ export function failureView(err: unknown): FailureView {
 		subject: "operation",
 		retry: "unknown",
 		summary: "Rooms couldn't complete that action.",
-		action: "Check the diagnostic before trying again.",
+		action: "Try again. If it keeps failing, the text in parentheses says what to report.",
 		detail,
 	};
 }
@@ -96,14 +96,14 @@ export function refusalText(err: unknown): string {
 
 /** An unexplained failure while the Rooms server this browser connects through
  * turns it away. That server is the cause a person can do something about,
- * and Settings > Reachability is where. */
+ * and Settings, under Connection, is where. */
 export const relayUnreachable = (host: string, detail: string) =>
-	serverUnreachable(host, "Rooms keeps trying. To use another server, open Settings, then Reachability.", detail);
+	serverUnreachable(host, "Rooms keeps trying. To use another server, open Settings, under Connection.", detail);
 /** A break through the Rooms server this browser connects through. `remedy`
  * is what the screen saying it offers, since each one changes the server
  * from somewhere else. */
 export const serverUnreachable = (host: string, remedy: string, detail: string) =>
-	`Rooms can't reach the Rooms server at ${host}, which this browser connects through. ${remedy} (${detail})`;
+	`Rooms couldn't reach the Rooms server at ${host}, which this browser connects through. ${remedy} (${detail})`;
 
 /** This browser stands between a public page and a server on the person's own
  * computer or network, asking once or refusing until they allow it. */
@@ -118,7 +118,7 @@ export const browserBlocks = (permission: "prompt" | "denied") =>
  * own words when the dial reported them, and empty when it reported another
  * door's refusal instead. */
 export const doorUnreachable = (subject: "directory" | "session", relayHost: string, detail: string) =>
-	`Rooms couldn't reach that ${subject} through its relay at ${relayHost}. It may be off, or its relay isn't answering.${
+	`Rooms couldn't reach that ${subject} through the server at ${relayHost}. It may be off, or that server isn't answering.${
 		detail === "" ? "" : ` (${detail})`
 	}`;
 /** The same reach while this browser stands between the page and a relay on
@@ -130,7 +130,7 @@ export const doorBlocked = (permission: "prompt" | "denied", detail: string) =>
  * browser sees only a closed socket, so the two causes it cannot tell apart are
  * both named, and the original words follow for whoever is debugging. */
 export const directoryUnreachable = (host: string, detail: string) =>
-	`Rooms couldn't reach that directory. This browser connects through the Rooms server at ${host}, which may not forward to it, or the directory isn't answering. (${detail})`;
+	`Rooms couldn't reach that directory. This browser connects through the Rooms server at ${host}, which may not forward to it, or the directory isn't answering. Try again in a moment. You can also check the Rooms server in Settings, under Connection. (${detail})`;
 
 /** Whether the rest of an error belongs in a card as well as where it
  * appeared.

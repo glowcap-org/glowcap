@@ -162,8 +162,10 @@ The Rust, TypeScript, Python, and Racket bindings live in
 
 The Zig API distinguishes owned frames from borrowed views and takes explicit
 allocators. The protocol core is synchronous and does no I/O. Sessions speak
-[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
-OCapN's session protocol, and encode it in [Syrup](https://github.com/ocapn/syrup), OCapN's canonical
+[CapTP](https://github.com/ocapn/ocapn/blob/main/draft-specifications/CapTP%20Specification.md),
+OCapN's session protocol and a descendant of
+[E's CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
+and encode it in [Syrup](https://github.com/ocapn/syrup), OCapN's canonical
 format.
 
 For an encrypted session, use [iroh](https://www.iroh.computer/), which is
@@ -186,12 +188,19 @@ transport, binding, and Loam costs with their workloads and methods.
 
 The interoperability checks use the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and live sessions
-with [Spritely Goblins](https://spritely.institute/goblins/) over TCP.
-The baseline is CapTP 1.0 encoded in Syrup:
+with [Spritely Goblins](https://spritely.institute/goblins/) on Racket: cleartext `tcp`
+through a testing netlayer glowcap supplies on every push, and Tor onion, the
+netlayer Goblins ships, on demand.
+The baseline is CapTP 1.0 encoded in Syrup, the wire Goblins and the pinned
+suite speak:
 
 ```sh
-zig build ocapn-conformance  # the upstream OCapN test suite, against a glowcap peer
+zig build ocapn-conformance  # five of the six upstream OCapN suite modules, against a glowcap peer
 ```
+
+[The conformance manifest](https://github.com/glowcap-org/glowcap/blob/main/docs/ocapn-conformance.md)
+lists the current-draft sections glowcap defers, and `glowcap-next` is a
+profile only glowcap peers speak.
 
 [Community review](https://github.com/glowcap-org/glowcap/blob/main/docs/community-review.md) lists outside-peer checks, what
 each proves, and what each needs to run. [Stability](https://github.com/glowcap-org/glowcap/blob/main/docs/stability.md) explains

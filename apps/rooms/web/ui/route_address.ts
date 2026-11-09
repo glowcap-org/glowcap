@@ -37,17 +37,17 @@ export function roomAddress(
  * that ends at the card says so, and `/join` is the one route that files the
  * act: the routes that fall back to the card only say where they landed.
  *
- * `room` and `locator` are what the link named outright. `directory` is the
+ * `room` and `address` are what the link named outright. `directory` is the
  * other way a card knows where it is: standing on a room address implies the
  * directory that room is on, whether or not anybody wrote it down, and that is
  * the same `dir=` a room address carries for the same fact. An empty `dir=` is
  * this page's own directory, which is how the card says "here", because the
- * store keeps that as an empty locator and the address has to round-trip what
+ * store keeps that as an empty address and the address has to round-trip what
  * the store holds or the two will keep correcting each other. */
-export function joinAddress(options: { room?: string; locator?: string; directory?: string } = {}): string {
+export function joinAddress(options: { room?: string; address?: string; directory?: string } = {}): string {
 	const search = pageSearch();
 	if (options.room != null) search.set("room", options.room);
-	if (options.locator != null) search.set("locator", options.locator);
+	if (options.address != null) search.set("address", options.address);
 	if (options.directory != null) search.set("dir", options.directory);
 	return withPageSearch("/join", search);
 }
@@ -55,11 +55,11 @@ export function joinAddress(options: { room?: string; locator?: string; director
 /** The address of the card as a filed act shows it, so the address mirror can
  * keep the two in step. Only what was named or implied goes in. A field the act
  * says nothing about is a field the address says nothing about. */
-export function joinAddressOf(act: { room?: Given<string>; locator?: Given<string> }): string {
+export function joinAddressOf(act: { room?: Given<string>; address?: Given<string> }): string {
 	return joinAddress({
 		room: act.room?.firmness === "named" ? act.room.value : undefined,
-		locator: act.locator?.firmness === "named" ? act.locator.value : undefined,
-		directory: act.locator?.firmness === "implied" ? act.locator.value : undefined,
+		address: act.address?.firmness === "named" ? act.address.value : undefined,
+		directory: act.address?.firmness === "implied" ? act.address.value : undefined,
 	});
 }
 

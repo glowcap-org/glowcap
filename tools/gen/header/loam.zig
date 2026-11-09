@@ -178,7 +178,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitStruct(&b, gpa, abi.GlowcapLoamMethod, "GlowcapLoamMethod", &@as([@typeInfo(abi.GlowcapLoamMethod).@"struct".field_names.len][]const u8, @splat("")));
     try E.emitStruct(&b, gpa, abi.GlowcapLoamReadMethod, "GlowcapLoamReadMethod", &.{ "Trusted read verb.", "Verb bytes.", "Interface index for each returned capability in depth-first Value traversal order.", "Exact capability occurrence count; zero forbids capability results." });
     try E.emitStruct(&b, gpa, abi.GlowcapLoamReadInterface, "GlowcapLoamReadInterface", &.{ "Allowed read methods; effect methods require receipt execution.", "Method count." });
-    try E.emitStruct(&b, gpa, abi.GlowcapLoamContent, "GlowcapLoamContent", &@as([@typeInfo(abi.GlowcapLoamContent).@"struct".field_names.len][]const u8, @splat("")));
+    try E.emitStruct(&b, gpa, abi.GlowcapLoamContent, "GlowcapLoamContent", &.{ "", "", "", "Declared methods, copied at attach.", "Method count: at least one and at most " ++ n(abi.prose_limits.max_content_methods) ++ ". More refuses the attach as an invalid argument before anything is copied.", "", "", "", "", "", "" });
     try E.emitStruct(&b, gpa, abi.GlowcapLoamResource, "GlowcapLoamResource", &@as([@typeInfo(abi.GlowcapLoamResource).@"struct".field_names.len][]const u8, @splat("")));
     try E.emitStruct(&b, gpa, abi.GlowcapLoamPolicyValue, "GlowcapLoamPolicyValue", &@as([@typeInfo(abi.GlowcapLoamPolicyValue).@"struct".field_names.len][]const u8, @splat("")));
     try E.emitStruct(&b, gpa, abi.GlowcapLoamBytes, "GlowcapLoamBytes", &.{ "Inputs are consumed synchronously; callback output lasts until the next callback.", "Byte count.", "Zero means absent; one means present, including an empty value." });

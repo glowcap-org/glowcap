@@ -148,7 +148,7 @@ recognized-failure syntax remain unsupported
 
 ### Rooms
 
-[Operating Rooms](../apps/rooms/operating.md#known-limitations) owns application
+[Rooms limitations](../apps/rooms/limitations.md) owns application
 limits. The [session guide](rooms/session.md) covers observation and file access.
 An inbox gap needs explicit recovery. DM file bytes can expire or disappear
 when the sender's session ends, even when the message remains.

@@ -126,15 +126,15 @@
 	font-size: var(--type-caption);
 	font-style: italic;
 }
-/* Tiny, and smaller than the line beside it. The two are not peers: one is a
-   person at their keyboard and the other is furniture under the field. It is
-   also the denser line by far, and at the caption size half its shortcuts run
-   off the end.
+/* The caption size, the same as the line beside it: this is the only teaching
+   text in the composer, so it is not set smaller than the rest. It is the
+   denser line, and the shortcuts that do not fit end in an ellipsis, with the
+   keys that matter first.
    Out of the row until the caret earns it, by leaving rather than by fading:
    these lines are laid out in flow now, so one that is merely invisible would
    still take its width out of the row and push what is beside it along. */
 .composer .hint {
-	font-size: var(--type-tiny);
+	font-size: var(--type-caption);
 	display: none;
 }
 /* The keys and syntax the hint names stand out by weight and ink alone. */

@@ -34,6 +34,16 @@ def run(binary, *args, env, ok=True, detached=False):
     return result
 
 
+def compose_verb(args):
+    """The Compose verb a logged docker call runs, or None for a plain docker probe."""
+    if args[:1] != ["compose"]:
+        return None
+    operands = args[1:]
+    while operands and operands[0] in ("--project-directory", "-f"):
+        operands = operands[2:]
+    return operands[0] if operands else None
+
+
 def source_fixture(root, scratch, manifest):
     # A tiny disposable source exercises failure/upgrade without modifying the
     # build output. Its executable is real; other product files are fixtures.
@@ -183,8 +193,14 @@ elif a[:2] == ['image', 'inspect'] and 'Labels' in ' '.join(a):
     print(label.read_text() if label.exists() else '<no value>')
 elif a[:2] == ['image', 'inspect']: print(image)
 elif 'exec' in a:
-    if a[-1] == '--print-link': print('ocapn://127.0.0.1%3A9300.tcp/s/eA?captp-websocket=ws%3A%2F%2F127.0.0.1%3A9300%2Fcaptp&trace-publish=ws%3A%2F%2F127.0.0.1%3A9300%2Fpublish')
-    else: print('ocapn://management' if a[-1] == '--file=/session-state/control.sturdyref' else 'ocapn://fixture')
+    # One distinct answer per operand, so a print that swaps or drops a read fails.
+    page = '' if os.environ.get('ROOMS_FIXTURE_NO_PAGE') else 'https://glowcap.org/rooms/app/?server=http%3A%2F%2Flocalhost%3A8080%2F'
+    answers = [('page', page), ('locator', 'ocapn://fixture-directory.tcp'), ('revision', 'fixture-browser-revision'),
+               ('capabilities', 'ROOMS-OPERATOR ocapn://fixture-directory.tcp/s/operator'),
+               ('--print-link', 'ocapn://127.0.0.1%3A9300.tcp/s/eA?captp-websocket=ws%3A%2F%2F127.0.0.1%3A9300%2Fcaptp&trace-publish=ws%3A%2F%2F127.0.0.1%3A9300%2Fpublish'),
+               ('--file=/session-state/management.sturdyref', 'ocapn://management'),
+               ('--file=/run/rooms-session/use.sturdyref', 'ocapn://fixture')]
+    print(dict(answers)[a[-1]])
 if a[:1] == ['compose'] and '--project-directory' in a:
     config = pathlib.Path(a[a.index('-f') + 1]).parent
     assert a[a.index('--project-directory') + 1] == str(config)
@@ -204,8 +220,19 @@ class Deployment:
         self.env = dict(PATH=f"{docker_fixture(scratch)}:/usr/bin:/bin", HOME=str(scratch), DOCKER_LOG=str(self.log))
         self.workspace = scratch / "deployment config"
 
-    def call(self, *args, **kwargs):
-        return run(self.binary, "apps", "rooms", "deployment", *args, "--dir", self.workspace, env=self.env, **kwargs)
+    def call(self, *args, env=None, **kwargs):
+        """Run one deployment verb. `env` adds to the fixture environment for this call."""
+        return run(
+            self.binary,
+            "apps",
+            "rooms",
+            "deployment",
+            *args,
+            "--dir",
+            self.workspace,
+            env={**self.env, **(env or {})},
+            **kwargs,
+        )
 
     def select(self, revision):
         """Select the fixture image as if a product at `revision` built it."""
@@ -220,8 +247,10 @@ def lifecycle(deploy, root):
     assert not workspace.exists(), "doctor created state"
     before_up = log.read_text()
     started = call("up", "--image", "example/rooms:test")
-    assert "Shared-session workspace capability:\nocapn://fixture" in started.stdout, started.stdout
-    assert "Shared-session management capability:\nocapn://management" in started.stdout, started.stdout
+    page = "Open the page:\nhttps://glowcap.org/rooms/app/?server=http%3A%2F%2Flocalhost%3A8080%2F"
+    assert started.stdout.index(page) < started.stdout.index("Directory operator capabilities:"), started.stdout
+    assert "Shared session use link:\nocapn://fixture" in started.stdout, started.stdout
+    assert "Shared session management link:\nocapn://management" in started.stdout, started.stdout
     assert "ROOMS-TRACE-LISTENING ocapn://127.0.0.1%3A9300.tcp/s/" in started.stdout, started.stdout
     before_trace = len(log.read_text())
     call("trace", "--json")
@@ -243,17 +272,14 @@ def lifecycle(deploy, root):
         "--url=http://directory:8080",
     ]
     assert viewers == [viewer + ["--json"], viewer], trace_calls
-    # Saved capabilities print as complete recipes only with the locator the
-    # directory advertises, which up has just read from it.
+    # The container's own command reads the locators from the running
+    # directory, so up hands it no environment.
     capabilities = next(
         json.loads(line)
         for line in log.read_text()[len(before_up) :].splitlines()
-        if json.loads(line)[-2:] == ["directory", "capabilities"]
+        if json.loads(line)[-3:] == ["apps", "rooms", "capabilities"]
     )
-    assert "GLOWCAP_ROOMS_LOCATOR=ocapn://fixture" in capabilities, capabilities
-    assert any(
-        value.startswith("GLOWCAP_ROOMS_TRACE_LOCATOR=ocapn://127.0.0.1%3A9300.tcp") for value in capabilities
-    ), capabilities
+    assert "-e" not in capabilities, capabilities
     selection = (workspace / "image").read_text()
     assert selection == "sha256:" + "a" * 64 + "\n"
     override = workspace / "docker-compose.override.yml"
@@ -266,6 +292,19 @@ def lifecycle(deploy, root):
     assert override.read_bytes() == before
     assert not (workspace / ".operation-lock").exists()
     assert not list(workspace.glob(".image-build-*"))
+    before_links = len(log.read_text())
+    links = call("links").stdout
+    links_calls = [json.loads(line) for line in log.read_text()[before_links:].splitlines()]
+    # Reads only: the version probes, the config check, and exec into running services.
+    assert all(compose_verb(args) in (None, "version", "config", "exec") for args in links_calls), links_calls
+    assert links.index("Open the page:") < links.index("Directory operator capabilities:\nROOMS-OPERATOR "), links
+    assert (
+        "Directory locator:\nocapn://fixture-directory.tcp\n\nBrowser revision:\nfixture-browser-revision\n" in links
+    ), links
+    assert "Shared session use link:\nocapn://fixture\n" in links, links
+    assert "ROOMS-TRACE-LISTENING ocapn://127.0.0.1%3A9300.tcp/s/" in links, links
+    no_page = deploy.call("links", env={"ROOMS_FIXTURE_NO_PAGE": "1"}).stdout
+    assert "Open the page:" not in no_page and "Directory operator capabilities:" in no_page, no_page
     before_restart = len(log.read_text())
     call("restart")
     restart_calls = [json.loads(line) for line in log.read_text()[before_restart:].splitlines()]
@@ -359,7 +398,7 @@ def reset(deploy):
     assert "ConfirmationRequired" in refusal.stderr
     new_calls = [json.loads(line) for line in log.read_text()[len(before_calls) :].splitlines()]
     assert not any(a[:2] == ["volume", "rm"] or "down" in a for a in new_calls)
-    volumes = {"session": "glowcap-rooms-session-state", "state": "glowcap-rooms-directory-state"}
+    volumes = {"session": "glowcap-rooms-session-state", "directory": "glowcap-rooms-directory-state"}
     for unit in (*volumes, "all"):
         before_calls = log.read_text()
         reset = call("reset", unit, "--yes")
@@ -375,10 +414,10 @@ def reset(deploy):
         assert next(i for i, a in enumerate(new_calls) if "up" in a) > max(
             i for i, a in enumerate(new_calls) if a[:2] == ["volume", "rm"]
         )
-    env["FAIL_VOLUME"] = volumes["state"]
+    env["FAIL_VOLUME"] = volumes["directory"]
     before_calls = log.read_text()
     failure = call("reset", "all", "--yes", ok=False)
-    assert "stack remains stopped" in failure.stderr and volumes["state"] in failure.stderr
+    assert "stack remains stopped" in failure.stderr and volumes["directory"] in failure.stderr
     new_calls = [json.loads(line) for line in log.read_text()[len(before_calls) :].splitlines()]
     assert [a[-1] for a in new_calls if a[:2] == ["volume", "rm"]] == list(volumes.values())
     assert not any("up" in a for a in new_calls), "partial reset silently restarted"

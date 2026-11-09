@@ -7,24 +7,23 @@
 // to do next, and the exact cause when one arrived.
 
 export const conversationNoLongerOpen = "That conversation is no longer open.";
-export const alreadyInRoom = "You are already in this room.";
+export const alreadyInRoom = "You're already in this room.";
 
-export const archivedBytesUnavailable = "These archived file bytes are not available in this view.";
+export const archivedBytesUnavailable = "These archived file bytes aren't available in this view.";
 export const earlierConnectionBytesUnavailable =
 	"This file belonged to an earlier connection and is no longer available.";
 
 /** Which archive is holding the earlier messages a conversation shows.  status-allow: event or source ordering */
-export const keeperPeerAndDevice = "Earlier messages kept by the shared Rooms session archive peer and on this device";
-export const keeperPeerAndSession =
-	"Earlier messages kept by the shared Rooms session archive peer and the shared Rooms session archive";
-export const keeperPeer = "Earlier messages kept by the shared Rooms session archive peer";
-export const keeperDevice = "Earlier messages, kept on this device";
-export const keeperSession = "Earlier messages kept by the shared Rooms session archive";
+export const keeperPeerAndDevice = "Messages above come from the archive peer and are saved on this device";
+export const keeperPeerAndSession = "Messages above come from the archive peer and were saved in this session";
+export const keeperPeer = "Messages above come from the archive peer";
+export const keeperDevice = "Messages above are saved on this device";
+export const keeperSession = "Messages above were saved in this session";
 export function sharedArchiveStanding(standings: string): string {
 	return ` Standing recorded: ${standings}.`;
 }
 export function sharedArchiveDivider(from: string, source: string, generation: string, standing: string): string {
-	return `Earlier messages shared by ${from}, recorded by archive source ${source}, conversation ${generation}. This is ${from}'s archive account, not live traffic.${standing}`;
+	return `Earlier messages ${from} shared from their archive (${source}, conversation ${generation}). A record, not live chat.${standing}`;
 }
 export function sharedHistoryOffered(from: string): string {
 	return `${from} shared read-only history. Open the conversation details to read it.`;

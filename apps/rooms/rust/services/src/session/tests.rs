@@ -68,7 +68,7 @@ fn session_peer_configuration_requires_state_and_resolves_explicit_transport_opt
 		.unwrap()
 		.unwrap();
 	assert!(matches!(tcp.transport, Transport::Tcp { port: 9, .. }));
-	assert_eq!(tcp.readiness_path(), PathBuf::from("place/workspace.sturdyref"));
+	assert_eq!(tcp.readiness_path(), PathBuf::from("place/use.sturdyref"));
 	assert!(parse(&["--state=place", "--transport=no"]).is_err());
 	assert!(parse(&["--state=place", "--state=again"]).is_err());
 }
@@ -142,7 +142,7 @@ async fn refused_startup_clears_stale_readiness_after_acquiring_custody() {
 				config.readiness_file = Some(temp.join("ready.sturdyref"));
 			}
 			let ready = config.readiness_path();
-			let management = state.join("control.sturdyref");
+			let management = state.join("management.sturdyref");
 			std::fs::write(&ready, "stale use").unwrap();
 			std::fs::write(&management, "stale management").unwrap();
 			std::fs::write(state.join("rooms-bootstrap"), "invalid metadata").unwrap();
@@ -177,9 +177,7 @@ async fn managed_peer_tcp_use_and_restart_preserve_durable_identity() {
 			}
 			swiss = Some(parsed.swissnum);
 			assert_eq!(
-				std::fs::read_to_string(temp.join("workspace.sturdyref"))
-					.unwrap()
-					.trim(),
+				std::fs::read_to_string(temp.join("use.sturdyref")).unwrap().trim(),
 				running.link
 			);
 			let session = runtime.connect(&parsed.locator, Default::default()).await.unwrap();
@@ -203,7 +201,7 @@ async fn managed_peer_tcp_use_and_restart_preserve_durable_identity() {
 			}
 			drop(workspace);
 			stop_session(running, session).await;
-			assert!(!temp.join("workspace.sturdyref").exists());
+			assert!(!temp.join("use.sturdyref").exists());
 		}
 		runtime.close(PendingWork::Cancel).await.unwrap();
 	})

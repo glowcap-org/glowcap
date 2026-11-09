@@ -5,8 +5,10 @@ const n = @import("c_abi_loam_lmdb");
 const shared = @import("c_abi_shared");
 const h = @import("c_abi_host");
 const Temp = @import("loam_engine_temp").Temp;
+const callbacks = @import("loam_callbacks.zig");
 
 test {
+    _ = @import("loam_attach.zig");
     _ = @import("loam_sqlite.zig");
     _ = @import("loam_volatile.zig");
 }
@@ -294,19 +296,6 @@ fn complete(work: ?*c.GlowcapLoamWork) i32 {
     return c.glowcap_loam_work_complete(work, &completed);
 }
 
-fn requirements(_: ?*anyopaque, _: *const c.GlowcapLoamInvocation, out: *c.GlowcapLoamRequirement) callconv(.c) i32 {
-    out.* = std.mem.zeroes(c.GlowcapLoamRequirement);
-    return shared.GLOWCAP_OK;
-}
-fn invoke(_: ?*anyopaque, call: *c.GlowcapLoamCall, _: *const c.GlowcapLoamInvocation) callconv(.c) i32 {
-    var value = std.mem.zeroes(shared.GlowcapArgument);
-    value.kind = shared.GLOWCAP_ARG_VOID;
-    return c.glowcap_loam_call_reply(call, &value);
-}
-fn entropy(_: ?*anyopaque, bytes: [*]u8, len: usize) callconv(.c) i32 {
-    @memset(bytes[0..len], 9);
-    return shared.GLOWCAP_OK;
-}
 const ReferenceSizingProbe = struct {
     reference: shared.GlowcapReference = .{ .id = 0 },
     uri: [4096]u8 = @splat('x'),
@@ -352,9 +341,9 @@ fn checkOwnershipAndWorkers(backend: *n.GlowcapLoamLmdb, store: *c.GlowcapLoamSt
     const continuations = @import("loam_continuations.zig");
     var continuation_probe: continuations.Probe = .{ .host = host.? };
     const methods = continuations.methods;
-    const contents = [_]c.GlowcapLoamContent{.{ .schema = 7, .version = 1, .context = &continuation_probe, .methods = &methods, .method_count = methods.len, .requirement = requirements, .dependent_requirement = requirements, .invoke = continuations.Probe.invoke }};
+    const contents = [_]c.GlowcapLoamContent{.{ .schema = 7, .version = 1, .context = &continuation_probe, .methods = &methods, .method_count = methods.len, .requirement = callbacks.requirements, .dependent_requirement = callbacks.requirements, .invoke = continuations.Probe.invoke }};
     var attachment: ?*c.GlowcapLoamAttachment = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_attach(store, host, &contents, contents.len, entropy, null, &attachment));
+    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_attach(store, host, &contents, contents.len, callbacks.entropy, null, &attachment));
     try std.testing.expectEqual(shared.GLOWCAP_ERR_INVALID_ARGUMENT, h.glowcap_host_release(host));
     try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, n.glowcap_loam_lmdb_release(backend));
     var ref: shared.GlowcapReference = undefined;
@@ -468,42 +457,6 @@ test "Loam C validates managed and save capacities before opening storage" {
     try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_validate_configuration(schemas, 1, &limits));
 }
 
-test "Loam context allocator owns construction, refused attach and teardown" {
-    const root = @import("c_abi");
-    const core = @import("loam_core");
-    const CountingHost = @import("support_c_abi_counting_alloc").CountingHost;
-    var counter: CountingHost = .{};
-    const spec = counter.spec();
-    var context: ?*root.GlowcapContext = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, root.glowcap_context_new_with_allocator(&spec, &context));
-    const metadata = (core.Metadata{ .store = @fromBackingInt(3), .incarnation = 1 }).encode();
-    const limits: c.GlowcapLoamLimits = .{ .resident_bytes = 4 * 1024 * 1024, .staging_bytes = 4 * 1024 * 1024, .cache_slots = 64, .max_leases = 128, .max_changes = 64, .max_references = 128, .max_operations = 32 };
-    const schemas = [_]c.GlowcapLoamSchema{.{ .id = 7, .version = 1, .max_payload = 256, .max_edges = 8 }};
-    var store: ?*c.GlowcapLoamStore = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_store_new_in(context, &metadata, metadata.len, &schemas, schemas.len, &limits, &store));
-    const store_bytes = counter.live_bytes;
-    const seed: [64]u8 = @splat(8);
-    var host: ?*h.GlowcapHost = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, h.glowcap_host_new(&seed, seed.len, 4096, 1, shared.GLOWCAP_CODEC_SYRUP, shared.GLOWCAP_CAPTP_V1_0, shared.GLOWCAP_FEATURE_FULL, 0, 1, &host));
-    const methods = [_]c.GlowcapLoamMethod{.{ .verb = "get", .verb_len = 3, .retry = 0 }};
-    const contents = [_]c.GlowcapLoamContent{.{ .schema = 7, .version = 1, .context = null, .methods = &methods, .method_count = 1, .requirement = requirements, .invoke = invoke }};
-    var attachment: ?*c.GlowcapLoamAttachment = null;
-    counter.allocations_before_failure = 2;
-    try std.testing.expectEqual(shared.GLOWCAP_ERR_INTERNAL, c.glowcap_loam_attach(store, host, &contents, contents.len, entropy, null, &attachment));
-    try std.testing.expect(attachment == null);
-    try std.testing.expectEqual(store_bytes, counter.live_bytes);
-    counter.allocations_before_failure = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_attach(store, host, &contents, contents.len, entropy, null, &attachment));
-    try std.testing.expect(counter.live_bytes > store_bytes);
-    try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, c.glowcap_loam_store_release(store));
-    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_attachment_release(attachment));
-    try std.testing.expectEqual(store_bytes, counter.live_bytes);
-    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_store_release(store));
-    root.glowcap_context_release(context);
-    try std.testing.expect(counter.balanced());
-    try std.testing.expectEqual(shared.GLOWCAP_OK, h.glowcap_host_release(host));
-}
-
 const BindingProbe = struct {
     sizing: ReferenceSizingProbe = .{},
     calls: usize = 0,
@@ -530,9 +483,9 @@ fn checkCallbackBinding(store: *c.GlowcapLoamStore, content_id: @import("loam_co
     defer std.debug.assert(h.glowcap_host_release(host) == shared.GLOWCAP_OK);
     var probe: BindingProbe = .{};
     const methods = [_]c.GlowcapLoamMethod{.{ .verb = "get", .verb_len = 3, .retry = 0 }};
-    const contents = [_]c.GlowcapLoamContent{.{ .schema = 7, .version = 1, .context = &probe, .methods = &methods, .method_count = 1, .requirement = BindingProbe.requirement, .invoke = invoke, .references = BindingProbe.declare }};
+    const contents = [_]c.GlowcapLoamContent{.{ .schema = 7, .version = 1, .context = &probe, .methods = &methods, .method_count = 1, .requirement = BindingProbe.requirement, .invoke = callbacks.invoke, .references = BindingProbe.declare }};
     var attachment: ?*c.GlowcapLoamAttachment = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_attach(store, host, &contents, 1, entropy, null, &attachment));
+    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_attach(store, host, &contents, 1, callbacks.entropy, null, &attachment));
     defer std.debug.assert(c.glowcap_loam_attachment_release(attachment) == shared.GLOWCAP_OK);
     const owner = try c.embedding.store(store);
     const lease = (try owner.value.acquire(content_id)).ready;

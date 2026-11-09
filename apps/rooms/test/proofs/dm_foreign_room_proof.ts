@@ -71,7 +71,7 @@ async function joinAs(
 	});
 	await tab.goto(`http://127.0.0.1:${port}/?dm=webrtc`);
 	await establishLocalSession(tab);
-	if (directory !== null) await tab.fill("#locator", directory);
+	if (directory !== null) await tab.fill("#joinAddressField", directory);
 	await tab.fill("#nick", nick);
 	await reachDirectoryOnCard(tab);
 	await tab.fill("#room", ROOM);

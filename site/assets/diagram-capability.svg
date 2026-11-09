@@ -4,7 +4,7 @@
   width="640"
   height="350"
   role="img"
-  aria-label="Their program hands your program a reference to an object named greeter; holding it, you call its greet method."
+  aria-label="Their program hands your program a reference to an object named greeter. Holding it, you call its greet method."
 >
   <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .title { font-size: 15px; font-weight: 700; }
@@ -116,7 +116,7 @@
     text-anchor="middle"
     class="label lab1"
     fill="var(--accent-deep, #a4560c)"
-  >1 &#8212; hands you the reference</text>
+  >1. Hands you the reference</text>
 
   <rect
     x="20"
@@ -215,5 +215,5 @@
     text-anchor="middle"
     class="label lab2"
     fill="var(--teal-deep, #1b5f66)"
-  >2 &#8212; you call greet("world")</text>
+  >2. You call greet("world")</text>
 </svg>

@@ -168,7 +168,7 @@ export class ManagedProjection {
 	/** Lookup maps borrow presented conversations and archive shares for this pass.
 	 * Retained line IDs get one scalar set per conversation, then retire. These
 	 * indexes copy no rows, content or authority and never outlive projection. */
-	#topology({ intent }: WorkspaceSnapshot, cancelled: ReadonlySet<string>): void {
+	#topology({ intent, addresses }: WorkspaceSnapshot, cancelled: ReadonlySet<string>): void {
 		const projection = this.#page.projection;
 		const first = this.#revision == null;
 		const directories = new Set(intent.directories.map((row) => row.id));
@@ -194,10 +194,15 @@ export class ManagedProjection {
 		if (projection.get().homeDirectory !== homeDirectory) {
 			projection.set({ homeDirectory: homeDirectory == null ? null : dirId(homeDirectory) });
 		}
-		for (const row of intent.directories) {
+		for (const [index, row] of intent.directories.entries()) {
 			const id = dirId(row.id);
-			store.openDir(projection, id, projection.get().dirs.get(id)?.locator ?? "");
-			const held = projection.get().dirs.get(id)!;
+			// The session's dialed address, so every tab shows and shares the
+			// same one. A row without one keeps the address this tab already holds.
+			const held = store.openDir(
+				projection,
+				id,
+				addresses[index] ?? projection.get().dirs.get(id)?.address ?? "",
+			);
 			const connectionPatch = resolveDirectoryConnectionStatus(row, held);
 			store.patchDir(projection, id, {
 				requestedNick: row.nick,

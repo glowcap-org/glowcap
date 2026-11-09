@@ -53,7 +53,7 @@ zig build rooms-web -Dtransport=onion   # a Tor onion service; needs tor
 TCP sends everything in the clear and cannot tell you who answered. Use it to look
 around or to reach a peer that speaks nothing else, and only on a network you
 trust. `-Dport=` pins the HTTP port, and server flags
-such as `--history` or `--diagnostics` follow `--`.
+such as `--history` or `--capabilities=diagnostics` follow `--`.
 
 For day-to-day development, start with every operator capability turned on
 and the state kept between runs:
@@ -110,7 +110,8 @@ take explicit state directories. Keep each service's identity and state together
 | Archive | A member's own message history, behind a sturdyref | `glowcap apps rooms archive serve --state=<dir>` |
 
 [Operating Rooms](operating.md) describes each one, the history limits, the
-operator capabilities, and moderation. The
+operator capabilities, and moderation, and [Rooms limitations](limitations.md)
+lists the limits of the application itself. The
 [deployment guide](web/deploy/README.md) runs them with Docker Compose and
 explains how to add a reverse proxy or tunnel for public access.
 

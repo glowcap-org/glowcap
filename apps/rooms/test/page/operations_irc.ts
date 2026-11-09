@@ -62,8 +62,8 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	// Operations has no selected conversation. Its rail names the first held
 	// directory, which can be foreign; explicitly choose the gateway's home.
 	await tab.click("#newRoomElsewhere");
-	await tab.waitForSelector("#locator");
-	await tab.fill("#locator", "");
+	await tab.waitForSelector("#joinAddressField");
+	await tab.fill("#joinAddressField", "");
 	await tab.fill("#newRoomInput", "deadnet");
 	await tab.waitForSelector('#newRoomOffers .complete-row:has-text("deadnet/#nowhere")', { timeout: 10_000 })
 		.catch(() => fail("the rail field does not offer the bridged channel's name"));
@@ -112,11 +112,11 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	if (await tab.locator("#convcardManagerTake").count() !== 0) {
 		fail("the IRC bridge exposed a room-manager form it cannot satisfy");
 	}
-	const bridgeAuthority = (await tab.locator('[aria-label="Room capabilities"]').textContent()) ?? "";
+	const bridgeAuthority = (await tab.locator('[aria-label="Room links"]').textContent()) ?? "";
 	if (!bridgeAuthority.includes("IRC bridge owns entry and moderator authority")) {
 		fail(`the bridge capability surface did not name its source authority: ${bridgeAuthority}`);
 	}
-	await tab.getByRole("button", { name: "Save entry link" }).click();
+	await tab.getByRole("button", { name: "Save room link" }).click();
 	await tab.waitForSelector("#convcardRoomLink");
 	await tab.click("#convcardAboutTab");
 	const priorViewport = tab.viewportSize();
@@ -135,7 +135,7 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	if (
 		phoneTabs.rows !== 2 ||
 		phoneTabs.labels.some((item) =>
-			(item.text === "Capabilities" || item.text === "Moderation") && (item.left < 10 || item.right < 10)
+			(item.text === "Links" || item.text === "Moderation") && (item.left < 10 || item.right < 10)
 		)
 	) fail(`the phone-sized room tabs were squeezed instead of composed as two rows: ${JSON.stringify(phoneTabs)}`);
 	if (priorViewport != null) await tab.setViewportSize(priorViewport);

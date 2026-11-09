@@ -1,4 +1,4 @@
-// The Rooms server this browser uses, chosen in Settings > Reachability and on
+// The Rooms server this browser uses, chosen in Settings, under Connection, and on
 // session setup. The choice belongs to the device, so it is open whatever the
 // session allows. A session keeps the server it opened with, so saving under an
 // open session reloads the page, and the caller says what saving leads to.

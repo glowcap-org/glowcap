@@ -306,7 +306,7 @@ def check_web_and_directory(deadline, image):
 def check_session(deadline, image):
     name = container_name("session")
     volume = container_name("session-state")
-    ready = "/run/rooms-session/admin.sturdyref"
+    ready = "/run/rooms-session/use.sturdyref"
     passed = False
     try:
         run(deadline, "docker", "volume", "create", volume)
@@ -363,7 +363,7 @@ def check_session(deadline, image):
                 "rooms",
                 "session",
                 "ready",
-                "--file=/session-state/control.sturdyref",
+                "--file=/session-state/management.sturdyref",
             ).stdout.strip()
 
         start()

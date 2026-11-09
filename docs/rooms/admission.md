@@ -85,9 +85,9 @@ services:
       GLOWCAP_ROOMS_SESSION_ADMISSION_SCALE: "2"
 ```
 
-Run `glowcap apps rooms deployment up` to apply it. The deployment template
-passes every admission environment setting to its owning process. Other callers
-set the profile where they start the application:
+Run `glowcap apps rooms deployment up` to apply it. Each service reads the
+admission settings its `environment` names, under `directory` or `session`.
+Other callers set the profile where they start the application:
 
 - Checkout development accepts the same environment values through `rooms-dev`.
 - Library users pass `Settings` at initialization.

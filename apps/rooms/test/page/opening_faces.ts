@@ -94,7 +94,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await open.waitForSelector("#settingsBtn", { timeout: 30_000 })
 			.catch(() => fail("a refused relay kept this browser's session from opening"));
 		await open.click("#settingsBtn");
-		await open.click("#reachabilityTab");
+		await open.click("#connectionTab");
 		const said = await open.waitForSelector("#relayAway .said-clamp", { timeout: 30_000 })
 			.catch(() => fail("Settings did not say that a refused relay leaves this browser unreachable"));
 		if ((await said.textContent()) !== settingsRelayAway(`127.0.0.1:${httpPort}`, `http://127.0.0.1:${httpPort}`)) {
@@ -120,7 +120,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await open.waitForSelector("#settingsBtn", { timeout: 60_000 })
 			.catch(() => fail("a server that turns the page away kept its session from opening"));
 		await open.click("#settingsBtn");
-		await open.click("#reachabilityTab");
+		await open.click("#connectionTab");
 		// The card names the chosen server, with its address to copy for
 		// another browser's server field.
 		const shown = {
@@ -179,7 +179,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await open.waitForSelector("#settingsBtn", { timeout: 60_000 })
 			.catch(() => fail("saving a tested server kept the reloaded page from opening"));
 		await open.click("#settingsBtn");
-		await open.click("#reachabilityTab");
+		await open.click("#connectionTab");
 		await open.waitForFunction(
 			(said) => document.querySelector("#serverConnection")?.textContent === said,
 			serverConnected,
@@ -292,7 +292,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		);
 		if (await open.locator("#serverAddress").count() !== 0) fail("a blank address asked for a Rooms server");
 		const elsewhere = loopbackTcpDesignator(httpPort);
-		await open.fill("#locator", elsewhere);
+		await open.fill("#joinAddressField", elsewhere);
 		await open.click("#joinBtn");
 		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
 			.catch(() => fail("connecting through a Rooms server the page has none of did not ask for one"));
@@ -317,12 +317,14 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 			open.press("#serverAddress", "Enter"),
 		]);
 		const landed = new URL(open.url());
-		if (landed.pathname !== "/join" || landed.searchParams.get("locator") !== elsewhere) {
+		if (landed.pathname !== "/join" || landed.searchParams.get("address") !== elsewhere) {
 			fail(`the reload did not land on the act that asked: ${landed.pathname}${landed.search}`);
 		}
-		await open.waitForSelector("#locator", { timeout: 60_000 })
+		await open.waitForSelector("#joinAddressField", { timeout: 60_000 })
 			.catch(() => fail("the join form did not come back after the reload"));
-		if ((await open.inputValue("#locator")) !== elsewhere) fail("the reload lost the address being reached");
+		if ((await open.inputValue("#joinAddressField")) !== elsewhere) {
+			fail("the reload lost the address being reached");
+		}
 		await bare.close();
 	}
 
@@ -374,7 +376,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await open.click("#sessionUseLocal", { timeout: 60_000 });
 		await open.waitForSelector("#settingsBtn", { timeout: 60_000 });
 		await open.click("#settingsBtn");
-		await open.click("#reachabilityTab");
+		await open.click("#connectionTab");
 		await open.click("#serverChange");
 		const kept = await open.inputValue("#serverAddress");
 		if (kept !== (use ? offered : "")) {
@@ -391,7 +393,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 			await open.waitForSelector("#settingsBtn", { timeout: 60_000 })
 				.catch(() => fail("removing the chosen server kept the reloaded page from opening"));
 			await open.click("#settingsBtn");
-			await open.click("#reachabilityTab");
+			await open.click("#connectionTab");
 			const name = await open.textContent("#serverName");
 			if (name !== `127.0.0.1:${httpPort}`) fail(`removing the chosen server left ${JSON.stringify(name)}`);
 			if (await open.isVisible("#serverRemove")) fail("the page's own server offered to be removed");

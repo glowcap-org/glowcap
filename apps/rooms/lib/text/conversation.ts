@@ -37,26 +37,26 @@ export const conversationPublicRoom = "Anyone who knows the name can join. Your 
 export const conversationJoiningRoom = "Joining this room. Its access policy and messages will appear when you arrive.";
 /** A room still to be joined whose directory is not answering. */
 export const conversationRoomDirectoryAway =
-	"This room's directory is not connected. Rooms keeps trying, and the room opens here once it answers.";
+	"This room's directory isn't connected. Rooms keeps trying, and the room opens here once it answers.";
 
 /** A direct conversation. "Not through the server" is false for the relay
  * setting, which carries the bytes through it encrypted. Both settings keep
  * the server from reading them, so that is what this says. */
 export const conversationLiveDirect =
-	"The server never reads these. They go straight to the other person, or encrypted through the Rooms server. The conversation follows the person, not the name.";
+	"The server never reads these. They go to the other person directly, or through the server encrypted. The conversation follows the person, not the name.";
 
 export const conversationPendingDirect =
 	"Not open yet. Your first message asks the server to introduce you. If the name changed hands since, it won't go through.";
 
 export function conversationClosedDirect(nick: string): string {
-	return `The connection to ${nick} ended. Saved messages and your draft remain here. Reconnect checks that the name still belongs to the same registration.`;
+	return `The connection to ${nick} ended. Saved messages and your draft remain here. Reconnect checks that the name still belongs to the same person.`;
 }
 
 export const directReconnect = "Reconnect";
 export const directReconnecting = "Reconnecting…";
 export const directPeerUnavailable =
-	"The same person is not currently registered here. You can still read saved messages.";
-export const directNoRegistration = "This conversation has no directory registration to reconnect to.";
+	"The same person isn't connected here right now. You can still read saved messages.";
+export const directNoRegistration = "This conversation has no directory entry to reconnect to.";
 export const directDirectoryUnavailable = "The directory for this conversation is no longer held.";
 
 /** What the address above a conversation reaches. It is not always the
@@ -66,7 +66,7 @@ export const reachDirect = "Set up through the server above. The conversation ha
 export const reachRoomLink = "The room's own link. Anyone with it can get in. Not the server address above.";
 
 export const reachRoomHeld =
-	"You're in for as long as this session lasts. The address above is the server's, not the room's. Whoever manages the room can make a permanent link from Capabilities.";
+	"You're in for as long as this session lasts. The address above is the server's, not the room's. Whoever manages the room can make a permanent link from Links.";
 
 export function reachPublicRoom(room: string): string {
 	return `${room} is a name on this server, so the address above is the server's. Anyone who can reach the server can join by that name.`;
@@ -97,12 +97,12 @@ export const factLineOpen = "Open";
 export const factLineClosed = "Closed";
 export const factLineNotOpen = "Not open yet";
 export const factDmRelay = "Through the Rooms server, encrypted end to end";
-export const factDmDirect = "WebRTC, encrypted peer to peer";
-export const factDirectoryLocator = "Directory locator";
-export function factCopyLocatorFor(directory: string): string {
-	return `Copy the locator for ${directory}`;
+export const factDmDirect = "Browser to browser, encrypted";
+export const factDirectoryAddress = "Directory address";
+export function factCopyAddressFor(directory: string): string {
+	return `Copy the address for ${directory}`;
 }
-export const factCopyRoomLink = "Copy the room entry link";
+export const factCopyRoomLink = "Copy the room link";
 export const factThisIs = "This is";
 export const factYourName = "Your name";
 export const factIrcChannel = "IRC channel";
@@ -120,7 +120,7 @@ export const factPath = "Path";
 export function factPeopleHere(count: number): string {
 	return count === 1 ? "1 person" : `${count} people`;
 }
-export const factLineLimit = "Line limit";
+export const factLineLimit = "Message limit";
 export function factUpToBytes(bytes: number): string {
 	return `Up to ${bytes} bytes`;
 }
@@ -157,7 +157,7 @@ export function titleCloseDm(nick: string): string {
 	return `Close the direct message with ${nick}`;
 }
 export const titleDmEncrypted = "Encrypted";
-export const titleDmEncryptedLong = "Direct · encrypted, peer-to-peer";
+export const titleDmEncryptedLong = "Direct · browser to browser, encrypted";
 export const railHide = "Hide the rooms list";
 export const railShow = "Show the rooms list";
 export function titleMembersHere(count: number): string {
@@ -216,20 +216,20 @@ export function rowJoinRoomOn(name: string): string {
 }
 
 /** Why the field under a conversation cannot send right now. */
-export const cannotSendPaused = "You cannot send while your access is paused.";
+export const cannotSendPaused = "You can't send while your access is paused.";
 export const cannotSendReadOnly = "Your session link is read only, so you can't send here.";
-export const cannotSendDmClosed = "This direct conversation is closed.";
+export const cannotSendDmClosed = "This direct message is closed.";
 export const cannotSendRegistrationEnded =
-	"This nickname registration ended. Start a new conversation with its current holder.";
-export const cannotSendObserver = "You are here as an observer. An invitation to take part is what lets you post.";
+	"This name is no longer held. Start a new conversation with whoever has it now.";
+export const cannotSendObserver = "You're here as an observer. An invitation to take part is what lets you post.";
 /** An observer seat on a bridged room. The bridge runs one way, so the seat
  * cannot post. It speaks in the bridge's terms because no invitation would
  * change that. */
 export function cannotSendBridgeReadOnly(badge: string): string {
 	return `This room is read-only. What's said on ${badge} shows here, and nothing typed here goes back.`;
 }
-export const cannotSendNotInPrivateRoom = "You are not in this private room. Restore access with a current link.";
-export const cannotSendNotInRoom = "You are not in this room.";
+export const cannotSendNotInPrivateRoom = "You aren't in this private room. Restore access with a current link.";
+export const cannotSendNotInRoom = "You aren't in this room.";
 export const cannotSendJoining = "Joining this room…";
 
 /** Leaving a conversation from its card. */
@@ -238,7 +238,7 @@ export const leaveRoomAsk = "Leave this room";
 export const leaveDmCommit = "Close";
 export const leaveRoomCommit = "Leave";
 export function leaveDmSay(nick: string): string {
-	return `Close the conversation with ${nick}? The messages on this line go with it. You can start a new one from the room.`;
+	return `Close the direct message with ${nick}? Its messages go with it. You can start a new one from the room.`;
 }
 export function leavePrivateRoomSay(room: string): string {
 	return `Leave ${room}? You can only return if somebody hands it to you again.`;
@@ -251,8 +251,8 @@ export function leaveRoomSay(named: string): string {
 export function directoryRoomsCount(rooms: number): string {
 	return rooms === 1 ? "1 room" : `${rooms} rooms`;
 }
-export function directoryLinesCount(lines: number): string {
-	return lines === 1 ? "1 direct conversation" : `${lines} direct conversations`;
+export function directoryDirectCount(lines: number): string {
+	return lines === 1 ? "1 direct message" : `${lines} direct messages`;
 }
 export const directoryNothingOpen = "Nothing is open on it.";
 export function directoryThisCloses(what: string): string {
@@ -275,10 +275,10 @@ export const directoryLeaveDoor = "Leave this directory…";
 export const directoryNoNameYet = "Not yet: no name granted here";
 export const directoryReachable = "Others can reach you here";
 export const directoryNameNotGranted = "Not granted yet";
-export const directoryRoomsYouAreIn = "Rooms you are in";
+export const directoryRoomsYouAreIn = "Rooms you're in";
 export const directoryRoomsNone = "None";
 export const directoryGrantedNameNote =
-	"A directory grants your name for as long as you are connected and takes it back when you are not, so it is not a name you hold anywhere else.";
+	"A directory grants your name for as long as you're connected and takes it back when you disconnect, so it isn't a name you hold anywhere else.";
 
 /** The roster beside a room. */
 export function rosterManageIdentity(badge: string): string {
@@ -303,7 +303,7 @@ export function rosterHereOf(online: number, known: number): string {
 
 /** Where you are, on the foot and on a member's row. */
 export function standingLabel(about: string, said: string): string {
-	return `Where you are${about === "you" ? "" : ` in ${about}`}: ${said}`;
+	return `Your standing${about === "you" ? "" : ` in ${about}`}: ${said}`;
 }
 export function standingWhyLabel(about: string): string {
 	return `Why you stepped away${about === "you" ? "" : `, in ${about}`}`;
@@ -311,7 +311,7 @@ export function standingWhyLabel(about: string): string {
 
 /** What a room's mark says, and the three answers the access control
  * offers. */
-export const markPrivateRoom = "A private room: it is not listed, and only people it was handed to are here";
+export const markPrivateRoom = "A private room: it isn't listed, and only people it was handed to are here";
 export const markModeratedRoom =
 	"A moderated room: it is listed, and its public name offers watching rather than speaking";
 export const accessModeratedSaid = "Anyone with the name can come and watch. An invitation is what lets somebody post.";
@@ -361,7 +361,7 @@ export const memberNoNameYet = "No directory has granted you one yet";
 export const memberGrantedBy = "Granted by";
 export const memberNoDirectoryNamed = "No directory has granted this name";
 export const memberDirectMessages = "Direct messages";
-export const memberYouAre = "You are";
+export const memberStanding = "Your standing";
 export const memberPresence = "Presence";
 export const memberNetwork = "Network";
 export const memberOffline = "Offline";

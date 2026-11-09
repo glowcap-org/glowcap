@@ -61,7 +61,7 @@
 			<p>Encrypt a direct glowcap-to-glowcap route and prove the dialed key, without pulling in iroh.</p>
 		</a>
 		<a class="card" href="$site.page('examples').link()">
-			<h2>Zig chapters and other apps</h2>
+			<h2>Examples</h2>
 			<p>Zig examples, a C embedder, and apps for tasks, tools, and accountability.</p>
 		</a>
 		<a class="card" href="$site.page('project').link()">

@@ -27,7 +27,7 @@ export { DIRECTORY } from "./protocol_data.ts";
  *
  * It is not a directory method. The directory stays what every member
  * fetches. Inspect is a second Host publication under an unguessable swiss,
- * created only when the process is started with `--diagnostics`. Holding that swiss is the
+ * created only when the process is started with `--capabilities=diagnostics`. Holding that swiss is the
  * capability: a client fetches it the same way it fetches `directory`, then
  * sends `snapshot` and gets the names this directory holds, as
  * `[kind, name, note]` rows. It does not return live room references.

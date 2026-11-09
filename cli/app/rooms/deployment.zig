@@ -19,14 +19,40 @@ pub const command: types.Command = .{ .name = "deployment", .short_help = "Run R
     .{ .name = "up", .short_help = "Select an image, start the stack, wait for health, and print capabilities", .flags = &.{ dir, image_flag, build_flag }, .run = run(.up) },
     .{ .name = "doctor", .short_help = "Inspect configuration and Docker availability without changing them", .flags = &.{dir}, .run = run(.doctor) },
     .{ .name = "status", .short_help = "Show service health and persistent volumes", .flags = &.{dir}, .run = run(.status) },
+    .{ .name = "links", .short_help = "Print the page link, operator capabilities, locators, and session links again", .flags = &.{dir}, .run = run(.links) },
     .{ .name = "logs", .short_help = "Follow deployment logs", .flags = &.{dir}, .positionals = &.{.{ .name = "service", .help = "Optional Compose service names", .required = false, .variadic = true }}, .run = run(.logs) },
     .{ .name = "trace", .short_help = "Follow the directory's live protocol trace", .flags = &.{ dir, .{ .long = "json", .help = "Print complete records as JSON lines" } }, .run = run(.trace) },
     .{ .name = "down", .short_help = "Stop the deployment and keep its data", .flags = &.{dir}, .run = run(.down) },
     .{ .name = "restart", .short_help = "Restart the selected deployment and keep its data, identities, and links", .flags = &.{dir}, .run = run(.restart) },
-    .{ .name = "reset", .short_help = "Permanently delete the selected data and authority, then restart", .flags = &.{ dir, image_flag, build_flag, .{ .long = "yes", .help = "Confirm the requested destruction without prompting" } }, .positionals = &.{.{ .name = "unit", .help = "session | state | all" }}, .run = run(.reset) },
+    .{ .name = "reset", .short_help = "Permanently delete the selected data and authority, then restart", .flags = &.{ dir, image_flag, build_flag, .{ .long = "yes", .help = "Confirm the requested destruction without prompting" } }, .positionals = &.{.{ .name = "unit", .help = "session | directory | all" }}, .run = run(.reset) },
 } };
 
-const Verb = enum { up, doctor, status, logs, trace, down, restart, reset };
+const Verb = enum {
+    up,
+    doctor,
+    status,
+    links,
+    logs,
+    trace,
+    down,
+    restart,
+    reset,
+
+    /// Whether the verb chooses an image and brings the services up.
+    fn starts(verb: Verb) bool {
+        return switch (verb) {
+            .up, .reset => true,
+            .doctor, .status, .links, .logs, .trace, .down, .restart => false,
+        };
+    }
+    /// Whether the verb changes the deployment, and so holds its state lock.
+    fn mutating(verb: Verb) bool {
+        return switch (verb) {
+            .up, .down, .restart, .reset => true,
+            .doctor, .status, .links, .logs, .trace => false,
+        };
+    }
+};
 
 fn run(comptime verb: Verb) *const fn (*Ctx, *types.Parsed) anyerror!u8 {
     return struct {
@@ -78,7 +104,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
     const absolute_dir = try std.fs.path.resolve(gpa, &.{ cwd, workspace });
     const absolute_build = if (build.len == 0) "" else try std.fs.path.resolve(gpa, &.{ cwd, build });
     if (build.len != 0) _ = try config.linuxPlatform(ctx.io, gpa, absolute_build);
-    const starts = verb == .up or verb == .reset;
+    const starts = comptime verb.starts();
     const source_checkout = if (starts and image.len == 0 and build.len == 0 and @import("builtin").os.tag == .linux) checkout else null;
     // Source selection and validation belong here. The checkout launcher owns
     // its toolchain and refreshes the executable before any Docker effect.
@@ -127,7 +153,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         };
     defer directory.close(ctx.io);
     const state: config.Config = .{ .io = ctx.io, .gpa = gpa, .dir = directory, .path = absolute_dir, .templates = templates };
-    const mutating = verb == .up or verb == .down or verb == .restart or verb == .reset;
+    const mutating = comptime verb.mutating();
     const state_lock = @import("../../operability/state_lock.zig");
     var lock: ?state_lock.Guard = if (mutating) try state_lock.tryAcquire(ctx.io, absolute_dir) else null;
     defer if (lock) |*guard| guard.deinit();
@@ -155,6 +181,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
     _ = try docker.query(try docker.composeArgs(&.{ "config", "--quiet" }));
     switch (verb) {
         .up => try operations.up(docker),
+        .links => try operations.links(docker),
         .status => {
             try docker.run(try docker.composeArgs(&.{"ps"}), 15);
             try docker.run(&.{ "volume", "ls", "--filter", "name=glowcap-rooms-" }, 15);

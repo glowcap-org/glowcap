@@ -35,13 +35,13 @@ you to use or pass on, and the inbox is the one you make yourself.
 </article>
 <article class="object" data-tone="cool">
 <p class="object-name">inspect, peering, listeners</p>
-<p class="object-from">Each is a secret the server prints when started with <code>--diagnostics</code>, <code>--peering</code>, or <code>--admin-listeners</code>. Fetch it like the directory.</p>
+<p class="object-from">Each is a secret the server prints when started with <code>--capabilities</code> naming <code>diagnostics</code>, <code>peering</code>, or <code>admin-listeners</code>. Fetch it like the directory.</p>
 <p class="object-calls"><code>snapshot</code> <code>publishDurableRoom</code> <code>list</code> <code>up</code> <code>down</code></p>
 <p class="object-back">Hands back what the server holds right now, the live listeners as rows, or a lease that answers <code>ready</code> and <code>revoke</code>.</p>
 </article>
 <article class="object" data-tone="cool">
 <p class="object-name">operator</p>
-<p class="object-from">The server's <code>--operator</code> secret, pasted into the <b>Holdings</b> tab. It fills the admin pages under <code>/ops</code>.</p>
+<p class="object-from">The server's <code>operator</code> secret, pasted into the <b>Holdings</b> tab. It fills the admin pages under <code>/ops</code>.</p>
 <p class="object-calls"><code>operatorSnapshot</code> <code>operatorRetireMatching</code> <code>watch</code> <code>unwatch</code> <code>changed</code> <code>giveSteward</code> <code>giveManager</code> <code>revokeSteward</code> <code>revokeRoomLink</code> <code>unregisterRoom</code> <code>setRoomPolicy</code> <code>revokeRoomAuthority</code> <code>revokeNick</code> <code>disconnectSession</code> <code>removeOperatorRoom</code> <code>releaseOperatorReference</code></p>
 <p class="object-back">Answers for the server's rooms, names, live connections, and the references each holds, and hands back a room's <b>steward</b>.</p>
 </article>

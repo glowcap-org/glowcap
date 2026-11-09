@@ -32,19 +32,19 @@ export function joinLeadPressedRoom(room: string, where: string): string {
  * identity that rooms and direct messages share. Saying so here keeps a later
  * join from looking like a room-local rename. */
 export const joinNickLabel = "Display name";
-export const joinNickHint = "Your name in this directory, used in rooms and direct messages. It must be available.";
+export const joinNickHint = "Your name on this server, in rooms and direct messages. Nobody else here can be using it.";
 
 /** The address field's hint, where the two pasted forms belong. */
-export const joinLocatorLabel = "Address";
-const joinLocatorHint =
-	"Leave this alone for the rooms on this server. To reach another server's rooms, paste its OCapN locator. To open one room somebody sent you, paste their link.";
+export const joinAddressLabel = "Address";
+const joinAddressHint =
+	"Leave blank to use this server. To reach another server's rooms, paste its address or a room link.";
 /** The hint when a blank address names the session's home directory, by name. */
-const joinLocatorHintHome = (home: string) =>
-	`Leave this blank for rooms in your home directory, ${home}. To reach another directory's rooms, paste its OCapN locator. To open one room somebody sent you, paste their link.`;
+const joinAddressHintHome = (home: string) =>
+	`Leave blank to use your home directory, ${home}. To reach another server's rooms, paste its address or a room link.`;
 /** The hint when a blank address names nothing: no home directory and no
  * directory served with the page. */
-const joinLocatorHintRequired =
-	"Paste a directory's OCapN locator to reach its rooms, or paste the link to one room somebody sent you.";
+const joinAddressHintRequired =
+	"Paste a directory address to reach its rooms, or the link to one room somebody sent you.";
 /** A blank address with no home directory to name, on a page with no Rooms
  * server whose directory it could mean: the field is what the reader fills. */
 export const joinNeedsAddress =
@@ -57,13 +57,13 @@ export const joinNeedsAddressServerQuiet = (host: string) =>
  * hint under the field says what to paste, so this only says what it is not. */
 export const joinNotAnAddress = "That isn't a directory's address or a room link.";
 /** A pasted link shaped like a room link whose parts do not name a room. */
-export const joinNotARoomLink = "That link doesn't open a room. Check it's all there, from ocapn:// to the end.";
-export const joinLocatorHere = "This server";
-export const joinLocatorOptional = "Optional";
+export const joinNotARoomLink = "That link doesn't open a room. Check that it is all there, from ocapn:// to the end.";
+export const joinAddressHere = "This server";
+export const joinAddressOptional = "Optional";
 /** The address hint for what a blank field means: the home directory, named,
  * else the directory served with the page, else nothing. */
-export function joinLocatorHintFor(home: string | null, served: boolean): string {
-	return home != null ? joinLocatorHintHome(home) : served ? joinLocatorHint : joinLocatorHintRequired;
+export function joinAddressHintFor(home: string | null, served: boolean): string {
+	return home != null ? joinAddressHintHome(home) : served ? joinAddressHint : joinAddressHintRequired;
 }
 /** Offered while connecting a directory to a session with no home directory. */
 export const joinMakeHome = "Make this my home directory";
@@ -75,7 +75,7 @@ export const joinLinkLabel = "Room link";
  * control's spoken label, and the button's states. */
 export const joinTitleCreate = "Create a room";
 export const joinTitleJoin = "Join a room";
-export const joinLeadPaused = "Your session link is paused, so there is nothing here to browse or join.";
+export const joinLeadPaused = "Your session link is paused, so there's nothing here to browse or join.";
 export const joinLeadReadOnly = "Your session link lets you browse the shared rooms but not join one.";
 export function joinAccessFixedLabel(standing: string, room: string): string {
 	return `Room access: ${standing}. The room called ${room} already exists, and its manager sets this.`;

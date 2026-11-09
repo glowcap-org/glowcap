@@ -49,7 +49,7 @@ export async function joinAs(browser: Browser, port: number, nick: string, optio
 	await establishLocalSession(tab);
 	if (options.trace != null) await acquireTraceCapability(tab, options.trace);
 	if (options.directory !== undefined) {
-		if (options.directory !== null) await tab.fill("#locator", options.directory);
+		if (options.directory !== null) await tab.fill("#joinAddressField", options.directory);
 		await tab.fill("#nick", nick);
 		await reachDirectoryOnCard(tab);
 	} else {

@@ -10,15 +10,7 @@ async fn listener_changes_serialize_and_failed_forgetting_preserves_intent() {
 	rooms_testing::local_set::run_within(Duration::from_secs(30), async {
 		let temp = Scratch::create("server");
 		let state = temp.join("state");
-		let running = start_with(
-			state.clone(),
-			tcp(),
-			Asked {
-				admin_listeners: true,
-				..Default::default()
-			},
-		)
-		.await;
+		let running = start_with(state.clone(), tcp(), Asked::parse("admin-listeners").unwrap()).await;
 		let runtime = runtime().await;
 		let session = runtime
 			.connect(

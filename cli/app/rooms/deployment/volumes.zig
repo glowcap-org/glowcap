@@ -5,19 +5,19 @@ const Docker = @import("docker.zig").Client;
 
 pub const Kind = enum {
     session,
-    state,
+    directory,
 
     fn service(self: Kind) []const u8 {
         return switch (self) {
             .session => "session",
-            .state => "directory",
+            .directory => "directory",
         };
     }
 
     fn target(self: Kind) []const u8 {
         return switch (self) {
             .session => "/session-state",
-            .state => "/state",
+            .directory => "/state",
         };
     }
 };

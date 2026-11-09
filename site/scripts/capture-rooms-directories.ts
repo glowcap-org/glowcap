@@ -15,7 +15,7 @@
  *
  * Four isolated browser peers drive the shipped page. mira's page is served
  * by the first directory, and she joins a room there, then a room on each of
- * the other two by pasting its locator into the join card. One member is at
+ * the other two by pasting its address into the join card. One member is at
  * home on each directory, in the room mira joined there, and each of them
  * opens a direct conversation with her from that room's member list. Only
  * mira's page may dial the other two directories, and only because its relay
@@ -45,7 +45,7 @@ interface Directory {
 	/** The member who is at home on it. */
 	member: string;
 	/** The address mira pastes into the join card: the directory's TCP authority. */
-	locator: string;
+	address: string;
 }
 
 /** Start a directory and learn where it listens: the front and its room server
@@ -54,14 +54,14 @@ interface Directory {
  * starts: a relay dials cleartext TCP only where it is told. */
 async function directory(name: string, member: string, reaches: Directory[] = []): Promise<Directory> {
 	const front = spawnWeb({
-		env: reaches.length === 0 ? {} : { GLOWCAP_RELAY_TCP_PEERS: reaches.map((r) => r.locator).join(",") },
+		env: reaches.length === 0 ? {} : { GLOWCAP_RELAY_TCP_PEERS: reaches.map((r) => r.address).join(",") },
 		args: ["--transport=tcp", "0", "0"],
 		stdout: "piped",
 		stderr: "inherit",
 	});
 	const http = await webPort(front);
 	const room = await roomPortOf(http, `the directory serving ${name}`);
-	return { http, room, name, member, locator: `127.0.0.1:${room}` };
+	return { http, room, name, member, address: `127.0.0.1:${room}` };
 }
 
 const zines = await directory("zine-swap", "oskar");
@@ -94,7 +94,7 @@ async function joinElsewhere(page: Page, dir: Directory, nick: string): Promise<
 	await page.fill("#newRoomInput", dir.name);
 	await page.click("#newRoomElsewhere");
 	await page.waitForSelector("#joinForm", { timeout: 10_000 });
-	await page.fill("#locator", dir.locator);
+	await page.fill("#joinAddressField", dir.address);
 	await page.fill("#nick", nick);
 	await reachDirectoryOnCard(page);
 	await page.fill("#room", dir.name);

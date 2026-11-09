@@ -132,7 +132,7 @@ function SidebarPane(
 	// Which directory the section's "+" names a room on: the one the page is
 	// acting on, which the store answers once for everything that asks. Reaching
 	// a room on a directory this tab has not opened is the join card's job, and
-	// the card is where the locator lives.
+	// the card is where the address lives.
 	const here = acting ?? dirId("");
 	// At most one "+" field is open, which is the rail's rule to keep rather than
 	// each section's, so it is one value here instead of a flag in each.
@@ -159,14 +159,14 @@ function SidebarPane(
 	];
 	const shown = railRows.filter(shows).length;
 	// With the join card up, this panel is a second view of it: one room name,
-	// one lock, and one destination. So where a room lands is the card's locator
+	// one lock, and one destination. So where a room lands is the card's address
 	// field, resolved exactly as the card resolves it, rather than the directory
 	// the reader was last standing on: the panel and the card cannot state two
 	// destinations for the one name being typed into both.
 	//
 	// With a room open there is no card to be a view of, and standing in a room
 	// on a directory has one reading: the next room named here goes there. That
-	// is the same reading `showRoom` files as an implied locator when a room it
+	// is the same reading `showRoom` files as an implied address when a room it
 	// cannot open puts the card up, so the two surfaces still agree.
 	// Whether the join card is the workarea, which is when this rail's field
 	// is a second view of it. Not re-derived from the selection: with /ops
@@ -174,8 +174,8 @@ function SidebarPane(
 	const linked = cardUp;
 	const aimed = linked
 		? destination(
-			join.locator.value,
-			rooms.directoryId(join.locator.value.trim()),
+			join.address.value,
+			rooms.directoryId(join.address.value.trim()),
 			dirs,
 			directoryContext,
 			homeDirectoryName,
@@ -203,7 +203,7 @@ function SidebarPane(
 	// other field's, and they subscribe there so a join does not rebuild this
 	// list.
 	const roomOffers = linked
-		? joinRoomOffers(join.locator.value, join.room.value, dirs, directoryContext, rooms.directoryId)
+		? joinRoomOffers(join.address.value, join.room.value, dirs, directoryContext, rooms.directoryId)
 		: liveRoomNames(dirs.get(here)?.liveRooms ?? new Map());
 	// The one field that names a room, whatever this tab holds. Where the room
 	// lands is stated on the field rather than decided by where the field sits,
@@ -239,7 +239,7 @@ function SidebarPane(
 		},
 		onError: (text: string) => browser.toast("failure", text),
 		// With the join card on screen, this field and that form name one room:
-		// one draft, one lock, and Enter submits the form itself, so the locator
+		// one draft, one lock, and Enter submits the form itself, so the address
 		// and name the reader filled in over there are honored rather than
 		// silently dropped. The form's id is a pinned selector, and
 		// `requestSubmit` is the platform's own way to submit it.
@@ -257,7 +257,7 @@ function SidebarPane(
 			: undefined,
 		// With the card up the destination is one of this tab's own directories
 		// away, so it is changed here rather than by sending the reader to the
-		// card to change it: picking writes the card's locator exactly as typing
+		// card to change it: picking writes the card's address exactly as typing
 		// in this field writes the card's room name, and the panel's line, the
 		// card's field and the card's stripe all move together because all three
 		// read that one answer. An address this tab does not hold has nowhere
@@ -270,11 +270,11 @@ function SidebarPane(
 			? (close: () => void) => (
 				<DirectoryPicks
 					className="where-picks"
-					locator={join.locator.value}
+					address={join.address.value}
 					dirs={dirs}
 					context={directoryContext}
-					onPick={(locator) => {
-						browser.editJoin({ locator });
+					onPick={(address) => {
+						browser.editJoin({ address });
 						close();
 					}}
 					onElsewhere={() =>
@@ -298,13 +298,13 @@ function SidebarPane(
 		// was about.
 		onElsewhere: linked ? undefined : (name: string) =>
 			typeAnotherAddress(() =>
-				// The address, not the identity: an act's locator is something to
+				// The address, not the identity: an act's address is something to
 				// dial, and an identity is what is left after the routing hints have
 				// been taken off it.
 				browser.reachFor({
 					source: "press",
 					room: named(name),
-					locator: implied(rooms.dirAddress(here)),
+					address: implied(rooms.dirAddress(here)),
 				})
 			),
 		// Stated whether or not this tab holds more than one directory. A room row
@@ -388,7 +388,7 @@ function SidebarPane(
 								browser.reachFor({
 									source: "press",
 									room: named(conv.id),
-									locator: named(rooms.dirAddress(conv.dir)),
+									address: named(rooms.dirAddress(conv.dir)),
 								});
 								return;
 							}
@@ -398,7 +398,7 @@ function SidebarPane(
 						onAbout={browser.showDirectory}
 						// The address, not the identity: what a row hands over has to be
 						// dialable, and the hints are part of what makes it so.
-						onJoinOn={(dir) => browser.reachFor({ source: "press", locator: named(rooms.dirAddress(dir)) })}
+						onJoinOn={(dir) => browser.reachFor({ source: "press", address: named(rooms.dirAddress(dir)) })}
 						onLeaveDir={rooms.leaveDirectory}
 					/>
 					<JoinRefusal />

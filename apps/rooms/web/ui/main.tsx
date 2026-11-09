@@ -36,7 +36,7 @@ import { ManagedHistory } from "./session/managed/history.ts";
 import * as application from "./application.ts";
 import { RoomsBrowserProvider } from "./controller/browser.ts";
 import { chosenKey, createRoomsBrowserController } from "./controller/create_browser.ts";
-import { finishBrowserDataDeletion } from "./controller/browser_data.ts";
+import { finishBrowserDataDeletion, reloadWhenAnotherTabDeletes } from "./controller/browser_data.ts";
 import { ModalProvider } from "./modal.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
 import { refusalText } from "../../lib/text/failure.ts";
@@ -64,8 +64,6 @@ function report(source: string, error: unknown): void {
 	const reason = refusalText(error);
 	store.noteTrouble(page.projection, source, reason);
 }
-const stopPreferences = bindViewPreferences(page.projection);
-addEventListener("pagehide", stopPreferences, { once: true });
 // The threads under the page dim while every connection is lost and grow
 // back in when one returns. The binding lives as long as the page.
 bindGroundToConnections(page.projection);
@@ -209,6 +207,15 @@ async function start(): Promise<void> {
 		if (path == null) throw new Error("the Rooms page has no application module");
 		await application.loadApplication(fetch(path));
 	});
+	// A deletion asked for before this load finishes before anything opens
+	// storage, and before the address is read, so what a link offers is kept
+	// while everything this browser saved is gone.
+	const deleted = await finishBrowserDataDeletion();
+	// Preferences bind after the deletion, so a deleting tab reads the empty
+	// storage and nothing it held in memory is written back.
+	const stopPreferences = bindViewPreferences(page.projection);
+	addEventListener("pagehide", stopPreferences, { once: true });
+	reloadWhenAnotherTabDeletes();
 	// A shared session a link offers leaves the address before anything else
 	// runs, and opens session choice with it filled in, whatever this browser
 	// used last. Attach is the answer, so a link never attaches by itself, and
@@ -218,10 +225,8 @@ async function start(): Promise<void> {
 	// The server is fixed when the session opens, so a link's offer of one is
 	// answered before session choice.
 	await answerServerOffer();
-	// Session choice and explicit data deletion must remain reachable before
-	// opening storage, including when an obsolete schema refuses startup. A
-	// deletion asked for before this load finishes before anything opens.
-	const deleted = await finishBrowserDataDeletion(chosenKey());
+	// Session choice must remain reachable before opening storage, including
+	// when an obsolete schema refuses startup.
 	if (attach != null || deleted != null) {
 		standAtFrontOfPrivilegedAddress();
 		await showSessionSetup(attach?.capability ?? "", deleted ?? "");

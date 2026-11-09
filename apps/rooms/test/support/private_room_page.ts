@@ -107,8 +107,8 @@ export async function roomLink(tab: Page, who: string): Promise<string> {
 	await tab.click("#convcardCapabilitiesTab");
 	const explanation = (await tab.textContent("#convcardRoomLinkHint")) ?? "";
 	if (
-		!explanation.includes("durable bearer link") || !explanation.includes("pass it on") ||
-		!explanation.includes("across restarts") || !explanation.includes("message history")
+		!explanation.includes("room link") || !explanation.includes("pass it on") ||
+		!explanation.includes("restarts") || !explanation.includes("message history")
 	) {
 		fail(`the room-link control did not explain its authority and lifetime: ${JSON.stringify(explanation)}`);
 	}
@@ -145,7 +145,7 @@ export function refusalAbout(tab: Page): Promise<string> {
 	return tab.evaluate(() =>
 		[...document.querySelectorAll("#log .sys")]
 			.map((row) => row.textContent ?? "")
-			.filter((text) => text.includes("That link did not open a room"))
+			.filter((text) => text.includes("That link didn't open a room"))
 			.at(-1) ?? ""
 	);
 }

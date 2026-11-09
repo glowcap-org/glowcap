@@ -255,7 +255,9 @@ typedef struct GlowcapLoamContent {
     uint64_t schema;
     uint32_t version;
     void *context;
+    /* Declared methods, copied at attach. */
     const GlowcapLoamMethod *methods;
+    /* Method count: at least one and at most 128. More refuses the attach as an invalid argument before anything is copied. */
     size_t method_count;
     GlowcapLoamRequirementFn requirement;
     GlowcapLoamInvokeFn invoke;

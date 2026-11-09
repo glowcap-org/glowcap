@@ -1,6 +1,7 @@
 //! How the server reads its options: arguments over environment, the state
 //! directory, transports and their refusals, and history and where it is kept.
 use super::*;
+use rooms_application::server::operations::BOOT_CAPABILITIES;
 
 #[test]
 fn rooms_server_configuration_resolves_options_and_environment() {
@@ -64,4 +65,98 @@ fn admission_arguments_override_environment_and_reject_bad_policy() {
 	assert!(summary.contains("admission-rates=argument"));
 	assert!(summary.contains("admission-rows=environment"));
 	assert!(Config::parse(["--admission-rates=message=0/1".into()], |_| None).is_err());
+}
+
+#[test]
+fn capabilities_name_what_to_mint_and_the_rest_stay_withheld() {
+	let parse = |args: &[&str], env: fn(&str) -> Option<String>| {
+		Config::parse(args.iter().map(|s| s.to_string()), env)
+			.unwrap()
+			.unwrap()
+			.asked
+	};
+	let refused = |args: &[&str]| {
+		Config::parse(args.iter().map(|s| s.to_string()), |_| None)
+			.err()
+			.map(|error| error.to_string())
+			.expect("a refusal")
+	};
+	let held = |asked: Asked| {
+		BOOT_CAPABILITIES
+			.iter()
+			.filter(|capability| asked.holds(capability.kind))
+			.map(|capability| capability.name)
+			.collect::<Vec<_>>()
+	};
+	assert_eq!(parse(&[], |_| None), Asked::default(), "nothing asked mints nothing");
+	assert_eq!(
+		held(parse(&["--capabilities=all"], |_| None)),
+		BOOT_CAPABILITIES
+			.iter()
+			.map(|capability| capability.name)
+			.collect::<Vec<_>>()
+	);
+	// A list mints only the names it holds, in the table's order.
+	assert_eq!(
+		held(parse(&["--capabilities=trace,peering"], |_| None)),
+		["peering", "trace"]
+	);
+	let from_environment = parse(&[], |key| match key {
+		"GLOWCAP_ROOMS_CAPABILITIES" => Some("admin-listeners,diagnostics,operator,peering,trace".into()),
+		_ => None,
+	});
+	assert_eq!(
+		held(from_environment),
+		["admin-listeners", "diagnostics", "operator", "peering", "trace"]
+	);
+	// The option wins over the variable.
+	let both = parse(&["--capabilities=irc"], |key| match key {
+		"GLOWCAP_ROOMS_CAPABILITIES" => Some("all".into()),
+		_ => None,
+	});
+	assert_eq!(held(both), ["irc"]);
+	let names = format!(
+		"all, or names from {}",
+		BOOT_CAPABILITIES
+			.iter()
+			.map(|capability| capability.name)
+			.collect::<Vec<_>>()
+			.join(", ")
+	);
+	for (args, said) in [
+		(["--capabilities=peering,nope"], "does not know \"nope\""),
+		(["--capabilities=peering,,irc"], "has an empty item"),
+		(["--capabilities=irc,irc"], "repeats \"irc\""),
+		(["--capabilities=all,irc"], "takes all on its own, not in a list"),
+		(["--capabilities="], "has an empty item"),
+		(["--irc"], "unknown option: --irc"),
+	] {
+		let refusal = refused(&args);
+		assert!(refusal.contains(said), "{refusal}");
+		if args[0].starts_with("--capabilities") {
+			assert!(refusal.contains(&names), "{refusal}");
+		}
+	}
+	assert!(refused(&["--capabilities"]).contains("--capabilities takes a value"));
+}
+
+#[test]
+fn every_boot_capability_is_mintable_alone_and_the_help_lists_the_table() {
+	let names = BOOT_CAPABILITIES
+		.iter()
+		.map(|capability| capability.name)
+		.collect::<Vec<_>>()
+		.join(", ");
+	assert!(super::super::HELP.contains(&names), "help lists {names}");
+	for capability in &BOOT_CAPABILITIES {
+		let one = Asked::parse(capability.name).unwrap();
+		assert!(one.holds(capability.kind), "{} is mintable on its own", capability.name);
+		assert_eq!(
+			BOOT_CAPABILITIES.iter().filter(|other| one.holds(other.kind)).count(),
+			1,
+			"{} mints itself alone",
+			capability.name
+		);
+	}
+	assert_ne!(Asked::parse("all").unwrap(), Asked::default());
 }

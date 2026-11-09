@@ -3,22 +3,22 @@
 
 import { identifierField } from "../field.ts";
 import { Icon } from "../icons.tsx";
-import { type DirectoryDestinationContext, joinLocatorPlaceholder } from "../joining.ts";
+import { type DirectoryDestinationContext, joinAddressPlaceholder } from "../joining.ts";
 import { joinChooseDirectory, joinHideDirectories } from "../../../lib/text/join.ts";
 import { DirectoryPicks, typeAnotherAddress } from "../DirectoryPicks.tsx";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
 import { MenuLayer, useMenu } from "../Menu.tsx";
 import type { DirId, DirView } from "../directory.ts";
 
-export function JoinLocator(
-	{ locator, dirs, defaultAddress, directoryContext, invalid, onPick, onType }: {
-		locator: string;
+export function JoinAddress(
+	{ address, dirs, defaultAddress, directoryContext, invalid, onPick, onType }: {
+		address: string;
 		dirs: ReadonlyMap<DirId, DirView>;
 		defaultAddress: string | null;
 		directoryContext: DirectoryDestinationContext;
 		invalid?: boolean;
-		onPick: (locator: string) => void;
-		onType: (locator: string) => void;
+		onPick: (address: string) => void;
+		onType: (address: string) => void;
 	},
 ) {
 	const { open, setOpen, holder, trigger, layer } = useMenu();
@@ -26,7 +26,7 @@ export function JoinLocator(
 		<div className="join-field-wrap" ref={holder}>
 			<JoinField invalid={invalid}>
 				<JoinPrefix
-					id="joinLocator"
+					id="joinAddress"
 					ref={trigger}
 					className="join-prefix-dir"
 					label={open ? joinHideDirectories : joinChooseDirectory}
@@ -37,13 +37,13 @@ export function JoinLocator(
 					<Icon name="directory" size={18} />
 				</JoinPrefix>
 				<input
-					id="locator"
-					name="locator"
+					id="joinAddressField"
+					name="joinAddressField"
 					type="text"
 					inputMode="url"
 					enterKeyHint="next"
-					placeholder={joinLocatorPlaceholder(defaultAddress)}
-					value={locator}
+					placeholder={joinAddressPlaceholder(defaultAddress)}
+					value={address}
 					aria-describedby={invalid === true ? "joinError" : undefined}
 					aria-invalid={invalid === true}
 					onChange={(e) => onType(e.target.value)}
@@ -52,7 +52,7 @@ export function JoinLocator(
 			</JoinField>
 			{
 				/* The addresses already in hand, from the mark that stands for this
-				    field. A locator is forty characters nobody can retype, and every one
+				    field. An address is forty characters nobody can retype, and every one
 				    of these was typed or pasted once already. The only reason the field
 				    is empty on the way back to it is that the field is where a *new* one
 				    goes. Leaving it empty means this page's own directory, so that one
@@ -63,8 +63,8 @@ export function JoinLocator(
 			{open && (
 				<MenuLayer holder={holder} layer={layer} owner="joinForm">
 					<DirectoryPicks
-						className="locator-picks"
-						locator={locator}
+						className="address-picks"
+						address={address}
 						dirs={dirs}
 						context={directoryContext}
 						onPick={(picked) => {

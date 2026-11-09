@@ -103,4 +103,22 @@
   .hero h1 {
     font-size: 2.7rem;
   }
+
+  /* A table scrolls inside itself here, so its value columns keep a readable
+     width instead of squeezing to a word each. */
+  .prose td:not(:first-child) {
+    min-width: 12rem;
+  }
+
+  /* A hand-drawn diagram keeps the width its labels need and scrolls inside
+     its card, as a code block does. The drawing is an img before the page
+     swaps it into a .diagram. */
+  .prose figure {
+    overflow-x: auto;
+  }
+
+  .prose figure img[src$=".svg"],
+  .prose figure .diagram {
+    min-width: 34rem;
+  }
 }

@@ -12,35 +12,57 @@ pub(super) mod trace;
 
 use super::{error::Error, state::Shared};
 use glowcap::Argument;
-use rooms_application::server::operations::{BootCapability, SWISS_HEX_LEN, is_swiss};
+use rooms_application::server::operations::{BOOT_CAPABILITIES, BootCapability, Kind, SWISS_HEX_LEN, is_swiss};
 use rooms_platform::storage;
 use std::path::{Path, PathBuf};
 
-/// Which boot capabilities an operator asked for.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Which boot capabilities an operator asked for: a set over
+/// `BOOT_CAPABILITIES`, indexed by `Kind`, so `parse`, `mint`, and every
+/// other reader agree on the one table.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Asked {
-	pub admin_listeners: bool,
-	pub diagnostics: bool,
-	pub operator: bool,
-	pub peering: bool,
-	pub irc: bool,
-	pub trace: bool,
+	held: [bool; BOOT_CAPABILITIES.len()],
 }
 
 impl Asked {
-	pub fn any(&self) -> bool {
-		self.admin_listeners || self.diagnostics || self.operator || self.peering || self.irc || self.trace
-	}
-	fn asked(&self, id: &str) -> bool {
-		match id {
-			"listeners" => self.admin_listeners,
-			"diagnostics" => self.diagnostics,
-			"operator" => self.operator,
-			"peering" => self.peering,
-			"trace" => self.trace,
-			"irc" => self.irc,
-			_ => false,
+	/// Read `--capabilities`: `all`, or a comma-separated list of boot
+	/// capability names. Leaving a name out withholds it, and a name that is
+	/// unknown, empty, or repeated is refused.
+	pub(crate) fn parse(list: &str) -> Result<Self, Error> {
+		let refuse = |what: String| {
+			let names = BOOT_CAPABILITIES
+				.iter()
+				.map(|capability| capability.name)
+				.collect::<Vec<_>>()
+				.join(", ");
+			Error::refused(format!("--capabilities {what}; use all, or names from {names}"))
+		};
+		if list == "all" {
+			return Ok(Self {
+				held: [true; BOOT_CAPABILITIES.len()],
+			});
 		}
+		let mut asked = Self::default();
+		for name in list.split(',') {
+			if name == "all" {
+				return Err(refuse("takes all on its own, not in a list".into()));
+			}
+			let Some(capability) = BOOT_CAPABILITIES.iter().find(|capability| capability.name == name) else {
+				return Err(refuse(if name.is_empty() {
+					"has an empty item".into()
+				} else {
+					format!("does not know {name:?}")
+				}));
+			};
+			if asked.holds(capability.kind) {
+				return Err(refuse(format!("repeats {name:?}")));
+			}
+			asked.held[capability.kind as usize] = true;
+		}
+		Ok(asked)
+	}
+	pub(crate) fn holds(&self, kind: Kind) -> bool {
+		self.held[kind as usize]
 	}
 }
 
@@ -65,14 +87,14 @@ impl Minted {
 /// the operator already copied.
 pub async fn mint(asked: &Asked, state: Option<&Path>) -> Result<Vec<Minted>, Error> {
 	let mut minted = Vec::new();
-	for capability in rooms_application::server::operations::BOOT_CAPABILITIES.iter() {
-		if !asked.asked(capability.id) {
+	for capability in BOOT_CAPABILITIES.iter() {
+		if !asked.holds(capability.kind) {
 			continue;
 		}
 		let swiss = match state {
 			Some(directory) => {
-				let path = directory.join(capability.file);
-				let file = capability.file;
+				let path = directory.join(capability.name);
+				let file = capability.name;
 				tokio::task::spawn_blocking(move || persistent_swiss(&path, file))
 					.await
 					.map_err(|e| Error::Worker(e.to_string()))??
@@ -117,14 +139,14 @@ fn persistent_swiss(path: &PathBuf, file: &str) -> Result<String, Error> {
 pub(super) fn publish(state: &Shared, minted: &[Minted]) -> Result<(), Error> {
 	let host = state.borrow().host.clone();
 	for held in minted {
-		let behavior: glowcap::Behavior = match held.capability.id {
-			"listeners" => Box::new(listeners::behavior(state.clone())),
-			"diagnostics" => Box::new(inspect::behavior(state.clone())),
-			"operator" => Box::new(operator::behavior(state.clone())),
-			"peering" => Box::new(peering::behavior(state.clone())),
-			"irc" => Box::new(super::irc::behavior(state.clone())),
-			// The other capabilities' behaviors land with their own owners.
-			_ => continue,
+		let behavior: glowcap::Behavior = match held.capability.kind {
+			Kind::Listeners => Box::new(listeners::behavior(state.clone())),
+			Kind::Diagnostics => Box::new(inspect::behavior(state.clone())),
+			Kind::Operator => Box::new(operator::behavior(state.clone())),
+			Kind::Peering => Box::new(peering::behavior(state.clone())),
+			Kind::Irc => Box::new(super::irc::behavior(state.clone())),
+			// The timeline publishes the trace behavior itself.
+			Kind::Trace => continue,
 		};
 		host.publish(&held.swiss, move || behavior)?;
 	}

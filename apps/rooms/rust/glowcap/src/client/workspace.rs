@@ -46,6 +46,24 @@ pub struct Snapshot {
 	pub revision: u64,
 	pub intent: Intent,
 }
+/// A snapshot with the address each directory row was dialed through, in row
+/// order: `host:port` for TCP, else the locator URI, never a swiss number. A
+/// row whose saved link is local, live, or unreadable has none. Only
+/// `Workspace::addressed_snapshot` builds one, after checking that the rows
+/// pair one to one with the snapshot's directories.
+pub struct AddressedSnapshot {
+	snapshot: Snapshot,
+	addresses: Vec<Option<String>>,
+}
+impl AddressedSnapshot {
+	pub fn snapshot(&self) -> &Snapshot {
+		&self.snapshot
+	}
+	/// Each address pairs with the directory row at the same position.
+	pub fn addresses(&self) -> &[Option<String>] {
+		&self.addresses
+	}
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectStatus {
 	/// Terminal admission refusal. No effect receipt or upstream call exists.
@@ -110,6 +128,29 @@ impl<D: Deadline> Workspace<D> {
 	pub async fn snapshot(&self) -> Result<Snapshot, Error> {
 		self.snapshot_at("snapshot", &[]).await
 	}
+	/// The page's read: one answer carries the snapshot and each directory's
+	/// dialed address under the same ObserveWorkspace grant.
+	pub async fn addressed_snapshot(&self) -> Result<AddressedSnapshot, Error> {
+		let reply = self.call("addressed-snapshot", &[]).await?;
+		let Some([revision, intent, addresses]) = reply.as_list() else {
+			return Err(loam::refusal("invalid managed workspace snapshot").into());
+		};
+		let snapshot = snapshot(revision, intent)?;
+		let addresses = addresses
+			.as_list()
+			.filter(|rows| rows.len() == snapshot.intent.directories.as_slice().len())
+			.ok_or_else(|| loam::refusal("invalid directory addresses"))?
+			.iter()
+			.map(|address| match address {
+				Argument::Void => Ok(None),
+				Argument::String(address) if address.len() <= glowcap::loam::ReferenceRequest::MAX_URI_BYTES => {
+					Ok(Some(address.clone()))
+				}
+				_ => Err(loam::refusal("invalid directory address").into()),
+			})
+			.collect::<Result<_, Error>>()?;
+		Ok(AddressedSnapshot { snapshot, addresses })
+	}
 	/// Only the managed owner holds this private witness. Grant admission and
 	/// live authority still apply. Public query debt cannot block retirement.
 	pub async fn owner_snapshot(&self, owner: &Ref) -> Result<Snapshot, Error> {
@@ -129,15 +170,7 @@ impl<D: Deadline> Workspace<D> {
 		let Some([revision, intent]) = reply.as_list() else {
 			return Err(loam::refusal("invalid managed workspace snapshot").into());
 		};
-		let revision = revision
-			.as_i64()
-			.and_then(|value| u64::try_from(value).ok())
-			.ok_or_else(|| loam::refusal("invalid workspace revision"))?;
-		let intent = intent
-			.as_str()
-			.ok_or_else(|| loam::refusal("invalid workspace intent"))?;
-		let intent = Intent::decode(intent).map_err(|_| loam::refusal("invalid workspace intent"))?;
-		Ok(Snapshot { revision, intent })
+		snapshot(revision, intent)
 	}
 	pub async fn export_configuration(&self) -> Result<(Snapshot, Vec<custody::Coordinate>), Error> {
 		let reply = self.call("export-configuration", &[]).await?;
@@ -385,6 +418,17 @@ impl<D: Deadline> Command<D> {
 			.result("the original session result did not answer")
 			.await
 	}
+}
+fn snapshot(revision: &Argument, intent: &Argument) -> Result<Snapshot, Error> {
+	let revision = revision
+		.as_i64()
+		.and_then(|value| u64::try_from(value).ok())
+		.ok_or_else(|| loam::refusal("invalid workspace revision"))?;
+	let intent = intent
+		.as_str()
+		.ok_or_else(|| loam::refusal("invalid workspace intent"))?;
+	let intent = Intent::decode(intent).map_err(|_| loam::refusal("invalid workspace intent"))?;
+	Ok(Snapshot { revision, intent })
 }
 fn coordinate_text(coordinate: custody::Coordinate) -> Result<String, Error> {
 	serde_json::to_string(&coordinate).map_err(|_| loam::refusal("invalid custody coordinate").into())

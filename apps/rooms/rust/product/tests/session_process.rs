@@ -83,7 +83,7 @@ fn session_peer_executable_custody_restart_and_signals() {
 				}
 			}
 			publication = Some((parsed.locator.designator, parsed.swissnum));
-			let management_link = std::fs::read_to_string(state.join("control.sturdyref")).unwrap();
+			let management_link = std::fs::read_to_string(state.join("management.sturdyref")).unwrap();
 			assert_eq!(
 				management.trim().strip_prefix("ROOMS-SESSION-MANAGEMENT "),
 				Some(management_link.trim())
@@ -94,11 +94,11 @@ fn session_peer_executable_custody_restart_and_signals() {
 				assert_eq!(&bytes, previous);
 			}
 			identity = Some(bytes);
-			assert!(state.join("workspace.sturdyref").exists());
+			assert!(state.join("use.sturdyref").exists());
 			// The healthcheck is the same executable reading its own mirror:
 			// it prints the one sturdyref while the peer is up.
 			let ready = command()
-				.arg(format!("--check-ready={}", state.join("workspace.sturdyref").display()))
+				.arg(format!("--check-ready={}", state.join("use.sturdyref").display()))
 				.output()
 				.unwrap();
 			assert!(ready.status.success(), "a running peer checks ready");
@@ -117,7 +117,7 @@ fn session_peer_executable_custody_restart_and_signals() {
 				"a second process acquired live session custody"
 			);
 			let ready = command()
-				.arg(format!("--check-ready={}", state.join("workspace.sturdyref").display()))
+				.arg(format!("--check-ready={}", state.join("use.sturdyref").display()))
 				.output()
 				.unwrap();
 			assert!(
@@ -126,7 +126,7 @@ fn session_peer_executable_custody_restart_and_signals() {
 			);
 			assert_eq!(String::from_utf8(ready.stdout).unwrap().trim(), link);
 			assert_eq!(
-				std::fs::read_to_string(state.join("control.sturdyref")).unwrap(),
+				std::fs::read_to_string(state.join("management.sturdyref")).unwrap(),
 				management_link
 			);
 			if signal == "-KILL" {
@@ -141,10 +141,10 @@ fn session_peer_executable_custody_restart_and_signals() {
 			if signal == "-KILL" {
 				continue;
 			}
-			assert!(!state.join("workspace.sturdyref").exists());
-			assert!(!state.join("control.sturdyref").exists());
+			assert!(!state.join("use.sturdyref").exists());
+			assert!(!state.join("management.sturdyref").exists());
 			let stopped = command()
-				.arg(format!("--check-ready={}", state.join("workspace.sturdyref").display()))
+				.arg(format!("--check-ready={}", state.join("use.sturdyref").display()))
 				.stderr(Stdio::null())
 				.output()
 				.unwrap();

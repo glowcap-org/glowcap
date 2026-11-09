@@ -55,7 +55,7 @@ roomsTest("the page origin carries trace sockets, admission and refusal alike", 
 		env: {
 			...Deno.env.toObject(),
 			GLOWCAP_ROOMS_STATE: stateDir,
-			GLOWCAP_ROOMS_TRACE: "1",
+			GLOWCAP_ROOMS_CAPABILITIES: "trace",
 			GLOWCAP_ROOMS_TRACE_PORT: "0",
 			GLOWCAP_ROOMS_TRACE_CONNECT: `ws://127.0.0.1:${httpPort}/trace/captp`,
 		},

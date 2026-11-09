@@ -29,11 +29,13 @@ export function patchDir(projection: PageProjection, dir: DirId, fields: Partial
  * Idempotent because asking for a directory twice must never be a way to lose
  * what is already on it: the rooms are conversations, but the room list and the
  * reachable peers live here. */
-export function openDir(projection: PageProjection, dir: DirId, locator: string): void {
+export function openDir(projection: PageProjection, dir: DirId, address: string): DirView {
 	const current = projection.get().dirs;
-	if (current.has(dir)) {
-		if (current.get(dir)?.locator !== locator) patchDir(projection, dir, { locator });
-		return;
+	const held = current.get(dir);
+	if (held !== undefined) {
+		if (held.address === address) return held;
+		patchDir(projection, dir, { address });
+		return { ...held, address };
 	}
 	// The lowest mark nobody is wearing, so two directories can never share one
 	// and one that leaves gives its mark back.
@@ -41,9 +43,9 @@ export function openDir(projection: PageProjection, dir: DirId, locator: string)
 	let slot = 1;
 	while (taken.has(slot)) slot += 1;
 	const dirs = new Map(current);
-	dirs.set(dir, {
+	const view: DirView = {
 		id: dir,
-		locator,
+		address,
 		slot,
 		requestedNick: "",
 		nick: "",
@@ -57,8 +59,10 @@ export function openDir(projection: PageProjection, dir: DirId, locator: string)
 		transport: "",
 		dmUnreachable: "",
 		standing: null,
-	});
+	};
+	dirs.set(dir, view);
 	projection.set({ dirs });
+	return view;
 }
 
 /** Stop holding `dir`. Its conversations are forgotten by their own verb. A

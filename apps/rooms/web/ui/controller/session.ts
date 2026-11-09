@@ -60,10 +60,10 @@ export interface RoomsDirectoryController {
 	 * the act picks up after the reload a chosen server takes. */
 	join(destination: RoomDestination, nick: JoinNicknameIntent, signal?: AbortSignal): Promise<JoinOutcome>;
 	/** Reach a directory without entering a room in it, so a card can offer its
-	 * listing before asking which room. An empty locator names this page's own.
+	 * listing before asking which room. An empty address names this page's own.
 	 * Answers the refusal, or the empty string when the directory is reached
 	 * or the page is asking for a server. */
-	reachDirectory(locator: string, nick: JoinNicknameIntent, options?: ReachOptions): Promise<string>;
+	reachDirectory(address: string, nick: JoinNicknameIntent, options?: ReachOptions): Promise<string>;
 }
 
 export interface RoomsConversationController {

@@ -122,7 +122,7 @@ pub fn register(ctx: Context) Registered {
     const transport = b.option(Transport, "transport", "The room transport rooms-web and rooms-dev announce: iroh (default, encrypted QUIC), noise-tcp or noise-relay (Noise-sealed), tcp, keyed-tcp, or keyed-relay (cleartext, for a peer that speaks nothing else), or onion (a Tor onion service that requires tor)") orelse .iroh;
 
     const production = addLaunch(ctx, transport, .{});
-    b.step("rooms-web", "Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=<transport>` picks the announced room transport from the seven the server accepts, default iroh. Server flags follow `--`: `--diagnostics` / `--admin-listeners` / `--operator` / `--peering` / `--trace` / `--irc` mint the operations capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN")
+    b.step("rooms-web", "Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=<transport>` picks the announced room transport from the seven the server accepts, default iroh. Server flags follow `--`: `--capabilities=all` or a comma-separated list of the names in `apps/rooms/operating.md` mints the operator capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN")
         .dependOn(&production.step);
 
     // Both development fronts share state, grants, transport, and dependencies.
@@ -158,10 +158,7 @@ fn addEnvironment(run: *std.Build.Step.Run, b: *std.Build, transport: Transport,
     run.addArg(b.fmt("GLOWCAP_ROOMS_TRANSPORT={s}", .{@tagName(transport)}));
     if (launch.state_dir) |dir| run.addArg(b.fmt("GLOWCAP_ROOMS_STATE={s}", .{dir}));
     if (launch.mint_everything) {
-        run.addArgs(&.{
-            "GLOWCAP_ROOMS_ADMIN_LISTENERS=1", "GLOWCAP_ROOMS_DIAGNOSTICS=1", "GLOWCAP_ROOMS_IRC=1",
-            "GLOWCAP_ROOMS_OPERATOR=1",        "GLOWCAP_ROOMS_PEERING=1",     "GLOWCAP_ROOMS_TRACE=1",
-        });
+        run.addArg("GLOWCAP_ROOMS_CAPABILITIES=all");
         run.addArg(b.fmt("GLOWCAP_ROOMS_SESSION_STATE={s}", .{commands.rootPath(b, ".local/.state/rooms-session")}));
     }
 }

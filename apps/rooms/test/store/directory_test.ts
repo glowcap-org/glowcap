@@ -1,7 +1,7 @@
 // Directory presentation treats home identity, locator spelling, naming, and color as one coherent destination.
 import "../support/browser_application.ts";
 import { assert } from "../assert.ts";
-// How this page names and colors directories, and how a locator field treats
+// How this page names and colors directories, and how an address field treats
 // this directory as the empty destination rather than a second address.
 
 const types = await import("../../web/ui/directory.ts");
@@ -11,57 +11,57 @@ const { dirId } = types;
 
 Deno.test("empty and this directory's locator are one destination", () => {
 	const home = dirId("ocapn://abc.iroh");
-	const context = { home, defaultDirectory: { id: home, locator: home } };
-	assert(joining.thisDirectoryLocator("", context) === "", "an empty locator was not this directory");
+	const context = { home, defaultDirectory: { id: home, address: home } };
+	assert(joining.thisDirectoryAddress("", context) === "", "an empty address was not this directory");
 	assert(
-		joining.thisDirectoryLocator("ocapn://abc.iroh", context, home) === "",
+		joining.thisDirectoryAddress("ocapn://abc.iroh", context, home) === "",
 		"this directory's locator was kept as a distinct value",
 	);
 	assert(
-		joining.thisDirectoryLocator(" ocapn://abc.iroh\n", context, home) === "",
+		joining.thisDirectoryAddress(" ocapn://abc.iroh\n", context, home) === "",
 		"a pasted home locator was not cleared",
 	);
 	assert(
-		joining.thisDirectoryLocator("ocapn://other.iroh", context) === "ocapn://other.iroh",
+		joining.thisDirectoryAddress("ocapn://other.iroh", context) === "ocapn://other.iroh",
 		"a foreign locator was treated as this directory",
 	);
 	const roomLink = "ocapn://abc.iroh/s/room-swiss";
 	assert(
-		joining.thisDirectoryLocator(roomLink, context, home) === roomLink,
+		joining.thisDirectoryAddress(roomLink, context, home) === roomLink,
 		"a room link on this directory was collapsed to the directory default",
 	);
 });
 
-Deno.test("an empty locator field hints at this directory's shared address", () => {
+Deno.test("an empty address field hints at this directory's shared address", () => {
 	// The placeholder shortens the same route every share surface hands out
 	// (`peer.dirAddress`), so the hint agrees with the Settings and directory
 	// cards rather than showing the store's bare authority key.
 	assert(
-		joining.joinLocatorPlaceholder(null) === joining.JOIN_LOCATOR_SHAPE,
+		joining.joinAddressPlaceholder(null) === joining.JOIN_ADDRESS_SHAPE,
 		"a page with no home invented an address",
 	);
 	assert(
-		joining.joinLocatorPlaceholder("ocapn://abc.iroh") === "ocapn://abc.iroh",
+		joining.joinAddressPlaceholder("ocapn://abc.iroh") === "ocapn://abc.iroh",
 		"a short locator was shortened",
 	);
 	assert(
-		joining.joinLocatorPlaceholder(
+		joining.joinAddressPlaceholder(
 			"ocapn://abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr.iroh",
 		) === "ocapn://abcd…mnopqr.iroh",
 		"a long locator was not shown as head, tail, and transport",
 	);
 	assert(
-		joining.joinLocatorPlaceholder(
+		joining.joinAddressPlaceholder(
 			"ocapn://abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr.iroh?direct-addresses=127.0.0.1:1",
 		) === "ocapn://abcd…mnopqr.iroh",
 		"the shared hinted route kept its query parameters in the hint",
 	);
 	assert(
-		joining.joinLocatorPlaceholder("127.0.0.1:8000") === "127.0.0.1:8000",
+		joining.joinAddressPlaceholder("127.0.0.1:8000") === "127.0.0.1:8000",
 		"a host locator was rewritten as an ocapn URI",
 	);
 	assert(
-		joining.joinLocatorPlaceholder("ocapn://127.0.0.1%3A8000.tcp") === "127.0.0.1:8000",
+		joining.joinAddressPlaceholder("ocapn://127.0.0.1%3A8000.tcp") === "127.0.0.1:8000",
 		"a host TCP URI hid its host and port behind abbreviation",
 	);
 });
@@ -130,11 +130,11 @@ Deno.test("an empty address means home, and a different served directory is offe
 	const home = dirId("ocapn://home.iroh");
 	const served = dirId("ocapn://restarted.iroh");
 	const resolve = (locator: string) => dirId(locator);
-	const held = joining.directoryDestinationContext({ id: home, locator: home }, served, resolve);
+	const held = joining.directoryDestinationContext({ id: home, address: home }, served, resolve);
 	assert(held.defaultDirectory?.id === home, "an empty address named the served directory over home");
 	assert(held.served?.id === served, "the served directory was not offered beside home");
-	assert(joining.thisDirectoryLocator(served, held, served) === served, "the served address collapsed into home's");
-	const same = joining.directoryDestinationContext({ id: home, locator: home }, home, resolve);
+	assert(joining.thisDirectoryAddress(served, held, served) === served, "the served address collapsed into home's");
+	const same = joining.directoryDestinationContext({ id: home, address: home }, home, resolve);
 	assert(same.served == null, "home was offered twice");
 	const fresh = joining.directoryDestinationContext(null, served, resolve);
 	assert(fresh.defaultDirectory?.id === served, "a session with no home did not default to the served directory");

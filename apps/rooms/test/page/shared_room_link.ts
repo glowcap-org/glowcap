@@ -23,7 +23,7 @@ export async function proveSharedRoomLink(directory: Directory, views: readonly 
 		await joining.press("#newRoomElsewhere", "Enter");
 		await joining.waitForSelector("#joinForm", { state: "visible" });
 		await joining.fill("#room", ROOM);
-		await joining.fill("#locator", managed.roomLink);
+		await joining.fill("#joinAddressField", managed.roomLink);
 		await joining.fill("#nick", "durable-member");
 		await joining.click("#joinBtn");
 		for (const view of views) {
@@ -31,7 +31,7 @@ export async function proveSharedRoomLink(directory: Directory, views: readonly 
 				.catch(async () => {
 					const states = await Promise.all(views.map((page) => page.evaluate(() => document.body.innerText)));
 					fail(
-						`a room link pasted in an attached view did not reach the shared workspace: ${
+						`a room link pasted in an attached view did not reach the shared session: ${
 							JSON.stringify(states)
 						}`,
 					);

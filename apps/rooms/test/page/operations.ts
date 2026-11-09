@@ -435,7 +435,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.click("#opsBtn");
 	await tab.waitForSelector("#operationsTitle");
 	if (await tab.$("#opsNav") !== null) fail("one remaining capability still drew pane navigation");
-	if (await tab.$("#directoryOpsPanel") !== null) fail("a dropped capability's pane still answered");
+	if (await tab.$("#operatorOpsPanel") !== null) fail("a dropped capability's pane still answered");
 	await tab.waitForSelector("#listenersList");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");

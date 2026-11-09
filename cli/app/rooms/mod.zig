@@ -7,7 +7,7 @@ const runtime = @import("../../operability/installation.zig");
 const log = @import("../../operability/log.zig");
 pub const commands = @import("commands.zig").commands;
 
-pub const Mode = enum { service, serve, session_serve, session_ready, capabilities, status, locator, revision, trace, skills };
+pub const Mode = enum { service, serve, session_serve, session_ready, capabilities, status, locator, revision, page, trace, skills };
 
 fn env(ctx: *Ctx, key: []const u8) ?[]const u8 {
     const value = ctx.environ.get(key) orelse return null;
@@ -61,16 +61,18 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
             if (mode == .session_ready) {
                 const file = parsed.flagString("file") orelse return error.Usage;
                 try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--check-ready={s}", .{file}));
-            } else if (mode == .status or mode == .locator or mode == .revision) {
+            } else if (mode == .status or mode == .locator or mode == .revision or mode == .page) {
                 const option = switch (mode) {
                     .status => "check-ready",
                     .locator => "locator",
                     .revision => "ui-version",
+                    .page => "page-link",
                     else => unreachable,
                 };
                 try arguments.append(alloc, if (parsed.flagString("url")) |url| try std.fmt.allocPrint(alloc, "--{s}={s}", .{ option, url }) else try std.fmt.allocPrint(alloc, "--{s}", .{option}));
             } else if (mode == .capabilities) {
-                try arguments.append(alloc, if (parsed.flagString("state")) |state| try std.fmt.allocPrint(alloc, "--capabilities={s}", .{state}) else "--capabilities");
+                try arguments.append(alloc, if (parsed.flagString("state")) |state| try std.fmt.allocPrint(alloc, "--print-capabilities={s}", .{state}) else "--print-capabilities");
+                if (parsed.flagString("url")) |url| try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--url={s}", .{url}));
             } else {
                 if (mode == .session_serve) {
                     if (parsed.flagString("dir") == null) {

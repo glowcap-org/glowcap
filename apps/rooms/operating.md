@@ -18,18 +18,24 @@ Compose.
 Participants running outside Docker use the [glowcap product package](host.md).
 Give them the host-reachable `/locator` URL, not an internal Compose hostname.
 
+Under the managed Docker deployment, Compose already sets the state directory, the kept history, and the transport
+options. A Docker operator reads [Operator capabilities](#operator-capabilities), [The session
+service](#the-session-service), [Watching the room live](#watching-the-room-live), and
+[Security posture](#security-posture). Settings those sections name go in the override. The state directory and flag
+sections describe a host installation.
+
 ## The server and its state
 
 `rooms-server` is the directory members register with, and it hosts the rooms
 they enter. It records names and tells watchers who is registered, relays
 introductions and WebRTC signaling, seats members and delivers room traffic,
-hosts files within the room and server budgets, and keeps history when you ask.
+hosts files within the room and server limits, and keeps history when you ask.
 The [work admission guide](../../docs/rooms/admission.md) covers temporary
 refusals and operation rates. Directory diagnostics show the effective policy
 and class counters.
 
 ```sh
-zig build rooms-server -- --state="$HOME/rooms-state" --history
+glowcap apps rooms directory serve --state="$HOME/rooms-state" --history
 ```
 
 Without `--state`, the server gets a fresh identity on every start and forgets
@@ -65,8 +71,8 @@ the Listeners page offers: `tcp`, `keyed-tcp`, `noise-tcp`, `iroh`,
 - `--transport=noise-relay` registers at a relay named by `--relay=<ws-url>`
   or `GLOWCAP_ROOMS_RELAY_URL`. Under `rooms-web` the relay defaults to that
   server's own `/relay`, so a browser reaches the directory through its
-  sealed door with no Rooms server chosen. The door advertises the relay as
-  peers dial it, so behind a port forward or a proxy `rooms-web` takes
+  sealed relay listener with no Rooms server chosen. The relay listener
+  advertises the relay as peers dial it, so behind a port forward or a proxy `rooms-web` takes
   `--http-public=<url>` and a standalone server takes
   `--relay-public=<ws-url>` (or `GLOWCAP_ROOMS_RELAY_PUBLIC_URL`).
   `rooms-web` refuses `--relay-public` for its own relay, which `--http-public`
@@ -77,49 +83,80 @@ writes already admitted, and release the state directory.
 
 `rooms.json` is version one, and the server refuses any other shape without
 rewriting the file. The same rule covers the session and archive files, history
-rows, and the browser's workspace and archive. To reset a development setup,
+rows, and the browser's session and archive. To reset a development setup,
 stop the peers, remove their state directories, and clear the Rooms origin's
-browser site data.
+browser site data. For a Docker deployment, see
+[data and reset](web/deploy/README.md#data-and-reset).
+
+### Listeners
+
+`--transport` chooses the listener peers reach the directory through, and each
+`--listen=<transport>[,<name>=<value>...]` opens another, once per transport,
+with that transport's options as `name=value` pairs. The server starts once
+every listener is open. Its `/locator` then names the directory by its key
+with every listener listed, so a browser that can open one of them itself,
+such as `noise-relay`, reaches the directory with no Rooms server chosen.
+
+The shared session takes the same choices under `--session-`:
+`--session-transport` picks its listener, and any other `rooms-session`
+option passes through as `--session-<option>`, such as `--session-bind`. The
+page is offered the session through any listener a browser can open: iroh, a
+relay, or a TCP listener this server forwards to. A relay listener registers
+at this server's own relay unless `--relay` or `--session-relay` names
+another, and `--relay-public` and `--session-relay-public` apply only then,
+because peers dial this server's own relay at `--http-public`.
 
 ## Operator capabilities
 
-A capability is a reference that grants one power to whoever holds it. Each
-flag below creates one capability. The server keeps its swiss number (the
-secret part of its address) in the state directory and prints its complete
-`ocapn://` URI, a sturdyref, as a `ROOMS-*` line at startup. A capability whose flag was not given does not exist.
+An operator capability is a link that grants one power to whoever holds it.
+`--capabilities` names the ones to create: `all`, or names from the table
+below separated by commas, such as `--capabilities=diagnostics,peering`.
+`GLOWCAP_ROOMS_CAPABILITIES` takes the same value, and the option wins over
+the variable. Leave a name out to withhold it. A name that is unknown, empty,
+or repeated is refused.
 
-`rooms-server --capabilities=<state-directory>` prints the saved capabilities
-again, given the server's advertised locator in `GLOWCAP_ROOMS_LOCATOR`. The
-timeline capability also needs its own locator in
-`GLOWCAP_ROOMS_TRACE_LOCATOR`. Without it, that one line says so and the rest
-still print. `glowcap apps rooms deployment up` supplies the room locator
-itself.
+The server keeps each capability's swiss number (the
+secret part of its link) in the state directory. At startup it prints the
+complete `ocapn://` link as a `ROOMS-*` line. A capability you did not name
+does not exist.
 
-| Flag | Environment | Prints | Grants |
-| --- | --- | --- | --- |
-| `--diagnostics` | `GLOWCAP_ROOMS_DIAGNOSTICS=1` | `ROOMS-DIAGNOSTICS` | Inspect: the names the directory holds and its recent failures |
-| `--admin-listeners` | `GLOWCAP_ROOMS_ADMIN_LISTENERS=1` | `ROOMS-ADMIN-LISTENERS` | List the server's listeners, bring one up on a transport it can realize, take one down |
-| `--operator` | `GLOWCAP_ROOMS_OPERATOR=1` | `ROOMS-OPERATOR` | Recover and revoke every local room's manager and moderator capabilities, including the lists and bulk removal on the Directory page |
-| `--peering` | `GLOWCAP_ROOMS_PEERING=1` | `ROOMS-PEERING` | List a durable room from another directory |
-| `--irc` | `GLOWCAP_ROOMS_IRC=1` | `ROOMS-IRC` | Open IRC networks and bridge channels as rooms |
-| `--trace` | `GLOWCAP_ROOMS_TRACE=1` | `ROOMS-TRACE`, `ROOMS-TRACE-LISTENING` | The live timeline endpoint and the capability its sockets present |
+`glowcap apps rooms capabilities --state=<state-directory>` prints the saved
+capabilities again as complete links. Under Docker, run
+`glowcap apps rooms deployment links`, or the `docker exec` form the
+[deployment guide](web/deploy/README.md#read-your-links-again) shows. It reads
+the directory's advertised locators from the running web server, at
+`http://127.0.0.1:8080` or the one `--url` names, and a kept timeline the
+server isn't serving prints with the option that starts it. Without a running
+server, set the locator in `GLOWCAP_ROOMS_LOCATOR` and the timeline's in
+`GLOWCAP_ROOMS_TRACE_LOCATOR`, or that one line says so while the rest still
+print.
+
+| Name | Prints | Grants |
+| --- | --- | --- |
+| `admin-listeners` | `ROOMS-ADMIN-LISTENERS` | List the server's listeners, bring one up on a transport it can realize, take one down |
+| `diagnostics` | `ROOMS-DIAGNOSTICS` | Inspect: the names the directory holds and its recent failures |
+| `operator` | `ROOMS-OPERATOR` | Recover and revoke every local room's manager and moderator links, including the lists and bulk removal on the Operator page |
+| `peering` | `ROOMS-PEERING` | List a durable room from another directory |
+| `irc` | `ROOMS-IRC` | Open IRC networks and bridge channels as rooms |
+| `trace` | `ROOMS-TRACE`, `ROOMS-TRACE-LISTENING` | The live timeline endpoint and the capability its sockets present |
 
 Anyone who can read the state directory or the startup log holds these
 capabilities, so protect both.
 
-In the browser, each capability is a toggle under **Settings**, **Holdings**.
+In the browser, each one is a toggle under **Settings**, **Holdings**.
 
-- Turning one on asks for its swiss number and takes the capability over the
-  live directory session. If you opt in, the form remembers the number on that
-  device, separately for each directory.
+- Turning one on asks for its link and uses it on the live connection to the
+  directory. If you opt in, the form remembers the link on that device,
+  separately for each directory.
 - While you hold any of them, an **Operations** control on the **Settings** title
   line opens the Operations page. Each page has its own address under `/ops`.
-  Inspect and operator share the Directory page.
-- Turning a toggle off drops the capability. So does a reconnect.
+  The **Inspect this server** and **Operator** toggles both open the
+  **Operator** page, which holds the **Inspect** section and, with the
+  operator link, the operator's inventories.
+- Turning a toggle off drops the link. So does a reconnect.
 
-The web launcher forwards these flags to the server it starts, so
-`zig build rooms-web -- --diagnostics` works. `zig build rooms-dev` passes all
-of them.
+The web launcher forwards `--capabilities` to the server it starts, so
+`glowcap apps rooms serve --capabilities=diagnostics` works.
 
 ## History
 
@@ -128,7 +165,7 @@ each room's recent lines and sends them to any member who asks. The page
 asks when you enter a room whose log is empty, and shows the answer under a
 divider naming the room as the keeper.
 
-- For a file, history keeps only the caption.
+- For a file message, history keeps the caption text and not the file.
 - Direct messages never reach the server. They go to the archive the reader
   chose, which is their browser by default.
 
@@ -152,51 +189,52 @@ the last complete state.
 
 ## The session service
 
-A durable session owns one person's Rooms workspace: the directories and rooms
-they are in, direct conversations, drafts, history and connection choices, and
-the capabilities the session holds. Several browsers attach to it and see the
-same thing. Closing every browser changes nothing.
+A shared session is one person's Rooms session kept running on a server:
+the directories and rooms they are in, direct conversations, drafts, history
+and connection choices, and the links the session holds. Several browsers
+attach to it and see the same thing. Closing every browser changes nothing.
 
 ```sh
 glowcap apps rooms session serve --dir=./rooms-session
 ```
 
-When its workspace, listener and publications are ready, the process prints
-`ROOMS-SESSION-LISTENING`. It writes the workspace use sturdyref to
-`workspace.sturdyref` and the independent management sturdyref to
-`control.sturdyref` in the state directory. `--readiness-file` moves the use
-sturdyref's mirror. The Compose deployment uses a private tmpfs.
+When its session, listener and publications are ready, the process prints
+`ROOMS-SESSION-LISTENING`. It writes the use link to `use.sturdyref` and
+the independent management link to `management.sturdyref` in the state directory.
+`--readiness-file` sets where the use link is also written. The Compose
+deployment uses a private tmpfs.
 
-- The file has mode 0600. It is removed on an orderly stop and before every
-  startup once this process has the session to itself. A refused second process
-  cannot remove the running owner's files.
-- `rooms-session --check-ready=<path>` reads it back as a health check.
-- The workspace sturdyref authorizes use and the control sturdyref authorizes
-  management. Protect both, and share narrower grants through the access
+- The link files have mode 0600. They are removed on an orderly stop and before
+  every startup once this process has the session to itself. A refused second
+  process cannot remove the running owner's files.
+- `rooms-session --check-ready=<path>` reads the readiness file back as a
+  health check.
+- The use link authorizes using the session and the management link authorizes
+  managing it. Protect both, and share narrower grants through the access
   editor.
 
 In the browser, **Attach** (on the first screen, or under **Settings**, **Session**)
-opens the workspace the session owns. It does not copy the browser's previous
+opens the shared session. It does not copy the browser's previous
 session into it. Every attached browser is a view of the same session.
 
 The access editor groups permissions into presets for reading, conversation
-actions, workspace changes, and managing access. A held issuing control can
-create narrower or equal-permission access, up to its own ceiling. Sharing
-management creates a separately narrowed control, independent of workspace use
-permissions. A held control can edit, pause, resume or revoke its scoped
-grants, and those changes survive restart. The session checks the initiating
+actions, session changes, and managing access. A management link that can
+issue access can create narrower or equal-permission access, up to its own
+ceiling. Sharing management creates a separately narrowed management link,
+independent of the session's use permissions. A held management link can edit,
+pause, resume or revoke its scoped grants, and those changes survive restart. The session checks the initiating
 grant on every operation. A send of unknown outcome keeps its original receipt
 and waits for review instead of resending.
 
-A password entered in an IRC bridge form is kept in `bridge-secrets.json` in
-the state directory, only while a room still needs it. It never goes into the
-workspace or a snapshot sent to an attached view. The file is plain JSON
-protected by the directory's permissions, since anyone who can read the
+A password entered in an IRC bridge form is kept unencrypted in
+`bridge-secrets.json` in the state directory, only while a room still needs it.
+It never goes into the session, a snapshot, or an export. The file is plain
+JSON protected by the directory's permissions, since anyone who can read the
 directory can already act as the session using the identity seed beside it.
 
-A local browser workspace persists in IndexedDB. Sharing publishes its held use
-or control authority on the tab's current Host. Live connections end when the
-tab closes, and reopening restores saved authority.
+A local browser session persists in IndexedDB. Sharing publishes its held use
+link or management link at this tab's address. Live connections end when the
+tab closes, and reopening restores the saved links.
 
 ### Local command access
 
@@ -210,8 +248,8 @@ with local control. Underneath, `rooms-session --state=<directory>
 - JSON commands never arrive on a network port.
 
 The socket takes one newline-terminated JSON request per connection. `RequestBody` in
-[`control.rs`](rust/services/src/session/control.rs) lists every verb. The
-everyday ones are `status`, `tick`, `ack`, `command`, and `stop`.
+[`control.rs`](rust/services/src/session/control.rs) lists every request type.
+The everyday ones are `status`, `tick`, `ack`, `command`, and `stop`.
 `command` takes an operation `id`, a command `name`, and string `args`, and the
 shared Rooms application validates and runs it. This view observes every joined
 conversation, even while another one is selected.
@@ -237,14 +275,14 @@ accepts the gap and does not recover the missed events.
 
 ## The archive service
 
-The archive is a member's own history, behind one sturdyref:
+The archive is a member's own history, behind one link:
 
 ```sh
-zig build rooms-archive -- --state="$HOME/rooms-archive"
+glowcap apps rooms archive serve --state="$HOME/rooms-archive"
 ```
 
-The process prints `ROOMS-ARCHIVE-LISTENING` followed by the sturdyref.
-Whoever holds that sturdyref can read and write the whole archive.
+The process prints `ROOMS-ARCHIVE-LISTENING` followed by the link.
+Whoever holds that link can read and write the whole archive.
 
 - It keeps at most <!-- value rust/application/src/archive.rs MAX_RECORDS -->5,000<!-- /value --> records and bounds its log.
 - A second process on the same directory is refused, and a crashed process
@@ -253,7 +291,7 @@ Whoever holds that sturdyref can read and write the whole archive.
   repaired.
 
 In the browser, **Settings**, **Holdings**, **Use an archive peer…** takes the
-sturdyref and sends new history there.
+link and sends new history there.
 
 - If the peer cannot be reached, it shows as unavailable and writes are
   refused, never redirected to the browser's own store.
@@ -272,7 +310,7 @@ themselves.
 
 ## The IRC gateway
 
-`--irc` creates the gateway capability. The Operations page shows it as a
+The `irc` capability creates the gateway capability. The Operations page shows it as a
 generic bridge gateway, with a form to open a connection (an IRC network), a
 form to add a channel under a connection, and a list of the connections it
 holds.
@@ -290,7 +328,7 @@ row.
 - It uses their current nick, or an adapted one when the nick has characters
   IRC does not allow. They can log in to a registered account.
 - Credentials travel only over TLS and are held only next to that connection.
-  They never go into snapshots or the browser's saved state. A durable session
+  They never go into snapshots or the browser's saved state. A shared session
   keeps them to log in again after a restart, and a browser asks again after a
   reload.
 - A refused login restores the member's previous identity.
@@ -308,28 +346,28 @@ network policy a bot must follow, and the bounds.
 ## Moderation
 
 Rooms has no ranks. Ignoring someone stays in your own window, and every
-other moderation power is a capability someone holds.
+other moderation power is a link someone holds.
 
 - **Ignoring.** `/ignore` hides someone in your own window only. No server
   learns of it.
 - **The manager.** Creating a room through managed creation returns a manager
-  capability. Holding it lets you manage only the room's public registration,
+  link. Holding it lets you manage only the room's public registration,
   entry link, and moderator.
 - **The moderator.** The manager issues the moderator explicitly, from room
   details or with `/moderator`. Someone else can take it with
-  `/moderator <sturdyref>`, and the page checks that it governs this exact
+  `/moderator <link>`, and the page checks that it governs this exact
   room before keeping it.
 - **Kicking.** `/kick`, or the confirmed action on the member card, asks a
   member to leave through the moderator. The member is told directly, and the
   room sees why they left. Kicking creates no ban, because anyone can take
   the same nickname later.
 
-Revoking one of these capabilities replaces its secret. Every old sturdyref and every
+Revoking one of these links replaces its secret. Every old copy and every
 reference restored from one is refused at once, and the next issue creates an
 unrelated one.
 
-`--operator` is the recovery root for every local room, including private
-ones. Its page lists the moderators, can give out an unissued moderator or
+The `operator` capability can recover the moderator and manager links of any
+local room, including private rooms. Its page lists the moderators, can give out an unissued moderator or
 recover the current one, and can revoke room-link, manager, or moderator
 generations after a second confirmation. It cannot enter a room or kick
 anyone on its own authority. Peered rooms stay under their source directory,
@@ -337,7 +375,7 @@ and bridged IRC rooms get their moderator from the gateway.
 
 ## The Operations page
 
-**Inspect** lists what the directory holds: rooms, occupants, registrations,
+The **Operator** page opens with **Inspect**, which lists what the directory holds: rooms, occupants, registrations,
 and durable links (whether one is active, never its swiss number), beside the
 server's recent failures.
 
@@ -363,14 +401,17 @@ this one. Each listing has one revocation, carried by its lease. Dropping the
 capability without revoking leaves the listings in place until the directory
 connection ends.
 
-**The Visualizer page** names the endpoint this session publishes to, and
-lets you override it.
+**The Visualizer page** shows the endpoint this session publishes its trace to
+and whether publishing is **on**, **refused**, or reconnecting. Publishing
+starts when the **Live trace** toggle under **Holdings** holds the trace link,
+and the page has no switch of its own.
 
 ## Watching the room live
 
-`--trace` serves the live timeline endpoint on loopback at `--trace-port`
-(default <!-- value rust/services/src/server/config.rs TRACE_PORT plain -->9300<!-- /value -->, or `0` for any free port). It prints `ROOMS-TRACE-LISTENING`
-followed by its trace sturdyref. The locator advertises separate
+The `trace` capability serves the live timeline endpoint on loopback at `--trace-port`
+(default <!-- value rust/services/src/server/config.rs TRACE_PORT plain -->9300<!-- /value -->, or `0` for any free port).
+Under Docker that is the container's own loopback and is never published, so `deployment trace` is the route.
+It prints `ROOMS-TRACE-LISTENING` followed by its trace link. The locator advertises separate
 `captp-websocket` and `trace-publish` endpoints.
 
 - `/captp` opens a CapTP byte channel. Fetching the trace object still
@@ -394,28 +435,29 @@ through `deployment logs directory`.
 
 For a local server, use `glowcap apps rooms trace --state=<directory>`.
 `--url=http://127.0.0.1:<port>` selects its web address. `--print-link` prints
-the complete trace capability without subscribing. Deployment startup prints
-that same capability after `ROOMS-TRACE-LISTENING`.
+the complete trace link without subscribing. Deployment startup prints that
+same link after `ROOMS-TRACE-LISTENING`.
 
-To subscribe from another machine, pass the full capability to
-`glowcap apps rooms trace '<trace-capability>'`. Its advertised WebSocket
-endpoint must be reachable there. The contributor command
-`zig build rooms-trace-tail -- '<trace-capability>'` reads the same feed.
+To subscribe from another machine, pass the full link to
+`glowcap apps rooms trace '<trace-link>'`. Its advertised WebSocket endpoint
+must be reachable there.
 
-To watch, start the [ocapnviz](../ocapnviz/) protocol viewer
-(`zig build ocapnviz-dev`), switch it to **Live**, and paste that sturdyref
-into the Source field. Every session the room accepts, every message in
-either direction, and every close then appears on the stage. **Record**
-captures, and **Stop** hands the capture to Play.
+To watch, open the [ocapnviz](../ocapnviz/README.md) protocol viewer, switch it
+to **Live**, and paste the trace link into the **Source** field. Every session
+the room accepts, every message in either direction, and every close then
+appears on the timeline. **Record** captures, and **Stop** opens the capture in
+**Play**. [Developing Rooms](developing.md#building-and-deploying-from-a-checkout)
+starts the viewer from a checkout.
 
 Direct messages never pass through the room, so each member publishes its own
 trace to the same endpoint.
 
-- A browser tab uses the advertised CapTP channel to acquire the trace
-  capability and the separately advertised producer route to publish. It publishes only while it holds the trace
-  swiss number, taken through the **Live trace** toggle under **Holdings**.
-- A member's trace records who it talked to, when, which verb, and how many
-  bytes, never the bytes themselves. The room server publishes its own frames
+- A browser tab acquires the trace link over the advertised CapTP channel and
+  publishes over the separately advertised producer route.
+- It publishes only while it holds the trace link, which the **Live trace**
+  toggle under **Holdings** takes.
+- A member's trace records who it talked to, when, which request type, and how
+  many bytes, never the bytes themselves. The room server publishes its own frames
   in full.
 - A shared session publishes from the session process, and its attached tabs
   do not publish a second copy.
@@ -424,8 +466,10 @@ trace to the same endpoint.
 
 ## The web launcher
 
-`rooms-web` serves the page, its `/relay` WebSocket, `/locator`, `/ice`, and
-`/llms.txt`, and supervises the room server.
+`rooms-web` serves the page, its `/relay` WebSocket, `/locator`, `/page`,
+`/ice`, and `/llms.txt`, and supervises the directory. `/page` answers the
+link that opens the first allowed Rooms page with this server, which
+`glowcap apps rooms page` prints.
 On startup it prints `ROOMS-WEB-LISTENING` followed by the HTTP port it
 bound, so a supervisor that passes `--http-port=0` learns where to reach it.
 
@@ -441,8 +485,11 @@ bound, so a supervisor that passes `--http-port=0` learns where to reach it.
   instead of starting its own. The capabilities it prints are then that
   server's.
 
-The relay's limits are environment variables, also set in the deployment's
-`docker-compose.yml`:
+Some settings are environment variables only. Set them where the launcher
+starts, or under `services.directory.environment` in a deployment's
+`docker-compose.override.yml`.
+
+The relay's limits:
 
 - `GLOWCAP_RELAY_MAX_SESSIONS`, `GLOWCAP_RELAY_MAX_REGISTRATIONS`, and
   `GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY` limit WebSocket sessions and
@@ -453,16 +500,35 @@ The relay's limits are environment variables, also set in the deployment's
 
 Raise each limit only when its own resource runs short.
 
+Browser-to-browser WebRTC and the relay's TCP peers:
+
+- `GLOWCAP_ROOMS_ICE_SERVERS` replaces the default public STUN servers with a
+  comma-separated list. Empty means host candidates only.
+- `GLOWCAP_ROOMS_TURN_CREDENTIALS_URL` and `GLOWCAP_ROOMS_TURN_BEARER_TOKEN`,
+  set together, name an HTTPS credential issuer that gives peers behind a
+  restrictive NAT short-lived TURN access. The token stays in this server, and
+  browsers receive only temporary username and password rows from `/ice`.
+  `GLOWCAP_ROOMS_TURN_TTL_SECONDS` bounds each credential, 300 to 172800,
+  default 86400.
+- `GLOWCAP_RELAY_TCP_PEERS` lists `host:port` TCP peers, separated by commas,
+  that the relay forwards browser connections to.
+
 ## Security posture
 
 - The web launcher sets a hashed-script Content Security Policy,
   `frame-ancestors 'none'`, `nosniff`, `no-referrer`, and a permissions
-  policy. The policy keeps `style-src 'unsafe-inline'` for React inline
-  styles until those styles can be hashed.
+  policy. The policy allows inline styles (`style-src 'unsafe-inline'`), which
+  the page's React styles need.
 - Link preview refuses private, loopback, link-local, and IPv4-mapped
   targets, and bounds redirects, connect time, and body size.
-- Relay and preview upgrades check `Origin` against `Host`. A request with
-  no `Origin` header is accepted so non-browser clients can connect.
+- Relay and preview upgrades check `Origin`. It must match the request's `Host`
+  or an origin that `GLOWCAP_RELAY_ALLOW_ORIGINS` (or `--allow-origin`) lists,
+  by origin or page address. Unset, the list holds the published glowcap.org
+  Rooms page, and setting it replaces that default, so name the page there to
+  keep it. The default link `up` prints runs that published page against your
+  server, and listing your own page first changes it to yours. An empty value
+  allows none. A request with no `Origin` header is
+  accepted so non-browser clients can connect.
 - The IRC encoder refuses NUL, CR, and LF in every parameter and bounds line
   length.
 - Published authority tokens are looked up by their SHA-256 digest, so the
@@ -476,171 +542,6 @@ Raise each limit only when its own resource runs short.
 
 ## Known limitations
 
-These are the limits of Rooms itself. The library's limits, including
-transports and browser reachability, are in
-[known limitations](../../docs/boundaries.md).
-
-### Platforms
-
-Rooms runs on Linux and macOS hosts and in Chromium-class browsers. One Rust
-implementation runs every Rooms service and the browser application, and
-TypeScript draws the page.
-
-- Windows, file locking on other filesystems, and reaching a public Tor
-  circuit are untested, and no throughput or latency figure is published.
-- The repository has a workflow that builds [host product packages](host.md)
-  on matching runners. Its definition alone does not mean a run passed or an
-  archive was published.
-- Testing on Linux does not cover macOS, and a Linux devcontainer does not
-  cross-build the Rust session for macOS.
-- The macOS packages are not Developer ID signed or notarized, so whether
-  Gatekeeper accepts a downloaded package is untested.
-
-### One host per deployment
-
-Everything durable, kept lines included, lives in the directory and session
-state volumes. Back each up as one unit while the stack is stopped. Rooms
-cannot snapshot a running store, and one directory's rooms cannot be spread
-across hosts.
-
-### Unread messages
-
-`Room.messages` hands a line straight to a pending read and otherwise keeps at
-most <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGES -->256<!-- /value --> unread messages. A consumer stalled past that gets a
-stream error and must subscribe again. Cancelling, overflowing, replacing, or
-leaving releases every unread file capability. The browser client keeps a read
-pending during ordinary use.
-
-### Sessions instead of accounts
-
-No login or server account owns a durable session. Holding the session
-sturdyref is what lets you attach, and each part you delegate can be revoked
-on its own.
-
-### What a durable session keeps
-
-Every view attached to a session shares its network identity and workspace:
-directories, archive choice, capabilities, peering, history, live files,
-operator actions, listener and IRC administration, and visualizer
-publication. Browser `File` handles and object URLs stay on the device that
-made them. A browser tab keeps its workspace in IndexedDB, and a reload
-restores the saved grants and links. A reference tied to a connection still
-needs the peer that issued it to be reachable.
-
-### Bridge passwords
-
-The password a member gives a bridge form is stored unencrypted in the session
-peer's `bridge-secrets.json`, under the state directory's permissions and
-beside the identity seed that already grants the whole session. It never
-enters a managed workspace, snapshot, or export, and it is dropped once no
-room still names its scope. A browser's local workspace forgets it on reload,
-and a workspace adopted into a peer brings the bridge settings without the
-password. Either way the member answers the bridge once more (ADR-0045).
-
-### Attachments and shares
-
-- A live attachment stays available only while its room, direct line, and
-  session are open. A member archive the reader chose may keep the same
-  message's bytes and serve them after a restart through its own scoped
-  capability. The workspace stores neither copy, and it never records that an
-  archive kept one.
-- Room-link invitations are saved with the workspace. A browser and a durable
-  Rooms session both keep the sturdyref until the reader accepts or dismisses
-  it.
-- Received archive shares last only while the session runs. A live share ends
-  with its session or after one read. A durable offer's sturdyref is the Host
-  publication. The reminder on the conversation card is not saved, so a
-  restart forgets the reminder and leaves the share in force.
-
-### One-shot invitations
-
-Room invitations are live capabilities. Rooms and IRC bridges limit how many
-exist and retire them when the room's live generation ends. If the answer to a
-claim is lost, its receipt survives, and every retry competes for the same
-single membership. A server restart does not keep invitations as sturdyrefs
-you can revoke one by one.
-
-### Retries
-
-A session keeps the identities of its last 64 completed changes. The browser
-never retries an uncertain send, edit, withdrawal, operator change, listener
-change, or IRC change on its own. A change replayed by hand after it has left
-those 64 may happen twice. Private-room and durable-authority changes keep a
-pending result and a recovery key until they resolve.
-
-### Delivery receipts
-
-A room's senders share one budget of <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGES -->256<!-- /value --> messages and
-<!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGE_BYTES bytes -->2 MiB<!-- /value --> across pending text and unread messages. Receipts keep order and
-match each answer to its send, but a retry is still unsafe. An upload is
-reused without a second read only when its source cannot change, it was
-acknowledged, and the media cache took it. A streaming source or a full cache
-means an ordinary read.
-[ADR-0044](../../docs/decisions/adr/ADR-0044-member-owned-archives.md)
-records the contract and its measured costs.
-
-### Keeping a room
-
-Joining with `open` or `enter`, or holding a room's entrance, gives no right to
-keep the room. Creating a managed room returns a manager reference you can pass
-on. It controls the room's registered public name, its entry links, and its
-moderators.
-
-- The live room still disappears when empty. Its registration holds the name,
-  and entering by that name brings the room back. An entry link grants no
-  management.
-- If every copy of the manager is lost, the directory operator has to recover
-  one. Passing the manager on gives the other holder management too, and you
-  keep yours.
-- Revoking an entry link blocks later admission through every old copy, and
-  members who already subscribed stay.
-- The current manager can unregister the room. That retires its public
-  entrance and moves it to private access while its room link, moderator,
-  manager, and existing memberships remain. Another room can then take the
-  public name, so registering this room again may meet a name collision.
-
-### Two tabs on one local workspace
-
-Each tab writes the workspace to IndexedDB on its own. Import and clear tell
-the other tabs, but edits made at the same time are not merged. When several
-browsers or tabs must change the same workspace, attach them all to one
-durable session.
-
-### Links in a room subject
-
-A member can set a room subject that links an object by its sturdyref, and
-every reader sees the link. The browser and terminal clients offer it to copy
-and do not redeem it or draw the object, so you take part through whatever
-client that object comes with. The room passes the link on unchanged, so
-whoever sets it decides what holding it allows.
-
-### Directory listings
-
-A watch starts from at most <!-- value rust/application/src/directory.rs MAX_ROWS -->256<!-- /value --> current room publications. Past that, the
-client receives a truncation event and keeps receiving later changes. A
-one-shot list answers <!-- value rust/application/src/directory.rs MAX_ROWS -->256<!-- /value --> publications a page, with a cursor for the next
-page. The cursor is the position of the page's last row in listing order, so
-a room that closes between two pages moves no other row, and a room open for
-the whole walk is listed exactly once. A room that opens behind the cursor
-shows up on the next walk or in a watch.
-
-### IRC
-
-IRC is an application adapter. Rooms does not link IRC servers to each other,
-CapTP does not run over IRC, and IRC carries neither edits nor file and room
-offers.
-
-- The bridge mirrors one channel into an ordinary Rooms directory and is
-  read-only unless the operator chooses two-way mode with TLS and SASL
-  credentials. Two-way posts use the bridge's registered nick and a visible
-  `<nick>` prefix. IRC sends no acknowledgement for a channel message, so a
-  TCP failure at the wrong moment may repeat or lose the last line, even
-  though the queue survives a write failure the bridge sees.
-- The IRC server maps only existing room names IRC can address. It fixes a
-  nickname for the connection, because Rooms grants names per capability and
-  cannot rename across several memberships at once. Rooms names outside IRC's
-  alphabet get aliases that hold for the connection, and the server says so.
-- Lines, subjects, and file capabilities that do not fit IRC are reported
-  instead of cut short or dropped. `LIST` leaves out, with a notice, foreign
-  room publications that carry no member count and Rooms names IRC cannot
-  address.
+[Rooms limitations](limitations.md) lists the limits of Rooms itself, one
+section each. The library's limits, including transports and browser
+reachability, are in [known limitations](../../docs/boundaries.md).

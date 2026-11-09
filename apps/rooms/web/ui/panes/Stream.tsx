@@ -61,7 +61,7 @@ export function Stream(
 		join: JoinAnswers;
 		joinResolution: JoinResolution;
 		/** Passed straight through to the join card, which offers the directories
-		 * this tab already holds under its locator field. */
+		 * this tab already holds under its address field. */
 		dirs: ReadonlyMap<DirId, DirView>;
 		directoryContext: DirectoryDestinationContext;
 		composerEnabled: boolean;

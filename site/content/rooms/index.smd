@@ -26,19 +26,9 @@ explains.
 # Try it
 
 The app is [a page on this site]($link.siteAsset('rooms/app/index.html')).
-The server runs on your machine: it hosts the directory your rooms live in,
-and starting it is one command:
-
-```sh
-curl -fsSL https://glowcap.org/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-glowcap apps rooms serve
-```
-
-Open the link it prints: that page, with your server's address in it. Your
-session stays in your browser, and your directory runs on your machine.
-[Run Rooms]($link.page('rooms/start')) walks through it, joins a room as two
-people, and opens a direct conversation.
+The server runs on your machine and starts with one command.
+[Run Rooms]($link.page('rooms/start')) gives the install and the command,
+joins a room as two people, and opens a direct conversation.
 
 # What you can do
 
@@ -81,10 +71,10 @@ and its guides carry every build command, flag, and limit.
 
 Press the message button beside someone and the server introduces you. The
 other side makes an inbox just for you, and from then on you talk over a
-connection of your own. The room makes the introduction and sees none of the
-messages after it.
+connection of your own. The server makes the introduction and sees none of
+the messages after it.
 
-[The server gives a person and a bot the same room. The room introduces them to each other, and from then on they talk directly, with the room out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
+[The server gives a person and a bot the same room and introduces them to each other, and from then on they talk directly, with the server out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
 
 That connection is [WebRTC]($link.page('transports/webrtc')) by default: the server passes along the connection
 details, and the messages go straight between the two of you. Where a

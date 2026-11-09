@@ -121,12 +121,8 @@ async fn rooms_server_administers_listeners_and_answers_diagnostics() {
 
 async fn scenario() {
 	let temp = Scratch::create("server");
-	let asked = Asked {
-		admin_listeners: true,
-		diagnostics: true,
-		..Default::default()
-	};
-	let running = start_with(temp.to_path_buf(), tcp(), asked.clone()).await;
+	let asked = Asked::parse("admin-listeners,diagnostics").unwrap();
+	let running = start_with(temp.to_path_buf(), tcp(), asked).await;
 	let tokens: Vec<&str> = running
 		.capabilities
 		.iter()
@@ -373,15 +369,7 @@ async fn scenario() {
 async fn no_capability_exists_without_its_flag() {
 	rooms_testing::local_set::run_within(Duration::from_secs(30), async {
 		let temp = Scratch::create("server");
-		let flagged = start_with(
-			temp.to_path_buf(),
-			tcp(),
-			Asked {
-				diagnostics: true,
-				..Default::default()
-			},
-		)
-		.await;
+		let flagged = start_with(temp.to_path_buf(), tcp(), Asked::parse("diagnostics").unwrap()).await;
 		let swiss = flagged.capabilities[0].swiss.clone();
 		flagged.stop.send(()).unwrap();
 		flagged.task.await.unwrap().unwrap();

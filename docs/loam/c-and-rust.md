@@ -482,7 +482,7 @@ records how long these capabilities live and how retries work.
   LMDB, and in-memory archives use the library's allocator.
 - Attaching copies declarations and method names. Application and entropy
   contexts stay borrowed until a successful detach.
-- A policy allows at most <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions and <!-- value ../../src/loam/access/core/policy.zig max_constraints -->16<!-- /value --> unsigned bounds. A registration has at most <!-- value ../../src/c_abi/loam/callbacks.zig max_methods -->64<!-- /value -->
+- A policy allows at most <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions and <!-- value ../../src/loam/access/core/policy.zig max_constraints -->16<!-- /value --> unsigned bounds. A registration has at most <!-- value ../../src/c_abi/loam/callbacks.zig max_methods -->128<!-- /value -->
   methods, with names of 1 to 256 bytes. An attachment takes at most <!-- value ../../src/c_abi/loam/attachment.zig max_contents -->128<!-- /value --> content
   registrations and <!-- value ../../src/c_abi/loam/owners.zig max_schemas -->128<!-- /value --> schemas.
 - `Limits` sets the cache, read-ahead, lease, staging, reference, and

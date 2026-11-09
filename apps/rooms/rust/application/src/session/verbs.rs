@@ -1,6 +1,6 @@
-//! The method names a Rooms session facet answers. The browser's
-//! `lib/session/verbs.ts` names the same methods for the attaching side. This
-//! is the one Rust authority for them, shared by host and Wasm owners.
+//! The method names a Rooms session facet answers. The browser reads the same
+//! methods from the generated `lib/session_content_data.ts`. This is the one
+//! Rust authority for them, shared by host and Wasm owners.
 
 macro_rules! methods {
 	($($variant:ident => $constant:ident = $name:literal;)*) => {
@@ -16,6 +16,7 @@ macro_rules! methods {
 }
 methods! {
 	Snapshot => SNAPSHOT = "snapshot";
+	AddressedSnapshot => ADDRESSED_SNAPSHOT = "addressed-snapshot";
 	Watch => WATCH = "watch";
 	ReplaceCheckpoint => REPLACE_CHECKPOINT = "replaceCheckpoint";
 	AdoptWorkspace => ADOPT_WORKSPACE = "adoptWorkspace";

@@ -44,8 +44,8 @@ export function loadTracePane() {
 	return import("./ops/Trace.tsx").then((m) => ({ default: m.TracePane }));
 }
 
-export function loadOperatorPane() {
-	return import("./ops/Operator.tsx").then((m) => ({ default: m.OperatorPane }));
+export function loadOperatorBody() {
+	return import("./ops/Operator.tsx").then((m) => ({ default: m.OperatorBody }));
 }
 
 export function loadDiagnosticsPane() {
@@ -64,7 +64,7 @@ export function loadOpsPane(id: string): Promise<unknown> {
 		case "trace":
 			return loadTracePane();
 		case "operator":
-			return loadOperatorPane();
+			return loadOperatorBody();
 		case "diagnostics":
 			return loadDiagnosticsPane();
 		default:

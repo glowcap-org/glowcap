@@ -46,7 +46,7 @@ export const helpAbout: readonly { title: string; said: string; link?: HelpLink 
 	{
 		title: "Getting in",
 		said:
-			"A public room is a name on a server: type it and you're there, and if no room has that name yet, that makes one. A private room is a link someone sends you. Either way there's no account and no password. Keep the link. If you lose it, ask them for another. Anyone you send it to can get in too.",
+			"A public room is a name on a server: type it and you're there. If no room has that name yet, that makes one. A private room is a link someone sends you. Either way there's no account and no password. Keep the link. If you lose it, ask them for another. Anyone you send it to can get in too.",
 	},
 	{
 		title: "The server",
@@ -91,18 +91,27 @@ export const helpGlossaryLead =
 	"Rooms is built on OCapN, and a server prints these words. You don't need any of them to use Rooms.";
 
 export const helpDirectory = "Directory";
-/** The link between the two tiers. A guest reads "server" and an operator
- * reads "directory" on the Operations pages, and this entry says they are the
- * same thing. */
+/** What a directory is, for a reader who meets the word on the join card and
+ * the Operations pages. */
 export const helpDirectorySaid =
-	"What the rest of Rooms calls the server. The object this page starts from: rooms live on it, and fetching it is how a peer arrives. A session can hold more than one, which is why the Operations pages name them.";
+	"A server that hosts rooms. Your home directory is the one a room name alone opens. A session can hold more than one, which is why the Operations pages name them.";
+
+export const helpSession = "Session";
+/** The word the boot screen, the crash screen, and Settings lean on. */
+export const helpSessionSaid =
+	"Where Rooms keeps your rooms, names, and settings: in this browser, or shared on a server so several browsers can attach to the same one.";
 
 export const helpLocator = "Locator";
 export const helpLocatorSaid =
-	"A peer address: hostname:port for plain TCP, or an ocapn:// URI for other transports. A sturdyref adds an object's unguessable name.";
+	"A peer's ocapn:// name: its transport, and the key or host to dial. An address on this page is a locator, or host:port for plain TCP. A sturdyref adds an object's unguessable name.";
+
+export const helpLink = "Link";
+export const helpLinkSaid =
+	"A secret address that grants whoever holds it one power, such as entering a room. It is a capability, and you keep it private like a password.";
 
 export const helpCapability = "Capability";
-export const helpCapabilitySaid = "A reference whose possession is permission, without a separate account check.";
+export const helpCapabilitySaid =
+	"The protocol's word for what a link grants: holding the reference is the permission.";
 
 export const helpSwiss = "Swiss number";
 /** Split around the "secret" control, so the sentence comes in the two halves
@@ -110,11 +119,11 @@ export const helpSwiss = "Swiss number";
 export const helpSwissBefore = "A";
 export const helpSwissSecret = "secret";
 export const helpSwissAfter =
-	", unguessable name a peer will look up for you. Each operations capability is published under one when the server starts with one of those flags (--diagnostics, --admin-listeners, --operator, or --peering). That is what the server prints. A durable room entry link is named by one too.";
+	", unguessable name a peer will look up for you. A server prints one for each operations link, and a durable room link carries one too.";
 
 export const helpSturdyref = "Sturdyref";
 export const helpSturdyrefSaid =
-	"A locator and swiss number kept for later. Redeeming it asks that peer to honor the name. A room entry link is one.";
+	"A locator and swiss number kept for later. Redeeming it asks that peer to honor the name. A room link is one.";
 
 export const helpKitchenBack = "Back to the glossary";
 export const helpCopyBuild = "Copy build";

@@ -115,7 +115,7 @@ const ROOM_PROOF_FACE: Readonly<Record<string, { label: string; tone?: "quiet" |
 	bridge: { label: operatorProofBridge, tone: "quiet" },
 };
 
-export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
+export function OperatorBody({ state }: { state: RoomsOperatorState | null }) {
 	return (
 		<OperatorActivityProvider>
 			<OperatorPaneContent state={state} />
@@ -213,7 +213,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 										<li className="entry" key={key}>
 											<div className="entry-head" data-one-line>
 												<span className="entry-name">{row.nick}</span>
-												{row.sessionId.slice(0, 8)}
+												<span className="entry-meta">{row.sessionId.slice(0, 8)}</span>
 												{
 													/* The answer to "which session is that": when the
 												    holder is the very connection this operator view
@@ -277,7 +277,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 												    name rows above: it is what ties a registered nickname
 												    to the connection holding it. */
 												}
-												{row.id.slice(0, 8)}
+												<span className="entry-meta">{row.id.slice(0, 8)}</span>
 												{row.you && (
 													<span className="tag" data-tone="quiet">{operatorYours}</span>
 												)}

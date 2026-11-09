@@ -51,6 +51,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/member_identity_test.ts",
         "apps/rooms/test/prefs_test.ts",
         "apps/rooms/test/view_preferences_test.ts",
+        "apps/rooms/test/browser_data_test.ts",
         "apps/rooms/test/server_choice_test.ts",
         "apps/rooms/test/page_base_test.ts",
         "apps/rooms/test/complete_test.ts",
@@ -69,6 +70,7 @@ const batches: []const []const []const u8 = &.{
     &.{
         "apps/rooms/test/session/setup_projection_test.ts",
         "apps/rooms/test/session/managed_viewer_test.ts",
+        "apps/rooms/test/session/managed_directory_address_test.ts",
         "apps/rooms/test/session/managed_typing_test.ts",
         "apps/rooms/test/session/managed_readiness_test.ts",
         "apps/rooms/test/session/managed_access_test.ts",

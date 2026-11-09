@@ -375,6 +375,6 @@ pub fn register(
         }
         previous_goblins_rooms_matrix_phase = &run.step;
     }
-    const goblins_rooms_matrix_iroh_step = b.step("goblins-rooms-matrix-iroh", "Heavy four-peer rooms matrix: pin Goblins' cross-receiver count defect, then exercise mixed and homogeneous rooms, every DM pair, close/reopen, and peer restart over iroh");
+    const goblins_rooms_matrix_iroh_step = b.step("goblins-rooms-matrix-iroh", "Heavy four-peer rooms matrix: pin the cross-receiver handoff-count behavior upstream watch records, then exercise mixed and homogeneous rooms, every DM pair, close/reopen, and peer restart over iroh");
     goblins_rooms_matrix_iroh_step.dependOn(previous_goblins_rooms_matrix_phase.?);
 }

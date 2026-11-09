@@ -29,6 +29,7 @@ mod signaling;
 mod state;
 
 pub use capabilities::CapabilityQuery;
+pub(crate) use capabilities::TraceLocator;
 pub use config::{Config, HELP, LISTEN, Transport};
 pub use error::Error;
 pub use notice::{Notice, Report};

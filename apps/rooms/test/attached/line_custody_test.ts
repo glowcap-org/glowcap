@@ -73,17 +73,17 @@ Deno.test("history keeper reconciliation updates the existing semantic boundary 
 		page.projection,
 		room.key,
 		[{ from: "cy", text: "kept", mine: false, at: 10 }],
-		"Earlier messages, kept on this device",
+		"Messages above are saved on this device",
 	);
 	store.reconcileHistory(
 		page.projection,
 		room.key,
 		[],
-		"Earlier messages kept by the shared Rooms session archive peer and on this device",
+		"Messages above are from the session's archive and saved on this device",
 	);
 	assertEquals(store.historyOf(page.projection, room.key).map((item) => item.text), [
 		"kept",
-		"Earlier messages kept by the shared Rooms session archive peer and on this device",
+		"Messages above are from the session's archive and saved on this device",
 	]);
 });
 

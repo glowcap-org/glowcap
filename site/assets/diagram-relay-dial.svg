@@ -4,7 +4,7 @@
   width="760"
   height="300"
   role="img"
-  aria-label="A browser opens a WebSocket to the relay naming the peer it wants to reach; the relay dials that peer over tcp or iroh and pipes the two together. The keyed CapTP session runs end to end between the browser and the far peer, and the relay only moves bytes."
+  aria-label="A browser opens a WebSocket to the relay naming the peer it wants to reach. The relay dials that peer over tcp or iroh and pipes the two together. The keyed CapTP session runs end to end between the browser and the far peer, and the relay only moves bytes."
 >
   <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .head { font-size: 15px; font-weight: 700; }

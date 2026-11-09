@@ -39,12 +39,15 @@ import {
 import { answerJoinNick, joinNickAvailability } from "../join_nick.ts";
 import { NICK_TAKEN, NO_SERVER } from "../../../lib/error_codes.ts";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
-import { JoinLocator } from "./JoinLocator.tsx";
+import { JoinAddress } from "./JoinAddress.tsx";
 import { MenuLayer } from "../Menu.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import {
 	joinAccessFixedLabel,
 	joinAccessLabel,
+	joinAddressHintFor,
+	joinAddressLabel,
+	joinAddressOptional,
 	joinBrowseLiveRooms,
 	joinCallIt,
 	joinChooseAnotherName,
@@ -58,10 +61,6 @@ import {
 	joinLeadPaused,
 	joinLeadReadOnly,
 	joinLinkLabel,
-	joinLocatorHere,
-	joinLocatorHintFor,
-	joinLocatorLabel,
-	joinLocatorOptional,
 	joinNeedsAddress,
 	joinNeedsAddressServerQuiet,
 	joinNickHint,
@@ -85,7 +84,7 @@ import { WorkingAction } from "../WorkingAction.tsx";
 import { suggestedNickname } from "../application.ts";
 
 type JoinError = {
-	field: "locator" | "room" | "nick" | "form";
+	field: "address" | "room" | "nick" | "form";
 	text: string;
 	forNick?: string;
 	forTarget?: string | null;
@@ -112,7 +111,7 @@ export const JoinCard = memo(function JoinCard(
 		answers: JoinAnswers;
 		/** The same render-time answer used by the linked rail field. */
 		resolved: JoinResolution;
-		/** Every directory this tab already holds. Offered from the locator field's
+		/** Every directory this tab already holds. Offered from the address field's
 		 * own mark, so an address that is already known does not have to be typed
 		 * or pasted again. */
 		dirs: ReadonlyMap<DirId, DirView>;
@@ -128,18 +127,18 @@ export const JoinCard = memo(function JoinCard(
 	const server = useRoomsState((state) => state.server);
 	const homeDirectory = directoryContext.home;
 	const room = answers.room.value;
-	const locator = answers.locator.value;
+	const address = answers.address.value;
 	const nick = answers.nick.value;
 	const roomPreset = answers.roomPreset.value;
 	const conversations = useRoomsState((state) => state.convs);
 	const members = useRoomsState((state) => state.members);
-	const defaultDirectoryAddress = directoryContext.defaultDirectory?.locator ?? null;
+	const defaultDirectoryAddress = directoryContext.defaultDirectory?.address ?? null;
 	// A blank address means the home directory, or the page's own when there is
 	// no home. With neither, the address is the one answer that names anything.
 	const addressRequired = defaultDirectoryAddress == null;
 	const homeName = homeDirectory == null ? null : directoryName(homeDirectory, null);
-	const locatorHint = joinLocatorHintFor(homeName, defaultDirectoryAddress != null);
-	const asLink = typedRoomLink(locator, room) !== null;
+	const addressHint = joinAddressHintFor(homeName, defaultDirectoryAddress != null);
+	const asLink = typedRoomLink(address, room) !== null;
 	// What the world says about what has been asked for. Resolved on every
 	// render and never written back: the reader's own standing outlives a
 	// directory that happens to hold the name, and comes back the moment they
@@ -148,7 +147,7 @@ export const JoinCard = memo(function JoinCard(
 	const { standing } = resolved;
 	const wantedRoom = room.trim();
 	const joinFeedback = joinRefusalKeys(
-		session.directoryId(locator.trim() || directoryContext.defaultDirectory?.locator || "") ?? homeDirectory ?? "",
+		session.directoryId(address.trim() || directoryContext.defaultDirectory?.address || "") ?? homeDirectory ?? "",
 		wantedRoom,
 	);
 	const cooldown = useActionCooldown(joinFeedback);
@@ -169,7 +168,7 @@ export const JoinCard = memo(function JoinCard(
 		target: ReturnType<typeof joinNickTarget>,
 		refusal: JoinError = null,
 	) => {
-		const offered = suggestedJoinNick(at, dirs, directoryContext, (locator) => session.directoryId(locator));
+		const offered = suggestedJoinNick(at, dirs, directoryContext, (address) => session.directoryId(address));
 		const refusedSuggestion = refusal?.field === "nick" && refusal.suggestion !== undefined &&
 				refusal.implicitFor === offered && refusal.forTarget === nickTargetKey(target)
 			? refusal.suggestion
@@ -194,9 +193,9 @@ export const JoinCard = memo(function JoinCard(
 		halt.current?.abort();
 		const run = new AbortController();
 		halt.current = run;
-		let failureField: "locator" | "form" = "form";
+		let failureField: "address" | "form" = "form";
 		try {
-			const typedText = String(form.get("locator") ?? "");
+			const typedText = String(form.get("joinAddressField") ?? "");
 			const typedNick = String(form.get("nick") ?? "");
 			const typedRoom = String(form.get("room") ?? "");
 			if (addressRequired && typedText.trim() === "") {
@@ -205,20 +204,20 @@ export const JoinCard = memo(function JoinCard(
 				// server has not answered. Either way the field is what the reader
 				// fills, so the refusal stands on it rather than asking for a server.
 				return {
-					field: "locator",
+					field: "address",
 					text: server == null ? joinNeedsAddress : joinNeedsAddressServerQuiet(new URL(server.base).host),
 				};
 			}
 			// What was typed is judged here, where it entered, before any act.
-			// Resolving it belongs to the locator: even an unexpected classifier
+			// Resolving it belongs to the address: even an unexpected classifier
 			// failure is answered on the field whose value could not be read.
-			failureField = "locator";
+			failureField = "address";
 			const linked = typedRoomLink(typedText, typedRoom);
 			if (linked !== null && roomLinkDestination(linked.link, linked.label) === null) {
-				return { field: "locator", text: joinNotARoomLink };
+				return { field: "address", text: joinNotARoomLink };
 			}
 			if (linked === null && typedText.trim() !== "" && session.directoryId(typedText.trim()) == null) {
-				return { field: "locator", text: joinNotAnAddress };
+				return { field: "address", text: joinNotAnAddress };
 			}
 			let nick = answerNick(typedNick, typedText, null, was).request;
 			if (nick.length > MAX_NICK) {
@@ -226,13 +225,13 @@ export const JoinCard = memo(function JoinCard(
 			}
 			const nickWhy = nickRefusal(nick);
 			if (nickWhy != null) return { field: "nick", text: nickWhy, forNick: nick };
-			// The submitted locator decides the act, not the flag from the render that
+			// The submitted address decides the act, not the flag from the render that
 			// built this closure: Connect is reaching that address, and a refusal has
 			// to land on it rather than on the join the button is not performing.
 			const submitted = resolveJoin(
 				{
 					...answers,
-					locator: { ...answers.locator, value: typedText },
+					address: { ...answers.address, value: typedText },
 					room: { ...answers.room, value: typedRoom },
 					nick: { ...answers.nick, value: typedNick },
 				},
@@ -240,7 +239,7 @@ export const JoinCard = memo(function JoinCard(
 				homeDirectory,
 				(at) => session.directoryId(at),
 			);
-			failureField = submitted.act === "connect" ? "locator" : "form";
+			failureField = submitted.act === "connect" ? "address" : "form";
 			if (submitted.act === "connect") {
 				const why = await session.reachDirectory(
 					typedText,
@@ -248,7 +247,7 @@ export const JoinCard = memo(function JoinCard(
 					{ home: form.get(MAKE_HOME_FIELD) === "on", signal: run.signal },
 				);
 				if (run.signal.aborted) return null;
-				if (why !== "") return { field: "locator", text: why };
+				if (why !== "") return { field: "address", text: why };
 				// Acquisition saves the choice before registration settles. Keep
 				// explicit intent through the room question and clear it after join.
 				return null;
@@ -266,7 +265,7 @@ export const JoinCard = memo(function JoinCard(
 				return { field: "room", text: tooLong("room name", MAX_ROOM, "characters") };
 			}
 			const target = joinNickTarget(
-				roomDestination.locator,
+				roomDestination.address,
 				roomDestination.room,
 				directoryContext,
 				(at) => session.directoryId(at),
@@ -331,14 +330,14 @@ export const JoinCard = memo(function JoinCard(
 	// same answer.
 	const field = useRef<HTMLInputElement>(null);
 	const aimed = destination(
-		locator,
-		session.directoryId(locator.trim()),
+		address,
+		session.directoryId(address.trim()),
 		dirs,
 		directoryContext,
 		"this page's directory",
 	);
-	const nickTarget = joinNickTarget(locator, room, directoryContext, (at) => session.directoryId(at));
-	const nickAnswer = answerNick(nick, locator, nickTarget, error);
+	const nickTarget = joinNickTarget(address, room, directoryContext, (at) => session.directoryId(at));
+	const nickAnswer = answerNick(nick, address, nickTarget, error);
 	const who = nickAnswer.request;
 	const nickAvailability = nickAnswer.availability;
 	const refusedNick = error?.field === "nick" &&
@@ -356,11 +355,11 @@ export const JoinCard = memo(function JoinCard(
 	// not the other would make the same words behave differently depending on
 	// which half of the pair the reader happened to be typing in.
 	//
-	// Rooms on the directory this card is aimed at, which moves with the locator
+	// Rooms on the directory this card is aimed at, which moves with the address
 	// above: a name advertised somewhere else would open a different room.
-	const roomOffers = joinRoomOffers(locator, room, dirs, directoryContext, session.directoryId);
+	const roomOffers = joinRoomOffers(address, room, dirs, directoryContext, session.directoryId);
 	// The box the list of room names is measured from, and the layer it is drawn
-	// in. Its own, not the locator menu's: the two can be open at once.
+	// in. Its own, not the address menu's: the two can be open at once.
 	const roomWrap = useRef<HTMLDivElement>(null);
 	const roomOffered = useRef<HTMLDivElement>(null);
 	const suggest = useSuggest({
@@ -391,28 +390,25 @@ export const JoinCard = memo(function JoinCard(
 						: joinLeadReadOnly}
 				</p>
 				<div className="join-fields" inert={joining || !canInteract || undefined}>
-					<label htmlFor="locator">
+					<label htmlFor="joinAddressField">
 						{asLink ? joinLinkLabel : (
 							<>
-								{joinLocatorLabel} {!addressRequired && (
-									<span className="optional">
-										{homeDirectory == null ? joinLocatorHere : joinLocatorOptional}
-									</span>
-								)}
+								{joinAddressLabel}{" "}
+								{!addressRequired && <span className="optional">{joinAddressOptional}</span>}
 							</>
 						)}
 					</label>
-					{error?.field === "locator" && error.text !== "" && (
+					{error?.field === "address" && error.text !== "" && (
 						<Said id="joinError" kind="failure">{error.text}</Said>
 					)}
-					<JoinLocator
-						locator={locator}
+					<JoinAddress
+						address={address}
 						dirs={dirs}
 						defaultAddress={defaultDirectoryAddress}
 						directoryContext={directoryContext}
-						invalid={error?.field === "locator"}
-						onPick={(next) => browser.editJoin({ locator: next })}
-						onType={(next) => browser.editJoin({ locator: next })}
+						invalid={error?.field === "address"}
+						onPick={(next) => browser.editJoin({ address: next })}
+						onType={(next) => browser.editJoin({ address: next })}
 					/>
 					{
 						/* Connect is reaching this address, so a refusal stands over it
@@ -421,8 +417,8 @@ export const JoinCard = memo(function JoinCard(
 					    follows the box it describes. */
 					}
 					{!asLink && (
-						<p className="hint" id="locatorHint">
-							{locatorHint}
+						<p className="hint" id="addressHint">
+							{addressHint}
 						</p>
 					)}
 					{reaching && homeDirectory == null && <MakeHomeChoice />}
@@ -479,7 +475,7 @@ export const JoinCard = memo(function JoinCard(
 									const text = e.clipboardData.getData("text").trim();
 									if (!looksLikeRoomLink(text)) return;
 									e.preventDefault();
-									browser.editJoin({ locator: text });
+									browser.editJoin({ address: text });
 								}}
 								onKeyDown={(e) => {
 									// The list first: while a row is picked, the arrows,
@@ -539,7 +535,7 @@ export const JoinCard = memo(function JoinCard(
 					</JoinField>
 					<p className="hint" id="nickHint">{joinNickHint}</p>
 				</div>
-				{error != null && error.field !== "locator" && error.field !== "nick" && error.text !== "" && (
+				{error != null && error.field !== "address" && error.field !== "nick" && error.text !== "" && (
 					<Said id="joinError" kind="failure">{error.text}</Said>
 				)}
 				{

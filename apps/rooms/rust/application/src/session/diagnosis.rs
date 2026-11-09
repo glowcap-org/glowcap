@@ -118,22 +118,22 @@ mod tests {
 			),
 			(
 				"glowcap error -12: not-registered: signalOffer needs a registered name",
-				"could not signal through the directory",
+				"couldn't connect through the directory",
 			),
 			(
 				"glowcap error -8: WebRTC could not establish or retain a route; cleanup failed: WebRTC could not establish or retain a route",
-				"WebRTC found no route",
+				"couldn't open a connection between them",
 			),
 			(
 				"glowcap error -3: host: PeerIdentityUnverified",
-				"could not authenticate",
+				"couldn't confirm it is the one",
 			),
-			("host: NetworkUnreachable", "could not be reached"),
-			("broken promise: unknown swissnum", "does not know this capability"),
-			("glowcap error -12: RestorationFailed", "could not be restored"),
+			("host: NetworkUnreachable", "couldn't reach the session"),
+			("broken promise: unknown swissnum", "no longer works"),
+			("glowcap error -12: RestorationFailed", "couldn't restore"),
 			(
 				"glowcap error -12: RestorationFailed: unknown swissnum",
-				"could not be restored",
+				"couldn't restore",
 			),
 			(
 				"session-restoration-failed: Saved workspace connection timed out",
@@ -141,9 +141,9 @@ mod tests {
 			),
 			(
 				"session-restoration-failed: Saved management connection timed out",
-				"could not be restored",
+				"couldn't restore",
 			),
-			("peer did not finish the OCapN handshake", "compatible code"),
+			("peer did not finish the OCapN handshake", "compatible version"),
 		] {
 			let advice = attachment(reason).unwrap();
 			let rendered = format!("{} {}", advice.summary, advice.action);

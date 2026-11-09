@@ -21,10 +21,18 @@ If you prefer another language, choose its guide:
 
 # [Run a complete example]($section.id('run-a-complete-example'))
 
-Follow [Get a working checkout](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#get-a-working-checkout)
-to clone the project and install its pinned Zig compiler. From that checkout:
+Clone the project and install its pinned Zig compiler under your home
+directory. On Linux or macOS you need Git, Python 3, Bash, curl, tar, and xz
+support, and the installer verifies its download. On Windows, enable Developer Mode and
+configure Git to preserve symlinks first, as
+[Get a working checkout](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#get-a-working-checkout)
+explains.
 
 ```sh
+git clone https://github.com/glowcap-org/glowcap.git
+cd glowcap
+ZIG_INSTALL_DIR="$HOME/.local/zig" bash .devcontainer/image/zig.sh
+export PATH="$HOME/.local/zig:$PATH"
 zig build quick-start
 ```
 
@@ -319,16 +327,15 @@ transports.
 From here, the CapTP workflow is the same for every transport:
 
 ```zig
-    defer session.deinit();
+defer session.deinit();
 
-    const greeter = try session.fetch("greeter"); // a capability this peer published
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
-    switch (settled) {
-        .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
-        .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
-    }
+const greeter = try session.fetch("greeter"); // a capability this peer published
+var arena = std.heap.ArenaAllocator.init(allocator);
+defer arena.deinit();
+const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
+switch (settled) {
+    .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
+    .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
 }
 ```
 ```=html
@@ -610,7 +617,7 @@ fn serve(server: *glowcap.driver.Server) !void {
 
 The tabs show the transport setup and the shared call or serving code.
 For a runnable program with both peers and their lifetimes in place, use
-[chapter 01](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/01_connect_and_serve.zig).
+[the first example](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/01_connect_and_serve.zig).
 To try CapTP from a shell instead, see the [CapTP CLI]($link.page('cli')).
 
 # [Add other transports]($section.id('add-other-transports'))

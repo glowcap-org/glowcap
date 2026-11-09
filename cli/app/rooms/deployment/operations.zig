@@ -83,23 +83,30 @@ pub fn up(docker: Docker) !void {
         log.err(docker.io, "deployment did not become healthy. Inspect `glowcap apps rooms deployment logs` using the same --dir", .{});
         return err;
     };
+    try links(docker);
+}
+
+/// Print what the running deployment hands out, as `up` prints it: the page
+/// link, the operator capabilities, the directory locator, the browser
+/// revision, the shared session's links, and the trace link. Every answer is
+/// read from the running services, so nothing starts or restarts.
+pub fn links(docker: Docker) !void {
+    const page = rooms(docker, "directory", &.{}, &.{"page"}) catch |err| {
+        log.err(docker.io, "could not read the running deployment ({s}). Start it with `glowcap apps rooms deployment up`, or inspect `deployment status` and `deployment logs` using the same --dir", .{@errorName(err)});
+        return err;
+    };
     const locator = try rooms(docker, "directory", &.{}, &.{"locator"});
     const revision = try rooms(docker, "directory", &.{}, &.{"revision"});
-    const session = try rooms(docker, "session", &.{}, &.{ "session", "ready", "--file=/run/rooms-session/admin.sturdyref" });
-    const management = try rooms(docker, "session", &.{}, &.{ "session", "ready", "--file=/session-state/control.sturdyref" });
-    // Saved capabilities print as complete recipes only with the locator the
-    // running directory advertises, which the read above just answered.
+    const session = try rooms(docker, "session", &.{}, &.{ "session", "ready", "--file=/run/rooms-session/use.sturdyref" });
+    const management = try rooms(docker, "session", &.{}, &.{ "session", "ready", "--file=/session-state/management.sturdyref" });
     const trace = try rooms(docker, "directory", &.{}, &.{ "trace", "--state=/state", "--print-link" });
-    var routes: std.ArrayList([]const u8) = .empty;
-    try routes.appendSlice(docker.gpa, &.{ "-e", try std.fmt.allocPrint(docker.gpa, "GLOWCAP_ROOMS_LOCATOR={s}", .{locator}) });
-    if (trace.len != 0) {
-        const uri = @import("glowcap").ocapn.model.uri;
-        const held = try uri.parseSturdyref(docker.gpa, trace);
-        const trace_locator = try uri.writePeer(docker.gpa, held.peer);
-        try routes.appendSlice(docker.gpa, &.{ "-e", try std.fmt.allocPrint(docker.gpa, "GLOWCAP_ROOMS_TRACE_LOCATOR={s}", .{trace_locator}) });
-    }
-    const capabilities = try rooms(docker, "directory", routes.items, &.{ "directory", "capabilities" });
-    try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nDirectory operator capabilities:\n{s}\n\nRoom locator:\n{s}\n\nBrowser revision:\n{s}\n\nShared-session workspace capability:\n{s}\n\nShared-session management capability:\n{s}\n", .{ capabilities, locator, revision, session, management }));
+    // The capabilities print as complete links with the locators the running
+    // directory advertises, which the container's own command reads from it.
+    const capabilities = try rooms(docker, "directory", &.{}, &.{"capabilities"});
+    // The page link leads, because opening it is what a person does next. A
+    // deployment that allows no page prints none.
+    if (page.len != 0) try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nOpen the page:\n{s}\n", .{page}));
+    try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nDirectory operator capabilities:\n{s}\n\nDirectory locator:\n{s}\n\nBrowser revision:\n{s}\n\nShared session use link:\n{s}\n\nShared session management link:\n{s}\n", .{ capabilities, locator, revision, session, management }));
     if (trace.len != 0) try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nROOMS-TRACE-LISTENING {s}\nFollow protocol events: glowcap apps rooms deployment trace\n", .{trace}));
 }
 
@@ -112,13 +119,13 @@ fn rooms(docker: Docker, service: []const u8, options: []const []const u8, opera
 
 pub const Unit = enum {
     session,
-    state,
+    directory,
     all,
 
     fn description(self: Unit) []const u8 {
         return switch (self) {
-            .session => "the shared workspace, session identity, and all session access links",
-            .state => "the directory identity, grants, issued room links, and kept public-room history",
+            .session => "the shared session, its identity, and all session access links",
+            .directory => "the directory identity, grants, issued room links, and kept public-room history",
             .all => "all Rooms data, identities, grants, and access links",
         };
     }
@@ -129,7 +136,7 @@ pub fn reset(docker: Docker, unit: Unit, confirmed: bool) !void {
     defer selected.deinit();
     var targets: [2][]const u8 = undefined;
     var count: usize = 0;
-    for ([_]Unit{ .session, .state }) |candidate| {
+    for ([_]Unit{ .session, .directory }) |candidate| {
         if (unit != .all and unit != candidate) continue;
         const kind = std.meta.stringToEnum(volumes_config.Kind, @tagName(candidate)).?;
         const target = try selected.name(kind, true);

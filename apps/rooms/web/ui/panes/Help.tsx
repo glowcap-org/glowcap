@@ -31,9 +31,13 @@ import {
 	helpDirectorySaid,
 	helpGlossaryLead,
 	helpKitchenBack,
+	helpLink,
+	helpLinkSaid,
 	helpLocator,
 	helpLocatorSaid,
 	helpPartsCatalog,
+	helpSession,
+	helpSessionSaid,
 	helpSturdyref,
 	helpSturdyrefSaid,
 	helpSwiss,
@@ -252,8 +256,16 @@ export const Help = memo(function Help(
 										<dd>{helpDirectorySaid}</dd>
 									</div>
 									<div>
+										<dt>{helpSession}</dt>
+										<dd>{helpSessionSaid}</dd>
+									</div>
+									<div>
 										<dt>{helpLocator}</dt>
 										<dd>{helpLocatorSaid}</dd>
+									</div>
+									<div>
+										<dt>{helpLink}</dt>
+										<dd>{helpLinkSaid}</dd>
 									</div>
 									<div>
 										<dt>{helpCapability}</dt>
