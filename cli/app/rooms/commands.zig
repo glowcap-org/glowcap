@@ -6,13 +6,33 @@ const Flag = types.Flag;
 fn value(comptime name: []const u8, comptime help: []const u8) Flag {
     return .{ .long = name, .help = help, .kind = .string_flag };
 }
+fn many(comptime name: []const u8, comptime help: []const u8) Flag {
+    var flag = value(name, help);
+    flag.repeatable = true;
+    return flag;
+}
+/// The same flags for another peer the command runs, under `prefix`, each
+/// help led by `subject`.
+fn prefixed(comptime prefix: []const u8, comptime subject: []const u8, comptime flags: []const Flag) [flags.len]Flag {
+    var out: [flags.len]Flag = undefined;
+    for (flags, 0..) |flag, index| {
+        out[index] = flag;
+        out[index].long = prefix ++ flag.long;
+        out[index].help = subject ++ flag.help;
+    }
+    return out;
+}
 const state = value("state", "Durable service state directory");
+/// The announced listener's help, as every Rooms peer's help names the transports.
+pub const transport_help = "Announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion";
 pub const transport = [_]Flag{
-    value("transport", "iroh (default), tcp (cleartext), or onion (requires Tor)"),
+    value("transport", transport_help),
     value("reachability", "iroh discovery (default) or direct"),
     value("bind", "TCP listener address (default loopback)"),
     value("port", "Room listener port (0 chooses an ephemeral port)"),
     value("announce-host", "Advertised TCP host"),
+    value("relay", "WebSocket relay a keyed-relay or noise-relay listener registers at (or GLOWCAP_ROOMS_RELAY_URL)"),
+    value("relay-public", "That relay as peers dial it, behind a port forward or proxy (or GLOWCAP_ROOMS_RELAY_PUBLIC_URL)"),
     value("onion-socks", "Running Tor SOCKS endpoint"),
     value("onion-control", "Running Tor control endpoint"),
     value("onion-forward", "Absolute Unix forwarding socket, requires --port=0"),
@@ -24,6 +44,7 @@ pub const admission = [_]Flag{
     value("admission-aggregate-scale", "Aggregate allowance multiplier (1..100)"),
 };
 const directory = transport ++ admission ++ [_]Flag{
+    many("listen", "Also listen over <transport>[,<name>=<value>...] (repeat once per transport)"),
     state,
     .{ .long = "history", .help = "Retain listed-room history" },
     .{ .long = "admin-listeners", .help = "Mint listener administration capability" },
@@ -48,6 +69,7 @@ const serve = directory ++ [_]Flag{
     value("browser-admission-rows", "Browser-local accounting row cap (1..65536)"),
     value("browser-admission-aggregate-scale", "Browser-local session allowance multiplier (1..100)"),
     value("session-state", "Also serve a shared workspace from this directory and print its use and management links"),
+} ++ prefixed("session-", "Shared workspace: ", &transport) ++ [_]Flag{
     value("allow-origin", "Rooms pages served elsewhere that may use this server, as origins or page addresses separated by commas (default: https://glowcap.org/rooms/app/, the page the website publishes, and an empty value allows none). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach"),
     value("http-bind", "HTTP listener address (default 127.0.0.1, so a public address is never chosen for you)"),
     value("http-port", "HTTP listener port (default 8080)"),

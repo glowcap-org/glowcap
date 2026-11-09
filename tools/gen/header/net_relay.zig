@@ -80,7 +80,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "GLOWCAP_RELAY_TRUST_* policy; system roots are the default.",
         "Borrowed PEM bytes copied during construction; only valid with COPIED_PEM.",
         "Byte length of trust_pem.",
-        "Borrowed advertised dial route redirected to relay_url; both must reach the same registry. NULL/empty disables the alias. Other peer hints retain their routes.",
+        "Borrowed route peers dial the same registry by: a listener advertises it, and a dial toward it goes to relay_url. NULL/empty disables the alias. Other peer hints retain their routes.",
         "Byte length of relay_alias_url.",
     });
     try b.append(gpa, '\n');

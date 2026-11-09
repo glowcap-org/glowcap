@@ -90,6 +90,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/session/managed_composer_test.ts",
         "apps/rooms/test/session/send_receipt_projection_test.ts",
         "apps/rooms/test/session/managed_controller_test.ts",
+        "apps/rooms/test/session/managed_directory_test.ts",
         "apps/rooms/test/session/managed_session_moves_test.ts",
         "apps/rooms/test/session/managed_navigation_test.ts",
         "apps/rooms/test/session/managed_join_test.ts",

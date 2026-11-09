@@ -11,14 +11,15 @@ pub struct Config {
 	pub forward: Option<std::path::PathBuf>,
 }
 impl Config {
+	/// `value` answers this peer's options, and `shared` answers one the
+	/// deployment shares under the global variable named beside it.
 	pub(super) fn parse(
 		value: impl Fn(&str) -> Option<String>,
-		env: impl Fn(&str) -> Option<String>,
+		shared: impl Fn(&str, &str) -> Option<String>,
 		peer: &str,
 	) -> Result<Self, String> {
 		let endpoint = |option, global| {
-			value(option)
-				.or_else(|| env(global))
+			shared(option, global)
 				.map(|s| s.trim().to_owned())
 				.filter(|s| !s.is_empty())
 				.ok_or_else(|| {

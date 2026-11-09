@@ -94,6 +94,7 @@ async fn start_with_admission(
 
 fn tcp() -> Transport {
 	Transport::Tcp {
+		profile: rooms_platform::serving::TcpProfile::Plain,
 		bind: "127.0.0.1".into(),
 		port: 0,
 		announce: None,

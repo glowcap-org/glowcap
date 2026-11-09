@@ -43,7 +43,7 @@ typedef struct GlowcapRelayConfig {
     const uint8_t *trust_pem;
     /* Byte length of trust_pem. */
     size_t trust_pem_len;
-    /* Borrowed advertised dial route redirected to relay_url; both must reach the same registry. NULL/empty disables the alias. Other peer hints retain their routes. */
+    /* Borrowed route peers dial the same registry by: a listener advertises it, and a dial toward it goes to relay_url. NULL/empty disables the alias. Other peer hints retain their routes. */
     const uint8_t *relay_alias_url;
     /* Byte length of relay_alias_url. */
     size_t relay_alias_url_len;

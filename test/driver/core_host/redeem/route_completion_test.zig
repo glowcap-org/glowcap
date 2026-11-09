@@ -224,3 +224,61 @@ test "core host: a malformed id give cannot retain route advice" {
 
     try std.testing.expect(client.node.gifts.recipe.by_exporter.get(dialed.peer_handle) == null);
 }
+
+test "core host: a bare keyed sturdyref matches the channel-proved key, whatever the hello advertises" {
+    // A Rooms server with a tcp listener and a noise-relay listener advertises
+    // its tcp locator in hellos. A browser that typed the relay door alone
+    // redeems a sturdyref whose peer is that door, and the sealed channel has
+    // already proved the key the door names.
+    const allocator = std.testing.allocator;
+    const client_seed = @as([32]u8, @splat(0x71));
+    const server_seed = @as([32]u8, @splat(0x72));
+    var client = test_host.init(allocator, client_seed, nextRouteOptions());
+    defer client.deinit();
+    var server = test_host.init(allocator, server_seed, nextRouteOptions());
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const client_key = keyedDesignator(client_seed);
+    const server_key = keyedDesignator(server_seed);
+    try server.setAdvertisedLocator(tcpLocator("127.0.0.1:7777"));
+    try server.retainAdvertisedLocator(.{
+        .transport = model.transport.iroh,
+        .designator = &server_key,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const accepted = try server.openAcceptedAdvertised(model.transport.iroh);
+    _ = try accepted.served.publish(&accepted.host.vat, "widget", harness.Widget, .{});
+    try client.ensureAdvertisedLocator(model.transport.iroh);
+    const dialed = try client.openDialedLocator(.{
+        .transport = model.transport.iroh,
+        .designator = &server_key,
+        .hints = model.Hints.emptyFalse(),
+    });
+    try client.bindVerifiedChannelKey(dialed, &server_key);
+    try server.bindVerifiedChannelKey(accepted, &client_key);
+    const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(dialed.sessionOpen());
+    try std.testing.expectEqualStrings("127.0.0.1:7777", (try client.partnerIdentity(dialed)).designator);
+
+    const vow = try client.enliven(dialed, .{
+        .peer = .{ .transport = model.transport.iroh, .designator = &server_key, .hints = model.Hints.emptyFalse() },
+        .swissnum = "widget",
+    });
+    var settled = harness.CapturedRef{};
+    try client.vowOn(vow, .{ .ctx = &settled, .func = harness.CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    _ = try settled.require();
+
+    // Another key is still another peer.
+    const other_key = keyedDesignator(@as([32]u8, @splat(0x73)));
+    try std.testing.expectError(
+        driver.core.HostError.PeerIdentityMismatch,
+        client.enliven(dialed, .{
+            .peer = .{ .transport = model.transport.iroh, .designator = &other_key, .hints = model.Hints.emptyFalse() },
+            .swissnum = "widget",
+        }),
+    );
+}

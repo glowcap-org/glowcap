@@ -3,7 +3,6 @@
 //! private directory atomically. Externally supplied Tor remains external.
 use super::process::{Process, Temporary};
 use std::{
-	collections::BTreeMap,
 	os::{fd::AsFd, unix::fs::FileTypeExt},
 	path::PathBuf,
 	process::Stdio,
@@ -11,8 +10,16 @@ use std::{
 };
 use tokio::{process::Command, sync::watch};
 
+/// One peer's option reader: its arguments, else its environment.
+pub(super) type PeerOptions<'a> = &'a dyn Fn(&str) -> Option<String>;
 pub(super) struct Plan {
 	root: PathBuf,
+	pub endpoints: Endpoints,
+}
+/// The Tor endpoints an onion listener publishes through, as the peer that
+/// listens is told them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Endpoints {
 	pub socks: String,
 	pub control: String,
 }
@@ -21,30 +28,31 @@ pub(super) struct Tor {
 	temporary: Temporary,
 }
 impl Plan {
-	pub fn read(
-		options: &BTreeMap<String, String>,
-		env: impl Fn(&str) -> Option<String>,
-	) -> Result<Option<Self>, String> {
-		let value = |name: &str| {
-			options.get(name).cloned().or_else(|| {
-				env(&format!("GLOWCAP_ROOMS_{}", name.replace('-', "_").to_uppercase()))
-					.map(|s| s.trim().to_owned())
-					.filter(|s| !s.is_empty())
-			})
-		};
-		if value("transport").as_deref() != Some("onion") {
-			return Ok(None);
+	/// A private Tor is planned when a peer this front runs announces an
+	/// onion listener and names no running Tor of its own. Each entry of
+	/// `peers` answers that peer's option names, from its arguments or its
+	/// environment. A peer naming one of the two endpoints without the other
+	/// is refused.
+	pub fn read(peers: &[PeerOptions<'_>], env: impl Fn(&str) -> Option<String>) -> Result<Option<Self>, String> {
+		let mut wanted = false;
+		for value in peers {
+			if value("transport").as_deref() != Some("onion") {
+				continue;
+			}
+			let socks = value("onion-socks")
+				.or_else(|| env("GLOWCAP_ONION_SOCKS"))
+				.filter(|s| !s.trim().is_empty());
+			let control = value("onion-control")
+				.or_else(|| env("GLOWCAP_ONION_CONTROL"))
+				.filter(|s| !s.trim().is_empty());
+			match (socks, control) {
+				(Some(_), Some(_)) => {}
+				(None, None) => wanted = true,
+				_ => return Err("onion SOCKS and control endpoints must be set together".into()),
+			}
 		}
-		let socks = value("onion-socks")
-			.or_else(|| env("GLOWCAP_ONION_SOCKS"))
-			.filter(|s| !s.trim().is_empty());
-		let control = value("onion-control")
-			.or_else(|| env("GLOWCAP_ONION_CONTROL"))
-			.filter(|s| !s.trim().is_empty());
-		match (socks, control) {
-			(Some(_), Some(_)) => return Ok(None),
-			(None, None) => {}
-			_ => return Err("onion SOCKS and control endpoints must be set together".into()),
+		if !wanted {
+			return Ok(None);
 		}
 		let root = Temporary::plan()?;
 		let path = root.to_str().ok_or("private Tor directory must be Unicode")?;
@@ -52,8 +60,10 @@ impl Plan {
 			return Err("private Tor directory contains a control character".into());
 		}
 		Ok(Some(Self {
-			socks: format!("{path}/socks.sock"),
-			control: format!("{path}/control.sock"),
+			endpoints: Endpoints {
+				socks: format!("{path}/socks.sock"),
+				control: format!("{path}/control.sock"),
+			},
 			root,
 		}))
 	}
@@ -69,8 +79,8 @@ impl Tor {
 			let data = quote(root.join("data").to_str().ok_or("Tor path is not Unicode")?);
 			let torrc = format!(
 				"DataDirectory {data}\nSocksPort {}\nControlPort {}\nCookieAuthentication 0\nLog warn stderr\n",
-				quote(&format!("unix:{}", plan.socks)),
-				quote(&format!("unix:{}", plan.control))
+				quote(&format!("unix:{}", plan.endpoints.socks)),
+				quote(&format!("unix:{}", plan.endpoints.control))
 			);
 			tokio::fs::write(root.join("torrc"), torrc)
 				.await

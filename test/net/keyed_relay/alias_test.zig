@@ -43,6 +43,8 @@ test "relay alias selects only the configured endpoint and retains owned bytes" 
         try std.testing.expectEqualStrings(parsed.query orelse "", selected.query orelse "");
     }
     try std.testing.expectEqual(@as(u16, 8080), config.selectDialRoute(null).port);
+    // A listener behind the ingress advertises the route peers dial.
+    try std.testing.expectEqualStrings(public_route, config.advertisedRelayUrlText());
     try std.testing.expectError(error.InvalidRelayUrl, (relay.Configuration{
         .relay_url = internal_route,
         .relay_alias_url = "https://rooms.example/relay",

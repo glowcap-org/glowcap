@@ -150,12 +150,6 @@ impl Transport {
 	pub fn options(self) -> Vec<&'static str> {
 		self.takes().iter().map(|takes| takes.name).collect()
 	}
-	pub const fn is_tcp_family(self) -> bool {
-		matches!(self, Self::Tcp | Self::KeyedTcp | Self::NoiseTcp)
-	}
-	pub const fn is_relay_family(self) -> bool {
-		matches!(self, Self::KeyedRelay | Self::NoiseRelay)
-	}
 }
 
 /// Why a missing Tor stops an onion listener, the standing answer in `list`

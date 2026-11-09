@@ -9,19 +9,14 @@ use super::super::{
 	state::{Shared, State, Work},
 };
 use super::{document::Store, operator::Wire};
-use glowcap::{Argument, ListenerIdentity};
-use rooms_application::server::operations::listeners::{
-	self, Ask, Environment, Refusal, Seats, Transport, register_url,
-};
-use rooms_platform::serving::{Listener, iroh_config};
-use std::{rc::Rc, time::Duration};
+use glowcap::Argument;
+use rooms_application::server::operations::listeners::{self, Ask, Environment, Refusal, Seats, Transport};
+use rooms_platform::serving::{self, Listener};
+use std::rc::Rc;
 
 const LIST: &str = "list";
 const UP: &str = "up";
 const DOWN: &str = "down";
-/// How long a relay registration may take before the `up` refuses instead
-/// of answering a row nothing stands behind.
-const RELAY_REGISTER_DEADLINE: Duration = Duration::from_secs(5);
 
 /// The process environment, the one the seats' hints and defaults read.
 pub(crate) struct Env;
@@ -96,15 +91,6 @@ impl Changing {
 impl Drop for Changing {
 	fn drop(&mut self) {
 		self.shared.borrow_mut().listeners.changing.remove(&self.transport);
-	}
-}
-
-/// The transport a boot listener stands in.
-pub(crate) fn boot_transport(transport: &rooms_platform::serving::Transport) -> Transport {
-	match transport {
-		rooms_platform::serving::Transport::Tcp { .. } => Transport::Tcp,
-		rooms_platform::serving::Transport::Iroh(_) => Transport::Iroh,
-		rooms_platform::serving::Transport::Onion(_) => Transport::Onion,
 	}
 }
 
@@ -318,99 +304,57 @@ async fn down(shared: &Shared, writer: &Store, id: u64) -> Result<(), Refusal> {
 	Ok(())
 }
 
-/// Open the socket for one seat. Each family reads its defaults from the
-/// environment the seat's hints named, so a blank field means what the
-/// list said it means.
+/// Open the socket for one seat through the one opener the boot listener
+/// uses. Each family reads its defaults from the environment the seat's
+/// hints named, so a blank field means what the list said it means.
 async fn bring_up(host: &glowcap::Host, transport: Transport, ask: &Ask) -> Result<(Listener, String), Refusal> {
 	let env = Env;
-	if transport.is_tcp_family() {
-		let bind = ask
-			.bind
-			.clone()
-			.or_else(|| env.env("GLOWCAP_ROOMS_BIND"))
-			.unwrap_or_else(|| "127.0.0.1".into());
-		let port = ask.port.unwrap_or(0);
-		let options = glowcap::tcp::ListenOptions {
-			identity: ListenerIdentity::Host(host.clone()),
-			advertised_host: ask.advertise.clone().or_else(|| env.env("GLOWCAP_ROOMS_ANNOUNCE_HOST")),
-			..Default::default()
-		};
-		let server = match transport {
-			Transport::Tcp => glowcap::tcp::listen(&bind, port, options).await,
-			Transport::KeyedTcp => glowcap::tcp::keyed::listen(&bind, port, options).await,
-			_ => glowcap::tcp::noise::listen(&bind, port, options).await,
-		}
-		.map_err(|error| Refusal::plain(rooms_platform::serving::BindError::new(&bind, port, error).to_string()))?;
-		// The keyed and sealed profiles announce their complete locator
-		// because the key, not the address, is the name a peer dials.
-		let locator = if transport == Transport::Tcp {
-			server.locator().map_err(|e| Refusal::plain(e.to_string()))?.designator
-		} else {
-			server.uri().map_err(|e| Refusal::plain(e.to_string()))?
-		};
-		return Ok((Listener::Tcp(server), locator));
-	}
-	if transport.is_relay_family() {
-		let route = ask
-			.relay
-			.clone()
-			.or_else(|| env.env("GLOWCAP_ROOMS_RELAY_URL"))
-			.ok_or_else(|| {
-				Refusal::unsupported(format!(
-					"A {} listener registers at a relay. Name its WebSocket URL with the ask, or start the server with GLOWCAP_ROOMS_RELAY_URL.",
-					transport.name()
-				))
-			})?;
-		let register = register_url(&route)?;
-		let designator = host.designator().map_err(|e| Refusal::plain(e.to_string()))?;
-		probe_register_endpoint(&register, &designator).await?;
-		let options = glowcap::relay::ListenOptions {
-			identity: ListenerIdentity::Host(host.clone()),
-			trust: Default::default(),
-		};
-		let listen = async {
-			if transport == Transport::KeyedRelay {
-				glowcap::relay::keyed::listen(&route, &register, options).await
-			} else {
-				glowcap::relay::noise::listen(&route, &register, options).await
-			}
-		};
-		let server = tokio::time::timeout(RELAY_REGISTER_DEADLINE, listen)
-			.await
-			.map_err(|_| Refusal::unsupported("The relay did not answer a register socket in time."))?
-			.map_err(|error| Refusal::plain(error.to_string()))?;
-		let locator = server.uri().map_err(|e| Refusal::plain(e.to_string()))?;
-		return Ok((Listener::Relay(server), locator));
-	}
-	match transport {
-		Transport::Iroh => {
-			let reachability = match env.env("GLOWCAP_ROOMS_REACHABILITY").as_deref() {
-				None | Some("direct") => glowcap::iroh::Reachability::Direct,
-				Some("discovery") => glowcap::iroh::Reachability::Discovery,
-				Some(other) => {
-					return Err(Refusal::plain(format!(
-						"unknown reachability \"{other}\" (expected direct or discovery)"
-					)));
+	let asked = match serving::Family::of(transport) {
+		serving::Family::Tcp(profile) => serving::Transport::Tcp {
+			profile,
+			bind: ask
+				.bind
+				.clone()
+				.or_else(|| env.env("GLOWCAP_ROOMS_BIND"))
+				.unwrap_or_else(|| "127.0.0.1".into()),
+			port: ask.port.unwrap_or(0),
+			announce: ask.advertise.clone().or_else(|| env.env("GLOWCAP_ROOMS_ANNOUNCE_HOST")),
+		},
+		serving::Family::Relay(profile) => {
+			// The server's own relay, as the boot listener's environment names
+			// it. An ask that names a relay consults it only to reach the own
+			// relay the way the server does, so an environment that names none,
+			// or a broken one, refuses only an ask that leaves the relay to it.
+			let configured = || {
+				serving::relay::Address::configured(
+					env.env("GLOWCAP_ROOMS_RELAY_URL"),
+					env.env("GLOWCAP_ROOMS_RELAY_PUBLIC_URL"),
+				)
+			};
+			let address = match ask.relay.clone() {
+				Some(url) => {
+					let own = configured().ok().flatten(); // tolerant: the own relay only tells its public address apart
+					serving::relay::Address::named(url, own.as_ref())?
 				}
+				None => configured()?.ok_or_else(|| {
+					Refusal::unsupported(format!(
+						"A {} listener registers at a relay. Name its WebSocket URL with the ask, or start the server with GLOWCAP_ROOMS_RELAY_URL.",
+						transport.name()
+					))
+				})?,
 			};
-			let server = glowcap::iroh::listen(
-				iroh_config(reachability),
-				glowcap::iroh::ListenOptions {
-					identity: ListenerIdentity::Host(host.clone()),
-				},
-			)
-			.await
-			.map_err(|error| Refusal::plain(error.to_string()))?;
-			let locator = if reachability == glowcap::iroh::Reachability::Discovery {
-				let node = server.node_id().to_owned();
-				glowcap::format_locator_uri(&glowcap::iroh::locator(&node, None))
-					.map_err(|e| Refusal::plain(e.to_string()))?
-			} else {
-				server.uri().map_err(|e| Refusal::plain(e.to_string()))?
-			};
-			Ok((Listener::Iroh(server), locator))
+			serving::Transport::Relay { profile, address }
 		}
-		Transport::Onion => {
+		serving::Family::Iroh => serving::Transport::Iroh(match env.env("GLOWCAP_ROOMS_REACHABILITY").as_deref() {
+			None | Some("direct") => glowcap::iroh::Reachability::Direct,
+			Some("discovery") => glowcap::iroh::Reachability::Discovery,
+			Some(other) => {
+				return Err(Refusal::plain(format!(
+					"unknown reachability \"{other}\" (expected direct or discovery)"
+				)));
+			}
+		}),
+		serving::Family::Onion => {
 			// glowcap starts no Tor, so the endpoints of an already-running
 			// daemon must have arrived in the environment. A runtime service
 			// takes a fresh address: the stored key belongs to the boot service.
@@ -418,44 +362,22 @@ async fn bring_up(host: &glowcap::Host, transport: Transport, ask: &Ask) -> Resu
 			else {
 				return Err(Refusal::unsupported(listeners::ONION_NEEDS_TOR));
 			};
-			let config = glowcap::onion::Config::dial_only(&socks).with_control(&control, glowcap::onion::Auth::None);
-			let server = glowcap::onion::listen(
-				config,
-				glowcap::onion::ListenOptions {
-					identity: ListenerIdentity::Host(host.clone()),
-				},
-			)
-			.await
-			.map_err(|error| Refusal::plain(error.to_string()))?;
-			let locator = server.uri().map_err(|e| Refusal::plain(e.to_string()))?;
-			Ok((Listener::Onion(server), locator))
+			serving::Transport::Onion(serving::OnionConfig {
+				socks,
+				control,
+				port: 0,
+				forward: None,
+			})
 		}
-		_ => unreachable!("the tcp and relay families were handled above"),
-	}
-}
-
-/// Open one register socket to prove the relay answers, then close it. The
-/// host provider keeps registration retries in the background, so a
-/// completed listen is not the evidence the relay exists. This is, and it
-/// runs before the provider adopts the route.
-async fn probe_register_endpoint(register: &str, designator: &str) -> Result<(), Refusal> {
-	let url = format!("{register}?id={designator}");
-	let connect = tokio_tungstenite::connect_async(&url);
-	match tokio::time::timeout(RELAY_REGISTER_DEADLINE, connect).await {
-		Ok(Ok((mut socket, _))) => {
-			// The probe registered nothing to keep: a close frame ends it, and
-			// the relay drops the registration with it. A relay that is gone
-			// before the frame lands has still answered the probe.
-			drop(socket.close(None).await); // tolerant: the probe's answer is the open, not the close
-			Ok(())
-		}
-		Ok(Err(_)) => Err(Refusal::unsupported(format!(
-			"No relay answered a register socket at {register}."
-		))),
-		Err(_) => Err(Refusal::unsupported(
-			"The relay did not answer a register socket in time.",
-		)),
-	}
+	};
+	let (listener, locator) = Listener::open(&asked, host, &mut serving::onion::KeyFile(None))
+		.await
+		.map_err(|error| match error {
+			serving::OpenError::Relay(refusal) => refusal,
+			other => Refusal::plain(other),
+		})?;
+	let announced = serving::announced(&locator).map_err(|e| Refusal::plain(e.to_string()))?;
+	Ok((listener, announced))
 }
 
 /// The `list`, `up`, and `down` behavior published under the admin swiss.

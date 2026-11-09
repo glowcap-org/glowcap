@@ -1,6 +1,7 @@
 //! Typed handoff from the Zig command parser. Validate operation prerequisites
 //! before opening a workspace. Argv syntax and discovery stay in the CLI.
 use super::Failure;
+use rooms_application::server::operations::listeners;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 #[derive(Clone, Deserialize, Serialize)]
@@ -81,9 +82,12 @@ impl Options {
 			return Err(Failure::invalid(reason));
 		}
 		if let Some(transport) = options.get("transport")
-			&& !["iroh", "tcp", "onion"].contains(&transport)
+			&& listeners::Transport::parse(transport).is_none()
 		{
-			return Err(Failure::invalid("transport must be iroh, tcp, or onion"));
+			return Err(Failure::invalid(format!(
+				"transport must be one of {}",
+				listeners::TRANSPORTS.map(listeners::Transport::name).join(", ")
+			)));
 		}
 		if let Some(reachability) = options.get("reachability")
 			&& !["discovery", "direct"].contains(&reachability)

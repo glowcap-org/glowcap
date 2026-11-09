@@ -156,15 +156,16 @@ impl<D: Deadline> Acquisition<D> {
 		.await
 	}
 	/// A proved selection conflict can keep its exact source and import bundle
-	/// while replacing only the rejected revision and composed workspace intent.
-	/// The bounded import spines and URI strings copy once because both immutable
-	/// candidates coexist until the replacement is admitted by the handle budget.
-	/// Capability clones share custody. No endpoint is fetched or substituted.
-	pub(super) fn recompose(&self, expected: u64, intent: &Intent) -> Result<Self>
+	/// while replacing only the rejected revision, the releases the fresh intent
+	/// calls for, and the composed workspace intent. The bounded import spines
+	/// and URI strings copy once because both immutable candidates coexist until
+	/// the replacement is admitted by the handle budget. Capability clones share
+	/// custody. No endpoint is fetched or substituted.
+	pub(super) fn recompose(&self, expected: u64, releases: &[custody::Coordinate], intent: &Intent) -> Result<Self>
 	where
 		D: Clone,
 	{
-		let [expected, releases, intent] = candidate_arguments(expected, &[], intent)?;
+		let [expected, releases, intent] = candidate_arguments(expected, releases, intent)?;
 		Ok(Self {
 			caller: self.caller.clone(),
 			source: self.source.clone(),

@@ -13,6 +13,31 @@ and storage formats before 1.0.
 
 ### Added
 
+- `rooms-server` and `rooms-web` announce any of the seven listener
+  transports with `--transport=<transport>`. A relay transport registers at
+  `--relay=<ws-url>` or `GLOWCAP_ROOMS_RELAY_URL`, and under `rooms-web` at
+  that server's own relay. `--relay-public=<ws-url>` names that relay as
+  peers dial it when a port forward or a proxy gives it another address, and
+  `rooms-web --http-public=<url>` does the same for its own relay. The
+  installed `glowcap apps rooms` commands take the same listener options,
+  `serve` with `--listen` and the shared workspace's as `--session-<option>`,
+  and `session start` keeps every one of them in its settings.
+- `rooms-web --session-transport=<transport>` chooses the shared workspace's
+  announced listener the same way, and `--session-<option>` passes any other
+  `rooms-session` option to it. A relay listener registers at that server's
+  own relay unless `--session-relay` names one, an onion listener publishes
+  through the private Tor the server runs, and the page is offered the
+  workspace through any listener a browser can open.
+- A relay listener whose configuration names a relay alias advertises the
+  alias in its `rendezvous-relay` hint. Behind a port forward or a proxy,
+  peers dial the route they reach while the listener's own register socket
+  opens at the route it reaches.
+- The relay admits claims against one registered door at the rate its peer
+  may register, where it admitted four a minute and refused the fifth dial of
+  a relay-announced directory.
+- A relay that cannot complete a dial closes the browser's socket with the
+  cause, and the page's channel reports that cause instead of a bare
+  connection close.
 - `rooms-server --listen=<transport>[,<name>=<value>...]` (or
   `GLOWCAP_ROOMS_LISTEN`) opens another listener to the same directory, once
   per transport, and the server starts only once every declared listener is
@@ -54,6 +79,23 @@ and storage formats before 1.0.
 
 ### Fixed
 
+- A sturdyref naming a peer by its key through a sealed listener, such as a
+  directory's bare `noise-relay` address, redeems over the sealed session
+  whatever listener the peer's hello advertised. Before, the Rooms page
+  failed such a join with `PeerIdentityMismatch`.
+- A directory address typed on the join card re-routes a directory the
+  session already holds: the capability is fetched through the typed doors
+  and replaces the held one under the same id, keeping its home mark and
+  standing. Before, the held route was kept whatever was typed, so a page
+  with no Rooms server asked for one when that route needed a server. The
+  held route typed again changes the nickname at most.
+- A `keyed-tcp` or `noise-tcp` directory under `rooms-web` is forwarded to
+  from the page the server serves. Before, the server announced no local
+  endpoint for those listeners and the relay answered `directory forwarding
+  unavailable`.
+- Saving an operations capability whose address names the directory by a
+  key its listener does not prove (`keyed-relay`, `keyed-tcp`) says so and
+  names the proving doors, where it showed a bare `PeerIdentityUnverified`.
 - The relay transport and the Rooms server reject TLS certificate paths
   through the distrusted emSign intermediates (rustls-webpki 0.103.16,
   RUSTSEC-2026-0382).

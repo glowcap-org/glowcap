@@ -83,11 +83,16 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                 while (flags.next()) |entry| {
                     const key = entry.key_ptr.*;
                     if (mode == .serve and std.mem.eql(u8, key, "assets")) continue;
+                    const option = if (mode == .session_serve and std.mem.eql(u8, key, "dir")) "state" else key;
+                    // A repeatable flag is given to the child once per value.
+                    if (parsed.repeated.get(key)) |repeated| {
+                        for (repeated.items) |value| try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--{s}={s}", .{ option, value }));
+                        continue;
+                    }
                     const value = switch (entry.value_ptr.*) {
                         .string_flag => |text| text,
                         .bool_flag => |yes| if (yes) "true" else "false",
                     };
-                    const option = if (mode == .session_serve and std.mem.eql(u8, key, "dir")) "state" else key;
                     try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--{s}={s}", .{ option, value }));
                 }
                 try arguments.appendSlice(alloc, parsed.positionals);

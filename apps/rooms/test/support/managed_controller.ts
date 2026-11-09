@@ -37,6 +37,9 @@ export function fixture(listed: RoomInfo[] = [], duringRead: () => void = () => 
 		},
 		completeResult: () => Promise.resolve(),
 		workspace: {
+			// The one held directory is reached through its own route and no other.
+			directoryRouteHeld: (directory: string, through: string) =>
+				Promise.resolve(directory === id && through === route),
 			directoryReader: (directory: string) => {
 				calls.push(["directoryReader", directory]);
 				return Promise.resolve({

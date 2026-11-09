@@ -419,22 +419,13 @@ async fn assemble(
 	owners.local_endpoint = rooms_platform::serving::endpoint::bound(&config.transport, &listener);
 	{
 		let mut state = state.borrow_mut();
-		// A tcp seat is named by its bare address, the way the announce line
-		// names it; every other transport by its complete locator.
-		let unannounceable =
-			|error: glowcap::Error| Error::refused(format!("the listener's locator cannot be announced: {error}"));
-		let announced = if locator.transport == glowcap::TRANSPORT_TCP {
-			locator.designator.clone()
-		} else {
-			glowcap::format_locator_uri(&locator).map_err(unannounceable)?
+		let unannounceable = |error: &dyn std::fmt::Display| {
+			Error::refused(format!("the listener's locator cannot be announced: {error}"))
 		};
-		state.set_location(locator).map_err(unannounceable)?;
+		let announced = rooms_platform::serving::announced(&locator).map_err(|e| unannounceable(&e))?;
+		state.set_location(locator).map_err(|e| unannounceable(&e))?;
 		state.boot_listener = Some(listener);
-		operations::listeners::adopt_boot(
-			&mut state,
-			operations::listeners::boot_transport(&config.transport),
-			announced,
-		);
+		operations::listeners::adopt_boot(&mut state, config.transport.profile(), announced);
 		state.restore_links().map_err(Error::refused)?;
 	}
 	if futures_util::FutureExt::now_or_never(halt.as_mut()).is_some() {

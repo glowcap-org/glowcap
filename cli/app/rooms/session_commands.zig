@@ -20,13 +20,11 @@ const conversation = value("conversation", "Exact conversation identifier from s
 const operation = value("operation", "Stable operation identifier for inspecting an uncertain result");
 const base = value("base", "Original workspace revision, required with --operation for exact replay");
 const join = [_]Flag{ dir, nick, locator, rooms };
-const start = join ++ [_]Flag{
-    value("transport", "iroh (default), tcp (cleartext tests), or onion"),
-    value("relay-url", "Browser rendezvous relay URL"),
+const start = join ++ @import("commands.zig").transport ++ [_]Flag{
+    value("relay-url", "Rendezvous relay this peer dials browser members through (a listener registers at --relay)"),
     value("relay-alias-url", "Advertised route to dial through the configured relay (same registry)"),
     value("dial-transports", "Outgoing dial families: tcp, iroh, onion, webrtc (comma separated)"),
     value("ice-servers", "STUN servers for webrtc dials (comma separated), or a JSON list of ICE server records"),
-    value("reachability", "iroh discovery (default) or direct"),
 };
 const team_start = start ++ [_]Flag{
     value("lead", "Lead nickname"),
@@ -34,7 +32,7 @@ const team_start = start ++ [_]Flag{
     value("max", "Maximum roster size including lead (default 4)"),
 };
 pub const commands = [_]types.Command{
-    .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &(@import("commands.zig").transport ++ @import("commands.zig").admission ++ [_]Flag{ dir, value("checkpoint", "Import managed workspace intent into an empty session"), value("readiness-file", "Write the workspace use capability here"), value("relay-url", "Browser rendezvous relay URL"), value("relay-alias-url", "Advertised route to dial through the configured relay (same registry)"), value("dial-transports", "Outgoing dial families: tcp, iroh, onion, webrtc (comma separated)"), value("ice-servers", "STUN servers for webrtc dials (comma separated), or a JSON list of ICE server records") }), .run = @import("mod.zig").run("rooms-session", .session_serve) },
+    .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &(@import("commands.zig").transport ++ @import("commands.zig").admission ++ [_]Flag{ dir, value("checkpoint", "Import managed workspace intent into an empty session"), value("readiness-file", "Write the workspace use capability here"), value("relay-url", "Rendezvous relay this peer dials browser members through (a listener registers at --relay)"), value("relay-alias-url", "Advertised route to dial through the configured relay (same registry)"), value("dial-transports", "Outgoing dial families: tcp, iroh, onion, webrtc (comma separated)"), value("ice-servers", "STUN servers for webrtc dials (comma separated), or a JSON list of ICE server records") }), .run = @import("mod.zig").run("rooms-session", .session_serve) },
     .{ .name = "ready", .short_help = "Read the foreground session's readiness capability", .flags = &.{value("file", "Readiness file (required)")}, .run = @import("mod.zig").run("rooms-session", .session_ready) },
     .{ .name = "start", .short_help = "Start or restore a durable Rooms workspace", .flags = &start, .run = run("start") },
     .{ .name = "join", .short_help = "Join rooms without leaving existing conversations", .flags = &join, .run = run("join") },

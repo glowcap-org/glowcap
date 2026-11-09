@@ -210,7 +210,11 @@ mod tests {
 	}
 	#[test]
 	fn replacing_the_last_registration_does_not_reset_debt() {
-		let registry = Registry::new(2, 1);
+		let registry = Registry::with_profile(
+			2,
+			1,
+			Profile::default().with_rate(Class::Rendezvous, rooms_application::admission::Rate::new(4, 4)),
+		);
 		let identity = format!("{:064x}", 1);
 		for _ in 0..4 {
 			let registration = registry.register(&identity).unwrap();

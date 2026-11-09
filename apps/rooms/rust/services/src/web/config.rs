@@ -1,6 +1,7 @@
 //! The web command selects HTTP and supervision. Server options retain their
 //! existing parser and environment, so both entrypoints validate one contract.
 use crate::server;
+use rooms_platform::serving::relay;
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub struct Config {
@@ -15,19 +16,27 @@ pub struct Config {
 	pub server: PathBuf,
 	pub server_args: Vec<String>,
 	pub room: server::Config,
-	pub(super) session: Option<crate::session::Config>,
+	pub(super) session: Option<Session>,
 	pub(super) tor: Option<super::tor::Plan>,
 	pub(super) ice: super::ice::Config,
 	pub(super) relay: super::relay::Limits,
-	/// The relay URL the supervised directory registers relay listeners at,
-	/// when the operator named one. Otherwise the directory is handed this
-	/// server's own relay once the HTTP address is known.
+	/// The relay the peers under this front, the directory and the shared
+	/// session, register relay listeners at, when the operator named one.
+	/// Otherwise each is handed this server's own relay once the HTTP
+	/// address is known.
 	pub(super) relay_url: Option<String>,
 }
 pub(super) enum BrowserAssets {
 	Source(PathBuf),
 	Prepared(PathBuf),
 	Disabled,
+}
+/// The shared session's options in the session's own grammar. `serve` parses
+/// them once the HTTP listener is bound, because a relay door registers at
+/// this server's own relay and that address is known then. `Config::parse`
+/// validated them against a stand-in for it.
+pub(super) struct Session {
+	pub args: Vec<String>,
 }
 pub const HELP: &str = concat!(
 	"rooms-web [http-port] [room-port] [options]
@@ -37,11 +46,15 @@ pub const HELP: &str = concat!(
   --prepared  serve a prepared bundle without invoking browser build tools
   --no-browser-assets  serve Rooms endpoints without a browser bundle (development tooling)
   --server=<executable>  rooms-server binary (default: beside rooms-web)
-  --transport=iroh|tcp|onion  supervised directory (default: iroh)
+  --transport=<transport>  the supervised directory's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
+      a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --relay names another; --http-public names that relay as browsers dial it
   --listen=<transport>[,<name>=<value>...]  also listen over another transport, as rooms-server; repeatable
       a relay listener registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or its relay option names another
   --state=<directory>  keep the directory identity and state across restarts
   --session-state=<directory>  also serve a durable shared workspace and print its use and management links (or GLOWCAP_ROOMS_SESSION_STATE)
+  --session-transport=<transport>  the shared workspace's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
+      a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --session-relay names another
+  --session-<option>=<value>  any other rooms-session option, such as --session-bind or --session-reachability (or GLOWCAP_ROOMS_SESSION_<OPTION>)
   --history --bind=<host> --announce-host=<host>
   --admin-listeners --diagnostics --operator --peering --irc --trace
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
@@ -87,9 +100,10 @@ impl Config {
 				}
 				let takes_value = matches!(
 					key,
-					"http-bind" | "http-port" | "http-public" | "assets" | "server" | "session-state" | "allow-origin"
+					"http-bind" | "http-port" | "http-public" | "assets" | "server" | "allow-origin"
 				) || key.starts_with("http-admission-")
-					|| key.starts_with("browser-admission-");
+					|| key.starts_with("browser-admission-")
+					|| key.starts_with("session-");
 				// `--allow-origin=` is a value, the empty list, as its help says.
 				let empty_is_value = key == "allow-origin";
 				if takes_value && (!option.contains('=') || (value.is_empty() && !empty_is_value)) {
@@ -176,26 +190,59 @@ impl Config {
 					.map(|p| p.with_file_name("rooms-server"))
 					.map_err(|e| e.to_string())
 			})?;
-		let session = options
-			.remove("session-state")
-			.or_else(|| env("GLOWCAP_ROOMS_SESSION_STATE"))
-			.filter(|state| !state.is_empty())
-			.map(|state| {
-				crate::session::Config::parse([format!("--state={state}")], &env)
-					.map_err(|error| error.to_string())?
-					.ok_or_else(|| "session configuration did not produce a launch".to_owned())
+		// The shared session's options, in the session's own grammar: every
+		// `--session-<option>` reaches it as `--<option>`, and `--session-state`
+		// (or GLOWCAP_ROOMS_SESSION_STATE) turns the session on.
+		let mut session = BTreeMap::new();
+		let prefixed: Vec<(String, String)> = options
+			.keys()
+			.filter_map(|key| {
+				key.strip_prefix("session-")
+					.map(|option| (key.clone(), option.to_owned()))
 			})
-			.transpose()?;
+			.collect();
+		for (key, option) in prefixed {
+			if !crate::session::Config::accepts(&option) {
+				return Err(format!("unknown option: --{key}"));
+			}
+			if let Some(value) = options.remove(&key) {
+				session.insert(option, value);
+			}
+			raw_options.remove(&key);
+		}
+		let session_wanted = session.contains_key("state")
+			|| env(&crate::session::Config::variable("state")).is_some_and(|state| !state.trim().is_empty());
+		if !session_wanted && !session.is_empty() {
+			return Err(
+				"the shared session's options need --session-state=<directory> or GLOWCAP_ROOMS_SESSION_STATE".into(),
+			);
+		}
 		options
 			.entry("port".into())
 			.or_insert_with(|| positional.get(1).cloned().unwrap_or_else(|| "9099".into()));
-		let tor = super::tor::Plan::read(&options, &env)?;
-		if let Some(tor) = &tor {
-			for (key, value) in [("onion-socks", &tor.socks), ("onion-control", &tor.control)] {
-				options.insert(key.into(), value.clone());
-				raw_options.insert(key.into(), format!("--{key}={value}"));
-			}
-		}
+		// A private Tor serves every onion door that names no running Tor:
+		// the directory's, and the shared session's when there is one.
+		let directory_value = |name: &str| {
+			options
+				.get(name)
+				.cloned()
+				.or_else(|| env(&server::Config::variable(name)))
+				.map(|s| s.trim().to_owned())
+				.filter(|s| !s.is_empty())
+		};
+		let session_value = |name: &str| {
+			session
+				.get(name)
+				.cloned()
+				.or_else(|| env(&crate::session::Config::variable(name)))
+				.map(|s| s.trim().to_owned())
+				.filter(|s| !s.is_empty())
+		};
+		let tor = if session_wanted {
+			super::tor::Plan::read(&[&directory_value, &session_value], &env)?
+		} else {
+			super::tor::Plan::read(&[&directory_value], &env)?
+		};
 		let admission = super::admission::Config::read(&options, &env)?;
 		let browser_admission = super::browser_admission::Config::read(&options, &env)?;
 		for key in rooms_application::admission::Settings::OPTIONS {
@@ -219,9 +266,27 @@ impl Config {
 			_ => env(name),
 		})?;
 		let ice = super::ice::Config::read(&env)?;
-		let room = server::Config::parse(server_args.clone(), env)
+		// Both peers are validated as they will be launched. This server's own
+		// relay stands at the address the HTTP listener binds, known only
+		// then, so validation stands a loopback relay in for it and `serve`
+		// hands each peer the real one.
+		let handed = PeerEnvironment {
+			relay: listener_relay(
+				relay_url.as_deref(),
+				own_relay("ws://127.0.0.1/relay".into(), public.as_ref()),
+			),
+			tor: tor.as_ref().map(|plan| plan.endpoints.clone()),
+		};
+		let room = server::Config::parse(server_args.clone(), |key| handed.read(&env, key))
 			.map_err(|e| e.to_string())?
 			.ok_or("server configuration did not produce a launch")?;
+		let session = session_wanted
+			.then(|| {
+				let args: Vec<String> = session.iter().map(|(key, value)| format!("--{key}={value}")).collect();
+				session_config(args.clone(), |key| handed.read(&env, key))?;
+				Ok::<_, String>(Session { args })
+			})
+			.transpose()?;
 		Ok(Some(Self {
 			bind,
 			port,
@@ -239,6 +304,71 @@ impl Config {
 			tor,
 		}))
 	}
+}
+
+/// What this front hands the peers it runs, the directory and the shared
+/// session, in the environment each reads: the relay a relay door registers
+/// at, and the private Tor an onion door publishes through.
+pub(super) struct PeerEnvironment {
+	pub relay: relay::Address,
+	pub tor: Option<super::tor::Endpoints>,
+}
+impl PeerEnvironment {
+	/// Every variable this front hands, with its value when the front has one.
+	pub fn variables(&self) -> [(&'static str, Option<&str>); 4] {
+		[
+			("GLOWCAP_ROOMS_RELAY_URL", Some(self.relay.reach.as_str())),
+			("GLOWCAP_ROOMS_RELAY_PUBLIC_URL", self.relay.public()),
+			("GLOWCAP_ONION_SOCKS", self.tor.as_ref().map(|tor| tor.socks.as_str())),
+			(
+				"GLOWCAP_ONION_CONTROL",
+				self.tor.as_ref().map(|tor| tor.control.as_str()),
+			),
+		]
+	}
+	/// Read `key` as a peer under this front does: what the front hands,
+	/// else the environment.
+	pub fn read(&self, env: impl Fn(&str) -> Option<String>, key: &str) -> Option<String> {
+		self.variables()
+			.into_iter()
+			.find_map(|(name, value)| (name == key).then_some(value).flatten())
+			.map(str::to_owned)
+			.or_else(|| env(key))
+	}
+}
+
+/// This server's own relay: reached at `reach`, the `/relay` route of its
+/// bound address, and dialed by browsers at `public`'s relay when one is
+/// named, else where it is reached.
+pub(super) fn own_relay(reach: String, public: Option<&url::Url>) -> relay::Address {
+	relay::Address {
+		dial: public.map(public_relay_url).unwrap_or_else(|| reach.clone()),
+		reach,
+	}
+}
+
+/// The relay the peers under this front register relay doors at: a relay the
+/// operator named, as it is, else this server's `own`.
+pub(super) fn listener_relay(named: Option<&str>, own: relay::Address) -> relay::Address {
+	match named {
+		Some(named) => relay::Address {
+			reach: named.to_owned(),
+			dial: named.to_owned(),
+		},
+		None => own,
+	}
+}
+
+/// The shared session's configuration as it reads its options under this
+/// front. `--help` is no session option, so a parse that refuses nothing
+/// produces one.
+pub(super) fn session_config(
+	args: impl IntoIterator<Item = String>,
+	read: impl Fn(&str) -> Option<String>,
+) -> Result<crate::session::Config, String> {
+	crate::session::Config::parse(args, read)
+		.map_err(|error| error.to_string())?
+		.ok_or_else(|| "session configuration did not produce a launch".to_owned())
 }
 
 /// The relay browsers reach at `public`: the same origin over WebSocket,
@@ -264,276 +394,4 @@ pub(super) fn needs_value(key: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-	use super::{BrowserAssets, Config};
-	use std::path::Path;
-
-	fn parse(args: &[&str]) -> Config {
-		Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None)
-			.unwrap()
-			.unwrap()
-	}
-
-	#[test]
-	fn http_policy_stays_at_its_owner_and_arguments_override_environment() {
-		let config = Config::parse(
-			[
-				"--http-admission-rates=preview=2/10".into(),
-				"--http-admission-per-address=true".into(),
-			],
-			|key| (key == "GLOWCAP_ROOMS_HTTP_ADMISSION_RATES").then(|| "preview=1/1".into()),
-		)
-		.unwrap()
-		.unwrap();
-		assert_eq!(
-			config
-				.admission
-				.settings
-				.profile()
-				.rate(rooms_application::admission::Class::Preview)
-				.burst(),
-			2
-		);
-		assert!(config.admission.per_address);
-		assert!(!config.server_args.iter().any(|s| s.starts_with("--http-admission")));
-		assert!(config.admission.settings.summary().contains("admission-rates=argument"));
-		assert!(Config::parse(["--http-admission-rows=0".into()], |_| None).is_err());
-	}
-
-	#[test]
-	fn every_listen_declaration_reaches_the_directory() {
-		let config = parse(&["--listen=noise-relay", "--transport=tcp", "--listen=noise-tcp,port=0"]);
-		let declared: Vec<_> = config
-			.server_args
-			.iter()
-			.filter(|arg| arg.starts_with("--listen="))
-			.collect();
-		assert_eq!(declared, ["--listen=noise-relay", "--listen=noise-tcp,port=0"]);
-		assert_eq!(config.room.listen.len(), 2);
-		assert!(config.relay_url.is_none());
-		let refused = |args: &[&str]| {
-			Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None)
-				.err()
-				.expect("a refusal")
-		};
-		assert_eq!(
-			refused(&["--listen"]),
-			"--listen needs a value, as in --listen=<transport>[,<name>=<value>...]"
-		);
-		assert!(refused(&["--listen=iroh"]).contains("names the announced transport"));
-		let config = Config::parse([], |key| {
-			(key == "GLOWCAP_ROOMS_RELAY_URL").then(|| " wss://relay.example/relay ".into())
-		})
-		.unwrap()
-		.unwrap();
-		assert_eq!(config.relay_url.as_deref(), Some("wss://relay.example/relay"));
-	}
-
-	#[test]
-	fn allowed_origins_come_from_the_option_over_the_environment_and_stay_out_of_server_args() {
-		let env = |key: &str| (key == "GLOWCAP_RELAY_ALLOW_ORIGINS").then(|| "https://env.example".into());
-		let config = Config::parse(["--allow-origin=https://glowcap.org,http://127.0.0.1:8093".into()], env)
-			.unwrap()
-			.unwrap();
-		let origins: Vec<_> = config
-			.relay
-			.origins
-			.iter()
-			.map(|origin| origin.ascii_serialization())
-			.collect();
-		assert_eq!(origins, ["https://glowcap.org", "http://127.0.0.1:8093"]);
-		assert!(!config.server_args.iter().any(|s| s.contains("allow-origin")));
-		let config = Config::parse([], env).unwrap().unwrap();
-		assert_eq!(config.relay.origins.len(), 1);
-		// The empty value the help names: no page but this server's own.
-		let config = Config::parse(["--allow-origin=".into()], env).unwrap().unwrap();
-		assert!(config.relay.origins.is_empty() && config.relay.pages.is_empty());
-		assert_eq!(
-			Config::parse(["--allow-origin".into()], |_| None).err().unwrap(),
-			"--allow-origin needs a value, as in --allow-origin=<origin|page,...>"
-		);
-		assert_eq!(
-			Config::parse(["--session-state".into()], |_| None).err().unwrap(),
-			"--session-state needs a value, as in --session-state=<directory>"
-		);
-		// A page's own address admits its origin, and is the page the banner
-		// links to. A path without its final `/` names no page exactly.
-		let config = Config::parse(
-			["--allow-origin=https://glowcap.org/rooms/app/,http://127.0.0.1:8093".into()],
-			|_| None,
-		)
-		.unwrap()
-		.unwrap();
-		assert_eq!(config.relay.origins.len(), 2);
-		assert_eq!(config.relay.origins[0].ascii_serialization(), "https://glowcap.org");
-		let pages: Vec<_> = config.relay.pages.iter().map(url::Url::as_str).collect();
-		assert_eq!(pages, ["https://glowcap.org/rooms/app/"]);
-		// The option repeated keeps every value, in order, the same as one list.
-		let repeated = Config::parse(
-			[
-				"--allow-origin=https://glowcap.org/rooms/app/".into(),
-				"--allow-origin=http://127.0.0.1:8093".into(),
-			],
-			|_| None,
-		)
-		.unwrap()
-		.unwrap();
-		assert_eq!(repeated.relay.origins, config.relay.origins);
-		assert_eq!(repeated.relay.pages, config.relay.pages);
-		// An empty value among others adds nothing, and alone it allows none.
-		for mixed in [
-			["--allow-origin=", "--allow-origin=http://127.0.0.1:8093"],
-			["--allow-origin=http://127.0.0.1:8093", "--allow-origin="],
-		] {
-			assert_eq!(parse(&mixed).relay.origins.len(), 1, "{mixed:?}");
-		}
-		assert!(Config::parse(["--allow-origin=https://glowcap.org/rooms/app".into()], |_| None).is_err());
-		// A page at the root of its origin is written with its `/`, and a bare
-		// origin without one, so the two are told apart as written.
-		let config = Config::parse(
-			["--allow-origin=https://pages.example/,https://origin.example".into()],
-			|_| None,
-		)
-		.unwrap()
-		.unwrap();
-		let pages: Vec<_> = config.relay.pages.iter().map(url::Url::as_str).collect();
-		assert_eq!(pages, ["https://pages.example/"]);
-		assert_eq!(
-			config.relay.listed,
-			["https://pages.example/", "https://origin.example"]
-		);
-	}
-
-	#[test]
-	fn every_other_option_is_given_once_and_a_port_is_named_one_way() {
-		let refused = |args: &[&str]| {
-			Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None)
-				.err()
-				.unwrap()
-		};
-		assert_eq!(
-			refused(&["--http-port=8081", "--http-port=8082"]),
-			"repeated option: --http-port"
-		);
-		assert_eq!(
-			refused(&["--transport=iroh", "--transport=tcp"]),
-			"repeated option: --transport"
-		);
-		assert_eq!(refused(&["--operator", "--operator"]), "repeated option: --operator");
-		assert_eq!(
-			refused(&["8081", "--http-port=8081"]),
-			"the HTTP port is given twice, as --http-port and as the first positional argument"
-		);
-		assert_eq!(
-			refused(&["8081", "9100", "--port=9100"]),
-			"the room port is given twice, as --port and as the second positional argument"
-		);
-		// The environment supplies a default the argument replaces, never a
-		// second value, so a launcher's choice and a person's coexist.
-		let env = |key: &str| (key == "GLOWCAP_ROOMS_TRANSPORT").then(|| "iroh".into());
-		let config = Config::parse(["--transport=tcp".into()], env).unwrap().unwrap();
-		assert!(config.server_args.contains(&"--transport=tcp".to_owned()));
-	}
-
-	#[test]
-	fn the_session_workspace_is_read_from_the_argument_or_the_environment() {
-		let env = |key: &str| (key == "GLOWCAP_ROOMS_SESSION_STATE").then(|| "/tmp/env-session".into());
-		assert!(Config::parse([], env).unwrap().unwrap().session.is_some());
-		assert!(Config::parse([], |_| None).unwrap().unwrap().session.is_none());
-		let config = Config::parse(["--session-state=/tmp/arg-session".into()], env)
-			.unwrap()
-			.unwrap();
-		assert_eq!(config.session.unwrap().state, Path::new("/tmp/arg-session"));
-	}
-
-	#[test]
-	fn the_public_address_is_read_exactly_from_arguments_or_environment_and_stays_out_of_server_args() {
-		let config = Config::parse(["--http-public=https://rooms.example/".into()], |_| None)
-			.unwrap()
-			.unwrap();
-		assert_eq!(
-			config.public.as_ref().map(url::Url::as_str),
-			Some("https://rooms.example/")
-		);
-		assert!(!config.server_args.iter().any(|s| s.contains("http-public")));
-		let config = Config::parse([], |key| {
-			(key == "GLOWCAP_ROOMS_HTTP_PUBLIC").then(|| "https://rooms.example/app/".into())
-		})
-		.unwrap()
-		.unwrap();
-		assert_eq!(
-			config.public.as_ref().map(url::Url::as_str),
-			Some("https://rooms.example/app/")
-		);
-		assert!(parse(&[]).public.is_none());
-		// A bare origin is the address with the path `/`, as the URL standard
-		// reads it, and a path without its final `/` is refused whole.
-		let config = Config::parse(["--http-public=https://rooms.example".into()], |_| None)
-			.unwrap()
-			.unwrap();
-		assert_eq!(
-			config.public.as_ref().map(url::Url::as_str),
-			Some("https://rooms.example/")
-		);
-		for refused in [
-			"https://rooms.example/app",
-			"ws://rooms.example/",
-			"https://rooms.example/?x",
-			"rooms.example/",
-		] {
-			let error = Config::parse([format!("--http-public={refused}")], |_| None)
-				.err()
-				.expect("refused");
-			assert!(error.contains("--http-public") && error.contains(refused), "{error}");
-		}
-		assert_eq!(
-			Config::parse(["--http-public".into()], |_| None)
-				.err()
-				.expect("refused"),
-			"--http-public needs a value, as in --http-public=<url>"
-		);
-	}
-	#[test]
-	fn trusted_proxies_are_read_from_arguments_or_environment_and_stay_out_of_server_args() {
-		let config = Config::parse(["--http-trusted-proxies=10.0.0.0/8, fd00::1".into()], |_| None)
-			.unwrap()
-			.unwrap();
-		assert_eq!(config.admission.trusted_proxies.len(), 2);
-		assert!(!config.server_args.iter().any(|s| s.contains("trusted-proxies")));
-		let config = Config::parse([], |key| {
-			(key == "GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES").then(|| "127.0.0.1".into())
-		})
-		.unwrap()
-		.unwrap();
-		assert_eq!(config.admission.trusted_proxies.len(), 1);
-		assert_eq!(parse(&[]).admission.trusted_proxies.len(), 0);
-		let error = Config::parse(["--http-trusted-proxies=10.0.0.0/40".into()], |_| None)
-			.err()
-			.unwrap();
-		assert!(error.contains("10.0.0.0/40"), "{error}");
-	}
-
-	#[test]
-	fn browser_asset_mode_is_explicit() {
-		assert!(
-			matches!(parse(&[]).browser_assets, BrowserAssets::Source(path) if path == Path::new("apps/rooms/web"))
-		);
-		assert!(
-			matches!(parse(&["--assets=prepared", "--prepared"]).browser_assets, BrowserAssets::Prepared(path) if path == Path::new("prepared"))
-		);
-		assert!(matches!(
-			parse(&["--no-browser-assets"]).browser_assets,
-			BrowserAssets::Disabled
-		));
-	}
-
-	#[test]
-	fn disabled_assets_cannot_hide_an_asset_configuration() {
-		for args in [
-			["--no-browser-assets", "--assets=prepared"].as_slice(),
-			["--no-browser-assets", "--prepared"].as_slice(),
-		] {
-			assert!(Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None).is_err());
-		}
-	}
-}
+mod tests;

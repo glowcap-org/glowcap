@@ -293,8 +293,18 @@ export function createManagedController(
 		const allocation = nick.kind === "exact" ? "exact" : "automatic";
 		const row = session.current?.intent.directories.find((row) => row.id === id);
 		if (row == null) await session.actions.directory(id, route, nick, takesHome(route, home), signal);
-		else if (row.nick !== name || row.nickAllocation !== allocation) {
-			await run("chooseDirectoryNickname", id, name, allocation);
+		else {
+			// A typed address re-routes a held directory when it is not the route
+			// the directory is held through: the capability is fetched through the
+			// typed doors and replaces the held one, which keeps its home mark and
+			// takes it under the one rule a new directory does. A blank address,
+			// or the held route again, changes the nickname at most.
+			const reroute = locator !== "" && !(await session.workspace.directoryRouteHeld(id, route));
+			if (signal?.aborted) return id;
+			if (reroute) await session.actions.directory(id, route, nick, takesHome(route, home), signal);
+			else if (row.nick !== name || row.nickAllocation !== allocation) {
+				await run("chooseDirectoryNickname", id, name, allocation);
+			}
 		}
 		if (signal?.aborted) return id;
 		store.openDir(projection, id, route);
