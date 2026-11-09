@@ -31,10 +31,30 @@ export type SettledOutcome = {
  * nothing settled, which keeps the request for replay. */
 export type SubmissionOutcome = SettledOutcome | { readonly status: "uncertain"; readonly reason?: string };
 
+/** Read what Rust reported. Every submit answers `{ status, reason? }`. Any
+ * other value settled nothing this page can act on, so it is read as
+ * uncertain and the holder keeps the request. */
+function readOutcome(value: unknown): SubmissionOutcome {
+	if (typeof value === "object" && value !== null) {
+		const status: unknown = Reflect.get(value, "status");
+		const reason: unknown = Reflect.get(value, "reason");
+		if (reason == null || typeof reason === "string") {
+			switch (status) {
+				case "committed":
+				case "conflict":
+				case "refused":
+				case "uncertain":
+					return reason == null ? { status } : { status, reason };
+			}
+		}
+	}
+	return { status: "uncertain", reason: `unrecognized outcome ${JSON.stringify(value) ?? String(value)}` };
+}
+
 /** Submit a prepared acquisition. An outcome Rust could not settle throws, and
  * the holder keeps the request. */
-export async function submitAcquisition(request: { submit(): Promise<SubmissionOutcome> }): Promise<SettledOutcome> {
-	const outcome = await request.submit();
+export async function submitAcquisition(request: { submit(): Promise<unknown> }): Promise<SettledOutcome> {
+	const outcome = readOutcome(await request.submit());
 	if (outcome.status !== "uncertain") return outcome;
 	const { reason } = outcome;
 	throw new Error(

@@ -8,6 +8,10 @@ import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../..
 import { AcquisitionRefused } from "../../web/ui/session/managed/acquisition.ts";
 import { openChanges } from "../../web/ui/session/managed/open_changes.ts";
 
+// A reason Rust reports as `refused`: a coded refusal the session is known to
+// make before any effect. A bare break stays `uncertain`.
+const REFUSED = "glowcap error -12: admission-busy: the session is handling as much work as it can";
+
 Deno.test("a directory acquisition the session refused is forgotten and its reason reaches the caller", async () => {
 	let submissions = 0;
 	const session = viewer({
@@ -16,7 +20,7 @@ Deno.test("a directory acquisition the session refused is forgotten and its reas
 			Promise.resolve({
 				submit: () => {
 					submissions++;
-					return Promise.resolve({ status: "refused", reason: "glowcap error -12: PromiseBroken" });
+					return Promise.resolve({ status: "refused", reason: REFUSED });
 				},
 				free() {},
 			}),
@@ -26,7 +30,7 @@ Deno.test("a directory acquisition the session refused is forgotten and its reas
 			.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true)
 			.then(() => null, (error: unknown) => error);
 		assert(outcome instanceof AcquisitionRefused, "the session's refusal is the caller's");
-		assertEquals(outcome.message, "glowcap error -12: PromiseBroken");
+		assertEquals(outcome.message, REFUSED);
 		// Nothing was admitted, so nothing is left to pick back up or finish.
 		assertEquals([session.actions.pending, session.actions.recoverable, openChanges(session, [])], [[], [], []]);
 		await session.actions.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true).catch(
@@ -69,6 +73,30 @@ Deno.test("a directory acquisition nothing settled is listed with its outcome un
 		);
 		await session.releaseOperation("directory:directory");
 		assertEquals([session.actions.pending, openChanges(session, []), submissions], [[], [], 1]);
+	} finally {
+		await session.close();
+	}
+});
+
+Deno.test("an outcome Rust did not shape is held as unsettled, never taken as committed", async () => {
+	const session = viewer({
+		snapshot: () => Promise.resolve(snapshot()),
+		// The shape before outcomes carried a reason, as a stale bundle would answer.
+		prepareDirectory: () => Promise.resolve({ submit: () => Promise.resolve("committed"), free() {} }),
+	});
+	try {
+		const outcome: unknown = await session.actions
+			.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true)
+			.then(() => null, (error: unknown) => error);
+		assert(outcome instanceof Error && !(outcome instanceof AcquisitionRefused), String(outcome));
+		assert(outcome.message.includes('unrecognized outcome "committed"'), outcome.message);
+		assertEquals(session.actions.recoverable, ["directory:directory"]);
+		const [row] = openChanges(session, []);
+		assertEquals({ status: row.status, state: row.state, letGo: row.letGo }, {
+			status: "unknown",
+			state: "unknown",
+			letGo: true,
+		});
 	} finally {
 		await session.close();
 	}
@@ -125,7 +153,7 @@ Deno.test("a workspace selection the session refused is freed and the next selec
 			return Promise.resolve({
 				submit: () =>
 					Promise.resolve(
-						preparations === 1 ? { status: "refused", reason: "no such view" } : { status: "committed" },
+						preparations === 1 ? { status: "refused", reason: REFUSED } : { status: "committed" },
 					),
 				free() {
 					freed++;
@@ -142,7 +170,7 @@ Deno.test("a workspace selection the session refused is freed and the next selec
 	try {
 		const outcome: unknown = await session.selectWorkspace("original").then(() => null, (error: unknown) => error);
 		assert(outcome instanceof AcquisitionRefused, "the session's refusal is the caller's");
-		assertEquals(outcome.message, "no such view");
+		assertEquals(outcome.message, REFUSED);
 		assertEquals(freed, 1, "a refused selection is not held");
 		// Nothing is held, so a different selection is a fresh gesture, not a
 		// replacement the retained one refuses.
