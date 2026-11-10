@@ -23,7 +23,7 @@ other language providers, and the browser connector all support `noise-relay`.
 A browser has no socket to dial with, so the relay reaches the far side one of
 two ways.
 
-## Dialing a far peer
+## [Dialing a far peer]($section.id('dialing-a-far-peer'))
 
 The browser names a target and the relay dials it. The Deno reference relay reads
 the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
@@ -73,9 +73,9 @@ apply backpressure, and reclaim idle sessions the same way.
 A `keyed-relay` locator names the waiting peer's key, and the dialing host
 reaches it through its configured relay URL
 ([ADR-0034](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0034-browser-peers.md)).
-`noise-relay` uses the same path and seals the CapTP stream before it begins.
-`noise-tcp`, `keyed-tcp`, `webrtc`, and `inproc` peers never use the relay,
-and an `iroh` peer meets it only when a browser dials through it.
+`noise-relay` uses the same registration path and encrypts the CapTP stream
+between the peers. A browser can reach a TCP or iroh locator through a
+WebSocket gateway instead, as described under [Dialing a far peer]($link.ref('dialing-a-far-peer')).
 [Choosing a transport]($link.page('transports/choosing')) lists them all, and
 the [Noise guide]($link.page('transports/noise')) covers the sealed path.
 

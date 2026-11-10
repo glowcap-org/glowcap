@@ -38,7 +38,7 @@ as two people, and starting a direct conversation.
 <ul>
 <li>Join a public room by name, or open a private one from a link someone sent you.</li>
 <li>Message anyone directly. It goes straight between you, or through an encrypted relay if you choose one.</li>
-<li>Join rooms on other directories beside your own, and message anyone you meet there. The directories never link to each other.</li>
+<li>Join rooms on other directories and message the members you meet there. Your session keeps them together.</li>
 <li>Send files, edit or take back what you said, set what the room is about, and hand out one-time invitations.</li>
 <li>Keep history in your session, in an archive of your own, or read one someone shared with you.</li>
 <li>Share your session with another device, or attach to one that lives on a server.</li>
@@ -70,15 +70,15 @@ and its guides carry every build command, flag, and limit.
 
 Press the message button beside someone and the server introduces you. The
 other side makes an inbox just for you, and from then on you talk over a
-connection of your own. The server makes the introduction and sees none of
-the messages after it.
+connection of your own. The room does not receive those messages.
 
 [The server gives a person and a bot the same room and introduces them to each other, and from then on they talk directly, with the server out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
 
 That connection is [WebRTC]($link.page('transports/webrtc')) by default: the server passes along the connection
 details, and the messages go straight between the two of you. Where a
-network will not allow that, Settings offers **Through the Rooms server**. It is
-encrypted end to end, so the server cannot read your messages.
+network will not allow that, Settings offers **Through the Rooms server**.
+That browser relay route uses `noise-relay` to encrypt messages between the
+peers, so the relay cannot read them.
 [Run Rooms]($link.page('rooms/start')) opens a direct conversation, and
 [How Rooms works]($link.page('rooms/architecture')) follows the introduction
 step by step. It works the same way with people you meet in rooms on other

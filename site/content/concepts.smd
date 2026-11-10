@@ -74,7 +74,7 @@ names on disk, and restores an object when a peer fetches its name.
 | --- | --- |
 | locator | A peer address, and how to dial it. |
 | swiss number | The secret name of one object at that peer. |
-| live reference | A reference you hold in a session and can call. |
+| live reference | A capability your program holds and can call. |
 
 [Everything left of the hints is an address, and none of it grants access. Only the swiss number names something you can be given.]($image.siteAsset('diagram-locator.svg'))
 

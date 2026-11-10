@@ -51,8 +51,9 @@ start with its rendered opening, including text supplied by the layout.
    first.
 5. **Words.** Turn noun stacks into verbs, and replace our labels with what
    the reader calls the thing ([Reader voice](#reader-voice)).
-6. **Truth.** Check every reworded claim against its source. Plain and wrong
-   is worse than stiff and right.
+6. **Truth.** Check reworded claims against their sources. When narrowing one,
+   check linked explanations of the same behavior, including metadata and
+   layout copy.
 
 Keep value markers, generated blocks, links, and OKF headers intact. Report
 the word count before and after. A tightened doc that came out longer needs
