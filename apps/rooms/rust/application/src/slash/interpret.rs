@@ -66,6 +66,18 @@ fn room(context: &Context<'_>, why: &'static str) -> Result<(), Plan> {
 		Err(refused(why))
 	}
 }
+/// A command that takes nothing refuses words after it. Acting on the open
+/// conversation while the reader named another would be a surprise.
+fn nothing_after(text: &DocumentText, name: Name) -> Result<(), Plan> {
+	if empty(&trimmed(text)) {
+		return Ok(());
+	}
+	let definition = name.definition();
+	Err(refused(format!(
+		"/{} takes nothing after it. Write it as {}.",
+		definition.name, definition.usage
+	)))
+}
 /// The one person a command names, without its `@`. `None` when no name was
 /// written, which covers a sigil on its own. Words after the name refuse,
 /// because the command would otherwise act on the first word and drop the
@@ -161,6 +173,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 				}
 			}
 			Leave | Clear | Details => {
+				nothing_after(&text, name)?;
 				if context.place == Place::None {
 					refused(match name {
 						Leave => "There is nothing open to leave.",
@@ -172,6 +185,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 				}
 			}
 			Members => {
+				nothing_after(&text, name)?;
 				room(context, "Only a room has a member list.")?;
 				effect("members", "".into())
 			}
@@ -251,7 +265,10 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 					effect("edit", text)
 				}
 			}
-			Delete => effect("delete", "".into()),
+			Delete => {
+				nothing_after(&text, name)?;
+				effect("delete", "".into())
+			}
 			Ignore => match one_person(&text, name)? {
 				None if empty(&text) => effect("ignored", text),
 				None => refused("Use /ignore followed by who to stop hearing, or /ignore on its own to list them."),
@@ -265,7 +282,10 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 				}),
 				Some(who) => effect(name.definition().name, who),
 			},
-			Help | Directories | Quit => effect(name.definition().name, "".into()),
+			Help | Directories | Quit => {
+				nothing_after(&text, name)?;
+				effect(name.definition().name, "".into())
+			}
 			List => effect("list", text),
 		})
 	};

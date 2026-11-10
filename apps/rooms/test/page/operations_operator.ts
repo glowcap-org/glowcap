@@ -53,7 +53,10 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 		if (await tab.locator(section).count() !== 1) fail(`the Rooms operator is missing ${section}`);
 	}
 	const reset = tab.locator("#operatorReset");
-	if (await reset.getByText("This operator connection remains so the action can answer.").count() !== 1) {
+	if (
+		await reset.getByText("This operator connection and its nickname remain so the action can answer.").count() !==
+			1
+	) {
 		fail("operator reset does not state why its own connection remains");
 	}
 	if (await reset.getByRole("button", { name: "Disconnect other peer sessions…" }).count() !== 1) {

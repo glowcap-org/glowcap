@@ -57,6 +57,7 @@ mod results;
 mod retained_controls;
 mod retention;
 mod retirement;
+mod room_identity;
 mod sharing_results;
 mod signaling;
 mod source_lending;

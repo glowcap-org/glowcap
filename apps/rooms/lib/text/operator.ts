@@ -197,4 +197,4 @@ export const operatorTroubleClear = "Clear directory trouble";
 /** Reset and recovery. */
 export const operatorResetTitle = "Reset and recovery";
 export const operatorResetLead =
-	"Reset one authority class at a time. This operator connection remains so the action can answer.";
+	"Reset one authority class at a time. This operator connection and its nickname remain so the action can answer.";

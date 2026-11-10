@@ -6,6 +6,11 @@
 // which they are pressing.
 
 export const roomCapabilitiesTitle = "Room links";
+/** The lead over the three sections. A reader who has just been handed a link
+ * learns which power it carries and that it is taken here, in the room, with
+ * no need to leave and come back in by link. */
+export const roomCapabilitiesLead =
+	"The room link lets someone in. The manager link runs the room: it makes links, hands out moderation, and sets who can enter. The moderator link lets its holder ask members to leave. To take a link someone shared with you, paste it below while you are in the room.";
 
 /** A bridged room has no manager capability to take, because the channel is not
  * this server's to manage. The sentence comes in three parts so the middle one

@@ -243,8 +243,12 @@ export { AWAY } from "./protocol_data.ts";
 export { KICK } from "./protocol_data.ts";
 /** Ask a steward which room publication it governs. The answer is the room's
  * public identity digest, never its bearer swiss number, so a client can prove
- * a handed-over steward belongs to the room without gaining room authority. */
-export { GOVERNS, MANAGED_ROOM_IDENTITY } from "./protocol_data.ts";
+ * a handed-over steward belongs to the room without gaining room authority.
+ * A room entrance and a member's seat answer `managedRoomIdentity` with the
+ * manager's identity, and the seat answers `roomIdentity` with that same
+ * public digest, so a member can prove a handed manager or moderator link
+ * belongs to the room they stand in, however they came in. */
+export { GOVERNS, MANAGED_ROOM_IDENTITY, ROOM_IDENTITY } from "./protocol_data.ts";
 
 /** What this room calls itself: `called()`.
  *

@@ -43,7 +43,12 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 
 import { SERVER } from "../support/paths.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../../lib/locator.ts";
-import { inviteWithoutTheRoom, kickWithoutModerator, roomLinkLine } from "../../lib/text/commands.ts";
+import {
+	inviteWithoutTheRoom,
+	kickWithoutModerator,
+	notRegisteredForDirect,
+	roomLinkLine,
+} from "../../lib/text/commands.ts";
 import { roomLinkNoneHint } from "../../lib/text/room_authority.ts";
 import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
@@ -328,6 +333,10 @@ try {
 	await told(cy, roomLinkNoneHint, "/link from a seat did not say the link is not this session's to mint");
 	await say(cy, "/kick bo");
 	await told(cy, kickWithoutModerator, "/kick without the moderator capability did not say so");
+	// A name nobody registered is the reader's typo, said where they typed it,
+	// and the composer takes the next line as usual.
+	await say(cy, "/msg nobody-9");
+	await told(cy, notRegisteredForDirect("nobody-9"), "/msg to a name nobody holds did not say so");
 	await say(ada, `/join ${shown}`);
 	await ada.waitForFunction(
 		() => (document.getElementById("log")?.textContent ?? "").includes("You're already in this room."),
@@ -550,6 +559,51 @@ try {
 	}
 	await cold.close();
 
+	// ── A link is taken where you stand ─────────────────────────────────
+	// cy came into the lobby by its name and holds no room link. ada, who made
+	// the lobby, hands her the manager link and a moderator link, and cy takes
+	// both on the room card without leaving the room, because her seat says
+	// which room she is in.
+	await openRailRoom(ada, ROOM, false);
+	await ada.click("#roomAbout");
+	await ada.click("#convcardCapabilitiesTab");
+	const lobbyManager = (await ada.textContent("#convcardManager"))?.trim() ?? "";
+	if (!lobbyManager.startsWith("ocapn://")) {
+		fail(`the lobby's maker holds no manager link to hand over: ${JSON.stringify(lobbyManager)}`);
+	}
+	await ada.keyboard.press("Escape");
+	await openRailRoom(cy, ROOM, false);
+	await cy.click("#roomAbout");
+	await cy.click("#convcardCapabilitiesTab");
+	await cy.waitForSelector("#convcardLinksLead").catch(() =>
+		fail("the room card did not say what the links are and that they are taken here")
+	);
+	const takenOnCard = async (tab: typeof cy, id: string, what: string) => {
+		await tab.waitForSelector(id, { timeout: 30_000 }).catch(async () => {
+			const links = await tab.evaluate(() =>
+				document.querySelector('[aria-label="Room links"]')?.textContent ?? ""
+			);
+			fail(`a member who came in by name could not take the ${what}: ${JSON.stringify(links.slice(0, 3000))}`);
+		});
+	};
+	await cy.fill("#convcardManagerTake", lobbyManager);
+	await cy.getByRole("button", { name: "Take manager link" }).click();
+	await takenOnCard(cy, "#convcardManager", "manager link");
+	await ada.click("#roomAbout");
+	await ada.click("#convcardCapabilitiesTab");
+	await ada.click("#convcardStewardClaim");
+	await ada.waitForSelector("#convcardSteward", { timeout: 30_000 }).catch(async () => {
+		const links = await ada.evaluate(() => document.querySelector('[aria-label="Room links"]')?.textContent ?? "");
+		fail(`the lobby's manager could not issue a moderator link: ${JSON.stringify(links.slice(0, 3000))}`);
+	});
+	const lobbySteward = (await ada.textContent("#convcardSteward"))?.trim() ?? "";
+	await ada.keyboard.press("Escape");
+	await openRailRoom(ada, LABEL, true);
+	await cy.fill("#convcardStewardTake", lobbySteward);
+	await cy.getByRole("button", { name: "Take link" }).click();
+	await takenOnCard(cy, "#convcardSteward", "moderator link");
+	await cy.keyboard.press("Escape");
+
 	console.log(
 		"PASS: a private room is reachable only by the authority to it — it is in no list, " +
 			"naming the same thing opens a different room, an offer over a direct line is what " +
@@ -558,7 +612,8 @@ try {
 			"leaves them out. A link redeems where it says: on the session this tab already " +
 			"holds when it names that directory, and on one opened beside it when it names " +
 			"another. A link whose peer is not there and a link whose secret is wrong are " +
-			"refused in words of their own, and neither leaves a server behind",
+			"refused in words of their own, and neither leaves a server behind. A member who came in by " +
+			"name takes the manager and moderator links on the room card without leaving the room",
 	);
 } finally {
 	clearTimeout(deadline);

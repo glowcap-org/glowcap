@@ -12,10 +12,12 @@ use rooms_application::{
 	failure::FailureCode,
 	room::{
 		ArgumentView,
+		authority::{MANAGED_IDENTITY, ROOM_IDENTITY, room_identity},
 		history::VERB as HISTORY,
 		invitation::MINT,
 		membership::{AWAY, LEAVE, TYPING},
 		policy::MembershipKind,
+		stewardship::Kind,
 	},
 	server::rooms::{MembershipKey, RoomKey},
 };
@@ -54,6 +56,15 @@ pub(super) fn admitted(
 /// One observer or participant facet for one exact membership. Files go
 /// through the separate facet `files::facet` answers, handed over at
 /// subscribe only where the room can hold them.
+/// The name a room's links and manager identity are kept under: its durable
+/// name when it has one, else the live key.
+fn durable_name(state: &State, room: &RoomKey) -> String {
+	state
+		.rooms
+		.durable_name(room)
+		.map(String::from)
+		.unwrap_or_else(|| room.as_str().to_owned())
+}
 pub(super) fn seat(
 	shared: Shared,
 	room: RoomKey,
@@ -89,6 +100,30 @@ pub(super) fn seat(
 					.map_err(refusal)?
 					.as_str()
 					.into())
+			}
+			// The seat says which room it is in, as an entrance does, so a member
+			// who came in by name or invitation can prove a handed manager or
+			// moderator link belongs to this room. Both answers are correlators,
+			// never a way in.
+			MANAGED_IDENTITY => {
+				if !args.is_empty() {
+					return Err("managedRoomIdentity takes no arguments".into());
+				}
+				let durable = durable_name(&state, &room);
+				let identity = state.authority.manager_identity(&durable);
+				state.links.cache_identity(&durable, identity.clone())?;
+				Ok(identity.into())
+			}
+			ROOM_IDENTITY => {
+				if !args.is_empty() {
+					return Err("roomIdentity takes no arguments".into());
+				}
+				let durable = durable_name(&state, &room);
+				let swiss = state
+					.links
+					.swiss(Kind::Room, &durable)
+					.ok_or("this room has no link; a room manager must create one")?;
+				Ok(room_identity(swiss).map_err(|e| e.to_string())?.into())
 			}
 			MINT => {
 				let (Some(kind), 1) = (text(0).and_then(MembershipKind::parse), args.len()) else {

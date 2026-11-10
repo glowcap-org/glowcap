@@ -127,7 +127,7 @@ export interface CommandPowers {
 	/** The rooms this directory is advertising, with how many are in each. */
 	liveRooms(): ReadonlyMap<string, number | null>;
 	/** Who is in this room, how each stands, and whether each is reachable
-	 * directly. */
+	 * directly. In a direct line, the one person on the other end. */
 	roster(): readonly { name: string; online: boolean; away: string; reachable: boolean }[];
 	/** Give this directory back: the name it granted, and everything open on it.
 	 * `null` when it was given back. A sentence when this tab holds none. */

@@ -103,7 +103,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 			verbs::REVOKE_NICK => {
 				let (nick, id) = operator::two_texts(&values, "revokeNick takes a nickname and session id")?;
 				let mut state = shared.borrow_mut();
-				acts::revoke_nick(&mut state, &nick, &id)?;
+				acts::revoke_nick(&mut state, connection, &nick, &id)?;
 				Ok(Argument::Void)
 			}
 			verbs::DISCONNECT_SESSION => {

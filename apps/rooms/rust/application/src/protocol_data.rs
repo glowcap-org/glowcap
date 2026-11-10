@@ -49,6 +49,7 @@ pub const AWAY: &str = "away";
 pub const KICK: &str = "kick";
 pub const GOVERNS: &str = "governs";
 pub const MANAGED_ROOM_IDENTITY: &str = "managedRoomIdentity";
+pub const ROOM_IDENTITY: &str = "roomIdentity";
 pub const CALLED: &str = "called";
 pub const PRIVATE: &str = "private";
 pub const ROOM_POLICY: &str = "roomPolicy";

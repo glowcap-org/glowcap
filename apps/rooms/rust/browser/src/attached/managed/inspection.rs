@@ -46,7 +46,7 @@ impl RoomsManagedWorkspace {
 	#[wasm_bindgen(js_name = roomManagementIdentity)]
 	pub fn room_management_identity(&self, selected: js_sys::JsString) -> js_sys::Promise {
 		let selected = match scalar(selected, 256)
-			.and_then(|raw| custody::Coordinate::decode(&raw).map_err(|_| "Invalid room access coordinate".into()))
+			.and_then(|raw| custody::Coordinate::decode(&raw).map_err(|_| "Invalid room seat coordinate".into()))
 		{
 			Ok(selected) => selected,
 			Err(error) => return rejected(error),

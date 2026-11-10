@@ -223,14 +223,20 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 												{row.you && (
 													<span className="tag" data-tone="quiet">{operatorYours}</span>
 												)}
+												{
+													/* No remove on your own name: the server refuses it,
+												    and a control that can only refuse is not offered. */
+												}
 												<div className="actions">
-													<Button
-														variant="quiet"
-														disabled={acts.confirming === key || acts.locked}
-														onClick={() => acts.ask(key)}
-													>
-														{operatorRemoveAsk}
-													</Button>
+													{!row.you && (
+														<Button
+															variant="quiet"
+															disabled={acts.confirming === key || acts.locked}
+															onClick={() => acts.ask(key)}
+														>
+															{operatorRemoveAsk}
+														</Button>
+													)}
 												</div>
 											</div>
 											{acts.confirm(

@@ -193,6 +193,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			protocol::READ => Requirement::new(&[Permission::ReadFile.key()], &[]),
 			protocol::PUBLICATION_DESCRIBE => Requirement::new(&[Permission::UseOperations.key()], &[]),
 			protocol::HISTORY => Requirement::new(&[Permission::History.key()], &[]),
+			// A seat's identity answers travel through the room identity reader,
+			// whose facade forwards to the seat the session holds in the room.
+			protocol::MANAGED_ROOM_IDENTITY | protocol::ROOM_IDENTITY => Requirement::new(
+				&[Permission::ManageCustody.key(), Permission::ReplaceWorkspace.key()],
+				&[],
+			),
 			protocol::NOTIFY | rooms_application::bridge::ASK => {
 				Requirement::new(&[Permission::ObserveWorkspace.key()], &[])
 			}
@@ -248,8 +254,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			| "archive-issuer-reader"
 			| "operations-reader"
 			| "trace-snapshot"
-			| "room-identity-reader"
-			| "room-publication-identity" => reads::requirement(input),
+			| "room-identity-reader" => reads::requirement(input),
 			"sendFiles" | "refileLine" => {
 				uploads::Request::read(input.verb, input.args)?;
 				Requirement::new(&[InteractWorkspace.key()], &[])
@@ -471,7 +476,6 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				| "operations-reader"
 				| "trace-snapshot"
 				| "room-identity-reader"
-				| "room-publication-identity"
 		) {
 			if input.verb == "trace-snapshot" {
 				return reads::trace_snapshot(input, owner.trace.borrow().as_deref());

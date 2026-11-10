@@ -3,7 +3,7 @@ use super::policy::RoomPolicy;
 use alloc::string::String;
 use sha2::{Digest, Sha256};
 
-pub use crate::protocol_data::{GOVERNS, KICK, LINK, MANAGED_ROOM_IDENTITY as MANAGED_IDENTITY};
+pub use crate::protocol_data::{GOVERNS, KICK, LINK, MANAGED_ROOM_IDENTITY as MANAGED_IDENTITY, ROOM_IDENTITY};
 pub const GIVE_STEWARD: &str = "giveSteward";
 pub const REVOKE_STEWARD: &str = "revokeSteward";
 pub const REVOKE_ROOM_LINK: &str = "revokeRoomLink";

@@ -26,6 +26,7 @@ import {
 	NO_ROOM_TO_SAY_THAT_IN,
 	NO_SUBJECT_OFFERED,
 	NOT_ON_A_DIRECTORY,
+	notRegisteredForDirect,
 	roomLinkLine,
 } from "../../commands/targets.ts";
 import { roomBearer } from "../bearer.ts";
@@ -34,6 +35,7 @@ import { JOIN_DEFAULT_NICK, roomLinkDestination } from "../../joining.ts";
 import { alreadyInRoom } from "../../../../lib/text/attached.ts";
 import { thatLinkDidNotOpen } from "../../../../lib/text/commands.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
+import { roomsErrorInMessage } from "../../../../lib/errors.ts";
 
 export function managedCommandPowers(
 	page: RoomsPageContext,
@@ -135,10 +137,18 @@ export function managedCommandPowers(
 		directMessage: async (who) => {
 			const id = directory();
 			if (id == null) return NOT_ON_A_DIRECTORY;
-			await session.openings.run(async (opening) => {
-				const conversation = await session.actions.direct(id, who, false, undefined, opening);
-				await opening.select(conversation);
-			}, { kind: "direct", peer: who });
+			try {
+				await session.openings.run(async (opening) => {
+					const conversation = await session.actions.direct(id, who, false, undefined, opening);
+					await opening.select(conversation);
+				}, { kind: "direct", peer: who });
+			} catch (error) {
+				// The directory answers a name nobody registered with its
+				// peer-offline code. That is the reader's typo, said where they
+				// typed it. Anything else is the line itself failing and stays one.
+				if (roomsErrorInMessage(error)?.code === "peer-offline") return notRegisteredForDirect(who);
+				throw error;
+			}
 			return null;
 		},
 		setTheme: browser.setTheme,
@@ -238,6 +248,9 @@ export function managedCommandPowers(
 		liveRooms: () => liveRoomCounts(store.actingDir(projection)?.liveRooms ?? new Map()),
 		roster: () => {
 			const row = active();
+			// A direct line has one person on the other end. Whether the line is
+			// live is what this window knows of them.
+			if (row?.type === "dm") return [{ name: row.id, online: row.line === "live", away: "", reachable: true }];
 			if (row?.type !== "room") return [];
 			const reachable = projection.get().dirs.get(row.dir)?.dmablePeers;
 			return [...store.membersOf(projection, row.key)].map(([name, standing]) => ({

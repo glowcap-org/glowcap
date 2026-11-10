@@ -104,6 +104,8 @@ pub fn prepare(submission: &Submission) -> Prepared {
 			}
 			Plan::Say { text } => text,
 		}
+	} else if let Some(token) = super::unknown(text) {
+		return refuse(format!("There is no /{token} command. Type /help to see them."));
 	} else {
 		text.clone()
 	};

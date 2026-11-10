@@ -135,6 +135,28 @@ Deno.test("the shared composer pipeline interprets slash commands before any con
 	if (themed.kind !== "handled" || theme !== "dark") fail("the shared composer did not run a tab command");
 	const unknown = prepareComposerSend(ROOM, draft("/etc/hosts"), QUIET);
 	if (unknown.kind !== "send" || unknown.text !== "/etc/hosts") fail("unknown slash text stopped being chat text");
+	// A word that looks like a command and is not one is a typo, not a line
+	// for the room to read.
+	const typo = prepareComposerSend(ROOM, draft("/ignored bob"), QUIET);
+	if (typo.kind !== "refused" || !typo.why.includes("/ignored") || !typo.why.includes("/help")) {
+		fail(`a mistyped command reached the room: ${JSON.stringify(typo)}`);
+	}
+	const lone = prepareComposerSend(ROOM, draft("/ 1"), QUIET);
+	if (lone.kind !== "send") fail(`a lone slash stopped being chat text: ${JSON.stringify(lone)}`);
+});
+
+Deno.test("a command that takes nothing refuses words after it", () => {
+	// `/leave #lobby` typed in another room left that other room. Each of these
+	// acts on the open conversation, so a name after it is a shape the reader
+	// did not mean, and the refusal shows the one they did.
+	const room = { type: "room", grants: new Set() } as unknown as Conv;
+	for (const name of ["leave", "clear", "details", "members", "help", "directories", "quit", "delete"]) {
+		const command = known().find((entry) => entry.name === name) ?? fail(`there is no /${name} command`);
+		const extra = command.run("#lobby", QUIET, room);
+		if (extra.kind !== "refused" || !extra.why.includes(command.usage)) {
+			fail(`/${name} #lobby was not refused with its usage: ${JSON.stringify(extra)}`);
+		}
+	}
 });
 
 /** Powers that answer without acting, for running every command to see what it

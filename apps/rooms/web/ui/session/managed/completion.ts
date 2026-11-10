@@ -295,9 +295,9 @@ async function completeOnce(
 				const matches: RoomIntent[] = [];
 				for (const row of snapshot.intent.conversations) {
 					if (
-						row.kind === "room" && row.access != null &&
+						row.kind === "room" && row.seat != null &&
 						await session.workspace.roomManagementIdentity(
-								JSON.stringify({ role: "roomAccess", key: row.access }),
+								JSON.stringify({ role: "roomSeat", key: row.seat }),
 							) === args[2]
 					) matches.push(row);
 				}

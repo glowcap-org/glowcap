@@ -163,16 +163,19 @@ pub(super) fn remove_room(state: &mut State, id: &str) -> bool {
 }
 
 /// Revoke the registration `nick` holds, when `id` still names the session
-/// that holds it.
-pub(super) fn revoke_nick(state: &mut State, nick: &str, id: &str) -> Result<(), String> {
+/// that holds it. The operator's own name stays while its connection answers,
+/// as the connection itself does.
+pub(super) fn revoke_nick(state: &mut State, caller: u64, nick: &str, id: &str) -> Result<(), String> {
 	let held = state
 		.policy
 		.registrations()
 		.find(|registration| registration.nick.eq_ignore_ascii_case(nick))
 		.filter(|registration| state.connection_by_operator_id(id) == Some(registration.connection))
-		.map(|registration| registration.nick)
 		.ok_or("that nickname claim changed")?;
-	let effects = state.policy.revoke_registration(&held);
+	if held.connection == caller {
+		return Err("that nickname is this operator's own".into());
+	}
+	let effects = state.policy.revoke_registration(&held.nick);
 	state.apply(effects);
 	Ok(())
 }

@@ -39,7 +39,7 @@ import { chosenKey, createRoomsBrowserController } from "./controller/create_bro
 import { finishBrowserDataDeletion, reloadWhenAnotherTabDeletes } from "./controller/browser_data.ts";
 import { ModalProvider } from "./modal.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
-import { refusalText } from "../../lib/text/failure.ts";
+import { failureView, refusalText, renderFailure } from "../../lib/text/failure.ts";
 import { membershipStatus } from "./session/managed/membership_status.ts";
 import * as store from "./store.ts";
 import { relayAway } from "./store/projection.ts";
@@ -61,7 +61,11 @@ import { NO_SERVER, roomsErrorInMessage } from "../../lib/error_codes.ts";
 
 const page = new RoomsPage();
 function report(source: string, error: unknown): void {
-	const reason = refusalText(error);
+	// A journal row is a diagnostic, not an action that failed. A failure the
+	// reader's words explain keeps them. One nothing explains is kept as said,
+	// without advice to try again.
+	const view = failureView(error);
+	const reason = view.code === "unexpected" ? view.detail : renderFailure(view);
 	store.noteTrouble(page.projection, source, reason);
 }
 // The threads under the page dim while every connection is lost and grow

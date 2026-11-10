@@ -312,11 +312,11 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 				const row = store.getConv(projection, key);
 				if (row?.type !== "room") throw new Error("This room is no longer held");
 				const held = conversationById(session.current, row.persistId);
-				if (held?.kind !== "room" || held.access == null) {
-					throw new Error("Recovery requires the exact held room access");
+				if (held?.kind !== "room" || held.seat == null) {
+					throw new Error("Recovery requires a seat in the exact room");
 				}
 				const identity: string = await session.workspace.roomManagementIdentity(
-					JSON.stringify({ role: "roomAccess", key: held.access }),
+					JSON.stringify({ role: "roomSeat", key: held.seat }),
 				);
 				const source = selected("operator");
 				const command = await session.command("operator", [

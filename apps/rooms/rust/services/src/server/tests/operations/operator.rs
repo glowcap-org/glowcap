@@ -341,6 +341,37 @@ async fn operator() {
 		.expect("the second reset room stayed open")
 		.expect("the second reset room roster line");
 
+	// A name on the operator's own connection stays through a reset, as the
+	// connection does, and cannot be revoked by row. Every other name goes.
+	let op_directory = Directory::fetch(Client::new(session.borrowed(), rooms_platform::HostPlatform))
+		.await
+		.unwrap();
+	let mut op_registration = op_directory.registration();
+	op_registration.register("op", &running.location, None).await.unwrap();
+	let mut ally_registration = reset_directory.registration();
+	ally_registration
+		.register("ally", &running.location, None)
+		.await
+		.unwrap();
+	let (_, pages) = whole(&session.send(&op, "operatorSnapshot", &[]).await.unwrap());
+	assert_eq!(pages["registrations"].2, 2);
+	let own_session = pages["sessions"]
+		.1
+		.iter()
+		.find(|row| boolean(row, 3))
+		.map(|row| text(row, 0).to_string())
+		.unwrap();
+	assert!(
+		refused(
+			&session,
+			&op,
+			"revokeNick",
+			&[Argument::String("op".into()), Argument::String(own_session)],
+		)
+		.await
+		.contains("this operator's own")
+	);
+
 	// The journal clears on the operator's word, and a reset of everything
 	// answers; unknown scopes refuse.
 	session.send(&op, "clearOperatorTrouble", &[]).await.unwrap();
@@ -365,6 +396,15 @@ async fn operator() {
 	})
 	.await
 	.expect("factory reset delivered terminal room retirement before session close");
+	let (_, pages) = whole(&session.send(&op, "operatorSnapshot", &[]).await.unwrap());
+	let (_, registration_rows, registration_total) = &pages["registrations"];
+	assert_eq!(
+		*registration_total, 1,
+		"the operator's own name is the one registration left"
+	);
+	assert_eq!(text(&registration_rows[0], 0), "op");
+	assert!(boolean(&registration_rows[0], 2));
+	drop((op_registration, ally_registration));
 	let (first_closed, second_closed) = tokio::join!(
 		tokio::time::timeout(Duration::from_secs(5), reset_session.closed()),
 		tokio::time::timeout(Duration::from_secs(5), second_session.closed()),

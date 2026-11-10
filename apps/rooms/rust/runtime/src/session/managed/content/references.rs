@@ -69,8 +69,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			| "archive-issuer-reader"
 			| "operations-reader"
 			| "trace-snapshot"
-			| "room-identity-reader"
-			| "room-publication-identity" => reads::references(input, &metadata)?,
+			| "room-identity-reader" => reads::references(input, &metadata)?,
 			"observe-archive-connection" => archive_connection::references(&metadata)?,
 			"observe-direct-connection" => connection::references(input, &metadata)?,
 			"check-inbox" => inbox::references(input, &metadata)?,

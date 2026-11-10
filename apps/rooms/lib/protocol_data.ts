@@ -49,6 +49,7 @@ export const AWAY = "away";
 export const KICK = "kick";
 export const GOVERNS = "governs";
 export const MANAGED_ROOM_IDENTITY = "managedRoomIdentity";
+export const ROOM_IDENTITY = "roomIdentity";
 export const CALLED = "called";
 export const PRIVATE = "private";
 export const ROOM_POLICY = "roomPolicy";

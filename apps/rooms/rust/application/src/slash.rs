@@ -5,6 +5,7 @@ pub mod composer;
 pub mod input;
 pub mod interpret;
 use crate::text::{DocumentText, js_whitespace};
+use alloc::string::String;
 use catalog::Name;
 use serde::Serialize;
 
@@ -22,8 +23,9 @@ pub fn read(text: &DocumentText) -> Option<Read> {
 	if units.next()?.1 != u16::from(b'/') {
 		return None;
 	}
-	// The vocabulary bounds the command token. Unknown long slash-prefixed
-	// text remains ordinary text, as does an unknown short token.
+	// The vocabulary bounds the command token. Text that names no command is
+	// ordinary text here, and `unknown` below says which of it the composer
+	// refuses instead.
 	let mut name = [0u8; 64];
 	let mut length = 0;
 	while let Some(&(_, unit)) = units.peek() {
@@ -53,6 +55,31 @@ pub fn read(text: &DocumentText) -> Option<Read> {
 		name: name.definition().name,
 		rest_start,
 	})
+}
+
+/// The command a line tries to name when the catalog has none: a slash, two
+/// or more ASCII letters, then whitespace or the end. `/etc/hosts`, `/1`, and
+/// a lone `/` are ordinary text. A typo such as `/ignored` is refused by the
+/// composer rather than said to the room.
+pub fn unknown(text: &DocumentText) -> Option<String> {
+	let mut units = text.utf16();
+	if units.next()? != u16::from(b'/') {
+		return None;
+	}
+	let mut token = String::new();
+	for unit in units {
+		if white(unit) {
+			break;
+		}
+		if unit > 127 || !(unit as u8).is_ascii_alphabetic() || token.len() == 64 {
+			return None;
+		}
+		token.push(char::from(unit as u8));
+	}
+	if token.len() < 2 || Name::parse(&token).is_some() {
+		return None;
+	}
+	Some(token)
 }
 
 fn white(unit: u16) -> bool {

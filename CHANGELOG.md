@@ -28,6 +28,31 @@ and storage formats before 1.0.
   out in full, so `/invite @alice` and `/join lobby` send on the first Enter.
   A person after `/msg`, `/invite`, `/kick`, `/whois`, `/ignore`, or
   `/unignore` now completes with or without `@`, as rooms do after `/join`.
+- A slash line that names no command, such as `/ignored`, is refused with a
+  pointer to `/help`. It was sent to the room as a message. Text that cannot
+  be a command, such as `/etc/hosts`, is still a message.
+- `/msg` to a name nobody registered says so in the conversation. It showed a
+  failure notice in the server's words.
+- `/leave`, `/clear`, `/details`, `/members`, `/help`, `/directories`,
+  `/quit`, and `/delete` refuse words after them. `/leave #other` left the
+  room you were in.
+- `/whois` in a direct message answers about the person on the other end. It
+  said nobody here had that name.
+- Sending while two sends are still in flight says so in its own words. It
+  showed a generic failure notice with the reason behind a control.
+- Taking a manager link or a moderator link works for everyone in the room,
+  however they came in. It refused anyone who had entered by the room's
+  listed name or by invitation, because the check that the link belongs to
+  this room asked only the room link, and said so in words nobody could act
+  on. Your seat in the room now answers that question.
+- The operator page's resets keep the operator's own nickname registration,
+  as they keep the operator's connection, and the name cannot be removed by
+  row. A factory reset retired it, which left the operator's own page with a
+  name the directory no longer knew and a diagnostics row for every attempt
+  to use it.
+- The operator page's **Browser trouble** list records a runtime failure as
+  the diagnostic it is. It wrapped each one in a sentence about an action to
+  try again, when no action had been taken.
 
 ## [0.1.6] - 2026-11-09
 
