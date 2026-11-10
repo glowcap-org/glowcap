@@ -11,6 +11,8 @@ and storage formats before 1.0.
 
 ### Changed
 
+- Zig's `HostRuntime.tcpBackendStatus()` reports the Linux completion backend
+  selected for its stream stack and the reason for falling back to epoll.
 - Documentation describes the published alpha, explains release pinning and
   upgrade precautions, and removes completed publication setup from the
   roadmap. The website's source quick start uses the checked `main` branch.
