@@ -70,20 +70,25 @@ impl RoomsManagedWorkspace {
 	}
 	#[wasm_bindgen(js_name = custodyRecipe)]
 	pub fn custody_recipe(&self, selected: js_sys::JsString) -> js_sys::Promise {
-		let selected = match scalar(selected, 256)
-			.and_then(|raw| custody::Coordinate::decode(&raw).map_err(|_| "Invalid recipe coordinate".into()))
-		{
-			Ok(selected) => selected,
-			Err(error) => return rejected(error),
-		};
-		let workspace = self.workspace.clone();
-		self.driver.submit(256, move |_| async move {
-			Ok(workspace
-				.custody_recipe(selected)
-				.await
-				.map_err(|e| e.to_string())?
-				.map_or(JsValue::NULL, Into::into))
-		})
+		optional_text(
+			&self.driver,
+			&self.workspace,
+			selected,
+			"Invalid recipe coordinate",
+			|workspace, selected| async move { workspace.custody_recipe(selected).await },
+		)
+	}
+	/// The transport an open direct line runs over, or null while no live
+	/// session carries its installed route.
+	#[wasm_bindgen(js_name = directRoute)]
+	pub fn direct_route(&self, selected: js_sys::JsString) -> js_sys::Promise {
+		optional_text(
+			&self.driver,
+			&self.workspace,
+			selected,
+			"Invalid direct route coordinate",
+			|workspace, selected| async move { workspace.direct_route(selected).await },
+		)
 	}
 	#[wasm_bindgen(js_name = operationsReader)]
 	pub fn operations_reader(&self, selected: js_sys::JsString, kind: Option<js_sys::JsString>) -> js_sys::Promise {
@@ -196,4 +201,31 @@ impl RoomsManagedOperationsReader {
 fn reference_kind(raw: Option<js_sys::JsString>) -> Result<Option<ReferenceKind>> {
 	raw.map(|raw| ReferenceKind::parse(&scalar(raw, 32)?).ok_or_else(|| "Invalid reference kind".into()))
 		.transpose()
+}
+
+/// One coordinate in and one text or null out, the shape of a workspace read
+/// that names a fact of held custody.
+fn optional_text<W, E>(
+	driver: &Driver,
+	workspace: &Held<Workspace<Platform>>,
+	selected: js_sys::JsString,
+	invalid: &'static str,
+	read: impl FnOnce(Held<Workspace<Platform>>, custody::Coordinate) -> W + 'static,
+) -> js_sys::Promise
+where
+	W: std::future::Future<Output = core::result::Result<Option<String>, E>> + 'static,
+	E: std::fmt::Display,
+{
+	let selected =
+		match scalar(selected, 256).and_then(|raw| custody::Coordinate::decode(&raw).map_err(|_| invalid.into())) {
+			Ok(selected) => selected,
+			Err(error) => return rejected(error),
+		};
+	let workspace = workspace.clone();
+	driver.submit(256, move |_| async move {
+		Ok(read(workspace, selected)
+			.await
+			.map_err(|e| e.to_string())?
+			.map_or(JsValue::NULL, Into::into))
+	})
 }

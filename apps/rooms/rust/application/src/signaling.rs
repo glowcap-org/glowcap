@@ -9,7 +9,24 @@ pub const MAX_EVENTS: usize = 64;
 pub const MAX_ID: usize = 128;
 pub const MAX_DESCRIPTION: usize = 16_384;
 pub const MAX_CANDIDATE: usize = 4096;
-pub const TIMEOUT_MS: u64 = 30_000;
+/// The directory exchange on either side, from the ICE configuration and the
+/// offer to an open channel or a decline. The OCapN handshake over the open
+/// channel and the relay dial after a failure run under the Host's handshake
+/// budget instead. The Host dials the server route only after the direct
+/// attempt reports failure, and the page awaits its introduction under
+/// `room::authority::REQUEST_TIMEOUT_MS`, so this stays below that budget.
+/// The answerer waits for the channel under this budget alone, and once its
+/// answer has gone out it ends quietly when the budget runs out, because the
+/// offerer decided first at its own connect bound.
+pub const TIMEOUT_MS: u64 = 10_000;
+/// How long the offerer waits for the channel once the answer is applied. A
+/// browser reports a failed route late, and with no candidates at all it
+/// never does, so this bound is what hands the Host its next route. The
+/// answerer's exchange budget starts at the offer and outlasts this bound on
+/// every schedule, so the offerer never waits on a peer that already gave up.
+pub const CONNECT_TIMEOUT_MS: u64 = 5_000;
+const _: () = assert!(CONNECT_TIMEOUT_MS < TIMEOUT_MS);
+const _: () = assert!(TIMEOUT_MS < crate::room::authority::REQUEST_TIMEOUT_MS);
 /// What a directory tells an offerer before the reason its target declined.
 pub const DECLINED: &str = "the member declined the offer: ";
 /// The longest reason a decline carries, so the offerer's `reject` still

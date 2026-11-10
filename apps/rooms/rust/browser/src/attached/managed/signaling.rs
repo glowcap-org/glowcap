@@ -268,7 +268,7 @@ async fn listen(
 				let reporting = trouble.clone();
 				let (pressure, mut pressured) = watch::channel(false);
 				let report = listener.serve_report(
-                    move || { let ice = fresh.clone(); async move { ice.configuration().await.map_err(|_| crate::signaling::Error::Admission("Rooms could not obtain ICE configuration")) } },
+                    move || { let ice = fresh.clone(); async move { ice.configuration().await.map_err(crate::signaling::Error::Ice) } },
                     async { tokio::select! { () = registration.retired() => {}, () = stopped(&mut stop) => {}, () = stopped(&mut pressured) => {} } },
                     |accepted| {
                         match accepted {

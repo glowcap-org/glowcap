@@ -10,8 +10,8 @@
 
 import { type Conv, conversationCarries, conversationTakesFiles, membersHere } from "../conversation.ts";
 import type { DirView } from "../directory.ts";
-import { useConversationMembers, useRoomBearer } from "../hooks.ts";
-import { conversationReach, dirConnection } from "../text.ts";
+import { useConversationMembers, useDirectRoute, useRoomBearer } from "../hooks.ts";
+import { conversationReach, dirConnection, dmPath } from "../text.ts";
 import { roomLinkTitle } from "../../../lib/text/room_authority.ts";
 import {
 	directoryConnection,
@@ -23,8 +23,6 @@ import {
 	factDirectMessage,
 	factDirectory,
 	factDirectoryAddress,
-	factDmDirect,
-	factDmRelay,
 	factIrcChannel,
 	factLine,
 	factLineClosed,
@@ -44,8 +42,6 @@ import {
 	factYourName,
 } from "../../../lib/text/conversation.ts";
 import { grantedNameSaid } from "./DirectoryFacts.tsx";
-import { dmMode } from "../prefs.ts";
-import { useManagedSession } from "../session/managed/context.tsx";
 import { CopyField } from "../Copy.tsx";
 import { subjectCopyLink } from "../../../lib/text/controls.ts";
 import { Button } from "../Button.tsx";
@@ -71,7 +67,6 @@ export function ConvFacts(
 	},
 ) {
 	const browser = useRoomsBrowser();
-	const managed = useManagedSession();
 	const rooms = useRoomsSession();
 	const roster = useConversationMembers(conv.type === "room" ? conv.key : null);
 	const phase = dir?.session;
@@ -79,6 +74,9 @@ export function ConvFacts(
 	const here = conv.type === "room" ? membersHere(roster) : 0;
 	const asksLink = conv.type === "room" && conv.held;
 	const bearer = useRoomBearer(asksLink ? conv : null, "link");
+	// An open line's path is read from its live session when the card opens,
+	// and the row waits for the answer rather than showing the saved choice.
+	const route = useDirectRoute(conv.type === "dm" && conv.line === "live" ? conv : null);
 	// A held room draws its address once the link read answers, rather than the
 	// directory's address first and the room link a moment later.
 	const reading = asksLink && bearer === undefined;
@@ -177,8 +175,12 @@ export function ConvFacts(
 					<>
 						<dt>{factLine}</dt>
 						<dd>{lineSaid(conv.line)}</dd>
-						<dt>{factPath}</dt>
-						<dd>{dmMode(managed.current?.intent.connection) === "relay" ? factDmRelay : factDmDirect}</dd>
+						{route != null && (
+							<>
+								<dt>{factPath}</dt>
+								<dd id="convcardPath" data-route={route}>{dmPath(route)}</dd>
+							</>
+						)}
 					</>
 				)}
 			</dl>

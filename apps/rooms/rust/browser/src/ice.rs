@@ -4,7 +4,10 @@
 mod fetch;
 mod request;
 
-use rooms_application::ice::{Limits, Servers};
+use rooms_application::{
+	ice::{Limits, Servers},
+	signaling as policy,
+};
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
@@ -17,9 +20,11 @@ const LIMITS: Limits = Limits {
 	url_bytes: glowcap::WEBRTC_MAX_ICE_URL_BYTES,
 	credential_bytes: glowcap::WEBRTC_MAX_ICE_CREDENTIAL_BYTES,
 };
-// This HTTP request precedes transport signaling and has its own lifetime and
-// admission budget. Directory exchange capacity does not govern HTTP readers.
-const FETCH_TIMEOUT_MS: u32 = 30_000;
+// The read runs inside a signaling exchange's budget on both sides. It gets
+// what that budget leaves beyond the offerer's connect bound, so a hung
+// endpoint reports in this source's own words before the exchange times out.
+// Directory exchange capacity does not govern HTTP readers.
+const FETCH_TIMEOUT_MS: u32 = (policy::TIMEOUT_MS - policy::CONNECT_TIMEOUT_MS) as u32;
 const MAX_OBSERVERS: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
