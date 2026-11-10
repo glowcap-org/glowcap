@@ -97,8 +97,8 @@ fn target(row: &workspace::Conversation, role: custody::Role, id: SafeInteger) -
 		(workspace::Conversation::Room(room), custody::Role::RoomFiles) => {
 			room.files.map(|key| (key.slot(), key.generation()))
 		}
-		(workspace::Conversation::Direct(direct), custody::Role::DirectAccess) if !direct.closed => {
-			direct.access.map(|key| (key.slot(), key.generation()))
+		(workspace::Conversation::Direct(direct), custody::Role::DirectAccess) => {
+			direct.installed_access().map(|key| (key.slot(), key.generation()))
 		}
 		(_, custody::Role::Line) => row
 			.lines()

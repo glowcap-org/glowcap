@@ -63,9 +63,6 @@ binding ([invocation contract](../bindings/README.md#invocation-shape)).
   [Resource options](architecture.md#resource-knobs) own the defaults.
 - **A driver permits one listener per transport.** The relay can host keyed or
   Noise traffic, but not both at once, because rendezvous queues by designator.
-- **Backend reporting is incomplete.** `driver.HostRuntime` does not expose the
-  Linux backend selection available from `net.tcpBackendStatus`.
-  [Adapter work](roadmap.md#what-starts-next) owns the missing projection.
 - **Driver readiness descriptors require Linux or Darwin.** Other platforms
   retain stepping APIs. Windows has no implementation. Platform work and
   verification are [tracked separately](roadmap.md#waiting-on-hardware-or-a-hostname).

@@ -2,7 +2,7 @@
 // Authored text is parsed by the Rust application. This layer only decodes the
 // projection and derives presentation facts from it.
 import { markdownDocument } from "./application.ts";
-import { hasIrcFormatting, type IrcRun, ircRuns } from "./text.ts";
+import { hasIrcFormatting, type IrcRun, ircRuns } from "./irc_formatting.ts";
 
 export type MarkdownNode =
 	| { readonly kind: "text"; readonly text: string }

@@ -56,6 +56,13 @@ pub fn install(self: *HostRuntime, transports: Transports) !void {
     try self.addProviders(transports.residents, indices);
 }
 
+/// Linux completion selection for the runtime-owned stream stack. Null when
+/// there is no owned stack or on other platforms. Borrowed residents keep
+/// their own reports. Reading the report performs no I/O and prints nothing.
+pub fn tcpBackendStatus(self: *const HostRuntime) ?net.TcpBackendStatus {
+    return self.stream_backend_status;
+}
+
 fn installStack(self: *HostRuntime, transports: Transports) !void {
     if (!stack_supported) return error.UnknownTransport else return installSupported(self, transports);
 }
@@ -82,6 +89,8 @@ fn installSupported(self: *HostRuntime, transports: Transports) !void {
     }, indices);
     // A runtime with no transports yet has no package to overlap. status-allow: pending state or quoted runtime label
     std.debug.assert(installed);
+    if (builtin.os.tag == .linux)
+        self.stream_backend_status = net.tcpBackendStatus(&owned.resident);
     owned_live = false;
 }
 

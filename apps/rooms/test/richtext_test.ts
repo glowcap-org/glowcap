@@ -17,7 +17,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { RichText } from "../web/ui/panes/RichText.tsx";
 import { assertEquals } from "./assert.ts";
-import { hasIrcFormatting } from "../web/ui/text.ts";
+import { hasIrcFormatting } from "../web/ui/irc_formatting.ts";
 import { messageMentions } from "../web/ui/markdown.ts";
 import "./support/browser_application.ts";
 import { fail } from "./support/fail.ts";

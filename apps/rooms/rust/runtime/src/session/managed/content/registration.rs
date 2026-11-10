@@ -34,6 +34,7 @@ pub(in crate::session::managed) fn registration<P: Tasks + Deadline + Clone + 's
 			("restore-custody", Retry::ReadOnly),
 			("archive-reader", Retry::ReadOnly),
 			("custody-recipe", Retry::ReadOnly),
+			("direct-route", Retry::ReadOnly),
 			("export-configuration", Retry::ReadOnly),
 			("archive-issuer-reader", Retry::ReadOnly),
 			("operations-reader", Retry::ReadOnly),

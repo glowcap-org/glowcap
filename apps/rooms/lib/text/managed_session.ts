@@ -2,6 +2,7 @@
 export const managedSessionText = {
 	browserPreferences: "Browser preferences",
 	capabilityExport: "Link export",
+	directRoute: "Direct message path",
 	workspaceHistory: "Session history",
 	workspaceConflict: "The session changed. Check what is selected, then do it again.",
 	acquisitionConflict: "The session changed before access was saved. Check what is selected, then try again.",

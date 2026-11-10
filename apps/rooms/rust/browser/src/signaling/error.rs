@@ -6,7 +6,9 @@ pub enum Error {
 	Rooms(client::Error),
 	Channel(io::Error),
 	Binding(glowcap::Error),
+	Ice(crate::ice::Error),
 	Timeout,
+	NoRoute,
 	Stopped,
 	Admission(&'static str),
 	Cleanup { primary: Box<Self>, cleanup: Box<Self> },
@@ -34,7 +36,9 @@ impl fmt::Display for Error {
 			Self::Rooms(e) => e.fmt(f),
 			Self::Channel(e) => e.fmt(f),
 			Self::Binding(e) => e.fmt(f),
+			Self::Ice(e) => e.fmt(f),
 			Self::Timeout => f.write_str("Rooms WebRTC signaling timed out"),
+			Self::NoRoute => f.write_str("Rooms WebRTC found no route within its connect budget"),
 			Self::Stopped => f.write_str("Rooms WebRTC signaling stopped"),
 			Self::Admission(reason) => f.write_str(reason),
 			Self::Cleanup { primary, cleanup } => write!(f, "{primary}; cleanup failed: {cleanup}"),
@@ -60,5 +64,10 @@ impl From<io::Error> for Error {
 impl From<glowcap::Error> for Error {
 	fn from(e: glowcap::Error) -> Self {
 		Self::Binding(e)
+	}
+}
+impl From<crate::ice::Error> for Error {
+	fn from(e: crate::ice::Error) -> Self {
+		Self::Ice(e)
 	}
 }

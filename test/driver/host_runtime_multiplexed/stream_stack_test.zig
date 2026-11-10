@@ -77,6 +77,15 @@ test "one stream stack dials noise-tcp and inproc through one backend" {
     defer client.deinit();
     // One stack resident serves every symbol the value names.
     try std.testing.expectEqual(@as(usize, 1), client.residents.items.len);
+    if (builtin.os.tag == .linux) {
+        const selected = client.tcpBackendStatus().?;
+        const resident: *net.StreamStack.Resident = @ptrCast(@alignCast(client.residents.items[0].resident.ctx));
+        try std.testing.expectEqualDeep(net.tcpBackendStatus(resident), selected);
+        switch (selected.implementation) {
+            .io_uring => try std.testing.expectEqual(null, selected.fallback_reason),
+            .epoll => try std.testing.expect(selected.fallback_reason != null),
+        }
+    } else try std.testing.expectEqual(null, client.tcpBackendStatus());
 
     for ([_]model.PeerLocator{ sealed_locator, inproc_locator }, [_]bool{ true, false }) |locator, sealed| {
         const hs = try client.connectLocator(locator, .inherit);
@@ -115,4 +124,14 @@ test "a transports value serves only the symbols it names" {
         error.UnknownTransport,
         driver.HostRuntime.init(allocator, io, .{ .symbols = &.{.iroh} }, .ephemeral, opts),
     );
+}
+
+test "runtime without an owned stream stack has no backend report" {
+    if (!supported) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), .{}, .ephemeral, opts);
+    defer runtime.deinit();
+    try std.testing.expectEqual(null, runtime.tcpBackendStatus());
 }

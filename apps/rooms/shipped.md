@@ -71,6 +71,11 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
 - *Session WebRTC.* Started with `--dial-transports=webrtc`, the session process reaches a WebRTC browser member
   directly, signaling through the room that introduced it, and answers a member's offer that a room it belongs to
   delivers. It gathers candidates through `--ice-servers`.
+- *Direct-message routes.* A browser in **Browser to browser** mode advertises WebRTC and names the Rooms server's
+  sealed relay as the route its Host tries after the direct attempt fails. The offerer gives WebRTC a bounded
+  time to find a route once the answer arrives, so a line opens within seconds on a network that blocks it.
+  The conversation card's **Path** fact names the route the open line runs over, read from its live session.
+  `zig build rooms-web-dm-fallback` proves both with every non-proxied UDP route disabled.
 - *Packaging.* The [glowcap product package](host.md) includes the CLI, the private Rooms runtimes, the
   prepared browser application, and both skills. `glowcap-pack` serves the browser assets and repeats the process
   proof from an extracted installation, with no checkout tooling or library-path overrides. `glowcap-package-test`

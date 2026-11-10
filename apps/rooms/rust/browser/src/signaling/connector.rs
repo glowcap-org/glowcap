@@ -43,11 +43,7 @@ where
 				let (directory, timeout) = selected.map_err(|reason: String| {
 					glowcap::Error::from(io::Error::new(io::ErrorKind::InvalidInput, reason))
 				})?;
-				let config = ice
-					.configuration()
-					.await
-					.map_err(|error| io::Error::other(error.to_string()))?;
-				dial(&directory, locator, &config, timeout)
+				dial(&directory, locator, &ice, timeout)
 					.await
 					.map_err(|error| match error {
 						super::Error::Binding(error) => error,
