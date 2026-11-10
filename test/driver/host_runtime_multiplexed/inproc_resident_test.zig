@@ -77,6 +77,7 @@ test "inproc completion residents serve a fetch and a call between two runtimes"
     var dialer = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, opts);
     defer dialer.deinit();
     _ = try dialer.addResident(model.transport.Known.inproc.metadata(), dialer_resident.resident());
+    try std.testing.expectEqual(null, dialer.tcpBackendStatus());
 
     const session = try dialer.connectLocator(.{
         .transport = model.transport.inproc,

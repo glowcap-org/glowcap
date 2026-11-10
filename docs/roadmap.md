@@ -43,8 +43,7 @@ review needs that review before its first step.
    local test ([plan to plan](planning/plan-to-plan.md)).
 2. **Adapter contract gaps.** Make Rust shutdown finish finalizer recovery or
    return an owned failure before its executor exits. Prove refused C releases
-   cannot silently strand recovery. Project the existing backend-selection
-   report through `driver.HostRuntime` and support Unix-socket Tor endpoints
+   cannot silently strand recovery. Support Unix-socket Tor endpoints
    through Zig's public runtime. Done when public API tests cover those
    existing provider contracts and both successful and refused shutdown
    ([plan to plan](planning/plan-to-plan.md)).

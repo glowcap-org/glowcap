@@ -188,7 +188,8 @@ A relay locator can carry its own `rendezvous-relay` route. The Rust WebRTC stac
 TURN credentials. The relay forwards bytes without parsing CapTP or holding a capability.
 
 On Linux the TCP completion loop uses io_uring and falls back to epoll, and `net.tcpBackendStatus` reports which one
-it chose. [Benchmarks](../bench/README.md) records the largest session run.
+it chose. `HostRuntime.tcpBackendStatus()` exposes the report for its owned
+stream stack. [Benchmarks](../bench/README.md) records the largest session run.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares their security and reachability.
 
