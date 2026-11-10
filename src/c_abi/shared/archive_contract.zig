@@ -199,7 +199,8 @@ fn isIdentChar(c: u8) bool {
 /// exported symbol's reflected function type and crossing annotations, every
 /// public `GLOWCAP_*` value, and every struct in its canonical layout
 /// manifests. Implementation and comment edits do not perturb the value, and
-/// neither does the Zig file a type is declared in.
+/// neither does the Zig file a type is declared in. Binding-owned declaration
+/// omissions are outside this C contract.
 pub fn fingerprint(
     comptime archive_name: []const u8,
     comptime Archive: type,
@@ -221,10 +222,6 @@ pub fn fingerprint(
         mixIndexes(&hash, symbol.pointer_params);
         mixInt(&hash, @intFromBool(symbol.nonblocking));
         mixInt(&hash, @intFromBool(symbol.blocking));
-        mixInt(&hash, @intFromBool(symbol.ts_omit != null));
-        mixInt(&hash, @intFromBool(symbol.rust_omit != null));
-        mixInt(&hash, @intFromBool(symbol.python_omit != null));
-        mixInt(&hash, @intFromBool(symbol.racket_omit != null));
     }
 
     inline for (layout_groups) |layouts| {

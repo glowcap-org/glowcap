@@ -8,8 +8,6 @@
 const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
-const omit = shared.symbols.omit_reason;
-pub const omitted_families = [_]shared.symbols.OmittedFamily{};
 
 pub const symbols = [_]Symbol{
     .{ .name = "glowcap_ocapn_archive_fingerprint" },
@@ -22,16 +20,11 @@ pub const symbols = [_]Symbol{
     .{
         .name = "glowcap_context_new_with_allocator",
         .out_params = &.{1},
-        .racket_omit = "unused: the Racket binding keeps every archive on the library allocator",
     },
     .{ .name = "glowcap_context_report_failure", .pointer_params = &.{1} },
     .{
         .name = "glowcap_context_allocate_lifecycle_id",
         .out_params = &.{1},
-        .rust_omit = "Zig Host construction assigns Host identity; Rust currently owns no other Context-scoped diagnostic lifecycle",
-        .ts_omit = "Zig Host construction assigns Host identity; TypeScript currently owns no other Context-scoped diagnostic lifecycle",
-        .python_omit = "Zig Host construction assigns Host identity; Python currently owns no other Context-scoped diagnostic lifecycle",
-        .racket_omit = "Zig Host construction assigns Host identity; Racket currently owns no other Context-scoped diagnostic lifecycle",
     },
     .{
         .name = "glowcap_context_next_failure",
@@ -78,29 +71,18 @@ pub const symbols = [_]Symbol{
     .{ .name = "glowcap_locator_hint_at", .out_params = &.{2} },
     .{ .name = "glowcap_locator_hint_wire_form", .out_params = &.{1} },
     .{ .name = "glowcap_locator_release" },
-    // The rows below are omitted from the TypeScript table, each for the
-    // reason on its row.
     .{
         .name = "glowcap_context_new",
         .out_params = &.{0},
     },
     .{
         .name = "glowcap_clear_last_error",
-        .ts_omit = omit.ts_last_error,
-        .python_omit = omit.python_last_error,
-        .racket_omit = omit.racket_last_error,
     },
     .{
         .name = "glowcap_locator_hint",
         .out_params = &.{3},
-        .ts_omit = "the TS surface walks hints through hint_count/hint_at; the single-lookup accessor is unused",
-        .python_omit = "the Python surface walks hints through hint_count/hint_at; the single-lookup accessor is unused",
-        .racket_omit = "the Racket surface walks hints through hint_count/hint_at; the single-lookup accessor is unused",
     },
     .{
         .name = "glowcap_locator_host_port",
-        .ts_omit = "the TS surface resolves host:port through designator_host_port",
-        .python_omit = "the Python surface resolves host:port through designator_host_port",
-        .racket_omit = "the Racket surface resolves host:port through designator_host_port",
     },
 };

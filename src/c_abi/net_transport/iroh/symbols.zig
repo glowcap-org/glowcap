@@ -11,10 +11,6 @@
 const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
-pub const OmittedFamily = shared.symbols.OmittedFamily;
-const omit = shared.symbols.omit_reason;
-
-pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
     .{ .name = "glowcap_iroh_archive_fingerprint" },
@@ -49,21 +45,13 @@ pub const symbols = [_]Symbol{
     .{ .name = "glowcap_iroh_conn_try_read", .out_params = &.{ 1, 3 } },
     .{ .name = "glowcap_iroh_conn_try_write", .out_params = &.{3} },
     .{ .name = "glowcap_iroh_transport_provider", .out_params = &.{1} },
-    // The rows below are omitted from the TypeScript loader, each for the
-    // reason on its row.
     .{
         .name = "glowcap_iroh_clear_last_error",
-        .ts_omit = omit.ts_last_error,
-        .python_omit = omit.python_last_error,
-        .racket_omit = omit.racket_last_error,
     },
     .{
         .name = "glowcap_iroh_netlayer_new_in",
         .out_params = &.{ 4, 5, 7 },
         .nonblocking = true,
         .blocking = true,
-        .rust_omit = omit.rust_transport_allocator,
-        .python_omit = omit.python_transport_allocator,
-        .racket_omit = omit.racket_transport_allocator,
     },
 };

@@ -30,8 +30,7 @@ const containsAsSymbol = text_match.containsAsSymbol;
 
 const Binding = struct {
     lang: lex.Lang,
-    /// Names the `<name>_omit` field in `src/c_abi/host/symbols.zig` that opts a
-    /// row out of this binding, and appears in every failure message.
+    /// Names the binding's omission policy and appears in failure messages.
     name: []const u8,
     ext: []const u8,
     /// The binding's library: wrapper definitions, never proof.
@@ -85,7 +84,7 @@ const Allowed = struct {
 
 /// Rows with no runtime proof, each carrying why. A row whose verb becomes
 /// provable fails the gate, so the list only shrinks. It is empty: every verb
-/// either has a proof or an `<name>_omit` reason on its inventory row.
+/// either has a proof or a reason in its binding-owned omission policy.
 const allowlist = [_]Allowed{};
 
 pub fn check(
@@ -134,7 +133,7 @@ pub fn check(
             if (sites) |set| {
                 try appendViolation(gpa, violations, "{s}: `{s}` is called only from `{s}`, which no gate reaches — call that wrapper from a script under interop/, apps/, bench/, or the binding's own proof entrypoints, or add an `allowlist` row with its reason in tools/check/source_check/binding_runtime_proof.zig", .{ binding.name, verb.name, graph.firstName(set) });
             } else {
-                try appendViolation(gpa, violations, "{s}: `{s}` has no call site outside the generated FFI table — give it a wrapper a proof reaches, or record a `{s}_omit` reason on its row in src/c_abi/host/symbols.zig", .{ binding.name, verb.name, binding.name });
+                try appendViolation(gpa, violations, "{s}: `{s}` has no call site outside the generated FFI table — give it a wrapper a proof reaches, or record its omission and reason in bindings/ffi_omissions/{s}.zig", .{ binding.name, verb.name, binding.name });
             }
         }
     }
@@ -161,7 +160,7 @@ fn isAllowed(binding: []const u8, symbol: []const u8) bool {
 
 const Verb = struct {
     name: []const u8,
-    /// Binding names whose row carries an `<name>_omit` reason.
+    /// Binding names whose policies omit this verb.
     omitted: []const []const u8,
 
     fn omits(self: Verb, binding: []const u8) bool {
@@ -173,9 +172,8 @@ const Verb = struct {
 };
 
 /// Read `src/c_abi/host/symbols.zig`, the annotated inventory the binding
-/// generators already treat as the export set, and keep each row's per-binding
-/// omission so a verb a binding reaches by another spelling is not demanded of
-/// it here as well.
+/// generators already treat as the export set. Join binding-owned policies so
+/// a verb reached by another spelling is not demanded here as well.
 fn collectVerbs(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -184,6 +182,14 @@ fn collectVerbs(
     violations: *std.ArrayList([]const u8),
     out: *std.ArrayList(Verb),
 ) !void {
+    var policies: [bindings.len][]const u8 = undefined;
+    for (bindings, 0..) |binding, i| {
+        const policy_path = try std.fmt.allocPrint(arena, "bindings/ffi_omissions/{s}.zig", .{binding.name});
+        policies[i] = root.readFileAlloc(io, policy_path, arena, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for runtime-proof check with {s}", .{ policy_path, @errorName(err) });
+            return;
+        };
+    }
     const path = "src/c_abi/host/symbols.zig";
     const contents = root.readFileAlloc(io, path, arena, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for runtime-proof check with {s}", .{ path, @errorName(err) });
@@ -201,15 +207,12 @@ fn collectVerbs(
         const name_start = at + ".name = \"".len;
         const close = std.mem.indexOfScalarPos(u8, table, name_start, '"') orelse break;
         const name = table[name_start..close];
-        // The row runs to the next row's `.name =`, or to the end of the table.
-        const next = std.mem.indexOfPos(u8, table, close, needle) orelse table.len;
-        const row = table[close..next];
         from = close;
 
         var omitted: std.ArrayList([]const u8) = .empty;
-        for (bindings) |binding| {
-            const field = try std.fmt.allocPrint(arena, ".{s}_omit", .{binding.name});
-            if (std.mem.indexOf(u8, row, field) != null) try omitted.append(arena, binding.name);
+        for (bindings, policies) |binding, policy| {
+            const field = try std.fmt.allocPrint(arena, ".name = \"{s}\"", .{name});
+            if (std.mem.indexOf(u8, policy, field) != null) try omitted.append(arena, binding.name);
         }
         try out.append(arena, .{ .name = name, .omitted = omitted.items });
     }

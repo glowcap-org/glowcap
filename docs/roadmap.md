@@ -132,12 +132,6 @@ review needs that review before its first step.
     custody and recovery. Hosting builds on the Rooms plan's policy catalog
     and room-owned grants, so it starts after those land. Both contracts wait
     for maintainer review before implementation.
-13. **Bindings own their symbol omissions.** Each C archive's symbol
-    inventory (`symbols.zig`) carries a per-binding omit flag, so the C ABI
-    layer names its consumers and a new binding adds a field to a shared row
-    type. Each binding should hold its own short list of the symbols it skips
-    and why, beside its generated table, and the generators join the two
-    ([plan to plan](planning/plan-to-plan.md)).
 14. **Room locators off the host's log.** A join address carries its room
     locator in the query string, which the host serving the page records in
     its access log. Move it into the fragment, where the page reads it and

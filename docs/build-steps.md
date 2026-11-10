@@ -164,6 +164,7 @@ Each `gen-*` step writes a committed mirror, and its `-check` sibling is part
 of `check`, so a hand edit shows up as staleness.
 
 ```sh
+zig build binding-omissions-test              # Check C inventory coverage and binding-owned omission policies; part of check
 zig build gen-header-ocapn                    # Regenerate include/glowcap_ocapn.h from src/c_abi/ocapn
 zig build gen-header-ocapn-check              # Verify include/glowcap_ocapn.h matches src/c_abi/ocapn (fails if stale); part of check
 zig build gen-header-locator                  # Regenerate include/glowcap_locator.h from c_abi/shared/locator.zig

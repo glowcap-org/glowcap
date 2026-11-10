@@ -565,5 +565,24 @@ class Arguments(unittest.TestCase):
                 self.assertIn(message, result.stderr)
 
 
+class BindingPackages(unittest.TestCase):
+    def test_language_archives_refuse_zig_tooling(self):
+        RELEASE.verify_binding_files(["glowcap/src/lib.rs", "glowcap/main.rkt", "glowcap/lib/libglowcap.so"])
+        for name in ("build.zig", "build.zig.zon", "bin/zig", "bin/zig.exe", "lib/zig/std.zig"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "Zig build tooling"):
+                RELEASE.verify_binding_files([f"glowcap/{name}"])
+
+    def test_release_racket_archive_refuses_build_sources(self):
+        source = io.BytesIO()
+        with tarfile.open(fileobj=source, mode="w") as tree:
+            member = tarfile.TarInfo("bindings/racket/policy.zig")
+            member.size = 1
+            tree.addfile(member, io.BytesIO(b"x"))
+        with workdir(), mock.patch.object(RELEASE.subprocess, "check_output", return_value=source.getvalue()):
+            with self.assertRaisesRegex(ValueError, "Zig build tooling"):
+                RELEASE.racket_package(TAG, COMMIT)
+            self.assertFalse(Path("artifacts/glowcap-racket-v0.1.0.zip").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

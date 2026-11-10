@@ -75,7 +75,7 @@ pub fn checkPythonSigsFactoryArity(
                     defer gpa.free(want);
                     const got = try joinArgList(gpa, passed);
                     defer gpa.free(got);
-                    try appendViolation(gpa, violations, "bindings/python/glowcap/{s}: `{s}(…)` passes ({s}) but {s} declares ({s}) — a symbol's `python_omit` changed the generated parameter list; match the call, since Python only refuses this when the loader runs", .{ entry.path, name, got, gen_path, want });
+                    try appendViolation(gpa, violations, "bindings/python/glowcap/{s}: `{s}(…)` passes ({s}) but {s} declares ({s}) — binding-owned omissions changed the generated parameter list; match the call, since Python only refuses this when the loader runs", .{ entry.path, name, got, gen_path, want });
                 }
             }
         }

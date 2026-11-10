@@ -4,6 +4,8 @@
 //! list and the constants and layouts halves.
 
 const std = @import("std");
+const omissions = @import("omissions.zig");
+const policy = @import("binding_omissions");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
@@ -15,44 +17,9 @@ const con = @import("c_abi_net_transport_onion");
 const cw = @import("c_abi_net_transport_webrtc");
 const cr = @import("c_abi_net_transport_relay");
 
-fn checkInventory(comptime M: type) void {
-    comptime {
-        @setEvalBranchQuota(50_000);
-        for (@typeInfo(M).@"struct".decl_names) |decl_name| {
-            if (!std.mem.startsWith(u8, decl_name, "glowcap_")) continue;
-            if (@typeInfo(@TypeOf(@field(M, decl_name))) != .@"fn") continue;
-            var listed = false;
-            for (M.symbols.symbols) |row| {
-                if (std.mem.eql(u8, row.name, decl_name)) {
-                    listed = true;
-                    break;
-                }
-            }
-            if (!listed) for (M.symbols.omitted_families) |fam| {
-                if (std.mem.startsWith(u8, decl_name, fam.prefix)) {
-                    listed = true;
-                    break;
-                }
-            };
-            if (!listed) @compileError("export '" ++ decl_name ++ "' has no row (or omitted-family match) in its symbols.zig inventory");
-        }
-        for (M.symbols.symbols) |row| {
-            // Resolving the name proves the row still names a live export.
-            _ = @field(M, row.name);
-        }
-    }
-}
-
 comptime {
-    checkInventory(c);
-    checkInventory(cd);
-    checkInventory(cdr);
-    checkInventory(ct);
-    checkInventory(cin);
-    checkInventory(con);
-    checkInventory(ci);
-    checkInventory(cw);
-    checkInventory(cr);
+    omissions.validate(policy, .{ c, cd, cdr, ci, ct, cin, con, cw, cr }) catch |err|
+        @compileError(@errorName(err));
 }
 
 /// The TS class letter for one parameter type: opaque handles and function
@@ -182,7 +149,7 @@ fn renderRows(gpa: std.mem.Allocator, comptime M: type, used: *UsedClasses) ![]u
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
     inline for (M.symbols.symbols) |row| {
-        if (row.ts_omit == null) {
+        if (comptime !omissions.omits(policy, row.name)) {
             if (row.section) |section| {
                 var it = std.mem.splitScalar(u8, section, '\n');
                 while (it.next()) |l| try out.print(gpa, "\t// {s}\n", .{l});

@@ -12,9 +12,6 @@
 const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
-pub const OmittedFamily = shared.symbols.OmittedFamily;
-
-pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
     .{ .name = "glowcap_driver_archive_fingerprint" },

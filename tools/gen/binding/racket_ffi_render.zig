@@ -4,6 +4,8 @@
 //! tables.
 
 const std = @import("std");
+const omissions = @import("omissions.zig");
+const policy = @import("binding_omissions");
 const headerParamNames = @import("header_names.zig").headerParamNames;
 const baseName = @import("reflect").baseName;
 const c = @import("c_abi");
@@ -233,7 +235,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
     // wrap it.
     try out.appendSlice(gpa, "(provide (except-out (all-defined-out)");
     inline for (cfg.M.symbols.symbols) |row| {
-        if (row.racket_omit == null) {
+        if (comptime !omissions.omits(policy, row.name)) {
             switch (comptime rowClass(cfg.M, row, cfg.hand_wrapped)) {
                 .wrap1, .multi => try out.print(gpa, "\n                     {s}*", .{row.name}),
                 else => {},
@@ -245,7 +247,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
     try out.print(gpa, "(define-ffi-definer {s} {s})\n\n", .{ cfg.definer, cfg.lib_var });
 
     inline for (cfg.M.symbols.symbols) |row| {
-        if (row.racket_omit == null) {
+        if (comptime !omissions.omits(policy, row.name)) {
             const sig = comptime funSig(cfg.M, row, cfg.specials);
             switch (comptime rowClass(cfg.M, row, cfg.hand_wrapped)) {
                 .plain => {

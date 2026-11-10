@@ -53,7 +53,7 @@ import sys
 import tarfile
 import time
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 TARGETS = ("aarch64-macos", "x86_64-macos", "aarch64-linux", "x86_64-linux")
 ROLES = {"product": "glowcap", "sdk": "glowcap-c"}
@@ -98,6 +98,14 @@ NOTES = Path("artifacts/release-notes.md")
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def verify_binding_files(names):
+    """Language packages consume compiled archives, never Zig build tooling."""
+    for name in names:
+        parts = (part.lower() for part in PurePosixPath(name).parts)
+        if any(part in ("zig", "zig.exe") or part.endswith((".zig", ".zon")) for part in parts):
+            raise ValueError(f"binding package contains Zig build tooling: {name}")
 
 
 def api(repository, endpoint, *, pages=False):
@@ -173,18 +181,16 @@ def racket_package(tag, commit):
     )
     output = Path("artifacts") / f"glowcap-racket-{tag}.zip"
     output.parent.mkdir(exist_ok=True)
-    with (
-        tarfile.open(fileobj=io.BytesIO(source)) as tree,
-        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as package,
-    ):
-        for member in tree:
-            if not member.name.startswith("bindings/racket/") or member.isdir():
-                continue
-            name = "glowcap/" + member.name.removeprefix("bindings/racket/")
-            entry = zipfile.ZipInfo(name, time.gmtime(member.mtime)[:6])
-            entry.compress_type = zipfile.ZIP_DEFLATED
-            with tree.extractfile(member) as data:
-                package.writestr(entry, data.read())
+    with tarfile.open(fileobj=io.BytesIO(source)) as tree:
+        members = [member for member in tree if member.name.startswith("bindings/racket/") and not member.isdir()]
+        verify_binding_files(member.name for member in members)
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as package:
+            for member in members:
+                name = "glowcap/" + member.name.removeprefix("bindings/racket/")
+                entry = zipfile.ZipInfo(name, time.gmtime(member.mtime)[:6])
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                with tree.extractfile(member) as data:
+                    package.writestr(entry, data.read())
 
 
 def assemble(repository, artifacts, tag, commit, run_id):

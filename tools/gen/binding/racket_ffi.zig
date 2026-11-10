@@ -1,9 +1,9 @@
 //! Generates the Racket binding's FFI tables from each archive's annotated
-//! symbol inventory.
+//! symbol inventory and the Racket binding's omission policy.
 //!
 //! The split of truth: parameter and return *types* reflect from the real Zig
 //! exports (`@typeInfo`, so a signature change regenerates a different file),
-//! the inventory supplies order, the `racket_omit` rows, the `blocking` marks
+//! the inventory supplies order and the `blocking` marks
 //! (`#:blocking?`, so a parked FFI call does not freeze the place's green
 //! threads), and the out-cell wrapper tier derives from `out_params` plus the
 //! slot shape of each parameter: a one-pointer to a scalar or a pointer is a
@@ -17,6 +17,8 @@
 //! (part of `check`) holds the committed files against a fresh generation.
 
 const std = @import("std");
+const omissions = @import("omissions.zig");
+const policy = @import("binding_omissions");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
@@ -29,6 +31,11 @@ const cw = @import("c_abi_net_transport_webrtc");
 const cr = @import("c_abi_net_transport_relay");
 
 const headerParamNames = @import("header_names.zig").headerParamNames;
+
+comptime {
+    omissions.validate(policy, .{ c, cd, cdr, ci, ct, cin, con, cw, cr }) catch |err|
+        @compileError(@errorName(err));
+}
 
 pub const step_name = "gen-binding-racket-ffi";
 
@@ -237,7 +244,7 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
         \\  (hasheq
     );
     inline for (ci.symbols.symbols) |row| {
-        if (row.racket_omit == null) {
+        if (comptime !omissions.omits(policy, row.name)) {
             var key: std.ArrayList(u8) = .empty;
             defer key.deinit(gpa);
             try render.writeRacketized(gpa, &key, row.name["glowcap_iroh_".len..]);
@@ -304,7 +311,7 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
         \\  (hasheq
     );
     inline for (cw.symbols.symbols) |row| {
-        if (row.racket_omit == null) {
+        if (comptime !omissions.omits(policy, row.name)) {
             var key: std.ArrayList(u8) = .empty;
             defer key.deinit(gpa);
             try render.writeRacketized(gpa, &key, row.name["glowcap_webrtc_".len..]);

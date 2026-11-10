@@ -5,13 +5,15 @@
 //! exports (`@typeInfo`, so a signature change regenerates a different file),
 //! parameter *names* come from the generated C header (Zig reflection strips
 //! them; the header is generated from the same source and gate-held, so its
-//! names are canonical), and the inventory supplies order and the `rust_omit`
-//! rows. Each emitted file is a sibling module the hand-authored `sys/` file
-//! re-exports — the struct mirrors, layout pins, and doc prose stay
+//! names are canonical), and the inventory supplies order. The Rust binding
+//! owns omissions. Each emitted file is a sibling module the hand-authored
+//! `sys/` file re-exports. The struct mirrors, layout pins, and doc prose stay
 //! hand-written beside it. `zig build gen-binding-rust-ffi-check` (part of
 //! `check`) holds the committed files against a fresh generation.
 
 const std = @import("std");
+const omissions = @import("omissions.zig");
+const policy = @import("binding_omissions");
 const cl = @import("c_abi_loam");
 const cln = @import("c_abi_loam_lmdb");
 const cls = @import("c_abi_loam_sqlite");
@@ -26,6 +28,11 @@ const cin = @import("c_abi_net_transport_inproc");
 const con = @import("c_abi_net_transport_onion");
 const cw = @import("c_abi_net_transport_webrtc");
 const cr = @import("c_abi_net_transport_relay");
+
+comptime {
+    omissions.validate(policy, .{ c, cd, cdr, ci, ct, cin, con, cw, cr, cl, cln, cls, clv }) catch |err|
+        @compileError(@errorName(err));
+}
 
 pub const step_name = "gen-binding-rust-ffi";
 
@@ -174,7 +181,7 @@ fn renderArchive(
     try out.appendSlice(gpa, "\nunsafe extern \"C\" {\n");
 
     inline for (M.symbols.symbols) |row| {
-        if (row.rust_omit == null) {
+        if (comptime !omissions.omits(policy, row.name)) {
             const names = (try headerParamNames(gpa, header, row.name)) orelse
                 return error.PrototypeMissingFromHeader;
             defer gpa.free(names);

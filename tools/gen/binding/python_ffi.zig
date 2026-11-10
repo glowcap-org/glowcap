@@ -4,8 +4,8 @@
 //! The ctypes dicts are positional, so unlike the Rust extern blocks no
 //! parameter-name source is needed: parameter and return *types* reflect from
 //! the real Zig exports (`@typeInfo`, so a signature change regenerates a
-//! different file) and the inventory supplies order and the `python_omit`
-//! rows. The one output is a sibling module the hand-authored `_ffi_*.py`
+//! different file) and the inventory supplies order. The Python binding owns
+//! omissions. The one output is a sibling module the hand-authored `_ffi_*.py`
 //! loaders call: each generated function takes the hand-mirrored `Structure`
 //! and callback types its archive names as parameters, so the module imports
 //! nothing but `ctypes` and no import cycle forms. `zig build
@@ -13,6 +13,8 @@
 //! against a fresh generation.
 
 const std = @import("std");
+const omissions = @import("omissions.zig");
+const policy = @import("binding_omissions");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
@@ -23,6 +25,11 @@ const cin = @import("c_abi_net_transport_inproc");
 const con = @import("c_abi_net_transport_onion");
 const cw = @import("c_abi_net_transport_webrtc");
 const cr = @import("c_abi_net_transport_relay");
+
+comptime {
+    omissions.validate(policy, .{ c, cd, cdr, ci, ct, cin, con, cw, cr }) catch |err|
+        @compileError(@errorName(err));
+}
 
 pub const step_name = "gen-binding-python-ffi";
 
@@ -165,7 +172,7 @@ fn renderArchive(
     var rows: std.ArrayList(u8) = .empty;
     defer rows.deinit(gpa);
     inline for (M.symbols.symbols) |row| {
-        if (row.python_omit == null) {
+        if (comptime !omissions.omits(policy, row.name)) {
             const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
             try rows.print(gpa, "        \"{s}\": ([", .{row.name});
             inline for (info.param_types, 0..) |param_type, i| {

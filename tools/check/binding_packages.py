@@ -35,6 +35,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+verify_binding_files = runpy.run_path(str(ROOT / "ci/github_release.py"))["verify_binding_files"]
 INSTALL_ATTEMPTS = 12
 INSTALL_RETRY_SECONDS = 20
 RUST_FEATURES = ["async", "loam", "iroh", "webrtc", "relay", "onion"]
@@ -61,6 +62,7 @@ def verify_license(archive):
     is_zip = zipfile.is_zipfile(archive)
     with zipfile.ZipFile(archive) if is_zip else tarfile.open(archive) as package:
         names = package.namelist() if is_zip else package.getnames()
+        verify_binding_files(names)
         matches = [name for name in names if name.endswith("/LICENSE-APACHE") or name == "LICENSE-APACHE"]
         assert len(matches) == 1, f"{archive}: package needs exactly one Apache license"
         (name,) = matches

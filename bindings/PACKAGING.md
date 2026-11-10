@@ -78,6 +78,10 @@ The bindings CI phase runs this rehearsal before qualification.
 Each package carries the repository's Apache license text. The rehearsal
 compares the packaged copy with its source.
 
+Generator-only omission policies live under `bindings/ffi_omissions/`, outside
+the published package roots. Archive checks reject Zig sources and compiler
+executables. The Racket release ZIP uses the same check.
+
 The C-library checks use the locally built SDK. The same script with
 `--registry <version>` installs a published version from each registry in a
 fresh consumer with no local SDK, and `publish.yml` runs it after each upload.
