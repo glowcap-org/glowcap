@@ -6,11 +6,10 @@ sources: []
 
 # What you can depend on
 
-glowcap publishes alpha releases. The
-[release policy](maintaining.md#release-status) defines compatibility and
-upgrade expectations. The checks below establish behavior for the commit
-and configuration they exercise. They do not establish security review or
-production deployment experience.
+A passing check covers the commit and configuration it exercised. Some
+checks run in CI, while others need external runtimes or network access and
+run on demand. The [release policy](maintaining.md#release-status) covers
+compatibility and upgrades.
 
 ## Checks by area
 

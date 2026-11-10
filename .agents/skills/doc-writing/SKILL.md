@@ -37,7 +37,9 @@ start with its rendered opening, including text supplied by the layout.
    do with it. A sentence about the page itself goes.
 2. **Every sentence earns its place.** Ask whether the reader would miss it.
    Usual cuts are a restated heading, a repeated fact, a reason already
-   given, a denial of something nobody assumed, and history.
+   given, a denial of something nobody assumed, and history. After fixing
+   stale claims, reread the whole section: replacement wording often adds
+   status labels or caveats the reader does not need.
 3. **Structure carries order.** A paragraph that walks steps becomes a
    numbered list. Rules a caller must follow become a bulleted list. Rows of
    similar facts become a table, and a paragraph with two ideas becomes two.

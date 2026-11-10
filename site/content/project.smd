@@ -6,57 +6,55 @@
 .draft = false,
 ---
 
-glowcap is an alpha library for capability-based networking and
-Loam transactional storage and durable actors, licensed under Apache-2.0.
-Glowcap LLC maintains it at
-[glowcap-org/glowcap](https://github.com/glowcap-org/glowcap).
+Glowcap LLC maintains glowcap under Apache-2.0. Get the
+[source](https://github.com/glowcap-org/glowcap) or download a release from
+[GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
 
 The software version is `0.1.6` alpha. CapTP `1.0` names a wire protocol it
-supports. [GitHub Releases](https://github.com/glowcap-org/glowcap/releases)
-holds the downloads, and the
-[changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md)
-records changes and required upgrade steps.
+supports.
 
-Pin a release or commit. APIs, ABIs, and storage formats can change before
-1.0, including in patch releases. Back up stored data before upgrading.
-The [release policy](https://github.com/glowcap-org/glowcap/blob/main/docs/maintaining.md#release-status)
-defines compatibility expectations. glowcap has not received an independent
-security audit. [SECURITY.md](https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md)
-defines the security posture and the private reporting process.
+Under the [alpha release policy](https://github.com/glowcap-org/glowcap/blob/main/docs/maintaining.md#release-status),
+APIs, ABIs, and storage formats can change before 1.0, including in patch
+releases. Pin a release or commit, read the
+[changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md),
+and back up stored data before upgrading.
+
+glowcap has not received an independent security audit. Report suspected
+vulnerabilities [privately](https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md#reporting-a-vulnerability).
 
 # Where to go next
 
-- **[Start building]($link.page('start'))** installs the Zig package and makes
-  a complete call, with routes to the C ABI and every binding.
+- **[Start building]($link.page('start'))** walks through a complete call in
+  Zig, with guides for other languages.
 - **[Choose a transport]($link.page('transports/choosing'))** compares
   identity, encryption, reachability, browser support, and interoperability.
-- **[What you can depend on]($link.page('stability'))** separates recurring
-  checks, on-demand checks, and behavior without check coverage.
-- **[Performance]($link.page('performance'))** publishes throughput,
-  allocation, footprint, transport, and binding measurements with their
-  methods.
+- **[What you can depend on]($link.page('stability'))** shows which behaviors
+  are tested and where coverage is missing.
+- **[Performance]($link.page('performance'))** reports measured throughput,
+  memory use, and latency, with workloads and methods.
 
 # Get help or contribute
 
 Ask a question or report a problem in
 [GitHub Issues](https://github.com/glowcap-org/glowcap/issues).
 Include the release version or commit, your operating system, what you
-tried, and what happened. Confusing instructions and interoperability
-failures are worth reporting too. You do not need to bring a fix.
+tried, and what happened. Reports of confusing instructions or failed
+interoperability are welcome, with or without a fix.
+
 [Contributing](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md)
 explains how to run the project and send a fix. Contributions are welcome
 with or without AI tools.
 
 # Project records
 
-The repository keeps the detailed project record: [what
-ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md), [known
-limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md),
-the [milestones to 1.0](https://github.com/glowcap-org/glowcap/blob/main/docs/milestones.md),
-and the [remaining work](https://github.com/glowcap-org/glowcap/blob/main/docs/roadmap.md).
+[What ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md)
+and [known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md)
+list supported features and their constraints. The
+[roadmap](https://github.com/glowcap-org/glowcap/blob/main/docs/roadmap.md)
+orders the work toward the [milestones to 1.0](https://github.com/glowcap-org/glowcap/blob/main/docs/milestones.md).
 The [vision](https://github.com/glowcap-org/glowcap/blob/main/docs/vision.md)
-defines what 1.0 is aiming for. Accepted and superseded choices are recorded in the
-[decision index](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/README.md).
+sets the goal, and the [decision records](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/README.md)
+explain the design choices.
 
 # Sponsorship
 

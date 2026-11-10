@@ -6,22 +6,16 @@
 .draft = false,
 ---
 
-glowcap publishes alpha releases. Pin a release or commit and read its
-[changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md)
-before upgrading. APIs, ABIs, and storage formats can change before 1.0.
-The checks below establish behavior for the configurations they exercise.
-They do not establish security review or production deployment experience.
-
-Three kinds of checks sit behind a claim:
+glowcap checks its protocol against the upstream OCapN suite and live
+[Spritely Goblins](https://spritely.institute/goblins/) peers. Test coverage
+varies by transport, language, and platform.
 
 - `zig build check` runs in-process scenarios, committed wire fixtures,
   budgets, and public examples.
 - Recurring live checks talk to the upstream OCapN suite and to a
-  [Spritely Goblins](https://spritely.institute/goblins/) peer. A Chromium browser
+  Goblins peer. A Chromium browser
   running the WebAssembly build also connects over a local secure WebSocket.
-  Full CI validation runs them. `dev` pushes and development pull requests
-  select checks by changed files, as the [CI guide](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#continuous-integration)
-  explains.
+  Full CI validation runs them.
 - On-demand checks cover Tor, the full Goblins session over iroh, and browser-to-browser
   WebRTC. No check covers iroh across two separate NATs or a public
   certificate.
@@ -30,13 +24,13 @@ A live Goblins session proves protocol interop, not API stability. A live iroh
 endpoint proves the transport stack, not agreement with another CapTP
 implementation.
 
-These results count only when the
-[checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
-is green for the commit you are evaluating. The
-[repository stability page](https://github.com/glowcap-org/glowcap/blob/main/docs/stability.md)
-has the full table, including what each check does not prove.
+Check the [workflow results](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
+for the commit you plan to use. Development runs select jobs by changed
+files, so a green run covers only those jobs. The
+[repository stability guide](https://github.com/glowcap-org/glowcap/blob/main/docs/stability.md)
+lists coverage and gaps for each area.
 [Community review](https://github.com/glowcap-org/glowcap/blob/main/docs/community-review.md)
-is the outside-peer brief.
+details the checks against OCapN and Goblins.
 
 Use [Choosing a transport]($link.page('transports/choosing')) for deployment
 tradeoffs and [Performance]($link.page('performance')) for measured costs. The

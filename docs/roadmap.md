@@ -15,17 +15,16 @@ up when its wait ends.
 
 ## Development priorities
 
-Published releases and the website describe the implemented scope. Fixes to
-advertised behavior, installation, and contributor paths take priority over
-new features. [Maintaining glowcap](maintaining.md) owns release checks and
-publication, and the [alpha policy](maintaining.md#release-status) defines
-compatibility expectations.
+Fix broken advertised behavior, installation, and contributor setup before
+adding features. Follow the [release procedure](maintaining.md) when
+publishing and the [alpha policy](maintaining.md#release-status) when
+changing a public contract.
 
-Known limitations describe consequences, not acceptance. A gap against the
-vision needs work here with a completion criterion, or an explicit decision
-narrowing the supported scope. Intentional contracts stay in their guides.
-Stability owns missing evidence. Keep a limitation visible until its fix is
-verified. Plans own implementation steps and acceptance.
+Each gap against the vision needs a roadmap item with a completion criterion
+or a decision narrowing the supported scope. Keep
+[known limitations](boundaries.md) visible until a fix is verified. Record
+missing test coverage in [stability](stability.md) and implementation steps
+in the item's plan.
 
 ## What starts next
 

@@ -1,6 +1,6 @@
 ---
 .title = "Why OCapN",
-.description = "OCapN held against the protocols you already run. If you know what a bearer token is, this page has all the background it assumes.",
+.description = "How OCapN passes access between programs, compared with bearer tokens and account permissions.",
 .date = .date("2026-07-25T00:00:00"),
 .layout = "why.shtml",
 .draft = false,

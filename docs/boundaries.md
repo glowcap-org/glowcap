@@ -7,8 +7,8 @@ sources: []
 # Known limitations
 
 Pin a release or commit and follow the
-[alpha upgrade policy](maintaining.md#release-status). A limitation here
-describes current behavior, not acceptance of it as the goal.
+[alpha upgrade policy](maintaining.md#release-status). The constraints below
+can affect which API or transport you choose and where you deploy it.
 
 ## Protocol draft coverage
 
