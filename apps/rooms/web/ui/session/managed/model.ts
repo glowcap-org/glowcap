@@ -121,7 +121,7 @@ export interface WorkspaceIntent {
 	ignored: string[];
 	keepHistory: boolean;
 	historyErasure?: string;
-	connection: "webrtc" | "relay";
+	connection: "fastest" | "webrtc" | "relay";
 	archive: FieldKey | null;
 	archiveControl: FieldKey | null;
 	operators: FieldKey[];

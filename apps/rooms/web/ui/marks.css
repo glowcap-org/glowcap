@@ -52,16 +52,16 @@
 	color: var(--ink-soft);
 }
 
-/* The bridge mark: a small cap beside a bridged identity or room name, wearing
-   the bridge's own badge word and color. The surrounding mark keeps its own
-   identity. This cap says where the projection came from. Not a control. It
-   states a fact. */
-.bridge-chip {
+/* The chip: a small cap beside a name or label, wearing one badge word on
+   its own color. Not a control. It states a fact. The bridge chip says where
+   a projection came from in the bridge's color. The choice mark says which
+   answer is the default, as a tint of the caption's ink under the page's
+   own ink, so it reads on both themes. */
+.chip {
 	display: inline-block;
 	margin-left: 6px;
 	padding: 1px 5px 2px;
 	border-radius: 5px;
-	background: var(--irc);
 	color: #fff;
 	font-size: var(--type-tiny);
 	font-weight: 700;
@@ -69,8 +69,13 @@
 	line-height: 1.2;
 	vertical-align: 0.12em;
 }
+.bridge-chip {
+	background: var(--irc);
+}
+.choice-mark,
 .bridge-chip[data-network="rooms"] {
-	background: var(--ink-soft);
+	background: color-mix(in srgb, var(--ink-soft) 24%, transparent);
+	color: var(--ink);
 }
 .bridge-chip[data-network="rooms-connecting"] {
 	background: var(--accent-ink);

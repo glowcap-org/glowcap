@@ -79,7 +79,7 @@ pub async fn rooms_session_bootstrap_durability_contract(metadata: bool) {
 				.await
 				.unwrap();
 			let mut expected = Intent::empty();
-			expected.connection = session::workspace::Connection::Webrtc;
+			expected.connection = session::workspace::Connection::Fastest;
 			assert_eq!(opened.workspace().unwrap().snapshot().await.unwrap().intent, expected);
 			opened.close().await.unwrap();
 			drop(opened);

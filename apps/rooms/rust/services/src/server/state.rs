@@ -75,6 +75,9 @@ struct Connection {
 	/// the nick of its membership, or none. Stated again only when it
 	/// changes, so a line said in a room is not a fresh claim.
 	presence: RefCell<Option<String>>,
+	/// The locator the Host embeds in handoffs of this session's exports, as
+	/// the last committed registration claimed it. A refused one restores it.
+	handoff_locator: Option<Locator>,
 }
 
 /// One accepted session as an operator inventory reads it.
@@ -238,6 +241,7 @@ impl State {
 				claimant,
 				operator_id: Id::from_entropy(entropy).as_str().into(),
 				presence: RefCell::new(None),
+				handoff_locator: None,
 			},
 		);
 		self.changed();
@@ -260,6 +264,12 @@ impl State {
 			.values()
 			.find(|held| held.session.same_session(session))
 			.map(|held| &held.files)
+	}
+	/// The handoff locator `register` last committed for `connection`.
+	pub(super) fn handoff_locator(&mut self, connection: u64) -> Option<&mut Option<Locator>> {
+		self.connections
+			.get_mut(&connection)
+			.map(|held| &mut held.handoff_locator)
 	}
 	/// The connection `session` is served over. A room reference crosses
 	/// connections, so the calling session names the caller, not the session

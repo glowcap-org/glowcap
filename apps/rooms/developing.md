@@ -366,11 +366,13 @@ Zine's preview answers such a path with its own page.
 
 Browser peers also register a rendezvous identity with the relay, so another
 tab or process can open a fresh connection to the held WebSocket without the
-room in the message path. By default a page advertises a WebRTC identity:
+room in the message path. By default (**Fastest**) a page with a Rooms server
+advertises one identity route naming WebRTC and the relay, and a dialing Host
+races them. A page with no server advertises WebRTC alone. Over WebRTC,
 direct messages cross a DataChannel between the two tabs, and the directory
 carries only the offer, answer, and candidates. A page opened with `?dm=relay`,
-or with that choice made in Settings, sends them through the relay as Noise
-ciphertext.
+or with **Through the server** chosen in Settings, sends them through the relay
+as Noise ciphertext. `?dm=webrtc` chooses **Browser to browser**.
 
 ## Validation boundaries
 

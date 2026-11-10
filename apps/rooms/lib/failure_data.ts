@@ -70,6 +70,7 @@ export const SAVED_TRANSPORT_UNAVAILABLE = "saved-transport-unavailable";
 export const SESSION_SIGNALING_HOST_OFFLINE = "session-signaling-host-offline";
 export const SESSION_SIGNALING_UNAVAILABLE = "session-signaling-unavailable";
 export const SESSION_WEBRTC_NO_ROUTE = "session-webrtc-no-route";
+export const DIRECT_NO_ROUTE = "direct-no-route";
 export const SESSION_PEER_UNVERIFIED = "session-peer-unverified";
 export const LINK_PREVIEW_INVALID_URL = "link-preview-invalid-url";
 export const LINK_PREVIEW_ADDRESS_BLOCKED = "link-preview-address-blocked";
@@ -336,6 +337,12 @@ export const ROOMS_FAILURES = {
 		summary: "The two browsers found each other, but couldn't open a connection between them.",
 		action:
 			"If the networks allow no direct connection, configure TURN or select Relay and share a new link. A link already issued keeps its original route.",
+	},
+	"direct-no-route": {
+		subject: "webrtc-route",
+		retry: "after-state-change",
+		summary: "No direct route opened from this browser.",
+		action: "A Rooms server gives this browser another route.",
 	},
 	"session-peer-unverified": {
 		subject: "session-peer",

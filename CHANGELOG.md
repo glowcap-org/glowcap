@@ -21,6 +21,19 @@ and storage formats before 1.0.
   in the Loam actor guide beside its lifetime rules.
 - The Rooms operations guide keeps long options and links in scrollable
   examples so they do not widen the page on phones.
+- Direct messages between browsers try WebRTC and the Rooms server at once
+  and keep the first route that opens, which is often the server. This is
+  **Fastest**, the default in Settings under **Direct message connection**,
+  on a page with a Rooms server. On a page with no server the route is
+  browser to browser, and the section says so instead of offering choices.
+  **Browser to browser** prefers a direct route and **Through the server**
+  uses only the server. The server embeds the route you
+  registered in every introduction it makes for you, so the route you chose
+  is the one others dial.
+- A browser whose Rooms data was created before this release keeps
+  **Browser to browser**. Choose **Fastest** in Settings to race both routes.
+- A direct message that finds no route on a page with no Rooms server opens
+  **Choose a Rooms server**, which saves the conversation to return to.
 
 ### Fixed
 

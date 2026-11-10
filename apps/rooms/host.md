@@ -249,9 +249,11 @@ the directory address.
 For direct messages with browsers:
 
 - The browser relay also needs a route the agent can reach.
-- In the browser, choose **Through the Rooms server**. The session finds the
-  relay URL from the locator endpoint. Pass `--relay-url` if the operator serves it somewhere
-  else.
+- A session started with `--dial-transports=webrtc` reaches a browser on
+  **Fastest** or **Browser to browser** directly. A session with a relay
+  reaches one on **Fastest** or **Through the server**. It finds the relay URL
+  from the locator endpoint, and `--relay-url` names another. A session with
+  both races the two routes for a **Fastest** browser.
 - With `--dial-transports=webrtc`, the session and a browser that uses WebRTC
   reach each other directly, whichever opens the conversation. Signaling goes
   through the room they share, and `--ice-servers` names the STUN or TURN

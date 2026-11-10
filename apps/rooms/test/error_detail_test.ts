@@ -132,6 +132,39 @@ Deno.test("a break on the way is told apart from a value or a denial", () => {
 	assertEquals(transportBreak(new Error("That name is taken.")), null);
 });
 
+Deno.test("a direct line that found no route reads its code through the Host's redeem layer, and nothing else does", () => {
+	const detail = "Rooms WebRTC found no route within its connect budget";
+	const refused = new Error(`glowcap error -12: handoff redeem failed: glowcap error -8: direct-no-route: ${detail}`);
+	const view = failureView(refused);
+	assertEquals(view.code, "direct-no-route");
+	assertEquals(view.detail, detail);
+	// The code's own summary and next step are what the reader sees.
+	assertEquals(
+		renderFailure(view),
+		`No direct route opened from this browser. A Rooms server gives this browser another route. (direct-no-route: ${detail})`,
+	);
+	assertEquals(RoomsError.from(`handoff redeem failed: direct-no-route: ${detail}`)?.code, "direct-no-route");
+	// A redeem that failed for another reason, or a nested status with no
+	// code, is not a missing route.
+	assertEquals(failureView(new Error("glowcap error -12: handoff redeem failed: host closing")).code, "unexpected");
+	assertEquals(
+		failureView(new Error("glowcap error -12: handoff redeem failed: glowcap error -2: uri parse: UriParseError"))
+			.code,
+		"unexpected",
+	);
+	assertEquals(
+		failureView(new Error("glowcap error -12: glowcap error -8: browser channel error")).code,
+		"unexpected",
+	);
+	assertEquals(failureView(new Error("glowcap error -12: Denied")).code, "access-denied");
+	// A typed sibling code that rides the same carriers keeps its own code.
+	const sibling = failureView(
+		new Error("glowcap error -12: handoff redeem failed: glowcap error -8: nick-taken: alice"),
+	);
+	assertEquals(sibling.code, "nick-taken");
+	assertEquals(sibling.detail, "alice");
+});
+
 Deno.test("a reach through the browser's own relay door names the relay, and keeps the break when it has one", () => {
 	const broke = doorUnreachable(
 		"directory",

@@ -6,34 +6,36 @@ import { assertEquals } from "./assert.ts";
 const { dmFrom, servedDirectory, writeSearch } = await import("../web/ui/prefs.ts");
 const { roomAddress, directoryAddress, dmAddress } = await import("../web/ui/route_address.ts");
 
-Deno.test("dm: URL relay wins over stored webrtc", () => {
+Deno.test("dm: a URL route wins over the stored preference", () => {
 	assertEquals(dmFrom(new URLSearchParams("dm=relay"), "webrtc"), "relay", "url relay");
-});
-
-Deno.test("dm: URL webrtc wins over stored relay", () => {
 	assertEquals(dmFrom(new URLSearchParams("dm=webrtc"), "relay"), "webrtc", "url webrtc");
+	assertEquals(dmFrom(new URLSearchParams("dm=fastest"), "relay"), "fastest", "url fastest");
 });
 
-Deno.test("dm: absent URL uses stored relay", () => {
+Deno.test("dm: an absent URL uses the stored preference", () => {
 	assertEquals(dmFrom(new URLSearchParams(""), "relay"), "relay", "stored relay");
+	assertEquals(dmFrom(new URLSearchParams(""), "webrtc"), "webrtc", "stored webrtc");
 });
 
-Deno.test("dm: absent URL and storage defaults to webrtc", () => {
-	assertEquals(dmFrom(new URLSearchParams(""), null), "webrtc", "default");
+Deno.test("dm: absent URL and storage means the fastest route", () => {
+	assertEquals(dmFrom(new URLSearchParams(""), null), "fastest", "default");
 });
 
-Deno.test("dm: an unknown query falls through to storage", () => {
+Deno.test("dm: an unknown query or stored value falls through", () => {
 	assertEquals(dmFrom(new URLSearchParams("dm=nope"), "relay"), "relay", "unknown query");
+	assertEquals(dmFrom(new URLSearchParams(""), "nope"), "fastest", "unknown storage");
 });
 
-Deno.test("writeSearch preserves unrelated values", () => {
+Deno.test("writeSearch names a chosen route and clears for the default", () => {
 	const url = new URL("http://rooms.test/?keep=1&dm=relay");
-	writeSearch(url, { dm: "webrtc" });
-	assertEquals(url.searchParams.get("keep"), "1", "other query stays");
-	assertEquals(url.searchParams.get("dm"), null, "webrtc drops dm");
-	writeSearch(url, { dm: "relay" });
+	for (const dm of ["webrtc", "relay"] as const) {
+		writeSearch(url, { dm });
+		assertEquals(url.searchParams.get("keep"), "1", `other query stays under ${dm}`);
+		assertEquals(url.searchParams.get("dm"), dm, dm);
+	}
+	writeSearch(url, { dm: "fastest" });
 	assertEquals(url.searchParams.get("keep"), "1", "keep still");
-	assertEquals(url.searchParams.get("dm"), "relay", "relay");
+	assertEquals(url.searchParams.get("dm"), null, "the default drops dm");
 });
 
 Deno.test("shared room and directory addresses carry only the DM startup choice", () => {

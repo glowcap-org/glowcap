@@ -71,11 +71,17 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
 - *Session WebRTC.* Started with `--dial-transports=webrtc`, the session process reaches a WebRTC browser member
   directly, signaling through the room that introduced it, and answers a member's offer that a room it belongs to
   delivers. It gathers candidates through `--ice-servers`.
-- *Direct-message routes.* A browser in **Browser to browser** mode advertises WebRTC and names the Rooms server's
-  sealed relay as the route its Host tries after the direct attempt fails. The offerer gives WebRTC a bounded
-  time to find a route once the answer arrives, so a line opens within seconds on a network that blocks it.
-  The conversation card's **Path** fact names the route the open line runs over, read from its live session.
-  `zig build rooms-web-dm-fallback` proves both with every non-proxied UDP route disabled.
+- *Direct-message routes.* **Direct message connection** in Settings is a preference whose default is marked.
+  **Fastest**, on a page with a Rooms server, lists the member under one identity route naming WebRTC and the
+  server's sealed relay, which a dialing Host races, keeping the first to prove the key
+  (`zig build rooms-web-dm-fastest`, with every non-proxied UDP route disabled). The server embeds the route a
+  member registered in every handoff it mints for that member's inbox, and the member's own hello names WebRTC
+  with the relay as advice. On a page with no server, Fastest is browser to browser, the one route the page
+  has, and the section says so instead of drawing choices.
+- *Chosen routes.* **Browser to browser** advertises WebRTC with the relay as the route the Host tries after
+  the direct attempt fails, within a bounded time (`zig build rooms-web-dm-fallback`). **Through the server**
+  advertises the relay alone. The conversation card's **Path** fact names the route the open line runs over,
+  read from its live session.
 - *Packaging.* The [glowcap product package](host.md) includes the CLI, the private Rooms runtimes, the
   prepared browser application, and both skills. `glowcap-pack` serves the browser assets and repeats the process
   proof from an extracted installation, with no checkout tooling or library-path overrides. `glowcap-package-test`

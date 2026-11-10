@@ -12,6 +12,9 @@ import {
 export * from "./failure_data.ts";
 
 const CODES: ReadonlySet<string> = new Set(ROOMS_ERROR_CODES);
+// What the Host's handoff redeem puts on the failure of the dial it made
+// (the Zig engine's `node/redeem.zig` and its `redeem/` modules write it).
+const REDEEM_LAYER = "handoff redeem failed: ";
 
 /** A failure with a machine-readable code. The message the wire carries is
  * `"<code>: <detail>"`, so a peer can reconstruct the code with `RoomsError.from`. */
@@ -43,8 +46,13 @@ export class RoomsError extends Error {
 	static from(reason: string): RoomsError | null {
 		let payload = reason;
 		// A line crosses one glowcap status per layer it climbs through, and a
-		// dial refused inside the runtime wears two. Each is a status, not a code.
-		while (payload.startsWith("glowcap error ")) {
+		// dial refused inside the runtime wears two. A handoff's dial also wears
+		// the Host's redeem layer. Each is a status, not a code.
+		while (payload.startsWith(REDEEM_LAYER) || payload.startsWith("glowcap error ")) {
+			if (payload.startsWith(REDEEM_LAYER)) {
+				payload = payload.slice(REDEEM_LAYER.length);
+				continue;
+			}
 			const split = payload.indexOf(": ");
 			if (split < 0) return null;
 			const statusText = payload.slice("glowcap error ".length, split);
