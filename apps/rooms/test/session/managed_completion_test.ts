@@ -171,57 +171,28 @@ for (const receipt of [{ status: "ready" }, { status: "ready", inbox: 1 }, { sta
 	});
 }
 
-for (const held of [false, true]) {
-	Deno.test(`operator moderator issuance retires its receipt with ${held ? "colliding display labels" : "no joined room"}`, async () => {
-		const current = snapshot();
-		if (held) {
-			for (const id of ["first-room", "second-room"]) {
-				current.intent.conversations.push({
-					kind: "room",
-					id,
-					directory: id,
-					name: "same label",
-					source: `${id}-source`,
-					access: `${id}-access`,
-					control: null,
-					reconnect: "requested",
-					standing: null,
-					draft: "kept",
-				});
-			}
-		}
-		const original = structuredClone(current.intent);
-		let acquired = false;
-		const operation = new ManagedOperation("moderator", {
-			result: () => Promise.resolve({ name: "durable-directory-name", steward: "returned-moderator" }),
-			adopted: () => Promise.resolve(acquired),
-			originalIntent:
-				() => ["moderator", 1, "operator", ["operator-key", "giveModerator", "durable-directory-name"]],
-			prepareResultAcquisition: (_revision: string, mappings: string, releases: string, intent: string) => {
-				assertEquals(JSON.parse(mappings), []);
-				assertEquals(JSON.parse(releases), []);
-				assertEquals(JSON.parse(intent), original);
-				return Promise.resolve({
-					submit: () => {
-						acquired = true;
-						return Promise.resolve({ status: "committed" });
-					},
-					free() {},
-				});
-			},
-			free() {},
-		} as unknown as RoomsManagedCommand);
-		const session = viewer({ snapshot: () => Promise.resolve(current) });
-		try {
-			await completeResult(session, operation);
-			assert(acquired, "the returned occurrence is adopted before the local command finishes");
-			assertEquals(current.intent, original);
-		} finally {
-			await operation.close();
-			await session.close();
-		}
-	});
-}
+Deno.test("operator moderator issuance answers the stewardship row and stores nothing", async () => {
+	const current = snapshot();
+	const original = structuredClone(current.intent);
+	const row = ["durable-directory-name", "same label", "private", 3, "returned-moderator", null, false];
+	const operation = new ManagedOperation("moderator", {
+		result: () => Promise.resolve(row),
+		adopted: () => Promise.resolve(false),
+		originalIntent: () => ["moderator", 1, "operator", ["operator-key", "giveModerator", "durable-directory-name"]],
+		prepareResultAcquisition: () => {
+			throw new Error("operator issuance prepared an acquisition");
+		},
+		free() {},
+	} as unknown as RoomsManagedCommand);
+	const session = viewer({ snapshot: () => Promise.resolve(current) });
+	try {
+		assertEquals(await completeResult(session, operation), row);
+		assertEquals(current.intent, original);
+	} finally {
+		await operation.close();
+		await session.close();
+	}
+});
 
 Deno.test("room link adoption replaces its entrance while retaining the exact public identity and seat", async () => {
 	const current = snapshot();

@@ -1,4 +1,4 @@
-import { spawnWeb, webPort } from "../support/web_front.ts";
+import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 // Closing a direct message and starting another one with the same person opens
 // a second connection, and the second one carries.
 //
@@ -45,7 +45,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 import { type Browser, chromium, type Page } from "playwright";
 import { Buffer } from "node:buffer";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
+import { acquireTraceCapability, connectTraceViewer } from "../trace/viewer.ts";
 import { reapOwned } from "../support/children.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
@@ -192,9 +192,7 @@ const web = spawnWeb({
 	stdout: "piped",
 	stderr: "piped",
 });
-// The trace sturdyref rides the server's stderr; the scraper tees the stream
-// through so the run stays observable.
-const traceRef = scrapeTraceSturdyref(web.stderr);
+const traceRef = webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
 const httpPort = await webPort(web);
 
 let browser: Browser | null = null;

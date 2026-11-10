@@ -1,4 +1,4 @@
-import { spawnWeb, webPort } from "../support/web_front.ts";
+import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 // The Rooms session process and browser members direct-message each other over
 // WebRTC DataChannels, with the room directory carrying only the signaling. The
 // process opens the first conversation and a second member opens the other.
@@ -27,7 +27,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
-import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
+import { acquireTraceCapability, connectTraceViewer } from "../trace/viewer.ts";
 import { roomPortOf, sturdyrefPort } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
@@ -128,7 +128,7 @@ const web = spawnWeb({
 	stdout: "piped",
 	stderr: "piped",
 });
-const traceRef = scrapeTraceSturdyref(web.stderr);
+const traceRef = webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
 const httpPort = await webPort(web);
 
 let browser: Browser | null = null;
