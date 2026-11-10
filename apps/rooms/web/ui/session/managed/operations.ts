@@ -313,7 +313,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 				if (row?.type !== "room") throw new Error("This room is no longer held");
 				const held = conversationById(session.current, row.persistId);
 				if (held?.kind !== "room" || held.seat == null) {
-					throw new Error("Recovery requires a seat in the exact room");
+					throw new Error("Join the room before recovering its manager link");
 				}
 				const identity: string = await session.workspace.roomManagementIdentity(
 					JSON.stringify({ role: "roomSeat", key: held.seat }),

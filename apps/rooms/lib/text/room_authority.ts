@@ -10,7 +10,7 @@ export const roomCapabilitiesTitle = "Room links";
  * learns which power it carries and that it is taken here, in the room, with
  * no need to leave and come back in by link. */
 export const roomCapabilitiesLead =
-	"The room link lets someone in. The manager link runs the room: it makes links, hands out moderation, and sets who can enter. The moderator link lets its holder ask members to leave. To take a link someone shared with you, paste it below while you are in the room.";
+	"The room link lets someone in. The manager link runs the room: it makes links, lets you add moderators, and sets who can enter. The moderator link lets its holder ask members to leave. To take a link someone shared with you, paste it below while you are in the room.";
 
 /** A bridged room has no manager capability to take, because the channel is not
  * this server's to manage. The sentence comes in three parts so the middle one
@@ -79,8 +79,7 @@ export const roomLinkTitle = "Room link";
 export const roomLinkCreateHint =
 	"Create a link that lets anyone who holds it enter this exact room, and keeps working across server restarts until revoked. Anyone with the room link can enter and pass it on. It grants neither moderation nor message history.";
 export const roomLinkSaveHint = "Save the IRC bridge's room link to return to this exact publication.";
-export const roomLinkNoneHint =
-	"This session holds no room link. A room manager can create one and share it with this session.";
+export const roomLinkNoneHint = "You don't hold this room's link. A room manager can create one and hand it to you.";
 export const roomLinkSaving = "Saving room link…";
 export const roomLinkCreating = "Creating room link…";
 export const roomLinkSave = "Save room link";

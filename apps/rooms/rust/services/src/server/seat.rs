@@ -4,6 +4,7 @@
 //! nothing until the policy has named it.
 use super::{
 	history, invitations, lines,
+	rooms::{managed_identity, room_durable_name},
 	state::{Shared, State},
 };
 use glowcap::{Argument, current_session};
@@ -56,15 +57,6 @@ pub(super) fn admitted(
 /// One observer or participant facet for one exact membership. Files go
 /// through the separate facet `files::facet` answers, handed over at
 /// subscribe only where the room can hold them.
-/// The name a room's links and manager identity are kept under: its durable
-/// name when it has one, else the live key.
-fn durable_name(state: &State, room: &RoomKey) -> String {
-	state
-		.rooms
-		.durable_name(room)
-		.map(String::from)
-		.unwrap_or_else(|| room.as_str().to_owned())
-}
 pub(super) fn seat(
 	shared: Shared,
 	room: RoomKey,
@@ -109,16 +101,14 @@ pub(super) fn seat(
 				if !args.is_empty() {
 					return Err("managedRoomIdentity takes no arguments".into());
 				}
-				let durable = durable_name(&state, &room);
-				let identity = state.authority.manager_identity(&durable);
-				state.links.cache_identity(&durable, identity.clone())?;
-				Ok(identity.into())
+				let durable = room_durable_name(&state, &room, None);
+				managed_identity(&mut state, &durable)
 			}
 			ROOM_IDENTITY => {
 				if !args.is_empty() {
 					return Err("roomIdentity takes no arguments".into());
 				}
-				let durable = durable_name(&state, &room);
+				let durable = room_durable_name(&state, &room, None);
 				let swiss = state
 					.links
 					.swiss(Kind::Room, &durable)

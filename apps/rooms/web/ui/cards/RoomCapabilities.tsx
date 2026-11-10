@@ -156,7 +156,9 @@ export function RoomCapabilities(
 
 	return (
 		<div className="group" role="group" aria-label={roomCapabilitiesTitle}>
-			{managerTakeShown && <p className="hint" id="convcardLinksLead">{roomCapabilitiesLead}</p>}
+			{(managerTakeShown || stewardTakeShown) && (
+				<p className="hint" id="convcardLinksLead">{roomCapabilitiesLead}</p>
+			)}
 			<h3 className="well-title overline" id="convcardManagerTitle">{roomManagementTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="convcardManagerTitle">
 				{conv.managerToken == null

@@ -44,7 +44,7 @@ export const operatorResetRuntime: OperatorReset = {
 	act: "Reset",
 	label: "Reset directory runtime",
 	effect:
-		"All rooms, nickname claims, other peer sessions, and current trouble are retired. Durable room entry links and server identity remain.",
+		"All rooms, other peer sessions, their nickname claims, and current trouble are retired. Durable room entry links, server identity, and the operator's own connection and nickname remain.",
 };
 export const operatorResetAll: OperatorReset = {
 	subject: "Rooms authority",

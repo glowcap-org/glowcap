@@ -17,6 +17,7 @@ import {
 	KICK_WITHOUT_MODERATOR,
 	linkRoomNotJoined,
 	moderatorLinkLine,
+	moderatorLinkTaken,
 	NO_DIRECTORY_TO_GIVE_BACK,
 	NO_LINE_TO_CHANGE,
 	NO_LINE_TO_TAKE_BACK,
@@ -37,6 +38,19 @@ import { thatLinkDidNotOpen } from "../../../../lib/text/commands.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 import { roomsErrorInMessage } from "../../../../lib/errors.ts";
 
+/** Run work that opens a direct line to `who`. The directory answers a name
+ * nobody registered with its peer-offline code. That is the reader's typo,
+ * said where they typed it. Anything else is the line itself failing and
+ * stays one. */
+async function unlessUnregistered(who: string, work: () => Promise<void>): Promise<string | null> {
+	try {
+		await work();
+	} catch (error) {
+		if (roomsErrorInMessage(error)?.code === "peer-offline") return notRegisteredForDirect(who);
+		throw error;
+	}
+	return null;
+}
 export function managedCommandPowers(
 	page: RoomsPageContext,
 	browser: Pick<RoomsBrowserController, "setTheme" | "showRoster" | "aboutConversation">,
@@ -134,22 +148,14 @@ export function managedCommandPowers(
 			if (row?.type === "directory") store.dismissDirectoryView(projection, row.key);
 			else if (row != null) await session.actions.run("leaveConversation", [row.persistId]);
 		},
-		directMessage: async (who) => {
+		directMessage: (who) => {
 			const id = directory();
-			if (id == null) return NOT_ON_A_DIRECTORY;
-			try {
-				await session.openings.run(async (opening) => {
+			if (id == null) return Promise.resolve(NOT_ON_A_DIRECTORY);
+			return unlessUnregistered(who, () =>
+				session.openings.run(async (opening) => {
 					const conversation = await session.actions.direct(id, who, false, undefined, opening);
 					await opening.select(conversation);
-				}, { kind: "direct", peer: who });
-			} catch (error) {
-				// The directory answers a name nobody registered with its
-				// peer-offline code. That is the reader's typo, said where they
-				// typed it. Anything else is the line itself failing and stays one.
-				if (roomsErrorInMessage(error)?.code === "peer-offline") return notRegisteredForDirect(who);
-				throw error;
-			}
-			return null;
+				}, { kind: "direct", peer: who }));
 		},
 		setTheme: browser.setTheme,
 		showRoster: browser.showRoster,
@@ -184,17 +190,20 @@ export function managedCommandPowers(
 			await session.actions.run("setEffectiveStanding", [row.id, text]);
 			return null;
 		},
-		invite: async (who) => {
+		invite: (who) => {
 			const live = active();
 			const row = selected();
-			if (live?.type !== "room" || row?.kind !== "room") return NO_ROOM_TO_HAND_OVER;
+			if (live?.type !== "room" || row?.kind !== "room") return Promise.resolve(NO_ROOM_TO_HAND_OVER);
 			// A seat in the room is not the room. Joining a listed room by name
 			// seats the member; the room itself is held by whoever made it or
 			// was handed it, and only that reference can cross to somebody.
-			if (row.access == null) return inviteWithoutTheRoom(live.id, live.policy.visibility === "listed");
-			const direct = await session.actions.direct(row.directory, who, false);
-			await session.actions.run("offerRoom", [row.id, direct]);
-			return null;
+			if (row.access == null) {
+				return Promise.resolve(inviteWithoutTheRoom(live.id, live.policy.visibility === "listed"));
+			}
+			return unlessUnregistered(who, async () => {
+				const direct = await session.actions.direct(row.directory, who, false);
+				await session.actions.run("offerRoom", [row.id, direct]);
+			});
 		},
 		kick: async (who) => {
 			const row = active();
@@ -213,7 +222,7 @@ export function managedCommandPowers(
 			const refusal = await rooms.stewardRoom(row.key, link);
 			if (refusal !== "") return refusal;
 			const held = await roomBearer(session, row, "steward");
-			if (held != null) powers.say(moderatorLinkLine(row.id, held), row.key);
+			powers.say(held == null ? moderatorLinkTaken(row.id) : moderatorLinkLine(row.id, held), row.key);
 			return null;
 		},
 		roomLink: async (name) => {

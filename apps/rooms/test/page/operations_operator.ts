@@ -7,6 +7,7 @@ import { fillSettled } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { titleAboutDirectory } from "../../lib/text/conversation.ts";
 import { homeDirectoryName } from "../../lib/text/directory.ts";
+import { operatorResetLead } from "../../lib/text/operator.ts";
 
 export async function runOperatorScene(tab: Page, operatorSwiss: string): Promise<void> {
 	// Make one room whose moderator capability is definitely unissued, then take the
@@ -54,8 +55,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	}
 	const reset = tab.locator("#operatorReset");
 	if (
-		await reset.getByText("This operator connection and its nickname remain so the action can answer.").count() !==
-			1
+		await reset.getByText(operatorResetLead).count() !== 1
 	) {
 		fail("operator reset does not state why its own connection remains");
 	}

@@ -125,14 +125,6 @@ pub(super) fn reset(shared: &Shared, caller: u64, scope: ResetScope) -> Result<A
 				selected.extend(
 					sources(&shared.borrow(), caller, *category, None)?
 						.into_iter()
-						// The operator's connection answers this ask, and its name is
-						// what lets the directory still address that connection. Both stay.
-						.filter(|source| {
-							!matches!(
-								source.row,
-								rows::Row::Session { you: true, .. } | rows::Row::Registration { you: true, .. }
-							)
-						})
 						.filter_map(|source| source.retire),
 				);
 			}

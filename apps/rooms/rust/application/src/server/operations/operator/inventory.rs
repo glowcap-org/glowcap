@@ -134,7 +134,10 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 					let session = self.session_id(registration.connection)?.to_string();
 					Some(Source {
 						text: search_text(&[&registration.nick, &session]),
-						retire: Some(Act::RevokeRegistration(registration.nick.clone())),
+						// The caller's own name is what lets the directory still
+						// address the connection answering this ask, so no row removes it.
+						retire: (registration.connection != self.caller)
+							.then(|| Act::RevokeRegistration(registration.nick.clone())),
 						row: Row::Registration {
 							nick: registration.nick,
 							session,
@@ -148,7 +151,8 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 				.iter()
 				.map(|session| Source {
 					text: search_text(&[&session.id, &session.transport, &session.nick]),
-					retire: Some(Act::Disconnect(session.id.clone())),
+					// The caller's own connection stays: it is answering this ask.
+					retire: (session.connection != self.caller).then(|| Act::Disconnect(session.id.clone())),
 					row: Row::Session {
 						id: session.id.clone(),
 						transport: session.transport.clone(),

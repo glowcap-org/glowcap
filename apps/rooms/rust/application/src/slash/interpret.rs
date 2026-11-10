@@ -291,3 +291,68 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 	};
 	plan().unwrap_or_else(|refusal| refusal)
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn in_room(name: Name, rest: &str) -> Plan {
+		let you = DocumentText::from("");
+		let context = Context {
+			place: Place::Room,
+			you: &you,
+			away: false,
+		};
+		interpret(name, &DocumentText::from(rest), &context)
+	}
+	fn refusal(plan: Plan) -> String {
+		match plan {
+			Plan::Refused { why } => why,
+			_ => panic!("expected a refusal"),
+		}
+	}
+
+	#[test]
+	fn a_person_command_takes_one_name_and_refuses_words_after_it() {
+		for name in [
+			Name::Msg,
+			Name::Invite,
+			Name::Kick,
+			Name::Whois,
+			Name::Ignore,
+			Name::Unignore,
+		] {
+			let command = name.definition().name;
+			let Plan::Effect { text, .. } = in_room(name, " @bob ") else {
+				panic!("/{command} did not act on one name");
+			};
+			assert_eq!(text.as_str(), Some("bob"), "/{command}");
+			let why = refusal(in_room(name, "bob hi there"));
+			assert!(
+				why.starts_with(&format!("/{command} takes one name")),
+				"/{command}: {why}"
+			);
+		}
+	}
+
+	#[test]
+	fn a_command_that_takes_nothing_refuses_words_after_it() {
+		for name in [
+			Name::Help,
+			Name::Leave,
+			Name::Clear,
+			Name::Members,
+			Name::Details,
+			Name::Directories,
+			Name::Quit,
+			Name::Delete,
+		] {
+			let command = name.definition().name;
+			let why = refusal(in_room(name, "#other"));
+			assert!(
+				why.starts_with(&format!("/{command} takes nothing after it")),
+				"/{command}: {why}"
+			);
+		}
+	}
+}

@@ -19,7 +19,7 @@ and storage formats before 1.0.
   no directory was here.
 - `/kick`, `/moderator`, and `/link` show the room's refusal in the
   conversation. They showed a generic failure toast with the reason lost.
-  `/kick` from a session the room handed no moderator capability says so.
+  `/kick` without the room's moderator link says so.
 - `/msg`, `/invite`, `/kick`, `/whois`, `/ignore`, and `/unignore` refuse words
   after the name instead of acting on the first word and dropping the rest.
   `/ignore @` and `/link #` are refused as a missing name instead of being
@@ -31,28 +31,27 @@ and storage formats before 1.0.
 - A slash line that names no command, such as `/ignored`, is refused with a
   pointer to `/help`. It was sent to the room as a message. Text that cannot
   be a command, such as `/etc/hosts`, is still a message.
-- `/msg` to a name nobody registered says so in the conversation. It showed a
-  failure notice in the server's words.
+- `/msg` and `/invite` to a name nobody registered say so in the
+  conversation. They showed a failure notice in the server's words.
 - `/leave`, `/clear`, `/details`, `/members`, `/help`, `/directories`,
   `/quit`, and `/delete` refuse words after them. `/leave #other` left the
   room you were in.
 - `/whois` in a direct message answers about the person on the other end. It
   said nobody here had that name.
-- Sending while two sends are still in flight says so in its own words. It
-  showed a generic failure notice with the reason behind a control.
+- Sending a third line while two are still on their way says so in its own
+  words. It showed a generic failure notice.
 - Taking a manager link or a moderator link works for everyone in the room,
   however they came in. It refused anyone who had entered by the room's
-  listed name or by invitation, because the check that the link belongs to
-  this room asked only the room link, and said so in words nobody could act
-  on. Your seat in the room now answers that question.
-- The operator page's resets keep the operator's own nickname registration,
-  as they keep the operator's connection, and the name cannot be removed by
-  row. A factory reset retired it, which left the operator's own page with a
-  name the directory no longer knew and a diagnostics row for every attempt
-  to use it.
-- The operator page's **Browser trouble** list records a runtime failure as
-  the diagnostic it is. It wrapped each one in a sentence about an action to
-  try again, when no action had been taken.
+  listed name or by invitation, with a code and no words.
+- The room card's links tab says what each link is and that a link someone
+  shared is taken there, in the room. `/moderator <link>` says the link is
+  now held.
+- The operator page's resets and its row removals keep the operator's own
+  nickname, as they keep the operator's connection. A factory reset took the
+  name away, which left the operator's own page unable to act under it.
+- The operator page's **Browser trouble** list shows each failure as it was
+  reported. It wrapped each one in a sentence about an action to try again,
+  when no action had been taken.
 
 ## [0.1.6] - 2026-11-09
 

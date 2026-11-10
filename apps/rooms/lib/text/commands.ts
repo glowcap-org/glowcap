@@ -21,7 +21,7 @@ export const noRoomToHandOver = "There is no room here to hand over.";
  * it, not the room itself. A listed room says the way in instead. */
 export function inviteWithoutTheRoom(room: string, listed: boolean): string {
 	return listed
-		? `You don't hold this room to hand over. Anyone can join it by name: tell them #${room}.`
+		? `You joined this room, so it isn't yours to hand on. Anyone can join it by name: tell them #${room}.`
 		: "You don't hold this room to hand over. Ask whoever let you in to hand it on.";
 }
 /** Why `/away` found no room: the words have nobody to reach. */
@@ -35,14 +35,14 @@ export const noLineToTakeBack = "There is no message of yours here that can stil
 export const noSubjectOffered = "This room did not offer a subject to set.";
 /** Why `/kick` and `/moderator` found no room to act on. */
 export const noRoomToModerate = "There is no connected room here to moderate.";
-/** Why `/kick` could not ask: the room's steward capability is not held here. */
+/** Why `/kick` could not ask: the moderator link is not held here. */
 export const kickWithoutModerator =
-	"This session holds no moderator capability for this room, so it can't ask anyone to leave.";
+	"You don't hold the moderator link for this room, so you can't ask anyone to leave.";
 /** Why `/link` found no room. */
 export const noRoomToLink = "There is no room here to link to.";
 /** Why `/link` could not answer for a room this session is not in. */
 export function linkRoomNotJoined(room: string): string {
-	return `This session isn't in #${room}. Join it first: /join ${room}.`;
+	return `You aren't in #${room}. Join it first: /join ${room}.`;
 }
 /** The room link, said back where `/link` was typed. */
 export function roomLinkLine(room: string, link: string): string {
@@ -51,6 +51,10 @@ export function roomLinkLine(room: string, link: string): string {
 /** The moderator link this session holds, said back where `/moderator` was typed. */
 export function moderatorLinkLine(room: string, link: string): string {
 	return `Moderator link for #${room}, anyone holding it can ask members to leave: ${link}`;
+}
+/** `/moderator <link>` took the link, and the link itself is not readable here. */
+export function moderatorLinkTaken(room: string): string {
+	return `You now hold the moderator link for #${room}.`;
 }
 /** Why a direct line cannot open to `who`. */
 export function notRegisteredForDirect(who: string): string {

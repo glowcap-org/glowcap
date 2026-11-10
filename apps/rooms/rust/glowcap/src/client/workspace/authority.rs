@@ -53,7 +53,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 		let selected = serde_json::to_string(&seat).map_err(|_| loam::refusal("invalid room seat coordinate"))?;
 		self.reader("room-identity-reader", &[selected.into()]).await
 	}
-	pub async fn room_publication_identity(&self, seat: custody::Coordinate) -> Result<String, Error> {
+	pub async fn room_identity(&self, seat: custody::Coordinate) -> Result<String, Error> {
 		let reader = self.room_identity_reader(seat).await?;
 		let reply = self
 			.caller
@@ -64,11 +64,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 				"the exact room did not identify its link",
 			)
 			.await?;
-		Ok(reply
-			.as_str()
-			.filter(|value| !value.is_empty())
-			.ok_or_else(|| loam::refusal("invalid room publication identity"))?
-			.into())
+		Ok(authority::seat_room_identity(&crate::Value(&reply))?.into())
 	}
 	pub async fn room_management_identity(&self, seat: custody::Coordinate) -> Result<String, Error> {
 		let reader = self.room_identity_reader(seat).await?;
@@ -152,7 +148,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 							.map_err(|_| loam::refusal("invalid room publication identity"))?;
 						authority::room_identity(token)?
 					}
-					Standing::Seated(seat) => self.room_publication_identity(*seat).await?,
+					Standing::Seated(seat) => self.room_identity(*seat).await?,
 				};
 				let governed = self
 					.caller
@@ -163,9 +159,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 						"the moderator did not identify its room",
 					)
 					.await?;
-				if governed.as_str() != Some(identity.as_str()) {
-					return Err(loam::refusal("that moderator belongs to a different room").into());
-				}
+				authority::verify_steward_identity(&crate::Value(&governed), &identity)?;
 			}
 		}
 		Ok(())

@@ -15,6 +15,7 @@ export {
 	kickWithoutModerator as KICK_WITHOUT_MODERATOR,
 	linkRoomNotJoined,
 	moderatorLinkLine,
+	moderatorLinkTaken,
 	noDirectoryToGiveBack as NO_DIRECTORY_TO_GIVE_BACK,
 	noLineToChange as NO_LINE_TO_CHANGE,
 	noLineToTakeBack as NO_LINE_TO_TAKE_BACK,

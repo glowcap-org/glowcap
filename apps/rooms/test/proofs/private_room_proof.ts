@@ -49,7 +49,12 @@ import {
 	notRegisteredForDirect,
 	roomLinkLine,
 } from "../../lib/text/commands.ts";
-import { roomLinkNoneHint } from "../../lib/text/room_authority.ts";
+import {
+	roomCapabilitiesLead,
+	roomLinkNoneHint,
+	roomManagerTakeCommit,
+	roomModeratorTakeCommit,
+} from "../../lib/text/room_authority.ts";
 import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
@@ -333,10 +338,11 @@ try {
 	await told(cy, roomLinkNoneHint, "/link from a seat did not say the link is not this session's to mint");
 	await say(cy, "/kick bo");
 	await told(cy, kickWithoutModerator, "/kick without the moderator capability did not say so");
-	// A name nobody registered is the reader's typo, said where they typed it,
-	// and the composer takes the next line as usual.
+	// A name nobody registered is the reader's typo, said where they typed it.
 	await say(cy, "/msg nobody-9");
 	await told(cy, notRegisteredForDirect("nobody-9"), "/msg to a name nobody holds did not say so");
+	await say(ada, "/invite nobody-9");
+	await told(ada, notRegisteredForDirect("nobody-9"), "/invite to a name nobody holds did not say so");
 	await say(ada, `/join ${shown}`);
 	await ada.waitForFunction(
 		() => (document.getElementById("log")?.textContent ?? "").includes("You're already in this room."),
@@ -578,17 +584,22 @@ try {
 	await cy.waitForSelector("#convcardLinksLead").catch(() =>
 		fail("the room card did not say what the links are and that they are taken here")
 	);
-	const takenOnCard = async (tab: typeof cy, id: string, what: string) => {
+	if ((await cy.textContent("#convcardLinksLead"))?.trim() !== roomCapabilitiesLead) {
+		fail("the room card's links lead is not the catalog's");
+	}
+	const takenOnCard = async (tab: typeof cy, id: string, handed: string, what: string) => {
 		await tab.waitForSelector(id, { timeout: 30_000 }).catch(async () => {
 			const links = await tab.evaluate(() =>
 				document.querySelector('[aria-label="Room links"]')?.textContent ?? ""
 			);
 			fail(`a member who came in by name could not take the ${what}: ${JSON.stringify(links.slice(0, 3000))}`);
 		});
+		const held = (await tab.textContent(id))?.trim();
+		if (held !== handed) fail(`the ${what} on the card is not the one handed: ${JSON.stringify(held)}`);
 	};
 	await cy.fill("#convcardManagerTake", lobbyManager);
-	await cy.getByRole("button", { name: "Take manager link" }).click();
-	await takenOnCard(cy, "#convcardManager", "manager link");
+	await cy.getByRole("button", { name: roomManagerTakeCommit }).click();
+	await takenOnCard(cy, "#convcardManager", lobbyManager, "manager link");
 	await ada.click("#roomAbout");
 	await ada.click("#convcardCapabilitiesTab");
 	await ada.click("#convcardStewardClaim");
@@ -598,11 +609,14 @@ try {
 	});
 	const lobbySteward = (await ada.textContent("#convcardSteward"))?.trim() ?? "";
 	await ada.keyboard.press("Escape");
-	await openRailRoom(ada, LABEL, true);
 	await cy.fill("#convcardStewardTake", lobbySteward);
-	await cy.getByRole("button", { name: "Take link" }).click();
-	await takenOnCard(cy, "#convcardSteward", "moderator link");
+	await cy.getByRole("button", { name: roomModeratorTakeCommit }).click();
+	await takenOnCard(cy, "#convcardSteward", lobbySteward, "moderator link");
 	await cy.keyboard.press("Escape");
+	// The taken manager link runs the room: /link from the seat that held
+	// no link now says the room's link.
+	await say(cy, "/link");
+	await told(cy, roomLinkLine(ROOM, ""), "/link with a taken manager link did not say the room link");
 
 	console.log(
 		"PASS: a private room is reachable only by the authority to it — it is in no list, " +
@@ -613,7 +627,8 @@ try {
 			"holds when it names that directory, and on one opened beside it when it names " +
 			"another. A link whose peer is not there and a link whose secret is wrong are " +
 			"refused in words of their own, and neither leaves a server behind. A member who came in by " +
-			"name takes the manager and moderator links on the room card without leaving the room",
+			"name takes the manager and moderator links on the room card without leaving the room, and " +
+			"a refused `/invite`, `/link`, `/kick`, or `/msg` says why in the conversation",
 	);
 } finally {
 	clearTimeout(deadline);

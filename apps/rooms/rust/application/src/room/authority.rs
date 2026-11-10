@@ -25,12 +25,14 @@ pub enum Refusal {
 	Policy,
 	Steward,
 	StewardMismatch,
+	RoomIdentity,
 }
 impl core::fmt::Display for Refusal {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		f.write_str(match self {
 			Self::Steward => "the room did not answer with its steward authority",
-			Self::StewardMismatch => "the room answered a steward for a different room authority",
+			Self::StewardMismatch => "that moderator link belongs to a different room",
+			Self::RoomIdentity => "the room answered no room identity",
 			Self::Identity => "the room answered no management identity",
 			Self::ManagerMismatch => "that room manager belongs to a different room",
 			Self::Link => "the room manager named no room link",
@@ -54,9 +56,16 @@ pub fn verify_manager(governed: &impl Reply, identity: &impl Reply) -> Result<()
 pub fn room_link(reply: &impl Reply) -> Result<&str, Refusal> {
 	reply.text().filter(|v| !v.is_empty()).ok_or(Refusal::Link)
 }
+/// The seat's answer to `roomIdentity`: the digest a steward governs.
+pub fn seat_room_identity(reply: &impl Reply) -> Result<&str, Refusal> {
+	reply.text().filter(|v| !v.is_empty()).ok_or(Refusal::RoomIdentity)
+}
 pub fn verify_steward(governed: &impl Reply, room_token: &str) -> Result<(), Refusal> {
-	let identity = room_identity(room_token)?;
-	if governed.text() == Some(identity.as_str()) {
+	verify_steward_identity(governed, &room_identity(room_token)?)
+}
+/// A steward's `governs` answer against the room identity it must name.
+pub fn verify_steward_identity(governed: &impl Reply, identity: &str) -> Result<(), Refusal> {
+	if governed.text() == Some(identity) {
 		Ok(())
 	} else {
 		Err(Refusal::StewardMismatch)

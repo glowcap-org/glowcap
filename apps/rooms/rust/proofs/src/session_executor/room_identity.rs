@@ -1,4 +1,9 @@
-//! A room's identities are read through the exact seat the session holds there.
+//! A room's identities are read through the exact seat the session holds
+//! there: the facade reads over a seat on another Host, the wrong role refused
+//! at the client and at the runtime, a retired seat refused, and a manager link
+//! taken with no seat and no imported entrance refused. The forwarded verbs'
+//! admission through the facade (the runtime's dependent requirement) is not
+//! reached here; the browser proofs take that path.
 use super::*;
 use rooms_glowcap::client::workspace::Workspace;
 use std::cell::RefCell;
@@ -72,17 +77,41 @@ pub(super) async fn run() {
 			original.conversations = serde_json::from_str(&serde_json::json!([row]).to_string()).unwrap();
 			owner.replace_workspace(&original).await.unwrap();
 			let workspace = Workspace::local(host.clone(), platform.clone(), source.clone());
-			let raw = host.send(&source, "room-identity-reader", &[serde_json::to_string(&seat).unwrap().into()]).await;
-			assert!(raw.is_ok(), "the seat identity reader refused: {raw:?}");
 			assert_eq!(workspace.room_management_identity(seat).await.unwrap(), "manager-identity");
-			assert_eq!(workspace.room_publication_identity(seat).await.unwrap(), "room-identity");
-			assert!(workspace.room_management_identity(access).await.is_err(), "room access is not a seat");
+			assert_eq!(workspace.room_identity(seat).await.unwrap(), "room-identity");
+			let wrong_role = workspace.room_management_identity(access).await.unwrap_err().to_string();
+			assert!(wrong_role.contains("requires a room seat"), "the client took room access as a seat: {wrong_role}");
+			let runtime_role = host
+				.send(&source, "room-identity-reader", &[serde_json::to_string(&access).unwrap().into()])
+				.await
+				.unwrap_err()
+				.to_string();
+			// The runtime refuses the coordinate before the facade exists, and
+			// that stage answers with the refusal code alone. The client's own
+			// role check above is the sentence a person reads.
+			assert!(runtime_role.contains("ApplicationRefused"), "the runtime took room access as a seat: {runtime_role}");
+			// A manager link taken with no seat and no entrance in the same
+			// acquisition has nothing to prove the link against.
+			let mut unseated = original.clone();
+			if let rooms_application::content::session::workspace::Conversation::Room(room) = &mut unseated.conversations.as_mut_slice()[0] {
+				room.seat = None;
+				room.access = None;
+				room.control = Some(key::<custody::RoomControl>());
+			}
+			let manager = rooms_glowcap::client::workspace::Import {
+				coordinate: requests::coordinate(custody::Role::RoomControl, 1),
+				reference: server_seat.clone(),
+				uri: None,
+			};
+			let unproven = workspace.validate_room_authority_imports(&[manager], &unseated).await.unwrap_err().to_string();
+			assert!(unproven.contains("join the room before taking a link"), "an unseated manager import was not refused: {unproven}");
 			let mut departed = original.clone();
 			if let rooms_application::content::session::workspace::Conversation::Room(room) = &mut departed.conversations.as_mut_slice()[0] {
 				room.seat = None;
 			}
 			owner.replace_workspace(&departed).await.unwrap();
-			assert!(workspace.room_management_identity(seat).await.is_err(), "a seat the room no longer holds answers nothing");
+			let retired = workspace.room_management_identity(seat).await.unwrap_err().to_string();
+			assert!(retired.contains("ApplicationRefused"), "a retired seat was still answered: {retired}");
 			drop((workspace, seat_target, remote_sink, sink, server_seat, client, accepted, source, control, root, root_control, owner));
 			attachment.close().await.unwrap();
 		}).await;

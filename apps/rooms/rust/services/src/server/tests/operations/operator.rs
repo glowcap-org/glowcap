@@ -371,6 +371,23 @@ async fn operator() {
 		.await
 		.contains("this operator's own")
 	);
+	// The inventory offers no remove act for the operator's own name, so a
+	// search that matches it retires nothing and still counts it.
+	let batch = cells(
+		&session
+			.send(
+				&op,
+				"operatorRetireMatching",
+				&[
+					Argument::String("registrations".into()),
+					Argument::String("op".into()),
+					Argument::Integer(4),
+				],
+			)
+			.await
+			.unwrap(),
+	);
+	assert_eq!((int(&batch, 0), int(&batch, 1), text(&batch, 2)), (0, 1, ""));
 
 	// The journal clears on the operator's word, and a reset of everything
 	// answers; unknown scopes refuse.

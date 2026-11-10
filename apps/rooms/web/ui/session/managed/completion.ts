@@ -294,12 +294,13 @@ async function completeOnce(
 				const receipt = receiptFields(result, ["control"]);
 				const matches: RoomIntent[] = [];
 				for (const row of snapshot.intent.conversations) {
-					if (
-						row.kind === "room" && row.seat != null &&
-						await session.workspace.roomManagementIdentity(
-								JSON.stringify({ role: "roomSeat", key: row.seat }),
-							) === args[2]
-					) matches.push(row);
+					if (row.kind !== "room" || row.seat == null) continue;
+					// A seat the room has since retired answers nothing, and the
+					// room it stood in is not the one the operator named here.
+					const identity = await session.workspace.roomManagementIdentity(
+						JSON.stringify({ role: "roomSeat", key: row.seat }),
+					).catch(() => null);
+					if (identity === args[2]) matches.push(row);
 				}
 				if (matches.length !== 1) throw new Error("Manager recovery requires one exact held room");
 				conversation(matches[0].id);
