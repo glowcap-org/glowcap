@@ -6,9 +6,9 @@ sources: []
 
 # Known limitations
 
-Pin a commit, because APIs, ABIs, and prerelease store formats have no
-compatibility guarantee. A limitation here describes current behavior, not
-acceptance of it as the goal.
+Pin a release or commit and follow the
+[alpha upgrade policy](maintaining.md#release-status). A limitation here
+describes current behavior, not acceptance of it as the goal.
 
 ## Protocol draft coverage
 

@@ -6,8 +6,11 @@
 .draft = false,
 ---
 
-glowcap has no stable release. Pin a commit, and treat the API as able to
-move. None of the checks below is a compatibility or security promise.
+glowcap publishes alpha releases. Pin a release or commit and read its
+[changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md)
+before upgrading. APIs, ABIs, and storage formats can change before 1.0.
+The checks below establish behavior for the configurations they exercise.
+They do not establish security review or production deployment experience.
 
 Three kinds of checks sit behind a claim:
 

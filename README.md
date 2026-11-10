@@ -13,7 +13,9 @@ and CapTP networking with [Loam](https://github.com/glowcap-org/glowcap/blob/mai
 durable actor system. Applications control memory, I/O, and scheduling.
 
 **0.1.6 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
-change before 1.0. glowcap has not received an independent security audit.
+change before 1.0, including in patch releases. Pin a release or commit and
+read the [changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md) before upgrading.
+glowcap has not received an independent security audit.
 Read [what ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md) and the [known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md)
 before depending on it.
 

@@ -235,9 +235,10 @@ names, limits, and schema identities.
 - Process pointers, struct layouts, and run-time type names mean nothing on
   disk.
 - Decoders check lengths and ordering before allocating.
-- An unknown required schema or format version refuses to open. A format
-  change before release never resets an existing store or reads an old format
-  through a second path.
+- An unknown required schema or format version refuses to open. Format
+  changes follow the [alpha policy](../maintaining.md#release-status).
+  Opening unsupported data refuses rather than resetting the store or
+  trying a second decoder.
 
 Durable name secrets and kept remote sturdyrefs grant access to whoever holds
 them. Store, back up, and redact them in logs the way your program handles

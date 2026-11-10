@@ -1,23 +1,24 @@
 ---
-description: "glowcap is prerelease: no compatibility debt, so the default verdict on a design event is to fix the root now, not defer it."
+description: "Published alpha contracts may change cleanly. Explain breaking changes and required user action instead of preserving compatibility by default."
 alwaysApply: true
 ---
 
 # glowcap — Prerelease Posture
 
-The [alpha release policy](../../docs/maintaining.md#release-status) promises no
-API, ABI, or storage compatibility. Change prerelease contracts cleanly and
-update their consumers and evidence together. Add no
-migration, compatibility shim, or held-back dependency to preserve an
-unreleased contract. External protocol interop still answers to its outside
-authority. A replaced prerelease contract keeps version `1`. Increment only to
-support a distinct older contract on purpose.
+The [alpha release policy](../../docs/maintaining.md#release-status) permits
+API, ABI, and storage changes before 1.0. Published alpha contracts have
+users even without a compatibility guarantee. Change a contract cleanly,
+update its consumers and evidence together, and document breaking changes
+and required action in the changelog. A required state reset is explicit and
+operator-controlled. External protocol interop still answers to its outside
+authority.
 
-"It would change a shared type," "touch the spine," and "ripple through callers"
-name a migration cost, and there is none to pay. None justifies a workaround,
-a named compromise, or a follow-up PR when the clean fix is in reach this
-session. Before accepting a compromise, re-derive it against the full option
-set, not the binary it first presents, and name any survivor in the open.
+Do not add a migration, compatibility shim, or held-back dependency solely
+to preserve an alpha contract. A replaced contract keeps version `1`.
+Increment only to support a distinct older contract on purpose. Cross-layer
+changes are implementation work, not grounds for a workaround or deferral
+when the clean fix is in scope. Weigh any compromise against the full option
+set and name the remaining cost.
 
 Living docs and comments describe the current shape. Keep transition
 narration, old names, and review labels in git or an owning ADR. State missing

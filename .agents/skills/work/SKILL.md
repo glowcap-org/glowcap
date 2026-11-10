@@ -64,7 +64,7 @@ reason to preserve the first design.
 Fix the cause at its owning seam. Prefer types, shared boundaries, generated
 mirrors, and behavior checks to instructions that callers must remember. Keep
 code, tests, generated state, and living documentation aligned in the same
-change. Apply the [prerelease posture](../../rules/prerelease.md) to unreleased
+change. Apply the [prerelease posture](../../rules/prerelease.md) to alpha
 contracts. A load-bearing decision belongs in an ADR.
 
 Proceed within scope, preserving unrelated work. Scope blockers to their

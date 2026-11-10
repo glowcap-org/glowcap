@@ -29,8 +29,8 @@ moving a type, splitting a layer, or relocating logic.
 ## Leave it better (kaizen)
 
 A pass that opens a surface owes it a higher floor when it closes, beyond the
-named fault. Prerelease waives the excuses "someone might still need it" and
-"a follow-up will delete it."
+named fault. Replace alpha contracts with their consumers and documented
+release impact handled together, per the [prerelease policy](../../rules/prerelease.md).
 
 - **Delete dead code in the same change** when the pass makes it unreachable:
   unread fields, capture spans nobody reads, unused `len`/`at` spines,

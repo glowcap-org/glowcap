@@ -9,6 +9,14 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation describes the published alpha, explains release pinning and
+  upgrade precautions, and removes completed publication setup from the
+  roadmap. The website's source quick start uses the checked `main` branch.
+- The Rooms operations guide keeps long options and links in scrollable
+  examples so they do not widen the page on phones.
+
 ## [0.1.6] - 2026-11-10
 
 ### Added

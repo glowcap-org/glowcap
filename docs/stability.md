@@ -6,9 +6,11 @@ sources: []
 
 # What you can depend on
 
-glowcap has no stable release yet. Some checks run on every main or dev push,
-and others need external runtimes or network access, so they run on demand.
-None is a compatibility or security promise.
+glowcap publishes alpha releases. The
+[release policy](maintaining.md#release-status) defines compatibility and
+upgrade expectations. The checks below establish behavior for the commit
+and configuration they exercise. They do not establish security review or
+production deployment experience.
 
 ## Checks by area
 

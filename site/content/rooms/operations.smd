@@ -17,13 +17,26 @@ changing how direct messages travel does not change how sessions are shared.
 The page people open is [on this site]($link.siteAsset('rooms/app/index.html')),
 and every Rooms server lets that page use it unless `--allow-origin` says
 otherwise. To let in a page of your own as well, list both, with commas or by
-repeating the option: `--allow-origin=https://glowcap.org/rooms/app/,https://rooms.example/`.
-Give the server the address
-browsers reach it at, `--http-public=https://rooms.example/`, and the
-**open the page** link it prints is one you can share:
-`https://glowcap.org/rooms/app/?server=https://rooms.example/`. The server
-also serves its own copy of the page at its **web ui** address, for an
-address of your own or a machine that cannot reach this site.
+repeating the option:
+
+```
+--allow-origin=https://glowcap.org/rooms/app/,https://rooms.example/
+```
+
+Give the server the address browsers reach it at, with `--http-public`:
+
+```
+--http-public=https://rooms.example/
+```
+
+The **open the page** link it prints is one you can share:
+
+```
+https://glowcap.org/rooms/app/?server=https://rooms.example/
+```
+
+The server also serves its own copy of the page at its **web ui** address,
+for an address of your own or a machine that cannot reach this site.
 [Running Rooms on a host](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#start-rooms)
 lists the server's options.
 
@@ -62,8 +75,13 @@ The directory's transport decides how sessions reach it:
 | onion | You want a Tor onion service. The service key lives in the data directory, so the address survives a restart. |
 | TCP | You are developing on your own machine. It is unencrypted and proves nothing about who answered. |
 
-`--listen=<transport>[,<name>=<value>...]` opens another door to the same
-directory, once per transport. The address the server prints then names the
+`--listen` opens another door to the same directory, once per transport:
+
+```
+--listen=<transport>[,<name>=<value>...]
+```
+
+The address the server prints then names the
 directory by its key with every door listed. A browser opens a `noise-relay`
 door by itself, so a directory with one is reached from the published page
 with no Rooms server chosen, and the server is the way to the doors a browser

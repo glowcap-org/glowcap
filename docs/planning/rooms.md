@@ -87,9 +87,9 @@ one-host backup posture ADR-0059 records holds for both.
 The capacity numbers in
 [storage and budgets](rooms-design.md#storage-and-budgets) are proposed, not
 measured. The room-grants seam registers them as refusals as written, and
-the cost evidence in the proofs sweep moves them. A limit is a refusal
-boundary with no migration cost, so measuring first would delay the seam for
-numbers the proofs replace anyway.
+the cost evidence in the proofs sweep moves them. Changing a limit changes
+which operations a deployment admits. Record that effect and any operator
+action when the proofs replace the proposed numbers.
 
 ## Hosting prerequisites
 

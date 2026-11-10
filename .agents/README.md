@@ -38,7 +38,7 @@ wiring, frontmatter, the index, and links.
 | [doc-drift](rules/doc-drift.md) | Doc kinds, audiences and headers, and claims that match current code or are removed. |
 | [doc-voice](rules/doc-voice.md) | Documentation voice: first-read docs, doc comments, and example narration read as speech, not notation. |
 | [memory](rules/memory.md) | Memory and frame ownership: owned transfer, bounded borrow, explicit test-only copies. |
-| [prerelease](rules/prerelease.md) | glowcap is prerelease: no compatibility debt, so the default verdict on a design event is to fix the root now, not defer it. |
+| [prerelease](rules/prerelease.md) | Published alpha contracts may change cleanly. |
 | [project-values](rules/project-values.md) | Project values: explicit systems design, polished library surface, no hidden costs. |
 | [resilience](rules/resilience.md) | Resilience posture for untrusted inbound bytes and layer ownership. |
 | [rust](rules/rust.md) | Shapes the Rooms Rust crates and the Rust binding settled: lifecycle enums, validated replies, and coded refusal lines. |
