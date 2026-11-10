@@ -112,7 +112,7 @@ pub fn create(b: *Build) *Step {
             // This analyzer scans the whole source tree on every gate. Keep
             // safety checks while optimizing its parsing and traversal loops.
             .optimize = .ReleaseSafe,
-            .imports = &.{.{ .name = "model", .module = modelModule(b, b.graph.host, .ReleaseSafe) }},
+            .imports = checkImports(b, b.graph.host, .ReleaseSafe),
         }),
     });
     const run = b.addRunArtifact(exe);
@@ -121,9 +121,26 @@ pub fn create(b: *Build) *Step {
     return &run.step;
 }
 
-/// The codec-neutral model, which some checks read by reflection rather than
-/// by parsing its text. It imports nothing, so the check tool takes it alone.
-pub fn modelModule(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *Build.Module {
+/// The modules some checks read by reflection rather than by parsing their
+/// text: the codec-neutral model, and the Python and Racket FFI omission
+/// policies the binding runtime-proof check joins. Each imports nothing.
+pub fn checkImports(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) []const Build.Module.Import {
+    const imports = b.allocator.alloc(Build.Module.Import, 3) catch @panic("OOM");
+    imports[0] = .{ .name = "model", .module = modelModule(b, target, optimize) };
+    for (imports[1..], [_][]const u8{ "python", "racket" }) |*import, binding| {
+        import.* = .{
+            .name = b.fmt("ffi_omissions_{s}", .{binding}),
+            .module = b.createModule(.{
+                .root_source_file = b.path(b.fmt("bindings/ffi_omissions/{s}.zig", .{binding})),
+                .target = target,
+                .optimize = optimize,
+            }),
+        };
+    }
+    return imports;
+}
+
+fn modelModule(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *Build.Module {
     return b.createModule(.{
         .root_source_file = b.path("src/ocapn/model/mod.zig"),
         .target = target,

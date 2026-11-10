@@ -285,6 +285,6 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
 // Reflected from each archive's annotated symbol inventory (`symbols.zig`
 // beside the exports) plus each export's real Zig signature: the parameter
 // and result classes come from the types, the out-buffer indexes and
-// pointer-crossing overrides from the table. Both directions are held at
-// compile time: a table row that names no export fails `@field`, and an
-// export with neither a row nor an omitted-family match fails the walk.
+// pointer-crossing overrides from the table. Each archive's
+// `archive_contract.fingerprint` holds its rows and exports one to one, and
+// `bindings/ffi_omissions/ts.zig` names the rows the tables leave out.

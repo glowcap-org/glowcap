@@ -2,13 +2,13 @@
 //! crossing semantics a language FFI table cannot reflect from the C signature
 //! alone.
 //!
-//! Every export has a row here (in the loader's reading order) or an omission
-//! reason on its row. The readiness and try-I/O exports return immediately.
-//! Peer construction and SDP/ICE mutation, including the answer and candidates
-//! handed to a managed dial, enter the sidecar runtime and are marked as
-//! blocking crossings. The offer handed to a managed accept is not: it calls
-//! the netlayer's `send_answer` back on the calling thread before it returns,
-//! and a blocking crossing refuses that callback.
+//! Every export has one row here, in the loader's reading order. The readiness
+//! and try-I/O exports return immediately. Peer construction and SDP/ICE
+//! mutation, including the answer and candidates handed to a managed dial,
+//! enter the sidecar runtime and are marked as blocking crossings. The offer
+//! handed to a managed accept is not: it calls the netlayer's `send_answer`
+//! back on the calling thread before it returns, and a blocking crossing
+//! refuses that callback.
 
 const shared = @import("c_abi_shared");
 

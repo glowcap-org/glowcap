@@ -30,8 +30,12 @@ const containsAsSymbol = text_match.containsAsSymbol;
 
 const Binding = struct {
     lang: lex.Lang,
-    /// Names the binding's omission policy and appears in failure messages.
+    /// Names the binding in failure messages and its policy file under
+    /// `bindings/ffi_omissions/`.
     name: []const u8,
+    /// The exports the binding's omission policy leaves out of its FFI table,
+    /// read from the same compiled policy its generator checks.
+    omitted: []const []const u8,
     ext: []const u8,
     /// The binding's library: wrapper definitions, never proof.
     lib: []const []const u8,
@@ -42,6 +46,13 @@ const Binding = struct {
     /// Run entrypoints belonging to this binding alone, `proof_roots` below
     /// applies to every binding.
     proof: []const []const u8,
+
+    fn omits(self: Binding, verb: []const u8) bool {
+        for (self.omitted) |name| {
+            if (std.mem.eql(u8, name, verb)) return true;
+        }
+        return false;
+    }
 };
 
 /// Trees a `zig build` step executes. The hermetic per-binding proof families
@@ -55,6 +66,7 @@ const bindings = [_]Binding{
     .{
         .lang = .python,
         .name = "python",
+        .omitted = &policyNames(@import("ffi_omissions_python")),
         .ext = ".py",
         .lib = &.{"bindings/python/glowcap"},
         .ffi_tier = &.{"_sigs_gen.py"},
@@ -63,6 +75,7 @@ const bindings = [_]Binding{
     .{
         .lang = .racket,
         .name = "racket",
+        .omitted = &policyNames(@import("ffi_omissions_racket")),
         .ext = ".rkt",
         .lib = &.{
             "bindings/racket/private",
@@ -75,6 +88,12 @@ const bindings = [_]Binding{
         .proof = &.{ "bindings/racket/test", "bindings/racket/relay.rkt" },
     },
 };
+
+fn policyNames(comptime policy: type) [policy.omissions.len][]const u8 {
+    var names: [policy.omissions.len][]const u8 = undefined;
+    inline for (policy.omissions, 0..) |entry, i| names[i] = entry.name;
+    return names;
+}
 
 const Allowed = struct {
     binding: []const u8,
@@ -116,7 +135,7 @@ pub fn check(
         try graph.close();
 
         for (verbs.items) |verb| {
-            if (verb.omits(binding.name)) continue;
+            if (binding.omits(verb.name)) continue;
             const sites = graph.sites.get(verb.name);
             const allowed = isAllowed(binding.name, verb.name);
             const proven = if (sites) |set| graph.anyReached(set) else false;
@@ -160,20 +179,11 @@ fn isAllowed(binding: []const u8, symbol: []const u8) bool {
 
 const Verb = struct {
     name: []const u8,
-    /// Binding names whose policies omit this verb.
-    omitted: []const []const u8,
-
-    fn omits(self: Verb, binding: []const u8) bool {
-        for (self.omitted) |name| {
-            if (std.mem.eql(u8, name, binding)) return true;
-        }
-        return false;
-    }
 };
 
 /// Read `src/c_abi/host/symbols.zig`, the annotated inventory the binding
-/// generators already treat as the export set. Join binding-owned policies so
-/// a verb reached by another spelling is not demanded here as well.
+/// generators already treat as the export set. A verb a binding's omission
+/// policy leaves out is not demanded of that binding here.
 fn collectVerbs(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -182,14 +192,6 @@ fn collectVerbs(
     violations: *std.ArrayList([]const u8),
     out: *std.ArrayList(Verb),
 ) !void {
-    var policies: [bindings.len][]const u8 = undefined;
-    for (bindings, 0..) |binding, i| {
-        const policy_path = try std.fmt.allocPrint(arena, "bindings/ffi_omissions/{s}.zig", .{binding.name});
-        policies[i] = root.readFileAlloc(io, policy_path, arena, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for runtime-proof check with {s}", .{ policy_path, @errorName(err) });
-            return;
-        };
-    }
     const path = "src/c_abi/host/symbols.zig";
     const contents = root.readFileAlloc(io, path, arena, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for runtime-proof check with {s}", .{ path, @errorName(err) });
@@ -208,13 +210,7 @@ fn collectVerbs(
         const close = std.mem.indexOfScalarPos(u8, table, name_start, '"') orelse break;
         const name = table[name_start..close];
         from = close;
-
-        var omitted: std.ArrayList([]const u8) = .empty;
-        for (bindings, policies) |binding, policy| {
-            const field = try std.fmt.allocPrint(arena, ".name = \"{s}\"", .{name});
-            if (std.mem.indexOf(u8, policy, field) != null) try omitted.append(arena, binding.name);
-        }
-        try out.append(arena, .{ .name = name, .omitted = omitted.items });
+        try out.append(arena, .{ .name = name });
     }
     if (out.items.len == 0) {
         try appendViolation(gpa, violations, "{s}: no `glowcap_host_*` rows found — the runtime-proof scanner no longer matches this inventory", .{path});
@@ -411,4 +407,26 @@ test "every allowlist row names a real binding" {
         try std.testing.expect(row.why.len != 0);
         try std.testing.expect(std.mem.startsWith(u8, row.symbol, "glowcap_host_"));
     }
+}
+
+test "a binding omits exactly the live entries of its compiled policy" {
+    const Policy = struct {
+        pub const omissions = .{
+            .{ .name = "glowcap_host_kept_out", .reason = "unused" },
+            // .{ .name = "glowcap_host_commented", .reason = "a comment is no entry" },
+        };
+    };
+    const binding: Binding = .{
+        .lang = .python,
+        .name = "python",
+        .omitted = &policyNames(Policy),
+        .ext = ".py",
+        .lib = &.{},
+        .ffi_tier = &.{},
+        .proof = &.{},
+    };
+    try std.testing.expect(binding.omits("glowcap_host_kept_out"));
+    try std.testing.expect(!binding.omits("glowcap_host_commented"));
+    try std.testing.expect(!binding.omits("glowcap_host_other"));
+    for (bindings) |real| try std.testing.expect(real.omitted.len > 0);
 }

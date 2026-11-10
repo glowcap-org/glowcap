@@ -164,7 +164,6 @@ Each `gen-*` step writes a committed mirror, and its `-check` sibling is part
 of `check`, so a hand edit shows up as staleness.
 
 ```sh
-zig build binding-omissions-test              # Check C inventory coverage and binding-owned omission policies; part of check
 zig build gen-header-ocapn                    # Regenerate include/glowcap_ocapn.h from src/c_abi/ocapn
 zig build gen-header-ocapn-check              # Verify include/glowcap_ocapn.h matches src/c_abi/ocapn (fails if stale); part of check
 zig build gen-header-locator                  # Regenerate include/glowcap_locator.h from c_abi/shared/locator.zig
@@ -240,6 +239,17 @@ zig build gen-binding-ffi-layouts       # Regenerate binding FFI layout facts fr
 zig build gen-binding-ffi-layouts-check # Verify binding FFI layout facts match src/c_abi (fails if stale); part of gen-rust-wasm-layouts-check
 zig build gen-rust-wasm-layouts         # Generate Rust layout constants and fingerprints from the compiled wasm32 C ABI
 zig build gen-rust-wasm-layouts-check   # Verify Rust layout constants and fingerprints match the compiled wasm32 C ABI; part of check, rooms-browser-build, rooms-managed-rooms-browser-test, rooms-managed-sharing-browser-test, rooms-rust-contract-browser-test, rooms-session-executor-browser-test, rooms-session-foreign-browser-reload-test, rooms-session-foreign-browser-test, rooms-session-graph-browser-test
+```
+
+Each binding generator also reads that binding's omission policy under
+`bindings/ffi_omissions/`: the exports its FFI table leaves out, with a reason
+for each. A generator refuses an entry that names no export, names one that
+more than one archive declares, repeats, or gives no reason, and the refusal
+names the entry and its policy file. So each generator's `-check` step above
+holds the real policy, and this step tests the refusals against fixtures.
+
+```sh
+zig build binding-omissions-test # Test the binding omission-policy refusals against fixtures (each binding generator checks its real policy); part of check
 ```
 
 The Rooms application and terminal clients read their wire vocabulary from

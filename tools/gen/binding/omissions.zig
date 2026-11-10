@@ -1,66 +1,81 @@
-//! Join binding-owned omissions to complete C symbol inventories before rendering.
+//! A binding's FFI omission policy, checked against the C symbol inventories
+//! its generator renders.
+//!
+//! A policy file under `bindings/ffi_omissions/` lists the exports one binding
+//! leaves out of its FFI table, each with the reason for that decision.
+//! `Policy` checks the list once at compile time and names the offending entry
+//! and policy file when it refuses. Inventory completeness is a C fact that
+//! `archive_contract.fingerprint` holds for every archive, so this module checks
+//! only what the policy itself states.
 
 const std = @import("std");
 
-pub const ValidationError = error{
-    MissingInventorySymbol,
-    UnknownInventorySymbol,
-    InvalidInventorySymbol,
-    DuplicateInventorySymbol,
-    UnknownOmission,
-    AmbiguousOmission,
-    DuplicateOmission,
-    EmptyOmissionReason,
+/// One policy entry, read from the policy file's anonymous struct literal.
+const Entry = struct { name: []const u8, reason: []const u8 };
+
+/// The first policy fact a list breaks, with the export name it names.
+pub const Fault = struct {
+    kind: Kind,
+    name: []const u8,
+
+    pub const Kind = enum { unknown, ambiguous, duplicate, empty_reason };
+
+    pub fn message(comptime self: Fault, comptime source: []const u8) []const u8 {
+        return source ++ ": omission of `" ++ self.name ++ "` " ++ switch (self.kind) {
+            .unknown => "names no export in this generator's archives",
+            .ambiguous => "names an export that more than one archive declares",
+            .duplicate => "appears more than once",
+            .empty_reason => "gives no reason",
+        };
+    }
 };
 
-/// Check all archives before filtering, including rows the binding omits.
-/// Policy names identify exports across this generator's complete archive set.
-pub fn validate(comptime policy: type, comptime archives: anytype) ValidationError!void {
-    @setEvalBranchQuota(2_000_000);
-    inline for (archives) |Archive| {
-        inline for (Archive.symbols.symbols, 0..) |row, i| {
-            if (comptime @hasDecl(Archive, row.name)) {
-                if (@typeInfo(@TypeOf(@field(Archive, row.name))) != .@"fn")
-                    return error.InvalidInventorySymbol;
-            } else return error.UnknownInventorySymbol;
-            inline for (Archive.symbols.symbols, 0..) |other, j| {
-                if (j < i and std.mem.eql(u8, row.name, other.name))
-                    return error.DuplicateInventorySymbol;
+fn entriesOf(comptime raw: type) [raw.omissions.len]Entry {
+    var entries: [raw.omissions.len]Entry = undefined;
+    inline for (raw.omissions, 0..) |entry, i| entries[i] = .{ .name = entry.name, .reason = entry.reason };
+    return entries;
+}
+
+/// The first broken policy fact, or null when every entry gives a reason and
+/// names exactly one inventory row across `archives`, once.
+pub fn fault(comptime raw: type, comptime archives: anytype) ?Fault {
+    comptime {
+        @setEvalBranchQuota(2_000_000);
+        const entries = entriesOf(raw);
+        for (entries, 0..) |entry, i| {
+            if (std.mem.trim(u8, entry.reason, " \t\r\n").len == 0) return .{ .kind = .empty_reason, .name = entry.name };
+            for (entries[0..i]) |prior| {
+                if (std.mem.eql(u8, prior.name, entry.name)) return .{ .kind = .duplicate, .name = entry.name };
             }
-        }
-        inline for (@typeInfo(Archive).@"struct".decl_names) |name| {
-            if (comptime !std.mem.startsWith(u8, name, "glowcap_")) continue;
-            if (comptime @typeInfo(@TypeOf(@field(Archive, name))) != .@"fn") continue;
-            var found = false;
-            inline for (Archive.symbols.symbols) |row| {
-                if (std.mem.eql(u8, name, row.name)) found = true;
+            var matches: usize = 0;
+            for (archives) |Archive| {
+                for (Archive.symbols.symbols) |row| {
+                    if (std.mem.eql(u8, entry.name, row.name)) matches += 1;
+                }
             }
-            if (!found) return error.MissingInventorySymbol;
+            if (matches == 0) return .{ .kind = .unknown, .name = entry.name };
+            if (matches != 1) return .{ .kind = .ambiguous, .name = entry.name };
         }
-    }
-    inline for (policy.omissions, 0..) |entry, i| {
-        if (std.mem.trim(u8, entry.reason, " \t\r\n").len == 0) return error.EmptyOmissionReason;
-        inline for (policy.omissions, 0..) |other, j| {
-            if (j < i and std.mem.eql(u8, entry.name, other.name)) return error.DuplicateOmission;
-        }
-        var matches: usize = 0;
-        inline for (archives) |Archive| {
-            inline for (Archive.symbols.symbols) |row| {
-                if (std.mem.eql(u8, entry.name, row.name)) matches += 1;
-            }
-        }
-        if (matches == 0) return error.UnknownOmission;
-        if (matches != 1) return error.AmbiguousOmission;
+        return null;
     }
 }
 
-/// Keep the inventory's order, consulting the policy only for membership.
-pub fn omits(comptime policy: type, comptime name: []const u8) bool {
-    @setEvalBranchQuota(50_000);
-    inline for (policy.omissions) |entry| {
-        if (std.mem.eql(u8, entry.name, name)) return true;
-    }
-    return false;
+/// The checked policy `raw` (a policy file) over `archives`, the archive set
+/// one generator renders. `source` names the policy file in a refusal.
+pub fn Policy(comptime source: []const u8, comptime raw: type, comptime archives: anytype) type {
+    if (comptime fault(raw, archives)) |broken| @compileError(broken.message(source));
+    return struct {
+        const entries = entriesOf(raw);
+
+        /// Whether the binding leaves `name` out. Rows keep inventory order.
+        pub fn omits(comptime name: []const u8) bool {
+            @setEvalBranchQuota(50_000);
+            for (entries) |entry| {
+                if (std.mem.eql(u8, entry.name, name)) return true;
+            }
+            return false;
+        }
+    };
 }
 
 const Row = struct { name: []const u8 };
@@ -68,36 +83,47 @@ const First = struct {
     pub const symbols = struct {
         pub const symbols = [_]Row{.{ .name = "glowcap_first" }};
     };
-    pub fn glowcap_first() void {}
 };
 const Second = struct {
     pub const symbols = struct {
         pub const symbols = [_]Row{.{ .name = "glowcap_second" }};
     };
-    pub fn glowcap_second() void {}
-};
-const EmptyPolicy = struct {
-    pub const omissions = .{};
 };
 
-test "binding omissions join a complete archive set and retain explicit decisions" {
-    const Policy = struct {
+fn expectFault(comptime expected: ?Fault, comptime raw: type, comptime archives: anytype) !void {
+    const got = comptime fault(raw, archives);
+    if (expected) |want| {
+        const broken = got orelse return error.TestExpectedFault;
+        try std.testing.expectEqual(want.kind, broken.kind);
+        try std.testing.expectEqualStrings(want.name, broken.name);
+    } else try std.testing.expect(got == null);
+}
+
+test "an omission policy keeps explicit decisions over a complete archive set" {
+    const Raw = struct {
         pub const omissions = .{
             .{ .name = "glowcap_first", .reason = "provided by the binding" },
             .{ .name = "glowcap_second", .reason = "unused" },
         };
     };
-    try validate(Policy, .{ First, Second });
-    try std.testing.expect(omits(Policy, "glowcap_first"));
-    try std.testing.expect(omits(Policy, "glowcap_second"));
-    try std.testing.expect(!omits(Policy, "glowcap_third"));
-    try std.testing.expect(!omits(EmptyPolicy, "glowcap_first"));
-    try std.testing.expectError(error.UnknownOmission, validate(Policy, .{First}));
+    const Empty = struct {
+        pub const omissions = .{};
+    };
+    try expectFault(null, Raw, .{ First, Second });
+    try expectFault(null, Empty, .{First});
+    const checked = Policy("raw.zig", Raw, .{ First, Second });
+    try std.testing.expect(comptime checked.omits("glowcap_first"));
+    try std.testing.expect(comptime checked.omits("glowcap_second"));
+    try std.testing.expect(comptime !checked.omits("glowcap_third"));
+    try std.testing.expect(comptime !Policy("empty.zig", Empty, .{First}).omits("glowcap_first"));
 }
 
-test "binding omissions refuse stale duplicate ambiguous and unexplained entries" {
+test "an omission policy refusal names the entry and its policy" {
     const Stale = struct {
-        pub const omissions = .{.{ .name = "glowcap_removed", .reason = "unused" }};
+        pub const omissions = .{
+            .{ .name = "glowcap_first", .reason = "unused" },
+            .{ .name = "glowcap_removed", .reason = "unused" },
+        };
     };
     const Duplicate = struct {
         pub const omissions = .{
@@ -111,41 +137,17 @@ test "binding omissions refuse stale duplicate ambiguous and unexplained entries
     const Empty = struct {
         pub const omissions = .{.{ .name = "glowcap_first", .reason = "" }};
     };
-    const Ambiguous = struct {
-        pub const omissions = .{.{ .name = "glowcap_first", .reason = "unused" }};
+    const Single = struct {
+        pub const omissions = .{.{ .name = "glowcap_second", .reason = "unused" }};
     };
-    try std.testing.expectError(error.UnknownOmission, validate(Stale, .{First}));
-    try std.testing.expectError(error.DuplicateOmission, validate(Duplicate, .{First}));
-    try std.testing.expectError(error.EmptyOmissionReason, validate(Blank, .{First}));
-    try std.testing.expectError(error.EmptyOmissionReason, validate(Empty, .{First}));
-    try std.testing.expectError(error.AmbiguousOmission, validate(Ambiguous, .{ First, First }));
-}
-
-test "binding inventory checks include omitted rows and every reflected export" {
-    const Omitted = struct {
-        pub const omissions = .{.{ .name = "glowcap_first", .reason = "unused" }};
-    };
-    const Missing = struct {
-        pub const symbols = struct {
-            pub const symbols = [_]Row{};
-        };
-        pub const glowcap_first = First.glowcap_first;
-    };
-    const Unknown = struct {
-        pub const symbols = First.symbols;
-    };
-    const Invalid = struct {
-        pub const symbols = First.symbols;
-        pub const glowcap_first: u8 = 1;
-    };
-    const Duplicate = struct {
-        pub const symbols = struct {
-            pub const symbols = [_]Row{ .{ .name = "glowcap_first" }, .{ .name = "glowcap_first" } };
-        };
-        pub const glowcap_first = First.glowcap_first;
-    };
-    try std.testing.expectError(error.MissingInventorySymbol, validate(EmptyPolicy, .{Missing}));
-    try std.testing.expectError(error.UnknownInventorySymbol, validate(Omitted, .{Unknown}));
-    try std.testing.expectError(error.InvalidInventorySymbol, validate(Omitted, .{Invalid}));
-    try std.testing.expectError(error.DuplicateInventorySymbol, validate(Omitted, .{Duplicate}));
+    try expectFault(.{ .kind = .unknown, .name = "glowcap_removed" }, Stale, .{First});
+    try expectFault(.{ .kind = .unknown, .name = "glowcap_second" }, Single, .{First});
+    try expectFault(.{ .kind = .duplicate, .name = "glowcap_first" }, Duplicate, .{First});
+    try expectFault(.{ .kind = .empty_reason, .name = "glowcap_first" }, Blank, .{First});
+    try expectFault(.{ .kind = .empty_reason, .name = "glowcap_first" }, Empty, .{First});
+    try expectFault(.{ .kind = .ambiguous, .name = "glowcap_second" }, Single, .{ First, Second, Second });
+    try std.testing.expectEqualStrings(
+        "bindings/ffi_omissions/rust.zig: omission of `glowcap_removed` names no export in this generator's archives",
+        comptime (Fault{ .kind = .unknown, .name = "glowcap_removed" }).message("bindings/ffi_omissions/rust.zig"),
+    );
 }

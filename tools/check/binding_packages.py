@@ -70,6 +70,14 @@ def verify_license(archive):
     assert actual == expected, f"{archive}: package must contain the project Apache license"
 
 
+def verify_typescript_files():
+    """JSR packages publish from the tracked TypeScript tree, so check every tracked file in it."""
+    names = subprocess.check_output(["git", "ls-files", "-z", "--", "bindings/ts"], cwd=ROOT, text=True, timeout=60)
+    tracked = [name for name in names.split("\0") if name]
+    assert tracked, "git lists no tracked files under bindings/ts"
+    verify_binding_files(tracked)
+
+
 def downloaded_lib_dir(work):
     """The one release lib directory a registry consumer downloaded into the cache."""
     found = sorted(work.glob("cache/*/*/lib"))
@@ -309,6 +317,7 @@ def typescript_http_consumer(work, env):
 
 def typescript_package(work, env, registry):
     if registry is None:
+        verify_typescript_files()
         for manifest in (ROOT / "bindings/ts").glob("*/deno.json"):
             package = json.loads(manifest.read_text())
             assert "LICENSE-APACHE" in package["publish"]["include"], manifest

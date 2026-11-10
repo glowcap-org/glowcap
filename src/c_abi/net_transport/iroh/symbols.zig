@@ -2,11 +2,11 @@
 //! crossing semantics a language FFI table cannot reflect from the C
 //! signature alone.
 //!
-//! Every export has a row here (in the TS loader's reading order) or an
-//! omission reason on its row. The steady-state loop surface returns
-//! immediately. Endpoint construction and graceful teardown may wait on the
-//! sidecar runtime and are marked for host runtimes accordingly. Outbound dial
-//! completion is correlated by request id through the readiness stream.
+//! Every export has one row here, in the TS loader's reading order. The
+//! steady-state loop surface returns immediately. Endpoint construction and
+//! graceful teardown may wait on the sidecar runtime and are marked for host
+//! runtimes accordingly. Outbound dial completion is correlated by request id
+//! through the readiness stream.
 
 const shared = @import("c_abi_shared");
 

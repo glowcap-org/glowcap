@@ -146,11 +146,17 @@ fn addHeaderGen(
     gen_mod.addImport("output", support.output);
     gen_mod.addImport("reflect", support.reflect);
     gen_mod.addImport("binding_policy", support.binding_policy);
-    if (hg.omissions) |path| gen_mod.addAnonymousImport("binding_omissions", .{
-        .root_source_file = bb.path(path),
-        .target = tgt,
-        .optimize = opt,
-    });
+    if (hg.omissions) |path| {
+        gen_mod.addAnonymousImport("binding_omissions", .{
+            .root_source_file = bb.path(path),
+            .target = tgt,
+            .optimize = opt,
+        });
+        // The policy's path, so a refused entry names the file that holds it.
+        const source = bb.addOptions();
+        source.addOption([]const u8, "path", path);
+        gen_mod.addOptions("binding_omissions_source", source);
+    }
 
     if (hg.test_step) |step| {
         const tests = bb.addTest(.{ .name = step.name, .root_module = gen_mod });
@@ -419,7 +425,7 @@ pub fn registerMirrors(
         .optimize = optimize,
     }) });
     const omission_run = execution.addZigTest(b, omission_tests, .unit_test);
-    const omission_step = b.step("binding-omissions-test", "Check C inventory coverage and binding-owned omission policies");
+    const omission_step = b.step("binding-omissions-test", "Test the binding omission-policy refusals against fixtures (each binding generator checks its real policy)");
     omission_step.dependOn(&omission_run.step);
     check_step.dependOn(omission_step);
     const ffi_extra_imports = [_]AbiImport{

@@ -79,8 +79,11 @@ Each package carries the repository's Apache license text. The rehearsal
 compares the packaged copy with its source.
 
 Generator-only omission policies live under `bindings/ffi_omissions/`, outside
-the published package roots. Archive checks reject Zig sources and compiler
-executables. The Racket release ZIP uses the same check.
+the published package roots. The rehearsal rejects a Zig source, a `.zon`
+manifest, or a Zig compiler executable in the Python source distribution and
+wheel, the Rust crate, and the Racket collection. It applies the same check
+to every tracked file under `bindings/ts` before the JSR dry run, and the
+Racket release ZIP uses it too.
 
 The C-library checks use the locally built SDK. The same script with
 `--registry <version>` installs a published version from each registry in a

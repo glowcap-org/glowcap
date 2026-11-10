@@ -9,8 +9,9 @@
 //! is the rare parameter that crosses as an opaque pointer even though its type
 //! reflects as a writable slot (`pointer_params`).
 //!
-//! Binding-owned omission policies select each language's declarations. The
-//! generators check this inventory and the export set before filtering rows.
+//! `archive_contract.fingerprint` holds this inventory and the export set to
+//! each other in both directions at compile time. Each binding's omission
+//! policy under `bindings/ffi_omissions/` chooses the rows its FFI table skips.
 
 const shared = @import("c_abi_shared");
 
@@ -150,10 +151,8 @@ pub const symbols = [_]Symbol{
     },
     // The drained trace seam exists for an embedder that cannot hand the
     // library an arbitrary C function pointer: the browser, whose wasm module
-    // admits only its fixed hosted-object callbacks. Rust, Python, and Racket
-    // each install the trace callback, which is lossless and needs no ring, so
-    // they take the queue's omission rather than a second way to say the same
-    // thing.
+    // admits only its fixed hosted-object callbacks. An embedder that can
+    // install the trace callback, which is lossless, needs no ring.
     .{
         .name = "glowcap_host_set_trace_queue",
         .out_params = &.{},

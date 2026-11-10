@@ -2,9 +2,9 @@
 //! crossing semantics a language FFI table cannot reflect from the C
 //! signature alone.
 //!
-//! Every export has a row here (in the TS table's reading order) or a binding-
-//! specific omission reason on its row. The generator holds this inventory and
-//! the export set to each other in both directions at compile time.
+//! Every export has one row here, in the TS table's reading order.
+//! `archive_contract.fingerprint` holds this inventory and the export set to
+//! each other in both directions at compile time.
 
 const shared = @import("c_abi_shared");
 
