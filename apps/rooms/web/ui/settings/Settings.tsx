@@ -9,12 +9,18 @@ import {
 	reachAboutDirectory,
 	settingsConnectionRefused,
 	settingsConnectionSaving,
+	settingsDmDefault,
 	settingsDmDirectLabel,
 	settingsDmDirectSaid,
+	settingsDmEncrypted,
+	settingsDmFastestLabel,
+	settingsDmFastestSaid,
+	settingsDmNoServer,
 	settingsDmRelayLabel,
 	settingsDmRelayNeedsServer,
 	settingsDmRelaySaid,
 	settingsDmReload,
+	settingsDmUseFastest,
 	settingsHomeAway,
 	settingsHomeChoice,
 	settingsHomeHint,
@@ -76,6 +82,13 @@ interface SettingsProps {
 	/** Keep the tree while another native dialog has the top layer. */
 	retain?: boolean;
 }
+
+/** The radios, in the order they are drawn, the default first. */
+const DM_CHOICES: readonly { value: DmMode; label: string; said: string }[] = [
+	{ value: "fastest", label: settingsDmFastestLabel, said: settingsDmFastestSaid },
+	{ value: "webrtc", label: settingsDmDirectLabel, said: settingsDmDirectSaid },
+	{ value: "relay", label: settingsDmRelayLabel, said: settingsDmRelaySaid },
+];
 
 export const Settings = memo(function Settings(
 	{ open, retain = false, theme, notifyOn, dir, opsHeld, keepHistory, archiveTarget, tab }: SettingsProps,
@@ -189,19 +202,19 @@ function SettingsDialog(
 		commitments.request(() => browser.closeSettings());
 	};
 	requestCloseRef.current = requestClose;
-	const save = async () => {
+	const save = async (next: DmMode) => {
 		if (dmSaving.current) return;
-		if (!dirty) {
+		if (next === live.dm) {
 			browser.closeSettings();
 			return;
 		}
 		// Reaching this browser through the relay needs a Rooms server to relay.
-		if (dm === "relay" && serverGate(serverNeedDm) == null) return;
+		if (next === "relay" && serverGate(serverNeedDm) == null) return;
 		dmSaving.current = true;
 		setDmBusy(true);
 		setDmError("");
 		try {
-			if (!await session.applySettings({ dm })) {
+			if (!await session.applySettings({ dm: next })) {
 				setDmError(settingsConnectionRefused);
 			}
 		} catch (error) {
@@ -350,55 +363,93 @@ function SettingsDialog(
 							{canInteract && (
 								<>
 									<h3 className="well-title overline" id="dmLegend">{dmConnectionTitle}</h3>
-									<form
-										id="dmSettingsForm"
-										className="group well"
-										role="group"
-										aria-labelledby="dmLegend"
-										onSubmit={(event) => {
-											event.preventDefault();
-											commitments.request(save, { except: ["settings-direct-message"] });
-										}}
-									>
-										<div className="choices" role="radiogroup" aria-labelledby="dmLegend">
-											<label className="choice">
-												<input
-													type="radio"
-													name="dm"
-													value="webrtc"
-													checked={dm === "webrtc"}
-													onChange={() => setDm("webrtc")}
-												/>
-												<span>
-													<strong>{settingsDmDirectLabel}</strong>
-													{settingsDmDirectSaid(hasServer)}
-												</span>
-											</label>
-											<label className="choice">
-												<input
-													type="radio"
-													name="dm"
-													value="relay"
-													checked={dm === "relay"}
-													onChange={() => setDm("relay")}
-												/>
-												<span>
-													<strong>{settingsDmRelayLabel}</strong>
-													{settingsDmRelaySaid}
-												</span>
-											</label>
-										</div>
-										{dm === "relay" && !hasServer && (
-											<Said id="dmNeedsServer" kind="warning">{settingsDmRelayNeedsServer}</Said>
+									{hasServer
+										? (
+											<form
+												id="dmSettingsForm"
+												className="group well"
+												role="group"
+												aria-labelledby="dmLegend"
+												onSubmit={(event) => {
+													event.preventDefault();
+													commitments.request(() => save(dm), {
+														except: ["settings-direct-message"],
+													});
+												}}
+											>
+												<div className="choices" role="radiogroup" aria-labelledby="dmLegend">
+													{DM_CHOICES.map((choice) => (
+														<label className="choice" key={choice.value}>
+															<input
+																type="radio"
+																name="dm"
+																value={choice.value}
+																checked={dm === choice.value}
+																onChange={() =>
+																	setDm(choice.value)}
+															/>
+															<span>
+																<strong>
+																	{choice.label}
+																	{choice.value === "fastest" && (
+																		<>
+																			{" "}
+																			<span className="chip choice-mark">
+																				{settingsDmDefault}
+																			</span>
+																		</>
+																	)}
+																</strong>
+																{choice.said}
+															</span>
+														</label>
+													))}
+												</div>
+												<p className="hint" id="dmReloadHint">
+													{settingsDmEncrypted} {settingsDmReload}
+												</p>
+												{dmError !== "" && <Said kind="failure">{dmError}</Said>}
+												<div className="actions">
+													<Button id="dmSave" type="submit" busy={dmBusy} disabled={!dirty}>
+														{saveAndReload}
+													</Button>
+												</div>
+											</form>
+										)
+										: (
+											// With no Rooms server the page has one route to offer, so this
+											// says what it is and what a server adds. A saved choice of the
+											// server's relay is kept as it is, with one way back.
+											<div className="group well" role="group" aria-labelledby="dmLegend">
+												{live.dm === "relay"
+													? (
+														<>
+															<Said id="dmNeedsServer" kind="warning">
+																{settingsDmRelayNeedsServer}
+															</Said>
+															{dmError !== "" && <Said kind="failure">{dmError}</Said>}
+															<p className="hint" id="dmUseFastestHint">
+																{settingsDmReload}
+															</p>
+															<div className="actions">
+																<Button
+																	id="dmUseFastest"
+																	busy={dmBusy}
+																	onClick={() => {
+																		setDm("fastest");
+																		commitments.request(() => save("fastest"), {
+																			except: ["settings-direct-message"],
+																		});
+																	}}
+																>
+																	{settingsDmUseFastest}
+																</Button>
+															</div>
+														</>
+													)
+													: <p className="hint" id="dmNoServer">{settingsDmNoServer}</p>}
+											</div>
 										)}
-										<p className="hint" id="dmReloadHint">{settingsDmReload}</p>
-										{dmError !== "" && <Said kind="failure">{dmError}</Said>}
-										<div className="actions">
-											<Button id="dmSave" type="submit" busy={dmBusy} disabled={!dirty}>
-												{saveAndReload}
-											</Button>
-										</div>
-									</form>
 								</>
 							)}
 						</div>

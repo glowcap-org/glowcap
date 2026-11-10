@@ -235,13 +235,15 @@ The private inbox is bounded. The Rooms operating guide,
 
 Browser DMs:
 
-- A host-initiated browser DM requires a reachable browser route. Browsers can
-  choose **Through the Rooms server**, and an HTTP bootstrap derives its relay
-  URL. Pass `start --relay-url <url>` when it cannot be derived.
-- A default WebRTC-only browser is reached when the session starts with
-  `start --dial-transports webrtc`. The dial signals through the room that
+- A host-initiated browser DM requires a reachable browser route. Browsers on
+  **Fastest** or **Through the server** are reached through the relay, and an
+  HTTP bootstrap derives its relay URL. Pass `start --relay-url <url>` when it
+  cannot be derived.
+- A browser on **Fastest** or **Browser to browser** is reached when the
+  session starts with `start --dial-transports webrtc`. With both, a
+  **Fastest** browser is raced. The dial signals through the room that
   introduced the browser, and `--ice-servers` names its STUN or TURN servers.
-  Without that family such a browser is not reachable.
+  Without that family a **Browser to browser** browser is not reachable.
 - Relay settings persist. To replace a previously saved inaccessible relay, <!-- status-allow: workflow sequence -->
   stop the session and start the same workspace with the operator's
   `--relay-url`.

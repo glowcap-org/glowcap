@@ -10,6 +10,7 @@ import type { DirId } from "../directory.ts";
 import type { DmConv, ViewerDirection } from "../conversation.ts";
 import type { OperatorCategory } from "../../../lib/room/client.ts";
 import type { OperationsCapability } from "../application_data.ts";
+import type { DmMode } from "../prefs.ts";
 import type { RoomDestination } from "../joining.ts";
 import type { RoomsError, RoomsErrorCode } from "../../../lib/error_codes.ts";
 
@@ -123,7 +124,7 @@ export interface RoomsRoomController {
 }
 
 export interface RoomsWorkspaceController {
-	applySettings(next: { dm?: "webrtc" | "relay" }): Promise<boolean>;
+	applySettings(next: { dm?: DmMode }): Promise<boolean>;
 	exportRoomsState(includeCapabilities?: boolean): Promise<string>;
 	importRoomsState(raw: string): Promise<string>;
 	clearRoomsState(): Promise<string>;

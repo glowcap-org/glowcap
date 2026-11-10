@@ -3,10 +3,11 @@ import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 // WebRTC DataChannels, with the room directory carrying only the signaling. The
 // process opens the first conversation and a second member opens the other.
 //
-// The browser joins in webrtc DM mode, so it advertises a bare webrtc locator
+// The member the process dials joins on the page's default route, Fastest,
 // and files a signaling inbox with the room directory. The session process
-// joins the same room with `--dial-transports=tcp,webrtc` and no relay URL, so
-// the only way it can reach the member is the WebRTC dial: its Host redeems
+// joins the same room with `--dial-transports=tcp,webrtc` and no relay URL,
+// so of the routes that member lists, WebRTC is the one it has a provider
+// for, and that dial is what reaches the member: the Host redeems
 // the room's introduction, the C WebRTC provider asks the process for
 // signaling, and the process carries the offer, answer and candidates through
 // the directory that introduced the member. The member replies over the
@@ -48,16 +49,17 @@ const ANSWER_TEXT = "answered over the channel you opened";
 const deadline = setTimeout(() => fail("dm-session-webrtc scenario timed out after 120s"), 120_000);
 const state = await Deno.makeTempDir({ prefix: "glowcap-session-webrtc-dm-" });
 
-// Join `ROOM` as `nick` in a fresh tab, in the `dm` connection mode, and wait
+// Join `ROOM` as `nick` in a fresh tab, in the `dm` connection mode (the page's
+// default when null), and wait
 // until the composer is live: the keyed session to the room is up and the tab
 // is advertising its identity.
-async function joinAs(browser: Browser, nick: string, trace: string, dm: "webrtc" | "relay"): Promise<Page> {
+async function joinAs(browser: Browser, nick: string, trace: string, dm: "relay" | null): Promise<Page> {
 	const tab = await (await browser.newContext()).newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	tab.on("console", (m) => {
 		if (m.type() === "error" || m.type() === "warning") console.error(`  [${nick} console.${m.type()}]`, m.text());
 	});
-	await tab.goto(`http://127.0.0.1:${httpPort}/?dm=${dm}`);
+	await tab.goto(`http://127.0.0.1:${httpPort}/${dm == null ? "" : `?dm=${dm}`}`);
 	await establishLocalSession(tab);
 	await acquireTraceCapability(tab, trace);
 	await tab.fill("#nick", nick);
@@ -145,7 +147,7 @@ try {
 	});
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const bob = await joinAs(browser, MEMBER, sturdyref, "webrtc");
+	const bob = await joinAs(browser, MEMBER, sturdyref, null);
 
 	// The process has no relay and gathers only host candidates, so the dial
 	// stays on this machine.

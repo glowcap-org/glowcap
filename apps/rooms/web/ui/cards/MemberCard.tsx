@@ -191,7 +191,7 @@ function MemberDialog(
 								<span className="membercard-name">{view.name}</span>
 								{view.you && <span className="membercard-you">(you)</span>}
 								{view.mark !== null && (
-									<span className="bridge-chip" data-network={view.network}>{view.mark}</span>
+									<span className="chip bridge-chip" data-network={view.network}>{view.mark}</span>
 								)}
 							</>
 						}

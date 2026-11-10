@@ -108,20 +108,24 @@ name matches an account.
 
 In the member list, press the message button beside the other member. The
 server introduces you, and the new conversation appears under
-**Direct messages**. From here on, your messages go straight between the two
-of you, and the room sees none of them.
+**Direct messages**. From here on, your messages go between the two of you, and
+the room sees none of them.
 
 [A direct conversation, opened from the member list. The header says what this connection is, and the card above the first message says who can read it.]($image.siteAsset('rooms-direct-dark.webp'))
 
 [A direct conversation, opened from the member list. The header says what this connection is, and the card above the first message says who can read it.]($image.siteAsset('rooms-direct-light.webp'))
 
-By default the connection is WebRTC. It goes straight between you when it
-can find a route, and uses STUN and TURN servers when the network needs
-them. When it finds no route within a few seconds, the conversation opens
-through the Rooms server instead, still encrypted end to end. To skip that
-attempt where you are, open Settings, go to the **Connection** tab, and under
-**Direct message connection** pick **Through the Rooms server** instead of
-**Browser to browser**. That setting only changes direct messages, not how
+The default route is **Fastest**. On a page with a Rooms server it tries
+WebRTC and the server at once and keeps whichever opens first. The server
+often opens first, and then the conversation card names the Rooms server as
+the path. Both are encrypted end to end. WebRTC goes straight between you
+when it can find a route, and uses STUN and TURN servers when the network
+needs them. On a page with no server, browser to browser is the only route.
+
+To keep the server out of the path whenever WebRTC works, or to go through
+the server alone, open Settings, go to the **Connection** tab, and under
+**Direct message connection** pick **Browser to browser** or **Through the
+server**. That setting only changes how direct messages reach you, not how
 your session is shared.
 
 [WebRTC signaling]($link.page('transports/webrtc')) explains offers,

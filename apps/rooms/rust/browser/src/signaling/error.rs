@@ -38,7 +38,10 @@ impl fmt::Display for Error {
 			Self::Binding(e) => e.fmt(f),
 			Self::Ice(e) => e.fmt(f),
 			Self::Timeout => f.write_str("Rooms WebRTC signaling timed out"),
-			Self::NoRoute => f.write_str("Rooms WebRTC found no route within its connect budget"),
+			Self::NoRoute => f.write_str(
+				&rooms_application::failure::FailureCode::DirectNoRoute
+					.line("Rooms WebRTC found no route within its connect budget"),
+			),
 			Self::Stopped => f.write_str("Rooms WebRTC signaling stopped"),
 			Self::Admission(reason) => f.write_str(reason),
 			Self::Cleanup { primary, cleanup } => write!(f, "{primary}; cleanup failed: {cleanup}"),

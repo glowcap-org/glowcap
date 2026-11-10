@@ -343,7 +343,9 @@ export const MessageGroup = memo(function MessageGroup(
 			{!group.mine && (
 				<div className="who">
 					{foreign ?? group.from}
-					{foreign !== null && bridge !== undefined && <span className="bridge-chip">{bridge.badge}</span>}
+					{foreign !== null && bridge !== undefined && (
+						<span className="chip bridge-chip">{bridge.badge}</span>
+					)}
 				</div>
 			)}
 			{group.items.map((item) => (

@@ -3,6 +3,7 @@
 mod files;
 mod incoming;
 use super::*;
+use rooms_application::content::session::workspace::DirectRoute;
 use rooms_glowcap::client::workspace::ActivityReader;
 use rooms_runtime::session::managed::{MembershipKinds, MembershipTarget};
 use serde_json::json as data;
@@ -21,34 +22,48 @@ impl RoomsManagedApplication {
 				.connection_choice()
 				.await
 				.map_err(|e| e.to_string())?;
-			let locator = match connection {
-				workspace::Connection::Relay => owner.relay_locator(&environment).await?,
-				workspace::Connection::Webrtc => {
-					let host = environment.runtime.host();
-					let key = host.designator().map_err(|e| e.to_string())?;
-					let direct = glowcap::Locator::bare(glowcap::TRANSPORT_WEBRTC, &key);
-					// With no Rooms server, the direct route is the only one.
-					if environment.front.is_none() {
-						direct
-					} else {
-						let relay = owner.relay_locator(&environment).await?;
-						// Keep WebRTC first. This relay advice is scoped to each
-						// handoff; it is not a durable identity-route declaration.
-						// The relay's Noise channel independently authenticates its
-						// key. Node owns serial fallback when WebRTC is unavailable.
-						direct.with_hint(
-							"alt-locators",
-							glowcap::HintValue::String(glowcap::format_locator_uri(&relay).map_err(|e| e.to_string())?),
-						)
-					}
+			let route = connection.route(environment.front.is_some());
+			let host = environment.runtime.host();
+			let key = host.designator().map_err(|e| e.to_string())?;
+			let direct = glowcap::Locator::bare(glowcap::TRANSPORT_WEBRTC, &key);
+			let uri = |locator: &glowcap::Locator| glowcap::format_locator_uri(locator).map_err(|e| e.to_string());
+			// `hello` is the one location this Host states in its CapTP hello,
+			// so it is a concrete transport. `advertised` is what the directory
+			// lists for this member and embeds in the handoffs it mints for
+			// this member's inbox, and may be the identity route across both.
+			let (hello, advertised) = match route {
+				DirectRoute::Relay => {
+					let relay = owner.relay_locator(&environment).await?;
+					(relay.clone(), relay)
+				}
+				// With no Rooms server, the direct route is the only one.
+				DirectRoute::Webrtc => (direct.clone(), direct),
+				// The hello names WebRTC with the relay as advice a dialing
+				// Host tries after WebRTC fails, and the directory lists that
+				// same locator.
+				DirectRoute::WebrtcThenRelay => {
+					let relay = owner.relay_locator(&environment).await?;
+					let hinted = direct.with_hint(glowcap::HINT_ALT_LOCATORS, glowcap::HintValue::String(uri(&relay)?));
+					(hinted.clone(), hinted)
+				}
+				// The hello keeps the same hinted WebRTC location, and the
+				// directory lists one identity route naming both, which a
+				// dialing Host races, keeping the first to prove this key
+				// (ADR-0036).
+				DirectRoute::Raced => {
+					let relay = owner.relay_locator(&environment).await?;
+					let raced = rooms_glowcap::routes::identity_route(&key, &[uri(&direct)?, uri(&relay)?])
+						.ok_or_else(|| "Rooms could not compose its identity route".to_string())?;
+					let hinted = direct.with_hint(glowcap::HINT_ALT_LOCATORS, glowcap::HintValue::String(uri(&relay)?));
+					(hinted, raced)
 				}
 			};
 			environment
 				.runtime
 				.host()
-				.set_advertised_locator(&locator)
+				.set_advertised_locator(&hello)
 				.map_err(|e| e.to_string())?;
-			let locator = glowcap::format_locator_uri(&locator).map_err(|e| e.to_string())?;
+			let locator = uri(&advertised)?;
 			let trouble = environment.trouble.clone();
 			let mut opened = owner.opened.lock().await;
 			let receive = opened.session().activity_receivers();

@@ -81,6 +81,10 @@ has less free disk than it needs. Coding-agent installation has a
 [separate workflow](../.github/workflows/agent-tools.yml) for devcontainer
 changes, so product checks never wait for agent downloads.
 
+The conformance submodules are pinned commits on other forges, one of them
+donated. A job checks them out from a cache named by those pins, so it
+clones only when a pin moves. A clone that fails waits and tries twice more.
+
 ## Files
 
 | File | Owns | Runs |
@@ -91,6 +95,7 @@ changes, so product checks never wait for agent downloads.
 | [`state.py`](state.py) | The compiled state a build job packs and a test job restores, bounded by size and free disk | Host, build and test jobs |
 | [`report.py`](report.py) | The one required result, from every job's outcome | Host, `gates` job |
 | [`image.py`](image.py) | The toolchain image: reclaim runner disk, resolve or build the image, start it | Host, through the composite actions in [`.github/actions/`](../.github/actions/) |
+| [`submodules.py`](submodules.py) | The pinned conformance submodules: the cache name their pins make, and a checkout that retries a failed clone | Host, after each checkout that needs them |
 | [`evidence.py`](evidence.py) | The record a run leaves: commit, pins, host, each gate's exit and duration | Inside the devcontainer |
 | [`require_main_check.py`](require_main_check.py) | Whether a commit is on `main` with a successful full `check` run | Host, pages and release jobs, and the release tag front |
 | [`github_release.py`](github_release.py) | The GitHub release: assemble the archives, verify attestations, fill the draft, publish | Host, release and publish jobs |
