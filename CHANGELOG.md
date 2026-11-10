@@ -11,12 +11,12 @@ and storage formats before 1.0.
 
 ### Changed
 
-- C archive fingerprints cover C contracts without binding omission policy.
-  Rebuild or reinstall matching C libraries and bindings together. Libraries
-  built before this change fail the updated bindings' fingerprint checks.
 - Documentation describes the published alpha, explains release pinning and
   upgrade precautions, and removes completed publication setup from the
   roadmap. The website's source quick start uses the checked `main` branch.
+- C archive fingerprints cover C contracts without binding omission policy.
+  Rebuild or reinstall matching C libraries and bindings together. Libraries
+  built before this change fail the updated bindings' fingerprint checks.
 - Public guides explain Rooms connections, sharing, and upgrade recovery, and
   correct binding and storage contracts. Detailed Zig actor integration lives
   in the Loam actor guide beside its lifetime rules.
