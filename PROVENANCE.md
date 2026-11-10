@@ -12,10 +12,6 @@ some emit none. This disclosure describes maintainer-led development.
 Contributions may be written with or without AI assistance. Pull requests
 record assistance under the [contribution policy](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#tools-and-responsibility).
 
-The illustration in `site/assets/glowcap-goblin-512.png` was generated with an
-AI image tool for this project and refined by the maintainer in Pixelmator
-Pro, which its embedded metadata records as the editing tool.
-
 ## Upstream policies
 
 [Codeberg](https://codeberg.org/) amended its Terms of Use in July 2026 after a
