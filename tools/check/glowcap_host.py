@@ -114,9 +114,6 @@ def installation(root, scratch):
     run(executable, "install", "--prefix", prefix, env=env)
     assert link.resolve().parent.parent != selected
     assert (selected / "bin/glowcap").is_file(), "upgrade removed a running generation"
-    # Reactivate the complete installation for the deployment proof.
-    run(source, "install", "--prefix", prefix, env=env)
-    return link
 
 
 def docker_fixture(scratch):
