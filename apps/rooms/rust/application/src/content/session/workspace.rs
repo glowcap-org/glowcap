@@ -64,6 +64,18 @@ pub struct Direct {
 	pub closed: bool,
 	pub draft: Field,
 }
+impl Direct {
+	/// The route an open conversation holds. A closed conversation keeps the
+	/// field for its history and installs nothing.
+	pub fn installed_access(&self) -> Option<FieldKey<custody::DirectAccess>> {
+		if self.closed { None } else { self.access }
+	}
+	/// Whether `coordinate` names the route an open conversation holds.
+	pub fn installs(&self, coordinate: custody::Coordinate) -> bool {
+		self.installed_access()
+			.is_some_and(|key| custody::Coordinate::new(custody::Role::DirectAccess, key) == coordinate)
+	}
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Introduction {

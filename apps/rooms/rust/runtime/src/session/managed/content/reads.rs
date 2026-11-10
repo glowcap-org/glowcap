@@ -102,6 +102,10 @@ pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
 		recipe_coordinate(input.args)?;
 		return Requirement::new(&[Permission::ShareCustody.key()], &[]);
 	}
+	if input.verb == "direct-route" {
+		direct_route_coordinate(input.args)?;
+		return Requirement::new(&[Permission::ObserveWorkspace.key()], &[]);
+	}
 	if input.verb == "file-reader" {
 		file(input.args)?;
 		return Requirement::new(&[Permission::ReadFile.key()], &[]);
@@ -132,6 +136,8 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 		operations::selection(input.args, &record.intent)?
 	} else if input.verb == "custody-recipe" {
 		recipe_selection(input.args, &record.intent)?
+	} else if input.verb == "direct-route" {
+		direct_route_selection(input.args, &record.intent)?
 	} else if input.verb == "archive-issuer-reader" {
 		let Some(key) = record.intent.archive else {
 			return Ok(Vec::new());
@@ -298,6 +304,48 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 	archive_reader(call, &target, request.files)
 }
 
+/// The transport an open direct line runs over: the name of the session its
+/// installed route is exported on, or nothing while no live session carries
+/// it. The page asks at use time, because the route is a fact of the live
+/// connection and not of the saved conversation.
+pub(super) fn direct_route(host: &glowcap::Host, call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
+	let record = records::decode(input)?;
+	let selected = direct_route_selection(input.args, &record.intent)?;
+	let target = record
+		.custody
+		.get(selected)
+		.ok_or_else(|| refuse("direct route custody is absent"))?;
+	let facet = records::reference(&target).resolve(call, input)?;
+	Ok(match super::connection::exporter(host, call, &facet)? {
+		Some(session) => session.transport_name()?.into(),
+		None => Argument::Void,
+	})
+}
+fn direct_route_coordinate(args: &[Argument]) -> Result<custody::Coordinate> {
+	let [value] = args else {
+		return Err(refuse("direct-route takes one exact direct access coordinate"));
+	};
+	let coordinate =
+		custody::Coordinate::decode(text(value)?).map_err(|_| refuse("invalid direct route coordinate"))?;
+	if coordinate.role != custody::Role::DirectAccess {
+		return Err(refuse("direct-route requires DirectAccess custody"));
+	}
+	Ok(coordinate)
+}
+fn direct_route_selection(
+	args: &[Argument],
+	intent: &rooms_application::content::session::workspace::Intent,
+) -> Result<custody::Coordinate> {
+	let selected = direct_route_coordinate(args)?;
+	let installed = intent.conversations.as_slice().iter().any(|row| match row {
+		session::workspace::Conversation::Direct(row) => row.installs(selected),
+		_ => false,
+	});
+	if !installed {
+		return Err(refuse("direct-route requires an open conversation's installed route"));
+	}
+	Ok(selected)
+}
 pub(super) fn trace_snapshot(input: Invocation<'_>, publisher: Option<&dyn crate::trace::Status>) -> Result<Argument> {
 	let record = records::metadata(input)?;
 	let coordinate = operations::selection(input.args, &record.intent)?;

@@ -530,6 +530,9 @@ export function utf8Fits(text: string, maxBytes: number): boolean {
 /** A directory exchange that has not been explicitly retired by its offerer
  * cannot retain routing capability state forever. */
 export const SIGNAL_EXCHANGE_TIMEOUT_MS = APPLICATION_DATA.SIGNAL_EXCHANGE_TIMEOUT_MS;
+/** How long an offerer waits for a route once the answer is applied before
+ * its Host moves to the next route. */
+export const SIGNAL_CONNECT_TIMEOUT_MS = APPLICATION_DATA.SIGNAL_CONNECT_TIMEOUT_MS;
 
 /** How long a member may pause mid-draft before we stop telling the room they
  * are typing. */

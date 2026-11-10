@@ -1,10 +1,11 @@
 use super::*;
 use glowcap::{AcceptedTransport, ChannelDesignator};
-use std::{collections::BTreeMap, future::Future, sync::Arc};
+use std::{cell::Cell, collections::BTreeMap, future::Future, sync::Arc};
 use tokio::{
 	sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch},
 	task::JoinSet,
 };
+use web_sys::RtcConfiguration;
 
 // These are preparation resources, not established-session limits. Payloads
 // are bounded by the shared Rooms signaling types before entering either queue.
@@ -229,6 +230,10 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 	// A selected-away ICE observer does not cancel its admitted browser job.
 	// Retain its permit until peer.close/into_channel has joined that job.
 	let mut applying = None;
+	// Set once the answer has gone out. From then on the offerer owns the
+	// outcome, and a channel that never opens under the exchange budget is its
+	// decision, already taken at its own connect bound.
+	let answered = Cell::new(false);
 	let prepared = {
 		let work = async {
 			let created = RtcPeer::new(host, RtcRole::Answerer, &config.await?)?;
@@ -237,6 +242,7 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 				result = async {
 					peer.set_remote_offer(description.as_str()).await?;
 					directory.signal_answer(&id, &policy::Description::parse(&peer.create_answer().await?)?)?;
+					answered.set(true);
 					peer.wait_open().await?;
 					directory.check().await?;
 					Ok(())
@@ -259,7 +265,7 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 		};
 		tokio::select! { biased;
 			reason = stopped(&mut stop) => Err(match reason { Stop::Shutdown => Error::Stopped, Stop::Refused(reason) => Error::Admission(reason) }),
-			result = directory.platform().within(policy::TIMEOUT_MS, work) => result.unwrap_or(Err(Error::Timeout)),
+			result = directory.platform().within(policy::TIMEOUT_MS, work) => result.unwrap_or(Err(if answered.get() { Error::NoRoute } else { Error::Timeout })),
 		}
 	};
 	if let Err(error) = prepared {
@@ -272,6 +278,11 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 		};
 		return match error {
 			Error::Stopped if matches!(*stop.borrow(), Some(Stop::Shutdown)) => cleanup.map(|()| None),
+			// The offerer owns the outcome: it reported or moved to its next
+			// route at its own connect bound, which this exchange budget
+			// outlasts on every schedule, and the directory tells this side
+			// nothing when it does.
+			Error::NoRoute => cleanup.map(|()| None),
 			error => Err(error.retain(cleanup)),
 		};
 	}

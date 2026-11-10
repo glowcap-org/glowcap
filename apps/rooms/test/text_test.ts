@@ -7,6 +7,7 @@ import {
 	dirConnection,
 	directoryDmBlocked,
 	dirStanding,
+	dmPath,
 	footState,
 	lineCapSaid,
 	peeringSourcesOf,
@@ -91,6 +92,16 @@ Deno.test("a connected directory says how it is reached", () => {
 	assertEquals(dirConnection("connected", "", "iroh", false).route, "Encrypted, direct over iroh");
 	assertEquals(dirConnection("reconnecting", "", "noise-relay", true).route, "");
 	assertEquals(dirConnection("connected", "", "webrtc", true).route, "");
+});
+
+// A direct message's path is the transport its open line runs over, so a
+// line that fell back to the server says so whatever the saved choice.
+Deno.test("a direct message's path is the open line's transport", () => {
+	assertEquals(dmPath("webrtc"), "Browser to browser, encrypted");
+	assertEquals(dmPath("noise-relay"), "Through the Rooms server, encrypted end to end");
+	assertEquals(dmPath("keyed-relay"), "Through the Rooms server, encrypted end to end");
+	assertEquals(dmPath("iroh"), "Encrypted, direct over iroh");
+	assertEquals(dmPath("carrier-pigeon"), "carrier-pigeon");
 });
 
 Deno.test("direct messages on a directory that is not live use the same connection words", () => {

@@ -250,6 +250,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			| "bridge-form-reader"
 			| "file-reader"
 			| "custody-recipe"
+			| "direct-route"
 			| "export-configuration"
 			| "archive-issuer-reader"
 			| "operations-reader"
@@ -471,6 +472,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				| "bridge-form-reader"
 				| "file-reader"
 				| "custody-recipe"
+				| "direct-route"
 				| "export-configuration"
 				| "archive-issuer-reader"
 				| "operations-reader"
@@ -479,6 +481,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 		) {
 			if input.verb == "trace-snapshot" {
 				return reads::trace_snapshot(input, owner.trace.borrow().as_deref());
+			}
+			if input.verb == "direct-route" {
+				return reads::direct_route(&owner.writer.host, call, input);
 			}
 			return reads::invoke(call, input);
 		}

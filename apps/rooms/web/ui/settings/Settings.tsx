@@ -371,7 +371,7 @@ function SettingsDialog(
 												/>
 												<span>
 													<strong>{settingsDmDirectLabel}</strong>
-													{settingsDmDirectSaid}
+													{settingsDmDirectSaid(hasServer)}
 												</span>
 											</label>
 											<label className="choice">

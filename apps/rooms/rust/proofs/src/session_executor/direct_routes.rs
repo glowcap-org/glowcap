@@ -103,6 +103,30 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, source:
 		"another conversation retains its independently held occurrence"
 	);
 	assert_eq!(row.access.unwrap().generation().get(), 2);
+	// The route an open line took is a read of its installed coordinate. Both
+	// routes here are hosted in this process and exported on no session, so
+	// each names no transport. The browser proofs cover a route that does.
+	let installed = custody::Coordinate::new(custody::Role::DirectAccess, row.access.unwrap());
+	assert_eq!(workspace.direct_route(installed).await.unwrap(), None);
+	assert_eq!(
+		workspace
+			.direct_route(requests::coordinate(custody::Role::DirectAccess, 98))
+			.await
+			.unwrap(),
+		None,
+		"another open conversation's installed route reads too"
+	);
+	assert!(
+		workspace.direct_route(coordinate).await.is_err(),
+		"a retired generation names no route"
+	);
+	assert!(
+		workspace
+			.direct_route(custody::Coordinate::new(custody::Role::RoomSeat, row.access.unwrap()))
+			.await
+			.is_err(),
+		"direct-route takes DirectAccess custody only"
+	);
 	for request in [&first_request, &second_request] {
 		host.send(source, "adopt-direct-route", request).await.unwrap();
 		assert_eq!(

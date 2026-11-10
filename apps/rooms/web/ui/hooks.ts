@@ -7,8 +7,9 @@ import { useShallow } from "zustand/react/shallow";
 import { listedRoomsOn, NO_MEMBERS, type PageProjection, type RoomsServerView, type State } from "./store.ts";
 import { serverAskFor } from "../../lib/text/session.ts";
 import type { RoomsPermission } from "../../lib/session_content_data.ts";
-import type { Conv, RoomConv, Standing } from "./conversation.ts";
+import type { Conv, DmConv, RoomConv, Standing } from "./conversation.ts";
 import { archiveShareBearer, roomBearer, type RoomBearerKind } from "./session/bearer.ts";
+import { directRoute } from "./session/direct_route.ts";
 import { useManagedSession } from "./session/managed/context.tsx";
 import { conversationById } from "./session/managed/conversation_lookup.ts";
 import { noteTrouble, serverOrAsk } from "./store.ts";
@@ -62,18 +63,42 @@ export function useRoomBearer(conv: RoomConv | null, kind: RoomBearerKind): stri
 			? kind === "link" ? row.access : kind === "manager" ? row.control : row.moderator
 			: null;
 	};
-	return useCustodyRecipe(load, select);
+	return useCustodyFact(load, select, managedText.capabilityExport);
 }
 
 /** The link behind a lasting archive share, read the same way. */
 export function useArchiveShareBearer(id: string): string | null | undefined {
 	const session = useManagedSession();
 	const load = useCallback(() => archiveShareBearer(session, id), [session, id]);
-	return useCustodyRecipe(load, () => session.current?.intent.archiveShares?.find((row) => row.id === id)?.access);
+	return useCustodyFact(
+		load,
+		() => session.current?.intent.archiveShares?.find((row) => row.id === id)?.access,
+		managedText.capabilityExport,
+	);
 }
-function useCustodyRecipe(
+
+/** The transport an open direct line runs over, read from the session its
+ * installed route is exported on: null while no session carries the line, and
+ * undefined while the read is in flight or failed. */
+export function useDirectRoute(conv: DmConv | null): string | null | undefined {
+	const session = useManagedSession();
+	const load = useCallback(() => conv == null ? Promise.resolve(null) : directRoute(session, conv), [
+		session,
+		conv?.persistId,
+	]);
+	const select = () => {
+		const row = conversationById(session.current, conv?.persistId);
+		return row?.kind === "direct" ? row.access : null;
+	};
+	return useCustodyFact(load, select, managedText.directRoute);
+}
+
+/** One fact behind a custody key, read when the key or the view's access
+ * changes and reported as trouble under `title` when the read fails. */
+function useCustodyFact(
 	load: () => Promise<string | null>,
 	select: () => string | null | undefined,
+	title: string,
 ): string | null | undefined {
 	const session = useManagedSession();
 	const projection = useRoomsProjection();
@@ -97,13 +122,13 @@ function useCustodyRecipe(
 		}, (error) => {
 			if (current) {
 				setResult({ load, revision, value: undefined });
-				noteTrouble(projection, managedText.capabilityExport, refusalText(error));
+				noteTrouble(projection, title, refusalText(error));
 			}
 		});
 		return () => {
 			current = false;
 		};
-	}, [load, revision, projection]);
+	}, [load, revision, projection, title]);
 	return result?.load === load && result.revision === revision ? result.value : undefined;
 }
 

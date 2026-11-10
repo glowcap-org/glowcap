@@ -207,6 +207,30 @@ export async function reachDirectoryOnCard(
 	return await tab.locator("#room").isVisible() ? "question" : "joined";
 }
 
+/** The open direct line's card says `want` as its path over the `route`
+ * transport, read from the live session after the card opens, and the card
+ * is closed again. The transport marker is what proves the read happened,
+ * because the words alone could come from any route with the same wording. */
+export async function pathSaid(tab: Page, want: string, route: string): Promise<void> {
+	await tab.click("#roomAbout");
+	await tab.waitForFunction(
+		([want, route]) => {
+			const path = document.getElementById("convcardPath");
+			return path?.textContent === want && path.dataset.route === route;
+		},
+		[want, route],
+		{ timeout: 10_000 },
+	).catch(async () => {
+		const said = await tab.evaluate(() => {
+			const path = document.getElementById("convcardPath");
+			return path == null ? null : [path.textContent, path.dataset.route];
+		}).catch(() => null);
+		fail(`the direct line's card said its path is ${JSON.stringify(said)}, not ${JSON.stringify([want, route])}`);
+	});
+	await tab.click("#convcardClose");
+	await tab.waitForSelector("#convcardPath", { state: "detached", timeout: 10_000 });
+}
+
 /** The directory conversation's title opens the existing directory card. */
 export async function openDirectoryCard(tab: Page): Promise<void> {
 	// Exit transitions retain the previous card after close(). Its painted

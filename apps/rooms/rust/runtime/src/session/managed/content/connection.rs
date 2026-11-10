@@ -74,11 +74,15 @@ pub(super) fn invoke<P: Tasks + Deadline + Clone + 'static>(
 			.and_then(|pages| pages.get(location.page.checked_sub(1)?))
 			.ok_or_else(|| refuse("invalid direct route page"))?;
 		let facet = call.page_reference(page, location.field)?;
-		let session = match owner.writer.host.reference_session(&facet)? {
-			Some(session) => Some(session.borrowed()),
-			None => call.live_dependent_exporter(&facet)?,
-		};
-		retirement.observe(session)?;
+		retirement.observe(exporter(&owner.writer.host, call, &facet)?)?;
 	}
 	Ok(Argument::Void)
+}
+/// The live session a direct route's capability is exported on, in this Host
+/// or in a dependent session, or none for a local or stale reference.
+pub(super) fn exporter(host: &glowcap::Host, call: &mut Call<'_>, facet: &Ref) -> Result<Option<glowcap::Session>> {
+	match host.reference_session(facet)? {
+		Some(session) => Ok(Some(session.borrowed())),
+		None => call.live_dependent_exporter(facet),
+	}
 }

@@ -76,9 +76,10 @@ connection of your own. The room does not receive those messages.
 
 That connection is [WebRTC]($link.page('transports/webrtc')) by default: the server passes along the connection
 details, and the messages go straight between the two of you. Where a
-network will not allow that, Settings offers **Through the Rooms server**.
-That browser relay route uses `noise-relay` to encrypt messages between the
-peers, so the relay cannot read them.
+network will not allow that, the conversation opens through the Rooms server
+after a few seconds instead, and Settings can make that the only route. Either
+way it is encrypted end to end (the server route uses `noise-relay`), so the
+server cannot read your messages.
 [Run Rooms]($link.page('rooms/start')) opens a direct conversation, and
 [How Rooms works]($link.page('rooms/architecture')) follows the introduction
 step by step. It works the same way with people you meet in rooms on other
