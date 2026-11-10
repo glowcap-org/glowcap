@@ -56,7 +56,7 @@ function watch(tab: Page, who: string): void {
 
 /** Where the page says it is: the path plus whatever the address carries. */
 function addressOf(tab: Page): Promise<string> {
-	return tab.evaluate(() => location.pathname + location.search);
+	return tab.evaluate(() => location.pathname + location.search + location.hash);
 }
 
 /** Whether the rail is showing, as a reader sees it rather than as a field. */
@@ -273,6 +273,36 @@ try {
 	).catch(() => fail("asking for the card with nothing named forgot the directory last used"));
 	const openRoom = await back.evaluate(() => (document.querySelector("#room") as HTMLInputElement | null)?.value);
 	if (openRoom !== "lobby") fail(`the card with nothing named offered "${openRoom}" rather than the last room`);
+	// Join payloads reach the card and browser history, never the page host.
+	const capability = "ocapn://example.iroh/s/join-fragment-secret";
+	const requests: string[] = [];
+	back.on("request", (request) => requests.push(request.url()));
+	const offered = `http://127.0.0.1:${httpPort}/join#` +
+		new URLSearchParams({ room: FIRST, address: capability });
+	await back.goto(offered);
+	await establishLocalSession(back);
+	const showsJoin = (room: string) =>
+		back.waitForFunction(
+			([name, address]) =>
+				(document.querySelector("#room") as HTMLInputElement | null)?.value === name &&
+				(document.querySelector("#joinAddressField") as HTMLInputElement | null)?.value === address,
+			[room, capability],
+			{ timeout: 10_000 },
+		);
+	await showsJoin(FIRST);
+	await back.reload();
+	await establishLocalSession(back);
+	await showsJoin(FIRST);
+	await back.evaluate(([room, address]) => {
+		location.hash = new URLSearchParams({ room, address }).toString();
+	}, [SECOND, capability]);
+	await showsJoin(SECOND);
+	await back.goBack();
+	await showsJoin(FIRST);
+	await back.goForward();
+	await showsJoin(SECOND);
+	if (!requests.includes(`http://127.0.0.1:${httpPort}/join`)) fail("the join request was not observed");
+	if (requests.some((url) => url.includes("join-fragment-secret"))) fail("a join capability reached an HTTP request");
 	await back.close();
 	await returning.close();
 

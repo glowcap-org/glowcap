@@ -45,11 +45,23 @@ export function roomAddress(
  * store keeps that as an empty address and the address has to round-trip what
  * the store holds or the two will keep correcting each other. */
 export function joinAddress(options: { room?: string; address?: string; directory?: string } = {}): string {
-	const search = pageSearch();
-	if (options.room != null) search.set("room", options.room);
-	if (options.address != null) search.set("address", options.address);
-	if (options.directory != null) search.set("dir", options.directory);
-	return withPageSearch("/join", search);
+	const fragment = new URLSearchParams();
+	if (options.room != null) fragment.set("room", options.room);
+	if (options.address != null) fragment.set("address", options.address);
+	if (options.directory != null) fragment.set("dir", options.directory);
+	const fields = fragment.toString();
+	return withPageSearch("/join") + (fields === "" ? "" : `#${fields}`);
+}
+
+/** Join fields stay in the fragment because an address may carry a capability.
+ * The page host receives the route and startup choices, but none of these fields. */
+export function joinFields(location: { hash: string }): {
+	room: string | null;
+	address: string | null;
+	directory: string | null;
+} {
+	const fields = new URLSearchParams(location.hash.slice(1));
+	return { room: fields.get("room"), address: fields.get("address"), directory: fields.get("dir") };
 }
 
 /** The address of the card as a filed act shows it, so the address mirror can

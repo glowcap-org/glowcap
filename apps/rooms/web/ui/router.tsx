@@ -55,6 +55,7 @@ import {
 	dmAddress,
 	joinAddress,
 	joinAddressOf,
+	joinFields,
 	pageSearch,
 	roomAddress,
 	withPageSearch,
@@ -114,7 +115,7 @@ export function bindRoomsRouting(page: RoomsPageContext): void {
 		if (router.state.location.pathname.startsWith("/ops")) return;
 		const want = addressOfActive();
 		const at = router.state.location;
-		if (want === `${at.pathname}${at.search}`) return;
+		if (want === `${at.pathname}${at.search}${at.hash}`) return;
 		void router.navigate(want, { replace: active === null || settled });
 	});
 }
@@ -126,7 +127,7 @@ export function addressOfActive(): string {
 	const conv = s.activeKey === null ? null : s.convs.get(s.activeKey) ?? null;
 	// Nothing open, and a link put the card up: the card is what is showing,
 	// and its address is the act's. Without this the mirror, which runs when the
-	// selection clears, would fold a `/join?room=…` a route had just landed on
+	// selection clears, would fold a `/join#room=…` a route had just landed on
 	// back to `/`, and the address would be wrong twice in one arrival. A card
 	// nobody linked to, reached by a press or by the page opening, is the front.
 	if (conv === null) {
@@ -165,10 +166,14 @@ function replaceWith(path: string): void {
  * actionable branch ran, and the effect retries as the store changes until
  * one does. React's strict double-mount reuses the same record, so a waiting
  * intent never dispatches twice. */
-function useArrival(location: { key: string }): { done: boolean; mark: () => void } {
-	const fired = useRef<{ at: string; done: boolean }>({ at: "", done: false });
-	if (fired.current.at !== location.key) {
-		fired.current = { at: location.key, done: false };
+function useArrival(location: { key: string; pathname: string; search: string; hash: string }): {
+	done: boolean;
+	mark: () => void;
+} {
+	const address = location.pathname + location.search + location.hash;
+	const fired = useRef<{ at: string; address: string; done: boolean }>({ at: "", address: "", done: false });
+	if (fired.current.at !== location.key || fired.current.address !== address) {
+		fired.current = { at: location.key, address, done: false };
 	}
 	return {
 		done: fired.current.done,
@@ -314,13 +319,10 @@ function JoinRoute() {
 	const arrival = useArrival(routed);
 	useEffect(() => {
 		if (arrival.done) return;
-		const search = new URLSearchParams(routed.search);
-		const room = search.get("room");
-		const address = search.get("address");
+		const { room, address, directory } = joinFields(routed);
 		// `dir=` is the directory the address stands on rather than one the link
 		// named: a room route that could not open its room lands here with that
 		// much still true. Named outranks implied when an address carries both.
-		const directory = search.get("dir");
 		// A bare /join is a reader asking for the card and naming nothing, so
 		// every field falls through to what this browser last used. Naming a
 		// room or an address is a deep link, and each part it names is named
@@ -332,7 +334,7 @@ function JoinRoute() {
 			address: address !== null ? named(address) : directory !== null ? implied(directory) : undefined,
 		});
 		arrival.mark();
-	}, [arrival, routed.search]);
+	}, [arrival, routed.hash]);
 	return null;
 }
 

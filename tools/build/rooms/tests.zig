@@ -50,6 +50,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/room/presence_narration_test.ts",
         "apps/rooms/test/member_identity_test.ts",
         "apps/rooms/test/prefs_test.ts",
+        "apps/rooms/test/join_address_test.ts",
         "apps/rooms/test/view_preferences_test.ts",
         "apps/rooms/test/browser_data_test.ts",
         "apps/rooms/test/server_choice_test.ts",

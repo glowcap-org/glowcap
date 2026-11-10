@@ -174,5 +174,19 @@ Deno.test("a link's session offer leaves the address and never takes a room rout
 	// A link carried across a reload reads back whole.
 	const carried = withSessionOffer(new URL("https://glowcap.org/rooms/app/#garden"), "ocapn://abc.iroh/s/x?y=1&z");
 	assertEquals(sessionOffer(carried)?.capability, "ocapn://abc.iroh/s/x?y=1&z");
-	assertEquals(sessionOffer(carried)?.rest.href, "https://glowcap.org/rooms/app/");
+	assertEquals(sessionOffer(carried)?.rest.href, "https://glowcap.org/rooms/app/#garden=");
+});
+
+Deno.test("a session offer preserves a join destination in either fragment order", () => {
+	const join = new URL(
+		"https://glowcap.org/rooms/app/join#room=workshop&address=ocapn%3A%2F%2Froom.iroh%2Fs%2Fsecret",
+	);
+	const offered = withSessionOffer(join, "ocapn://session.iroh/s/attach?x=1&y=2");
+	assertEquals(offered.pathname + offered.search, "/rooms/app/join");
+	assertEquals(sessionOffer(offered)?.rest.href, join.href);
+	assertEquals(sessionOffer(offered)?.capability, "ocapn://session.iroh/s/attach?x=1&y=2");
+	const reordered = new URL(join);
+	reordered.hash = `attach=other&${join.hash.slice(1)}`;
+	assertEquals(sessionOffer(reordered)?.rest.href, join.href);
+	assertEquals(sessionOffer(join), null);
 });

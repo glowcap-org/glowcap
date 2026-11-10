@@ -190,6 +190,11 @@ value across screens needs one.
 
 ### The join card
 
+Join URLs carry the room and destination in the fragment, after `#`. The page
+reads those fields, which stay out of the request sent to the page host.
+A session-attachment offer shares the fragment and leaves the join
+destination intact when it is consumed.
+
 The join card, in `joining.ts`, is where this is used.
 
 - It states what it is answering once, in its opening line: the address that was followed, or nothing in particular
