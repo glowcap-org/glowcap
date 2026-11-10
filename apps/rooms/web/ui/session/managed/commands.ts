@@ -59,6 +59,7 @@ export function managedCommandPowers(
 	rooms: RoomsRoomController,
 	pick: (id: DirId, name: string) => Promise<void>,
 	select: (id: string) => Promise<void>,
+	openDm: (peer: string) => Promise<string>,
 ): CommandPowers {
 	const projection = page.projection;
 	const active = () => store.activeConv(projection);
@@ -141,14 +142,10 @@ export function managedCommandPowers(
 			if (row?.type === "directory") store.dismissDirectoryView(projection, row.key);
 			else if (row != null) await session.actions.run("leaveConversation", [row.persistId]);
 		},
-		directMessage: (who) => {
-			const id = directory();
-			if (id == null) return Promise.resolve(NOT_ON_A_DIRECTORY);
-			return unlessUnregistered(who, () =>
-				session.openings.run(async (opening) => {
-					const conversation = await session.actions.direct(id, who, false, undefined, opening);
-					await opening.select(conversation);
-				}, { kind: "direct", peer: who }));
+		directMessage: async (who) => {
+			if (directory() == null) return NOT_ON_A_DIRECTORY;
+			const said = await openDm(who);
+			return said === "" ? null : said;
 		},
 		setTheme: browser.setTheme,
 		showRoster: browser.showRoster,

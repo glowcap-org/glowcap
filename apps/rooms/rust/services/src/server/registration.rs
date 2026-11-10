@@ -2,13 +2,13 @@
 //! registration's identity and its name capability, and filing it.
 use super::behavior::{Reply, Shared, capability, text};
 use glowcap::{
-	Argument, Session, TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP,
-	TRANSPORT_WEBRTC, current_session,
+	Argument, Locator, Ref, Session, TRANSPORT_ID, TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP, TRANSPORT_WEBRTC, current_session,
 };
 use rooms_application::{
 	directory::registration::{Id, NicknameAllocation, VOUCHER},
 	room::ArgumentView,
-	server::directory::{NAME_VOUCHER_BYTES, Register},
+	server::directory::{Effects, NAME_VOUCHER_BYTES, Register},
 };
 use rooms_glowcap::Value;
 
@@ -21,12 +21,21 @@ struct Claim {
 	claimant: Option<String>,
 	/// The member's Host key, when the locator's designator is that key.
 	host_key: Option<String>,
+	/// The claim as a locator, when it is an `ocapn://` URI. The server
+	/// embeds it in every handoff it mints for this member's exports, so a
+	/// redeemer dials the route the member registered (an identity route
+	/// across WebRTC and the relay, say), not the one transport the
+	/// member's hello names. Without one, handoffs name the hello.
+	locator: Option<Locator>,
 }
 
-/// The transports whose designator is the peer's Host key. An iroh node id is
-/// iroh's own key, and an address names a socket, so neither is.
+/// The transports whose designator is the peer's Host key. An identity
+/// route's designator is the key each of its routes proves, so signaling
+/// aimed at its WebRTC route finds the member. An iroh node id is iroh's own
+/// key, and an address names a socket, so neither is.
 fn names_host_key(transport: &str) -> bool {
 	[
+		TRANSPORT_ID,
 		TRANSPORT_WEBRTC,
 		TRANSPORT_KEYED_TCP,
 		TRANSPORT_NOISE_TCP,
@@ -41,15 +50,15 @@ fn names_host_key(transport: &str) -> bool {
 /// designator names a socket a key does not determine, so an unproved
 /// connection holds its own claim.
 fn claim(session: &Session, locator: &str) -> Result<Claim, String> {
-	let (designator, host_key) = if locator.contains("://") {
+	let (designator, host_key, parsed) = if locator.contains("://") {
 		let parsed =
 			glowcap::parse_locator(locator).map_err(|_| "register locator must be hostname:port or an ocapn:// URI")?;
 		let host_key = names_host_key(&parsed.transport).then(|| parsed.designator.clone());
-		(parsed.designator, host_key)
+		(parsed.designator.clone(), host_key, Some(parsed))
 	} else {
 		glowcap::designator_host_port(locator)
 			.map_err(|_| "register locator must be hostname:port or an ocapn:// URI")?;
-		(locator.to_owned(), None)
+		(locator.to_owned(), None, None)
 	};
 	let identity = session
 		.partner_identity()
@@ -62,6 +71,7 @@ fn claim(session: &Session, locator: &str) -> Result<Claim, String> {
 		own,
 		claimant: identity.map(|identity| identity.designator),
 		host_key,
+		locator: parsed,
 	})
 }
 
@@ -128,9 +138,68 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 	let session = current_session()
 		.map_err(|e| e.to_string())?
 		.ok_or("register is reachable only over a session")?;
-	let claim = claim(&session, locator)?;
+	let Claim {
+		own,
+		claimant,
+		host_key,
+		locator: claimed,
+	} = claim(&session, locator)?;
 	let mut held = state.borrow_mut();
 	let id = fresh_id(&held)?;
+	// The listing and the handoffs the server mints for this member name one
+	// locator. The Host takes the claim before anything is filed, so a claim
+	// it cannot embed is refused with nothing committed. A claim naming
+	// another peer never reaches the Host, because the directory refuses it.
+	let previous = held
+		.handoff_locator(connection)
+		.ok_or("caller connection has ended")?
+		.clone();
+	if own {
+		session
+			.set_exporter_locator(claimed.as_ref())
+			.map_err(|e| format!("the registered locator can't be used for handoffs: {e}"))?;
+	}
+	let request = Register {
+		nick: nick.into(),
+		allocation,
+		locator: locator.into(),
+		own_locator: own,
+		host_key,
+		inbox: inbox.clone(),
+		voucher,
+		claimant,
+	};
+	let (granted, name, effects) = match file(state, &mut held, &session, connection, &id, request) {
+		Ok(filed) => filed,
+		Err(refusal) => {
+			if own && let Err(cause) = session.set_exporter_locator(previous.as_ref()) {
+				held.report(super::notice::Notice::Trouble {
+					source: "restoring a refused registration's handoff locator".into(),
+					reason: cause.to_string(),
+				});
+			}
+			return Err(refusal);
+		}
+	};
+	held.apply(effects);
+	if let Some(slot) = held.handoff_locator(connection) {
+		*slot = claimed;
+	}
+	// Identity and exact custody have one commit and one reply. Notifications
+	// remain discovery events; losing one cannot make acquisition uncertain.
+	Ok(Argument::List(vec![granted.into(), id.as_str().into(), name.into()]))
+}
+
+/// Mint the name capability and file the registration, the directory's one
+/// commit. A directory refusal files nothing.
+fn file(
+	state: &Shared,
+	held: &mut super::state::State,
+	session: &Session,
+	connection: u64,
+	id: &Id,
+	request: Register<Ref>,
+) -> Result<(String, Ref, Effects<u64, Ref>), String> {
 	// The exact name capability mints reconnect vouchers while current and
 	// retires only this registration. Retirement remains idempotent after
 	// replacement; it never selects another holder by nickname or connection.
@@ -218,31 +287,14 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 	let now = held.now();
 	let effects = held
 		.policy
-		.register(
-			connection,
-			Register {
-				nick: nick.into(),
-				allocation,
-				locator: locator.into(),
-				own_locator: claim.own,
-				host_key: claim.host_key,
-				inbox: inbox.clone(),
-				voucher,
-				claimant: claim.claimant,
-			},
-			id.clone(),
-			now,
-		)
+		.register(connection, request, id.clone(), now)
 		.map_err(|refusal| refusal.reason())?;
 	let granted = held
 		.policy
 		.registered_nick(connection)
 		.ok_or("committed registration names no holder")?
 		.to_owned();
-	held.apply(effects);
-	// Identity and exact custody have one commit and one reply. Notifications
-	// remain discovery events; losing one cannot make acquisition uncertain.
-	Ok(Argument::List(vec![granted.into(), id.as_str().into(), name.into()]))
+	Ok((granted, name, effects))
 }
 
 fn register_shape() -> String {
@@ -258,6 +310,7 @@ mod tests {
 	#[test]
 	fn a_keyed_locator_names_the_host_key_and_iroh_or_an_address_does_not() {
 		for transport in [
+			glowcap::TRANSPORT_ID,
 			glowcap::TRANSPORT_WEBRTC,
 			glowcap::TRANSPORT_KEYED_TCP,
 			glowcap::TRANSPORT_NOISE_TCP,

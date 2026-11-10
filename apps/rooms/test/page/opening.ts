@@ -492,8 +492,8 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	const defaultDm = await tab.evaluate(() =>
 		(document.querySelector('input[name="dm"]:checked') as HTMLInputElement | null)?.value ?? ""
 	);
-	if (defaultDm !== "webrtc") {
-		fail(`Settings opened on ${defaultDm}, not webrtc`);
+	if (defaultDm !== "fastest") {
+		fail(`Settings opened on ${defaultDm}, not on fastest`);
 	}
 	await tab.keyboard.press("Escape");
 	await tab.waitForSelector("#settingsTitle", { state: "hidden" });

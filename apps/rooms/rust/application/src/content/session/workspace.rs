@@ -144,11 +144,46 @@ pub enum Reconnect {
 	Manual,
 	Requested,
 }
+/// How other people's direct lines reach this member: the preference the
+/// member saved, which [`Connection::route`] resolves against the page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Connection {
+	/// The fastest route the page has: WebRTC and the Rooms server's relay
+	/// raced when the page has a server, WebRTC alone when it has none.
+	Fastest,
+	/// WebRTC first, with the Rooms server's relay only after it fails.
 	Webrtc,
+	/// The Rooms server's relay alone.
 	Relay,
+}
+/// The route a member's advertisement takes once the preference meets the
+/// page. A page with no Rooms server has no relay, so every preference but
+/// [`Connection::Relay`] resolves to WebRTC alone there, and that one keeps
+/// asking for a server rather than exposing an address the member chose to
+/// keep off WebRTC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectRoute {
+	/// WebRTC alone, on a page with no Rooms server.
+	Webrtc,
+	/// WebRTC first, with the Rooms server's relay as advice a dialing Host
+	/// tries after WebRTC fails.
+	WebrtcThenRelay,
+	/// WebRTC and the Rooms server's relay raced under one identity route.
+	Raced,
+	/// The Rooms server's relay alone.
+	Relay,
+}
+impl Connection {
+	/// The only reader of whether the page has a Rooms server.
+	pub fn route(self, has_server: bool) -> DirectRoute {
+		match (self, has_server) {
+			(Self::Fastest, true) => DirectRoute::Raced,
+			(Self::Webrtc, true) => DirectRoute::WebrtcThenRelay,
+			(Self::Fastest | Self::Webrtc, false) => DirectRoute::Webrtc,
+			(Self::Relay, _) => DirectRoute::Relay,
+		}
+	}
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -389,7 +424,7 @@ impl Intent {
 			ignored: List::default(),
 			keep_history: true,
 			history_erasure: None,
-			connection: Connection::Relay,
+			connection: Connection::Fastest,
 			archive: None,
 			archive_control: None,
 			archive_shares: List::default(),

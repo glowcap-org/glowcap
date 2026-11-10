@@ -125,7 +125,35 @@ pub fn run() {
 	assert!(apply(&initial, "chooseHistoryRetention", &["true", "bearer"]).is_err());
 	let connection = apply(&initial, "chooseConnection", &["webrtc"]).unwrap();
 	assert_eq!(connection.connection, workspace::Connection::Webrtc);
+	for (word, choice) in [
+		("fastest", workspace::Connection::Fastest),
+		("relay", workspace::Connection::Relay),
+	] {
+		assert_eq!(apply(&initial, "chooseConnection", &[word]).unwrap().connection, choice);
+	}
 	assert!(apply(&initial, "chooseConnection", &["quic"]).is_err());
+	// The saved word is the stored contract, so each choice keeps its own.
+	for (word, choice) in [
+		("fastest", workspace::Connection::Fastest),
+		("webrtc", workspace::Connection::Webrtc),
+		("relay", workspace::Connection::Relay),
+	] {
+		assert_eq!(serde_json::to_value(choice).unwrap(), serde_json::json!(word));
+		assert_eq!(
+			serde_json::from_value::<workspace::Connection>(word.into()).unwrap(),
+			choice
+		);
+	}
+	// The page resolves a preference against whether it has a Rooms server.
+	use workspace::{Connection as C, DirectRoute as R};
+	for (choice, with_server, without) in [
+		(C::Fastest, R::Raced, R::Webrtc),
+		(C::Webrtc, R::WebrtcThenRelay, R::Webrtc),
+		(C::Relay, R::Relay, R::Relay),
+	] {
+		assert_eq!(choice.route(true), with_server, "{choice:?} with a server");
+		assert_eq!(choice.route(false), without, "{choice:?} without one");
+	}
 	let homeless = apply(&initial, "chooseHomeDirectory", &[""]).unwrap();
 	assert!(homeless.directories.as_slice().iter().all(|row| !row.home));
 	let home = apply(&homeless, "chooseHomeDirectory", &["directory"]).unwrap();

@@ -2,14 +2,16 @@ import { proveFiniteAnimationWait } from "../page/animation_wait.ts";
 import { waitForFiniteAnimations } from "../support/animations.ts";
 import { spawnWeb, webPort } from "../support/web_front.ts";
 // Two browser tabs direct-message each other end to end on the page's default
-// DM transport: each advertises a `webrtc` locator, and the room carries only
-// the signaling (ADR-0035). Neither tab opens a listening socket, so neither
-// can be dialed the ordinary way. When Alice direct-messages Bob, the room
-// introduces her, her Host redeems the handoff give by signaling through the
-// room directory, the DataChannel opens tab-to-tab, and the keyed OCapN
-// session runs over it with the room out of the message path. Bob answers
-// over that same arriving connection (`currentSession`), so a tab that never
-// listens still replies.
+// route, **Fastest**: each is listed under an identity route naming WebRTC
+// and the server's sealed relay, and the dialing Host races both, keeping
+// the first to prove the key. Over WebRTC the room carries only the
+// signaling (ADR-0035), and over the relay it carries Noise ciphertext. On
+// one machine the relay's local dial usually wins. Neither tab opens a
+// listening socket, so neither can be dialed the ordinary way. When Alice
+// direct-messages Bob, the room introduces her, her Host redeems the handoff
+// give, the keyed OCapN session opens tab-to-tab, and both cards' Path fact
+// names the route that won. Bob answers over that same arriving connection
+// (`currentSession`), so a tab that never listens still replies.
 //
 // This is the default two-tab conversation as a reader meets it, with no
 // query flag on the page URL. Reaching a tab through the relay's rendezvous
@@ -42,7 +44,7 @@ import { inkContrast } from "../ink_contrast.ts";
 import { reapOwned } from "../support/children.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
-import { awaitBubble, confirmTitleLeave, directOpened, openDmTo } from "../page/harness.ts";
+import { awaitBubble, confirmTitleLeave, directOpened, openDmTo, pathTaken } from "../page/harness.ts";
 import { namedDirectRow } from "../support/conversation_row.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
@@ -157,9 +159,9 @@ try {
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	await proveFiniteAnimationWait(browser);
 
-	// Alice joins first and opens the room; Bob joins it. Both advertise a
-	// `webrtc` locator and file signaling inboxes with the directory, so each
-	// appears in the other's DM-able roster.
+	// Alice joins first and opens the room, and Bob joins it. Both register
+	// under a key the directory routes signaling to, and file signaling
+	// inboxes with it, so each appears in the other's DM-able roster.
 	const alice = await joinAs(browser, httpPort, "web-alice");
 	const bob = await joinAs(browser, httpPort, "web-bob");
 
@@ -173,6 +175,10 @@ try {
 	// over the DataChannel, with the room off the message path.
 	await openDmTo(bob.tab, "web-alice");
 	await awaitBubble(bob.tab, DM_TEXT, "Bob");
+	// Both cards name the route the race landed on, and it is one route.
+	const route = await pathTaken(alice.tab);
+	const bobRoute = await pathTaken(bob.tab);
+	if (bobRoute !== route) fail(`Alice's card names ${route} while Bob's names ${bobRoute}`);
 
 	// A file follows the same introduced line. Bob pulls its bytes through the
 	// capability Alice appended to the DM; the room and WebRTC signaling see no
@@ -409,12 +415,11 @@ try {
 	await awaitBubble(alice.tab, SECOND_REPLY, "Alice");
 
 	console.log(
-		"PASS: two browser tabs direct-messaged each other on the default webrtc DM transport — one " +
-			"redeemed a room introduction by signaling through the directory, the keyed session " +
-			"opened tab-to-tab over the DataChannel with the room off the message path, and " +
-			"independent files stayed in one bubble and crossed in both directions over the " +
-			"introduced line and its reply capability; " +
-			"the reply rode back over the same arriving connection to a tab that never listens; " +
+		`PASS: two browser tabs direct-messaged each other on the default Fastest route, where one ` +
+			`redeemed a room introduction, the keyed session opened tab-to-tab over ${route} with ` +
+			`both cards naming that route, and independent files stayed in one bubble ` +
+			`and crossed in both directions over the introduced line and its reply capability. ` +
+			"The reply rode back over the same arriving connection to a tab that never listens, " +
 			"then closing the conversation left the member reachable in the list and a second " +
 			"line to the same person opened, carried a message, and carried a reply back",
 	);

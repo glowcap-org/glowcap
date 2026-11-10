@@ -129,7 +129,7 @@ function MemberRow(
 							{you && memberYouSuffix}
 						</span>
 						{identity.mark !== null && (
-							<span className="bridge-chip" data-network={identity.network}>{identity.mark}</span>
+							<span className="chip bridge-chip" data-network={identity.network}>{identity.mark}</span>
 						)}
 					</span>
 					{

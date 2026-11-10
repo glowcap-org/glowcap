@@ -21,13 +21,14 @@ Deno.test("an identity route separates proving routes from baseline fallbacks", 
 		"ocapn://node.iroh",
 		"ocapn://node.tcp",
 		"ocapn://node.noise-relay",
+		"ocapn://node.webrtc",
 	]);
 	assert(route !== null, "two matching keyed routes did not produce an identity route");
 	assert(route.transport === TRANSPORT_ID, "the helper did not select the identity transport");
 	assert(route.designator === "node", "the helper changed the identity designator");
 	assert(
 		stringHint(route, HINT_VIA) ===
-			"ocapn://node.iroh|ocapn://node.noise-relay|ocapn://node.noise-tcp?direct-addresses=127.0.0.1%3A9000",
+			"ocapn://node.webrtc|ocapn://node.iroh|ocapn://node.noise-relay|ocapn://node.noise-tcp?direct-addresses=127.0.0.1%3A9000",
 		"the helper did not filter or order the route list correctly",
 	);
 	assert(

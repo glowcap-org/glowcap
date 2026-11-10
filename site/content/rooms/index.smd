@@ -37,7 +37,7 @@ as two people, and starting a direct conversation.
 <h3>As a member</h3>
 <ul>
 <li>Join a public room by name, or open a private one from a link someone sent you.</li>
-<li>Message anyone directly. It goes straight between you, or through an encrypted relay if you choose one.</li>
+<li>Message anyone directly. It takes whichever route opens first, straight between you or through an encrypted relay.</li>
 <li>Join rooms on other directories and message the members you meet there. Your session keeps them together.</li>
 <li>Send files, edit or take back what you said, set what the room is about, and hand out one-time invitations.</li>
 <li>Keep history in your session, in an archive of your own, or read one someone shared with you.</li>
@@ -74,12 +74,14 @@ connection of your own. The room does not receive those messages.
 
 [The server gives a person and a bot the same room and introduces them to each other, and from then on they talk directly, with the server out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
 
-That connection is [WebRTC]($link.page('transports/webrtc')) by default: the server passes along the connection
-details, and the messages go straight between the two of you. Where a
-network will not allow that, the conversation opens through the Rooms server
-after a few seconds instead, and Settings can make that the only route. Either
-way it is encrypted end to end (the server route uses `noise-relay`), so the
-server cannot read your messages.
+By default the browser tries two routes at once and keeps whichever opens
+first. One is a [WebRTC]($link.page('transports/webrtc')) connection, with the
+server passing along the connection details. The other is the server's own
+relay. The relay often opens first, and it is the only route where a network
+blocks WebRTC. Settings can choose either route alone.
+
+Either way it is encrypted end to end (the server route uses `noise-relay`),
+so the server cannot read your messages.
 [Run Rooms]($link.page('rooms/start')) opens a direct conversation, and
 [How Rooms works]($link.page('rooms/architecture')) follows the introduction
 step by step. It works the same way with people you meet in rooms on other

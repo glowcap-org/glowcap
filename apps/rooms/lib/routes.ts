@@ -13,10 +13,11 @@ import {
 	TRANSPORT_NOISE_TCP,
 	TRANSPORT_ONION,
 	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
 } from "@glowcap/runtime";
 import { roomsLocator } from "./locator.ts";
 
-const ROUTE_ORDER = [TRANSPORT_IROH, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP] as const;
+const ROUTE_ORDER = [TRANSPORT_WEBRTC, TRANSPORT_IROH, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP] as const;
 const FALLBACK_ORDER = [TRANSPORT_ONION, TRANSPORT_TCP, TRANSPORT_KEYED_TCP, TRANSPORT_KEYED_RELAY] as const;
 
 /** Compose the identity-first location a Rooms host may advertise.

@@ -65,7 +65,7 @@ export const sessionServerLead = `${serverModel} Test its address, then save it.
 export const serverNeedAddress = "This browser can't reach this address on its own. A Rooms server can.";
 export const serverNeedHome = "A blank address, or a name alone, means the home directory of the page's Rooms server.";
 export const serverNeedLink = "A link to this browser works through its Rooms server.";
-export const serverNeedDm = "In this mode, direct messages go through the Rooms server.";
+export const serverNeedDm = "Direct messages are set to go through the Rooms server.";
 export const sessionServerAttachLead = `${serverNeedAddress} Test a server's address, and saving it attaches.`;
 export const sessionServerSave = "Save";
 export const sessionServerSaveAttach = "Save and attach";
@@ -82,6 +82,10 @@ export const serverAskFor = (need: string) => `${need} This page has none. ${ser
 /** The same ask after the door this browser opens by itself did not get
  * through: `door` says so, and a Rooms server is the other way in. */
 export const serverAskAfterDoor = (door: string) => `${door} A Rooms server can reach it another way. ${serverAskHow}`;
+/** The same ask after a direct line to `peer` found no route on a page with
+ * no server: a route through a server is the other way to that person. */
+export const serverAskAfterDirect = (peer: string) =>
+	`No direct route to ${peer} opened from this browser. A Rooms server gives this browser another way to reach them. ${serverAskHow}`;
 
 /** The advanced section and the two confirmations under it. Each
  * confirmation names what survives as well as what goes, since "delete" alone
