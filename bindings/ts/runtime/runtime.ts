@@ -145,15 +145,13 @@ export class Runtime {
 				`UnknownTransport: Runtime has no connector for transport ${JSON.stringify(partner.transport)}`,
 			);
 		}
-		return await dialWithConnector(
-			connector,
-			partner,
-			this.#host,
-			false,
-			this.#handshakeTimeoutMs,
-			options.signal,
-			options.transport?.data,
-		);
+		return await dialWithConnector(connector, partner, this.#host, {
+			introducer: null,
+			redeem: false,
+			handshakeTimeoutMs: this.#handshakeTimeoutMs,
+			signal: options.signal,
+			transportOptions: options.transport?.data,
+		});
 	}
 
 	/** Close the owned Host, listeners, and sessions. `options` selects whether

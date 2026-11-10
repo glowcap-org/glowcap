@@ -44,8 +44,10 @@ review needs that review before its first step.
 2. **Adapter contract gaps.** Make Rust shutdown finish finalizer recovery or
    return an owned failure before its executor exits. Prove refused C releases
    cannot silently strand recovery. Support Unix-socket Tor endpoints
-   through Zig's public runtime. Done when public API tests cover those
-   existing provider contracts and both successful and refused shutdown
+   through Zig's public runtime. Project session-independent Host actors and
+   explicit promise-to-reference retention into TypeScript, Python, and Racket.
+   Done when public API tests cover those provider contracts, successful and
+   refused shutdown, and actor calls and reference lifetimes without a Session
    ([plan to plan](planning/plan-to-plan.md)).
 3. **Interop coverage.** Extend live binding checks to automatic capability
    finalization, and live Goblins relay checks to Python, Rust and Racket.

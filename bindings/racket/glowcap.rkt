@@ -78,6 +78,7 @@
          HANDSHAKE-TIMEOUT-MS
          make-host make-fresh-host
          host-publish
+         host-retain-reference host-release-reference!
          host-unpublish
          host-publish-durable
          host-publish-reference
@@ -102,7 +103,7 @@
          session-index session-untag session-get session-serve session-tell session-close!
          session-wait-closed
          session-annotate!
-         session-with-gc! session-release! session-caretaker session-attenuate session-revoke!
+         session-resolve session-with-gc! session-release! session-caretaker session-attenuate session-revoke!
          ;; Closing a session closes that connection; this is the Host-wide
          ;; close barrier over every session the host holds, including the ones
          ;; it dialed to redeem handoffs, and it releases the handle last.

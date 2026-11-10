@@ -10,6 +10,7 @@
          "ffi-host.rkt"
          "errors.rkt"
          "value.rkt"
+         (only-in "abi-value.rkt" ref->c)
          "vat.rkt"
          "host/state.rkt"
          "action.rkt"
@@ -21,10 +22,14 @@
 (provide session-with-gc!
          session-gc-enabled?
          session-release!
+         adopt-host-reference
+         host-retain-reference
+         host-release-reference!
          release-host-unit!
          track-ref!
          track-vow!
          park-vow-release!
+         track-host-argument!
          track-argument!
          track-arguments!
          drain-gc!
@@ -108,13 +113,18 @@
 ;; only the integer Host id, never the `ref`, so it cannot resurrect
 ;; the handle whose death it waits on.
 (define (track-ref! c capability)
-  (define gs (hash-ref gc-states (session-host c) #f))
-  (when (and (hash-ref gc-enabled-connections c #f) gs (ref? capability))
+  (when (session-gc-enabled? c)
+    (track-host-ref! (session-host c) capability))
+  capability)
+
+(define (track-host-ref! m capability)
+  (define gs (host-gc-state m))
+  (when (ref? capability)
     (define id (ref-id capability))
     (define prior (hash-ref ref-gc-tokens capability #f))
     (when prior (set-box! prior #f))
     (define armed (box #t))
-    (define weak-host (make-weak-box (session-host c)))
+    (define weak-host (make-weak-box m))
     (hash-set! ref-gc-tokens capability armed)
     (register-finalizer capability
                         (lambda (_)
@@ -145,14 +155,19 @@
 ;; ids in separate leaves receive separate death rites because
 ;; the FFI projection minted one Host retain per occurrence.
 (define (track-argument! c value)
+  (when (session-gc-enabled? c)
+    (track-host-argument! (session-host c) value))
+  value)
+
+(define (track-host-argument! m value)
   (cond
-    [(ref? value) (track-ref! c value)]
-    [(list? value) (for-each (lambda (item) (track-argument! c item)) value)]
-    [(pset? value) (for-each (lambda (item) (track-argument! c item)) (pset-items value))]
+    [(ref? value) (track-host-ref! m value)]
+    [(list? value) (for-each (lambda (item) (track-host-argument! m item)) value)]
+    [(pset? value) (for-each (lambda (item) (track-host-argument! m item)) (pset-items value))]
     [(tagged-arg? value)
-     (for-each (lambda (item) (track-argument! c item)) (tagged-arg-value value))]
+     (for-each (lambda (item) (track-host-argument! m item)) (tagged-arg-value value))]
     [(struct-arg? value)
-     (for-each (lambda (entry) (track-argument! c (cdr entry)))
+     (for-each (lambda (entry) (track-host-argument! m (cdr entry)))
                (struct-arg-entries value))]
     [else (void)])
   value)
@@ -182,17 +197,46 @@
           (set! committed? #t))
         (drain-host-actions! m)))))
 
+;; An explicit retain owns a fresh wrapper and mandatory finalizer. Breaks
+;; stay disabled from C acquisition until adoption or transfer to the queue.
+(define (host-retain-reference m capability)
+  (call-with-host m
+    (lambda ()
+      (parameterize-break #f
+        (void (host-gc-state m))
+        (define-values (rc retained)
+          (glowcap_host_ref_retain (host-ptr m) (ref->c capability)))
+        (check/host rc)
+        (adopt-host-reference m (GlowcapReference-id retained))))))
+
+;; Adopt one C retain or transfer it to the Host release queue on failure.
+(define (adopt-host-reference m id)
+  (define gs (host-gc-state m))
+  (define weak-host (make-weak-box m))
+  (define projected #f)
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (failure)
+                     (when projected
+                       (define token (hash-ref ref-gc-tokens projected #f))
+                       (when token (set-box! token #f)))
+                     (queue-release! weak-host gs (cons 'ref id))
+                     (raise failure))])
+    (set! projected (make-ref/internal id))
+    (track-host-ref! m projected)))
+
 ;; Give a capability back to the partner, now, because this application is
 ;; done holding it. The Host owns whether that retain corresponds to a local
 ;; object, a remote import, or a routed handoff. `capability` is spent afterwards.
 (define (session-release! c capability)
+  (host-release-reference! (session-host c) capability))
+
+(define (host-release-reference! m capability)
   (unless (ref? capability)
-    (error 'session-release! "takes a capability reference"))
-  (define m (session-host c))
+    (error 'host-release-reference! "takes a capability reference"))
   (release-host-unit! m
     (lambda ()
       (when (ref-released? capability)
-        (error 'session-release! "capability already released"))
+        (error 'host-release-reference! "capability already released"))
       (check/host (glowcap_host_ref_release
                    (host-ptr m) (make-GlowcapReference (ref-id capability)) 1))
       ;; FFI success spends this occurrence even if draining its effects

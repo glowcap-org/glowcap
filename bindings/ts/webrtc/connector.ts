@@ -9,8 +9,10 @@ export function connector(
 	options: PeerOptions = {},
 ): Connector {
 	return new Connector([TRANSPORT_WEBRTC], async (host, locator, request) => {
-		// The connector is not told which session introduced the dial.
-		const target: SignalingTarget = { designator: locator.designator, introducer: null };
+		const target: SignalingTarget = {
+			designator: locator.designator,
+			introducer: request.introducer?.partnerIdentity().designator || null,
+		};
 		const exchange = mintExchange();
 		return await bringUp(host, signaling, exchange, target, options, request.signal, "webrtc dial", {
 			offerer: true,

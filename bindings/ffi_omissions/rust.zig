@@ -13,11 +13,9 @@ pub const omissions = .{
     .{ .name = "glowcap_host_next_trace", .reason = "no queue to drain: the Rust veneer installs the trace callback" },
     .{ .name = "glowcap_host_plan_dial", .reason = "transport packages interpret their own locators; the generic Runtime retains only providers and connectors" },
     .{ .name = "glowcap_host_session_break_far_vows", .reason = "the Rust binding reports physical EOF through session_transport_closed; it has no separate manual far-vow break surface" },
-    .{ .name = "glowcap_host_session_feed", .reason = "the Rust pump feeds raw bytes (feed_bytes); no GlowcapFrame is built binding-side" },
+    .{ .name = "glowcap_host_session_feed", .reason = "the Rust pump feeds transport packets (feed_packet); no GlowcapFrame is built binding-side" },
     .{ .name = "glowcap_host_session_partner_abort", .reason = "the Rust surface reads the retained abort through session_last_abort's struct view alone" },
     .{ .name = "glowcap_host_set_trace_queue", .reason = "the Rust veneer installs the trace callback; the drained ring is the seam for an embedder that cannot take one" },
-    .{ .name = "glowcap_host_turn_send", .reason = "a Rust behavior sends through the session verbs" },
-    .{ .name = "glowcap_host_turn_tell", .reason = "a Rust behavior tells through the session verbs" },
     // net_transport/iroh
     .{ .name = "glowcap_iroh_netlayer_new_in", .reason = transport_allocator },
     // net_transport/webrtc

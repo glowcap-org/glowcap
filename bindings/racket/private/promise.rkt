@@ -25,10 +25,11 @@
 (lazy-require
  ["session.rkt" (session-flush!)]
  ["pump.rkt" (pump-until)]
- ["gc.rkt" (session-gc-enabled? track-argument! track-vow! park-vow-release! release-host-unit!)])
+ ["gc.rkt" (session-gc-enabled? track-argument! track-vow! park-vow-release! release-host-unit! adopt-host-reference track-host-argument!)])
 
 (provide (struct-out session-vow)
          listen-far
+         resolve-reference
          failed-vow
          issue-through-handle
          adopt-minted-vow!
@@ -150,7 +151,10 @@
        (if (and (eq? (car outcome) 'ok)
                 (session-vow-track-gc? v)
                 (session-vow-session v))
-           (cons 'ok (track-argument! (session-vow-session v) (cdr outcome)))
+           (cons 'ok
+                 (if (eq? (session-vow-track-gc? v) 'owned)
+                     (track-host-argument! m (cdr outcome))
+                     (track-argument! (session-vow-session v) (cdr outcome))))
            outcome))
      (set-session-vow-state! v tracked)
      (define ls (session-vow-listeners v))
@@ -336,6 +340,27 @@
         (check/host rc)
         (adopt-minted-vow! m c id (session-gc-enabled? c) #f))))
   (flush-minted-operation! c result))
+
+;; Resolution returns an independently owned live object immediately, or
+;; waits on the Host's settlement vow. It does not send op:listen to objects.
+(define (resolve-reference c target)
+  (define m (session-host c))
+  (define result
+    (call-with-host m
+      (lambda ()
+        (parameterize-break #f
+          (define-values (rc reference vow)
+            (glowcap_host_session_resolve (session-ptr c) (ref->c target)))
+          (check/host rc)
+          (if (zero? vow)
+              (adopt-host-reference m (GlowcapReference-id reference))
+              (adopt-minted-vow! m c vow 'owned #f))))))
+  (if (session-vow? result)
+      (dynamic-wind
+        void
+        (lambda () (await-vow c result 'session-resolve "resolution"))
+        (lambda () (release-vow! result)))
+      result))
 
 ;; The far vow a pipelined send or a promise argument addresses in Host `m`.
 ;; A handle whose own operation never left carries that first failure

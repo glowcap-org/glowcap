@@ -13,8 +13,9 @@
 // separate Carol-to-Bob connection, against one host-wide object identity.
 
 import process from "node:process";
-import { Ref, Runtime } from "@glowcap/runtime";
+import { Connector, type ConnectorRequest, designatorHostPort, Ref, Runtime, Session } from "@glowcap/runtime";
 import { listen, locator, provider } from "@glowcap/tcp";
+import { connectTcp } from "../runtime/internal/seam.ts";
 import { fail } from "./assert.ts";
 
 async function main(): Promise<void> {
@@ -65,14 +66,35 @@ async function main(): Promise<void> {
 	);
 
 	// ── Recipient (Carol): get introduced, redeem transparently, DM directly ─────
-	await using carolRuntime = await Runtime.open({ providers: [provider()] });
+	const requests: ConnectorRequest[] = [];
+	await using carolRuntime = await Runtime.open({
+		connectors: [
+			new Connector(["tcp"], async (host, loc, request) => {
+				requests.push(request);
+				const { hostname, port } = designatorHostPort(loc.designator);
+				return await Session.establishDialedLocator(
+					host,
+					loc,
+					await connectTcp(hostname, port),
+					request.handshakeTimeoutMs,
+					null,
+				);
+			}),
+		],
+	});
 	const carol = await carolRuntime.connect(locator("127.0.0.1", brokerPort));
 	carol.serve().catch(() => {});
+	if (requests.length !== 1 || requests[0].redeem || requests[0].introducer !== null) {
+		fail("application dial unexpectedly borrowed an introducer");
+	}
 	const introducer = await carol.fetch("introducer");
 	const introduced = await carol.send(introducer, "introduce", []);
 	if (!(introduced instanceof Ref)) {
 		fail("introduce did not return a capability");
 	}
+
+	const redeem = requests.find((request) => request.redeem);
+	if (redeem?.introducer !== carol) fail("handoff dial lost its introducing Session");
 
 	// Carol DMs Bob. The redeemed ref's home is her *direct* connection to Bob, so
 	// the send routes straight there, the broker is never in the message path.

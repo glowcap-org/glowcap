@@ -431,11 +431,13 @@
 (define rv-ready (make-semaphore 0))
 (define rv-parked-ready (make-semaphore 0))
 (define rv-parked (box #f))
+(define rv-result-ref #f)
 (define rv-serve
   (thread
    (lambda ()
      (define hsession (accept rv-server))
      (define worker-host (session-host hsession))
+     (set! rv-result-ref (session-spawn hsession (lambda (bcom) (methods [(ping) "callback alive"]))))
      (host-publish worker-host "worker"
                             (lambda (method . args)
                               (define pair (host-defer-turn-if-answer worker-host))
@@ -462,6 +464,16 @@
 (expect (equal? "computed off-turn" (channel-get rv-reply-ch))
         "resolver: the deferred answer settled off-turn")
 
+(set-box! rv-parked #f)
+(void (thread (lambda () (channel-put rv-reply-ch (session-send rv-session rv-worker 'work)))))
+(semaphore-wait rv-parked-ready)
+;; A held far capability must survive settlement and remain callable.
+(resolver-fulfill! (unbox rv-parked) (list rv-result-ref))
+(define rv-capabilities (channel-get rv-reply-ch))
+(expect (and (list? rv-capabilities) (ref? (car rv-capabilities)))
+        "resolver: a deferred answer carries a capability")
+(expect (equal? "callback alive" (session-send rv-session (car rv-capabilities) 'ping))
+        "resolver: the deferred capability remains callable")
 (set-box! rv-parked #f)
 (define rv-broke-ch (make-channel))
 (void (thread

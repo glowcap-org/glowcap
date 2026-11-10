@@ -95,6 +95,13 @@ Listening:
 ## Reference lifetime
 
 Release a received capability with `session.release(ref)` when you are done with it.
+Use `host.retain(ref)` for an independent occurrence of the same capability.
+Releasing the source wrapper leaves the retained wrapper usable.
+`session.resolve(ref)` returns an independent occurrence for a live object
+without wire traffic, or waits for a promise's settled value. Retained and resolved
+references receive finalizer cleanup even when Session GC is off. Use
+`host.release(ref)` or `session.release(ref)` for deterministic release.
+
 `session.withGc()` instead selects finalizer cleanup for later replies and
 delivered arguments projected by the Host. For one reply, select
 `session.send(target, method).withGc()` before awaiting or attaching a reaction.

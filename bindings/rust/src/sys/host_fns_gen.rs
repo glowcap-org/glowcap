@@ -386,6 +386,23 @@ unsafe extern "C" {
 		args_len: usize,
 		out_reply: *mut GlowcapArgument,
 	) -> c_int;
+	pub fn glowcap_host_turn_send(
+		turn: *mut GlowcapHostTurn,
+		target: *const GlowcapReference,
+		verb: *const c_uchar,
+		verb_len: usize,
+		args: *const GlowcapArgument,
+		args_len: usize,
+		out_vow: *mut u64,
+	) -> c_int;
+	pub fn glowcap_host_turn_tell(
+		turn: *mut GlowcapHostTurn,
+		target: *const GlowcapReference,
+		verb: *const c_uchar,
+		verb_len: usize,
+		args: *const GlowcapArgument,
+		args_len: usize,
+	) -> c_int;
 	pub fn glowcap_host_turn_defer(turn: *mut GlowcapHostTurn, out_resolver_id: *mut u64) -> c_int;
 	pub fn glowcap_host_turn_defer_if_answer(turn: *mut GlowcapHostTurn, out_resolver_id: *mut u64) -> c_int;
 	pub fn glowcap_host_turn_spawn(

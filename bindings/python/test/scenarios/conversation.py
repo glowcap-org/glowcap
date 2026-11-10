@@ -9,7 +9,7 @@ import ctypes
 import re
 from contextvars import ContextVar
 
-from glowcap import Context, GlowcapError, Host, Keyword, Locator, Runtime, VowBroken, tcp
+from glowcap import Context, GlowcapError, Host, Keyword, Locator, Ref, Runtime, VowBroken, tcp
 from glowcap._constants import DESIGNATOR_SCHEME_ADDRESS, ERR_FRAME_TOO_LARGE, TRANSPORT_TCP
 
 from scenarios.runtime import tcp_connect
@@ -168,7 +168,9 @@ async def _async_behavior_defers() -> None:
     host's turn loop never blocks on it. A raise crosses as the caller's
     break carrying the behavior's own words."""
     host = Host()
-    entered = {verb: asyncio.Event() for verb in ("work", "fail", "unsupported", "late-work", "late-fail")}
+    entered = {
+        verb: asyncio.Event() for verb in ("work", "capability", "fail", "unsupported", "late-work", "late-fail")
+    }
     resume = {verb: asyncio.Event() for verb in entered}
 
     async def work(verb, args):
@@ -178,6 +180,8 @@ async def _async_behavior_defers() -> None:
             raise ValueError("worker gave up")
         if verb == "unsupported":
             return object()
+        if verb == "capability":
+            return [args[0], args[0]]
         return "computed off-turn"
 
     host.publish("worker", work)
@@ -194,14 +198,21 @@ async def _async_behavior_defers() -> None:
         client.serve()
         worker = await client.fetch("worker")
 
-        async def invoke(verb):
-            pending = client.send(worker, verb, [])
+        async def invoke(verb, args=()):
+            pending = client.send(worker, verb, list(args))
             await entered[verb].wait()
             resume[verb].set()
             return await pending
 
         reply = await invoke("work")
         assert reply == "computed off-turn", f"async behavior reply, got {reply!r}"
+        callback = client.spawn(lambda verb, args: "callback alive")
+        refs = await invoke("capability", [callback])
+        assert len(refs) == 2 and all(isinstance(ref, Ref) for ref in refs)
+        assert await client.send(refs[0], "ping", []) == "callback alive"
+        for ref in refs:
+            client.release(ref)
+        client.release(callback)
         try:
             await invoke("fail")
         except VowBroken as broke:

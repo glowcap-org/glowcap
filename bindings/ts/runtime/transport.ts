@@ -22,6 +22,9 @@ export interface DriverProvider {
 /** Dial context supplied to a connector, including cancellation and handoff
  * redemption. The connector returns the established Session to the Runtime. */
 export interface ConnectorRequest {
+	/** Live session that supplied this handoff, or null for an application dial.
+	 * Borrowed for signaling context; the connector does not own its lifetime. */
+	readonly introducer: Session | null;
 	/** True when this dial realizes a transparent handoff redeem. */
 	readonly redeem: boolean;
 	/** OCapN handshake budget; `null` or `0` waits without a bound. */

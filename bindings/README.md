@@ -13,6 +13,13 @@ In a checkout, run `zig build` to provide the tree's libraries.
 | Python | [`python/README.md`](python/README.md) | Python 3.11+ with `asyncio`. |
 | Racket | [`racket/README.md`](racket/README.md) | Racket threads and ports. |
 
+Rust also exposes session-independent `Host.spawn`, `Host.send`, and `Host.tell`,
+and explicit retention of a promise as a reference. TypeScript, Python, and Racket
+still require a Session for those actor operations. They can pass pending promises
+as arguments and send to them, but have no explicit promise-to-reference retention
+method. Those missing APIs are tracked as
+[adapter gaps](../docs/roadmap.md#what-starts-next).
+
 All four wrap the same C ABI and present the same application model:
 
 - A `Session` is a conversation with one CapTP partner.

@@ -67,6 +67,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_session_open_dialed_locator: { parameters: [P, P, B], result: I, outBuffers: [2] },
 	glowcap_host_session_open_accepted: { parameters: [P, B, U, "u32", B, U, B, U, B], result: I, outBuffers: [8] },
 	glowcap_host_pending_dial: { parameters: [P, U64, U, B, U, B, B], result: I, outBuffers: [3, 5, 6] },
+	glowcap_host_pending_dial_introducer: { parameters: [P, U64, U, B], result: I, outBuffers: [3] },
 	glowcap_host_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	glowcap_host_session_close: { parameters: [P, B, "i64"], result: I, outBuffers: [] },
 	glowcap_host_session_close_progress: { parameters: [P, "i64", B], result: I, outBuffers: [2] },
@@ -110,12 +111,10 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_set_trace: { parameters: [P, P, P], result: I },
 	glowcap_host_set_trace_queue: { parameters: [P, U, U], result: I },
 	glowcap_host_next_trace: { parameters: [P, B], result: I, outBuffers: [1] },
-	// Off-turn settlement: a behavior atomically defers its answer onto a fresh
-	// resolver vow and the work's completion settles it later, top-level.
-	glowcap_host_resolver_fulfill: { parameters: [P, U64, B], result: I, outBuffers: [] },
 	glowcap_host_resolver_fulfill_value: { parameters: [P, U64, B], result: I, outBuffers: [] },
 	glowcap_host_resolver_abandon: { parameters: [P, U64, B, U], result: I, outBuffers: [] },
 	glowcap_host_session_listen: { parameters: [P, B, B], result: I, outBuffers: [2] },
+	glowcap_host_session_resolve: { parameters: [P, B, B, B], result: I, outBuffers: [2, 3] },
 	// Send, tell, vows, projections.
 	glowcap_host_session_send: { parameters: [P, B, B, U, B, U, B], result: I, outBuffers: [6] },
 	glowcap_host_session_tell: { parameters: [P, B, B, U, B, U], result: I, outBuffers: [] },
@@ -134,6 +133,8 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_turn_defer: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_host_turn_spawn: { parameters: [P, P, P, P, B], result: I, outBuffers: [4] },
 	glowcap_host_turn_break: { parameters: [P, B, U], result: I, outBuffers: [] },
+	// Capability lifetime, teardown, diagnostics.
+	glowcap_host_ref_retain: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	glowcap_host_ref_release: { parameters: [P, B, U64], result: I, outBuffers: [] },
 	glowcap_host_session_published_ref: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	glowcap_host_session_transport_closed: { parameters: [P, B, U], result: I, outBuffers: [] },

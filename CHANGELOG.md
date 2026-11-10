@@ -25,7 +25,21 @@ and storage formats before 1.0.
 - The Rooms operations guide keeps long options and links in scrollable
   examples so they do not widen the page on phones.
 
+### Added
+
+- TypeScript, Python, and Racket can independently retain held references and
+  resolve opaque capabilities to owned references or settled values. Explicit
+  retains and resolution results receive finalizer cleanup even with Session
+  GC off.
+
 ### Fixed
+
+- Deferred Python and Racket behavior replies can carry capabilities. Rust
+  `Host.send` and `Host.tell` use the active turn inside behavior callbacks.
+- TypeScript byte-fed handoff connectors receive their introducing Session,
+  allowing WebRTC signaling to use the context that supplied the handoff.
+  Callers constructing `ConnectorRequest` directly must supply `introducer`,
+  using `null` for application dials.
 
 - A direct message in **Browser to browser** mode opens through the Rooms
   server within a few seconds when WebRTC finds no route. The direct attempt

@@ -169,3 +169,41 @@ async fn host_spawn_owns_local_roots_and_factories_without_a_session_or_publicat
 		})
 		.await;
 }
+
+#[tokio::test]
+async fn callback_sends_and_tells_use_the_active_turn() {
+	tokio::task::LocalSet::new()
+		.run_until(async {
+			let host = Host::new_host();
+			let calls = Rc::new(Cell::new(0));
+			let observed = calls.clone();
+			let target = host
+				.spawn(move |_, _| {
+					observed.set(observed.get() + 1);
+					Ok(19.into())
+				})
+				.unwrap();
+			let in_turn = host.clone();
+			let pending = Rc::new(RefCell::new(None));
+			let answer = pending.clone();
+			let relay = host
+				.spawn(move |_, _| {
+					in_turn.tell(&target, "notify", &[]).map_err(|e| e.to_string())?;
+					*answer.borrow_mut() = Some(
+						in_turn
+							.send(&target, "get", &[])
+							.into_admitted()
+							.map_err(|e| e.to_string())?,
+					);
+					Ok(Argument::Void)
+				})
+				.unwrap();
+			host.send(&relay, "relay", &[]).await.unwrap();
+			let answer = pending.borrow_mut().take().unwrap();
+			assert_eq!(answer.await.unwrap().as_i64(), Some(19));
+			assert_eq!(calls.get(), 2);
+			drop(relay);
+			host.close(PendingWork::Cancel).await.unwrap();
+		})
+		.await;
+}

@@ -8,6 +8,7 @@
          "scenarios/host-options.rkt"
          "scenarios/actors-and-sessions.rkt"
          "scenarios/framing-and-gc.rkt"
+         "scenarios/reference-ownership.rkt"
          "scenarios/promises.rkt"
          "scenarios/listeners.rkt"
          "scenarios/proxies.rkt"

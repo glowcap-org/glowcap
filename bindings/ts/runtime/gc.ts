@@ -7,7 +7,7 @@
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
-import { checkHost } from "./errors.ts";
+import { checkHost, retainSecondaryFailure } from "./errors.ts";
 import { refStruct } from "./abi_value.ts";
 import { ab } from "./internal/seam.ts";
 import { type Argument, isReference, PSet, PStruct, Ref, refFromId, Tagged } from "./value.ts";
@@ -70,6 +70,23 @@ export class HostGc {
 		this.#registry.unregister(ref);
 		this.#registry.register(ref, ref.id, ref);
 		return ref;
+	}
+
+	/** Adopt an explicit C retain, with mandatory cleanup even when Session GC is off. */
+	adoptRef(id: bigint): Ref {
+		let ref: Ref | undefined;
+		try {
+			ref = refFromId(id);
+			return this.trackRef(ref);
+		} catch (failure) {
+			if (ref !== undefined) this.disarm(ref);
+			try {
+				this.#parkRef(id);
+			} catch (cleanup) {
+				retainSecondaryFailure(failure, cleanup);
+			}
+			throw failure;
+		}
 	}
 
 	/** Attach one finalizer unit to every capability occurrence in a value the
