@@ -13,6 +13,21 @@ and storage formats before 1.0.
 
 - `/invite` in a room you joined by name says you hold a seat in it and not
   the room, and names the way in. It said there was no room here.
+- `/link` and `/moderator` say the link they minted or hold. `/link <room>`
+  for another room you are in answers in place, and for one you are not in
+  says to join it first. It used to switch to the room and then print that
+  no directory was here.
+- `/kick`, `/moderator`, and `/link` show the room's refusal in the
+  conversation. They showed a generic failure toast with the reason lost.
+  `/kick` from a session the room handed no moderator capability says so.
+- `/msg`, `/invite`, `/kick`, `/whois`, `/ignore`, and `/unignore` refuse words
+  after the name instead of acting on the first word and dropping the rest.
+  `/ignore @` and `/link #` are refused as a missing name instead of being
+  read as no argument.
+- The completion list hands Enter back when a command's argument is written
+  out in full, so `/invite @alice` and `/join lobby` send on the first Enter.
+  A person after `/msg`, `/invite`, `/kick`, `/whois`, `/ignore`, or
+  `/unignore` now completes with or without `@`, as rooms do after `/join`.
 
 ## [0.1.6] - 2026-11-09
 

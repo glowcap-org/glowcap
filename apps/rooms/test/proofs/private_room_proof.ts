@@ -43,7 +43,8 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 
 import { SERVER } from "../support/paths.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../../lib/locator.ts";
-import { inviteWithoutTheRoom } from "../../lib/text/commands.ts";
+import { inviteWithoutTheRoom, kickWithoutModerator, roomLinkLine } from "../../lib/text/commands.ts";
+import { roomLinkNoneHint } from "../../lib/text/room_authority.ts";
 import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
@@ -310,6 +311,23 @@ try {
 	// `/join`s that locator and nothing else, the same paste a person makes,
 	// and lands in the room under the name it already has, not an invented one.
 	const shown = await roomLink(ada, "ada");
+	// Typed, the same link is said back where it was typed. A member who only
+	// holds a seat is told the link is not theirs to mint, and asking a member
+	// out without the moderator capability says so, instead of a generic
+	// failure with the reason lost.
+	const told = async (tab: typeof ada, line: string, what: string) => {
+		await tab.waitForFunction(
+			(line) => (document.getElementById("log")?.textContent ?? "").includes(line),
+			line,
+			{ timeout: 15_000 },
+		).catch(async () => fail(`${what}: ${JSON.stringify((await said(tab)).slice(-200))}`));
+	};
+	await say(ada, "/link");
+	await told(ada, roomLinkLine(LABEL, shown), "/link did not say the room link back");
+	await say(cy, "/link");
+	await told(cy, roomLinkNoneHint, "/link from a seat did not say the link is not this session's to mint");
+	await say(cy, "/kick bo");
+	await told(cy, kickWithoutModerator, "/kick without the moderator capability did not say so");
 	await say(ada, `/join ${shown}`);
 	await ada.waitForFunction(
 		() => (document.getElementById("log")?.textContent ?? "").includes("You're already in this room."),

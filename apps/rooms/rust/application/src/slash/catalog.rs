@@ -47,6 +47,10 @@ pub struct Definition {
 	pub place: Option<&'static str>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub targets: Option<&'static str>,
+	/// What the words after the command complete as: a listed `"room"` name
+	/// written with or without `#`, or a `"person"` written with or without
+	/// `@`. Written out in full, that argument is the whole instruction, so the
+	/// completion list hands Enter back to sending.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub argument: Option<&'static str>,
 }
@@ -131,7 +135,7 @@ pub const CATALOG: &[Definition] = &[
 		grant: None,
 		place: None,
 		targets: Some("reachable"),
-		argument: None,
+		argument: Some("person"),
 	},
 	Definition {
 		id: Name::Members,
@@ -183,7 +187,7 @@ pub const CATALOG: &[Definition] = &[
 		grant: None,
 		place: None,
 		targets: None,
-		argument: None,
+		argument: Some("person"),
 	},
 	Definition {
 		id: Name::Unignore,
@@ -196,7 +200,7 @@ pub const CATALOG: &[Definition] = &[
 		grant: None,
 		place: None,
 		targets: None,
-		argument: None,
+		argument: Some("person"),
 	},
 	Definition {
 		id: Name::List,
@@ -235,7 +239,7 @@ pub const CATALOG: &[Definition] = &[
 		grant: None,
 		place: Some("room"),
 		targets: None,
-		argument: None,
+		argument: Some("person"),
 	},
 	Definition {
 		id: Name::Details,
@@ -352,7 +356,7 @@ pub const CATALOG: &[Definition] = &[
 		grant: None,
 		place: Some("room"),
 		targets: Some("reachable"),
-		argument: None,
+		argument: Some("person"),
 	},
 	Definition {
 		id: Name::Moderator,
@@ -378,7 +382,7 @@ pub const CATALOG: &[Definition] = &[
 		grant: Some("steward"),
 		place: Some("room"),
 		targets: None,
-		argument: None,
+		argument: Some("person"),
 	},
 ];
 

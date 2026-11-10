@@ -1,5 +1,6 @@
 import { conversationById } from "./conversation_lookup.ts";
 import { editLine } from "./edit.ts";
+import type { Conv } from "../../conversation.ts";
 // Slash commands select exact conversation fields. Command names confer no
 // authority and never cause recovery through a stronger entrance.
 import { withdrawLine } from "./withdraw.ts";
@@ -13,10 +14,22 @@ import { type DirId, liveRoomCounts } from "../../directory.ts";
 import { directoryName, roomCalled } from "../../text.ts";
 import {
 	inviteWithoutTheRoom,
+	KICK_WITHOUT_MODERATOR,
+	linkRoomNotJoined,
+	moderatorLinkLine,
 	NO_DIRECTORY_TO_GIVE_BACK,
+	NO_LINE_TO_CHANGE,
+	NO_LINE_TO_TAKE_BACK,
 	NO_ROOM_TO_HAND_OVER,
+	NO_ROOM_TO_LINK,
+	NO_ROOM_TO_MODERATE,
+	NO_ROOM_TO_SAY_THAT_IN,
+	NO_SUBJECT_OFFERED,
 	NOT_ON_A_DIRECTORY,
+	roomLinkLine,
 } from "../../commands/targets.ts";
+import { roomBearer } from "../bearer.ts";
+import { roomLinkNoneHint } from "../../../../lib/text/room_authority.ts";
 import { JOIN_DEFAULT_NICK, roomLinkDestination } from "../../joining.ts";
 import { alreadyInRoom } from "../../../../lib/text/attached.ts";
 import { thatLinkDidNotOpen } from "../../../../lib/text/commands.ts";
@@ -51,7 +64,7 @@ export function managedCommandPowers(
 	const edit = async (verb: "editLine" | "withdrawLine", text?: string) => {
 		const row = selected();
 		const line = row?.lines?.at(-1);
-		if (row == null || line == null) return false;
+		if (row == null || line == null) return verb === "editLine" ? NO_LINE_TO_CHANGE : NO_LINE_TO_TAKE_BACK;
 		const conversation = store.convByPersistId(projection, row.id);
 		const item = conversation == null
 			? null
@@ -63,9 +76,18 @@ export function managedCommandPowers(
 		} else if (verb === "editLine" && conversation != null && item != null) {
 			await editLine(page, session, conversation.key, item.id, text ?? "");
 		} else await session.actions.run(verb, [row.id, String(line.id), ...(text == null ? [] : [text])]);
-		return true;
+		return null;
 	};
-	return {
+	// The room this session is in under `name` on the same directory as `here`,
+	// or null. A name a reader types is matched the way the room list shows it.
+	const roomNamed = (here: Extract<Conv, { type: "room" }>, name: string) => {
+		const wanted = name.toLowerCase();
+		for (const row of projection.get().convs.values()) {
+			if (row.type === "room" && row.dir === here.dir && row.id.toLowerCase() === wanted) return row;
+		}
+		return null;
+	};
+	const powers: CommandPowers = {
 		say: (text, key = projection.get().activeKey ?? undefined) => {
 			if (key != null) store.deliver(projection, key, store.sysItem(projection, text));
 		},
@@ -139,18 +161,18 @@ export function managedCommandPowers(
 		withdrawLast: () => edit("withdrawLine"),
 		setSubject: async (description, link) => {
 			const row = selected();
-			if (row?.kind !== "room" || row.subject == null) return false;
+			if (row?.kind !== "room" || row.subject == null) return NO_SUBJECT_OFFERED;
 			await session.actions.run(
 				"setRoomSubject",
 				link === undefined ? [row.id, description] : [row.id, description, link],
 			);
-			return true;
+			return null;
 		},
 		setAway: async (text) => {
 			const row = selected();
-			if (row?.kind !== "room") return false;
+			if (row?.kind !== "room") return NO_ROOM_TO_SAY_THAT_IN;
 			await session.actions.run("setEffectiveStanding", [row.id, text]);
-			return true;
+			return null;
 		},
 		invite: async (who) => {
 			const live = active();
@@ -166,28 +188,40 @@ export function managedCommandPowers(
 		},
 		kick: async (who) => {
 			const row = active();
-			if (row?.type !== "room") return false;
+			if (row?.type !== "room") return NO_ROOM_TO_MODERATE;
+			// The catalog hides /kick from a member the room handed no steward
+			// capability, but typing it still reaches here. Possession is the
+			// permission, so a session without it is told that, not refused by
+			// the room in words meant for a moderator.
+			if (!row.grants.has("steward")) return KICK_WITHOUT_MODERATOR;
 			const refusal = await rooms.askRoomMemberOut(row.key, who);
-			if (refusal) throw new Error(refusal);
-			return true;
+			return refusal === "" ? null : refusal;
 		},
 		steward: async (link) => {
 			const row = active();
-			if (row?.type !== "room") return false;
+			if (row?.type !== "room") return NO_ROOM_TO_MODERATE;
 			const refusal = await rooms.stewardRoom(row.key, link);
-			if (refusal) throw new Error(refusal);
-			return true;
+			if (refusal !== "") return refusal;
+			const held = await roomBearer(session, row, "steward");
+			if (held != null) powers.say(moderatorLinkLine(row.id, held), row.key);
+			return null;
 		},
 		roomLink: async (name) => {
-			const row = active();
-			if (row?.type !== "room") return false;
-			if (name != null && name !== row.id) {
-				await pick(row.dir, name);
-				return false;
+			const here = active();
+			if (here?.type !== "room") return NO_ROOM_TO_LINK;
+			const target = name == null || name.toLowerCase() === here.id.toLowerCase() ? here : roomNamed(here, name);
+			if (target == null) return linkRoomNotJoined(name ?? here.id);
+			if (target.linkToken == null) {
+				// Minting is the room manager's. Anyone else holds a seat, or a
+				// link somebody handed them, and the card says the same.
+				if (target.managerToken == null) return roomLinkNoneHint;
+				const refusal = await rooms.createRoomLink(target.key);
+				if (refusal !== "") return refusal;
 			}
-			const refusal = await rooms.createRoomLink(row.key);
-			if (refusal) throw new Error(refusal);
-			return true;
+			const link = await roomBearer(session, target, "link");
+			if (link == null) return roomLinkNoneHint;
+			powers.say(roomLinkLine(target.id, link), here.key);
+			return null;
 		},
 		you: () => {
 			const id = directory();
@@ -232,4 +266,5 @@ export function managedCommandPowers(
 			return null;
 		},
 	};
+	return powers;
 }
