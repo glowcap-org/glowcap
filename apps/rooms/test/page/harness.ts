@@ -193,7 +193,7 @@ export async function reachDirectoryOnCard(
 						return {
 							button: document.getElementById("joinBtn")?.textContent?.trim() ?? "",
 							refused: document.getElementById("joinError")?.textContent?.trim() ?? "",
-							path: location.pathname + location.search,
+							path: location.pathname + location.search + location.hash,
 							appClass: document.getElementById("app")?.className ?? "",
 							screenHidden: screen?.hidden ?? null,
 							roomHidden: room?.closest<HTMLElement>("[hidden]")?.id ?? null,
@@ -247,7 +247,7 @@ export async function openDirectoryCardFromSettings(tab: Page): Promise<void> {
 	await tab.waitForSelector("#settingsTitle", { state: "hidden", timeout: 10_000 })
 		.catch(() => fail("Settings stayed up instead of opening the directory"));
 	await tab.waitForFunction(
-		() => location.pathname === "/directory" && new URLSearchParams(location.search).get("dir") === null,
+		() => location.pathname === "/directory" && new URLSearchParams(location.hash.slice(1)).get("dir") === null,
 		undefined,
 		{ timeout: 10_000 },
 	).catch(() => fail("Settings did not open this directory"));

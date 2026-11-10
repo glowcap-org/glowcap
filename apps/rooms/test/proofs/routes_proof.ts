@@ -175,7 +175,8 @@ try {
 	// Privacy is what the room's policy says, and the policy arrives after the
 	// room opens. The address must settle on the private form once it does.
 	await tab.waitForFunction(
-		(room) => location.pathname === `/room/${room}` && new URLSearchParams(location.search).get("private") === "1",
+		(room) =>
+			location.pathname === `/room/${room}` && new URLSearchParams(location.hash.slice(1)).get("private") === "1",
 		PRIVATE,
 		{ timeout: 15_000 },
 	).catch(async () => fail(`a private room's address is ${await addressOf(tab)}`));

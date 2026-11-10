@@ -11,15 +11,16 @@ and storage formats before 1.0.
 
 ### Changed
 
-- Rooms join URLs carry the room and destination after `#`, keeping locators
-  out of the page host's HTTP request logs. Recreate saved query-style join
-  URLs or paste their room locator into the join card.
 - Documentation describes the published alpha, explains release pinning and
   upgrade precautions, and removes completed publication setup from the
   roadmap. The website's source quick start uses the checked `main` branch.
 - Public guides explain Rooms connections, sharing, and upgrade recovery, and
   correct binding and storage contracts. Detailed Zig actor integration lives
   in the Loam actor guide beside its lifetime rules.
+- Rooms join, room, and directory URLs carry the room and destination after
+  `#`, keeping locators out of the page host's HTTP request logs. Recreate
+  saved URLs that name them after `?`, or paste the room locator into the
+  join card.
 - The Rooms operations guide keeps long options and links in scrollable
   examples so they do not widen the page on phones.
 

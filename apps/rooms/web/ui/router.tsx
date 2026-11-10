@@ -31,7 +31,7 @@
 // What an address says is only ever a place to stand, never authority: a
 // room link names a room the way typing its name into the join card would,
 // and a private room's unguessable key stays out of the address entirely.
-// Its path carries the label under `?private=1`, which reopens the held
+// Its path carries the label under `#private=1`, which reopens the held
 // conversation in this tab and degrades to the plain join card anywhere
 // else. The `dm` page-configuration parameter rides along on every
 // address the mirror writes, keeping `prefs.ts`'s bookmark contract.
@@ -51,11 +51,12 @@ import { implied, named } from "./intent.ts";
 import { useRoomsState } from "./hooks.ts";
 import type { DmConv } from "./conversation.ts";
 import {
+	addressAt,
+	addressFields,
 	directoryAddress,
 	dmAddress,
 	joinAddress,
 	joinAddressOf,
-	joinFields,
 	pageSearch,
 	roomAddress,
 	withPageSearch,
@@ -115,7 +116,7 @@ export function bindRoomsRouting(page: RoomsPageContext): void {
 		if (router.state.location.pathname.startsWith("/ops")) return;
 		const want = addressOfActive();
 		const at = router.state.location;
-		if (want === `${at.pathname}${at.search}${at.hash}`) return;
+		if (want === addressAt(at)) return;
 		void router.navigate(want, { replace: active === null || settled });
 	});
 }
@@ -157,7 +158,7 @@ export function addressOfActive(): string {
  * module has finished loading. */
 function replaceWith(path: string): void {
 	const at = router.state.location;
-	if (path === `${at.pathname}${at.search}`) return;
+	if (path === addressAt(at)) return;
 	void router.navigate(path, { replace: true });
 }
 
@@ -170,7 +171,7 @@ function useArrival(location: { key: string; pathname: string; search: string; h
 	done: boolean;
 	mark: () => void;
 } {
-	const address = location.pathname + location.search + location.hash;
+	const address = addressAt(location);
 	const fired = useRef<{ at: string; address: string; done: boolean }>({ at: "", address: "", done: false });
 	if (fired.current.at !== location.key || fired.current.address !== address) {
 		fired.current = { at: location.key, address, done: false };
@@ -194,9 +195,9 @@ function RoomRoute() {
 	);
 	const policyPending = useRoomsState((state) => store.roomPolicyPending(state, name));
 	const arrival = useArrival(routed);
-	const search = new URLSearchParams(routed.search);
-	const dirParam = search.get("dir") ?? "";
-	const isPrivate = search.get("private") === "1";
+	const fields = addressFields(routed);
+	const dirParam = fields.get("dir") ?? "";
+	const isPrivate = fields.get("private") === "1";
 	useEffect(() => {
 		if (arrival.done || name === "") return;
 		// The store-to-address mirror may have brought us here because a rail
@@ -207,7 +208,7 @@ function RoomRoute() {
 		// session), and the shared session then projects its real selection back.
 		// Comparing the complete canonical address preserves the one-way flow
 		// without pretending the human-readable path is publication identity.
-		if (addressOfActive() === `${routed.pathname}${routed.search}`) {
+		if (addressOfActive() === addressAt(routed)) {
 			arrival.mark();
 			return;
 		}
@@ -319,10 +320,13 @@ function JoinRoute() {
 	const arrival = useArrival(routed);
 	useEffect(() => {
 		if (arrival.done) return;
-		const { room, address, directory } = joinFields(routed);
+		const fields = addressFields(routed);
+		const room = fields.get("room");
+		const address = fields.get("address");
 		// `dir=` is the directory the address stands on rather than one the link
 		// named: a room route that could not open its room lands here with that
 		// much still true. Named outranks implied when an address carries both.
+		const directory = fields.get("dir");
 		// A bare /join is a reader asking for the card and naming nothing, so
 		// every field falls through to what this browser last used. Naming a
 		// room or an address is a deep link, and each part it names is named
@@ -339,7 +343,7 @@ function JoinRoute() {
 }
 
 /** A directory conversation's address: `/directory` for this page's directory,
- * `/directory?dir=` for any other, the same address query a room on another
+ * `/directory#dir=` for any other, the same field a room on another
  * directory uses. The view is not a workspace row; the address names which
  * one to recreate. */
 function DirectoryRoute() {
@@ -347,10 +351,10 @@ function DirectoryRoute() {
 	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const dirs = useRoomsState((state) => state.dirs);
 	const arrival = useArrival(routed);
-	const dirParam = new URLSearchParams(routed.search).get("dir") ?? "";
+	const dirParam = addressFields(routed).get("dir") ?? "";
 	useEffect(() => {
 		if (arrival.done) return;
-		if (addressOfActive() === `${routed.pathname}${routed.search}`) {
+		if (addressOfActive() === addressAt(routed)) {
 			arrival.mark();
 			return;
 		}

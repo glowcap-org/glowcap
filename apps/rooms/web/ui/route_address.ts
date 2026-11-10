@@ -17,14 +17,33 @@ export function withPageSearch(path: string, search: URLSearchParams = pageSearc
 	return text === "" ? path : `${path}?${text}`;
 }
 
+/** `path` naming `fields` after `#`. A browser sends the page host an
+ * address's path and query and keeps its fragment, and a directory or join
+ * address may carry a capability. So the query holds only `pageSearch`, and
+ * everything else an address names is a fragment field. */
+function withFields(path: string, fields: URLSearchParams): string {
+	const text = fields.toString();
+	return withPageSearch(path) + (text === "" ? "" : `#${text}`);
+}
+
+/** The fields `withFields` wrote into an address. */
+export function addressFields(at: { hash: string }): URLSearchParams {
+	return new URLSearchParams(at.hash.slice(1));
+}
+
+/** A location as one address, in the form the functions here write. */
+export function addressAt(at: { pathname: string; search: string; hash: string }): string {
+	return `${at.pathname}${at.search}${at.hash}`;
+}
+
 export function roomAddress(
 	name: string,
 	options: { directory?: string; private?: boolean } = {},
 ): string {
-	const search = pageSearch();
-	if (options.directory != null) search.set("dir", options.directory);
-	if (options.private === true) search.set("private", "1");
-	return withPageSearch(`/room/${encodeURIComponent(name)}`, search);
+	const fields = new URLSearchParams();
+	if (options.directory != null) fields.set("dir", options.directory);
+	if (options.private === true) fields.set("private", "1");
+	return withFields(`/room/${encodeURIComponent(name)}`, fields);
 }
 
 /** The join card, and what it was asked to reach for.
@@ -45,23 +64,11 @@ export function roomAddress(
  * store keeps that as an empty address and the address has to round-trip what
  * the store holds or the two will keep correcting each other. */
 export function joinAddress(options: { room?: string; address?: string; directory?: string } = {}): string {
-	const fragment = new URLSearchParams();
-	if (options.room != null) fragment.set("room", options.room);
-	if (options.address != null) fragment.set("address", options.address);
-	if (options.directory != null) fragment.set("dir", options.directory);
-	const fields = fragment.toString();
-	return withPageSearch("/join") + (fields === "" ? "" : `#${fields}`);
-}
-
-/** Join fields stay in the fragment because an address may carry a capability.
- * The page host receives the route and startup choices, but none of these fields. */
-export function joinFields(location: { hash: string }): {
-	room: string | null;
-	address: string | null;
-	directory: string | null;
-} {
-	const fields = new URLSearchParams(location.hash.slice(1));
-	return { room: fields.get("room"), address: fields.get("address"), directory: fields.get("dir") };
+	const fields = new URLSearchParams();
+	if (options.room != null) fields.set("room", options.room);
+	if (options.address != null) fields.set("address", options.address);
+	if (options.directory != null) fields.set("dir", options.directory);
+	return withFields("/join", fields);
 }
 
 /** The address of the card as a filed act shows it, so the address mirror can
@@ -80,9 +87,9 @@ export function dmAddress(nick: string): string {
 	return withPageSearch(`/dm/${encodeURIComponent(nick)}`);
 }
 
-/** This page's directory is `/directory`; any other is `/directory?dir=`. */
+/** This page's directory is `/directory`; any other is `/directory#dir=`. */
 export function directoryAddress(options: { directory?: string } = {}): string {
-	const search = pageSearch();
-	if (options.directory != null) search.set("dir", options.directory);
-	return withPageSearch("/directory", search);
+	const fields = new URLSearchParams();
+	if (options.directory != null) fields.set("dir", options.directory);
+	return withFields("/directory", fields);
 }

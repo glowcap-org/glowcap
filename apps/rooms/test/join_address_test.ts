@@ -1,8 +1,13 @@
-// Join destinations round-trip through fragments without entering HTTP requests.
+// What an address names beyond its path round-trips through the fragment and never enters an HTTP request.
 import { assertEquals } from "./assert.ts";
-import { joinAddress, joinAddressOf, joinFields } from "../web/ui/route_address.ts";
+import { addressFields, directoryAddress, joinAddress, joinAddressOf, roomAddress } from "../web/ui/route_address.ts";
 
-Deno.test("join addresses keep capabilities out of the request and preserve named fields", () => {
+function joinFields(url: URL): { room: string | null; address: string | null; directory: string | null } {
+	const fields = addressFields(url);
+	return { room: fields.get("room"), address: fields.get("address"), directory: fields.get("dir") };
+}
+
+Deno.test("join, room, and directory addresses keep capabilities out of the request and preserve named fields", () => {
 	const prior = Object.getOwnPropertyDescriptor(globalThis, "location");
 	Object.defineProperty(globalThis, "location", {
 		configurable: true,
@@ -17,6 +22,14 @@ Deno.test("join addresses keep capabilities out of the request and preserve name
 			assertEquals(read[field], capability);
 		}
 		assertEquals(joinAddress(), "/join?dm=relay");
+		const room = new URL(roomAddress("workshop", { directory: capability }), "https://rooms.test");
+		assertEquals(room.pathname + room.search, "/room/workshop?dm=relay");
+		assertEquals(addressFields(room).get("dir"), capability);
+		const held = new URL(roomAddress("workshop", { private: true }), "https://rooms.test");
+		assertEquals(held.pathname + held.search + held.hash, "/room/workshop?dm=relay#private=1");
+		const directory = new URL(directoryAddress({ directory: capability }), "https://rooms.test");
+		assertEquals(directory.pathname + directory.search, "/directory?dm=relay");
+		assertEquals(addressFields(directory).get("dir"), capability);
 		const named = new URL(joinAddress({ room: "", address: "", directory: "" }), "https://rooms.test");
 		assertEquals(joinFields(named), { room: "", address: "", directory: "" });
 		assertEquals(joinFields(new URL("https://rooms.test/join?room=old&address=old")), {
