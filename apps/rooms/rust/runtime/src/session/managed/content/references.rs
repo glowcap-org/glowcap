@@ -65,6 +65,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			| "bridge-form-reader"
 			| "workspace-history-reader"
 			| "custody-recipe"
+			| "direct-route"
 			| "export-configuration"
 			| "archive-issuer-reader"
 			| "operations-reader"

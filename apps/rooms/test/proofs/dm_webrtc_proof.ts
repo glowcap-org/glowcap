@@ -29,7 +29,8 @@ import { acquireTraceCapability, connectTraceViewer } from "../trace/viewer.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
-import { awaitBubble, openDmTo } from "../page/harness.ts";
+import { awaitBubble, openDmTo, pathSaid } from "../page/harness.ts";
+import { factDmDirect } from "../../lib/text/conversation.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
@@ -116,12 +117,14 @@ try {
 	// Alice redeems the introduction to Bob: her host's dial executor signals
 	// through the directory, the DataChannel opens, and the DM rides it.
 	await openDmTo(alice.tab, "web-bob");
+	await pathSaid(alice.tab, factDmDirect, "webrtc");
 	await send(alice.tab, DM_TEXT);
 
 	// Bob renders it, the message crossed the DataChannel, with the room's
 	// only contribution the signaling exchange.
 	await openDmTo(bob.tab, "web-alice");
 	await awaitBubble(bob.tab, DM_TEXT, "Bob");
+	await pathSaid(bob.tab, factDmDirect, "webrtc");
 
 	// Bob replies over the very connection Alice's message arrived on.
 	await send(bob.tab, REPLY_TEXT);

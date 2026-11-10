@@ -117,10 +117,12 @@ of you, and the room sees none of them.
 
 By default the connection is WebRTC. It goes straight between you when it
 can find a route, and uses STUN and TURN servers when the network needs
-them. If it cannot connect where you are, open Settings, go to the **Connection**
-tab, and under **Direct message connection** pick **Through the Rooms server**
-instead of **Browser to browser**. That setting only changes direct messages,
-not how your session is shared.
+them. When it finds no route within a few seconds, the conversation opens
+through the Rooms server instead, still encrypted end to end. To skip that
+attempt where you are, open Settings, go to the **Connection** tab, and under
+**Direct message connection** pick **Through the Rooms server** instead of
+**Browser to browser**. That setting only changes direct messages, not how
+your session is shared.
 
 [WebRTC signaling]($link.page('transports/webrtc')) explains offers,
 candidates, STUN, and TURN. [Operate Rooms]($link.page('rooms/operations'))

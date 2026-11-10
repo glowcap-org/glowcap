@@ -213,7 +213,10 @@ or iroh loop, call `net.tcpBackendStatus(&loop)`. A non-null `fallback_reason`
 explains why epoll was selected (on an iroh loop, for the wrapped Linux
 platform layer). The library prints nothing, because the application owns its
 logs ([ADR-0020](decisions/adr/ADR-0020-linux-completion-backends.md)).
-[Known limitations](boundaries.md) covers what `driver.HostRuntime` reports.
+
+For a runtime-owned stream stack, `HostRuntime.tcpBackendStatus()` returns the
+same report. It returns null without an owned stack or off Linux. Residents
+supplied by the caller keep their own reports.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
 security and reachability of the transports.

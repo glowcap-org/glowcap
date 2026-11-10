@@ -70,8 +70,12 @@ export const settingsRelayAway = (host: string, origin: string) =>
 /** Where direct messages go. Both are end-to-end encrypted, so the choice is
  * about who can start one, not about who can read them. */
 export const settingsDmDirectLabel = "Browser to browser";
-export const settingsDmDirectSaid =
-	"Encrypted between browsers. Someone using another app can reply only after you write first.";
+const settingsDmDirectEncrypted = "Encrypted between browsers.";
+const settingsDmDirectFallback = "Through the Rooms server when no direct route opens.";
+const settingsDmDirectReply = "Someone using another app can reply only after you write first.";
+/** The fallback sentence belongs to a page with a Rooms server to fall back to. */
+export const settingsDmDirectSaid = (hasServer: boolean) =>
+	[settingsDmDirectEncrypted, ...(hasServer ? [settingsDmDirectFallback] : []), settingsDmDirectReply].join(" ");
 export const settingsDmRelayLabel = "Through the Rooms server";
 export const settingsDmRelaySaid =
 	"Encrypted end to end, and the Rooms server only passes on encrypted messages. Someone using another app can write to you first.";

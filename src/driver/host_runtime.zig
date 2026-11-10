@@ -79,6 +79,8 @@ pub const HostRuntime = struct {
     /// Package overlap and idempotency are Runtime composition policy. An ABI
     /// adapter supplies only the opaque comparison and release effects.
     provider_packages: std.ArrayListUnmanaged(InstalledProviderPackage) = .empty,
+    /// Immutable selection report from the runtime-owned stream stack.
+    stream_backend_status: ?net.TcpBackendStatus = null,
     /// Canonical transport profiles with a listener pending or active. Keys
     /// borrow the provider registry, which outlives this map. The Runtime owns
     /// occupancy. Adapter listener ids are only handles onto that authority.
@@ -314,6 +316,7 @@ pub const HostRuntime = struct {
 
     pub const init = runtime_providers.init;
     pub const Transports = @import("host_runtime/transports.zig").Transports;
+    pub const tcpBackendStatus = @import("host_runtime/transports.zig").tcpBackendStatus;
     pub const initWithCore = runtime_providers.initWithCore;
     pub const addResident = runtime_providers.addResident;
     pub const addProviderPackage = runtime_providers.addProviderPackage;

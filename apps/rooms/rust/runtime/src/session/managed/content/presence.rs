@@ -56,15 +56,7 @@ fn locations(record: &MetadataRecord, input: Invocation<'_>) -> Result<[records:
 		{
 			row.source
 		}
-		workspace::Conversation::Direct(row)
-			if !row.closed
-				&& target.role == custody::Role::DirectAccess
-				&& row.access.is_some_and(|access| {
-					access.slot() == target.key.slot() && access.generation() == target.key.generation()
-				}) =>
-		{
-			row.source
-		}
+		workspace::Conversation::Direct(row) if row.installs(target) => row.source,
 		_ => return Err(refuse("typing target has been replaced or retired")),
 	}
 	.ok_or_else(|| refuse("typing conversation has no initiating source"))?;

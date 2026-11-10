@@ -52,11 +52,10 @@ impl Dispatch {
 						let key = room.seat.ok_or(Refusal)?;
 						(custody::Role::RoomSeat, key.slot(), key.generation())
 					}
-					workspace::Conversation::Direct(direct) if !direct.closed => {
-						let key = direct.access.ok_or(Refusal)?;
+					workspace::Conversation::Direct(direct) => {
+						let key = direct.installed_access().ok_or(Refusal)?;
 						(custody::Role::DirectAccess, key.slot(), key.generation())
 					}
-					_ => return Err(Refusal),
 				}
 			}
 			Selection::Invitation(id) => {

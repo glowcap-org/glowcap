@@ -51,13 +51,22 @@ impl<D: Deadline + Clone> Workspace<D> {
 			.await
 	}
 	pub async fn custody_recipe(&self, coordinate: custody::Coordinate) -> Result<Option<String>, Error> {
-		match self
-			.call("custody-recipe", &[coordinate_text(coordinate)?.into()])
-			.await?
-		{
+		self.optional_text("custody-recipe", coordinate).await
+	}
+	/// The transport an open direct line runs over, read from the session its
+	/// installed route is exported on, or none while no live session carries it.
+	pub async fn direct_route(&self, coordinate: custody::Coordinate) -> Result<Option<String>, Error> {
+		self.optional_text("direct-route", coordinate).await
+	}
+	async fn optional_text(
+		&self,
+		verb: &'static str,
+		coordinate: custody::Coordinate,
+	) -> Result<Option<String>, Error> {
+		match self.call(verb, &[coordinate_text(coordinate)?.into()]).await? {
 			Argument::Void => Ok(None),
-			Argument::String(uri) => Ok(Some(uri)),
-			_ => Err(loam::refusal("invalid custody recipe").into()),
+			Argument::String(text) => Ok(Some(text)),
+			_ => Err(loam::refusal(format!("invalid {verb} reply")).into()),
 		}
 	}
 	pub async fn operations_reader(

@@ -70,10 +70,15 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 					{
 						Some(registration::Notice::Registered { nick, id }) => {
 							// The transport this directory is reached over, read from
-							// the session the notice arrived on. A session that closed
-							// between delivery and this read names none, and the
-							// registration still stands.
-							let transport = delivering.as_ref().and_then(|session| session.transport_name().ok()); // tolerant: a closed session leaves the row's route unsaid
+							// the session the notice arrived on. The notice waited for
+							// its admission, so that session may have closed since,
+							// and a closed one leaves the route unsaid.
+							let transport = match delivering.as_ref().map(|session| session.transport_name()) {
+								None => None,
+								Some(Ok(transport)) => Some(transport),
+								Some(Err(error)) if error.kind() == glowcap::ErrorKind::Closed => None,
+								Some(Err(error)) => return Err(error.to_string()),
+							};
 							json!({"kind":"registered", "nick":nick, "registration":id.as_str(), "transport":transport})
 						}
 						Some(registration::Notice::Event(event)) => {

@@ -16,73 +16,28 @@ TypeScript, Python, and Racket, and migrated Tasks, Rooms, and Loam-management
 consumers. Application developers using prebuilt compiler and runtime artifacts
 need no Zig installation. Building the compiler from source requires Zig.
 
-## Release checkpoint
-
-Finish the existing Rust Tasks Board and Watcher client migration, then freeze
-interface features for the release pass. This checkpoint is smaller than
-milestone 3. It neither adopts the language nor accepts a full-target budget.
-The milestone exits below remain unchanged.
-
-Completion requires:
-
-- Generate the client's existing calls, prepared receipt requests and reply
-  checks from the authored contract. Remove their handwritten wire counterparts.
-  Connection setup, fetching, cursor policy and cleanup stay with the application.
-- Retain targets and reference arguments before sequence acquisition. Qualify
-  explicit release of originals, foreign-Host refusal, partial capture failure,
-  cancellation and final retirement.
-- Exercise the migrated client against the actual Tasks server on its
-  interoperability profile and independent peers on both profiles. Verify exact
-  replay, malformed registration and replies,
-  remote breaks, and cleanup after committed observation. A decode failure must
-  not imply that the mutation rolled back.
-- Integrate the accepted branches at one verified commit, reconcile generated
-  output and living documentation, and complete release checks and promotion
-  through the existing prerelease process.
-
-Before promotion, integrate the review fixes for checked TypeScript awaits,
-CLI output safety, per-client mutation ordering and failed watcher setup.
-These repairs preserve raw pipelining, independent reads and primary failures.
-
-The release can claim qualified build-time generation for this Rust client and
-the independently tested TypeScript projections. General compiler coverage,
-language adoption and the remaining migrations still require their milestone
-proofs. Source and ownership costs remain explicit, without a performance claim
-or a larger budget inferred from this checkpoint.
-
-## Execution map
+## Where things stand
 
 The current work is milestone 2. Conversation, generation-cost, and proposed
 text comparisons are retained.
 
-Tasks' Rust Board and Watcher use generated calls and reply checks. Six Zig
-server reads use generated checks for declared bounds and exact arity.
+Tasks' Rust Board and Watcher use generated calls and reply checks. Zig
+creation and read handlers use generated checks for declared bounds and exact arity.
 Complete authored Tasks and Loam modules feed generation and match the
 independent Syrup fixture. Syrup remains supported input.
 
 The [continuation proposal](#continuation-proposal)
 recommends the text frontend. Frontend selection and the full-target budget remain open.
 
-| Work | State and next action | Owner |
-| --- | --- | --- |
-| Contract and independent messages | Authored and checked | [Fixture contract](../../test/interface/contract.md) |
-| Compiler and first Tasks migration | Bounded reader/model, Zig creation and read checks, Rust preparation and replay run | [Compiler](../../tools/interface/README.md) |
-| Rust and TypeScript callbacks | Both profiles preserve pending admission, callbacks, pipelines, wrong replies and remote breaks. Rust drops polled observations, and TypeScript cancels sessions with observers active | [Proof suite](../../test/interface/README.md) |
-| Binding prerequisites | Rust independent capability and pending-reference ownership, and TypeScript owning-thread capability fulfillment, are implemented | `bindings/rust`, `bindings/ts` |
-| Prepared pending arguments | Rust capture, drop/observation, submission/replay, cancellation, and cross-Host refusal run on both profiles. Binding tests check final retain retirement | Milestone 2 ownership case |
-| Conversation coverage | Zig creation export failure and retry are qualified. Generated Rust recipient handoff and plain Goblins calling the generated Zig Tasks boundary run on Syrup/V1.0 | Milestone 2 runtime cases |
-| Invocation shape | Rust and TypeScript callers preserve selector presence. A generated Zig two-value direct receiver restores leading-symbol data on both profiles | General receiver projections remain |
-| Scalar calls | Rust and TypeScript qualify boolean, bytes with byte bounds, symbol, float64 and fulfilled error values through calls and tells on both profiles | Null and compound inputs remain unsupported |
-| TypeScript scalar bounds | Exact arbitrary bigint values and UTF-8 text limits cover required/optional calls and tells, including nested compound replies | [Fixture contract](../../test/interface/contract.md#typescript-scalar-bounds) |
-| Argument presence | Rust and TypeScript distinguish omission from explicit undefined and refuse invalid holes on both profiles. Null remains unsupported by the targets | [Proof suite](../../test/interface/README.md) |
-| Profile requirements | Ordinary descriptions require the value mapping. Receipt methods also require their convention, checked across the whole bundle | [Fixture contract](../../test/interface/contract.md) |
-| Text imports | Rooted file loading, cached cyclic headers, exact imported descriptions and bound/reference source locations run through the shared model | [Authoring checks](../../test/interface/authoring/README.md#imported-modules) |
-| Complete authored contract | Tasks, shared Loam and qualification modules match the full independent description. Text consumers reuse the checked Model | [Authoring bundle](../../test/interface/authoring/README.md#complete-contract-bundle) |
-| Generated Rust support | Selected methods determine imports and helpers. Isolated consumers compile with warnings denied | [Authoring checks](../../test/interface/authoring/README.md) |
-| Compound replies | Rust owned replies drive Watcher polling. TypeScript validates existing arrays and records. Both profiles check tags, bounds, notices, opaque capabilities, and raw settlement | [Fixture contract](../../test/interface/contract.md#typescript-compound-replies) |
-| Tasks Rust client | Generated add, move, observe, poll, cancel and read calls replace manual packing and reply checks. Connection, cursor and cleanup policy stay with the application. Real server and raw-peer scenarios check behavior | Release checkpoint |
-| Cap'n Proto comparison | The compiler-request comparison is retained in [#65](https://github.com/glowcap-org/glowcap/pull/65) | Milestone 2 comparison |
-| Cost and authoring decision | [Generation costs](../../bench/interface/results.md) and the [text comparison](../../test/interface/authoring/README.md) retain measurements and limits. Review the continuation proposal and complete its measurement checkpoint | [Continuation proposal](#continuation-proposal) |
+The [qualification suite](../../test/interface/README.md) owns implemented
+behavior, profiles and limits. The [fixture contract](../../test/interface/contract.md)
+owns acceptance cases, and the [authoring checks](../../test/interface/authoring/README.md)
+own the complete authored bundle and frontend comparison.
+
+Next, complete the [measurement checkpoint](#next-measurement-checkpoint)
+and record separate continuation decisions for generation and authoring.
+Milestone 3 waits for those decisions and acceptance of the measured cost
+and completion budget.
 
 The [earlier experiment](../research/interface-design-proof.md) is background
 research. Its live results are not reproducible from the retained sources.
@@ -142,58 +97,17 @@ and never substitute a generated proxy for an owning runtime fix.
 
 | Milestone | Prerequisite | Exit that permits dependent work |
 | --- | --- | --- |
-| 1. Contract and fixtures | Plan approval | Concrete definitions, target mappings, and independent expected messages |
-| 2. Conversation and continuation decision | 1 | Reproducible frontend comparison, Zig/Rust behavior, TypeScript promise probe, and accepted cost budget |
+| 2. Conversation and continuation decision | [Contract and fixtures](../../test/interface/contract.md) | Reproducible frontend comparison, Zig/Rust behavior, TypeScript promise probe, and accepted cost budget |
 | 3. Complete Tasks | 2 passes and continuation is recorded | Deleted handwritten wire paths, complete core coverage, and mutation failure proof |
 | 4. Adoption decision | 3 | Rooms-management reuse, TypeScript Tasks, and no-Zig consumer proof all pass |
 | 5. Distribution and remaining bindings | 4 | Packaged compiler and independently qualified Python/Racket projections |
 | 6. Remaining migrations | 4, plus each consumer's qualified emitter | Remaining Rooms and management wire code replaced and tested |
 
-### 1. Establish the contract
-
-The [fixture contract](../../test/interface/contract.md) owns the versioned Syrup
-input, independent expected messages, target mappings, and API sketches.
-The cost budget below owns the measurement criteria. `interface-fixtures-check` checks fixture integrity and
-`tasks-app-test` checks the raw application behavior. Compiler, frontend,
-ownership, and cost qualification remain milestone-2 work.
-
-Write Tasks' complete declarations, shared Loam definitions, and a small
-factory/callback fixture. Include watchers, receipt sequences, and actual
-argument and reply forms. Record which handwritten paths will be deleted and
-which policy code stays. Moving a static bound also moves its server constant
-to the generated owner, avoiding two independently maintained facts.
-
-Specify the versioned Syrup description, generated API sketches, and
-mapping of every core type against Zig/Rust and both current wire profiles.
-Independent fixtures cover exact messages, value boundaries, and refusals.
-Include hostile names and literals, identifier collisions, and generated-file
-paths. Generated code must compile and preserve wire names without code injection.
-Identify missing runtime operations at their owner before relying on them.
-
-Specify pending-call and prepared-request lifetimes against the prerequisites
-above. Distinguish borrowed argument views from independently owned references.
-
-Sketch candidate syntax only for the comparison cases. Complete the chosen
-grammar after the frontend decision. Schema names remain project-local.
-
-Fix separate generation and frontend budgets before implementation. Measure
-handwritten wire decisions, source and test size, dependencies, builds, and
-calls against existing emitters and equivalent raw calls. Record numerical
-ceilings with rationale. Net line reduction is useful evidence, not a substitute
-for removing duplicated decisions or preserving semantics.
-
 ### 2. Qualify one conversation and decide whether to continue
 
-**First establish generation's value.** Start with a directly authored Syrup
-description, one checked model, and Zig/Rust emitters. Use Tasks creation as
-the retained mutation and returned-capability case, plus a small callback fixture.
-Exercise Loam's internal creation result becoming a public capability reply.
-Replace one real consumer path and identify the handwritten decisions removed.
-Retain sources, pinned inputs, commands, and independent assertions so it runs
-from a clean checkout without manual product-source edits.
-
-Make that creation call the first runnable change. Add the callback, pending
-argument, and interop cases afterward. All remain milestone exit requirements.
+The [qualification suite](../../test/interface/README.md) owns the exercised
+Tasks and callback scenarios. The exit requirements below apply to the whole
+conversation, including cases blocked by the [runtime prerequisites](#runtime-prerequisites).
 
 Cross raw and generated peers. Hold a factory answer pending while admitting
 a dependent call and passing that answer as an argument. Exercise direct and
@@ -352,7 +266,7 @@ Documentation checks alone establish neither language acceptance nor runtime pro
 ## Ownership and priority
 
 One integration owner holds the model, grammar, shared fixtures, generation,
-ADR, and this plan. Milestones 1 through 3 run in order. Milestone 4's three
+ADR, and this plan. Milestone 3 waits for the milestone-2 decision. Milestone 4's three
 lanes own separate application, emitter, and tooling files, with shared compiler
 changes integrated by that owner. Later migrations split by operation family
 only when file ownership and prerequisite emitters permit it.

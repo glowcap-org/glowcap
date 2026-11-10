@@ -11,6 +11,8 @@ and storage formats before 1.0.
 
 ### Changed
 
+- Zig's `HostRuntime.tcpBackendStatus()` reports the Linux completion backend
+  selected for its stream stack and the reason for falling back to epoll.
 - Documentation describes the published alpha, explains release pinning and
   upgrade precautions, and removes completed publication setup from the
   roadmap. The website's source quick start uses the checked `main` branch.
@@ -22,6 +24,18 @@ and storage formats before 1.0.
   in the Loam actor guide beside its lifetime rules.
 - The Rooms operations guide keeps long options and links in scrollable
   examples so they do not widen the page on phones.
+
+### Fixed
+
+- A direct message in **Browser to browser** mode opens through the Rooms
+  server within a few seconds when WebRTC finds no route. The direct attempt
+  waited for the browser to report a failed connection, which a network that
+  yields no candidates never does, so the introduction gave up before the
+  server route was tried. The signaling exchange now gives up after ten
+  seconds on every side, the browser, the server, and the Deno and Rust
+  clients, and the answering browser ends an attempt that found no route
+  without reporting a failure. The conversation card's **Path** fact now
+  names the route the open line took instead of the saved choice.
 
 ## [0.1.6] - 2026-11-10
 
