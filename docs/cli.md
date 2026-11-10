@@ -8,8 +8,8 @@ sources:
 
 # CapTP CLI
 
-Call a capability from your shell, script CapTP with JSON, or drop glowcap
-into an agent via MCP. The binary links the same library as the Zig package.
+Call a capability from your shell, script CapTP with JSON, or call peers from
+an AI assistant through MCP. The binary links the same library as the Zig package.
 
 Flags, CapTP verbs, exit codes, environment, and wait budgets are in the
 binary: `glowcap help`, `help ocapn`, and `-h` on any command.
@@ -84,8 +84,8 @@ returns `Hello, <arg>`.
 Each terminal gets its own `GLOWCAP_STATE`, so it acts as its own peer, and
 `init` creates the identity keys that peer signs its sessions with.
 
-**Terminal A.** Mint an identity, listen, publish the greeter (`--publish`
-accepts one partner, then exits):
+**Terminal A.** Create an identity and start a listener that publishes the
+greeter. `--publish` accepts one partner, then exits:
 
 ```sh
 export GLOWCAP_STATE=/tmp/glowcap-a
@@ -102,7 +102,7 @@ glowcap: listening, and will publish greeter when a partner connects (Ctrl-C to 
 The process then waits for a partner. This is not a hang. `%3A` is a
 percent-encoded `:`, so the designator is `127.0.0.1:46659`.
 
-**Terminal B.** Mint, then one answered call:
+**Terminal B.** Create a separate identity and call the greeter:
 
 ```sh
 export GLOWCAP_STATE=/tmp/glowcap-b
@@ -120,7 +120,8 @@ glowcap --json ocapn call "$LOC" greeter greet world
 {"ok":true,"value":"Hello, world"}
 ```
 
-A different argument gets a different reply:
+For another call, restart the listener in Terminal A and update `LOC` in
+Terminal B with its new locator. Then change the argument:
 
 ```sh
 glowcap --json ocapn call "$LOC" greeter greet glowcap \

@@ -33,12 +33,12 @@
 			<span class="card-lead-mark" aria-hidden="true"></span>
 			<div>
 				<h2>Run Rooms</h2>
-				<p>Start Rooms on your machine, join as two people, talk to someone with the room out of it, and open your session on your phone.</p>
+				<p>Start Rooms on your machine, join as two people, start a direct conversation, and open your session on your phone.</p>
 			</div>
 		</a>
 		<a class="card" href="$site.page('rooms/directories').link()">
 			<h2>Rooms across directories</h2>
-			<p>Hold rooms on any number of servers and message anyone you meet in them. The servers never link to each other.</p>
+			<p>Join rooms on several directories and message the members you meet. Your session brings them together.</p>
 		</a>
 		<a class="card" href="$site.page('rooms/architecture').link()">
 			<h2>How Rooms works</h2>
@@ -46,7 +46,7 @@
 		</a>
 		<a class="card" href="$site.page('rooms/protocol').link()">
 			<h2>The protocol</h2>
-			<p>One published name, and every other reference handed back from it. Rooms, seats, lines, files, and introductions, all as OCapN objects.</p>
+			<p>The objects and methods for rooms, membership, files, and direct conversations, carried over OCapN.</p>
 		</a>
 		<a class="card" href="$site.page('rooms/operations').link()">
 			<h2>Operate Rooms</h2>

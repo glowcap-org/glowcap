@@ -114,8 +114,8 @@ one checks against the owner state the earlier ones left in the transaction, <!-
 and all of them merge into one update to the owner's header. A change
 prepared against an older revision is refused, and the caller aborts with
 nothing written. Two unrelated stores cannot do this, so an application uses
-one shared store or its own coordinator with proven recovery. No transaction
-spans two owners.
+one shared store or its own coordinator with proven recovery. A hosted
+managed call changes resources of one owner.
 
 Ordinary reads write nothing to disk. How durable a content change is follows
 the content's declared rules, and a permission check alone writes nothing. A

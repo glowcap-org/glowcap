@@ -1,9 +1,9 @@
 # glowcap — Agent Guide
 
-`glowcap` is a Zig implementation of the OCapN / CapTP substrate, with no
-released predecessor. OCapN behavior, Spritely Goblins fixtures, and Zig
-protocol scenarios are the authority for every semantic claim. The Rust, Deno,
-Python, and Racket bindings consume the C ABI and are never the oracle.
+`glowcap` is a Zig implementation of OCapN / CapTP. OCapN behavior,
+Spritely Goblins fixtures, and Zig protocol scenarios are the authority for
+semantic claims. The Rust, Deno, Python, and Racket bindings consume the C
+ABI and are never the oracle.
 
 [`docs/vision.md`](docs/vision.md) is the goal every change serves. Read it
 before scoping new work, and keep `docs/shipped.md` matching how far the code

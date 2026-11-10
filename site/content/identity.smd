@@ -21,11 +21,11 @@ often run with all your permissions, held back only by approval pop-ups.
 
 - **February 2026.** Moltbook, a social network where AI agents post to each
   other, left its database readable by anyone. Researchers
-  [found about 1.5 million agent logins](https://wiz.io/blog/exposed-moltbook-database-reveals-millions-of-api-keys)
+  [found about 1.5 million agent logins](https://www.wiz.io/blog/exposed-moltbook-database-reveals-millions-of-api-keys)
   and private messages holding keys for other services.
-- **February 2026.** One link could take over OpenClaw, a popular personal
-  agent. Opening it
-  [leaked the agent's login, switched off its "ask me first" setting, and ran commands](https://nvd.nist.gov/vuln/detail/CVE-2026-25253)
+- **January 2026.** One link could take over OpenClaw, a personal agent.
+  Opening it
+  [leaked the agent's login, letting a remote site change tool policies and run commands](https://github.com/openclaw/openclaw/security/advisories/GHSA-g8p2-7wf7-98mq)
   on the owner's computer. Version 2026.1.29 fixed it.
 - **October 2026.** One email to an inbox connected to the Manus agent
   [became code running inside the agent](https://salt.security/blog/how-we-hijacked-an-ai-agent-with-a-single-email),
@@ -63,8 +63,9 @@ only limits the damage.
 
 A valet key starts the car but will not open the trunk. A capability is a
 valet key for software: a reference to one thing, such as one folder or one
-calendar, where holding it is the permission. Nobody checks your name. A
-well-built capability system adds two things a car key lacks:
+calendar, where holding it grants access. An application can also check
+identity when its rules require it. A capability system can add two things a
+car key lacks:
 
 - The owner can switch one key off without touching the others, like
   re-keying one lock after a key goes missing.
@@ -73,8 +74,8 @@ well-built capability system adds two things a car key lacks:
 The idea dates to [a 1966 paper](https://doi.org/10.1145/365230.365252). It
 works well inside systems built around it, but it never replaced the
 everyday permission list, which answers "who can get in here?" at a glance.
-Agents make a stronger case for keys, because a program that can be talked
-into anything should hold as little as possible.
+Agents make a stronger case for keys: a program that may follow instructions
+in untrusted text should hold as little power as its task allows.
 
 glowcap is a code library for programmers.
 [OCapN](https://github.com/ocapn/ocapn) is a network protocol that carries
@@ -89,7 +90,7 @@ A service that records a separate grant for each holder can answer:
 
 | Question | With limited keys |
 | --- | --- |
-| Who is responsible for this request? | The holder recorded for that grant. |
+| Whose grant was used? | The holder recorded for that grant. |
 | How do I stop it? | Switch off that one key. Nobody else is locked out. |
 | How much harm can it do? | Only what that key opens. |
 | Is this one person, or ten thousand bots? | Keys cannot tell. |
@@ -149,16 +150,16 @@ residents, and Estonians sign contracts and file taxes with a national ID
 card. Both work at national scale, and a registered identity makes it far
 easier to find who answers for what happened. Both also show the costs.
 
-1. A number can be copied or leaked, so it needs a secret only its owner
-   holds. In 2017 a flaw in how the card chips made their secret keys led
-   Estonia to block and renew the certificates on about 760,000 ID cards.
+1. A number can be copied or leaked, so using it needs a separate way to prove
+   control. In 2017 a flaw in how Estonia's ID card chips made secret keys led
+   the country to [suspend about 760,000 cards' certificates](https://www.ria.ee/en/news/estonia-resolves-its-id-card-crisis)
+   and offer an update.
 2. The registry decides who can prove who they are. When a fingerprint scan
    fails, the person is turned away. A
    [large study](https://doi.org/10.1162/rest_a_01296) of food rations in the
    Indian state of Jharkhand found that fingerprint checks alone did not cut
    theft, and 1.5 to 2 million legitimate people lost benefits for a time,
-   largely because of how the change was rolled out. In 2018 India's Supreme Court upheld Aadhaar
-   for welfare and taxes but barred private companies from requiring it.
+   largely because of how the change was rolled out.
 3. One registered person can still run ten thousand bots. An ID says who
    answers for the traffic, not how much there is.
 4. One number everywhere lets organizations join their records. People with
@@ -181,13 +182,11 @@ out. Those hardest to give a credential to, such as people without papers,
 are often the ones who most need to stay unnamed.
 
 The European Union's
-[digital identity wallet](https://ec.europa.eu/digital-building-blocks/sites/display/EUDIGITALIDENTITYWALLET/EU+Digital+Identity+Wallet+Home),
-which [EU law](https://eur-lex.europa.eu/eli/reg/2024/1183/oj) requires every
-member state to offer by the end of 2026, is built toward this model for
-facts like age and residence. How well it hides you from
-checkers who compare notes depends on technical choices still open. Because
-each service can see a different name, the wallet alone cannot show that a
-visitor signed up only once.
+[digital identity wallet](https://digital-strategy.ec.europa.eu/en/faqs/qa-digital-identity)
+is designed to let people prove selected facts, such as age, without sharing
+their full identity. Selective disclosure alone does not prevent services
+from linking visits or show that someone signed up only once. Those guarantees
+depend on how the credential and the service are built.
 
 # The front door
 
@@ -217,23 +216,21 @@ You still rely on whoever issues, stores, and switches off those keys.
 
 # Who pays when an agent gets it wrong
 
-A record of what an agent did does not decide who pays for it. Terms of service often put the loss
-on the user. Card rules treat a charge you did not authorize differently from
-one you did, and whether a fooled agent's purchase counts as authorized is
-unsettled. Laws on agents differ by country. Good records help settle a
-dispute, but they help whoever holds them, and users rarely hold the
-service's logs.
+A record can show which grant an agent used and what the service accepted.
+Who bears the loss depends on the applicable agreements and law. Applications
+should give users access to the records they need to question an action,
+rather than keeping the only copy in the service's logs.
 
 # Standards for agents
 
 Most of these are drafts or company programs.
 
-- **Bots that say which bot they are.** A
-  [September 2026 draft](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/)
-  from the IETF, the group that writes internet standards.
-- **Bots that prove someone checked them, without saying who they are.** A
-  [July 2026 draft](https://datatracker.ietf.org/doc/draft-rescorla-anonymous-webbotauth/)
-  that also caps each one's requests.
+- **Bots that say which bot they are.** An
+  [IETF working-group draft](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/)
+  uses HTTP message signatures to identify automated clients.
+- **Bots that prove someone checked them, without saying who they are.** An
+  [individual Internet-Draft](https://datatracker.ietf.org/doc/draft-rescorla-anonymous-webbotauth/)
+  describes anonymous authorization and rate limits.
 - **Agents acting for you.** OAuth, the standard behind "allow access"
   buttons, can record who acted for whom
   ([2020](https://www.rfc-editor.org/rfc/rfc8693.html)).
@@ -241,8 +238,8 @@ Most of these are drafts or company programs.
   [Visa](https://usa.visa.com/about-visa/newsroom/press-releases.releaseId.21716.html)
   and
   [Mastercard](https://newsroom.mastercard.com/news/press/2025/april/mastercard-unveils-agent-pay-pioneering-agentic-payments-technology-to-power-commerce-in-the-age-of-ai)
-  (2025) let shopping agents prove what they are and pay with stand-ins for
-  your card number.
+  describe programs for recognizing shopping agents and authorizing payments.
+  Mastercard's program uses tokens in place of card numbers.
 - **Agents that pay small amounts.** The web set aside the code
   `402 Payment Required` [in 1997](https://www.rfc-editor.org/rfc/rfc2068.html)
   "for future use." The

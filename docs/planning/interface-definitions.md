@@ -118,7 +118,7 @@ Keep runtime, Loam, and application responsibilities at the owners named in
 Discovery, structural compatibility analysis, editor services, executable
 annotations, and a plugin framework are outside this implementation.
 The [discovery proposal](interface-discovery.md) needs its own consumer and decision.
-Neither generation nor opening the repository waits for it.
+Generation does not depend on discovery.
 
 ## Runtime prerequisites
 

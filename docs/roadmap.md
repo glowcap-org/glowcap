@@ -13,26 +13,18 @@ Work that can start sits first, in the order it starts. Work that waits on
 something outside the code follows, grouped by what it waits on. An item moves
 up when its wait ends.
 
-## Opening the repository
+## Development priorities
 
-Public source and contribution do not require a finished roadmap or stable
-APIs. Publish the implemented scope with its known limits. The publication
-item under [waiting on you](#waiting-on-you) owns repository activation, and
-public release evidence owns checks on the exact candidate commit. A tagged
-package additionally needs the published-archive checks. None of these
-milestones means 1.0.
+Fix broken advertised behavior, installation, and contributor setup before
+adding features. Follow the [release procedure](maintaining.md) when
+publishing and the [alpha policy](maintaining.md#release-status) when
+changing a public contract.
 
-Fix known correctness defects in advertised behavior and broken contributor
-paths before inviting use. Planned features, broader platform support and
-unmeasured deployment sizes can remain open when the public docs do not
-promise them. A passing documentation check alone does not establish release
-readiness.
-
-Known limitations describe consequences, not acceptance. A gap against the
-vision needs work here with a completion criterion, or an explicit decision
-narrowing the supported scope. Intentional contracts stay in their guides.
-Stability owns missing evidence. Keep a limitation visible until its fix is
-verified. Plans own implementation steps and acceptance.
+Each gap against the vision needs a roadmap item with a completion criterion
+or a decision narrowing the supported scope. Keep
+[known limitations](boundaries.md) visible until a fix is verified. Record
+missing test coverage in [stability](stability.md) and implementation steps
+in the item's plan.
 
 ## What starts next
 
@@ -167,21 +159,34 @@ profile does not freeze the broader foreign ABI.
 [ADR-0048](decisions/adr/ADR-0048-loam-persistence-foundation.md) records
 ownership.
 
+## Release tooling
+
+These improvements can proceed alongside the product work above. The
+[publication procedure](maintaining.md#releasing-a-version) owns the checks
+required for each release.
+
+- **Evidence that travels with the change.** Each run of `ci/gates.py`
+  writes a record, a clean run notes it on the commit, and the integrator
+  signs what lands on `dev`. A landing check has to refuse a `dev` commit
+  with no record for its tree. The record needs a signed attestation form
+  and a ledger page generated from the records. Published asset attestations
+  establish build provenance, not this per-tree check record. Change stacks
+  on Jujutsu and a community front door on Rooms follow
+  ([plan to plan](planning/plan-to-plan.md)).
+- **Direct npm publication.** TypeScript packages are available through JSR
+  and its npm compatibility. Publishing directly to npm needs its own
+  package and consumer proof
+  ([plan to plan](planning/plan-to-plan.md)).
+
 ## Waiting on you
 
 Each item is a maintainer action or a decision only the maintainer can make.
 None of them needs a plan until the decision is made.
 
-- **Publication.** Configure the [promotion app](maintaining.md#promotion-app)
-  and verify a checked `dev` push advances `main`.
-  Confirm on GitHub that an unsigned or unchecked push to
-  `main` is refused ([repository protection](maintaining.md#repository-protection)).
-  Done when the refusal is observed. The items under
-  [waiting on publication](#waiting-on-publication) then take over
-  ([plan to plan](planning/plan-to-plan.md)).
-- **Public release evidence.** Before an invite or release, run the exact
-  release commit through the checks and macOS jobs, then verify the
-  repository, badge, and run are visible without authentication
+- **Verify repository protection.** Promotion to `main` is active. Confirm
+  on GitHub that an unsigned or unchecked push to `main` is refused
+  ([repository protection](maintaining.md#repository-protection)). Done when
+  the refusal is observed. A successful promotion does not prove refusal
   ([plan to plan](planning/plan-to-plan.md)).
 - **Visualizer playback.** Re-measure playback on the reporting machine's
   real GPU with the committed stress corpus. Done when there is no visible
@@ -219,28 +224,6 @@ None of them needs a plan until the decision is made.
   budgeted, revocable facet, and follow responsibility across delegation
   hops. [What about identity?](https://glowcap.org/identity/)
   explains the model. It waits on a decision to take it up
-  ([plan to plan](planning/plan-to-plan.md)).
-
-## Waiting on publication
-
-These follow the publication item above or a release decision. The
-engineering work under [what starts next](#what-starts-next) does not depend
-on them.
-
-- **Evidence that travels with the change.** Each run of `ci/gates.py`
-  writes a record, a clean run notes it on the commit, and the integrator
-  signs what lands on `dev`. A landing check has to refuse a `dev` commit
-  with no record for its tree. The record needs a signed attestation form, so
-  a release ships as an evidence bundle, and a ledger page generated from the
-  records. Change stacks on Jujutsu and a community front door on Rooms
-  follow ([plan to plan](planning/plan-to-plan.md)).
-- **First registry publication.** `publish.yml` publishes the crate, wheel,
-  and JSR packages at each release tag and installs each from its registry.
-  The first release through it needs the
-  [registry publishers](maintaining.md#registry-publishers) set up: the PyPI
-  pending publisher, the crates.io first-version token, the missing
-  `@glowcap/relay` JSR package, and the Racket catalog account's secrets. Direct npm
-  publication needs its own package and consumer proof
   ([plan to plan](planning/plan-to-plan.md)).
 
 ## Waiting on upstream

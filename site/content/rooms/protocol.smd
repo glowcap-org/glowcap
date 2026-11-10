@@ -136,11 +136,11 @@ you to use or pass on, and the inbox is the one you make yourself.
 </div>
 ```
 
-No code checks who is calling. A member without the line reference has
-nothing to send `edit` to. A reference can also be handed on. Give your
-line's reference to someone and they can take the line down. Give the subject
-reference to a bot and it can keep the subject, without the room learning what
-a bot is.
+The reference determines which object you can call, and that object's
+methods enforce its limits. Editing a line requires its line reference.
+You can pass that reference to someone else, giving them access to edit or
+take down the line. A bot holding the subject reference can update the
+subject through the same methods as any other holder.
 
 A subject is a description, and it can also link an object the room is about,
 such as a board or a game, by its `ocapn://` sturdyref. The room checks that
@@ -225,8 +225,8 @@ and the other side reads it the same way. The room never sees those bytes.
 # What OCapN gives Rooms
 
 - **No ambient authority.** There is no account table and no permission
-  check by name anywhere in the tables above. If you can form the call, you
-  may make it, because forming it means holding the reference.
+  check by name in the calls above. You call an object through a reference
+  you hold, subject to the object's limits and the reference's lifetime.
 - **Introductions across three parties.** The server can hand you a
   reference to something another peer hosts, and your peer redeems it with
   them directly. Direct messages, invitations, and shared archives are all

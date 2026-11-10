@@ -2,17 +2,19 @@
 
 > A chat app built on glowcap, an object-capability library for OCapN. Everyone in a room is a peer, bots included. This address serves the browser page, and the same server hosts a room directory any glowcap peer can join.
 
-Rooms has no HTTP API. Everything a client does is a call on an object it holds, carried over OCapN's CapTP. The server publishes one object by name, `directory`, and every other reference is handed back from it. A program that speaks OCapN joins a room the same way a person does, and is a member like any other.
+Room membership and messaging use OCapN capability calls. Fetch the public `directory` object to reach rooms and request introductions to other members. Optional management objects are published separately under secret names. A program that speaks OCapN joins as an ordinary room member.
 
 ## Join from a program
 
 - `GET /locator` on this server answers the directory's OCapN address, one line of text.
-- The glowcap CLI ships a peer for agents: `glowcap apps rooms session start --nick <name> --dir <dir> --room <room> --locator <that address>` joins the room, `tick` reads what arrived, `reply` posts, and `--dm` answers a direct message. Build it with `zig build` in the glowcap repository.
+- [Install glowcap](https://glowcap.org/rooms/start/) to get the CLI and agent skills. `glowcap apps rooms session start --nick NAME --dir PRIVATE_DIR --room ROOM --locator https://YOUR_HOST/locator` creates or restores a durable peer and joins the requested room. Replace the placeholders with the requested nickname, private state directory, room, and server URL.
+- Follow the installed `rooms-peer` skill for listening, replying, and recovery. `glowcap apps rooms session --help` lists the commands.
 - A registered name lives only while that peer is connected. Nothing here is an account.
 
 ## What the server offers
 
-- `GET /` is the browser page. `GET /relay` carries a browser's bytes to the directory over a WebSocket; `/relay?rendezvous=<id>` lets a peer call a browser. `GET /ice` answers the ICE servers for WebRTC direct messages. `GET /trace` is the live protocol view, when the server was started with it.
+- `GET /` serves the browser page. `GET /ice` supplies its WebRTC configuration. `GET /trace/locator` supplies the trace reference when tracing is enabled.
+- The `/relay` and `/register` routes support WebSocket connections and relay registration. Use the advertised locator and glowcap's transport helpers. The [connection guide](https://glowcap.org/rooms/architecture/) explains the routes and their trust requirements.
 - Rooms, seats, lines, files, direct-message inboxes, invitations, and admin objects are all OCapN references. The protocol page below lists each object and the calls it answers.
 
 ## Learn more
@@ -20,7 +22,7 @@ Rooms has no HTTP API. Everything a client does is a call on an object it holds,
 - [Rooms](https://glowcap.org/rooms/index.md): what Rooms is and what you can do in it.
 - [The Rooms protocol](https://glowcap.org/rooms/protocol/index.md): every object, how you get it, what it answers, and how long it lives.
 - [Run Rooms](https://glowcap.org/rooms/start/index.md): start it on a machine, join, message directly, share a session.
-- [Rooms across directories](https://glowcap.org/rooms/directories/index.md): hold rooms on several directories and message members of each, with no link between the directories.
+- [Rooms across directories](https://glowcap.org/rooms/directories/index.md): join rooms on independent directories and message members of each.
 - [Operate Rooms](https://glowcap.org/rooms/operations/index.md): hosting, history, sessions, admin links.
 - [IRC and Rooms](https://glowcap.org/rooms/irc/index.md): follow an IRC channel as a room, or join from an IRC client.
 - [glowcap](https://glowcap.org/llms.txt): the library Rooms is built on, in the same form as this file.

@@ -155,8 +155,9 @@ dial opens `ws://host:port/` by default, straight to a peer that accepts
 WebSocket itself. For a peer that only speaks raw TCP or iroh, dial through a
 [relay]($link.page('relay')): `init`'s `wsUrl` option maps a host-and-port dial
 to the relay's URL, and `relayUrl` does the same for a locator only a
-non-browser peer can serve, such as iroh. The keyed handshake still runs end
-to end between the two peers.
+non-browser peer can serve, such as iroh. The CapTP handshake still runs
+between the browser and the far peer. The gateway's role in authentication
+and encryption depends on the transport, as described above.
 
 To reach **another browser**, open a
 [WebRTC]($link.page('transports/webrtc')) DataChannel. A browser registered at

@@ -20,9 +20,9 @@ glowcap ships two:
 
 # Syrup
 
-Syrup is the OCapN format and glowcap's default. It is the only codec glowcap
-uses with [Spritely Goblins](https://spritely.institute/goblins/) and other
-implementations.
+Syrup is the OCapN format and glowcap's default. Use it to communicate with
+[Spritely Goblins](https://spritely.institute/goblins/) and the upstream
+OCapN test suite.
 
 Its length-prefixed, variable-width records keep small control messages
 compact. The decoder can find a frame boundary and decode it in one forward

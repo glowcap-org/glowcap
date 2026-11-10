@@ -60,8 +60,9 @@ endpoints, or connections. A reference keeps its owner and a stable identity,
 not the resource tree, its ancestors, or message history. A durable name
 nobody is using needs no actor in memory.
 
-The tree and grant records reserve their whole record capacity in memory.
-That layout stays out of every ABI so it can change.
+The standalone in-memory tree and grant ledger reserve their whole capacity
+up front. Record-backed owners load records within Loam's cache limits.
+These layouts stay out of the ABI so they can change.
 
 ## Content and access in one transaction
 
@@ -235,9 +236,10 @@ names, limits, and schema identities.
 - Process pointers, struct layouts, and run-time type names mean nothing on
   disk.
 - Decoders check lengths and ordering before allocating.
-- An unknown required schema or format version refuses to open. A format
-  change before release never resets an existing store or reads an old format
-  through a second path.
+- An unknown required schema or format version refuses to open. Format
+  changes follow the [alpha policy](../maintaining.md#release-status).
+  Opening unsupported data refuses rather than resetting the store or
+  trying a second decoder.
 
 Durable name secrets and kept remote sturdyrefs grant access to whoever holds
 them. Store, back up, and redact them in logs the way your program handles

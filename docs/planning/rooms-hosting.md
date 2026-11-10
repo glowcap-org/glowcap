@@ -162,8 +162,9 @@ Several people using one Rooms session deliberately act as its persona.
 Separate authors use separate sessions and share a room. Account sign-in
 does not rewrite message authorship or nickname ownership.
 
-Replace the unreleased Rooms application contract and all shipped consumers
-together. Establish application compatibility before admitting a persona.
+Replace the Rooms alpha application contract and all shipped consumers
+together. Document the break and required user action in the changelog.
+Establish application compatibility before admitting a persona.
 Refuse peers with connection-selected membership, without inventing a CapTP
 version or preserving the replaced application API. Never silently combine
 personas or allocate private Hosts as a hidden fallback.
@@ -318,7 +319,8 @@ identifier and capability entropy. Preserve the full security strength of
 the random capability name. Bound decoding and refuse unknown versions,
 partitions and malformed names before storage work. Existing names require
 explicit refusal if unsupported, never guessed routing. Apply the prerelease
-policy rather than adding a legacy decoder for an unreleased format.
+policy rather than adding a legacy decoder solely to preserve the alpha
+format. Document what happens to existing names when the format changes.
 
 The full namespaced name must be identical in warm publication, cold lookup,
 retirement and saved recipes. The current durable-name parser and publisher
@@ -455,11 +457,10 @@ cost and contention decide the supported deployment limits.
 
 ### Accept shared hosting before offering it
 
-Opening the repository does not depend on implementing shared hosting.
-The [roadmap](../roadmap.md#opening-the-repository) owns publication criteria.
-Contributions can improve the existing product while this plan remains open.
-Changes to membership, session lifetime or publication ownership need to
-account for this design before they land.
+Rooms supports the deployments described in the
+[session guide](../rooms/session.md). Shared hosting remains planned work on
+the [roadmap](../roadmap.md). Changes to membership, session lifetime or
+publication ownership need to account for this design before they land.
 
 Complete the account-free hosting milestone before advertising pooled
 sessions. It includes capability-selected membership, shared infrastructure,
@@ -490,7 +491,8 @@ and revocation. Do not declare the broader Rooms plan complete or create a
 second grant system to bypass it.
 
 Apply the [prerelease policy](../../.agents/rules/prerelease.md): replace
-unreleased contracts cleanly, update consumers together, and retain version 1.
+alpha contracts cleanly, update consumers together, and retain version 1.
+Explain breaking changes and required action in the changelog.
 Do not add migration shims merely for publication. Unsupported stored state
 must refuse explicitly, never silently reset or acquire broader authority.
 Any reset remains an operator action after preserving a backup.

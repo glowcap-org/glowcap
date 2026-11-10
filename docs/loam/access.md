@@ -84,7 +84,9 @@ records the limits and the alternatives.
 `access.records.profile.schemas` alongside the application's schemas.
 
 - Managed access needs a record limit of at least 64 KiB and <!-- value ../../src/loam/access/records/grant_record.zig max_edges -->514<!-- /value --> edges.
-- The managed record format has no migration, so use a fresh directory.
+- Unsupported record formats are refused. Follow the
+  [alpha policy](../maintaining.md#release-status) for upgrades and any
+  required state reset.
 - Inside a transaction, `storage.stage.createOwner` returns a reference to the
   owner's header record. Keep it after the commit is confirmed, to reopen the
   owner. The header saves the policy, revisions, ID counters, directory roots,
@@ -165,9 +167,9 @@ expects.
   is on loan fails with `RecordHeld` in every build mode, and the loaned
   record carries what writing and observation need. Checks on loaded records
   call no allocator.
-- Store cache buffers reserve `max_record_bytes` per slot, even for short
-  records. The sizes above leave out those buffers and the transaction's own
-  staging.
+- Store cache buffers and transaction staging have separate budgets.
+  [Cache and memory](store.md#cache-and-memory) explains the temporary read
+  reservations and resident record sizes.
 
 Keep the Read and Store at the same addresses while views, an Append, or a
 ResourceChange borrow them. An Append or ResourceChange takes the Read for

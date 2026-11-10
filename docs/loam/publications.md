@@ -10,9 +10,9 @@ sources:
 
 A publication gives a [durable actor](actors.md) a secret name that peers can
 fetch: the swiss number in a sturdyref, the saved reference a peer uses to
-reach an object later. The name is saved on disk, so a sturdyref keeps
-working after a restart. Nothing loads at startup, and a fetch wakes only the
-actor it names.
+reach an object later. The name is saved on disk. Reopening the same store
+under the same peer identity lets peers fetch it after a restart. A fetch
+loads only the actor it names.
 
 ## Serving names
 

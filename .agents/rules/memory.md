@@ -11,8 +11,8 @@ paths:
 
 Every allocation or copy on the wire path is forbidden, named, or measured, and
 forbidden is the default. Naming one means re-deriving it against the full
-option set: one durable owner may hold the value, and a prerelease world is
-yours to change ([prerelease](prerelease.md)). A negligible cost off the wire
+option set, including retaining the value through one durable owner.
+Handle contract changes under the [alpha policy](prerelease.md). A negligible cost off the wire
 path, paid so sibling fronts keep one contract, earns its name more easily than
 a micro-saving earns an asymmetry.
 

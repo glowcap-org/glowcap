@@ -261,10 +261,11 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 - **Authorization and rate.** glowcap checks only that a caller holds the
   capability it calls. Who receives one, how often a holder may call, and how
   long a call may take are the program's to decide, above the library.
-- **A person's identity, and the front door.** glowcap proves which key a
-  peer holds on a sealed transport, and only the session key on a cleartext
-  one. Who gets a key, and what proof the door asks for, is the
-  application's ([What about identity?](https://glowcap.org/identity/)).
+- **A person's identity, and the front door.** Noise and iroh prove possession
+  of a peer key. Other transports provide the assurances listed in
+  [transport limitations](boundaries.md#transports-and-peer-identity).
+  The application decides who receives a capability and what proof to require
+  ([What about identity?](https://glowcap.org/identity/)).
 - **An agent talked into using its key.** A narrow capability limits what a
   misled agent can reach. Whether the agent uses it well is up to the agent
   and its owner.

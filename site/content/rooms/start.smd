@@ -12,11 +12,9 @@ another device.
 
 # Start Rooms
 
-Rooms is two parts. The page is the app, and it is
-[on this site]($link.siteAsset('rooms/app/index.html')). The server runs on
-your machine: it hosts the directory your rooms live in, and it is how other
-people reach you. The page is nothing to install, and the server is one
-command.
+Rooms runs in [your browser]($link.siteAsset('rooms/app/index.html')). For
+this walkthrough, run a Rooms server on your machine to host the rooms you
+and another person will join.
 
 Install the [CLI + Rooms product](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)
 and start the server. The installer verifies the release checksum, and the
@@ -40,8 +38,9 @@ The page also works on its own.
 [Open it]($link.siteAsset('rooms/app/index.html')), and its first screen
 names the Rooms server it will use. With none, it offers **Choose…**: paste the
 **web ui** address your server printed, press **Test**, then **Save**. The same
-choice is in Settings, under **Connection**, and this browser keeps it. A
-directory that declares a sealed relay door is reached without one.
+choice is in Settings, under **Connection**, and this browser keeps it. If
+the directory's address includes `noise-relay`, your browser can connect
+without a Rooms server.
 
 The **web ui** address is also that same page, served by your server itself,
 for a machine that cannot reach this site. A browser keeps a session per

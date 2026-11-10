@@ -145,10 +145,11 @@ it stands.
 
 ## Prerelease
 
-Rooms ships from this repository at a Git commit. There is no published
-versioned package or application image. The server, session, and archive
-stores accept their current schema and refuse an older one. A release names
-its commit, the checks that passed, and any state reset that commit requires.
+Rooms ships with the [glowcap product](host.md) and as a
+[container image](web/deploy/README.md). Its storage formats follow the
+[alpha release policy](../../docs/maintaining.md#release-status).
+The server, session, and archive refuse unsupported schemas. Read the
+release notes and back up stopped state directories before upgrading.
 
 Project provenance and upstream-contact policy live in
 [`PROVENANCE.md`](../../PROVENANCE.md).

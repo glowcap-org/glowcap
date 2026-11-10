@@ -6,9 +6,9 @@ sources: []
 
 # Known limitations
 
-Pin a commit, because APIs, ABIs, and prerelease store formats have no
-compatibility guarantee. A limitation here describes current behavior, not
-acceptance of it as the goal.
+Pin a release or commit and follow the
+[alpha upgrade policy](maintaining.md#release-status). The constraints below
+can affect which API or transport you choose and where you deploy it.
 
 ## Protocol draft coverage
 
@@ -107,8 +107,8 @@ recognized-failure syntax remain unsupported
 ### Loam storage
 
 - **A lost reply does not mean an aborted change.** Pending calls and replies
-  are not durable. Behaviors perform no outside effects, and applications own
-  durable effect receipts and restart recovery
+  are not durable. Behaviors must keep outside effects out of their transaction
+  logic. Applications own durable effect receipts and restart recovery
   ([C and Rust](loam/c-and-rust.md#work-after-a-receipt-commits)).
 - **An unknown commit outcome blocks other work** until
   [recovery](loam/store.md#when-a-writes-outcome-is-unknown) establishes it.

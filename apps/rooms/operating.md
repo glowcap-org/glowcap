@@ -169,8 +169,8 @@ asks when you enter a room whose log is empty, and shows the answer under a
 divider naming the room as the keeper.
 
 - For a file message, history keeps the caption text and not the file.
-- Direct messages never reach the server. They go to the archive the reader
-  chose, which is their browser by default.
+- Room history excludes direct messages. A member's chosen archive keeps
+  them, in their browser by default.
 
 **Limits.** One room keeps at most <!-- value rust/application/src/server/history.rs LINES_KEPT -->500<!-- /value --> lines. The whole server keeps at
 most <!-- value rust/application/src/server/history.rs LINES_KEPT_TOTAL -->4,096<!-- /value --> lines across

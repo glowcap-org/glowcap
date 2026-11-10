@@ -6,9 +6,10 @@ sources: []
 
 # What you can depend on
 
-glowcap has no stable release yet. Some checks run on every main or dev push,
-and others need external runtimes or network access, so they run on demand.
-None is a compatibility or security promise.
+A passing check covers the commit and configuration it exercised. Some
+checks run in CI, while others need external runtimes or network access and
+run on demand. The [release policy](maintaining.md#release-status) covers
+compatibility and upgrades.
 
 ## Checks by area
 

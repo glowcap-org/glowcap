@@ -20,8 +20,11 @@ Rooms runs on Linux and macOS hosts and in Chromium-class browsers. One Rust
 implementation runs every Rooms service and the browser application, and
 TypeScript draws the page.
 
-Windows, file locking on other filesystems, and reaching a public Tor circuit
-are untested, and no throughput or latency figure is published.
+Windows and file locking on other filesystems are untested. Tor check
+coverage is listed in [stability](../../docs/stability.md#checks-by-area).
+No end-to-end Rooms throughput or latency result is published. The
+[session cost report](../../bench/rooms/session-costs.md) records component
+measurements.
 
 [Install glowcap](host.md#install) says how the macOS packages are signed and
 what to do when macOS refuses one.

@@ -37,11 +37,16 @@ the choice.
 
 ## Release status
 
-glowcap is an Apache-2.0 alpha. A public repository or a tagged archive
-does not promise API, ABI, or storage compatibility. Release publication
-accepts only `0.x.y` versions and marks each GitHub release as a prerelease,
-without assigning it the latest stable release label. A stable release
-requires a deliberate change to this policy and its workflow checks.
+glowcap publishes Apache-2.0 alpha releases. APIs, ABIs, and storage formats
+can change in a minor or patch release before 1.0. Each release's changelog
+must identify breaking changes and the action a user needs to take, including
+any required state reset. Users should pin a release or commit and back up
+stored data before upgrading. A reset is an explicit operator action.
+
+Release publication accepts only `0.x.y` versions and marks each GitHub
+release as a prerelease, without assigning it the latest stable release
+label. A stable release requires a deliberate change to this policy and its
+workflow checks.
 
 Registry identities live in
 [binding packaging](../bindings/PACKAGING.md#package-ownership), and

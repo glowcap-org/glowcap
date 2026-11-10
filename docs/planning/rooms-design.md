@@ -23,11 +23,14 @@ a second parent or authority map.
 This is Rooms behavior carried by OCapN capabilities. OCapN defines no roles,
 grant ledgers, invitation policies, or account permissions, and no new CapTP
 message, codec rule, identity registry, or transport privilege is needed.
-Rooms is unreleased, so no current API, wire method, policy tier, or stored
-format is preserved. Stored state keeps schema version 1 under the
-[prerelease rule](../../.agents/rules/prerelease.md), and reset is an operator
-action, never a loader that converts invalid state into empty or privileged
-authority.
+
+Rooms ships in glowcap's alpha releases. The
+[alpha policy](../maintaining.md#release-status) permits API, wire method,
+policy, and storage changes with release notes that explain required action.
+Stored state keeps schema version 1 under the
+[prerelease rule](../../.agents/rules/prerelease.md). A required reset is an
+explicit operator action. A loader never converts invalid state into empty
+or privileged authority.
 
 ## Authority model
 

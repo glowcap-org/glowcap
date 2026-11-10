@@ -34,7 +34,7 @@ await using runtime = await Runtime.open({
 await using session = await runtime.connect(locator("<peer node id>"));
 ```
 
-`Reachability` says how the endpoint is found and how private it is. Every entry point requires it
+`Reachability` selects how peers find the endpoint and whether it uses public discovery or relays. Every entry point requires it
 and none has a default, because only the caller knows what the endpoint needs. See [`mod.ts`](mod.ts)
 for `provider`, `connector`, `listen`, `IrohServer`, and each `Reachability` choice.
 

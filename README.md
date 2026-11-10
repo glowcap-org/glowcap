@@ -13,7 +13,9 @@ and CapTP networking with [Loam](https://github.com/glowcap-org/glowcap/blob/mai
 durable actor system. Applications control memory, I/O, and scheduling.
 
 **0.1.6 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
-change before 1.0. glowcap has not received an independent security audit.
+change before 1.0, including in patch releases. Pin a release or commit and
+read the [changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md) before upgrading.
+glowcap has not received an independent security audit.
 Read [what ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md) and the [known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md)
 before depending on it.
 
@@ -41,8 +43,8 @@ curl -fsSL https://glowcap.org/install.sh | sh
 ```
 
 To install by hand, download the **CLI + Rooms** product from
-[GitHub Releases](https://github.com/glowcap-org/glowcap/releases). It holds
-the CLI, Rooms, browser assets, and agent skills, in
+[GitHub Releases](https://github.com/glowcap-org/glowcap/releases). It includes
+the CLI, Rooms, browser assets, and agent skills in
 `glowcap-vVERSION-ARCH-OS.tar.gz`. The `glowcap-c-` archives are the separate
 [C SDK](https://github.com/glowcap-org/glowcap/blob/main/docs/c-sdk.md) for building applications. The
 [installation guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md) covers verification and installation,
@@ -189,8 +191,8 @@ transport, binding, and Loam costs with their workloads and methods.
 The interoperability checks use the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and live sessions
 with [Spritely Goblins](https://spritely.institute/goblins/) on Racket: cleartext `tcp`
-through a testing netlayer glowcap supplies on every push, and Tor onion, the
-netlayer Goblins ships, on demand.
+through a testing netlayer glowcap supplies in full CI validation, and Tor
+onion, the netlayer Goblins ships, on demand.
 The baseline is CapTP 1.0 encoded in Syrup, the wire Goblins and the pinned
 suite speak:
 

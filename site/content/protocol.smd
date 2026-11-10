@@ -64,9 +64,9 @@ sends hints only to a partner it already knows is glowcap. With anyone else, an
 onion session runs the baseline.
 
 glowcap sends `op:untag` only to a partner that lists the `untag` feature.
-Application code makes the same calls under either version. The one
-difference is `session.listen`, which accepts a live far object on 1.0 but
-only a far promise on `glowcap-next`.
+Application code uses the same call API under either version.
+`session.listen` accepts a live far object on 1.0 but only a far promise on
+`glowcap-next`.
 
 # Reference descriptors
 

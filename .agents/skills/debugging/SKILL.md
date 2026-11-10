@@ -14,8 +14,8 @@ the assertion each destroy it.
   A gate passes by exit code ([cli rule](../../rules/cli.md#gates)).
 - Reproduce alone and small before changing anything: the narrowest failing
   step, `-Dtest-filter=<name>`, and a deadline around anything that dials. A
-  failure you cannot reproduce alone is not a fact. A flake has a cause, and
-  fixing it fixes a real defect.
+  failure that disappears alone still needs investigation. Preserve the failing
+  run and compare its environment, timing, and shared state with the passing run.
 - For protocol behavior, read `conformance/` (pinned Goblins source, upstream
   suite, draft spec) before designing around the failure.
 

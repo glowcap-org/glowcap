@@ -63,8 +63,8 @@ are checked before anything is allocated, and the same schema checks apply to
 input from Zig, from C or Rust, and from disk.
 
 Each schema supplies code to encode, check, list references, and rebuild the
-object where that applies. Rebuilding gives the same result for the same
-committed input, does no I/O, and has no outside effects. A reference to
+object where that applies. Rebuild functions must give the same result for
+the same committed input, without I/O or outside effects. A reference to
 another peer that cannot be reached is reported as unresolved or broken,
 whichever its field declares, and never turns into the owner's authority.
 

@@ -26,15 +26,13 @@ The fix does not redefine completion.
 
 Read only what the task needs. Start with the smallest authoritative slice,
 widen when a claim depends on another surface, and prefer generated inventories
-or build steps to re-deriving facts by hand. Start a release review with the
-core invariants and failure paths, then follow their consumers outward: a
-review ordered by input class or by code path accepts whatever checks each
-path happens to carry, so start from the rule a decision record states and
-walk every reader of the table it governs, and a probe that runs ahead of the
-shared validator is a finding, not a route. Record
-what each layer's evidence establishes and what remains open before expanding
-to the next layer, because a green gate or one repaired defect does not show
-the design is sound.
+or build steps to re-deriving facts by hand.
+
+For a release review, start with the invariants and failure contracts in the
+owning decision records. Follow every consumer of the state they govern.
+Check that each path uses the shared validator before acting on input.
+Record what the evidence establishes and what remains open before widening
+to the next layer. A passing check establishes only the behavior it exercises.
 
 | If the task touches…                                  | Read first                                                                                                 |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -64,7 +62,7 @@ reason to preserve the first design.
 Fix the cause at its owning seam. Prefer types, shared boundaries, generated
 mirrors, and behavior checks to instructions that callers must remember. Keep
 code, tests, generated state, and living documentation aligned in the same
-change. Apply the [prerelease posture](../../rules/prerelease.md) to unreleased
+change. Apply the [prerelease posture](../../rules/prerelease.md) to alpha
 contracts. A load-bearing decision belongs in an ADR.
 
 Proceed within scope, preserving unrelated work. Scope blockers to their
@@ -80,9 +78,9 @@ earlier in this session, as if someone else wrote it. Answer: <!-- status-allow:
 - **Cause:** Does the change remove the defect's class at its owner, or only
   suppress the observed instance?
 - **Symmetry:** Which other targets, features, transports, directions, and
-  callers share the contract? Exercise the affected sibling paths, and an
-  assertion added on an input path at that input's empty, zero, and largest
-  values through every door that reaches it.
+  callers share the contract? Exercise the affected sibling paths. For a new
+  input assertion, cover empty, zero, and largest values at every entry that
+  reaches it.
 - **Consumers:** What assumed the old ownership, lifetime, format, or refusal <!-- status-allow: workflow sequence -->
   behavior? Compilation alone cannot prove those assumptions still hold.
 - **Truth:** Which docs, examples, generated files, and rules became untrue?
@@ -95,8 +93,8 @@ earlier in this session, as if someone else wrote it. Answer: <!-- status-allow:
   `pub` function lost its last caller? Zig compiles an unused function
   without complaint. `source-check` holds a private function to a caller in
   its file (`checkZigDeadPrivateFns`), so count callers for the `pub` ones
-  with a tree-wide `git grep -w`, because `cli/`, `bench/`, `examples/`,
-  `apps/`, and the bindings compile against the same exports as `test/`.
+  using Serena's reference tools, including `cli/`, `bench/`, `examples/`,
+  `apps/`, and the bindings, which use the same exports as `test/`.
 - **Optimum:** How far is the result from the obvious design the
   [release bar](../../rules/project-values.md#release-bar) describes?
 

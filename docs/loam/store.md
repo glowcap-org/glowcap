@@ -208,9 +208,9 @@ the next one is refused as `ReaderCapacity`.
 `core.backend` derives the worker's read, commit, lookup, and recover from any
 engine once, so an engine implements no record logic. `checkEngine` and
 `checkBackend` refuse at compile time with a message that names the missing
-operation. One suite, `test/loam/core/engine_scenario.zig`, proves an
-engine, and a test root like `test/loam/core/engine_test.zig` is all it takes
-to run it. A refused `close` while a transaction is open is `error.Busy`,
+operation. The shared engine scenarios in `test/loam/core/engine_scenario.zig` exercise
+this contract. A test root such as `test/loam/core/engine_test.zig` runs them
+against an engine. A refused `close` while a transaction is open is `error.Busy`,
 and the engine then starts no new transaction until the close is retried.
 
 A slice that `get` or `next` returns stays valid until the next `get`, `next`,

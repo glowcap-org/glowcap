@@ -69,9 +69,9 @@ can never commit piecemeal.
 
 ## Durability
 
-A commit is durable when it returns. SQLite syncs the write-ahead log at each
-commit, and the engine sets `fullfsync` so macOS flushes the drive's own cache
-with `F_FULLFSYNC`, as LMDB does. Linux builds sync with `fdatasync`.
+A successful commit syncs the write-ahead log before returning. The engine
+sets `fullfsync` so macOS requests a flush of the drive's own cache with
+`F_FULLFSYNC`, as LMDB does. Linux builds sync with `fdatasync`.
 
 ## Commits
 

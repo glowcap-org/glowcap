@@ -9,6 +9,17 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation describes the published alpha, explains release pinning and
+  upgrade precautions, and removes completed publication setup from the
+  roadmap. The website's source quick start uses the checked `main` branch.
+- Public guides explain Rooms connections, sharing, and upgrade recovery, and
+  correct binding and storage contracts. Detailed Zig actor integration lives
+  in the Loam actor guide beside its lifetime rules.
+- The Rooms operations guide keeps long options and links in scrollable
+  examples so they do not widen the page on phones.
+
 ## [0.1.6] - 2026-11-10
 
 ### Added

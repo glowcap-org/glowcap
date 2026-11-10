@@ -54,8 +54,9 @@ flowchart TB
 schema the application declares, plus edges to other records. "This column
 holds that card" is an edge. A strong edge keeps its target alive, and a weak
 edge only points at it. A record marked as a root, such as the board, is kept
-with nothing pointing at it. Anything a root cannot reach through strong
-edges is garbage, which [collection](loam/collection.md) removes.
+with nothing pointing at it. A record unreachable from roots can be
+collected once the running program releases its holds.
+[Collection](loam/collection.md) removes those records.
 
 **Transactions.** Moving a card between columns changes two records, and a
 transaction saves both changes or neither. Each change names the version of
@@ -189,169 +190,10 @@ sleepy actors.
 
 ## Durable actors
 
-### Attaching a store
-
-`hosting.Attachment.create(allocator, &host, &store, behaviors, options)`
-attaches one store to an existing Host. Keep the Host and Store at stable
-addresses and the schema and behavior tables alive until the attachment is
-destroyed. Each `Behavior` pairs a schema and version with a deterministic
-invocation function:
-
-```zig
-fn invoke(call: *hosting.Call, state: core.RecordView,
-    verb: []const u8, args: []const driver.Value) !driver.Value
-```
-
-### What a behavior may do
-
-A simple actor's record holds all of its durable state. The behavior decodes
-the fields it needs and may call `call.replace(payload)` with bytes from
-`call.arena()` or borrowed from the current record. Loam commits that new
-state before it sends the reply, and a behavior error throws it away. The
-record keeps its existing edges.
-
-A behavior has no side effects outside its record, because Loam can throw away
-state that fails to commit but cannot unsend an email. Loam saves records, not
-Zig structs or thread stacks, and it does not sandbox a behavior from the rest
-of the process. A behavior that changes several records uses the hooks
-described under [managed endpoints](loam/access-endpoints.md).
-
-### Restoring and saving references
-
-`attachment.restore(current_record_lease)` turns a rooted actor's record into
-an ordinary Host capability. `attachment.capture(capability)` does the
-reverse for an actor in this attachment: it saves a capability you hold as a
-strong edge. Peers only ever hold capabilities, never record names.
-
-`call.edge(index)` restores the capability an edge stores without loading the
-target's state, so shared references and cycles never force a chain of loads.
-A capability a call returns stays valid until its reply is sent. For
-references to another attachment, another Host, or a remote object, use
-[stored capability fields](loam/references.md). Saving a reference Loam cannot
-restore later is refused. A field marked live holds its capability only until
-the process stops, and refuses use after a restart.
-
-### How a call runs
-
-Eventual calls use the Vat and CapTP promises you already have. When a call
-arrives, Loam copies its plain-data arguments into the call's own bounded
-memory and keeps the original message. Calls to the same sleeping actor share
-one load, each actor's calls run in the order they arrived, and ready calls
-queue on the Vat. Calls from the network resume through `Host.flushSession`,
-so the Host's usual scheduling and session closing still apply.
-
-Your main loop calls `attachment.advance()` and carries out each item from
-`attachment.nextWork()`:
-
-```mermaid
-sequenceDiagram
-    participant Peer
-    participant Host as Existing Host/Vat
-    participant Loam as Loam attachment
-    participant Worker as Your storage worker
-    Peer->>Host: eventual call
-    Host->>Loam: queue the call
-    Loam->>Worker: nextWork: read
-    Worker->>Loam: completeRead
-    Loam->>Host: advance: run the call
-    Host->>Loam: behavior returns new state and a reply
-    Loam->>Worker: nextWork: write
-    Worker->>Loam: completeWrite: committed
-    Loam->>Host: advance: resolve the promise
-    Host->>Peer: reply
-```
-
-The worker follows these rules:
-
-- It receives borrowed read requests and write batches and answers through
-  `attachment.completeRead` or `completeWrite` on the thread that owns the
-  attachment. It never calls into the Host.
-- If a write's outcome is unknown, the store refuses other work. Once every
-  other request has finished, the worker's next request is the attachment's
-  `recoveryBatch`, and completing it calls `attachment.resolve`.
-- Host work resumes through your usual loop. Purely local calls keep running
-  through the Vat's own bounded drive.
-
-The [actor process test](../test/loam_actors_crash.zig) runs a call, its
-commit, and a reopen on each disk engine.
-
-### Call memory
-
-Each call reserves its byte allowance when it arrives but allocates only as it
-needs to. Its arguments and its working memory share that one limit, including
-allocator overhead. Reply data borrows the call's memory until the reply is
-sent, and callbacks from C or Rust copy their output before returning. When a
-newer commit makes the call run again, Loam frees its working memory and keeps
-its arguments, with the capabilities they hold.
-
-### Near calls and capability arguments
-
-A near call, one made directly instead of through a promise, to a read-only
-actor whose state is in memory borrows the cache. A near call to an actor
-whose state is on disk returns `ResidencyRequired` without starting a read, so
-use an eventual call, or call `prefetch` and wait first. A near call that
-would change state or forward a call returns `DurableTurnRequired`, because
-only an eventual call can hold the target and deliver the reply.
-
-`Host.callLocalCapability` queues a local call on the Vat, and capabilities
-nested in its arguments and results keep their identity with no session
-involved. A queued call still runs if its caller stops waiting. Loam prepares
-the reply before it replaces state or resolves a deferred promise. A reply
-too large for its fixed allowance reports `ReplyCapacity`, and a failed heap
-allocation reports `OutOfMemory`. Either way the deferred promise stays open
-and can take a different reply.
-
-Plain local Vat calls answer with plain values. The Host and CapTP paths
-accept capabilities nested in arguments and keep them while a call reads,
-runs again, and replies. A capability a call receives is not saved on its own.
-`capture` saves one that points into the same attachment, and
-`hosting.references.beginSave` saves a local or remote reference it can check.
-Raw local Vat references and handoffs (references introduced by a third peer)
-are unsupported as arguments. Outside a
-call, a transaction can change edges with `capture` while no actor calls are
-waiting.
-
-### Work after a receipt commits
-
-A Zig content callback can reserve follow-up work: a call it will make on a
-target, once the receipt for the original action commits. A confirmed commit
-starts that work, and an unknown commit holds it until recovery decides. The
-reservation keeps its own copy of the action and the capabilities it needs,
-under its own memory allowance, and holds no Store lease while it waits. The
-application's receipt, not the reply, says whether the effect happened. The
-[Rooms effect guide](rooms/session-effects.md) describes the executor's
-failure results (`unsent` and `unknown`), cancellation, and recovery.
-
-### Sleeping
-
-`attachment.sleep(capability)` drops an actor's state from memory while its
-capability keeps working. `pin` returns a Store lease, and a pin or a waiting
-call keeps an actor awake. By default the cache keeps busy records and drops
-the least recently used ones that are allowed to sleep.
-`sleep_policy = .every_turn` puts an actor to sleep after every call, which
-is useful in tests. Sleeping is neither
-deletion nor revocation. Once nobody holds a capability to an actor, the Vat
-frees its endpoint as usual, so stored objects alone take no endpoints.
-
-### Capacity and cost
-
-Attachment options limit the number of endpoints, the number of waiting
-calls, each call's memory, and the total memory of waiting calls. Each
-session, and local calls together, also get their own count and byte limits,
-taken from the Vat's queue limits and counted apart from its run queue. The
-cache, pending writes, endpoint bookkeeping, capabilities the Host holds, and
-engine and OS pages are separate costs.
-
-Call lookups scan bounded tables, and keeping each actor's calls in order
-can cost time quadratic in the call table's size. A cache or endpoint lookup
-is one hash probe, and a commit checks the cache's slots against the records
-it changed. Measure before raising these limits.
-
-### Durable names and shutdown
-
-[Durable names](loam/publications.md) covers fetching an actor by name,
-retiring a name, how long the index keeps entries, and destroying an
-attachment.
+The [durable actor guide](loam/actors.md#zig-integration) covers attachment
+setup, call memory, reference arguments, storage work, and shutdown. The
+[first example](#a-first-durable-actor) above shows the complete startup,
+call, and restart sequence.
 
 ## Modules
 
@@ -374,7 +216,7 @@ records, never process pointers or allocator state.
 
 **What a crash can lose.** Waiting calls and replies are lost when the process
 dies, and a write can commit even though its caller never hears back. A
-caller that retries then repeats the change. Managed access keeps receipts so
+retry can repeat the change. Managed access keeps receipts so
 a retry finds the original result, as
 [retrying mutations](loam/access.md#retrying-mutations) describes. Any other
 actor must make its own methods safe to retry.

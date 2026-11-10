@@ -58,8 +58,8 @@ records. The content's schema picks one `ContentBehavior` for the call.
   from them stay valid until each call finishes. Keep the rest of the Service
   configuration unchanged while calls are waiting.
 
-The `requirement` callback, which has no side effects, declares the
-permissions the call needs and every committed fact it depends on.
+The `requirement` callback declares the permissions the call needs and every
+committed fact it depends on. It must cause no side effects.
 `ContentInvocation` pairs the chosen content with the resource's identity,
 kind, object, and owner revision. A local dependent call describes its
 target, and a forwarded call describes only the source passing it on.
@@ -123,8 +123,8 @@ A capability argument only names a resource and allows nothing. Permission
 always comes from the call's own grants.
 
 The attachment commits the content before it sends the reply. Callbacks are
-trusted Zig code with no outside effects that gives the same result for the
-same input, and the API does not sandbox them.
+trusted Zig code. They must give the same result for the same input and
+cause no outside effects. The API does not sandbox them.
 
 ## Control endpoints
 

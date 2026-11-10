@@ -21,15 +21,12 @@ If you prefer another language, choose its guide:
 
 # [Run a complete example]($section.id('run-a-complete-example'))
 
-Clone the project and install its pinned Zig compiler under your home
-directory. On Linux or macOS you need Git, Python 3, Bash, curl, tar, and xz
-support, and the installer verifies its download. On Windows, enable Developer Mode and
-configure Git to preserve symlinks first, as
-[Get a working checkout](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#get-a-working-checkout)
-explains.
+On Linux or macOS, clone `main` and install its pinned Zig compiler under
+your home directory. You need Git, Python 3, Bash, curl, tar, and xz support.
+The installer verifies the compiler download.
 
 ```sh
-git clone https://github.com/glowcap-org/glowcap.git
+git clone --branch main https://github.com/glowcap-org/glowcap.git
 cd glowcap
 ZIG_INSTALL_DIR="$HOME/.local/zig" bash .devcontainer/image/zig.sh
 export PATH="$HOME/.local/zig:$PATH"

@@ -38,7 +38,10 @@ its own capability, reached from the board:
 
 Changes go through `mutate(sequence, verb, ...)`, with a sequence number the
 client takes from `mutation-sequence()` first. A client that retries a change
-after a lost reply sends the same number, and the change happens once.
+after a lost reply sends the same number. While its receipt remains available,
+Loam returns the recorded result without applying the change again.
+[Receipt retention](../../docs/loam/access.md#retrying-mutations) bounds that
+retry window.
 
 - `mutate(n, "add", text)` on a list adds a task to its end and replies with
   the new task's capability. A board holds up to 16 lists, a list up to 256
