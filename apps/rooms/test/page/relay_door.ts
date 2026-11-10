@@ -30,7 +30,8 @@ import { serveStaticExport } from "../support/static_host.ts";
 import { spawnWeb, webPort } from "../support/web_front.ts";
 import { fillSettled, openDirectoryCard, reachDirectoryOnCard } from "./harness.ts";
 
-export async function run(browser: Browser): Promise<void> {
+/** `at` takes the name of each part as it starts, for the proof's deadline. */
+export async function run(browser: Browser, at: (part: string) => void): Promise<void> {
 	// Its own front and room, so the only thing the page shares with the server
 	// it reaches is the door that server declared.
 	const front = spawnWeb({
@@ -42,9 +43,11 @@ export async function run(browser: Browser): Promise<void> {
 	const host = await serveStaticExport();
 	const bare = await browser.newContext();
 	try {
+		at("starting the front with a relay door");
 		const port = await webPort(front);
 		const address = await roomLocator(port, "the front with a relay door");
 		const open = await bare.newPage();
+		at("reaching the directory through its relay door");
 		await open.goto(`${host.origin}/`);
 		await establishLocalSession(open);
 		await fillSettled(open, "#joinAddressField", address);
@@ -68,6 +71,7 @@ export async function run(browser: Browser): Promise<void> {
 		}
 		// The room's card names its directory, and that directory's card says
 		// the route.
+		at("opening the directory's card");
 		await open.click("#roomAbout");
 		await open.click("#convcardDir", { timeout: 10_000 });
 		await open.waitForFunction(() => location.pathname === "/directory", { timeout: 10_000 }).catch(() =>
@@ -85,8 +89,11 @@ export async function run(browser: Browser): Promise<void> {
 				}`,
 			)
 		);
+		at("re-routing the held directory through its bare relay door");
 		await reroutesHeldDirectory(open, host.origin, address);
+		at("naming a relay door nothing answers at");
 		await deadDoorsAreNamed(await bare.newPage(), host.origin, address);
+		at("attaching to a shared session through its relay door");
 		await attachesThroughRelayDoor(browser, `http://127.0.0.1:${port}`, host.origin);
 	} finally {
 		await bare.close();
