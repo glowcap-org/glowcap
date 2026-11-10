@@ -6,8 +6,11 @@
 // and `/` a composer command. A sigil only triggers at the start of the token
 // under the caret, so `mail@host` and `10:30` stay plain text. `:` waits for one
 // valid shortcode character, so a clause-ending colon or `:)` stays quiet.
-// `/link` and `/join` also complete a listed room name as their argument,
-// without needing `#`.
+// A command's argument completes without its sigil too: a listed room name
+// after `/join`, a listed room this tab is in after `/link`, a person after
+// `/msg`, `/invite`, `/kick`,
+// `/whois`, `/ignore` or `/unignore`. Written out in full, that argument is
+// the whole instruction, so its row hands Enter back to sending.
 
 import { type CommandHere, commandIn, held, hereOf } from "./commands.ts";
 import { MENTION_QUERY, ROOM_MENTIONS_OFFERED } from "./text.ts";
@@ -25,8 +28,11 @@ export interface Trigger {
 	/** Index of the sigil in the text. Replacement spans [start, caret). */
 	start: number;
 	query: string;
-	/** A room name after `/link` or `/join`, written without `#`. */
+	/** A name written without its sigil, so accepting it inserts none. */
 	bare?: true;
+	/** The argument of a command, as the registry declares it. A name written
+	 * out in full here is the whole instruction. */
+	argument?: true;
 }
 
 const NAME_QUERY = /^[\w-]*$/;
@@ -82,29 +88,50 @@ export function nickSource(
 	return [...names];
 }
 
-/** A listed room name as the argument of `/link` or `/join`.
+/** Which room names a `#` or a room argument completes against, here.
  *
- * `#lobby` still works, so does `lobby` without the hash. `/link` with nothing
- * after it is this room, so the list stays down until a name is started,
- * taking Enter for a row would steal the send that mints this room's link.
- * `/join` needs a destination, so an empty argument offers the listed rooms. */
+ * `/link <room>` answers only for a listed room this tab is in, so it offers
+ * those (`linkable`). Everything else that names a room, `/join` and a `#` in
+ * a sentence, offers the directory's live list. */
+export function roomSource(
+	trigger: Trigger | null,
+	draft: string,
+	liveRooms: LiveRooms,
+	linkable: readonly string[],
+): readonly string[] {
+	if (trigger?.kind !== "room") return [];
+	if (trigger.argument === true && commandIn(draft)?.command.name === "link") return linkable;
+	return liveRoomNames(liveRooms);
+}
+
+/** The argument of a command that takes a room or a person.
+ *
+ * `#lobby` still works, so does `lobby` without the hash, and `@alice` or
+ * `alice` after `/kick` the same way. A command whose bare form means
+ * something (`/link` is this room, `/ignore` lists) keeps the list down until
+ * a name is started: taking Enter for a row would steal that send. One that
+ * needs a destination offers the whole list on an empty argument. */
 export function commandArgTrigger(text: string, caret: number): Trigger | null {
 	const named = commandIn(text);
-	if (named?.command.argument !== "room") return null;
+	const argument = named?.command.argument;
+	if (named == null || argument == null) return null;
 	const head = text.match(/^\/[\w-]+\s+/);
 	if (head === null) return null;
 	const start = head[0].length;
 	if (caret < start) return null;
 	const token = text.slice(start, caret);
 	if (token.includes(" ") || token.includes("/") || token.includes(":")) return null;
-	if (token.startsWith("#")) {
+	const kind = argument === "room" ? "room" : "nick";
+	const sigil = kind === "room" ? "#" : "@";
+	const shape = kind === "room" ? NAME_QUERY : MENTION_QUERY;
+	if (token.startsWith(sigil)) {
 		const query = token.slice(1);
-		if (!NAME_QUERY.test(query)) return null;
-		return { kind: "room", start, query };
+		if (!shape.test(query)) return null;
+		return { kind, start, query, argument: true };
 	}
-	if (!NAME_QUERY.test(token)) return null;
+	if (!shape.test(token)) return null;
 	if (token === "" && named.command.needsArgument !== true) return null;
-	return { kind: "room", start, query: token, bare: true };
+	return { kind, start, query: token, bare: true, argument: true };
 }
 
 /** One row the list offers: what accepting it puts in the draft in place of
@@ -126,10 +153,11 @@ export interface Candidate {
 	/** Whether Enter still belongs to the list rather than to sending.
 	 *
 	 * True for every row that has something left to offer: more of a name than
-	 * is typed, or a command's argument. It goes false only for a whole command
-	 * that needs nothing after it, where the row is showing the reader what they
-	 * have already written and taking their Enter for it would be a surprise.
-	 * Tab accepts a row either way. */
+	 * is typed, or a command's argument. It goes false for a whole command that
+	 * needs nothing after it, and for a command's argument written out in full,
+	 * where the row is showing the reader what they have already written and
+	 * taking their Enter for it would be a surprise. Tab accepts a row either
+	 * way. */
 	keepsEnter: boolean;
 }
 
@@ -228,7 +256,7 @@ export function completeCandidates(
 			});
 		}
 	} else {
-		const sigil = trigger.kind === "nick" ? "@" : trigger.bare === true ? "" : "#";
+		const sigil = trigger.bare === true ? "" : trigger.kind === "nick" ? "@" : "#";
 		// The room's own names sit among the members, because that is where a
 		// reader reaches for them. Labelled apart, though: calling everyone is not
 		// the same act as calling one person, and the list should say so before the
@@ -260,8 +288,16 @@ export function completeCandidates(
 				score: score + (after ? 1 : 0),
 				// A name is a word inside a sentence rather than an instruction, so
 				// its row keeps Enter even when the name is written out: what follows
-				// it is the rest of what the reader was saying.
-				candidate: { kind: trigger.kind, insert: `${sigil}${name} `, label: says, hint, keepsEnter: true },
+				// it is the rest of what the reader was saying. As a command's
+				// argument it is the instruction, and written out in full the row
+				// would only hand back what is already on screen, so Enter sends.
+				candidate: {
+					kind: trigger.kind,
+					insert: `${sigil}${name} `,
+					label: says,
+					hint,
+					keepsEnter: !(trigger.argument === true && query === name.toLowerCase()),
+				},
 			});
 		}
 	}
@@ -278,12 +314,13 @@ export function composerCandidates(
 	reachable: ReadonlySet<string>,
 	you: string,
 	members: ReadonlyMap<string, unknown>,
-	liveRooms: LiveRooms,
+	/** What a `#` or a room argument completes against: `roomSource`'s answer. */
+	rooms: readonly string[],
 ): readonly Candidate[] {
 	if (trigger === null || trigger.start === dismissedAt) return [];
 	return completeCandidates(trigger, {
 		nicks: nickSource(trigger, conv, draft, reachable, you, members),
-		rooms: trigger.kind === "room" ? liveRoomNames(liveRooms) : [],
+		rooms,
 		grants: conv?.type === "room" ? conv.grants : undefined,
 		here: hereOf(conv),
 		targets: commandIn(draft)?.command.targets,

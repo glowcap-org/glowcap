@@ -6,7 +6,10 @@ use super::{
 	faces::{link_face, shown, stewardship_rows},
 	journal::Journal,
 };
-use crate::server::{directory::Directory, links::Authority, rooms::Rooms};
+use crate::{
+	room::stewardship::Kind,
+	server::{directory::Directory, links::Authority, rooms::Rooms},
+};
 use alloc::{format, string::String, vec::Vec};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,7 +37,7 @@ pub struct View<'a, C, R> {
 
 pub fn snapshot<C: Copy + Ord, R: Clone>(
 	view: &View<'_, C, R>,
-	steward_link: impl Fn(&str) -> Option<String>,
+	link: impl Fn(Kind, &str) -> Option<String>,
 ) -> Vec<Row> {
 	let mut rows = Vec::new();
 	let mut row = |kind: &'static str, name: String, note: String| rows.push(Row { kind, name, note });
@@ -82,12 +85,22 @@ pub fn snapshot<C: Copy + Ord, R: Clone>(
 			format!("{}, durable publication active", face.visibility.name()),
 		);
 	}
-	let stewards = stewardship_rows(view.rooms, view.authority, steward_link);
-	for stewardship in stewards.iter().chain(view.irc.iter().map(|bridge| &bridge.stewardship)) {
+	// The server's rows read "issued" from its authority, since a link that
+	// stands may not route for this caller. An IRC bridge publishes its own.
+	let stewards = stewardship_rows(view.rooms, view.authority, link);
+	let issued = stewards
+		.iter()
+		.map(|own| (own, view.authority.has_steward(&own.name)))
+		.chain(
+			view.irc
+				.iter()
+				.map(|bridge| (&bridge.stewardship, bridge.stewardship.steward.is_some())),
+		);
+	for (stewardship, issued) in issued {
 		row(
 			"moderator",
 			shown(stewardship).into(),
-			if stewardship.issued {
+			if issued {
 				"moderator capability issued".into()
 			} else {
 				"no moderator capability issued".into()

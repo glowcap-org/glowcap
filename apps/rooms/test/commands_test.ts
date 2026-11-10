@@ -12,7 +12,12 @@
 // a wrong flag. So each is asked of every command here.
 
 import { type Command, type CommandHere, type CommandPowers, held, hereOf, known } from "../web/ui/commands.ts";
-import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY } from "../web/ui/commands/targets.ts";
+import {
+	NO_DIRECTORY_TO_GIVE_BACK,
+	NO_LINE_TO_CHANGE,
+	NO_LINE_TO_TAKE_BACK,
+	NOT_ON_A_DIRECTORY,
+} from "../web/ui/commands/targets.ts";
 import { prepareComposerSend } from "../web/ui/composer/send.ts";
 import type { ComposerDraft } from "../web/ui/composer/send.ts";
 import type { Conv } from "../web/ui/conversation.ts";
@@ -130,6 +135,36 @@ Deno.test("the shared composer pipeline interprets slash commands before any con
 	if (themed.kind !== "handled" || theme !== "dark") fail("the shared composer did not run a tab command");
 	const unknown = prepareComposerSend(ROOM, draft("/etc/hosts"), QUIET);
 	if (unknown.kind !== "send" || unknown.text !== "/etc/hosts") fail("unknown slash text stopped being chat text");
+	// A word that looks like a command and is not one is a typo, not a line
+	// for the room to read.
+	const typo = prepareComposerSend(ROOM, draft("/ignored bob"), QUIET);
+	if (typo.kind !== "refused" || !typo.why.includes("/ignored") || !typo.why.includes("/help")) {
+		fail(`a mistyped command reached the room: ${JSON.stringify(typo)}`);
+	}
+	const lone = prepareComposerSend(ROOM, draft("/ 1"), QUIET);
+	if (lone.kind !== "send") fail(`a lone slash stopped being chat text: ${JSON.stringify(lone)}`);
+	// A command glued to what follows it is a slip, not a line for the room.
+	for (const glued of ["/msg@bob hi", "/join#dev", "/help."]) {
+		const slip = prepareComposerSend(ROOM, draft(glued), QUIET);
+		const named = glued.split(" ")[0];
+		if (slip.kind !== "refused" || !slip.why.includes(named)) {
+			fail(`${glued} reached the room instead of being refused: ${JSON.stringify(slip)}`);
+		}
+	}
+});
+
+Deno.test("a command that takes nothing refuses words after it", () => {
+	// `/leave #lobby` typed in another room left that other room. Each of these
+	// acts on the open conversation, so a name after it is a shape the reader
+	// did not mean, and the refusal shows the one they did.
+	const room = { type: "room", grants: new Set() } as unknown as Conv;
+	for (const name of ["leave", "clear", "details", "members", "help", "directories", "quit", "delete"]) {
+		const command = known().find((entry) => entry.name === name) ?? fail(`there is no /${name} command`);
+		const extra = command.run("#lobby", QUIET, room);
+		if (extra.kind !== "refused" || !extra.why.includes(command.usage)) {
+			fail(`/${name} #lobby was not refused with its usage: ${JSON.stringify(extra)}`);
+		}
+	}
 });
 
 /** Powers that answer without acting, for running every command to see what it
@@ -146,14 +181,14 @@ const QUIET: CommandPowers = {
 	ignore: () => {},
 	unignore: () => false,
 	ignored: () => [],
-	editLast: () => false,
-	withdrawLast: () => false,
-	setSubject: () => true,
-	setAway: () => true,
-	invite: () => true,
-	kick: () => true,
-	steward: () => true,
-	roomLink: () => true,
+	editLast: () => NO_LINE_TO_CHANGE,
+	withdrawLast: () => NO_LINE_TO_TAKE_BACK,
+	setSubject: () => null,
+	setAway: () => null,
+	invite: () => null,
+	kick: () => null,
+	steward: () => null,
+	roomLink: () => null,
 	standingHere: () => "",
 	directories: () => [],
 	granted: () => NO_GRANTS,
@@ -289,7 +324,7 @@ Deno.test("bare /away steps out when you are here, and comes back when you are n
 		setAway: (why) => {
 			told.push(why);
 			standing = why;
-			return true;
+			return null;
 		},
 	};
 	// The only thing `/away` reads about where it was typed is that it is a room.
@@ -335,7 +370,7 @@ Deno.test("handing a room or a line to yourself is refused before any line opens
 		you: () => "Alice",
 		invite: (who) => {
 			invited = who;
-			return true;
+			return null;
 		},
 		directMessage: (who) => {
 			messaged = who;
@@ -366,7 +401,7 @@ Deno.test("a room-wide word is refused as a person to message or invite", () => 
 		...QUIET,
 		invite: (who) => {
 			invited = who;
-			return true;
+			return null;
 		},
 		directMessage: (who) => {
 			messaged = who;
@@ -449,10 +484,10 @@ Deno.test("/link is this room, or a listed name it is given", () => {
 		roomLink: (name) => {
 			if (name === undefined || name === "") {
 				thisRoom++;
-				return true;
+				return null;
 			}
 			named.push(name);
-			return true;
+			return null;
 		},
 	};
 	const link = known().find((command) => command.name === "link") ?? fail("there is no /link command");
@@ -471,6 +506,67 @@ Deno.test("/link is this room, or a listed name it is given", () => {
 		fail(`/link lobby did not name the listed room: ${JSON.stringify(named[1])}`);
 	}
 	if (thisRoom !== 1) fail("a named /link also minted this room");
+	// A hash on its own names nothing. Reading it as "this room" would mint a
+	// link for a typo.
+	const hashOnly = link.run("#", powers, room);
+	if (hashOnly.kind !== "refused" || !/followed by/.test(hashOnly.why)) {
+		fail(`/link # was not refused as a missing name: ${JSON.stringify(hashOnly)}`);
+	}
+});
+
+Deno.test("a command that names one person refuses the words after the name", () => {
+	// Each of these acts on exactly one name, so `/msg alice hello` is a shape
+	// the reader did not mean: acting on "alice" would drop "hello" unseen. The
+	// refusal shows the shape they did mean.
+	const room = { type: "room", grants: new Set(["steward"]) } as unknown as Conv;
+	const acted: string[] = [];
+	const powers: CommandPowers = {
+		...QUIET,
+		directMessage: (who) => {
+			acted.push(`msg:${who}`);
+			return null;
+		},
+		invite: (who) => {
+			acted.push(`invite:${who}`);
+			return null;
+		},
+		kick: (who) => {
+			acted.push(`kick:${who}`);
+			return null;
+		},
+		ignore: (who) => {
+			acted.push(`ignore:${who}`);
+		},
+		unignore: (who) => {
+			acted.push(`unignore:${who}`);
+			return true;
+		},
+		roster: () => [{ name: "alice", online: true, away: "", reachable: true }],
+	};
+	for (const name of ["msg", "invite", "kick", "whois", "ignore", "unignore"]) {
+		const command = known().find((entry) => entry.name === name) ?? fail(`there is no /${name} command`);
+		const extra = command.run("alice hello there", powers, room);
+		if (extra.kind !== "refused" || !extra.why.includes(command.usage)) {
+			fail(`/${name} alice hello there was not refused with its usage: ${JSON.stringify(extra)}`);
+		}
+		for (const written of ["alice", "@alice", "  @alice  "]) {
+			const one = command.run(written, powers, room);
+			if (one.kind !== "done") fail(`/${name} ${written} did not run: ${JSON.stringify(one)}`);
+		}
+	}
+	if (acted.some((act) => act.includes("@") || act.includes(" "))) {
+		fail(`a power received a sigil or whitespace: ${JSON.stringify(acted)}`);
+	}
+	// A sigil on its own is a name the reader never finished, not an absent
+	// argument: bare /ignore lists, /ignore @ must not.
+	const ignore = known().find((entry) => entry.name === "ignore") ?? fail("there is no /ignore command");
+	const said: string[] = [];
+	const listing = ignore.run("", { ...powers, say: (text) => void said.push(text) }, room);
+	if (listing.kind !== "done" || said.length !== 1) fail(`bare /ignore did not list: ${JSON.stringify(listing)}`);
+	const sigilOnly = ignore.run("@", powers, room);
+	if (sigilOnly.kind !== "refused" || !/followed by/.test(sigilOnly.why)) {
+		fail(`/ignore @ was not refused as a missing name: ${JSON.stringify(sigilOnly)}`);
+	}
 });
 
 Deno.test("a directory is a command place, not a direct line", () => {

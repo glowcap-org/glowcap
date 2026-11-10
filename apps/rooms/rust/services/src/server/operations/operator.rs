@@ -7,7 +7,7 @@ mod acts;
 mod batch;
 
 use super::super::{
-	authority, irc,
+	authority, history, irc, rooms,
 	state::{Shared, State},
 };
 use glowcap::{Argument, Session, current_session};
@@ -17,12 +17,13 @@ use rooms_application::{
 	server::{
 		document::MAX_DURABLE_ROOM,
 		operations::{
-			faces::stewardship_rows,
+			faces,
 			journal::Journal,
 			operator::{
 				self, Category, MAX_PAGE, ResetScope, SnapshotAsk, inventory::View, page, read_snapshot, rows, verbs,
 			},
 		},
+		rooms::Mutation,
 	},
 };
 use rooms_glowcap::Value;
@@ -77,7 +78,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 			verbs::REVOKE_ROOM_LINK => {
 				let name = operator::one_text(&values, "revokeRoomLink takes one room name")?;
 				let state = shared.borrow();
-				let name = named_room(&state, &name)?;
+				let name = owned_room(&state, &name)?;
 				let token = state
 					.links
 					.swiss(Kind::Room, &name)
@@ -103,7 +104,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 			verbs::REVOKE_NICK => {
 				let (nick, id) = operator::two_texts(&values, "revokeNick takes a nickname and session id")?;
 				let mut state = shared.borrow_mut();
-				acts::revoke_nick(&mut state, &nick, &id)?;
+				acts::revoke_nick(&mut state, connection, &nick, &id)?;
 				Ok(Argument::Void)
 			}
 			verbs::DISCONNECT_SESSION => {
@@ -133,25 +134,29 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 				let scope = ResetScope::parse(&scope).ok_or("unknown operator reset scope")?;
 				batch::reset(&shared, connection, scope)
 			}
-			verbs::GIVE_STEWARD => {
-				let name = operator::one_text(&values, "giveSteward takes one durable room name")?;
+			verbs::GIVE_STEWARD | verbs::ISSUE_MANAGER => {
+				let kind = link_kind(verb);
+				let name = operator::one_text(&values, "issuing a link takes one durable room name")?;
 				let publication = irc::authority::named(&shared.borrow(), &name);
 				if let Some(publication) = publication {
-					return irc::authority::change(&shared, publication, None, true);
+					return match kind {
+						Kind::Steward => irc::authority::change(&shared, publication, None, true),
+						_ => Err(bridge_has_no_manager()),
+					};
 				}
 				let state = shared.borrow();
-				let name = named_room(&state, &name)?;
-				let (held, published) = (name.clone(), name.clone());
-				authority::submit(
-					&state,
-					verbs::GIVE_STEWARD,
-					move |state| Ok(state.authority.remembered(&held, true, false, None)?),
-					move |state, caller| {
-						state.publish_room(&published)?;
-						state.publish_steward(&published)?;
-						stewardship_row(state, &published, caller)
-					},
-				)
+				let name = owned_room(&state, &name)?;
+				issue(&state, kind, name)
+			}
+			verbs::FORGET_ROOM => {
+				let name = operator::one_text(&values, "forgetting a room takes one durable room name")?;
+				let state = shared.borrow();
+				if irc::authority::named(&state, &name).is_some() {
+					return Err(FailureCode::NotSteward
+						.line("An IRC room is run by its bridge. Remove the bridge to forget it."));
+				}
+				let name = owned_room(&state, &name)?;
+				forget(&state, name)
 			}
 			verbs::GIVE_MANAGER => {
 				let identity = operator::one_text(&values, "giveManager takes one room management identity")?;
@@ -159,7 +164,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 					return Err("giveManager takes one room management identity".into());
 				}
 				let state = shared.borrow();
-				let name = state.links.manager_name(&identity)?.to_owned();
+				let name = state.manager_name(&identity)?;
 				let (held, published) = (name.clone(), name.clone());
 				authority::submit(
 					&state,
@@ -172,72 +177,154 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 					},
 				)
 			}
-			verbs::REVOKE_STEWARD => {
-				let name = operator::one_text(&values, "revokeSteward takes one durable room name")?;
+			verbs::REVOKE_STEWARD | verbs::REVOKE_MANAGER => {
+				let kind = link_kind(verb);
+				let name = operator::one_text(&values, "revoking a link takes one durable room name")?;
 				let publication = irc::authority::named(&shared.borrow(), &name);
 				if let Some(publication) = publication {
-					let token = irc::authority::token(&publication).ok_or_else(|| {
-						FailureCode::NotSteward.line("this IRC room has no issued moderator capability")
-					})?;
+					if kind != Kind::Steward {
+						return Err(bridge_has_no_manager());
+					}
+					let token = irc::authority::token(&publication)
+						.ok_or_else(|| FailureCode::NotSteward.line("This IRC room has no issued moderator link."))?;
 					return irc::authority::change(&shared, publication, Some(token), true);
 				}
 				let state = shared.borrow();
-				let name = named_room(&state, &name)?;
-				if !state.authority.has_steward(&name) {
-					return Err(FailureCode::NotSteward
-						.line(format_args!("Room \"{name}\" has no issued moderator capability.")));
-				}
-				let token = state
-					.links
-					.swiss(Kind::Steward, &name)
-					.ok_or_else(|| format!("Room \"{name}\" has no published moderator capability."))?
-					.to_owned();
-				let held = token.clone();
-				authority::submit(
-					&state,
-					verbs::REVOKE_STEWARD,
-					move |state| {
-						let name = state.links.resolve(Kind::Steward, &held)?;
-						Ok(Some(state.authority.with_steward_revoked(&name)?.0))
-					},
-					move |state, caller| {
-						let name = state.links.resolve(Kind::Steward, &token)?;
-						state.unpublish(Kind::Steward, &name);
-						state.authority_ended(&name, Kind::Steward, &token);
-						stewardship_row(state, &name, caller)
-					},
-				)
+				let name = owned_room(&state, &name)?;
+				revoke(&state, kind, &name)
 			}
 			_ => Err(format!("Rooms operator has no method {verb}")),
 		}
 	}
 }
 
-/// The durable name the operator verbs act on: a live room's, or one this
-/// server made durable, matched without regard to case.
-fn named_room(state: &State, asked: &str) -> Result<String, String> {
+/// The link an operator verb issues or revokes.
+fn link_kind(verb: &str) -> Kind {
+	if verb == verbs::GIVE_STEWARD || verb == verbs::REVOKE_STEWARD {
+		Kind::Steward
+	} else {
+		Kind::Manager
+	}
+}
+fn link_word(kind: Kind) -> &'static str {
+	match kind {
+		Kind::Room => "room",
+		Kind::Steward => "moderator",
+		Kind::Manager => "manager",
+	}
+}
+fn bridge_has_no_manager() -> String {
+	FailureCode::NotSteward.line("An IRC room is run by its bridge and takes no manager link.")
+}
+
+/// Issue `kind`'s link for `name`: a fresh generation when none stands, or
+/// the standing one published again when its host publication failed. The
+/// room's own link stands with it, because either link governs a room people
+/// can enter.
+fn issue(state: &State, kind: Kind, name: String) -> Result<Argument, String> {
+	let steward = kind == Kind::Steward;
+	let verb = if steward {
+		verbs::GIVE_STEWARD
+	} else {
+		verbs::ISSUE_MANAGER
+	};
+	let (held, published) = (name.clone(), name);
+	authority::submit(
+		state,
+		verb,
+		move |state| Ok(state.authority.remembered(&held, steward, !steward, None)?),
+		move |state, caller| {
+			state.publish_room(&published)?;
+			if steward {
+				state.publish_steward(&published)?;
+			} else {
+				state.publish_manager(&published)?;
+			}
+			stewardship_row(state, &published, caller)
+		},
+	)
+}
+
+/// Revoke `kind`'s standing link for `name`, so every copy stops at once.
+fn revoke(state: &State, kind: Kind, name: &str) -> Result<Argument, String> {
+	let (verb, held) = match kind {
+		Kind::Steward => (verbs::REVOKE_STEWARD, state.authority.has_steward(name)),
+		_ => (verbs::REVOKE_MANAGER, state.authority.has_manager(name)),
+	};
+	if !held {
+		return Err(
+			FailureCode::NotSteward.line(format_args!("Room \"{name}\" has no issued {} link.", link_word(kind)))
+		);
+	}
+	let token = state
+		.links
+		.swiss(kind, name)
+		.ok_or_else(|| format!("Room \"{name}\" has no published {} link.", link_word(kind)))?
+		.to_owned();
+	let (prepare, commit) = authority::revocation(kind, token.clone(), None);
+	authority::submit(state, verb, prepare, move |state, caller| {
+		let name = state.links.resolve(kind, &token)?;
+		commit(state)?;
+		stewardship_row(state, &name, caller)
+	})
+}
+
+/// Forget `name` entirely: anyone in the live room is removed, every link
+/// the server published for it stops at once, its record goes, and its
+/// name is free. The row answers nothing because there is no row left.
+fn forget(state: &State, name: String) -> Result<Argument, String> {
+	let reserved = history::reserve(state)?;
+	let (prepared, committed) = (name.clone(), name);
+	authority::submit(
+		state,
+		verbs::FORGET_ROOM,
+		move |state| Ok(state.authority.with_room_forgotten(&prepared)?),
+		move |state, _| {
+			let name = committed;
+			// The history slot was reserved before the authority was saved, so
+			// the live room and the lines kept under its key go with no
+			// fallible step left between them and the saved authority.
+			let key = match faces::live_room(&state.rooms, &name) {
+				Some(live) => live.key.clone(),
+				None => rooms::durable_key(&name),
+			};
+			history::mutate_reserved(state, reserved, |rooms| {
+				let effects = rooms.retire_room(&key, acts::ROOM_REMOVED);
+				let persist = rooms.forget_history(&key);
+				Ok(((), Mutation { effects, persist }))
+			})?;
+			for kind in [Kind::Room, Kind::Steward, Kind::Manager] {
+				if let Some(token) = state.unpublish(kind, &name) {
+					state.authority_ended(&name, kind, &token);
+				}
+			}
+			Ok(Argument::Void)
+		},
+	)
+}
+
+/// The durable name an operator verb acts on: a live room's, or one this
+/// server holds a link or record under, matched the way links fold names.
+/// The room list reads the same set, so every row it shows can be acted on.
+fn owned_room(state: &State, asked: &str) -> Result<String, String> {
 	if asked.is_empty() || asked.chars().count() > MAX_DURABLE_ROOM {
-		return Err(FailureCode::NoSuchRoom.line("A moderator capability needs a durable room name."));
+		return Err(FailureCode::NoSuchRoom.line(format_args!("A room name is 1 to {MAX_DURABLE_ROOM} characters.")));
 	}
-	if let Some(live) = rooms_application::server::operations::faces::live_room(&state.rooms, asked) {
-		return Ok(live.durable_name.to_owned());
-	}
-	state
-		.authority
-		.linked_rooms()
-		.find(|name| name.eq_ignore_ascii_case(asked))
-		.map(String::from)
+	faces::owned_name(&state.rooms, &state.authority, asked)
 		.ok_or_else(|| FailureCode::NoSuchRoom.line(format_args!("This server owns no room named \"{asked}\".")))
 }
 
+/// The row `name` answers after a change, listed or not: revoking the last
+/// link of a room nobody is in answers a row with no link and no place in
+/// the inventory.
 fn stewardship_row(state: &State, name: &str, caller: &Session) -> Result<Argument, String> {
-	stewardship_rows(&state.rooms, &state.authority, |name| {
-		state.steward_link_for(name, Some(caller))
-	})
-	.into_iter()
-	.find(|row| row.name.eq_ignore_ascii_case(name))
-	.map(|row| rows::wire_stewardship::<Wire>(&row))
-	.ok_or_else(|| format!("the stewardship of \"{name}\" disappeared while answering"))
+	let row = faces::stewardship_row(
+		&state.rooms,
+		&state.authority,
+		|kind, name| state.held_link(kind, name, Some(caller)),
+		name,
+	);
+	Ok(rows::wire_stewardship::<Wire>(&row))
 }
 
 /// The inventories' view of the live state, for `connection`'s read.
@@ -271,7 +358,7 @@ fn sources(
 	kind: Option<operator::ReferenceKind>,
 ) -> Result<Vec<page::Source<rows::Row, operator::inventory::Act>>, String> {
 	let journal = state.journal.borrow();
-	Ok(view(state, &journal, connection)?.sources(category, kind, &|name| state.steward_link(name)))
+	Ok(view(state, &journal, connection)?.sources(category, kind, &|link, name| state.held_link(link, name, None)))
 }
 
 fn page_of(
@@ -282,7 +369,7 @@ fn page_of(
 ) -> page::Page<rows::Row> {
 	let (cursor, limit, query, kind) = ask;
 	page::query_page(
-		view.sources(category, kind, &|name| state.steward_link(name))
+		view.sources(category, kind, &|link, name| state.held_link(link, name, None))
 			.into_iter(),
 		query,
 		cursor,

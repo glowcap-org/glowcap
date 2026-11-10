@@ -36,7 +36,6 @@ export const EffectSchema = z.object({
 	op: z.string(),
 	text: z.string(),
 	extra: z.optional(z.string()),
-	refusal: z.optional(z.string()),
 });
 export type Effect = z.infer<typeof EffectSchema>;
 
@@ -76,12 +75,6 @@ export function applyCommandPlan(
 	if (plan.kind !== "effect") return plan;
 	const text = plan.text;
 	const say = (message: string) => powers.say(message, conv?.key);
-	const granted = (accepted: CommandResult<boolean>): CommandOutcome => {
-		if (accepted instanceof Promise) return pending(accepted.then(granted));
-		if (accepted) return { kind: "done" };
-		if (plan.refusal === undefined) throw new Error(`Missing Rust refusal for ${plan.op}`);
-		return { kind: "refused", why: plan.refusal };
-	};
 	switch (plan.op) {
 		case "help":
 			say(
@@ -175,11 +168,11 @@ export function applyCommandPlan(
 		case "quit":
 			return committed(powers.quitDirectory(), "directory");
 		case "away":
-			return granted(powers.setAway(text));
+			return committed(powers.setAway(text));
 		case "edit":
-			return granted(powers.editLast(text));
+			return committed(powers.editLast(text));
 		case "delete":
-			return granted(powers.withdrawLast());
+			return committed(powers.withdrawLast());
 		case "showSubject":
 			say(
 				conv?.type === "room" && conv.subject
@@ -188,15 +181,15 @@ export function applyCommandPlan(
 			);
 			break;
 		case "setSubject":
-			return granted(powers.setSubject(text, plan.extra));
+			return committed(powers.setSubject(text, plan.extra));
 		case "roomLink":
-			return granted(powers.roomLink(text === "" ? undefined : text));
+			return committed(powers.roomLink(text === "" ? undefined : text));
 		case "moderator":
-			return granted(powers.steward(text === "" ? undefined : text));
+			return committed(powers.steward(text === "" ? undefined : text));
 		case "invite":
-			return granted(powers.invite(text));
+			return committed(powers.invite(text));
 		case "kick":
-			return granted(powers.kick(text));
+			return committed(powers.kick(text));
 		default:
 			throw new Error(`Unknown Rust command gesture: ${plan.op}`);
 	}

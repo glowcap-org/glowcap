@@ -129,13 +129,7 @@ export function OperatorReferences(
 														</span>
 													)}
 													<div className="actions">
-														<Button
-															variant="quiet"
-															disabled={acts.confirming === key || acts.locked}
-															onClick={() => acts.ask(key)}
-														>
-															Release…
-														</Button>
+														{acts.asker(key, "Release…")}
 													</div>
 												</div>
 												<p className="hint">{row.detail}</p>

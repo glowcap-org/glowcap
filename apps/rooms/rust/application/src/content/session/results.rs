@@ -61,7 +61,6 @@ pub struct Stewardship {
 	pub label: Field,
 	pub visibility: Visibility,
 	pub generation: SafeInteger,
-	pub steward: Option<FieldKey<RoomAccess>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -54,6 +54,7 @@ impl TrustedProxies {
 	pub fn contains(&self, ip: IpAddr) -> bool {
 		self.0.iter().any(|prefix| prefix.contains(ip))
 	}
+	#[cfg(test)]
 	pub fn len(&self) -> usize {
 		self.0.len()
 	}

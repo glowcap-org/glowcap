@@ -3,10 +3,11 @@ import { managedSessionText as managedText } from "../../lib/text/managed_sessio
 
 import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
-import { NO_MEMBERS, type PageProjection, type RoomsServerView, type State } from "./store.ts";
+import { useShallow } from "zustand/react/shallow";
+import { listedRoomsOn, NO_MEMBERS, type PageProjection, type RoomsServerView, type State } from "./store.ts";
 import { serverAskFor } from "../../lib/text/session.ts";
 import type { RoomsPermission } from "../../lib/session_content_data.ts";
-import type { RoomConv, Standing } from "./conversation.ts";
+import type { Conv, RoomConv, Standing } from "./conversation.ts";
 import { archiveShareBearer, roomBearer, type RoomBearerKind } from "./session/bearer.ts";
 import { useManagedSession } from "./session/managed/context.tsx";
 import { conversationById } from "./session/managed/conversation_lookup.ts";
@@ -44,8 +45,11 @@ export function useServerGate(): (need: string, resume?: () => string | null) =>
 /** The bearer string behind a room's authority token, read from the session
  * snapshot as the control draws. The token on the conversation is what moves
  * when the string does, so a control drawing from `conv` reads the current
- * string every time it draws. */
-export function useRoomBearer(conv: RoomConv | null, kind: RoomBearerKind): string | null {
+ * string every time it draws. `undefined` while the read is on its way or
+ * after it failed, and `null` once it answered that there is no string: the
+ * session holds a live reference somebody handed it, or this view may not
+ * share links (a control that says which asks `permits("shareCustody")`). */
+export function useRoomBearer(conv: RoomConv | null, kind: RoomBearerKind): string | null | undefined {
 	const session = useManagedSession();
 	const load = useCallback(() => conv == null ? Promise.resolve(null) : roomBearer(session, conv, kind), [
 		session,
@@ -62,12 +66,15 @@ export function useRoomBearer(conv: RoomConv | null, kind: RoomBearerKind): stri
 }
 
 /** The link behind a lasting archive share, read the same way. */
-export function useArchiveShareBearer(id: string): string | null {
+export function useArchiveShareBearer(id: string): string | null | undefined {
 	const session = useManagedSession();
 	const load = useCallback(() => archiveShareBearer(session, id), [session, id]);
 	return useCustodyRecipe(load, () => session.current?.intent.archiveShares?.find((row) => row.id === id)?.access);
 }
-function useCustodyRecipe(load: () => Promise<string | null>, select: () => string | null | undefined): string | null {
+function useCustodyRecipe(
+	load: () => Promise<string | null>,
+	select: () => string | null | undefined,
+): string | null | undefined {
 	const session = useManagedSession();
 	const projection = useRoomsProjection();
 	// A custody generation identifies an immutable occurrence. Unrelated workspace
@@ -78,14 +85,18 @@ function useCustodyRecipe(load: () => Promise<string | null>, select: () => stri
 		() => JSON.stringify([select(), session.access]),
 		() => "",
 	);
-	const [result, setResult] = useState<{ load: typeof load; revision: string; value: string | null } | null>(null);
+	// A failed read stays unknown: `null` is the session's answer that no text
+	// exists, and a failure is no answer.
+	const [result, setResult] = useState<
+		{ load: typeof load; revision: string; value: string | null | undefined } | null
+	>(null);
 	useEffect(() => {
 		let current = true;
 		void load().then((value) => {
 			if (current) setResult({ load, revision, value });
 		}, (error) => {
 			if (current) {
-				setResult({ load, revision, value: null });
+				setResult({ load, revision, value: undefined });
 				noteTrouble(projection, managedText.capabilityExport, refusalText(error));
 			}
 		});
@@ -93,7 +104,7 @@ function useCustodyRecipe(load: () => Promise<string | null>, select: () => stri
 			current = false;
 		};
 	}, [load, revision, projection]);
-	return result?.load === load && result.revision === revision ? result.value : null;
+	return result?.load === load && result.revision === revision ? result.value : undefined;
 }
 
 /** Subscribe a component to the projection it renders. The selector result is
@@ -122,6 +133,14 @@ export function useSessionPermission(permission: RoomsPermission): boolean {
 	return useRoomsState((state) =>
 		state.managedAccess.status === "active" &&
 		state.managedAccess.effective?.permissions.includes(permission) === true
+	);
+}
+
+/** The listed rooms this tab holds on `conv`'s directory, by name: what
+ * `/link <room>` completes. */
+export function useListedRoomsOn(conv: Conv | null): readonly string[] {
+	return useRoomsState(
+		useShallow((state) => conv == null ? [] : listedRoomsOn(state.convs, conv.dir).map((room) => room.id)),
 	);
 }
 

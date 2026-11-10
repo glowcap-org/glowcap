@@ -1,4 +1,4 @@
-import { spawnWeb, webPort } from "../support/web_front.ts";
+import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 // Two browser tabs direct-message each other over a WebRTC DataChannel, the
 // room carrying only the signaling (ADR-0035, the live handoff-redeem proof).
 // Each tab joins with `?dm=webrtc`, so it advertises a bare
@@ -25,7 +25,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
-import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
+import { acquireTraceCapability, connectTraceViewer } from "../trace/viewer.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
@@ -90,7 +90,7 @@ const web = spawnWeb({
 	stdout: "piped",
 	stderr: "piped",
 });
-const traceRef = scrapeTraceSturdyref(web.stderr);
+const traceRef = webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
 const httpPort = await webPort(web);
 
 let browser: Browser | null = null;

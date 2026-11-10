@@ -121,9 +121,7 @@ pub(super) fn entrance(
 					return Err("managedRoomIdentity takes no arguments".into());
 				}
 				let durable = durable_name(&state, &entrance);
-				let identity = state.authority.manager_identity(&durable);
-				state.links.cache_identity(&durable, identity.clone())?;
-				Ok(identity.into())
+				Ok(managed_identity(&state, &durable))
 			}
 			LINK => {
 				if !args.is_empty() {
@@ -141,12 +139,23 @@ pub(super) fn entrance(
 }
 
 fn durable_name(state: &State, entrance: &Entrance) -> String {
+	room_durable_name(state, &entrance.room, entrance.durable.as_deref())
+}
+/// The name a room's links and manager identity are kept under: its durable
+/// name when the live room has one, else the name the caller remembers, else
+/// the live key. The entrance and the seat both file under this one answer.
+pub(super) fn room_durable_name(state: &State, room: &RoomKey, remembered: Option<&str>) -> String {
 	state
 		.rooms
-		.durable_name(&entrance.room)
+		.durable_name(room)
 		.map(String::from)
-		.or_else(|| entrance.durable.clone())
-		.unwrap_or_else(|| entrance.room.as_str().to_owned())
+		.or_else(|| remembered.map(String::from))
+		.unwrap_or_else(|| room.as_str().to_owned())
+}
+/// The manager's public correlator for the room filed under `durable`,
+/// derived from the name, so every later ask answers the same.
+pub(super) fn managed_identity(state: &State, durable: &str) -> Argument {
+	state.authority.manager_identity(durable).into()
 }
 
 fn subscribe(

@@ -2,10 +2,7 @@
 //! It contains no bearer codec, grant state, canonical parent or history floor.
 //! Loading these values alone cannot restore any retained application authority.
 use super::custody::{self, Custody, FieldKey, References};
-use crate::{
-	directory::registration::NicknameAllocation,
-	fields::{List, Text},
-};
+use crate::fields::{List, Text};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 mod discovery;
 mod export;
@@ -22,8 +19,10 @@ mod inbox;
 pub use discovery::DiscoverySelection;
 mod nickname;
 mod references;
+mod rows;
 pub use inbox::InboxSelection;
 pub use nickname::RoomNickname;
+pub use rows::{Directory, PostedLine, PublicEntry, Room};
 
 pub const MAX_ID_UNITS: usize = 1024;
 pub type Id = Text<MAX_ID_UNITS, true>;
@@ -33,108 +32,11 @@ pub const MAX_DIRECTORIES: usize = 32;
 pub const MAX_CONVERSATIONS: usize = 256;
 pub const MAX_INVITATIONS: usize = 16;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Directory {
-	pub id: Id,
-	pub access: FieldKey<custody::DirectoryAccess>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<FieldKey<custody::DirectoryName>>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub source: Option<FieldKey<custody::SessionAccess>>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub inbox: Option<FieldKey<custody::DirectoryInbox>>,
-	pub home: bool,
-	pub nick: Text<32>,
-	/// Registration output never replaces the user's requested nickname.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub assigned_nick: Option<Text<32>>,
-	pub nick_allocation: NicknameAllocation,
-	pub standing: Option<Standing>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum Conversation {
 	Room(alloc::boxed::Box<Room>),
 	Direct(alloc::boxed::Box<Direct>),
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Room {
-	pub kind: RoomKind,
-	pub id: Id,
-	pub directory: Id,
-	pub name: Text<32, true>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub source: Option<FieldKey<custody::SessionAccess>>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub inbox: Option<FieldKey<custody::RoomInbox>>,
-	pub access: Option<FieldKey<custody::RoomAccess>>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub accepted: Option<FieldKey<custody::AcceptedAccess>>,
-	/// Public membership reopens this exact publication through its retained
-	/// directory authority. An accepted visit is connection-lived, not a durable
-	/// entrance, and a display name cannot select a replacement publication.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub public_entry: Option<PublicEntry>,
-	/// Descriptive public generation, retained when its entrance becomes a link.
-	/// Dispatch still requires separately held directory or room authority.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub publication: Option<Text<128, true>>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub seat: Option<FieldKey<custody::RoomSeat>>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub subject: Option<FieldKey<custody::RoomSubject>>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub files: Option<FieldKey<custody::RoomFiles>>,
-	#[serde(
-		default,
-		deserialize_with = "crate::fields::object_list",
-		skip_serializing_if = "List::is_empty"
-	)]
-	pub lines: List<PostedLine, 256>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub moderator: Option<FieldKey<custody::RoomAccess>>,
-	pub control: Option<FieldKey<custody::RoomControl>>,
-	pub reconnect: Reconnect,
-	pub standing: Option<Standing>,
-	pub draft: Field,
-}
-
-impl Directory {
-	/// A requested nickname held through an initiating source is registered by
-	/// this session's directory membership.
-	pub fn registers(&self) -> bool {
-		self.source.is_some() && self.nick.text().as_str().is_some_and(|nick| !nick.is_empty())
-	}
-}
-impl Room {
-	/// Keep an independently held seat. Otherwise join only by explicit intent.
-	/// Room visibility is learned from the upstream policy, never this choice.
-	pub fn requests_membership(&self) -> bool {
-		self.seat.is_some() || self.reconnect == Reconnect::Requested
-	}
-	pub fn has_entrance(&self) -> bool {
-		usize::from(self.access.is_some())
-			+ usize::from(self.accepted.is_some())
-			+ usize::from(self.public_entry.is_some())
-			== 1
-	}
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PublicEntry {
-	pub access: FieldKey<custody::DirectoryAccess>,
-}
-
-/// A display identity selects an already held line actor in this conversation.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PostedLine {
-	pub id: crate::session::state::SafeInteger,
-	pub handle: FieldKey<custody::Line>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]

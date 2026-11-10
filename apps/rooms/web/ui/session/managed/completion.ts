@@ -294,21 +294,18 @@ async function completeOnce(
 				const receipt = receiptFields(result, ["control"]);
 				const matches: RoomIntent[] = [];
 				for (const row of snapshot.intent.conversations) {
-					if (
-						row.kind === "room" && row.access != null &&
-						await session.workspace.roomManagementIdentity(
-								JSON.stringify({ role: "roomAccess", key: row.access }),
-							) === args[2]
-					) matches.push(row);
+					if (row.kind !== "room" || row.seat == null) continue;
+					// A seat the room has since retired answers nothing, and the
+					// room it stood in is not the one the operator named here.
+					const identity = await session.workspace.roomManagementIdentity(
+						JSON.stringify({ role: "roomSeat", key: row.seat }),
+					).catch(() => null);
+					if (identity === args[2]) matches.push(row);
 				}
 				if (matches.length !== 1) throw new Error("Manager recovery requires one exact held room");
 				conversation(matches[0].id);
 				matches[0].control = retain("roomControl", receipt.control);
-			} else if (args[1] !== "giveModerator") return result;
-			// Operator issuance publishes the grant for copying from its inventory.
-			// Retire the receipt's returned occurrence through atomic adoption.
-			// A held conversation needs no change: the durable directory name is
-			// not its display label, and the inventory can include unjoined rooms.
+			} else return result;
 			break;
 		}
 		case "operations": {

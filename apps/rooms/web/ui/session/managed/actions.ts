@@ -584,11 +584,19 @@ export class ManagedActions {
 			if (held.intent !== intent) {
 				throw new Error("Recover the original room link before opening a different one");
 			}
+			// A room link acquisition is made with its staged row's id as its
+			// result, so a held one always names the row it opens.
+			const staged = held.result;
+			if (staged == null) throw new Error("This room link acquisition names no room");
 			await this.recoverAcquisition(acquisition);
-			return held.result!;
+			return (await this.roomEnteredBy(uri)) ?? staged;
 		}
 		const snapshot = await this.#session.candidate();
 		const { id, source, imports } = stageRoomLink(snapshot, directory, uri, name, selection);
+		// A link to a room this session already stands in becomes that room's
+		// way in, and the staged row goes, so the row holding the link after the
+		// commit is the one to show. A pre-existing room is not this opening's
+		// to leave if it is abandoned.
 		await this.#acquire(
 			acquisition,
 			() =>
@@ -602,9 +610,20 @@ export class ManagedActions {
 			intent,
 			id,
 			signal,
-			opening == null ? undefined : () => opening.acquired(id),
+			opening == null ? undefined : async () => {
+				if ((await this.roomEnteredBy(uri)) === id) await opening.acquired(id);
+			},
 		);
-		return id;
+		return (await this.roomEnteredBy(uri)) ?? id;
+	}
+	/** The id of the room this session entered by exactly `uri`, or null. */
+	async roomEnteredBy(uri: string): Promise<string | null> {
+		for (const row of this.#session.current?.intent.conversations ?? []) {
+			if (row.kind !== "room" || row.access == null) continue;
+			const coordinate = JSON.stringify({ role: "roomAccess", key: row.access });
+			if (await this.#session.workspace.custodyRecipe(coordinate) === uri) return row.id;
+		}
+		return null;
 	}
 	stop(): void {
 		this.#stopped = true;

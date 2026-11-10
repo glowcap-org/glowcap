@@ -288,7 +288,6 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		.await?;
 	let opened = &mut owners.session.insert(session).opened;
 	opened.session().configure_admission(config.admission)?;
-	report(Notice::Admission(config.admission.summary()));
 	let trouble_report = report.clone();
 	opened.session().on_trouble(move |operation, cause| {
 		trouble_report(Notice::Activity {

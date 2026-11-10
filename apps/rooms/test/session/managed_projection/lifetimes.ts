@@ -301,3 +301,29 @@ Deno.test("a replacement callback waits for its own seat without discarding reta
 		f.close();
 	}
 });
+
+Deno.test("an ended room membership empties its roster and says why", () => {
+	const row = room();
+	assert(row.kind === "room", "room fixture");
+	row.seat = "accepted-seat";
+	row.inbox = "accepted-inbox";
+	const f = fixture(row);
+	try {
+		const key = f.selected().key;
+		f.page.projection.set({ members: new Map([[key, new Map([["bo", { online: true, away: "" }]])]]) });
+		f.projection.activity({
+			cursor: "closed",
+			event: {
+				target: { kind: "room", id: row.id },
+				notice: { kind: "ended", reason: "room-retired: An operator removed this room." },
+			},
+		});
+		const ended = f.selected();
+		assert(ended.type === "room", "room remains selected");
+		assertEquals(ended.membership, "unavailable");
+		assertEquals(ended.membershipIssue, "An operator removed this room.");
+		assertEquals(f.page.projection.get().members.has(key), false);
+	} finally {
+		f.close();
+	}
+});

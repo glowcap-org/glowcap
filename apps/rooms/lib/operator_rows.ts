@@ -22,9 +22,14 @@ export const StewardshipRowSchema = z.strictObject({
 	label: operatorText,
 	visibility: roomVisibility,
 	generation: nonnegativeSafeInteger,
-	issued: z.boolean(),
 	steward: z.nullable(operatorText),
-}).check(z.refine((row) => row.issued ? row.steward != null && row.steward !== "" : row.steward == null));
+	manager: z.nullable(operatorText),
+	/** Whether an IRC bridge runs the room, so it takes a moderator link and no
+	 * manager link, and only the bridge removes it. */
+	bridged: z.boolean(),
+}).check(
+	z.refine((row) => row.steward !== "" && row.manager !== ""),
+);
 
 export const OperatorLinkRowSchema = z.strictObject({
 	name: operatorName,
@@ -121,22 +126,23 @@ export type OperatorPage =
 
 /** Admit one stewardship tuple, the row shape `giveSteward` also answers. */
 export function parseRow(raw: unknown): StewardshipRow | null {
-	if (!Array.isArray(raw) || raw.length !== 6) return null;
-	const [name, label, visibility, generation, issued, steward] = raw;
+	if (!Array.isArray(raw) || raw.length !== 7) return null;
+	const [name, label, visibility, generation, steward, manager, bridged] = raw;
 	if (
 		typeof name !== "string" || name === "" || typeof label !== "string" ||
 		(visibility !== "listed" && visibility !== "private") || typeof generation !== "bigint" ||
-		generation < 0n || generation > BigInt(Number.MAX_SAFE_INTEGER) || typeof issued !== "boolean" ||
-		(steward !== null && typeof steward !== "string")
+		generation < 0n || generation > BigInt(Number.MAX_SAFE_INTEGER) ||
+		(manager !== null && typeof manager !== "string") || (steward !== null && typeof steward !== "string") ||
+		typeof bridged !== "boolean"
 	) return null;
-	if (issued ? typeof steward !== "string" || steward === "" : steward !== null) return null;
 	const parsed = z.safeParse(StewardshipRowSchema, {
 		name,
 		label,
 		visibility,
 		generation: Number(generation),
-		issued,
 		steward,
+		manager,
+		bridged,
 	});
 	return parsed.success ? parsed.data : null;
 }
@@ -273,7 +279,7 @@ export function operatorPageAnswer(page: OperatorPage): Argument {
 	const rows: Argument[] = page.rows.map((raw) => {
 		if (page.category === "stewardships") {
 			const row = raw as StewardshipRow;
-			return [row.name, row.label, row.visibility, BigInt(row.generation), row.issued, row.steward];
+			return [row.name, row.label, row.visibility, BigInt(row.generation), row.steward, row.manager, row.bridged];
 		}
 		if (page.category === "links") {
 			const row = raw as OperatorLinkRow;

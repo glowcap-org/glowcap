@@ -1,4 +1,4 @@
-import { spawnWeb, webPort } from "../support/web_front.ts";
+import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 /// <reference lib="dom" />
 // What the visualizer draws, all the way through a member's life in a room.
 //
@@ -37,7 +37,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // Run: `zig build rooms-web-trace-lifecycle`.
 
 import { type Browser, chromium } from "playwright";
-import { connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
+import { connectTraceViewer } from "../trace/viewer.ts";
 import { endConversation, openConv } from "../trace/drive.ts";
 import { fail } from "../support/fail.ts";
 import { joinAs } from "../support/join.ts";
@@ -362,9 +362,7 @@ const web = spawnWeb({
 	stdout: "piped",
 	stderr: "piped",
 });
-// The trace sturdyref rides the server's stderr; the scraper tees the stream
-// through so the run stays observable.
-const traceRef = scrapeTraceSturdyref(web.stderr);
+const traceRef = webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
 const httpPort = await webPort(web);
 
 let browser: Browser | null = null;

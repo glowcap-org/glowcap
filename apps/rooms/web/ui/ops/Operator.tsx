@@ -1,11 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { Button } from "../Button.tsx";
-import { CopyField } from "../Copy.tsx";
 import { Said } from "../Said.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import type { OperatorCategory } from "../../../lib/room/client.ts";
-import type { RoomsOperatorState } from "./capabilities.ts";
+import type { RoomsOperatorState, StewardshipView } from "./capabilities.ts";
 import type { OperatorResetScope } from "../../../lib/operator.ts";
 import { OpsHead } from "./Head.tsx";
 import { OperatorReferences, referencesFilterKey } from "./OperatorReferences.tsx";
@@ -14,11 +13,11 @@ import { SectionTitle } from "./Section.tsx";
 import { OperatorSearch } from "./OperatorSearch.tsx";
 import { OperatorSweep } from "./OperatorSweep.tsx";
 import { OperatorActivityProvider } from "./operator_activity.tsx";
+import { OperatorRoomLinksCard } from "./OperatorRoomLinks.tsx";
+import { useOpenModal } from "../modal.ts";
 import {
-	operatorCopyModerator,
+	operatorBridgedPart,
 	operatorDisconnectAsk,
-	operatorGranting,
-	operatorGrantModerator,
 	operatorLead,
 	operatorLinkRemove,
 	operatorLinkRemoveEffect,
@@ -28,11 +27,11 @@ import {
 	operatorLinksSweepSubject,
 	operatorLinksTitle,
 	operatorLoadMore,
+	operatorManagerPart,
 	operatorModerationEmpty,
 	operatorModerationLead,
 	operatorModerationTitle,
-	operatorModeratorRevoke,
-	operatorModeratorRevokeEffect,
+	operatorModeratorPart,
 	operatorNamesEmpty,
 	operatorNamesLead,
 	operatorNamesSweepEffect,
@@ -40,6 +39,7 @@ import {
 	operatorNamesTitle,
 	operatorNickRemove,
 	operatorNickRemoveEffect,
+	operatorNoLinks,
 	operatorPrivateRoom,
 	operatorProofAuthenticated,
 	operatorProofBridge,
@@ -56,6 +56,7 @@ import {
 	operatorResetTitle,
 	operatorRoomFrom,
 	operatorRoomKind,
+	operatorRoomLinksOpen,
 	operatorRoomRemoveAct,
 	operatorRoomRetains,
 	operatorRoomsEmpty,
@@ -64,7 +65,6 @@ import {
 	operatorRoomsSweepSubject,
 	operatorRoomsTitle,
 	operatorRoomWith,
-	operatorRotateAsk,
 	operatorSessionDisconnect,
 	operatorSessionDisconnectEffect,
 	operatorSessionsEmpty,
@@ -127,11 +127,21 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 	const session = useRoomsSession();
 	const acts = useOperatorActs();
 	const location = useLocation();
+	const openModalFrom = useOpenModal();
+	// The room whose links card is up, with the row it last drew, so a closing
+	// card keeps its subject while it leaves. The live row is read from the
+	// state on every draw, so the card shows a link as it is issued, and a room
+	// that leaves the list while its card is up closes the card for good.
+	const [card, setCard] = useState<{ row: StewardshipView; open: boolean } | null>(null);
+	const cardLive = card === null ? null : state?.stewardships.find((row) => row.name === card.row.name) ?? null;
 	useEffect(() => {
 		if (state == null) return;
 		const id = location.hash.startsWith("#") ? location.hash.slice(1) : "";
 		if (id !== "") document.getElementById(id)?.scrollIntoView({ block: "start" });
 	}, [location.hash, state]);
+	useEffect(() => {
+		if (card?.open && cardLive === null) setCard({ row: card.row, open: false });
+	}, [card, cardLive]);
 	if (state == null) return null;
 	const more = (category: OperatorCategory) =>
 		state.next[category] != null && (
@@ -166,13 +176,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 											<span className="entry-name">{row.label || operatorPrivateRoom}</span>
 											<span className="tag" data-tone="quiet">{row.visibility}</span>
 											<div className="actions">
-												<Button
-													variant="quiet"
-													disabled={acts.confirming === key || acts.locked}
-													onClick={() => acts.ask(key)}
-												>
-													{operatorRemoveAsk}
-												</Button>
+												{acts.asker(key, operatorRemoveAsk)}
 											</div>
 										</div>
 										{acts.confirm(
@@ -223,14 +227,12 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 												{row.you && (
 													<span className="tag" data-tone="quiet">{operatorYours}</span>
 												)}
+												{
+													/* No remove on your own name: the server refuses it,
+												    and a control that can only refuse is not offered. */
+												}
 												<div className="actions">
-													<Button
-														variant="quiet"
-														disabled={acts.confirming === key || acts.locked}
-														onClick={() => acts.ask(key)}
-													>
-														{operatorRemoveAsk}
-													</Button>
+													{!row.you && acts.asker(key, operatorRemoveAsk)}
 												</div>
 											</div>
 											{acts.confirm(
@@ -287,15 +289,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 												    not offered. */
 												}
 												<div className="actions">
-													{!row.you && (
-														<Button
-															variant="quiet"
-															disabled={acts.confirming === key || acts.locked}
-															onClick={() => acts.ask(key)}
-														>
-															{operatorDisconnectAsk}
-														</Button>
-													)}
+													{!row.you && acts.asker(key, operatorDisconnectAsk)}
 												</div>
 											</div>
 											{acts.confirm(
@@ -345,13 +339,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 												<span className="tag" data-tone={proof.tone}>{proof.label}</span>
 											)}
 											<div className="actions">
-												<Button
-													variant="quiet"
-													disabled={acts.confirming === key || acts.locked}
-													onClick={() => acts.ask(key)}
-												>
-													{action}…
-												</Button>
+												{acts.asker(key, action + "…")}
 											</div>
 										</div>
 										{row.origin !== "" && (
@@ -411,62 +399,48 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 						? <p className="empty">{operatorModerationEmpty}</p>
 						: (
 							<ul className="entries">
-								{state.stewardships.map((row) => {
-									const title = row.label || operatorPrivateRoom;
-									const key = `moderator:${row.name}`;
-									return (
-										<li className="entry" key={row.name} data-room={row.name}>
-											<div className="entry-head" data-one-line>
-												<span className="entry-name">{title}</span>
-												<span className="tag" data-tone="quiet">{row.visibility}</span>
-												<div className="actions">
-													{row.issued
-														? (
-															<Button
-																variant="quiet"
-																disabled={acts.confirming === key || acts.locked}
-																onClick={() => acts.ask(key)}
-															>
-																{operatorRotateAsk}
-															</Button>
-														)
-														: (
-															<Button
-																busy={acts.busy(key)}
-																onClick={() =>
-																	acts.run(
-																		key,
-																		() => session.giveRoomStewardship(row.name),
-																	)}
-															>
-																{acts.busy(key)
-																	? operatorGranting
-																	: operatorGrantModerator}
-															</Button>
-														)}
-												</div>
-											</div>
+								{state.stewardships.map((row) => (
+									<li className="entry" key={row.name} data-room={row.name}>
+										<div className="entry-head" data-one-line>
+											<span className="entry-name">{row.label || operatorPrivateRoom}</span>
+											<span className="tag" data-tone="quiet">{row.visibility}</span>
+											{row.bridged && (
+												<span className="tag" data-tone="quiet">{operatorBridgedPart}</span>
+											)}
+											{row.managerLink !== null && (
+												<span className="tag">{operatorManagerPart}</span>
+											)}
 											{row.stewardLink !== null && (
-												<CopyField
-													compact
-													text={row.stewardLink}
-													label={operatorCopyModerator(title)}
-												/>
+												<span className="tag">{operatorModeratorPart}</span>
 											)}
-											{acts.confirm(
-												key,
-												operatorModeratorRevokeEffect,
-												operatorModeratorRevoke,
-												() => session.revokeRoomStewardship(row.name),
+											{row.managerLink === null && row.stewardLink === null && (
+												<span className="entry-meta">{operatorNoLinks}</span>
 											)}
-											{acts.why[key] != null && <Said kind="failure">{acts.why[key]}</Said>}
-										</li>
-									);
-								})}
+											<div className="actions">
+												<Button
+													variant="quiet"
+													onClick={(event) =>
+														openModalFrom(event.currentTarget, () =>
+															setCard({ row, open: true }))}
+												>
+													{operatorRoomLinksOpen}
+												</Button>
+											</div>
+										</div>
+									</li>
+								))}
 							</ul>
 						)}
 					{more("stewardships")}
 				</div>
+				{card !== null && (
+					<OperatorRoomLinksCard
+						row={cardLive ?? card.row}
+						open={card.open && cardLive !== null}
+						onClose={() => setCard({ row: card.row, open: false })}
+						acts={acts}
+					/>
+				)}
 			</section>
 			<section className="ops-section" id="operatorTrouble">
 				<SectionTitle count={state.totals.trouble}>
@@ -486,13 +460,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 								))}
 							</ul>
 							<div className="actions">
-								<Button
-									variant="quiet"
-									disabled={acts.confirming === "trouble:all" || acts.locked}
-									onClick={() => acts.ask("trouble:all")}
-								>
-									{operatorTroubleClearAsk}
-								</Button>
+								{acts.asker("trouble:all", operatorTroubleClearAsk)}
 							</div>
 							{acts.confirm(
 								"trouble:all",
@@ -518,14 +486,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 									<div className="entry-head">
 										<span className="entry-name">{subject}</span>
 										<div className="actions">
-											<Button
-												variant="quiet"
-												disabled={acts.confirming === key || acts.locked}
-												aria-label={label + "…"}
-												onClick={() => acts.ask(key)}
-											>
-												{act}…
-											</Button>
+											{acts.asker(key, act + "…", label + "…")}
 										</div>
 									</div>
 									{acts.confirm(

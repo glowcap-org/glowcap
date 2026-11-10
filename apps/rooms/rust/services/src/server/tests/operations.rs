@@ -8,6 +8,7 @@ mod irc;
 mod listener_changes;
 mod manager_scope;
 mod operator;
+mod operator_close;
 mod peering;
 mod trace;
 

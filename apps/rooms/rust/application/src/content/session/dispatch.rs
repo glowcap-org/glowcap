@@ -371,7 +371,8 @@ impl Dispatch {
 		matches!(self.selection, Selection::Publication(..))
 	}
 	/// Inbox callbacks lend source-restricted authority. Direct room sharing
-	/// passes the exact held reference, preserving any existing dependency.
+	/// passes the exact held reference or its saved recipe, preserving any
+	/// existing dependency.
 	pub fn dependent_argument(&self) -> bool {
 		matches!(
 			self.argument,
@@ -393,6 +394,13 @@ impl Dispatch {
 			Some(ArgumentTarget::Revocation { expected, .. }) => Some(expected),
 			_ => None,
 		}
+	}
+	/// Room sharing answers the verb that carries a saved room recipe. The
+	/// runtime sends it with that recipe as text when the selected room's
+	/// custody stores one, so the invitee keeps the room across sessions, and
+	/// sends the bound hand verb with the exact live reference otherwise.
+	pub fn offers_selected(&self) -> Option<&'static str> {
+		matches!(self.argument, Some(ArgumentTarget::SelectedRoom(_))).then_some(crate::direct::OFFER_ROOM)
 	}
 	/// Capture descriptive dispatch data from the same admitted workspace.
 	/// This name never selects authority. The coordinate selects held custody.

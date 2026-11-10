@@ -73,7 +73,6 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 		block.lines().any(|line| line == "rooms: directory listening"),
 		"{block}"
 	);
-	assert!(block.contains("directory admission: process-local;"), "{block}");
 	assert!(block.contains("  transport   "), "{block}");
 	let recipe_of = |token: &str, block: &str| -> String {
 		block
@@ -112,14 +111,35 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	}
 	assert!(!block.contains("ROOMS-OPERATOR"), "{block}");
 	process.signal("-TERM");
-	// Supervised, only complete recipes print. A new listening address changes
-	// their route, while the saved publication identities remain exact.
+	// Supervised, the complete recipes ride in the readiness record for the
+	// supervisor to print, and nothing prints here. A new listening address
+	// changes their route, while the saved publication identities remain exact.
 	let mut again = Process::new(
-		started().env("GLOWCAP_ROOMS_SUPERVISED", "1").spawn().unwrap(),
+		started()
+			.env("GLOWCAP_ROOMS_SUPERVISED", "1")
+			.env("GLOWCAP_ROOMS_READY_FORMAT", "json")
+			.spawn()
+			.unwrap(),
 		"directory",
 	);
-	let lines = stderr_until(&mut again, "ROOMS-IRC");
-	assert!(!lines.contains("rooms: directory listening"), "{lines}");
+	let mut ready = String::new();
+	BufReader::new(again.child.stdout.take().unwrap())
+		.read_line(&mut ready)
+		.unwrap();
+	let record: serde_json::Value = serde_json::from_str(
+		ready
+			.trim()
+			.strip_prefix("ROOMS-SERVER-READY ")
+			.expect("the readiness record"),
+	)
+	.unwrap();
+	let lines: Vec<String> = record["capabilities"]
+		.as_array()
+		.expect("the carried capability lines")
+		.iter()
+		.map(|line| line.as_str().unwrap().to_owned())
+		.collect();
+	let lines = lines.join("\n");
 	assert_eq!(
 		swiss_of(&recipe_of("ROOMS-ADMIN-LISTENERS", &lines)),
 		swiss_of(&listeners)
@@ -130,6 +150,11 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	);
 	assert_eq!(swiss_of(&recipe_of("ROOMS-IRC", &lines)), swiss_of(&irc));
 	again.signal("-TERM");
+	let quiet = stderr_until(&mut again, "\0");
+	assert!(
+		!quiet.contains("ROOMS-"),
+		"a supervised server printed its own lines: {quiet}"
+	);
 }
 
 #[test]

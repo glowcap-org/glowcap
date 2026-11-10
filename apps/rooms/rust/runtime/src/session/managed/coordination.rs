@@ -263,9 +263,7 @@ impl Desired<'_> {
 			) => {
 				row.directory == *directory
 					&& nickname.matches_directory(current_directory)
-					&& (row.access == *access || (access.is_some() && row.access.is_none() && row.seat.is_some()))
-					&& row.accepted == *accepted
-					&& row.public_entry == *public_entry
+					&& row.stands_through(*access, *accepted, public_entry.as_ref())
 					&& row.publication == *publication
 					&& row.source == Some(*source)
 			}

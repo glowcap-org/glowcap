@@ -19,7 +19,7 @@ pub(super) fn read(value: &Argument) -> Result<Acquisition> {
 	let value = rooms_glowcap::Value(value);
 	let grant = authority::steward_grant(&value).map_err(|_| loam::refusal("invalid moderator issuance result"))?;
 	let room = glowcap::parse_sturdyref(grant.room_link, glowcap::CaptpVersion::V1_0)?;
-	let token = std::str::from_utf8(&room.swissnum).map_err(|_| loam::refusal("invalid room publication identity"))?;
+	let token = std::str::from_utf8(&room.swissnum).map_err(|_| loam::refusal("the room link is not well formed"))?;
 	grant
 		.verify(token)
 		.map_err(|_| loam::refusal("moderator issuance identifies a different room"))?;

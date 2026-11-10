@@ -1,4 +1,4 @@
-import { spawnWeb, webPort } from "../support/web_front.ts";
+import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 // A direct message between two browser tabs appears on the live timeline.
 //
 // This is the whole point of the publishing half of the feed. A DM is a session
@@ -32,7 +32,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { tracePortOf } from "../../lib/trace_view.ts";
-import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
+import { acquireTraceCapability, connectTraceViewer } from "../trace/viewer.ts";
 import { reapOwned } from "../support/children.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
@@ -86,9 +86,7 @@ const web = spawnWeb({
 	stdout: "piped",
 	stderr: "piped",
 });
-// The trace sturdyref rides the server's stderr; the scraper tees the stream
-// through so the run stays observable.
-const traceRef = scrapeTraceSturdyref(web.stderr);
+const traceRef = webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
 const httpPort = await webPort(web);
 
 let browser: Browser | null = null;

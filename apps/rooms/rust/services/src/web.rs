@@ -113,15 +113,8 @@ async fn serve(
 			Some(assets)
 		}
 	};
-	report(Notice::BrowserAdmission(browser_admission.settings.summary()));
 	let ice = ice::Policy::open(ice).await?;
 	let admission = admission::Admission::new(admission_config.clone());
-	report(Notice::Admission(format!(
-		"{}; per-address={}; trusted-proxies={}",
-		admission_config.settings.summary(),
-		admission_config.per_address,
-		admission_config.trusted_proxies.len()
-	)));
 	let previews = preview::Preview::open(admission.clone()).await?;
 	if *stopping.borrow() {
 		return Ok(());
@@ -200,28 +193,23 @@ async fn serve(
 	// The browser leg of a shared session attachment comes through this relay,
 	// so a page is offered the session only when a browser reaches it through
 	// this relay, and a TCP door joins the relay's forwarding targets.
-	let attach = shared.as_ref().and_then(|peer| {
-		match relay::session_reach(peer.link())? {
-			relay::SessionReach::Direct => {}
-			relay::SessionReach::Forwarded(endpoint) => {
+	let session_links = shared
+		.as_ref()
+		.map(|peer| (peer.link().to_owned(), peer.management_link().to_owned()));
+	let session_offered = shared
+		.as_ref()
+		.is_some_and(|peer| match relay::session_reach(peer.link()) {
+			None => false,
+			Some(relay::SessionReach::Direct) => true,
+			Some(relay::SessionReach::Forwarded(endpoint)) => {
 				session_endpoint.send_replace(Some(endpoint));
+				true
 			}
-		}
-		Some(peer.link().to_owned())
-	});
+		});
 	if let Some(peer) = shared {
-		announce(
-			&report,
-			&format!(
-				"ROOMS-SESSION-LISTENING {}\nROOMS-SESSION-MANAGEMENT {}",
-				peer.link(),
-				peer.management_link()
-			),
-		);
 		let mut session_stop = peers_stopping.clone();
 		peers.spawn_local(async move { peer.run(stopped(&mut session_stop)).await.map_err(|e| e.to_string()) });
 	}
-	let links = page_links(&pages, &reached_at, attach.as_deref());
 	// A worker or the shared session that fails while the directory opens is
 	// read at the select below, so the open runs to its own end first, inside
 	// the deadline the supervisor holds its announcement to.
@@ -235,21 +223,25 @@ async fn serve(
 		},
 	)
 	.await;
-	let (supervisor, locator) = match opened {
+	let (supervisor, mut locator) = match opened {
 		Ok(Some(started)) => started,
 		Ok(None) => return settle(Ok(()), &stop, &relay_stop, &peers_stop, peers, workers, tor).await,
 		Err(error) => return settle(Err(error), &stop, &relay_stop, &peers_stop, peers, workers, tor).await,
 	};
-	let public_locator = locator.location.clone();
+	// The minted links print once and stay out of the watch, which holds
+	// routing data for every handler that reads it.
+	let capabilities = std::mem::take(&mut locator.capabilities);
+	let block = serving_block(
+		&pages,
+		&reached_at,
+		&locator.location,
+		session_links.as_ref(),
+		session_offered,
+		&capabilities,
+	);
 	location.send_replace(Some(locator));
 	peers.spawn_local(supervisor.run(location, peers_stopping));
-	let shown = reached_at.trim_end_matches('/');
-	announce(
-		&report,
-		&format!(
-			"rooms: serving\n\n{links}  web ui           {shown}\n  web locator      {shown}/locator\n  room directory   {public_locator}\n\nrooms: ready"
-		),
-	);
+	announce(&report, &block);
 	let result = tokio::select! {
 		_ = stopped(&mut stopping) => Ok(()),
 		ended = tor_ended(&mut tor) => Err(ended),
@@ -291,27 +283,60 @@ async fn settle(
 	result
 }
 
-/// The banner's first lines, one per Rooms page listed by its address: the
-/// page, offered this server, and with a shared session, the page offered
-/// that session too. They lead because that link is the way in the guides
-/// name. The session's use link is a capability, so it rides in the
-/// fragment, which a browser never sends to the page's host. The page asks
-/// before it uses either offer. `server` is the address browsers reach this
-/// server at, as a base ending in `/`.
-fn page_links(pages: &[url::Url], server: &str, session: Option<&str>) -> String {
-	let mut lines = String::new();
+/// The block a person reads once everything serves. The addresses come
+/// first, led by each Rooms page offered this server, because that link is
+/// the way in the guides name. The links that grant a power follow under
+/// their own heading: the shared session's use and management links, the
+/// `ROOMS-*` lines the directory minted, and, when a browser can reach the
+/// session through this front (`offered`), the page offered the session,
+/// whose use link rides in the fragment a browser never sends to the page's
+/// host. The page asks before it uses either offer. `server` is the address
+/// browsers reach this front at, as a base ending in `/`.
+fn serving_block(
+	pages: &[url::Url],
+	server: &str,
+	directory: &str,
+	session: Option<&(String, String)>,
+	offered: bool,
+	capabilities: &[String],
+) -> String {
+	let shown = server.trim_end_matches('/');
+	let mut block = String::from("rooms: serving\n\n");
 	for page in pages {
-		let mut link = page_link(page, server);
-		lines.push_str(&format!("  open the page    {link}\n"));
-		if let Some(session) = session {
-			let attach: String = url::form_urlencoded::Serializer::new(String::new())
-				.append_pair("attach", session)
-				.finish();
-			link.set_fragment(Some(&attach));
-			lines.push_str(&format!("  open the session {link}\n"));
+		block.push_str(&format!("  open the page    {}\n", page_link(page, server)));
+	}
+	block.push_str(&format!(
+		"  web ui           {shown}\n  web locator      {shown}/locator\n  room directory   {directory}\n"
+	));
+	let mut kept = String::new();
+	if let Some((link, management)) = session {
+		kept.push_str(&format!(
+			"ROOMS-SESSION-LISTENING {link}\nROOMS-SESSION-MANAGEMENT {management}\n"
+		));
+	}
+	for line in capabilities {
+		kept.push_str(line);
+		kept.push('\n');
+	}
+	if let Some((link, _)) = session.filter(|_| offered) {
+		let attach: String = url::form_urlencoded::Serializer::new(String::new())
+			.append_pair("attach", link)
+			.finish();
+		for page in pages {
+			let mut offered = page_link(page, server);
+			offered.set_fragment(Some(&attach));
+			kept.push_str(&format!("  open the session {offered}\n"));
 		}
 	}
-	lines
+	if !kept.is_empty() {
+		block.push_str(&format!(
+			"\nrooms: {}\n\n",
+			crate::server::readiness::KEEP_LINKS_PRIVATE
+		));
+		block.push_str(&kept);
+	}
+	block.push_str("\nrooms: ready");
+	block
 }
 
 /// A Rooms page offered this server, which the page asks about before using.
@@ -439,25 +464,48 @@ mod tests {
 			serde_json::from_str(include_str!("../../../test/web/page_links.json")).unwrap();
 		let text = |key: &str| fixture[key].as_str().unwrap().to_owned();
 		let pages = [url::Url::parse(&text("page")).unwrap()];
+		let directory = "ocapn://127.0.0.1%3A9099.tcp";
 		assert_eq!(
-			super::page_links(&pages, &text("server"), None),
-			format!("  open the page    {}\n", text("pageLink"))
-		);
-		assert_eq!(
-			super::page_links(&pages, &text("server"), Some(&text("session"))),
+			super::serving_block(&pages, &text("server"), directory, None, false, &[]),
 			format!(
-				"  open the page    {}\n  open the session {}\n",
+				"rooms: serving\n\n  open the page    {}\n  web ui           {}\n  web locator      {}/locator\n  room directory   {directory}\n\nrooms: ready",
 				text("pageLink"),
-				text("sessionLink")
+				text("server").trim_end_matches('/'),
+				text("server").trim_end_matches('/'),
 			)
 		);
+		let session = (text("session"), "ocapn://abc.iroh/s/manage".to_owned());
+		let kept = ["ROOMS-OPERATOR ocapn://abc.iroh/s/op".to_owned()];
+		let block = super::serving_block(&pages, &text("server"), directory, Some(&session), true, &kept);
 		assert_eq!(
-			super::page_links(&pages, "https://rooms.example/", None),
-			"  open the page    https://glowcap.org/rooms/app/?server=https%3A%2F%2Frooms.example%2F\n"
+			block,
+			format!(
+				"rooms: serving\n\n  open the page    {}\n  web ui           {shown}\n  web locator      {shown}/locator\n  room directory   {directory}\n\nrooms: {}\n\nROOMS-SESSION-LISTENING {}\nROOMS-SESSION-MANAGEMENT ocapn://abc.iroh/s/manage\nROOMS-OPERATOR ocapn://abc.iroh/s/op\n  open the session {}\n\nrooms: ready",
+				text("pageLink"),
+				crate::server::readiness::KEEP_LINKS_PRIVATE,
+				text("session"),
+				text("sessionLink"),
+				shown = text("server").trim_end_matches('/'),
+			)
 		);
-		assert_eq!(
-			super::page_links(&[], "http://localhost:8080/", Some("ocapn://abc.iroh/s/x")),
-			""
+		assert!(
+			super::serving_block(&pages, "https://rooms.example/", directory, None, false, &[])
+				.contains("  open the page    https://glowcap.org/rooms/app/?server=https%3A%2F%2Frooms.example%2F\n")
+		);
+		// No page listed offers nothing, and a session alone still prints its links.
+		let none = super::serving_block(&[], "http://localhost:8080/", directory, Some(&session), true, &[]);
+		assert!(!none.contains("open the"), "{none}");
+		assert!(
+			none.contains(&format!("ROOMS-SESSION-LISTENING {}\n", text("session"))),
+			"{none}"
+		);
+		// A session no browser reaches through this front, such as one over
+		// onion, still prints its links. Only the offer to the page waits.
+		let unreached = super::serving_block(&pages, &text("server"), directory, Some(&session), false, &[]);
+		assert!(!unreached.contains("open the session"), "{unreached}");
+		assert!(
+			unreached.contains("ROOMS-SESSION-MANAGEMENT ocapn://abc.iroh/s/manage\n"),
+			"{unreached}"
 		);
 	}
 }

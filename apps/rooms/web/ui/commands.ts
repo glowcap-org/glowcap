@@ -165,8 +165,10 @@ function reading(): never {
 
 /** The command a line names, or null when it names none.
  *
- * A line that opens with a slash and no command anybody knows is ordinary text:
- * a reader typing about `/etc/hosts` is not issuing an order. */
+ * A line that opens with a slash and cannot be a command is ordinary text: a
+ * reader typing about `/etc/hosts` is not issuing an order. One that looks
+ * like a command nobody knows, such as `/ignored`, is refused by the Rust
+ * composer plan rather than said to the room. */
 export function commandIn(text: string): { command: Command; rest: string } | null {
 	// The Rust reader answers null for anything that does not open with a
 	// slash, so asking it about an ordinary sentence is a Wasm call that

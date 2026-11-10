@@ -43,7 +43,7 @@ const MAX_RETURNING_GZIP_BYTES = 370_000;
 const MAX_KITCHEN_BUNDLE_BYTES = 25_000;
 const MAX_OPS_BUNDLE_BYTES = 8_000;
 const MAX_SESSION_SETUP_BYTES = 8_000;
-const MAX_OPERATOR_PANE_BYTES = 25_000;
+const MAX_OPERATOR_PANE_BYTES = 26_000;
 
 Deno.test("bundle accounting follows ESM edges across minifiers and rejects unresolved imports", () => {
 	const sources = new Map([

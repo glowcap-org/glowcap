@@ -140,6 +140,10 @@ export function useModalDialog(
 	const exitedRef = useRef(onExited);
 	exitedRef.current = onExited;
 	const openerRef = useRef<HTMLElement | null>(null);
+	// The section the opener stood in, for when the card's own act removed the
+	// opener (forgetting a room takes its row away): focus stays near where the
+	// reader was rather than falling to the page.
+	const fallbackRef = useRef<HTMLElement | null>(null);
 
 	useLayoutEffect(() => {
 		const layer = dialog.current;
@@ -154,6 +158,7 @@ export function useModalDialog(
 					coordinator.nextOpener.current = null;
 					openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 				}
+				fallbackRef.current = openerRef.current?.closest("section") ?? null;
 			}
 			const cancel = (event: Event) => {
 				event.preventDefault();
@@ -203,10 +208,14 @@ export function useModalDialog(
 		}
 		const restore = () => {
 			const opener = openerRef.current;
+			const fallback = fallbackRef.current;
 			openerRef.current = null;
-			if (!opener?.isConnected) return;
-			opener.focus();
-			if (document.activeElement !== opener) coordinator.deferredFocus.current = opener;
+			fallbackRef.current = null;
+			const target = opener?.isConnected ? opener : fallback?.isConnected ? fallback : null;
+			if (target == null) return;
+			if (target === fallback && !target.hasAttribute("tabindex")) target.tabIndex = -1;
+			target.focus();
+			if (document.activeElement !== target) coordinator.deferredFocus.current = target;
 		};
 		if (retain) {
 			layer.inert = true;

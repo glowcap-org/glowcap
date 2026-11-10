@@ -35,12 +35,11 @@ export interface HeldDirectory {
  * than a reach. This is the same argument the rest of the app makes about
  * authority, applied to its own vocabulary.
  *
- * A tab act that needs a handle this window may not hold returns `null` when
- * it used it, or the sentence naming what was missing. The catalog is the
- * only result the composer reads. Asynchronous powers resolve after the effect
- * completes and reject on failure. These powers do not explain a missing
- * handle into the log. Granted acts that share one missing-handle meaning
- * across adapters return a boolean, and the catalog names it. */
+ * A power that can refuse answers `null` when it acted, or the sentence
+ * saying why not, read from the text catalog: a handle this window does not
+ * hold, or the room's own refusal. The composer says that sentence where the
+ * command was typed. Asynchronous powers resolve after the effect completes
+ * and reject only on a failure that is not a refusal. */
 export type CommandResult<T> = T | Promise<T>;
 
 /** A completed command's own refusal belongs to its originating conversation. */
@@ -73,34 +72,37 @@ export interface CommandPowers {
 	unignore(name: string): CommandResult<boolean>;
 	/** Everybody this window is ignoring. */
 	ignored(): readonly string[];
-	/** Change the most recent line of ours here. False when there is none this
-	 * window still holds the authority for. */
-	editLast(text: string): CommandResult<boolean>;
+	/** Change the most recent line of ours here. A sentence when there is none
+	 * this window still holds the authority for. */
+	editLast(text: string): CommandResult<string | null>;
 	/** Take the most recent line of ours here back. */
-	withdrawLast(): CommandResult<boolean>;
+	withdrawLast(): CommandResult<string | null>;
 	/** Say what this room is about, with an optional link to an object hosted
-	 * elsewhere. False when this membership holds no subject facet. */
-	setSubject(description: string, link?: string): CommandResult<boolean>;
+	 * elsewhere. A sentence when this membership holds no subject facet. */
+	setSubject(description: string, link?: string): CommandResult<string | null>;
 	/** Say you have stepped away, or `""` that you are back. Written at whichever
 	 * of the three levels this reader's standing already comes from (the room,
 	 * the directory, or them) so a command never quietly overrules a room they
-	 * set apart. False when there is no room membership to say it about. */
-	setAway(reason: string): CommandResult<boolean>;
+	 * set apart. A sentence when there is no room membership to say it about. */
+	setAway(reason: string): CommandResult<string | null>;
 	/** Hand the room this was typed in to a member: the live reference crosses
 	 * the direct line to them as a handoff, and they may take it up or not.
 	 * Nothing durable is minted anywhere. That distinguishes it from `roomLink`.
-	 * False when there is no room membership to hand over, or when
-	 * `nick` is this reader. They already hold the room. */
-	invite(nick: string): CommandResult<boolean>;
+	 * Null once the handoff is sent. Otherwise the sentence saying why not:
+	 * there is no room here, or this membership is a seat in the room and
+	 * not the room itself, as when it was joined by name. `nick` being this
+	 * reader is refused before this runs. They already hold the room. */
+	invite(nick: string): CommandResult<string | null>;
 	/** Ask a member to leave the room this was typed in, through the room's
-	 * steward capability. The room answers that capability only to the
-	 * connection that opened it, so for everyone else the room's own refusal
-	 * comes back in the conversation. False when this is not a room. */
-	kick(nick: string): CommandResult<boolean>;
-	/** Claim, show, or take this room's durable steward capability. With no
-	 * sturdyref, claim it if unissued or show the one this tab holds, with one,
-	 * validate and take that exact room's handed-over authority. */
-	steward(link?: string): CommandResult<boolean>;
+	 * steward capability. A sentence when this is not a room, when this
+	 * session holds no steward capability for it, or when the room refuses. */
+	kick(nick: string): CommandResult<string | null>;
+	/** Claim, show, or take this room's durable steward capability, and say
+	 * the link this session then holds. With no sturdyref, claim it if unissued
+	 * or show the one held; with one, validate and take that exact room's
+	 * handed-over authority. A sentence when this is not a room or the room
+	 * refuses. */
+	steward(link?: string): CommandResult<string | null>;
 	/** The name this conversation's directory granted this reader, or empty
 	 * until it has. Direct lines and invitations are toward somebody else, so a
 	 * command that names this string is refused rather than opening a line to
@@ -108,10 +110,11 @@ export interface CommandPowers {
 	you(): string;
 	/** Say a link to a room back where the command was typed: durable data
 	 * anybody can redeem, minted at the price of the server recording the room
-	 * for good. No name is this conversation's room. A name is a listed room
-	 * on this directory. False when there is no room, or no directory, to
-	 * link to. */
-	roomLink(name?: string): CommandResult<boolean>;
+	 * for good. No name is this conversation's room. A name is another room
+	 * this session is in on the same directory. A sentence when there is no
+	 * room here, this session is not in the named one, or the link is not
+	 * this session's to mint or read. */
+	roomLink(name?: string): CommandResult<string | null>;
 	/** Where this reader stands in the room the command was typed in, whichever
 	 * level is answering for it. Empty while they are here. */
 	standingHere(): string;
@@ -124,7 +127,7 @@ export interface CommandPowers {
 	/** The rooms this directory is advertising, with how many are in each. */
 	liveRooms(): ReadonlyMap<string, number | null>;
 	/** Who is in this room, how each stands, and whether each is reachable
-	 * directly. */
+	 * directly. In a direct line, the one person on the other end. */
 	roster(): readonly { name: string; online: boolean; away: string; reachable: boolean }[];
 	/** Give this directory back: the name it granted, and everything open on it.
 	 * `null` when it was given back. A sentence when this tab holds none. */
@@ -201,10 +204,15 @@ export interface Command {
 	 * the members list leaves out, which is the opposite of a mention. Room-wide
 	 * names (`here`, `room`) follow the mention path and stay off this list. */
 	targets?: "reachable";
-	/** What the words after this command complete as, when they are not a
-	 * person. `"room"` is a listed room name, written without `#`, `/link`
-	 * and `/join` take one. Absent means nothing after the name is a room. */
-	argument?: "room";
+	/** What the words after this command complete as. `"room"` is a listed
+	 * room name, with or without `#`: `/join` takes one on the directory, and
+	 * `/link` one this tab is in (`roomSource` offers each its own). `"person"`
+	 * is a name, with or without `@`: `/msg`, `/invite`, `/kick`, `/whois`,
+	 * `/ignore` and `/unignore` take one. Written out in full, the argument is
+	 * the whole instruction, so the completion list hands Enter back to
+	 * sending. Absent means the words after the name complete as ordinary
+	 * text, where `@` is a mention. */
+	argument?: "room" | "person";
 	/** Other spellings that reach it. IRC clients have carried some of these for
 	 * thirty years and a reader's fingers know them. */
 	aliases?: readonly string[];

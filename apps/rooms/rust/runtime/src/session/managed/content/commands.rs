@@ -94,10 +94,11 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	let dependent_argument = dispatch.dependent_argument();
 	let argument_position = dispatch.argument_position();
 	let revocation = dispatch.revokes_selected();
+	let offer = dispatch.offers_selected();
 	let coordinates = dispatch
 		.targets(&record.intent)
 		.map_err(|_| refuse("effect target is not selected in this workspace"))?;
-	let (_, mutation) = dispatch
+	let (_, mut mutation) = dispatch
 		.bind(&record.intent)
 		.map_err(|_| refuse("effect target is not selected in this workspace"))?;
 	let targets = coordinates
@@ -129,6 +130,22 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		runtime_targets[1] = Ref::try_from(&call.disclose_page(page, location.field, true)?)
 			.map_err(|_| refuse("callback capability required"))?;
 	}
+	let recipe = if revocation || offer.is_some() {
+		let coordinate = *coordinates
+			.get(1)
+			.ok_or_else(|| refuse("selected authority is not declared"))?;
+		saved_recipe(call, input, &record, coordinate)?
+	} else {
+		None
+	};
+	// A saved room recipe crosses as text the invitee saves, so the room
+	// outlasts both sessions and the continuation copies no reference for it.
+	// A room held only live crosses as the exact reference.
+	let offered = offer.zip(recipe.as_ref());
+	if let Some((verb, _)) = offered {
+		mutation.verb = verb.into();
+		runtime_targets.truncate(1);
+	}
 	let seat = Seat::reserve(owner, request.id())?;
 	// Disclosure lends callback custody only through this call. The
 	// continuation owns the facet before any commit or worker wait.
@@ -136,24 +153,15 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	let mut args = Vec::with_capacity(mutation.args.len() + usize::from(coordinates.len() > 1));
 	args.extend(mutation.args.into_iter().map(rooms_glowcap::effect_argument));
 	if revocation {
-		let field = record
-			.custody
-			.get(coordinates[1])
-			.ok_or_else(|| refuse("selected revocation custody is absent"))?;
-		let Field::Retained(location) = records::reference(&field) else {
-			return Err(refuse("selected revocation custody is not stored"));
-		};
-		let page = input
-			.graph
-			.and_then(|pages| pages.get(location.page.checked_sub(1)?))
-			.ok_or_else(|| refuse("invalid revocation page"))?;
-		let uri = call
-			.page_saved_uri(page, location.field)?
+		let uri = recipe
+			.as_deref()
 			.ok_or_else(|| refuse("selected authority has no publication recipe"))?;
 		let token = rooms_glowcap::routes::authority_token(uri)
 			.map_err(|error| *error)?
 			.ok_or_else(|| refuse("selected authority has no publication identity"))?;
 		args.push(token.into());
+	} else if let Some((_, uri)) = offered {
+		args.push(uri.as_str().into());
 	} else if coordinates.len() > 1 {
 		let index = argument_position.unwrap_or(args.len());
 		args.insert(index, Argument::Reference(reservation.target(1)?));
@@ -267,6 +275,28 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		outgoing,
 	)?;
 	Ok(Argument::String("pending".into()))
+}
+/// The selected target's canonical foreign recipe, copied out of the
+/// restoration its preparation requested with a URI so the call stays free
+/// to reserve its continuation. Live custody and local recipes answer None.
+fn saved_recipe(
+	call: &Call<'_>,
+	input: Invocation<'_>,
+	record: &records::Record,
+	coordinate: custody::Coordinate,
+) -> Result<Option<String>> {
+	let field = record
+		.custody
+		.get(coordinate)
+		.ok_or_else(|| refuse("selected authority custody is absent"))?;
+	let Field::Retained(location) = records::reference(&field) else {
+		return Ok(None);
+	};
+	let page = input
+		.graph
+		.and_then(|pages| pages.get(location.page.checked_sub(1)?))
+		.ok_or_else(|| refuse("invalid selected authority page"))?;
+	Ok(call.page_saved_uri(page, location.field)?.map(str::to_owned))
 }
 pub(in crate::session::managed) fn receipt(
 	input: Invocation<'_>,

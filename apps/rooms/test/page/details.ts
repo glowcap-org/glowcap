@@ -15,7 +15,7 @@ import { openDirectoryCard } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { factDirectoryAddress, factPublicRoom, reachPublicRoom } from "../../lib/text/conversation.ts";
 import { phaseConnected } from "../../lib/text/directory.ts";
-import { roomManagerDiscardSay, roomManagerHeldHint } from "../../lib/text/room_authority.ts";
+import { roomManagerDiscardSay, roomManagerHeldHint, roomModeratorHeldHint } from "../../lib/text/room_authority.ts";
 
 export async function run(tab: Page): Promise<void> {
 	// ── A long refusal stays in its slot ─────────────────────────────────
@@ -184,8 +184,8 @@ export async function run(tab: Page): Promise<void> {
 	if (!steward.startsWith("ocapn://") || !steward.includes("/s/")) {
 		fail(`the conversation card exposed an invalid moderator capability: ${JSON.stringify(steward)}`);
 	}
-	const stewardHint = (await tab.textContent("#convcardStewardHint")) ?? "";
-	if (!stewardHint.includes("holds this link") || !stewardHint.includes("Share it only")) {
+	const stewardHint = (await tab.textContent("#convcardStewardHint"))?.trim() ?? "";
+	if (stewardHint !== roomModeratorHeldHint) {
 		fail(`the moderator capability did not explain the authority being copied: ${JSON.stringify(stewardHint)}`);
 	}
 	await tab.waitForSelector("#convcardModerationTab").catch(() =>

@@ -125,7 +125,6 @@ pub(super) fn reset(shared: &Shared, caller: u64, scope: ResetScope) -> Result<A
 				selected.extend(
 					sources(&shared.borrow(), caller, *category, None)?
 						.into_iter()
-						.filter(|source| !matches!(source.row, rows::Row::Session { you: true, .. }))
 						.filter_map(|source| source.retire),
 				);
 			}

@@ -17,8 +17,9 @@
 import { useRoomsSession } from "../controller/session.ts";
 import type { DiagnosticRow } from "../../../lib/room/client.ts";
 import { OpsHead } from "./Head.tsx";
-import { SectionTitle } from "./Section.tsx";
+import { InspectSection } from "./InspectSection.tsx";
 import {
+	inspectAdmission,
 	inspectBootstrap,
 	inspectLead,
 	inspectLinks,
@@ -47,6 +48,7 @@ const INVENTORIES: readonly ({ kind: string } & OpsInspectSection)[] = [
 	{ kind: "moderator", ...inspectModerators },
 	{ kind: "directory", ...inspectBootstrap },
 	{ kind: "trouble", ...inspectTrouble },
+	{ kind: "admission", ...inspectAdmission },
 ];
 
 export function DiagnosticsPane({ rows }: { rows: readonly DiagnosticRow[] }) {
@@ -70,29 +72,7 @@ export function DiagnosticsPane({ rows }: { rows: readonly DiagnosticRow[] }) {
 			{[
 				...INVENTORIES,
 				...unnamed.map((kind) => ({ kind, title: kind, lead: "", empty: "" })),
-			].map(({ kind, title, lead, empty }) => {
-				const held = byKind.get(kind) ?? [];
-				return (
-					<section className="ops-section" key={kind}>
-						<SectionTitle count={held.length}>{title}</SectionTitle>
-						<div className="group well">
-							{lead !== "" && <p className="hint">{lead}</p>}
-							{held.length === 0 ? <p className="empty">{empty}</p> : (
-								<ul className="entries">
-									{held.map((row, at) => (
-										<li className="entry" key={row.name + String(at)}>
-											<div className="entry-head">
-												<span className="entry-name">{row.name}</span>
-											</div>
-											{row.note !== "" && <p className="entry-meta">{row.note}</p>}
-										</li>
-									))}
-								</ul>
-							)}
-						</div>
-					</section>
-				);
-			})}
+			].map(({ kind, ...section }) => <InspectSection key={kind} {...section} rows={byKind.get(kind) ?? []} />)}
 		</div>
 	);
 }

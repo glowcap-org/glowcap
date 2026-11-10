@@ -83,13 +83,17 @@ pub(super) async fn scenario(session: &Session, operator: &Ref, network: &Ref, s
 	let Argument::List(row) = issued else {
 		panic!("stewardship");
 	};
-	let token = super::token(row[5].as_str().unwrap());
+	let token = super::token(row[4].as_str().unwrap());
 	let steward = session.fetch(&token).await.unwrap();
 	let batch = retire(session, operator, "stewardships", "net/#c").await;
 	assert_eq!(batch, [Argument::Integer(1), Argument::Integer(1), "".into()]);
 	assert!(session.send(&steward, "governs", &[]).await.is_err());
 	let c = rows(session, operator, "stewardships", "net/#c").await;
-	assert_eq!(c[0][4], Argument::Boolean(false));
+	assert_eq!(
+		c[0][4],
+		Argument::Void,
+		"the retired moderator link is gone from the row"
+	);
 	let document_now = std::fs::read_to_string(&document).unwrap();
 	let kept = rooms_application::server::operations::document::Document::decode(&document_now).unwrap();
 	assert!(!kept.irc_bridge_authority(row[0].as_str().unwrap()).unwrap().issued);

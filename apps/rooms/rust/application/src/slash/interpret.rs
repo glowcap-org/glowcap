@@ -37,20 +37,13 @@ pub enum Plan {
 		text: DocumentText,
 		#[serde(skip_serializing_if = "Option::is_none")]
 		extra: Option<DocumentText>,
-		#[serde(skip_serializing_if = "Option::is_none")]
-		refusal: Option<&'static str>,
 	},
 }
 fn refused(why: impl Into<String>) -> Plan {
 	Plan::Refused { why: why.into() }
 }
-fn effect(op: &'static str, text: DocumentText, refusal: Option<&'static str>) -> Plan {
-	Plan::Effect {
-		op,
-		text,
-		extra: None,
-		refusal,
-	}
+fn effect(op: &'static str, text: DocumentText) -> Plan {
+	Plan::Effect { op, text, extra: None }
 }
 /// A leading `ocapn://` word is the subject's link, and the words after it
 /// describe it. Any other text is a description alone. This is the grammar
@@ -72,6 +65,37 @@ fn room(context: &Context<'_>, why: &'static str) -> Result<(), Plan> {
 	} else {
 		Err(refused(why))
 	}
+}
+/// A command that takes nothing refuses words after it. Acting on the open
+/// conversation while the reader named another would be a surprise.
+fn nothing_after(text: &DocumentText, name: Name) -> Result<(), Plan> {
+	if empty(&trimmed(text)) {
+		return Ok(());
+	}
+	let definition = name.definition();
+	Err(refused(format!(
+		"/{} takes nothing after it. Write it as {}.",
+		definition.name, definition.usage
+	)))
+}
+/// The one person a command names, without its `@`. `None` when no name was
+/// written, which covers a sigil on its own. Words after the name refuse,
+/// because the command would otherwise act on the first word and drop the
+/// rest unseen.
+fn one_person(text: &DocumentText, name: Name) -> Result<Option<DocumentText>, Plan> {
+	let who = person(text);
+	if empty(&who) {
+		return Ok(None);
+	}
+	let after = trimmed(&slice(&strip(text, b'@'), who.utf16().count(), usize::MAX));
+	if empty(&after) {
+		return Ok(Some(who));
+	}
+	let definition = name.definition();
+	Err(refused(format!(
+		"/{} takes one name. Write it as {}.",
+		definition.name, definition.usage
+	)))
 }
 pub fn everyone(text: &DocumentText) -> bool {
 	text.as_str().is_some_and(crate::room::inbox::addresses_everyone)
@@ -122,38 +146,34 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 			},
 			Join => match join(&text) {
 				None => refused("Use /join followed by a room name or a link."),
-				Some(super::input::Join::Name { name }) => effect("joinRoom", name, None),
+				Some(super::input::Join::Name { name }) => effect("joinRoom", name),
 				Some(super::input::Join::Link { link, label }) => Plan::Effect {
 					op: "joinLink",
 					text: link,
 					extra: Some(label),
-					refusal: None,
 				},
 			},
-			Msg => {
-				let who = person(&text);
-				if empty(&who) {
-					refused("Use /msg followed by who to message.")
-				} else if everyone(&who) {
-					refused(format!(
-						"@{} is everyone in the room. A direct message needs one person.",
-						who.utf8_lossy()
-					))
-				} else if !empty(context.you) && who.lowercase() == context.you.lowercase() {
+			Msg => match one_person(&text, name)? {
+				None => refused("Use /msg followed by who to message."),
+				Some(who) if everyone(&who) => refused(format!(
+					"@{} is everyone in the room. A direct message needs one person.",
+					who.utf8_lossy()
+				)),
+				Some(who) if !empty(context.you) && who.lowercase() == context.you.lowercase() => {
 					refused("You can't start a direct message with yourself.")
-				} else {
-					effect("directMessage", who, None)
 				}
-			}
+				Some(who) => effect("directMessage", who),
+			},
 			Theme => {
 				let choice = text.lowercase();
 				if matches!(choice.as_str(), Some("light" | "dark")) {
-					effect("theme", choice, None)
+					effect("theme", choice)
 				} else {
 					refused("Use /theme light or /theme dark.")
 				}
 			}
 			Leave | Clear | Details => {
+				nothing_after(&text, name)?;
 				if context.place == Place::None {
 					refused(match name {
 						Leave => "There is nothing open to leave.",
@@ -161,12 +181,13 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 						_ => "Open a conversation first.",
 					})
 				} else {
-					effect(name.definition().name, "".into(), None)
+					effect(name.definition().name, "".into())
 				}
 			}
 			Members => {
+				nothing_after(&text, name)?;
 				room(context, "Only a room has a member list.")?;
-				effect("members", "".into(), None)
+				effect("members", "".into())
 			}
 			Away => {
 				room(context, "Only a room has anyone to tell.")?;
@@ -181,14 +202,13 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 						} else {
 							text
 						},
-						Some("There is no room to say that in."),
 					)
 				}
 			}
 			Subject => {
 				room(context, "Only a room has a subject.")?;
 				if empty(&text) {
-					effect("showSubject", text, None)
+					effect("showSubject", text)
 				} else {
 					let subject = if text.as_str() == Some("-") {
 						Ok(crate::room::subject::Subject::default())
@@ -204,84 +224,135 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 							op: "setSubject",
 							text: subject.description().into(),
 							extra: subject.link().map(DocumentText::from),
-							refusal: Some("This room did not offer a subject to set."),
 						},
 					}
 				}
 			}
 			Invite => {
 				room(context, "Only a room can be offered.")?;
-				let who = person(&text);
-				if empty(&who) {
-					refused("Use /invite followed by who to hand it to.")
-				} else if let Some(why) = invite_refusal(&who, context.you) {
-					refused(why)
-				} else {
-					effect("invite", who, Some("There is no room here to hand over."))
+				match one_person(&text, name)? {
+					None => refused("Use /invite followed by who to hand it to."),
+					Some(who) => match invite_refusal(&who, context.you) {
+						Some(why) => refused(why),
+						None => effect("invite", who),
+					},
 				}
 			}
 			Kick => {
 				room(context, "Only a room can ask somebody to leave.")?;
-				let who = person(&text);
-				if empty(&who) {
-					refused("Use /kick followed by who to ask out.")
-				} else {
-					effect(
-						"kick",
-						who,
-						Some("This room did not hand this tab its moderator capability."),
-					)
+				match one_person(&text, name)? {
+					None => refused("Use /kick followed by who to ask out."),
+					Some(who) => effect("kick", who),
 				}
 			}
 			Link => {
 				room(context, "Only a room has a link.")?;
 				let wanted = strip(&text, b'#');
-				let why = if empty(&wanted) {
-					"There is no room here to link to."
+				if !empty(&text) && empty(&wanted) {
+					refused("Use /link on its own for this room, or /link followed by a listed room's name.")
 				} else {
-					"There is no directory here to link a room on."
-				};
-				effect("roomLink", wanted, Some(why))
+					effect("roomLink", wanted)
+				}
 			}
 			Moderator => {
 				room(context, "Only a room has a moderator capability.")?;
-				effect("moderator", text, Some("There is no connected room here to moderate."))
+				effect("moderator", text)
 			}
 			Edit => {
 				if empty(&text) {
 					refused("Use /edit followed by what the message should say.")
 				} else {
-					effect(
-						"edit",
-						text,
-						Some("There is no message of yours here that can still be changed."),
-					)
+					effect("edit", text)
 				}
 			}
-			Delete => effect(
-				"delete",
-				"".into(),
-				Some("There is no message of yours here that can still be taken back."),
-			),
-			Ignore => {
-				let who = person(&text);
-				effect(if empty(&who) { "ignored" } else { "ignore" }, who, None)
+			Delete => {
+				nothing_after(&text, name)?;
+				effect("delete", "".into())
 			}
-			Unignore | Whois => {
-				let who = person(&text);
-				if empty(&who) {
-					refused(if name == Unignore {
-						"Use /unignore followed by who to hear again."
-					} else {
-						"Use /whois followed by who to ask about."
-					})
+			Ignore => match one_person(&text, name)? {
+				None if empty(&text) => effect("ignored", text),
+				None => refused("Use /ignore followed by who to stop hearing, or /ignore on its own to list them."),
+				Some(who) => effect("ignore", who),
+			},
+			Unignore | Whois => match one_person(&text, name)? {
+				None => refused(if name == Unignore {
+					"Use /unignore followed by who to hear again."
 				} else {
-					effect(name.definition().name, who, None)
-				}
+					"Use /whois followed by who to ask about."
+				}),
+				Some(who) => effect(name.definition().name, who),
+			},
+			Help | Directories | Quit => {
+				nothing_after(&text, name)?;
+				effect(name.definition().name, "".into())
 			}
-			Help | Directories | Quit => effect(name.definition().name, "".into(), None),
-			List => effect("list", text, None),
+			List => effect("list", text),
 		})
 	};
 	plan().unwrap_or_else(|refusal| refusal)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn in_room(name: Name, rest: &str) -> Plan {
+		let you = DocumentText::from("");
+		let context = Context {
+			place: Place::Room,
+			you: &you,
+			away: false,
+		};
+		interpret(name, &DocumentText::from(rest), &context)
+	}
+	fn refusal(plan: Plan) -> String {
+		match plan {
+			Plan::Refused { why } => why,
+			_ => panic!("expected a refusal"),
+		}
+	}
+
+	#[test]
+	fn a_person_command_takes_one_name_and_refuses_words_after_it() {
+		for name in [
+			Name::Msg,
+			Name::Invite,
+			Name::Kick,
+			Name::Whois,
+			Name::Ignore,
+			Name::Unignore,
+		] {
+			let command = name.definition().name;
+			let Plan::Effect { text, .. } = in_room(name, " @bob ") else {
+				panic!("/{command} did not act on one name");
+			};
+			assert_eq!(text.as_str(), Some("bob"), "/{command}");
+			let why = refusal(in_room(name, "bob hi there"));
+			assert!(
+				why.starts_with(&format!("/{command} takes one name")),
+				"/{command}: {why}"
+			);
+		}
+	}
+
+	#[test]
+	fn a_command_that_takes_nothing_refuses_words_after_it() {
+		for name in [
+			Name::Help,
+			Name::Leave,
+			Name::Clear,
+			Name::Members,
+			Name::Details,
+			Name::Directories,
+			Name::Quit,
+			Name::Delete,
+		] {
+			let command = name.definition().name;
+			let why = refusal(in_room(name, "#other"));
+			assert!(
+				why.starts_with(&format!("/{command} takes nothing after it")),
+				"/{command}: {why}"
+			);
+		}
+	}
 }

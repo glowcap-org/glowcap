@@ -82,6 +82,20 @@ export async function openRailRoom(tab: Page, name: string, marked: boolean): Pr
 	).catch(() => fail(`standing in ${JSON.stringify(name)} never became the open conversation`));
 }
 
+/** Whether the log says `line` within `timeout` milliseconds. */
+export function heard(tab: Page, line: string, timeout: number): Promise<boolean> {
+	return tab.waitForFunction(
+		(line) => (document.getElementById("log")?.textContent ?? "").includes(line),
+		line,
+		{ timeout },
+	).then(() => true, () => false);
+}
+/** Wait for `line` in the conversation, failing with what was said instead. */
+export async function told(tab: Page, line: string, what: string): Promise<void> {
+	if (!await heard(tab, line, 15_000)) {
+		fail(`${what}: ${JSON.stringify((await said(tab)).slice(-200))}`);
+	}
+}
 export function said(tab: Page): Promise<string> {
 	return tab.evaluate(() => document.getElementById("log")?.textContent ?? "");
 }

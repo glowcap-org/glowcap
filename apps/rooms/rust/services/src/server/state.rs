@@ -457,14 +457,17 @@ impl State {
 		let locator = self.advertised_locator(caller);
 		glowcap::format_sturdyref(&locator, swiss.as_bytes(), glowcap::CaptpVersion::V1_0).map_err(|e| e.to_string())
 	}
-	/// The steward sturdyref for `name`, when one is published.
-	pub fn steward_link(&self, name: &str) -> Option<String> {
-		let caller = glowcap::current_session().ok().flatten();
-		self.steward_link_for(name, caller.as_ref())
-	}
-	pub fn steward_link_for(&self, name: &str, caller: Option<&Session>) -> Option<String> {
-		let swiss = self.links.swiss(Kind::Steward, name)?;
-		self.link_for(swiss, caller).ok()
+	/// The published moderator or manager sturdyref for `name`, routed for
+	/// `caller` or, with none, for the session whose turn is running.
+	pub fn held_link(&self, kind: Kind, name: &str, caller: Option<&Session>) -> Option<String> {
+		let swiss = self.links.swiss(kind, name)?;
+		let current = caller
+			.is_none()
+			.then(|| glowcap::current_session().ok().flatten())
+			.flatten();
+		// tolerant: a link that stands but cannot be routed for this caller
+		// shows as none.
+		self.link_for(swiss, caller.or(current.as_ref())).ok()
 	}
 	/// Perform everything one directory verb asked for: notices first,
 	/// then what goes back, the same order the room effects keep.

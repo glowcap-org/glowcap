@@ -126,6 +126,12 @@ export const inspectTrouble: OpsInspectSection = {
 	lead: "Recent failures the server recorded while it ran.",
 	empty: "No trouble reported.",
 };
+export const inspectAdmission: OpsInspectSection = {
+	title: "Work budgets",
+	lead:
+		"The rates and caps this directory admits work under, where each setting came from, and how much it admitted, refused, or coalesced.",
+	empty: "This directory reports no work budgets.",
+};
 export const inspectLead =
 	"What this directory holds, as the inspect capability sees it. Nothing on this page can be changed from here.";
 

@@ -134,6 +134,10 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 	await tab.waitForFunction(
 		() => document.getElementById("operatorOpsLink")?.getAttribute("aria-current") === "page",
 	).catch(() => fail("the selected operations address is not named as the current page"));
+	// A page holding diagnostics beside operator still sees the directory's
+	// work budgets, which the operator's own lists do not carry.
+	await tab.waitForSelector("#operatorWorkBudgets")
+		.catch(() => fail("the operator page with diagnostics held shows no Work budgets section"));
 
 	// The capability's own word still answers, so a bookmark from before the
 	// directory pane lands on the pane that draws it.

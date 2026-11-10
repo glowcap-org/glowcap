@@ -90,7 +90,30 @@ async fn dormant() {
 			.as_str(),
 		Some("observer")
 	);
+	// The seat says which room it is in: the same manager identity its entrance
+	// gives, and the room identity a steward governs, derived from the room
+	// link. A member who came in by name proves handed links against it.
+	let entrance = directory.enter_publication(&publication).await.unwrap();
+	let seat_manager = client.session().send(&seat, "managedRoomIdentity", &[]).await.unwrap();
+	let entrance_manager = client
+		.session()
+		.send(&entrance, "managedRoomIdentity", &[])
+		.await
+		.unwrap();
+	assert!(!seat_manager.as_str().unwrap().is_empty());
+	assert_eq!(seat_manager.as_str(), entrance_manager.as_str());
+	let seat_room = client.session().send(&seat, "roomIdentity", &[]).await.unwrap();
+	let link = glowcap::parse_sturdyref(&managed.room_link, glowcap::CaptpVersion::V1_0).unwrap();
+	let expected =
+		rooms_application::room::authority::room_identity(core::str::from_utf8(&link.swissnum).unwrap()).unwrap();
+	assert_eq!(seat_room.as_str(), Some(expected.as_str()));
 	client.session().send(&seat, "leave", &[]).await.unwrap();
+	for verb in ["managedRoomIdentity", "roomIdentity"] {
+		assert!(
+			client.session().send(&seat, verb, &[]).await.is_err(),
+			"{verb} answers only while the membership stands"
+		);
+	}
 	assert!(directory.list(None).await.unwrap().rooms.is_empty());
 	assert_eq!(named(&directory, "Quiet").await[0].id, entry.id);
 	let manager = managed.manager_link;

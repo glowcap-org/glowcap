@@ -69,8 +69,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			| "archive-issuer-reader"
 			| "operations-reader"
 			| "trace-snapshot"
-			| "room-identity-reader"
-			| "room-publication-identity" => reads::references(input, &metadata)?,
+			| "room-identity-reader" => reads::references(input, &metadata)?,
 			"observe-archive-connection" => archive_connection::references(&metadata)?,
 			"observe-direct-connection" => connection::references(input, &metadata)?,
 			"check-inbox" => inbox::references(input, &metadata)?,
@@ -107,7 +106,8 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 						return super::super::archive_sharing::references(input, record);
 					}
 					let dispatch = dispatch(input.args)?;
-					let revocation = dispatch.revokes_selected();
+					// Revocation and room sharing read the selected recipe's URI.
+					let recipe = dispatch.revokes_selected() || dispatch.offers_selected().is_some();
 					let targets = dispatch
 						.targets(&record.intent)
 						.map_err(|_| refuse("effect target is not selected in this workspace"))?;
@@ -125,7 +125,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 								.page
 								.checked_sub(1)
 								.ok_or_else(|| refuse("invalid effect target page"))?;
-							Ok(if revocation && index == 1 {
+							Ok(if recipe && index == 1 {
 								ReferenceRequest::RestorePageWithUri {
 									page,
 									field: location.field,

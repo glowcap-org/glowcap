@@ -15,15 +15,21 @@ pub struct Stewardship {
 	pub label: Field,
 	pub visibility: Visibility,
 	pub generation: SafeInteger,
-	pub issued: bool,
 	pub steward: Nullable<Field>,
+	pub manager: Nullable<Field>,
+	pub bridged: bool,
 }
 impl Stewardship {
+	/// A link cell is null or a sturdyref, never an empty string.
 	pub(super) fn validate(&self) -> Result<(), super::Refusal> {
-		match (&self.steward, self.issued) {
-			(Nullable::Null, false) => Ok(()),
-			(Nullable::Value(link), true) if link.text().utf16().next().is_some() => Ok(()),
-			_ => Err(super::Refusal::Relation),
+		let named = |link: &Nullable<Field>| match link {
+			Nullable::Null => true,
+			Nullable::Value(link) => link.text().utf16().next().is_some(),
+		};
+		if named(&self.steward) && named(&self.manager) {
+			Ok(())
+		} else {
+			Err(super::Refusal::Relation)
 		}
 	}
 }

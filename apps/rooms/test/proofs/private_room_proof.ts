@@ -7,14 +7,19 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // does not find it, and its name is a label two of them may share. What is left
 // is the reference, and holding one is being in the room.
 //
-// So an invitation is the room itself: `/invite` hands the live reference over
-// the direct line this reader already has, carried across as a third-party
-// handoff, with the room and the directory told nothing about who was offered
-// what. `/link` is the durable sibling: data the room minted, for an offer that
-// must outlive its sessions.
+// So an invitation is the authority to the room, sent over the direct line this
+// reader already has, with the room and the directory told nothing about who
+// was offered what. It takes one of two forms. An inviter who holds the room's
+// link sends that link, which the guest saves and keeps across a reload. An
+// inviter who holds the room only as a live reference hands that reference on
+// as a third-party handoff, and it lasts while the guest's page stays open.
+// Every inviter here holds the link, so this proof drives the first form. The
+// session executor proofs drive the second, and `/link` reads the link out for
+// an offer with no direct line at all.
 //
-// Here both routes to the server spell it the same way, so taking up a handed
-// room reuses the session the guest already holds and his name needs no proof.
+// Here both routes to the server spell it the same way, so taking up an
+// invitation reuses the session the guest already holds and his name needs no
+// proof.
 // A deployment where the spellings diverge opens a second session, and the
 // name-capability voucher seats him there; that half is pinned hermetically in
 // server_test.ts, where a byte pipe makes the divergence.
@@ -26,7 +31,8 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //   bo   asks for the room list, and it is not there.
 //   bo   names a room "plans" himself, and gets a different room with the same
 //        label and none of ada's content. The label carries no authority.
-//   ada  hands hers over. bo takes it up and hears what she said next.
+//   ada  invites bo. He takes the room's link up, hears what she said next,
+//        and is still in the room after his page reloads.
 //   bo   is offered a second one and declines it, which lets the reference go.
 //
 // And then the link on its own, which is the part no directory has to be in on.
@@ -43,6 +49,13 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 
 import { SERVER } from "../support/paths.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../../lib/locator.ts";
+import {
+	inviteWithoutTheRoom,
+	kickWithoutModerator,
+	notRegisteredForDirect,
+	roomLinkLine,
+} from "../../lib/text/commands.ts";
+import { roomLinkNoneHint } from "../../lib/text/room_authority.ts";
 import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
@@ -50,6 +63,7 @@ import { fail } from "../support/fail.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { joinAs, ROOM } from "../support/join.ts";
 import { say } from "../page/harness.ts";
+import { invitedRoomOnCard, linksTakenFromASeat } from "../support/private_room_links.ts";
 import { readPort, waitForHttp } from "../support/rooms_server.ts";
 import {
 	directoriesNamed,
@@ -59,6 +73,7 @@ import {
 	refusalAbout,
 	roomLink,
 	said,
+	told,
 	waitForTcp,
 } from "../support/private_room_page.ts";
 import { reachDirectoryOnCard } from "../page/harness.ts";
@@ -191,6 +206,21 @@ try {
 	}
 
 	// ── Handed over ──────────────────────────────────────────────────────
+	// A seat in a room is not the room. cy joined the lobby by its name after
+	// ada made it, so she holds nothing to hand over, and the refusal says the
+	// way in instead of claiming there is no room.
+	await say(cy, "/invite bo");
+	await cy.waitForFunction(
+		(sentence) => (document.getElementById("log")?.textContent ?? "").includes(sentence),
+		inviteWithoutTheRoom(ROOM, true),
+		{ timeout: 15_000 },
+	).catch(async () =>
+		fail(
+			`a member seated in a room she does not hold was not told the way in: ${
+				JSON.stringify((await said(cy)).slice(-200))
+			}`,
+		)
+	);
 	await say(ada, "/invite bo");
 	await bo.waitForSelector(".inviterow", { timeout: 30_000 })
 		.catch(async () => {
@@ -237,10 +267,10 @@ try {
 		[...document.querySelectorAll("#members li")].map((row) => row.textContent ?? "")
 	);
 	if (roster.some((row) => row.includes("bo-"))) {
-		fail(`the handed reference seated bo as a suffixed stranger: ${JSON.stringify(roster)}`);
+		fail(`the invitation seated bo as a suffixed stranger: ${JSON.stringify(roster)}`);
 	}
-	// What she says now reaches him: he is in the room, by the reference she
-	// handed him and nothing else.
+	// What she says now reaches him: he is in the room, by the link she sent
+	// him and nothing else.
 	const second = "and here is the thing itself";
 	await say(ada, second);
 	await bo.waitForFunction(
@@ -248,10 +278,11 @@ try {
 		second,
 		{ timeout: 30_000 },
 	).catch(() => fail("bo took up the invitation but the room never reached him"));
+	await invitedRoomOnCard(ada, bo, LABEL);
 
 	// ── A public room handed over stays public ───────────────────────────
-	// The same gesture from bo's listed "plans": /invite hands the reference,
-	// but a listed room is its name on the directory. Taking the offer up
+	// The same gesture from bo's listed "plans": /invite sends its link, but
+	// a listed room is its name on the directory. Taking the offer up
 	// seats ada in the listed room, beside, never inside, the private room
 	// wearing the same label.
 	const handedPublicLine = "handed over, and still the listed room";
@@ -294,6 +325,21 @@ try {
 	// `/join`s that locator and nothing else, the same paste a person makes,
 	// and lands in the room under the name it already has, not an invented one.
 	const shown = await roomLink(ada, "ada");
+	// Typed, the same link is said back where it was typed. A member who only
+	// holds a seat is told the link is not theirs to mint, and asking a member
+	// out without the moderator capability says so, instead of a generic
+	// failure with the reason lost.
+	await say(ada, "/link");
+	await told(ada, roomLinkLine(LABEL, shown), "/link did not say the room link back");
+	await say(cy, "/link");
+	await told(cy, roomLinkNoneHint, "/link from a seat did not say the link is not this session's to mint");
+	await say(cy, "/kick bo");
+	await told(cy, kickWithoutModerator, "/kick without the moderator capability did not say so");
+	// A name nobody registered is the reader's typo, said where they typed it.
+	await say(cy, "/msg nobody-9");
+	await told(cy, notRegisteredForDirect("nobody-9"), "/msg to a name nobody holds did not say so");
+	await say(ada, "/invite nobody-9");
+	await told(ada, notRegisteredForDirect("nobody-9"), "/invite to a name nobody holds did not say so");
 	await say(ada, `/join ${shown}`);
 	await ada.waitForFunction(
 		() => (document.getElementById("log")?.textContent ?? "").includes("You're already in this room."),
@@ -516,15 +562,21 @@ try {
 	}
 	await cold.close();
 
+	await linksTakenFromASeat(ada, cy);
+
 	console.log(
 		"PASS: a private room is reachable only by the authority to it — it is in no list, " +
 			"naming the same thing opens a different room, an offer over a direct line is what " +
-			"puts somebody else in it, and the link under that offer gets a reader in with no " +
+			"puts somebody else in it, carrying the room's link so the guest keeps it across a reload, " +
+			"and that link gets a reader in with no " +
 			"channel at all — `/join` of that locator sits in the room under its name; a declined offer " +
 			"leaves them out. A link redeems where it says: on the session this tab already " +
 			"holds when it names that directory, and on one opened beside it when it names " +
 			"another. A link whose peer is not there and a link whose secret is wrong are " +
-			"refused in words of their own, and neither leaves a server behind",
+			"refused in words of their own, and neither leaves a server behind. A member who came in by " +
+			"name takes the manager and moderator links on the room card without leaving the room, and " +
+			"a refused `/invite`, `/link`, `/kick`, or `/msg` says why in the conversation, and a link to a room " +
+			"the tab already stands in keeps that one row and its seat",
 	);
 } finally {
 	clearTimeout(deadline);

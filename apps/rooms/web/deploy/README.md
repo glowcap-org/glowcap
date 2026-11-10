@@ -72,7 +72,7 @@ services:
 
 The
 [work admission guide](../../../../docs/rooms/admission.md#configuration) covers rate, capacity, and HTTP source
-overrides for this deployment, and startup reports the effective profile.
+overrides for this deployment, and the operator page shows the directory's effective profile under **Work budgets**.
 
 - Later `up` commands reuse the selected image and never silently download an upgrade. Every `up` and `reset` names
   the image it selected or kept.

@@ -4,6 +4,7 @@
 //! nothing until the policy has named it.
 use super::{
 	history, invitations, lines,
+	rooms::{managed_identity, room_durable_name},
 	state::{Shared, State},
 };
 use glowcap::{Argument, current_session};
@@ -12,6 +13,7 @@ use rooms_application::{
 	failure::FailureCode,
 	room::{
 		ArgumentView,
+		authority::{MANAGED_IDENTITY, ROOM_IDENTITY},
 		history::VERB as HISTORY,
 		invitation::MINT,
 		membership::{AWAY, LEAVE, TYPING},
@@ -89,6 +91,28 @@ pub(super) fn seat(
 					.map_err(refusal)?
 					.as_str()
 					.into())
+			}
+			// The seat says which room it is in, as an entrance does, so a member
+			// who came in by name or invitation can prove a handed manager or
+			// moderator link belongs to this room. Both answers are correlators,
+			// never a way in.
+			MANAGED_IDENTITY => {
+				if !args.is_empty() {
+					return Err("managedRoomIdentity takes no arguments".into());
+				}
+				state.rooms.membership_kind(&room, membership).map_err(refusal)?;
+				let durable = room_durable_name(&state, &room, None);
+				Ok(managed_identity(&state, &durable))
+			}
+			ROOM_IDENTITY => {
+				if !args.is_empty() {
+					return Err("roomIdentity takes no arguments".into());
+				}
+				state.rooms.membership_kind(&room, membership).map_err(refusal)?;
+				let durable = room_durable_name(&state, &room, None);
+				// A room with no link answers an empty text, which the client
+				// reads as a room that answered no identity.
+				Ok(state.published_room_identity(&durable)?.unwrap_or_default().into())
 			}
 			MINT => {
 				let (Some(kind), 1) = (text(0).and_then(MembershipKind::parse), args.len()) else {

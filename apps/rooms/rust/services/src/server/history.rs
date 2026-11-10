@@ -13,6 +13,10 @@ pub(super) use file::{Backend, restore};
 /// row references per queued replacement. The in-flight write adds one slot.
 pub(super) const QUEUE: usize = 1024;
 
+/// A slot in the history writer's queue, taken before any effect commits.
+/// `None` when this server keeps no history.
+pub(super) type Reserved = Option<mpsc::OwnedPermit<Persist>>;
+
 /// Reserve before touching policy, then transfer the effect without another
 /// fallible step. Ordinary room effects cannot carry persistence by type.
 pub(super) fn mutate<T>(
@@ -24,7 +28,14 @@ pub(super) fn mutate<T>(
 		rooms_application::server::rooms::Refusal,
 	>,
 ) -> Result<T, String> {
-	let reserved = state
+	let reserved = reserve(state)?;
+	mutate_reserved(state, reserved, change)
+}
+
+/// Take a slot in the history writer's queue. A full queue answers busy and
+/// an ended writer refuses, both before anything changed.
+pub(super) fn reserve(state: &super::state::State) -> Result<Reserved, String> {
+	state
 		.history
 		.as_ref()
 		.map(|history| {
@@ -33,7 +44,22 @@ pub(super) fn mutate<T>(
 				mpsc::error::TrySendError::Closed(_) => "the history writer has ended".into(),
 			})
 		})
-		.transpose()?;
+		.transpose()
+}
+
+/// Apply `change` with a slot already taken, so the persistence effect
+/// transfers without another fallible step. A refusal from `change` drops
+/// the slot unused.
+pub(super) fn mutate_reserved<T>(
+	state: &mut super::state::State,
+	reserved: Reserved,
+	change: impl FnOnce(
+		&mut rooms_application::server::rooms::Rooms<u64, glowcap::Ref>,
+	) -> Result<
+		(T, rooms_application::server::rooms::Mutation<u64, glowcap::Ref>),
+		rooms_application::server::rooms::Refusal,
+	>,
+) -> Result<T, String> {
 	let (result, mutation) = change(&mut state.rooms).map_err(|refusal| refusal.reason())?;
 	if let (Some(reserved), Some(persist)) = (reserved, mutation.persist) {
 		reserved.send(persist);

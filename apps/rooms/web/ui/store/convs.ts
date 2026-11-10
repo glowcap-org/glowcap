@@ -6,7 +6,14 @@
 import type { Conv, ConvBase, DirectoryConv, DmConv, DmLine, RoomConv, SessionConv } from "../conversation.ts";
 import type { DirId, DirView } from "../directory.ts";
 import type { WorkspaceRoomBridgeIntent } from "../../../lib/rooms_state.ts";
-import { openRoomPolicy, privateRoomPolicy, roomPoliciesEqual, type RoomPolicy, roomPreset } from "../room_policy.ts";
+import {
+	openRoomPolicy,
+	privateRoomPolicy,
+	roomIsListed,
+	roomPoliciesEqual,
+	type RoomPolicy,
+	roomPreset,
+} from "../room_policy.ts";
 import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
 import type { PageProjection, State } from "./projection.ts";
 import { isSelf } from "./dirs.ts";
@@ -370,6 +377,15 @@ export function ensureDirectory(projection: PageProjection, dir: DirId): Directo
 export function joinedRooms(projection: PageProjection, dir?: DirId): RoomConv[] {
 	return [...projection.get().convs.values()].filter((conv): conv is RoomConv =>
 		conv.type === "room" && (dir === undefined || conv.dir === dir)
+	);
+}
+
+/** The listed rooms this tab holds on `dir`: the rooms `/link <room>` names
+ * and completes. A private room's id is a label, not a name anyone can find
+ * the room by, so it is not among them. */
+export function listedRoomsOn(convs: ReadonlyMap<string, Conv>, dir: DirId): RoomConv[] {
+	return [...convs.values()].filter((conv): conv is RoomConv =>
+		conv.type === "room" && conv.dir === dir && roomIsListed(conv.policy)
 	);
 }
 

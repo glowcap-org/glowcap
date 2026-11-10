@@ -24,6 +24,16 @@ import { managedSessionText, resultAcquisitionFailure } from "../../../../lib/te
 import { CompletedLine, isLineResult } from "./completed_line.ts";
 
 type Draft = ReturnType<typeof store.draftFor>;
+/** The composer's own refusal to take a third send: the draft stays, and the
+ * sentence is the whole notice. */
+class ComposerBusy extends Error {}
+/** What the failure toast says. The composer's own refusal is already the
+ * reader's sentence, and everything else is rendered from its failure code. */
+function failureNotice(error: unknown): string {
+	if (error instanceof ComposerBusy) return error.message;
+	if (error instanceof ResultAcquisitionError) return resultAcquisitionFailure(error.message);
+	return refusalText(error);
+}
 interface Send {
 	draft: Draft;
 	task: Promise<void>;
@@ -54,11 +64,7 @@ type Composer = Pick<
 export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSession, powers: CommandPowers): Composer {
 	const projection = page.projection;
 	const failures = (error: unknown) => {
-		store.toast(
-			projection,
-			"failure",
-			error instanceof ResultAcquisitionError ? resultAcquisitionFailure(error.message) : refusalText(error),
-		);
+		store.toast(projection, "failure", failureNotice(error));
 	};
 	const sending = new Map<string, Send>();
 	// Recovery belongs to the submitted draft. A new draft in the same
@@ -113,7 +119,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		if (previous.queued != null) {
 			return previous.queued.draft === draft
 				? previous.queued.task
-				: Promise.reject(new Error(managedSessionText.composerBusy));
+				: Promise.reject(new ComposerBusy(managedSessionText.composerBusy));
 		}
 		// One next gesture per conversation. Send transfers its immutable plan
 		// and files out of the editable draft. Later typing cannot cancel that

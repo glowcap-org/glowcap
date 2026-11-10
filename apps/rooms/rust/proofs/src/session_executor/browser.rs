@@ -47,6 +47,7 @@ const SCENARIOS: &[Scenario] = &[
 	scenario!(3, presence::run),
 	scenario!(3, signaling::run),
 	scenario!(3, archive_readers::run),
+	scenario!(3, room_identity::run),
 	scenario!(3, management::run),
 	scenario!(3, observation::run),
 	scenario!(3, opening::run),

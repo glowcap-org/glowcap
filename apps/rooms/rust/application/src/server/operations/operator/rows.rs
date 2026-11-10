@@ -136,11 +136,15 @@ pub fn wire_stewardship<W: Wire>(row: &StewardshipRow) -> W::Value {
 		W::text(&row.label),
 		W::text(row.visibility.name()),
 		W::integer(row.generation),
-		W::boolean(row.issued),
 		match &row.steward {
 			Some(steward) => W::text(steward),
 			None => W::null(),
 		},
+		match &row.manager {
+			Some(manager) => W::text(manager),
+			None => W::null(),
+		},
+		W::boolean(row.bridged),
 	])
 }
 

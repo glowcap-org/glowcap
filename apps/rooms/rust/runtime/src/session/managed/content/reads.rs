@@ -73,7 +73,7 @@ pub(super) fn selected_history(call: &mut Call<'_>, input: Invocation<'_>, local
 	archive_reader(call, &target, files)
 }
 pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
-	if matches!(input.verb, "room-identity-reader" | "room-publication-identity") {
+	if input.verb == "room-identity-reader" {
 		rooms::coordinate(input.args)?;
 		return Requirement::new(
 			&[Permission::ManageCustody.key(), Permission::ReplaceWorkspace.key()],
@@ -126,7 +126,7 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 	if input.verb == "export-configuration" {
 		return Ok(Vec::new());
 	}
-	let coordinate = if matches!(input.verb, "room-identity-reader" | "room-publication-identity") {
+	let coordinate = if input.verb == "room-identity-reader" {
 		rooms::selection(input.args, &record.intent)?
 	} else if input.verb == "operations-reader" {
 		operations::selection(input.args, &record.intent)?
@@ -166,15 +166,6 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 		.get(coordinate)
 		.ok_or_else(|| refuse("reader custody is absent"))?;
 	let location = records::location(&target);
-	if input.verb == "room-publication-identity" {
-		return Ok(vec![ReferenceRequest::InspectPageUri {
-			page: location
-				.page
-				.checked_sub(1)
-				.ok_or_else(|| refuse("invalid recipe page"))?,
-			field: location.field,
-		}]);
-	}
 	if input.verb == "custody-recipe" {
 		return Ok(vec![ReferenceRequest::RestorePageWithUri {
 			page: location
@@ -195,9 +186,6 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
 	if input.verb == "room-identity-reader" {
 		return rooms::invoke(call, input);
-	}
-	if input.verb == "room-publication-identity" {
-		return rooms::publication_identity(call, input);
 	}
 	if input.verb == "archive-issuer-reader" {
 		let record = records::decode(input)?;

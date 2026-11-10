@@ -3,13 +3,21 @@
 // accepting one leaves in the draft. The browser proof drives the widget.
 // This file pins the grammar the widget trusts.
 
-import { acceptCompletion, commandArgTrigger, completeCandidates, nickSource, triggerAt } from "../web/ui/complete.ts";
+import {
+	acceptCompletion,
+	commandArgTrigger,
+	completeCandidates,
+	nickSource,
+	roomSource,
+	triggerAt,
+} from "../web/ui/complete.ts";
 import { EMOJI_TABLE } from "../web/ui/emoji.ts";
 import "./support/browser_application.ts";
 import { PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
 import { messageMentions } from "../web/ui/markdown.ts";
 import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
 import type { Conv } from "../web/ui/conversation.ts";
+import type { RoomInfo } from "../lib/directory_publications.ts";
 import { assert, assertEquals } from "./assert.ts";
 import { fail } from "./support/fail.ts";
 
@@ -332,15 +340,82 @@ Deno.test("what the header claims the registry holds, the registry holds", () =>
 	}
 });
 
+Deno.test("every command that names a person completes a nickname as its argument", () => {
+	for (const command of ["msg", "invite", "kick", "whois", "ignore", "unignore"]) {
+		const text = `/${command} al`;
+		assertEquals(
+			commandArgTrigger(text, text.length),
+			{ kind: "nick", start: command.length + 2, query: "al", bare: true, argument: true },
+			`/${command}`,
+		);
+		const rows = completeCandidates(commandArgTrigger(text, text.length)!, SOURCES);
+		if (!rows.some((row) => row.insert === "alice ")) fail(`/${command} did not offer alice`);
+	}
+});
+
 Deno.test("/link and /join complete a listed room name as their argument", () => {
 	assertEquals(commandArgTrigger("/link", 5), null);
 	assertEquals(commandArgTrigger("/link ", 6), null);
-	assertEquals(commandArgTrigger("/link lo", 8), { kind: "room", start: 6, query: "lo", bare: true });
+	assertEquals(commandArgTrigger("/link lo", 8), { kind: "room", start: 6, query: "lo", bare: true, argument: true });
 	const rows = completeCandidates(commandArgTrigger("/link lo", 8)!, SOURCES);
 	assertEquals(rows[0]?.insert, "lobby ");
 	const accepted = acceptCompletion("/link lo", commandArgTrigger("/link lo", 8)!, 8, rows[0]!);
 	assertEquals(accepted.text, "/link lobby ");
 	const joinEmpty = commandArgTrigger("/join ", 6);
-	assertEquals(joinEmpty, { kind: "room", start: 6, query: "", bare: true });
+	assertEquals(joinEmpty, { kind: "room", start: 6, query: "", bare: true, argument: true });
 	assertEquals(commandArgTrigger("/join ocapn://peer.tcp/s/swiss", 30), null);
+	assertEquals(commandArgTrigger("/join #lo", 9), { kind: "room", start: 6, query: "lo", argument: true });
+});
+
+Deno.test("/link offers the listed rooms this tab is in, and /join the directory's live list", () => {
+	const room = (name: string): RoomInfo => ({
+		id: name,
+		name,
+		kind: "local",
+		count: 1,
+		origin: "",
+		proof: "local",
+		offers: "participant",
+	});
+	const live = new Map([["lobby", room("lobby")], ["logs", room("logs")]]);
+	const linkable = ["lobby"];
+	assertEquals(roomSource(commandArgTrigger("/link lo", 8), "/link lo", live, linkable), ["lobby"]);
+	assertEquals(roomSource(commandArgTrigger("/link #lo", 9), "/link #lo", live, linkable), ["lobby"]);
+	assertEquals(roomSource(commandArgTrigger("/join lo", 8), "/join lo", live, linkable), ["lobby", "logs"]);
+	assertEquals(roomSource(triggerAt("see #lo", 7), "see #lo", live, linkable), ["lobby", "logs"]);
+	assertEquals(roomSource(triggerAt("hi @al", 6), "hi @al", live, linkable), []);
+});
+
+Deno.test("a person-taking command completes its name with or without @", () => {
+	assertEquals(commandArgTrigger("/kick al", 8), { kind: "nick", start: 6, query: "al", bare: true, argument: true });
+	assertEquals(commandArgTrigger("/kick @al", 9), { kind: "nick", start: 6, query: "al", argument: true });
+	// Bare /ignore lists, so an empty argument offers nothing to take Enter.
+	assertEquals(commandArgTrigger("/ignore ", 8), null);
+	assertEquals(commandArgTrigger("/msg ", 5), { kind: "nick", start: 5, query: "", bare: true, argument: true });
+	const bare = completeCandidates(commandArgTrigger("/kick al", 8)!, SOURCES);
+	assertEquals(bare[0]?.insert, "alice ");
+	const sigil = completeCandidates(commandArgTrigger("/kick @al", 9)!, SOURCES);
+	assertEquals(sigil[0]?.insert, "@alice ");
+	// An ordinary sentence's @ is still a mention, not an argument.
+	assertEquals(commandArgTrigger("hello @al", 9), null);
+});
+
+Deno.test("a command's argument written out in full hands Enter back", () => {
+	// With `/invite @alice` written out, a row that keeps Enter would accept
+	// "alice" and hand back `/invite @alice `, so the first Enter would look
+	// like a key that does nothing. The same name inside a sentence keeps Enter.
+	const full = (text: string) => {
+		const trigger = commandArgTrigger(text, text.length) ?? fail(`${text} raised no argument trigger`);
+		const rows = completeCandidates(trigger, SOURCES);
+		return rows[0] ?? fail(`${text} offered nothing`);
+	};
+	assertEquals(full("/invite @alice").keepsEnter, false, "a person written in full after a command");
+	assertEquals(full("/invite @Alice").keepsEnter, false, "case does not make it half typed");
+	assertEquals(full("/kick alice").keepsEnter, false, "a bare person written in full");
+	assertEquals(full("/join lobby").keepsEnter, false, "a room written in full");
+	assertEquals(full("/join #lobby").keepsEnter, false, "a hashed room written in full");
+	assertEquals(full("/invite @ali").keepsEnter, true, "a person still being written");
+	assertEquals(full("/join lo").keepsEnter, true, "a room still being written");
+	const mention = completeCandidates(triggerAt("hello @alice", 12)!, SOURCES)[0];
+	assertEquals(mention?.keepsEnter, true, "a mention inside a sentence");
 });

@@ -66,18 +66,23 @@ pub(crate) fn list<A: ListArgument, T, const N: usize>(
 	List::new(out).ok_or(Refusal::Budget)
 }
 pub fn read_stewardship<A: ListArgument>(value: &A) -> Result<Stewardship, Refusal> {
-	let [name, label, visible, generation, issued, steward] = tuple(value)?;
+	let [name, label, visible, generation, steward, manager, bridged] = tuple(value)?;
 	let row = Stewardship {
 		name: text(&name)?,
 		label: text(&label)?,
 		visibility: visibility(&visible)?,
 		generation: number(&generation)?,
-		issued: boolean(&issued)?,
 		steward: if steward.is_null() {
 			Nullable::Null
 		} else {
 			Nullable::Value(text(&steward)?)
 		},
+		manager: if manager.is_null() {
+			Nullable::Null
+		} else {
+			Nullable::Value(text(&manager)?)
+		},
+		bridged: boolean(&bridged)?,
 	};
 	row.validate()?;
 	Ok(row)

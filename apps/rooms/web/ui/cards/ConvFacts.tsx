@@ -77,7 +77,11 @@ export function ConvFacts(
 	const phase = dir?.session;
 	const connection = dir == null ? null : dirConnection(dir.session, dir.statusText);
 	const here = conv.type === "room" ? membersHere(roster) : 0;
-	const bearer = useRoomBearer(conv.type === "room" && conv.held ? conv : null, "link");
+	const asksLink = conv.type === "room" && conv.held;
+	const bearer = useRoomBearer(asksLink ? conv : null, "link");
+	// A held room draws its address once the link read answers, rather than the
+	// directory's address first and the room link a moment later.
+	const reading = asksLink && bearer === undefined;
 	const roomLink = bearer ?? undefined;
 	const shared = roomLink ?? (dir === null ? null : rooms.dirAddress(dir.id));
 	const addressKind = roomLink === undefined ? factDirectoryAddress : roomLinkTitle;
@@ -178,12 +182,12 @@ export function ConvFacts(
 					</>
 				)}
 			</dl>
-			<p className="field-label" id="convcardUriKind">{addressKind}</p>
-			<CopyField
-				id="convcardShared"
-				text={shared}
-				label={addressLabel}
-			/>
+			{!reading && (
+				<>
+					<p className="field-label" id="convcardUriKind">{addressKind}</p>
+					<CopyField id="convcardShared" text={shared} label={addressLabel} />
+				</>
+			)}
 			{conv.type !== "directory" && <p className="hint" id="convcardReach">{conversationReach(conv)}</p>}
 		</div>
 	);
