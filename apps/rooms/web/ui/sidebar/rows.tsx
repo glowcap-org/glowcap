@@ -214,7 +214,7 @@ export function RoomRow(
 				</span>
 				<span className="rname" title={conv.id}>
 					<span className="rname-text">{conv.id}</span>
-					{conv.bridge !== undefined && <span className="bridge-chip">{conv.bridge.badge}</span>}
+					{conv.bridge !== undefined && <span className="chip bridge-chip">{conv.bridge.badge}</span>}
 				</span>
 				{unread > 0
 					? <span className="rcount unread">{unread}</span>

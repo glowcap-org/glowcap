@@ -43,7 +43,7 @@ pub(super) async fn run(limits: loam::Limits) {
 			.unwrap();
 		assert_eq!(
 			opened.workspace().unwrap().snapshot().await.unwrap().intent.connection,
-			session::workspace::Connection::Webrtc
+			session::workspace::Connection::Fastest
 		);
 		if let Some(anchor) = anchor {
 			assert_eq!(opened.anchor().encode(), anchor, "reload restores the confirmed root");

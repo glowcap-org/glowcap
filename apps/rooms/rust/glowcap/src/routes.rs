@@ -2,7 +2,7 @@
 use glowcap::{
 	CaptpVersion, HINT_ALT_LOCATORS, HINT_VIA, HintValue, HintWireForm, Locator, TRANSPORT_ID, TRANSPORT_IROH,
 	TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_ONION,
-	TRANSPORT_TCP,
+	TRANSPORT_TCP, TRANSPORT_WEBRTC,
 };
 
 pub mod joining;
@@ -87,7 +87,12 @@ fn input<T>(result: glowcap::Result<T>) -> Result<Option<T>> {
 }
 
 /// The transports that prove a Host's key, in the order a route names them.
-const ROUTE_ORDER: [&str; 3] = [TRANSPORT_IROH, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP];
+const ROUTE_ORDER: [&str; 4] = [
+	TRANSPORT_WEBRTC,
+	TRANSPORT_IROH,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+];
 /// The weak fallbacks for peers that do not speak the route vocabulary.
 const FALLBACK_ORDER: [&str; 4] = [
 	TRANSPORT_ONION,
@@ -199,9 +204,11 @@ pub fn locator(value: &str) -> Option<Locator> {
 fn authority(locator: &Locator) -> Option<String> {
 	peer_uri(locator).ok()
 }
+/// Every transport that proves the Host key names the same peer, so its
+/// authority is the key's identity route. A weak fallback keeps its own.
 fn peer_uri(locator: &Locator) -> Result<String> {
 	let transport = match locator.transport.as_str() {
-		TRANSPORT_ID | TRANSPORT_IROH | TRANSPORT_NOISE_RELAY | TRANSPORT_NOISE_TCP => TRANSPORT_ID,
+		strong if ROUTE_ORDER.contains(&strong) => TRANSPORT_ID,
 		other => other,
 	};
 	Ok(glowcap::format_peer_uri(
@@ -225,6 +232,22 @@ impl rooms_application::session::checkpoint::Routes for CheckpointRoutes {
 
 #[cfg(test)]
 mod tests {
+	/// A browser's two doors both prove its key, so the Host races them.
+	#[test]
+	fn a_browser_races_webrtc_and_its_relay() {
+		let key = "cd".repeat(32);
+		let doors = [
+			format!("ocapn://{key}.webrtc"),
+			format!("ocapn://{key}.noise-relay?rendezvous-relay=ws%3A%2F%2F127.0.0.1%3A8080%2Frelay"),
+		];
+		let route = super::identity_route(&key, &doors).expect("two proving doors make a route");
+		assert_eq!(route.transport, glowcap::TRANSPORT_ID);
+		assert_eq!(
+			route.hints.get(glowcap::HINT_VIA),
+			Some(&glowcap::HintValue::String(doors.join("|")))
+		);
+		assert!(!route.hints.contains_key(glowcap::HINT_ALT_LOCATORS));
+	}
 	#[test]
 	fn an_identity_route_opens_back_into_its_doors() {
 		let key = "ab".repeat(32);
@@ -249,6 +272,23 @@ mod tests {
 			"tcp"
 		);
 		assert!(super::directory_doors("not an address").unwrap().is_none());
+	}
+	/// A browser on Browser to browser lists a bare WebRTC door, and on
+	/// Fastest an identity route. Both name the one key's authority.
+	#[test]
+	fn every_key_proving_door_names_the_identity_authority() {
+		let key = "ef".repeat(32);
+		let identity = format!("ocapn://{key}.id");
+		for transport in ["id", "webrtc", "iroh", "noise-relay", "noise-tcp"] {
+			let address = super::Address::directory(&format!("ocapn://{key}.{transport}"))
+				.unwrap()
+				.unwrap();
+			assert_eq!(address.authority, identity, "{transport}");
+		}
+		let weak = super::Address::directory(&format!("ocapn://{key}.keyed-tcp"))
+			.unwrap()
+			.unwrap();
+		assert_eq!(weak.authority, format!("ocapn://{key}.keyed-tcp"));
 	}
 	#[test]
 	fn address_input_preserves_runtime_failures() {

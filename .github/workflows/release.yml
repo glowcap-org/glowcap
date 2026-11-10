@@ -102,8 +102,8 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: "15.0"
       RELEASE_TARGET: ${{ matrix.target }}
     steps:
-      # c-sdk-pack needs no conformance submodule, so no
-      # `submodules: recursive` here. Nothing is restored from a cache: a
+      # c-sdk-pack needs no conformance submodule, so this job skips the
+      # submodules action. Nothing is restored from a cache: a
       # release builds from the pinned downloads alone.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

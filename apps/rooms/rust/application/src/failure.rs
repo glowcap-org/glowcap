@@ -93,6 +93,7 @@ codes! {
 	SessionSignalingHostOffline => ("session-signaling-host-offline", "hosting-tab", AfterStateChange, "The hosting tab isn't answering on the directory this link names.", Some("On that tab, share the session and leave it open. Reloading it ends sharing.")),
 	SessionSignalingUnavailable => ("session-signaling-unavailable", "signaling-directory", AfterStateChange, "This browser couldn't connect through the directory the link names.", Some("Try again once that directory is reachable from here.")),
 	SessionWebrtcNoRoute => ("session-webrtc-no-route", "webrtc-route", AfterRequestOrStateChange, "The two browsers found each other, but couldn't open a connection between them.", Some("If the networks allow no direct connection, configure TURN or select Relay and share a new link. A link already issued keeps its original route.")),
+	DirectNoRoute => ("direct-no-route", "webrtc-route", AfterStateChange, "No direct route opened from this browser.", Some("A Rooms server gives this browser another route.")),
 	SessionPeerUnverified => ("session-peer-unverified", "session-peer", AfterRequestChange, "The session answered, but this browser couldn't confirm it is the one the link names.", Some("Try again with a link the session shows now.")),
 	LinkPreviewInvalidUrl => ("link-preview-invalid-url", "link-preview", AfterRequestChange, "That address can't be previewed.", Some("Use a public HTTP or HTTPS address without embedded credentials.")),
 	LinkPreviewAddressBlocked => ("link-preview-address-blocked", "link-preview", AfterRequestChange, "Rooms won't connect to that address for a preview.", Some("Link previews can reach only public internet addresses, never this server or its private network.")),
@@ -146,12 +147,20 @@ impl<'a> Failure<'a> {
 		}
 	}
 	/// Read the canonical Rooms reason, including the generic binding wrapper
-	/// shipped around it, one per layer the line climbed through. A code-shaped
+	/// shipped around it, one per layer the line climbed through, and the
+	/// Host's redeem layer a handoff's dial failure wears. A code-shaped
 	/// phrase inside diagnostic detail is not a failure code. Unknown reasons
 	/// stay untyped. Reading allocates nothing.
 	pub fn parse(reason: &'a str) -> Option<Self> {
 		let mut reason = reason;
-		while let Some(wrapped) = reason.strip_prefix("glowcap error ") {
+		loop {
+			if let Some(payload) = reason.strip_prefix(REDEEM_LAYER) {
+				reason = payload;
+				continue;
+			}
+			let Some(wrapped) = reason.strip_prefix("glowcap error ") else {
+				break;
+			};
 			let (status, payload) = wrapped.split_once(": ")?;
 			let digits = status.strip_prefix('-').unwrap_or(status);
 			if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -164,6 +173,11 @@ impl<'a> Failure<'a> {
 		FailureCode::parse(segment).map(|code| Self { code, detail })
 	}
 }
+
+/// The prefix the Host's handoff redeem puts on the failure of the dial it
+/// made (the Zig engine's `node/redeem.zig` and its `redeem/` modules write
+/// it). A status layer, not a code.
+const REDEEM_LAYER: &str = "handoff redeem failed: ";
 
 impl fmt::Display for Failure<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -237,6 +251,17 @@ mod tests {
 				code: FailureCode::NoServer,
 				detail: "none chosen",
 			})
+		);
+		assert_eq!(
+			Failure::parse("glowcap error -12: handoff redeem failed: glowcap error -8: direct-no-route: none opened"),
+			Some(Failure {
+				code: FailureCode::DirectNoRoute,
+				detail: "none opened",
+			})
+		);
+		assert_eq!(
+			Failure::parse("glowcap error -12: handoff redeem failed: host closing"),
+			None
 		);
 		assert_eq!(Failure::parse("transport: nick-taken: alice"), None);
 		assert_eq!(

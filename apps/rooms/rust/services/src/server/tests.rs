@@ -9,6 +9,7 @@ mod admission_pressure;
 mod config;
 mod operations;
 mod receipt_cost;
+mod registered_route;
 mod rooms;
 use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh, tcp};
 use rooms_application::{

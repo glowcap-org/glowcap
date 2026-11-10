@@ -98,7 +98,7 @@ impl Prepared {
 				BootstrapOptions {
 					reply_bytes,
 					live_capacity,
-					initial_connection: rooms_application::content::session::workspace::Connection::Webrtc,
+					initial_connection: rooms_application::content::session::workspace::Connection::Fastest,
 				},
 				move |bootstrap| {
 					let previous = expected;

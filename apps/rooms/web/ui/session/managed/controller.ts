@@ -44,8 +44,10 @@ import { coordinate } from "./model.ts";
 import type { ManagedHistory } from "./history.ts";
 import { managedArchiveReading } from "./archive_shares.ts";
 import type { RoomInfo } from "../../../../lib/directory_publications.ts";
+import { notRegisteredForDirect } from "../../../../lib/text/commands.ts";
 import { directDirectoryUnavailable, directNoRegistration } from "../../../../lib/text/conversation.ts";
 import {
+	serverAskAfterDirect,
 	serverAskAfterDoor,
 	serverAskFor,
 	serverNeedAddress,
@@ -159,6 +161,20 @@ export function createManagedController(
 		}
 		return door ?? renderFailure(view);
 	};
+	type Explain = (error: unknown, resume: Resume) => string | null;
+	// What a direct line that did not open says, whoever asked for it. A name
+	// nobody holds is said with the name. An introduction that was redeemed
+	// and found no route, on a page with no Rooms server, has a route through
+	// a server as the other way to that person, so the page asks for one, with
+	// the conversation to come back to. With a server the Host already tried
+	// every route it was given, so the failure is said as it is.
+	const dmExplained = (peer: string): Explain => (error, resume) => {
+		const code = failureView(error).code;
+		if (code === "peer-offline") return notRegisteredForDirect(peer);
+		if (code !== "direct-no-route" || projection.get().server != null) return explained(error, resume);
+		store.askServer(projection, resume?.() ?? null, serverAskAfterDirect(peer));
+		return null;
+	};
 	const failure = (error: unknown, resume: Resume) => {
 		const said = explained(error, resume);
 		if (said != null) store.toast(projection, "failure", said);
@@ -183,12 +199,34 @@ export function createManagedController(
 		store.askServer(projection, resume(), serverAskFor(serverNeedDm));
 		return false;
 	};
+	// Opening a direct line by name, for a press and for `/msg` alike. Settles
+	// to what a failure says, or "" once the line is open or the page has
+	// asked for a Rooms server.
+	const openDm = (peer: string): Promise<string> => {
+		const resume = () => dmAddress(peer);
+		if (!reachableForDm(resume)) return Promise.resolve("");
+		return session.openings.run(async (opening) => {
+			const id = await session.actions.direct(directory(), peer, false, undefined, opening);
+			await opening.select(id);
+		}, { kind: "direct", peer }).then(() => "", (error: unknown) => {
+			if (error instanceof DOMException && error.name === "AbortError") return "";
+			return dmExplained(peer)(error, resume) ?? "";
+		});
+	};
 	const dirAddressOf = (id: DirId) => dirAddress(projection.get().dirs, id);
 	const current = () => store.activeConv(projection);
 	const run = (name: string, ...args: string[]) => session.actions.run(name, args);
 	const directory = () => current()?.dir ?? dirId(homeRow()?.id ?? "");
 	const roomActions = managedRoomActions(page, session);
-	const powers = managedCommandPowers(page, browser, session, roomActions, (id, name) => pick(id, name), select);
+	const powers = managedCommandPowers(
+		page,
+		browser,
+		session,
+		roomActions,
+		(id, name) => pick(id, name),
+		select,
+		(peer) => openDm(peer),
+	);
 	const composer = managedComposer(page, session, powers);
 	async function select(id: string): Promise<void> {
 		session.openings.dismiss();
@@ -458,19 +496,14 @@ export function createManagedController(
 				return said;
 			}
 		},
-		startDm: (peer) => {
-			if (!reachableForDm(() => dmAddress(peer))) return Promise.resolve();
-			return act(
-				session.openings.run(async (opening) => {
-					const id = await session.actions.direct(directory(), peer, false, undefined, opening);
-					await opening.select(id);
-				}, { kind: "direct", peer }),
-				{ resume: () => dmAddress(peer) },
-			);
-		},
+		startDm: (peer) =>
+			openDm(peer).then((said) => {
+				if (said !== "") store.toast(projection, "failure", said);
+			}),
 		recoverDm: (key) => {
 			const row = store.getConv(projection, key);
 			const resume = row?.type === "dm" ? () => dmAddress(row.id) : null;
+			const explain = row?.type === "dm" ? dmExplained(row.id) : explained;
 			if (!reachableForDm(() => resume?.() ?? null)) return Promise.resolve("");
 			return session.openings.run(async (opening) => {
 				try {
@@ -486,10 +519,10 @@ export function createManagedController(
 					await opening.select(next);
 					return "";
 				} catch (error) {
-					return explained(error, resume) ?? "";
+					return explain(error, resume) ?? "";
 				}
 			}).catch((error) =>
-				error instanceof DOMException && error.name === "AbortError" ? "" : explained(error, resume) ?? ""
+				error instanceof DOMException && error.name === "AbortError" ? "" : explain(error, resume) ?? ""
 			);
 		},
 		openFile: (key, id) => files.open(key, id),

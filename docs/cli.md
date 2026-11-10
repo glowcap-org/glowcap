@@ -276,13 +276,14 @@ The workspace owns its identity and every room and DM it has joined.
 - Rooms commands take their own flags. `--identity`, `--json`, and `--plain`
   belong to the generic CLI and are refused before any Rooms command runs.
 
-To send a DM to a browser from this session, the session needs the route the
-browser chose. A browser that chose **Through the Rooms server** is dialed
-through that relay, whose URL an HTTP or HTTPS bootstrap supplies, or pass
-`start --relay-url`. A browser that kept WebRTC is dialed directly when the
-session started with `--dial-transports webrtc`, which signals through the
-room that introduced the browser and gathers candidates through
-`--ice-servers`. [Operating Rooms](../apps/rooms/operating.md) covers local
+To send a DM to a browser from this session, the session needs a route the
+browser advertised, and it dials the routes it was started with. A session
+started with `--dial-transports webrtc` reaches a browser on **Fastest** or
+**Browser to browser** directly, signaling through the room that introduced
+the browser and gathering candidates through `--ice-servers`. A session with a
+relay reaches a browser on **Fastest** or **Through the server**, using the
+URL an HTTP or HTTPS bootstrap supplies or `start --relay-url`. A session
+with both races the two routes for a **Fastest** browser. [Operating Rooms](../apps/rooms/operating.md) covers local
 control, limits, and recovery.
 
 ## Shell completion and scripting

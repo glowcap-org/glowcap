@@ -8,6 +8,7 @@
 import type { Locator, Page } from "playwright";
 import { inkContrast } from "../ink_contrast.ts";
 import { fail } from "../support/fail.ts";
+import { factDmDirect, factDmRelay } from "../../lib/text/conversation.ts";
 
 /** Keep every notice the page tells, because a toast leaves on its own a few
  * seconds after it is shown, and a failure dump that reads `#toasts` after a
@@ -229,6 +230,33 @@ export async function pathSaid(tab: Page, want: string, route: string): Promise<
 	});
 	await tab.click("#convcardClose");
 	await tab.waitForSelector("#convcardPath", { state: "detached", timeout: 10_000 });
+}
+
+/** The route the open direct line's card names, read from the live session
+ * after the card opens, and the card is closed again: `webrtc` or
+ * `noise-relay`, with the words the card says for that route. A card that
+ * names neither, or says one route's words over the other's marker, fails. */
+export async function pathTaken(tab: Page): Promise<string> {
+	const routes: Record<string, string> = { "webrtc": factDmDirect, "noise-relay": factDmRelay };
+	await tab.click("#roomAbout");
+	const said = await tab.waitForFunction(
+		(routes) => {
+			const path = document.getElementById("convcardPath");
+			const route = path?.dataset.route ?? "";
+			return route in routes && path?.textContent === routes[route] ? route : null;
+		},
+		routes,
+		{ timeout: 10_000 },
+	).then((handle) => handle.jsonValue()).catch(async () => {
+		const said = await tab.evaluate(() => {
+			const path = document.getElementById("convcardPath");
+			return path == null ? null : [path.textContent, path.dataset.route];
+		}).catch(() => null);
+		fail(`the direct line's card said its path is ${JSON.stringify(said)}, which names no route`);
+	});
+	await tab.click("#convcardClose");
+	await tab.waitForSelector("#convcardPath", { state: "detached", timeout: 10_000 });
+	return String(said);
 }
 
 /** The directory conversation's title opens the existing directory card. */

@@ -266,8 +266,9 @@ pub fn apply<R: References>(
 		(Route::Checkpoint(Command::ChooseHistoryRetention), [toggle]) => intent.keep_history = enabled(toggle)?,
 		(Route::Checkpoint(Command::ChooseConnection), [mode]) => {
 			let connection = match *mode {
-				"relay" => workspace::Connection::Relay,
+				"fastest" => workspace::Connection::Fastest,
 				"webrtc" => workspace::Connection::Webrtc,
+				"relay" => workspace::Connection::Relay,
 				_ => return Err(Refusal::Arguments),
 			};
 			intent.connection = connection;

@@ -2,8 +2,10 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // A Deno peer direct-messages a browser member by cold-dial rendezvous, end
 // to end (ADR-0034 capability 5, the Deno-dialer row). The browser tab opens
 // no listening socket, so it cannot be dialed the ordinary way: it registers
-// its durable identity and a held inbound socket at the relay serve.ts runs, and
-// advertises a `noise-relay` locator to the room. The Deno peer, a plain
+// its durable identity and a held inbound socket at the relay serve.ts runs,
+// and, on the default **Fastest** route with a server, is listed under an
+// identity route naming WebRTC and that relay. The Deno peer has no WebRTC,
+// so its Host proves the key over the relay route. The Deno peer, a plain
 // Deno process on the dlopen runtime, no browser anywhere near its side, joins
 // the same room, redeems the room's introduction, and its Host cold-dials the
 // browser's identity through the explicitly composed relay provider. The
@@ -54,7 +56,7 @@ const REPLY_TEXT = "got it deno-carol, replying over your arriving connection";
 async function joinAs(browser: Browser, port: number, nick: string): Promise<Page> {
 	const tab = await (await browser.newContext()).newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
-	await tab.goto(`http://127.0.0.1:${port}/?dm=relay`);
+	await tab.goto(`http://127.0.0.1:${port}/`);
 	await establishLocalSession(tab);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);

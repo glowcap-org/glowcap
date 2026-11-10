@@ -379,7 +379,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 					`webrtc-${key()}`,
 					(await peerSession.snapshot()).revision,
 					"chooseConnection",
-					["webrtc", ""],
+					["webrtc"],
 				);
 				held.push(connection);
 				if (await connection.submit() !== "committed") {

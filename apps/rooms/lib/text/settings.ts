@@ -67,20 +67,28 @@ export const settingsServerRefused =
 export const settingsRelayAway = (host: string, origin: string) =>
 	`People can't reach this browser right now. The Rooms server at ${host} isn't answering, or doesn't allow pages from ${origin}. Rooms keeps trying.`;
 
-/** Where direct messages go. Both are end-to-end encrypted, so the choice is
- * about who can start one, not about who can read them. */
+/** How other people's direct lines reach this browser. Every route is
+ * encrypted end to end, so the choice is about the path and who can start a
+ * line, not about who can read it. The radios are only drawn with a Rooms
+ * server, since without one browser to browser is the one route the page
+ * has. Fastest is the default, and the mark beside it says so. */
+export const settingsDmFastestLabel = "Fastest";
+export const settingsDmDefault = "Default";
+export const settingsDmFastestSaid =
+	"Tries both routes at once and uses the first that opens, often the server. Someone on another app can write to you first.";
 export const settingsDmDirectLabel = "Browser to browser";
-const settingsDmDirectEncrypted = "Encrypted between browsers.";
-const settingsDmDirectFallback = "Through the Rooms server when no direct route opens.";
-const settingsDmDirectReply = "Someone using another app can reply only after you write first.";
-/** The fallback sentence belongs to a page with a Rooms server to fall back to. */
-export const settingsDmDirectSaid = (hasServer: boolean) =>
-	[settingsDmDirectEncrypted, ...(hasServer ? [settingsDmDirectFallback] : []), settingsDmDirectReply].join(" ");
-export const settingsDmRelayLabel = "Through the Rooms server";
-export const settingsDmRelaySaid =
-	"Encrypted end to end, and the Rooms server only passes on encrypted messages. Someone using another app can write to you first.";
-/** The saved mode is shown as it is while the page has no Rooms server. */
+export const settingsDmDirectSaid =
+	"Tries a direct route first and uses the server only if none opens. Someone on another app can reply only after you write first.";
+export const settingsDmRelayLabel = "Through the server";
+export const settingsDmRelaySaid = "Always through the server. Someone on another app can write to you first.";
+export const settingsDmEncrypted = "Every route is encrypted end to end.";
+/** The page with no Rooms server: the one route it has, and what a server adds. */
+export const settingsDmNoServer =
+	"With no Rooms server, direct messages go browser to browser. Adding a server above gives them a second route and lets someone on another app write to you first.";
+/** The saved choice is shown as it is while the page has no Rooms server,
+ * with one act that moves to the default. */
 export const settingsDmRelayNeedsServer = `${serverNeedDm} This page has none.`;
+export const settingsDmUseFastest = "Switch to Fastest";
 export const settingsDmReload = "Saving reloads this window.";
 
 export const sessionShareLabel = "Share this session";
