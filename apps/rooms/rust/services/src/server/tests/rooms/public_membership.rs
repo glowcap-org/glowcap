@@ -108,6 +108,12 @@ async fn dormant() {
 		rooms_application::room::authority::room_identity(core::str::from_utf8(&link.swissnum).unwrap()).unwrap();
 	assert_eq!(seat_room.as_str(), Some(expected.as_str()));
 	client.session().send(&seat, "leave", &[]).await.unwrap();
+	for verb in ["managedRoomIdentity", "roomIdentity"] {
+		assert!(
+			client.session().send(&seat, verb, &[]).await.is_err(),
+			"{verb} answers only while the membership stands"
+		);
+	}
 	assert!(directory.list(None).await.unwrap().rooms.is_empty());
 	assert_eq!(named(&directory, "Quiet").await[0].id, entry.id);
 	let manager = managed.manager_link;

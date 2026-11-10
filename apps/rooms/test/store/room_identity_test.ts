@@ -8,6 +8,7 @@
 /// <reference lib="dom" />
 
 import "../support/match_media.ts";
+import "../support/browser_application.ts";
 import { assertEquals } from "../assert.ts";
 
 const store = await import("../../web/ui/store.ts");
@@ -54,4 +55,14 @@ Deno.test("a different publication under one name stays its own room", () => {
 	assertEquals(store.joinedRooms(projection, dir).length, 2);
 	store.forgetConv(projection, first.key);
 	store.forgetConv(projection, second.key);
+});
+
+Deno.test("/link names only the listed rooms this tab holds on the directory", () => {
+	const dir = dirId("listed-dir");
+	const elsewhere = dirId("listed-elsewhere");
+	const listed = store.ensureRoom(projection, dir, "lobby", { persistId: "conv-listed" });
+	const hidden = store.ensureRoom(projection, dir, "~0001", { persistId: "conv-private", held: true });
+	const other = store.ensureRoom(projection, elsewhere, "lobby", { persistId: "conv-other" });
+	assertEquals(store.listedRoomsOn(projection.get().convs, dir).map((room) => room.id), ["lobby"]);
+	for (const room of [listed, hidden, other]) store.forgetConv(projection, room.key);
 });

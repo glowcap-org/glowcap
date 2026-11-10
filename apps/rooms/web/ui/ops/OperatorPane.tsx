@@ -3,10 +3,11 @@
 //
 // Two capabilities fill this one address, and they list the same inventories:
 // the operator's rows carry the handles that retire them, and inspect's do
-// not. So a tab holding operator is shown the operator's page alone, because
+// not. So a tab holding operator is shown the operator's page, because
 // drawing the read-only one beside it would be the same rooms twice with only
-// one of the two able to act. A tab holding only inspect is shown that page
-// with nothing to press.
+// one of the two able to act. Inspect's work budgets are the one inventory the
+// operator does not list, so a tab holding both sees them under the operator's
+// page. A tab holding only inspect is shown that page with nothing to press.
 //
 // The page's own trouble journal belongs to the address rather than to either
 // capability, so it stands under whichever half drew.
@@ -18,8 +19,10 @@ import { loadDiagnosticsPane, loadOperatorBody, prefetch } from "../chunks.ts";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
 import { SectionTitle } from "./Section.tsx";
+import { InspectSection } from "./InspectSection.tsx";
 import { opsBrowserTroubleTitle } from "../../../lib/text/ops.ts";
 import {
+	inspectAdmission,
 	opsDirectoryHoldingsLoading,
 	opsInspectPane,
 	opsOperatorPane,
@@ -49,9 +52,18 @@ export function OperatorPane(
 			<ErrorBoundary part={crash}>
 				<Suspense fallback={<OpsLoading what={wait} />}>
 					{operatorHeld
-						? (operator === null
-							? <OpsLoading what={opsOperatorStateLoading} />
-							: <OperatorBody state={operator} />)
+						? (operator === null ? <OpsLoading what={opsOperatorStateLoading} /> : (
+							<>
+								<OperatorBody state={operator} />
+								{inspectHeld && rows != null && (
+									<InspectSection
+										id="operatorWorkBudgets"
+										{...inspectAdmission}
+										rows={rows.filter((row) => row.kind === "admission")}
+									/>
+								)}
+							</>
+						))
 						: inspectHeld
 						? (rows === null
 							? <OpsLoading what={opsDirectoryHoldingsLoading} />

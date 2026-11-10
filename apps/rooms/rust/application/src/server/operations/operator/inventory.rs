@@ -13,10 +13,13 @@ use super::{
 	page::{Source, search_text},
 	rows::{RoomKind, Row},
 };
-use crate::server::{
-	directory::Directory,
-	links::Authority,
-	rooms::{MembershipKey, RoomKey, Rooms},
+use crate::{
+	room::stewardship::Kind,
+	server::{
+		directory::Directory,
+		links::Authority,
+		rooms::{MembershipKey, RoomKey, Rooms},
+	},
 };
 use alloc::{
 	collections::BTreeMap,
@@ -58,7 +61,6 @@ pub struct View<'a, C, R> {
 /// The exact act a row's retire performs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Act {
-	RevokeSteward(String),
 	RevokeIrcSteward {
 		publication: String,
 		token: String,
@@ -100,14 +102,14 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 		&self,
 		category: Category,
 		kind: Option<ReferenceKind>,
-		steward_link: &dyn Fn(&str) -> Option<String>,
+		link: &dyn Fn(Kind, &str) -> Option<String>,
 	) -> Vec<Source<Row, Act>> {
 		let mut sources: Vec<_> = match category {
-			Category::Stewardships => stewardship_rows(self.rooms, self.authority, steward_link)
+			Category::Stewardships => stewardship_rows(self.rooms, self.authority, link)
 				.into_iter()
 				.map(|row| Source {
 					text: search_text(&[&row.name, &row.label, row.visibility.name()]),
-					retire: row.issued.then(|| Act::RevokeSteward(row.name.clone())),
+					retire: None,
 					row: Row::Stewardship(row),
 				})
 				.collect(),
@@ -256,13 +258,13 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 		                room: String,
 		                member: String,
 		                detail: String,
-		                act: Act| {
+		                act: Option<Act>| {
 			if wanted.is_some_and(|wanted| wanted != kind) {
 				return;
 			}
 			out.push(Source {
 				text: search_text(&[&id, kind.name(), owner, &room, &member, &detail]),
-				retire: Some(act),
+				retire: act,
 				row: Row::Reference {
 					id,
 					kind,
@@ -282,10 +284,10 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 					room.name.to_string(),
 					member.nick.to_string(),
 					"membership inbox".into(),
-					Act::EndMembership {
+					Some(Act::EndMembership {
 						room: room.key.clone(),
 						membership: member.membership,
-					},
+					}),
 				);
 			}
 		}
@@ -306,7 +308,7 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 				foreign.name.clone(),
 				String::new(),
 				format!("{} publication from {}", foreign.proof, foreign.origin),
-				Act::RemoveForeign(foreign.id.clone()),
+				Some(Act::RemoveForeign(foreign.id.clone())),
 			);
 		}
 		for exchange in self.directory.exchanges() {
@@ -317,7 +319,7 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 				String::new(),
 				self.session_id(exchange.originator).unwrap_or("").to_string(),
 				format!("in-flight exchange {}", exchange.id),
-				Act::DropExchange(exchange.id.clone()),
+				Some(Act::DropExchange(exchange.id.clone())),
 			);
 		}
 		let registrations: Vec<_> = self.directory.registrations().collect();
@@ -335,10 +337,10 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 					String::new(),
 					registration.nick.clone(),
 					format!("inbox offered to {named} ({peer})"),
-					Act::ReleaseOffered {
+					Some(Act::ReleaseOffered {
 						nick: registration.nick.clone(),
 						peer: peer.clone(),
-					},
+					}),
 				);
 			}
 			if registration.signaling {
@@ -349,7 +351,7 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 					String::new(),
 					registration.nick.clone(),
 					"WebRTC signaling inbox".into(),
-					Act::ReleaseSignaling(registration.nick.clone()),
+					Some(Act::ReleaseSignaling(registration.nick.clone())),
 				);
 			}
 		}
@@ -361,7 +363,8 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 				String::new(),
 				registration.nick.clone(),
 				"registration inbox and name claim".into(),
-				Act::RevokeRegistration(registration.nick.clone()),
+				// The caller's own name stays, as its Registration row says.
+				(registration.connection != self.caller).then(|| Act::RevokeRegistration(registration.nick.clone())),
 			);
 		}
 		out

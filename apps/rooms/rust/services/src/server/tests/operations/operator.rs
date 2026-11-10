@@ -121,7 +121,7 @@ async fn operator() {
 			.any(|row| text(row, 1) == "membership" && text(row, 4) == "alice")
 	);
 	assert_eq!(pages["stewardships"].2, 1, "the live room is a stewardship row");
-	assert!(!boolean(&pages["stewardships"].1[0], 4));
+	assert!(matches!(pages["stewardships"].1[0][4], Argument::Void));
 
 	// One page, cut by category, cursor, and limit, and the refusals.
 	let page = cells(
@@ -183,8 +183,7 @@ async fn operator() {
 			.unwrap(),
 	);
 	assert_eq!(text(&issued, 0), "garden");
-	assert!(boolean(&issued, 4));
-	let steward_link = text(&issued, 5).to_string();
+	let steward_link = text(&issued, 4).to_string();
 	assert!(steward_link.starts_with("ocapn://"));
 	let steward = session.enliven(&steward_link).await.unwrap();
 	// A steward governs a room identity, the opaque name a room keeps
@@ -199,7 +198,7 @@ async fn operator() {
 			.await
 			.unwrap(),
 	);
-	assert!(!boolean(&revoked, 4));
+	assert!(matches!(revoked[4], Argument::Void));
 	assert!(session.send(&steward, "governs", &[]).await.is_err());
 	assert!(
 		refused(&session, &op, "revokeSteward", &[Argument::String("garden".into())])
@@ -221,9 +220,44 @@ async fn operator() {
 		session.send(&manager, "governs", &[]).await.unwrap(),
 		Argument::String(_)
 	));
+	let (_, pages) = whole(&session.send(&op, "operatorSnapshot", &[]).await.unwrap());
+	let garden_stewardship = pages["stewardships"]
+		.1
+		.iter()
+		.find(|row| text(row, 0) == "garden")
+		.expect("the managed room is a stewardship row");
+	assert!(
+		matches!(&garden_stewardship[5], Argument::String(link) if link.starts_with("ocapn://")),
+		"the issued manager link shows on the row"
+	);
+	let unmanaged = cells(
+		&session
+			.send(&op, "revokeManager", &[Argument::String("garden".into())])
+			.await
+			.unwrap(),
+	);
+	assert!(matches!(unmanaged[5], Argument::Void));
+	assert!(session.send(&manager, "governs", &[]).await.is_err());
+	assert!(
+		refused(&session, &op, "revokeManager", &[Argument::String("garden".into())])
+			.await
+			.contains("no issued manager")
+	);
+	let by_name = [Argument::String("garden".into())];
+	let first = manager_cell(&session.send(&op, "issueManager", &by_name).await.unwrap())
+		.expect("issuing answers the manager link");
+	assert!(first.starts_with("ocapn://"));
+	assert_eq!(
+		manager_cell(&session.send(&op, "revokeManager", &by_name).await.unwrap()),
+		None
+	);
+	let second = manager_cell(&session.send(&op, "issueManager", &by_name).await.unwrap())
+		.expect("a second issue answers the manager link");
+	assert_ne!(first, second, "a revoked manager link is never reissued");
 
 	// The links inventory holds the room link the stewardship made; revoking
-	// it by name empties the inventory.
+	// it by name empties the inventory. The manager link stands on its own,
+	// listed and revocable by name.
 	let (_, pages) = whole(&session.send(&op, "operatorSnapshot", &[]).await.unwrap());
 	assert_eq!(pages["links"].2, 1);
 	session
@@ -232,6 +266,16 @@ async fn operator() {
 		.unwrap();
 	let (_, pages) = whole(&session.send(&op, "operatorSnapshot", &[]).await.unwrap());
 	assert_eq!(pages["links"].2, 0);
+	let standing = pages["stewardships"]
+		.1
+		.iter()
+		.find(|row| text(row, 0) == "garden")
+		.expect("a manager-only room keeps its row");
+	assert!(matches!(&standing[5], Argument::String(link) if *link == second));
+	assert_eq!(
+		manager_cell(&session.send(&op, "revokeManager", &by_name).await.unwrap()),
+		None
+	);
 
 	// The search counts every match and retires past its page; the room
 	// goes by its exact id and its member hears why.
@@ -440,4 +484,91 @@ async fn operator() {
 	runtime.close(PendingWork::Cancel).await.unwrap();
 	member_runtime.close(PendingWork::Cancel).await.unwrap();
 	second_runtime.close(PendingWork::Cancel).await.unwrap();
+}
+
+#[tokio::test]
+async fn rooms_server_operator_issues_a_manager_link_for_a_managed_room() {
+	rooms_testing::local_set::run_within(Duration::from_secs(30), managed_issue()).await;
+}
+
+async fn managed_issue() {
+	use rooms_application::{directory::creation::RecoveryKey, room::policy::RoomPolicy};
+	use rooms_glowcap::client::{Client, directory::Directory};
+	let temp = Scratch::create("server");
+	let running = start_with(temp.to_path_buf(), tcp(), Asked::parse("operator").unwrap()).await;
+	let swiss = running.capabilities[0].swiss.clone();
+	let runtime = runtime().await;
+	let dial = glowcap::parse_locator(&running.location).unwrap();
+	let session = runtime.connect(&dial, ConnectOptions::default()).await.unwrap();
+	let op = session.fetch(&swiss).await.unwrap();
+	let directory = Directory::fetch(Client::new(session.borrowed(), rooms_platform::HostPlatform))
+		.await
+		.unwrap();
+	directory
+		.open_managed("Vault", RoomPolicy::Open, &RecoveryKey::from_entropy([43; 16]))
+		.await
+		.unwrap();
+	let (_, pages) = whole(&session.send(&op, "operatorSnapshot", &[]).await.unwrap());
+	let id = pages["stewardships"]
+		.1
+		.iter()
+		.find(|row| text(row, 1) == "Vault")
+		.map(|row| text(row, 0).to_string())
+		.expect("the managed room is a stewardship row");
+	let name = [Argument::String(id)];
+	let held = pages["stewardships"]
+		.1
+		.iter()
+		.find(|row| text(row, 1) == "Vault")
+		.unwrap();
+	assert!(matches!(&held[5], Argument::String(link) if link.starts_with("ocapn://")));
+	assert_eq!(
+		manager_cell(&session.send(&op, "revokeManager", &name).await.unwrap()),
+		None
+	);
+	let first = manager_cell(&session.send(&op, "issueManager", &name).await.unwrap())
+		.expect("issuing answers the manager link");
+	assert!(first.starts_with("ocapn://"));
+	assert_eq!(
+		manager_cell(&session.send(&op, "revokeManager", &name).await.unwrap()),
+		None
+	);
+	let second = manager_cell(&session.send(&op, "issueManager", &name).await.unwrap())
+		.expect("a second issue answers the manager link");
+	assert_ne!(first, second);
+	assert!(
+		refused(&session, &op, "issueManager", &[Argument::String("nowhere".into())])
+			.await
+			.contains("no-such-room")
+	);
+	// Forgetting the room takes its row, its manager link, and its name.
+	let manager = session.enliven(&second).await.unwrap();
+	assert!(matches!(
+		session.send(&op, "forgetRoom", &name).await.unwrap(),
+		Argument::Void
+	));
+	assert!(session.send(&manager, "governs", &[]).await.is_err());
+	let (_, pages) = whole(&session.send(&op, "operatorSnapshot", &[]).await.unwrap());
+	assert!(
+		pages["stewardships"].1.iter().all(|row| text(row, 1) != "Vault"),
+		"a forgotten room has no row"
+	);
+	assert!(
+		refused(&session, &op, "forgetRoom", &name)
+			.await
+			.contains("no-such-room")
+	);
+	directory
+		.open_managed("Vault", RoomPolicy::Open, &RecoveryKey::from_entropy([44; 16]))
+		.await
+		.expect("the forgotten room's name is free");
+}
+
+/// The manager link cell of a stewardship row: a sturdyref or null.
+fn manager_cell(answer: &Argument) -> Option<String> {
+	match &cells(answer)[5] {
+		Argument::String(link) => Some(link.clone()),
+		Argument::Void => None,
+		other => panic!("a link or null, not {other:?}"),
+	}
 }

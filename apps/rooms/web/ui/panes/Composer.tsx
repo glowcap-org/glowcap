@@ -32,7 +32,7 @@ import {
 	composerStopEditing,
 	composerTakeBack,
 } from "../../../lib/text/controls.ts";
-import { useCoarsePointer, useConversationMembers, useDismissOnClickOutside, useRoomsState } from "../hooks.ts";
+import { useCoarsePointer, useDismissOnClickOutside, useRoomsState } from "../hooks.ts";
 import { roomJoiningNow } from "../store/rooms.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { composerReducer, initialComposerState } from "./composer_state.ts";
@@ -40,7 +40,8 @@ import { useRoomsSession } from "../controller/session.ts";
 import { actionRefusal } from "../error_text.ts";
 import { type AttachmentView, type Conv, conversationCarries, conversationTakesFiles } from "../conversation.ts";
 import type { LiveRooms, SessionPhase } from "../directory.ts";
-import { acceptCompletion, type Candidate, commandArgTrigger, composerCandidates, triggerAt } from "../complete.ts";
+import { acceptCompletion, type Candidate } from "../complete.ts";
+import { useComposerCompletion } from "../composer/completion.ts";
 import { lineCapSaid, PHASE_SAID, roomCalled } from "../text.ts";
 import { CompletionList, EmojiTray } from "../composer/pops.tsx";
 
@@ -110,7 +111,6 @@ export function Composer(
 	const browser = useRoomsBrowser();
 	const openModalFrom = useOpenModal();
 	const session = useRoomsSession();
-	const members = useConversationMembers(conv?.type === "room" ? conv.key : null);
 	const bar = useRef<HTMLDivElement>(null);
 	const field = useRef<HTMLTextAreaElement>(null);
 	const filePick = useRef<HTMLInputElement>(null);
@@ -124,9 +124,8 @@ export function Composer(
 	// Last submitted line sitting in the field because Up recalled it.
 	// Down restores empty while this still matches; any other edit drops it.
 	const [state, dispatch] = useReducer(composerReducer, initialComposerState);
-	const { emojiOpen, focused, recovering: recoveringRoom, caret, picked, dismissedAt, recalled } = state;
-	const trigger = focused && enabled ? commandArgTrigger(draft, caret) ?? triggerAt(draft, caret) : null;
-	const candidates = composerCandidates(trigger, dismissedAt, conv, draft, reachable, nick, members, liveRooms);
+	const { emojiOpen, focused, recovering: recoveringRoom, caret, picked, recalled } = state;
+	const { trigger, candidates } = useComposerCompletion({ conv, draft, state, enabled, reachable, nick, liveRooms });
 	const listOpen = candidates.length > 0;
 	// Where the selection really is. The list is derived from the roster and the
 	// live rooms, so it can shrink under a reader mid-token (somebody leaves

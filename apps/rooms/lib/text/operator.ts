@@ -2,9 +2,11 @@
 // beside them, and what each act on them leaves standing.
 //
 // Operator copy, so precision beats plainness here as it does in `ops.ts`. A
-// reader is deciding whether to retire a session, a name, a room, or a whole
-// authority class, and the sentence under the act says what goes and what
+// reader is deciding whether to retire a session, a name, a room, or every
+// one of a kind, and the sentence under the act says what goes and what
 // stays.
+
+import { managerLinkPower, moderatorLinkPower } from "./room_authority.ts";
 
 /** One reset scope: what it is about, the act, its full name, and its effect. */
 export interface OperatorReset {
@@ -51,7 +53,7 @@ export const operatorResetAll: OperatorReset = {
 	act: "Factory reset",
 	label: "Factory reset Rooms authority",
 	effect:
-		"The room-authority secret is rotated. Active links, records of revoked links, and moderator grants are cleared. Then all rooms, nickname claims, other peer sessions, and current trouble are retired. This operator connection, server identity, and retained message history remain. Old authorities stay revoked, and room names can mint unrelated new links.",
+		"The secret behind every room link is rotated. Active links, records of revoked links, and moderator and manager links are cleared. Then all rooms, other peer sessions, their nickname claims, and current trouble are retired. Server identity, retained message history, and the operator's own connection and nickname remain. Revoked links stay revoked, and room names can mint unrelated new links.",
 };
 
 /** The two chips on a room row: what kind of room it is, and how its origin
@@ -169,20 +171,58 @@ export const operatorRoomsSweepSubject = "room owners";
 export const operatorRoomsSweepEffect =
 	"Each room closes in one step, releasing its memberships and the live references it holds.";
 
-/** Room moderator authority. */
-export const operatorModerationTitle = "Room moderator authority";
+/** Room authority: every room the server owns with its manager and moderator links. */
+export const operatorModerationTitle = "Rooms and their links";
 export const operatorModerationLead =
-	"Grant a room moderator link for recovery or handoff. Rotating it stops copied and already-live old holders. Active IRC bridges appear through their own source authority, and peered rooms remain with their remote source.";
-export const operatorModerationEmpty = "This server owns no rooms right now.";
-export const operatorRotateAsk = "Rotate…";
-export const operatorGranting = "Granting…";
-export const operatorGrantModerator = "Grant moderator link";
+	"Every room this server owns, including rooms nobody is in right now, with the links that stand for it. A manager link runs a room, and a moderator link moderates it. A room an IRC bridge runs is listed here with its moderator link and takes no manager link. Peered rooms stay with their remote source.";
+export const operatorModerationEmpty =
+	"This server owns no rooms right now, and no room has a moderator or manager link.";
+/** The row's tags: which links stand for the room. */
+export const operatorManagerPart = "Manager";
+export const operatorModeratorPart = "Moderator";
+export const operatorNoLinks = "No links";
+/** The tag on a room an IRC bridge runs. */
+export const operatorBridgedPart = "IRC";
+export const operatorRoomLinksOpen = "Links…";
+/** The card over the list for one room's two links. */
+export function operatorRoomLinksCardTitle(title: string): string {
+	return `Links for ${title}`;
+}
+export const operatorRoomLinksLead =
+	"Each link gives its power to whoever holds it. Copy a link for a handoff or a recovery, and revoke it to stop every copy at once. The room stays listed here while anyone is in it, while any link stands for it, or while this server keeps its name and settings.";
+export const operatorManagerLinkTitle = "Manager link";
+export const operatorManagerHeldHint = managerLinkPower;
+export const operatorManagerNoneHint = "No manager link stands for this room. Issue one to copy it.";
+/** Said in place of the manager link on a room an IRC bridge runs. */
+export const operatorBridgedManagerHint =
+	"An IRC bridge runs this room, so it has no manager link. The moderator link is issued here.";
+export const operatorModeratorLinkTitle = "Moderator link";
+export const operatorModeratorHeldHint = moderatorLinkPower;
+export const operatorModeratorNoneHint = "No moderator link stands for this room. Issue one to copy it.";
+export const operatorRevokeAsk = "Revoke…";
+/** The one act that removes a room from this server entirely. */
+export const operatorForgetRoomTitle = "Forget the room";
+export const operatorForgetRoomHint =
+	"Forgetting the room removes anyone in it, stops every link to it at once, drops its subject and kept messages, frees its name, and takes it off this list.";
+export const operatorForgetRoomAsk = "Forget room…";
+export const operatorForgetRoom = "Forget room";
+export const operatorForgetRoomEffect =
+	"Anyone in the room is removed and every copy of its links stops working at once. Its subject and kept messages are gone. Its name is free to use again. A later link for a room of the same name will be new.";
+export const operatorIssuing = "Issuing…";
+export const operatorIssueManager = "Issue manager link";
+export const operatorIssueModerator = "Issue moderator link";
+export function operatorCopyManager(title: string): string {
+	return `Copy ${title}'s room manager link`;
+}
 export function operatorCopyModerator(title: string): string {
 	return `Copy ${title}'s room moderator link`;
 }
+export const operatorManagerRevoke = "Revoke manager link";
+export const operatorManagerRevokeEffect =
+	"Every copy of this room's manager link stops working at once, including the one its maker holds. The room keeps its name, members, and moderator link. A new manager link can be issued here.";
+export const operatorModeratorRevoke = "Revoke moderator link";
 export const operatorModeratorRevokeEffect =
-	"Every old copy stops moderating this room immediately, including references already in use.";
-export const operatorModeratorRevoke = "Revoke old moderator link";
+	"Every copy of this room's moderator link stops working at once, including references already in use. The room keeps its name, members, and manager link. A new moderator link can be issued here.";
 
 /** Directory trouble: the failures diagnostics reports. */
 export const operatorTroubleTitle = "Directory trouble";
@@ -197,4 +237,4 @@ export const operatorTroubleClear = "Clear directory trouble";
 /** Reset and recovery. */
 export const operatorResetTitle = "Reset and recovery";
 export const operatorResetLead =
-	"Reset one authority class at a time. This operator connection and its nickname remain so the action can answer.";
+	"Reset one kind of thing at a time. This operator connection and its nickname remain so the action can answer.";

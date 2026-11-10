@@ -15,6 +15,7 @@ import { directoryName, roomCalled } from "../../text.ts";
 import {
 	inviteWithoutTheRoom,
 	KICK_WITHOUT_MODERATOR,
+	linkNotHeldFor,
 	linkRoomNotJoined,
 	moderatorLinkLine,
 	moderatorLinkTaken,
@@ -31,12 +32,12 @@ import {
 	roomLinkLine,
 } from "../../commands/targets.ts";
 import { roomBearer } from "../bearer.ts";
-import { roomLinkNoneHint } from "../../../../lib/text/room_authority.ts";
+import { linksNotShownHere, roomLinkHandedHint, roomLinkNoneHint } from "../../../../lib/text/room_authority.ts";
 import { JOIN_DEFAULT_NICK, roomLinkDestination } from "../../joining.ts";
 import { alreadyInRoom } from "../../../../lib/text/attached.ts";
 import { thatLinkDidNotOpen } from "../../../../lib/text/commands.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
-import { roomsErrorInMessage } from "../../../../lib/errors.ts";
+import { roomsErrorInMessage } from "../../../../lib/error_codes.ts";
 
 /** Run work that opens a direct line to `who`. The directory answers a name
  * nobody registered with its peer-offline code. That is the reader's typo,
@@ -69,14 +70,7 @@ export function managedCommandPowers(
 	};
 	// A held room was entered by this exact link when its retained access was
 	// imported from it or minted as it. Labels and room names prove nothing.
-	const enteredBy = async (link: string): Promise<string | null> => {
-		for (const row of session.current?.intent.conversations ?? []) {
-			if (row.kind !== "room" || row.access == null) continue;
-			const coordinate = JSON.stringify({ role: "roomAccess", key: row.access });
-			if (await session.workspace.custodyRecipe(coordinate) === link) return row.id;
-		}
-		return null;
-	};
+	const enteredBy = (link: string) => session.actions.roomEnteredBy(link);
 	const edit = async (verb: "editLine" | "withdrawLine", text?: string) => {
 		const row = selected();
 		const line = row?.lines?.at(-1);
@@ -94,14 +88,13 @@ export function managedCommandPowers(
 		} else await session.actions.run(verb, [row.id, String(line.id), ...(text == null ? [] : [text])]);
 		return null;
 	};
-	// The room this session is in under `name` on the same directory as `here`,
-	// or null. A name a reader types is matched the way the room list shows it.
+	// The listed room this session is in under `name` on the same directory as
+	// `here`, or null. A name a reader types is matched the way the room list
+	// shows it, and a private room's id is a label rather than a name.
 	const roomNamed = (here: Extract<Conv, { type: "room" }>, name: string) => {
 		const wanted = name.toLowerCase();
-		for (const row of projection.get().convs.values()) {
-			if (row.type === "room" && row.dir === here.dir && row.id.toLowerCase() === wanted) return row;
-		}
-		return null;
+		return store.listedRoomsOn(projection.get().convs, here.dir).find((row) => row.id.toLowerCase() === wanted) ??
+			null;
 	};
 	const powers: CommandPowers = {
 		say: (text, key = projection.get().activeKey ?? undefined) => {
@@ -230,15 +223,23 @@ export function managedCommandPowers(
 			if (here?.type !== "room") return NO_ROOM_TO_LINK;
 			const target = name == null || name.toLowerCase() === here.id.toLowerCase() ? here : roomNamed(here, name);
 			if (target == null) return linkRoomNotJoined(name ?? here.id);
-			if (target.linkToken == null) {
-				// Minting is the room manager's. Anyone else holds a seat, or a
-				// link somebody handed them, and the card says the same.
-				if (target.managerToken == null) return roomLinkNoneHint;
+			if (!session.permits("shareCustody")) return linksNotShownHere;
+			// A room handed over by /invite is held as a live reference with no
+			// link text behind it, so the question is whether a link can be read,
+			// not whether the row holds access. Minting is the room manager's, and
+			// only for the room it is typed in. Anyone else holds a seat, or the
+			// handed room, and the card says the same.
+			let link = await roomBearer(session, target, "link");
+			if (link == null) {
+				if (target !== here) return linkNotHeldFor(target.id);
+				if (target.managerToken == null) {
+					return target.linkToken == null ? roomLinkNoneHint : roomLinkHandedHint;
+				}
 				const refusal = await rooms.createRoomLink(target.key);
 				if (refusal !== "") return refusal;
+				link = await roomBearer(session, target, "link");
+				if (link == null) return roomLinkNoneHint;
 			}
-			const link = await roomBearer(session, target, "link");
-			if (link == null) return roomLinkNoneHint;
 			powers.say(roomLinkLine(target.id, link), here.key);
 			return null;
 		},

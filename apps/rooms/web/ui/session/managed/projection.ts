@@ -1,3 +1,4 @@
+import { RoomsError } from "../../../../lib/error_codes.ts";
 import { conversationById } from "./conversation_lookup.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 import { ROOM_SENDER } from "../../../../lib/protocol_data.ts";
@@ -442,7 +443,10 @@ export class ManagedProjection {
 			return;
 		}
 		if (notice.kind === "ended") {
-			const reason = notice.reason ?? managedText.membershipEnded;
+			// A room an operator removed says why after its failure code. The page
+			// shows the sentence, as it shows a plain reason such as a removal.
+			const said = notice.reason ?? managedText.membershipEnded;
+			const reason = RoomsError.from(said)?.detail || said;
 			if (conversation.type === "dm") store.put(projection, { ...conversation, line: "closed" });
 			if (conversation.type === "room") {
 				const identity = this.#identities.get(conversation.persistId);

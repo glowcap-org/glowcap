@@ -52,9 +52,28 @@ impl State {
 		self.links.set(Kind::Room, name, Swiss::from(swiss.clone()));
 		Ok(swiss)
 	}
+	/// The digest a steward governs, derived from the room link's token. A
+	/// room with no link answers none until a manager creates one.
+	pub(super) fn published_room_identity(&self, name: &str) -> Result<Option<String>, String> {
+		self.links
+			.swiss(Kind::Room, name)
+			.map(|swiss| room_identity(swiss).map_err(|e| e.to_string()))
+			.transpose()
+	}
+	/// The name whose manager identity is `identity`. The identity derives
+	/// from the name, so this walks the names the server owns and the rooms
+	/// that are live, one derivation each, on an operator's rare ask.
+	pub(super) fn manager_name(&self, identity: &str) -> Result<String, String> {
+		self.rooms
+			.live()
+			.map(|room| room.durable_name)
+			.chain(self.authority.owned_names())
+			.find(|name| self.authority.manager_identity(name) == identity)
+			.map(String::from)
+			.ok_or_else(|| AuthorityRefusal::UnknownManager.to_string())
+	}
 	pub fn publish_steward(&mut self, name: &str) -> Result<(String, String), String> {
-		let room_swiss = self.publish_room(name)?;
-		let identity = room_identity(&room_swiss).map_err(|e| e.to_string())?;
+		let identity = room_identity(&self.publish_room(name)?).map_err(|e| e.to_string())?;
 		if let Some(swiss) = self.links.swiss(Kind::Steward, name) {
 			return Ok((identity, swiss.into()));
 		}
@@ -73,8 +92,6 @@ impl State {
 		Ok((identity, swiss))
 	}
 	pub fn publish_manager(&mut self, name: &str) -> Result<String, String> {
-		let identity = self.authority.manager_identity(name);
-		self.links.set_identity(name, identity)?;
 		if let Some(swiss) = self.links.swiss(Kind::Manager, name) {
 			return Ok(swiss.into());
 		}
@@ -120,8 +137,6 @@ impl State {
 			.map(|row| (row.name.clone(), row.issued))
 			.collect();
 		for (name, issued) in managers {
-			let identity = self.authority.manager_identity(&name);
-			self.links.set_identity(&name, identity)?;
 			if issued {
 				self.publish_manager(&name)?;
 			}

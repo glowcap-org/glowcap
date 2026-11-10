@@ -16,7 +16,7 @@ macro_rules! row {
 		}
 	};
 }
-row!(Stewardship { name, label, steward; visibility, generation, issued });
+row!(Stewardship { name, label, steward, manager; visibility, generation, bridged });
 row!(Link { name, label; visibility });
 row!(Registration { nick, session_id; you });
 row!(Session { id, transport, nick; you });

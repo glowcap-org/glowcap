@@ -145,7 +145,7 @@ fn acquire(owner: &RoomsManagedWorkspace, input: Result<AcquisitionInput>) -> js
 				});
 			}
 			workspace
-				.resolve_imported_room_names(&imports, &mut intent)
+				.resolve_imported_rooms(&mut imports, &mut intent)
 				.await
 				.map_err(|error| error.to_string())?;
 			workspace

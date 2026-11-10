@@ -13,8 +13,9 @@ function viewOf(row: StewardshipRow) {
 		label: row.label,
 		visibility: row.visibility,
 		generation: row.generation,
-		issued: row.issued,
 		stewardLink: row.steward,
+		managerLink: row.manager,
+		bridged: row.bridged,
 	};
 }
 

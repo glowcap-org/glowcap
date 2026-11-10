@@ -205,7 +205,8 @@ export interface Command {
 	 * names (`here`, `room`) follow the mention path and stay off this list. */
 	targets?: "reachable";
 	/** What the words after this command complete as. `"room"` is a listed
-	 * room name, with or without `#`: `/link` and `/join` take one. `"person"`
+	 * room name, with or without `#`: `/join` takes one on the directory, and
+	 * `/link` one this tab is in (`roomSource` offers each its own). `"person"`
 	 * is a name, with or without `@`: `/msg`, `/invite`, `/kick`, `/whois`,
 	 * `/ignore` and `/unignore` take one. Written out in full, the argument is
 	 * the whole instruction, so the completion list hands Enter back to

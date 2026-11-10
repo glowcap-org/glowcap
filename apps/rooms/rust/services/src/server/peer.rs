@@ -49,21 +49,51 @@ pub struct Ready {
 	pub trace: Option<String>,
 	/// The actual loopback timeline port, including an ephemeral selection.
 	pub trace_port: Option<u16>,
+	/// The flush-left `ROOMS-* <link>` lines an operator keeps: one per
+	/// minted capability, and the timeline listener's when it serves.
+	pub lines: Vec<String>,
 	announcement: String,
+	supervised_announcement: String,
 }
 
 impl Ready {
-	/// One versioned supervisor record. Capability tokens stay on stderr.
-	pub fn announcement(&self) -> &str {
-		&self.announcement
+	/// One versioned readiness record. A supervisor's carries `lines`, so it
+	/// presents them and the server prints nothing of its own. Anything else
+	/// reads routing data only, and the lines stay on the server's own block.
+	pub fn announcement(&self, supervised: bool) -> &str {
+		if supervised {
+			&self.supervised_announcement
+		} else {
+			&self.announcement
+		}
 	}
-	/// The supervisor record, rendered once while the peer can still refuse it.
+	/// The lines, from the minted capabilities and the advertised locator.
+	fn lines(location: &str, capabilities: &[Minted], trace: Option<&str>) -> Result<Vec<String>, Error> {
+		let locator = glowcap::parse_locator(location)
+			.map_err(|e| Error::refused(format!("the server's own locator is invalid: {e}")))?;
+		let mut lines = Vec::with_capacity(capabilities.len() + 1);
+		for cap in capabilities {
+			if cap.capability.kind == rooms_application::server::operations::Kind::Trace {
+				let recipe =
+					trace.ok_or_else(|| Error::refused("the minted timeline capability has no advertised recipe"))?;
+				lines.push(format!("{} {recipe}", cap.capability.token));
+			} else {
+				lines.push(cap.line(&locator)?);
+			}
+		}
+		if let Some(trace) = trace {
+			lines.push(format!("ROOMS-TRACE-LISTENING {trace}"));
+		}
+		Ok(lines)
+	}
+	/// The readiness record's routing data, built while the peer can still
+	/// refuse it.
 	fn render(
 		location: &str,
 		trace: Option<&str>,
 		trace_port: Option<u16>,
 		local_endpoint: Option<&rooms_platform::serving::endpoint::Endpoint>,
-	) -> Result<String, Error> {
+	) -> Result<super::readiness::Announcement, Error> {
 		let mut announcement =
 			super::readiness::Announcement::new(location.to_owned(), trace_port, local_endpoint.cloned());
 		announcement.trace_locator = trace
@@ -74,7 +104,7 @@ impl Ready {
 					.map_err(|e| Error::refused(format!("the trace locator cannot be rendered: {e}")))
 			})
 			.transpose()?;
-		announcement.line().map_err(Error::refused)
+		Ok(announcement)
 	}
 }
 
@@ -148,18 +178,24 @@ impl Peer {
 		let location = self.state.borrow().advertised();
 		let trace = self.owners.trace.as_ref().map(|trace| trace.sturdyref.clone());
 		let trace_port = self.owners.trace.as_ref().map(|trace| trace.port);
-		let announcement = Ready::render(
+		let lines = Ready::lines(&location, &self.minted, trace.as_deref())?;
+		let mut record = Ready::render(
 			&location,
 			trace.as_deref(),
 			trace_port,
 			self.owners.local_endpoint.as_ref(),
 		)?;
+		let announcement = record.line().map_err(Error::refused)?;
+		record.capabilities.clone_from(&lines);
+		let supervised_announcement = record.line().map_err(Error::refused)?;
 		Ok(Ready {
 			location,
 			capabilities: self.minted.clone(),
 			trace,
 			trace_port,
+			lines,
 			announcement,
+			supervised_announcement,
 		})
 	}
 	/// The locator partners dial, which `advertisedLocation` also answers.
@@ -394,7 +430,6 @@ async fn assemble(
 	owners.operations = Some(writer);
 	let (authority_writer, writer) = authority::queue::open(server);
 	owners.authority = Some(writer);
-	report(Notice::Admission(config.admission.summary()));
 	let state = Rc::new(RefCell::new(State::new(
 		host,
 		authority,

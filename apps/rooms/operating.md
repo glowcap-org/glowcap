@@ -55,7 +55,10 @@ server, copy the whole directory, and restore it as one unit.
 On startup the process prints `ROOMS-SERVER-LISTENING` followed by the
 address members dial. For a loopback TCP room that is just the port, and with
 `--announce-host` it is `host:port`. Otherwise it is the complete locator.
-`GLOWCAP_ROOMS_READY_FORMAT=json` prints the same announcement as JSON.
+`GLOWCAP_ROOMS_READY_FORMAT=json` prints one JSON line instead, with the
+address, the timeline listener, and the local endpoint. A server started on
+its own prints its `ROOMS-*` link lines either way. Under `rooms-web` the
+JSON record carries them and `rooms-web` prints them in its own block.
 
 Options use `--name=value` and can also come from `GLOWCAP_ROOMS_*`
 environment variables. Unknown or repeated options are refused.
@@ -135,7 +138,7 @@ print.
 | --- | --- | --- |
 | `admin-listeners` | `ROOMS-ADMIN-LISTENERS` | List the server's listeners, bring one up on a transport it can realize, take one down |
 | `diagnostics` | `ROOMS-DIAGNOSTICS` | Inspect: the names the directory holds and its recent failures |
-| `operator` | `ROOMS-OPERATOR` | Recover and revoke every local room's manager and moderator links, including the lists and bulk removal on the Operator page |
+| `operator` | `ROOMS-OPERATOR` | Issue, recover, and revoke every local room's manager and moderator links, forget a room, and use the lists and bulk removal on the Operator page |
 | `peering` | `ROOMS-PEERING` | List a durable room from another directory |
 | `irc` | `ROOMS-IRC` | Open IRC networks and bridge channels as rooms |
 | `trace` | `ROOMS-TRACE`, `ROOMS-TRACE-LISTENING` | The live timeline endpoint and the capability its sockets present |
@@ -367,11 +370,13 @@ reference restored from one is refused at once, and the next issue creates an
 unrelated one.
 
 The `operator` capability can recover the moderator and manager links of any
-local room, including private rooms. Its page lists the moderators, can give out an unissued moderator or
-recover the current one, and can revoke room-link, manager, or moderator
-generations after a second confirmation. It cannot enter a room or kick
-anyone on its own authority. Peered rooms stay under their source directory,
-and bridged IRC rooms get their moderator from the gateway.
+local room, including private rooms. Its page lists every room the server
+owns, including rooms nobody is in, with the links that stand for each. It
+issues and copies the manager and moderator links, revokes either after a
+second confirmation, and **Forget room** removes a room with its members,
+its links, its subject, its kept messages, its name, and its settings. It
+cannot enter a room or kick anyone on its own authority. Peered rooms stay under their source directory, and
+bridged IRC rooms take no manager link and are removed with their bridge.
 
 ## The Operations page
 

@@ -32,7 +32,7 @@ export const noLineToChange = "There is no message of yours here that can still 
 export const noLineToTakeBack = "There is no message of yours here that can still be taken back.";
 /** Why `/subject` could not set one: the room handed this membership no
  * subject capability. */
-export const noSubjectOffered = "This room did not offer a subject to set.";
+export const noSubjectOffered = "This room has no subject you can set from here.";
 /** Why `/kick` and `/moderator` found no room to act on. */
 export const noRoomToModerate = "There is no connected room here to moderate.";
 /** Why `/kick` could not ask: the moderator link is not held here. */
@@ -40,17 +40,23 @@ export const kickWithoutModerator =
 	"You don't hold the moderator link for this room, so you can't ask anyone to leave.";
 /** Why `/link` found no room. */
 export const noRoomToLink = "There is no room here to link to.";
-/** Why `/link` could not answer for a room this session is not in. */
+/** Why `/link` could not answer for a room this session is not in. A
+ * private room's name is not one `/link` takes, so it is answered the same. */
 export function linkRoomNotJoined(room: string): string {
 	return `You aren't in #${room}. Join it first: /join ${room}.`;
 }
+/** Why `/link <room>` named a listed room this session is in, elsewhere, and
+ * holds no link for. A link is made from inside its own room. */
+export function linkNotHeldFor(room: string): string {
+	return `You hold no link for #${room}. Run /link in that room to create one.`;
+}
 /** The room link, said back where `/link` was typed. */
 export function roomLinkLine(room: string, link: string): string {
-	return `Room link for #${room}, anyone holding it can enter: ${link}`;
+	return `Room link for #${room}. Anyone holding it can enter: ${link}`;
 }
 /** The moderator link this session holds, said back where `/moderator` was typed. */
 export function moderatorLinkLine(room: string, link: string): string {
-	return `Moderator link for #${room}, anyone holding it can ask members to leave: ${link}`;
+	return `Moderator link for #${room}. Anyone holding it can ask members to leave: ${link}`;
 }
 /** `/moderator <link>` took the link, and the link itself is not readable here. */
 export function moderatorLinkTaken(room: string): string {

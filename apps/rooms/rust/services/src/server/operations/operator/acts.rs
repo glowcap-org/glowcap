@@ -15,14 +15,13 @@ use rooms_application::{
 };
 
 const MEMBERSHIP_ENDED: &str = "An operator ended this room membership.";
-const ROOM_REMOVED: &str = "room-retired: An operator removed this room.";
+pub(super) const ROOM_REMOVED: &str = "room-retired: An operator removed this room.";
 
 /// Prepare the complete batch without yielding. Immediate acts run now.
 /// Durable acts capture the exact token and wait for writer capacity only
 /// when polled. Session closes retain their exact session in the same way.
 pub(super) fn prepare(shared: &Shared, store: &Store, connection: u64, act: Act) -> Pending {
 	match act {
-		Act::RevokeSteward(name) => revoke(&shared.borrow(), Kind::Steward, &name),
 		Act::RevokeRoomLink(name) => revoke(&shared.borrow(), Kind::Room, &name),
 		Act::Disconnect(id) => disconnect(shared, connection, &id),
 		Act::RemoveIrc(id) => {
@@ -52,11 +51,7 @@ fn observe(reply: impl Future<Output = Result<glowcap::Argument, String>> + 'sta
 }
 fn immediate(state: &mut State, act: Act) -> Result<(), String> {
 	match act {
-		Act::RevokeSteward(_)
-		| Act::RevokeRoomLink(_)
-		| Act::RevokeIrcSteward { .. }
-		| Act::RemoveIrc(_)
-		| Act::Disconnect(_) => {
+		Act::RevokeRoomLink(_) | Act::RevokeIrcSteward { .. } | Act::RemoveIrc(_) | Act::Disconnect(_) => {
 			unreachable!("asynchronous acts are prepared above")
 		}
 		Act::EndIrcMembership {

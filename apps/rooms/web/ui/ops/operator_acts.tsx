@@ -6,6 +6,7 @@
 // the list it draws and nothing else.
 
 import { type ReactNode, useRef, useState } from "react";
+import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import type { RoomsSessionController } from "../controller/session.ts";
@@ -22,8 +23,11 @@ export interface OperatorActs {
 	readonly busy: (key: string) => boolean;
 	/** The refusal a row's act met, by key. */
 	readonly why: Partial<Record<string, string>>;
-	/** Open a row's question. */
-	ask(key: string): void;
+	/** The quiet button that opens a row's question, held while it is open. */
+	asker(key: string, label: string, ariaLabel?: string): ReactNode;
+	/** End the questions and drop the refusals under `keys`, when the rows
+	 * that raised them leave the page. */
+	dismiss(keys: readonly string[]): void;
 	/** Run a row's act, keeping its refusal on the row that asked. */
 	run(key: string, request: () => Promise<string>): void;
 	/** The row's question, drawn only while that row is the one asking. */
@@ -76,11 +80,28 @@ export function useOperatorActs(): OperatorActs {
 		locked: sweeping,
 		busy: (key) => busy.has(key),
 		why,
-		ask: (key) => {
-			if (!sweeping) setConfirming(key);
+		dismiss: (keys) => {
+			if (confirming !== null && keys.includes(confirming)) setConfirming(null);
+			setWhy((prior) => {
+				const next = { ...prior };
+				for (const key of keys) delete next[key];
+				return next;
+			});
 		},
 		run,
 		session,
+		asker: (key, label, ariaLabel) => (
+			<Button
+				variant="quiet"
+				disabled={confirming === key || sweeping}
+				aria-label={ariaLabel}
+				onClick={() => {
+					if (!sweeping) setConfirming(key);
+				}}
+			>
+				{label}
+			</Button>
+		),
 		confirm: (key, say, label, request) =>
 			confirming === key && (
 				<Confirm

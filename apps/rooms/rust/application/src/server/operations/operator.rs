@@ -333,7 +333,9 @@ pub fn two_texts<A: ArgumentView>(args: &[A], shape: &str) -> Result<(String, St
 
 /// The verbs, as the wire names them.
 pub mod verbs {
-	pub use crate::room::authority::{GIVE_STEWARD, REVOKE_ROOM_LINK, REVOKE_STEWARD, UNREGISTER_ROOM};
+	pub use crate::room::authority::{
+		FORGET_ROOM, GIVE_STEWARD, ISSUE_MANAGER, REVOKE_MANAGER, REVOKE_ROOM_LINK, REVOKE_STEWARD, UNREGISTER_ROOM,
+	};
 	pub const SNAPSHOT: &str = "operatorSnapshot";
 	pub const RETIRE_MATCHING: &str = "operatorRetireMatching";
 	pub const WATCH: &str = "watch";

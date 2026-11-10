@@ -3,8 +3,6 @@ use std::{fmt, rc::Rc};
 
 #[derive(Debug)]
 pub enum Notice {
-	Admission(String),
-	BrowserAdmission(String),
 	SharedSession(crate::session::Notice),
 	CompilingAssets,
 	AssetRefreshFailed(String),
@@ -27,6 +25,8 @@ pub enum Notice {
 	ShutdownConnectionEnded(String),
 	AttachedDirectory(String),
 	DirectoryExited(String),
+	/// The restarted directory's `ROOMS-*` lines, when they changed.
+	DirectoryRelinked(Vec<String>),
 	AttachedDirectoryEnded,
 	DirectoryRestartFailed {
 		cause: String,
@@ -47,8 +47,6 @@ pub enum Notice {
 impl fmt::Display for Notice {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Self::Admission(policy) => write!(f, "HTTP admission: {policy}"),
-			Self::BrowserAdmission(policy) => write!(f, "browser session admission: {policy}"),
 			Self::SharedSession(notice) => write!(f, "shared session: {notice}"),
 			Self::CompilingAssets => f.write_str("compiling browser assets"),
 			Self::AssetRefreshFailed(cause) => write!(f, "refreshing assets failed: {cause}"),
@@ -81,6 +79,17 @@ impl fmt::Display for Notice {
 			Self::ShutdownConnectionEnded(cause) => write!(f, "connection ended during shutdown: {cause}"),
 			Self::AttachedDirectory(locator) => write!(f, "attaching to the existing directory at {locator}"),
 			Self::DirectoryExited(status) => write!(f, "Rooms server exited ({status}); restarting"),
+			Self::DirectoryRelinked(lines) => {
+				write!(
+					f,
+					"the restarted directory minted new links\n\nrooms: {}\n",
+					crate::server::readiness::KEEP_LINKS_PRIVATE
+				)?;
+				for line in lines {
+					write!(f, "\n{line}")?;
+				}
+				Ok(())
+			}
 			Self::AttachedDirectoryEnded => f.write_str("attached directory is gone; taking ownership"),
 			Self::DirectoryRestartFailed { cause, delay_ms } => {
 				write!(f, "directory restart failed: {cause}; retrying in {delay_ms} ms")

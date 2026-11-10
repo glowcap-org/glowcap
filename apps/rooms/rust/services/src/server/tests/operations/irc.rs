@@ -402,6 +402,12 @@ async fn scenario() {
 		.await;
 
 	let old_reference = operator::member_reference(&session, &operator).await;
+	assert!(
+		super::refused(&session, &operator, "forgetRoom", &["net/#b".into()])
+			.await
+			.contains("bridge"),
+		"an IRC room is forgotten with its bridge"
+	);
 	let issued = session
 		.send(&operator, "giveSteward", &["net/#b".into()])
 		.await
@@ -410,7 +416,7 @@ async fn scenario() {
 		panic!("stewardship row");
 	};
 	let publication_id = row[0].clone();
-	let token = token(row[5].as_str().unwrap());
+	let token = token(row[4].as_str().unwrap());
 	let moderator = session.fetch(&token).await.unwrap();
 	let governs = session.send(&moderator, "governs", &[]).await.unwrap();
 	assert!(
@@ -442,7 +448,7 @@ async fn scenario() {
 	let Argument::List(row) = issued else {
 		panic!("stewardship row");
 	};
-	let moderator_token = self::token(row[5].as_str().unwrap());
+	let moderator_token = self::token(row[4].as_str().unwrap());
 	assert_ne!(moderator_token, token);
 	let moderator = session.fetch(&moderator_token).await.unwrap();
 	assert_eq!(session.send(&moderator, "governs", &[]).await.unwrap(), governs);

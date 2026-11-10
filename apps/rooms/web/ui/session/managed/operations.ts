@@ -12,6 +12,7 @@ import { parseOperatorSnapshotJson } from "../../../../lib/operator_snapshot.ts"
 import { appendOperatorPage, operatorStateOf } from "../../ops/operator_projection.ts";
 import { type Coordinate, fieldKey, type WorkspaceIntent } from "./model.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
+import { recoverManagerJoinFirst } from "../../../../lib/text/room_authority.ts";
 import { formatOpsBundle, parseOpsBundleDraft } from "../../ops/bundle.ts";
 import type { RoomsManagedOperationsReader } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { operationCommand, operationHolding, operationKind, operationSelection } from "./operations_selection.ts";
@@ -257,18 +258,11 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		listenerUp: (transport, options) =>
 			outcome(() => operation("listeners", "up", [transport, JSON.stringify(options ?? {})])),
 		listenerDown: (id) => outcome(() => operation("listeners", "down", [String(id)])),
-		giveRoomStewardship: (name) =>
-			outcome(async () => {
-				const source = selected("operator");
-				const command = await session.command("operator", [
-					JSON.stringify(source.coordinate.key),
-					"giveModerator",
-					name,
-				]);
-				await session.completeResult(command);
-				await refresh("operator");
-			}),
+		giveRoomStewardship: (name) => operator("giveModerator", [name]),
+		giveRoomManager: (name) => operator("issueManager", [name]),
 		revokeRoomStewardship: (name) => operator("revokeModerator", [name]),
+		revokeRoomManager: (name) => operator("revokeManager", [name]),
+		forgetRoom: (name) => operator("forgetRoom", [name]),
 		revokeRoomLink: (name) => operator("revokeRoomLink", [name]),
 		revokeRoomAuthority: (kind, token) => operator("revokeRoomAuthority", [kind, token]),
 		revokeNick: (nick, id) => operator("revokeNick", [nick, id]),
@@ -313,7 +307,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 				if (row?.type !== "room") throw new Error("This room is no longer held");
 				const held = conversationById(session.current, row.persistId);
 				if (held?.kind !== "room" || held.seat == null) {
-					throw new Error("Join the room before recovering its manager link");
+					throw new Error(recoverManagerJoinFirst);
 				}
 				const identity: string = await session.workspace.roomManagementIdentity(
 					JSON.stringify({ role: "roomSeat", key: held.seat }),

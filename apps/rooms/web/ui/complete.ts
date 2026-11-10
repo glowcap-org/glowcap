@@ -7,7 +7,8 @@
 // under the caret, so `mail@host` and `10:30` stay plain text. `:` waits for one
 // valid shortcode character, so a clause-ending colon or `:)` stays quiet.
 // A command's argument completes without its sigil too: a listed room name
-// after `/link` or `/join`, a person after `/msg`, `/invite`, `/kick`,
+// after `/join`, a listed room this tab is in after `/link`, a person after
+// `/msg`, `/invite`, `/kick`,
 // `/whois`, `/ignore` or `/unignore`. Written out in full, that argument is
 // the whole instruction, so its row hands Enter back to sending.
 
@@ -85,6 +86,22 @@ export function nickSource(
 	const names = new Set<string>();
 	for (const name of members.keys()) names.add(foreignName(name, conv.bridge) ?? name);
 	return [...names];
+}
+
+/** Which room names a `#` or a room argument completes against, here.
+ *
+ * `/link <room>` answers only for a listed room this tab is in, so it offers
+ * those (`linkable`). Everything else that names a room, `/join` and a `#` in
+ * a sentence, offers the directory's live list. */
+export function roomSource(
+	trigger: Trigger | null,
+	draft: string,
+	liveRooms: LiveRooms,
+	linkable: readonly string[],
+): readonly string[] {
+	if (trigger?.kind !== "room") return [];
+	if (trigger.argument === true && commandIn(draft)?.command.name === "link") return linkable;
+	return liveRoomNames(liveRooms);
 }
 
 /** The argument of a command that takes a room or a person.
@@ -297,12 +314,13 @@ export function composerCandidates(
 	reachable: ReadonlySet<string>,
 	you: string,
 	members: ReadonlyMap<string, unknown>,
-	liveRooms: LiveRooms,
+	/** What a `#` or a room argument completes against: `roomSource`'s answer. */
+	rooms: readonly string[],
 ): readonly Candidate[] {
 	if (trigger === null || trigger.start === dismissedAt) return [];
 	return completeCandidates(trigger, {
 		nicks: nickSource(trigger, conv, draft, reachable, you, members),
-		rooms: trigger.kind === "room" ? liveRoomNames(liveRooms) : [],
+		rooms,
 		grants: conv?.type === "room" ? conv.grants : undefined,
 		here: hereOf(conv),
 		targets: commandIn(draft)?.command.targets,

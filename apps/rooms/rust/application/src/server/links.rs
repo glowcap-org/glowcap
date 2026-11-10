@@ -308,8 +308,33 @@ impl Authority {
 			.get(&fold(name))
 			.is_some_and(|row| row.issued && row.generation == generation)
 	}
+	pub fn managed_rooms(&self) -> impl Iterator<Item = &Managed> {
+		self.managed.values()
+	}
 	pub fn managed_room(&self, id: &str) -> Option<&Managed> {
 		self.managed.get(&fold(id))
+	}
+	/// Every name this server holds something under: a published room link,
+	/// an issued moderator or manager link, or a managed room record. The
+	/// operator's room list and its verbs read this one set.
+	pub fn owned_names(&self) -> impl Iterator<Item = &str> {
+		self.linked_rooms()
+			.chain(
+				self.stewards()
+					.filter(|issue| issue.issued)
+					.map(|issue| issue.name.as_str()),
+			)
+			.chain(
+				self.managers()
+					.filter(|issue| issue.issued)
+					.map(|issue| issue.name.as_str()),
+			)
+			.chain(self.managed_rooms().map(|managed| managed.id.as_str()))
+	}
+	/// The owned name `asked` names, folded the way links are filed.
+	pub fn owned_name(&self, asked: &str) -> Option<&str> {
+		let folded = fold(asked);
+		self.owned_names().find(|name| fold(name) == folded)
 	}
 	pub fn managed_room_generation_is_current(&self, id: &str, generation: u64) -> bool {
 		self.managed_room(id).is_some_and(|room| room.generation == generation)

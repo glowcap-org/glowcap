@@ -91,8 +91,9 @@ export interface AdministeredBridge {
 /** One stewardship as the operator pane can act on. The server answers a
  * swiss. The data layer composes its copyable sturdyref with this directory's
  * actual route before it reaches the store. */
-export interface StewardshipView extends Omit<StewardshipRow, "steward"> {
+export interface StewardshipView extends Omit<StewardshipRow, "steward" | "manager"> {
 	readonly stewardLink: string | null;
+	readonly managerLink: string | null;
 }
 
 export interface RoomsOperatorState {

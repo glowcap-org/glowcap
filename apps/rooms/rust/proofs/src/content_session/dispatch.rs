@@ -253,6 +253,13 @@ pub fn run() {
 		(18, 19)
 	);
 	assert!(!offer.dependent_argument());
+	// The bound verb hands the live room. The runtime sends the offer verb
+	// instead when the selected room's custody saves a recipe.
+	assert_eq!(offer.offers_selected(), Some(rooms_application::direct::OFFER_ROOM));
+	assert_eq!(
+		dispatch("say", &["direct", "a message"]).unwrap().offers_selected(),
+		None
+	);
 	let (_, mutation) = offer.bind(&shared_intent).unwrap();
 	assert_eq!(mutation.verb, "handRoom");
 	assert_eq!(mutation.args, ["room"]);
@@ -407,6 +414,7 @@ pub fn run() {
 	let selected = serde_json::to_string(&key::<custody::RoomAccess>(4, 5)).unwrap();
 	let revocation = dispatch("revokeManagedRoomAuthority", &["conversation", "steward", &selected]).unwrap();
 	assert!(revocation.revokes_selected());
+	assert_eq!(revocation.offers_selected(), None);
 	assert_eq!(revocation.targets(&intent).unwrap().len(), 2);
 	let stale = serde_json::to_string(&key::<custody::RoomAccess>(4, 6)).unwrap();
 	assert!(

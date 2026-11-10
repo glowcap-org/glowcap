@@ -143,6 +143,14 @@ Deno.test("the shared composer pipeline interprets slash commands before any con
 	}
 	const lone = prepareComposerSend(ROOM, draft("/ 1"), QUIET);
 	if (lone.kind !== "send") fail(`a lone slash stopped being chat text: ${JSON.stringify(lone)}`);
+	// A command glued to what follows it is a slip, not a line for the room.
+	for (const glued of ["/msg@bob hi", "/join#dev", "/help."]) {
+		const slip = prepareComposerSend(ROOM, draft(glued), QUIET);
+		const named = glued.split(" ")[0];
+		if (slip.kind !== "refused" || !slip.why.includes(named)) {
+			fail(`${glued} reached the room instead of being refused: ${JSON.stringify(slip)}`);
+		}
+	}
 });
 
 Deno.test("a command that takes nothing refuses words after it", () => {

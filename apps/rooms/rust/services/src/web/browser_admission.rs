@@ -4,7 +4,6 @@ use rooms_application::admission::{Settings, Source};
 use std::collections::BTreeMap;
 
 pub(super) struct Config {
-	pub settings: Settings,
 	pub encoded: String,
 }
 impl Config {
@@ -25,14 +24,15 @@ impl Config {
 				}
 			}
 		}
-		let settings = Settings::parse_from(
+		// Parsed here so a bad override is refused before the page carries it.
+		Settings::parse_from(
 			|key| values.get(key).cloned(),
 			rooms_application::admission::SESSION_ROWS,
 			rooms_application::admission::POOLED_AGGREGATE_SCALE,
 		)?;
 		let overrides: BTreeMap<_, _> = values.into_iter().map(|(key, (value, _))| (key, value)).collect();
 		let encoded = serde_json::to_string(&overrides).map_err(|e| e.to_string())?;
-		Ok(Self { settings, encoded })
+		Ok(Self { encoded })
 	}
 }
 
@@ -56,7 +56,6 @@ mod tests {
 				.burst(),
 			64
 		);
-		assert!(config.settings.summary().contains("admission-rates=argument"));
 		assert!(
 			Config::read(&BTreeMap::from([("browser-admission-rows".into(), "0".into())]), |_| {
 				None

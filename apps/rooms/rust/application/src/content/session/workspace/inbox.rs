@@ -150,8 +150,7 @@ impl InboxSelection {
 				inbox,
 			} => intent.conversations.as_slice().iter().any(|row| {
 				matches!(row, Conversation::Room(row) if row.id == *id && row.requests_membership() && row.directory == *directory
-					&& (row.access == *access || (access.is_some() && row.access.is_none() && row.seat.is_some()))
-					&& row.accepted == *accepted && row.public_entry == *public_entry && row.publication == *publication
+					&& row.stands_through(*access, *accepted, public_entry.as_ref()) && row.publication == *publication
 					&& row.source == Some(*source) && row.inbox == Some(*inbox)
 					&& nickname.matches(intent, directory))
 			}),

@@ -16,8 +16,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ]
         ],
         {
@@ -41,8 +42,7 @@
             "listed",
             {
               "integer": "2"
-            },
-            true
+            }
           ]
         ],
         {
@@ -67,8 +67,9 @@
             {
               "integer": "2"
             },
-            true,
             "ocapn://peer.tcp/s/steward",
+            null,
+            false,
             "extra"
           ]
         ],
@@ -94,8 +95,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -104,8 +106,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -114,8 +117,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -124,8 +128,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -134,8 +139,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -144,8 +150,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -154,8 +161,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -164,8 +172,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -174,8 +183,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -184,8 +194,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -194,8 +205,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -204,8 +216,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -214,8 +227,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -224,8 +238,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -234,8 +249,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -244,8 +260,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -254,8 +271,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -264,8 +282,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -274,8 +293,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -284,8 +304,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -294,8 +315,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -304,8 +326,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -314,8 +337,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -324,8 +348,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -334,8 +359,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -344,8 +370,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -354,8 +381,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -364,8 +392,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -374,8 +403,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -384,8 +414,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -394,8 +425,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -404,8 +436,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ],
           [
             "garden",
@@ -414,8 +447,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ]
         ],
         {
@@ -440,8 +474,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ]
         ],
         1
@@ -466,8 +501,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ]
         ],
         {
@@ -3330,7 +3366,7 @@
       "accepted": true
     },
     {
-      "name": "steward-no-link",
+      "name": "steward-empty-link",
       "category": "stewardships",
       "raw": [
         {
@@ -3345,8 +3381,9 @@
             {
               "integer": "2"
             },
-            true,
-            null
+            "",
+            null,
+            false
           ]
         ],
         {
@@ -3356,7 +3393,7 @@
       "accepted": false
     },
     {
-      "name": "steward-retired-with-link",
+      "name": "manager-empty-link",
       "category": "stewardships",
       "raw": [
         {
@@ -3371,8 +3408,9 @@
             {
               "integer": "2"
             },
-            false,
-            "ocapn://peer.tcp/s/steward"
+            null,
+            "",
+            false
           ]
         ],
         {
@@ -3391,7 +3429,7 @@
         null,
         [
           [
-            "💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬",
+            "\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac\ud83d\udcac",
             "refused",
             {
               "integer": "1"
@@ -3421,8 +3459,9 @@
             {
               "integer": "2"
             },
-            true,
-            "ocapn://peer.tcp/s/steward"
+            "ocapn://peer.tcp/s/steward",
+            null,
+            false
           ]
         ],
         {
@@ -3534,31 +3573,31 @@
       ]
     ]
   ],
-  "expected": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+  "expected": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
   "snapshots": [
     {
       "name": "baseline",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": true
     },
     {
       "name": "revision-leading-zero",
-      "raw": "{\"revision\":\"0009\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"0009\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": true
     },
     {
       "name": "revision-too-long",
-      "raw": "{\"revision\":\"111111111111111111111111111111111\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"111111111111111111111111111111111\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "revision-big",
-      "raw": "{\"revision\":\"99999999999999999999999999999999\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"99999999999999999999999999999999\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": true
     },
     {
       "name": "revision-number",
-      "raw": "{\"revision\":9,\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":9,\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
@@ -3573,127 +3612,127 @@
     },
     {
       "name": "extra-stewardships",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\",\"extra\":true}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"extra\":true}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "array-links",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[[\"garden\",\"Garden\",\"listed\"]],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[[\"garden\",\"Garden\",\"listed\"]],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "missing-links",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "extra-links",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"extra\":true}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"extra\":true}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "array-registrations",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[[\"Ada\",\"session\",true]],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[[\"Ada\",\"session\",true]],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "missing-registrations",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "extra-registrations",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true,\"extra\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true,\"extra\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "array-sessions",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[[\"session\",\"iroh\",\"Ada\",false]],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[[\"session\",\"iroh\",\"Ada\",false]],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "missing-sessions",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "extra-sessions",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false,\"extra\":true}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false,\"extra\":true}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "array-rooms",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[[\"room\",\"local\",\"Garden\",\"\",\"local\",1,[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],false]],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[[\"room\",\"local\",\"Garden\",\"\",\"local\",1,[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],false]],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "missing-rooms",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "extra-rooms",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false,\"extra\":true}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false,\"extra\":true}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "array-references",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[[\"ref\",\"membership\",\"room\",\"garden\",\"Ada\",\"member inbox\"]],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[[\"ref\",\"membership\",\"room\",\"garden\",\"Ada\",\"member inbox\"]],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "missing-references",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "extra-references",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\",\"extra\":true}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\",\"extra\":true}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "array-trouble",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[[\"room\",\"refused\",1]],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[[\"room\",\"refused\",1]],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "missing-trouble",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "extra-trouble",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1,\"extra\":true}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1,\"extra\":true}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "member-array",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[[\"Ada\",\"session\",\"present\"]],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[[\"Ada\",\"session\",\"present\"]],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "next-array",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":[null,null,null,null,null,null,null],\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":[null,null,null,null,null,null,null],\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "totals-missing",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
       "name": "surrogate-label",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"a\\ud800b\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"a\\ud800b\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": true
     },
     {
       "name": "null-generation",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":null,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":null,\"steward\":\"ocapn://peer.tcp/s/steward\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     },
     {
-      "name": "issued-no-link",
-      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":null}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "name": "steward-empty-link",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"steward\":\"\",\"manager\":null,\"bridged\":false}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
       "accepted": false
     }
   ],

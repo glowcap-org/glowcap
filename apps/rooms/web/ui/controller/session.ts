@@ -157,7 +157,11 @@ export interface RoomsOperationsController {
 	listenerUp(transport: string, options?: Record<string, string | number>): Promise<string>;
 	listenerDown(id: number): Promise<string>;
 	giveRoomStewardship(name: string): Promise<string>;
+	giveRoomManager(name: string): Promise<string>;
 	revokeRoomStewardship(name: string): Promise<string>;
+	revokeRoomManager(name: string): Promise<string>;
+	/** Remove a room from the server entirely: its members, its links, and its record. */
+	forgetRoom(name: string): Promise<string>;
 	revokeRoomLink(name: string): Promise<string>;
 	/** Retire one exact room-link or moderator generation for every holder. */
 	revokeRoomAuthority(kind: RoomAuthorityKind, token: string): Promise<string>;

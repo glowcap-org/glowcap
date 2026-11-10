@@ -41,7 +41,7 @@ pub(super) fn snapshot(shared: &Shared) -> Result<Argument, String> {
 		journal: &journal,
 		irc: &irc,
 	};
-	let mut rows = inspect::snapshot(&view, |name| state.steward_link(name));
+	let mut rows = inspect::snapshot(&view, |kind, name| state.held_link(kind, name, None));
 	let (retained, counters) = state.admission.statistics();
 	rows.push(rooms_application::server::operations::inspect::Row {
 		kind: "admission",

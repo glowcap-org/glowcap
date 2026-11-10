@@ -121,7 +121,7 @@ pub(super) fn entrance(
 					return Err("managedRoomIdentity takes no arguments".into());
 				}
 				let durable = durable_name(&state, &entrance);
-				managed_identity(&mut state, &durable)
+				Ok(managed_identity(&state, &durable))
 			}
 			LINK => {
 				if !args.is_empty() {
@@ -153,11 +153,9 @@ pub(super) fn room_durable_name(state: &State, room: &RoomKey, remembered: Optio
 		.unwrap_or_else(|| room.as_str().to_owned())
 }
 /// The manager's public correlator for the room filed under `durable`,
-/// cached so a later link proves against the same answer.
-pub(super) fn managed_identity(state: &mut State, durable: &str) -> Result<Argument, String> {
-	let identity = state.authority.manager_identity(durable);
-	state.links.cache_identity(durable, identity.clone())?;
-	Ok(identity.into())
+/// derived from the name, so every later ask answers the same.
+pub(super) fn managed_identity(state: &State, durable: &str) -> Argument {
+	state.authority.manager_identity(durable).into()
 }
 
 fn subscribe(

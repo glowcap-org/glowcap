@@ -25,8 +25,11 @@ which is why HTTP starts, recipient pools and bounded state are limited too.
 
 All services use the typed profile in
 [`admission.rs`](../../apps/rooms/rust/application/src/admission.rs).
-Startup prints its effective rates, row cap, aggregate multiplier and the
-source of each override. Arguments take precedence over environment values.
+A page holding the diagnostics capability shows the directory's effective
+rates, row cap, aggregate multiplier, and the source of each override on the
+operator page under **Work budgets**. The session, HTTP, and browser profiles come from your own
+arguments and environment and are not reported. Arguments take precedence
+over environment values.
 
 | Setting | Meaning |
 | --- | --- |
@@ -220,9 +223,9 @@ New subjects cannot evict depleted debt.
 
 Directory diagnostics expose effective policy, retained rows and admitted,
 refused and coalesced class counters, without raw identities or capability
-links. Startup summaries describe the session and HTTP profile. Capacity
-counters record table pressure even when the cleanup reserve admits the
-operation, and admitted and refused counters record the final outcome.
+links. Capacity counters record table pressure even when the cleanup
+reserve admits the operation, and admitted and refused counters record the
+final outcome.
 
 [`bench-rooms-admission`](../build-steps-apps.md) enforces zero steady policy
 allocations, and the [cost record](../../bench/rooms/session-costs.md) describes

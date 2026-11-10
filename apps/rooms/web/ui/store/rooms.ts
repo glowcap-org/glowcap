@@ -56,7 +56,17 @@ export function setRoomMembership(
 ): void {
 	const conv = getConv(projection, key);
 	if (conv?.type !== "room" || (conv.membership === membership && conv.membershipIssue === issue)) return;
-	if (membership !== "joined") retireRoomLineIds(projection, key);
+	if (membership !== "joined") {
+		retireRoomLineIds(projection, key);
+		// A roster belongs to the membership that heard it. An ended one leaves
+		// the row and pane with nobody to count.
+		const { members } = projection.get();
+		if (members.has(key)) {
+			const rosters = new Map(members);
+			rosters.delete(key);
+			projection.set({ members: rosters });
+		}
+	}
 	put(projection, { ...conv, membership, membershipIssue: membership === "unavailable" ? issue : "" });
 }
 

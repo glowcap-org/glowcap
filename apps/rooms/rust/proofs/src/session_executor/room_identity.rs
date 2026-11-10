@@ -1,9 +1,11 @@
 //! A room's identities are read through the exact seat the session holds
 //! there: the facade reads over a seat on another Host, the wrong role refused
 //! at the client and at the runtime, a retired seat refused, and a manager link
-//! taken with no seat and no imported entrance refused. The forwarded verbs'
-//! admission through the facade (the runtime's dependent requirement) is not
-//! reached here; the browser proofs take that path.
+//! taken with no seat and no imported entrance refused. An imported entrance
+//! whose manager identity the held seat answers folds onto that seat's row,
+//! and one to another room keeps its own. The forwarded verbs' admission
+//! through the facade (the runtime's dependent requirement) is not reached
+//! here; the browser proofs take that path.
 use super::*;
 use rooms_glowcap::client::workspace::Workspace;
 use std::cell::RefCell;
@@ -79,6 +81,64 @@ pub(super) async fn run() {
 			let workspace = Workspace::local(host.clone(), platform.clone(), source.clone());
 			assert_eq!(workspace.room_management_identity(seat).await.unwrap(), "manager-identity");
 			assert_eq!(workspace.room_identity(seat).await.unwrap(), "room-identity");
+			// A link to the room the seat stands in is that room's way in, not a
+			// second row: the standing row takes the import as its access.
+			let entrance = |called: &'static str, identity: &'static str| {
+				server.spawn(move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
+					assert!(args.is_empty(), "entrance reads take no arguments");
+					match verb {
+						"called" => Ok(Argument::String(called.into())),
+						"managedRoomIdentity" => Ok(Argument::String(identity.into())),
+						_ => Err(format!("the entrance fixture has no method {verb}")),
+					}
+				}).unwrap()
+			};
+			let staged_access = requests::coordinate(custody::Role::RoomAccess, 2);
+			let staged = serde_json::json!({"kind":"room", "id":"staged", "directory":"directory", "name":"shared room", "access":staged_access.key, "source":key::<custody::SessionAccess>(), "reconnect":"requested", "standing":null, "draft":""});
+			let two_rows = || -> Intent {
+				let mut intent = original.clone();
+				intent.conversations = serde_json::from_str(&serde_json::json!([row, staged]).to_string()).unwrap();
+				intent
+			};
+			let rooms = |intent: &Intent| -> Vec<rooms_application::content::session::workspace::Room> {
+				intent.conversations.as_slice().iter().filter_map(|row| match row {
+					rooms_application::content::session::workspace::Conversation::Room(room) => Some(room.as_ref().clone()),
+					_ => None,
+				}).collect()
+			};
+			// The entrance reaches this host as the seat did: handed over the session.
+			let same_room = entrance("room", "manager-identity");
+			client.session().send(&remote_sink, "seat", &[Argument::Reference(same_room.clone())]).await.unwrap();
+			let same_room_here = handed.borrow().clone().expect("the server handed the entrance");
+			let mut folded = two_rows();
+			let staged_source = custody::Coordinate::new(custody::Role::SessionAccess, key::<custody::SessionAccess>());
+			let mut imports = vec![
+				rooms_glowcap::client::workspace::Import { coordinate: staged_access, reference: same_room_here.clone(), uri: None },
+				rooms_glowcap::client::workspace::Import { coordinate: staged_source, reference: same_room_here, uri: None },
+			];
+			workspace.resolve_imported_rooms(&mut imports, &mut folded).await.unwrap();
+			assert_eq!(
+				imports.iter().map(|import| import.coordinate).collect::<Vec<_>>(),
+				[staged_access],
+				"the fold kept an import no row refers to"
+			);
+			let kept = rooms(&folded);
+			assert_eq!(kept.len(), 1, "a link to the room stood in made a second row");
+			assert_eq!(kept[0].id.text().as_str(), Some("conversation"), "the staged row survived instead of the seated one");
+			assert_eq!(kept[0].access.map(|key| key.slot()), Some(staged_access.key.slot()), "the seated row did not take the link as its access");
+			assert_eq!(kept[0].seat.map(|key| key.slot()), Some(seat.key.slot()), "the fold lost the seat");
+			let other_room = entrance("garden", "other-identity");
+			client.session().send(&remote_sink, "seat", &[Argument::Reference(other_room.clone())]).await.unwrap();
+			let other_room_here = handed.borrow().clone().expect("the server handed the entrance");
+			let mut apart = two_rows();
+			let mut imports = vec![rooms_glowcap::client::workspace::Import { coordinate: staged_access, reference: other_room_here, uri: None }];
+			workspace.resolve_imported_rooms(&mut imports, &mut apart).await.unwrap();
+			assert_eq!(imports.len(), 1, "a row that stays keeps its import");
+			let kept = rooms(&apart);
+			assert_eq!(kept.len(), 2, "a link to another room was folded away");
+			assert_eq!(kept[1].name.text().as_str(), Some("garden"), "the imported room did not take its name");
+			drop((same_room, other_room));
 			let wrong_role = workspace.room_management_identity(access).await.unwrap_err().to_string();
 			assert!(wrong_role.contains("requires a room seat"), "the client took room access as a seat: {wrong_role}");
 			let runtime_role = host

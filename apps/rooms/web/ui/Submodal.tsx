@@ -1,8 +1,9 @@
-// A card that opens over another card, for a subject that is a form rather
-// than a row: the session data and access editors over Settings, handing an
-// archive account over a conversation card. It is the ordinary modal card with
-// the ordinary head, and what differs between them is only the width each asks
-// for.
+// A card that opens over another card, for a subject that is a form or a
+// row's own set of acts rather than one question: the session data and
+// access editors over Settings, handing an archive account over a
+// conversation card, a room's links over the operator page. It is the
+// ordinary modal card with the ordinary head, and what differs between them
+// is only the width each asks for.
 //
 // A form earns one. A question does not. A question belongs to the row that
 // raised it and stays inline there, which is `Confirm` and its own reasons.

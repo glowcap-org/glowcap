@@ -9,57 +9,14 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
-### Fixed
-
-- `/invite` in a room you joined by name says you hold a seat in it and not
-  the room, and names the way in. It said there was no room here.
-- `/link` and `/moderator` say the link they minted or hold. `/link <room>`
-  for another room you are in answers in place, and for one you are not in
-  says to join it first. It used to switch to the room and then print that
-  no directory was here.
-- `/kick`, `/moderator`, and `/link` show the room's refusal in the
-  conversation. They showed a generic failure toast with the reason lost.
-  `/kick` without the room's moderator link says so.
-- `/msg`, `/invite`, `/kick`, `/whois`, `/ignore`, and `/unignore` refuse words
-  after the name instead of acting on the first word and dropping the rest.
-  `/ignore @` and `/link #` are refused as a missing name instead of being
-  read as no argument.
-- The completion list hands Enter back when a command's argument is written
-  out in full, so `/invite @alice` and `/join lobby` send on the first Enter.
-  A person after `/msg`, `/invite`, `/kick`, `/whois`, `/ignore`, or
-  `/unignore` now completes with or without `@`, as rooms do after `/join`.
-- A slash line that names no command, such as `/ignored`, is refused with a
-  pointer to `/help`. It was sent to the room as a message. Text that cannot
-  be a command, such as `/etc/hosts`, is still a message.
-- `/msg` and `/invite` to a name nobody registered say so in the
-  conversation. They showed a failure notice in the server's words.
-- `/leave`, `/clear`, `/details`, `/members`, `/help`, `/directories`,
-  `/quit`, and `/delete` refuse words after them. `/leave #other` left the
-  room you were in.
-- `/whois` in a direct message answers about the person on the other end. It
-  said nobody here had that name.
-- Sending a third line while two are still on their way says so in its own
-  words. It showed a generic failure notice.
-- Taking a manager link or a moderator link works for everyone in the room,
-  however they came in. It refused anyone who had entered by the room's
-  listed name or by invitation, with a code and no words.
-- The room card's links tab says what each link is and that a link someone
-  shared is taken there, in the room. `/moderator <link>` says the link is
-  now held.
-- The operator page's resets and its row removals keep the operator's own
-  nickname, as they keep the operator's connection. A factory reset took the
-  name away, which left the operator's own page unable to act under it.
-- The operator page's **Browser trouble** list shows each failure as it was
-  reported. It wrapped each one in a sentence about an action to try again,
-  when no action had been taken.
-
-## [0.1.6] - 2026-11-09
+## [0.1.6] - 2026-11-10
 
 ### Added
 
 - `glowcap apps rooms page` prints the link that opens the Rooms page with
   the running server filled in. `rooms-web --page-link` and the server's
   `/page` route answer the same link, and `deployment up` prints it first.
+
 - `rooms-server` and `rooms-web` announce any of the seven listener
   transports with `--transport=<transport>`. A relay transport registers at
   `--relay=<ws-url>` or `GLOWCAP_ROOMS_RELAY_URL`, and under `rooms-web` at
@@ -69,26 +26,32 @@ and storage formats before 1.0.
   installed `glowcap apps rooms` commands take the same listener options,
   `serve` with `--listen` and the shared session's as `--session-<option>`,
   and `session start` keeps every one of them in its settings.
+
 - `rooms-web --session-transport=<transport>` chooses the shared session's
   announced listener the same way, and `--session-<option>` passes any other
   `rooms-session` option to it. A relay listener registers at that server's
   own relay unless `--session-relay` names one, an onion listener publishes
   through the private Tor the server runs, and the page is offered the
   session through any listener a browser can open.
+
 - A relay listener whose configuration names a relay alias advertises the
   alias in its `rendezvous-relay` hint. Behind a port forward or a proxy,
   peers dial the route they reach while the listener's own register socket
   opens at the route it reaches.
+
 - The relay admits dials of one registered directory at the rate its peer
   may register, so a tighter registration bound throttles the whole directory.
+
 - A relay that cannot complete a dial closes the browser's socket with the
   cause, and the page's channel reports that cause instead of a bare
   connection close.
+
 - `rooms-server --listen=<transport>[,<name>=<value>...]` (or
   `GLOWCAP_ROOMS_LISTEN`) opens another listener to the same directory, once
   per transport, and the server starts only once every declared listener is
   open. The address it prints then names the directory by its key with every
   listener listed.
+
 - The Rooms page reaches a directory through a sealed relay listener the
   directory declares, with no Rooms server chosen, and the directory's card
   says the route the connection took.
@@ -107,20 +70,24 @@ and storage formats before 1.0.
   web server, from `--url`, or from `GLOWCAP_ROOMS_LOCATOR`. `rooms-server`
   no longer reads them, and `glowcap apps rooms directory capabilities` is
   gone.
+
 - The shared session writes its use link to `use.sturdyref` and its management
   link to `management.sturdyref` in the state directory, the names every page
   gives those links. The managed deployment's readiness file is
   `/run/rooms-session/use.sturdyref`. Both files are rewritten at every start,
   so an existing state directory needs no change.
+
 - Four Rooms page names changed. The Settings tab **Reachability** is
   **Connection**. The Operations tab **Directory** is **Operator**. The
   Settings act **Delete local session** is **Empty this session**, since it
   empties the open session and the browser stays on it, and the shared
   session's **Reset shared session** is **Empty this session for everyone**
   for the same reason.
+
 - Rooms page copy says link, session, and message where it said capability,
   workspace, and line. On a room card, the **Capabilities** tab is **Links**,
   and every button on it grants, revokes, or discards a link.
+
 - The Rooms deployment's managed Compose file holds only the settings every
   deployment shares. Every setting a host chooses lives in
   `docker-compose.override.yml`: the public address, allowed pages, trusted
@@ -128,52 +95,114 @@ and storage formats before 1.0.
   shows public hosting behind an HTTPS proxy. A variable exported in the
   shell that runs `deployment up` does not reach the services: move it
   into the override.
+
 - `glowcap apps rooms deployment reset directory` names the unit that was
   `state`, and `deployment up` prints the directory locator and the shared
   session's use link and management link under those names.
+
 - **Delete browser data** in the Rooms page also forgets every Rooms
   preference this browser kept: the chosen server, other tabs' session
   choices, and the theme. Other open Rooms tabs reload.
+
 - Every exported symbol of the nine `@glowcap` JSR packages carries a doc
   comment, including the generated C ABI constants and struct layouts, so
   each package's documentation score on jsr.io reports no undocumented
   symbol.
+
 - A page with no Rooms server asks for one only for an address the browser
   cannot open itself, and says which listener failed when one did. A relay
   that does not answer is named on the join card.
+
 - Every ask for a Rooms server says what the act needs one for. The needs
   are an address this browser cannot open on its own, the home directory a
   blank address means, a link other people reach this browser through, and
   direct messages in the mode that goes through the server.
+
 - Attaching to a session, holding a management control, taking an archive
   peer, and holding an operator capability judge the pasted link by the
   listeners its address names, so a session shared from another browser
   attaches with no Rooms server. The ask comes only for a link this browser
   cannot open on its own, and a break on the way to a session reached through
   its relay listener names that relay.
+
 - A blank directory address on a page with no Rooms server is refused on its
   own field instead of asking for a server.
+
 - The Session tab offers its unfinished-changes list only while a change is
   unfinished, and the Connection tab drops this browser's own address,
   which nothing on the page accepted.
+
 - `rooms-web` serves its page before its directory is up, so the directory's
   relay listeners can register with it, and `/locator` waits for the directory
   instead of answering that there is none.
+
 - `GLOWCAP_ROOMS_SESSION_STATE` serves the shared session the way
   `--session-state` does, and the option wins when both are set.
+
 - The host bindings in Rust, TypeScript, and Racket name a transport they have
   no connector for as `UnknownTransport`, the name the Zig host uses for the
   same condition, so one reader recognizes it from every binding.
+
 - A C ABI content registration holds up to 128 methods, where it held 64. A
   registration over the cap is refused with `GLOWCAP_ERR_INVALID_ARGUMENT`
   and the last error `loam: TooManyMethods`, so a too-long method table is
   told apart from a missing callback.
+
+- `rooms-web` prints one block at startup: the addresses first, then the
+  links to keep private under their own heading. A directory it runs hands
+  its `ROOMS-*` links to that block, and a restarted directory prints its
+  new links under the same heading. The directory's work budgets and their
+  counts read on the operator page under **Work budgets**. The HTTP,
+  browser, and session budgets come from your own arguments and are not
+  printed.
+
+- The operator page's **Rooms and their links** section lists every room
+  someone is in and every room a link or a saved record stands for,
+  including rooms nobody is in, one line per room with a tag for each link
+  that stands. **Links…** opens a card for that room where each link is
+  issued, copied, and revoked. **Forget room** removes the room entirely:
+  its members, every link, its subject, its kept messages, its name, and its
+  settings. An IRC bridge's row takes no manager link and cannot be
+  forgotten here, and says so. A room's row carries each link itself in
+  place of an issued flag, and issuing a link answers the row as data, so
+  nothing enters the session's storage. The factory reset says that it
+  clears manager links too.
+
+- Anyone in a room can take its manager link or moderator link there,
+  however they came in, and the room card's links tab says so. A room
+  answers its identity digest and its manager's identity to anyone in it,
+  which is how a link is checked against the room. A digest opens nothing.
+
+- Commands answer where you typed them. `/link`, `/moderator`, `/kick`,
+  `/subject`, `/msg`, and `/invite` say the link, the refusal, or the way in,
+  in the conversation. `/link <room>` for another room you are in answers in
+  place, and for one you are not in says to join it first. `/invite` in a
+  room you joined by name says the room is not yours to hand on and names
+  the way in.
+
+- `/msg` and `/invite` to a name nobody registered say so. `/whois` in a
+  direct message answers about the person on the other end. Sending a third
+  line while two are still on their way says so.
+
+- Commands take exactly their arguments. `/msg`, `/invite`, `/kick`,
+  `/whois`, `/ignore`, and `/unignore` take one name, with or without `@`,
+  and the completion list sends on the first Enter when the argument is
+  written out. `/leave`, `/clear`, `/details`, `/members`, `/help`,
+  `/directories`, `/quit`, and `/delete` take none. A line that looks like a
+  command but names none, such as `/ignored` or `/msg@bob`, is refused with
+  a pointer to `/help`. Text that cannot be a command, such as `/etc/hosts`,
+  is still a message.
+- `/link <room>` names a listed room you are in and answers the link you
+  hold for it. A link is created from inside the room itself.
+- A page opened without the **Share keys and links** permission says so
+  where a link would show, in the room card's links tab and from `/link`.
 
 ### Fixed
 
 - Every Rooms tab, including a reloaded one, shows and shares the address
   each directory was dialed through instead of its bare identity. A page
   opened with any access link reads that address, never the link's secret.
+
 - Under `rooms-web`, the directory and the shared session dial the server's
   own relay at the address `--http-public` names, which reaches both of
   them. `rooms-web` refuses `--relay-public` and `--session-relay-public`
@@ -182,6 +211,7 @@ and storage formats before 1.0.
   then answered a directory join with a bare `PromiseBroken`. Both options
   still apply to a peer whose `--relay` or `--session-relay` names another
   relay.
+
 - A saved directory, room, or direct conversation the shared session refuses
   to start is reported once as a standing refusal when its code says the
   condition clears only with a change. It is started again only on an
@@ -191,20 +221,24 @@ and storage formats before 1.0.
   the session dialed the address on every recovery wake and told the operator
   a bare `RestorationFailed: UnknownTransport` every few seconds. Enter the
   directory's current address on its card to re-route it.
+
 - The page frees a change the session refused and reports the reason, for
   every kind of change it submits. Before, it listed such a change as gone
   through, with a **Finish** that resubmitted it. A change that went through
   but could not be shown here can be let go, and stays saved in the
   session. A change nothing settled is listed with its outcome unknown and
   can be let go.
+
 - **New access** and **Prepare control** from a held management control ask
   for a Rooms server only when the control is this browser's own, whose links
   lead here. Any other control, such as one for a session attached by its own
   address, publishes the access at the session it manages.
+
 - A sturdyref naming a peer by its key through a sealed listener, such as a
   directory's bare `noise-relay` address, redeems over the sealed session
   whatever listener the peer's hello advertised. Before, the Rooms page
   failed such a join with `PeerIdentityMismatch`.
+
 - A directory address typed on the join card re-routes a directory the
   session already holds. The capability is fetched through the listeners the
   typed address names and replaces the held one under the same id, and a
@@ -212,17 +246,21 @@ and storage formats before 1.0.
   kept whatever was typed, so a page with no Rooms server asked for one when
   that route needed a server. The held route typed again changes the nickname
   at most.
+
 - A `keyed-tcp` or `noise-tcp` directory under `rooms-web` is forwarded to
   from the page the server serves. Before, the server announced no local
   endpoint for those listeners and the relay answered `directory forwarding
   unavailable`.
+
 - Saving an operator capability whose address names the directory by a
   key its listener does not prove (`keyed-relay`, `keyed-tcp`) says so and
   names the listeners that prove it, where it showed a bare
   `PeerIdentityUnverified`.
+
 - The relay transport and the Rooms server reject TLS certificate paths
   through the distrusted emSign intermediates (rustls-webpki 0.103.16,
   RUSTSEC-2026-0382).
+
 - `rooms-web` took the last of a repeated option and dropped the rest without
   a word, so `--allow-origin` given twice let only the second page in. It
   reads its options the way every other Rooms command does. A repeated option,
@@ -232,10 +270,57 @@ and storage formats before 1.0.
   supply arrive as environment, so an option typed after `--` is the only one
   of its name. `rooms-dev` names the backend options it owns instead of letting
   `rooms-web` refuse them as repeats.
+
 - A forwarded call inside a Rooms server kept no delivering
   session, so the directory card showed no transport and direct messages from
   different senders counted as one sender. `current_session()` in the Rust
   binding names that session.
+
+- `/join` with the link of a room you are already in keeps that one row in
+  the sidebar and your place in it, and the link becomes the room's way
+  back in after a restart. It added a second row for the same room.
+
+- The operator page lists a room nobody is in while a link or its record
+  stands, issues its manager link there, and **Forget room** removes it. A
+  room nobody was in kept refusing a revoked manager link with no row to
+  see, a manager link could be made only from inside the room, and a room
+  made through a manager link kept its row after every link was revoked.
+
+- Closing a room from the operator page reaches every member's sidebar: the
+  row drops its roster, shows that you are not in the room, and the room
+  says an operator removed it. The row looked unchanged.
+
+- The operator page's resets and row removals keep the operator's own
+  nickname and connection. A factory reset took the name away, which left
+  the page unable to act under it.
+
+- The operator page's **Browser trouble** list shows a failure nobody has
+  worded exactly as the browser reported it. It added advice to try again
+  when no action had been taken.
+
+- A room handed to you by `/invite` showed an empty room link, and revoking
+  it failed with a code. The room card now says the room was handed to you,
+  that `/invite` hands it on, and that a room manager can create a link.
+  `/link` from such a room says the same, and a manager creates the link
+  from there.
+
+- `/leave #other` left the room you were in. `/kick`, `/moderator`, and
+  `/link` showed a generic failure notice with the reason lost. A manager or
+  moderator link taken by someone who entered by name or by invitation was
+  refused with a code and no words.
+- `/invite` sends the room link when you hold one, so the invited person
+  keeps the room across a refresh. It handed a live reference that ended
+  with the page.
+- **Forget room** refuses before anything changes when the history writer
+  is busy. It could drop the room's links and keep its messages. Its kept
+  messages are deleted under the name as stored, so a room forgotten by a
+  name in another case leaves no file behind.
+- An IRC bridge's row offers no manager link and no **Forget room**. It
+  offered both, and the server refused each after the press.
+- The operator page shows **Work budgets** when it holds the diagnostics
+  capability too. It showed them only without the operator capability.
+- Closing the links card after **Forget room** leaves focus on the list
+  instead of dropping it.
 
 ## [0.1.5] - 2026-11-07
 

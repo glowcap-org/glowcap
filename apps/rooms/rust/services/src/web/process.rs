@@ -1,7 +1,7 @@
 //! A supervised child is retained until it exits. Normal shutdown requests
 //! SIGTERM. A deadline escalates to kill and still reaps the child.
 use super::notice::{Notice, Report};
-use crate::server::readiness::Announcement;
+use crate::server::readiness::{Announcement, MAX_LINE_BYTES};
 use std::{os::unix::fs::DirBuilderExt, path::PathBuf, process::Stdio, time::Duration};
 use tokio::{
 	io::{AsyncBufReadExt, AsyncReadExt, BufReader},
@@ -55,14 +55,14 @@ impl Process {
 		let read = async {
 			let mut line = Vec::new();
 			(&mut reader)
-				.take(16 * 1024 + 1)
+				.take(MAX_LINE_BYTES as u64 + 1)
 				.read_until(b'\n', &mut line)
 				.await
 				.map_err(|e| e.to_string())?;
 			if line.is_empty() {
 				return Err("Rooms server closed its output before announcing readiness".into());
 			}
-			if line.len() > 16 * 1024 || !line.ends_with(b"\n") {
+			if line.len() > MAX_LINE_BYTES || !line.ends_with(b"\n") {
 				return Err("Rooms server announcement is incomplete or too long".into());
 			}
 			let line = std::str::from_utf8(&line).map_err(|_| "Rooms server announcement is not Unicode")?;

@@ -57,26 +57,34 @@ pub fn read(text: &DocumentText) -> Option<Read> {
 	})
 }
 
-/// The command a line tries to name when the catalog has none: a slash, two
-/// or more ASCII letters, then whitespace or the end. `/etc/hosts`, `/1`, and
-/// a lone `/` are ordinary text. A typo such as `/ignored` is refused by the
-/// composer rather than said to the room.
+/// The command a line tries to name when `read` finds none: a slash, two or
+/// more ASCII letters, then whitespace or the end, or a known command glued to
+/// what follows it (`/msg@bob`, `/join#room`, `/help.`). `/etc/hosts`, `/1`,
+/// and a lone `/` are ordinary text. A typo such as `/ignored` is refused by
+/// the composer rather than said to the room.
 pub fn unknown(text: &DocumentText) -> Option<String> {
 	let mut units = text.utf16();
 	if units.next()? != u16::from(b'/') {
 		return None;
 	}
 	let mut token = String::new();
+	let mut letters = 0;
 	for unit in units {
 		if white(unit) {
 			break;
 		}
-		if unit > 127 || !(unit as u8).is_ascii_alphabetic() || token.len() == 64 {
+		if unit > 127 || token.len() == 64 {
 			return None;
 		}
-		token.push(char::from(unit as u8));
+		let unit = unit as u8;
+		if letters == token.len() && unit.is_ascii_alphabetic() {
+			letters += 1;
+		} else if letters == token.len() && (letters < 2 || Name::parse(&token).is_none()) {
+			return None;
+		}
+		token.push(char::from(unit));
 	}
-	if token.len() < 2 || Name::parse(&token).is_some() {
+	if letters < 2 || (letters == token.len() && Name::parse(&token).is_some()) {
 		return None;
 	}
 	Some(token)
@@ -84,4 +92,29 @@ pub fn unknown(text: &DocumentText) -> Option<String> {
 
 fn white(unit: u16) -> bool {
 	char::from_u32(u32::from(unit)).is_some_and(js_whitespace)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn unknown_in(text: &str) -> Option<String> {
+		unknown(&DocumentText::from(text))
+	}
+
+	#[test]
+	fn a_known_command_glued_to_its_argument_is_refused_not_said() {
+		assert_eq!(unknown_in("/msg@bob hi").as_deref(), Some("msg@bob"));
+		assert_eq!(unknown_in("/join#room").as_deref(), Some("join#room"));
+		assert_eq!(unknown_in("/help.").as_deref(), Some("help."));
+		assert_eq!(unknown_in("/msg2 bob").as_deref(), Some("msg2"));
+		assert_eq!(unknown_in("/ignored bob").as_deref(), Some("ignored"));
+	}
+
+	#[test]
+	fn ordinary_text_after_a_slash_is_said() {
+		for text in ["/etc/hosts", "/1", "/", "/ 1", "/a", "/msg bob", "/help", "/?"] {
+			assert_eq!(unknown_in(text), None, "{text}");
+		}
+	}
 }

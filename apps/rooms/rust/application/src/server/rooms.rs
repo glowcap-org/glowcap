@@ -221,6 +221,12 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		}
 		effects
 	}
+	/// Forget the lines kept for a room whose name is being freed, so the
+	/// next room under that name starts empty. The key is what history files
+	/// the room under, whether or not the room is live.
+	pub fn forget_history(&mut self, key: &RoomKey) -> Option<history::Persist> {
+		self.history.as_mut()?.forget_room(key.as_str())
+	}
 	pub fn room_name(&self, key: &RoomKey) -> Option<&str> {
 		self.rooms.get(key).map(|room| room.name.as_str())
 	}

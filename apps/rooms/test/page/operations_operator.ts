@@ -7,7 +7,24 @@ import { fillSettled } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { titleAboutDirectory } from "../../lib/text/conversation.ts";
 import { homeDirectoryName } from "../../lib/text/directory.ts";
-import { operatorResetLead } from "../../lib/text/operator.ts";
+import {
+	operatorForgetRoom,
+	operatorForgetRoomAsk,
+	operatorIssueManager,
+	operatorIssueModerator,
+	operatorLinkRemove,
+	operatorManagerPart,
+	operatorManagerRevoke,
+	operatorModeratorPart,
+	operatorModeratorRevoke,
+	operatorModeratorRevokeEffect,
+	operatorRemoveAsk,
+	operatorResetLead,
+	operatorResetSessions,
+	operatorRevokeAsk,
+	operatorRoomLinksOpen,
+} from "../../lib/text/operator.ts";
+import { modalClose } from "../../lib/text/controls.ts";
 
 export async function runOperatorScene(tab: Page, operatorSwiss: string): Promise<void> {
 	// Make one room whose moderator capability is definitely unissued, then take the
@@ -59,32 +76,105 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	) {
 		fail("operator reset does not state why its own connection remains");
 	}
-	if (await reset.getByRole("button", { name: "Disconnect other peer sessions…" }).count() !== 1) {
+	if (await reset.getByRole("button", { name: `${operatorResetSessions.label}…` }).count() !== 1) {
 		fail("operator reset implies it can disconnect its own answering connection");
 	}
-	const operated = tab.locator("#roomModerationCapabilities .entry", { hasText: "operator-proof" });
+	// With a directory named, the section and the links card are photographed
+	// in each of their states for a design read: the list, the maker's manager
+	// link beside an unissued moderator link, both issued, a revoke asked, and
+	// the phone layout.
+	const shots = Deno.env.get("GLOWCAP_OPERATOR_SCREENSHOTS");
+	const shot = async (name: string, subject = moderationSection) => {
+		if (shots == null) return;
+		await subject.screenshot({ path: `${shots}/${name}.png` });
+	};
+	const room = tab.locator("#roomModerationCapabilities .entry", { hasText: "operator-proof" });
+	await room.waitFor({ timeout: 10_000 });
+	// The room's maker holds its manager link, so the row says so before any
+	// link is issued here.
+	if (await room.locator(".tag", { hasText: operatorManagerPart }).count() !== 1) {
+		fail("the row does not say the maker's manager link stands");
+	}
+	if (await room.locator(".tag", { hasText: operatorModeratorPart }).count() !== 0) {
+		fail("the row says a moderator link stands before one is issued");
+	}
+	await shot("authority-list");
+	await room.getByRole("button", { name: operatorRoomLinksOpen }).click();
+	const card = tab.locator(".operator-room-links");
+	const operated = card.locator('[data-part="moderator"]');
 	await operated.waitFor({ timeout: 10_000 });
-	await operated.getByRole("button", { name: "Grant moderator link" }).click();
+	await shot("authority-card-maker-holds-manager", card);
+	await operated.getByRole("button", { name: operatorIssueModerator }).click();
 	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
 	const moderatorLink = await operated.locator(".copy-field-text").textContent();
 	if (moderatorLink === null || !moderatorLink.startsWith("ocapn://")) {
 		fail(`the operator did not expose a copyable moderator sturdyref: "${moderatorLink}"`);
 	}
-	await operated.getByRole("button", { name: "Rotate…" }).click();
-	if (await operated.getByText("Every old copy stops moderating this room immediately").count() !== 1) {
+	await shot("authority-card-both-issued", card);
+	await tab.setViewportSize({ width: 390, height: 844 });
+	await shot("authority-card-phone", card);
+	// Two full links and their acts fit a phone's width without a sideways
+	// scroll anywhere in the card. A compact copy field clips its value with
+	// an ellipsis on purpose, so a node that hides its overflow is not a
+	// sideways scroll; one that shows or scrolls it is.
+	const overflowing = await card.evaluate((root) =>
+		[root, ...root.querySelectorAll("*")]
+			.filter((node) =>
+				node.scrollWidth > node.clientWidth + 1 &&
+				!["hidden", "clip"].includes(getComputedStyle(node).overflowX)
+			)
+			.map((node) =>
+				`${node.tagName.toLowerCase()}${node.id === "" ? "" : `#${node.id}`}.${
+					[...node.classList].join(".")
+				} ${node.scrollWidth}>${node.clientWidth}`
+			)
+	);
+	if (overflowing.length !== 0) {
+		fail(`${overflowing.length} parts of the links card overflow a phone's width: ${overflowing.join(", ")}`);
+	}
+	await tab.setViewportSize({ width: 1280, height: 800 });
+	await operated.getByRole("button", { name: operatorRevokeAsk }).click();
+	if (await operated.getByText(operatorModeratorRevokeEffect).count() !== 1) {
 		fail("the revoke affordance did not say that live old holders lose authority");
 	}
-	await operated.getByRole("button", { name: "Revoke old moderator link" }).click();
-	await operated.getByRole("button", { name: "Grant moderator link" }).waitFor({ timeout: 10_000 });
+	await shot("authority-card-revoke-asked", card);
+	await operated.getByRole("button", { name: operatorModeratorRevoke }).click();
+	await operated.getByRole("button", { name: operatorIssueModerator }).waitFor({ timeout: 10_000 });
 	if (await operated.locator(".copy-field").count() !== 0) {
 		fail("a revoked moderator capability still exposed its old copyable capability");
 	}
-	await operated.getByRole("button", { name: "Grant moderator link" }).click();
+	await operated.getByRole("button", { name: operatorIssueModerator }).click();
 	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
 	const rotatedModeratorLink = await operated.locator(".copy-field-text").textContent();
 	if (rotatedModeratorLink === null || rotatedModeratorLink === moderatorLink) {
 		fail("moderator reissue did not mint a fresh generation");
 	}
+	// The row shows that link without the card: the card changes the list.
+	await room.locator(".tag", { hasText: operatorModeratorPart }).waitFor({ timeout: 10_000 });
+	// The card shows the maker's manager link first. Revoking it stops the
+	// maker's copy, and issuing mints a new one.
+	const manager = card.locator('[data-part="manager"]');
+	await manager.locator(".copy-field").waitFor({ timeout: 10_000 });
+	const makersLink = await manager.locator(".copy-field-text").textContent();
+	if (makersLink === null || !makersLink.startsWith("ocapn://")) {
+		fail(`the operator did not expose the maker's manager link: "${makersLink}"`);
+	}
+	await manager.getByRole("button", { name: operatorRevokeAsk }).click();
+	await manager.getByRole("button", { name: operatorManagerRevoke }).click();
+	await manager.getByRole("button", { name: operatorIssueManager }).waitFor({ timeout: 10_000 });
+	if (await manager.locator(".copy-field").count() !== 0) {
+		fail("a revoked manager link still exposed its old copyable link");
+	}
+	await manager.getByRole("button", { name: operatorIssueManager }).click();
+	await manager.locator(".copy-field").waitFor({ timeout: 10_000 });
+	const managerLink = await manager.locator(".copy-field-text").textContent();
+	if (managerLink === null || managerLink === makersLink) {
+		fail("manager reissue did not mint a fresh link");
+	}
+	await shot("authority-card-reissued", card);
+	await card.getByRole("button", { name: modalClose }).click();
+	await card.waitFor({ state: "hidden", timeout: 10_000 });
+	await shot("authority-list-both");
 	// The search is over the directory, not over the page: it narrows every
 	// inventory at once and its counts are the directory's own. Then the bulk
 	// act on exactly what it found, which is the whole reason to search from an
@@ -126,19 +216,24 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	).catch(() => fail("clearing the operator search did not empty it"));
 
 	const linked = tab.locator("#operatorRoomLinks .entry", { hasText: "operator-proof" });
-	await linked.getByRole("button", { name: "Remove…" }).click();
-	await linked.getByRole("button", { name: "Remove room entry link" }).click();
+	await linked.getByRole("button", { name: operatorRemoveAsk }).click();
+	await linked.getByRole("button", { name: operatorLinkRemove }).click();
 	await linked.waitFor({ state: "detached", timeout: 10_000 });
-	await operated.getByRole("button", { name: "Grant moderator link" }).waitFor({ timeout: 10_000 });
-	await operated.getByRole("button", { name: "Grant moderator link" }).click();
+	// Removing the room's entry link rotates the room, so the moderator link
+	// issued for the ended generation is gone from the card too.
+	await room.getByRole("button", { name: operatorRoomLinksOpen }).click();
+	await operated.getByRole("button", { name: operatorIssueModerator }).waitFor({ timeout: 10_000 });
+	await operated.getByRole("button", { name: operatorIssueModerator }).click();
 	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
 	const reissuedAfterRoomRevoke = await operated.locator(".copy-field-text").textContent();
 	if (reissuedAfterRoomRevoke === null || reissuedAfterRoomRevoke === rotatedModeratorLink) {
 		fail("revoking a room link prevented a fresh room and moderator generation");
 	}
+	await card.getByRole("button", { name: modalClose }).click();
+	await card.waitFor({ state: "hidden", timeout: 10_000 });
 	const reissuedLink = tab.locator("#operatorRoomLinks .entry", { hasText: "operator-proof" });
 	await reissuedLink.waitFor({ timeout: 10_000 });
-	await reissuedLink.getByRole("button", { name: "Remove…" }).click();
+	await reissuedLink.getByRole("button", { name: operatorRemoveAsk }).click();
 	await reissuedLink.getByRole("button", { name: "Remove room entry link" }).click();
 	await reissuedLink.waitFor({ state: "detached", timeout: 10_000 });
 	// Retire the room through the search rather than through its own row: the
@@ -159,6 +254,18 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 		{ timeout: 20_000 },
 	).catch(() => fail("the bulk retire left its matching room owner standing"));
 	await tab.click("#operatorSearchClear");
+	// The room's maker still holds its manager link, so the room keeps its
+	// row with nobody in it. Forgetting the room from its card is the one act
+	// that takes the row away, and the card closes with it.
+	await room.locator(".tag", { hasText: operatorManagerPart }).waitFor({ timeout: 10_000 });
+	await room.getByRole("button", { name: operatorRoomLinksOpen }).click();
+	const forget = card.locator('[data-part="forget"]');
+	await forget.getByRole("button", { name: operatorForgetRoomAsk }).click();
+	await shot("authority-card-forget-asked", card);
+	await forget.getByRole("button", { name: operatorForgetRoom, exact: true }).click();
+	await room.waitFor({ state: "detached", timeout: 10_000 });
+	await card.waitFor({ state: "hidden", timeout: 10_000 });
+	await shot("authority-list-forgotten");
 
 	// Operator actions are worded, so the narrow content cell must
 	// give them a line of their own instead of letting a long label widen the page.

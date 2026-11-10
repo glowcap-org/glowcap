@@ -9,12 +9,14 @@
 
 import { Link } from "react-router";
 import { useRoomBearer } from "../hooks.ts";
+import { useManagedSession } from "../session/managed/context.tsx";
 import { opsAddress, paneForCap } from "../ops/panes.ts";
 import { Input } from "../Input.tsx";
 import {
 	bridgeHasNoManagerAfter,
 	bridgeHasNoManagerLead,
 	bridgeHasNoManagerLink,
+	linksNotShownHere,
 	roomAuthorityModerate,
 	roomAuthorityModerateHeld,
 	roomAuthorityModerateNotHeld,
@@ -35,6 +37,7 @@ import {
 	roomLinkCreate,
 	roomLinkCreateHint,
 	roomLinkCreating,
+	roomLinkHandedHint,
 	roomLinkHeldHint,
 	roomLinkNoneHint,
 	roomLinkRevoke,
@@ -153,6 +156,20 @@ export function RoomCapabilities(
 	const linkBearer = useRoomBearer(conv, "link");
 	const managerBearer = useRoomBearer(conv, "manager");
 	const stewardBearer = useRoomBearer(conv, "steward");
+	// A view that may not share links says so in each well in place of the
+	// link. Otherwise a room handed over by /invite is held as a live reference
+	// with no link text behind it, so the room link well draws from the string
+	// the session can read, not from the access the row holds, and draws
+	// nothing while that read is on its way.
+	const sharing = useManagedSession().permits("shareCustody");
+	const roomLinkWell = !sharing
+		? conv.linkToken === undefined ? "none" : "held"
+		: linkBearer === undefined && conv.linkToken !== undefined
+		? "reading"
+		: linkBearer == null
+		? "none"
+		: "held";
+	const notShown = <p className="hint">{linksNotShownHere}</p>;
 
 	return (
 		<div className="group" role="group" aria-label={roomCapabilitiesTitle}>
@@ -244,11 +261,11 @@ export function RoomCapabilities(
 						)
 					: (
 						<>
-							<CopyField
-								id="convcardManager"
-								text={managerBearer ?? ""}
-								label={roomManagerCopy}
-							/>
+							{!sharing
+								? notShown
+								: managerBearer == null
+								? null
+								: <CopyField id="convcardManager" text={managerBearer} label={roomManagerCopy} />}
 							<p className="hint">{roomManagerHeldHint}</p>
 							{managerToken !== null && (
 								<>
@@ -336,7 +353,7 @@ export function RoomCapabilities(
 			{!available && <RoomRecovery conv={conv} blocked={authorityWorking} />}
 			<h3 className="well-title overline" id="convcardRoomLinkTitle">{roomLinkTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="convcardRoomLinkTitle">
-				{conv.linkToken === undefined
+				{roomLinkWell === "reading" ? null : roomLinkWell === "none"
 					? (
 						<>
 							<p className="hint" id="convcardRoomLinkHint">
@@ -344,6 +361,8 @@ export function RoomCapabilities(
 									? roomLinkCreateHint
 									: authoritySource === "bridge"
 									? roomLinkSaveHint
+									: conv.linkToken !== undefined
+									? roomLinkHandedHint
 									: roomLinkNoneHint}
 							</p>
 							{(managerHeld || authoritySource === "bridge") && (
@@ -368,11 +387,9 @@ export function RoomCapabilities(
 					)
 					: (
 						<>
-							<CopyField
-								id="convcardRoomLink"
-								text={linkBearer ?? ""}
-								label={roomLinkCopy}
-							/>
+							{linkBearer != null
+								? <CopyField id="convcardRoomLink" text={linkBearer} label={roomLinkCopy} />
+								: notShown}
 							<p className="hint" id="convcardRoomLinkHint">{roomLinkHeldHint}</p>
 							{canRevoke && roomToken !== null && (
 								<>
@@ -500,11 +517,11 @@ export function RoomCapabilities(
 				{conv.stewardToken !== undefined && (
 					<>
 						<p className="field-label" id="convcardStewardKind">{roomModeratorKind}</p>
-						<CopyField
-							id="convcardSteward"
-							text={stewardBearer ?? ""}
-							label={roomModeratorCopy}
-						/>
+						{!sharing
+							? notShown
+							: stewardBearer == null
+							? null
+							: <CopyField id="convcardSteward" text={stewardBearer} label={roomModeratorCopy} />}
 						<p className="hint" id="convcardStewardHint">{roomModeratorHeldHint}</p>
 						{stewardToken !== null && (
 							<>

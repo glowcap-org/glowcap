@@ -5,12 +5,32 @@
 // revoking one everybody holds, and a reader about to press one needs to know
 // which they are pressing.
 
+import { managedAccessText } from "./managed_access.ts";
+
+/** What each of a room's three links does. Every place that describes a link
+ * (the room card, its lead, the operator's card) draws these and adds only
+ * what is particular to where it stands. */
+export const roomLinkPower =
+	"The room link lets anyone who holds it enter this room and pass it on. It gives no moderation and no message history.";
+export const managerLinkPower =
+	"The manager link runs the room. Whoever holds it creates and revokes the room link and moderator link, and sets who may enter and speak.";
+export const moderatorLinkPower = "The moderator link lets whoever holds it ask a member to leave.";
+
+/** Why a link well, or `/link`, shows no link text: the page was opened under
+ * an access that may not share links. Names the permission by its label. */
+export const linksNotShownHere =
+	`This page is not allowed to show links. Open it with the ${managedAccessText.shareCustody} permission to copy them.`;
+
+/** Why the operator could not recover a room's manager link from here: the
+ * detail of a refusal, so it carries no closing period, like its siblings. */
+export const recoverManagerJoinFirst = "Join the room before recovering its manager link";
+
 export const roomCapabilitiesTitle = "Room links";
 /** The lead over the three sections. A reader who has just been handed a link
  * learns which power it carries and that it is taken here, in the room, with
  * no need to leave and come back in by link. */
 export const roomCapabilitiesLead =
-	"The room link lets someone in. The manager link runs the room: it makes links, lets you add moderators, and sets who can enter. The moderator link lets its holder ask members to leave. To take a link someone shared with you, paste it below while you are in the room.";
+	`${roomLinkPower} ${managerLinkPower} ${moderatorLinkPower} To take a link someone shared with you, paste it below while you are in the room.`;
 
 /** A bridged room has no manager capability to take, because the channel is not
  * this server's to manage. The sentence comes in three parts so the middle one
@@ -56,8 +76,7 @@ export function roomAccessNow(preset: string): string {
 }
 export const roomCapabilityWait = "Wait for the room link operation to finish.";
 export const roomManagementTitle = "Room management";
-export const roomManagerTakeHint =
-	"This manages this room link and moderator link. It doesn't grant entry or moderation by itself.";
+export const roomManagerTakeHint = managerLinkPower;
 export const roomManagerTakeCommit = "Take manager link";
 export const roomManagerRecoverHint =
 	"This session also holds the directory operator link, which can recover management for this exact room.";
@@ -65,7 +84,7 @@ export const roomManagerRecover = "Recover manager link";
 export const roomManagerSourceOwned =
 	"This room's source owns its management link. This directory's operator can't create it.";
 export const roomManagerHeldHint =
-	"Manages the room link and moderator. It doesn't grant entry or moderation. Sharing it delegates management. The directory operator can recover a lost copy.";
+	`${managerLinkPower} Anyone you share it with runs the room too. This server's operator can recover a lost copy.`;
 export const roomManagerDiscarded = "This session discarded its room manager link.";
 export function roomNameReleaseLabel(room: string): string {
 	return `Release the registered name #${room}`;
@@ -77,15 +96,16 @@ export const roomManagerDiscardAsk = "Discard manager…";
 export const roomNameReleaseAsk = "Release registered name…";
 export const roomLinkTitle = "Room link";
 export const roomLinkCreateHint =
-	"Create a link that lets anyone who holds it enter this exact room, and keeps working across server restarts until revoked. Anyone with the room link can enter and pass it on. It grants neither moderation nor message history.";
+	`Create a link for this room. ${roomLinkPower} It keeps working across server restarts until it is revoked.`;
 export const roomLinkSaveHint = "Save the IRC bridge's room link to return to this exact publication.";
 export const roomLinkNoneHint = "You don't hold this room's link. A room manager can create one and hand it to you.";
+export const roomLinkHandedHint =
+	"Someone handed you this room without its link, so you hold it only while this page stays open, and /invite hands it on the same way. A room manager can create a link that anyone can hold and keep.";
 export const roomLinkSaving = "Saving room link…";
 export const roomLinkCreating = "Creating room link…";
 export const roomLinkSave = "Save room link";
 export const roomLinkCreate = "Create room link";
-export const roomLinkHeldHint =
-	"This room link reaches this exact room across restarts of the room server, until revoked. Anyone who has it can enter and pass it on. It doesn't grant moderation or keep message history.";
+export const roomLinkHeldHint = `${roomLinkPower} It keeps working across server restarts until it is revoked.`;
 export const roomLinkRevoked = "Revoked the room link and its moderator link.";
 export const roomLinkRevokeAsk = "Revoke link…";
 export const roomAuthorityTitle = "Room authority";
@@ -105,8 +125,7 @@ export const roomModeratorTakeHint = "Paste the room moderator link somebody han
 export const roomModeratorTaking = "Taking link…";
 export const roomModeratorTakeCommit = "Take link";
 export const roomModeratorKind = "Room moderator link";
-export const roomModeratorHeldHint =
-	"Anyone who holds this link can moderate this room. Share it only with somebody you want to moderate the room.";
+export const roomModeratorHeldHint = `${moderatorLinkPower} Share it only with somebody you want to moderate the room.`;
 export const roomModeratorDiscarded = "This session discarded its room moderator link.";
 export const roomModeratorRevokedAll = "Revoked the room moderator link for everyone.";
 export const roomModeratorDiscardAsk = "Discard moderator…";

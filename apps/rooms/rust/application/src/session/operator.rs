@@ -53,10 +53,15 @@ pub fn mutation(action: &str, args: &[String]) -> Result<Mutation, InvalidAction
 		("giveModerator", [name]) => (authority::GIVE_STEWARD.into(), vec![text(name)]),
 		(verbs::GIVE_MANAGER, [identity]) if !identity.is_empty() => (verbs::GIVE_MANAGER.into(), vec![text(identity)]),
 		("revokeModerator", [name]) => (authority::REVOKE_STEWARD.into(), vec![text(name)]),
+		(authority::ISSUE_MANAGER, [name]) => (action.into(), vec![text(name)]),
+		(authority::REVOKE_MANAGER, [name]) => (action.into(), vec![text(name)]),
+		(authority::FORGET_ROOM, [name]) => (action.into(), vec![text(name)]),
 		_ => return Err(invalid()),
 	};
 	let reply = match verb.as_str() {
-		authority::GIVE_STEWARD | authority::REVOKE_STEWARD => Reply::Stewardship,
+		authority::GIVE_STEWARD | authority::REVOKE_STEWARD | authority::ISSUE_MANAGER | authority::REVOKE_MANAGER => {
+			Reply::Stewardship
+		}
 		verbs::GIVE_MANAGER => Reply::RoomManager,
 		_ => Reply::Acknowledgment,
 	};
@@ -65,4 +70,37 @@ pub fn mutation(action: &str, args: &[String]) -> Result<Mutation, InvalidAction
 		args: args.into_iter().map(Into::into).collect(),
 		reply,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn the_links_card_verbs_take_one_room_name_and_answer_the_row() {
+		for verb in [
+			authority::ISSUE_MANAGER,
+			authority::REVOKE_MANAGER,
+			authority::FORGET_ROOM,
+		] {
+			let sent = mutation(verb, &[String::from("Garden")]).unwrap();
+			assert_eq!((sent.verb.as_str(), sent.args.len()), (verb, 1), "{verb}");
+			assert!(mutation(verb, &[]).is_err(), "{verb} needs a name");
+			assert!(
+				mutation(verb, &[String::from("a"), String::from("b")]).is_err(),
+				"{verb} takes one"
+			);
+		}
+		assert!(matches!(
+			mutation(authority::FORGET_ROOM, &[String::from("Garden")])
+				.unwrap()
+				.reply,
+			Reply::Acknowledgment
+		));
+		assert!(matches!(
+			mutation(authority::ISSUE_MANAGER, &[String::from("Garden")])
+				.unwrap()
+				.reply,
+			Reply::Stewardship
+		));
+	}
 }

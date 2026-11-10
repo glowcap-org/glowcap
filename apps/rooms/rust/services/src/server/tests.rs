@@ -76,9 +76,7 @@ async fn start_with_admission(
 			Ok(())
 		},
 		Rc::new(move |notice: Notice| {
-			if !matches!(notice, Notice::Admission(_)) {
-				collected.borrow_mut().push(notice.to_string());
-			}
+			collected.borrow_mut().push(notice.to_string());
 		}),
 	));
 	let (location, capabilities, trace) = announced.await.expect("the directory became ready");

@@ -139,7 +139,9 @@ pub enum Persist {
 }
 
 /// The one live tail owner. Every mutation answers what the backend must
-/// persist. The adapter queues that work in order.
+/// persist. The adapter queues that work in order. Each effect names a room
+/// the way it was first kept, because rooms match without case and a file
+/// name keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Index {
 	rooms: BTreeMap<String, Room>,
@@ -216,6 +218,7 @@ impl Index {
 			line: line.clone(),
 			token: Some(token),
 		});
+		let stored = kept.name.clone();
 		self.lines += 1;
 		let retired = if kept.rows.len() > LINES_KEPT {
 			self.lines -= 1;
@@ -232,7 +235,7 @@ impl Index {
 			token,
 			retired,
 			persist: Persist::Append {
-				room: room.into(),
+				room: stored,
 				line,
 				evicted,
 			},
@@ -246,12 +249,21 @@ impl Index {
 		kept.rows.remove(at);
 		self.lines -= 1;
 		let tail = kept.rows.iter().map(|row| row.line.clone()).collect();
+		let room = kept.name.clone();
 		if kept.rows.is_empty() {
 			self.rooms.remove(&key);
 		}
+		Some(Persist::Replace { room, tail })
+	}
+	/// Forget every line kept for a room whose name is being freed, so the
+	/// next room under that name starts empty. The empty tail deletes the
+	/// file. `None` when nothing was kept.
+	pub fn forget_room(&mut self, room: &str) -> Option<Persist> {
+		let kept = self.rooms.remove(&fold(room))?;
+		self.lines -= kept.rows.len();
 		Some(Persist::Replace {
-			room: room.into(),
-			tail,
+			room: kept.name,
+			tail: Vec::new(),
 		})
 	}
 	/// Replace only the exact row the calling line capability retained with
@@ -268,7 +280,7 @@ impl Index {
 		};
 		row.line = line;
 		Ok(Some(Persist::Replace {
-			room: room.into(),
+			room: kept.name.clone(),
 			tail: kept.rows.iter().map(|row| row.line.clone()).collect(),
 		}))
 	}

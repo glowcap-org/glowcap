@@ -20,7 +20,7 @@ use rooms_application::{
 		custody::{self, Coordinate, FieldKey, Outcome},
 		results::{PostedLine, RoomLink, RoomPolicyUpdate, Stewardship},
 	},
-	fields::{List, Nullable, Text},
+	fields::{List, Text},
 	room::authority,
 	server::operations::operator::view,
 	session::effect::Reply,
@@ -178,41 +178,23 @@ impl Prepared {
 				.map_err(|_| loam::refusal("invalid room policy data"))?;
 				Ok(Self::Complete(Settlement::data(data)))
 			}
+			// The links an operator issues are copied from the operator
+			// inventory, so the row comes back as data and nothing enters
+			// the session's storage.
 			(Reply::Stewardship, value) => {
 				let row = view::read_stewardship(&rooms_glowcap::Value(value))
 					.map_err(|_| loam::refusal("invalid stewardship result"))?;
-				let key = FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN);
-				let returned = match row.steward {
-					Nullable::Null => None,
-					Nullable::Value(uri) => Some((
-						Coordinate {
-							role: custody::Role::RoomAccess,
-							key,
-						},
-						uri.text()
-							.as_str()
-							.ok_or_else(|| loam::refusal("invalid result URI"))?
-							.into(),
-					)),
-				};
 				let data = serde_json::to_string(&Stewardship {
 					name: row.name,
 					label: row.label,
 					visibility: row.visibility,
 					generation: row.generation,
-					steward: returned.as_ref().map(|_| key.retag()),
 				})
 				.map_err(|_| loam::refusal("invalid stewardship data"))?;
 				if !Text::<32768>::accepts_utf16(data.encode_utf16()) {
 					return Err(loam::refusal("effect result exceeds receipt capacity"));
 				}
-				Ok(match returned {
-					Some((coordinate, uri)) => Self::Capability(Acquisition {
-						data,
-						lookup: Lookup::Publication { coordinate, uri },
-					}),
-					None => Self::Complete(Settlement::data(data)),
-				})
+				Ok(Self::Complete(Settlement::data(data)))
 			}
 			_ => Err(loam::refusal("invalid effect result")),
 		}
@@ -403,18 +385,7 @@ pub(super) fn outcome(
 		}
 		Reply::RoomManager => manager::matches(data, &coordinates)?,
 		Reply::RoomModerator => moderator::matches(data, &coordinates)?,
-		Reply::Stewardship => {
-			let row: Stewardship = serde_json::from_str(data).map_err(|_| loam::refusal("invalid stewardship data"))?;
-			match (row.steward, coordinates.as_slice()) {
-				(None, []) => true,
-				(Some(key), [coordinate]) => {
-					coordinate.role == custody::Role::RoomAccess
-						&& coordinate.key.slot() == key.slot()
-						&& coordinate.key.generation() == key.generation()
-				}
-				_ => false,
-			}
-		}
+		Reply::Stewardship => serde_json::from_str::<Stewardship>(data).is_ok() && coordinates.is_empty(),
 	};
 	if !valid {
 		return Err(loam::refusal("result data does not match retained fields"));
@@ -537,4 +508,27 @@ pub(super) fn disclose(
 		})
 		.collect::<Result<Vec<_>>>()?;
 	Ok(Some(Argument::List(vec![data, Argument::List(fields)])))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn an_issued_link_comes_back_as_data_and_never_enters_storage() {
+		let row = Argument::List(vec![
+			"garden".into(),
+			"Garden".into(),
+			"listed".into(),
+			Argument::Integer(2),
+			"ocapn://peer.tcp/s/steward".into(),
+			"ocapn://peer.tcp/s/manager".into(),
+			Argument::Boolean(false),
+		]);
+		let Prepared::Complete(settlement) = Prepared::read(Reply::Stewardship, &row, "").unwrap() else {
+			panic!("a stewardship row settles as data")
+		};
+		let saved = format!("{:?}", settlement.0);
+		assert!(saved.contains("garden"), "{saved}");
+		assert!(!saved.contains("ocapn://"), "{saved}");
+	}
 }

@@ -223,6 +223,39 @@ impl Authority {
 		);
 		Ok((Self::admitted(next)?, generation))
 	}
+	/// Forget the room `name`: take down its room link, revoke its issued
+	/// moderator and manager links, drop its managed record and subject, and
+	/// free its name. The room link's generation counter stays and feeds the
+	/// derivation of every later link, so nothing minted after this repeats a
+	/// revoked link. `None` when this server holds nothing under the name.
+	pub fn with_room_forgotten(&self, name: &str) -> Result<Option<Self>, Refusal> {
+		let key = fold(name);
+		let mut next = self.clone();
+		let mut changed = false;
+		if next.linked.contains_key(&key) {
+			next = next.with_room_link_revoked(name)?;
+			changed = true;
+		}
+		if next.has_steward(name) {
+			next = next.with_steward_revoked(name)?.0;
+			changed = true;
+		}
+		if next.has_manager(name) {
+			next = next.with_manager_revoked(name)?.0;
+			changed = true;
+		}
+		if next.managed.remove(&key).is_some() {
+			next.refile_managed();
+			changed = true;
+		}
+		if next.subjects.remove(&key).is_some() {
+			changed = true;
+		}
+		if !changed {
+			return Ok(None);
+		}
+		Ok(Some(Self::admitted(next)?))
+	}
 	/// Rotate the secret and clear every authority row, keeping the Host
 	/// identity and the subjects of public rooms. Old links derive from the
 	/// retired secret and can never collide with what is minted after this.

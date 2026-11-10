@@ -9,7 +9,6 @@ use std::{collections::BTreeMap, fmt, rc::Rc};
 /// None of these is the peer's own failure, so none ends the process.
 #[derive(Debug)]
 pub enum Notice {
-	Admission(String),
 	Activity {
 		operation: String,
 		cause: glowcap::Error,
@@ -21,7 +20,6 @@ pub enum Notice {
 impl fmt::Display for Notice {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Self::Admission(policy) => write!(f, "session admission: {policy}"),
 			Self::Activity { operation, cause } => write!(f, "session {operation}: {cause}"),
 			Self::Partner(notice) => notice.fmt(f),
 		}

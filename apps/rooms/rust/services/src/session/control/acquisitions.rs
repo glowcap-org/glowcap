@@ -236,7 +236,7 @@ impl Request {
 					});
 				}
 				app.workspace
-					.resolve_imported_room_names(&held, &mut intent)
+					.resolve_imported_rooms(&mut held, &mut intent)
 					.await
 					.map_err(Failure::invalid)?;
 				app.workspace

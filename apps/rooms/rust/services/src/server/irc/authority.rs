@@ -63,8 +63,9 @@ pub(in crate::server) fn row(
 		label: bridge.room.name().into(),
 		visibility: Visibility::Listed,
 		generation: authority.generation,
-		issued: steward.is_some(),
 		steward,
+		manager: None,
+		bridged: true,
 	})
 }
 

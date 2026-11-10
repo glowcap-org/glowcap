@@ -30,6 +30,9 @@ pub(super) struct Supervisor {
 	child: Option<Process>,
 	started: Instant,
 	report: Report,
+	/// The `ROOMS-*` lines last presented, so a restart announces only a set
+	/// that changed.
+	announced: Vec<String>,
 }
 impl Supervisor {
 	pub async fn open(
@@ -58,10 +61,14 @@ impl Supervisor {
 			child: None,
 			started: Instant::now(),
 			report,
+			announced: Vec::new(),
 		};
 		let started = owner.attempt(stop).await;
 		match started {
-			Ok(Some(locator)) => Ok(Some((owner, locator))),
+			Ok(Some(locator)) => {
+				owner.announced.clone_from(&locator.capabilities);
+				Ok(Some((owner, locator)))
+			}
 			Ok(None) => {
 				owner.close().await?;
 				Ok(None)
@@ -179,8 +186,7 @@ impl Supervisor {
 		command
 			.args(&self.config.server_args)
 			.env("GLOWCAP_ROOMS_STATE", &self.state)
-			.env("GLOWCAP_ROOMS_SUPERVISED", "1")
-			.env("GLOWCAP_ROOMS_READY_FORMAT", "json");
+			.env("GLOWCAP_ROOMS_SUPERVISED", "1");
 		for (key, value) in self.config.handed.variables() {
 			if let Some(value) = value {
 				command.env(key, value);
@@ -252,7 +258,15 @@ impl Supervisor {
 			let opened = self.attempt(stop.clone()).await;
 			match opened {
 				Ok(None) => break Ok(()),
-				Ok(Some(locator)) => {
+				Ok(Some(mut locator)) => {
+					// A restarted child minted fresh links on its new route.
+					// They print here and stay out of the watch, which holds
+					// routing data for every handler that reads it.
+					let lines = std::mem::take(&mut locator.capabilities);
+					if !lines.is_empty() && lines != self.announced {
+						(self.report)(Notice::DirectoryRelinked(lines.clone()));
+						self.announced = lines;
+					}
 					location.send_replace(Some(locator));
 				}
 				Err(error) => {

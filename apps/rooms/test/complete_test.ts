@@ -3,13 +3,21 @@
 // accepting one leaves in the draft. The browser proof drives the widget.
 // This file pins the grammar the widget trusts.
 
-import { acceptCompletion, commandArgTrigger, completeCandidates, nickSource, triggerAt } from "../web/ui/complete.ts";
+import {
+	acceptCompletion,
+	commandArgTrigger,
+	completeCandidates,
+	nickSource,
+	roomSource,
+	triggerAt,
+} from "../web/ui/complete.ts";
 import { EMOJI_TABLE } from "../web/ui/emoji.ts";
 import "./support/browser_application.ts";
 import { PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
 import { messageMentions } from "../web/ui/markdown.ts";
 import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
 import type { Conv } from "../web/ui/conversation.ts";
+import type { RoomInfo } from "../lib/directory_publications.ts";
 import { assert, assertEquals } from "./assert.ts";
 import { fail } from "./support/fail.ts";
 
@@ -332,6 +340,19 @@ Deno.test("what the header claims the registry holds, the registry holds", () =>
 	}
 });
 
+Deno.test("every command that names a person completes a nickname as its argument", () => {
+	for (const command of ["msg", "invite", "kick", "whois", "ignore", "unignore"]) {
+		const text = `/${command} al`;
+		assertEquals(
+			commandArgTrigger(text, text.length),
+			{ kind: "nick", start: command.length + 2, query: "al", bare: true, argument: true },
+			`/${command}`,
+		);
+		const rows = completeCandidates(commandArgTrigger(text, text.length)!, SOURCES);
+		if (!rows.some((row) => row.insert === "alice ")) fail(`/${command} did not offer alice`);
+	}
+});
+
 Deno.test("/link and /join complete a listed room name as their argument", () => {
 	assertEquals(commandArgTrigger("/link", 5), null);
 	assertEquals(commandArgTrigger("/link ", 6), null);
@@ -344,6 +365,25 @@ Deno.test("/link and /join complete a listed room name as their argument", () =>
 	assertEquals(joinEmpty, { kind: "room", start: 6, query: "", bare: true, argument: true });
 	assertEquals(commandArgTrigger("/join ocapn://peer.tcp/s/swiss", 30), null);
 	assertEquals(commandArgTrigger("/join #lo", 9), { kind: "room", start: 6, query: "lo", argument: true });
+});
+
+Deno.test("/link offers the listed rooms this tab is in, and /join the directory's live list", () => {
+	const room = (name: string): RoomInfo => ({
+		id: name,
+		name,
+		kind: "local",
+		count: 1,
+		origin: "",
+		proof: "local",
+		offers: "participant",
+	});
+	const live = new Map([["lobby", room("lobby")], ["logs", room("logs")]]);
+	const linkable = ["lobby"];
+	assertEquals(roomSource(commandArgTrigger("/link lo", 8), "/link lo", live, linkable), ["lobby"]);
+	assertEquals(roomSource(commandArgTrigger("/link #lo", 9), "/link #lo", live, linkable), ["lobby"]);
+	assertEquals(roomSource(commandArgTrigger("/join lo", 8), "/join lo", live, linkable), ["lobby", "logs"]);
+	assertEquals(roomSource(triggerAt("see #lo", 7), "see #lo", live, linkable), ["lobby", "logs"]);
+	assertEquals(roomSource(triggerAt("hi @al", 6), "hi @al", live, linkable), []);
 });
 
 Deno.test("a person-taking command completes its name with or without @", () => {

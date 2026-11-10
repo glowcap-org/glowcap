@@ -136,7 +136,7 @@ impl Selection {
 				source,
 			} => intent.conversations.as_slice().iter().any(|row| {
 				matches!(row, workspace::Conversation::Room(row) if row.id == *id && row.directory == *directory
-					&& row.requests_membership() && row.access == *access && row.accepted == *accepted && row.public_entry == *public_entry && row.publication == *publication
+					&& row.requests_membership() && row.stands_through(*access, *accepted, public_entry.as_ref()) && row.publication == *publication
 					&& row.seat == *seat && row.subject == *subject && row.files == *files && row.inbox == *inbox && row.source == Some(*source)
 					&& nickname.matches(intent, directory))
 			}),

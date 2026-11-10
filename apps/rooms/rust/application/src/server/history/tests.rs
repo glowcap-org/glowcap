@@ -19,6 +19,24 @@ fn kept(from: &str, text: &str, at: u64) -> Arc<KeptLine> {
 }
 
 #[test]
+fn forgetting_a_room_drops_its_tail_and_its_file() {
+	let mut index = Index::default();
+	index.record("Garden", kept("alice", "hi", 1)).unwrap();
+	index.record("Garden", kept("bob", "yo", 2)).unwrap();
+	index.record("Shed", kept("cy", "hey", 3)).unwrap();
+	assert_eq!(
+		index.forget_room("garden"),
+		Some(Persist::Replace {
+			room: "Garden".into(),
+			tail: vec![],
+		})
+	);
+	assert_eq!((index.rooms(), index.lines()), (1, 1));
+	assert_eq!(index.read("Garden", 8).count(), 0);
+	assert_eq!(index.forget_room("Garden"), None, "nothing kept, nothing to delete");
+}
+
+#[test]
 fn a_room_keeps_its_last_lines_and_persists_each_append() {
 	let mut index = Index::default();
 	let Recorded { token, persist, .. } = index.record("Garden", kept("alice", "hi", 1)).unwrap();
@@ -73,7 +91,7 @@ fn edits_and_withdrawals_touch_the_exact_row_and_replace_the_tail() {
 	assert_eq!(
 		forgotten,
 		Persist::Replace {
-			room: "garden".into(),
+			room: "Garden".into(),
 			tail: vec![Arc::new(line("alice", "uno", 1))]
 		}
 	);

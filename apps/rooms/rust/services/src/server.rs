@@ -20,7 +20,7 @@ mod lines;
 mod notice;
 mod operations;
 mod peer;
-pub(crate) mod readiness;
+pub mod readiness;
 mod receipts;
 mod registration;
 mod rooms;

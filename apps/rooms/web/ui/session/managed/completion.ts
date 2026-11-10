@@ -305,11 +305,7 @@ async function completeOnce(
 				if (matches.length !== 1) throw new Error("Manager recovery requires one exact held room");
 				conversation(matches[0].id);
 				matches[0].control = retain("roomControl", receipt.control);
-			} else if (args[1] !== "giveModerator") return result;
-			// Operator issuance publishes the grant for copying from its inventory.
-			// Retire the receipt's returned occurrence through atomic adoption.
-			// A held conversation needs no change: the durable directory name is
-			// not its display label, and the inventory can include unjoined rooms.
+			} else return result;
 			break;
 		}
 		case "operations": {

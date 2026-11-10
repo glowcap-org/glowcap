@@ -13,6 +13,7 @@ export {
 	directNotSelf as DIRECT_NOT_SELF,
 	inviteWithoutTheRoom,
 	kickWithoutModerator as KICK_WITHOUT_MODERATOR,
+	linkNotHeldFor,
 	linkRoomNotJoined,
 	moderatorLinkLine,
 	moderatorLinkTaken,

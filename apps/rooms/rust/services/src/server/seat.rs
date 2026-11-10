@@ -13,12 +13,11 @@ use rooms_application::{
 	failure::FailureCode,
 	room::{
 		ArgumentView,
-		authority::{MANAGED_IDENTITY, ROOM_IDENTITY, room_identity},
+		authority::{MANAGED_IDENTITY, ROOM_IDENTITY},
 		history::VERB as HISTORY,
 		invitation::MINT,
 		membership::{AWAY, LEAVE, TYPING},
 		policy::MembershipKind,
-		stewardship::Kind,
 	},
 	server::rooms::{MembershipKey, RoomKey},
 };
@@ -101,19 +100,19 @@ pub(super) fn seat(
 				if !args.is_empty() {
 					return Err("managedRoomIdentity takes no arguments".into());
 				}
+				state.rooms.membership_kind(&room, membership).map_err(refusal)?;
 				let durable = room_durable_name(&state, &room, None);
-				managed_identity(&mut state, &durable)
+				Ok(managed_identity(&state, &durable))
 			}
 			ROOM_IDENTITY => {
 				if !args.is_empty() {
 					return Err("roomIdentity takes no arguments".into());
 				}
+				state.rooms.membership_kind(&room, membership).map_err(refusal)?;
 				let durable = room_durable_name(&state, &room, None);
-				let swiss = state
-					.links
-					.swiss(Kind::Room, &durable)
-					.ok_or("this room has no link; a room manager must create one")?;
-				Ok(room_identity(swiss).map_err(|e| e.to_string())?.into())
+				// A room with no link answers an empty text, which the client
+				// reads as a room that answered no identity.
+				Ok(state.published_room_identity(&durable)?.unwrap_or_default().into())
 			}
 			MINT => {
 				let (Some(kind), 1) = (text(0).and_then(MembershipKind::parse), args.len()) else {
