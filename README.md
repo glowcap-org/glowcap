@@ -208,10 +208,6 @@ profile only glowcap peers speak.
 each proves, and what each needs to run. [Stability](https://github.com/glowcap-org/glowcap/blob/main/docs/stability.md) explains
 which checks run in CI.
 
-<p align="center">
-  <img src="https://github.com/glowcap-org/glowcap/blob/main/site/assets/glowcap-goblin-512.png?raw=true" alt="a purple goblin studying the glowcap mark" width="320" />
-</p>
-
 ## Build
 
 The Zig version and every other toolchain are pinned, and

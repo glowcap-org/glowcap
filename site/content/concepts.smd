@@ -149,8 +149,6 @@ glowcap bug. Two glowcap peers can negotiate up to `glowcap-next`, a
 profile tracking newer draft operations, usually with Cap'n Proto.
 [The protocol guide]($link.page('protocol')) lists the profile differences.
 
-[A friendly goblin sizing up the glowcap mark. glowcap tests its wire behavior against a real Goblins peer, so both sides have to understand the same conversation.]($image.siteAsset('glowcap-goblin-512.png'))
-
 # Distributed GC
 
 Each session keeps tables of the references it has exported and the answers

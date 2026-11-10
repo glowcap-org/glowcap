@@ -176,26 +176,7 @@ p, li {
   text-wrap: balance;
 }
 
-/* Raster illustrations (the README art) are pictures, not diagrams, so they
-   drop the card frame and sit centered. The figure stays wide enough for the
-   caption to read as a sentence or two rather than a cramped column, while the
-   image itself stays modest. */
-.prose figure:has(img[src$=".png"]) {
-  max-width: 32rem;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0;
-  background: none;
-  border: none;
-}
-
-.prose figure:has(img[src$=".png"]) img {
-  width: auto;
-  max-width: 18rem;
-  border-radius: var(--radius-card);
-}
-
-/* Product captures are interface evidence, not spot illustrations. Let the
+/* Product captures are interface evidence. Let the
    whole window remain readable and give it the same framed surface as a
    diagram. The `rooms-` prefix scopes this to the reproducible captures
    `site/scripts/capture-rooms.ts` writes rather than changing every image on
