@@ -73,25 +73,31 @@ export function serverOffer(
  * sends to the page's host, and never in the query. */
 export const SESSION_OFFER = "attach";
 
+/** The fragment's `&`-separated fields as written, split into the offer and
+ * the rest. Fields beside the offer are another address's to read, so they
+ * pass through byte for byte and are never parsed and written again. */
+function offerAndRest(page: URL): { offer: string | null; rest: string[] } {
+	const fields = page.hash.slice(1).split("&").filter((field) => field !== "");
+	const isOffer = (field: string) => field.startsWith(`${SESSION_OFFER}=`);
+	return { offer: fields.find(isOffer) ?? null, rest: fields.filter((field) => !isOffer(field)) };
+}
+
 /** A shared session a link offers, read from `page` and taken out of it, the
- * way `serverOffer` takes the server. Only `attach` is consumed, preserving
- * any join destination beside it. Null when the link offers none. */
+ * way `serverOffer` takes the server. Only `attach` is consumed, and what an
+ * address names beside it stays. Null when the link offers none. */
 export function sessionOffer(page: URL): { capability: string; rest: URL } | null {
-	const fragment = new URLSearchParams(page.hash.slice(1));
-	const capability = fragment.get(SESSION_OFFER);
-	if (capability === null) return null;
+	const { offer, rest: kept } = offerAndRest(page);
+	if (offer === null) return null;
 	const rest = new URL(page);
-	fragment.delete(SESSION_OFFER);
-	rest.hash = fragment.toString();
-	return { capability: capability.trim(), rest };
+	rest.hash = kept.join("&");
+	return { capability: (new URLSearchParams(offer).get(SESSION_OFFER) ?? "").trim(), rest };
 }
 
 /** `page` offering `capability` the way `sessionOffer` reads it. */
 export function withSessionOffer(page: URL, capability: string): URL {
 	const offered = new URL(page);
-	const fragment = new URLSearchParams(page.hash.slice(1));
-	fragment.set(SESSION_OFFER, capability);
-	offered.hash = fragment.toString();
+	const offer = new URLSearchParams({ [SESSION_OFFER]: capability }).toString();
+	offered.hash = [...offerAndRest(page).rest, offer].join("&");
 	return offered;
 }
 
