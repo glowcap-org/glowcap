@@ -33,8 +33,8 @@ records. "The to-do column holds card #12" is an edge. An edge names a record,
 not a memory address, which is why it survives a restart.
 
 A **strong** edge keeps its target alive. A **weak** one doesn't. A **root**
-is kept no matter what. Loam keeps anything you can reach from a root along
-strong edges.
+keeps a record alive until the application removes that root. Loam also
+keeps anything reachable from a root along strong edges.
 
 [Kept: the board is a root and holds two columns strongly, and both columns hold the same card. Reclaimed: a preview that only a weak edge reaches, and an old card and an old column that point at each other but hang from no root.]($image.siteAsset('diagram-loam-graph.svg'))
 
@@ -134,7 +134,7 @@ tracks what is built.
 
 Chapter 07,
 [durable card](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/07_durable_card.zig),
-runs this page's restart as one short program: it moves a card, shuts
+shows the restart in one short program: it moves a card, shuts
 everything down, and reopens the store to find the move still there.
 
 1. [Loam guide](https://github.com/glowcap-org/glowcap/blob/main/docs/loam.md):

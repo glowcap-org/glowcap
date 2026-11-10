@@ -10,8 +10,8 @@ sources:
 # Deploy Rooms
 
 `glowcap apps rooms deployment` runs three things under Docker Compose: the web page, the directory (the server that
-lists and hosts rooms), and one shared session. The shared session is one Rooms session you and your friends can all
-attach to, like a shared login. People who only open the page keep their own browser-local sessions and never need it.
+lists and hosts rooms), and one shared session. The shared session lets several people or devices use the same Rooms workspace through access links.
+People who open the page can also keep separate sessions in their own browsers.
 `up` always starts the shared session.
 
 Docker keeps the services running after the terminal closes and restarts them after a host reboot. The directory and
@@ -188,11 +188,13 @@ until the deployment is healthy. The CLI does not discover or copy configuration
 
 ## Upgrade
 
+Read the release notes and [back up the stopped stack](#data-and-reset) before upgrading.
+An older image may not read state written by a newer one.
+
 1. Run `glowcap apps rooms deployment up --image ghcr.io/glowcap-org/glowcap-rooms:vNEW`.
 2. Run `glowcap apps rooms deployment status` and check that every service is healthy.
-3. To roll back, run `up --image` with the previous image. `up` printed it when it selected the new one.
-
-Changing images does not reverse changes to the stored session format.
+3. To restore the previous image, run `up --image` with the image ID the upgrade printed.
+   If its storage format is incompatible, restore the matching state backup too.
 
 ## Build and run your own version
 

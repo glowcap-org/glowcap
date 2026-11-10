@@ -552,6 +552,6 @@ Each name in the last column is a test file or a `zig build` step that
 | Browser cost | Each operation's IndexedDB transactions, JavaScript calls, rows, and copied bytes are counted, and a resident read or receipt replay records none. | `loam-browser-test` |
 | Callback reentry | A storage callback that calls back into Loam is refused. | `test/c_abi/loam_execution_test.zig` |
 
-Loam keeps no reader for older formats, compatibility layer, or Rust
-fallback. Stored state that does not match the current format must be reset
-by whoever runs it.
+Unsupported stored formats are refused. The
+[alpha release policy](../maintaining.md#release-status) covers upgrades and
+any required operator-controlled reset.

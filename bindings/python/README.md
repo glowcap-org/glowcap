@@ -106,18 +106,18 @@ callables. `send` returns a `RemotePromise`, implemented as an
 
 Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
 connection runs on glowcap's driver loop, one event loop in the C library that
-owns the sockets, frames and moves bytes, and releases finished sessions.
+owns the sockets, moves frames, and releases finished sessions.
 Python loads the separate Host and driver libraries and steps the loop, while
 asyncio waits on a file descriptor that signals when the loop has work.
 
 Pass `iroh.provider(config)`, `tcp.provider(config)`, or another transport
 package to choose a transport. The driver starts with no transports and
-installs the one you pass. A routed `keyed-relay` or `noise-relay` locator
+installs the providers you pass. A routed `keyed-relay` or `noise-relay` locator
 likewise loads the relay library and installs its provider.
 
 `Runtime.open(providers=[...])` or `Runtime.open(connectors=[...])` names the
 transports. Host options such as `seed`, `profile`, `codec`, `captp_version`,
-`features`, `context`, `frame_cap`, and `local_turn_budget` configure the Host it mints.
+`features`, `context`, `frame_cap`, and `local_turn_budget` configure the Host it creates.
 `Runtime.open(adopt_host=host, ...)` transfers an existing Host into the
 Runtime and takes no Host options. `await runtime.close()` then shuts that Host
 down for good.

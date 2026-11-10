@@ -240,10 +240,7 @@ drop, refusing foreign, released or closed-Host inputs before acquiring a hold.
 cleanup, including references nested in copied values. It applies even when
 `Host::set_release_on_drop(false)` leaves raw Session replies under manual
 release. Generated Rust calls choose owned outcomes before observation, so
-discarded replies and failed decoding can release their references. Choosing
-ownership adds no future wrapper, payload copy, or FFI retain: the reply's
-existing bookkeeping carries it. Accepting a reply takes constant time and adds
-no heap allocation.
+discarded replies and failed decoding can release their references.
 
 Until you observe a reply, the binding owns it. A reply evicted unobserved, an
 abandoned handle, or a cancelled observation releases every capability in that
@@ -371,12 +368,12 @@ carries a byte stream. `Channel::packets` carries whole messages and closes with
 the write instead of copying them. An accepted channel carries the transport's reading of the
 peer's address and key, and can carry proof that the channel was verified.
 
-Once the Host takes a channel, it closes as part of the Host's task:
+After a channel is transferred to the Host, the Host owns closing it:
 
 - Session release, `closed()`, and the first `serve()` observation wait for
-  resource retirement, even if an earlier close observer is cancelled. <!-- status-allow: runtime state or operation ordering -->
-- A physical-close refusal reaches both Session and Host shutdown observers
-  without failing unrelated sessions or their next operation.
+  the channel to finish closing, even if an earlier close observer is cancelled. <!-- status-allow: runtime state or operation ordering -->
+- If closing the channel fails, Session and Host shutdown observers both
+  receive the error. Unrelated sessions keep running.
 - `serve()` reports a previously retained outbound failure instead of clean <!-- status-allow: runtime state or operation ordering -->
   EOF.
 - A refused channel or handshake closes the transferred channel before

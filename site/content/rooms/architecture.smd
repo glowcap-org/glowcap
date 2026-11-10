@@ -15,9 +15,9 @@ both.
 
 The server is the first thing your session reaches. It introduces you to
 rooms and to other members. When you join a room, the room hands you a seat,
-and everything you do there goes through it: posting, leaving, showing that
-you are typing. Nobody can speak as you, because nobody else holds your
-seat.
+and your membership actions go through it: posting, leaving, and showing
+that you are typing. The seat carries that authority. Someone you share it
+or your session with can act as the same member.
 
 Every line you post comes back with its own reference for editing or
 deleting it. A private room opens from a link, and an invitation works
@@ -28,8 +28,8 @@ one narrow thing without adding roles to every message on the wire.
 
 A direct conversation starts with an introduction between three parties.
 The server hands you an inbox the other member made just for you, and using
-it opens a connection between the two of you. After the introduction, the
-server carries none of the conversation.
+it opens a connection between the two of you. The room does not carry the
+conversation. A relay or gateway may still carry the connection.
 [The Rooms protocol]($link.page('rooms/protocol')) names every one of these
 objects and the calls they answer.
 
@@ -96,15 +96,15 @@ uses. JavaScript supplies the clock and the byte connections. The Rust
 browser code owns your session, what is saved, and WebRTC. TypeScript draws
 the screen and turns what you do into requests.
 
-Your browser reaches a directory through a sealed relay door the directory
-declares, or, for an address it cannot open itself, through the Rooms server's
-byte relay. That relay forwards bytes without parsing them and holds nothing of
-yours. It could still read them, and on an [iroh]($link.page('transports/iroh')) route it checks the directory's key on your
-behalf, so you are trusting the Rooms server your page uses: the one you chose,
-or the one that served the page. Whoever serves the page is trusted with your
-session too, because the page's code is what runs in your browser: this site,
-or a server of your own. For a direct message, WebRTC puts the two peers on
-one channel, and the server only passes along the connection details.
+Your browser can connect through an advertised `noise-relay` route, with
+encryption between the peers. It can also ask its Rooms server to open a
+TCP, iroh, or onion connection. On an [iroh]($link.page('transports/iroh'))
+route, that server verifies the directory's key and can read the CapTP traffic.
+
+You also trust whoever serves the page, because their code runs in your
+browser and holds your session. This can be glowcap.org or a server you
+operate. For a direct message over WebRTC, the server passes along the
+connection details and the peers exchange messages over their own channel.
 
 # When something goes wrong
 

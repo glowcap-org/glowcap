@@ -76,7 +76,7 @@ console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
 `Runtime.open` keeps the transports you pass it, and `Runtime.connect` chooses only among them.
-It does not infer a transport from a locator. Passing `adoptHost` moves an existing Host into the
+It does not load a missing transport package from a locator. Passing `adoptHost` moves an existing Host into the
 Runtime, and `Runtime.close()` then shuts that Host down for good.
 
 A relay Runtime uses `provider(config)` from `@glowcap/relay`. Locator hints select a route

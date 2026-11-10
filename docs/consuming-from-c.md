@@ -86,11 +86,11 @@ transport archives whose providers you install. Every build checks the
 generated headers against their Zig declarations. Link every archive from one
 build: the archives share private layouts the fingerprint does not cover.
 
-Before minting sessions, override Host policy with a caller-owned
+Before creating sessions, override Host policy with a caller-owned
 `GlowcapSessionLimitOptions`. Set `abi_version` to
 `GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION` and `struct_size` to
 `sizeof(GlowcapSessionLimitOptions)`. Zero fields keep the current policy, and
-open sessions keep the limits they were minted with.
+open sessions keep the limits they were created with.
 
 ## Drive the byte-fed Host
 
@@ -139,8 +139,10 @@ return this type. A reference passes to another session of the same Host with no
 extra step when the Host can route it. Return an application retain with
 `glowcap_host_ref_release`. Stale and foreign-Host ids fail closed.
 
-Promise answers remain separate `uint64_t` vow handles. Only a resolved
-`GlowcapReference` is a passable target identity.
+A send returns a separate `uint64_t` vow handle for observing its answer.
+Use `glowcap_host_vow_capability` to obtain a passable promise reference from
+a vow associated with a session. The header defines its release rules and
+refusals.
 
 ## What the Host owns and what a session sees
 

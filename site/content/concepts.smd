@@ -16,10 +16,10 @@ this true between two programs on a network.
 [Spritely Goblins](https://spritely.institute/goblins/) is an implementation
 of it, and the peer glowcap checks against.
 
-Most permission features turn out to be ways of passing references around.
-Hand one along and you have delegated. Wrap one in an object that forwards
-only some methods, hand out the wrapper, and you have attenuated. Cut the
-wrapper and you have revoked.
+Passing a reference delegates its access. To give someone less access,
+wrap the reference in an object that forwards only selected methods. This is
+attenuation. If the wrapper can stop forwarding calls, it can revoke the
+access it granted.
 [Why OCapN]($link.page('why')) walks all three with pictures.
 
 [A capability is a reference. Pass it as an argument and the partner can call it. Without it, the partner cannot reach the object at all.]($image.siteAsset('diagram-capability.svg'))
@@ -33,8 +33,7 @@ shows that message on the wire.
 
 # Getting the first reference: locators and sturdyrefs
 
-References only come from other references, so the first one needs a locator,
-an address string:
+To reach a peer, start with a locator, an address string:
 
 ```
 ocapn://<designator>.<transport>

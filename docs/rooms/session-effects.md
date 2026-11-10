@@ -48,8 +48,8 @@ its targets and runs to settlement. Pausing or revoking the source stops any
 further sending and protected disclosure, while the completed result stays
 available to settle internally.
 
-The executor tells a failure before the target admitted the change
-(`unsent`) from a failure after it (`unknown`). The application receipt
+The executor distinguishes a failure before the target admitted the change
+(`unsent`) from a failure after admission (`unknown`). The application receipt
 decides whether the change took effect durably. If memory for the result is
 refused temporarily, the completed reply is kept for a retry without sending the
 change again. A reply too large, or with the wrong identity, settles as

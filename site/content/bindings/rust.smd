@@ -277,7 +277,7 @@ are `!Send`, so each lives on one task inside a `LocalSet`.
 
 # Actors
 
-`session.spawn` and `session.publish` take a `FnMut(&str, &[Argument])` closure
+`session.spawn` and `session.publish` take a `FnMut(Option<&str>, &[Argument])` closure
 returning `Result<Argument, String>`. An `Err` breaks the caller's promise with its message. A panic breaks it too and never unwinds into the C library.
 To let a third peer reach an actor directly through an introduction, call
 `publish` on the `Host` from `server.host()`.

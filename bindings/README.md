@@ -1,9 +1,10 @@
 # Language bindings
 
 glowcap has bindings for Rust, TypeScript, Python, and Racket. Each is a
-published package that downloads the C libraries of its version on first use,
-and each README below starts with its install command. In a checkout, run
-`zig build` and the bindings use the tree's libraries instead.
+published package, and each README below starts with its install command.
+Bindings that load C libraries resolve matching versions at build time or
+runtime, as the [packaging guide](PACKAGING.md) explains. Browser bindings use WebAssembly.
+In a checkout, run `zig build` to provide the tree's libraries.
 
 | Language | Start here | Runtime |
 | --- | --- | --- |

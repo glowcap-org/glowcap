@@ -15,8 +15,8 @@ direct conversations, drafts and history settings. The same Rust code runs it
 in a server process and in a browser tab.
 
 Loam stores the session's content, the capabilities it holds, its access
-grants and the receipts for its changes. Rust makes every decision, and React
-shows the result and sends the reader's actions.
+grants and the receipts for its changes. Rust owns session behavior. React
+shows the results and submits the reader's actions.
 
 The [shipped inventory](../../apps/rooms/shipped.md) describes product behavior.
 The [roadmap](../roadmap.md) tracks room, directory and archive authority

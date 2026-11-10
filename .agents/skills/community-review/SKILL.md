@@ -9,12 +9,11 @@ description: >-
 
 # Community review preflight
 
-Find the mismatches between claim and evidence and the wire and Host gaps a
-careful OCapN or Goblins-facing read would hit, and the provenance objections a
-FLOSS reviewer raises before reading any protocol code. Distrust the first soft
-answer when prerelease has waived migration cost
-([prerelease](../../rules/prerelease.md)). Prefer a gate, a sharper boundary,
-or a closed Host or codec edge over a longer apology.
+Check protocol claims against external evidence, identify wire and Host gaps,
+and review provenance disclosures against the policies in
+[`PROVENANCE.md`](../../../PROVENANCE.md). Address defects at their owning
+layer and verify the fix. Handle contract changes under the
+[alpha policy](../../rules/prerelease.md).
 
 **May name:** OCapN, Spritely, Goblins, and their public resources (spec, suite,
 institute docs already linked from vision/README).
@@ -26,8 +25,8 @@ respect ([doc-voice](../../rules/doc-voice.md)).
 
 ## The loop
 
-1. **SCOPE.** State the fault, the ideal, and the false constraint, one
-   sentence each.
+1. **SCOPE.** State the behavior under review, its expected contract, and the
+   constraints on changing it.
 2. **REVIEW WITH INDEPENDENT LENSES.** Spawn one subagent per lens on the real
    tree. `provenance` runs on every review, plus `ocapn-wire` and
    `goblins-interop` when protocol substance is in scope. Order each lens to
@@ -67,7 +66,7 @@ and passable edges, and [`SECURITY.md`](../../../SECURITY.md) invariants.
 - Public OCapN entry points already cited in-repo, such as
   [github.com/ocapn/ocapn](https://github.com/ocapn/ocapn)
 
-**Out of scope:** Zig taste, C ABI ergonomics, and scale theater, unless they
+**Out of scope:** Zig style, C ABI ergonomics, and scale claims, unless they
 change a wire claim.
 
 ### `goblins-interop`
@@ -75,7 +74,8 @@ change a wire claim.
 Review as someone steeped in public [Spritely Goblins](https://spritely.institute/goblins/)
 as the practical wire reference, not as any named person.
 
-**Cares about:** bidirectional live conversation on authenticated Syrup/TCP,
+**Cares about:** bidirectional live conversation over Syrup on the transports
+named in the evidence,
 no invented wire Goblins cannot speak, accurate handoff, bootstrap, sturdyref,
 and listen claims, and an actor layer above CapTP that does not redefine CapTP.
 
@@ -94,10 +94,9 @@ the Goblins interop claim.
 
 ### `provenance`
 
-Review as a FLOSS contributor who has just learned how glowcap is built and is
-deciding whether to take it seriously. This lens runs **first**, because a
-reviewer who bounces here never reaches the wire. These public positions are
-settled, and glowcap argues with none of them:
+Check whether a FLOSS contributor can understand how glowcap is built, who
+answers for it, and which upstream policies apply. Run this lens **first**.
+The following policies constrain what the project may send upstream:
 
 - **Codeberg** bans projects that "mostly consist of
   code written by 'generative AI'-tools" (Terms of Use § 2 (1) 7, member vote,

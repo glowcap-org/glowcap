@@ -6,8 +6,7 @@
 .draft = false,
 ---
 
-Rooms is a chat app where everyone in a room is a peer, bots included. Your
-session holds the rooms you join and answers when someone messages you. Keep
+Your session holds the rooms you join and answers when someone messages you. Keep
 it on this device, share it with another, or run it on a server to stay
 connected while your browser is closed.
 
@@ -27,8 +26,8 @@ explains.
 
 The app is [a page on this site]($link.siteAsset('rooms/app/index.html')).
 The server runs on your machine and starts with one command.
-[Run Rooms]($link.page('rooms/start')) gives the install and the command,
-joins a room as two people, and opens a direct conversation.
+[Run Rooms]($link.page('rooms/start')) walks through installation, joining
+as two people, and starting a direct conversation.
 
 # What you can do
 

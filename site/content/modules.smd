@@ -8,9 +8,9 @@
 
 Most applications use `driver.Session` and a transport. The modules below
 matter when you need to host many sessions, supply an event loop, add a codec,
-or drive the protocol without I/O. The diagram above is the map, and
-[architecture](https://github.com/glowcap-org/glowcap/blob/main/docs/architecture.md)
-is the full account.
+or drive the protocol without I/O.
+[Architecture](https://github.com/glowcap-org/glowcap/blob/main/docs/architecture.md)
+explains how they fit together.
 
 # Choose the right level
 
@@ -21,7 +21,7 @@ is the full account.
 | **Server** | The listening side. It publishes objects, and each `accept` returns a `Session` for one partner that connected. |
 | **HostRuntime** | The loop behind `Session` and `Server`. One thread serves every session of one Host, with one identity, over the transports you register. |
 | **HostTurn** | The argument an object's `handle` gets. It carries the turn's arena for building replies and the Host for calling other objects. |
-| **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. The browser package and C embedders that own their I/O drive the Host themselves. |
+| **Host** | Manages one identity across many CapTP sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. The browser package and C embedders that own their I/O drive the Host themselves. |
 
 Use `Session` unless you need one of the lower-level responsibilities in the
 table. An introduction settles as a live capability because every `Session`
@@ -75,8 +75,8 @@ you can test it without a host runtime.
 
 # Why Zig
 
-Zig gives glowcap control of memory. An allocator is an argument, so nothing allocates
-without one being passed in, and no collector decides when to run.
+glowcap's Zig APIs take explicit allocators, so applications control how
+memory is allocated and released.
 [Performance]($link.page('performance')) publishes what glowcap costs.
 
 Zig does not prove memory safety, so glowcap covers it with tests: leak checks, allocation budgets, and fuzzing of input from peers.

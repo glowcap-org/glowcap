@@ -60,8 +60,8 @@ its own just because you left the last room there.
 # Your session holds all of it
 
 No directory knows where else you are. Each one knows your nickname there,
-the rooms you joined there, and who you talk to there. Only your session
-knows all of it.
+the rooms you joined there, and the introductions it arranged. Your session
+keeps the combined view across directories.
 
 Everything travels with your session. Share it with your phone and
 every room on every directory is there, along with the same direct

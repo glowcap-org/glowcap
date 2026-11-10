@@ -36,7 +36,8 @@ const got = await server.readFrame();
 console.log(new TextDecoder().decode(got!));
 ```
 
-`locator(designator)` builds the matching `inproc` locator for a Runtime. The raw methods are
+`locator(designator)` builds the matching `inproc` locator. This package exposes
+raw frame handles and has no Runtime provider. Its methods are
 asynchronous on Deno, which moves a blocking call off the JavaScript event loop. Bun's FFI runs
 the call on the event loop, so the raw transport refuses construction there.
 

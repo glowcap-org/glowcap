@@ -60,8 +60,9 @@ endpoints, or connections. A reference keeps its owner and a stable identity,
 not the resource tree, its ancestors, or message history. A durable name
 nobody is using needs no actor in memory.
 
-The tree and grant records reserve their whole record capacity in memory.
-That layout stays out of every ABI so it can change.
+The standalone in-memory tree and grant ledger reserve their whole capacity
+up front. Record-backed owners load records within Loam's cache limits.
+These layouts stay out of the ABI so they can change.
 
 ## Content and access in one transaction
 

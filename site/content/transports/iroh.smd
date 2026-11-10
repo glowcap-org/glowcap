@@ -6,10 +6,12 @@
 .draft = false,
 ---
 
-iroh lets two peers find each other without a fixed address. A session's bytes travel over
-[QUIC](https://www.rfc-editor.org/rfc/rfc9000.html) through
-[iroh](https://www.iroh.computer/), and a peer is named by a key that proves
-itself rather than by a `host:port`. Discovery, relays, and NAT traversal (getting through home routers and firewalls) come with the channel. The CapTP session on top is unchanged.
+[iroh](https://www.iroh.computer/) lets two peers find each other without a
+fixed address. It carries session bytes over
+[QUIC](https://www.rfc-editor.org/rfc/rfc9000.html), whose handshake proves
+possession of the peer's key. Discovery, relays, and NAT traversal help
+peers connect through home routers and firewalls. The CapTP session on top
+is unchanged.
 For a direct TCP route between glowcap peers that only needs encryption, use
 [Noise]($link.page('transports/noise')) (`noise-tcp`) instead.
 
@@ -252,7 +254,7 @@ no-relay form needs a publicly reachable direct address.
 
 # Optional Rust library
 
-iroh's QUIC stack is Rust, so glowcap ships it as a separate static library,
+iroh's QUIC stack is Rust, so glowcap ships it as a separate library,
 `libglowcap_net_transport_iroh`
 ([ADR-0021](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0021-iroh-transport-sidecar.md)).
 The base archives stay pure Zig, and building this one requires `cargo`. Every

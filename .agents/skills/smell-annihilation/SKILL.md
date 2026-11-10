@@ -9,16 +9,14 @@ description: >-
 
 # Smell annihilation: ambition and discipline
 
-Find the architecture the code should have, move things where they belong, and
-enforce it so it cannot rot back. Ambition without the gate is reckless, and
-the gate without ambition stagnates. The ambition is the
-[Release Bar](../../rules/project-values.md): a networking library, not a
-polite CapTP port.
+Find the owner and interface that make correct behavior easiest, move the
+implementation there, and verify the result against the
+[release bar](../../rules/project-values.md#release-bar).
 
-Distrust a smaller first fix that imports a phantom migration cost
-([prerelease](../../rules/prerelease.md)). Before accepting a nullable, shim,
-facade, or follow-up PR, re-derive against the full option set, including
-moving a type, splitting a layer, or relocating logic.
+Compare a local fix with moving a type, splitting a layer, or relocating logic.
+Before adding a nullable, shim, facade, or follow-up PR, establish which
+constraint requires it. Handle contract changes under the
+[alpha policy](../../rules/prerelease.md).
 
 ## When not to use
 
@@ -36,11 +34,9 @@ release impact handled together, per the [prerelease policy](../../rules/prerele
   unread fields, capture spans nobody reads, unused `len`/`at` spines,
   forwarding wrappers over a type that already moved. Grep and the compiler are
   the authority on callers.
-- **Keep no second representation "for safety"** once the structural owner
-  exists. It is phantom compatibility cost.
-- Make small sharpenings on the opened path: a clearer owner, one fewer clone,
-  a stale doc claim fixed. Scar tissue fails the pass even when the original
-  bug is gone.
+- **Remove a superseded representation** once all consumers use its owner.
+- Improve the path you touch: clarify ownership, remove unnecessary clones,
+  and correct stale documentation.
 
 ## Memory, performance, optimums
 
@@ -73,9 +69,9 @@ on `at`/`toOwned` without a forbid, name, or measure line is incomplete.
 
 ## The loop
 
-1. **SCOPE.** State the fault, the ideal, and the false constraint, one
-   sentence each. Name the memory or perf stake in the ideal: what becomes
-   impossible and what budget holds.
+1. **SCOPE.** State the defect, the intended ownership and behavior, and the
+   constraints on changing them. Name the memory or performance requirement
+   and the check that will establish it.
 2. **REVIEW WITH TWO INDEPENDENT READERS.** Spawn two subagents on the real
    tree, because you have blind spots in code you wrote. Give each a different
    concern (the layer boundary, the wire-path cost) and order both:

@@ -166,7 +166,7 @@ trusting your signaling service.
 
 # Optional Rust library
 
-glowcap's WebRTC DataChannel code is Rust, so it ships as a static library in
+glowcap's WebRTC DataChannel code is Rust, so it ships as a separate library,
 `libglowcap_net_transport_webrtc`
 ([ADR-0035](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0035-webrtc-exchanges.md)).
 The base archives stay pure Zig, and building this one needs `cargo`.

@@ -122,8 +122,8 @@ runs. It returns `references.Request` entries:
   for a field. Leave out the URI for a local target.
 - `.save_live = held` reserves a capability for the current run of the Host.
 
-The callback only declares, with no side effects. Loam does the work after it
-has checked the caller's grant and before `invoke`, using the attachment's
+Keep the callback declarative and free of side effects. Loam does the work
+after checking the caller's grant and before `invoke`, using the attachment's
 read queue and the Host's networking.
 
 - Every capability the call will save is held before the first wait. If the
@@ -177,9 +177,9 @@ Saving or restoring a target never permits handing it out on its own.
 
 Targets in the same attachment under one owner use the shared managed
 permission check. Separate owners, even in one attachment, need the source
-content's `dependent_requirement` callback for each forwarded method, which
-has no side effects. The source checks that requirement before sending the
-call on, and the target checks its own permissions when the call arrives.
+content's `dependent_requirement` callback for each forwarded method.
+That callback must cause no side effects. The source checks its requirement
+before forwarding the call, and the target checks its own permissions when the call arrives.
 Revoking the source does not undo an effect already sent.
 
 `save_live_dependent` prepares and reserves one such facet over a real source

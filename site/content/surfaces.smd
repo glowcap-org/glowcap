@@ -23,6 +23,5 @@ WebAssembly ([In the browser]($link.page('bindings/browser'))).
 
 # One engine
 
-These APIs use the same protocol engine. The peers negotiate their CapTP
-version and codec ([Concepts]($link.page('concepts'))). The API you choose
+Peers negotiate their CapTP version and codec ([Concepts]($link.page('concepts'))). The API you choose
 determines how your program supplies I/O and manages lifetimes.
