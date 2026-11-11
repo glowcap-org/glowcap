@@ -97,7 +97,15 @@ Python values map directly to glowcap values: integers, floats, booleans,
 bytes, strings, and lists, plus `Symbol`, `Keyword`, `Set`, `Tagged`, `Struct`,
 the fulfilled-data `ErrorValue`, and the capability type `Ref`. Returning an
 `ErrorValue` fulfills the caller's `RemotePromise` with that error as data.
-Raising an exception or returning a broken vow rejects it.
+Raising an exception or returning a broken vow rejects it. Async behaviors
+may return values containing capabilities, just as synchronous behaviors may.
+
+`host.retain(ref)` returns an independent reference occurrence. Releasing the
+source wrapper leaves it usable. `await session.resolve(ref)` returns an owned
+reference for a live object without wire traffic, or waits for a promise's settled
+value. Retained and resolved references receive finalizer cleanup even when
+Session GC is off. Use `host.release(ref)` or `session.release(ref)` when release
+must happen now.
 
 `await tcp.listen(host, port)` returns a `tcp.Server` whose iterator yields a
 `Session` for each partner. `publish` and `spawn` host ordinary Python

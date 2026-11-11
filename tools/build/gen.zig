@@ -7,6 +7,11 @@ const root = @import("../../build.zig");
 const commands = @import("commands.zig");
 const modules = @import("modules.zig");
 const execution = @import("execution.zig");
+const ffi_omissions = @import("../check/source_check/ffi_omissions.zig");
+const rust_omissions = ffi_omissions.path("rust");
+const racket_omissions = ffi_omissions.path("racket");
+const python_omissions = ffi_omissions.path("python");
+const ts_omissions = ffi_omissions.path("ts");
 
 const AbiImport = modules.AbiImport;
 const layerIndex = root.layerIndex;
@@ -52,6 +57,8 @@ const HeaderGen = struct {
     reflects: ?AbiImport = null,
     /// Extra reflected archives for multi-archive binding mirrors.
     extra_imports: []const AbiImport = &.{},
+    /// Binding-owned declaration omissions, outside published package roots.
+    omissions: ?[]const u8 = null,
     test_step: ?*std.Build.Step = null,
 };
 
@@ -144,6 +151,17 @@ fn addHeaderGen(
     gen_mod.addImport("output", support.output);
     gen_mod.addImport("reflect", support.reflect);
     gen_mod.addImport("binding_policy", support.binding_policy);
+    if (hg.omissions) |path| {
+        gen_mod.addAnonymousImport("binding_omissions", .{
+            .root_source_file = bb.path(path),
+            .target = tgt,
+            .optimize = opt,
+        });
+        // The policy's path, so a refused entry names the file that holds it.
+        const source = bb.addOptions();
+        source.addOption([]const u8, "path", path);
+        gen_mod.addOptions("binding_omissions_source", source);
+    }
 
     if (hg.test_step) |step| {
         const tests = bb.addTest(.{ .name = step.name, .root_module = gen_mod });
@@ -406,6 +424,15 @@ pub fn registerMirrors(
     const support = ctx.support;
     const iroh_abi_mod = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod);
     const webrtc_abi_mod = webrtcAbiModule(b, target, optimize, host_mods, webrtc_resident_mod);
+    const omission_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/gen/binding/omissions.zig"),
+        .target = target,
+        .optimize = optimize,
+    }) });
+    const omission_run = execution.addZigTest(b, omission_tests, .unit_test);
+    const omission_step = b.step("binding-omissions-test", "Test the binding omission-policy refusals against fixtures (each binding generator checks its real policy)");
+    omission_step.dependOn(&omission_run.step);
+    check_step.dependOn(omission_step);
     const ffi_extra_imports = [_]AbiImport{
         .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
         .{ .name = "c_abi_host", .module = host_abi_mod },
@@ -476,10 +503,11 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-binding-rust-ffi-check",
-        .check_desc = "Verify the generated Rust extern blocks match src/c_abi (fails if stale)",
+        .check_desc = "Verify the generated Rust extern blocks match src/c_abi and " ++ rust_omissions ++ " (fails if stale)",
         .write_step_name = "gen-binding-rust-ffi",
-        .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi (types reflected, names from the generated headers)",
+        .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi and " ++ rust_omissions ++ " (types reflected, names from the generated headers)",
         .generator = "tools/gen/binding/rust_ffi.zig",
+        .omissions = rust_omissions,
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &(ffi_extra_imports ++ [_]AbiImport{
             .{ .name = "c_abi_loam", .module = ctx.loam.portable },
@@ -490,19 +518,21 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-binding-racket-ffi-check",
-        .check_desc = "Verify the generated Racket FFI tables match src/c_abi (fails if stale)",
+        .check_desc = "Verify the generated Racket FFI tables match src/c_abi and " ++ racket_omissions ++ " (fails if stale)",
         .write_step_name = "gen-binding-racket-ffi",
-        .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi (types reflected, wrapper argument names from the generated headers)",
+        .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi and " ++ racket_omissions ++ " (types reflected, wrapper argument names from the generated headers)",
         .generator = "tools/gen/binding/racket_ffi.zig",
+        .omissions = racket_omissions,
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &ffi_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-binding-python-ffi-check",
-        .check_desc = "Verify the generated Python ctypes signature tables match src/c_abi (fails if stale)",
+        .check_desc = "Verify the generated Python ctypes signature tables match src/c_abi and " ++ python_omissions ++ " (fails if stale)",
         .write_step_name = "gen-binding-python-ffi",
-        .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi (types are reflected and the sigs dicts are positional)",
+        .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi and " ++ python_omissions ++ " (types are reflected and the sigs dicts are positional)",
         .generator = "tools/gen/binding/python_ffi.zig",
+        .omissions = python_omissions,
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &ffi_extra_imports,
     });
@@ -517,10 +547,11 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-ts-abi-check",
-        .check_desc = "Verify the generated TypeScript ABI mirror files match src/c_abi (fails if stale)",
+        .check_desc = "Verify the generated TypeScript ABI mirror files match src/c_abi and " ++ ts_omissions ++ " (fails if stale)",
         .write_step_name = "gen-ts-abi",
-        .write_desc = "Regenerate the TypeScript ABI mirror from src/c_abi (every reflected archive)",
+        .write_desc = "Regenerate the TypeScript ABI mirror from src/c_abi and " ++ ts_omissions ++ " (every reflected archive)",
         .generator = "tools/gen/binding/ts_abi.zig",
+        .omissions = ts_omissions,
         .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
         .extra_imports = &ts_constants_extra_imports,
     });

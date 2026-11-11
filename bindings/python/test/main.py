@@ -46,6 +46,7 @@ from scenarios import (
     failures,
     host_lifecycle,
     lifecycle,
+    reference_ownership,
     runtime,
     transports,
     value_ownership,
@@ -389,6 +390,7 @@ def main() -> int:
     runtime.run_managed(conversation._live_trace_produces_timeline())
     print("python test OK: the live trace produced the timeline schema for a whole conversation")
 
+    runtime.run_managed(reference_ownership.run())
     runtime.run_managed(conversation._async_behavior_defers())
     print("python test OK: an async behavior deferred its answer onto a resolver vow and settled off-turn")
 

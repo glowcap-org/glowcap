@@ -101,6 +101,7 @@ const signing_domain = @import("source_check/signing_domain.zig");
 const source_tree = @import("source_check/source_tree.zig");
 const text_match = @import("source_check/text_match.zig");
 const markdown = @import("source_check/markdown.zig");
+const ffi_omissions = @import("source_check/ffi_omissions.zig");
 
 /// Create the `source-check` build step.
 pub fn create(b: *Build) *Step {
@@ -112,7 +113,7 @@ pub fn create(b: *Build) *Step {
             // This analyzer scans the whole source tree on every gate. Keep
             // safety checks while optimizing its parsing and traversal loops.
             .optimize = .ReleaseSafe,
-            .imports = &.{.{ .name = "model", .module = modelModule(b, b.graph.host, .ReleaseSafe) }},
+            .imports = checkImports(b, b.graph.host, .ReleaseSafe),
         }),
     });
     const run = b.addRunArtifact(exe);
@@ -121,13 +122,48 @@ pub fn create(b: *Build) *Step {
     return &run.step;
 }
 
-/// The codec-neutral model, which some checks read by reflection rather than
-/// by parsing its text. It imports nothing, so the check tool takes it alone.
-pub fn modelModule(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *Build.Module {
-    return b.createModule(.{
-        .root_source_file = b.path("src/ocapn/model/mod.zig"),
+/// The modules some checks read by reflection rather than by parsing their
+/// text: the codec-neutral model, the `libglowcap_host` symbol inventory, and
+/// the Python and Racket FFI omission policies that the binding runtime-proof
+/// check joins.
+pub fn checkImports(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) []const Build.Module.Import {
+    const policies = [_][]const u8{ "python", "racket" };
+    const imports = b.allocator.alloc(Build.Module.Import, 2 + policies.len) catch @panic("OOM");
+    imports[0] = .{ .name = "model", .module = leafModule(b, target, optimize, "src/ocapn/model/mod.zig", &.{}) };
+    imports[1] = .{ .name = "host_inventory", .module = hostInventoryModule(b, target, optimize) };
+    inline for (policies, 2..) |binding, i| {
+        imports[i] = .{ .name = "ffi_omissions_" ++ binding, .module = leafModule(b, target, optimize, ffi_omissions.path(binding), &.{}) };
+    }
+    return imports;
+}
+
+/// `src/c_abi/host/symbols.zig` alone. It imports only `c_abi_shared` for the
+/// `Symbol` row type, so a shim exposes the shared vocabulary leaf under that
+/// name instead of the whole shared layer.
+fn hostInventoryModule(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *Build.Module {
+    const vocabulary = leafModule(b, target, optimize, "src/c_abi/shared/symbols.zig", &.{});
+    const shim = b.addWriteFiles().add("c_abi_shared.zig", "pub const symbols = @import(\"symbols\");\n");
+    const shared = b.createModule(.{
+        .root_source_file = shim,
         .target = target,
         .optimize = optimize,
+        .imports = &.{.{ .name = "symbols", .module = vocabulary }},
+    });
+    return leafModule(b, target, optimize, "src/c_abi/host/symbols.zig", &.{.{ .name = "c_abi_shared", .module = shared }});
+}
+
+fn leafModule(
+    b: *Build,
+    target: Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    comptime path: []const u8,
+    imports: []const Build.Module.Import,
+) *Build.Module {
+    return b.createModule(.{
+        .root_source_file = b.path(path),
+        .target = target,
+        .optimize = optimize,
+        .imports = imports,
     });
 }
 

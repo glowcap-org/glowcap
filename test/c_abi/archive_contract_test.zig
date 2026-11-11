@@ -70,6 +70,30 @@ test "archive fingerprints follow reflected signatures, constants, and layouts" 
     try std.testing.expectEqual(baseline, repeated);
 }
 
+test "archive fingerprints follow C crossing annotations" {
+    const Fixture = struct {
+        fn archive(comptime symbol: shared.symbols.Symbol) type {
+            return struct {
+                pub const symbols = struct {
+                    pub const symbols = [_]shared.symbols.Symbol{symbol};
+                };
+                pub fn contractCall(_: *u8) callconv(.c) void {}
+            };
+        }
+    };
+    const layouts = [_]shared.archive_contract.Layout{};
+    const baseline = comptime shared.archive_contract.fingerprint("test", Fixture.archive(.{ .name = "contractCall" }), .{layouts});
+    inline for ([_]shared.symbols.Symbol{
+        .{ .name = "contractCall", .out_params = &.{0} },
+        .{ .name = "contractCall", .pointer_params = &.{0} },
+        .{ .name = "contractCall", .blocking = true },
+        .{ .name = "contractCall", .nonblocking = true },
+    }) |symbol| {
+        const changed = comptime shared.archive_contract.fingerprint("test", Fixture.archive(symbol), .{layouts});
+        try std.testing.expect(baseline != changed);
+    }
+}
+
 test "archive fingerprint names keep a type's shape and cut its module path" {
     const unqualified = shared.archive_contract.unqualified;
     try std.testing.expectEqualStrings("*Store", comptime unqualified("*c_abi.loam.layouts.Store"));
@@ -121,4 +145,50 @@ test "archive fingerprints ignore the Zig namespace a declaration sits in" {
     const renamed = comptime shared.archive_contract.fingerprint("archive", Renamed, .{renamed_layouts});
     try std.testing.expectEqual(first, second);
     try std.testing.expect(first != renamed);
+}
+
+test "archive inventories match their exports one to one and name the offending symbol" {
+    const Symbol = shared.symbols.Symbol;
+    const contract = shared.archive_contract;
+    const Complete = struct {
+        pub const symbols = struct {
+            pub const symbols = [_]Symbol{.{ .name = "glowcap_first" }};
+        };
+        pub fn glowcap_first() callconv(.c) void {}
+        pub const glowcap_value: u8 = 1;
+    };
+    const Missing = struct {
+        pub const symbols = struct {
+            pub const symbols = [_]Symbol{};
+        };
+        pub const glowcap_first = Complete.glowcap_first;
+    };
+    const Duplicate = struct {
+        pub const symbols = struct {
+            pub const symbols = [_]Symbol{ .{ .name = "glowcap_first" }, .{ .name = "glowcap_first" } };
+        };
+        pub const glowcap_first = Complete.glowcap_first;
+    };
+    const Unknown = struct {
+        pub const symbols = Complete.symbols;
+    };
+    const NotFunction = struct {
+        pub const symbols = Complete.symbols;
+        pub const glowcap_first: u8 = 1;
+    };
+    try std.testing.expect(comptime contract.inventoryFault(Complete) == null);
+    inline for (.{
+        .{ Missing, contract.InventoryFault.Kind.missing_row },
+        .{ Duplicate, contract.InventoryFault.Kind.duplicate_row },
+        .{ Unknown, contract.InventoryFault.Kind.unknown_export },
+        .{ NotFunction, contract.InventoryFault.Kind.not_function },
+    }) |case| {
+        const broken = comptime contract.inventoryFault(case[0]) orelse return error.TestExpectedFault;
+        try std.testing.expectEqual(case[1], broken.kind);
+        try std.testing.expectEqualStrings("glowcap_first", broken.name);
+    }
+    try std.testing.expectEqualStrings(
+        "host archive: `glowcap_first` is an export with no row in its symbols.zig inventory",
+        comptime (contract.InventoryFault{ .kind = .missing_row, .name = "glowcap_first" }).message("host"),
+    );
 }

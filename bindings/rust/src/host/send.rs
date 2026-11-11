@@ -41,16 +41,28 @@ impl Host {
 		// SAFETY: `self.shared.raw()` is the `GlowcapHost` handle owned by `HostShared`, proven non-null by
 		// `guard_handle` above; `target` is a local `GlowcapReference` borrowed for the call, `verb` is a `&str`
 		// borrowed for the call, and `args`/`count` come from `arena`, a live local `SendArena`; the header says the
-		// host copies what it queues.
+		// host copies what it queues. A current turn belongs to this Host and remains
+		// borrowed for this callback; its operations commit with the turn.
 		arena.finish(check_host(unsafe {
-			ffi::glowcap_host_tell(
-				self.shared.raw(),
-				&target,
-				verb.map_or(core::ptr::null(), str::as_ptr),
-				verb.map_or(0, str::len),
-				args,
-				count,
-			)
+			if let Some(turn) = current_turn_for(Rc::as_ptr(&self.shared) as usize) {
+				ffi::glowcap_host_turn_tell(
+					turn,
+					&target,
+					verb.map_or(core::ptr::null(), str::as_ptr),
+					verb.map_or(0, str::len),
+					args,
+					count,
+				)
+			} else {
+				ffi::glowcap_host_tell(
+					self.shared.raw(),
+					&target,
+					verb.map_or(core::ptr::null(), str::as_ptr),
+					verb.map_or(0, str::len),
+					args,
+					count,
+				)
+			}
 		}))?;
 		self.shared.schedule_kick()
 	}
@@ -66,17 +78,30 @@ impl Host {
 			let (args, count) = arena.build(args)?;
 			let mut vow = 0;
 			// SAFETY: as `tell` above, for `self.shared.raw()`, `target`, `verb`, and the `arena` views; `vow` is a
-			// local out-parameter the callee fills.
+			// local out-parameter the callee fills. A current turn belongs to this Host and
+			// remains borrowed for this callback; its operations commit with the turn.
 			arena.finish(check_host(unsafe {
-				ffi::glowcap_host_send(
-					self.shared.raw(),
-					&target,
-					verb.map_or(core::ptr::null(), str::as_ptr),
-					verb.map_or(0, str::len),
-					args,
-					count,
-					&mut vow,
-				)
+				if let Some(turn) = current_turn_for(Rc::as_ptr(&self.shared) as usize) {
+					ffi::glowcap_host_turn_send(
+						turn,
+						&target,
+						verb.map_or(core::ptr::null(), str::as_ptr),
+						verb.map_or(0, str::len),
+						args,
+						count,
+						&mut vow,
+					)
+				} else {
+					ffi::glowcap_host_send(
+						self.shared.raw(),
+						&target,
+						verb.map_or(core::ptr::null(), str::as_ptr),
+						verb.map_or(0, str::len),
+						args,
+						count,
+						&mut vow,
+					)
+				}
 			}))?;
 			self.shared.owned_vow_minted(vow);
 			if let Err(error) = self.shared.schedule_kick() {

@@ -32,7 +32,7 @@ async def _await_minted(session, vow: int, *, track_gc: bool):
     # loop running (the completion's bytes arrive on it), kick the drain so
     # the deliver leaves now, and await the drain-routed outcome.
     try:
-        session.host.vow_minted(vow, track_gc=track_gc and session.gc_enabled)
+        session.host.vow_minted(vow, track_gc=track_gc)
         session.serve()
         settled = session.host.await_vow(vow)
         await session.host.kick_actions()
@@ -67,7 +67,7 @@ async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> R
     buf, ptr = _byte_buf(swiss)
     out = ctypes.c_uint64()
     _check_host(mint(session.raw, ptr, len(swiss), ctypes.byref(out)))
-    result = await _await_minted(session, out.value, track_gc=track)
+    result = await _await_minted(session, out.value, track_gc=track and session.gc_enabled)
     if not isinstance(result, Ref):
         raise FetchFailed(label)
     return result

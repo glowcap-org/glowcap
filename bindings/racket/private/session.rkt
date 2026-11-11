@@ -301,6 +301,12 @@
      (drain-gc! c)
      (listen-far c target))))
 
+;; Resolve objects locally and promises through their Host settlement vow.
+(define (session-resolve c target)
+  (guard-open 'session-resolve c)
+  (drain-gc! c)
+  (resolve-reference c target))
+
 (define (session-send c target verb . args)
   (guard-open 'session-send c)
   (drain-gc! c) ; flush any imports reclaimed since the last session op
@@ -547,9 +553,8 @@
 ;; A behavior atomically defers with `host-defer-turn`, parks the resolver for
 ;; whatever completes the work, and returns; the completion settles it later with
 ;; `resolver-fulfill!` / `resolver-break!` as its own top-level event. One
-;; settle per resolver (a second refuses), and a deferred settle carries
-;; plain data only: a value that names a capability is refused, and an answer
-;; that carries authority forwards to a send instead.
+;; settle per resolver (a second refuses). Values may contain capabilities
+;; held by this Host, just as an immediate behavior reply may.
 
 (struct resolver (host id))
 
@@ -577,7 +582,7 @@
       (check/host rc)
       (and (not (zero? resolver-id)) (resolver m resolver-id)))))
 
-;; Settle the deferred answer fulfilled with the capability-free `value`.
+;; Settle the deferred answer with a value, including held capabilities.
 (define (resolver-fulfill! r value)
   (define m (resolver-host r))
   (with-host-drain m
@@ -587,7 +592,7 @@
       (void acnt)
       ;; args->c hands back a raw block; the generated signature wants the
       ;; tagged single-struct pointer.
-      (check/host (glowcap_host_resolver_fulfill
+      (check/host (glowcap_host_resolver_fulfill_value
                    (host-ptr m) (resolver-id r)
                    (cast aptr _pointer _GlowcapArgument-pointer)))
       ;; Buffers nested inside `aptr` are reachable only through `keep`, whose

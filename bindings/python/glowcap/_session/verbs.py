@@ -7,13 +7,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 from .. import _constants as _abi
+from .._abi_value import _ref_to_c
 from .._constants import DurableProvenance, _provenance_from_abi
 from .._errors import GlowcapError, _check_host
 from .._ffi_host import _host, _PartnerIdentity
 from .._ffi_ocapn import _byte_buf, _Reference
-from .._gc import release_ref
 from .._locator import Locator, _OwnedLocator
-from .._promise import RemotePromise, _fetch_like, _listen_far
+from .._promise import RemotePromise, _await_minted, _fetch_like, _listen_far
 from .._trampoline import (
     Caretaker,
     _attenuate_proxy,
@@ -162,6 +162,24 @@ class _VerbsMixin:
         except Exception as err:
             return RemotePromise.failed(err)
 
+    async def resolve(self, target: Ref) -> Argument:
+        """Resolve an opaque capability to an owned reference or settled value.
+
+        Live objects return an independent occurrence without wire traffic.
+        Promises wait for settlement, which may produce any value.
+        """
+        self.guard_open()
+        self._host.gc.drain_gc()
+        ref = _ref_to_c(target._live())
+        reference = _Reference()
+        vow = ctypes.c_uint64()
+        _check_host(
+            _host.glowcap_host_session_resolve(self._ptr, ctypes.byref(ref), ctypes.byref(reference), ctypes.byref(vow))
+        )
+        if vow.value:
+            return await _await_minted(self, vow.value, track_gc=True)
+        return self._host.gc.adopt_ref(reference.id)
+
     async def send_redeeming(
         self, target: Ref | RemotePromise, verb: str | None, args: list | None = None
     ) -> SendRedeemingResult:
@@ -281,8 +299,4 @@ class _VerbsMixin:
         The handle is spent after success. A capability from another Host or
         one already released is a caller error.
         """
-        if ref.released:
-            raise ValueError("capability already released")
-        release_ref(self._host.raw, ref)
-        self._host.gc.disarm(ref)
-        ref._mark_released()
+        self._host.release(ref)

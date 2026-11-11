@@ -2,15 +2,13 @@
 //! crossing semantics a language FFI table cannot reflect from the C
 //! signature alone.
 //!
-//! Every export has a row here (in the TS table's reading order) or a binding-
-//! specific omission reason on its row. The generator holds this inventory and
-//! the export set to each other in both directions at compile time.
+//! Every export has one row here, in the TS table's reading order.
+//! `archive_contract.fingerprint` holds this inventory and the export set to
+//! each other in both directions at compile time.
 
 const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
-const omit = shared.symbols.omit_reason;
-pub const omitted_families = [_]shared.symbols.OmittedFamily{};
 
 pub const symbols = [_]Symbol{
     .{ .name = "glowcap_tcp_archive_fingerprint" },
@@ -50,18 +48,10 @@ pub const symbols = [_]Symbol{
     .{ .name = "glowcap_tcp_conn_release", .out_params = &.{ 1, 3 }, .blocking = true, .nonblocking = true },
     .{ .name = "glowcap_tcp_listener_shutdown" },
     .{ .name = "glowcap_tcp_listener_release", .blocking = true, .nonblocking = true },
-    // The rows below are omitted from the TypeScript table, each for the
-    // reason on its row.
     .{
         .name = "glowcap_tcp_clear_last_error",
-        .ts_omit = omit.ts_last_error,
-        .python_omit = omit.python_last_error,
-        .racket_omit = omit.racket_last_error,
     },
     .{
         .name = "glowcap_tcp_netlayer_new_in",
-        .ts_omit = omit.ts_transport_allocator,
-        .python_omit = omit.python_transport_allocator,
-        .racket_omit = omit.racket_transport_allocator,
     },
 };

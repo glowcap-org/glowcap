@@ -78,6 +78,14 @@ The bindings CI phase runs this rehearsal before qualification.
 Each package carries the repository's Apache license text. The rehearsal
 compares the packaged copy with its source.
 
+Generator-only omission policies live under `bindings/ffi_omissions/`, outside
+the published package roots. The rehearsal refuses a package path with a part
+ending in `.zig` or `.zon`, or a part named `zig` or `zig.exe`, ignoring case.
+It checks the Python source distribution and wheel, the Rust crate, the Racket
+collection, and every tracked file under `bindings/ts` before the JSR dry run.
+The release workflow applies the same check to the files it packs into the
+Racket release ZIP.
+
 The C-library checks use the locally built SDK. The same script with
 `--registry <version>` installs a published version from each registry in a
 fresh consumer with no local SDK, and `publish.yml` runs it after each upload.

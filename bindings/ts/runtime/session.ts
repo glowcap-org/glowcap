@@ -9,6 +9,7 @@ import { checkHost, GlowcapError, retainCleanupFailures } from "./errors.ts";
 import { Host } from "./host.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
+import { refStruct } from "./abi_value.ts";
 import { ab, outU64 } from "./internal/seam.ts";
 import { type CloseOptions } from "./lifecycle.ts";
 import { type Locator, withOwnedLocator } from "./locator.ts";
@@ -27,8 +28,7 @@ import {
 	spawnHosted,
 } from "./trampoline.ts";
 import { type Argument, type Behavior, Ref, refFromId, type SessionProfile } from "./value.ts";
-import { releaseRef } from "./gc.ts";
-import { fetchLike, listenFar, RemotePromise } from "./promise.ts";
+import { awaitMinted, fetchLike, listenFar, RemotePromise } from "./promise.ts";
 import { type PartnerIdentity } from "./session/identity.ts";
 import type { AbortDetail } from "./errors.ts";
 
@@ -270,6 +270,25 @@ export class Session {
 	listen(target: Ref): RemotePromise {
 		this.#state.guardOpen();
 		return listenFar(this.#state, target);
+	}
+
+	/** Resolve an opaque capability. Objects return an independently owned
+	 * reference without wire traffic. Promises wait for their settled value. */
+	async resolve(target: Ref): Promise<Argument> {
+		this.#state.guardOpen();
+		this.#state.drainGc();
+		const reference = new Uint8Array(8);
+		const vow = new Uint8Array(8);
+		checkHost(hostS.glowcap_host_session_resolve(
+			this.#state.ptr,
+			ab(refStruct(target)),
+			ab(reference),
+			ab(vow),
+		));
+		const pending = outU64(vow);
+		return pending !== 0n
+			? await awaitMinted(this.#state, pending, "owned")
+			: this.#state.hostOwner.adoptOwnedRef(outU64(reference));
 	}
 
 	/** Spawn a local actor and return a capability to it. The `Ref`
@@ -602,12 +621,7 @@ export class Session {
 	 * A reference from another Host, or one already released, is a caller error
 	 * and throws. */
 	release(ref: Ref): void {
-		if (ref.released) {
-			throw new Error("glowcap: capability already released");
-		}
-		releaseRef(this.#state.hostOwner.raw, ref);
-		this.#state.hostOwner.disarmGc(ref);
-		ref.markReleased();
+		this.#state.hostOwner.release(ref);
 	}
 }
 

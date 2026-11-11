@@ -3,8 +3,6 @@
 const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
-const omit = shared.symbols.omit_reason;
-pub const omitted_families = [_]shared.symbols.OmittedFamily{};
 
 pub const symbols = [_]Symbol{
     .{ .name = "glowcap_relay_archive_fingerprint" },
@@ -21,8 +19,5 @@ pub const symbols = [_]Symbol{
     .{
         .name = "glowcap_relay_runtime_new_in",
         .out_params = &.{2},
-        .ts_omit = omit.ts_transport_runtime_allocator,
-        .python_omit = omit.python_transport_runtime_allocator,
-        .racket_omit = omit.racket_transport_runtime_allocator,
     },
 };

@@ -22,6 +22,13 @@ All four wrap the same C ABI and present the same application model:
   C calls it `GlowcapReference`, and the owning Zig APIs call it
   `driver.Capability`.
 
+Rust has two operations the others lack. `Host::spawn`, `Host::send`, and
+`Host::tell` run actor operations without a Session, and a Rust promise can be
+retained as a reference. TypeScript, Python, and Racket run those actor
+operations through a Session. They can pass pending promises as arguments and
+send to them, but cannot retain one as a reference. Both are
+[adapter gaps](../docs/roadmap.md#what-starts-next) on the roadmap.
+
 ## Shared API
 
 Names follow each language's conventions. Each binding README gives the

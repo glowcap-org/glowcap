@@ -24,15 +24,21 @@ const source_tree = @import("source_tree.zig");
 const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 const lex = @import("runtime_proof_lex.zig");
+const host_inventory = @import("host_inventory");
+const ffi_omissions = @import("ffi_omissions.zig");
 
 const appendViolation = violation_log.appendViolation;
 const containsAsSymbol = text_match.containsAsSymbol;
 
 const Binding = struct {
     lang: lex.Lang,
-    /// Names the `<name>_omit` field in `src/c_abi/host/symbols.zig` that opts a
-    /// row out of this binding, and appears in every failure message.
+    /// Names the binding in failure messages.
     name: []const u8,
+    /// The exports the binding's omission policy leaves out of its FFI table,
+    /// read from the same compiled policy its generator checks.
+    omitted: []const []const u8,
+    /// The policy file, named where a verb lacks both a proof and an entry.
+    policy_path: []const u8,
     ext: []const u8,
     /// The binding's library: wrapper definitions, never proof.
     lib: []const []const u8,
@@ -43,6 +49,13 @@ const Binding = struct {
     /// Run entrypoints belonging to this binding alone, `proof_roots` below
     /// applies to every binding.
     proof: []const []const u8,
+
+    fn omits(self: Binding, verb: []const u8) bool {
+        for (self.omitted) |name| {
+            if (std.mem.eql(u8, name, verb)) return true;
+        }
+        return false;
+    }
 };
 
 /// Trees a `zig build` step executes. The hermetic per-binding proof families
@@ -56,6 +69,8 @@ const bindings = [_]Binding{
     .{
         .lang = .python,
         .name = "python",
+        .omitted = &policyNames(@import("ffi_omissions_python")),
+        .policy_path = ffi_omissions.path("python"),
         .ext = ".py",
         .lib = &.{"bindings/python/glowcap"},
         .ffi_tier = &.{"_sigs_gen.py"},
@@ -64,6 +79,8 @@ const bindings = [_]Binding{
     .{
         .lang = .racket,
         .name = "racket",
+        .omitted = &policyNames(@import("ffi_omissions_racket")),
+        .policy_path = ffi_omissions.path("racket"),
         .ext = ".rkt",
         .lib = &.{
             "bindings/racket/private",
@@ -77,6 +94,12 @@ const bindings = [_]Binding{
     },
 };
 
+fn policyNames(comptime policy: type) [policy.omissions.len][]const u8 {
+    var names: [policy.omissions.len][]const u8 = undefined;
+    inline for (policy.omissions, 0..) |entry, i| names[i] = entry.name;
+    return names;
+}
+
 const Allowed = struct {
     binding: []const u8,
     symbol: []const u8,
@@ -85,7 +108,7 @@ const Allowed = struct {
 
 /// Rows with no runtime proof, each carrying why. A row whose verb becomes
 /// provable fails the gate, so the list only shrinks. It is empty: every verb
-/// either has a proof or an `<name>_omit` reason on its inventory row.
+/// either has a proof or a reason in its binding-owned omission policy.
 const allowlist = [_]Allowed{};
 
 pub fn check(
@@ -98,15 +121,11 @@ pub fn check(
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var verbs: std.ArrayList(Verb) = .empty;
-    try collectVerbs(io, gpa, arena, root, violations, &verbs);
-    if (verbs.items.len == 0) return;
-
     // Allowlist rows this run reached, so a row that stops applying is caught.
     var used = std.StringHashMap(void).init(arena);
 
     for (bindings) |binding| {
-        var graph = Graph.init(arena, verbs.items);
+        var graph = Graph.init(arena, &host_verbs);
         for (binding.lib) |path| try graph.absorbTree(io, gpa, root, violations, binding, path, .library);
         for (proof_roots) |path| try graph.absorbTree(io, gpa, root, violations, binding, path, .proof);
         for (binding.proof) |path| try graph.absorbTree(io, gpa, root, violations, binding, path, .proof);
@@ -116,25 +135,25 @@ pub fn check(
         }
         try graph.close();
 
-        for (verbs.items) |verb| {
-            if (verb.omits(binding.name)) continue;
-            const sites = graph.sites.get(verb.name);
-            const allowed = isAllowed(binding.name, verb.name);
+        for (host_verbs) |verb| {
+            if (binding.omits(verb)) continue;
+            const sites = graph.sites.get(verb);
+            const allowed = isAllowed(binding.name, verb);
             const proven = if (sites) |set| graph.anyReached(set) else false;
             // A row the run matched at all is not stale, however it matched, so
             // the sweep below reports only rows naming nothing.
-            if (allowed) try used.put(try std.fmt.allocPrint(arena, "{s}/{s}", .{ binding.name, verb.name }), {});
+            if (allowed) try used.put(try std.fmt.allocPrint(arena, "{s}/{s}", .{ binding.name, verb }), {});
             if (proven) {
                 if (allowed) {
-                    try appendViolation(gpa, violations, "{s}: `{s}` now has a runtime proof — delete its `allowlist` row in tools/check/source_check/binding_runtime_proof.zig; that list only shrinks", .{ binding.name, verb.name });
+                    try appendViolation(gpa, violations, "{s}: `{s}` now has a runtime proof — delete its `allowlist` row in tools/check/source_check/binding_runtime_proof.zig; that list only shrinks", .{ binding.name, verb });
                 }
                 continue;
             }
             if (allowed) continue;
             if (sites) |set| {
-                try appendViolation(gpa, violations, "{s}: `{s}` is called only from `{s}`, which no gate reaches — call that wrapper from a script under interop/, apps/, bench/, or the binding's own proof entrypoints, or add an `allowlist` row with its reason in tools/check/source_check/binding_runtime_proof.zig", .{ binding.name, verb.name, graph.firstName(set) });
+                try appendViolation(gpa, violations, "{s}: `{s}` is called only from `{s}`, which no gate reaches — call that wrapper from a script under interop/, apps/, bench/, or the binding's own proof entrypoints, or add an `allowlist` row with its reason in tools/check/source_check/binding_runtime_proof.zig", .{ binding.name, verb, graph.firstName(set) });
             } else {
-                try appendViolation(gpa, violations, "{s}: `{s}` has no call site outside the generated FFI table — give it a wrapper a proof reaches, or record a `{s}_omit` reason on its row in src/c_abi/host/symbols.zig", .{ binding.name, verb.name, binding.name });
+                try appendViolation(gpa, violations, "{s}: `{s}` has no call site outside the generated FFI table — give it a wrapper a proof reaches, or record its omission and reason in {s}", .{ binding.name, verb, binding.policy_path });
             }
         }
     }
@@ -159,64 +178,15 @@ fn isAllowed(binding: []const u8, symbol: []const u8) bool {
 
 // -- the symbol inventory ----------------------------------------------------
 
-const Verb = struct {
-    name: []const u8,
-    /// Binding names whose row carries an `<name>_omit` reason.
-    omitted: []const []const u8,
-
-    fn omits(self: Verb, binding: []const u8) bool {
-        for (self.omitted) |name| {
-            if (std.mem.eql(u8, name, binding)) return true;
-        }
-        return false;
-    }
+/// Every `glowcap_host_*` export, read from the compiled `libglowcap_host`
+/// inventory the binding generators render. A verb a binding's omission policy
+/// leaves out is not demanded of that binding here.
+const host_verbs = names: {
+    var names: [host_inventory.symbols.len][]const u8 = undefined;
+    for (host_inventory.symbols, &names) |row, *name| name.* = row.name;
+    const final = names;
+    break :names final;
 };
-
-/// Read `src/c_abi/host/symbols.zig`, the annotated inventory the binding
-/// generators already treat as the export set, and keep each row's per-binding
-/// omission so a verb a binding reaches by another spelling is not demanded of
-/// it here as well.
-fn collectVerbs(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    arena: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-    out: *std.ArrayList(Verb),
-) !void {
-    const path = "src/c_abi/host/symbols.zig";
-    const contents = root.readFileAlloc(io, path, arena, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for runtime-proof check with {s}", .{ path, @errorName(err) });
-        return;
-    };
-    const table_start = std.mem.indexOf(u8, contents, "pub const symbols = [_]Symbol{") orelse {
-        try appendViolation(gpa, violations, "{s}: missing `pub const symbols` table — the runtime-proof scanner no longer matches this inventory", .{path});
-        return;
-    };
-    const table = contents[table_start..];
-
-    const needle = ".name = \"glowcap_host_";
-    var from: usize = 0;
-    while (std.mem.indexOfPos(u8, table, from, needle)) |at| {
-        const name_start = at + ".name = \"".len;
-        const close = std.mem.indexOfScalarPos(u8, table, name_start, '"') orelse break;
-        const name = table[name_start..close];
-        // The row runs to the next row's `.name =`, or to the end of the table.
-        const next = std.mem.indexOfPos(u8, table, close, needle) orelse table.len;
-        const row = table[close..next];
-        from = close;
-
-        var omitted: std.ArrayList([]const u8) = .empty;
-        for (bindings) |binding| {
-            const field = try std.fmt.allocPrint(arena, ".{s}_omit", .{binding.name});
-            if (std.mem.indexOf(u8, row, field) != null) try omitted.append(arena, binding.name);
-        }
-        try out.append(arena, .{ .name = name, .omitted = omitted.items });
-    }
-    if (out.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no `glowcap_host_*` rows found — the runtime-proof scanner no longer matches this inventory", .{path});
-    }
-}
 
 // -- the call graph ----------------------------------------------------------
 
@@ -231,7 +201,7 @@ const module_owner = "<module>";
 
 const Graph = struct {
     arena: std.mem.Allocator,
-    verbs: []const Verb,
+    verbs: []const []const u8,
     /// Wrapper definitions found in the binding's library.
     defs: NameSet,
     /// Definition name to the identifiers its body names.
@@ -243,7 +213,7 @@ const Graph = struct {
     roots: NameSet,
     reached: NameSet,
 
-    fn init(arena: std.mem.Allocator, verbs: []const Verb) Graph {
+    fn init(arena: std.mem.Allocator, verbs: []const []const u8) Graph {
         return .{
             .arena = arena,
             .verbs = verbs,
@@ -336,8 +306,8 @@ const Graph = struct {
         for (self.verbs) |verb| {
             // Boundary-matched, so `…_publish` is not read out of
             // `…_published_ref`.
-            if (!containsAsSymbol(line, verb.name)) continue;
-            const slot = try self.sites.getOrPut(verb.name);
+            if (!containsAsSymbol(line, verb)) continue;
+            const slot = try self.sites.getOrPut(verb);
             if (!slot.found_existing) slot.value_ptr.* = NameSet.init(self.arena);
             try slot.value_ptr.put(owner, {});
         }
@@ -408,4 +378,11 @@ test "every allowlist row names a real binding" {
         try std.testing.expect(row.why.len != 0);
         try std.testing.expect(std.mem.startsWith(u8, row.symbol, "glowcap_host_"));
     }
+}
+
+test "the Python binding omits a verb its compiled policy lists and demands one it does not" {
+    const python = bindings[0];
+    try std.testing.expectEqualStrings("python", python.name);
+    try std.testing.expect(python.omits("glowcap_host_plan_dial"));
+    try std.testing.expect(!python.omits("glowcap_host_session_send"));
 }

@@ -214,8 +214,8 @@ zig build gen-header-net-transport-relay-check  # Verify include/glowcap_net_tra
 The bindings read the same facts out of generated mirrors.
 
 ```sh
-zig build gen-ts-abi                    # Regenerate the TypeScript ABI mirror from src/c_abi (every reflected archive)
-zig build gen-ts-abi-check              # Verify the generated TypeScript ABI mirror files match src/c_abi (fails if stale); part of check
+zig build gen-ts-abi                    # Regenerate the TypeScript ABI mirror from src/c_abi and bindings/ffi_omissions/ts.zig (every reflected archive)
+zig build gen-ts-abi-check              # Verify the generated TypeScript ABI mirror files match src/c_abi and bindings/ffi_omissions/ts.zig (fails if stale); part of check
 zig build gen-site-examples             # Assemble site/examples snippets into SuperMD code-tabs on binding, Start, and transport pages; part of site-serve
 zig build gen-site-examples-check       # Verify site transport example tabs match site/examples snippets (fails if stale); part of check
 zig build gen-build-steps               # Rewrite every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md from the build graph
@@ -229,16 +229,27 @@ zig build gen-binding-constants         # Regenerate binding ABI constants from 
 zig build gen-binding-constants-check   # Verify binding ABI constants match src/c_abi (fails if stale); part of check
 zig build gen-binding-host-action       # Regenerate binding HostAction decode/types from src/c_abi/host
 zig build gen-binding-host-action-check # Verify binding HostAction decode/types match src/c_abi/host (fails if stale); part of check
-zig build gen-binding-rust-ffi          # Regenerate the Rust binding's extern blocks from src/c_abi (types reflected, names from the generated headers)
-zig build gen-binding-rust-ffi-check    # Verify the generated Rust extern blocks match src/c_abi (fails if stale); part of check
-zig build gen-binding-python-ffi        # Regenerate the Python binding's ctypes signature tables from src/c_abi (types are reflected and the sigs dicts are positional)
-zig build gen-binding-python-ffi-check  # Verify the generated Python ctypes signature tables match src/c_abi (fails if stale); part of check
-zig build gen-binding-racket-ffi        # Regenerate the Racket binding's FFI tables from src/c_abi (types reflected, wrapper argument names from the generated headers)
-zig build gen-binding-racket-ffi-check  # Verify the generated Racket FFI tables match src/c_abi (fails if stale); part of check
+zig build gen-binding-rust-ffi          # Regenerate the Rust binding's extern blocks from src/c_abi and bindings/ffi_omissions/rust.zig (types reflected, names from the generated headers)
+zig build gen-binding-rust-ffi-check    # Verify the generated Rust extern blocks match src/c_abi and bindings/ffi_omissions/rust.zig (fails if stale); part of check
+zig build gen-binding-python-ffi        # Regenerate the Python binding's ctypes signature tables from src/c_abi and bindings/ffi_omissions/python.zig (types are reflected and the sigs dicts are positional)
+zig build gen-binding-python-ffi-check  # Verify the generated Python ctypes signature tables match src/c_abi and bindings/ffi_omissions/python.zig (fails if stale); part of check
+zig build gen-binding-racket-ffi        # Regenerate the Racket binding's FFI tables from src/c_abi and bindings/ffi_omissions/racket.zig (types reflected, wrapper argument names from the generated headers)
+zig build gen-binding-racket-ffi-check  # Verify the generated Racket FFI tables match src/c_abi and bindings/ffi_omissions/racket.zig (fails if stale); part of check
 zig build gen-binding-ffi-layouts       # Regenerate binding FFI layout facts from src/c_abi (every reflected archive); part of gen-rust-wasm-layouts
 zig build gen-binding-ffi-layouts-check # Verify binding FFI layout facts match src/c_abi (fails if stale); part of gen-rust-wasm-layouts-check
 zig build gen-rust-wasm-layouts         # Generate Rust layout constants and fingerprints from the compiled wasm32 C ABI
 zig build gen-rust-wasm-layouts-check   # Verify Rust layout constants and fingerprints match the compiled wasm32 C ABI; part of check, rooms-browser-build, rooms-managed-rooms-browser-test, rooms-managed-sharing-browser-test, rooms-rust-contract-browser-test, rooms-session-executor-browser-test, rooms-session-foreign-browser-reload-test, rooms-session-foreign-browser-test, rooms-session-graph-browser-test
+```
+
+Each binding generator also reads that binding's omission policy under
+`bindings/ffi_omissions/`: the exports its FFI table leaves out, with a reason
+for each. A generator refuses an entry that names no export, names one that
+more than one archive declares, repeats, or gives no reason, and the refusal
+names the entry and its policy file. So each generator's `-check` step above
+holds the real policy, and this step tests the refusals against fixtures.
+
+```sh
+zig build binding-omissions-test # Test the binding omission-policy refusals against fixtures (each binding generator checks its real policy); part of check
 ```
 
 The Rooms application and terminal clients read their wire vocabulary from

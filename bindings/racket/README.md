@@ -162,8 +162,16 @@ another green thread can perform, because that can deadlock Racket CS. Return a
 value, `bcom`, or a forward. Hand longer work to another thread and settle it
 through an eventual send (`<-`).
 
+`host-retain-reference` returns an independent occurrence of a held reference.
+Releasing the source leaves that occurrence usable. `session-resolve` returns an
+owned reference for a live object without wire traffic, or waits for a promise's
+settled value. Retained and resolved references receive finalizer cleanup even
+when Session GC is off. Use `host-release-reference!` or `session-release!` for
+deterministic release.
+
 For a deferred reply obtained with `host-defer-turn`, use `resolver-fulfill!`
-or `resolver-break!` once the worker completes. If the worker gives up, use
+or `resolver-break!` once the worker completes. A fulfilled value may contain
+capabilities held by the Host. If the worker gives up, use
 `resolver-abandon!`, which breaks a live answer and also succeeds when its
 calling session has already retired the answer. Run these operations outside
 the hosted callback. `host-defer-turn-if-answer` returns a resolver for calls

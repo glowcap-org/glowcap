@@ -44,8 +44,10 @@ review needs that review before its first step.
 2. **Adapter contract gaps.** Make Rust shutdown finish finalizer recovery or
    return an owned failure before its executor exits. Prove refused C releases
    cannot silently strand recovery. Support Unix-socket Tor endpoints
-   through Zig's public runtime. Done when public API tests cover those
-   existing provider contracts and both successful and refused shutdown
+   through Zig's public runtime. Project session-independent Host actors and
+   explicit promise-to-reference retention into TypeScript, Python, and Racket.
+   Done when public API tests cover those provider contracts, successful and
+   refused shutdown, and actor calls and reference lifetimes without a Session
    ([plan to plan](planning/plan-to-plan.md)).
 3. **Interop coverage.** Extend live binding checks to automatic capability
    finalization, and live Goblins relay checks to Python, Rust and Racket.
@@ -131,13 +133,7 @@ review needs that review before its first step.
     custody and recovery. Hosting builds on the Rooms plan's policy catalog
     and room-owned grants, so it starts after those land. Both contracts wait
     for maintainer review before implementation.
-13. **Bindings own their symbol omissions.** Each C archive's symbol
-    inventory (`symbols.zig`) carries a per-binding omit flag, so the C ABI
-    layer names its consumers and a new binding adds a field to a shared row
-    type. Each binding should hold its own short list of the symbols it skips
-    and why, beside its generated table, and the generators join the two
-    ([plan to plan](planning/plan-to-plan.md)).
-14. **A failed dial keeps its cause.** When the shared session cannot reach a
+13. **A failed dial keeps its cause.** When the shared session cannot reach a
     directory, the page is told `PromiseBroken` and nothing more. The Host
     settles the promise with a bare break, and the dial's own failure (no
     route, a refused connection, an unfinished handshake) is not carried into

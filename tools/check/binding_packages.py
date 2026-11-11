@@ -35,6 +35,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+verify_binding_files = runpy.run_path(str(ROOT / "ci/github_release.py"))["verify_binding_files"]
 INSTALL_ATTEMPTS = 12
 INSTALL_RETRY_SECONDS = 20
 RUST_FEATURES = ["async", "loam", "iroh", "webrtc", "relay", "onion"]
@@ -61,11 +62,20 @@ def verify_license(archive):
     is_zip = zipfile.is_zipfile(archive)
     with zipfile.ZipFile(archive) if is_zip else tarfile.open(archive) as package:
         names = package.namelist() if is_zip else package.getnames()
+        verify_binding_files(names)
         matches = [name for name in names if name.endswith("/LICENSE-APACHE") or name == "LICENSE-APACHE"]
         assert len(matches) == 1, f"{archive}: package needs exactly one Apache license"
         (name,) = matches
         actual = package.read(name) if is_zip else package.extractfile(name).read()
     assert actual == expected, f"{archive}: package must contain the project Apache license"
+
+
+def verify_typescript_files():
+    """JSR packages publish from the tracked TypeScript tree, so check every tracked file in it."""
+    names = subprocess.check_output(["git", "ls-files", "-z", "--", "bindings/ts"], cwd=ROOT, text=True, timeout=60)
+    tracked = [name for name in names.split("\0") if name]
+    assert tracked, "git lists no tracked files under bindings/ts"
+    verify_binding_files(tracked)
 
 
 def downloaded_lib_dir(work):
@@ -307,6 +317,7 @@ def typescript_http_consumer(work, env):
 
 def typescript_package(work, env, registry):
     if registry is None:
+        verify_typescript_files()
         for manifest in (ROOT / "bindings/ts").glob("*/deno.json"):
             package = json.loads(manifest.read_text())
             assert "LICENSE-APACHE" in package["publish"]["include"], manifest

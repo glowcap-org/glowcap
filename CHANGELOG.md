@@ -16,6 +16,13 @@ and storage formats before 1.0.
 - Documentation describes the published alpha, explains release pinning and
   upgrade precautions, and removes completed publication setup from the
   roadmap. The website's source quick start uses the checked `main` branch.
+- C archive fingerprints cover C contracts without binding omission policy.
+  Rebuild or reinstall matching C libraries and bindings together. Libraries
+  built before this change fail the updated bindings' fingerprint checks.
+- TypeScript byte-fed handoff connectors receive the Session that introduced
+  the handoff, so WebRTC signaling can use its context. Code that builds a
+  `ConnectorRequest` itself must set `introducer`, to `null` for an
+  application dial.
 - Public guides explain Rooms connections, sharing, and upgrade recovery, and
   correct binding and storage contracts. Detailed Zig actor integration lives
   in the Loam actor guide beside its lifetime rules.
@@ -39,8 +46,17 @@ and storage formats before 1.0.
 - A direct message that finds no route on a page with no Rooms server opens
   **Choose a Rooms server**, which saves the conversation to return to.
 
+### Added
+
+- TypeScript, Python, and Racket can independently retain held references and
+  resolve opaque capabilities to owned references or settled values. Explicit
+  retains and resolution results receive finalizer cleanup even with Session
+  GC off.
+
 ### Fixed
 
+- Deferred Python and Racket behavior replies can carry capabilities. Rust
+  `Host::send` and `Host::tell` use the active turn inside behavior callbacks.
 - A direct message in **Browser to browser** mode opens through the Rooms
   server within a few seconds when WebRTC finds no route. The direct attempt
   waited for the browser to report a failed connection, which a network that

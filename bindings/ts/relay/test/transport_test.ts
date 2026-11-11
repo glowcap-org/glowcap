@@ -54,7 +54,7 @@ Deno.test("relay locators admit bounded WSS routes before any I/O", async () => 
 			hints: new Map([["rendezvous-relay", route]]),
 			hintWireForm: "map",
 		};
-		await connector().connect({} as Host, invalid, { redeem: false, handshakeTimeoutMs: null })
+		await connector().connect({} as Host, invalid, { introducer: null, redeem: false, handshakeTimeoutMs: null })
 			.then(() => {
 				throw new Error("invalid designator opened a session");
 			}, (error) => {

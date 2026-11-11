@@ -2,17 +2,13 @@
 //! crossing semantics a language FFI table cannot reflect from the C signature
 //! alone.
 //!
-//! Every export has a row here (in the TS table's reading order) or an omission
-//! reason on its row. The generator holds this inventory and the export set to
+//! Every export has one row here, in the TS table's reading order.
+//! `archive_contract.fingerprint` holds this inventory and the export set to
 //! each other in both directions at compile time.
 
 const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
-pub const OmittedFamily = shared.symbols.OmittedFamily;
-const omit = shared.symbols.omit_reason;
-
-pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
     .{ .name = "glowcap_onion_archive_fingerprint" },
@@ -89,18 +85,10 @@ pub const symbols = [_]Symbol{
         .blocking = true,
         .nonblocking = true,
     },
-    // The rows below are omitted from the TypeScript table, each for the reason
-    // on its row.
     .{
         .name = "glowcap_onion_clear_last_error",
-        .ts_omit = omit.ts_last_error,
-        .python_omit = omit.python_last_error,
-        .racket_omit = omit.racket_last_error,
     },
     .{
         .name = "glowcap_onion_netlayer_new_in",
-        .ts_omit = omit.ts_transport_allocator,
-        .python_omit = omit.python_transport_allocator,
-        .racket_omit = omit.racket_transport_allocator,
     },
 };

@@ -365,7 +365,7 @@ pub fn register(ctx: Context) Registered {
         .root_source_file = b.path("tools/check/source_check.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "model", .module = source_check.modelModule(b, target, optimize) }},
+        .imports = source_check.checkImports(b, target, optimize),
     });
     const source_check_tests = b.addTest(.{ .root_module = source_check_tests_mod });
     const run_source_check_tests = execution.addZigTest(b, source_check_tests, .unit_test);

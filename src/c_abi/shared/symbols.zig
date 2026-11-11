@@ -40,46 +40,7 @@ pub const Symbol = struct {
     /// `nonblocking` above is the narrower JS dispatch policy. This is the
     /// thread-level fact.
     blocking: bool = false,
-    /// Why the TypeScript dlopen table omits this symbol, or null when it
-    /// declares it.
-    ts_omit: ?[]const u8 = null,
-    /// Why the Rust extern block omits this symbol, or null when it declares
-    /// it.
-    rust_omit: ?[]const u8 = null,
-    /// Why the Python ctypes table omits this symbol, or null when it
-    /// declares it.
-    python_omit: ?[]const u8 = null,
-    /// Why the Racket FFI table omits this symbol, or null when it declares
-    /// it.
-    racket_omit: ?[]const u8 = null,
     /// A comment emitted before this row in generated tables, naming the
     /// group that starts here.
     section: ?[]const u8 = null,
-};
-
-/// A whole export family a binding's table omits for one reason. The inventory
-/// walk accepts an export that
-/// matches a family prefix instead of demanding a row per symbol.
-pub const OmittedFamily = struct {
-    prefix: []const u8,
-    reason: []const u8,
-};
-
-/// Recurring omission reasons shared by archive inventories. A row still owns
-/// whether a binding omits that symbol. These constants keep repeated boundary
-/// facts in one wording.
-pub const omit_reason = struct {
-    pub const rust_last_error = "unused: the Rust binding reads the slot after a failing call and never resets it";
-    pub const ts_last_error = "unused: the TS binding reads the slot after a failing call and never resets it";
-    pub const python_last_error = "unused: the Python binding reads the slot after a failing call and never resets it";
-    pub const racket_last_error = "unused: the Racket binding reads the slot after a failing call and never resets it";
-
-    pub const rust_transport_allocator = "unused: the Rust binding keeps its transports on the library allocator";
-    pub const ts_transport_allocator = "unused: the TS binding keeps its transports on the library allocator";
-    pub const python_transport_allocator = "unused: the Python binding keeps its transports on the library allocator";
-    pub const racket_transport_allocator = "unused: the Racket binding keeps its transports on the library allocator";
-
-    pub const ts_transport_runtime_allocator = "unused: the TypeScript binding keeps transport runtimes on the library allocator";
-    pub const python_transport_runtime_allocator = "unused: the Python binding keeps transport runtimes on the library allocator";
-    pub const racket_transport_runtime_allocator = "unused: the Racket binding keeps transport runtimes on the library allocator";
 };

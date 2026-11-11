@@ -14,8 +14,12 @@
 
 import { CLOSED } from "@glowcap/abi";
 import { parkActions, runAction } from "../action.ts";
-import { GlowcapError, retainSecondaryFailure } from "../errors.ts";
+import { checkHost, GlowcapError, retainSecondaryFailure } from "../errors.ts";
 import { drainFinalizerRetries } from "../finalizer_retry.ts";
+import { refStruct } from "../abi_value.ts";
+import { releaseRef } from "../gc.ts";
+import { hostS } from "../internal/ffi/host.ts";
+import { ab, outU64 } from "../internal/seam.ts";
 import { NULL } from "../internal/ffi/runtime.ts";
 import { traceDrainHost } from "../trace.ts";
 import { enterDeliver, exitDeliver, insideTurn } from "../trampoline.ts";
@@ -173,6 +177,27 @@ export abstract class HostDrive extends HostApplication {
 	/** Retire an application projection hidden by a failed observation. */
 	discardGcArgument(value: Argument): void {
 		this._gc.discardArgument(value);
+	}
+
+	/** Keep an independent occurrence of a live reference from this Host.
+	 * Releasing either wrapper leaves the other usable. The returned occurrence
+	 * is collected when unreachable, even when ordinary Session GC is off. */
+	retain(ref: Ref): Ref {
+		const out = new Uint8Array(8);
+		checkHost(hostS.glowcap_host_ref_retain(this.raw, ab(refStruct(ref)), ab(out)));
+		return this.adoptOwnedRef(outU64(out));
+	}
+
+	/** Give back one occurrence. A successful release spends only this wrapper. */
+	release(ref: Ref): void {
+		releaseRef(this.raw, ref);
+		this._gc.disarm(ref);
+		ref.markReleased();
+	}
+
+	/** Adopt an independently owned C reference. Binding-internal. */
+	adoptOwnedRef(id: bigint): Ref {
+		return this._gc.adoptRef(id);
 	}
 
 	trackVow(handle: object, vow: bigint): void {

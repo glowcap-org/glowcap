@@ -25,7 +25,7 @@ import { type Argument, isReference, promiseArgument, Ref, refFromId } from "./v
 export interface VowWaitHandle {
 	readonly ptr: Ptr;
 	readonly hostOwner: UnexposedOutcomeOwner;
-	vowMinted(vow: bigint, trackGc?: boolean): void;
+	vowMinted(vow: bigint, trackGc?: boolean | "owned"): void;
 	attend(): void;
 	awaitVow(vow: bigint): Promise<Argument>;
 	kickActions(): Promise<void>;
@@ -127,7 +127,7 @@ async function awaitDrivenVow(h: VowWaitHandle, vow: bigint): Promise<Argument> 
 export async function awaitMinted(
 	h: VowWaitHandle,
 	vow: bigint,
-	trackGc: boolean,
+	trackGc: boolean | "owned",
 ): Promise<Argument> {
 	try {
 		h.vowMinted(vow, trackGc);

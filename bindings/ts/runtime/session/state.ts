@@ -146,8 +146,8 @@ export class SessionState implements PumpHandle, WriterOwner, MintAwaitHandle, P
 	parkVowRelease(vow: bigint): void {
 		this.#host.parkVowRelease(vow);
 	}
-	vowMinted(vow: bigint, trackGc = false): void {
-		this.#host.vowMinted(vow, trackGc && this.gcEnabled);
+	vowMinted(vow: bigint, trackGc: boolean | "owned" = false): void {
+		this.#host.vowMinted(vow, trackGc === "owned" || (trackGc && this.gcEnabled));
 	}
 	trackVow(handle: object, vow: bigint): void {
 		this.#host.trackVow(handle, vow);

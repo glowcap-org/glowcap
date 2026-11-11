@@ -103,7 +103,8 @@ listening, and events, over a Host it has adopted.
   [known limitations](boundaries.md#protocol-and-interop) gives the rules.
 - **Distributed garbage collection.** Zig and all four bindings release Goblins objects independently and
   observe Goblins reclaim them. Rust releases on drop by default, set on the Host. TypeScript, Python, and Racket
-  keep a per-session opt-in.
+  select finalizers per Session for ordinary received values. Explicit retains and resolution results
+  receive finalizer cleanup even when Session GC is off ([reference lifetime](../bindings/ts/runtime/README.md#reference-lifetime)).
 - **Three-party handoff.** A capability from one peer can be passed on to another, recursively. Outbound gives wait
   as one bounded transaction and keep their place in the recipient's queue. The Deno, Python, Rust, and Racket
   matrix proves nested gives against live Goblins, with Goblins in the gifter and exporter roles too

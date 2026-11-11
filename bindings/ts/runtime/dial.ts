@@ -7,10 +7,11 @@ import { checkHost, GlowcapError } from "./errors.ts";
 import { Host } from "./host.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { L } from "./internal/layout.ts";
-import { ab } from "./internal/seam.ts";
+import { ab, outPointer } from "./internal/seam.ts";
 import { type Locator, OwnedLocator } from "./locator.ts";
 import { HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
-import type { Connector } from "./transport.ts";
+import { NULL } from "./internal/ffi/runtime.ts";
+import type { Connector, ConnectorRequest } from "./transport.ts";
 import { BUFFER_TOO_SMALL, INVALID_ARGUMENT } from "@glowcap/abi";
 
 const utf8Encoder = new TextEncoder();
@@ -19,10 +20,7 @@ export async function dialWithConnector(
 	connector: Connector,
 	locator: Locator,
 	host: Host,
-	redeem: boolean,
-	handshakeTimeoutMs: number | null,
-	signal?: AbortSignal,
-	transportOptions?: Uint8Array,
+	request: ConnectorRequest,
 ): Promise<Session> {
 	if (!connector.supports(locator.transport)) {
 		throw new GlowcapError(
@@ -36,18 +34,14 @@ export async function dialWithConnector(
 			"a driver-loop Host cannot open an embedder-owned byte channel",
 		);
 	}
-	return await connector.connect(host, locator, {
-		redeem,
-		handshakeTimeoutMs,
-		signal,
-		transportOptions,
-	});
+	return await connector.connect(host, locator, request);
 }
 
 export async function dialExporter(
 	locator: Locator,
 	host: Host,
 	signal?: AbortSignal,
+	introducer: Session | null = null,
 ): Promise<Session> {
 	if (host.driverLoop != null) {
 		throw new GlowcapError(
@@ -62,14 +56,12 @@ export async function dialExporter(
 			`UnknownTransport: byte-fed Host has no connector for transport ${JSON.stringify(locator.transport)}`,
 		);
 	}
-	return await dialWithConnector(
-		connector,
-		locator,
-		host,
-		true,
-		HANDSHAKE_TIMEOUT_MS,
+	return await dialWithConnector(connector, locator, host, {
+		introducer,
+		redeem: true,
+		handshakeTimeoutMs: HANDSHAKE_TIMEOUT_MS,
 		signal,
-	);
+	});
 }
 
 /** Execute one byte-fed Host DIAL action and report its terminal result. */
@@ -117,7 +109,11 @@ export async function runDialTicket(
 		} finally {
 			owned.release();
 		}
-		session = await dialExporter(locator!, host, signal);
+		const source = new Uint8Array(L.ptrSize);
+		checkHost(hostS.glowcap_host_pending_dial_introducer(host.raw, ticket, routeIndex, ab(source)));
+		const sourcePtr = outPointer(source);
+		const introducer = sourcePtr === NULL ? null : host.getSession(sourcePtr) ?? null;
+		session = await dialExporter(locator!, host, signal, introducer);
 		if (host.released || signal?.aborted) {
 			await session.closeTransport();
 			return;

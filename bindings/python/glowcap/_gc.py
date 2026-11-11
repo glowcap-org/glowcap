@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 from ._abi_value import _ref_to_c
-from ._errors import _check_host
+from ._errors import _check_host, _retain_cleanup_failure
 from ._ffi_host import _host
 from ._value import Argument, Ref, Set, Struct, Tagged, _ref_from_id
 
@@ -102,6 +102,21 @@ class HostGc:
             self.pending_vows.clear()
             self._pending_vow_ids.clear()
             self._background_failure = None
+
+    def adopt_ref(self, token: int) -> Ref:
+        """Own an explicit retain regardless of the Session GC setting."""
+        ref = None
+        try:
+            ref = _ref_from_id(token)
+            return self.track_ref(ref)
+        except BaseException as failure:
+            if ref is not None:
+                self.disarm(ref)
+            try:
+                self._on_capability_dropped(token)
+            except BaseException as cleanup:
+                _retain_cleanup_failure(failure, cleanup)
+            raise
 
     def track_ref(self, ref: Ref) -> Ref:
         # Register one projected capability occurrence for GC. The id is an

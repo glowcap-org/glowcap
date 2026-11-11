@@ -151,7 +151,7 @@ class _LifecycleMixin(HostMixinBase):
         except Exception as error:
             self._break_resolver(resolver, str(error) or type(error).__name__)
             return
-        if _host.glowcap_host_resolver_fulfill(raw, resolver, ctypes.byref(c_arg)) != _abi.OK:
+        if _host.glowcap_host_resolver_fulfill_value(raw, resolver, ctypes.byref(c_arg)) != _abi.OK:
             self._break_resolver(resolver, _host_last_error() or "deferred settle refused")
             return
         self.signal_close_activity()

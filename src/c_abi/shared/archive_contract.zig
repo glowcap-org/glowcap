@@ -195,16 +195,63 @@ fn isIdentChar(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
+/// The first inventory fact an archive breaks, with the symbol it concerns.
+/// An archive's `symbols.zig` has exactly one row per public `glowcap_*`
+/// function, and every row names one.
+pub const InventoryFault = struct {
+    kind: Kind,
+    name: []const u8,
+
+    pub const Kind = enum { missing_row, duplicate_row, unknown_export, not_function };
+
+    pub fn message(comptime self: InventoryFault, comptime archive_name: []const u8) []const u8 {
+        return archive_name ++ " archive: `" ++ self.name ++ "` " ++ switch (self.kind) {
+            .missing_row => "is an export with no row in its symbols.zig inventory",
+            .duplicate_row => "has more than one row in its symbols.zig inventory",
+            .unknown_export => "has an inventory row but no declaration",
+            .not_function => "has an inventory row but is not a function declaration",
+        };
+    }
+};
+
+/// The first broken inventory fact of `Archive`, or null when its rows and
+/// its public `glowcap_*` functions match one to one.
+pub fn inventoryFault(comptime Archive: type) ?InventoryFault {
+    comptime {
+        @setEvalBranchQuota(10_000_000);
+        const rows = Archive.symbols.symbols;
+        for (rows, 0..) |row, i| {
+            if (!@hasDecl(Archive, row.name)) return .{ .kind = .unknown_export, .name = row.name };
+            if (@typeInfo(@TypeOf(@field(Archive, row.name))) != .@"fn") return .{ .kind = .not_function, .name = row.name };
+            for (rows[0..i]) |prior| {
+                if (std.mem.eql(u8, prior.name, row.name)) return .{ .kind = .duplicate_row, .name = row.name };
+            }
+        }
+        for (@typeInfo(Archive).@"struct".decl_names) |name| {
+            if (!std.mem.startsWith(u8, name, "glowcap_")) continue;
+            if (@typeInfo(@TypeOf(@field(Archive, name))) != .@"fn") continue;
+            const listed = for (rows) |row| {
+                if (std.mem.eql(u8, row.name, name)) break true;
+            } else false;
+            if (!listed) return .{ .kind = .missing_row, .name = name };
+        }
+        return null;
+    }
+}
+
 /// Fingerprint an archive from facts its C consumers can observe: every
 /// exported symbol's reflected function type and crossing annotations, every
 /// public `GLOWCAP_*` value, and every struct in its canonical layout
 /// manifests. Implementation and comment edits do not perturb the value, and
-/// neither does the Zig file a type is declared in.
+/// neither does the Zig file a type is declared in. Binding-owned declaration
+/// omissions are outside this C contract. An inventory that `inventoryFault`
+/// refuses fails the archive's compile, so each archive checks its own rows.
 pub fn fingerprint(
     comptime archive_name: []const u8,
     comptime Archive: type,
     comptime layout_groups: anytype,
 ) u64 {
+    if (comptime inventoryFault(Archive)) |broken| @compileError(broken.message(archive_name));
     @setEvalBranchQuota(10_000_000);
     var hash = offset_basis;
     mix(&hash, "glowcap-c-archive-contract-v5");
@@ -213,18 +260,12 @@ pub fn fingerprint(
 
     inline for (Archive.symbols.symbols) |symbol| {
         const Fn = @TypeOf(@field(Archive, symbol.name));
-        if (@typeInfo(Fn) != .@"fn")
-            @compileError(symbol.name ++ " is not a function declaration");
         mix(&hash, symbol.name);
         mix(&hash, unqualified(@typeName(Fn)));
         mixIndexes(&hash, symbol.out_params);
         mixIndexes(&hash, symbol.pointer_params);
         mixInt(&hash, @intFromBool(symbol.nonblocking));
         mixInt(&hash, @intFromBool(symbol.blocking));
-        mixInt(&hash, @intFromBool(symbol.ts_omit != null));
-        mixInt(&hash, @intFromBool(symbol.rust_omit != null));
-        mixInt(&hash, @intFromBool(symbol.python_omit != null));
-        mixInt(&hash, @intFromBool(symbol.racket_omit != null));
     }
 
     inline for (layout_groups) |layouts| {

@@ -11,7 +11,8 @@ from .._abi_value import _ref_to_c
 from .._constants_gen import SESSION_LIMIT_OPTIONS_ABI_VERSION
 from .._errors import GlowcapError, _check_host
 from .._ffi_host import _host, _SessionLimitOptions
-from .._ffi_ocapn import _byte_buf
+from .._ffi_ocapn import _byte_buf, _Reference
+from .._gc import release_ref
 from .._trampoline import _TRAMPOLINE, _BehaviorEntry
 from .._trampoline import _register_behavior as _register_global_behavior
 from .._trampoline import _unregister_behavior as _unregister_global_behavior
@@ -26,6 +27,24 @@ if TYPE_CHECKING:
 
 
 class _PublicationMixin(HostMixinBase):
+    def retain(self, ref: Ref) -> Ref:
+        """Keep an independent occurrence of a live reference from this Host.
+
+        Releasing either wrapper leaves the other usable. The returned
+        occurrence is collected when unreachable even if Session GC is off.
+        """
+        raw = self.raw
+        c_ref = _ref_to_c(ref._live())
+        out = _Reference()
+        _check_host(_host.glowcap_host_ref_retain(raw, ctypes.byref(c_ref), ctypes.byref(out)))
+        return self._gc.adopt_ref(out.id)
+
+    def release(self, ref: Ref) -> None:
+        """Give back one occurrence, spending this wrapper after success."""
+        release_ref(self.raw, ref._live())
+        self._gc.disarm(ref)
+        ref._mark_released()
+
     def register_connector(self, connector: Connector) -> None:
         """Retain an explicit byte-fed connector for future handoff dials.
 
