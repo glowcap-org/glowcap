@@ -82,11 +82,10 @@ under Apache-2.0 or GPL-2.0-or-later; Glowcap selects the Apache-2.0 option.
 The complete license remains in the verified archive as `LICENSE`; Glowcap's
 copy of Apache-2.0 is `LICENSE-APACHE`.
 
-## libvaxis, zigimg, and uucode
+## libvaxis and uucode
 
 The product CLI's CapTP lab REPL links libvaxis, which `build.zig.zon` fetches
-at `d4c3b3666e0c090e2b5092ca09893c6db15e0b79`. libvaxis in turn pins zigimg at
-`734fa919fb15b7917d4eb124f53600348f4ffa30` and uucode at
+at `c6c23fbda5b2fb2aa277fe4c02b4efb27bb4e376`. libvaxis in turn pins uucode at
 `1fb73433bba5d93366c57f23ff2e9d7939746500`. None of their source is in this
 repository. Their notices are below because the CLI binary carries their code.
 
@@ -95,30 +94,6 @@ repository. Their notices are below because the CLI binary carries their code.
 MIT License
 
 Copyright (c) 2023 Tim Culverhouse
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-### zigimg
-
-MIT License
-
-Copyright (c) 2019-2021 zigimg developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -309,7 +284,7 @@ distribute verbatim copies of this document is granted.
 
 ## SQLite
 
-Loam's optional SQLite engine compiles SQLite 3.54.0 from the amalgamation
+Loam's optional SQLite engine compiles SQLite 3.54.1 from the amalgamation
 that `build.zig.zon` fetches from sqlite.org unmodified. glowcap's engine
 lives under `src/loam/engines/sqlite/`. SQLite's authors have dedicated the
 code to the public domain, and the blessing from its source follows.

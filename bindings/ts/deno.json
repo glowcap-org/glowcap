@@ -14,7 +14,7 @@
   ],
   "imports": {
     // dep playwright: Drives the binding's browser tests.
-    "playwright": "npm:playwright@1.64.0"
+    "playwright": "npm:playwright@1.65.0"
   },
   "lock": {
     "path": "./deno.lock",
