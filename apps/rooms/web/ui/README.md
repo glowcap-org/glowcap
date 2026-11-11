@@ -192,6 +192,12 @@ value across screens needs one.
 
 The join card, in `joining.ts`, is where this is used.
 
+A join, room, or directory URL carries what it names beyond its path in the
+fragment, after `#`. The page reads those fields, and they stay out of the
+request sent to the page host, because a destination can be a capability.
+A session-attachment offer shares the fragment and leaves the other fields
+intact when it is consumed.
+
 - It states what it is answering once, in its opening line: the address that was followed, or nothing in particular
   when opened from the sidebar.
 - Pasting a room link into the address field retitles that field and redeems the link, instead of asking for a room name

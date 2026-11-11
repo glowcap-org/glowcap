@@ -137,12 +137,7 @@ review needs that review before its first step.
     type. Each binding should hold its own short list of the symbols it skips
     and why, beside its generated table, and the generators join the two
     ([plan to plan](planning/plan-to-plan.md)).
-14. **Room locators off the host's log.** A join address carries its room
-    locator in the query string, which the host serving the page records in
-    its access log. Move it into the fragment, where the page reads it and
-    the host never sees it, the way a session link already carries its
-    attach capability ([plan to plan](planning/plan-to-plan.md)).
-15. **A failed dial keeps its cause.** When the shared session cannot reach a
+14. **A failed dial keeps its cause.** When the shared session cannot reach a
     directory, the page is told `PromiseBroken` and nothing more. The Host
     settles the promise with a bare break, and the dial's own failure (no
     route, a refused connection, an unfinished handshake) is not carried into

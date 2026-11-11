@@ -181,8 +181,8 @@ export async function run(
 	await openDirectoryCardFromCaption(tab, aboutOf("lobby"));
 	const homeAt = await tab.evaluate(() => ({
 		path: location.pathname,
-		dir: new URLSearchParams(location.search).get("dir"),
-		full: location.pathname + location.search,
+		dir: new URLSearchParams(location.hash.slice(1)).get("dir"),
+		full: location.pathname + location.search + location.hash,
 	}));
 	const homeCard = await tab.evaluate(() => ({
 		title: document.getElementById("dircardTitle")?.textContent?.trim() ?? "",
@@ -309,11 +309,11 @@ export async function run(
 
 	await openDirectoryCardFromCaption(tab, aboutOf("elsewhere"));
 	// Two directories cannot share one address. This page's is `/directory`;
-	// the other carries its locator, the same `?dir=` a room on it would.
+	// the other carries its locator, the same `#dir=` a room on it would.
 	const otherAt = await tab.evaluate(() => ({
 		path: location.pathname,
-		dir: new URLSearchParams(location.search).get("dir"),
-		full: location.pathname + location.search,
+		dir: new URLSearchParams(location.hash.slice(1)).get("dir"),
+		full: location.pathname + location.search + location.hash,
 	}));
 	if (homeAt.path !== "/directory" || homeAt.dir !== null) {
 		fail(`this directory's address was ${homeAt.full}, not /directory`);

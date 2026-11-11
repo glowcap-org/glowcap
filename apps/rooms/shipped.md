@@ -87,6 +87,9 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   proof from an extracted installation, with no checkout tooling or library-path overrides. `glowcap-package-test`
   checks the package and image inventories and the archive publication fixtures, including checksum failures, rename
   failures, and termination signals. These checks do not claim that any archive or release has been published.
+- *Addresses.* A join, room, or directory URL names its room and destination after `#`.
+  Reload and browser history preserve them, and HTTP requests to the page host omit them.
+  Session-attachment offers preserve those fields in the same fragment.
 - *Published page.* `rooms-web --export-static` writes the page as plain files for a static host at one base path,
   and the website publishes that export at `/rooms/app/`. A browser uses one Rooms server: the one that served the
   page, one a link offers and the reader accepts, or one chosen in Settings. A Rooms server admits the published

@@ -89,10 +89,10 @@ Deno.test("showing the current address preserves a pending room acquisition; lea
 	const priorDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
 	Object.defineProperty(globalThis, "location", {
 		configurable: true,
-		value: { pathname: "/directory", search: "?dir=held" },
+		value: { pathname: "/directory", search: "", hash: "#dir=held" },
 	});
 	Object.defineProperty(globalThis, "document", { configurable: true, value: { baseURI: "https://rooms.test/" } });
-	let active = "/directory?dir=held";
+	let active = "/directory#dir=held";
 	const navigated: string[] = [];
 	const openings = f.page.managedSession!.openings;
 	const release = deferred<void>();
@@ -117,7 +117,7 @@ Deno.test("showing the current address preserves a pending room acquisition; lea
 		release.resolve();
 		await pending;
 		assertEquals(selected, [true]);
-		active = "/directory?dir=other";
+		active = "/directory#dir=other";
 		await browser.showActiveConversation(Promise.resolve());
 		assertEquals(navigated, [active]);
 	} finally {
