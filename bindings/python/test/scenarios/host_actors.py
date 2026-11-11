@@ -2,7 +2,8 @@
 
 A Host spawns, sends to, and tells actors with no session, and a callback's
 Host verbs join its turn. A refused Host send returns a failed future, and a
-spawned actor's behavior entry leaves when the actor is collected. A told
+spawned actor's behavior entry leaves when the actor is collected, and
+Hosts spawning on two threads at once never share a behavior id. A told
 async behavior runs with no answer, and its failure reaches the Host's
 failure journal. A session breaks the far promises still waiting on its
 partner and stays usable, and a driver-owned session refuses the break. A
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import threading
 
 from glowcap import GlowcapError, Host, Locator, PartnerAbort, Ref, Symbol, VowBroken, tcp
 from glowcap._constants import DESIGNATOR_SCHEME_ADDRESS, ERR_INVALID_ARGUMENT, TRANSPORT_TCP
@@ -77,7 +79,7 @@ async def host_actors_need_no_session() -> None:
 async def _settle_collection(host: Host, tick: Ref, want: int) -> int:
     # Collection crosses a finalizer, the Host's GC drain, and the Vat's next
     # turn, which the send to ``tick`` drives. Bound the rounds.
-    for _ in range(5):
+    for _ in range(60):
         gc.collect()
         host.gc.drain_gc()
         await host.send(tick, "tick")
@@ -108,6 +110,50 @@ async def spawned_entries_leave_at_collection() -> None:
         assert left == baseline + 1, "an answer's capability was not released"
     finally:
         await host.close()
+
+
+async def _spawn_on_own_thread(tag: str, barrier: threading.Barrier, ids: dict[str, set[int]]) -> None:
+    host = Host()
+    try:
+        tick = host.spawn(lambda _verb, _args: None)
+        baseline = len(host._behavior_entries)
+        barrier.wait()
+        actors = [(host.spawn(lambda _verb, _args, name=f"{tag}{i}": name), f"{tag}{i}") for i in range(40)]
+        ids[tag] = set(host._behavior_entries)
+        # Both Hosts hold every actor before either collects, so a shared id
+        # would let this Host's collection retire the other's live entry.
+        barrier.wait()
+        survivors = actors[1::2]
+        del actors
+        left = await _settle_collection(host, tick, baseline + len(survivors))
+        assert left == baseline + len(survivors), f"{tag}: collection released {left} of the expected entries"
+        barrier.wait()
+        for actor, name in survivors:
+            assert await host.send(actor, "who") == name, f"{tag}: a survivor answered as another actor"
+    finally:
+        await host.close()
+
+
+def concurrent_spawns_take_their_own_ids() -> None:
+    barrier = threading.Barrier(2, timeout=30)
+    ids: dict[str, set[int]] = {}
+    failures: list[BaseException] = []
+
+    def racer(tag: str) -> None:
+        try:
+            asyncio.run(_spawn_on_own_thread(tag, barrier, ids))
+        except BaseException as err:
+            barrier.abort()
+            failures.append(err)
+
+    threads = [threading.Thread(target=racer, args=(tag,)) for tag in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(60)
+    if failures:
+        raise failures[0]
+    assert not (ids["a"] & ids["b"]), "two concurrent spawns took the same behavior id"
 
 
 async def told_async_behavior_runs_and_reports() -> None:
@@ -258,6 +304,8 @@ def run() -> None:
     print("python test OK: a Host spawned, sent to, and told actors with no session")
     asyncio.run(spawned_entries_leave_at_collection())
     print("python test OK: a collected Host actor released its behavior entry")
+    concurrent_spawns_take_their_own_ids()
+    print("python test OK: Hosts spawning on two threads took their own behavior ids")
     run_managed(driver_owned_session_refuses_break())
     print("python test OK: a driver-owned session refused the far-promise break")
     asyncio.run(told_async_behavior_runs_and_reports())

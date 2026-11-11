@@ -63,8 +63,15 @@ class _BehaviorEntry:
 # cycle rather than a process-global root. Host.close removes the weak rows
 # deterministically after FFI teardown. A registration with an FFI owner also
 # leaves at the library's free callback (_HOSTED_FREE).
+#
+# Every Host on every thread shares the id counter, so taking an id and
+# claiming its rows happen under one lock: a shared id would let one actor's
+# free retire another's live entry. The lock is reentrant because a Host
+# finalizer can run during an allocation inside it, on the same thread, and
+# its release fires _HOSTED_FREE. No FFI call or owner callback runs under it.
 _registry: weakref.WeakValueDictionary[int, _BehaviorEntry] = weakref.WeakValueDictionary()
 _ffi_owners: dict[int, weakref.ref] = {}
+_registry_lock = threading.RLock()
 _next_id = 1
 
 
@@ -73,19 +80,22 @@ def _register_behavior(entry: _BehaviorEntry, ffi_owner: object | None = None) -
     trampoline's ctx pointer. ``ffi_owner`` is told through
     ``_ffi_behavior_released`` when the library frees the registration."""
     global _next_id
-    ctx_id = _next_id
-    _next_id += 1
-    _registry[ctx_id] = entry
-    if ffi_owner is not None:
-        _ffi_owners[ctx_id] = weakref.ref(ffi_owner)
+    owner_ref = weakref.ref(ffi_owner) if ffi_owner is not None else None
+    with _registry_lock:
+        ctx_id = _next_id
+        _next_id += 1
+        _registry[ctx_id] = entry
+        if owner_ref is not None:
+            _ffi_owners[ctx_id] = owner_ref
     return ctx_id
 
 
 def _unregister_behavior(ctx_id: int) -> None:
     """Drop a hosted object's registry entry. Idempotent, so a refused mint and
     the library's free callback may both run it."""
-    _ffi_owners.pop(ctx_id, None)
-    _registry.pop(ctx_id, None)
+    with _registry_lock:
+        _ffi_owners.pop(ctx_id, None)
+        _registry.pop(ctx_id, None)
 
 
 def _release_ffi_behavior(ctx: int | None) -> None:
@@ -93,11 +103,12 @@ def _release_ffi_behavior(ctx: int | None) -> None:
     # at collection, a failed mint, or Host release, and may call no glowcap_host_*
     # function. Dict pops cannot raise, so nothing crosses the C boundary.
     ctx_id = ctx or 0
-    owner_ref = _ffi_owners.pop(ctx_id, None)
+    with _registry_lock:
+        owner_ref = _ffi_owners.pop(ctx_id, None)
+        _registry.pop(ctx_id, None)
     owner = owner_ref() if owner_ref is not None else None
     if owner is not None:
         owner._ffi_behavior_released(ctx_id)
-    _registry.pop(ctx_id, None)
 
 
 # Module-lifetime for the same reason as _TRAMPOLINE: the library may call it

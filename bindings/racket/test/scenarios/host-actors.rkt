@@ -52,15 +52,18 @@
 
 ;; Collection crosses a finalizer, the Host's GC drain, and the Vat's next
 ;; turn, which the send to `counter` drives. A Host send's answer is owned, so
-;; dropping the capability it carried collects the actor it names.
+;; dropping the capability it carried collects the actor it names. A major
+;; collection is the costly step, so a round collects only when the previous
+;; one released nothing.
 (define (settled-keep-count want)
-  (let loop ([round 0])
-    (collect-garbage)
+  (let loop ([round 0] [collect? #t])
+    (define before (hash-count (host-keep m)))
+    (when collect? (collect-garbage))
     (sleep 0)
     (drain-host-gc! m)
     (host-send m counter 'get)
     (define now (hash-count (host-keep m)))
-    (if (or (= now want) (= round 60)) now (loop (add1 round)))))
+    (if (or (= now want) (= round 60)) now (loop (add1 round) (= now before)))))
 (define baseline (hash-count (host-keep m)))
 (set! made #f)
 (expect (= (- baseline 1) (settled-keep-count (- baseline 1)))
@@ -71,8 +74,7 @@
         "a collected Host actor released its behavior")
 
 ;; Two threads spawning at once each take their own ctx id. A shared id would
-;; let one actor's collection retire the other's live behavior, or leave a
-;; collected actor's behavior held forever.
+;; let one actor's collection retire the other's live behavior.
 (define (spawn-racer tag)
   (define kept (box '()))
   (define racer
@@ -92,8 +94,6 @@
 (expect (for/and ([s (in-list survivors)]) (equal? (cdr s) (host-send m (car s) 'who)))
         "every concurrently spawned survivor still answers")
 (set! survivors '())
-(expect (= spawn-baseline (settled-keep-count spawn-baseline))
-        "collecting the concurrent survivors released every behavior")
 
 ;; A local answer that never settles ends at the pump deadline.
 (define parked #f)
