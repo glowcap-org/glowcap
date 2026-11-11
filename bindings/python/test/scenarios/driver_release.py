@@ -148,7 +148,35 @@ async def _released_session_handle_never_reenters_the_loop() -> None:
         await asyncio.wait_for(squatter.close(), timeout=10)
 
 
+async def _raw_release_of_a_wrapped_handle_retires_its_session() -> None:
+    """``session_release`` by raw handle on a handle a Session wraps releases
+    it through that Session, so the wrapper retires with its handle and a
+    second release is refused before any FFI call reads the pointer."""
+    listener = await tcp.keyed.listen("127.0.0.1", 0, seed=bytes([0x74]) * 32)
+    try:
+        async with Runtime.open(providers=[tcp.provider()]) as runtime:
+            dialed = await asyncio.wait_for(
+                runtime.connect(tcp.keyed.locator(listener.designator, "127.0.0.1", listener.port)), timeout=10
+            )
+            accepted = await asyncio.wait_for(listener.__anext__(), timeout=10)
+            key = accepted._key
+            loop = listener._driver_loop
+            loop.session_release(key)
+            assert accepted.released, "a raw release left its Session holding the handle"
+            assert listener.host.get_session(key) is None, "a raw release left its Session registered"
+            try:
+                loop.session_release(key)
+            except GlowcapError as error:
+                assert error.code == ERR_CLOSED, error
+            else:
+                raise AssertionError("a second raw release reached the driver")
+            await dialed.close()
+    finally:
+        await asyncio.wait_for(listener.close(), timeout=10)
+
+
 def run() -> None:
     asyncio.run(_refused_live_release_retries_at_public_boundary())
     asyncio.run(_deferred_consuming_failure_retires_once_and_stays_ordered())
     asyncio.run(_released_session_handle_never_reenters_the_loop())
+    asyncio.run(_raw_release_of_a_wrapped_handle_retires_its_session())

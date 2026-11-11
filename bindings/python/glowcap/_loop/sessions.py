@@ -80,12 +80,23 @@ class _SessionsMixin(DriverLoopMixinBase):
         return self._wrapper
 
     def session_release(self, session: int) -> None:
-        """Release one loop-owned session that no :class:`glowcap.Session`
-        wraps: the loop spelling of ``glowcap_host_session_release``, which
-        must not be called on sessions this loop minted. A wrapped handle is
-        refused, because its Session owns the release."""
-        if self._wrapper is not None and self._wrapper.get_session(session) is not None:
-            raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "a Session owns this handle; close the Session instead")
+        """Release one loop-owned session handle: the loop spelling of
+        ``glowcap_host_session_release``, which must not be called on
+        sessions this loop minted.
+
+        A handle a :class:`glowcap.Session` wraps (as :meth:`serve_session`
+        leaves it) retires through that Session's own release, which keeps
+        its partner abort and retires the wrapper with the handle. A release
+        requested inside a hosted turn commits when the turn returns. A
+        handle already released is refused with ``ERR_CLOSED``."""
+        wrapped = self._wrapper.get_session(session) if self._wrapper is not None else None
+        if wrapped is not None:
+            prior = wrapped._wire_failure
+            wrapped.close_transport()
+            failure = wrapped._wire_failure
+            if failure is not None and failure is not prior and not wrapped.released and not wrapped._release_pending:
+                raise failure
+            return
         if session not in self._unclaimed_sessions:
             raise GlowcapError(_c.ERR_CLOSED, "the session handle was already released")
         self._ffi_session_release(ctypes.c_void_p(session))
