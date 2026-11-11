@@ -1,7 +1,7 @@
 # Build context: a complete Linux product, never the source checkout.
 # Distroless supplies glibc, the GCC runtime, and certificates without a shell
 # or package manager. Existing deployment volumes retain their ownership.
-FROM gcr.io/distroless/cc-debian13@sha256:d74d144baa124dd9defd01d71872bb56c49d4441dba6153ccf790364f97e64b1
+FROM gcr.io/distroless/cc-debian13@sha256:e1f5543d45a2cd7c02a5b43dda5f0ff30729b4832113759d01ed39b0b152cddb
 LABEL org.opencontainers.image.title="glowcap Rooms" \
       org.opencontainers.image.description="The glowcap Rooms chat directory and web app" \
       org.opencontainers.image.vendor="Glowcap LLC" \

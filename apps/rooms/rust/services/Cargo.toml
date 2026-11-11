@@ -38,7 +38,7 @@ nix = { workspace = true, optional = true }
 # dep html5ever: Parses fetched pages for link previews.
 html5ever = { version = "=0.40.1", optional = true }
 # dep encoding_rs: Decodes fetched pages in their declared character set.
-encoding_rs = { version = "=0.8.42", optional = true }
+encoding_rs = { version = "=0.8.44", optional = true }
 
 
 [dev-dependencies]

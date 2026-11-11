@@ -38,7 +38,7 @@ tokio-rustls = { version = "=0.26.6", default-features = false }
 # dep bytes: Byte buffers for WebSocket frames.
 bytes = "=1.12.1"
 # dep wasm-bindgen: Rooms' browser build.
-wasm-bindgen = "=0.2.129"
+wasm-bindgen = "=0.2.130"
 # dep wasm-bindgen-futures: Runs Rust futures on the browser's event loop.
 wasm-bindgen-futures = "0.4"
 # dep js-sys: JavaScript built-ins for the browser build.

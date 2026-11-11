@@ -11,6 +11,13 @@ and storage formats before 1.0.
 
 ### Changed
 
+- Dependencies move to their current releases. Zig 0.17.1 is the minimum
+  toolchain and the development container's pins move with it (Rust 1.99.1,
+  Deno 2.9.8, Node 26.13, Playwright 1.65, ZLS 0.17.0). Rebuild the
+  development container. The Rooms and ocapnviz Deno projects take zod 4.6.7,
+  which fixes a published advisory, and the transports lockfile takes
+  `webpki-root-certs` 1.0.12 (RUSTSEC-2026-0383). The CLI's REPL library
+  libvaxis no longer pulls zigimg, and ocapnviz moves to `pixi-viewport` 7.
 - Zig's `HostRuntime.tcpBackendStatus()` reports the Linux completion backend
   selected for its stream stack and the reason for falling back to epoll.
 - Documentation describes the published alpha, explains release pinning and

@@ -19,10 +19,10 @@
     "@glowcap/webrtc": "./bindings/ts/webrtc/mod.ts",
     "@glowcap/webrtc/driver": "./bindings/ts/webrtc/driver.ts",
     // dep playwright: Drives the browser tests.
-    "playwright": "npm:playwright@1.64.0",
+    "playwright": "npm:playwright@1.65.0",
     // dep zod: Validates cross-application Rooms and ocapnviz trace proofs.
-    "zod": "npm:zod@4.6.5",
-    "zod/mini": "npm:zod@4.6.5/mini"
+    "zod": "npm:zod@4.6.7",
+    "zod/mini": "npm:zod@4.6.7/mini"
   },
   "lock": {
     "path": "./deno.lock",

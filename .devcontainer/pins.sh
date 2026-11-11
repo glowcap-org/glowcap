@@ -11,33 +11,33 @@
 # update-pins tracks them and env-sync checks their Dockerfile consumers.
 # dep Debian: The base image for the development container and the Rooms runtime.
 DEBIAN_BASE_TAG="trixie-slim"
-DEBIAN_BASE_DIGEST="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
+DEBIAN_BASE_DIGEST="sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2"
 
 # --- Production service images ---
 # dep Distroless: The minimal base for the Rooms server image.
-DISTROLESS_BASE_DIGEST="sha256:d74d144baa124dd9defd01d71872bb56c49d4441dba6153ccf790364f97e64b1"
+DISTROLESS_BASE_DIGEST="sha256:e1f5543d45a2cd7c02a5b43dda5f0ff30729b4832113759d01ed39b0b152cddb"
 
 # --- Zig ---
 # dep Zig: Builds the library, the C archives, the CLI and every check.
-ZIG_VERSION="0.17.0"
+ZIG_VERSION="0.17.1"
 # dep ZLS: The Zig language server for editors, built against the pinned Zig.
-ZLS_VERSION="0.17.0-dev"
-ZLS_SOURCE_REVISION="eab2be0fd74443a27662da809b771c4ad0d2afcf"
-ZLS_SOURCE_SHA256="e33ac991c827b3e38150530864d3d4deafc1ca020539a6358fb056b8c4a48606"
+ZLS_VERSION="0.17.0"
+ZLS_SOURCE_REVISION="542462c4ddf045493fa9ca028ee6bc3f38b2754a"
+ZLS_SOURCE_SHA256="3eb3107317ef948783cdc3daae07238f1fe7c6cf28fe8ed1a776ff38df781224"
 
 # --- Rust ---
 # dep Rust and rustup: The Rust binding, the iroh and WebRTC transports, and Rooms.
-RUST_VERSION="1.99.0"
-RUSTUP_INIT_VERSION="1.29.1"
+RUST_VERSION="1.99.1"
+RUSTUP_INIT_VERSION="1.29.3"
 
 # --- JavaScript / TypeScript ---
 # dep Deno: The TypeScript binding, Rooms' web client, ocapnviz and the browser tests.
-DENO_VERSION="2.9.7"
+DENO_VERSION="2.9.8"
 # dep Node and npm: Install the coding agents the container offers.
-NODE_VERSION="26.11.1"
-NPM_VERSION="12.2.0"
+NODE_VERSION="26.13.0"
+NPM_VERSION="12.2.2"
 # dep Bun: Runs the TypeScript binding's tests on a second JavaScript runtime.
-BUN_VERSION="1.4.3"
+BUN_VERSION="1.4.4"
 
 # --- Playwright (the browser proofs' Chromium) ---
 # This is the one place the version is written. The root deno.json resolves the
@@ -45,17 +45,17 @@ BUN_VERSION="1.4.3"
 # `zig build source-check` fails if the two ever disagree. The browser build
 # number (chromium-<rev>) is Playwright's to choose, so nothing here restates it.
 # dep Playwright: Drives Chromium for the browser tests.
-PLAYWRIGHT_VERSION="1.64.0"
+PLAYWRIGHT_VERSION="1.65.0"
 
 # --- Python (uv) / agent tools ---
 # dep uv: Installs Python and the Python projects' packages.
-UV_VERSION="0.13.0"
+UV_VERSION="0.13.7"
 # dep Python: The Python binding and the OCapN test suite.
-PYTHON_VERSION="3.14.7"
+PYTHON_VERSION="3.14.10"
 # dep Serena: Symbol-level navigation of the Zig code for coding agents.
-SERENA_AGENT_VERSION="2.0.0"
+SERENA_AGENT_VERSION="2.1.0"
 # dep ruff: Formats and lints every first-party Python file (`zig build python-check`).
-RUFF_VERSION="0.17.3"
+RUFF_VERSION="0.17.4"
 # dep mypy: Type-checks the Python binding (`zig build bindings-fmt-check`).
 MYPY_VERSION="2.4.1"
 # The four AI harnesses are managed tools, not image content: these versions
@@ -68,14 +68,14 @@ MYPY_VERSION="2.4.1"
 # parts.
 # dep Coding agents: Claude Code, opencode, Codex and Cursor Agent, installed
 #   on first use.
-CLAUDE_CODE_VERSION="2.1.296"
-OPENCODE_VERSION="1.19.0"
-CODEX_VERSION="0.162.1"
-CURSOR_AGENT_VERSION="2026.10.01-e373342"
+CLAUDE_CODE_VERSION="2.1.322"
+OPENCODE_VERSION="1.19.5"
+CODEX_VERSION="0.167.1"
+CURSOR_AGENT_VERSION="2026.11.10-731fb78"
 
 # --- Host side (not in the image; used by up.sh when no CLI is installed) ---
 # dep Dev Container CLI: Starts and rebuilds the container from the host.
-DEVCONTAINER_CLI_VERSION="0.89.0"
+DEVCONTAINER_CLI_VERSION="0.90.0"
 
 # --- Racket / Spritely Goblins ---
 # dep Racket and Spritely Goblins: The reference peer for interop tests.

@@ -20,9 +20,9 @@ path = "src/main.rs"
 
 [dependencies]
 # dep capnp: The Cap'n Proto runtime the generated schema code links.
-capnp = "0.27.2"
+capnp = "0.27.3"
 # dep capnp-rpc: The Cap'n Proto RPC system under measurement.
-capnp-rpc = "0.27.0"
+capnp-rpc = "0.27.5"
 # dep futures: Splits the compat stream into the reader and writer the vat network takes.
 futures = "0.3"
 # dep nix: Safe sched_setaffinity for --pin under forbid(unsafe_code).
