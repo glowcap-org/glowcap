@@ -48,9 +48,15 @@
     (raise-argument-error 'make-driver-provider "procedure?" install!))
   (driver-provider install!))
 
+;; `realize` is `(lambda (host locator handshake-timeout-ms introducer) ...)`
+;; and returns an established session. `introducer` is the live session that
+;; supplied the give this dial redeems, captured before `realize` runs, or #f
+;; for an application dial and for a pending dial whose introducing session
+;; has closed. `realize` borrows it for signaling context and does not own its
+;; lifetime.
 (define (make-byte-connector transports realize)
-  (unless (procedure? realize)
-    (raise-argument-error 'make-byte-connector "procedure?" realize))
+  (unless (and (procedure? realize) (procedure-arity-includes? realize 4))
+    (raise-argument-error 'make-byte-connector "(procedure-arity-includes/c 4)" realize))
   (byte-connector (transport-symbol-list 'make-byte-connector transports)
                   realize))
 

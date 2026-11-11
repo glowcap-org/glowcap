@@ -1,13 +1,15 @@
 import { INTERNAL } from "@glowcap/abi";
 import { checkHost, GlowcapError } from "../errors.ts";
 import { hostS } from "../internal/ffi/host.ts";
-import type { Ptr } from "../internal/ffi/runtime.ts";
+import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { L } from "../internal/layout.ts";
 import { ab, outPointer, outU32, outUsize, readBytes } from "../internal/seam.ts";
+import { type Locator, withOwnedLocator } from "../locator.ts";
 import { type SessionProfile, sessionProfileFromAbi } from "../value.ts";
 import { type PartnerIdentity, provenanceFromAbi } from "./identity.ts";
 
 const utf8Decoder = new TextDecoder();
+const utf8Encoder = new TextEncoder();
 
 /** Project the negotiated wire profile from the FFI session boundary. */
 export function readSessionProfile(ptr: Ptr): SessionProfile {
@@ -65,4 +67,22 @@ export function readPartnerIdentity(ptr: Ptr): PartnerIdentity {
 			dv.getUint32(L.PARTNER_IDENTITY_PROVENANCE_OFF, true),
 		),
 	};
+}
+
+/** Record or clear the exporter locator this session's gifts embed. */
+export function writeExporterLocator(ptr: Ptr, locator: Locator | null): void {
+	if (locator === null) {
+		checkHost(hostS.glowcap_host_session_set_exporter_location(ptr, NULL));
+		return;
+	}
+	withOwnedLocator(
+		locator,
+		(owned) => checkHost(hostS.glowcap_host_session_set_exporter_location(ptr, owned.borrowView())),
+	);
+}
+
+/** Testify the channel key the embedder's own transport proved. */
+export function bindChannelKey(ptr: Ptr, designator: string): void {
+	const bytes = utf8Encoder.encode(designator);
+	checkHost(hostS.glowcap_host_session_bind_verified_channel_key(ptr, ab(bytes), BigInt(bytes.length)));
 }

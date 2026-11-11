@@ -3,8 +3,10 @@
 Every hosted object: a :meth:`Session.spawn` / :meth:`Session.publish`
 actor, a caretaker or attenuator proxy, or a Host publication registers here
 and shares a single process-lifetime ``GlowcapHostBehavior`` whose ctx is the
-entry's registry id packed as a pointer-sized integer (``free`` = NULL: the
-registry owns the Python side, so there is nothing for the library to free).
+entry's registry id packed as a pointer-sized integer. A Host-spawned actor
+also passes the shared ``free`` callback, which returns its entry when the
+actor is collected. Every other registration passes NULL and lasts until its
+Host closes.
 Settlements never cross the C boundary as callbacks. They ride the action
 queue (SETTLE/FAIL, :mod:`glowcap._host`).
 
@@ -33,7 +35,7 @@ from dataclasses import dataclass
 from . import _constants as _abi
 from ._abi_value import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
 from ._errors import GlowcapError, VowBroken, _check_host, _host_last_error
-from ._ffi_host import _host, _HostBehavior, _selector_buf
+from ._ffi_host import _host, _HostBehavior, _HostCtxFree, _selector_buf
 from ._ffi_ocapn import _Argument, _byte_buf, _Reference
 from ._promise import RemotePromise, _FarArguments, _send_far
 from ._value import Forward, Ref, _ref_from_id
@@ -58,25 +60,49 @@ class _BehaviorEntry:
 
 # Process-global callback lookup is weak: the owning Host strongly retains each
 # entry, so a behavior that closes over that Host forms a collectable Host-local
-# cycle rather than a process-global root. The C callback has free = NULL;
-# Host.close removes the weak row deterministically after FFI teardown.
+# cycle rather than a process-global root. Host.close removes the weak rows
+# deterministically after FFI teardown. A registration with an FFI owner also
+# leaves at the library's free callback (_HOSTED_FREE).
 _registry: weakref.WeakValueDictionary[int, _BehaviorEntry] = weakref.WeakValueDictionary()
+_ffi_owners: dict[int, weakref.ref] = {}
 _next_id = 1
 
 
-def _register_behavior(entry: _BehaviorEntry) -> int:
+def _register_behavior(entry: _BehaviorEntry, ffi_owner: object | None = None) -> int:
     """Register a hosted object's behavior, returning the ctx id to pass as the
-    trampoline's ctx pointer."""
+    trampoline's ctx pointer. ``ffi_owner`` is told through
+    ``_ffi_behavior_released`` when the library frees the registration."""
     global _next_id
     ctx_id = _next_id
     _next_id += 1
     _registry[ctx_id] = entry
+    if ffi_owner is not None:
+        _ffi_owners[ctx_id] = weakref.ref(ffi_owner)
     return ctx_id
 
 
 def _unregister_behavior(ctx_id: int) -> None:
-    """Drop a hosted object's registry entry after its Host is released."""
+    """Drop a hosted object's registry entry. Idempotent, so a refused mint and
+    the library's free callback may both run it."""
+    _ffi_owners.pop(ctx_id, None)
     _registry.pop(ctx_id, None)
+
+
+def _release_ffi_behavior(ctx: int | None) -> None:
+    # The library's GlowcapHostCtxFree: it runs once per admitted registration,
+    # at collection, a failed mint, or Host release, and may call no glowcap_host_*
+    # function. Dict pops cannot raise, so nothing crosses the C boundary.
+    ctx_id = ctx or 0
+    owner_ref = _ffi_owners.pop(ctx_id, None)
+    owner = owner_ref() if owner_ref is not None else None
+    if owner is not None:
+        owner._ffi_behavior_released(ctx_id)
+    _registry.pop(ctx_id, None)
+
+
+# Module-lifetime for the same reason as _TRAMPOLINE: the library may call it
+# for as long as any Host holds a Host-spawned actor.
+_HOSTED_FREE = _HostCtxFree(_release_ffi_behavior)
 
 
 def _entry_for(ctx_id: int | None) -> _BehaviorEntry | None:
@@ -228,8 +254,13 @@ def _turn_arriving_session(turn: int) -> tuple[object, object]:
 
 def _current_turn_for(session: object) -> int | None:
     """The current turn pointer when it belongs to ``session``'s Host."""
+    return _current_host_turn(getattr(session, "host", None))
+
+
+def _current_host_turn(host: object) -> int | None:
+    """The current turn pointer when it belongs to ``host``."""
     current_turn = getattr(_turn_state, "current_turn", None)
-    if current_turn is not None and current_turn[1] is getattr(session, "host", None):
+    if current_turn is not None and host is not None and current_turn[1] is host:
         return current_turn[0]
     return None
 
@@ -329,11 +360,12 @@ def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_repl
 _TRAMPOLINE = _HostBehavior(_trampoline_body)
 
 
-def _turn_spawn(turn: int, ctx_id: int) -> int:
+def _turn_spawn(turn: int, ctx_id: int, free=None) -> int:
     """Spawn a hosted object from INSIDE a turn: the turn-time form the host
-    allows where the top-level spawn is refused. Returns its opaque Host id."""
+    allows where the top-level spawn is refused. Returns its opaque Host id.
+    ``free`` is the library's destructor for ``ctx_id``, or None to keep it."""
     out = _Reference()
-    _check_host(_host.glowcap_host_turn_spawn(turn, _TRAMPOLINE, ctypes.c_void_p(ctx_id), None, ctypes.byref(out)))
+    _check_host(_host.glowcap_host_turn_spawn(turn, _TRAMPOLINE, ctypes.c_void_p(ctx_id), free, ctypes.byref(out)))
     return out.id
 
 
@@ -367,7 +399,7 @@ async def _tell_far(session, target: Ref | RemotePromise, verb: str | None, args
     # Far tell mint: encode args, call glowcap_host_session_tell, kick the drain. Local
     # targets stay behind _dispatch_tell / _tell_local.
     vbuf, vptr, verb_len = _selector_buf(verb)
-    with _FarArguments(session, args) as (arr, count):
+    with _FarArguments(session.host, args) as (arr, count):
         if isinstance(target, RemotePromise):
             source_vow = target.far_vow(session.host)
             _check_host(_host.glowcap_host_vow_tell(session.host.raw, source_vow, vptr, verb_len, arr, count))

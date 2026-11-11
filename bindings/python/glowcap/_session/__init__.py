@@ -13,7 +13,7 @@ import ctypes
 
 from .. import _constants as _abi
 from .. import _pump
-from .._errors import GlowcapError, TerminalFailures, _check_host
+from .._errors import GlowcapError, PartnerAbort, TerminalFailures, _check_host
 from .._ffi_host import _host
 from .._ffi_ocapn import _byte_buf, _ManagedFrame
 from .._host import Host
@@ -56,6 +56,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
         self._serve_task: asyncio.Task | None = None
         self._closing = False
         self._released = False
+        self._partner_abort: PartnerAbort | None = None
         self._release_pending = False
         self._close_future: asyncio.Future[None] | None = None
         self._wire_failure: BaseException | None = None

@@ -86,7 +86,7 @@ from ._dial import Runtime
 # Re-export the public surface from the per-responsibility submodules, in
 # dependency order (errors and values first, then the Host and the application
 # surface). A consumer imports every name from :mod:`glowcap`.
-from ._errors import AbortDetail, FetchFailed, GlowcapError, VowBroken, abi_version, last_error
+from ._errors import AbortDetail, FetchFailed, GlowcapError, PartnerAbort, VowBroken, abi_version, last_error
 from ._failure import FailureEvent, FailureLayer, FailureScope, take_runtime_failures
 from ._host import Host
 from ._lifecycle import PendingWork
@@ -140,6 +140,7 @@ __all__ = [
     "SessionProfile",
     "SendRedeemingResult",
     "DurableProvenance",
+    "PartnerAbort",
     "PartnerIdentity",
     "RemotePromise",
     "Host",

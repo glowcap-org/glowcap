@@ -47,6 +47,11 @@
 (struct abort-info (domain kind message error-name abort-delivery-error-name
                            secondary-error-name secondary-error-count) #:transparent)
 
+;; The partner's op:abort: `kind` is its wire kind name (for example
+;; "ProtocolError") and `message` its diagnostic, bounded by the Host.
+;; `session-partner-abort` returns one.
+(struct partner-abort (kind message) #:transparent)
+
 ;; What a session's handshake reports about its partner. `session-key` is the
 ;; partner's fresh session public key, `designator` is the location designator
 ;; claimed under that session signature (a string, empty when its location

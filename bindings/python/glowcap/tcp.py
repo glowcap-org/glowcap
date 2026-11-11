@@ -380,7 +380,7 @@ def provider(config: Config | None = None) -> Provider:
 def connector() -> Connector:
     """Build the explicit asyncio byte connector for clear TCP."""
 
-    async def realize(host, locator, handshake_timeout_ms):
+    async def realize(host, locator, handshake_timeout_ms, _introducer):
         address, port = designator_host_port(locator.designator)
         channel = await _open_byte_channel(address, port)
         try:

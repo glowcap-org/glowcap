@@ -8,13 +8,13 @@ import { HANDSHAKE_TIMEOUT_MS, NOT_FOUND } from "@glowcap/abi";
 import { checkHost, GlowcapError, retainCleanupFailures } from "./errors.ts";
 import { Host } from "./host.ts";
 import { hostS } from "./internal/ffi/host.ts";
-import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
+import { type Ptr } from "./internal/ffi/runtime.ts";
 import { refStruct } from "./abi_value.ts";
 import { ab, outU64 } from "./internal/seam.ts";
 import { type CloseOptions } from "./lifecycle.ts";
-import { type Locator, withOwnedLocator } from "./locator.ts";
+import { type Locator } from "./locator.ts";
 import { openAccepted, openDialed } from "./session/open.ts";
-import { readPartnerIdentity } from "./session/metadata.ts";
+import { bindChannelKey, readPartnerIdentity, writeExporterLocator } from "./session/metadata.ts";
 import { SessionState } from "./session/state.ts";
 import type { AcceptedTransport, Channel, LoopChannel } from "./session/channel.ts";
 export type { AcceptedTransport, Channel, DriverLoopHandle, LoopChannel } from "./session/channel.ts";
@@ -30,7 +30,7 @@ import {
 import { type Argument, type Behavior, Ref, refFromId, type SessionProfile } from "./value.ts";
 import { awaitMinted, fetchLike, listenFar, RemotePromise } from "./promise.ts";
 import { type PartnerIdentity } from "./session/identity.ts";
-import type { AbortDetail } from "./errors.ts";
+import type { AbortDetail, PartnerAbort } from "./errors.ts";
 
 // Encoder for establish/fetch swiss bytes.
 const utf8Encoder = new TextEncoder();
@@ -114,15 +114,11 @@ export class Session {
 		return this.#state.transportName;
 	}
 
-	/** Run the inbound loop: read transport packets, hand them to the Host
-	 * transport seam (behaviors run and vow completions queue inside the feed),
-	 * and drain the action queue. Resolves when the connection closes cleanly;
-	 * rejects on a transport or protocol error. Started once; calling again
-	 * returns the same promise.
-	 *
-	 * A loop-backed session (ADR-0024) has no byte pump of its own: the
-	 * driver loop reads, feeds, and drains. Its serve promise only awaits
-	 * the session's closure, keeping the resolves-on-close contract. */
+	/** Run the inbound loop: read transport packets, feed them to the Host, and
+	 * drain the action queue. Resolves when the connection closes cleanly and
+	 * rejects on a transport or protocol error. A second call returns the same
+	 * promise. A loop-backed session (ADR-0024) has no byte pump of its own, so
+	 * its promise awaits the session's closure. */
 	serve(): Promise<void> {
 		return this.#state.serve();
 	}
@@ -135,11 +131,15 @@ export class Session {
 		return this.#state.onClose(listener);
 	}
 
-	/** The typed cause of this CapTP session's most recent local dispatch failure,
-	 * or null when none has been recorded. The flat per-feed error code names
-	 * the failure family; this names the member. */
+	/** The typed cause of this session's most recent local dispatch failure,
+	 * or null when none has been recorded. */
 	lastAbort(): AbortDetail | null {
 		return this.#state.lastAbort();
+	}
+
+	/** The partner's `op:abort`, or null if none arrived. Readable after close. */
+	partnerAbort(): PartnerAbort | null {
+		return this.#state.partnerAbort();
 	}
 
 	/** Wake this session's writer, how a FLUSH action lands. Returns before
@@ -166,6 +166,11 @@ export class Session {
 		return this.#state.close(options);
 	}
 
+	/** Read the partner abort before a Host or loop release. Binding-internal. */
+	retainPartnerAbort(): void {
+		this.#state.retainPartnerAbort();
+	}
+
 	/** Commit wrapper retirement after the FFI owner released the whole Host
 	 * or loop. No per-session FFI call is valid beyond this boundary. */
 	ffiOwnerDidRelease(): Promise<void> {
@@ -179,12 +184,10 @@ export class Session {
 		return this.#state.ffiTransportDidClose(error);
 	}
 
-	/** Close just this session, without touching the host's other sessions:
-	 * stop the transport first, then retire the host's entry and
-	 * free the host handle (the core settles any still-parked far vows during
-	 * release), so no foreign call touches a freed session.
-	 * A release refused inside a behavior callback is parked for the next
-	 * drain, never dropped. Binding-internal. */
+	/** Close just this session: stop the transport, then retire the host's
+	 * entry and free the handle, where the core settles parked far vows. A
+	 * release refused inside a behavior callback is parked for the next drain.
+	 * Binding-internal. */
 	closeTransport(): Promise<void> {
 		return this.#state.closeTransport();
 	}
@@ -524,18 +527,19 @@ export class Session {
 	 * signed location. */
 	setExporterLocator(locator: Locator | null): void {
 		this.#state.guardOpen();
-		if (locator === null) {
-			checkHost(hostS.glowcap_host_session_set_exporter_location(this.#state.ptr, NULL));
-			return;
-		}
-		withOwnedLocator(
-			locator,
-			(owned) =>
-				checkHost(hostS.glowcap_host_session_set_exporter_location(
-					this.#state.ptr,
-					owned.borrowView(),
-				)),
-		);
+		writeExporterLocator(this.#state.ptr, locator);
+	}
+
+	/** Break every far promise still waiting on this partner with `message`,
+	 * or with the partner's own abort diagnostic when one arrived. The session
+	 * stays open for later sends, and a partner's later answer to a broken
+	 * promise has no observer. {@link close} also ends the connection. Refused
+	 * on a session a driver loop owns. */
+	breakFarPromises(message: string): void {
+		this.#state.guardOpen();
+		const bytes = utf8Encoder.encode(message);
+		checkHost(hostS.glowcap_host_session_break_far_vows(this.#state.ptr, ab(bytes), BigInt(bytes.length)));
+		this.#state.hostOwner.scheduleKick();
 	}
 
 	// ── The partner's session identity and locator claim ───────────────────────
@@ -582,12 +586,7 @@ export class Session {
 	 * twice is the same statement made twice and is fine. */
 	bindVerifiedChannelKey(designator: string): void {
 		this.#state.guardOpen();
-		const bytes = utf8Encoder.encode(designator);
-		checkHost(hostS.glowcap_host_session_bind_verified_channel_key(
-			this.#state.ptr,
-			ab(bytes),
-			BigInt(bytes.length),
-		));
+		bindChannelKey(this.#state.ptr, designator);
 	}
 
 	// ── Distributed GC (ADR-0025), opt-in and off by default ───────────────────

@@ -53,6 +53,7 @@
          ;; there too, beside the deadline machinery dial and accept share;
          ;; re-export it for the public barrel.
          session-last-abort
+         session-partner-abort
          HANDSHAKE-TIMEOUT-MS)
 
 ;; A broken byte stream retires only its Session. This may run from an
@@ -113,6 +114,7 @@
                      (box #f)
                      (box #f)
                      (box #f)
+                     (box #f)
                      (box #f)))
   (set-box! (async-connection-session ac) c)
   (vat-install-far!
@@ -142,6 +144,7 @@
       (with-handlers ([exn? (lambda (e)
                               (set-box! (session-release-pending? c) #f)
                               (raise e))])
+        (retain-partner-abort! c)
         (ffi-session-release! m ptr)
         (set-box! (async-connection-released? ac) #t)
         (set-box! (session-release-pending? c) #f)

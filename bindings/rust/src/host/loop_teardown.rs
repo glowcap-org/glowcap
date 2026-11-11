@@ -46,6 +46,14 @@ impl HostShared {
 		self.release_notify.notify_waiters();
 	}
 
+	/// Have each registered session keep its partner abort before the driver
+	/// release frees every session handle.
+	pub(crate) fn retain_partner_aborts(&self) {
+		for session in self.sessions.borrow().values() {
+			session.retain_partner_abort();
+		}
+	}
+
 	fn retire_loop_wrapper(self: &Rc<Self>) {
 		let sessions: Vec<_> = self.sessions.borrow_mut().drain().map(|(_, session)| session).collect();
 		for session in sessions {

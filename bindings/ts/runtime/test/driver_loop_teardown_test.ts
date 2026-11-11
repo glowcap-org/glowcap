@@ -49,6 +49,7 @@ Deno.test("Host retirement invalidates the consumed handle before notifying sess
 		// A registry-only wrapper isolates the post-FFI notification boundary.
 		// No protocol session is needed to observe the Host's handle validity.
 		host.registerSession(host.raw, {
+			retainPartnerAbort: () => {},
 			ffiOwnerDidRelease: () => {
 				notified = true;
 				ownerWasReleased = host.released;
@@ -86,6 +87,7 @@ Deno.test("Host and loop close report failures raised during wrapper retirement"
 			const host = new Host();
 			const owner = loopOwned ? DriverLoop.takeHost(host) : host;
 			host.registerSession(host.raw, {
+				retainPartnerAbort: () => {},
 				ffiOwnerDidRelease: () => {
 					host.recordBackgroundFailure(failure);
 					return Promise.resolve();
@@ -127,6 +129,7 @@ Deno.test("Host and loop close retain callback and transport consequences", asyn
 		const transport = new Error("transport close sentinel");
 		host.recordBackgroundFailure(primary);
 		host.registerSession(host.raw, {
+			retainPartnerAbort: () => {},
 			ffiOwnerDidRelease: () => {
 				host.recordBackgroundFailure(callback);
 				return Promise.reject(transport);
@@ -156,7 +159,7 @@ Deno.test("Host and loop close join a channel unregistered during progress", asy
 		const host = new Host();
 		const owner = loopOwned ? DriverLoop.takeHost(host) : host;
 		const raw = host.raw;
-		const wrapper = { ffiOwnerDidRelease: () => Promise.resolve() } as Session;
+		const wrapper = { retainPartnerAbort: () => {}, ffiOwnerDidRelease: () => Promise.resolve() } as Session;
 		host.registerSession(raw, wrapper);
 		const failure = new Error("unregistered channel retirement sentinel");
 		const retirement = Promise.reject(failure);

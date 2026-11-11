@@ -437,11 +437,24 @@
 ;; the FFI driver after its broker session exists.
 (define sr-r-loc (tcp-locator "127.0.0.1" (server-port sr-g-server)))
 (define sr-r-host (make-fresh-host))
+;; The recording connector keeps each dial's introducer, in dial order.
+(define sr-introducers (box '()))
+(define sr-tcp (tcp-connector))
+(define sr-recording
+  (make-byte-connector
+   (byte-connector-transports sr-tcp)
+   (lambda (m loc handshake-timeout-ms introducer)
+     (set-box! sr-introducers (append (unbox sr-introducers) (list introducer)))
+     ((byte-connector-realize sr-tcp) m loc handshake-timeout-ms introducer))))
 (define sr-r
-  (open-test-session sr-r-loc #:adopt-host sr-r-host #:connector (tcp-connector)))
+  (open-test-session sr-r-loc #:adopt-host sr-r-host #:connector sr-recording))
 (semaphore-wait sr-g-ready)
+(expect (equal? '(#f) (unbox sr-introducers))
+        "send-redeeming: the application dial has no introducer")
 (define sr-intro (session-fetch sr-r "intro"))
 (define-values (sr-tool-cap sr-via) (session-send-redeeming sr-r sr-intro 'get-tool))
+(expect (and (= 2 (length (unbox sr-introducers))) (eq? sr-r (cadr (unbox sr-introducers))))
+        "send-redeeming: the redeem dial borrowed the exact introducing session")
 (expect (session? sr-via)
         "send-redeeming: the redeemed reply surfaced its exporter session")
 (expect (not (eq? sr-via sr-r))

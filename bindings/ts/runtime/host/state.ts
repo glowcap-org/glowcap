@@ -48,6 +48,7 @@ import {
 	INTEROP_CODEC,
 	OWN_CAPTP_VERSION,
 	OWN_CODEC,
+	type Ref,
 } from "../value.ts";
 import {
 	type HostFinalizerState,
@@ -100,6 +101,8 @@ export abstract class HostState {
 	abstract awaitVow(vow: bigint): Promise<Argument>;
 	abstract abandonVow(vow: bigint): void;
 	abstract discardGcArgument(value: Argument): void;
+	abstract adoptOwnedRef(id: bigint): Ref;
+	abstract trackVowOutcome(vow: bigint): void;
 	protected readonly _context: Context;
 	protected readonly _diagnosticId: bigint;
 	/** The host's retained durable identity seed. Each read returns a copy. */
@@ -461,12 +464,28 @@ export abstract class HostState {
 	 * (ADR-0014). The settle re-enters on the runtime's microtask queue (the
 	 * top-level re-entry the host requires). Owning-thread capabilities use
 	 * the Host's application-value projection in the original caller session.
-	 * A refused value breaks the answer rather than stranding it.
-	 * False when the deferral itself refused; the caller breaks the turn. */
+	 * A refused value breaks the answer rather than stranding it. A tell has
+	 * no answer, so its rejection is recorded as a callerless failure.
+	 * False when the deferral itself refused. The caller then breaks the turn
+	 * with the refusal, and the already-started behavior's rejection is
+	 * recorded as a callerless failure. */
 	deferTurnToPromise(turn: Ptr, pending: PromiseLike<Argument | void>): boolean {
 		const resolverOut = new Uint8Array(8);
-		if (hostS.glowcap_host_turn_defer(turn, ab(resolverOut)) !== OK) return false;
+		if (hostS.glowcap_host_turn_defer_if_answer(turn, ab(resolverOut)) !== OK) {
+			void Promise.resolve(pending).then(
+				undefined,
+				(error) => this.recordCallerlessFailure("behavior.refused-deferral", error),
+			);
+			return false;
+		}
 		const resolver = outU64(resolverOut);
+		if (resolver === 0n) {
+			void Promise.resolve(pending).then(
+				undefined,
+				(error) => this.recordCallerlessFailure("tell.behavior", error),
+			);
+			return true;
+		}
 		void Promise.resolve(pending).then(
 			(value) => this._settleResolver(resolver, value === undefined ? null : value),
 			(err) => this._breakResolver(resolver, err instanceof Error ? err.message : String(err)),

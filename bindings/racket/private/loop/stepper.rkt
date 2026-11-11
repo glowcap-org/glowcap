@@ -162,6 +162,7 @@
            m
            (lambda ()
              (for ([c (in-hash-values (host-sessions m))])
+               (retain-partner-abort! c)
                (run-loop-failure-effect! m (lambda () (loop-owner-failed! c error))))
              (for ([vow-id (in-list (hash-keys (host-vows m)))])
                (run-loop-failure-effect!

@@ -271,6 +271,8 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
             self._closed_event.set()
             return
         self._release_attempted = True
+        if self._wrapper is not None:
+            self._wrapper._retain_partner_aborts()
         release_attempt = self._release_owner.release("driver-loop.background.release", self._retire_ffi_release)
         if release_attempt.error is not None and not release_attempt.consumed:
             release_error = release_attempt.error

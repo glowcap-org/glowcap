@@ -191,6 +191,8 @@ class _LifecycleMixin(DriverLoopMixinBase):
             self._progress_timer = None
         try:
             self._release_attempted = True
+            if self._wrapper is not None:
+                self._wrapper._retain_partner_aborts()
             release_attempt = self._release_owner.release("driver-loop.close.release", self._retire_ffi_release)
             for accepts in self._accepts.values():
                 accepts.put_nowait(_ACCEPTS_CLOSED)

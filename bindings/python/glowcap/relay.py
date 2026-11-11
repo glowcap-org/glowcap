@@ -279,7 +279,7 @@ def connector(config: RelayConfig | str) -> Connector:
     if config.relay_alias_url:
         raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "relay aliases require the relay archive's provider")
 
-    async def realize(host, locator, handshake_timeout_ms):
+    async def realize(host, locator, handshake_timeout_ms, _introducer):
         route = _route_from_locator(locator) or config.relay_url
         if not route:
             raise GlowcapError(

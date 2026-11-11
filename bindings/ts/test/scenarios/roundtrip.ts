@@ -128,6 +128,7 @@ export async function run(managed: Runtime): Promise<void> {
 			unsupported: makeGate(),
 			lateWork: makeGate(),
 			lateFail: makeGate(),
+			toldFail: makeGate(),
 		};
 		const completions: Promise<Argument>[] = [];
 		let deferredRef: Ref | undefined;
@@ -137,7 +138,7 @@ export async function run(managed: Runtime): Promise<void> {
 				if (gate === undefined) throw new Error(`unexpected worker verb ${verb}`);
 				gate.markEntered();
 				await gate.blocked;
-				if (verb === "fail" || verb === "lateFail") throw new Error("worker gave up");
+				if (verb === "fail" || verb === "lateFail" || verb === "toldFail") throw new Error("worker gave up");
 				if (verb === "unsupported") return { unsupported: true } as unknown as Argument;
 				if (verb === "capability") {
 					assert(deferredRef instanceof Ref, "accepted session owns deferred capability");
@@ -197,6 +198,20 @@ export async function run(managed: Runtime): Promise<void> {
 			assert(
 				broke.toLowerCase().includes("unsupported"),
 				`async marshal failure carries the reason, got "${broke}"`,
+			);
+			// A told async behavior has no answer to defer. Its rejection lands in
+			// the worker Host's failure journal rather than escaping unhandled.
+			await session.tell(worker, "toldFail", []);
+			await gates.toldFail.entered;
+			gates.toldFail.resume();
+			await Promise.allSettled([completions[completions.length - 1]]);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			const toldFailures = workerHost.takeFailures();
+			assert(
+				toldFailures.length === 1 &&
+					toldFailures[0].operation === "tell.behavior" &&
+					toldFailures[0].primaryMessage === "worker gave up",
+				"a told async behavior's rejection is a callerless failure",
 			);
 			const late = Promise.allSettled([
 				session.send(worker, "lateWork", []),

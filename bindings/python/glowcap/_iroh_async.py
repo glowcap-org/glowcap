@@ -27,7 +27,7 @@ from ._transport import Connector, _rollback_failed_transport
 def connector(config: IrohConfig) -> Connector:
     """Build the explicit byte connector for iroh."""
 
-    async def realize(host, locator, handshake_timeout_ms):
+    async def realize(host, locator, handshake_timeout_ms, _introducer):
         direct = locator.hints.get(HINT_DIRECT_ADDRESSES, "")
         if not isinstance(direct, str):
             raise GlowcapError(_ERR_INVALID_ARGUMENT, "iroh direct-addresses hint must be text")

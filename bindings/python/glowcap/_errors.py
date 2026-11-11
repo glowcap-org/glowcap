@@ -67,6 +67,15 @@ class AbortDetail:
     secondary_error_count: int
 
 
+@dataclass(frozen=True)
+class PartnerAbort:
+    """The partner's ``op:abort``: its wire kind name (for example
+    ``"ProtocolError"``) and its diagnostic, bounded by the Host."""
+
+    kind: str
+    message: str
+
+
 class GlowcapError(Exception):
     """Base of every exception glowcap raises, carrying a negative
     ``GLOWCAP_ERR_*`` code.

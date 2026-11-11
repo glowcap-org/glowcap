@@ -25,6 +25,7 @@ from . import _constants as _abi
 from ._errors import (
     AbortDetail,
     GlowcapError,
+    PartnerAbort,
     _abort_domain_label,
     _check_host,
     _host_last_error,
@@ -229,6 +230,27 @@ async def _raise_feed_refusal(session, rc: int) -> None:
         session.record_wire_failure(error)
         raise refusal from error
     raise refusal
+
+
+def read_partner_abort(ptr) -> PartnerAbort | None:
+    """Read the partner's retained ``op:abort`` from a live session handle, or
+    ``None`` when none arrived. The first call reads the message length, and
+    the second copies exactly that many bytes."""
+    kind = ctypes.c_void_p()
+    kind_len = ctypes.c_size_t()
+    message_len = ctypes.c_size_t()
+    rc = _host.glowcap_host_session_partner_abort(
+        ptr, ctypes.byref(kind), ctypes.byref(kind_len), None, 0, ctypes.byref(message_len)
+    )
+    if rc == _WOULD_BLOCK:
+        return None
+    _check_host(rc)
+    message = ctypes.create_string_buffer(message_len.value)
+    _check_host(_host.glowcap_host_session_partner_abort(ptr, None, None, message, message_len.value, None))
+    return PartnerAbort(
+        kind=ctypes.string_at(kind.value, kind_len.value).decode(errors="replace") if kind.value else "",
+        message=message.raw[: message_len.value].decode(errors="replace"),
+    )
 
 
 def last_abort(session) -> AbortDetail | None:

@@ -11,7 +11,7 @@
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
-import { ab, outUsize, readBytes, releaseManagedFrame } from "./internal/seam.ts";
+import { ab, outPointer, outUsize, readBytes, releaseManagedFrame } from "./internal/seam.ts";
 import { enterDeliver, exitDeliver, type TurnHostOwner } from "./trampoline.ts";
 import {
 	type AbortDetail,
@@ -19,6 +19,7 @@ import {
 	checkHost,
 	GlowcapError,
 	hostError,
+	type PartnerAbort,
 	retainSecondaryFailure,
 } from "./errors.ts";
 import { L } from "./internal/layout.ts";
@@ -279,6 +280,25 @@ function inputAlreadyClosed(h: PumpHandle): boolean {
 	if (rc !== OK && rc !== TIMEOUT) checkHost(rc);
 	const lifecycle = new DataView(state.buffer).getUint32(0, true);
 	return lifecycleClosed(lifecycle) || lifecycle === LIFECYCLE_TERMINATING;
+}
+
+/** Read the partner's retained `op:abort` from a live session handle, or null
+ * when none arrived. The first call reads the message length, the second
+ * copies exactly that many bytes. */
+export function readPartnerAbort(ptr: Ptr): PartnerAbort | null {
+	const kindPtr = new Uint8Array(L.ptrSize);
+	const kindLen = new Uint8Array(L.ptrSize);
+	const messageLen = new Uint8Array(L.ptrSize);
+	let rc = hostS.glowcap_host_session_partner_abort(ptr, ab(kindPtr), ab(kindLen), null, 0n, ab(messageLen));
+	if (rc === WOULD_BLOCK) return null;
+	checkHost(rc);
+	const message = new Uint8Array(Number(outUsize(messageLen)));
+	rc = hostS.glowcap_host_session_partner_abort(ptr, null, null, ab(message), BigInt(message.length), null);
+	checkHost(rc);
+	return {
+		kind: utf8Decoder.decode(readBytes(outPointer(kindPtr), outUsize(kindLen))),
+		message: utf8Decoder.decode(message),
+	};
 }
 
 /** The typed cause of this CapTP session's most recent local dispatch failure,

@@ -229,7 +229,7 @@
                          #:forward [forward #f])
   (make-byte-connector
    (list TRANSPORT-ONION)
-   (lambda (m loc handshake-timeout-ms)
+   (lambda (m loc handshake-timeout-ms _introducer)
      (define nl #f)
      (define cn #f)
      (define (close!)

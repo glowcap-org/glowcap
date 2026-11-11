@@ -4,6 +4,58 @@ use crate::sys;
 use crate::sys::host as ffi;
 use crate::{Error, Result};
 
+/// The `op:abort` a partner sent before ending a session, as
+/// [`Session::partner_abort`] returns it. A partner's ordinary close sends
+/// kind `NormalShutdown`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartnerAbort {
+	/// The wire name of the abort kind, such as `NormalShutdown`.
+	pub kind: String,
+	/// The partner's diagnostic, bounded by the core.
+	pub message: String,
+}
+
+/// Read the partner abort a live session handle retains, or `None` when none
+/// arrived. The first call reads the message length, and the second copies
+/// exactly that many bytes.
+pub(crate) fn read_partner_abort(ptr: *mut ffi::GlowcapHostSession) -> Result<Option<PartnerAbort>> {
+	let mut kind_ptr: *const u8 = core::ptr::null();
+	let mut kind_len = 0usize;
+	let mut len = 0usize;
+	// SAFETY: the caller passes a live `GlowcapHostSession` handle. A null message buffer with zero capacity asks only
+	// for the kind view and the retained length, which the callee writes to the out-parameters.
+	let rc = unsafe {
+		ffi::glowcap_host_session_partner_abort(ptr, &mut kind_ptr, &mut kind_len, core::ptr::null_mut(), 0, &mut len)
+	};
+	if rc == sys::WOULD_BLOCK {
+		return Ok(None);
+	}
+	check_host(rc)?;
+	let mut message = vec![0u8; len];
+	// SAFETY: the same live handle, and `message` holds exactly `len` writable bytes. The retained abort cannot change
+	// between the two calls because the caller holds the session on this thread.
+	check_host(unsafe {
+		ffi::glowcap_host_session_partner_abort(
+			ptr,
+			core::ptr::null_mut(),
+			core::ptr::null_mut(),
+			message.as_mut_ptr(),
+			len,
+			core::ptr::null_mut(),
+		)
+	})?;
+	let kind = if kind_ptr.is_null() || kind_len == 0 {
+		String::new()
+	} else {
+		// SAFETY: the callee set `kind_ptr`/`kind_len` to a process-static wire name.
+		String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(kind_ptr, kind_len) }).into_owned()
+	};
+	Ok(Some(PartnerAbort {
+		kind,
+		message: String::from_utf8_lossy(&message).into_owned(),
+	}))
+}
+
 /// Who the partner on a session proved itself to be, as
 /// [`Session::partner_identity`] returns it.
 ///
@@ -77,6 +129,15 @@ impl PartnerIdentity {
 }
 
 impl Session {
+	/// The partner's `op:abort` kind and diagnostic, or `None` when the partner
+	/// sent none. It stays readable after the session closes.
+	pub fn partner_abort(&self) -> Result<Option<PartnerAbort>> {
+		if self.shared.released.get() {
+			return Ok(self.shared.partner_abort.borrow().clone());
+		}
+		read_partner_abort(self.shared.ptr.get())
+	}
+
 	/// Compare the actual local connection shared by two handles, including
 	/// callback views. Equal partner identities do not imply equal sessions.
 	pub fn same_session(&self, other: &Self) -> bool {

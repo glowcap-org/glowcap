@@ -11,7 +11,7 @@ import threading
 from contextvars import ContextVar
 
 import glowcap
-from glowcap import Forward, GlowcapError, Host, Ref, Runtime, SendRedeemingResult, VowBroken, tcp
+from glowcap import Connector, Forward, GlowcapError, Host, Ref, Runtime, SendRedeemingResult, VowBroken, tcp
 from glowcap.onion import AUTH_COOKIE, AUTH_PASSWORD, SERVICE_ID_LENGTH, OnionConfig, OnionNetlayer
 from glowcap.onion import listen as onion_listen
 from glowcap.onion import provider as onion_provider
@@ -109,12 +109,24 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         carol_host = Host()
         from glowcap.tcp import connector as tcp_connector
 
-        runtime = await Runtime.open(adopt_host=carol_host, connectors=[tcp_connector()], handshake_timeout_ms=10_000)
+        # The recording connector keeps each dial's introducer, in dial order.
+        tcp_dial = tcp_connector()
+        introducers: list[object] = []
+
+        async def recording(host, locator, handshake_timeout_ms, introducer):
+            introducers.append(introducer)
+            return await tcp_dial.realize(host, locator, handshake_timeout_ms, introducer)
+
+        runtime = await Runtime.open(
+            adopt_host=carol_host, connectors=[Connector(tcp_dial.transports, recording)], handshake_timeout_ms=10_000
+        )
         carol = await runtime.connect(carol_locator)
+        assert introducers == [None], f"the application dial has no introducer, got {introducers!r}"
         carol.serve()
         introducer = await carol.fetch("introducer")
 
         settled = await carol.send_redeeming(introducer, "introduce", [])
+        assert len(introducers) == 2 and introducers[1] is carol, "the redeem dial lost its introducing Session"
         assert isinstance(settled, SendRedeemingResult), settled
         reply, via = settled
         assert isinstance(reply, Ref), f"introduce returned a capability, got {reply!r}"

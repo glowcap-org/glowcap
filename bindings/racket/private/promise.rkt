@@ -43,17 +43,21 @@
          release-vow!
          release-vow-from-host!
          blocking-fetch
+         call-with-far-args
+         settled-vow-value
          session-far-send)
 
-;; A far vow is the binding's handle on one host vow: the home
-;; session, the settled state, and the Racket listeners waiting on it. The
-;; vow is registered weakly in the host's vow table the instant it is minted,
-;; under the same host lock as the minting FFI call. A listener promotes that
-;; row to strong ownership; otherwise dropping the public handle can release a
-;; still-pending FFI answer. The action drain's SETTLE/FAIL arms record the
-;; outcome here, and no settle callback crosses the C boundary.
-(struct session-vow (session id [state #:mutable] [listeners #:mutable] track-gc? pipeline-target?
-                             [release-armed #:mutable]) #:transparent)
+;; A far vow is the binding's handle on one host vow: the Host whose vow table
+;; holds it, the home session (#f for a Host send's vow), the settled state,
+;; and the Racket listeners waiting on it. The vow is registered weakly in the
+;; host's vow table the instant it is minted, under the same host lock as the
+;; minting FFI call. A listener promotes that row to strong ownership;
+;; otherwise dropping the public handle can release a still-pending FFI answer.
+;; The action drain's SETTLE/FAIL arms record the outcome here, and no settle
+;; callback crosses the C boundary.
+(struct session-vow (host session id [state #:mutable] [listeners #:mutable]
+                           track-gc? pipeline-target? [release-armed #:mutable])
+  #:transparent)
 
 ;; Register a freshly minted vow so the drain can route its completion.
 ;; Caller holds the host lock, so no drain can pop the completion first.
@@ -77,7 +81,7 @@
 
 (define (adopt-minted-vow! m c id track-gc? pipeline-target?)
   (define armed (box #t))
-  (define v (session-vow c id 'pending '() track-gc? pipeline-target? armed))
+  (define v (session-vow m c id 'pending '() track-gc? pipeline-target? armed))
   (with-minted-vow-guard
    (lambda ()
      (register-vow! m v)
@@ -95,7 +99,7 @@
 ;; The handle owns no FFI vow, so it carries no id, joins no host table,
 ;; releases nothing, and is settled the moment it exists.
 (define (failed-vow c error)
-  (session-vow c #f (cons 'failed error) '() #f #f #f))
+  (session-vow (session-host c) c #f (cons 'failed error) '() #f #f #f))
 
 ;; Whether this handle stands for an operation that never left: the tell is the
 ;; missing FFI vow id, which every issued operation has.
@@ -110,9 +114,7 @@
     (thunk)))
 
 (define (release-vow! v)
-  (define c (session-vow-session v))
-  (when c
-    (release-vow-from-host! (session-host c) v)))
+  (release-vow-from-host! (session-vow-host v) v))
 
 (define (release-vow-from-host! m v)
   (define armed (session-vow-release-armed v))
@@ -147,15 +149,15 @@
   (cond
     [v
      (hash-remove! (host-vows m) id)
+     ;; An 'owned answer belongs to the Host whether or not a session homes
+     ;; the vow, so a Host send's capabilities are collected like a retain.
+     (define track (and (eq? (car outcome) 'ok) (session-vow-track-gc? v)))
      (define tracked
-       (if (and (eq? (car outcome) 'ok)
-                (session-vow-track-gc? v)
-                (session-vow-session v))
-           (cons 'ok
-                 (if (eq? (session-vow-track-gc? v) 'owned)
-                     (track-host-argument! m (cdr outcome))
-                     (track-argument! (session-vow-session v) (cdr outcome))))
-           outcome))
+       (cond
+         [(eq? track 'owned) (cons 'ok (track-host-argument! m (cdr outcome)))]
+         [(and track (session-vow-session v))
+          (cons 'ok (track-argument! (session-vow-session v) (cdr outcome)))]
+         [else outcome]))
      (set-session-vow-state! v tracked)
      (define ls (session-vow-listeners v))
      (set-session-vow-listeners! v '())
@@ -167,10 +169,11 @@
 
 ;; Register `(listener value broken?)` on a far vow: fire now from the recorded
 ;; state when it already settled, else park it for the drain's settle arm. The
-;; vat's `on` reaches far vows through this (via the installed far half).
+;; vat's `on` reaches far vows through this (via the installed far half). The
+;; vow's own Host settles it, so a Host send's vow listens the same way.
 (define (session-vow-listen! a-vow listener)
   (unless (session-vow? a-vow) (error 'on "not a vow: ~a" a-vow))
-  (define m (session-host (session-vow-session a-vow)))
+  (define m (session-vow-host a-vow))
   (define settled
     (call-with-host m
       (lambda ()

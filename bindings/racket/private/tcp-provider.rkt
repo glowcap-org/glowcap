@@ -43,7 +43,7 @@
 (define (tcp-connector)
   (make-byte-connector
    (list TRANSPORT-TCP TRANSPORT-KEYED-TCP)
-   (lambda (m loc handshake-timeout-ms)
+   (lambda (m loc handshake-timeout-ms _introducer)
      (define address
        (if (string=? (locator-transport loc) TRANSPORT-TCP)
            (locator-designator loc)

@@ -72,8 +72,8 @@ mod session;
 mod session_shared;
 #[cfg(feature = "async")]
 pub use session::{
-	AcceptedTransport, ChannelDesignator, DurableProvenance, HANDSHAKE_TIMEOUT, PartnerIdentity, SendRedeemingResult,
-	Session,
+	AcceptedTransport, ChannelDesignator, DurableProvenance, HANDSHAKE_TIMEOUT, PartnerAbort, PartnerIdentity,
+	SendRedeemingResult, Session,
 };
 #[cfg(feature = "async")]
 pub use session_shared::Caretaker;

@@ -425,6 +425,11 @@ unsafe extern "C" {
 		name_len: usize,
 		out_ref: *mut GlowcapReference,
 	) -> c_int;
+	pub fn glowcap_host_session_break_far_vows(
+		session: *mut GlowcapHostSession,
+		message: *const c_uchar,
+		message_len: usize,
+	) -> c_int;
 	pub fn glowcap_host_session_transport_closed(
 		session: *mut GlowcapHostSession,
 		message: *const c_uchar,
@@ -435,6 +440,14 @@ unsafe extern "C" {
 		locator: *const GlowcapLocatorView,
 	) -> c_int;
 	pub fn glowcap_host_session_last_abort(session: *mut GlowcapHostSession, out: *mut GlowcapLastAbort) -> c_int;
+	pub fn glowcap_host_session_partner_abort(
+		session: *mut GlowcapHostSession,
+		out_kind_name: *mut *const c_uchar,
+		out_kind_name_len: *mut usize,
+		out_msg: *mut c_uchar,
+		cap: usize,
+		out_len: *mut usize,
+	) -> c_int;
 	pub fn glowcap_host_session_partner_identity(
 		session: *mut GlowcapHostSession,
 		out: *mut GlowcapPartnerIdentity,

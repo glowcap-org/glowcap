@@ -515,7 +515,7 @@ async def _runtime_frame_cap_refuses_over_cap() -> None:
     from glowcap import _pump
     from glowcap._transport import Connector
 
-    def never(_host, _locator, _timeout):
+    def never(_host, _locator, _timeout, _introducer):
         return None
 
     runtime = await Runtime.open(connectors=[Connector((TRANSPORT_TCP,), never)], frame_cap=1024)

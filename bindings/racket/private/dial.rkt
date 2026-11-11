@@ -61,7 +61,7 @@
     (raise-argument-error 'open-runtime "driver-provider?" provider))
   ((driver-provider-install! provider) lp m))
 
-(define (dial-byte-fed connector m loc handshake-timeout-ms)
+(define (dial-byte-fed connector m loc handshake-timeout-ms introducer)
   (unless (byte-connector? connector)
     (raise-argument-error 'connect "byte-connector?" connector))
   (define transport (locator-transport loc))
@@ -69,7 +69,7 @@
     (raise-glowcap 'connect ERR-INVALID-ARGUMENT
                    "the supplied connector does not advertise transport \"~a\""
                    transport))
-  ((byte-connector-realize connector) m loc handshake-timeout-ms))
+  ((byte-connector-realize connector) m loc handshake-timeout-ms introducer))
 
 ;; An adopted Host already has its identity and profile, so every option that
 ;; would configure a Host this Runtime mints is refused beside it, matching or
@@ -198,7 +198,7 @@
                       "UnknownTransport: Runtime has no connector for transport \"~a\""
                       transport))
      (dial-byte-fed connector (runtime-host rt) loc
-                    (runtime-handshake-timeout-ms rt))]))
+                    (runtime-handshake-timeout-ms rt) #f)]))
 
 (define (runtime-close! rt
                         #:pending [pending 'cancel]
@@ -208,16 +208,15 @@
   ;; a later cancel must be able to escalate an in-progress finish.
   (host-close! (runtime-host rt) #:pending pending #:grace-ms grace-ms))
 
-(define (dial-exporter m loc
-                       #:handshake-timeout-ms
-                       [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
+;; `introducer` is the live session that supplied the redeemed give, or #f.
+(define (dial-exporter m loc introducer)
   (define transport (locator-transport loc))
   (define lp (host-loop-of m))
   (cond
     [lp
      (loop-connect-session lp loc)]
     [(host-connector-for m transport)
-     (dial-byte-fed (host-connector-for m transport) m loc handshake-timeout-ms)]
+     (dial-byte-fed (host-connector-for m transport) m loc HANDSHAKE-TIMEOUT-MS introducer)]
     [else
      (raise-glowcap 'connect ERR-INVALID-ARGUMENT
                     "Host has no explicit connector for transport \"~a\""
@@ -261,7 +260,12 @@
          (glowcap_host_pending_dial (host-ptr m) ticket route-index))
        (check/host rc)
        (define loc (call-with-owned-locator-handle locator-handle owned-locator->locator))
-       (set! c (dial-exporter m loc))
+       ;; Capture the introducer before the connector runs, as the C contract
+       ;; asks. A closed introducer reads as #f.
+       (define-values (src-rc source)
+         (glowcap_host_pending_dial_introducer (host-ptr m) ticket route-index))
+       (check/host src-rc)
+       (set! c (dial-exporter m loc (and source (host-session-for-ptr m source))))
        (with-host-drain m
          (lambda ()
            ;; The report and local commit bit are one unbreakable transition:

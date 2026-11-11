@@ -127,6 +127,9 @@ pub(crate) struct SessionShared {
 	// distinct from close_result: transport truth and close-driver status are
 	// different failure channels.
 	pub(crate) wire_failure: RefCell<Option<crate::Error>>,
+	// The partner's op:abort, read before a release frees the handle that
+	// holds it.
+	pub(crate) partner_abort: RefCell<Option<crate::PartnerAbort>>,
 	// The one detached driver behind explicit close. The runtime owns a spawned
 	// task after its JoinHandle is dropped, but retaining the handle here makes
 	// the shared operation and its one-driver invariant explicit.
@@ -188,6 +191,7 @@ impl SessionShared {
 			release_pending: Cell::new(false),
 			close_result: Cell::new(None),
 			wire_failure: RefCell::new(None),
+			partner_abort: RefCell::new(None),
 			close_task: RefCell::new(None),
 			owner_handles: Cell::new(0),
 			host_retained: Cell::new(false),
@@ -229,6 +233,7 @@ impl SessionShared {
 			release_pending: Cell::new(false),
 			close_result: Cell::new(None),
 			wire_failure: RefCell::new(None),
+			partner_abort: RefCell::new(None),
 			close_task: RefCell::new(None),
 			owner_handles: Cell::new(0),
 			host_retained: Cell::new(false),
@@ -366,10 +371,24 @@ impl SessionShared {
 		}
 		let ptr = self.ptr.get();
 		if !ptr.is_null() {
+			self.retain_partner_abort();
 			self.host.release_ffi_session(ptr)?;
 		}
 		self.commit_ffi_release();
 		Ok(())
+	}
+
+	/// Keep the partner abort before an owner release frees this handle. A
+	/// failed read is recorded on the session and never blocks the release.
+	pub(crate) fn retain_partner_abort(&self) {
+		let ptr = self.ptr.get();
+		if self.released.get() || ptr.is_null() {
+			return;
+		}
+		match crate::session::read_partner_abort(ptr) {
+			Ok(abort) => *self.partner_abort.borrow_mut() = abort,
+			Err(error) => self.record_wire_consequence(error),
+		}
 	}
 
 	/// Commit wrapper retirement after its FFI owner has released either this

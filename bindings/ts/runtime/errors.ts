@@ -23,6 +23,13 @@ export function hostLastError(): string | null {
 	return readErrorSlot(hostS.glowcap_host_last_error);
 }
 
+/** The partner's `op:abort`: its wire kind name (for example
+ * `"ProtocolError"`) and its diagnostic, bounded by the Host. */
+export interface PartnerAbort {
+	kind: string;
+	message: string;
+}
+
 /** The typed cause of a peer's most recent local dispatch failure, the
  * counterpart of the C ABI's `GlowcapLastAbort`. `domain` names the layer that
  * refused, `kind` the projected `op:abort` kind when one exists, `message` the

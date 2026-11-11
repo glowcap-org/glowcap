@@ -51,7 +51,7 @@
     (raise-argument-error 'iroh-connector "iroh-config?" config))
   (make-byte-connector
    (list TRANSPORT-IROH)
-   (lambda (m loc handshake-timeout-ms)
+   (lambda (m loc handshake-timeout-ms _introducer)
      (define-values (transport proof)
        (dial-byte-transport
         (locator-designator loc)
