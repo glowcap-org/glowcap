@@ -36,6 +36,14 @@ class _LifecycleMixin(DriverLoopMixinBase):
         for error in wrapper.terminal_failures:
             self._record_terminal_failure(error)
 
+    def _release_ffi(self, operation: str):
+        """The loop's one consuming release. It frees every session handle
+        the wrappers still hold, so each one keeps its partner abort first."""
+        self._release_attempted = True
+        if self._wrapper is not None:
+            self._wrapper._retain_partner_aborts()
+        return self._release_owner.release(operation, self._retire_ffi_release)
+
     def _retire_ffi_release(self, release_error: BaseException | None) -> None:
         """Commit wrapper ownership after a consuming driver release."""
         self._released = True
@@ -190,10 +198,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
             self._progress_timer.cancel()
             self._progress_timer = None
         try:
-            self._release_attempted = True
-            if self._wrapper is not None:
-                self._wrapper._retain_partner_aborts()
-            release_attempt = self._release_owner.release("driver-loop.close.release", self._retire_ffi_release)
+            release_attempt = self._release_ffi("driver-loop.close.release")
             for accepts in self._accepts.values():
                 accepts.put_nowait(_ACCEPTS_CLOSED)
             for owner in self._listeners.values():

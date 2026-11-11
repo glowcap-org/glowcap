@@ -17,9 +17,8 @@ class _LoopTransport:
     ``wait_closed`` share, and the back-reference `Session`'s branched arms
     dispatch on. Constructed on the asyncio thread that drives the loop."""
 
-    def __init__(self, driver_loop: DriverLoop, ptr: int) -> None:
+    def __init__(self, driver_loop: DriverLoop) -> None:
         self._driver_loop = driver_loop
-        self._ptr = ptr
         self._closed = asyncio.Event()
         self._failure: GlowcapError | None = None
 

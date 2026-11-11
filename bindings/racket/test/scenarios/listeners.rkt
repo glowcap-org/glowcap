@@ -465,3 +465,41 @@
           (format "iroh dial: the connect timeout took ~ams" (round elapsed)))
   (udp-close silent))
 (printf "racket test OK: an iroh dial that never connects times out inside its deadline\n")
+
+;; A listener accepts a session whose dialer refused the handshake, and its
+;; handle is released before the application serves it. Serving it then
+;; reports the closed session and never hands the released handle back to the
+;; driver, which once answered SessionNotOwned from freed memory.
+(let ()
+  (define honest (listen-keyed-tcp "127.0.0.1" 0 #:seed (make-bytes 32 #x72)))
+  (define designator (locator-designator (server-locator honest)))
+  (server-close! honest)
+  (define squatter (listen-keyed-tcp "127.0.0.1" 0 #:seed (make-bytes 32 #x73)))
+  (define accepted (make-channel))
+  (define acceptor (thread (lambda () (channel-put accepted (accept squatter)))))
+  (define refusal
+    (with-handlers ([exn:fail:glowcap? values])
+      (open-test-session (keyed-tcp-locator designator "127.0.0.1" (server-port squatter)))
+      'connected))
+  (expect (exn:fail:glowcap? refusal) "released handle: a dial to the wrong key was accepted")
+  (define c (sync/timeout 10 accepted))
+  (expect c "released handle: the squatter never accepted the refused dial")
+  ;; The loop releases the handle itself when the close arrives after the
+  ;; accept, and the close here releases it when the close came first.
+  (with-handlers ([exn:fail:glowcap? void]) ; tolerant: the refused session closes failed
+    (parameterize ([current-pump-deadline (+ (current-inexact-milliseconds) 10000)])
+      (session-close! c)))
+  (expect (session-released? c) "released handle: closing the refused session kept its handle")
+  (define served
+    (with-handlers ([exn:fail:glowcap? values])
+      (parameterize ([current-pump-deadline (+ (current-inexact-milliseconds) 10000)])
+        (session-serve c))
+      'served))
+  (expect (not (and (exn:fail:glowcap? served)
+                    (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code served))))
+          (format "released handle: serve handed the released handle to the driver: ~a"
+                  (and (exn? served) (exn-message served))))
+  (expect (not (session-partner-abort c)) "released handle: the dialer refused before sending an abort")
+  (thread-wait acceptor)
+  (server-close! squatter))
+(printf "racket test OK: serving an already released session never reads its handle\n")

@@ -74,6 +74,9 @@ and storage formats before 1.0.
   Host reports its failure as `tell.behavior` from `takeFailures` (Python
   `take_failures`). It used to be refused before it ran, and Python left its
   coroutine unawaited.
+- Serving a Python or Racket session whose partner had already disconnected
+  reports how it closed. It used to hand the freed session back to the
+  driver, which refused it with `SessionNotOwned`.
 - Deferred Python and Racket behavior replies can carry capabilities. Rust
   `Host::send` and `Host::tell` use the active turn inside behavior callbacks.
 - A direct message in **Browser to browser** mode opens through the Rooms

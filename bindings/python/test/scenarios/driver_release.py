@@ -1,4 +1,5 @@
-"""Live driver release ownership and recurring safe-boundary retries."""
+"""Live driver release ownership, recurring safe-boundary retries, and
+released session handles."""
 
 from __future__ import annotations
 
@@ -8,8 +9,8 @@ import ctypes
 import glowcap
 import glowcap._driver.finalizer as _driver_finalizer
 import glowcap._loop as _loop_module
-from glowcap import GlowcapError, Host
-from glowcap._constants import ERR_INTERNAL, ERR_INVALID_ARGUMENT, ERR_IO
+from glowcap import GlowcapError, Host, Runtime, tcp
+from glowcap._constants import ERR_CLOSED, ERR_INTERNAL, ERR_INVALID_ARGUMENT, ERR_IO
 from glowcap._ffi_driver import _DriverFailure
 from glowcap._loop import DriverLoop
 
@@ -102,6 +103,52 @@ async def _deferred_consuming_failure_retires_once_and_stays_ordered() -> None:
         _loop_module._driver.glowcap_driver_release = original_release
 
 
+async def _released_session_handle_never_reenters_the_loop() -> None:
+    """A listener accepts a session whose dialer refused the handshake, so the
+    session is already closed when the application takes it. Taking it
+    releases its handle. Serving it afterwards, and closing the loop, must
+    not touch that handle again: the loop once wrapped the freed pointer in a
+    second Session that stayed registered, and the loop's close then read the
+    partner abort through it."""
+    honest = await tcp.keyed.listen("127.0.0.1", 0, seed=bytes([0x72]) * 32)
+    designator = honest.designator
+    await honest.close()
+    squatter = await tcp.keyed.listen("127.0.0.1", 0, seed=bytes([0x73]) * 32)
+    try:
+        async with Runtime.open(providers=[tcp.provider()]) as runtime:
+            try:
+                await asyncio.wait_for(
+                    runtime.connect(tcp.keyed.locator(designator, "127.0.0.1", squatter.port)), timeout=10
+                )
+            except GlowcapError:
+                pass
+            else:
+                raise AssertionError("a dial to the wrong key was accepted")
+        accepted = await asyncio.wait_for(squatter.__anext__(), timeout=10)
+        try:
+            await asyncio.wait_for(accepted.closed(), timeout=10)
+        except GlowcapError:
+            pass  # tolerant: the refused dialer drops its socket, failing the session
+        assert accepted.released, "a closed accepted session kept its handle"
+        key = accepted._key
+        loop = squatter._driver_loop
+        try:
+            await asyncio.wait_for(accepted.serve(), timeout=10)
+        except GlowcapError as error:
+            assert error.code != ERR_INVALID_ARGUMENT, error
+        assert squatter.host.get_session(key) is None, "serve wrapped a released handle in a second Session"
+        try:
+            loop.adopt_session(key)
+        except GlowcapError as error:
+            assert error.code == ERR_CLOSED, error
+        else:
+            raise AssertionError("the loop adopted a released session handle")
+        assert accepted.partner_abort() is None, "the dialer refused before sending an abort"
+    finally:
+        await asyncio.wait_for(squatter.close(), timeout=10)
+
+
 def run() -> None:
     asyncio.run(_refused_live_release_retries_at_public_boundary())
     asyncio.run(_deferred_consuming_failure_retires_once_and_stays_ordered())
+    asyncio.run(_released_session_handle_never_reenters_the_loop())

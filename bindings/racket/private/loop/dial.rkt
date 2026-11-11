@@ -95,13 +95,20 @@
       ;; Post-open setup happens between accept (or dial) and serve; the hook
       ;; is how serve tells the loop to start delivering this session's
       ;; inbound (early bytes replay in order). Idempotent on the FFI side.
+      ;; The handle is read under the host lock, where every release commits,
+      ;; so a session the loop already closed and released is never served.
       (set-box! (async-connection-serve-hook (session-async c))
                 (lambda ()
-                  ;; Serving releases frames parked behind the handshake and
-                  ;; may invoke a hosted behavior before returning.
-                  (parameterize ([current-deliver-owner m])
-                    (check/driver (glowcap_driver_session_serve
-                                   (driver-loop-handle lp) ptr)))))
+                  (call-with-host*
+                   m
+                   void
+                   (lambda ()
+                     (unless (session-released? c)
+                       ;; Serving releases frames parked behind the handshake
+                       ;; and may invoke a hosted behavior before returning.
+                       (parameterize ([current-deliver-owner m])
+                         (check/driver (glowcap_driver_session_serve
+                                        (driver-loop-handle lp) ptr))))))))
       (define terminal (hash-ref (driver-loop-closed-ptrs lp) (session-key ptr) #f))
       (when terminal
         (hash-remove! (driver-loop-closed-ptrs lp) (session-key ptr))
