@@ -34,7 +34,8 @@ Deno.test("reference adoption parks its retain when finalizer registration fails
 			observed = error;
 		}
 		assert(observed === failure, "adoption replaced its original failure");
-		assertEquals(gc.pending, [19n]);
+		assertEquals(gc.pending.length, 1);
+		assertEquals(gc.pending[0], 19n);
 		if (refusesSchedule) assert(secondaryFailures(failure).includes(cleanup), "cleanup failure was lost");
 	}
 });

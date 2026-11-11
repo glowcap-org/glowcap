@@ -66,6 +66,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_set_ingress_limits: { parameters: [P, "u32", "u32", "u32"], result: I },
 	glowcap_host_session_open_dialed_locator: { parameters: [P, P, B], result: I, outBuffers: [2] },
 	glowcap_host_session_open_accepted: { parameters: [P, B, U, "u32", B, U, B, U, B], result: I, outBuffers: [8] },
+	// Pending dials, reference exporters, and session lifecycle queries.
 	glowcap_host_pending_dial: { parameters: [P, U64, U, B, U, B, B], result: I, outBuffers: [3, 5, 6] },
 	glowcap_host_pending_dial_introducer: { parameters: [P, U64, U, B], result: I, outBuffers: [3] },
 	glowcap_host_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
@@ -111,6 +112,8 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_set_trace: { parameters: [P, P, P], result: I },
 	glowcap_host_set_trace_queue: { parameters: [P, U, U], result: I },
 	glowcap_host_next_trace: { parameters: [P, B], result: I, outBuffers: [1] },
+	// Off-turn settlement: a behavior atomically defers its answer onto a fresh
+	// resolver vow and the work's completion settles it later, top-level.
 	glowcap_host_resolver_fulfill_value: { parameters: [P, U64, B], result: I, outBuffers: [] },
 	glowcap_host_resolver_abandon: { parameters: [P, U64, B, U], result: I, outBuffers: [] },
 	glowcap_host_session_listen: { parameters: [P, B, B], result: I, outBuffers: [2] },

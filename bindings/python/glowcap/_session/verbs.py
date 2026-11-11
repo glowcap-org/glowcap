@@ -174,7 +174,7 @@ class _VerbsMixin:
         reference = _Reference()
         vow = ctypes.c_uint64()
         _check_host(
-            _host.glowcap_host_session_resolve(self.raw, ctypes.byref(ref), ctypes.byref(reference), ctypes.byref(vow))
+            _host.glowcap_host_session_resolve(self._ptr, ctypes.byref(ref), ctypes.byref(reference), ctypes.byref(vow))
         )
         if vow.value:
             return await _await_minted(self, vow.value, track_gc=True)

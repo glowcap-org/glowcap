@@ -3,19 +3,20 @@
 //!
 //! The split of truth: parameter and return *types* reflect from the real Zig
 //! exports (`@typeInfo`, so a signature change regenerates a different file),
-//! the inventory supplies order and the `blocking` marks
-//! (`#:blocking?`, so a parked FFI call does not freeze the place's green
-//! threads), and the out-cell wrapper tier derives from `out_params` plus the
-//! slot shape of each parameter: a one-pointer to a scalar or a pointer is a
-//! fresh caller-owned cell the wrapper allocates, while a caller-provided
-//! buffer stays an argument. A wrapper's remaining argument names come from
-//! the generated C header. Each eager archive's output is a sibling module
-//! the hand-authored `ffi-*.rkt` file re-provides. The iroh output exports
-//! one table-building function the lazy hand loader calls with the opened
-//! library and the config cstruct type, so the generated module stays below
-//! the hand module that declares it. `zig build gen-binding-racket-ffi-check`
-//! (part of `check`) holds the committed files against a fresh generation.
-
+//! and the inventory supplies order and the `blocking` marks (`#:blocking?`,
+//! so a parked FFI call does not freeze the place's green threads). The
+//! out-cell wrapper tier derives from `out_params` plus the slot shape of each
+//! parameter: a one-pointer to a scalar or a pointer is a fresh caller-owned
+//! cell the wrapper allocates, while a caller-provided buffer stays an
+//! argument. A wrapper's remaining argument names come from the generated C
+//! header.
+//!
+//! Each eager archive's output is a sibling module the hand-authored
+//! `ffi-*.rkt` file re-provides. The iroh output exports one table-building
+//! function the lazy hand loader calls with the opened library and the config
+//! cstruct type, so the generated module stays below the hand module that
+//! declares it. `zig build gen-binding-racket-ffi-check` (part of `check`)
+//! holds the committed files against a fresh generation.
 const std = @import("std");
 const omissions = @import("omissions.zig");
 
@@ -38,6 +39,11 @@ const policy = omissions.Policy(
     .{ c, cd, cdr, ci, ct, cin, con, cw, cr },
 );
 
+/// An eager archive table less the rows this binding's policy omits.
+fn renderEager(gpa: std.mem.Allocator, comptime cfg: render.EagerConfig) ![]u8 {
+    return render.renderEager(gpa, policy, cfg);
+}
+
 pub const step_name = "gen-binding-racket-ffi";
 
 const Output = @import("output").Output;
@@ -59,9 +65,8 @@ const baseName = @import("reflect").baseName;
 
 const render = @import("racket_ffi_render.zig");
 fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
-    return render.renderEager(gpa, .{
+    return renderEager(gpa, .{
         .M = c,
-        .policy = policy,
         .archive = "glowcap_ocapn",
         .lib_var = "ocapn-lib",
         .definer = "define-glowcap",
@@ -79,9 +84,8 @@ fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateHost(gpa: std.mem.Allocator) ![]u8 {
-    return render.renderEager(gpa, .{
+    return renderEager(gpa, .{
         .M = cd,
-        .policy = policy,
         .archive = "glowcap_host",
         .lib_var = "host-lib",
         .definer = "define-host",
@@ -111,9 +115,8 @@ fn generateHost(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
-    return render.renderEager(gpa, .{
+    return renderEager(gpa, .{
         .M = cdr,
-        .policy = policy,
         .archive = "glowcap_driver",
         .lib_var = "loop-lib",
         .definer = "define-driver-loop",
@@ -133,9 +136,8 @@ fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
-    return render.renderEager(gpa, .{
+    return renderEager(gpa, .{
         .M = ct,
-        .policy = policy,
         .archive = "glowcap_net_transport_tcp",
         .lib_var = "tcp-lib",
         .definer = "define-glowcap-tcp",
@@ -162,9 +164,8 @@ fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
-    return render.renderEager(gpa, .{
+    return renderEager(gpa, .{
         .M = cin,
-        .policy = policy,
         .archive = "glowcap_net_transport_inproc",
         .lib_var = "inproc-lib",
         .definer = "define-glowcap-inproc",
@@ -191,9 +192,8 @@ fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateOnion(gpa: std.mem.Allocator) ![]u8 {
-    return render.renderEager(gpa, .{
+    return renderEager(gpa, .{
         .M = con,
-        .policy = policy,
         .archive = "glowcap_net_transport_onion",
         .lib_var = "onion-lib",
         .definer = "define-glowcap-onion",
@@ -343,9 +343,8 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
-    return render.renderEager(gpa, .{
+    return renderEager(gpa, .{
         .M = cr,
-        .policy = policy,
         .archive = "glowcap_net_transport_relay",
         .lib_var = "relay-lib",
         .definer = "define-glowcap-relay",

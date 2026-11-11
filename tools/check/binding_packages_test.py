@@ -1,12 +1,15 @@
 """The binding package rehearsal refuses Zig build tooling, for infrastructure-check.
 
-`binding_packages.py` checks each language archive's member names. JSR
-publishes the TypeScript packages from the tracked tree under `bindings/ts`,
-so that check reads `git ls-files` there before any `deno publish` runs.
+`binding_packages.py` checks each language archive's member names as it
+verifies the archive's license. JSR publishes the TypeScript packages from
+the tracked tree under `bindings/ts`, so that check reads `git ls-files`
+there before any `deno publish` runs.
 """
 
 import importlib.util
+import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -46,6 +49,29 @@ class TypeScriptPackages(unittest.TestCase):
 
     def test_the_real_typescript_tree_has_no_zig_tooling(self):
         PACKAGES.verify_typescript_files()
+
+
+class ArchivePackages(unittest.TestCase):
+    """The Python sdist and wheel, Rust crate, and Racket collection take `verify_license`."""
+
+    def package(self, directory, *members):
+        archive = Path(directory) / "package.zip"
+        with zipfile.ZipFile(archive, "w") as package:
+            package.writestr("glowcap/LICENSE-APACHE", (ROOT / "LICENSE-APACHE").read_bytes())
+            for member in members:
+                package.writestr(member, "")
+        return archive
+
+    def test_an_archive_with_its_license_and_no_zig_tooling_passes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            PACKAGES.verify_license(self.package(directory, "glowcap/src/lib.rs"))
+
+    def test_an_archive_holding_a_zig_source_is_refused(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            self.assertRaisesRegex(ValueError, "Zig build tooling: glowcap/ffi_omissions/rust.zig"),
+        ):
+            PACKAGES.verify_license(self.package(directory, "glowcap/ffi_omissions/rust.zig"))
 
 
 if __name__ == "__main__":

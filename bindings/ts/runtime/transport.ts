@@ -23,7 +23,8 @@ export interface DriverProvider {
  * redemption. The connector returns the established Session to the Runtime. */
 export interface ConnectorRequest {
 	/** Live session that supplied this handoff, or null for an application dial.
-	 * Borrowed for signaling context; the connector does not own its lifetime. */
+	 * The connector borrows it for signaling context and does not own its
+	 * lifetime. */
 	readonly introducer: Session | null;
 	/** True when this dial realizes a transparent handoff redeem. */
 	readonly redeem: boolean;

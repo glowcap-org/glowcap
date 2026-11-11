@@ -68,7 +68,11 @@ pub const symbols = [_]Symbol{
         .out_params = &.{8},
         .section = "Resolve a dial to a GlowcapDialPlan (grammar + hint + iroh posture); a free function.",
     },
-    .{ .name = "glowcap_host_pending_dial", .out_params = &.{ 3, 5, 6 } },
+    .{
+        .name = "glowcap_host_pending_dial",
+        .out_params = &.{ 3, 5, 6 },
+        .section = "Pending dials, reference exporters, and session lifecycle queries.",
+    },
     .{
         .name = "glowcap_host_pending_dial_introducer",
         .out_params = &.{3},

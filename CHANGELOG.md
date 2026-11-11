@@ -19,6 +19,10 @@ and storage formats before 1.0.
 - C archive fingerprints cover C contracts without binding omission policy.
   Rebuild or reinstall matching C libraries and bindings together. Libraries
   built before this change fail the updated bindings' fingerprint checks.
+- TypeScript byte-fed handoff connectors receive the Session that introduced
+  the handoff, so WebRTC signaling can use its context. Code that builds a
+  `ConnectorRequest` itself must set `introducer`, to `null` for an
+  application dial.
 - Public guides explain Rooms connections, sharing, and upgrade recovery, and
   correct binding and storage contracts. Detailed Zig actor integration lives
   in the Loam actor guide beside its lifetime rules.
@@ -48,12 +52,7 @@ and storage formats before 1.0.
 ### Fixed
 
 - Deferred Python and Racket behavior replies can carry capabilities. Rust
-  `Host.send` and `Host.tell` use the active turn inside behavior callbacks.
-- TypeScript byte-fed handoff connectors receive their introducing Session,
-  allowing WebRTC signaling to use the context that supplied the handoff.
-  Callers constructing `ConnectorRequest` directly must supply `introducer`,
-  using `null` for application dials.
-
+  `Host::send` and `Host::tell` use the active turn inside behavior callbacks.
 - A direct message in **Browser to browser** mode opens through the Rooms
   server within a few seconds when WebRTC finds no route. The direct attempt
   waited for the browser to report a failed connection, which a network that

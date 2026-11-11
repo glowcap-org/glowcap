@@ -1,5 +1,10 @@
-//! Symbols the Rust FFI table omits and the reason for each decision.
-//! Signatures, crossing metadata and output order come from the C inventories.
+//! The exports the Rust FFI table leaves out, each with the reason for that
+//! decision. Signatures and row order come from the C inventories.
+//!
+//! An entry is `.{ .name = "<export>", .reason = "<why>" }`. The generator
+//! refuses a name with no export in its archives, a name more than one
+//! archive declares, a repeated name, and an empty reason, and its refusal
+//! names the entry and this file.
 
 const last_error = "unused: the Rust binding reads the slot after a failing call and never resets it";
 const transport_allocator = "unused: the Rust binding keeps its transports on the library allocator";
@@ -19,7 +24,7 @@ pub const omissions = .{
     // net_transport/iroh
     .{ .name = "glowcap_iroh_netlayer_new_in", .reason = transport_allocator },
     // net_transport/webrtc
-    .{ .name = "glowcap_webrtc_netlayer_new_in", .reason = "unused: the Rust binding keeps its webrtc netlayer on the library allocator" },
+    .{ .name = "glowcap_webrtc_netlayer_new_in", .reason = transport_allocator },
     .{ .name = "glowcap_webrtc_peer_new_in", .reason = "unused: the Rust binding keeps its webrtc peers on the netlayer allocator" },
     // ocapn
     .{ .name = "glowcap_context_allocate_lifecycle_id", .reason = "Zig Host construction assigns Host identity; Rust currently owns no other Context-scoped diagnostic lifecycle" },

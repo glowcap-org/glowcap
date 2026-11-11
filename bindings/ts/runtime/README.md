@@ -102,7 +102,7 @@ without wire traffic, or waits for a promise's settled value. Retained and resol
 references receive finalizer cleanup even when Session GC is off. Use
 `host.release(ref)` or `session.release(ref)` for deterministic release.
 
-`session.withGc()` instead selects finalizer cleanup for later replies and
+`session.withGc()` selects finalizer cleanup for later replies and
 delivered arguments projected by the Host. For one reply, select
 `session.send(target, method).withGc()` before awaiting or attaching a reaction.
 Selecting reply GC after observation has begun is refused.

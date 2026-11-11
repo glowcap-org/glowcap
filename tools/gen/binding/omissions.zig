@@ -5,8 +5,9 @@
 //! leaves out of its FFI table, each with the reason for that decision.
 //! `Policy` checks the list once at compile time and names the offending entry
 //! and policy file when it refuses. Inventory completeness is a C fact that
-//! `archive_contract.fingerprint` holds for every archive, so this module checks
-//! only what the policy itself states.
+//! `archive_contract.inventoryFault` checks when each archive compiles, which
+//! `zig build check` always does, so this module checks only what the policy
+//! itself states.
 
 const std = @import("std");
 
@@ -14,7 +15,7 @@ const std = @import("std");
 const Entry = struct { name: []const u8, reason: []const u8 };
 
 /// The first policy fact a list breaks, with the export name it names.
-pub const Fault = struct {
+const Fault = struct {
     kind: Kind,
     name: []const u8,
 
@@ -38,7 +39,7 @@ fn entriesOf(comptime raw: type) [raw.omissions.len]Entry {
 
 /// The first broken policy fact, or null when every entry gives a reason and
 /// names exactly one inventory row across `archives`, once.
-pub fn fault(comptime raw: type, comptime archives: anytype) ?Fault {
+fn fault(comptime raw: type, comptime archives: anytype) ?Fault {
     comptime {
         @setEvalBranchQuota(2_000_000);
         const entries = entriesOf(raw);
@@ -67,7 +68,7 @@ pub fn Policy(comptime source: []const u8, comptime raw: type, comptime archives
     return struct {
         const entries = entriesOf(raw);
 
-        /// Whether the binding leaves `name` out. Rows keep inventory order.
+        /// Whether the binding leaves `name` out.
         pub fn omits(comptime name: []const u8) bool {
             @setEvalBranchQuota(50_000);
             for (entries) |entry| {
@@ -99,7 +100,7 @@ fn expectFault(comptime expected: ?Fault, comptime raw: type, comptime archives:
     } else try std.testing.expect(got == null);
 }
 
-test "an omission policy keeps explicit decisions over a complete archive set" {
+test "an omission policy omits exactly the names it lists, and an empty one omits none" {
     const Raw = struct {
         pub const omissions = .{
             .{ .name = "glowcap_first", .reason = "provided by the binding" },

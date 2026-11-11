@@ -144,16 +144,21 @@ fn rowParts(gpa: std.mem.Allocator, comptime M: type, comptime row: anytype, use
 
 /// The dlopen row block for one archive, emitted in inventory order with the
 /// annotated section comments, less the rows the TypeScript omission policy
-/// names. Row layout follows deno fmt: one line when it fits the 120-column
-/// width (a tab counting four), the split object form otherwise.
+/// names. A section comment opens before the first emitted row at or after
+/// the row that carries it, so omitting that row keeps the heading. Row
+/// layout follows deno fmt: one line when it fits the 120-column width (a tab
+/// counting four), the split object form otherwise.
 fn renderRows(gpa: std.mem.Allocator, comptime M: type, used: *UsedClasses) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
+    comptime var pending: ?[]const u8 = null;
     inline for (M.symbols.symbols) |row| {
+        if (row.section) |section| pending = section;
         if (comptime !policy.omits(row.name)) {
-            if (row.section) |section| {
+            if (pending) |section| {
                 var it = std.mem.splitScalar(u8, section, '\n');
                 while (it.next()) |l| try out.print(gpa, "\t// {s}\n", .{l});
+                pending = null;
             }
             const parts = try rowParts(gpa, M, row, used);
             defer parts.deinit(gpa);

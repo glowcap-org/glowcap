@@ -175,8 +175,6 @@ pub fn writeRacketized(gpa: std.mem.Allocator, out: *std.ArrayList(u8), name: []
 
 pub const EagerConfig = struct {
     M: type,
-    /// The checked omission policy (`omissions.Policy`) whose rows stay out.
-    policy: type,
     archive: []const u8,
     lib_var: []const u8,
     definer: []const u8,
@@ -196,7 +194,9 @@ pub const EagerConfig = struct {
     check_fingerprint_at_load: bool = true,
 };
 
-pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
+/// One eager archive's table, less the rows `policy` (a checked
+/// `omissions.Policy`) leaves out.
+pub fn renderEager(gpa: std.mem.Allocator, comptime policy: type, comptime cfg: EagerConfig) ![]u8 {
     var header: ?[]const u8 = null;
     defer if (header) |h| gpa.free(h);
     if (cfg.header_path) |path| {
@@ -236,7 +236,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
     // wrap it.
     try out.appendSlice(gpa, "(provide (except-out (all-defined-out)");
     inline for (cfg.M.symbols.symbols) |row| {
-        if (comptime !cfg.policy.omits(row.name)) {
+        if (comptime !policy.omits(row.name)) {
             switch (comptime rowClass(cfg.M, row, cfg.hand_wrapped)) {
                 .wrap1, .multi => try out.print(gpa, "\n                     {s}*", .{row.name}),
                 else => {},
@@ -248,7 +248,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
     try out.print(gpa, "(define-ffi-definer {s} {s})\n\n", .{ cfg.definer, cfg.lib_var });
 
     inline for (cfg.M.symbols.symbols) |row| {
-        if (comptime !cfg.policy.omits(row.name)) {
+        if (comptime !policy.omits(row.name)) {
             const sig = comptime funSig(cfg.M, row, cfg.specials);
             switch (comptime rowClass(cfg.M, row, cfg.hand_wrapped)) {
                 .plain => {

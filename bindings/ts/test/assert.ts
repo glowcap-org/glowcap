@@ -13,11 +13,22 @@ export function assert(value: unknown, message = "assertion failed"): asserts va
 	if (!value) throw new Error(message);
 }
 
-/** Strict equality, for primitives and identity. */
+/** Strict equality, for primitives and identity. When both sides print the
+ * same, the message names their types, because they differ in type or
+ * identity. */
 export function assertEquals(actual: unknown, expected: unknown): void {
-	if (actual !== expected) {
-		throw new Error(`expected ${String(expected)}, got ${String(actual)}`);
-	}
+	if (actual === expected) return;
+	const want = String(expected);
+	const got = String(actual);
+	throw new Error(
+		want === got
+			? `expected ${want} (${kindOf(expected)}), got ${got} (${kindOf(actual)})`
+			: `expected ${want}, got ${got}`,
+	);
+}
+
+function kindOf(value: unknown): string {
+	return value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
 }
 
 /** Structural equality by JSON form, for arrays and plain objects. */

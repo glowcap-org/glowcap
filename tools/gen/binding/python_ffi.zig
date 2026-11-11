@@ -3,16 +3,17 @@
 //! policy.
 //!
 //! The ctypes dicts are positional, so unlike the Rust extern blocks no
-//! parameter-name source is needed: parameter and return *types* reflect from
+//! parameter-name source is needed. Parameter and return *types* reflect from
 //! the real Zig exports (`@typeInfo`, so a signature change regenerates a
 //! different file), the inventory supplies order, and
-//! `bindings/ffi_omissions/python.zig` names the rows left out. The one output is a sibling module the hand-authored `_ffi_*.py`
-//! loaders call: each generated function takes the hand-mirrored `Structure`
-//! and callback types its archive names as parameters, so the module imports
-//! nothing but `ctypes` and no import cycle forms. `zig build
-//! gen-binding-python-ffi-check` (part of `check`) holds the committed file
-//! against a fresh generation.
-
+//! `bindings/ffi_omissions/python.zig` names the rows left out. The one output
+//! is a sibling module the hand-authored `_ffi_*.py` loaders call. Each
+//! generated function takes the hand-mirrored `Structure` and callback types
+//! its archive names as parameters, so the module imports nothing but
+//! `ctypes` and no import cycle forms.
+//!
+//! `zig build gen-binding-python-ffi-check` (part of `check`) holds the
+//! committed file against a fresh generation.
 const std = @import("std");
 const omissions = @import("omissions.zig");
 

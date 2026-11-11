@@ -2,15 +2,16 @@
 //! symbol inventory plus its generated C header.
 //!
 //! The split of truth: parameter and return *types* reflect from the real Zig
-//! exports (`@typeInfo`, so a signature change regenerates a different file),
-//! parameter *names* come from the generated C header (Zig reflection strips
-//! them; the header is generated from the same source and gate-held, so its
-//! names are canonical), the inventory supplies order, and
-//! `bindings/ffi_omissions/rust.zig` names the rows left out. Each emitted file is a sibling module the hand-authored
-//! `sys/` file re-exports. The struct mirrors, layout pins, and doc prose stay
-//! hand-written beside it. `zig build gen-binding-rust-ffi-check` (part of
-//! `check`) holds the committed files against a fresh generation.
-
+//! exports (`@typeInfo`, so a signature change regenerates a different file).
+//! Parameter *names* come from the generated C header, because Zig reflection
+//! strips them and the header is generated from the same source and
+//! gate-held. The inventory supplies order, and
+//! `bindings/ffi_omissions/rust.zig` names the rows left out. Each emitted
+//! file is a sibling module the hand-authored `sys/` file re-exports. The
+//! struct mirrors, layout pins, and doc prose stay hand-written beside it.
+//!
+//! `zig build gen-binding-rust-ffi-check` (part of `check`) holds the
+//! committed files against a fresh generation.
 const std = @import("std");
 const omissions = @import("omissions.zig");
 const cl = @import("c_abi_loam");
