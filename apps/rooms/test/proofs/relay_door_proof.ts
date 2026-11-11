@@ -21,17 +21,18 @@ import { type Browser, chromium } from "playwright";
 import { run } from "../page/relay_door.ts";
 import { run as runDirect } from "../page/relay_door_direct.ts";
 import { reapOwned } from "../support/children.ts";
-import { fail } from "../support/fail.ts";
+import { scenarioDeadline } from "../support/deadline.ts";
 
-const deadline = setTimeout(() => fail("web-relay-door scenario timed out after 150s"), 150_000);
+const deadline = scenarioDeadline("web-relay-door", 150);
 
 let browser: Browser | null = null;
 let noUdp: Browser | null = null;
 try {
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	await run(browser);
+	await run(browser, deadline.at);
 	// No non-proxied UDP: WebRTC can find no route, so the direct message can
 	// only give up at its connect bound and ask for a server.
+	deadline.at("opening a direct message that has no route");
 	noUdp = await chromium.launch({
 		args: ["--no-sandbox", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"],
 	});
@@ -42,7 +43,7 @@ try {
 			"and a direct message with no route there asks for a server and says Settings has no second route",
 	);
 } finally {
-	clearTimeout(deadline);
+	deadline.clear();
 	if (browser) await browser.close().catch(() => {});
 	if (noUdp) await noUdp.close().catch(() => {});
 	await reapOwned();

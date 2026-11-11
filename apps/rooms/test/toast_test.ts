@@ -55,10 +55,10 @@ Deno.test("dismissing a notice that is already gone is nothing", () => {
 });
 
 Deno.test("an act that needs a Rooms server holds where it resumes until the ask is answered", () => {
-	store.askServer(projection, "/join?room=general", "This address needs one.");
+	store.askServer(projection, "/join#room=general", "This address needs one.");
 	assertEquals(
 		projection.get().serverAsk,
-		{ resume: "/join?room=general", lead: "This address needs one." },
+		{ resume: "/join#room=general", lead: "This address needs one." },
 		"the ask names where to resume and what for",
 	);
 	store.askServer(projection, null, "Its relay did not answer.");
@@ -76,13 +76,13 @@ Deno.test("an act that needs a Rooms server holds where it resumes until the ask
 Deno.test("an act that reaches through a Rooms server is gated on one before it does anything", () => {
 	projection.set({ server: null, serverAsk: null });
 	assertEquals(
-		store.serverOrAsk(projection, serverAskFor(serverNeedAddress), () => "/join?room=general"),
+		store.serverOrAsk(projection, serverAskFor(serverNeedAddress), () => "/join#room=general"),
 		null,
 		"with no server the act waits",
 	);
 	assertEquals(
 		projection.get().serverAsk,
-		{ resume: "/join?room=general", lead: serverAskFor(serverNeedAddress) },
+		{ resume: "/join#room=general", lead: serverAskFor(serverNeedAddress) },
 		"and the page asks with the act's own lead, naming where to resume",
 	);
 	store.dismissServerAsk(projection);

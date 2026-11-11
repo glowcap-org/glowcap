@@ -31,7 +31,7 @@
 // What an address says is only ever a place to stand, never authority: a
 // room link names a room the way typing its name into the join card would,
 // and a private room's unguessable key stays out of the address entirely.
-// Its path carries the label under `?private=1`, which reopens the held
+// Its path carries the label under `#private=1`, which reopens the held
 // conversation in this tab and degrades to the plain join card anywhere
 // else. The `dm` page-configuration parameter rides along on every
 // address the mirror writes, keeping `prefs.ts`'s bookmark contract.
@@ -51,6 +51,8 @@ import { implied, named } from "./intent.ts";
 import { useRoomsState } from "./hooks.ts";
 import type { DmConv } from "./conversation.ts";
 import {
+	addressAt,
+	addressFields,
 	directoryAddress,
 	dmAddress,
 	joinAddress,
@@ -114,7 +116,7 @@ export function bindRoomsRouting(page: RoomsPageContext): void {
 		if (router.state.location.pathname.startsWith("/ops")) return;
 		const want = addressOfActive();
 		const at = router.state.location;
-		if (want === `${at.pathname}${at.search}`) return;
+		if (want === addressAt(at)) return;
 		void router.navigate(want, { replace: active === null || settled });
 	});
 }
@@ -126,7 +128,7 @@ export function addressOfActive(): string {
 	const conv = s.activeKey === null ? null : s.convs.get(s.activeKey) ?? null;
 	// Nothing open, and a link put the card up: the card is what is showing,
 	// and its address is the act's. Without this the mirror, which runs when the
-	// selection clears, would fold a `/join?room=…` a route had just landed on
+	// selection clears, would fold a `/join#room=…` a route had just landed on
 	// back to `/`, and the address would be wrong twice in one arrival. A card
 	// nobody linked to, reached by a press or by the page opening, is the front.
 	if (conv === null) {
@@ -156,7 +158,7 @@ export function addressOfActive(): string {
  * module has finished loading. */
 function replaceWith(path: string): void {
 	const at = router.state.location;
-	if (path === `${at.pathname}${at.search}`) return;
+	if (path === addressAt(at)) return;
 	void router.navigate(path, { replace: true });
 }
 
@@ -165,10 +167,14 @@ function replaceWith(path: string): void {
  * actionable branch ran, and the effect retries as the store changes until
  * one does. React's strict double-mount reuses the same record, so a waiting
  * intent never dispatches twice. */
-function useArrival(location: { key: string }): { done: boolean; mark: () => void } {
-	const fired = useRef<{ at: string; done: boolean }>({ at: "", done: false });
-	if (fired.current.at !== location.key) {
-		fired.current = { at: location.key, done: false };
+function useArrival(location: { key: string; pathname: string; search: string; hash: string }): {
+	done: boolean;
+	mark: () => void;
+} {
+	const address = addressAt(location);
+	const fired = useRef<{ at: string; address: string; done: boolean }>({ at: "", address: "", done: false });
+	if (fired.current.at !== location.key || fired.current.address !== address) {
+		fired.current = { at: location.key, address, done: false };
 	}
 	return {
 		done: fired.current.done,
@@ -189,9 +195,9 @@ function RoomRoute() {
 	);
 	const policyPending = useRoomsState((state) => store.roomPolicyPending(state, name));
 	const arrival = useArrival(routed);
-	const search = new URLSearchParams(routed.search);
-	const dirParam = search.get("dir") ?? "";
-	const isPrivate = search.get("private") === "1";
+	const fields = addressFields(routed);
+	const dirParam = fields.get("dir") ?? "";
+	const isPrivate = fields.get("private") === "1";
 	useEffect(() => {
 		if (arrival.done || name === "") return;
 		// The store-to-address mirror may have brought us here because a rail
@@ -202,7 +208,7 @@ function RoomRoute() {
 		// session), and the shared session then projects its real selection back.
 		// Comparing the complete canonical address preserves the one-way flow
 		// without pretending the human-readable path is publication identity.
-		if (addressOfActive() === `${routed.pathname}${routed.search}`) {
+		if (addressOfActive() === addressAt(routed)) {
 			arrival.mark();
 			return;
 		}
@@ -314,13 +320,13 @@ function JoinRoute() {
 	const arrival = useArrival(routed);
 	useEffect(() => {
 		if (arrival.done) return;
-		const search = new URLSearchParams(routed.search);
-		const room = search.get("room");
-		const address = search.get("address");
+		const fields = addressFields(routed);
+		const room = fields.get("room");
+		const address = fields.get("address");
 		// `dir=` is the directory the address stands on rather than one the link
 		// named: a room route that could not open its room lands here with that
 		// much still true. Named outranks implied when an address carries both.
-		const directory = search.get("dir");
+		const directory = fields.get("dir");
 		// A bare /join is a reader asking for the card and naming nothing, so
 		// every field falls through to what this browser last used. Naming a
 		// room or an address is a deep link, and each part it names is named
@@ -332,12 +338,12 @@ function JoinRoute() {
 			address: address !== null ? named(address) : directory !== null ? implied(directory) : undefined,
 		});
 		arrival.mark();
-	}, [arrival, routed.search]);
+	}, [arrival, routed.hash]);
 	return null;
 }
 
 /** A directory conversation's address: `/directory` for this page's directory,
- * `/directory?dir=` for any other, the same address query a room on another
+ * `/directory#dir=` for any other, the same field a room on another
  * directory uses. The view is not a workspace row; the address names which
  * one to recreate. */
 function DirectoryRoute() {
@@ -345,10 +351,10 @@ function DirectoryRoute() {
 	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const dirs = useRoomsState((state) => state.dirs);
 	const arrival = useArrival(routed);
-	const dirParam = new URLSearchParams(routed.search).get("dir") ?? "";
+	const dirParam = addressFields(routed).get("dir") ?? "";
 	useEffect(() => {
 		if (arrival.done) return;
-		if (addressOfActive() === `${routed.pathname}${routed.search}`) {
+		if (addressOfActive() === addressAt(routed)) {
 			arrival.mark();
 			return;
 		}

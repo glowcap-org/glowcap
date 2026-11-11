@@ -13,6 +13,7 @@ import { coverForReload, finishCommittedMove, finishCoveredReload, uncoverReload
 import type { ManagedRoomsSession } from "../session/managed/session.ts";
 import { requestBrowserDataDeletion } from "./browser_data.ts";
 import { pagePath } from "../page_base.ts";
+import { addressAt } from "../route_address.ts";
 import { serverInUse } from "../server_choice.ts";
 
 export function createRoomsBrowserController(
@@ -101,7 +102,9 @@ export function createRoomsBrowserController(
 			const address = addressOfActive();
 			// Acknowledging the visible conversation is not a fresh route act.
 			// Re-entering the directory route would cancel its pending room lookup.
-			if (address !== `${pagePath()}${location.search}`) navigate(address);
+			if (address !== addressAt({ pathname: pagePath(), search: location.search, hash: location.hash })) {
+				navigate(address);
+			}
 		},
 		cancelConversationOpening: () => {
 			conversationGesture++;
