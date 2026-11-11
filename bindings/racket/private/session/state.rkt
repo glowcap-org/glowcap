@@ -8,6 +8,7 @@
          (only-in "../ffi-shared.rkt" out-immobile bytes<-c)
          (only-in "../value.rkt" partner-abort)
          "../errors.rkt"
+         "../atomic.rkt"
          "../async.rkt"
          "../pending-writes.rkt"
          "../host/state.rkt"
@@ -34,7 +35,7 @@
 ;; exception on the Session so the operation that provoked it and both terminal
 ;; boundaries observe one cause instead of a generic closed wrapper.
 (define (record-session-wire-failure! c error)
-  (box-cas! (session-wire-failure c) #f error)
+  (box-cas-strong! (session-wire-failure c) #f error)
   (unbox (session-wire-failure c)))
 
 (define (record-session-outbound-failure! c error)
@@ -52,7 +53,7 @@
 (define (close-session-transport! c)
   (set-box! (session-closing-state c) #t)
   (outbound-stop! (session-outbound c))
-  (when (box-cas! (session-transport-close-started? c) #f #t)
+  (when (box-cas-strong! (session-transport-close-started? c) #f #t)
     (with-handlers ([(lambda (_) #t)
                      (lambda (error)
                        (record-session-wire-failure! c error)

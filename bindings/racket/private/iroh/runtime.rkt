@@ -20,11 +20,13 @@
          ffi/unsafe/port
          "../constants.rkt"
          "../errors.rkt"
+         "../atomic.rkt"
          "../ffi-iroh.rkt"
          "../byte-channel.rkt"
          "../finalizer-diagnostics.rkt"
          "../host/state.rkt"
          "../seam.rkt"
+         (only-in "../pump.rkt" current-pump-deadline)
          "../transport.rkt"
          "netlayer.rkt"
          (only-in "../locator.rkt"
@@ -117,7 +119,7 @@
   lp)
 
 (define (record-iroh-loop-failure! lp error)
-  (box-cas! (iroh-loop-failure lp) #f error)
+  (box-cas-strong! (iroh-loop-failure lp) #f error)
   (wake-all! lp)
   (unbox (iroh-loop-failure lp)))
 
@@ -132,10 +134,19 @@
                      (raise e))])
     (iroh-netlayer-start-connect (iroh-loop-netlayer lp) request-id node-id hints))
   (define completed? #f)
+  ;; `current-pump-deadline`, when set, bounds the connect; a dial still
+  ;; pending at the deadline raises ERR-TIMEOUT, and the post-thunk cancels it.
+  (define deadline (current-pump-deadline))
   (dynamic-wind
    void
    (lambda ()
-     (semaphore-wait (dial-waiter-sema w))
+     (unless (sync (dial-waiter-sema w)
+                   (if deadline
+                       (wrap-evt (alarm-evt deadline) (lambda (_) #f))
+                       never-evt))
+       (unless (semaphore-try-wait? (dial-waiter-sema w))
+         (raise-glowcap 'iroh ERR-TIMEOUT
+                        "iroh dial ~a did not connect before the deadline" request-id)))
      (set! completed? #t)
      (define result (unbox (dial-waiter-result w)))
      (case (car result)
@@ -196,7 +207,7 @@
     (for ([(request-id w) (in-hash (iroh-loop-dials lp))])
       (with-handlers ([exn?
                        (lambda (error)
-                         (box-cas! (iroh-loop-failure lp) #f error))])
+                         (box-cas-strong! (iroh-loop-failure lp) #f error))])
         (iroh-netlayer-cancel-connect (iroh-loop-netlayer lp) request-id))
       (set-box! (dial-waiter-result w) (cons 'closed #f))
       (semaphore-post (dial-waiter-sema w)))
@@ -312,6 +323,8 @@
            [(= rc WOULD-BLOCK)
             (if (conn-waiters-closed? w)
                 (raise-glowcap 'iroh ERR-CLOSED "connection closed while writing")
+                ;; Backpressure: the partner's reads pace this write with no
+                ;; deadline, and `wake-closed!` posts this semaphore on close.
                 (begin (semaphore-wait (conn-waiters-writable w)) (loop offset)))]
            [else (check/iroh rc)])))
      (void))
@@ -523,6 +536,7 @@
       [(= rc WOULD-BLOCK)
        (if (iroh-loop-accept-closed? lp)
            (raise-glowcap who ERR-CLOSED "server closed")
+           ;; An accept waits for a peer by design; `wake-all!` posts it on stop.
            (begin (semaphore-wait (iroh-loop-accept-sema lp)) (loop)))]
       [else (check/iroh rc)])))
 

@@ -23,6 +23,7 @@
          "ffi-host.rkt"
          "ffi-shared.rkt"
          "errors.rkt"
+         "atomic.rkt"
          "value.rkt"
          "async.rkt"
          "pending-writes.rkt"
@@ -543,7 +544,7 @@
         (lambda () (host-bump-progress! m))))))
   ;; True when this thread wins the single-reader gate; the CAS is the claim.
   (define (claim-reader?)
-    (box-cas! (async-connection-reader ac) #f (current-thread)))
+    (box-cas-strong! (async-connection-reader ac) #f (current-thread)))
   (let loop ()
     (drain-host! m)
     (define r (done))

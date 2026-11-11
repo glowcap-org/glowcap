@@ -16,7 +16,9 @@
                      "../../private/session/establish.rkt"
                      "../../private/session/close.rkt")
          (combine-in "../../private/host.rkt" "../../private/host/state.rkt")
-         (only-in "../../private/iroh.rkt" iroh-endpoint-record-failure!)
+         (only-in "../../private/iroh.rkt"
+                  iroh-endpoint-record-failure! dial-byte-transport)
+         (only-in racket/udp udp-open-socket udp-bind! udp-addresses udp-close)
          "../../private/locator.rkt"
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
@@ -398,3 +400,68 @@
         "onion listener: the supplied Host's codec changed")
 (host-close! onion-capnp-host)
 (printf "racket test OK: iroh and onion listeners honor the Host profile knobs or refuse them\n")
+
+;; A listener whose provider setup never settles fails inside the caller's
+;; deadline with a typed timeout naming the listener and the setup stage, and
+;; the listen rollback closes the listener and aborts the loop it opened. The
+;; control endpoint accepts the provider's connection and never answers.
+(let ()
+  (define silent (tcp-listen 0 4 #t "127.0.0.1"))
+  (define-values (_addr silent-port _peer _peer-port) (tcp-addresses silent #t))
+  (define held (box '()))
+  (define holder
+    (thread (lambda ()
+              (let hold ()
+                (define-values (in out) (tcp-accept silent))
+                (set-box! held (list* in out (unbox held)))
+                (hold)))))
+  (define started (current-inexact-milliseconds))
+  (define failure
+    (parameterize ([current-pump-deadline (+ started 300)])
+      (with-handlers ([exn:fail:glowcap? values])
+        (listen-onion #:socks onion-absent-socks
+                      #:control (format "127.0.0.1:~a" silent-port))
+        'listening)))
+  (define elapsed (- (current-inexact-milliseconds) started))
+  (expect (and (exn:fail:glowcap? failure)
+               (= ERR-TIMEOUT (exn:fail:glowcap-code failure))
+               (regexp-match? #rx"^listen: listener [0-9]+ setup did not settle"
+                              (exn-message failure)))
+          (format "onion listener: a setup that never settles is a typed timeout, got ~s"
+                  failure))
+  (expect (< elapsed 5000)
+          (format "onion listener: the setup timeout took ~ams" (round elapsed)))
+  (expect (pair? (unbox held))
+          "onion listener: the provider never reached the silent control endpoint")
+  (kill-thread holder)
+  (for ([port (in-list (unbox held))])
+    (if (input-port? port) (close-input-port port) (close-output-port port)))
+  (tcp-close silent))
+(printf "racket test OK: a listener setup that never settles times out inside its deadline\n")
+
+;; The iroh dial waits on the same caller deadline. A direct-address hint at a
+;; silent UDP port leaves the connect pending, so the dial raises a typed
+;; timeout at the deadline and its cancel path tears the attempt down.
+(let ()
+  (define silent (udp-open-socket "127.0.0.1" #f))
+  (udp-bind! silent "127.0.0.1" 0)
+  (define-values (_addr silent-port _peer _peer-port) (udp-addresses silent #t))
+  (define started (current-inexact-milliseconds))
+  (define failure
+    (parameterize ([current-pump-deadline (+ started 300)])
+      (with-handlers ([exn:fail:glowcap? values])
+        (dial-byte-transport (make-string 64 #\a)
+                             (format "127.0.0.1:~a" silent-port)
+                             IROH-REACH-DIRECT)
+        'connected)))
+  (define elapsed (- (current-inexact-milliseconds) started))
+  (expect (and (exn:fail:glowcap? failure)
+               (= ERR-TIMEOUT (exn:fail:glowcap-code failure))
+               (regexp-match? #rx"^iroh: iroh dial [0-9]+ did not connect"
+                              (exn-message failure)))
+          (format "iroh dial: a connect that never completes is a typed timeout, got ~s"
+                  failure))
+  (expect (< elapsed 5000)
+          (format "iroh dial: the connect timeout took ~ams" (round elapsed)))
+  (udp-close silent))
+(printf "racket test OK: an iroh dial that never connects times out inside its deadline\n")

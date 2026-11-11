@@ -7,6 +7,7 @@
          "../ffi-driver.rkt"
          "../driver-failure.rkt"
          "../errors.rkt"
+         "../atomic.rkt"
          (combine-in "../host.rkt" "../host/state.rkt")
          "../pump.rkt"
          (combine-in "../session.rkt" "../session/state.rkt")
@@ -113,9 +114,9 @@
   (define claimed?
     (let claim ()
       (case (unbox state)
-      [(open) (if (box-cas! state 'open 'stopping) #t (claim))]
-      [(retiring) (if (box-cas! state 'retiring 'stopping) #t (claim))]
-      [(failed) (if (box-cas! state 'failed 'stopping) #t (claim))]
+      [(open) (if (box-cas-strong! state 'open 'stopping) #t (claim))]
+      [(retiring) (if (box-cas-strong! state 'retiring 'stopping) #t (claim))]
+      [(failed) (if (box-cas-strong! state 'failed 'stopping) #t (claim))]
       [(stopping released) #f])))
   (when claimed?
     (semaphore-post (driver-loop-stop-sema lp))
@@ -145,8 +146,8 @@
        (set-box! (driver-loop-state lp) 'released)
        (for ([listener (in-hash-values (driver-loop-listeners lp))])
          (cond
-           [(box-cas! (loop-listener-state listener) 'pending 'closed) (void)]
-           [(box-cas! (loop-listener-state listener) 'ready 'closed) (void)]
+           [(box-cas-strong! (loop-listener-state listener) 'pending 'closed) (void)]
+           [(box-cas-strong! (loop-listener-state listener) 'ready 'closed) (void)]
            [else (void)])
          (async-channel-put (loop-listener-accepts listener) accepts-terminal))
        (hash-clear! (driver-loop-listeners lp)))
