@@ -22,12 +22,11 @@ All four wrap the same C ABI and present the same application model:
   C calls it `GlowcapReference`, and the owning Zig APIs call it
   `driver.Capability`.
 
-Rust has two operations the others lack. `Host::spawn`, `Host::send`, and
-`Host::tell` run actor operations without a Session, and a Rust promise can be
-retained as a reference. TypeScript, Python, and Racket run those actor
-operations through a Session. They can pass pending promises as arguments and
-send to them, but cannot retain one as a reference. Both are
-[adapter gaps](../docs/roadmap.md#what-starts-next) on the roadmap.
+A Host spawns, sends to, and tells actors without a Session in every binding.
+Inside a behavior those calls join its turn. A Rust promise can also be
+retained as a reference. TypeScript, Python, and Racket can pass pending
+promises as arguments and send to them, but cannot retain one as a reference.
+That is an [adapter gap](../docs/roadmap.md#what-starts-next) on the roadmap.
 
 ## Shared API
 
@@ -47,7 +46,10 @@ picks one).
 | `spawn(behavior)` | Create a local actor and return its capability. |
 | `send(ref, verb, args)` | Call a capability and return a promise for its answer. |
 | `tell(ref, verb, args)` | Send without asking for an answer. |
+| `host.spawn`, `host.send`, `host.tell` | Run actors on the Host with no session. A send goes to the target's actual home, local or far. Racket calls them `host-spawn`, `host-send`, and `host-tell`. |
 | `serve()` | Keep handling inbound calls until the session closes. |
+| `breakFarPromises(message)` | Break every promise still waiting on the partner and keep the session open. A driver-owned session refuses it. Racket calls `break-far-vows!` on the session's vat (`session-vat`). |
+| `partnerAbort()` | Read the `op:abort` the partner sent, or none. It stays readable after the session closes. Python and Rust call it `partner_abort`, and Racket calls it `session-partner-abort`. |
 | `close()` | Close the session. |
 | `publishDurable(behavior, entropy?)` | Create a durable swiss name for a behavior. Omit the entropy to generate it locally. Keep it to restore the same name on a Host rebuilt from the same seed. |
 | `closed()` | Wait for the session to end, without closing it or starting inbound delivery. TypeScript has `onClose(listener)`, which runs a callback once when the session ends. Racket calls it `session-wait-closed`. |

@@ -59,9 +59,11 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
         self._listener_waiters: dict[int, asyncio.Future[None]] = {}
         self._closing_listeners: set[int] = set()
         self._listener_close_waiters: dict[int, asyncio.Future[None]] = {}
-        # Event-delivered handles not yet wrapped. The pair preserves both status-allow: pending state or quoted runtime label
-        # terminal state and its exact failure when SESSION_CLOSED follows an
-        # OPENED/ACCEPTED event in the same drain.
+        # Event-delivered or claimed handles not yet wrapped. The pair status-allow: pending state or quoted runtime label
+        # preserves both terminal state and its exact failure when
+        # SESSION_CLOSED follows an OPENED/ACCEPTED event in the same drain.
+        # With the wrapper Host's session registry, this is the whole set of
+        # handles the loop may still hand out; a released one is in neither.
         self._unclaimed_sessions: dict[int, tuple[bool, GlowcapError | None]] = {}
         self._session_closes: dict[int, asyncio.Future[None]] = {}
         self._wrapper: Host | None = None
@@ -270,8 +272,7 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
         if self._release_attempted:
             self._closed_event.set()
             return
-        self._release_attempted = True
-        release_attempt = self._release_owner.release("driver-loop.background.release", self._retire_ffi_release)
+        release_attempt = self._release_ffi("driver-loop.background.release")
         if release_attempt.error is not None and not release_attempt.consumed:
             release_error = release_attempt.error
             self._record_terminal_failure(release_error)
@@ -288,15 +289,25 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
         if self._released or not ptr:
             return None
         session = self.adopt_session(ptr)
+        # Adopting a handle whose SESSION_CLOSED already arrived releases it.
+        if not session.released:
+            self._serve_owned(session.raw)
+        return session
+
+    def _serve_owned(self, ptr: ctypes.c_void_p) -> None:
+        """Begin inbound delivery on a handle a live Session wrapper owns."""
+        if self._terminal_failure is not None:
+            raise self._terminal_failure
+        if self._released:
+            return
         # Serving releases application frames parked behind the handshake and
         # may invoke a hosted behavior before the FFI call returns.
         prior = _enter_host_deliver(self._wrapper)
         try:
-            _check(_driver.glowcap_driver_session_serve(self._h, ctypes.c_void_p(ptr)))
+            _check(_driver.glowcap_driver_session_serve(self._h, ptr))
         finally:
             _exit_deliver(prior)
         self.schedule_step()
-        return session
 
     # ── Extension transports ────────────────────────────────────────────────
 

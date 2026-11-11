@@ -23,6 +23,11 @@ and storage formats before 1.0.
   the handoff, so WebRTC signaling can use its context. Code that builds a
   `ConnectorRequest` itself must set `introducer`, to `null` for an
   application dial.
+- Python `Connector` realizers and Racket `make-byte-connector` realizers
+  take a fourth argument, the Session that introduced a handoff redeem, or
+  `None`/`#f` for an application dial. Add that parameter to every custom
+  realizer. Python `Connector.connect` takes the introducer as its fourth
+  argument too.
 - Public guides explain Rooms connections, sharing, and upgrade recovery, and
   correct binding and storage contracts. Detailed Zig actor integration lives
   in the Loam actor guide beside its lifetime rules.
@@ -52,9 +57,26 @@ and storage formats before 1.0.
   resolve opaque capabilities to owned references or settled values. Explicit
   retains and resolution results receive finalizer cleanup even with Session
   GC off.
+- TypeScript, Python, and Racket Hosts spawn, send to, and tell actors with no
+  Session: `host.spawn`, `host.send`, and `host.tell`, and in Racket
+  `host-spawn`, `host-send`, `host-send-promise`, `host-await`, and
+  `host-tell`. Inside a behavior these calls join its turn.
+- `Session.breakFarPromises` in TypeScript, `break_far_promises` in Python and
+  Rust, break every promise still waiting on the partner and keep the session
+  open, as Racket's `break-far-vows!` does. A driver-owned session refuses it.
+- Sessions in every binding report the `op:abort` the partner sent, which
+  stays readable after the session closes: `partnerAbort()` in TypeScript,
+  `partner_abort()` in Python and Rust, and `session-partner-abort` in Racket.
 
 ### Fixed
 
+- A told async behavior in TypeScript or Python runs to completion, and the
+  Host reports its failure as `tell.behavior` from `takeFailures` (Python
+  `take_failures`). It used to be refused before it ran, and Python left its
+  coroutine unawaited.
+- Serving a Python or Racket session whose partner had already disconnected
+  reports how it closed. It used to hand the freed session back to the
+  driver, which refused it with `SessionNotOwned`.
 - Deferred Python and Racket behavior replies can carry capabilities. Rust
   `Host::send` and `Host::tell` use the active turn inside behavior callbacks.
 - A direct message in **Browser to browser** mode opens through the Rooms

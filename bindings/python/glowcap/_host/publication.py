@@ -292,14 +292,20 @@ class _PublicationMixin(HostMixinBase):
         self.schedule_kick()
         return name
 
-    def _register_behavior(self, entry: _BehaviorEntry) -> int:
-        """Retain one callback entry for this Host's FFI lifetime."""
-        ctx = _register_global_behavior(entry)
+    def _register_behavior(self, entry: _BehaviorEntry, *, ffi_owned: bool = False) -> int:
+        """Retain one callback entry for this Host's FFI lifetime, or until the
+        library's free callback when ``ffi_owned``."""
+        ctx = _register_global_behavior(entry, self if ffi_owned else None)
         self._behavior_entries[ctx] = entry
         return ctx
 
+    def _ffi_behavior_released(self, ctx: int) -> None:
+        """The library freed an FFI-owned registration: its actor is gone."""
+        self._behavior_entries.pop(ctx, None)
+
     def _unregister_behavior(self, ctx: int) -> None:
-        """Undo a refused callback mint before it joins Host authority."""
+        """Undo a refused callback mint before it joins Host authority.
+        Idempotent with the library's free callback."""
         self._behavior_entries.pop(ctx, None)
         _unregister_global_behavior(ctx)
 

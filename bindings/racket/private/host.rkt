@@ -24,7 +24,8 @@
          "trace.rkt"
          "abi-value.rkt"
          "trampoline.rkt"
-         "host/state.rkt")
+         "host/state.rkt"
+         (only-in "session/state.rkt" retain-partner-abort!))
 
 (provide (all-defined-out))
 
@@ -192,6 +193,11 @@
             ;; returning its exact failure from the close barrier.
             (let* ([ptr (host-ptr m)]
                    [lp (host-loop-of m)])
+              ;; Release frees every handle still registered, along with the
+              ;; partner aborts they hold.
+              (when ptr
+                (for ([c (in-hash-values (host-sessions m))])
+                  (retain-partner-abort! c)))
               (define-values (release-code release-error)
                 (if lp
                     ((unbox loop-ffi-release-hook) lp)

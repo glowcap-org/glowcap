@@ -57,6 +57,16 @@ providers or connectors you passed it. An application works with a `Session`:
 - `spawn` hosts a plain callback as an actor.
 - `serve` runs the inbound loop.
 
+`runtime.host` and `session.host` return the Host. It also runs actors with no session.
+`host.spawn(behavior)` returns an owned `Ref`, `host.send(ref, verb, args)` returns a promise for
+the answer, and `host.tell(ref, verb, args)` queues a notification. Inside a behavior these calls
+join its turn. A told async behavior runs to completion, and its failure reaches
+`host.takeFailures()`.
+
+`session.breakFarPromises(message)` breaks every promise still waiting on the partner and keeps
+the session open. A session the driver loop owns refuses it. `session.partnerAbort()` returns the
+`op:abort` the partner sent before ending the session, or `null`, and stays readable after close.
+
 The glowcap C library makes every CapTP decision, including routing, three-party handoffs, and
 sending promises to other peers. The binding moves bytes and carries out the Host's instructions.
 Integers are `bigint` and floats are `number`:

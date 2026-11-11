@@ -12,10 +12,10 @@ re-acquiring the GIL for it. Settlements carry no callback at all: they ride
 the action queue as SETTLE/FAIL and the drain routes them by vow id
 (:mod:`glowcap._host`). ``fetch``/``enliven``/``send`` and the ``vow_*`` verbs
 each mint a host vow whose id lands in the trailing out-param. The outcome
-arrives as that vow's SETTLE/FAIL action. The ``free`` parameter of
-publish/spawn is always NULL from this binding: the Python side owns its
-behavior entries in the trampoline registry, so there is nothing for the
-library to free.
+arrives as that vow's SETTLE/FAIL action. Behavior entries live in the
+trampoline registry. ``Host.spawn`` passes ``free`` so the library returns
+its entry when the actor is collected. Every other publish or spawn passes
+NULL and the Host drops its entries at close.
 """
 
 from __future__ import annotations
@@ -147,6 +147,10 @@ pin_struct(_TraceEvent, "GLOWCAP_TRACE_EVENT")
 # GlowcapTraceCallback: void (*)(void *ctx, const GlowcapTraceEvent *event).
 _TraceCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(_TraceEvent))
 
+
+# GlowcapHostCtxFree: void (*)(void *ctx), run once when a hosted actor's
+# registration ends.
+_HostCtxFree = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 
 _HostBehavior = ctypes.CFUNCTYPE(
     ctypes.c_int32,

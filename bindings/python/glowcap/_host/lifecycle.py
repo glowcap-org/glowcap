@@ -51,6 +51,12 @@ class _LifecycleMixin(HostMixinBase):
         assert self._finalizer_state is not None
         return self._finalizer_state
 
+    def _retain_partner_aborts(self) -> None:
+        """Have each session read its partner abort while the driver still
+        owns the handles its release frees."""
+        for session in self._sessions.values():
+            session._retain_partner_abort()
+
     def _driver_did_release(self) -> None:
         """Finish Python ownership after the driver freed the FFI Host.
 

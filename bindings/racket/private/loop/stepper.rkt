@@ -13,6 +13,7 @@
          "../ffi-driver.rkt"
          "../driver-failure.rkt"
          "../errors.rkt"
+         "../atomic.rkt"
          "../value.rkt"
          "../locator.rkt"
          "../vat.rkt"
@@ -126,8 +127,8 @@
   (define claimed?
     (let claim ()
       (case (unbox state)
-        [(open) (if (box-cas! state 'open 'failed) #t (claim))]
-        [(retiring) (if (box-cas! state 'retiring 'failed) #t (claim))]
+        [(open) (if (box-cas-strong! state 'open 'failed) #t (claim))]
+        [(retiring) (if (box-cas-strong! state 'retiring 'failed) #t (claim))]
         [(failed stopping released) #f])))
   (when claimed?
     (set-driver-loop-failure! lp error)
@@ -162,6 +163,7 @@
            m
            (lambda ()
              (for ([c (in-hash-values (host-sessions m))])
+               (retain-partner-abort! c)
                (run-loop-failure-effect! m (lambda () (loop-owner-failed! c error))))
              (for ([vow-id (in-list (hash-keys (host-vows m)))])
                (run-loop-failure-effect!
@@ -485,7 +487,7 @@
    #f #f #f #f 0))
 
 (define (settle-listener! listener outcome terminal-state)
-  (when (box-cas! (loop-listener-state listener) 'pending terminal-state)
+  (when (box-cas-strong! (loop-listener-state listener) 'pending terminal-state)
     (set-box! (loop-listener-outcome listener) outcome)
     (semaphore-post (loop-listener-settled listener))
     #t))
@@ -506,10 +508,10 @@
       (settle-listener! listener error 'failed))
     (define active-failed?
       (and (not setup-failed?)
-           (box-cas! (loop-listener-state listener) 'ready 'failed)))
+           (box-cas-strong! (loop-listener-state listener) 'ready 'failed)))
     (define closing-failed?
       (and (not setup-failed?) (not active-failed?)
-           (box-cas! (loop-listener-state listener) 'closing 'failed)))
+           (box-cas-strong! (loop-listener-state listener) 'closing 'failed)))
     (when (or setup-failed? active-failed? closing-failed?)
       (when (or active-failed? closing-failed?)
         (set-box! (loop-listener-outcome listener) error))

@@ -10,6 +10,7 @@ import * as referenceOwnership from "./scenarios/reference_ownership.ts";
 import * as pipeline from "./scenarios/pipeline.ts";
 import * as lifecycle from "./scenarios/lifecycle.ts";
 import * as driver from "./scenarios/driver.ts";
+import * as hostActors from "./scenarios/host_actors.ts";
 
 // Bun resolves its FFI adapter asynchronously; make it ready before every
 // synchronous locator/FFI call. A no-op on Deno (resolved at import).
@@ -34,3 +35,4 @@ await pipeline.run(managed);
 await referenceOwnership.run(managed);
 await lifecycle.run(managed);
 await driver.run(managed);
+await hostActors.run(managed);

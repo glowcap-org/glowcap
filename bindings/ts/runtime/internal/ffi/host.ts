@@ -97,6 +97,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_session_publish: { parameters: [P, B, U, P, P, P, B], result: I, outBuffers: [6] },
 	glowcap_host_session_spawn: { parameters: [P, P, P, P, B], result: I, outBuffers: [4] },
 	glowcap_host_publish: { parameters: [P, B, U, P, P, P], result: I, outBuffers: [] },
+	glowcap_host_spawn: { parameters: [P, P, P, P, B], result: I, outBuffers: [4] },
 	glowcap_host_unpublish: { parameters: [P, B, U], result: I, outBuffers: [] },
 	glowcap_host_publish_durable: { parameters: [P, B, U, P, P, P, B, U], result: I, outBuffers: [6] },
 	glowcap_host_publish_reference: { parameters: [P, B, B, U, B, U], result: I, outBuffers: [4] },
@@ -121,6 +122,8 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	// Send, tell, vows, projections.
 	glowcap_host_session_send: { parameters: [P, B, B, U, B, U, B], result: I, outBuffers: [6] },
 	glowcap_host_session_tell: { parameters: [P, B, B, U, B, U], result: I, outBuffers: [] },
+	glowcap_host_tell: { parameters: [P, B, B, U, B, U], result: I, outBuffers: [] },
+	glowcap_host_send: { parameters: [P, B, B, U, B, U, B], result: I, outBuffers: [6] },
 	glowcap_host_vow_send: { parameters: [P, U64, B, U, B, U, B], result: I, outBuffers: [6] },
 	glowcap_host_vow_tell: { parameters: [P, U64, B, U, B, U], result: I, outBuffers: [] },
 	glowcap_host_vow_release: { parameters: [P, U64], result: I },
@@ -133,16 +136,20 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	// out-reply is the raw pointer the trampoline was handed, so it crosses as
 	// a pointer, not a JS buffer.
 	glowcap_host_turn_forward: { parameters: [P, B, B, U, B, U, P], result: I, outBuffers: [] },
-	glowcap_host_turn_defer: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_host_turn_send: { parameters: [P, B, B, U, B, U, B], result: I, outBuffers: [6] },
+	glowcap_host_turn_tell: { parameters: [P, B, B, U, B, U], result: I, outBuffers: [] },
+	glowcap_host_turn_defer_if_answer: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_host_turn_spawn: { parameters: [P, P, P, P, B], result: I, outBuffers: [4] },
 	glowcap_host_turn_break: { parameters: [P, B, U], result: I, outBuffers: [] },
 	// Capability lifetime, teardown, diagnostics.
 	glowcap_host_ref_retain: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	glowcap_host_ref_release: { parameters: [P, B, U64], result: I, outBuffers: [] },
 	glowcap_host_session_published_ref: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
+	glowcap_host_session_break_far_vows: { parameters: [P, B, U], result: I, outBuffers: [] },
 	glowcap_host_session_transport_closed: { parameters: [P, B, U], result: I, outBuffers: [] },
 	glowcap_host_session_set_exporter_location: { parameters: [P, P], result: I },
 	glowcap_host_session_last_abort: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_host_session_partner_abort: { parameters: [P, B, B, B, U, B], result: I, outBuffers: [1, 2, 3, 5] },
 	glowcap_host_session_partner_identity: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_host_session_bind_verified_channel_key: { parameters: [P, B, U], result: I, outBuffers: [] },
 	glowcap_host_last_error: { parameters: [B, U], result: U, outBuffers: [0] },

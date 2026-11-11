@@ -23,6 +23,7 @@
          "ffi-host.rkt"
          "ffi-shared.rkt"
          "errors.rkt"
+         "atomic.rkt"
          "value.rkt"
          "async.rkt"
          "pending-writes.rkt"
@@ -69,6 +70,8 @@
          handle-session-eof!
          pump-read-once!
          pump-until
+         host-wait-until
+         current-pump-deadline
          run-handshake!
          session-last-abort
          break-far-vows-bytes!
@@ -541,7 +544,7 @@
         (lambda () (host-bump-progress! m))))))
   ;; True when this thread wins the single-reader gate; the CAS is the claim.
   (define (claim-reader?)
-    (box-cas! (async-connection-reader ac) #f (current-thread)))
+    (box-cas-strong! (async-connection-reader ac) #f (current-thread)))
   (let loop ()
     (drain-host! m)
     (define r (done))
@@ -560,6 +563,22 @@
          [(pump-deadline-passed?) (raise-timed-out)]
          [(claim-reader?) (run-reader) (loop)]
          [else (sync gen) (loop)])])))
+
+;; Wait for `done` with no session to read, returning its value: a Host actor's
+;; answer settles in a drain this thread or another runs, so each round drains
+;; the Host and then parks on its progress event. The deadline from
+;; `current-pump-deadline` bounds the wait as it bounds `pump-until`. The wake
+;; event is snapshotted before `done` is checked, so a settle between the two
+;; still wakes the park.
+(define (host-wait-until m done who #:timeout-message [timeout-message #f])
+  (let loop ()
+    (drain-host! m)
+    (define gen (pump-wake-evt m))
+    (cond
+      [(done) => values]
+      [(pump-deadline-passed?)
+       (raise-glowcap who ERR-TIMEOUT "~a" (or timeout-message "the wait timed out"))]
+      [else (sync gen) (loop)])))
 
 ;; Drive a freshly opened connection's keyed handshake to an open session.
 ;; The signed op:start-session leaves on the first drain-host!; pump-until

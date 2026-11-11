@@ -162,6 +162,22 @@ another green thread can perform, because that can deadlock Racket CS. Return a
 value, `bcom`, or a forward. Hand longer work to another thread and settle it
 through an eventual send (`<-`).
 
+`runtime-host` and `session-host` return the Host behind a runtime or session.
+It also runs actors with no session. `host-spawn` returns an owned
+reference, `host-send` waits for the answer, and `host-tell` queues a
+notification. `host-send-promise` returns the vow without waiting, and
+`host-await` waits for it.
+
+Inside a behavior, `host-spawn`, `host-tell`, and
+`host-send-promise` join its turn. `host-send` and `host-await` wait for an
+answer, so a behavior's call to either is refused before it queues anything.
+A behavior that needs an answer defers its turn instead.
+
+`(break-far-vows! (session-vat s) message)` breaks every vow still waiting on
+the partner and keeps the session open. A session the driver loop owns refuses
+it. `session-partner-abort` returns the `partner-abort` the partner sent
+before ending the session, or `#f`, and stays readable after close.
+
 `host-retain-reference` returns an independent occurrence of a held reference.
 Releasing the source leaves that occurrence usable. `session-resolve` returns an
 owned reference for a live object without wire traffic, or waits for a promise's

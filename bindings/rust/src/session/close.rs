@@ -62,6 +62,24 @@ impl Session {
 		}
 	}
 
+	/// Break every far promise still waiting on this session with `message`,
+	/// or with the partner's retained abort diagnostic when one arrived. The
+	/// session stays open for later sends, and a partner's later answer to a
+	/// broken promise has no observer. [`close`](Session::close) also ends the
+	/// connection. Refused on a session a driver loop owns, so it applies to
+	/// sessions over a caller's channel ([`Session::dial_over`],
+	/// [`Session::accept_over`]).
+	pub fn break_far_promises(&self, message: &str) -> Result<()> {
+		self.shared.guard_open()?;
+		// SAFETY: `self.shared.ptr` is this session's `GlowcapHostSession` handle, which `guard_open` above proved live;
+		// `message` borrows the caller's `&str` for the call, and the callee copies it.
+		check_host(unsafe {
+			ffi::glowcap_host_session_break_far_vows(self.shared.ptr.get(), message.as_ptr(), message.len())
+		})?;
+		// The FAIL completions are queued Host actions. Route them now.
+		self.shared.host.schedule_kick()
+	}
+
 	/// Close the session. A running [`serve`](Session::serve) completes. Pending
 	/// vows settle closed.
 	///

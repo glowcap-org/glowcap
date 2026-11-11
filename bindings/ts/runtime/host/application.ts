@@ -24,12 +24,14 @@ import { checkHost, GlowcapError } from "../errors.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { L } from "../internal/layout.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
-import { ab, outPointer } from "../internal/seam.ts";
+import { selectorBuffer, selectorLength } from "../internal/selector.ts";
+import { ab, outPointer, outU64 } from "../internal/seam.ts";
 import { type Locator, withOwnedLocator } from "../locator.ts";
-import { finishFetch } from "../promise.ts";
+import { finishFetch, withFarArgs } from "../promise.ts";
 import { Session } from "../session.ts";
 import {
 	type BehaviorEntry,
+	currentTurnFor,
 	type FfiBehaviorOwner,
 	hostedFreePointer,
 	registerBehavior,
@@ -295,6 +297,114 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		this._publications.set(name, ctx);
 		this.scheduleKick();
 		return name;
+	}
+
+	/** Host `behavior` with no session, alias, or wire export and return an
+	 * owned reference to it. The actor is collected, and its behavior entry
+	 * released, once `release` or GC spends that reference and every exported
+	 * copy is gone. Sending the reference over any session exports it there.
+	 * Inside a behavior callback the spawn joins that turn. A refused spawn
+	 * throws `GlowcapError` and hosts nothing. */
+	spawn(behavior: Behavior): Ref {
+		const turn = currentTurnFor(this);
+		const raw = turn === null ? this.raw : NULL;
+		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null }, true);
+		const out = new Uint8Array(8);
+		try {
+			checkHost(
+				turn === null
+					? hostS.glowcap_host_spawn(raw, trampolinePointer(), ctx, hostedFreePointer(), ab(out))
+					: hostS.glowcap_host_turn_spawn(turn, trampolinePointer(), ctx, hostedFreePointer(), ab(out)),
+			);
+		} catch (err) {
+			this.unregisterHostedBehavior(ctx);
+			throw err;
+		}
+		return this.adoptOwnedRef(outU64(out));
+	}
+
+	/** Eventual-send `verb(args)` to `target` at its actual home, local or
+	 * far, without naming a session. `target` is a reference this Host holds.
+	 * Pipeline through `Session.send` to address a `RemotePromise`. The promise
+	 * settles with the answer, and the answer's vow is released when it
+	 * settles. The Host queue owns admitted work, so abandoning the promise
+	 * does not cancel it. A refused send queues nothing and rejects with the
+	 * refusal. Inside a behavior callback the send commits with that turn. */
+	async send(target: Ref, verb: string | null, args: Argument[] = []): Promise<Argument> {
+		const turn = currentTurnFor(this);
+		const raw = this.raw;
+		const verbBytes = selectorBuffer(verb);
+		const out = new Uint8Array(8);
+		withFarArgs(this.#farArgs(raw), args, (argsBuf) =>
+			checkHost(
+				turn === null
+					? hostS.glowcap_host_send(
+						raw,
+						ab(refStruct(target)),
+						verbBytes,
+						selectorLength(verbBytes),
+						ab(argsBuf),
+						BigInt(args.length),
+						ab(out),
+					)
+					: hostS.glowcap_host_turn_send(
+						turn,
+						ab(refStruct(target)),
+						verbBytes,
+						selectorLength(verbBytes),
+						ab(argsBuf),
+						BigInt(args.length),
+						ab(out),
+					),
+			));
+		const vow = outU64(out);
+		this.vowMinted(vow, true);
+		try {
+			await this.kickActions();
+			return await this.awaitVow(vow);
+		} finally {
+			this._gc.parkVow(vow);
+		}
+	}
+
+	/** Queue a notification to `target` at its actual home with no reply.
+	 * `target` is a reference this Host holds. This returns once the
+	 * notification is queued, where `Session.tell` is awaited. A refusal
+	 * throws `GlowcapError` and queues nothing. Inside a behavior callback the
+	 * notification commits with that turn. */
+	tell(target: Ref, verb: string | null, args: Argument[] = []): void {
+		const turn = currentTurnFor(this);
+		const raw = this.raw;
+		const verbBytes = selectorBuffer(verb);
+		withFarArgs(this.#farArgs(raw), args, (argsBuf) =>
+			checkHost(
+				turn === null
+					? hostS.glowcap_host_tell(
+						raw,
+						ab(refStruct(target)),
+						verbBytes,
+						selectorLength(verbBytes),
+						ab(argsBuf),
+						BigInt(args.length),
+					)
+					: hostS.glowcap_host_turn_tell(
+						turn,
+						ab(refStruct(target)),
+						verbBytes,
+						selectorLength(verbBytes),
+						ab(argsBuf),
+						BigInt(args.length),
+					),
+			));
+		this.scheduleKick();
+	}
+
+	#farArgs(raw: Ptr) {
+		return {
+			hostRaw: raw,
+			hostOwner: this,
+			recordBackgroundFailure: (failure: unknown) => this.recordBackgroundFailure(failure),
+		};
 	}
 
 	/** Retain one callback entry for this Host's FFI lifetime. */

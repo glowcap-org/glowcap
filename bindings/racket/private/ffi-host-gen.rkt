@@ -22,6 +22,7 @@
                      glowcap_host_close_wait_ms*
                      glowcap_host_session_open_dialed_locator*
                      glowcap_host_session_open_accepted*
+                     glowcap_host_pending_dial_introducer*
                      glowcap_host_reference_exporter*
                      glowcap_host_session_close_progress*
                      glowcap_host_session_lifecycle_state*
@@ -32,6 +33,7 @@
                      glowcap_host_pump_drain*
                      glowcap_host_session_publish*
                      glowcap_host_session_spawn*
+                     glowcap_host_spawn*
                      glowcap_host_session_fetch*
                      glowcap_host_session_enliven*
                      glowcap_host_enliven*
@@ -40,17 +42,20 @@
                      glowcap_host_session_listen*
                      glowcap_host_session_resolve*
                      glowcap_host_session_send*
+                     glowcap_host_send*
                      glowcap_host_vow_send*
                      glowcap_host_vow_capability*
                      glowcap_host_vow_index*
                      glowcap_host_vow_untag*
                      glowcap_host_vow_get*
                      glowcap_host_turn_session*
+                     glowcap_host_turn_send*
                      glowcap_host_turn_defer*
                      glowcap_host_turn_defer_if_answer*
                      glowcap_host_turn_spawn*
                      glowcap_host_ref_retain*
-                     glowcap_host_session_published_ref*))
+                     glowcap_host_session_published_ref*
+                     glowcap_host_session_partner_abort*))
 
 (define host-lib (open-glowcap-archive "glowcap_host"))
 
@@ -92,6 +97,10 @@
 (define-host glowcap_host_pending_dial*
   (_fun _pointer _uint64 _size _pointer _size (_or-null _GlowcapLocatorView-pointer) _pointer -> _int32)
   #:c-id glowcap_host_pending_dial)
+(define-host glowcap_host_pending_dial_introducer*
+  (_fun _pointer _uint64 _size _pointer -> _int32)
+  #:c-id glowcap_host_pending_dial_introducer)
+(define glowcap_host_pending_dial_introducer (wrap-out1 glowcap_host_pending_dial_introducer* _pointer #f))
 (define-host glowcap_host_reference_exporter*
   (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer -> _int32)
   #:c-id glowcap_host_reference_exporter)
@@ -154,6 +163,10 @@
 (define glowcap_host_session_spawn
   (wrap-out1 glowcap_host_session_spawn* _GlowcapReference (make-GlowcapReference 0)))
 (define-host glowcap_host_publish (_fun _pointer _pointer _size _GlowcapHostBehavior _pointer _pointer -> _int32))
+(define-host glowcap_host_spawn*
+  (_fun _pointer _GlowcapHostBehavior _pointer _pointer (_or-null _GlowcapReference-pointer) -> _int32)
+  #:c-id glowcap_host_spawn)
+(define glowcap_host_spawn (wrap-out1 glowcap_host_spawn* _GlowcapReference (make-GlowcapReference 0)))
 (define-host glowcap_host_unpublish (_fun _pointer _pointer _size -> _int32))
 (define-host glowcap_host_publish_durable
   (_fun _pointer _pointer _size _GlowcapHostBehavior _pointer _pointer _pointer _size -> _int32))
@@ -202,6 +215,12 @@
 (define glowcap_host_session_send (wrap-out1 glowcap_host_session_send* _uint64 0))
 (define-host glowcap_host_session_tell
   (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size -> _int32))
+(define-host glowcap_host_tell
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size -> _int32))
+(define-host glowcap_host_send*
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size _pointer -> _int32)
+  #:c-id glowcap_host_send)
+(define glowcap_host_send (wrap-out1 glowcap_host_send* _uint64 0))
 (define-host glowcap_host_vow_send*
   (_fun _pointer _uint64 _pointer _size _pointer _size _pointer -> _int32)
   #:c-id glowcap_host_vow_send)
@@ -231,6 +250,12 @@
 (define glowcap_host_turn_session (wrap-out1 glowcap_host_turn_session* _pointer #f))
 (define-host glowcap_host_turn_forward
   (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size (_or-null _GlowcapArgument-pointer) -> _int32))
+(define-host glowcap_host_turn_send*
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size _pointer -> _int32)
+  #:c-id glowcap_host_turn_send)
+(define glowcap_host_turn_send (wrap-out1 glowcap_host_turn_send* _uint64 0))
+(define-host glowcap_host_turn_tell
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size -> _int32))
 (define-host glowcap_host_turn_defer*
   (_fun _pointer _pointer -> _int32)
   #:c-id glowcap_host_turn_defer)
@@ -259,6 +284,13 @@
 (define-host glowcap_host_session_set_exporter_location
   (_fun _pointer (_or-null _GlowcapLocatorView-pointer) -> _int32))
 (define-host glowcap_host_session_last_abort (_fun _pointer (_or-null _GlowcapLastAbort-pointer) -> _int32))
+(define-host glowcap_host_session_partner_abort*
+  (_fun _pointer _pointer _pointer _pointer _size _pointer -> _int32)
+  #:c-id glowcap_host_session_partner_abort)
+(define (glowcap_host_session_partner_abort session out-msg cap)
+  (call/outs (list (cons _pointer #f) (cons _size 0) (cons _size 0))
+             (lambda (out0 out1 out2)
+               (glowcap_host_session_partner_abort* session out0 out1 out-msg cap out2))))
 (define-host glowcap_host_session_partner_identity
   (_fun _pointer (_or-null _GlowcapPartnerIdentity-pointer) -> _int32))
 (define-host glowcap_host_session_bind_verified_channel_key (_fun _pointer _pointer _size -> _int32))

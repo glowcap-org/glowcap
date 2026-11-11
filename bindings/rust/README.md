@@ -223,7 +223,9 @@ owned state into their behavior.
 `Session::closed().await` waits for the session to end without asking it to
 close or taking over serving. Every waiter, including one that arrives after
 the end, gets the same result. Cancelling an observer leaves the
-connection running.
+connection running. `Session::partner_abort` returns the `PartnerAbort` the
+partner sent before ending the session, or `None`, and stays readable after
+close.
 
 `Host::enliven_for_version` and `Host::fetch_at` can make a Runtime's first
 network operation. Each returns its own reference, even on a cache hit.

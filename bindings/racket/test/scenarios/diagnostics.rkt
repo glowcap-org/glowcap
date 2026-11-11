@@ -565,3 +565,21 @@
              (add1 (unbox retained-child-release-count)))))
 (expect (= 1 (unbox retained-child-release-count))
         "FFI parent releases each retained child exactly once")
+
+;; `box-cas!` can fail with no rival writer on aarch64, so one-shot transitions
+;; go through `box-cas-strong!`, whose module is the only caller of the primitive.
+(require racket/path racket/runtime-path)
+(define-runtime-path binding-root "../..")
+(define bare-box-cas
+  (for/list ([path (in-directory binding-root
+                                 (lambda (dir)
+                                   (not (equal? (path->string (file-name-from-path dir))
+                                                "compiled"))))]
+             #:when (regexp-match? #rx"[.]rkt$" (path->string path))
+             #:unless (equal? (path->string (file-name-from-path path)) "atomic.rkt")
+             #:when (call-with-input-file path
+                      (lambda (in) (regexp-match? #rx"[(]box-cas! " in))))
+    (path->string (file-name-from-path path))))
+(expect (null? bare-box-cas)
+        (format "binding modules call box-cas! directly: ~a" bare-box-cas))
+(printf "racket test OK: every box compare-and-swap goes through box-cas-strong!\n")

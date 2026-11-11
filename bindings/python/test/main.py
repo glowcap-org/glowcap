@@ -44,6 +44,7 @@ from scenarios import (
     conversation,
     driver_release,
     failures,
+    host_actors,
     host_lifecycle,
     lifecycle,
     reference_ownership,
@@ -193,6 +194,7 @@ def main() -> int:
     print("python test OK: Context preserves the cross-language FFI failure vector exactly once")
 
     host_lifecycle.run()
+    host_actors.run()
     # Run a real frame over a TCP socket: one frame, loopback. The blocking TCP
     # shuttle is its own à-la-carte archive, composed from `glowcap.tcp`.
     with TcpNetlayer() as nl:

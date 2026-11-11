@@ -121,6 +121,7 @@ impl LoopShared {
 				self.fail_close_or_record(error);
 				return;
 			}
+			host.retain_partner_aborts();
 			match self.driver.release() {
 				ReleaseOutcome::Consumed(Ok(())) => {
 					self.released.set(true);

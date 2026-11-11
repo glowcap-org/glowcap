@@ -7,6 +7,7 @@
          "../ffi-driver.rkt"
          "../driver-failure.rkt"
          "../errors.rkt"
+         "../atomic.rkt"
          "../locator.rkt"
          (only-in "../vat.rkt" converts-to-broken?)
          (combine-in "../host.rkt" "../host/state.rkt")
@@ -31,11 +32,26 @@
          loop-server-close!
          loop-server-host)
 
+;; Wait for the listener's setup outcome. The driver owns each provider's setup
+;; budget and reports it as LISTENER_FAILED. `current-pump-deadline`, when set,
+;; also bounds this wait: a setup still pending at the deadline raises
+;; ERR-TIMEOUT, and the caller's rollback closes the listener. A settle that
+;; lands with the alarm still wins.
 (define (loop-listener-ready! listener)
-  (define outcome (sync listener))
+  (define deadline (current-pump-deadline))
+  (define outcome
+    (or (sync listener
+              (if deadline
+                  (wrap-evt (alarm-evt deadline) (lambda (_) #f))
+                  never-evt))
+        (sync/timeout 0 listener)))
   (cond
     [(eq? outcome listener) listener]
     [(exn? outcome) (raise outcome)]
+    [(not outcome)
+     (raise-glowcap 'listen ERR-TIMEOUT
+                    "listener ~a setup did not settle before the deadline"
+                    (loop-listener-id listener))]
     [else
      (raise-glowcap 'glowcap-loop ERR-INTERNAL
                     "listener setup event produced an invalid outcome")]))
@@ -135,7 +151,7 @@
       (define state (unbox state-box))
       (cond
         [(memq state '(closed failed closing)) #f]
-        [(box-cas! state-box state 'closing) state]
+        [(box-cas-strong! state-box state 'closing) state]
         [else (claim)])))
   (when prior
     (define close-error #f)
@@ -145,7 +161,9 @@
         (let join-close ()
           ;; Arm the generation before the retry. A provider retirement that
           ;; lands between the call and the park bumps this exact snapshot, so
-          ;; asynchronous close cannot lose its wakeup.
+          ;; asynchronous close cannot lose its wakeup. The wait takes no caller
+          ;; deadline: setup rollback closes a listener after that deadline has
+          ;; passed, and the driver owns the provider's stop budget.
           (define progress (host-progress-evt m))
           (unless (close-driver-listener!
                    (driver-loop-handle lp) (loop-listener-id listener))
@@ -200,6 +218,7 @@
   (when (unbox (loop-server-closed? s))
     (raise-glowcap 'accept ERR-CLOSED "listener closed"))
   (define accepts (loop-listener-accepts (loop-server-listener s)))
+  ;; An accept waits for a peer by design; close puts `accepts-terminal`.
   (define item (async-channel-get accepts))
   (cond
     [(eq? item accepts-terminal)
@@ -261,7 +280,7 @@
   (define claimed?
     (let claim ()
       (case (unbox state)
-        [(open) (if (box-cas! state 'open 'retiring) #t (claim))]
+        [(open) (if (box-cas-strong! state 'open 'retiring) #t (claim))]
         [(retiring failed stopping released) #f])))
   (when claimed?
     (call-with-host
@@ -271,7 +290,7 @@
     (void (thread (lambda () (run-loop-retirement! lp))))))
 
 (define (loop-server-close! s)
-  (when (box-cas! (loop-server-closed? s) #f #t)
+  (when (box-cas-strong! (loop-server-closed? s) #f #t)
     (define lp (loop-server-lp s))
     (when (loop-running? lp)
       (define accepts (loop-listener-close! lp (loop-server-listener s)))

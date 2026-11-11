@@ -303,6 +303,7 @@ impl LoopShared {
 		}
 		if let Some(host) = self.wrapper.borrow().as_ref().and_then(Weak::upgrade) {
 			host.fail_pending_vows(code, &detail);
+			host.retain_partner_aborts();
 			match self.driver.release() {
 				ReleaseOutcome::Consumed(Ok(())) => {
 					self.released.set(true);

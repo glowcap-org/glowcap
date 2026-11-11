@@ -20,6 +20,7 @@
 
 (require net/rfc6455
          net/url
+         "atomic.rkt"
          "async.rkt"
          "constants.rkt")
 
@@ -50,15 +51,15 @@
     (wrap-evt (semaphore-peek-evt close-signal) (lambda (_) close-token)))
 
   (define (record-failure! error)
-    (box-cas! failure #f error)
-    (box-cas! terminal #f error)
+    (box-cas-strong! failure #f error)
+    (box-cas-strong! terminal #f error)
     (semaphore-post close-signal)
     (unbox failure))
 
   ;; The WebSocket package may block while closing. Its foreign wait stays on
   ;; an owned worker, and transport close joins the worker's exact result.
   (define (request-close!)
-    (when (box-cas! close-requested? #f #t)
+    (when (box-cas-strong! close-requested? #f #t)
       (thread
        (lambda ()
          (dynamic-wind
@@ -72,7 +73,7 @@
   (define (stop!)
     (unless (unbox closed?)
       (set-box! closed? #t)
-      (box-cas! terminal #f eof)
+      (box-cas-strong! terminal #f eof)
       (semaphore-post close-signal)
       (request-close!)))
 

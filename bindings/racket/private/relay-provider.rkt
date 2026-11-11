@@ -178,7 +178,7 @@
 (define (relay-connector)
   (make-byte-connector
    (list TRANSPORT-KEYED-RELAY TRANSPORT-NOISE-RELAY)
-   (lambda (m loc handshake-timeout-ms)
+   (lambda (m loc handshake-timeout-ms _introducer)
      (define route (locator-relay-route loc))
      (unless route
        (raise-glowcap 'relay-connector ERR-INVALID-ARGUMENT

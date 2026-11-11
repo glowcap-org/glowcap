@@ -90,6 +90,7 @@ export abstract class HostLifecycle extends HostState {
 		// with the host.
 		traceDrainHost(raw);
 		this.drainParkedReleases();
+		this._retainPartnerAborts();
 		const failures = new FirstFailure();
 		if (timedOut) failures.add(new GlowcapError(TIMEOUT, "finish close exhausted its grace period"));
 		if (this._finalizerState.raw === raw) {
@@ -119,6 +120,12 @@ export abstract class HostLifecycle extends HostState {
 			failures.add(error);
 		}
 		failures.throwIfAny();
+	}
+
+	/** Have each registered session read its partner abort while the Host
+	 * still owns the handles a Host or loop release frees. */
+	protected _retainPartnerAborts(): void {
+		for (const session of this._sessions.values()) session.retainPartnerAbort();
 	}
 
 	/** Retire every channel the consumed FFI owner made unreachable. The
@@ -184,6 +191,7 @@ export abstract class HostLifecycle extends HostState {
 		if (this._raw === NULL) return;
 		this._releaseStarted = true;
 		traceDrainHost(this._raw);
+		this._retainPartnerAborts();
 	}
 
 	/** Commit wrapper teardown after the driver released its Host, joining every

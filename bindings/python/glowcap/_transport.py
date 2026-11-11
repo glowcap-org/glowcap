@@ -76,12 +76,19 @@ class Connector:
     """One explicit byte-fed transport realization.
 
     The callback is transport-owned and receives the shared Host, the complete
-    locator, and the handshake budget. It returns an established Session. The
-    generic dialer does not inspect or reinterpret the locator.
+    locator, the handshake budget, and the introducer. It returns an
+    established Session. The generic dialer does not inspect or reinterpret
+    the locator.
+
+    The introducer is the live Session that supplied the handoff this dial
+    redeems, captured before the callback starts, or ``None`` for an
+    application dial and for a pending dial whose introducing session has
+    closed. The callback borrows it for signaling context and does not own
+    its lifetime.
     """
 
     transports: tuple[str, ...]
-    realize: Callable[[Host, Locator, int | None], Awaitable[Session]]
+    realize: Callable[[Host, Locator, int | None, Session | None], Awaitable[Session]]
 
     def __post_init__(self) -> None:
         symbols = tuple(self.transports)
@@ -96,7 +103,9 @@ class Connector:
     def handles(self, transport: str) -> bool:
         return transport in self.transports
 
-    async def connect(self, host: Host, locator: Locator, handshake_timeout_ms: int | None) -> Session:
+    async def connect(
+        self, host: Host, locator: Locator, handshake_timeout_ms: int | None, introducer: Session | None
+    ) -> Session:
         if not self.handles(locator.transport):
             raise ValueError(f"connector does not advertise locator transport {locator.transport!r}")
-        return await self.realize(host, locator, handshake_timeout_ms)
+        return await self.realize(host, locator, handshake_timeout_ms, introducer)

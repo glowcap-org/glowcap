@@ -72,7 +72,7 @@ async def _connector_install_is_transactional() -> None:
     """A conflicting later symbol cannot publish an earlier connector."""
     host = Host()
 
-    def never(_host, _locator, _timeout):
+    def never(_host, _locator, _timeout, _introducer):
         return None
 
     first = Connector((TRANSPORT_TCP, TRANSPORT_KEYED_TCP), never)
@@ -115,6 +115,9 @@ async def _cancelled_dial_does_not_report_failure() -> None:
     def pending_dial(*_args) -> int:
         return 0
 
+    def no_introducer(*_args) -> int:
+        return 0
+
     def dial_failed(*_args) -> int:
         nonlocal failures
         failures += 1
@@ -125,10 +128,12 @@ async def _cancelled_dial_does_not_report_failure() -> None:
         await asyncio.Event().wait()
 
     original_pending = dial_module._host.glowcap_host_pending_dial
+    original_introducer = dial_module._host.glowcap_host_pending_dial_introducer
     original_failed = dial_module._host.glowcap_host_dial_failed
     original_clone = dial_module._OwnedLocator.__dict__["clone_view"]
     original_dial = dial_module.dial_exporter
     dial_module._host.glowcap_host_pending_dial = pending_dial
+    dial_module._host.glowcap_host_pending_dial_introducer = no_introducer
     dial_module._host.glowcap_host_dial_failed = dial_failed
     setattr(dial_module._OwnedLocator, "clone_view", classmethod(lambda _cls, _view: OwnedLocatorStub()))
     dial_module.dial_exporter = blocked_dial
@@ -145,6 +150,7 @@ async def _cancelled_dial_does_not_report_failure() -> None:
         assert failures == 0, "cancelled dial reported dial_failed"
     finally:
         dial_module._host.glowcap_host_pending_dial = original_pending
+        dial_module._host.glowcap_host_pending_dial_introducer = original_introducer
         dial_module._host.glowcap_host_dial_failed = original_failed
         setattr(dial_module._OwnedLocator, "clone_view", original_clone)
         dial_module.dial_exporter = original_dial
@@ -219,7 +225,7 @@ async def _runtime_open_is_transactional() -> None:
         assert not managed_host.released
     assert managed_host.released, "Host async context did not cross its close barrier"
 
-    async def never(_host, _locator, _timeout):
+    async def never(_host, _locator, _timeout, _introducer):
         raise AssertionError("the failed connector must never be dialed")
 
     connector = Connector(("runtime-test",), never)
@@ -456,7 +462,7 @@ async def _runtime_open_options_reach_the_host() -> None:
     """Host options pass through Runtime.open, ``adopt_host`` refuses each one
     by name, and the removed singular keywords are not accepted."""
 
-    def never(_host, _locator, _timeout):
+    def never(_host, _locator, _timeout, _introducer):
         return None
 
     connectors = [Connector((TRANSPORT_TCP,), never)]
@@ -501,7 +507,7 @@ async def _runtime_frame_cap_zero_is_refused() -> None:
     """``frame_cap`` is a Host option, so the Host's own refusal of a zero cap
     surfaces from the Runtime open, and close reports that same failure."""
 
-    def never(_host, _locator, _timeout):
+    def never(_host, _locator, _timeout, _introducer):
         return None
 
     runtime = Runtime.open(connectors=[Connector((TRANSPORT_TCP,), never)], frame_cap=0)

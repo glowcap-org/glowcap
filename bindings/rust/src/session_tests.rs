@@ -38,3 +38,6 @@ mod shared_ownership;
 
 #[path = "session_tests/flush.rs"]
 mod flush;
+
+#[path = "session_tests/far_promises.rs"]
+mod far_promises;

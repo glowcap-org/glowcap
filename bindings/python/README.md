@@ -100,6 +100,13 @@ the fulfilled-data `ErrorValue`, and the capability type `Ref`. Returning an
 Raising an exception or returning a broken vow rejects it. Async behaviors
 may return values containing capabilities, just as synchronous behaviors may.
 
+`runtime.host`, `session.host`, and `server.host` return the `Host` behind
+them. A `Host` runs actors with no session. `host.spawn(behavior)` returns an
+owned reference, `host.send(ref, verb, args)` returns an `asyncio.Future` for
+the answer, and `host.tell(ref, verb, args)` queues a notification. Inside a
+behavior these calls join its turn. A told async behavior runs to completion,
+and its failure reaches `host.take_failures()`.
+
 `host.retain(ref)` returns an independent reference occurrence. Releasing the
 source wrapper leaves it usable. `await session.resolve(ref)` returns an owned
 reference for a live object without wire traffic, or waits for a promise's settled
@@ -111,6 +118,12 @@ must happen now.
 `Session` for each partner. `publish` and `spawn` host ordinary Python
 callables. `send` returns a `RemotePromise`, implemented as an
 `asyncio.Future`, and that promise can be the target of another send.
+
+`session.break_far_promises(message)` breaks every promise still waiting on
+the partner and keeps the session open for later sends. A session the driver
+loop owns refuses it. `session.partner_abort()` returns the `PartnerAbort` the
+partner sent before ending the session, or `None`, and stays readable after
+close.
 
 Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
 connection runs on glowcap's driver loop, one event loop in the C library that

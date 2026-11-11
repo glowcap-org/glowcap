@@ -53,6 +53,10 @@ export interface PromiseFactoryHandle extends VowWaitHandle {
 	recordBackgroundFailure(failure: unknown): void;
 }
 
+/** What far-argument encoding needs: the Host that mints promise capabilities
+ * and receives a release failure after an admitted call. */
+export type FarArgsHandle = Pick<PromiseFactoryHandle, "hostRaw" | "hostOwner" | "recordBackgroundFailure">;
+
 /** The Host owns tracking for occurrences projected from its FFI outcomes. */
 export interface VowOutcomeOwner extends UnexposedOutcomeOwner {
 	trackVowOutcome(vow: bigint): void;
@@ -238,7 +242,7 @@ export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
  * for the vow, in whatever state the vow is in while this handle lives, one
  * application retain pushed on `minted` for the caller to give back.
  * `glowcap_host_vow_capability` says what the partner receives. */
-function lowerPromise(h: PromiseFactoryHandle, promise: RemotePromise, minted: Ref[]): Ref {
+function lowerPromise(h: FarArgsHandle, promise: RemotePromise, minted: Ref[]): Ref {
 	const vow = promise.farVow(h.hostOwner);
 	const out = new Uint8Array(8);
 	checkHost(hostS.glowcap_host_vow_capability(h.hostRaw, vow, ab(out)));
@@ -253,7 +257,7 @@ function lowerPromise(h: PromiseFactoryHandle, promise: RemotePromise, minted: R
  * call, admitted or refused. A promise another Host returned, an await-only
  * one, and a plain Promise are refused before any frame moves. */
 function encodeFarArgs(
-	h: PromiseFactoryHandle,
+	h: FarArgsHandle,
 	args: Argument[],
 	keep: Uint8Array[],
 ): { readonly buf: Uint8Array; release(): void } {
@@ -295,7 +299,7 @@ function encodeFarArgs(
  * After an admitted call, whose effect stands, a release failure is the
  * Host's to report. */
 export function withFarArgs<T>(
-	h: PromiseFactoryHandle,
+	h: FarArgsHandle,
 	args: Argument[],
 	call: (argsBuf: Uint8Array) => T,
 ): T {

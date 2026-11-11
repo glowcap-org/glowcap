@@ -43,6 +43,7 @@ from .._abi_value import (
     _feature_mask,
 )
 from .._errors import GlowcapError, TerminalFailures, _check_host, _retain_cleanup_failure
+from .actors import _ActorMixin
 from .finalizer import (
     _drain_deferred_finalizer_states,
     _HostFinalizerState,
@@ -73,7 +74,7 @@ _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 _HOST_FRAME_CAP = _abi.DEFAULT_FRAME_CAP
 
 
-class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
+class Host(_LifecycleMixin, _PublicationMixin, _ActorMixin, _ProgressMixin):
     """The CapTP Host: one identity, one session directory, one routing and redeem
     authority, shared by every session minted against it. It owns
     ``engine.Node`` in the Zig core behind ``libglowcap_host``.
@@ -439,7 +440,9 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         loop, the top-level re-entry the host requires, and carries plain
         data only: a value the settle refuses (a capability, per the off-turn
         contract) breaks the answer with the refusal's reason instead of
-        stranding it. False when the deferral itself refused."""
+        stranding it. A tell has no answer, so its awaitable runs as its own
+        task and a failure is recorded as callerless. False when the deferral
+        itself refused."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -449,9 +452,24 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             return False
 
         resolver_out = ctypes.c_uint64(0)
-        if _host.glowcap_host_turn_defer(turn, ctypes.byref(resolver_out)) != _abi.OK:
+        if _host.glowcap_host_turn_defer_if_answer(turn, ctypes.byref(resolver_out)) != _abi.OK:
+            close = getattr(pending, "close", None)
+            if close is not None:
+                close()
             return False
         resolver = resolver_out.value
+        if resolver == 0:
+
+            async def run_told() -> None:
+                try:
+                    await pending
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    self._record_callerless_failure("tell.behavior", error)
+
+            self._own_behavior_task(loop.create_task(run_told()))
+            return True
 
         async def settle() -> None:
             try:

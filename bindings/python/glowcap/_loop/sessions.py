@@ -33,15 +33,23 @@ class _SessionsMixin(DriverLoopMixinBase):
         return self.adopt_session(ptr)
 
     def adopt_session(self, ptr: int):
-        """Transfer one event-delivered FFI handle into a Session wrapper."""
+        """Transfer one event-delivered or claimed FFI handle into a Session
+        wrapper, or return the wrapper that already owns it.
+
+        A handle that is neither wrapped nor unclaimed has been released, and
+        its pointer may name freed memory or a later session, so it is refused
+        with ``ERR_CLOSED`` before any FFI call reads it.
+        """
         from .._session import Session
 
         host = self.wrapper_host()
         existing = host.get_session(ptr)
         if existing is not None:
             return existing
-        closed, failure = self._unclaimed_sessions.get(ptr, (False, None))
-        transport = _LoopTransport(cast("DriverLoop", self), ptr)
+        if ptr not in self._unclaimed_sessions:
+            raise GlowcapError(_c.ERR_CLOSED, "the session handle was already released")
+        closed, failure = self._unclaimed_sessions[ptr]
+        transport = _LoopTransport(cast("DriverLoop", self))
         session = Session(ctypes.c_void_p(ptr), host, transport)
         self._unclaimed_sessions.pop(ptr, None)
         if closed:
@@ -72,16 +80,37 @@ class _SessionsMixin(DriverLoopMixinBase):
         return self._wrapper
 
     def session_release(self, session: int) -> None:
-        """Release one loop-owned session: the loop spelling of
+        """Release one loop-owned session handle: the loop spelling of
         ``glowcap_host_session_release``, which must not be called on
-        sessions this loop minted."""
-        _check(_driver.glowcap_driver_session_release(self._h, ctypes.c_void_p(session)))
+        sessions this loop minted.
+
+        A handle a :class:`glowcap.Session` wraps (as :meth:`serve_session`
+        leaves it) retires through that Session's own release, which keeps
+        its partner abort and retires the wrapper with the handle. A release
+        requested inside a hosted turn commits when the turn returns. A
+        handle already released is refused with ``ERR_CLOSED``."""
+        wrapped = self._wrapper.get_session(session) if self._wrapper is not None else None
+        if wrapped is not None:
+            prior = wrapped._wire_failure
+            wrapped.close_transport()
+            failure = wrapped._wire_failure
+            if failure is not None and failure is not prior and not wrapped.released and not wrapped._release_pending:
+                raise failure
+            return
+        if session not in self._unclaimed_sessions:
+            raise GlowcapError(_c.ERR_CLOSED, "the session handle was already released")
+        self._ffi_session_release(ctypes.c_void_p(session))
 
     def claim_reference_exporter(self, reference) -> int | None:
-        """Resolve and claim the exporter session named by one Host capability."""
+        """Resolve and claim the exporter session named by one Host capability.
+        A claimed handle no Session wraps yet joins the unclaimed set, so
+        :meth:`adopt_session` can wrap it."""
         out = ctypes.c_void_p()
         _check(_driver.glowcap_driver_claim_reference_exporter(self._h, ctypes.byref(reference), ctypes.byref(out)))
-        return out.value
+        ptr = out.value
+        if ptr and (self._wrapper is None or self._wrapper.get_session(ptr) is None):
+            self._unclaimed_sessions.setdefault(ptr, (False, None))
+        return ptr
 
     async def close_session(self, session: ctypes.c_void_p, options: _CloseOptions) -> None:
         """Close one loop-owned session through the FFI completion barrier."""

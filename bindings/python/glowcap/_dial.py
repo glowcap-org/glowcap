@@ -25,6 +25,7 @@ from ._transport import Connector, Provider
 if TYPE_CHECKING:
     from ._context import Context
     from ._loop import DriverLoop
+    from ._session import Session
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 
@@ -290,7 +291,7 @@ class Runtime:
         connector = self.host._connector_for(partner.transport)
         if connector is None:
             raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime has no connector for {partner.transport!r}")
-        return await connector.connect(self.host, partner, timeout)
+        return await connector.connect(self.host, partner, timeout, None)
 
     async def close(self, *, pending: PendingWork = PendingWork.CANCEL, grace_ms: object = _UNSET) -> None:
         _close_options(pending, grace_ms)
@@ -335,22 +336,14 @@ class Runtime:
             raise close_error
 
 
-async def dial_parsed_locator(
-    locator: Locator, host: Host, *, connector: Connector, handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS
-):
-    """Binding-internal byte-fed dial used by handoff redemption."""
-    _validate_handshake_timeout(handshake_timeout_ms)
-    return await connector.connect(host, locator, handshake_timeout_ms)
-
-
-async def dial_exporter(locator: Locator, host: Host, handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS):
+async def dial_exporter(locator: Locator, host: Host, introducer: Session | None):
     """Redeem a DIAL action through the Host's retained connector authority."""
     connector = host._connector_for(locator.transport)
     if connector is None:
         raise GlowcapError(
             _ERR_INVALID_ARGUMENT, f"handoff redeem has no registered connector for {locator.transport!r}"
         )
-    return await dial_parsed_locator(locator, host, connector=connector, handshake_timeout_ms=handshake_timeout_ms)
+    return await connector.connect(host, locator, _abi.HANDSHAKE_TIMEOUT_MS, introducer)
 
 
 async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
@@ -378,7 +371,10 @@ async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
         _check_host(rc)
         with _OwnedLocator.clone_view(ctypes.cast(ctypes.byref(view), ctypes.c_void_p)) as owned:
             locator = owned.value()
-        session = await dial_exporter(locator, host)
+        source = ctypes.c_void_p()
+        _check_host(_host.glowcap_host_pending_dial_introducer(host.raw, ticket, route_index, ctypes.byref(source)))
+        introducer = host.get_session(source.value) if source.value else None
+        session = await dial_exporter(locator, host, introducer)
         if host.released:
             session.close_transport()
             return

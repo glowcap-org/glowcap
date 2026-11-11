@@ -2,7 +2,7 @@
 // hosting operations borrow this object directly; no per-operation adapters.
 
 import { CLOSED, HANDSHAKE_TIMEOUT_MS, HOST_OUTBOUND_PREFIX_CAP, INVALID_ARGUMENT, OK, TIMEOUT } from "@glowcap/abi";
-import { type AbortDetail, checkHost, GlowcapError, retainSecondaryFailure } from "../errors.ts";
+import { type AbortDetail, checkHost, GlowcapError, type PartnerAbort, retainSecondaryFailure } from "../errors.ts";
 import type { Host } from "../host.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
@@ -14,6 +14,7 @@ import {
 	flushOutbound as pumpFlushOutbound,
 	lastAbort as pumpLastAbort,
 	type PumpHandle,
+	readPartnerAbort,
 	runHandshake,
 	serveLoop,
 } from "../pump.ts";
@@ -43,6 +44,7 @@ export class SessionState implements PumpHandle, WriterOwner, MintAwaitHandle, P
 	// adapter reports transport loss to the core only once.
 	#closing = false;
 	#released = false;
+	#partnerAbort: PartnerAbort | null = null;
 	#releasePending = false;
 	#transportClose: Promise<void> | null = null;
 	#closePromise: Promise<void> | null = null;
@@ -245,6 +247,10 @@ export class SessionState implements PumpHandle, WriterOwner, MintAwaitHandle, P
 		return pumpLastAbort(this);
 	}
 
+	partnerAbort(): PartnerAbort | null {
+		return this.#released ? this.#partnerAbort : readPartnerAbort(this.#ptr);
+	}
+
 	requestFlush(): number {
 		return this.#outbound.request();
 	}
@@ -443,6 +449,17 @@ export class SessionState implements PumpHandle, WriterOwner, MintAwaitHandle, P
 		else resolve?.();
 	}
 
+	/** Keep the partner abort before a release frees the handle that holds
+	 * it. A failed read is recorded and never blocks the release. */
+	retainPartnerAbort(): void {
+		if (this.#released) return;
+		try {
+			this.#partnerAbort = readPartnerAbort(this.#ptr);
+		} catch (error) {
+			this.#host.recordBackgroundFailure(error);
+		}
+	}
+
 	ffiOwnerDidRelease(): Promise<void> {
 		if (this.#released) return this.#transportClose ?? Promise.resolve();
 		this.#closing = true;
@@ -492,6 +509,7 @@ export class SessionState implements PumpHandle, WriterOwner, MintAwaitHandle, P
 		const transport = this.#transport;
 		const commitRelease = () => {
 			try {
+				this.retainPartnerAbort();
 				if (isLoopChannel(transport)) transport.driverLoop.ffiSessionRelease(ptr);
 				else checkHost(hostS.glowcap_host_session_release(ptr));
 			} catch (error) {

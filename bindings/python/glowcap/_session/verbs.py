@@ -221,6 +221,22 @@ class _VerbsMixin:
         with _OwnedLocator.create(locator) as owned:
             _check_host(_host.glowcap_host_session_set_exporter_location(self._ptr, owned.borrow_view()))
 
+    def break_far_promises(self, message: str) -> None:
+        """Break every far promise still waiting on this partner.
+
+        Each breaks with ``message``, or with the partner's own abort
+        diagnostic when one arrived. The session stays open for later sends,
+        and a partner's later answer to a broken promise has no observer.
+        :meth:`close` also ends the connection. Refused on a session a driver
+        loop owns.
+        """
+        self.guard_open()
+        raw = message.encode()
+        buf, ptr = _byte_buf(raw)
+        _check_host(_host.glowcap_host_session_break_far_vows(self._ptr, ptr, len(raw)))
+        del buf
+        self._host.schedule_kick()
+
     def partner_identity(self) -> PartnerIdentity:
         """Return the Python-owned identity facts proved by the handshake.
 

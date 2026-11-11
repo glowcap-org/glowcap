@@ -29,6 +29,7 @@
          "private/async.rkt"
          "private/host.rkt"
          "private/host/state.rkt"
+         "private/host/actors.rkt"
          "private/promise.rkt"
          "private/gc.rkt"
          "private/session.rkt"
@@ -50,6 +51,7 @@
          (struct-out kw) (struct-out error-arg) (struct-out pset) (struct-out tagged-arg) (struct-out struct-arg)
          (struct-out abort-info)
          (struct-out partner-identity)
+         (struct-out partner-abort)
          (struct-out settled-profile)
          abi-version last-error
          exn:fail:glowcap? exn:fail:glowcap-code exn:fail:glowcap-abort
@@ -78,6 +80,7 @@
          HANDSHAKE-TIMEOUT-MS
          make-host make-fresh-host
          host-publish
+         host-spawn host-send host-send-promise host-tell host-await
          host-retain-reference host-release-reference!
          host-unpublish
          host-publish-durable
@@ -95,6 +98,7 @@
          host-redeem-reachability-value set-host-redeem-reachability!
          designator-from-seed
          session-partner-identity partner-identity-durable-authenticated?
+         session-partner-abort
          session-profile session-transport-name
          session-bind-verified-channel-key!
          session-vat session-async session-host session-spawn session-publish session-published-ref

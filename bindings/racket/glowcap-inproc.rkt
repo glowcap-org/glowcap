@@ -73,7 +73,7 @@
 (define (inproc-connector)
   (make-byte-connector
    (list TRANSPORT-INPROC)
-   (lambda (m loc handshake-timeout-ms)
+   (lambda (m loc handshake-timeout-ms _introducer)
      (define nl (make-inproc-netlayer))
      (define cn #f)
      (define (close!)

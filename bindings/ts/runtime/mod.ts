@@ -38,6 +38,7 @@ export {
 	secondaryFailures,
 	VowBroken,
 } from "./errors.ts";
+export type { PartnerAbort } from "./errors.ts";
 export type { CarrierFailure, CarrierPhase } from "./carrier_failure.ts";
 export {
 	type Argument,

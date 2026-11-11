@@ -8,6 +8,7 @@
          "../ffi-ocapn.rkt"
          "../ffi-host.rkt"
          "../errors.rkt"
+         "../atomic.rkt"
          "../finalizer-diagnostics.rkt"
          "../abi-value.rkt"
          "../transport.rkt")
@@ -66,7 +67,7 @@
               (min #xffffffff
                    (add1 (terminal-failure-chain-secondary-count old))))
              (terminal-failure-chain error #f 0)))
-       (if (box-cas! (host-runtime-failure m) old next)
+       (if (box-cas-strong! (host-runtime-failure m) old next)
            (terminal-failure-chain-primary next)
            (loop))])))
 

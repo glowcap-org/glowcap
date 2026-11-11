@@ -9,7 +9,7 @@
 //! The Host-scoped [`Ref`] lives beside [`Argument`](crate::Argument).
 //! The byte-fed pump choreography, read packets, `glowcap_host_session_feed_packet`,
 //! drain the action queue, write what `take_packet` drains, feed-refusal /
-//! `last_abort`, EOF / `break_far_vows`, lives in [`crate::pump`]. This module
+//! `last_abort`, EOF / `transport_closed`, lives in [`crate::pump`]. This module
 //! keeps CapTP verbs and thin wrappers into that path. A loop-backed session
 //! (ADR-0024) carries the same verbs with no pump at all: the driver loop owns
 //! its wire ([`crate::driver_loop`]). The host owns everything
@@ -38,7 +38,8 @@ mod identity;
 mod profile;
 
 pub(crate) use close::session_close_result;
-pub use identity::{DurableProvenance, PartnerIdentity};
+pub(crate) use identity::read_partner_abort;
+pub use identity::{DurableProvenance, PartnerAbort, PartnerIdentity};
 
 /// How long a partner has to finish the keyed handshake once the byte channel
 /// is open, on both halves: what [`Runtime::connect`](crate::Runtime::connect) allows a dialed

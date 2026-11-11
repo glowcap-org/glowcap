@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from .. import _constants as _abi
 from .. import _pump
-from .._errors import AbortDetail, GlowcapError, TerminalFailures, _check_host
+from .._errors import AbortDetail, GlowcapError, PartnerAbort, TerminalFailures, _check_host
 from .._ffi_host import _host
 from .._lifecycle import _UNSET, PendingWork, _close_options, _lifecycle_closed, _monotonic_ms
 from .._trampoline import _inside_turn
@@ -37,6 +37,7 @@ class _LifecycleMixin:
         _serve_task: asyncio.Task | None
         _closing: bool
         _released: bool
+        _partner_abort: PartnerAbort | None
         _release_pending: bool
         _close_future: asyncio.Future[None] | None
         _wire_failure: BaseException | None
@@ -56,13 +57,17 @@ class _LifecycleMixin:
         """Run the inbound loop as a background task, started once.
 
         A loop-backed session has no byte pump of its own: the driver loop
-        reads, feeds, and drains, so its serve task only awaits closure.
+        reads, feeds, and drains, so its serve task only awaits closure. A
+        session already released has nothing left to deliver, and its task
+        reports how it closed.
         """
         self._host._assert_owner()
         if self._serve_task is None:
             transport = self._transport
             if getattr(transport, "_driver_loop", None) is not None:
-                transport._driver_loop.serve_session(self._key)
+                ptr = self._ptr
+                if ptr is not None:
+                    transport._driver_loop._serve_owned(ptr)
                 self._serve_task = asyncio.get_running_loop().create_task(transport.wait_closed())
             else:
                 self._serve_task = asyncio.get_running_loop().create_task(_pump._serve_loop(self))
@@ -95,6 +100,12 @@ class _LifecycleMixin:
     def last_abort(self) -> AbortDetail | None:
         """The typed cause of the most recent local dispatch failure."""
         return _pump.last_abort(self)
+
+    def partner_abort(self) -> PartnerAbort | None:
+        """The partner's ``op:abort`` kind and diagnostic, or ``None`` when the
+        partner sent none. It stays readable after the session closes."""
+        ptr = self._ptr
+        return self._partner_abort if ptr is None else _pump.read_partner_abort(ptr)
 
     async def flush_outbound(self) -> bool:
         """Drain encoded frames to this session's transport, in order,
@@ -335,6 +346,17 @@ class _LifecycleMixin:
         else:
             future.set_result(None)
 
+    def _retain_partner_abort(self) -> None:
+        """Keep the partner abort before a release frees the handle that holds
+        it. A failed read is recorded and never blocks the release."""
+        ptr = self._ptr
+        if ptr is None:
+            return
+        try:
+            self._partner_abort = _pump.read_partner_abort(ptr)
+        except BaseException as error:
+            self._record_terminal_failure(error)
+
     def _ffi_owner_did_release(self) -> None:
         """Commit wrapper retirement after the driver loop was released."""
         self._closing = True
@@ -370,6 +392,7 @@ class _LifecycleMixin:
 
         def commit_release(p=ptr):
             try:
+                self._retain_partner_abort()
                 if loop_ref is not None:
                     loop_ref._ffi_session_release(p)
                 else:

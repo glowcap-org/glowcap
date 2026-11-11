@@ -16,7 +16,9 @@
                      "../../private/session/establish.rkt"
                      "../../private/session/close.rkt")
          (combine-in "../../private/host.rkt" "../../private/host/state.rkt")
-         (only-in "../../private/iroh.rkt" iroh-endpoint-record-failure!)
+         (only-in "../../private/iroh.rkt"
+                  iroh-endpoint-record-failure! dial-byte-transport)
+         (only-in racket/udp udp-open-socket udp-bind! udp-addresses udp-close)
          "../../private/locator.rkt"
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
@@ -398,3 +400,106 @@
         "onion listener: the supplied Host's codec changed")
 (host-close! onion-capnp-host)
 (printf "racket test OK: iroh and onion listeners honor the Host profile knobs or refuse them\n")
+
+;; A listener whose provider setup never settles fails inside the caller's
+;; deadline with a typed timeout naming the listener and the setup stage, and
+;; the listen rollback closes the listener and aborts the loop it opened. The
+;; control endpoint accepts the provider's connection and never answers.
+(let ()
+  (define silent (tcp-listen 0 4 #t "127.0.0.1"))
+  (define-values (_addr silent-port _peer _peer-port) (tcp-addresses silent #t))
+  (define held (box '()))
+  (define holder
+    (thread (lambda ()
+              (let hold ()
+                (define-values (in out) (tcp-accept silent))
+                (set-box! held (list* in out (unbox held)))
+                (hold)))))
+  (define started (current-inexact-milliseconds))
+  (define failure
+    (parameterize ([current-pump-deadline (+ started 300)])
+      (with-handlers ([exn:fail:glowcap? values])
+        (listen-onion #:socks onion-absent-socks
+                      #:control (format "127.0.0.1:~a" silent-port))
+        'listening)))
+  (define elapsed (- (current-inexact-milliseconds) started))
+  (expect (and (exn:fail:glowcap? failure)
+               (= ERR-TIMEOUT (exn:fail:glowcap-code failure))
+               (regexp-match? #rx"^listen: listener [0-9]+ setup did not settle"
+                              (exn-message failure)))
+          (format "onion listener: a setup that never settles is a typed timeout, got ~s"
+                  failure))
+  (expect (< elapsed 5000)
+          (format "onion listener: the setup timeout took ~ams" (round elapsed)))
+  (expect (pair? (unbox held))
+          "onion listener: the provider never reached the silent control endpoint")
+  (kill-thread holder)
+  (for ([port (in-list (unbox held))])
+    (if (input-port? port) (close-input-port port) (close-output-port port)))
+  (tcp-close silent))
+(printf "racket test OK: a listener setup that never settles times out inside its deadline\n")
+
+;; The iroh dial waits on the same caller deadline. A direct-address hint at a
+;; silent UDP port leaves the connect pending, so the dial raises a typed
+;; timeout at the deadline and its cancel path tears the attempt down.
+(let ()
+  (define silent (udp-open-socket "127.0.0.1" #f))
+  (udp-bind! silent "127.0.0.1" 0)
+  (define-values (_addr silent-port _peer _peer-port) (udp-addresses silent #t))
+  (define started (current-inexact-milliseconds))
+  (define failure
+    (parameterize ([current-pump-deadline (+ started 300)])
+      (with-handlers ([exn:fail:glowcap? values])
+        (dial-byte-transport (make-string 64 #\a)
+                             (format "127.0.0.1:~a" silent-port)
+                             IROH-REACH-DIRECT)
+        'connected)))
+  (define elapsed (- (current-inexact-milliseconds) started))
+  (expect (and (exn:fail:glowcap? failure)
+               (= ERR-TIMEOUT (exn:fail:glowcap-code failure))
+               (regexp-match? #rx"^iroh: iroh dial [0-9]+ did not connect"
+                              (exn-message failure)))
+          (format "iroh dial: a connect that never completes is a typed timeout, got ~s"
+                  failure))
+  (expect (< elapsed 5000)
+          (format "iroh dial: the connect timeout took ~ams" (round elapsed)))
+  (udp-close silent))
+(printf "racket test OK: an iroh dial that never connects times out inside its deadline\n")
+
+;; A listener accepts a session whose dialer refused the handshake, and its
+;; handle is released before the application serves it. Serving it then
+;; reports the closed session and never hands the released handle back to the
+;; driver, which once answered SessionNotOwned from freed memory.
+(let ()
+  (define honest (listen-keyed-tcp "127.0.0.1" 0 #:seed (make-bytes 32 #x72)))
+  (define designator (locator-designator (server-locator honest)))
+  (server-close! honest)
+  (define squatter (listen-keyed-tcp "127.0.0.1" 0 #:seed (make-bytes 32 #x73)))
+  (define accepted (make-channel))
+  (define acceptor (thread (lambda () (channel-put accepted (accept squatter)))))
+  (define refusal
+    (with-handlers ([exn:fail:glowcap? values])
+      (open-test-session (keyed-tcp-locator designator "127.0.0.1" (server-port squatter)))
+      'connected))
+  (expect (exn:fail:glowcap? refusal) "released handle: a dial to the wrong key was accepted")
+  (define c (sync/timeout 10 accepted))
+  (expect c "released handle: the squatter never accepted the refused dial")
+  ;; The loop releases the handle itself when the close arrives after the
+  ;; accept, and the close here releases it when the close came first.
+  (with-handlers ([exn:fail:glowcap? void]) ; tolerant: the refused session closes failed
+    (parameterize ([current-pump-deadline (+ (current-inexact-milliseconds) 10000)])
+      (session-close! c)))
+  (expect (session-released? c) "released handle: closing the refused session kept its handle")
+  (define served
+    (with-handlers ([exn:fail:glowcap? values])
+      (parameterize ([current-pump-deadline (+ (current-inexact-milliseconds) 10000)])
+        (session-serve c))
+      'served))
+  (expect (not (and (exn:fail:glowcap? served)
+                    (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code served))))
+          (format "released handle: serve handed the released handle to the driver: ~a"
+                  (and (exn? served) (exn-message served))))
+  (expect (not (session-partner-abort c)) "released handle: the dialer refused before sending an abort")
+  (thread-wait acceptor)
+  (server-close! squatter))
+(printf "racket test OK: serving an already released session never reads its handle\n")
