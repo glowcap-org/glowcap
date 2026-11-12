@@ -1,7 +1,8 @@
 /**
- * One edit transaction's brackets, and one typed-but-not-yet-handed-up
- * draft. Fields open on focus and close on blur. Unmount without blur
- * still has to close, or the engine swallows every later undo step.
+ * One edit transaction's brackets, one typed-but-not-yet-handed-up
+ * draft, and the text a field shows while its bracket is open. Fields open
+ * on focus and close on blur. Unmount without blur still has to close, or
+ * the engine swallows every later undo step.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -126,6 +127,25 @@ export function pendingEdit(commit: () => void): {
 			return waiting;
 		},
 	};
+}
+
+/** What a reader typed into a field, and the value the field held when they
+ *  typed it. */
+export type TypedText = { text: string; over: string };
+
+/**
+ * What a text field inside an edit bracket shows: the typed text while `value`
+ * is still the one it was typed over, and `value` once it has moved.
+ *
+ * A typing burst is one transaction. A write to a peer, a session, or a
+ * message inside it leaves the document version quiet until the transaction
+ * closes, so a panel that follows the document hands its field the same
+ * `value` for the whole burst, and the typed text is the only place the burst
+ * is on screen. A panel that renders on every write hands back a `value` that
+ * has moved, and the field shows that.
+ */
+export function shownText(value: string, typed: TypedText | null): string {
+	return typed != null && typed.over === value ? typed.text : value;
 }
 
 /** A `pendingEdit` that lives as long as the field holding it, and

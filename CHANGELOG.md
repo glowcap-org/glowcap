@@ -11,6 +11,12 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+### Fixed
+
+- ocapnviz Build mode shows text as it is typed. Fields such as a peer's
+  label and a message's label dropped each key until the field lost focus,
+  and then kept only the last one.
+
 ## [0.1.7] - 2026-11-11
 
 ### Breaking
