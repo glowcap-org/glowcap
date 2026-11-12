@@ -305,6 +305,11 @@ fn serve_tcp_on_a_thread(seed_byte: u8) -> (String, Arc<AtomicBool>, std::thread
 	(designator_rx.recv().unwrap(), stop, server)
 }
 
+/// How long a test's loopback dials may take before it fails. A dial waits on
+/// the server thread and the kernel, so its bound is time.
+#[cfg(feature = "tcp")]
+const DIAL_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// The exporter-claim seam on the loop-backed wrapper (`HostShared::exporter_session`'s
 /// loop arm): A's wrapper claims its own dialed session's handle before installing
 /// its one shell, and a repeat resolves to that shell rather than installing
@@ -355,32 +360,33 @@ async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
 				let lp = Rc::clone(&lp_a);
 				tokio::task::spawn_local(async move { lp.dial_locator(&dial_locator, None).await })
 			};
-			let mut dial_a = Some(dial_a);
 			let operation_b = lp_b.dial(&locator, None).unwrap();
-			let mut session_a: *mut ffi_host::GlowcapHostSession = core::ptr::null_mut();
+			// B's loop moves only inside a step, and a step blocks this thread.
+			// A's dial task runs in the yield between steps until B opens.
+			let deadline = tokio::time::Instant::now() + DIAL_BUDGET;
 			let mut session_b: *mut ffi_host::GlowcapHostSession = core::ptr::null_mut();
-			for _ in 0..4_000 {
-				if session_a.is_null() && dial_a.as_ref().is_some_and(|handle| handle.is_finished()) {
-					session_a = dial_a.take().unwrap().await.unwrap().expect("A's dial succeeds");
-				}
-				if session_b.is_null() {
-					for event in lp_b.step(20).unwrap().unwrap_or_default() {
-						if let LoopEvent::Opened {
+			while session_b.is_null() {
+				assert!(tokio::time::Instant::now() < deadline, "B's dial never completed");
+				for event in lp_b.step(20).unwrap().unwrap_or_default() {
+					match event {
+						LoopEvent::Opened {
 							operation_id: opened,
 							session,
-						} = event
-						{
+						} => {
 							assert_eq!(opened, operation_b);
 							session_b = session;
 						}
+						LoopEvent::OpenFailed { failure, .. } => panic!("B's dial failed: {}", failure.primary_name),
+						_ => {}
 					}
-				}
-				if !session_a.is_null() && !session_b.is_null() {
-					break;
 				}
 				tokio::task::yield_now().await;
 			}
-			assert!(!session_a.is_null() && !session_b.is_null(), "a dial never completed");
+			let session_a = tokio::time::timeout_at(deadline, dial_a)
+				.await
+				.expect("A's dial never completed")
+				.unwrap()
+				.expect("A's dial succeeds");
 
 			// A's own session: the claim admits, one shell installs, and the repeat
 			// resolves to that shell instead of installing another.
@@ -436,13 +442,13 @@ async fn a_dial_dropped_after_its_handle_arrives_releases_the_session() {
 			let mut dial = Box::pin(lp.dial_locator(&locator, None));
 			let mut context = std::task::Context::from_waker(std::task::Waker::noop());
 			assert!(dial.as_mut().poll(&mut context).is_pending(), "the dial is admitted");
-			for _ in 0..4_000 {
-				if lp.pending_dials.borrow().is_empty() {
-					break;
+			tokio::time::timeout(DIAL_BUDGET, async {
+				while !lp.pending_dials.borrow().is_empty() {
+					tokio::task::yield_now().await;
 				}
-				tokio::task::yield_now().await;
-			}
-			assert!(lp.pending_dials.borrow().is_empty(), "the dial never completed");
+			})
+			.await
+			.expect("the dial never completed");
 			assert_eq!(
 				lp.unclaimed_sessions.borrow().len(),
 				1,
