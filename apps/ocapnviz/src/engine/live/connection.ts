@@ -18,6 +18,7 @@ import type { EngineError } from "../errors.ts";
 import type { BrowserRuntime, GlowcapWebModule } from "./glowcap-web-api.ts";
 import { makeBaseEventConverter } from "./feed.ts";
 import { numberFromWire, parseWireRecord } from "./record.ts";
+import { localNetworkBlock, outOfReach, traceSocketUrl } from "./reach.ts";
 
 /** The first reconnect waits this long, doubling to `RECONNECT_MAX_MS`. */
 export const RECONNECT_MIN_MS = 500;
@@ -33,6 +34,22 @@ function retirementError(cause: unknown): EngineError {
 		cause,
 	};
 }
+
+/** A dial the browser blocked before any socket opened. */
+function blockedByBrowser(cause: unknown): EngineError {
+	return {
+		code: "validation",
+		title: "The browser is keeping this page from your computer",
+		detail: "This site is not allowed to reach devices on your local network, and a trace on this computer is one.",
+		recovery: "Allow local network access for this site in the browser's site settings, then wait for reconnect.",
+		cause,
+	};
+}
+
+/** What to try when the browser has not been answered, where a blocked socket
+ * and a server that is not running fail alike. */
+const UNANSWERED_RECOVERY =
+	"Check the sturdyref and the rooms server. If the browser asks whether this site may reach devices on your local network, allow it. Then wait for reconnect.";
 
 export type LivePeer = {
 	/** Retire this exact session. Resolves once its transport and hosted
@@ -65,9 +82,11 @@ class BrowserRuntimeStartupError extends Error {
 
 let browserRuntimePromise: Promise<BrowserRuntime> | null = null;
 
+/** The wasm Host sits beside the entry document, at whatever path the page
+ * is served from. */
 function wasmUrl(): string {
 	const configured = globalThis.__OCV_GLOWCAP_WASM_URL;
-	return typeof configured === "string" ? configured : "/glowcap_host.wasm";
+	return typeof configured === "string" ? configured : new URL("glowcap_host.wasm", document.baseURI).href;
 }
 
 async function browserRuntime(): Promise<BrowserRuntime> {
@@ -81,9 +100,8 @@ async function browserRuntime(): Promise<BrowserRuntime> {
 		// for the page, so remounting Live mode does not attempt a second runtime.
 		return await web.init({
 			wasm: fetch(wasmUrl()),
-			// The byte channel: fetching the trace object in CapTP presents the
-			// swiss, so the URL carries none.
-			wsUrl: (host, port) => `ws://${host}:${port}/captp`,
+			// A test runs with no document, and nothing there forbids a host.
+			wsUrl: (host, port) => traceSocketUrl(globalThis.document?.location.protocol ?? "", host, port),
 		});
 	})().catch((error) => {
 		browserRuntimePromise = null;
@@ -242,6 +260,7 @@ export class LiveFeed {
 				detail: `The live endpoint did not provide a sturdyref: "${this.#sturdyref}"`,
 				recovery: "Paste the complete sturdyref announced by the rooms server.",
 			});
+			this.#onConnectionChange?.("refused");
 			return;
 		}
 		const generation = ++this.#generation;
@@ -275,18 +294,30 @@ export class LiveFeed {
 				}
 				const primary = cleanup === null ? cause : cleanup.cause;
 				if (cleanup !== null) this.#requiresReload = true;
+				// The browser forbids this host from this page for as long as the
+				// page is this one, so no later attempt differs.
+				const forbidden = cleanup === null ? outOfReach(primary) : null;
+				const startup = primary instanceof BrowserRuntimeStartupError;
 				this.#onConnectionChange?.(
-					cleanup !== null || primary instanceof BrowserRuntimeStartupError ? "stopped" : "connecting",
+					forbidden !== null ? "refused" : cleanup !== null || startup ? "stopped" : "connecting",
 				);
 				// The application modal keeps the latest error. Report cleanup
 				// separately, then keep both details visible with the primary.
 				if (cleanup !== null) this.#emitError(retirementError(cleanup.retirement));
+				if (forbidden !== null) {
+					this.#emitError({
+						code: "validation",
+						title: "This page cannot reach that trace",
+						detail: forbidden.message,
+						recovery:
+							"Paste a trace link for this computer, or run ocapnviz from a glowcap checkout with zig build ocapnviz-dev, which reaches a trace at any address.",
+						cause: primary,
+					});
+					return;
+				}
 				const detail = primary instanceof Error ? primary.message : String(primary);
 				const cleanupDetail = cleanup === null ? "" : `\n\nCleanup failed: ${cleanup.message}`;
-				const recovery = cleanup === null
-					? "Check the sturdyref and the rooms server, then wait for reconnect."
-					: "Automatic reconnect stopped because session cleanup failed. Reload the viewer before reconnecting.";
-				if (primary instanceof BrowserRuntimeStartupError) {
+				if (startup) {
 					this.#emitError({
 						code: "internal",
 						title: "Live runtime could not start",
@@ -296,13 +327,32 @@ export class LiveFeed {
 					});
 					return;
 				}
-				this.#emitError({
+				const unreachable: EngineError = {
 					code: "internal",
 					title: "Live capability unreachable",
 					detail: detail + cleanupDetail,
-					recovery,
+					recovery: cleanup === null
+						? "Check the sturdyref and the rooms server, then wait for reconnect."
+						: "Automatic reconnect stopped because session cleanup failed. Reload the viewer before reconnecting.",
 					cause: primary,
-				});
+				};
+				// A dial the browser blocked fails like a server that is not
+				// running, so the browser is asked what it holds.
+				const asked = cleanup === null ? localNetworkBlock() : null;
+				if (asked === null) {
+					this.#emitError(unreachable);
+				} else {
+					void asked.then((held) => {
+						if (generation !== this.#generation || this.#closedByUser) return;
+						this.#emitError(
+							held === "denied"
+								? blockedByBrowser(primary)
+								: held === "prompt"
+								? { ...unreachable, recovery: UNANSWERED_RECOVERY }
+								: unreachable,
+						);
+					});
+				}
 				if (cleanup === null) this.#scheduleReconnect();
 			},
 		);

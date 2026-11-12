@@ -20,6 +20,15 @@ SPEC.loader.exec_module(MODULE)
 HEAD = r"<table><thead><tr>\1</tr></thead><tbody>"
 
 
+class ExportedApplications(unittest.TestCase):
+    def test_the_site_config_lists_each_exported_application(self):
+        applications = MODULE.exportedApplications(ROOT)
+        self.assertIn("rooms/app/", applications)
+        self.assertIn("ocapnviz/", applications)
+        # A static file is served as it is too, and it is no application.
+        self.assertTrue(all(entry.endswith("/") for entry in applications), applications)
+
+
 class HeaderRows(unittest.TestCase):
     def test_a_header_row_moves_into_a_thead(self):
         page = (

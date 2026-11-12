@@ -16,6 +16,9 @@ numbers are in [`test-data/README.md`](test-data/README.md).
 
 ## Quick start
 
+Open [ocapnviz on the website](https://glowcap.org/ocapnviz/), or run it from
+a checkout. [Live mode](#live-mode) says which servers each one reaches.
+
 From the repository root:
 
 ```bash
@@ -65,11 +68,22 @@ server never carries still appear.
 The live link grants access to the trace and stays only in memory. After a
 reload, paste it again. View preferences are saved separately.
 
+A trace travels over a WebSocket without TLS, and a browser blocks that socket
+to another machine when the page loaded over https. The viewer on the website
+watches a server on your computer and says so when a link names another one.
+A browser may ask before a website reaches your computer, and the viewer names
+that permission when it may be what stands in the way.
+`zig build ocapnviz-dev` serves the viewer over http, where a trace on any
+machine is in reach. `zig build site-ocapnviz-page` builds the website's copy
+into `site/assets/ocapnviz`, and `zig build site-serve` previews it at
+`/ocapnviz/`.
+
 Live connects as soon as you enter it. The badge under the sturdyref says
 **connecting** while it dials, **waiting** until the first observation arrives,
-and **connected** once the feed has spoken. **stopped** means the viewer
-could not start or close its connection safely. Reload the page and paste the
-live link again before recording.
+and **connected** once the feed has spoken. **refused** means this page
+cannot dial the link, and another link can be pasted. **stopped** means the
+viewer could not start or close its connection safely. Reload the page and
+paste the live link again before recording.
 
 Connecting does not start a capture. Press **Record** to start one, and from then on every session and message
 the room carries draws as it happens. **Stop** hands the capture to Play, where

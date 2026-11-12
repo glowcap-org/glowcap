@@ -9,11 +9,12 @@
  */
 import { type Browser, type BrowserContextOptions, chromium, type Page } from "playwright";
 
-/** Start the container's headless Chromium. The caller owns `close()`. */
-export function launchHeadless(): Promise<Browser> {
+/** Start the container's headless Chromium, with `more` after the arguments
+ * every launch needs. The caller owns `close()`. */
+export function launchHeadless(more: string[] = []): Promise<Browser> {
 	return chromium.launch({
 		headless: true,
-		args: ["--no-sandbox", "--disable-gpu"],
+		args: ["--no-sandbox", "--disable-gpu", ...more],
 	});
 }
 

@@ -101,7 +101,8 @@ export type FeedDial = {
 	sturdyref: string;
 	/** Test seam for the browser peer. Production uses the wasm-backed peer. */
 	peerFactory?: LivePeerFactory;
-	/** Setup/reconnect progress, an open subscription, or a terminal failure requiring reload. */
+	/** Setup/reconnect progress, an open subscription, a link this page cannot
+	 * dial, or a terminal failure requiring reload. */
 	onConnectionChange?: (state: LiveConnectionState) => void;
 	/** Called when the feed cannot dial or enliven the trace capability. Taken
 	 *  here rather than subscribed by the caller because that

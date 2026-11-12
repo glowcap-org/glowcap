@@ -1,11 +1,17 @@
 //! The ocapnviz visualizer's steps: static build checks ride `check`, its own
-//! suite rides `runtime-check`, and the production Live-mode proof drives
-//! Chromium.
+//! suite rides `runtime-check`, the production Live-mode proof drives
+//! Chromium, and the website's copy is built under the site's assets.
 
 const std = @import("std");
 const commands = @import("commands.zig");
 const Binary = @import("rooms/peers.zig").Binary;
 const execution = @import("execution.zig");
+
+pub const Registration = struct {
+    /// The page built under the site's assets by `site-ocapnviz-page`. The
+    /// site render depends on it.
+    site_page: *std.Build.Step,
+};
 
 pub fn register(
     b: *std.Build,
@@ -14,7 +20,7 @@ pub fn register(
     wasm_driver_install_step: *std.Build.Step,
     browser_preflight_step: *std.Build.Step,
     rooms_services_install: *std.Build.Step,
-) void {
+) Registration {
     // ── ocapnviz (the live visualizer) ──────────────────────────────────────
     // ocapnviz is its own Deno scope: the root `deno.json` excludes it, so none
     // of the TypeScript checks above reach it, and its own suite ran only when
@@ -82,4 +88,18 @@ pub fn register(
     ocapnviz_live_browser.step.dependOn(browser_preflight_step);
     const ocapnviz_live_browser_step = b.step("ocapnviz-live-browser", "Build and prove production ocapnviz Live mode in Chromium (needs deno + Playwright Chromium)");
     ocapnviz_live_browser_step.dependOn(&ocapnviz_live_browser.step);
+
+    // The website's copy is the app's own production build, written where the
+    // site serves static files. The build names every file relative to its
+    // entry document, so the bytes proved at one directory serve at another.
+    // It runs no check of its own: the pages workflow deploys only a commit
+    // whose full `check` passed, and a site edit does not wait on this app's
+    // formatter.
+    const site_page = execution.addSystemCommand(b, .build_tool, &.{ "deno", "task", "build", "--outDir=../../site/assets/ocapnviz", "--emptyOutDir" });
+    site_page.setCwd(b.path("apps/ocapnviz"));
+    site_page.has_side_effects = true;
+    site_page.step.dependOn(wasm_driver_install_step);
+    b.step("site-ocapnviz-page", "Build ocapnviz into site/assets/ocapnviz, where the site and its preview serve it at /ocapnviz/ (needs deno)")
+        .dependOn(&site_page.step);
+    return .{ .site_page = &site_page.step };
 }

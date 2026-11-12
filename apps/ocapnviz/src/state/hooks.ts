@@ -395,7 +395,8 @@ export function useLiveConnection(input: {
 	sturdyref: string;
 	recording: boolean;
 }): {
-	/** CapTP setup, an open subscription, or a terminal failure requiring reload. */
+	/** CapTP setup, an open subscription, a link this page cannot dial, or a
+	 * terminal failure requiring reload. */
 	connection: LiveConnectionState;
 	/** At least one record has arrived on this dial. Independent of
 	 *  the connection state: a quiet feed that has spoken is not a new endpoint

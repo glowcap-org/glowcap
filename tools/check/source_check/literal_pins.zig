@@ -29,7 +29,7 @@ pub const pins = [_]Pin{
         .what = "the mark an exported Rooms page carries",
         .literal = "name=\"rooms-host\"",
         .owner = "apps/rooms/rust/services/src/web/export.rs",
-        .mirrors = &.{ "apps/rooms/web/ui/page_base.ts", "tools/check/site_pages.ts", "tools/gen/site_normalize.py" },
+        .mirrors = &.{"apps/rooms/web/ui/page_base.ts"},
     },
     .{
         .what = "the Rooms page the website publishes, the one a server admits by default",

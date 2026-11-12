@@ -11,6 +11,20 @@
  */
 
 /*
+ * Inter (SIL OFL 1.1), self-hosted beside its license like the face below, so
+ * the page asks no other origin for anything. One variable file carries every
+ * weight for Latin text, and another script falls through to the system face
+ * the body stack names next.
+ */
+@font-face {
+	font-family: "Inter";
+	src: url("/fonts/Inter-Latin-Variable.woff2") format("woff2");
+	font-weight: 100 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+/*
  * Departure Mono (SIL OFL 1.1), self-hosted; the license sits beside
  * the woff2 in `public/fonts/`. Regular is the only weight shipped, so
  * nothing may ask this family for bold. The browser would synthesize

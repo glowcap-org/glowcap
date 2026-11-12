@@ -611,7 +611,10 @@ pub fn build(b: *std.Build) void {
     bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, &.{ iroh_abi_step, webrtc_reg.abi_step }, rooms.rust_lint, rooms.browser_application, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
-    ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, browser_preflight, rooms_services_install);
+    const ocapnviz = ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, browser_preflight, rooms_services_install);
+    // The site serves the visualizer beside the Rooms page, built the same
+    // way: fresh for every render, at ocapnviz/.
+    site_reg.render.dependOn(ocapnviz.site_page);
 
     // Finalize graph-level runtime policing after every registrar has had a
     // chance to add members to `check`.

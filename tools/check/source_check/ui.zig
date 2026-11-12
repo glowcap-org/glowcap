@@ -195,22 +195,26 @@ pub fn checkUiCore(
     };
     try checkOnlyDeclared(io, gpa, root, violations, "ui/fonts", declared.items, &.{"OFL.txt"});
 
-    // OCapNviz carries its own face rather than one from the shared UI core,
-    // but the OFL has the same distribution requirement: the complete license
-    // stays beside the font. Holding the two-file directory closed also makes a
-    // new face bring its notice into the same change.
-    root.access(io, "apps/ocapnviz/public/fonts/DepartureMono-OFL.txt", .{}) catch {
-        try appendViolation(gpa, violations, "apps/ocapnviz/public/fonts/DepartureMono-OFL.txt is missing; the license must travel with DepartureMono-Regular.woff2", .{});
+    // OCapNviz carries its own faces rather than the shared UI core's, and it
+    // serves them itself, so the page asks no other site for a font. The OFL
+    // has the same distribution requirement: each complete license stays
+    // beside its font. Holding the directory closed also makes a new face
+    // bring its notice into the same change.
+    const ocapnviz_faces = [_][2][]const u8{
+        .{ "DepartureMono-Regular.woff2", "DepartureMono-OFL.txt" },
+        .{ "Inter-Latin-Variable.woff2", "Inter-OFL.txt" },
     };
-    try checkOnlyDeclared(
-        io,
-        gpa,
-        root,
-        violations,
-        "apps/ocapnviz/public/fonts",
-        &.{"DepartureMono-Regular.woff2"},
-        &.{"DepartureMono-OFL.txt"},
-    );
+    var faces: [ocapnviz_faces.len][]const u8 = undefined;
+    var licenses: [ocapnviz_faces.len][]const u8 = undefined;
+    inline for (ocapnviz_faces, &faces, &licenses) |pair, *face, *license| {
+        face.* = pair[0];
+        license.* = pair[1];
+        const beside = "apps/ocapnviz/public/fonts/" ++ pair[1];
+        root.access(io, beside, .{}) catch {
+            try appendViolation(gpa, violations, beside ++ " is missing; the license must travel with " ++ pair[0], .{});
+        };
+    }
+    try checkOnlyDeclared(io, gpa, root, violations, "apps/ocapnviz/public/fonts", &faces, &licenses);
 }
 
 /// Every entry in `dir` is one of the faces the core declares, or one of the

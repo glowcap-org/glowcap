@@ -273,6 +273,7 @@ so a peer with no listening socket can still reply and take part in a handoff.
   [What Rooms ships](../apps/rooms/shipped.md) has the details.
 - ocapnviz opens a read-only trace sturdyref as a browser peer and shows replay and live events
   ([ADR-0040](decisions/adr/ADR-0040-trace-observation-authority.md)).
+  The website serves it at `/ocapnviz/`, where Live reaches a trace on the same computer as the browser.
 - The accountability example adds signed identity and an audit log above ordinary capabilities without changing
   CapTP.
 

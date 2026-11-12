@@ -470,7 +470,11 @@ To watch, open the [ocapnviz](../ocapnviz/README.md) protocol viewer, switch it
 to **Live**, and paste the trace link into the **Source** field. Every session
 the room accepts, every message in either direction, and every close then
 appears on the timeline. **Record** captures, and **Stop** opens the capture in
-**Play**. [Developing Rooms](developing.md#building-and-deploying-from-a-checkout)
+**Play**.
+
+The [viewer on the website](https://glowcap.org/ocapnviz/) watches a server on
+the same computer as the browser. For a server on another machine,
+[Developing Rooms](developing.md#building-and-deploying-from-a-checkout)
 starts the viewer from a checkout.
 
 Direct messages never pass through the room, so each member publishes its own
