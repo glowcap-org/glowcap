@@ -65,7 +65,7 @@ import type { AppMode } from "../state/app-state.ts";
 import { stageCamera } from "../render/stage-camera.ts";
 import { ClearGlyph, PinGlyph } from "./glyphs.tsx";
 import { DEFAULT_STAGE_VIEW, formatStageZoom, initialStageView, sameStageView } from "../render/stage-view.ts";
-import type { EditBracket } from "./inspector/edit-bracket.ts";
+import { type EditBracket, useEditBracket, useScrubBracket } from "./inspector/edit-bracket.ts";
 import type { BufferSourceInfo } from "../state/app-state.ts";
 import { stateChipBase } from "./EntityChips.tsx";
 import { Field, InlineTextField, TimeScrubInput } from "./inspector/fields.tsx";
@@ -91,6 +91,8 @@ export function DocumentFields(
 	// value that never refreshes: a keystroke lands in the document and the field
 	// redraws from the old one, so typing looks like it does nothing at all.
 	useDocVersion(engine);
+	const describing = useEditBracket(editor);
+	const lengthScrub = useScrubBracket(editor, "Set timeline length");
 	const doc = engine.doc;
 	const meta = doc.metadata;
 	const editing = editor !== undefined && mode === "build";
@@ -143,8 +145,8 @@ export function DocumentFields(
 					aria-label="Document description"
 					value={meta?.["dct:description"] ?? ""}
 					onChange={(ev) => engine.setDocumentDescription(ev.target.value)}
-					onFocus={() => editor?.beginEdit("Set document description")}
-					onBlur={() => editor?.endEdit()}
+					onFocus={() => describing.begin("Set document description")}
+					onBlur={() => describing.end()}
 					placeholder="What happens here, and why it is worth watching."
 					spellCheck
 					style={grow}
@@ -171,8 +173,7 @@ export function DocumentFields(
 					max={Math.max(doc.duration, 1000) * 2}
 					onChange={(next) => engine.setDocumentDuration(next)}
 					label="Timeline length"
-					onScrubStart={() => editor?.beginEdit("Set timeline length")}
-					onScrubEnd={() => editor?.endEdit()}
+					{...lengthScrub}
 					style={grow}
 				/>
 			</Field>

@@ -14,7 +14,7 @@ import { formatTime, formatTimeInput, parseTime } from "../format.ts";
 import { pickerLabelFor, type PickerOption } from "./picker-labels.ts";
 import type { EditorBindings } from "./bindings.ts";
 import type { EditBracket } from "./edit-bracket.ts";
-import { useEditBracket, usePendingEdit } from "./edit-bracket.ts";
+import { shownText, type TypedText, useEditBracket, usePendingEdit } from "./edit-bracket.ts";
 import {
 	fieldGroup,
 	fieldGroupBox,
@@ -445,15 +445,23 @@ export function InlineTextField(
 	},
 ) {
 	const bracket = useEditBracket(editSession);
+	const [typed, setTyped] = useState<TypedText | null>(null);
 	return (
 		<input
 			type="text"
 			className="ocv-input"
 			aria-label={ariaLabel}
-			value={value}
-			onChange={(ev) => onChange(ev.target.value)}
+			value={shownText(value, typed)}
+			onChange={(ev) => {
+				setTyped({ text: ev.target.value, over: value });
+				onChange(ev.target.value);
+			}}
 			onFocus={() => bracket.begin(editLabel)}
-			onBlur={() => bracket.end()}
+			onBlur={() => {
+				bracket.end();
+				// The closed transaction is what the document says now.
+				setTyped(null);
+			}}
 			onKeyDown={submitOnEnter
 				? (ev) => {
 					if (ev.key === "Enter") ev.currentTarget.blur();

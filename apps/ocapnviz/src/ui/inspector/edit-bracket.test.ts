@@ -16,7 +16,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { type EditBracket, editBracket } from "./edit-bracket.ts";
+import { type EditBracket, editBracket, shownText } from "./edit-bracket.ts";
 
 /** Records what one editor would have been asked to do. */
 function recorder() {
@@ -123,4 +123,34 @@ Deno.test("a read-only host brackets nothing", () => {
 	prop.held.current = r.session;
 	b.end();
 	assertEquals(r.calls, []);
+});
+
+// A typing burst is one open bracket, and a panel that follows the document
+// hands its field the same value until the bracket closes. These hold what the
+// field shows in between. The field's own wiring is proved in a browser by
+// `scripts/playwright-inspector-typing-probe.ts`.
+
+Deno.test("typed text shows while the panel still hands down the value it was typed over", () => {
+	// Three keys into a field whose panel does not render again. Each one is
+	// typed over the same stale value, and each one has to stay on screen or
+	// the next key is appended to the stale value instead.
+	const stale = "Carol";
+	let shown = shownText(stale, null);
+	for (const key of ["x", "y", "z"]) {
+		shown = shownText(stale, { text: shown + key, over: stale });
+	}
+	assertEquals(shown, "Carolxyz");
+});
+
+Deno.test("a value that moves wins over the typed text", () => {
+	// A panel that renders on every write hands back what the document took,
+	// which is not always what was typed.
+	assertEquals(shownText("CAROLX", { text: "Carolx", over: "Carol" }), "CAROLX");
+	assertEquals(shownText("", { text: " ", over: "Carol" }), "");
+});
+
+Deno.test("a field nobody typed in shows its value", () => {
+	assertEquals(shownText("Carol", null), "Carol");
+	// Typing a field empty is typing, and shows as empty.
+	assertEquals(shownText("Carol", { text: "", over: "Carol" }), "");
 });
