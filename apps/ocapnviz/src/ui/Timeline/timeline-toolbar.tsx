@@ -103,7 +103,7 @@ export function TimelineToolbar(
 						{live && (
 							<LiveControls
 								recording={live.recording}
-								disabled={live.connection === "stopped"}
+								disabled={live.connection === "stopped" || live.connection === "refused"}
 								bufferHasContent={live.bufferHasContent}
 								onStart={live.onStartRecord}
 								onStop={live.onStopRecord}
@@ -301,7 +301,8 @@ const timeReadout = {
  * It appears only while a capture is running, because that is the
  * state it reports on: a capture whose socket has dropped is still a
  * capture, and it is receiving nothing. It says "reconnecting…" while
- * recovery is possible, or "stopped" when a reload is required.
+ * recovery is possible, "refused" when this page cannot dial the link, or
+ * "stopped" when a reload is required.
  *
  * Whether a feed is connected at all is a different fact, and it is
  * answered where a reader asks it: beside the URL in the Source panel,
@@ -310,13 +311,19 @@ const timeReadout = {
  * the connection. */
 function LiveBadge({ connection }: { connection: LiveConnectionState }) {
 	const connected = connection === "connected";
-	const label = connection === "stopped" ? "stopped" : connected ? "recording" : "reconnecting…";
+	const label = connection === "stopped" || connection === "refused"
+		? connection
+		: connected
+		? "recording"
+		: "reconnecting…";
 	const color = connected ? c.danger : c.warning;
 	const bg = connected ? c.dangerSoft : c.warningSoft;
 	const title = connection === "stopped"
 		? "The live connection stopped. Reload the viewer before reconnecting."
+		: connection === "refused"
+		? "This page cannot dial this link. The capture is receiving nothing. Stop it and paste another link."
 		: connected
-		? "Recording from the live feed; playback is disabled"
+		? "Recording from the live feed. Playback is disabled."
 		: "The live feed dropped. The capture is running and receiving nothing";
 	return (
 		<span

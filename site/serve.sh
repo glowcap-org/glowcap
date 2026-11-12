@@ -59,16 +59,17 @@ fi
 # Keep the build graph identical on clean and warm checkouts. The preview
 # owns this runtime cache decision, while a site build always captures and
 # exports afresh. Zine refuses a listed static directory that is missing, so
-# the Rooms page must exist before the server starts.
+# the Rooms page and ocapnviz must exist before the server starts.
 needed=""
 compgen -G 'site/assets/rooms-*.webp' >/dev/null || needed="${needed} site-captures"
 [ -f site/assets/rooms/app/index.html ] || needed="${needed} site-rooms-page"
+[ -f site/assets/ocapnviz/index.html ] || needed="${needed} site-ocapnviz-page"
 if [ -n "${needed}" ]; then
-  echo "site-serve: Rooms pictures or page not cached; building Rooms and preparing them before serving. A cold build can take several minutes." >&2
+  echo "site-serve: missing from site/assets, preparing before serving:${needed}. A cold Rooms build can take several minutes." >&2
   started=$SECONDS
   # shellcheck disable=SC2086
   "${zig}" build ${needed} || exit $?
-  echo "site-serve: Rooms assets prepared in $((SECONDS - started))s; starting the site build" >&2
+  echo "site-serve: site assets prepared in $((SECONDS - started))s; starting the site build" >&2
 fi
 
 # Fingerprint of every input `gen-site-examples` reads. Content checksum, not

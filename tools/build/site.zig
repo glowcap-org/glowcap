@@ -255,7 +255,7 @@ pub fn register(ctx: Context) Registered {
     const run_site_output_check_tests = execution.addZigTest(b, site_output_check_tests, .unit_test);
     check_step.dependOn(&run_site_output_check_tests.step);
 
-    const site_step = b.step("site", "Build and validate the documentation site (Zine + autodoc) under zig-out/site/, with the Rooms page at rooms/app/: the website the pages workflow deploys (needs cargo + deno + wasm-bindgen + Playwright's Chromium)");
+    const site_step = b.step("site", "Build and validate the documentation site (Zine + autodoc) under zig-out/site/, with the Rooms page at rooms/app/ and ocapnviz at ocapnviz/: the website the pages workflow deploys (needs cargo + deno + wasm-bindgen + Playwright's Chromium)");
     site_step.dependOn(&run_site_output_check.step);
 
     // Render the built pages in the pinned headless Chromium at four widths.
@@ -334,7 +334,7 @@ pub fn register(ctx: Context) Registered {
     serve_site.has_side_effects = true;
     serve_site.step.dependOn(site_examples_write_step);
     serve_site.step.dependOn(&brand_mark_write.step);
-    const site_serve_step = b.step("site-serve", "Serve the documentation site with Zine's development server, the Rooms page at /rooms/app/ included, and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; prepares the Rooms pictures and page first only when site/assets lacks them, so run site-captures or site-rooms-page to refresh either)");
+    const site_serve_step = b.step("site-serve", "Serve the documentation site with Zine's development server, the Rooms page at /rooms/app/ and ocapnviz at /ocapnviz/ included, and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; prepares the Rooms pictures, the Rooms page, and ocapnviz first only when site/assets lacks them, so run site-captures, site-rooms-page, or site-ocapnviz-page to refresh one)");
     site_serve_step.dependOn(&serve_site.step);
 
     return .{

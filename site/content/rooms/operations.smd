@@ -182,8 +182,10 @@ secret into the **Holdings** tab in Settings and the matching page appears under
 
 [The server page under /ops, opened with the admin secret. It lists what the admin can change: room links, registered names, live connections, and the references each one holds, with a remove or disconnect button beside every row.]($image.siteAsset('rooms-operations-light.webp'))
 
-The live wire view sends wire traffic to ocapnviz, glowcap's
-protocol viewer. A server can show full room
+The live wire view sends wire traffic to
+[ocapnviz]($link.siteAsset('ocapnviz/index.html')), glowcap's
+protocol viewer. Opened from this site, it watches a server on the same
+computer as your browser. A server can show full room
 traffic. Direct conversations appear when a member publishes their own
 trace, with the **Live trace** toggle under **Holdings**. That trace records who talked to whom, when, which call, and how
 many bytes, never the messages themselves.

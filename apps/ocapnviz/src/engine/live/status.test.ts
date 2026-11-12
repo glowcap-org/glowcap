@@ -45,6 +45,17 @@ Deno.test("liveFeedStatus: open after the first record is connected", () => {
 	);
 });
 
+Deno.test("liveFeedStatus: a link this page cannot dial is refused, not connecting", () => {
+	assertEquals(
+		liveFeedStatus({
+			sturdyref: "ocapn://trace.example%3A9300.tcp/s/swiss",
+			connection: "refused",
+			observed: false,
+		}),
+		"refused",
+	);
+});
+
 Deno.test("liveFeedStatus: a terminal failure stays stopped after records were observed", () => {
 	assertEquals(
 		liveFeedStatus({ sturdyref: "ocapn://key.tcp/s/swiss", connection: "stopped", observed: true }),

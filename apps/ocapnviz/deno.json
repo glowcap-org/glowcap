@@ -95,7 +95,7 @@
       "src/",
       "browser/",
       "scripts/",
-      "public/sw.js",
+      "dev-sw.js",
       "vite.config.ts",
       "vite-dev-listen.ts",
       "vite-dev-listen.test.ts"

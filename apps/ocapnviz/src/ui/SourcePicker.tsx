@@ -293,6 +293,10 @@ const badgeCopy: Record<LiveFeedStatus, { label: string; title: string }> = {
 		label: "stopped",
 		title: "The live connection stopped. Reload the viewer before reconnecting.",
 	},
+	refused: {
+		label: "refused",
+		title: "This page cannot dial this link. Paste another one.",
+	},
 	connecting: {
 		label: "connecting…",
 		title: "Dialing the live feed. Nothing arrives until it connects.",
@@ -328,6 +332,7 @@ const idleBadge = {
 const badgeStyle: Record<LiveFeedStatus, React.CSSProperties> = {
 	idle: idleBadge,
 	stopped: idleBadge,
+	refused: idleBadge,
 	connecting: connectingBadge,
 	waiting: connectingBadge,
 	connected: connectedBadge,

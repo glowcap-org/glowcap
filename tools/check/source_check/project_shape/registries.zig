@@ -195,6 +195,7 @@ const generated_state = [_][]const u8{
     "apps/rooms/node_modules/",
     "bench/interface/target/",
     "site/assets/rooms/",
+    "site/assets/ocapnviz/",
 };
 
 /// The table entry a repository-relative path names or sits under, if any.

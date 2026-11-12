@@ -11,6 +11,21 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+### Added
+
+- The website serves ocapnviz at `/ocapnviz/`. Play works as it does from a
+  checkout, and Live watches a server on the same computer as the browser. A
+  trace link for any other address is refused with the reason: a browser
+  blocks a WebSocket without TLS from an https page unless it goes to the
+  computer's own address.
+  `zig build site-ocapnviz-page` builds the page into the site's assets.
+
+### Changed
+
+- ocapnviz serves the Inter typeface itself, so the page asks no other site
+  for a font. Its build names every file relative to the entry document, so
+  it works from any directory, and carries no service worker.
+
 ### Fixed
 
 - ocapnviz Build mode shows text as it is typed. Fields such as a peer's

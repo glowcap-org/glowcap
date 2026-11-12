@@ -1,8 +1,9 @@
 # Build the website and deploy each commit main moves to, once
 # require-main-check finds that commit's successful full `check` run. The site
-# build exports the Rooms page at rooms/app/ and captures its pictures from
-# the shipped page, so it runs in the devcontainer, which owns cargo, Deno,
-# and the Playwright browser, the same way `check` runs the gates.
+# build exports the Rooms page at rooms/app/, captures its pictures from the
+# shipped page, and builds ocapnviz at ocapnviz/, so it runs in the
+# devcontainer, which owns cargo, Deno, and the Playwright browser, the same
+# way `check` runs the gates.
 name: pages
 
 on:

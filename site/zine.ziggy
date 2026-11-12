@@ -12,6 +12,9 @@
     .layouts_dir_path = "layouts",
     .assets_dir_path = "assets",
     // Served whether or not a page links them: the one-command installer,
-    // and the Rooms page `zig build site-rooms-page` exports under rooms/app.
-    .static_assets = ["install.sh", "rooms/app/"],
+    // the Rooms page `zig build site-rooms-page` exports under rooms/app, and
+    // the visualizer `zig build site-ocapnviz-page` builds under ocapnviz.
+    // Each directory here is an application with its own entry document, and
+    // the site's checks read this list to tell one from an authored page.
+    .static_assets = ["install.sh", "rooms/app/", "ocapnviz/"],
 }),

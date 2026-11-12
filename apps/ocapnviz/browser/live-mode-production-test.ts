@@ -1,8 +1,14 @@
 #!/usr/bin/env -S deno run -A
-/** Production-bundle proof for capability-native Live mode.
+/** Production-bundle proof for Live mode as an OCapN peer.
  *
  * The Vite build happens in the owning task. This process serves only `dist/`,
- * starts the real native trace endpoint, and drives an actual Chromium tab. */
+ * at the directory the website publishes it under, starts the real trace
+ * endpoint, and drives an actual Chromium tab. A build that named any file by
+ * a path from the server's root would ask outside that directory and fail.
+ *
+ * The same build is then loaded the way the website's readers load it, from a
+ * public https origin, where the browser guards this machine and forbids every
+ * other one. */
 
 import type { Browser, Page } from "playwright";
 
@@ -17,13 +23,18 @@ const traceHostScript = new URL(
 	"../../rooms/test/trace/browser_host.ts",
 	import.meta.url,
 );
+/** Where the website serves this build. */
+const PUBLISHED_AT = "/ocapnviz/";
 const requiredAssets = [
 	"index.html",
 	"glowcap_host.wasm",
 	"favicon.svg",
 	"fonts/DepartureMono-Regular.woff2",
-	"sw.js",
+	"fonts/Inter-Latin-Variable.woff2",
 ];
+/** The worker that retires another app's registration belongs to the dev
+ * origin. A published page registers none and carries none. */
+const devOnlyAssets = ["sw.js"];
 
 type WorldSnapshot = {
 	peers: Array<{ id: string; label: string }>;
@@ -46,6 +57,81 @@ function fail(message: string): never {
 /** Session is open: waiting for the first record, or already spoken. */
 function liveFeedSessionOpen(page: Page) {
 	return page.getByTitle(/^The live feed is connected/);
+}
+
+/** A public https origin standing in for the website. Chromium decides what a
+ * page may reach from where its bytes came from, and a page this machine
+ * serves is never guarded, so the page is routed there and not served there. */
+const WEBSITE = "https://ocapnviz.example";
+
+/** Open the build as the website serves it, asked to watch `link`, with what
+ * the page reported going wrong from its first request. */
+async function openFromWebsite(
+	browser: Browser,
+	httpPort: number,
+	link: string,
+): Promise<{ page: Page; failures: string[] }> {
+	const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+	await context.route(`${WEBSITE}/**`, async (route) => {
+		const asked = new URL(route.request().url());
+		const response = await route.fetch({ url: `http://127.0.0.1:${httpPort}${asked.pathname}` });
+		await route.fulfill({ response });
+	});
+	const page = await context.newPage();
+	page.setDefaultTimeout(UI_TIMEOUT_MS);
+	const failures = failuresOf(page);
+	await page.goto(`${WEBSITE}${PUBLISHED_AT}#live=${encodeURIComponent(link)}`);
+	return { page, failures };
+}
+
+/** What the website's readers meet in Live. A trace at another address is
+ * refused by name. A trace on this computer is blocked while the browser's
+ * local network prompt goes unanswered, as it does in headless Chromium, and
+ * the report names the prompt beside the server. With the browser's check
+ * lifted at launch, which stands in for a person answering "allow", the same
+ * page connects with nothing failing. */
+async function proveWebsiteLive(browser: Browser, httpPort: number, sturdyref: string): Promise<void> {
+	const elsewhere = await openFromWebsite(browser, httpPort, "ocapn://trace.example%3A9300.tcp/s/c3dpc3M");
+	await elsewhere.page.getByText("This page cannot reach that trace").waitFor({ state: "visible" });
+	await elsewhere.page.getByTitle(/^This page cannot dial this link/).waitFor({ state: "visible" });
+	if (!(await elsewhere.page.getByRole("button", { name: "Start recording" }).isDisabled())) {
+		fail("a refused link leaves Record enabled");
+	}
+	if (elsewhere.failures.length > 0) {
+		fail(`a refused link asked the browser for something:\n${elsewhere.failures.join("\n")}`);
+	}
+	await elsewhere.page.context().close();
+
+	const guarded = await openFromWebsite(browser, httpPort, sturdyref);
+	await guarded.page.getByText(/If the browser asks whether this site may reach devices on your local network/)
+		.first().waitFor({ state: "visible" });
+	await guarded.page.context().close();
+
+	const allowing = await launchHeadless(["--disable-features=LocalNetworkAccessChecks"]);
+	try {
+		const allowed = await openFromWebsite(allowing, httpPort, sturdyref);
+		await liveFeedSessionOpen(allowed.page).waitFor({ state: "visible" });
+		if (allowed.failures.length > 0) fail(`the website's tab failed:\n${allowed.failures.join("\n")}`);
+	} finally {
+		await allowing.close();
+	}
+}
+
+/** Everything `page` reports going wrong from here on: a thrown error, a
+ * console error, a request that failed, or an answer of 400 and above. */
+function failuresOf(page: Page): string[] {
+	const failures: string[] = [];
+	page.on("pageerror", (error) => failures.push(`pageerror: ${error.message}`));
+	page.on("console", (message) => {
+		if (message.type() === "error") failures.push(`console: ${message.text()}`);
+	});
+	page.on("requestfailed", (request) => {
+		failures.push(`request failed: ${request.url()} (${request.failure()?.errorText ?? "unknown"})`);
+	});
+	page.on("response", (response) => {
+		if (response.status() >= 400) failures.push(`HTTP ${response.status()}: ${response.url()}`);
+	});
+	return failures;
 }
 
 async function readTraceAnnouncement(
@@ -258,6 +344,16 @@ for (const asset of requiredAssets) {
 	}
 }
 
+for (const asset of devOnlyAssets) {
+	try {
+		await Deno.stat(new URL(asset, distRoot));
+	} catch (error) {
+		if (error instanceof Deno.errors.NotFound) continue;
+		throw error;
+	}
+	fail(`production build carries ${asset}, which only the dev server answers`);
+}
+
 const deadline = setTimeout(() => {
 	console.error(
 		`FAIL: production Live-mode proof exceeded ${TEST_TIMEOUT_MS}ms`,
@@ -269,6 +365,8 @@ const staticAbort = new AbortController();
 let announceHttp!: (port: number) => void;
 const httpReady = new Promise<number>((resolve) => announceHttp = resolve);
 const served = new Map<string, number>();
+/** Every request the page made outside the directory it is published under. */
+const strays: string[] = [];
 const staticServer = Deno.serve(
 	{
 		hostname: "127.0.0.1",
@@ -283,7 +381,12 @@ const staticServer = Deno.serve(
 		} catch {
 			return new Response("bad path", { status: 400 });
 		}
-		const relative = pathname === "/" ? "index.html" : pathname.slice(1);
+		if (!pathname.startsWith(PUBLISHED_AT)) {
+			strays.push(pathname);
+			return new Response("not found", { status: 404 });
+		}
+		const below = pathname.slice(PUBLISHED_AT.length);
+		const relative = below === "" ? "index.html" : below;
 		if (relative.split("/").includes("..")) {
 			return new Response("forbidden", { status: 403 });
 		}
@@ -334,30 +437,9 @@ try {
 	});
 	const page = await context.newPage();
 	page.setDefaultTimeout(UI_TIMEOUT_MS);
-	const browserFailures: string[] = [];
-	page.on(
-		"pageerror",
-		(error) => browserFailures.push(`pageerror: ${error.message}`),
-	);
-	page.on("console", (message) => {
-		if (message.type() === "error") {
-			browserFailures.push(`console: ${message.text()}`);
-		}
-	});
-	page.on("requestfailed", (request) => {
-		browserFailures.push(
-			`request failed: ${request.url()} (${request.failure()?.errorText ?? "unknown"})`,
-		);
-	});
-	page.on("response", (response) => {
-		if (response.status() >= 400) {
-			browserFailures.push(
-				`HTTP ${response.status()}: ${response.url()}`,
-			);
-		}
-	});
+	const browserFailures = failuresOf(page);
 
-	const pageUrl = `http://127.0.0.1:${httpPort}/#live=${encodeURIComponent(sturdyref)}`;
+	const pageUrl = `http://127.0.0.1:${httpPort}${PUBLISHED_AT}#live=${encodeURIComponent(sturdyref)}`;
 	await page.goto(pageUrl, { waitUntil: "networkidle" });
 	if (new URL(page.url()).hash !== "") {
 		throw new Error(`the page kept the capability in its address: ${page.url()}`);
@@ -411,22 +493,35 @@ try {
 	if (!wasmInitialized) {
 		fail("the production tab never installed the wasm runtime adapter");
 	}
-	if ((served.get("/glowcap_host.wasm") ?? 0) < 1) {
+	const wasmRequests = served.get(`${PUBLISHED_AT}glowcap_host.wasm`) ?? 0;
+	if (wasmRequests < 1) {
 		fail("the production tab never requested glowcap_host.wasm");
+	}
+	for (const font of requiredAssets.filter((asset) => asset.startsWith("fonts/"))) {
+		if ((served.get(`${PUBLISHED_AT}${font}`) ?? 0) < 1) fail(`the production tab never requested ${font}`);
+	}
+	if (strays.length > 0) {
+		fail(`the production tab asked outside ${PUBLISHED_AT}: ${strays.join(", ")}`);
 	}
 	if (browserFailures.length > 0) {
 		fail(`browser failures:\n${browserFailures.join("\n")}`);
 	}
+	await context.close();
+	await proveWebsiteLive(browser, httpPort, sturdyref);
+	if (strays.length > 0) {
+		fail(`the website's tab asked outside ${PUBLISHED_AT}: ${strays.join(", ")}`);
+	}
 
 	console.log(JSON.stringify({
 		sturdyref,
-		wasmRequests: served.get("/glowcap_host.wasm") ?? 0,
+		wasmRequests,
 		replay,
 		live,
 		observerSessionAbsent: replay.sessions.length === 1 &&
 			live.sessions.length === 2,
 		replayRendered: true,
 		liveRendered: true,
+		websiteLive: ["refused elsewhere", "unanswered prompt named", "connected when allowed"],
 	}));
 	console.log(
 		"PASS: production ocapnviz Live mode is a wasm-backed OCapN viewer",

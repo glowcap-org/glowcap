@@ -66,10 +66,17 @@ satisfy that.
 
 ## `apps/ocapnviz/public/fonts/`
 
-Departure Mono is the typeface used by the OCapN visualizer. The vendored
+Departure Mono is the monospace typeface of the OCapN visualizer. The vendored
 `DepartureMono-Regular.woff2` is Copyright 2022-2024 Helena Zhang and is
 licensed under the SIL Open Font License, Version 1.1. The complete license
 travels beside the font as `DepartureMono-OFL.txt`.
+
+Inter is the visualizer's text typeface. The vendored
+`Inter-Latin-Variable.woff2` is the Latin subset of the variable font, taken
+unmodified from the Fontsource package `@fontsource-variable/inter` 5.3.0 on
+12 November 2026. It is Copyright 2016 The Inter Project Authors and is
+licensed under the SIL Open Font License, Version 1.1. The complete license
+travels beside the font as `Inter-OFL.txt`.
 
 ## Optional Mbed TLS relay build
 

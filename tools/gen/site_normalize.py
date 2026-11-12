@@ -40,8 +40,9 @@ a new template expression cannot ship as a dead `$` in the markdown.
 Called by `zig build site`. Direct usage is site_normalize.py <site-root>.
 The reference/api tree is the generated autodoc viewer, owned by its own
 fix-up, and is skipped for page-byte normalization. An application exported
-beside the pages (the Rooms page at rooms/app/, marked by its export) keeps
-its bytes and has no markdown twin, and the sitemap lists it.
+beside the pages (the Rooms page at rooms/app/, ocapnviz at ocapnviz/) is a
+static directory the site config lists. It keeps its bytes and has no
+markdown twin, and the sitemap lists it.
 """
 
 import re
@@ -281,6 +282,16 @@ def siteConfig(repo_root: Path) -> tuple[str, str]:
     return title.group(1), "/".join(part for part in (host.group(1), prefix.group(1)) if part)
 
 
+def exportedApplications(repo_root: Path) -> list[str]:
+    """The directories the site config serves as they are, each an
+    application with its own entry document and no authored page."""
+    config = (repo_root / "site" / "zine.ziggy").read_text(encoding="utf-8")
+    listed = re.search(r"\.static_assets\s*=\s*\[([^\]]*)\]", config)
+    if listed is None:
+        raise SystemExit("site_normalize: site/zine.ziggy no longer lists static_assets")
+    return [entry for entry in re.findall(r'"([^"]+)"', listed.group(1)) if entry.endswith("/")]
+
+
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 HTML_FENCE = re.compile(r"^```=html\n(.*?)\n```$", re.DOTALL | re.MULTILINE)
 # A styled block is a blockquote whose first line names its class. Without
@@ -409,7 +420,9 @@ def main() -> int:
         print("usage: site_normalize.py <site-root>", file=sys.stderr)
         return 2
     root = Path(sys.argv[1])
-    name, base = siteConfig(Path(__file__).resolve().parents[2])
+    repo_root = Path(__file__).resolve().parents[2]
+    name, base = siteConfig(repo_root)
+    applications = exportedApplications(repo_root)
     pages = 0
     listed: list[str] = []
     exported: list[str] = []
@@ -419,14 +432,16 @@ def main() -> int:
         # frames are no destinations.
         if "reference/api" in rel:
             continue
-        original = page.read_text(encoding="utf-8")
         # An application exported beside the pages, such as the Rooms page at
         # rooms/app/, is a destination but no authored page: its export owns
-        # its bytes and it has no SuperMD source. The mark is the one
-        # apps/rooms/rust/services/src/web/export.rs writes.
-        if '<meta name="rooms-host"' in original:
-            exported.append(rel.removesuffix("index.html"))
+        # its bytes and it has no SuperMD source. Its entry document is the
+        # destination, and nothing else under it is a page.
+        application = next((held for held in applications if rel.startswith(held)), None)
+        if application is not None:
+            if rel == f"{application}index.html":
+                exported.append(application)
             continue
+        original = page.read_text(encoding="utf-8")
         rewritten = normalize(original, page, root)
         # Every real destination names its one address, so a crawler that
         # reached a variant (the 404 copy, a mirrored path) still indexes

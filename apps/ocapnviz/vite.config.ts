@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { type Connect, defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import deno from "@deno/vite-plugin";
 import { devListen } from "./vite-dev-listen.ts";
@@ -26,32 +26,33 @@ const glowcapHostWasm = new URL(
 	import.meta.url,
 );
 
+/** Answer one dev-server path with a file read from disk on each request. */
+function serveFile(pathname: string, file: URL, contentType: string): Connect.NextHandleFunction {
+	return async (req, res, next) => {
+		if (new URL(req.originalUrl ?? "/", "http://localhost").pathname !== pathname) {
+			next();
+			return;
+		}
+		try {
+			const bytes = await Deno.readFile(file);
+			res.statusCode = 200;
+			res.setHeader("Content-Type", contentType);
+			res.setHeader("Content-Length", String(bytes.byteLength));
+			res.end(bytes);
+		} catch (error) {
+			next(error);
+		}
+	};
+}
+
 /** Add the canonical wasm Host without replacing Vite's `public/` directory.
  * Development serves the build artifact directly. Production emits the same
- * bytes as a root asset beside the public font, favicon, and service worker. */
+ * bytes beside the entry document, where `connection.ts` asks for them. */
 function glowcapHostWasmPlugin(): Plugin {
 	return {
 		name: "glowcap-host-wasm",
 		configureServer(server) {
-			server.middlewares.use(async (req, res, next) => {
-				if (
-					new URL(req.originalUrl ?? "/", "http://localhost")
-						.pathname !==
-						"/glowcap_host.wasm"
-				) {
-					next();
-					return;
-				}
-				try {
-					const bytes = await Deno.readFile(glowcapHostWasm);
-					res.statusCode = 200;
-					res.setHeader("Content-Type", "application/wasm");
-					res.setHeader("Content-Length", String(bytes.byteLength));
-					res.end(bytes);
-				} catch (error) {
-					next(error);
-				}
-			});
+			server.middlewares.use(serveFile("/glowcap_host.wasm", glowcapHostWasm, "application/wasm"));
 		},
 		async generateBundle() {
 			this.emitFile({
@@ -59,6 +60,21 @@ function glowcapHostWasmPlugin(): Plugin {
 				fileName: "glowcap_host.wasm",
 				source: await Deno.readFile(glowcapHostWasm),
 			});
+		},
+	};
+}
+
+/** Retire a service worker another app left on the dev origin. The worker is
+ * development's alone: a built page registers none, so the build emits no
+ * `sw.js`. */
+function staleWorkerCleanup(): Plugin {
+	return {
+		name: "ocapnviz-stale-worker-cleanup",
+		apply: "serve",
+		configureServer(server) {
+			server.middlewares.use(
+				serveFile("/sw.js", new URL("./dev-sw.js", import.meta.url), "text/javascript; charset=utf-8"),
+			);
 		},
 	};
 }
@@ -93,7 +109,11 @@ function browserRuntimeBoundary(): Plugin {
 }
 
 export default defineConfig({
-	plugins: [glowcapHostWasmPlugin(), browserRuntimeBoundary(), deno(), react()],
+	// Every URL the build writes is relative to the entry document, so one
+	// build serves from any directory: a server's root, or `/ocapnviz/` on the
+	// website. Nothing in the page routes by path.
+	base: "./",
+	plugins: [glowcapHostWasmPlugin(), staleWorkerCleanup(), browserRuntimeBoundary(), deno(), react()],
 	resolve: {
 		alias: {
 			"virtual:glowcap-web": new URL(
