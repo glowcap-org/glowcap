@@ -37,7 +37,7 @@ const EventServeOutOfMemory = struct {
 
 test "finite host quantum emits resume actions for host-global internal work" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x0d)), .{ .host_work_quantum = 1 });
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0d)), .{ .thread_policy = .unchecked, .host_work_quantum = 1 });
     defer host.deinit();
 
     // These no-op retirement actions model the Node's internal action chain:
@@ -65,9 +65,10 @@ test "finite host quantum emits resume actions for host-global internal work" {
 
 test "finite host quantum does not starve Node work behind a hot session" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x2d)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2d)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var host = test_host.init(allocator, @as([32]u8, @splat(0x2e)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .host_work_quantum = 1,
     });
@@ -182,7 +183,7 @@ const RetryPrepareExec = struct {
 
 test "standard host action drain yields between finite-quantum slices" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x0e)), .{ .host_work_quantum = 1 });
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0e)), .{ .thread_policy = .unchecked, .host_work_quantum = 1 });
     defer host.deinit();
 
     try host.node.actions.queue.reserve(allocator, 3);
@@ -211,7 +212,9 @@ test "standard host action drain yields between finite-quantum slices" {
 
 test "standard host action drain retains a gift-id request when entropy fails" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x1e)), .{});
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x1e)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
 
     const recipient = try host.node.registerPeer(.{});
@@ -238,7 +241,9 @@ test "standard host action drain retains a gift-id request when entropy fails" {
 
 test "standard host action drain retries a dial whose executor fails" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x1f)), .{});
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x1f)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
 
     _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7095"));
@@ -258,14 +263,16 @@ test "standard host action drain retries a dial whose executor fails" {
     );
     try std.testing.expect((try host.peekAction()) == null);
 
-    try host.dialFailed(ticket, 0, "test dial retired");
+    try host.dialFailed(ticket, 0, .peer_unreachable, "test dial retired");
     const failed = (try host.takeAction()) orelse return error.MissingDialFailure;
     defer host.freeAction(failed);
     try std.testing.expect(failed == .failed);
 }
 
 test "standard host action drain retains a completion when publication preparation fails" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x3f)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x3f)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
 
     _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7099"));
@@ -275,7 +282,7 @@ test "standard host action drain retains a completion when publication preparati
         driver.core.DrainResult.drained,
         try driver.core.drainActions(&host, NoopActionIo{}, RetryDialExec{ .fail_next = &dial_failed }),
     );
-    try host.dialFailed(ticket, 0, "test completion");
+    try host.dialFailed(ticket, 0, .peer_unreachable, "test completion");
 
     var prepare_failed = true;
     const exec = RetryPrepareExec{ .host = &host, .fail_next = &prepare_failed };
@@ -292,7 +299,9 @@ test "standard host action drain retains a completion when publication preparati
 }
 
 test "standard host action drain retries cancellation until physical acknowledgement" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x21)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x21)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
 
     _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7098"));
@@ -322,9 +331,49 @@ test "standard host action drain retries cancellation until physical acknowledge
     try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
 }
 
+/// Counts dials it runs and frees every completion the drain hands it.
+const CountingDialExec = struct {
+    host: *Host,
+    dials: *usize,
+
+    pub fn flush(_: @This(), _: engine.PeerHandle) !void {}
+    pub fn close(_: @This(), _: engine.PeerHandle) !void {}
+    pub fn dial(self: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {
+        self.dials.* += 1;
+    }
+    pub fn cancelDial(self: @This(), cancel: @FieldType(driver.core.HostAction, "cancel_dial")) !void {
+        try self.host.dialCancelled(cancel.ticket, 0);
+    }
+    pub fn complete(self: @This(), action: driver.core.HostAction) !void {
+        self.host.freeAction(action);
+    }
+};
+
+test "a dial cancelled while queued is dropped at peek, never taken" {
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x22)), .{
+        .thread_policy = .unchecked,
+    });
+    defer host.deinit();
+
+    _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7097"));
+    try std.testing.expect((try host.peekAction()).? == .dial);
+    // Cancel before the drain begins the effect: the queued row can no
+    // longer begin, so peek and take must agree that it is gone.
+    host.beginClose(.cancel, 0);
+    var dials: usize = 0;
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, NoopActionIo{}, CountingDialExec{ .host = &host, .dials = &dials }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), dials);
+    if (try host.peekAction()) |left| try std.testing.expect(left != .dial);
+}
+
 test "borrowed action refusal retries in place without reordering" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x20)), .{});
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x20)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
 
     _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7096"));
@@ -340,8 +389,8 @@ test "borrowed action refusal retries in place without reordering" {
     try std.testing.expect(first != second);
     try std.testing.expect((try host.nextAction()) == null);
 
-    try host.dialFailed(first, 0, "test dial retired");
-    try host.dialFailed(second, 0, "test dial retired");
+    try host.dialFailed(first, 0, .peer_unreachable, "test dial retired");
+    try host.dialFailed(second, 0, .peer_unreachable, "test dial retired");
     while (try host.takeAction()) |action| host.freeAction(action);
 }
 
@@ -358,9 +407,10 @@ fn tcpSturdyref(designator: []const u8) model.SturdyRef {
 
 test "event serve OOM condemns the consumed event instead of retrying it" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0f)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0f)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var host = test_host.init(allocator, @as([32]u8, @splat(0x10)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .host_work_quantum = 1,
     });
@@ -452,9 +502,10 @@ fn fetchRef(pair: Pair, name: []const u8) !model.Reference {
 
 test "a fed frame whose own dispatch amplifies past the budget fails that feed" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = budget,
     });
@@ -480,11 +531,12 @@ test "a fed frame whose own dispatch amplifies past the budget fails that feed" 
 
 test "a fed connection flooding a sibling condemns the sibling with a close action; the fed verb and connection survive" {
     const allocator = std.testing.allocator;
-    var client_a = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client_a = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client_a.deinit();
-    var client_b = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
+    var client_b = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.init(.unchecked, frame_cap));
     defer client_b.deinit();
     var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = budget,
     });
@@ -546,6 +598,7 @@ test "a fed connection flooding a sibling condemns the sibling with a close acti
     while (try pair_b.b.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
+        // tolerant: the over-budget client is expected to refuse frames, and the abort info is asserted right after.
         client_b.feed(pair_b.a, frame.view()) catch {};
         if (pair_b.a.served.last_abort) |info| {
             try std.testing.expectEqual(model.AbortKind.resource_exhausted, info.kind);

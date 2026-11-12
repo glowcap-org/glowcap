@@ -26,9 +26,15 @@ async fn locally_refused_posts_release_retained_capacity() {
 			..Default::default()
 		})
 		.unwrap();
-		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&host))
-			.await
-			.unwrap();
+		let runtime = Runtime::open(
+			RuntimeConfig::providers([tcp::provider(tcp::Config {
+				profiles: tcp::Profiles::TCP,
+				..Default::default()
+			})])
+			.adopt_host(&host),
+		)
+		.await
+		.unwrap();
 		let dial = glowcap::parse_locator(&running.location).unwrap();
 		let client = Client::new(
 			runtime.connect(&dial, ConnectOptions::default()).await.unwrap(),

@@ -32,7 +32,9 @@ its ownership, scope, and failure behavior as precise as a product interface.
 
 ## The budget
 
-Every resident line is paid by every session. Each concern has one owner, and
+Every resident line is paid by every session, and `source-check` caps the
+resident set (`AGENTS.md` plus every `alwaysApply: true` rule) at
+<!-- value ../../tools/check/source_check/agents_catalog.zig resident_budget_bytes -->18,000<!-- /value --> bytes. Each concern has one owner, and
 other surfaces link to it. Additions displace or compress existing prose. Write
 directives with their precondition and reason, and cut persuasion, repetition,
 and anecdote.

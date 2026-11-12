@@ -17,8 +17,7 @@ test "uncertain disk commit refreshes under custody and resolves the original St
         defer arena.deinit();
         var store = try core.Store.init(arena.allocator(), db.metadata, &f.schemas, f.limits);
         var store_open = true;
-        // best-effort: a failed assertion is the report, not its busy teardown.
-        defer if (store_open) store.deinit() catch {};
+        errdefer if (store_open) store.deinit() catch {};
         const incarnation = store.metadata.incarnation;
         const initial = try db.inspect();
         const capacity = capacityOf(initial) + 32 * initial.page_bytes;
@@ -52,6 +51,7 @@ test "uncertain disk commit refreshes under custody and resolves the original St
         defer if (parking) {
             std.debug.assert(rename(parked, source) == 0);
         };
+        // tolerant: each engine names its missing-file refusal differently, and the reopen and custody refusals asserted below are the contract.
         if (db.recover(batch)) |_| return error.TestExpectedRecoveryFailure else |_| {}
         try std.testing.expect(std.c.access(source, std.c.F_OK) != 0);
         try std.testing.expectError(error.ReopenRequired, db.beginRead());
@@ -82,8 +82,8 @@ test "uncertain disk commit refreshes under custody and resolves the original St
         const next = db.commit(try store.beginWrite(next_ticket));
         try std.testing.expectEqual(.committed, std.meta.activeTag(next));
         try store.completeWrite(next_ticket, next);
-        try store.deinit();
         store_open = false;
+        try store.deinit();
     }
 }
 

@@ -5,9 +5,12 @@ use rooms_application::files::FileDescription;
 #[tokio::test]
 async fn reissuing_retired_line_files_does_not_grow_reader_inventory() {
 	rooms_testing::local_set::run(async {
-		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-			.await
-			.unwrap();
+		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})]))
+		.await
+		.unwrap();
 		let listener = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();
 		let locator = listener.locator().unwrap();
 		let (session, peer) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), listener.accept());

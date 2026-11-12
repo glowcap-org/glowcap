@@ -64,7 +64,7 @@ fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Opt
 }
 
 /// The *sans-io core* module graph (no `net` / I/O) for an arbitrary
-/// target, returning the `actors` module at its top, used to type-check the status-allow: purpose clause
+/// target, returning the `actors` module at its top, which type-checks the
 /// core for `wasm32-freestanding`, gating the 32-bit overflow guards the codec
 /// carries without pulling in the I/O layers that wasm lacks.
 fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
@@ -296,6 +296,8 @@ pub fn register(ctx: Context) Registered {
     const fuzz_driver = execution.addArtifact(b, .search, fuzz_driver_exe);
     fuzz_driver.addArgs(&.{ b.graph.zig_exe, b.fmt("--fuzz={s}", .{fuzz_budget}), b.fmt("--shard={d}/{d}", .{ fuzz_shard.index, fuzz_shard.count }) });
     fuzz_driver.has_side_effects = true;
+    // The driver only runs under `zig build fuzz`, so the check gate compiles it.
+    check_step.dependOn(&fuzz_driver_exe.step);
     b.step("fuzz", "Mutation-fuzz every untrusted-input target (-Dfuzz-runs to change how long each one searches)")
         .dependOn(&fuzz_driver.step);
 
@@ -384,9 +386,16 @@ pub fn register(ctx: Context) Registered {
     // the CI programs to the binding, under the root ruff.toml.
     const python_format = commands.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "format", "--check", "." });
     const python_lint = commands.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "check", "." });
-    const python_check_step = b.step("python-check", "Check the formatting and lint of every first-party Python file with the pinned ruff");
+    // The pinned mypy types the CI programs and the build tools. Each `ci`
+    // file imports its siblings by bare name, so that directory is its own
+    // base; `tools` files are named from the root.
+    const ci_types = commands.addRootedSystemCommand(b, .build_tool, &(commands.mypy ++ .{"ci"}));
+    const tool_types = commands.addRootedSystemCommand(b, .build_tool, &(commands.mypy ++ .{ "--explicit-package-bases", "tools" }));
+    const python_check_step = b.step("python-check", "Check the formatting and lint of every first-party Python file with the pinned ruff, and type the CI programs and build tools with the pinned mypy");
     python_check_step.dependOn(&python_format.step);
     python_check_step.dependOn(&python_lint.step);
+    python_check_step.dependOn(&ci_types.step);
+    python_check_step.dependOn(&tool_types.step);
     source_check_step.dependOn(python_check_step);
     const python_format_write = commands.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "format", "." });
     python_format_write.has_side_effects = true;

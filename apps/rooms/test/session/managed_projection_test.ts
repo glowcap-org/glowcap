@@ -17,6 +17,7 @@ await import("./managed_projection/lifetimes.ts");
 await import("./managed_projection/commits.ts");
 await import("./managed_projection/notices.ts");
 await import("./managed_projection/delivery.ts");
+await import("./managed_projection/catch_up.ts");
 
 Deno.test("managed occupancy changes visibility and keeps the independent seat live", () => {
 	const row = room();
@@ -36,10 +37,11 @@ Deno.test("managed occupancy changes visibility and keeps the independent seat l
 			cursor: "1",
 			gap: false,
 			event: {
+				at: 0,
 				target: { kind: "room", id: row.id },
 				notice: { kind: "occupancy", listed: false, claimable: true },
 			},
-		});
+		}, false);
 		const after = f.selected();
 		assert(after.type === "room", "room projection");
 		assertEquals(after.policy, { visibility: "secret", entry: "invite-only", speaking: "moderated" });
@@ -134,12 +136,13 @@ Deno.test("managed membership warns once when entering under an ignored name of 
 			cursor: "1",
 			gap: false,
 			event: {
+				at: 0,
 				target: { kind: "room", id: "conversation" },
 				notice: { kind: "line", from: ROOM_SENDER, text: "joined" },
 			},
 		};
-		f.projection.activity(arrival);
-		f.projection.activity({ ...arrival, cursor: "2" });
+		f.projection.activity(arrival, false);
+		f.projection.activity({ ...arrival, cursor: "2" }, false);
 		assertEquals(store.historyOf(f.page.projection, key).every((item) => item.kind === "sys"), true);
 		assertEquals(store.unreadOf(f.page.projection, key).kind, "caught-up");
 		const warnings = store.historyOf(f.page.projection, key).filter((item) =>
@@ -232,8 +235,8 @@ Deno.test("managed direct readiness and line activity preserve live state across
 		assert(before.type === "dm", "managed projection contract");
 		f.projection.activity({
 			cursor: "ready",
-			event: { target: { kind: "direct", id: before.persistId }, notice: { kind: "ready" } },
-		});
+			event: { at: 0, target: { kind: "direct", id: before.persistId }, notice: { kind: "ready" } },
+		}, false);
 		f.apply();
 		const ready = f.selected();
 		assert(ready.type === "dm", "managed projection contract");
@@ -241,10 +244,11 @@ Deno.test("managed direct readiness and line activity preserve live state across
 		f.projection.activity({
 			cursor: "line",
 			event: {
+				at: 0,
 				target: { kind: "direct", id: before.persistId },
 				notice: { kind: "line", from: ROOM_SENDER, text: "hello", marker: { id: 1, change: "said" } },
 			},
-		});
+		}, false);
 		const line = store.historyOf(f.page.projection, before.key).find((item) => item.kind === "chat");
 		assertEquals(line?.from, ROOM_SENDER);
 		const row = f.current.intent.conversations[0];
@@ -276,21 +280,23 @@ Deno.test("managed discovery establishes directory liveness and ignores stale pu
 		f.projection.activity({
 			cursor: "snapshot",
 			event: {
+				at: 0,
 				target: { kind: "discovery", id },
 				notice: { kind: "discoverySnapshot", snapshot: { rooms: [entry], peers: [], omitted: 0 } },
 			},
-		});
+		}, false);
 		assertEquals(f.page.projection.get().dirs.get(id)?.session, "connected");
 		f.projection.activity({
 			cursor: "closed",
 			event: {
+				at: 0,
 				target: { kind: "discovery", id },
 				notice: {
 					kind: "discoveryChanged",
 					event: { kind: "closed", name: entry.name, count: null, entry: { ...entry, id: "old" } },
 				},
 			},
-		});
+		}, false);
 		assertEquals(store.liveRoom(f.page.projection, id, "garden")?.id, "current");
 	} finally {
 		f.close();
@@ -304,6 +310,7 @@ Deno.test("managed state-only room activity updates presence and facts without d
 		const event = (presence: Presence): ActivityPage => ({
 			cursor: "presence",
 			event: {
+				at: 0,
 				target: { kind: "room" as const, id: row.persistId },
 				notice: {
 					kind: "line",
@@ -324,6 +331,7 @@ Deno.test("managed state-only room activity updates presence and facts without d
 				badge: "LINKING",
 				said: "Linking",
 			}),
+			false,
 		);
 		assertEquals(store.membersOf(f.page.projection, row.key).get("ada")?.seat?.state, "connecting");
 		assertEquals(store.historyOf(f.page.projection, row.key).length, 0);
@@ -366,21 +374,32 @@ Deno.test("managed incoming direct lines use this page's notification gate", () 
 	try {
 		f.page.projection.set({ activeKey: null, notifyOn: true, visible: false });
 		f.projection.activity({
+			cursor: "earlier",
+			event: {
+				at: 0,
+				target: { kind: "direct", id: "conversation" },
+				notice: { kind: "line", text: "said earlier", marker: { id: 3, change: "said" } },
+			},
+		}, true);
+		assertEquals(notifications, [], "a line read after it happened announces nothing");
+		f.projection.activity({
 			cursor: "notification",
 			event: {
+				at: 0,
 				target: { kind: "direct", id: "conversation" },
 				notice: { kind: "line", text: "hello", marker: { id: 1, change: "said" } },
 			},
-		});
+		}, false);
 		assertEquals(notifications, ["bo"]);
 		f.page.projection.set({ ignored: new Set(["bo"]) });
 		f.projection.activity({
 			cursor: "silenced",
 			event: {
+				at: 0,
 				target: { kind: "direct", id: "conversation" },
 				notice: { kind: "line", text: "silenced", marker: { id: 2, change: "said" } },
 			},
-		});
+		}, false);
 		assertEquals(notifications, ["bo"]);
 	} finally {
 		Object.defineProperty(globalThis, "Notification", { configurable: true, value: previous });
@@ -459,10 +478,11 @@ Deno.test("managed direct activity isolates same-named peers in different direct
 			f.projection.activity({
 				cursor: id,
 				event: {
+					at: 0,
 					target: { kind: "direct", id },
 					notice: { kind: "line", text, marker: { id: 1, change: "said" } },
 				},
-			});
+			}, false);
 		}
 		assertEquals(
 			store.historyOf(f.page.projection, first.key).filter((item) => item.kind === "chat").map((item) =>
@@ -479,10 +499,11 @@ Deno.test("managed direct activity isolates same-named peers in different direct
 		f.projection.activity({
 			cursor: "ended",
 			event: {
+				at: 0,
 				target: { kind: "direct", id: "conversation" },
 				notice: { kind: "ended", reason: "peer retired" },
 			},
-		});
+		}, false);
 		const closed = store.getConv(f.page.projection, first.key);
 		assertEquals(closed?.type === "dm" ? closed.line : null, "closed");
 		const live = store.getConv(f.page.projection, other.key);
@@ -532,8 +553,8 @@ Deno.test("managed direct readiness waits for committed route and callback custo
 	try {
 		f.projection.activity({
 			cursor: "ready",
-			event: { target: { kind: "direct", id: row.id }, notice: { kind: "ready" } },
-		});
+			event: { at: 0, target: { kind: "direct", id: row.id }, notice: { kind: "ready" } },
+		}, false);
 		assertEquals(line(), "introducing");
 		row.access = "committed-route";
 		f.apply();

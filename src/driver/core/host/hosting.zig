@@ -48,6 +48,7 @@ pub const HostTurn = struct {
     /// application itself originated, or once that session has closed.
     pub fn deliveringSession(self: *const HostTurn) ?*HostSession {
         if (self.session) |session| return session;
+        // tolerant: ForeignTurn is the only failure: a turn this Host did not deliver has no delivering session.
         const producer = @import("local_delivery.zig").producer(self.turn) catch return null;
         const via = producer.via orelse return null;
         return self.host.sessionForPeer(via);
@@ -217,13 +218,35 @@ pub const HostTurn = struct {
 /// session's Port. Both representations borrow the active turn. The owning `Session.spawn` /
 /// `Session.publish` and Host-wide `publish` wrap every behavior in this
 /// adapter. The base Vat and the serve core keep the wire-shaped contract.
+/// An error `B` returns is the behavior's own refusal. A failure of the
+/// adapter's own lift or of lowering the reply is the adapter's and breaks
+/// the call with no cause. A `B` that fronts another behavior declares
+/// `pub fn refuses(err: anyerror) bool` to say which of its errors are that
+/// behavior's refusal. Its other errors are the adapter's too.
 pub fn Hosting(comptime B: type) type {
     return struct {
         inner: B,
 
-        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !actors.HostedActor.Result {
+        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) actors.HostedActor.Result {
+            return self.deliver(turn, msg) catch |err| .{ .refused = .adapter(err) };
+        }
+
+        pub fn handleOpaque(self: *@This(), turn: *actors.Turn, _: actors.OpaqueMessage) ?actors.HostedActor.Failure {
+            return self.deliverOwned(turn) catch |err| .adapter(err);
+        }
+
+        fn refusal(err: anyerror) actors.HostedActor.Failure {
+            if (@hasDecl(B, "refuses") and !B.refuses(err)) return .adapter(err);
+            return .behavior(err);
+        }
+
+        /// An error this returns is the adapter's. The behavior's own
+        /// refusal is a `refused` result.
+        fn deliver(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !actors.HostedActor.Result {
             const port = turn.port() orelse {
-                if (@hasDecl(B, "handleLocal")) return .{ .returned = try self.inner.handleLocal(turn, msg) };
+                if (@hasDecl(B, "handleLocal")) {
+                    return if (self.inner.handleLocal(turn, msg)) |value| .{ .returned = value } else |err| .{ .refused = refusal(err) };
+                }
                 return error.NotConnected;
             };
             const served: *Served = @fieldParentPtr("port", port);
@@ -239,7 +262,10 @@ pub fn Hosting(comptime B: type) type {
                 return err;
             };
             errdefer if (lease) |held| held.release();
-            const reply = try self.inner.handle(&host_turn, msg.verb, args);
+            const reply = self.inner.handle(&host_turn, msg.verb, args) catch |err| {
+                if (lease) |held| held.release();
+                return .{ .refused = refusal(err) };
+            };
             if (!value_views.carriesCapability(&.{reply})) {
                 if (lease) |held| held.release();
                 if (turn.origin == .served) return .{ .viewed = try value_views.argument(&reply) };
@@ -247,12 +273,13 @@ pub fn Hosting(comptime B: type) type {
             return .{ .returned = try host.lowerValue(session, turn.arena, reply) };
         }
 
-        pub fn handleOpaque(self: *@This(), turn: *actors.Turn, _: actors.OpaqueMessage) !void {
+        fn deliverOwned(self: *@This(), turn: *actors.Turn) !?actors.HostedActor.Failure {
             var host_turn = try HostTurn.fromActorTurn(turn);
             try host_turn.beginLocal();
             const input = try host_turn.localArguments();
-            const reply = try self.inner.handle(&host_turn, input.verb, input.args);
+            const reply = self.inner.handle(&host_turn, input.verb, input.args) catch |err| return refusal(err);
             try host_turn.prepareLocalReply(reply);
+            return null;
         }
 
         /// Forward the wrapped behavior's state teardown, so a reclaimed or

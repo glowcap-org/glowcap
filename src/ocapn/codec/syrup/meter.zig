@@ -72,7 +72,7 @@ pub fn mention(allocator: std.mem.Allocator, argument: *const model.Argument) Wa
     };
 }
 
-/// The mention writers take the sink after the allocator; `render` hands
+/// The mention writers take the sink after the allocator. `render` hands
 /// the sink first.
 fn writeReference(sink: anytype, allocator: std.mem.Allocator, reference: *const model.Reference) WalkError!void {
     try encode.writePayloadReference(allocator, sink, reference);

@@ -21,6 +21,11 @@ impl Tasks for Platform {
 		Task(tokio::task::spawn_local(work))
 	}
 }
+impl crate::wall_clock::WallClock for Platform {
+	fn unix_millis(&self) -> core::result::Result<u64, crate::wall_clock::Error> {
+		Ok(0)
+	}
+}
 impl Deadline for Platform {
 	fn monotonic_millis(&self) -> u64 {
 		0

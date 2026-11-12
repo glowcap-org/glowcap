@@ -100,17 +100,6 @@ fn policyNames(comptime policy: type) [policy.omissions.len][]const u8 {
     return names;
 }
 
-const Allowed = struct {
-    binding: []const u8,
-    symbol: []const u8,
-    why: []const u8,
-};
-
-/// Rows with no runtime proof, each carrying why. A row whose verb becomes
-/// provable fails the gate, so the list only shrinks. It is empty: every verb
-/// either has a proof or a reason in its binding-owned omission policy.
-const allowlist = [_]Allowed{};
-
 pub fn check(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -120,9 +109,6 @@ pub fn check(
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-
-    // Allowlist rows this run reached, so a row that stops applying is caught.
-    var used = std.StringHashMap(void).init(arena);
 
     for (bindings) |binding| {
         var graph = Graph.init(arena, &host_verbs);
@@ -138,42 +124,14 @@ pub fn check(
         for (host_verbs) |verb| {
             if (binding.omits(verb)) continue;
             const sites = graph.sites.get(verb);
-            const allowed = isAllowed(binding.name, verb);
-            const proven = if (sites) |set| graph.anyReached(set) else false;
-            // A row the run matched at all is not stale, however it matched, so
-            // the sweep below reports only rows naming nothing.
-            if (allowed) try used.put(try std.fmt.allocPrint(arena, "{s}/{s}", .{ binding.name, verb }), {});
-            if (proven) {
-                if (allowed) {
-                    try appendViolation(gpa, violations, "{s}: `{s}` now has a runtime proof — delete its `allowlist` row in tools/check/source_check/binding_runtime_proof.zig; that list only shrinks", .{ binding.name, verb });
-                }
-                continue;
-            }
-            if (allowed) continue;
+            if (sites) |set| if (graph.anyReached(set)) continue;
             if (sites) |set| {
-                try appendViolation(gpa, violations, "{s}: `{s}` is called only from `{s}`, which no gate reaches — call that wrapper from a script under interop/, apps/, bench/, or the binding's own proof entrypoints, or add an `allowlist` row with its reason in tools/check/source_check/binding_runtime_proof.zig", .{ binding.name, verb, graph.firstName(set) });
+                try appendViolation(gpa, violations, "{s}: `{s}` is called only from `{s}`, which no gate reaches — call that wrapper from a script under interop/, apps/, bench/, or the binding's own proof entrypoints, or record its omission and reason in {s}", .{ binding.name, verb, graph.firstName(set), binding.policy_path });
             } else {
                 try appendViolation(gpa, violations, "{s}: `{s}` has no call site outside the generated FFI table — give it a wrapper a proof reaches, or record its omission and reason in {s}", .{ binding.name, verb, binding.policy_path });
             }
         }
     }
-
-    for (allowlist) |row| {
-        var key_buf: [256]u8 = undefined;
-        const key = std.fmt.bufPrint(&key_buf, "{s}/{s}", .{ row.binding, row.symbol }) catch {
-            try appendViolation(gpa, violations, "runtime-proof allowlist row {s}/{s} overflows the key buffer; grow it", .{ row.binding, row.symbol });
-            continue;
-        };
-        if (used.contains(key)) continue;
-        try appendViolation(gpa, violations, "{s}: `allowlist` row `{s}` matched nothing this run — its binding name or symbol is stale; fix or delete it in tools/check/source_check/binding_runtime_proof.zig", .{ row.binding, row.symbol });
-    }
-}
-
-fn isAllowed(binding: []const u8, symbol: []const u8) bool {
-    for (allowlist) |row| {
-        if (std.mem.eql(u8, row.binding, binding) and std.mem.eql(u8, row.symbol, symbol)) return true;
-    }
-    return false;
 }
 
 // -- the symbol inventory ----------------------------------------------------
@@ -367,18 +325,6 @@ fn isDunder(name: []const u8) bool {
 }
 
 // -- lexing ------------------------------------------------------------------
-
-test "every allowlist row names a real binding" {
-    for (allowlist) |row| {
-        var known = false;
-        for (bindings) |binding| {
-            if (std.mem.eql(u8, binding.name, row.binding)) known = true;
-        }
-        try std.testing.expect(known);
-        try std.testing.expect(row.why.len != 0);
-        try std.testing.expect(std.mem.startsWith(u8, row.symbol, "glowcap_host_"));
-    }
-}
 
 test "the Python binding omits a verb its compiled policy lists and demands one it does not" {
     const python = bindings[0];

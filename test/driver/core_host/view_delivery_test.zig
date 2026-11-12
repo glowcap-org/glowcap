@@ -53,9 +53,7 @@ const Probe = struct {
 /// Shuttle the call and its reply across the pair without the harness
 /// drain, which would consume the settled action this reads.
 fn settledInteger(client: *core.Host, pair: h.Pair, vow: u64) !i64 {
-    for (0..64) |_| {
-        if (!try h.shuttleAll(&.{pair})) break;
-    } else return error.PumpDidNotQuiesce;
+    try h.shuttleUntilQuiet(&.{pair});
     const action = while (try client.takeAction()) |action| {
         if (action == .settled and action.settled.vow_id == vow) break action;
         client.freeAction(action);
@@ -66,9 +64,9 @@ fn settledInteger(client: *core.Host, pair: h.Pair, vow: u64) !i64 {
 }
 
 test "core host: a Value-shaped behavior reads a plain deliver as views and a capability deliver as values" {
-    var client = test_host.init(a, @splat(0x71), core.Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(a, @splat(0x71), core.Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x72), core.Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x72), core.Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -107,7 +105,7 @@ test "core host: a Value-shaped behavior reads a plain deliver as views and a ca
 }
 
 test "core host: over the Cap'n Proto codec a list of integers is read where the frame holds it" {
-    var opts = core.Host.Options.withFrameCap(h.frame_cap);
+    var opts = core.Host.Options.init(.unchecked, h.frame_cap);
     opts.codec = .capnp;
     var client = test_host.init(a, @splat(0x73), opts);
     defer client.deinit();

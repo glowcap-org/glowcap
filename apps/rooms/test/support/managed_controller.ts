@@ -12,7 +12,11 @@ const { presentationFiles } = await import("../../web/ui/session/managed/files.t
 const { directoryId } = await import("../../web/ui/application.ts");
 const store = await import("../../web/ui/store.ts");
 await initializeApplication();
-export function fixture(listed: RoomInfo[] = [], duringRead: () => void = () => {}) {
+export function fixture(
+	listed: RoomInfo[] = [],
+	duringRead: () => void = () => {},
+	create: () => Promise<string> = () => Promise.resolve("room"),
+) {
 	const page = new RoomsPage();
 	const current = snapshot();
 	const route = "127.0.0.1:1234";
@@ -70,7 +74,7 @@ export function fixture(listed: RoomInfo[] = [], duringRead: () => void = () => 
 			},
 			createRoom: (...args: unknown[]) => {
 				calls.push(["createRoom", ...args.slice(0, 3)]);
-				return Promise.resolve("room");
+				return create();
 			},
 		},
 	} as unknown as ManagedRoomsSession;

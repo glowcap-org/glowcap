@@ -39,7 +39,7 @@
     "PLTUSERHOME": "/opt/glowcap-racket-userhome",
     "RUSTUP_HOME": "/usr/local/rustup",
     "UV_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/uv",
-    "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/zig"
+    "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/zig/0.17.1"
   },
   "mounts": [
     "source=${localEnv:HOME}/.cache/glowcap,target=/home/vscode/.cache/glowcap,type=bind",

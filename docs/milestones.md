@@ -1,12 +1,16 @@
 ---
 type: static
-description: The five milestones on the way to 1.0 and where the evidence for each one lives.
-sources: []
+description: The milestones on the way to 1.0 and where the evidence for each one lives.
+sources:
+  - resource: /test/engine/footprint_budget_test.zig
+  - resource: /test/net/
+  - resource: /bench/dispatch_scaling_bench.zig
+  - resource: /bench/outbound_bench.zig
 ---
 
 # Milestones to 1.0
 
-glowcap has five milestones on the way to 1.0: protocol conformance,
+glowcap has these milestones on the way to 1.0: protocol conformance,
 performance at scale, hosted applications, the C ABI and bindings, and
 transport reachability. Their order matters: protocol behavior comes before
 performance work, and the public APIs come before adding more ways to reach a

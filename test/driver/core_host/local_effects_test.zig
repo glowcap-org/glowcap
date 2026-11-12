@@ -59,7 +59,9 @@ fn spawn(host: *driver.Host, comptime B: type, initial: B) !driver.Capability {
 test "core host ingress configuration admits bounded file payloads and freezes before effects" {
     for ([_]bool{ false, true }) |configured| {
         var counted: metrics.CountingAllocator = .{ .backing = a };
-        var host = support.init(counted.allocator(), @splat(0xaa), .{});
+        var host = support.init(counted.allocator(), @splat(0xaa), .{
+            .thread_policy = .unchecked,
+        });
         defer host.deinit();
         const before = counted.allocs;
         try std.testing.expectError(error.InvalidArgument, host.setIngressLimits(.{ .max_pending_turns = 0 }));
@@ -86,7 +88,9 @@ test "core host ingress configuration admits bounded file payloads and freezes b
             try std.testing.expectEqualSlices(u8, bytes, call.result().ready.bytes);
         }
     }
-    var host = support.init(a, @splat(0xab), .{});
+    var host = support.init(a, @splat(0xab), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     const ingress = try host.vat.openIngress();
     try host.vat.closeIngress(ingress);
@@ -96,9 +100,9 @@ test "core host ingress configuration admits bounded file payloads and freezes b
 test "core host local callback effects share admission and rollback through actual homes" {
     for ([_]bool{ false, true }) |remote| for ([_]bool{ false, true }) |forwarded| for ([_]bool{ false, true }) |tell| for ([_]enum { ready, failed, finish, cancel_observer, session_finish }{ .ready, .failed, .finish, .cancel_observer, .session_finish }) |mode| {
         if (mode == .session_finish and !remote) continue;
-        var host = support.init(a, @splat(0xa1), driver.Host.Options.withFrameCap(4096));
+        var host = support.init(a, @splat(0xa1), driver.Host.Options.init(.unchecked, 4096));
         defer host.deinit();
-        var exporter = support.init(a, @splat(0xa2), driver.Host.Options.withFrameCap(4096));
+        var exporter = support.init(a, @splat(0xa2), driver.Host.Options.init(.unchecked, 4096));
         defer exporter.deinit();
         var calls: usize = 0;
         const actor = try exporter.vat.spawn(WireChild, .{ .calls = &calls });
@@ -175,7 +179,7 @@ test "core host local callback effects share admission and rollback through actu
 
 test "core host local callback effects defer exact public custody and cancel only observation" {
     for ([_]bool{ false, true }) |cancel| {
-        var host = support.init(a, @splat(0xa3), driver.Host.Options.withFrameCap(4096));
+        var host = support.init(a, @splat(0xa3), driver.Host.Options.init(.unchecked, 4096));
         defer host.deinit();
         var calls: usize = 0;
         var resolver: u64 = 0;
@@ -211,7 +215,7 @@ test "core host local callback effects defer exact public custody and cancel onl
 test "core host local callback effects preserve public resolver on reply allocation refusal" {
     var failing = std.testing.FailingAllocator.init(a, .{});
     var counted: metrics.CountingAllocator = .{ .backing = failing.allocator() };
-    var host = support.init(counted.allocator(), @splat(0xa4), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(counted.allocator(), @splat(0xa4), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     var resolver: u64 = 0;
@@ -262,7 +266,7 @@ test "core host local callback effects preserve public resolver on reply allocat
 
 fn constructorRefusal(failure_index: usize, tell: bool) !bool {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var host = support.init(failing.allocator(), @splat(0xa5), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(failing.allocator(), @splat(0xa5), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const child = try spawn(&host, Child, .{ .calls = &calls });
@@ -313,7 +317,7 @@ test "core host local callback effects refuse each constructor allocation withou
 test "core host local callback effects warmed admission charges metadata and overlapping queue custody" {
     var live: metrics.LiveBytesAllocator = .{ .backing = a };
     var counted: metrics.CountingAllocator = .{ .backing = live.allocator() };
-    var host = support.init(counted.allocator(), @splat(0xa8), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(counted.allocator(), @splat(0xa8), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const child = try spawn(&host, Child, .{ .calls = &calls });
@@ -348,9 +352,9 @@ test "core host local callback effects warmed admission charges metadata and ove
 
 test "core host local callback effects aggregate teardown owns queued deferred and foreign work" {
     for ([_]enum { queued, deferred, foreign }{ .queued, .deferred, .foreign }) |mode| {
-        var host = support.init(a, @splat(0xa6), driver.Host.Options.withFrameCap(4096));
+        var host = support.init(a, @splat(0xa6), driver.Host.Options.init(.unchecked, 4096));
         defer host.deinit();
-        var exporter = support.init(a, @splat(0xa7), driver.Host.Options.withFrameCap(4096));
+        var exporter = support.init(a, @splat(0xa7), driver.Host.Options.init(.unchecked, 4096));
         defer exporter.deinit();
         var calls: usize = 0;
         var resolver: u64 = 0;

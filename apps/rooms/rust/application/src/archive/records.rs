@@ -145,7 +145,7 @@ impl Record {
 				safe(*at, false)?;
 				safe(*order, true)?;
 				if attachments.len() > MAX_MESSAGE_FILES
-					|| attachments.iter().map(|a| a.size()).sum::<usize>() > 64 * 1024 * 1024
+					|| attachments.iter().map(|a| a.size()).sum::<usize>() > crate::files::sources::MAX_BYTES
 				{
 					return Err(Error::Record);
 				}

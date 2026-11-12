@@ -2,7 +2,7 @@
 //! acknowledged. Answers and candidates are relayed in the turn they arrive.
 //! A delivery the recipient refused retires its exchange with a reason.
 use super::{
-	behavior::{Reply, Shared, busy, capability, text},
+	behavior::{Reply, Shared, capability, text},
 	notice::Notice,
 	state::{State, Work},
 };
@@ -67,10 +67,11 @@ fn offer(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 	let (caller, _) = super::rooms::caller(state)?;
 	let (sender, _, _) = state.admission_context(caller)?;
 	let (recipient, _, _) = state.admission_context(target)?;
+	// The delivery's seat is reserved before the exchange is charged and
+	// admitted, so a full queue refuses without spending the caller's
+	// allowance on an exchange nobody will deliver.
+	let seat = state.reserve()?;
 	state.admission.signaling(sender, recipient, now)?;
-	// The delivery's seat is reserved before the exchange is admitted, so a
-	// full queue refuses without an exchange nobody will deliver.
-	let seat = state.work.try_reserve().map_err(|_| busy())?;
 	let offered = state
 		.policy
 		.signal_offer(connection, designator, reply.clone(), now)

@@ -30,21 +30,22 @@ const fixtures = @import("../../support/completion_loop_fixtures.zig");
 var hello: []const u8 = &.{};
 var hello_buf: [512]u8 = undefined;
 
-/// Encode one client hello into `hello_buf`. Fails soft: a run without it feeds
-/// only garbage, which is not a broken test.
-pub fn buildHello(allocator: std.mem.Allocator) void {
+/// Encode one client hello into `hello_buf`. A run without it feeds only
+/// garbage and reaches none of the success half, so a failure here fails the
+/// run.
+pub fn buildHello(allocator: std.mem.Allocator) !void {
     hello = &.{};
     var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
-    client.sendBorrowed(handshake.startSession(net.tcp.plain.transport_name, "client")) catch return;
+    try client.sendBorrowed(handshake.startSession(net.tcp.plain.transport_name, "client"));
     var at: usize = 0;
-    while ((client.step() catch return) != .idle) {}
+    while (try client.step() != .idle) {}
     while (client.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
         const bytes = frame.bytes();
-        if (at + bytes.len > hello_buf.len) return;
+        if (at + bytes.len > hello_buf.len) return error.HelloTooLarge;
         @memcpy(hello_buf[at..][0..bytes.len], bytes);
         at += bytes.len;
     }
@@ -289,13 +290,18 @@ pub const LifecycleBackend = struct {
 
         return switch (op.kind) {
             // A refused accept is as ordinary as an accepted one, and the loop
-            // has to re-arm through both.
+            // re-arms through both. A refusal takes one of two shapes: the
+            // arrival itself failed (`ConnectionAborted`), and the listener
+            // keeps accepting, or an unclassified failure, the shape of a
+            // refusal that recurs for every arrival, which `run` returns.
             .accept => blk: {
                 self.next_fd += 1;
-                break :blk .{
+                if (self.draining or verdict % 4 == 0) break :blk .{
                     .user_data = op.user_data,
-                    .result = if (self.draining or verdict % 4 == 0) -1 else self.next_fd,
+                    .result = -1,
+                    .failure = if (!self.draining and verdict % 8 == 4) error.ConnectionAborted else null,
                 };
+                break :blk .{ .user_data = op.user_data, .result = self.next_fd };
             },
             // Zero is a clean end of stream; a failure is a reset; anything
             // else is that many bytes of garbage, which the session refuses.

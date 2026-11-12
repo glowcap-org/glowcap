@@ -1,5 +1,7 @@
-import { conversationById } from "./conversation_lookup.ts";
 // Page gestures acquire exact receipt occurrences. Rust executes all effects.
+import { invariant } from "../../../../lib/invariant.ts";
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
+import { conversationById } from "./conversation_lookup.ts";
 import type {
 	RoomsManagedAcquisition,
 	RoomsManagedDirectoryAcquisition,
@@ -24,7 +26,7 @@ import { retainedIntentConversation } from "./admission.ts";
 import { CompletedLine } from "./completed_line.ts";
 import { stageRoomLink } from "./room_link.ts";
 
-import { LOCAL_LIMITS } from "./local_gestures.ts";
+import { LOCAL_LIMITS } from "./local_limits.ts";
 import { gestureScope } from "./gestures.ts";
 import { SESSION_CONTENT } from "../../../../lib/session_content_data.ts";
 import { OperationLifecycle } from "./lifecycle.ts";
@@ -84,11 +86,12 @@ export class ManagedActions {
 	/** Let a held acquisition go: the request is freed and never resubmitted.
 	 * The session's own state says what it holds, so a change that did go
 	 * through stays saved there, and only this page's step of showing it is
-	 * dropped. One still running is not let go. */
+	 * dropped. One still running is not let go. Letting go of one already gone
+	 * has nothing left to do. */
 	release(id: string): Promise<void> {
 		const record = this.#acquisitions.get(id);
-		if (record == null) return Promise.reject(new Error("This acquisition is no longer held"));
-		if (record.task != null) return Promise.reject(new Error("This acquisition is still running"));
+		if (record == null) return Promise.resolve();
+		if (record.task != null) return Promise.reject(new LocalRefusal("still-working"));
 		record.request?.free();
 		record.request = undefined;
 		this.#forget(id);
@@ -110,16 +113,16 @@ export class ManagedActions {
 		signal?: AbortSignal,
 		completed?: () => Promise<void>,
 	): Promise<void> {
-		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
+		if (this.#stopped) return Promise.reject(new LocalRefusal("session-closed"));
 		const existing = this.#acquisitions.get(id);
 		if (existing != null) {
 			if (existing.intent !== intent) {
-				return Promise.reject(new Error("Recover the original acquisition before changing its contents"));
+				return Promise.reject(new LocalRefusal("access-change-retained"));
 			}
 			return existing.task ?? this.recoverAcquisition(id);
 		}
 		if (this.#acquisitions.size >= LOCAL_LIMITS.acquisitions) {
-			return Promise.reject(new Error("Recover pending acquisitions before preparing another one"));
+			return Promise.reject(new LocalRefusal("unfinished-limit"));
 		}
 		const record: AcquisitionRecord = {
 			intent,
@@ -146,7 +149,7 @@ export class ManagedActions {
 			}
 			if (this.#stopped) {
 				request.free();
-				throw new Error("This workspace is closed");
+				throw new LocalRefusal("session-closed");
 			}
 			record.request = request;
 			record.lifecycle.phase = "admitting";
@@ -174,9 +177,9 @@ export class ManagedActions {
 		this.#acquisitions.delete(id);
 	}
 	recoverAcquisition(id: string): Promise<void> {
-		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
+		if (this.#stopped) return Promise.reject(new LocalRefusal("session-closed"));
 		const record = this.#acquisitions.get(id);
-		if (record == null) return Promise.reject(new Error("This acquisition is no longer held"));
+		if (record == null) return Promise.reject(new LocalRefusal("acquisition-gone"));
 		if (record.task != null) return record.task;
 		const task = record.lifecycle.own("acquiring", () => this.#submitAcquisition(id)).finally(() => {
 			record.task = undefined;
@@ -199,7 +202,8 @@ export class ManagedActions {
 		return true;
 	}
 	async #submitAcquisition(id: string): Promise<void> {
-		const record = this.#acquisitions.get(id)!;
+		const record = this.#acquisitions.get(id);
+		invariant(record != null, "acquisition submission requires its retained owner");
 		if (record.lifecycle.outcome === "committed") {
 			await this.#session.refresh();
 			await record.completed?.();
@@ -208,7 +212,7 @@ export class ManagedActions {
 			return;
 		}
 		const original = record.request;
-		if (original == null) throw new Error("This acquisition is no longer held");
+		invariant(original != null, "an uncommitted acquisition retains its prepared request");
 		let request: Acquisition = original;
 		let outcome = await submitAcquisition(request);
 		// Only a proved conflict permits a new revision. Rust re-preparation
@@ -291,13 +295,13 @@ export class ManagedActions {
 		const accepted = this.#session.current;
 		const initial = await this.#session.candidate();
 		const original = (accepted ?? initial).intent.directories.find((row) => row.id === directory);
-		if (original == null) throw new Error("The original directory was removed");
+		if (original == null) throw new LocalRefusal("directory-gone");
 		for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
 			signal?.throwIfAborted();
 			const snapshot = attempt === 0 ? initial : await this.#session.candidate();
 			const current = snapshot.intent.directories.find((row) => row.id === directory);
 			if (current == null || current.access !== original.access || current.source !== original.source) {
-				throw new Error("The selected directory authority changed. Review it before joining a room.");
+				throw new LocalRefusal("directory-changed");
 			}
 			const held = snapshot.intent.conversations.find((row) =>
 				row.kind === "room" && row.directory === directory && row.publication === publication
@@ -323,12 +327,12 @@ export class ManagedActions {
 			} catch (error) {
 				// Only a proved conflict permits preparation at a newer revision.
 				// An uncertain submission remains held by the acquisition owner.
-				if (!(error instanceof AcquisitionConflict) || attempt + 1 === MAX_CONFLICT_REPREPARATIONS) {
+				if (!(error instanceof AcquisitionConflict)) {
 					throw error;
 				}
 			}
 		}
-		throw new Error("Room join exceeded conflict re-preparation attempts.");
+		throw new LocalRefusal("conflict");
 	}
 	createRoom(directory: string, name: string, policy: RoomPolicy, opening?: ConversationOpening): Promise<string> {
 		return this.#share(
@@ -364,9 +368,9 @@ export class ManagedActions {
 				throw error;
 			});
 		}
-		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
+		if (this.#stopped) return Promise.reject(new LocalRefusal("session-closed"));
 		if (this.#gestures.size >= SESSION_CONTENT.limits.effects) {
-			return Promise.reject(new Error("Finish pending actions before starting another one"));
+			return Promise.reject(new LocalRefusal("busy"));
 		}
 		let start!: () => void;
 		const task = new Promise<T>((resolve, reject) => {
@@ -397,9 +401,9 @@ export class ManagedActions {
 	}
 	async acquireLine(conversation: string, command: ManagedOperation): Promise<CompletedLine> {
 		const target = retainedIntentConversation(command.request.originalIntent());
-		if (target !== conversation) throw new Error("The line receipt belongs to another conversation");
+		invariant(target === conversation, "the line receipt belongs to another conversation");
 		const completed = await this.#session.completeResult(command);
-		if (!(completed instanceof CompletedLine)) throw new Error("The receipt is not a posted line");
+		invariant(completed instanceof CompletedLine, "the receipt is not a posted line");
 		return completed;
 	}
 
@@ -439,7 +443,7 @@ export class ManagedActions {
 		if (this.#importState != null) {
 			if (this.#importState !== raw) {
 				return Promise.reject(
-					new Error("Recover the original workspace import before importing another workspace"),
+					new LocalRefusal("import-in-progress"),
 				);
 			}
 			return this.#importing ?? this.recoverAcquisition(id);
@@ -467,7 +471,9 @@ export class ManagedActions {
 		if (offered?.authority.role === "roomAccess") {
 			const snapshot = await this.#session.candidate();
 			const invitation = snapshot.intent.invitations.find((row) => row.id === id);
-			if (invitation?.authority.role !== "roomAccess") throw new Error("The original invitation changed");
+			if (invitation?.authority.role !== "roomAccess") {
+				throw new LocalRefusal("invitation-changed");
+			}
 			const room = crypto.randomUUID();
 			snapshot.intent.conversations.push({
 				kind: "room",
@@ -502,7 +508,7 @@ export class ManagedActions {
 		if (this.#acquisitions.has(id)) return await this.recoverAcquisition(id);
 		const snapshot = await this.#session.candidate();
 		const conversation = conversationById(snapshot, event.target.id);
-		if (conversation?.kind !== "direct") throw new Error("The initiating direct conversation is no longer held");
+		if (conversation?.kind !== "direct") throw new LocalRefusal("conversation-gone");
 		const notice = event.notice;
 		const source = fieldKey();
 		const key = fieldKey();
@@ -523,9 +529,6 @@ export class ManagedActions {
 			});
 		} else if (notice?.kind === "handArchive" || notice?.kind === "offerArchive") {
 			const kind = notice.scope;
-			if (kind !== "room" && kind !== "direct" && kind !== "standing") {
-				throw new Error("Invalid received archive scope");
-			}
 			destination = { role: "archiveAccess", key };
 			snapshot.intent.archiveShares = [...(snapshot.intent.archiveShares ?? []), {
 				id,
@@ -539,7 +542,7 @@ export class ManagedActions {
 				durable: notice.kind === "offerArchive",
 			}];
 		} else {
-			throw new Error("This incoming authority has no acquisition owner");
+			invariant(false, "this incoming authority has no acquisition owner");
 		}
 		await this.#acquire(
 			id,
@@ -582,12 +585,12 @@ export class ManagedActions {
 		const held = this.#acquisitions.get(acquisition);
 		if (held != null) {
 			if (held.intent !== intent) {
-				throw new Error("Recover the original room link before opening a different one");
+				throw new LocalRefusal("access-change-retained");
 			}
 			// A room link acquisition is made with its staged row's id as its
 			// result, so a held one always names the row it opens.
 			const staged = held.result;
-			if (staged == null) throw new Error("This room link acquisition names no room");
+			invariant(staged != null, "this room link acquisition names no room");
 			await this.recoverAcquisition(acquisition);
 			return (await this.roomEnteredBy(uri)) ?? staged;
 		}

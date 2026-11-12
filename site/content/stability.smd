@@ -14,10 +14,10 @@ varies by transport, language, and platform.
   budgets, and public examples.
 - Recurring live checks talk to the upstream OCapN suite and to a
   Goblins peer. A Chromium browser
-  running the WebAssembly build also connects over a local secure WebSocket.
+  running the WebAssembly build also connects over a local secure WebSocket,
+  and two Chromium Rooms members message each other over a WebRTC DataChannel.
   Full CI validation runs them.
-- On-demand checks cover Tor, the full Goblins session over iroh, and browser-to-browser
-  WebRTC. No check covers iroh across two separate NATs or a public
+- On-demand checks cover Tor and the full Goblins session over iroh. No check covers iroh across two separate NATs or a public
   certificate.
 
 A live Goblins session proves protocol interop, not API stability. A live iroh

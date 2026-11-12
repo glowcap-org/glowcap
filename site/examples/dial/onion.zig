@@ -24,6 +24,6 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
     switch (settled) {
         .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
-        .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+        .broken => |reason| std.debug.print("the greeter refused: {f}\n", .{reason}),
     }
 }

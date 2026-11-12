@@ -29,7 +29,7 @@ const group = {
 	gap: 4,
 } satisfies React.CSSProperties;
 
-// A caption, not an eyebrow: "Profile · node color" is a sentence
+// A caption, not an eyebrow: "Profile: node color" is a sentence
 // about an encoding rather than the name of a block, and it is too long
 // to survive uppercase tracking in a pane this narrow, every second
 // one wrapped to two lines, which costs more than the treatment buys.
@@ -113,7 +113,7 @@ export function LegendBody() {
 	return (
 		<>
 			<div className="ocv-legend-grid">
-				<Group label="Profile · node color">
+				<Group label="Profile: node color">
 					{Object.entries(PROFILE_COLORS).map(([profile, color]) => (
 						<Row
 							key={profile}
@@ -142,7 +142,7 @@ export function LegendBody() {
           drawn rather than the property being encoded, and the rest of this
           legend names properties. */
 				}
-				<Group label="Attached to · node body">
+				<Group label="Attached to: node body">
 					<Row
 						swatch={peerBodySwatchStyle(NEUTRAL_BODY_COLOR, 14)}
 						label="a peer"
@@ -150,7 +150,7 @@ export function LegendBody() {
 					<Row swatch={endpointSwatchStyle(14)} label="nobody" />
 				</Group>
 
-				<Group label="Codec · line style">
+				<Group label="Codec: line style">
 					{CODEC_REFERENCE_OPTIONS.map((codec) => (
 						<Row
 							key={codec}
@@ -165,7 +165,7 @@ export function LegendBody() {
 					))}
 				</Group>
 
-				<Group label="CapTP version · line color">
+				<Group label="CapTP version: line color">
 					{CAPTP_VERSION_REFERENCE_OPTIONS.map((version) => (
 						<Row
 							key={version}
@@ -180,7 +180,7 @@ export function LegendBody() {
 					))}
 				</Group>
 
-				<Group label="Session state · line thickness">
+				<Group label="Session state: line thickness">
 					{Object.entries(SESSION_STATE_WIDTH).map((
 						[state, width],
 					) => (
@@ -200,7 +200,7 @@ export function LegendBody() {
           there all along: a message is drawn as a dot, and the value the dot
           carries is the state it is in. */
 				}
-				<Group label="Message · dot">
+				<Group label="Message: dot">
 					<Row
 						swatch={swatch(MESSAGE_IN_FLIGHT_COLOR)}
 						label="in flight"
@@ -230,7 +230,7 @@ export function LegendReferenceButton(
 			type="button"
 			className="ocv-btn is-ghost is-icon"
 			onClick={onOpen}
-			title="What these words mean — open the Reference"
+			title="What these words mean: open the Reference"
 			aria-label="What these words mean"
 		>
 			<HelpGlyph />

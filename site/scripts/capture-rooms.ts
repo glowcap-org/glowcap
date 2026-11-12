@@ -42,6 +42,7 @@ import { reapOwned } from "../../apps/rooms/test/support/children.ts";
 import { nonEphemeralPort } from "../../bindings/ts/test/ports.ts";
 import { roomPortOf } from "../../apps/rooms/test/support/rooms_server.ts";
 import { spawnWeb } from "../../apps/rooms/test/support/web_front.ts";
+import { directOpened } from "../../apps/rooms/test/page/harness.ts";
 import { awaitLocator, outDirArg, pinToLatest, plainRun, shot as capture, still } from "./capture.ts";
 
 const outDir = outDirArg();
@@ -239,9 +240,11 @@ try {
 
 	// A direct line: mira presses the roster's direct control for the lead,
 	// the lead answers in the conversation that appears, and both rails list it.
+	// The rail lists the line before the page moves onto it, and the room's
+	// composer stays enabled meanwhile, so only the open conversation says
+	// where the next line goes.
 	await mira.click(`#members li:has(.name:text-is("${lead}")) .dm-btn`);
-	await mira.locator("#dmList li .rname", { hasText: new RegExp(`^${lead}$`) }).waitFor({ timeout: 30_000 });
-	await mira.waitForSelector("#line:not([disabled])", { timeout: 30_000 });
+	await directOpened(mira, lead);
 	await say(mira, "Keep the roster at four. I want the phone read fixed today, before anything else.");
 	const leadDm = leadPage.locator("#dmList li .rname", { hasText: new RegExp(`^${human}$`) });
 	await leadDm.waitFor({ timeout: 30_000 });

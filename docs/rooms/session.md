@@ -84,7 +84,7 @@ A fresh Host start retires old registrations, direct routes, callbacks,
 publication leases and line edit selections before anything can reach it or
 supervision starts. Nickname choices, drafts, history identity, introduction
 witnesses and original receipts stay. The live marker keeps observations from
-an earlier run out of the new one. <!-- status-allow: runtime state or operation ordering -->
+an earlier run out of the new one.
 
 ## Completion and recovery
 
@@ -137,7 +137,7 @@ Removing a row asks for it to be retired. The session keeps its task until
 replies drain and it has left upstream, and a failed cleanup keeps its exact
 state for a retry. An interrupted wait keeps its original receiver, and a
 subscription with an unknown outcome stays unresolved. Cleanup never removes
-a newer registration or membership that replaced the old one. <!-- status-allow: runtime state or operation ordering -->
+a newer registration or membership that replaced the old one.
 
 A direct worker publishes the inbox it actually created for the other member.
 An introduction checks registrations on both sides and keeps the original
@@ -146,12 +146,11 @@ late adoption cannot override newer navigation. An incoming notification
 cannot reopen a closed conversation. Removing a closed sidebar entry records
 its departure in the workspace.
 
-The viewer starts waiting for the other side before it asks for an
-introduction, so an early notice is not missed. Only the original directory,
-registration and opening can satisfy that wait. A pending introduction gives
-up locally after <!-- value ../../apps/rooms/web/ui/session/managed/readiness.ts READINESS_WAIT_MS milliseconds -->30 seconds<!-- /value -->. Closing the viewer, cancelling or reaching
-that deadline ends the wait without sending another introduction, and does
-not cancel an admitted change or discard its receipt.
+The directory holds one introduction for the exact registration and opening
+for up to <!-- value ../../apps/rooms/rust/application/src/directory/introduction.rs WAIT_MS milliseconds -->10 seconds<!-- /value -->.
+The client allows <!-- value ../../apps/rooms/lib/application_data.ts INTRODUCTION_TIMEOUT_MS milliseconds -->25 seconds<!-- /value --> for the call, including redemption.
+Waiting for a signaling route has a separate bound. Ending the wait does not
+cancel an admitted change or discard its receipt.
 
 When you send, the composer moves your text and files out of the editable
 draft into a fixed plan. Typing after that, and later sends, are separate, so

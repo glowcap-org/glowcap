@@ -1,5 +1,5 @@
 // The join card's nickname answer: typed intent reconciled with directory and
-// room evidence, including the authoritative refusal from an earlier attempt. status-allow: event or source ordering
+// room evidence, including the authoritative refusal from an earlier attempt.
 
 import type { Conv, Standing } from "./conversation.ts";
 import type { DirId } from "./directory.ts";

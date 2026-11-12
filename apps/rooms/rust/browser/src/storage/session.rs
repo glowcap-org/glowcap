@@ -78,8 +78,8 @@ impl Prepared {
 		limits: Limits,
 		live_capacity: u32,
 		admission: rooms_application::admission::Settings,
-		report: impl Fn(&str, &glowcap::Error) + 'static,
-	) -> Result<Opened<Platform>> {
+		report: impl Fn(&str, &rooms_runtime::Error) + 'static,
+	) -> core::result::Result<Opened<Platform>, rooms_runtime::Error> {
 		let reply_bytes =
 			NonZeroUsize::new(limits.forward_reply_bytes).ok_or_else(|| loam::refusal("Rooms reply budget is zero"))?;
 		let store = if self.bootstrap.anchor.is_none() {
@@ -119,7 +119,7 @@ impl Prepared {
 		}
 		.await;
 		if let Err(error) = configured {
-			return Err(error.with_cleanup(opened.close().await));
+			return Err(rooms_runtime::cleanup::failed(error, opened.close().await));
 		}
 		Ok(opened)
 	}

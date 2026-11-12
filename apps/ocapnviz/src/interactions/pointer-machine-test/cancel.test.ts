@@ -10,7 +10,7 @@ import { dispatch, gctx, snap } from "./harness.ts";
 
 // ─────────────────────── Cancel ───────────────────────────────────────
 
-Deno.test("dragging + cancel → idle; drag-cancel", () => {
+Deno.test("dragging plus cancel goes idle and emits drag-cancel", () => {
 	const { state } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",
@@ -29,7 +29,7 @@ Deno.test("dragging + cancel → idle; drag-cancel", () => {
 	assertEquals(r.effects[0]!.kind, "drag-cancel");
 });
 
-Deno.test("pressed + cancel → idle; no effect", () => {
+Deno.test("pressed plus cancel goes idle and emits no effect", () => {
 	const { state } = dispatch(IDLE_MACHINE, [{
 		kind: "pointer-down",
 		surface: "stage-peer",

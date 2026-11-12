@@ -1,4 +1,6 @@
 // Editable form values projected from the shared Rust bundle grammar.
+import { invariant } from "../../../lib/invariant.ts";
+import { LocalRefusal } from "../../../lib/text/failure.ts";
 import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
 import { ALL_BOOT_CAPS } from "../application_data.ts";
@@ -26,14 +28,23 @@ const ProjectionSchema: z.ZodMiniType<Projection> = z.object({
 function prove(encoded: string): Projection {
 	const parsed = z.safeParse(ProjectionSchema, JSON.parse(encoded));
 	if (!parsed.success) {
-		throw new Error(
+		invariant(
+			false,
 			`the Rooms application answered an invalid operations bundle:\n${z.prettifyError(parsed.error)}`,
 		);
 	}
 	return parsed.data;
 }
 function parse(raw: string, pasted: boolean): Projection {
-	return prove(applicationModule().operationsBundleDraft(raw, pasted));
+	const application = applicationModule();
+	let encoded: string;
+	try {
+		encoded = application.operationsBundleDraft(raw, pasted);
+	} catch (cause) {
+		if (cause instanceof WebAssembly.RuntimeError) throw cause;
+		throw new LocalRefusal("capability-set-unreadable", { cause });
+	}
+	return prove(encoded);
 }
 function project(draft: OpsBundleDraft): Projection {
 	return prove(applicationModule().operationsBundleEntries(JSON.stringify([...draft])));
@@ -44,12 +55,19 @@ export function parseOpsBundleDraft(raw: string): OpsBundleDraft {
 export function formatOpsBundle(draft: OpsBundleDraft): string {
 	return project(draft).formatted;
 }
+/** Whether `draft` is a complete bundle. An entry the grammar refuses makes
+ * the draft not ready. A missing module, a trap, or an answer outside the
+ * grammar is a fault and throws. */
 export function opsBundleReady(draft: OpsBundleDraft): boolean {
+	const application = applicationModule();
+	let encoded: string;
 	try {
-		return project(draft).ready;
-	} catch {
+		encoded = application.operationsBundleEntries(JSON.stringify([...draft]));
+	} catch (error) {
+		if (error instanceof WebAssembly.RuntimeError) throw error;
 		return false;
 	}
+	return prove(encoded).ready;
 }
 export function parseOpsBundle(raw: string): Map<OperationsCapability, string> {
 	return new Map(parse(raw, true).entries);

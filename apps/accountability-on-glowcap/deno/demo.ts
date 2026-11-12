@@ -1,7 +1,8 @@
 // Cross-language accountability demo: Zig host + Deno caller + Python caller.
 //
-// Starts the Zig host binary (accountability-host), reads the port it prints,
-// then runs each available caller against a fresh host. Both exit 0 exactly when:
+// Starts the Zig host binary (accountability-host), reads the locator it
+// prints, then runs each available caller against a fresh host over encrypted
+// Noise TCP. Both exit 0 exactly when:
 //   - The legitimate invocation resolved with an ack, and
 //   - The tampered invocation was refused as a broken promise.
 //
@@ -16,7 +17,7 @@ import {
 	DENO_FLAGS,
 	onPath,
 	pythonCanImport,
-	readPort,
+	readStderrAnnouncement,
 	rejectAttach,
 	runChild,
 	splitDemoArgs,
@@ -41,14 +42,14 @@ const PYTHON_CALLER = `${ROOT}/apps/accountability-on-glowcap/python/caller.py`;
 interface CallerSpec {
 	name: string;
 	cmd: string;
-	args: (port: number) => string[];
+	args: (locator: string) => string[];
 }
 
 const callers: CallerSpec[] = [
 	{
 		name: "deno",
 		cmd: "deno",
-		args: (p) => [...DENO_FLAGS, DENO_CALLER, String(p)],
+		args: (locator) => [...DENO_FLAGS, DENO_CALLER, locator],
 	},
 ];
 
@@ -56,7 +57,7 @@ if (await pythonCanImport("nacl.signing")) {
 	callers.push({
 		name: "python",
 		cmd: "python3",
-		args: (p) => [PYTHON_CALLER, String(p)],
+		args: (locator) => [PYTHON_CALLER, locator],
 	});
 } else if (await onPath("python3")) {
 	console.log("  skipping python (pynacl not installed)");
@@ -78,14 +79,14 @@ for (const caller of callers) {
 	}).spawn();
 
 	try {
-		const port = await readPort(
+		const [, port, locator] = await readStderrAnnouncement(
 			host,
-			/ACCOUNTABILITY-HOST-LISTENING (\d+)/,
-			"host never announced its port",
+			/ACCOUNTABILITY-HOST-LISTENING (\d+) (\S+)/,
+			"host never announced its locator",
 		);
 		console.log(`──── ${caller.name} (host on 127.0.0.1:${port}) ────`);
 
-		const result = await runChild(caller.cmd, caller.args(port), ROOT);
+		const result = await runChild(caller.cmd, caller.args(locator), ROOT);
 		console.log(result.out.trimEnd());
 		if (result.code !== 0) {
 			console.error(`  ${caller.name} caller FAILED (exit ${result.code})`);

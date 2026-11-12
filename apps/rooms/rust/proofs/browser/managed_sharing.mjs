@@ -19,11 +19,17 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 	);
 	const held = [];
 	let failure;
+	// A management request commits, or the proof stops on the outcome it read.
+	async function committed(request, what) {
+		const outcome = await request.submitOutcome();
+		if (outcome.status !== "committed") throw new Error(`${what} did not commit: ${JSON.stringify(outcome)}`);
+		return outcome;
+	}
 	async function lifecycle(control, verb, revision) {
 		const method = { pause: "preparePause", resume: "prepareResume", revoke: "prepareRevoke" }[verb];
 		const request = await control[method](revision);
 		held.push(request);
-		await request.submit();
+		await committed(request, verb);
 		return request;
 	}
 
@@ -49,7 +55,7 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 			JSON.stringify(powers),
 		);
 		held.push(request);
-		const [use, control] = await request.submit();
+		const { access: use, control } = await committed(request, "issuance");
 		held.push(use, control);
 		const useLink = await use.publish();
 		const controlLink = await control.publish();
@@ -144,10 +150,7 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 			JSON.stringify(powers),
 		);
 		held.push(foreignIssuing);
-		const foreignIssued = await foreignIssuing.submitOutcome();
-		if (foreignIssued.status !== "committed") {
-			throw new Error(`foreign issuance failed: ${JSON.stringify(foreignIssued)}`);
-		}
+		const foreignIssued = await committed(foreignIssuing, "foreign issuance");
 		held.push(foreignIssued.access, foreignIssued.control);
 		const foreignIssuedLink = await foreignIssued.access.publish();
 		const foreignIssuedControlLink = await foreignIssued.control.publish();
@@ -177,7 +180,7 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		const pause = await lifecycle(control, "pause", (await control.inspect()).revision);
 		const paused = await remoteControl.inspect();
 		if (paused.status !== "paused") throw new Error("shared control lost the pause");
-		await pause.submit();
+		await committed(pause, "pause replay");
 		if ((await control.inspect()).revision !== paused.revision) throw new Error("pause replay changed revision");
 		refused = false;
 		try {
@@ -188,24 +191,21 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		if (!refused) throw new Error("shared use ignored the pause");
 		const resume = await lifecycle(remoteControl, "resume", paused.revision);
 		const resumed = await remoteControl.inspect();
-		await resume.submit();
-		await pause.submit();
+		await committed(resume, "resume replay");
+		await committed(pause, "old pause replay");
 		if ((await control.inspect()).revision !== resumed.revision || (await control.inspect()).status !== "active") {
 			throw new Error("old lifecycle replay invoked the target again");
 		}
 		const stale = await control.preparePause(paused.revision);
 		held.push(stale);
-		refused = false;
-		try {
-			await stale.submit();
-		} catch {
-			refused = true;
+		const staleOutcome = await stale.submitOutcome();
+		if (staleOutcome.status === "committed" || staleOutcome.status === "uncertain") {
+			throw new Error(`fresh lifecycle ignored its expected revision: ${JSON.stringify(staleOutcome)}`);
 		}
-		if (!refused) throw new Error("fresh lifecycle ignored its expected revision");
 		await use.snapshot();
 		await remoteUse.snapshot();
 		const revoke = await lifecycle(control, "revoke", (await control.inspect()).revision);
-		await revoke.submit();
+		await committed(revoke, "revoke replay");
 		refused = false;
 		try {
 			await remoteUse.snapshot();

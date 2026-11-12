@@ -3,6 +3,7 @@ type: static
 description: How Rooms managed commands keep source admission, held targets, and recoverable outcomes across external effects.
 sources:
   - resource: /apps/rooms/rust/application/src/content/session/
+  - resource: /apps/rooms/rust/runtime/src/session/
   - resource: /apps/rooms/rust/proofs/src/session_executor.rs
 ---
 
@@ -78,7 +79,7 @@ is released.
 
 An occupied slot accepts only the same capability, with its checked role and
 generation. Releasing local fields needs no working upstream grant and brings
-back no earlier authority. Adopting a created room appends it through the <!-- status-allow: runtime state or operation ordering -->
+back no earlier authority. Adopting a created room appends it through the
 receipt's exact directory target and leaves unrelated fields alone. If that
 directory was removed or replaced, adoption is refused.
 

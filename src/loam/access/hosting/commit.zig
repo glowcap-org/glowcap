@@ -18,6 +18,7 @@ const state = working.state;
 pub fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const driver.Value) !driver.Value {
     const value = state(call.preparation.?.context);
     if (!value.ready) return error.RecordUnloaded;
+    if (value.conflict) |conflict| return conflict.reply();
     switch (value.request) {
         .forward => {
             const bound = value.content.?;

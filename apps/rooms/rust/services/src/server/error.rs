@@ -38,21 +38,12 @@ impl Error {
 	pub(super) fn refused(detail: impl Into<Cow<'static, str>>) -> Self {
 		Self::Refused(detail.into())
 	}
-	/// The outcome of `primary` followed by `cleanup`.
-	pub(super) fn fold(primary: Result<(), Error>, cleanup: Result<(), Error>) -> Result<(), Error> {
-		match (primary, cleanup) {
-			(Ok(()), outcome) | (outcome, Ok(())) => outcome,
-			(Err(primary), Err(cleanup)) => Err(primary.retain(Err(cleanup))),
-		}
-	}
-	/// This failure, keeping the failure of the cleanup that followed it.
-	pub(super) fn retain(self, cleanup: Result<(), Error>) -> Error {
-		match cleanup {
-			Ok(()) => self,
-			Err(cleanup) => Self::Cleanup {
-				primary: Box::new(self),
-				cleanup: Box::new(cleanup),
-			},
+}
+impl crate::cleanup::Failure for Error {
+	fn with_cleanup(self, cleanup: Self) -> Self {
+		Self::Cleanup {
+			primary: Box::new(self),
+			cleanup: Box::new(cleanup),
 		}
 	}
 }

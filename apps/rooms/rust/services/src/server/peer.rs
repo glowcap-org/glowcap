@@ -47,8 +47,8 @@ pub struct Ready {
 	pub capabilities: Vec<Minted>,
 	/// The live timeline endpoint's sturdyref, when it is serving.
 	pub trace: Option<String>,
-	/// The actual loopback timeline port, including an ephemeral selection.
-	pub trace_port: Option<u16>,
+	/// The bound timeline address, including an ephemeral port selection.
+	pub trace_address: Option<std::net::SocketAddr>,
 	/// The flush-left `ROOMS-* <link>` lines an operator keeps: one per
 	/// minted capability, and the timeline listener's when it serves.
 	pub lines: Vec<String>,
@@ -91,11 +91,11 @@ impl Ready {
 	fn render(
 		location: &str,
 		trace: Option<&str>,
-		trace_port: Option<u16>,
+		trace_address: Option<std::net::SocketAddr>,
 		local_endpoint: Option<&rooms_platform::serving::endpoint::Endpoint>,
 	) -> Result<super::readiness::Announcement, Error> {
 		let mut announcement =
-			super::readiness::Announcement::new(location.to_owned(), trace_port, local_endpoint.cloned());
+			super::readiness::Announcement::new(location.to_owned(), trace_address, local_endpoint.cloned());
 		announcement.trace_locator = trace
 			.map(|link| {
 				let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0)
@@ -131,13 +131,13 @@ impl Owners {
 	async fn close(self) -> Result<(), Error> {
 		let mut result = Ok(());
 		if let Some(listener) = &self.listener {
-			result = Error::fold(result, listener.close().await.map_err(Error::from));
+			crate::cleanup::retain(&mut result, listener.close().await.map_err(Error::from));
 		}
 		if let Some(trace) = self.trace {
 			trace.close().await;
 		}
 		if let Some(host) = &self.host {
-			result = Error::fold(result, host.close(PendingWork::Cancel).await.map_err(Error::from));
+			crate::cleanup::retain(&mut result, host.close(PendingWork::Cancel).await.map_err(Error::from));
 		}
 		drop(self.authority);
 		result
@@ -170,19 +170,19 @@ impl Peer {
 				minted,
 			})),
 			Ok(None) => owners.close().await.map(|()| None),
-			Err(error) => Err(error.retain(owners.close().await)),
+			Err(error) => Err(crate::cleanup::failed(error, owners.close().await)),
 		}
 	}
 	/// What the program that started this server prints.
 	pub fn ready(&self) -> Result<Ready, Error> {
 		let location = self.state.borrow().advertised();
 		let trace = self.owners.trace.as_ref().map(|trace| trace.sturdyref.clone());
-		let trace_port = self.owners.trace.as_ref().map(|trace| trace.port);
+		let trace_address = self.owners.trace.as_ref().map(|trace| trace.address);
 		let lines = Ready::lines(&location, &self.minted, trace.as_deref())?;
 		let mut record = Ready::render(
 			&location,
 			trace.as_deref(),
-			trace_port,
+			trace_address,
 			self.owners.local_endpoint.as_ref(),
 		)?;
 		let announcement = record.line().map_err(Error::refused)?;
@@ -192,11 +192,16 @@ impl Peer {
 			location,
 			capabilities: self.minted.clone(),
 			trace,
-			trace_port,
+			trace_address,
 			lines,
 			announcement,
 			supervised_announcement,
 		})
+	}
+	/// The serving state, for a test that fills one of its bounded queues.
+	#[cfg(test)]
+	pub(super) fn shared(&self) -> Rc<RefCell<State>> {
+		self.state.clone()
 	}
 	/// The locator partners dial, which `advertisedLocation` also answers.
 	pub fn location(&self) -> String {
@@ -287,7 +292,10 @@ impl Peer {
 						Work::Task(task) => { tasks.spawn_local(task); }
 						work => { tasks.spawn_local(deliver(state.clone(), work)); }
 					},
-					Some(ended) = std::future::poll_fn(|cx| state.borrow_mut().irc.tasks.poll_join_next(cx)), if !state.borrow().irc.tasks.is_empty() => {
+					Some(ended) = joined(&state, |state| &mut state.irc.tasks), if !state.borrow().irc.tasks.is_empty() => {
+						if let Err(join) = ended { report(Notice::Partner(PartnerNotice::TaskFailed(join))); }
+					}
+					Some(ended) = joined(&state, |state| &mut state.introductions.tasks), if !state.borrow().introductions.tasks.is_empty() => {
 						if let Err(join) = ended { report(Notice::Partner(PartnerNotice::TaskFailed(join))); }
 					}
 					Some(ended) = tasks.join_next(), if !tasks.is_empty() => {
@@ -319,7 +327,7 @@ impl Peer {
 			report(Notice::Partner(PartnerNotice::TaskFailed(join)));
 		}
 		state.borrow_mut().irc.stop();
-		while let Some(ended) = std::future::poll_fn(|cx| state.borrow_mut().irc.tasks.poll_join_next(cx)).await {
+		while let Some(ended) = joined(&state, |state| &mut state.irc.tasks).await {
 			if let Err(join) = ended {
 				report(Notice::Partner(PartnerNotice::TaskFailed(join)));
 			}
@@ -354,14 +362,20 @@ impl Peer {
 				report(Notice::Partner(PartnerNotice::TaskFailed(join)));
 			}
 		}
+		// Every connection has closed, which ended each held introduction.
+		while let Some(ended) = joined(&state, |state| &mut state.introductions.tasks).await {
+			if let Err(join) = ended {
+				report(Notice::Partner(PartnerNotice::TaskFailed(join)));
+			}
+		}
 		// The workers end once their queues close: the state's history sender
 		// goes with the state, and authority admission was closed above.
 		drop(work);
 		state.borrow_mut().history = None;
-		let mut outcome = Error::fold(outcome, closed);
+		let mut outcome = crate::cleanup::combine(outcome, closed);
 		while let Some(ended) = workers.join_next().await {
 			let ended = ended.unwrap_or_else(|join| Err(Error::refused(format!("a server worker failed: {join}"))));
-			outcome = Error::fold(outcome, ended);
+			crate::cleanup::retain(&mut outcome, ended);
 		}
 		outcome
 	}
@@ -392,7 +406,7 @@ async fn assemble(
 	if let Some(trace) = minted.iter().find(|held| held.capability.id == "trace") {
 		owners.trace = Some(
 			operations::trace::Trace::start(
-				config.trace_port,
+				config.trace_address(),
 				trace.swiss.clone(),
 				config.trace_publish.clone(),
 				config.trace_connect.clone(),
@@ -503,47 +517,15 @@ async fn deliver(state: Rc<RefCell<State>>, work: Work) {
 			let session = state.borrow().session(target.connection).map(Session::borrowed);
 			signaling::deliver_offer(state, id, (session, target.capability), sdp, from, originator, reply).await;
 		}
-		Work::Introduce {
-			target,
-			caller,
-			mut resolver,
-			pending,
-			offline,
-		} => {
-			let session = state.borrow().session(target.connection).map(Session::borrowed);
-			let outcome = match session {
-				Some(session) => Some(
-					session
-						.send(
-							&target.inbox,
-							rooms_application::room::inbox::NOTIFY,
-							&super::state::notice_args(&target.notice),
-						)
-						.await,
-				),
-				// The member's connection has already gone: nobody to ask.
-				None => None,
-			};
-			let reason = match outcome {
-				Some(Ok(_)) => pending,
-				Some(Err(cause)) => {
-					state.borrow().report(Notice::DeliveryFailed {
-						what: "inbox request",
-						cause,
-					});
-					offline
-				}
-				None => offline,
-			};
-			if let Err(cause) = resolver.break_with(&reason)
-				&& caller.is_open()
-			{
-				state.borrow().report(Notice::AnswerUndeliverable {
-					verb: rooms_application::protocol_data::INTRODUCE,
-					cause,
-				});
-			}
-		}
 		Work::Task(_) => unreachable!("the loop routes tasks before delivering"),
 	}
+}
+
+/// The next task to end in a set the state owns, which a verb fills from
+/// inside its turn.
+async fn joined(
+	state: &Rc<RefCell<State>>,
+	set: fn(&mut State) -> &mut JoinSet<()>,
+) -> Option<Result<(), tokio::task::JoinError>> {
+	std::future::poll_fn(|cx| set(&mut state.borrow_mut()).poll_join_next(cx)).await
 }

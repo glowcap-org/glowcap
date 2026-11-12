@@ -38,6 +38,7 @@ const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
+	V = "void",
 	U64 = "u64";
 
 export const hostS = lazySymbols(() => libPath("glowcap_host"), {
@@ -88,7 +89,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_session_take_outbound: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4] },
 	glowcap_host_next_action: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_host_dialed: { parameters: [P, U64, U, P, B], result: I, outBuffers: [4] },
-	glowcap_host_dial_failed: { parameters: [P, U64, U, B, U], result: I, outBuffers: [] },
+	glowcap_host_dial_failed: { parameters: [P, U64, U, "u32", B, U], result: I, outBuffers: [] },
 	glowcap_host_dial_cancelled: { parameters: [P, U64, U], result: I },
 	glowcap_host_provide_gift_id: { parameters: [P, U64, B, U], result: I, outBuffers: [] },
 	glowcap_host_gift_id_failed: { parameters: [P, U64], result: I },
@@ -153,6 +154,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_session_partner_identity: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_host_session_bind_verified_channel_key: { parameters: [P, B, U], result: I, outBuffers: [] },
 	glowcap_host_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
+	glowcap_host_last_error_cause: { parameters: [B], result: V, outBuffers: [0] },
 }, {
 	symbol: "glowcap_host_archive_fingerprint",
 	expected: HOST_ARCHIVE_FINGERPRINT,

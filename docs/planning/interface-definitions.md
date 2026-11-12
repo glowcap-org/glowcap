@@ -349,7 +349,7 @@ but its adapter still needs glowcap mappings and imported-bundle assembly.
 | Authoring coverage | Proposed text | Cap'n Proto adapter |
 | --- | --- | --- |
 | Value mapping | Positional containers implemented. String-keyed structs, recursive projections and failure syntax remain | Mappings for integers, symbols, dynamic values, null, promises and positional records |
-| Imports | Rooted loading, resolution and bounded bundle assembly implemented | Adapter currently accepts one requested file and refuses external references |
+| Imports | Rooted loading, resolution and bounded bundle assembly implemented | Adapter accepts one requested file and refuses external references |
 | Diagnostics | Imported semantic locations preserved through shared validation | Mapping errors need source positions beyond compiler syntax diagnostics |
 | Formatting | Preserve comments, which the comparison parser discards | Qualify the annotation and formatting workflow |
 | Dependencies | Existing Zig modules | Compiler 1.1.0 and locked Rust capnp 0.27.3 |

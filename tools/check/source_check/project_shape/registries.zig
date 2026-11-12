@@ -2,12 +2,9 @@
 //! wire tokens, generated-state ignores, and the one repository URL.
 
 const std = @import("std");
-const markdown = @import("../markdown.zig");
 const violation_log = @import("../violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
-const sectionBody = markdown.sectionBody;
-const collectBulletSpans = markdown.collectBulletSpans;
 
 /// The Syrup byte corpus is the oracle the codec is checked against, and
 /// `test/oracle/protocol_oracle.zig` is its registry. A `.bin` dropped into
@@ -72,9 +69,9 @@ pub fn checkOracleCorpusRegistry(
 }
 
 /// The site's protocol cheatsheet (`site/content/protocol.smd`) is a static
-/// doc: it names every wire label glowcap speaks — the `op:` messages, the
+/// doc: it names every wire label glowcap speaks: the `op:` messages, the
 /// `desc:` reference descriptors, and the `ocapn-` locator records that address a
-/// peer. The Syrup codec is the authority for that vocabulary — OCapN settles the
+/// peer. The Syrup codec is the authority for that vocabulary, because OCapN settles the
 /// wire as Syrup, so every such record label appears there as a string literal.
 /// This check pins the page to the codec both ways: a label documented on the page
 /// that the codec does not speak is a stale or invented claim, and a label the
@@ -148,8 +145,8 @@ pub fn checkProtocolCheatsheet(
 
 /// Collect `op:<body>` / `desc:<body>` / `ocapn-<body>` tokens from `text` into
 /// `out` (deduped, arena-owned). When `quoted_only` is set, the token must be a
-/// string literal — wrapped in double quotes — so codec source counts only real
-/// wire labels, not tokens mentioned in comments; the cheatsheet carries its
+/// string literal wrapped in double quotes, so codec source counts only real
+/// wire labels, not tokens mentioned in comments. The cheatsheet carries its
 /// tokens in Markdown backticks, so it scans unquoted. The `ocapn-` prefix matches
 /// the location records (`ocapn-peer`, `ocapn-sturdyref`) and never the `ocapn://`
 /// URI scheme, whose `:` is not a wire-token char.
@@ -179,95 +176,72 @@ fn isWireTokenChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or c == '-';
 }
 
-/// Hold the gate sequence to the exit codes it must recognize.
-///
-/// `tools/run-with-timeout.py` bounds every gate, and `ci/gates.py` branches on
-/// what it returns to tell a wedged socket from an ordinary failure. The two
-/// files never import each other, so nothing but this connects them.
-///
-/// The cli rule's Generated State list registers paths that must never be
-/// committed. Each registered path must be matched by a committed ignore rule —
-/// `.serena/...` entries by `.serena/.gitignore`, everything else by the root
-/// `.gitignore` — so "fix .gitignore rather than manual cleanup" is enforced
-/// instead of remembered. The git index is held to the same registry: a
-/// registered path that `git ls-files` reports as tracked is committed
-/// generated state, which an ignore rule alone cannot fix.
+/// Paths that must never be committed: build output, caches, and exports. This
+/// table is the one list, and the cli rule's Generated State section names it.
+/// `generatedStateHolding` answers from it for a check that must know whether
+/// a path a source names is generated.
+const generated_state = [_][]const u8{
+    ".zig-cache/",
+    "zig-out/",
+    "zig-pkg/",
+    ".serena/cache/",
+    ".serena/logs/",
+    ".serena/memories/",
+    ".local/",
+    "bindings/rust/target/",
+    "bindings/rust/Cargo.lock",
+    "bindings/rust/relay/target/",
+    "bindings/rust/relay/Cargo.lock",
+    "apps/rooms/node_modules/",
+    "bench/interface/target/",
+    "site/assets/rooms/",
+};
+
+/// The table entry a repository-relative path names or sits under, if any.
+pub fn generatedStateHolding(path: []const u8) ?[]const u8 {
+    for (generated_state) |entry| {
+        if (std.mem.eql(u8, path, entry)) return entry;
+        if (entry[entry.len - 1] != '/') continue;
+        if (std.mem.startsWith(u8, path, entry)) return entry;
+        if (std.mem.eql(u8, path, entry[0 .. entry.len - 1])) return entry;
+    }
+    return null;
+}
+
+test "a path under a generated directory, and the directory itself, belong to its entry" {
+    try std.testing.expectEqualStrings("apps/rooms/node_modules/", generatedStateHolding("apps/rooms/node_modules").?);
+    try std.testing.expectEqualStrings("apps/rooms/node_modules/", generatedStateHolding("apps/rooms/node_modules/vite/package.json").?);
+    try std.testing.expectEqualStrings("bindings/rust/Cargo.lock", generatedStateHolding("bindings/rust/Cargo.lock").?);
+    try std.testing.expect(generatedStateHolding("apps/rooms/node_modules_kept") == null);
+    try std.testing.expect(generatedStateHolding("apps/rooms/deno.json") == null);
+    try std.testing.expect(generatedStateHolding("bindings/rust/Cargo.lock.orig") == null);
+}
+
+/// Git answers both questions about the table. `git check-ignore` says which
+/// committed ignore rule covers each entry, so the rule syntax has one reader.
+/// `git ls-files` says whether an entry is tracked, which an ignore rule alone
+/// cannot fix. A git that cannot run is a violation.
 pub fn checkGeneratedStateIgnores(
     io: std.Io,
     gpa: std.mem.Allocator,
-    root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     root_path: []const u8,
 ) !void {
-    const rule_path = ".agents/rules/cli.md";
-    const rule = root.readFileAlloc(io, rule_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for generated-state check with {s}", .{ rule_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(rule);
-
-    const section = sectionBody(rule, "## Generated State") orelse {
-        try appendViolation(gpa, violations, "{s}: missing `## Generated State` section", .{rule_path});
-        return;
-    };
-
-    const root_ignore = root.readFileAlloc(io, ".gitignore", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, ".gitignore: failed to read for generated-state check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(root_ignore);
-    const serena_ignore = root.readFileAlloc(io, ".serena/.gitignore", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, ".serena/.gitignore: failed to read for generated-state check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(serena_ignore);
-
-    var spans: std.ArrayList([]const u8) = .empty;
-    defer spans.deinit(gpa);
-    try collectBulletSpans(gpa, section, &spans);
-
-    for (spans.items) |span| {
-        if (std.mem.startsWith(u8, span, ".serena/")) {
-            var needle_buf: [160]u8 = undefined;
-            const stem = std.mem.trimEnd(u8, span[".serena/".len..], "/");
-            const needle = std.fmt.bufPrint(&needle_buf, "/{s}", .{stem}) catch {
-                try appendViolation(gpa, violations, ".serena span `{s}` overflows the registry needle buffer; grow it", .{stem});
-                continue;
-            };
-            if (std.mem.indexOf(u8, serena_ignore, needle) == null) {
-                try appendViolation(gpa, violations, "{s}: generated-state entry `{s}` has no matching rule in .serena/.gitignore", .{ rule_path, span });
-            }
-        } else if (std.mem.indexOf(u8, root_ignore, span) == null) {
-            try appendViolation(gpa, violations, "{s}: generated-state entry `{s}` has no matching rule in .gitignore", .{ rule_path, span });
-        }
+    const tracked_files = try gitOutput(io, gpa, violations, &.{ "git", "-C", root_path, "ls-files", "-z" }, 0) orelse return;
+    defer gpa.free(tracked_files);
+    // `--no-index` asks about the rules alone, so a tracked entry still gets
+    // its ignore answer. A directory entry is asked about as the directory,
+    // because a rule that ignores only one file inside it leaves the rest
+    // unignored. Exit 1 means no entry matched any rule.
+    const check_ignore = [_][]const u8{ "git", "-C", root_path, "check-ignore", "--no-index", "-v", "--" } ++ generated_state;
+    if (try gitOutput(io, gpa, violations, &check_ignore, 1)) |matches| {
+        defer gpa.free(matches);
+        try reportUnignored(gpa, violations, &generated_state, matches, tracked_files);
     }
 
-    // The index itself: no registered generated-state path may be tracked.
-    // Read-only git is sanctioned by the cli rule; one `ls-files` call covers
-    // every entry. A failure to run git is a violation, not a silent skip —
-    // the check either holds or says it cannot.
-    const ls_files = std.process.run(gpa, io, .{
-        .argv = &.{ "git", "-C", root_path, "ls-files", "-z" },
-        .stdout_limit = .limited(64 << 20),
-    }) catch |err| {
-        try appendViolation(gpa, violations, "git ls-files: failed to run for generated-state check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(ls_files.stdout);
-    defer gpa.free(ls_files.stderr);
-    switch (ls_files.term) {
-        .exited => |code| if (code != 0) {
-            try appendViolation(gpa, violations, "git ls-files: exited with code {d} during generated-state check", .{code});
-            return;
-        },
-        else => {
-            try appendViolation(gpa, violations, "git ls-files: terminated abnormally during generated-state check", .{});
-            return;
-        },
-    }
-    for (spans.items) |span| {
+    for (generated_state) |span| {
         const is_dir = std.mem.endsWith(u8, span, "/");
-        var tracked_it = std.mem.splitScalar(u8, ls_files.stdout, 0);
+        var tracked_it = std.mem.splitScalar(u8, tracked_files, 0);
         while (tracked_it.next()) |tracked| {
             if (tracked.len == 0) continue;
             const hit = if (is_dir)
@@ -275,16 +249,137 @@ pub fn checkGeneratedStateIgnores(
             else
                 std.mem.eql(u8, tracked, span);
             if (hit) {
-                try appendViolation(gpa, violations, "{s}: generated-state entry `{s}` is tracked by git (`{s}`) — untrack it; an ignore rule alone cannot fix a committed path", .{ rule_path, span, tracked });
+                try appendViolation(gpa, violations, "generated-state entry `{s}` is tracked by git (`{s}`); untrack it, because an ignore rule alone cannot fix a committed path", .{ span, tracked });
                 break;
             }
         }
     }
 }
 
-/// The one URL that names this repository. Everything that links to glowcap —
+/// One read-only git command's output, owned by the caller. An exit code above
+/// `highest_exit`, a signal, or a git that does not start is a violation that
+/// quotes git's first line of complaint, and answers null.
+fn gitOutput(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    argv: []const []const u8,
+    highest_exit: u8,
+) !?[]u8 {
+    const verb = argv[3];
+    const ran = std.process.run(gpa, io, .{ .argv = argv, .stdout_limit = .limited(64 << 20) }) catch |err| {
+        try appendViolation(gpa, violations, "git {s}: failed to run for generated-state check with {s}", .{ verb, @errorName(err) });
+        return null;
+    };
+    defer gpa.free(ran.stderr);
+    errdefer gpa.free(ran.stdout);
+    const exited = switch (ran.term) {
+        .exited => |code| code,
+        else => {
+            try appendViolation(gpa, violations, "git {s}: terminated abnormally during generated-state check", .{verb});
+            gpa.free(ran.stdout);
+            return null;
+        },
+    };
+    if (exited > highest_exit) {
+        var lines = std.mem.splitScalar(u8, ran.stderr, '\n');
+        const said = if (ran.stderr.len == 0) "git said nothing" else lines.first();
+        try appendViolation(gpa, violations, "git {s}: exited with code {d} during generated-state check: {s}", .{ verb, exited, said });
+        gpa.free(ran.stdout);
+        return null;
+    }
+    return ran.stdout;
+}
+
+/// Reads `git check-ignore -v` lines (`<source>:<line>:<pattern>\t<path>`) and
+/// reports each entry no committed rule ignores. The rule's file
+/// must be one of `tracked`, the NUL-separated `git ls-files -z` list, so a
+/// personal excludes file, the repository's private `info/exclude`, and an
+/// ignore file a tool wrote into its own output directory do not count.
+fn reportUnignored(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    entries: []const []const u8,
+    matches: []const u8,
+    tracked: []const u8,
+) !void {
+    for (entries) |entry| {
+        var ignored = false;
+        var lines = std.mem.splitScalar(u8, matches, '\n');
+        while (lines.next()) |line| {
+            const tab = std.mem.lastIndexOfScalar(u8, line, '\t') orelse continue;
+            if (!std.mem.eql(u8, line[tab + 1 ..], entry)) continue;
+            var fields = std.mem.splitScalar(u8, line[0..tab], ':');
+            const source = fields.first();
+            _ = fields.next() orelse continue;
+            const pattern = fields.rest();
+            if (pattern.len == 0 or pattern[0] == '!') continue;
+            var files = std.mem.splitScalar(u8, tracked, 0);
+            while (files.next()) |file| {
+                if (file.len != 0 and std.mem.eql(u8, file, source)) ignored = true;
+            }
+        }
+        if (!ignored) {
+            try appendViolation(gpa, violations, "generated-state entry `{s}` is not ignored by a committed .gitignore (`git check-ignore --no-index -v {s}` matched no such rule); add the rule", .{ entry, entry });
+        }
+    }
+}
+
+test "an entry no committed rule ignores is a violation" {
+    const gpa = std.testing.allocator;
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |v| gpa.free(v);
+        violations.deinit(gpa);
+    }
+    const entries = [_][]const u8{ "zig-out/", ".serena/cache/", "bindings/rust/Cargo.lock" };
+    const all =
+        ".gitignore:2:zig-out/\tzig-out/\n" ++
+        ".serena/.gitignore:2:/cache\t.serena/cache/\n" ++
+        ".gitignore:26:bindings/rust/Cargo.lock\tbindings/rust/Cargo.lock\n";
+    const tracked = "README.md\x00.gitignore\x00.serena/.gitignore\x00";
+    try reportUnignored(gpa, &violations, &entries, all, tracked);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+
+    try reportUnignored(gpa, &violations, &entries, ".gitignore:2:zig-out/\tzig-out/\n", tracked);
+    try std.testing.expectEqual(@as(usize, 2), violations.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "`.serena/cache/`") != null);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[1], "`bindings/rust/Cargo.lock`") != null);
+}
+
+test "only a committed rule that ignores counts" {
+    const gpa = std.testing.allocator;
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |v| gpa.free(v);
+        violations.deinit(gpa);
+    }
+    const entries = [_][]const u8{"zig-out/"};
+    const refused = [_][]const u8{
+        "",
+        ".gitignore:3:!zig-out/\tzig-out/\n",
+        ".gitignore:2:zig-out/probe\tzig-out/probe\n",
+        ".git/info/exclude:1:zig-out/\tzig-out/\n",
+        "/home/someone/.config/git/ignore:4:zig-out/\tzig-out/\n",
+        "/home/someone/.gitignore:4:zig-out/\tzig-out/\n",
+        "zig-out/.gitignore:1:*\tzig-out/\n",
+        ".gitignore:2:\tzig-out/\n",
+        ":2:zig-out/\tzig-out/\n",
+        ".gitignore:2:zig-out/\tzig-out/other\n",
+        "::\tzig-out/\n",
+    };
+    const tracked = ".gitignore\x00bench/.gitignore\x00";
+    for (refused, 1..) |matches, count| {
+        try reportUnignored(gpa, &violations, &entries, matches, tracked);
+        try std.testing.expectEqual(count, violations.items.len);
+    }
+    try reportUnignored(gpa, &violations, &entries, "bench/.gitignore:9:**/zig-out/\tzig-out/\n", tracked);
+    try std.testing.expectEqual(refused.len, violations.items.len);
+}
+
+/// The one URL that names this repository. Everything that links to glowcap:
 /// the fetch line, the issue tracker, a deep link into a source file, an OCI
-/// image label — starts with this.
+/// image label, starts with this.
 ///
 /// It is declared once because it is one fact written across dozens of files,
 /// and because the project has already decided it may move again: glowcap is on
@@ -296,7 +391,7 @@ pub fn checkGeneratedStateIgnores(
 const repo_url = "https://github.com/glowcap-org/glowcap";
 
 /// Forge-specific deep-link syntax, which does not survive a move. Forgejo and
-/// Gitea spell a path into a branch `/src/branch/main/x`; GitHub spells it
+/// Gitea spell a path into a branch `/src/branch/main/x`, and GitHub spells it
 /// `/blob/main/x`. A URL carrying the wrong one resolves to nothing even when
 /// the host is right, so the form is checked alongside the host rather than
 /// left for a reader to discover.
@@ -332,8 +427,8 @@ fn namesDeclaredHost(body: []const u8, hit: usize, host: []const u8) bool {
 ///
 /// Two failures this catches, both of which have a public cost. A half-landed
 /// forge move: the tree says the project lives in one place and a straggler
-/// points somewhere it no longer is. And a hand-typed variant — a different status-allow: lifecycle transition
-/// owner spelling, an old host, a deep link in another forge's path syntax —
+/// points somewhere it has left. And a hand-typed variant (a different
+/// owner spelling, an old host, a deep link in another forge's path syntax)
 /// which no compiler sees because it is prose.
 pub fn checkRepositoryUrl(
     io: std.Io,

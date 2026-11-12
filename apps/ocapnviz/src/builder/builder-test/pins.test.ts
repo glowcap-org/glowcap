@@ -49,7 +49,7 @@ engineTest("Unpin all is one undo step, and it restores both pins", () => {
 	assertEquals(
 		endPin(e),
 		PIN_B,
-		"one undo did not bring the end's pin back — the sweep was more than " +
+		"one undo did not bring the end's pin back, so the sweep was more than " +
 			"one transaction",
 	);
 });

@@ -14,6 +14,7 @@ mod document;
 mod error;
 mod files;
 mod history;
+mod introductions;
 mod invitations;
 mod irc;
 mod lines;
@@ -55,7 +56,7 @@ pub async fn run(
 		return Ok(());
 	};
 	if let Err(error) = peer.ready().and_then(|announced| ready(&announced)) {
-		return Err(error.retain(peer.close().await));
+		return Err(crate::cleanup::failed(error, peer.close().await));
 	}
 	peer.serve(shutdown).await
 }

@@ -25,6 +25,7 @@ import {
 	MAX_ROOM,
 } from "../limits.ts";
 import { boundedText, nonemptyText } from "../schema.ts";
+import { MAX_GATEWAY_NAME } from "../application_data.ts";
 
 /** How a link state reads, in three tones Rooms styles: a settled good state,
  * a state in flight, and a failure. The bridge writes the word, and Rooms
@@ -48,7 +49,7 @@ export const GatewayFactSchema = z.strictObject({
  * as something a snapshot then refuses to parse. An IRC channel name is legal
  * well past a Rooms room name's length, which is why this is wider than
  * `MAX_ROOM`. */
-export const MAX_GATEWAY_NAME = 128;
+export { MAX_GATEWAY_NAME };
 
 /** One bridged resource under a connection: an IRC channel, or whatever the
  * bridge leases. `roomName` is the Rooms room it became, when it has one. */
@@ -60,7 +61,7 @@ export const GatewayLeaseSchema = z.strictObject({
 	roomName: z.nullable(nonemptyText(MAX_ROOM)),
 	/** The Rooms publication id of the room this lease became, when it has one.
 	 * The room-moderation surface matches its own room against this to know it
-	 * administers the lease behind it. Empty for a lease with no room yet.  status-allow: pending state or quoted runtime label */
+	 * administers the lease behind it. Empty for a lease with no room yet. */
 	publicationId: boundedText(128),
 });
 export type GatewayLease = z.infer<typeof GatewayLeaseSchema>;

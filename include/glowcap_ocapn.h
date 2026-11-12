@@ -12,7 +12,7 @@ extern "C" {
 #endif
 #define GLOWCAP_VERSION_MAJOR 0
 #define GLOWCAP_VERSION_MINOR 1
-#define GLOWCAP_VERSION_PATCH 6
+#define GLOWCAP_VERSION_PATCH 7
 /* Read the exact reflected callable and layout identity of this core archive. */
 uint64_t glowcap_ocapn_archive_fingerprint(void);
 /* Read the linked shared archive's ABI version. */
@@ -158,6 +158,44 @@ int32_t glowcap_context_new(GlowcapContext **out_context);
 int32_t glowcap_context_new_with_allocator(const GlowcapAllocator *allocator, GlowcapContext **out_context);
 /* Allocate a stable Context-local lifecycle identity. Zero is reserved for no identity; exhaustion leaves out_id unchanged. */
 int32_t glowcap_context_allocate_lifecycle_id(GlowcapContext *context, uint64_t *out_id);
+
+/* ── Failure provenance ── */
+#define GLOWCAP_BREAK_ORIGIN_UNSPECIFIED 0u
+#define GLOWCAP_BREAK_ORIGIN_LOCAL 1u
+#define GLOWCAP_BREAK_ORIGIN_PARTNER 2u
+#define GLOWCAP_BREAK_REASON_UNSPECIFIED 0u
+#define GLOWCAP_BREAK_REASON_APPLICATION 1u
+#define GLOWCAP_BREAK_REASON_IDENTITY_UNVERIFIED 2u
+#define GLOWCAP_BREAK_REASON_PEER_UNREACHABLE 3u
+#define GLOWCAP_BREAK_REASON_CLOSED 4u
+#define GLOWCAP_BREAK_REASON_REFUSED 5u
+#define GLOWCAP_BREAK_REASON_TRANSPORT_UNAVAILABLE 6u
+#define GLOWCAP_BREAK_REASON_PUBLICATION_ABSENT 7u
+#define GLOWCAP_BREAK_CONTEXT_FETCH 1u
+#define GLOWCAP_BREAK_CONTEXT_RESTORATION 2u
+#define GLOWCAP_BREAK_CONTEXT_WITHDRAWAL 4u
+#define GLOWCAP_ROUTE_FAILURE_PEER_UNREACHABLE 0u
+#define GLOWCAP_ROUTE_FAILURE_TRANSPORT_UNAVAILABLE 1u
+
+
+/* Fallible release functions return ownership and a result code in one word.
+ * Negative results retain ownership and are ordinary error codes.
+ * Nonnegative results consume ownership. Positive values negate the error.
+ * Check consumption before reusing or retrying any released occurrence. */
+static inline int32_t glowcap_release_result_code(int32_t result) {
+    return result > 0 ? -result : result;
+}
+static inline int glowcap_release_result_consumed(int32_t result) {
+    return result >= 0;
+}
+typedef struct GlowcapBreakCause {
+    /* GLOWCAP_BREAK_ORIGIN_* */
+    uint32_t origin;
+    /* GLOWCAP_BREAK_REASON_* */
+    uint32_t reason;
+    /* GLOWCAP_BREAK_CONTEXT_* bitmask */
+    uint32_t context;
+} GlowcapBreakCause;
 
 /* ── Unreturned failures ── */
 #define GLOWCAP_FAILURE_EVENT_ABI_VERSION 1

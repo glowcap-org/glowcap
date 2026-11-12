@@ -6,18 +6,12 @@ pub const Entity = enum(u32) {
     pub fn index(self: Entity) u32 {
         return @backingInt(self) & 0xffff;
     }
-    pub fn generation(self: Entity) u16 {
-        return @intCast((@backingInt(self) >> 16) & 0xffff);
-    }
 };
 
 pub fn World(comptime max_entities: u16) type {
     return struct {
         const Self = @This();
         gpa: std.mem.Allocator,
-        gen: [max_entities]u16 = @splat(0),
-        alive: [max_entities]bool = @splat(false),
-        free: std.ArrayList(u16) = .empty,
         next_slot: u16 = 0,
 
         pub fn init(gpa: std.mem.Allocator) Self {
@@ -25,19 +19,14 @@ pub fn World(comptime max_entities: u16) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.free.deinit(self.gpa);
+            _ = self;
         }
 
         pub fn spawn(self: *Self) !Entity {
-            const slot: u16 = if (self.free.pop()) |s| s else blk: {
-                if (self.next_slot >= max_entities) return error.EntityCap;
-                const s = self.next_slot;
-                self.next_slot += 1;
-                break :blk s;
-            };
-            self.alive[slot] = true;
-            const g = self.gen[slot];
-            return @fromBackingInt(@intCast((@as(u32, g) << 16) | slot));
+            if (self.next_slot >= max_entities) return error.EntityCap;
+            const slot = self.next_slot;
+            self.next_slot += 1;
+            return @fromBackingInt(slot);
         }
     };
 }

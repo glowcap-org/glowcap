@@ -67,6 +67,9 @@ pub const default_max_sessions = Host.default_max_sessions;
 // the C ABI's `libglowcap_host` are its embedders.
 pub const Host = host.Host;
 pub const HostSession = host.HostSession;
+pub const Broken = @import("engine").Broken;
+pub const BreakCause = @import("engine").BreakCause;
+pub const RouteFailure = @import("engine").RouteFailure;
 pub const HostAction = host_action.HostAction;
 pub const VowFailure = host_action.VowFailure;
 pub const HostFailure = @import("host/failure.zig").HostFailure;
@@ -77,7 +80,6 @@ pub const CrossedHellos = crossed_hellos.CrossedHellos;
 pub const DialTarget = crossed_hellos.DialTarget;
 pub const HostError = host.HostError;
 pub const SessionReleaseError = host.SessionReleaseError;
-pub const HostInitError = host.Host.InitError;
 pub const PendingWork = close.PendingWork;
 pub const PendingWorkInput = close.PendingWorkInput;
 pub const CloseGrace = close.Grace;

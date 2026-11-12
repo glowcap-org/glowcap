@@ -21,7 +21,7 @@ const counts = @import("counts.zig");
 pub const LocalObjectProjection = struct {
     /// What a composition may refuse a fetch or projection with: the
     /// session's refusals while minting the export, or the composition's own
-    /// binding refusals for a target it no longer holds. status-allow: lifecycle transition
+    /// binding refusals for a target it no longer holds.
     pub const Error = session_mod.Error || std.mem.Allocator.Error ||
         error{ UnknownCapability, NoSuchActor, NotLocal, AlreadyPublished };
 
@@ -119,7 +119,7 @@ pub const GiftPayload = union(enum) {
     local_target: u64,
 };
 
-/// One deposited, not-yet-consumed gift. The registry owns everything the status-allow: pending state or quoted runtime label
+/// One deposited, not-yet-consumed gift. The registry owns everything the
 /// `payload` arm holds. Rows are freed on overwrite, on withdraw, or
 /// at `deinit`.
 const GiftEntry = struct {
@@ -146,7 +146,7 @@ pub const PreparedHandoffCount = counts.Prepared;
 /// Like the rest of the engine, the registry is externally synchronized and
 /// carries no lock.
 pub const GiftRegistry = struct {
-    /// Deposited, not-yet-consumed gifts and their cumulative retained-byte status-allow: pending state or quoted runtime label
+    /// Deposited, not-yet-consumed gifts and their cumulative retained-byte
     /// charge. Null until the first successful deposit and null again after the
     /// last withdrawal, so a session that never carries gifts pays one pointer
     /// instead of an inline hash-map header.
@@ -471,20 +471,6 @@ pub const GiftRegistry = struct {
     pub fn acceptValidatedPendingWithdraw(self: *GiftRegistry, handoff_count: u64) void {
         std.debug.assert(self.acceptedHandoffCount() == null or handoff_count > self.acceptedHandoffCount().?);
         self.acceptHandoffCount(handoff_count);
-    }
-
-    /// The owned-message form of a withdraw: validate, prepare, and commit in
-    /// one call. Production runs those steps separately across the dispatch
-    /// transaction. This form is reached only by tests.
-    pub fn applyWithdraw(
-        self: *GiftRegistry,
-        deposited: *GiftRegistry,
-        allocator: std.mem.Allocator,
-        projection: ?LocalObjectProjection,
-        receive: model.HandoffReceive,
-    ) session_mod.Error!?model.Reference {
-        const prepared = try prepareWithdrawCommit(deposited, giftClaim(receive));
-        return self.commitWithdraw(deposited, allocator, projection, prepared);
     }
 
     /// Consume one prepared gift with no allocation or failure. `self` owns the

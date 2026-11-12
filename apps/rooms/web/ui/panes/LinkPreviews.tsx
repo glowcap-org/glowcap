@@ -14,6 +14,7 @@ import {
 	type DraftPreview,
 	fetchPreview,
 	type OpenGraphMetadata,
+	type PreviewFailure,
 	previewFailure,
 	previewHost,
 	previewImageUrl,
@@ -157,7 +158,7 @@ function PreviewCard(
 type ReadState =
 	| { state: "loading"; attempt: number }
 	| { state: "ready"; attempt: number; metadata: OpenGraphMetadata }
-	| { state: "failed"; attempt: number; failure: import("../link_preview.ts").PreviewFailure };
+	| { state: "failed"; attempt: number; failure: PreviewFailure };
 
 function MessagePreview({ service, url }: { service: string; url: string }) {
 	const [read, setRead] = useState<ReadState>({ state: "loading", attempt: 0 });

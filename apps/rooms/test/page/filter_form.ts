@@ -286,9 +286,13 @@ export async function run(
 		}
 		await first.click();
 		await tab.waitForFunction(
-			() =>
-				[...document.querySelectorAll<HTMLInputElement>("#railFilterPanel .filter-choice .checkbox")]
-					.every((box) => box.checked),
+			() => {
+				// An empty panel holds nothing on, so it does not answer.
+				const boxes = [
+					...document.querySelectorAll<HTMLInputElement>("#railFilterPanel .filter-choice .checkbox"),
+				];
+				return boxes.length > 0 && boxes.every((box) => box.checked);
+			},
 			undefined,
 			{ timeout: 5_000 },
 		).catch(() => fail("turning that answer back on left the panel holding it off"));

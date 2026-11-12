@@ -49,14 +49,14 @@ pub const ForwardContext = struct {
     pub fn tryComplete(self: *const ForwardContext, resolution: vat_mod.Resolution) !void {
         switch (self.answer) {
             .local => |id| vows.settleLocalPrepared(self.vat, id, switch (resolution) {
-                .give => .{ .broken = "introduction not forwardable" },
+                .give => .{ .broken = engine.Broken.unnamed("introduction not forwardable") },
                 else => resolution,
             }),
             .wire => |wire| {
                 try switch (resolution) {
                     .fulfilled => |value| serve.resolveFulfill(wire.port, wire.target, value),
                     .broken => |message| serve.resolveBreak(wire.port, wire.target, message),
-                    .give => serve.resolveBreak(wire.port, wire.target, "introduction not forwardable"),
+                    .give => serve.resolveBreak(wire.port, wire.target, engine.Broken.unnamed("introduction not forwardable")),
                 };
             },
         }
@@ -82,7 +82,7 @@ const ForwardRegistration = struct {
         vat.allocator.destroy(self);
     }
 
-    fn abort(ctx: *anyopaque, vat: *Vat, _: []const u8) void {
+    fn abort(ctx: *anyopaque, vat: *Vat, _: engine.Broken) void {
         const self: *@This() = @ptrCast(@alignCast(ctx));
         const context = self.context.?;
         const listener = if (self.port) |port|
@@ -96,12 +96,12 @@ const ForwardRegistration = struct {
         }
     }
 
-    fn notify(ctx: *anyopaque, vat: *Vat, reason: []const u8) void {
+    fn notify(ctx: *anyopaque, vat: *Vat, broken: engine.Broken) void {
         const self: *@This() = @ptrCast(@alignCast(ctx));
         defer vat.allocator.destroy(self);
         const context = self.context orelse return;
         defer vat.allocator.destroy(context);
-        context.complete(.{ .broken = reason });
+        context.complete(.{ .broken = broken });
     }
 };
 

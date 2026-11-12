@@ -292,8 +292,8 @@ export async function run(managed: Runtime): Promise<void> {
 		}
 
 		const hosted = host();
-		await using firstRuntime = await Runtime.open({ providers: [tcp.provider()] });
-		await using secondRuntime = await Runtime.open({ providers: [tcp.provider()] });
+		await using firstRuntime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
+		await using secondRuntime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 		const first = await firstRuntime.connect(tcp.locator("127.0.0.1", port));
 		first.serve().catch(() => {});
 		await ready[0];
@@ -362,8 +362,8 @@ export async function run(managed: Runtime): Promise<void> {
 		const hosted = host();
 
 		async function client(): Promise<void> {
-			await using originRuntime = await Runtime.open({ providers: [tcp.provider()] });
-			await using siblingRuntime = await Runtime.open({ providers: [tcp.provider()] });
+			await using originRuntime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
+			await using siblingRuntime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 			const origin = await originRuntime.connect(tcp.locator("127.0.0.1", port));
 			origin.serve().catch(() => {});
 			const sibling = await siblingRuntime.connect(tcp.locator("127.0.0.1", port));
@@ -435,7 +435,7 @@ export async function run(managed: Runtime): Promise<void> {
 		}
 		const hosted = host();
 		await using clientRuntime = await Runtime.open({
-			providers: [tcp.provider()],
+			providers: [tcp.provider({ profiles: [tcp.plain] })],
 			adoptHost: clientHost,
 		});
 
@@ -516,7 +516,7 @@ export async function run(managed: Runtime): Promise<void> {
 			const root = await session.fetch("root");
 			const anchor = session.send(root, "explode", []);
 			assert(anchor instanceof Promise, "a send handle must be a real Promise");
-			// No later operation exists yet: creation itself must schedule progress. status-allow: pending state or quoted runtime label
+			// No later operation exists yet: creation itself must schedule progress.
 			await boomSeen;
 			// `anchor` is never observed; its break remains only a recorded outcome.
 			// The break's FAIL completion is recorded with no waiter, no rejection.

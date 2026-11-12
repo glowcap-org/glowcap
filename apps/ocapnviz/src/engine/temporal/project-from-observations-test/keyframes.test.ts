@@ -9,7 +9,7 @@ import type { TimelineDocument } from "../../timeline.ts";
 import { projectFromObservations } from "../project-from-observations.ts";
 import { emptyDoc, withEvents } from "./harness.ts";
 
-Deno.test("project: session-state-changed observations → keyframes.state track", () => {
+Deno.test("project: session-state-changed observations produce the keyframes.state track", () => {
 	const doc: TimelineDocument = withEvents({
 		...emptyDoc(),
 		entities: {

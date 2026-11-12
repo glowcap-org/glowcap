@@ -1,4 +1,4 @@
-//! Native grant references bound their live object count, retain aliases
+//! LMDB grant references bound their live object count, retain aliases
 //! without allocation, and own copied management scopes until final release.
 const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");

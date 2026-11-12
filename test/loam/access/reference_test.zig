@@ -104,7 +104,9 @@ test "loam managed fields append from empty custody and refuse schema capacity a
     try host.init(&store, &backend, data);
     defer host.deinit();
     host.service.contents = &f.contents;
-    var peer = h.host_support.init(a, @splat(0x66), .{});
+    var peer = h.host_support.init(a, @splat(0x66), .{
+        .thread_policy = .unchecked,
+    });
     defer peer.deinit();
     const pair = try f.pairs.openPair(&host.host, &peer, "127.0.0.1:9792");
     const target = try host.restore(&backend, data.use);
@@ -209,7 +211,7 @@ fn foreignPreparation(comptime mode: PreparationCase) !void {
     } else return error.DidNotPrepare;
     try std.testing.expect(woke);
     try std.testing.expect(source.host.hasRunnableWork());
-    // Export the queued fetch, but do not feed it to the target yet. status-allow: pending state or quoted runtime label
+    // Export the queued fetch, but do not feed it to the target yet.
     while (try source.host.nextAction()) |_| {}
     try std.testing.expect(!source.host.hasRunnableWork());
     for (0..3) |_| try std.testing.expect(!try source.attached.advanceProgress());
@@ -400,7 +402,8 @@ test "loam foreign save reports why its proof could not restore" {
     defer a.free(unpublished);
     const refused = try f.send(&source, &source_backend, &target, &target_backend, pair, source.use, "put", &.{ .{ .integer = 0 }, .{ .capability = original }, .{ .string = unpublished } });
     defer refused.deinit();
-    try std.testing.expectEqualStrings("RestorationFailed: unknown swissnum", refused.result().failed.message);
+    try std.testing.expectEqualStrings("unknown swissnum", refused.result().failed.message);
+    try std.testing.expectEqual(h.driver.BreakCause.partner().withFetch().withRestoration(), refused.result().failed.cause);
     try std.testing.expectEqual(@as(usize, 0), source.attached.reference_saves);
 }
 
@@ -419,6 +422,11 @@ fn retireSession(host: *h.driver.Host, session: *h.driver.HostSession) !void {
 }
 
 test "loam foreign restoration reports why the Host could not reach its target" {
+    try foreignRestorationFailure(.peer_unreachable);
+    try foreignRestorationFailure(.transport_unavailable);
+}
+
+fn foreignRestorationFailure(failure: h.driver.RouteFailure) !void {
     var source_backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
     defer source_backend.deinit();
     var source_store = try h.loam.core.Store.init(a, try source_backend.open(), &f.schemas, h.limits);
@@ -456,13 +464,14 @@ test "loam foreign restoration reports why the Host could not reach its target" 
     defer call.deinit();
     for (0..256) |_| {
         while (try source.host.nextAction()) |action| switch (action) {
-            .dial => |dial| try source.host.dialFailed(dial.ticket, dial.route_index, "unreachable in this scenario"),
+            .dial => |dial| try source.host.dialFailed(dial.ticket, dial.route_index, failure, "UnknownTransport"),
             else => {},
         };
         _ = try source.attached.advanceProgress();
         if (try source.reads(&source_backend)) |batch| try source.attached.completeWrite(batch.ticket, source_backend.commit(batch));
         if (call.result() != .pending) break;
     } else return error.DidNotSettle;
-    try std.testing.expectEqualStrings("RestorationFailed: unreachable in this scenario", call.result().failed.message);
+    try std.testing.expectEqualStrings("ExporterUnreachable: UnknownTransport", call.result().failed.message);
+    try std.testing.expectEqual(failure.cause().withFetch().withRestoration(), call.result().failed.cause);
     try std.testing.expectEqual(@as(usize, 0), source.host.pending_operations);
 }

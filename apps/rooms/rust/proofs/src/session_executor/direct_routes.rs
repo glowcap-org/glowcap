@@ -190,7 +190,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, source:
 	);
 	assert_eq!(workspace.snapshot().await.unwrap().revision, before_collision.revision);
 	// Even this conversation's own retained route cannot seed a new callback
-	// lifetime. A new generation at the old slot still restarts route ordinal one. status-allow: replacement state identity
+	// lifetime. A new generation at the old slot still restarts route ordinal one.
 	let workspace::Conversation::Direct(row) = &watermark.intent.conversations.as_slice()[0] else {
 		unreachable!()
 	};

@@ -156,21 +156,15 @@ pub fn probe(
     const mutated = written.items;
     var prefix_buf: [stream_framing.prefix_buffer_bytes]u8 = undefined;
     const prefix = stream_framing.renderPrefix(&prefix_buf, mutated.len);
-    // A write the peer already closed on is a refusal of the frame before it.
-    const wrote = blk: {
-        conn.w.writeAll(prefix) catch break :blk false;
-        conn.w.writeAll(mutated) catch break :blk false;
-        conn.w.flush() catch break :blk false;
-        break :blk true;
-    };
-    if (!wrote) return .refused;
+    // tolerant: a write the peer already closed on is its refusal of the frame before it, which this outcome reports.
+    writeEnveloped(conn.w, prefix, mutated) catch return .refused;
 
     Watch.answered = false;
     Watch.aborted = false;
     Watch.expired_flag = false;
     Watch.io = io;
     Watch.deadline = harness.deadlineAfter(io, deadline_ms);
-    sendEcho(peer, opened.cap, follow_answer) catch return .refused;
+    try sendEcho(peer, opened.cap, follow_answer);
     const slice_ms: i32 = @intCast(@min(deadline_ms, std.math.maxInt(i32)));
     const progress = conn.runUntil(watching, slice_ms) catch |err| switch (err) {
         error.Timeout => return .silent,
@@ -186,7 +180,14 @@ pub fn probe(
 /// session is released once its wire has ended, whether the probe's mutated
 /// frame ended it or the probe hung up, so the listener runs the whole set
 /// with a bounded number of live sessions.
-fn serveEcho(allocator: std.mem.Allocator, server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+fn serveEcho(allocator: std.mem.Allocator, server: *driver.Server, done: *std.atomic.Value(bool), failure: *ServeFailure) anyerror!void {
+    serveEchoLoop(allocator, server, done) catch |err| {
+        failure.store(err);
+        return err;
+    };
+}
+
+fn serveEchoLoop(allocator: std.mem.Allocator, server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
     var sessions: std.ArrayList(*driver.Session) = .empty;
     defer {
         for (sessions.items) |session| session.deinit();
@@ -201,7 +202,7 @@ fn serveEcho(allocator: std.mem.Allocator, server: *driver.Server, done: *std.at
             }
             sessions.swapRemove(i).deinit();
         }
-        const acceptable = server.waitAcceptable(10) catch false;
+        const acceptable = try server.waitAcceptable(10);
         if (acceptable) {
             // tolerant: a failed accept costs one dial, which the peer's own timeout reports, and the next loop iteration accepts again.
             const session = server.accept() catch continue;
@@ -269,14 +270,39 @@ fn printHex(label: []const u8, bytes: []const u8) void {
     std.debug.print("\n", .{});
 }
 
+/// Write one enveloped frame and flush it.
+fn writeEnveloped(w: *std.Io.Writer, prefix: []const u8, frame: []const u8) std.Io.Writer.Error!void {
+    try w.writeAll(prefix);
+    try w.writeAll(frame);
+    try w.flush();
+}
+
 /// True once nothing listens on the vat's port, which means the vat exited.
-fn vatGone(io: std.Io, allocator: std.mem.Allocator, locator: model.PeerLocator) bool {
-    var scaffold = harness.PeerScaffold.init(allocator, frame_cap) catch return false;
+/// Any other dial failure is the driver's own and returns.
+fn vatGone(io: std.Io, allocator: std.mem.Allocator, locator: model.PeerLocator) !bool {
+    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
     defer scaffold.deinit();
-    var conn = harness.tcpConnectRetry(io, &scaffold.peer, locator, scaffold.read_buf, scaffold.write_buf, 300) catch return true;
+    var conn = harness.tcpConnectRetry(io, &scaffold.peer, locator, scaffold.read_buf, scaffold.write_buf, 300) catch |err| switch (err) {
+        error.ConnectionRefused => return true,
+        else => return err,
+    };
     conn.deinit();
     return false;
 }
+
+/// The serving task's own failure, stored before the task returns, so the run
+/// reports the server's cause rather than the probe failures it produced.
+const ServeFailure = struct {
+    code: std.atomic.Value(@TypeOf(@intFromError(error.Unset))) = .init(0),
+
+    fn store(self: *ServeFailure, err: anyerror) void {
+        self.code.store(@intFromError(err), .release);
+    }
+
+    fn stopped(self: *const ServeFailure) bool {
+        return self.code.load(.acquire) != 0;
+    }
+};
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -310,12 +336,14 @@ pub fn main(init: std.process.Init) !void {
     const glowcap_locator = tcp.locatorFromAddress(&glowcap_designator, local_address);
 
     var done = std.atomic.Value(bool).init(false);
-    var serving = try io.concurrent(serveEcho, .{ allocator, server, &done });
+    var serve_failure: ServeFailure = .{};
+    var serving = try io.concurrent(serveEcho, .{ allocator, server, &done, &serve_failure });
     var stopped = false;
     defer if (!stopped) {
         done.store(true, .release);
-        // best-effort: this unwind already returns the run's own error, and the serving thread's failure would only repeat it.
-        serving.await(io) catch {};
+        // This unwind returns another error, and the server's own failure
+        // may be what caused it, so it prints first.
+        serving.await(io) catch |err| std.debug.print("goblins-differential: the glowcap server failed: {s}\n", .{@errorName(err)});
     };
 
     var agree: usize = 0;
@@ -333,7 +361,11 @@ pub fn main(init: std.process.Init) !void {
             if (i == 0) control_ok = false;
             break :blk Outcome.refused;
         };
-        const c = probe(io, allocator, glowcap_locator, glowcap_swiss, seed, flags.deadline_ms, &c_bytes) catch |err| blk: {
+        const c_probe = probe(io, allocator, glowcap_locator, glowcap_swiss, seed, flags.deadline_ms, &c_bytes);
+        // A server that stopped explains this probe's outcome. Its await
+        // below returns that cause as the run's error.
+        if (serve_failure.stopped()) break;
+        const c = c_probe catch |err| blk: {
             std.debug.print("goblins-differential: glowcap probe {d} failed: {s}\n", .{ i, @errorName(err) });
             if (i == 0) control_ok = false;
             break :blk Outcome.refused;
@@ -346,7 +378,7 @@ pub fn main(init: std.process.Init) !void {
         }
         if (i == 0 and (g != .accepted or c != .accepted)) control_ok = false;
         if (!control_ok) break;
-        if (g != .accepted and vatGone(io, allocator, goblins_locator)) {
+        if (g != .accepted and try vatGone(io, allocator, goblins_locator)) {
             std.debug.print("goblins-differential: the vat exited after frame {d}\n", .{i});
             vat_died = true;
             break;

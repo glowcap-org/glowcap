@@ -97,6 +97,7 @@ pub const Answer = struct {
     changed: ?bool = null,
     reason: [64]u8 = undefined,
     reason_len: usize = 0,
+    cause: driver.BreakCause = .{},
     fn receive(ctx: ?*anyopaque, result: g.actors.Resolution) void {
         const self: *Answer = @ptrCast(@alignCast(ctx.?));
         switch (result) {
@@ -106,15 +107,16 @@ pub const Answer = struct {
                 else => unreachable,
             },
             .broken => |reason| {
-                self.reason_len = @min(reason.len, self.reason.len);
-                @memcpy(self.reason[0..self.reason_len], reason[0..self.reason_len]);
+                self.cause = reason.cause;
+                self.reason_len = @min(reason.detail.len, self.reason.len);
+                @memcpy(self.reason[0..self.reason_len], reason.detail[0..self.reason_len]);
             },
             .give => unreachable,
         }
     }
     pub fn requireNumber(self: Answer, expected: i64) !void {
         if (self.number != expected or self.reason_len != 0) {
-            std.debug.print("managed reply expected={d} number={any} reason={s}\n", .{ expected, self.number, self.reason[0..self.reason_len] });
+            std.debug.print("managed reply expected={d} number={any} reason={f}\n", .{ expected, self.number, driver.Broken{ .detail = self.reason[0..self.reason_len], .cause = self.cause } });
             return error.InvalidManagedReply;
         }
     }
@@ -203,7 +205,7 @@ pub const Managed = struct {
         };
         errdefer self.store.deinit() catch unreachable;
         // Local, socket-free measurement identity; benchmark stores are isolated.
-        self.host = try driver.Host.init(allocator, @splat(identity), @splat(identity + 1), driver.Host.Options.withFrameCap(4096));
+        self.host = try driver.Host.init(allocator, @splat(identity), @splat(identity + 1), driver.Host.Options.init(.unchecked, 4096));
         errdefer self.host.deinit();
         self.capabilities = try access.storage.Capabilities.init(allocator, &self.store, .{});
         errdefer self.capabilities.deinit() catch unreachable;

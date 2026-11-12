@@ -4,13 +4,6 @@ use crate::sys;
 use crate::sys::host::GlowcapCloseOptions;
 use crate::{Error, Result};
 
-/// Whether a final FFI release crossed its ownership boundary. Host and
-/// driver release share one pre-commit refusal: INVALID_ARGUMENT. Every other
-/// status is a teardown outcome and names an already-consumed handle.
-pub(crate) fn release_consumed(code: i32) -> bool {
-	code != sys::ERR_INVALID_ARGUMENT
-}
-
 /// What explicit close does with operations admitted before its barrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PendingWork {
@@ -56,11 +49,20 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn final_release_status_names_the_ownership_boundary() {
-		assert!(!release_consumed(sys::ERR_INVALID_ARGUMENT));
-		assert!(release_consumed(sys::OK));
-		assert!(release_consumed(sys::ERR_IO));
-		assert!(release_consumed(sys::ERR_INTERNAL));
+	fn release_ownership_is_independent_of_error_class() {
+		assert!(sys::release_result_consumed(sys::OK));
+		assert_eq!(sys::release_result_code(sys::OK), sys::OK);
+		for code in [
+			sys::ERR_INVALID_ARGUMENT,
+			sys::ERR_IO,
+			sys::ERR_INTERNAL,
+			sys::WOULD_BLOCK,
+		] {
+			assert!(!sys::release_result_consumed(code));
+			assert!(sys::release_result_consumed(-code));
+			assert_eq!(sys::release_result_code(code), code);
+			assert_eq!(sys::release_result_code(-code), code);
+		}
 	}
 
 	#[test]

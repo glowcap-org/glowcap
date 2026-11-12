@@ -79,13 +79,15 @@ pub fn Machine(
                     failRuntime(runtime);
                     return;
                 }
-                if (!rebuildPollSet(runtime)) {
+                rebuildPollSet(runtime) catch |err| {
+                    runtime.noteFailure(err);
                     failRuntime(runtime);
                     return;
-                }
+                };
                 // The wake is the fast path. Bounded polling is the recovery
                 // path that lets a latched wake fault terminalize and join.
-                _ = net.poll.wait(runtime.pollfds.items, 100) catch {
+                _ = net.poll.wait(runtime.pollfds.items, 100) catch |err| {
+                    runtime.noteFailure(err);
                     failRuntime(runtime);
                     return;
                 };
@@ -110,7 +112,7 @@ pub fn Machine(
             }
         }
 
-        fn rebuildPollSet(runtime: *Runtime) bool {
+        fn rebuildPollSet(runtime: *Runtime) error{OutOfMemory}!void {
             runtime.mutex.lock();
             defer runtime.mutex.unlock();
             runtime.pollfds.clearRetainingCapacity();
@@ -121,8 +123,8 @@ pub fn Machine(
                 .empty => 0,
             };
             const wanted = @as(usize, 1) + listener_count + runtime.connections.items.len;
-            runtime.pollfds.ensureTotalCapacity(runtime.allocator, wanted) catch return false;
-            runtime.subjects.ensureTotalCapacity(runtime.allocator, wanted) catch return false;
+            try runtime.pollfds.ensureTotalCapacity(runtime.allocator, wanted);
+            try runtime.subjects.ensureTotalCapacity(runtime.allocator, wanted);
             runtime.pollfds.appendAssumeCapacity(.{
                 .fd = runtime.control_wake.read,
                 .events = std.posix.POLL.IN,
@@ -175,7 +177,6 @@ pub fn Machine(
                 });
                 runtime.subjects.appendAssumeCapacity(.{ .connection = conn });
             }
-            return true;
         }
 
         fn failListenerSetup(

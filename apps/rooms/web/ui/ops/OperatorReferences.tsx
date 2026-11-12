@@ -42,7 +42,7 @@ import {
 	referencesTitle,
 	referencesUpload,
 } from "../../../lib/text/ops.ts";
-import { operatorSweepRelease, operatorSweepReleased } from "../../../lib/text/operator.ts";
+import { operatorReferenceMember, operatorSweepRelease, operatorSweepReleased } from "../../../lib/text/operator.ts";
 
 /** Every kind the directory can hold, in the order an operator reads them:
  * what people are in, what they are talking through, then the plumbing that
@@ -125,7 +125,7 @@ export function OperatorReferences(
 													</span>
 													{row.room !== "" && row.member !== "" && (
 														<span className="entry-meta">
-															member {row.member}
+															{operatorReferenceMember(row.member)}
 														</span>
 													)}
 													<div className="actions">

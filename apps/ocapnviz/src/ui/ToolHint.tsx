@@ -44,23 +44,23 @@ export function ToolHint(
 	},
 ) {
 	if (spaceHeld) {
-		return <div style={banner} aria-hidden>Pan — release space to resume</div>;
+		return <div style={banner} aria-hidden>Pan: release space to resume</div>;
 	}
 	let message: React.ReactNode = null;
 	if (tool === "open-session") {
-		message = armedNodeLabel === null ? "Open session — click the first node" : (
+		message = armedNodeLabel === null ? "Open session: click the first node" : (
 			<>
-				Open session — click a second node <span style={accent}>(from {armedNodeLabel})</span>
+				Open session: click a second node <span style={accent}>(from {armedNodeLabel})</span>
 			</>
 		);
 	} else if (tool === "send-message") {
-		message = armedNodeLabel === null ? "Send message — click the sender" : (
+		message = armedNodeLabel === null ? "Send message: click the sender" : (
 			<>
-				Send message — click the receiver <span style={accent}>(from {armedNodeLabel})</span>
+				Send message: click the receiver <span style={accent}>(from {armedNodeLabel})</span>
 			</>
 		);
 	} else if (tool === "add-peer") {
-		message = "Add peer — click empty canvas";
+		message = "Add peer: click empty canvas";
 	} else {
 		return null;
 	}

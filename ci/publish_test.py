@@ -3,16 +3,12 @@
 Read the workflow's own jobs: every registry job runs in its environment after
 the contract job, with an OIDC token where the registry binds one and with the
 catalog account's secrets for the Racket catalog, and the registry steps skip a
-version the registry already holds. The crate step runs with stub curl and
-cargo. This does not reach a registry or GitHub runners.
+version the registry already holds, the crate's through ci/crate_publish.py.
+This does not reach a registry or GitHub runners.
 """
 
 import json
-import os
-import subprocess
-import tempfile
 import unittest
-from pathlib import Path
 
 from workflows import jobs, run, step, text, workflow
 
@@ -54,40 +50,7 @@ class PublishWorkflow(unittest.TestCase):
         source = text(PUBLISH)
         self.assertNotIn("--allow-dirty", source)
         self.assertNotIn("--dry-run", source)
-        script = run(found["crates-io"], "Publish the crate")
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            log = directory / "calls"
-            for tool in ("curl", "cargo"):
-                stub = directory / tool
-                stub.write_text(
-                    f'#!/bin/sh\necho "{tool} $*" >> "$CALL_LOG"\n'
-                    + ('printf "%s" "$CURL_STATUS"\n' if tool == "curl" else "")
-                )
-                stub.chmod(0o755)
-            for status, published, accepted in (("200", False, True), ("404", True, True), ("500", False, False)):
-                with self.subTest(status=status):
-                    log.write_text("")
-                    environment = dict(
-                        os.environ,
-                        PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
-                        CALL_LOG=str(log),
-                        CURL_STATUS=status,
-                        VERSION="0.1.1",
-                        GITHUB_REPOSITORY="owner/project",
-                    )
-                    result = subprocess.run(
-                        ["bash", "-e", "-o", "pipefail", "-c", script],
-                        cwd=directory,
-                        env=environment,
-                        capture_output=True,
-                        text=True,
-                        timeout=20,
-                    )
-                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
-                    calls = log.read_text()
-                    self.assertIn("crates/glowcap/0.1.1", calls)
-                    self.assertEqual("cargo publish" in calls, published)
+        self.assertEqual(run(found["crates-io"], "Publish the crate"), "python3 ci/crate_publish.py")
 
     def test_the_racket_job_edits_the_catalog_with_its_environment_secrets_then_installs(self):
         job = jobs(PUBLISH)["racket"]
@@ -129,28 +92,20 @@ class PublishWorkflow(unittest.TestCase):
         named = "Require the tag's version"
         holders = [name for name, job in found.items() for item in job["steps"] if item.get("name") == named]
         self.assertEqual(holders, ["contract"])
-        script = run(found["contract"], "Require the tag's version")
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            (directory / "bindings").mkdir()
-            (directory / "bindings/c-abi-resolve.json").write_text(json.dumps({"abi_version": "0.1.1"}))
-            for tag, accepted in (("v0.1.1", True), ("v0.1.0", False), ("0.1.1", False)):
-                with self.subTest(tag=tag):
-                    result = subprocess.run(
-                        ["bash", "-e", "-o", "pipefail", "-c", script],
-                        cwd=directory,
-                        env=dict(os.environ, RELEASE_TAG=tag),
-                        capture_output=True,
-                        text=True,
-                        timeout=20,
-                    )
-                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+        # github_release_test holds the rule itself; the step hands it the tag.
+        self.assertEqual(run(found["contract"], named), 'python3 ci/github_release.py version "$RELEASE_TAG"')
+        self.assertEqual(step(found["contract"], named)["env"]["RELEASE_TAG"], "${{ inputs.tag }}")
+
+    def test_dispatches_at_one_tag_wait_for_each_other(self):
+        self.assertEqual(
+            workflow(PUBLISH)["concurrency"], {"group": "publish-${{ inputs.tag }}", "cancel-in-progress": False}
+        )
 
     def test_release_dispatches_publication_after_the_release_is_public(self):
         release = jobs(RELEASE)["release"]
         self.assertEqual(release["permissions"]["actions"], "write")
         scripts = [item.get("run", "") for item in release["steps"]]
-        publish = [index for index, script in enumerate(scripts) if "--draft=false" in script]
+        publish = [index for index, script in enumerate(scripts) if "github_release.py publish-draft" in script]
         dispatch = [index for index, script in enumerate(scripts) if "gh workflow run publish.yml" in script]
         self.assertEqual(len(publish), 1)
         self.assertEqual(len(dispatch), 1)

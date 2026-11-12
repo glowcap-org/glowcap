@@ -30,7 +30,7 @@ pub fn PositionSlab(comptime Row: type) type {
         pub const Slot = union(enum) {
             /// Retired, or grown past and never minted: on the free list.
             free: Link,
-            /// Minted and not yet installed, holding the stamp its row carries. status-allow: pending state or quoted runtime label
+            /// Minted and not yet installed, holding the stamp its row carries.
             reserved: u64,
             live: Row,
         };
@@ -179,11 +179,6 @@ pub fn PositionSlab(comptime Row: type) type {
             }
             self.slots.items[index] = .{ .live = row };
             self.live_count += 1;
-        }
-
-        pub fn installAt(self: *Self, allocator: std.mem.Allocator, index: u32, row: Row) std.mem.Allocator.Error!void {
-            try self.ensureIndex(allocator, index);
-            self.installAtAssumeCapacity(index, row);
         }
 
         /// Return a reserved slot to the free list.

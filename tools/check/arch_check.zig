@@ -14,14 +14,13 @@
 //!   * every layer-module import is declared, a claimed file that `@import`s
 //!     a layer name outside its row's granted edges fails, so an
 //!     injected-module seam (a module wired outside `graphFromTable`) cannot
-//!     widen the real dependency graph invisibly. The sanctioned injections
-//!     are allowlisted per file in `injected_layer_imports` below,
+//!     widen the real dependency graph invisibly,
 //!   * every file belongs to a declared layer, under a module graph an
 //!     unwired directory is silently-dead code, so an unclaimed file fails
 //!     loud instead,
 //!   * core layers (the sync, no-I/O core) carry no `std.Io`, sockets,
-//!     filesystem handles, threads, or schedulers, with the one sanctioned
-//!     GiftRegistry atomic (ADR-0039),
+//!     filesystem handles, threads, atomics, or schedulers, with no
+//!     per-file exception,
 //!   * portable code names no platform syscall namespace (`std.os.linux` /
 //!     `std.os.windows`), only platform-gated backends may,
 //!   * no production module names `std.testing`, test vocabulary and the
@@ -46,7 +45,7 @@ pub const LayerSpec = struct {
     /// The modules this layer may import, the one-way edge table.
     imports: []const []const u8,
     /// True for the sync, no-I/O core: bans `std.Io`, `std.net`,
-    /// `std.fs.File`, `std.Thread`, and (one sanctioned exception) `std.atomic`.
+    /// `std.fs.File`, `std.Thread`, and `std.atomic`.
     core: bool,
     /// True (the default) for a normal layer materialized into the build graph
     /// by `graphFromTable`. False for an out-of-graph artifact that this gate
@@ -151,8 +150,7 @@ pub fn check(
         // dependency graph past the declared one. The compiler cannot catch it
         // when the file's module is minted outside `graphFromTable` (an
         // injected resident), so the gate holds it: every layer-name import
-        // must be a granted edge, the layer's own name, or a sanctioned
-        // injection declared in `injected_layer_imports`.
+        // must be a granted edge or the layer's own name.
         {
             var line_no: usize = 1;
             var lines = std.mem.splitScalar(u8, contents, '\n');
@@ -171,10 +169,10 @@ pub fn check(
                     for (spec.imports) |edge| {
                         if (std.mem.eql(u8, edge, imported)) granted = true;
                     }
-                    if (!granted and !isInjectedImport(file_path, imported)) {
+                    if (!granted) {
                         try violations.append(gpa, try std.fmt.allocPrint(
                             gpa,
-                            "{s}:{d}: imports layer module '{s}' but layer '{s}' grants no such edge — add the edge to build.zig's layer_table or declare the injection in tools/check/arch_check.zig's injected_layer_imports",
+                            "{s}:{d}: imports layer module '{s}' but layer '{s}' grants no such edge — add the edge to build.zig's layer_table",
                             .{ file_path, line_no, imported, spec.name },
                         ));
                     }
@@ -204,17 +202,10 @@ pub fn check(
 
         // No-scheduler / no-threading-in-core ban. The Core Boundary
         // (docs/architecture.md) forbids background tasks and hidden schedulers,
-        // not only std.Io. `std.Thread` is never allowed in a core layer for
-        // spawning or scheduling, and `std.atomic` is never allowed at all,
-        // concurrency primitives belong in adapters. One sanctioned exception:
-        // `std.Thread.getCurrentId` in the byte-fed Host admission owner
-        // asserts the single-owning-thread contract already in prose
-        // (ADR-0022): affinity
-        // only, never spawn, allowlisted by path so any other core atomic /
-        // Thread still fails loud. (The engine's GiftRegistry carries no lock,
-        // so no atomic is sanctioned there.)
-        const allows_thread_id = std.mem.endsWith(u8, file_path, "driver/core/host/admission.zig");
-        if (spec.core and !allows_thread_id and standard.thread) {
+        // not only std.Io. A core layer never references `std.Thread` or
+        // `std.atomic`: concurrency primitives belong in adapters, and a core
+        // owner that checks thread affinity compares a token its embedder reads.
+        if (spec.core and standard.thread) {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
                 "{s}: core layer '{s}' references std.Thread — the core owns no threads or scheduler",
@@ -347,18 +338,6 @@ fn renderLayerTable(b: *Build, table: []const LayerSpec) []const u8 {
     return out.items;
 }
 
-/// The sanctioned injected-module seams: files whose build module is minted
-/// outside `graphFromTable` with layer imports the claiming layer's row does
-/// not grant. Each row is a declared exception the gate would otherwise
-/// reject, so an injection is visible here instead of silent in a module
-/// constructor. Keep this list to injections that cannot be a DAG
-/// edge.
-const injected_layer_imports = [_]struct { path: []const u8, imports: []const []const u8 }{
-    // Empty: the iroh resident module imports neither actors nor driver_core;
-    // `driver.HostRuntime` serves CapTP over it. Keep this table for future
-    // sanctioned injections that cannot be DAG edges.
-};
-
 fn isLayerName(table: []const LayerSpec, name: []const u8) bool {
     for (table) |spec| {
         if (std.mem.eql(u8, spec.name, name)) return true;
@@ -468,16 +447,6 @@ fn edgeLiveInFile(gpa: std.mem.Allocator, contents: []const u8, edge: []const u8
                 // `_ = @import("edge")` or any other inline expression = a use.
                 return true;
             }
-        }
-    }
-    return false;
-}
-
-fn isInjectedImport(file_path: []const u8, imported: []const u8) bool {
-    for (injected_layer_imports) |row| {
-        if (!std.mem.eql(u8, row.path, file_path)) continue;
-        for (row.imports) |name| {
-            if (std.mem.eql(u8, name, imported)) return true;
         }
     }
     return false;

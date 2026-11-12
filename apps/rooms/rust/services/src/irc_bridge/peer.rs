@@ -15,7 +15,8 @@ use tokio::{sync::watch, task::JoinSet};
 pub(super) const CONNECTIONS: usize = 512;
 
 pub struct Ready {
-	pub port: u16,
+	/// What a launcher reads to reach the bridge's directory.
+	pub token: String,
 	pub room: String,
 }
 pub async fn run(
@@ -64,18 +65,18 @@ pub async fn run(
 			);
 		}
 	};
-	let port = match locator.designator.rsplit_once(':').and_then(|(_, p)| p.parse().ok()) {
-		Some(port) => port,
-		None => {
+	let location = match glowcap::format_locator_uri(&locator) {
+		Ok(location) => location,
+		Err(error) => {
 			let result = crate::cleanup::combine(
-				Err("IRC bridge listener returned no TCP port".into()),
+				Err(format!("the IRC bridge listener's own locator is invalid: {error}")),
 				listener.close().await.map_err(|e| e.to_string()),
 			);
 			return crate::cleanup::combine(result, host.close(PendingWork::Cancel).await.map_err(|e| e.to_string()));
 		}
 	};
 	ready(&Ready {
-		port,
+		token: serving::announce_token(&location, config.transport.announces_host()),
 		room: shared.borrow().room.name().into(),
 	});
 	let mut feeding = tokio::task::spawn_local(feed::run(shared.clone(), config, tls, jobs));

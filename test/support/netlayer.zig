@@ -25,8 +25,7 @@ pub fn listenBlocking(
         .ready => |listener| return listener,
         .pending => |*attempt| {
             var pollfds: [1]std.posix.pollfd = undefined;
-            const ready = try net.waitAnyReadable(
-                &.{},
+            const ready = try net.waitAnyDescriptor(
                 &pollfds,
                 -1,
                 &.{attempt.readinessFd()},

@@ -23,11 +23,11 @@ class EditHookTests(unittest.TestCase):
         self.caller = self.root / "caller"
         self.caller.mkdir()
 
-    def run_hook(self, payload):
+    def run_hook(self, payload, status=0):
         result = subprocess.run(
             ["bash", str(HOOK)], input=json.dumps(payload), text=True, capture_output=True, cwd=self.caller, timeout=10
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, status, result.stderr)
         return result
 
     def test_claude_formats_zig_from_another_directory(self):
@@ -69,13 +69,16 @@ class EditHookTests(unittest.TestCase):
         self.run_hook({"file_path": str(target)})
         self.assertEqual(target.read_text(), "NAME = 'plan'\n")
 
-    def test_unfinished_edit_reports_failure_without_blocking(self):
+    def test_unfinished_edit_reports_failure_in_each_callers_non_blocking_code(self):
         target = self.root / "unfinished.zig"
         original = "pub fn main(\n"
         target.write_text(original)
-        result = self.run_hook({"file_path": str(target)})
-        self.assertTrue(result.stderr)
-        self.assertEqual(target.read_text(), original)
+        # Claude shows the model stderr only on 2; Cursor reads 2 as deny.
+        for payload, status in (({"tool_input": {"file_path": str(target)}}, 2), ({"file_path": str(target)}, 1)):
+            with self.subTest(status=status):
+                result = self.run_hook(payload, status)
+                self.assertTrue(result.stderr)
+                self.assertEqual(target.read_text(), original)
 
     def test_absent_path_and_unsupported_file_are_noops(self):
         target = self.root / "notes.txt"

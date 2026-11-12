@@ -127,7 +127,7 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     // kind. A matching proved durable identity means the same peer reached
     // twice, which is the duplicate ADR-0026 exists to collapse. It is
     // the only one that survives fresh keys, because two sessions with one
-    // peer no longer share a session key. status-allow: lifecycle transition
+    // peer no longer share a session key.
     //
     // Only a *proved* durable identity counts: `peer_by_durable` indexes
     // nothing else, so a partner that merely asserts a name cannot use this

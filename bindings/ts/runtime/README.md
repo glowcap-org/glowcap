@@ -218,6 +218,10 @@ for a process-wide list, used only when no usable Context survives or recording 
 fails. When a list overflows, `droppedBefore` reports how many records were lost. Neither list
 makes a failure fatal or changes an operation's outcome.
 
+Library resolution prints only that it is downloading. A soft failure or a bare-name fallback
+is a `library-resolution` record in the process-wide list, and a library that then fails to load
+names those notes in its error, with the loader's own error as the cause.
+
 The raw TCP, inproc, and onion shuttles are asynchronous only on a runtime that
 moves a potentially parking call off the JavaScript event loop. Deno does. Bun's
 FFI executes the call synchronously, so those raw transports refuse

@@ -5,6 +5,7 @@
 //! and the partner hears the settle only when the resolver fires later, as
 //! its own top-level event.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -34,7 +35,8 @@ const Capture = struct {
                     else => {},
                 }
             },
-            .broken => |message| {
+            .broken => |failure| {
+                const message = failure.detail;
                 self.broke = true;
                 @memcpy(self.buf[0..message.len], message);
                 self.len = message.len;
@@ -76,10 +78,10 @@ test "a resolver pair settles its listener once, and every second path refuses" 
 
     // The resolver is consumed: a second settle refuses, either arm.
     try std.testing.expectError(actors.Error.AlreadySettled, vat.fulfillVow(pair.resolver, .{ .void = {} }));
-    try std.testing.expectError(actors.Error.AlreadySettled, vat.breakVow(pair.resolver, "late"));
+    try std.testing.expectError(actors.Error.AlreadySettled, vat.breakVow(pair.resolver, .{ .detail = "late", .cause = BreakCause{} }));
     // An id never minted is distinct from a consumed settle authority.
     for ([_]u64{ 0, vat.resolver_ids.next, std.math.maxInt(u64) }) |id| {
-        try std.testing.expectError(error.NoSuchResolver, vat.breakVow(id, "unminted"));
+        try std.testing.expectError(error.NoSuchResolver, vat.breakVow(id, .{ .detail = "unminted", .cause = BreakCause{} }));
         try std.testing.expectError(error.NoSuchResolver, vat.fulfillVow(id, .{ .void = {} }));
     }
     // The settled vow refuses a late listener, like any settled local vow.
@@ -116,11 +118,11 @@ test "resolver fulfillment and break OOM preserve the same settle authority" {
         var captured = Capture{};
         try vat.on(pair.vow, .{ .ctx = &captured, .func = Capture.listener });
         failing.fail_index = failing.alloc_index;
-        const refused = if (breaking) vat.breakVow(pair.resolver, "retryable") else vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" });
+        const refused = if (breaking) vat.breakVow(pair.resolver, .{ .detail = "retryable", .cause = BreakCause{} }) else vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" });
         try std.testing.expectError(error.OutOfMemory, refused);
         try std.testing.expect(!captured.fulfilled and !captured.broke);
         failing.fail_index = std.math.maxInt(usize);
-        if (breaking) try vat.breakVow(pair.resolver, "retryable") else try vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" });
+        if (breaking) try vat.breakVow(pair.resolver, .{ .detail = "retryable", .cause = BreakCause{} }) else try vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" });
         try std.testing.expect(if (breaking) captured.broke else captured.fulfilled);
         try std.testing.expectEqualStrings("retryable", captured.buf[0..captured.len]);
     }
@@ -138,7 +140,7 @@ test "breakVow fires the listener broken with the caller's reason, borrowed" {
     // A dynamic reason, freed right after the call: the listener fires within
     // the settle, retaining nothing.
     const reason = try allocator.dupe(u8, "worker failed");
-    vat.breakVow(pair.resolver, reason) catch |err| {
+    vat.breakVow(pair.resolver, .{ .detail = reason, .cause = BreakCause{} }) catch |err| {
         allocator.free(reason);
         return err;
     };
@@ -365,7 +367,7 @@ test "forwardVow checks vows that are settled or already observed" {
     defer port.deinit(&vat);
 
     const settled = try vat.spawnVow();
-    try vat.breakVow(settled.resolver, "finished");
+    try vat.breakVow(settled.resolver, .{ .detail = "finished", .cause = BreakCause{} });
     var settled_turn = Turn{
         .vat = &vat,
         .source = .{ .port = &port },

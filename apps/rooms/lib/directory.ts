@@ -11,9 +11,14 @@
 import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
 import type { RoomsDirectoryDial } from "./locator.ts";
-import { isManagedRoomId, MAX_DM_INBOXES, newManagedRoomId, REQUEST_TIMEOUT_MS } from "./limits.ts";
+import {
+	INTRODUCTION_TIMEOUT_MS,
+	isManagedRoomId,
+	MAX_DM_INBOXES,
+	newManagedRoomId,
+	REQUEST_TIMEOUT_MS,
+} from "./limits.ts";
 import type { RoomPolicy } from "./room/policy.ts";
-import { INTRODUCTION_PENDING, RoomsError, roomsErrorOf } from "./errors.ts";
 import {
 	ADVERTISED_LOCATION,
 	DIRECTORY,
@@ -43,12 +48,8 @@ import {
 import { parseRoomsSturdyref } from "./locator.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 import { openManagedRoom } from "./managed_room.ts";
-import { claimRedeemWithin, RedeemRouteCoordinator } from "./redeem_routes.ts";
+import { RedeemRouteCoordinator } from "./redeem_routes.ts";
 import { claimCapabilityWithin } from "./capability_cleanup.ts";
-
-// How long `introduceVia` waits for the peer to offer an inbox for us after the
-// directory has asked them for one. Bounded because the peer may never answer.
-const INTRODUCIBLE_TIMEOUT_MS = 10_000;
 
 // ── Which directory a redeem rides (ADR-0035) ──────────────────────────────
 //
@@ -92,15 +93,6 @@ export class Directory {
 	readonly #registration: DirectoryRegistration;
 	#closePromise: Promise<void> | null = null;
 	readonly #lifetime = new AbortController();
-	// Callers parked in `introduceVia` waiting for a peer to offer them an inbox,
-	// by the peer's lowercased nick. Fed by the register inbox's `introducible`.
-	readonly #introducible = new Map<string, (() => void)[]>();
-	#introducibleWaiterCount = 0;
-	// Peers whose `introducible` arrived with nobody parked on it. The notify
-	// dispatches synchronously inside the inbound feed while our refusal
-	// surfaces as a promise rejection on a later microtask, so the wakeup can
-	// reach us before the caller it is for.
-	readonly #introducibleSeen = new Set<string>();
 
 	private constructor(session: Session, directory: Ref, serving: Promise<void>) {
 		this.session = session;
@@ -115,7 +107,6 @@ export class Directory {
 			session,
 			directory,
 			(ref) => this.#releaseLocal(ref),
-			(peer, registrationId, opening) => this.#wakeIntroducible(peer, registrationId, opening),
 		);
 	}
 
@@ -398,31 +389,7 @@ export class Directory {
 		const registrationId = expectedRegistrationId ?? await this.memberRegistration(nick);
 		const opening = crypto.randomUUID();
 		parseRegistrationId(registrationId, `introduce("${nick}")`);
-		try {
-			return await this.#introduceOnce(nick, registrationId, opening);
-		} catch (err) {
-			if (roomsErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
-		}
-		// First contact with this peer: the directory has just asked them for an
-		// inbox for us. Wait for the offer to land, then ask again.
-		//
-		// Twice, because a wakeup recorded before we asked may be spent. The
-		// directory drops a member's offers whenever either name changes hands, so
-		// an `introducible` we banked can name an inbox that no longer exists. A status-allow: lifecycle transition
-		// retry refused again therefore waits for a fresh notify and does not
-		// report failure on the strength of an old one.
-		for (let attempt = 0; attempt < 2; attempt += 1) {
-			await this.#awaitIntroducible(nick, registrationId, opening, attempt === 0);
-			try {
-				return await this.#introduceOnce(nick, registrationId, opening);
-			} catch (err) {
-				if (roomsErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
-			}
-		}
-		throw new RoomsError(
-			INTRODUCTION_PENDING,
-			`"${nick}" did not offer an inbox for us`,
-		);
+		return await this.#introduceOnce(nick, registrationId, opening);
 	}
 
 	async #introduceOnce(
@@ -432,16 +399,15 @@ export class Directory {
 	): Promise<{ dm: Ref; via: Session | null; registrationId: string }> {
 		// Named as this directory's redeem: the dial it raises may need signaling,
 		// and only this side knows which directory is vouching for the peer.
-		const redemption = redeemRoutes.run(
+		const result = await redeemRoutes.claim(
 			this,
 			this.#lifetime.signal,
 			() => this.session.sendRedeeming(this.#directory, INTRODUCE, [nick, expectedRegistrationId, opening]),
-		);
-		const result = await claimRedeemWithin(
-			redemption,
-			`introduce("${nick}") did not finish redeeming its handoff`,
-			REQUEST_TIMEOUT_MS,
-			(late) => this.#releaseAbandonedRedeem(late.reply, late.via),
+			{
+				what: `introduce("${nick}") did not finish redeeming its handoff`,
+				timeoutMs: INTRODUCTION_TIMEOUT_MS,
+				abandon: (late) => this.#releaseAbandonedRedeem(late.reply, late.via),
+			},
 		);
 		const { reply, via } = result;
 		if (!(reply instanceof Ref)) {
@@ -463,76 +429,6 @@ export class Directory {
 					: retainSecondaryFailure(this.#retainedFailure, error);
 			}
 		}
-	}
-
-	#wakeIntroducible(_peer: string, registrationId: string, opening: string): void {
-		const key = JSON.stringify([registrationId, opening]);
-		const waiting = this.#introducible.get(key);
-		this.#introducible.delete(key);
-		// A list every waiter has timed out of is the same as no list: bank the
-		// wakeup, or it reaches nobody and the next caller parks on a signal that
-		// has already been sent.
-		if (waiting === undefined || waiting.length === 0) {
-			if (!this.#introducibleSeen.has(key) && this.#introducibleSeen.size >= MAX_DM_INBOXES) {
-				const oldest = this.#introducibleSeen.values().next().value;
-				if (oldest != null) this.#introducibleSeen.delete(oldest);
-			}
-			this.#introducibleSeen.add(key);
-			return;
-		}
-		for (const wake of waiting) wake();
-	}
-
-	/** Wait for `nick` to offer us an inbox. `useBanked` spends a wakeup that
-	 * arrived before this call. The retry pass passes false, so it waits for a
-	 * fresh one. */
-	#awaitIntroducible(nick: string, registrationId: string, opening: string, useBanked: boolean): Promise<void> {
-		const key = JSON.stringify([registrationId, opening]);
-		if (useBanked && this.#introducibleSeen.delete(key)) return Promise.resolve();
-		return new Promise((resolve, reject) => {
-			if (this.#lifetime.signal.aborted) {
-				reject(this.#lifetime.signal.reason);
-				return;
-			}
-			if (this.#introducibleWaiterCount >= MAX_DM_INBOXES) {
-				reject(new Error(`a directory connection may await at most ${MAX_DM_INBOXES} direct introductions`));
-				return;
-			}
-			let settled = false;
-			const cleanup = () => {
-				const waiting = this.#introducible.get(key);
-				if (waiting !== undefined) {
-					const i = waiting.indexOf(wake);
-					if (i >= 0) waiting.splice(i, 1);
-					if (waiting.length === 0) this.#introducible.delete(key);
-				}
-				clearTimeout(timer);
-				this.#lifetime.signal.removeEventListener("abort", abort);
-				this.#introducibleWaiterCount -= 1;
-			};
-			const finish = (error?: unknown) => {
-				if (settled) return;
-				settled = true;
-				cleanup();
-				if (error === undefined) resolve();
-				else reject(error);
-			};
-			const wake = () => finish();
-			const abort = () => finish(this.#lifetime.signal.reason);
-			const timer = setTimeout(() => {
-				finish(
-					new RoomsError(
-						INTRODUCTION_PENDING,
-						`"${nick}" did not offer an inbox for us in time`,
-					),
-				);
-			}, INTRODUCIBLE_TIMEOUT_MS);
-			this.#introducibleWaiterCount += 1;
-			const waiting = this.#introducible.get(key);
-			if (waiting === undefined) this.#introducible.set(key, [wake]);
-			else waiting.push(wake);
-			this.#lifetime.signal.addEventListener("abort", abort, { once: true });
-		});
 	}
 
 	/** Offer the directory an inbox for one named peer, the answer to a

@@ -65,7 +65,7 @@
 
 ;; A minted Host takes #:local-turn-budget through the same open-runtime call.
 (define budget-runtime
-  (open-runtime #:providers (list (tcp-provider)) #:local-turn-budget 8))
+  (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP)))) #:local-turn-budget 8))
 (expect (host? (runtime-host budget-runtime))
         "open-runtime: #:local-turn-budget opens a minted Host")
 (runtime-close! budget-runtime)

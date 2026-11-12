@@ -65,6 +65,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .optimize = in.optimize,
     });
     doc_module.addImport("cli", api);
+    doc_module.addImport("glowcap", in.glowcap);
     const doc_exe = b.addExecutable(.{ .name = "cli-doc-check", .root_module = doc_module });
     const doc_run = execution.addArtifact(b, .{ .deterministic = 30 }, doc_exe);
     doc_run.addArg(b.root.toString(b.allocator) catch @panic("OOM"));

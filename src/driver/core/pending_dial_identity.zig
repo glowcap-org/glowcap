@@ -65,6 +65,7 @@ fn completion(
 }
 
 pub fn selectedSessionSatisfies(host: *const Host, ticket: engine.Node.PendingId, route_index: usize, session: *const HostSession) bool {
+    // tolerant: each refusal is an identity or route mismatch, which is this answer's no.
     return (completion(host, ticket, route_index, session, false) catch return false) != null;
 }
 

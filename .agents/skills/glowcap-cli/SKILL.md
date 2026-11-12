@@ -29,16 +29,11 @@ binding stub, or throwaway harness.
 ## Install (once per shell)
 
 In the devcontainer `glowcap` is already on PATH (the image links the
-repo-root shim, which lazy-builds). Elsewhere:
-
-```sh
-zig build
-export PATH="$PWD/zig-out/bin:$PATH"
-glowcap help
-```
-
-The build graph runs the same binary: `zig build glowcap -- <command> …`. There
-is no `glowcap check`. The gates are `zig build check` and `cli-test`.
+repo-root `./glowcap` launcher, which runs `zig-out/product/bin/glowcap` and
+builds it with `glowcap-release` when missing). Elsewhere, run `./glowcap help`
+from the checkout. After source edits, run `zig build glowcap-release` to
+restage the product ([`docs/cli.md`](../../../docs/cli.md)). The gates are
+`zig build check` and `cli-test`.
 
 ## Pick a front
 

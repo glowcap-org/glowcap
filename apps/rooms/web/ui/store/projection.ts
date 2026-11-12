@@ -1,5 +1,3 @@
-import type { UseView } from "../session/managed/model.ts";
-import { DEFAULT_ROOMS_VIEW_STATE, type RoomsSettingsTab } from "../../../lib/view_state.ts";
 // The one place a page's presentation state lives.
 //
 // Everything the interface shows is a field here, and everything that changes it
@@ -16,6 +14,8 @@ import { DEFAULT_ROOMS_VIEW_STATE, type RoomsSettingsTab } from "../../../lib/vi
 // components to the page's instance, and the session projection drives it from the CapTP side
 // without importing a single view.
 
+import type { UseView } from "../session/managed/model.ts";
+import { DEFAULT_ROOMS_VIEW_STATE, type RoomsSettingsTab } from "../../../lib/view_state.ts";
 import type { Act, Edits, Remembered } from "../intent.ts";
 import type { DraftPreview } from "../link_preview.ts";
 import { createStore, type StoreApi } from "zustand/vanilla";
@@ -96,7 +96,7 @@ export const NO_DRAFT: Draft = { text: "", files: [], previews: [] };
  * key compare equal by identity rather than allocating an empty set per read. */
 export const NO_TYPERS: ReadonlySet<string> = new Set();
 
-/** Nobody is in the room yet. Shared so a missing roster and an empty one status-allow: pending state or quoted runtime label
+/** Nobody is in the room yet. Shared so a missing roster and an empty one
  * compare equal by identity rather than allocating a map per read. */
 export const NO_MEMBERS: ReadonlyMap<string, Standing> = new Map();
 
@@ -146,7 +146,7 @@ export interface State {
 	/** Whether the narrow layout is in force. It is state, not a hook's answer,
 	 * because the verbs below have to know which layout a control belongs to. */
 	mobile: boolean;
-	/** What is typed but not yet sent, per conversation, keyed the way `convs` is. status-allow: pending state or quoted runtime label
+	/** What is typed but not yet sent, per conversation, keyed the way `convs` is.
 	 *
 	 * Here rather than in the composer because the "@" on a message writes to it
 	 * and that control is in the log. Keyed rather than single because a reader
@@ -193,7 +193,7 @@ export interface State {
 	 * looking at. The rail badges and the title total subscribe here. Forgotten
 	 * with the conversation. A missing row is caught up. */
 	unreads: ReadonlyMap<string, Unread>;
-	/** Rooms somebody has offered this tab and it has not answered yet, oldest status-allow: pending state or quoted runtime label
+	/** Rooms somebody has offered this tab and it has not answered yet, oldest
 	 * first. Empty for almost every reader almost always.
 	 *
 	 * Rows survive a directory reconnect. For a link offer that is true:
@@ -378,7 +378,7 @@ export function initialState(): State {
 		helpOpen: false,
 		helpTab: "about",
 		keepHistory: true,
-		archiveTarget: { kind: "owned" },
+		archiveTarget: { kind: "owned", status: "idle", error: "" },
 		archiveShares: [],
 		irc: null,
 		operator: null,

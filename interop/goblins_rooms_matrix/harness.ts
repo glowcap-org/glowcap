@@ -5,35 +5,31 @@
 // pins that incompatibility directly.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import {
-	acquireTraceCapability,
-	connectTraceViewer,
-	scrapeTraceSturdyref,
-	tracePublishUrlOf,
-} from "../../apps/rooms/test/trace/viewer.ts";
+import { acquireTraceCapability, connectTraceViewer, vatTraceEnv } from "../../apps/rooms/test/trace/viewer.ts";
+import { ChatPeer, WAIT_MS } from "./chat_peer.ts";
+import { until } from "../../apps/rooms/test/support/wait.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
-import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
-import { webPort } from "../../apps/rooms/test/support/web_front.ts";
+import { confirmTitleLeave, directOpened } from "../../apps/rooms/test/page/harness.ts";
+import { webAnnouncements, webPort } from "../../apps/rooms/test/support/web_front.ts";
+import { retryCountdown } from "../../apps/rooms/lib/text/admission.ts";
+import { sessionEffectOne } from "../../apps/rooms/lib/text/page.ts";
+import { ROOMS_FAILURES } from "../../apps/rooms/lib/failure_data.ts";
+import { INTRODUCTION_PER_MINUTE } from "../../apps/rooms/lib/application_data.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 import { WEB } from "../../apps/rooms/test/support/paths.ts";
-const CHAT = new URL("../../conformance/goblins-peer/racket/rooms-chat.rkt", import.meta.url)
-	.pathname;
-const RACKET_DIR = new URL("../../conformance/goblins-peer/racket/", import.meta.url).pathname;
-const WAIT_MS = 60_000;
-const phase = Deno.args.find((arg) => arg.startsWith("--phase="))?.slice(8) ?? "full";
-if (
-	!new Set([
-		"rooms-mixed",
-		"rooms-homogeneous",
-		"rooms-split",
-		"dms-a",
-		"dms-b",
-		"dms-goblins",
-		"count-discrepancy",
-	]).has(phase)
-) {
-	throw new Error(`unknown phase ${phase}`);
+const PHASES = [
+	"rooms-mixed",
+	"rooms-homogeneous",
+	"rooms-split",
+	"dms-a",
+	"dms-b",
+	"dms-goblins",
+	"count-discrepancy",
+];
+const phase = Deno.args.find((arg) => arg.startsWith("--phase="))?.slice(8);
+if (phase == null || !PHASES.includes(phase)) {
+	throw new Error(`name one phase with --phase=<${PHASES.join("|")}>, not ${phase ?? "none"}`);
 }
 
 const FULL = "matrix-all";
@@ -42,159 +38,22 @@ const WEB_B = "web-bob";
 const GOB_A = "goblins-carol";
 const GOB_B = "goblins-dan";
 
-async function until(
-	ready: () => boolean | Promise<boolean>,
-	what: string,
-	ms = WAIT_MS,
-): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (!(await ready())) {
-		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-}
-
 async function locatorAt(port: number): Promise<string> {
 	let locator = "";
-	await until(async () => {
-		try {
-			const response = await fetch(`http://127.0.0.1:${port}/locator`);
-			locator = (await response.text()).trim();
-			return response.ok && locator.length > 0;
-		} catch {
-			return false;
-		}
-	}, "the rooms web front");
+	await until(
+		async () => {
+			try {
+				const response = await fetch(`http://127.0.0.1:${port}/locator`);
+				locator = (await response.text()).trim();
+				return response.ok && locator.length > 0;
+			} catch {
+				return false;
+			}
+		},
+		"the rooms web front",
+		WAIT_MS,
+	);
 	return locator;
-}
-
-class ChatPeer {
-	readonly lines: string[] = [];
-	readonly errors: string[] = [];
-	readonly child: Deno.ChildProcess;
-	readonly #writer: WritableStreamDefaultWriter<Uint8Array>;
-	readonly #drains: Promise<void>[];
-	#compiledRoot: string | null;
-
-	constructor(readonly nick: string, locator: string, room: string, traceUrl: string) {
-		// Concurrent Racket processes must not replace one shared .zo while its
-		// sibling is opening it. A private compiled root keeps startup parallel
-		// and leaves the checkout untouched.
-		this.#compiledRoot = Deno.makeTempDirSync({ prefix: "glowcap-rooms-racket-" });
-		this.child = new Deno.Command("racket", {
-			args: ["-y", CHAT, locator, room, nick],
-			cwd: RACKET_DIR,
-			env: {
-				GLOWCAP_ROOMS_TRACE_URL: traceUrl,
-				// The trailing empty path is Racket's `same` fallback: reuse
-				// installed package bytecode, but write checkout-local bytecode only
-				// into this peer's private first root.
-				PLTCOMPILEDROOTS: `${this.#compiledRoot}${Deno.build.os === "windows" ? ";" : ":"}`,
-			},
-			stdin: "piped",
-			stdout: "piped",
-			stderr: "piped",
-		}).spawn();
-		this.#writer = this.child.stdin.getWriter();
-		this.#drains = [
-			this.#drain(this.child.stdout, this.lines, ""),
-			this.#drain(this.child.stderr, this.errors, " stderr"),
-		];
-	}
-
-	#drain(stream: ReadableStream<Uint8Array>, into: string[], suffix: string): Promise<void> {
-		return (async () => {
-			const decoder = new TextDecoder();
-			let buffered = "";
-			for await (const chunk of stream) {
-				buffered += decoder.decode(chunk, { stream: true });
-				const lines = buffered.split("\n");
-				buffered = lines.pop() ?? "";
-				for (const line of lines) {
-					into.push(line);
-					console.log(`  [${this.nick}${suffix}] ${line}`);
-				}
-			}
-			buffered += decoder.decode();
-			if (buffered.length > 0) {
-				into.push(buffered);
-				console.log(`  [${this.nick}${suffix}] ${buffered}`);
-			}
-		})().catch((err) => {
-			this.errors.push(String(err));
-		});
-	}
-
-	async ready(room: string): Promise<void> {
-		await this.wait(new RegExp(`^\\* you are in ${room}$`), `join #${room}`);
-		await this.wait(/granted you the name/, "DM registration");
-	}
-
-	async send(line: string): Promise<number> {
-		const cursor = this.lines.length;
-		await this.#writer.write(new TextEncoder().encode(`${line}\n`));
-		return cursor;
-	}
-
-	async command(line: string, expected: RegExp, what: string): Promise<void> {
-		const cursor = await this.send(line);
-		await this.wait(expected, what, cursor);
-	}
-
-	async wait(pattern: RegExp, what: string, cursor = 0): Promise<void> {
-		await until(
-			() => this.lines.slice(cursor).some((line) => pattern.test(line)),
-			`${this.nick} to ${what}`,
-		);
-	}
-
-	async waitError(pattern: RegExp, what: string, cursor = 0): Promise<void> {
-		await until(
-			() => this.errors.slice(cursor).some((line) => pattern.test(line)),
-			`${this.nick} to ${what}`,
-		);
-	}
-
-	assertClean(): void {
-		const fatal = this.errors.find((line) =>
-			line.includes("invalid-handoff-cert") ||
-			this.isSyrupEof(line)
-		);
-		if (fatal) throw new Error(`${this.nick} reported ${fatal}`);
-	}
-
-	assertNoSyrupEof(): void {
-		const fatal = this.errors.find((line) => this.isSyrupEof(line));
-		if (fatal) throw new Error(`${this.nick} reported ${fatal}`);
-	}
-
-	private isSyrupEof(line: string): boolean {
-		return line.includes("open-input-bytes: contract violation") ||
-			line.includes("expected: bytes?");
-	}
-
-	async close(): Promise<void> {
-		// best-effort: the child may already have exited, and the status awaited below reports how it ended.
-		await this.#writer.close().catch(() => {});
-		const status = await this.child.status;
-		await Promise.all(this.#drains);
-		this.cleanupCompiled();
-		if (!status.success) throw new Error(`${this.nick} exited ${status.code}`);
-	}
-
-	cleanupCompiled(): void {
-		if (this.#compiledRoot === null) return;
-		Deno.removeSync(this.#compiledRoot, { recursive: true });
-		this.#compiledRoot = null;
-	}
-
-	kill(): void {
-		try {
-			this.child.kill();
-		} catch {
-			// already gone
-		}
-	}
 }
 
 type WebPeer = { nick: string; context: BrowserContext; page: Page };
@@ -269,7 +128,10 @@ async function joinRoom(peer: WebPeer, room: string): Promise<void> {
 	await peer.page.fill("#nick", peer.nick);
 	await peer.page.fill("#room", room);
 	await peer.page.click("#joinBtn");
-	await peer.page.waitForSelector("#line:not([disabled])", { timeout: WAIT_MS });
+	await peer.page.waitForSelector("#line:not([disabled])", { timeout: WAIT_MS }).catch(async (cause) => {
+		const shown = (await peer.page.locator("body").innerText()).slice(0, 2_000);
+		throw new Error(`${peer.nick} did not enter ${room}: ${JSON.stringify(shown)}`, { cause });
+	});
 }
 
 async function moveWeb(peer: WebPeer, room: string): Promise<void> {
@@ -290,22 +152,89 @@ async function seesWeb(peer: WebPeer, text: string): Promise<void> {
 	});
 }
 
+/** The live conversation with `other`. A receiver keeps a conversation its
+ * partner closed, under the same name, beside the one a reopened line arrives
+ * on, so the name alone does not pick the conversation that can carry. */
+function liveDmRow(peer: WebPeer, other: string) {
+	return peer.page.locator(`#dmList li:not(.closed) .dm-open:has(.rname:text-is("${other}"))`);
+}
+
 async function openWebDm(peer: WebPeer, other: string): Promise<void> {
-	const row = peer.page.locator(`#dmList li:has-text("${other}") .dm-open`).first();
-	if (await row.count() > 0) {
+	if (await liveDmRow(peer, other).count() > 0) {
 		await showWebDm(peer, other);
 		return;
 	}
-	await peer.page.click("#newDmBtn");
+	const first = await pressNewDm(peer, other);
+	if (first == null) return;
+	await waitAdvisedRetry(peer, other, first);
+	const again = await pressNewDm(peer, other);
+	if (again != null) {
+		throw new Error(
+			`${peer.nick}'s direct message to ${other} was refused again after its advised delay: ${first} / ${again}`,
+		);
+	}
+}
+
+// An opening pays one introduction token at its first press, and the session
+// refills `INTRODUCTION_PER_MINUTE` of them a minute (`Class::Introduction` in
+// apps/rooms/rust/application/src/admission.rs). An empty bucket therefore
+// advises at most one refill. Longer advice is a defect, not a wait.
+const MAX_INTRODUCTION_RETRY_S = Math.ceil(60 / INTRODUCTION_PER_MINUTE);
+
+/** Ask for a direct conversation by name, as a person does, and read what the
+ * page answers: `null` once the conversation is open, otherwise the failure
+ * the page told. */
+async function pressNewDm(peer: WebPeer, other: string): Promise<string | null> {
+	const refusals = peer.page.locator('.toast[data-kind="failure"] :is(p.toast-text, .toast-text .said-clamp)');
+	// An earlier refusal leaves the page by itself, so the one read below is
+	// this press's.
+	await until(async () => await refusals.count() === 0, `${peer.nick}'s earlier refusal to leave the page`, WAIT_MS);
+	if (!await peer.page.locator("#newDmInput").isVisible()) await peer.page.click("#newDmBtn");
 	await peer.page.fill("#newDmInput", other);
 	await peer.page.press("#newDmInput", "Enter");
-	await peer.page.waitForSelector("#line:not([disabled])", { timeout: WAIT_MS });
+	const refusal = refusals.first();
+	// WAIT_MS outlasts the page's own bound on an opening, so the page always
+	// settles one way or the other first.
+	const refused = refusal.waitFor({ state: "attached", timeout: WAIT_MS }).then(() => true);
+	const opened = directOpened(peer.page, other, WAIT_MS).then(() => false);
+	const wasRefused = await Promise.race([refused, opened]);
+	// tolerant: the race's loser times out on its own, and its rejection carries no outcome.
+	refused.catch(() => {});
+	// tolerant: the race's loser times out on its own, and its rejection carries no outcome.
+	opened.catch(() => {});
+	if (!wasRefused) return null;
+	return (await refusal.textContent())?.trim() ?? "";
+}
+
+/** A rate-limited press says what happened and when to try again. The person
+ * waits that long, and the page asks them no decision, because the session
+ * admitted nothing. Any other refusal ends the opening. */
+async function waitAdvisedRetry(peer: WebPeer, other: string, said: string): Promise<void> {
+	const limited = ROOMS_FAILURES["rate-limited"];
+	if (!said.startsWith(limited.summary)) {
+		throw new Error(`${peer.nick}'s direct message to ${other} was refused: ${said}`);
+	}
+	const seconds = Array.from({ length: MAX_INTRODUCTION_RETRY_S }, (_, i) => i + 1).find((s) =>
+		said === `${limited.summary} ${retryCountdown(s)} (rate-limited: scope=introduction; owner=session)`
+	);
+	if (seconds == null) {
+		throw new Error(
+			`${peer.nick}'s rate-limited direct message names no retry within ${MAX_INTRODUCTION_RETRY_S}s: ${said}`,
+		);
+	}
+	if (await peer.page.getByText(sessionEffectOne, { exact: true }).count() > 0) {
+		throw new Error(`${peer.nick}'s rate-limited direct message asked for a decision`);
+	}
+	await peer.page.waitForTimeout(seconds * 1000);
 }
 
 async function showWebDm(peer: WebPeer, other: string): Promise<void> {
-	const row = peer.page.locator(`#dmList li:has-text("${other}") .dm-open`).first();
+	const row = liveDmRow(peer, other);
 	await row.waitFor({ state: "visible", timeout: WAIT_MS });
 	await row.click();
+	// The previous conversation's composer stays live while this one opens, so
+	// a line typed now waits for the conversation itself.
+	await directOpened(peer.page, other, WAIT_MS);
 }
 
 async function roomLine(
@@ -345,6 +274,7 @@ async function goblinsDm(
 	recipient: WebPeer | ChatPeer,
 	text: string,
 ): Promise<void> {
+	await sender.reaches(recipient.nick);
 	await sender.send(`/dm ${recipient.nick} ${text}`);
 	if (recipient instanceof ChatPeer) {
 		await recipient.wait(
@@ -372,6 +302,7 @@ async function reopenBrowserDm(
 			return [...liveBefore].some((wire) => !live.has(wire));
 		},
 		`${browserPeer.nick}'s DM with ${other.nick} to close on the timeline`,
+		WAIT_MS,
 	);
 	const sessionIdsBefore = observedWireIds(timeline);
 	await openWebDm(browserPeer, other.nick);
@@ -383,30 +314,34 @@ async function reopenBrowserDm(
 			`receive reopened DM`,
 		);
 	} else {
-		await showWebDm(other, browserPeer.nick);
+		// The receiver was reading the conversation that just closed, so its view
+		// follows the reopened line on its own and the closed one stays as history.
+		await directOpened(other.page, browserPeer.nick, WAIT_MS);
 		await seesWeb(other, text);
 	}
 	await until(
 		() => [...liveWireIds(timeline)].some((wire) => !sessionIdsBefore.has(wire)),
 		`${browserPeer.nick}'s reopened DM with ${other.nick} to use a new timeline session`,
+		WAIT_MS,
 	);
 }
 
 const web = new Deno.Command(WEB, {
+	// Every peer runs on this host, so the room announces its direct addresses
+	// and the run never depends on a public relay.
 	args: [
-		"--transport=tcp",
 		"--transport=iroh",
-		"0",
+		"--reachability=direct",
 		"0",
 	],
 	cwd: ROOT,
 	env: { GLOWCAP_ROOMS_CAPABILITIES: "trace", GLOWCAP_ROOMS_TRACE_PORT: "0" },
-	// Piped for the HTTP port the front announces first. `webPort` drains the rest.
+	// Piped for the front's startup block: its HTTP port and the trace link it
+	// prints for the directory it runs. One reader takes every announcement and
+	// passes the stream through. Its stderr is inherited, so nothing it says
+	// waits on a reader.
 	stdout: "piped",
-	// Read rather than inherited, because the trace capability is announced on
-	// this stream and a viewer needs it. `scrapeTraceSturdyref` tees it onward, so
-	// nothing the server says is lost by reading it here.
-	stderr: "piped",
+	stderr: "inherit",
 }).spawn();
 const httpPort = await webPort(web);
 
@@ -425,11 +360,11 @@ let gobB: ChatPeer | null = null;
 let timeline: { records: TimelineRecord[]; close: () => void } | null = null;
 try {
 	const locator = await locatorAt(httpPort);
-	const traceRef = await scrapeTraceSturdyref(web.stderr);
-	const traceUrl = tracePublishUrlOf(traceRef);
+	const traceRef = await webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
+	const vatTrace = vatTraceEnv(traceRef);
 	timeline = await watchTimeline(traceRef);
-	gobA = new ChatPeer(GOB_A, locator, FULL, traceUrl);
-	gobB = new ChatPeer(GOB_B, locator, FULL, traceUrl);
+	gobA = new ChatPeer(GOB_A, locator, FULL, vatTrace);
+	gobB = new ChatPeer(GOB_B, locator, FULL, vatTrace);
 	await Promise.all([gobA.ready(FULL), gobB.ready(FULL)]);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const webA = await joinWeb(browser, httpPort, WEB_A, FULL, traceRef);
@@ -437,16 +372,24 @@ try {
 
 	if (phase === "count-discrepancy") {
 		await browserDm(webA, gobA, "first independent receiver");
+		// web-bob's opening redeems carol's introduction, and Goblins counts that
+		// handoff in the namespace web-ada's redeem already used. Goblins rejects
+		// the certificate, so the page settles the opening as a refusal the
+		// person reads, and no direct line opens.
 		const errorCursor = gobA.errors.length;
-		await openWebDm(webB, gobA.nick);
-		await sayWeb(webB, "second independent receiver");
+		const refused = await pressNewDm(webB, gobA.nick);
+		if (refused == null) throw new Error("web-bob opened a direct line Goblins should have refused");
+		console.log(`web-bob read: ${refused}`);
+		if (!refused.startsWith(`${ROOMS_FAILURES["introduction-refused"].summary} (introduction-refused`)) {
+			throw new Error(`web-bob's opening was not refused by carol's side: ${refused}`);
+		}
 		await gobA.waitError(
 			/invalid-handoff-cert: Handoff cert invalid for session/,
 			"reject Goblins' second independent receiver count",
 			errorCursor,
 		);
-		if (gobA.lines.some((line) => line.endsWith("second independent receiver"))) {
-			throw new Error("Goblins reported an invalid handoff but also delivered its message");
+		if (await liveDmRow(webB, gobA.nick).count() > 0) {
+			throw new Error("Goblins rejected web-bob's handoff but the page lists the direct line");
 		}
 		gobB.assertClean();
 	} else if (phase === "rooms-mixed") {
@@ -513,8 +456,9 @@ try {
 				return [...liveBeforeRestart].some((wire) => !live.has(wire));
 			},
 			`${GOB_A}'s sessions to close after restart`,
+			WAIT_MS,
 		);
-		gobA = new ChatPeer(GOB_A, locator, FULL, traceUrl);
+		gobA = new ChatPeer(GOB_A, locator, FULL, vatTrace);
 		await gobA.ready(FULL);
 		await goblinsDm(gobB, gobA, "dm gob-b restarted gob-a");
 		await goblinsDm(gobA, gobB, "dm restarted gob-a gob-b");

@@ -8,6 +8,21 @@ fn parse(args: &[&str]) -> Config {
 }
 
 #[test]
+fn http_listens_on_loopback_until_an_operator_names_an_interface() {
+	assert_eq!(parse(&[]).bind, "127.0.0.1");
+	assert_eq!(parse(&["--http-bind=0.0.0.0"]).bind, "0.0.0.0");
+	let environment = |key: &str| (key == "GLOWCAP_ROOMS_HTTP_BIND").then(|| "0.0.0.0".into());
+	let named = |arguments: &[&str]| {
+		Config::parse(arguments.iter().map(|argument| argument.to_string()), environment)
+			.unwrap()
+			.unwrap()
+			.bind
+	};
+	assert_eq!(named(&[]), "0.0.0.0");
+	assert_eq!(named(&["--http-bind=127.0.0.1"]), "127.0.0.1");
+}
+
+#[test]
 fn http_policy_stays_at_its_owner_and_arguments_override_environment() {
 	let config = Config::parse(
 		[
@@ -101,6 +116,10 @@ fn the_shared_sessions_options_pass_in_its_grammar_and_need_its_state() {
 		.err()
 		.unwrap(),
 		"unknown option: --session-colour"
+	);
+	assert_eq!(
+		Config::parse(["--colour=blue".into()], |_| None).err().unwrap(),
+		"unknown option: --colour"
 	);
 	// The session's own refusals come through as they are.
 	assert!(
@@ -315,6 +334,38 @@ fn every_other_option_is_given_once_and_a_port_is_named_one_way() {
 	let env = |key: &str| (key == "GLOWCAP_ROOMS_TRANSPORT").then(|| "iroh".into());
 	let config = Config::parse(["--transport=tcp".into()], env).unwrap().unwrap();
 	assert!(config.server_args.contains(&"--transport=tcp".to_owned()));
+}
+
+/// A room port is invented only for a TCP listener, and one named for a
+/// transport that reads none is refused the way the directory refuses it.
+#[test]
+fn the_room_port_defaults_only_under_tcp() {
+	let port = |config: &Config| {
+		config
+			.server_args
+			.iter()
+			.find(|argument| argument.starts_with("--port="))
+			.cloned()
+	};
+	assert_eq!(port(&parse(&[])), None);
+	assert_eq!(port(&parse(&["--transport=iroh"])), None);
+	// An onion directory's port is its forward, which defaults to a private socket.
+	assert_eq!(port(&parse(&["--transport=onion"])), None);
+	assert_eq!(port(&parse(&["--transport=tcp"])).as_deref(), Some("--port=9099"));
+	assert_eq!(
+		port(&parse(&["--transport=noise-tcp", "0", "9100"])).as_deref(),
+		Some("--port=9100")
+	);
+	assert_eq!(
+		Config::parse(["--transport=iroh", "0", "9100"].map(str::to_owned), |_| None).err(),
+		Some("server --port does not apply to the iroh transport".to_owned())
+	);
+	let env = |key: &str| match key {
+		"GLOWCAP_ROOMS_TRANSPORT" => Some("tcp".into()),
+		"GLOWCAP_ROOMS_PORT" => Some("9200".into()),
+		_ => None,
+	};
+	assert_eq!(port(&Config::parse([], env).unwrap().unwrap()), None);
 }
 
 #[test]

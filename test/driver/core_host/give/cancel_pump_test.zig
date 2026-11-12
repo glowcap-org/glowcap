@@ -14,7 +14,7 @@ const a = std.testing.allocator;
 test "core host: releasing a queued promise send survives its promise breaking in the release pump" {
     for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
         for ([_]model.CodecId{ .syrup, .capnp }) |codec| {
-            var options = Host.Options.withFrameCap(h.frame_cap);
+            var options = Host.Options.init(.unchecked, h.frame_cap);
             options.captp_version = profile;
             options.codec = codec;
             options.features = model.FeatureSet.full().forCaptpVersion(profile);
@@ -53,7 +53,7 @@ test "core host: releasing a queued promise send survives its promise breaking i
             try host.releaseCapability(remote, 1);
             const budget = watch.a.served.port.peer.outbound_budget;
             watch.a.served.port.peer.outbound_budget = 0;
-            try host.dialFailed(dial.ticket, dial.route_index, "unavailable");
+            try host.dialFailed(dial.ticket, dial.route_index, .peer_unreachable, "unavailable");
             const row = host.capability_promises.get(promise_id).?;
             try std.testing.expect(row.state == .pending);
             try std.testing.expectEqual(@as(usize, 1), row.operations.items.len - row.operation_head);

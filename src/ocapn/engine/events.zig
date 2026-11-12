@@ -38,10 +38,6 @@ comptime {
         std.debug.assert(std.mem.eql(u8, wire, event));
 }
 
-/// Error decoding an inbound frame into the codec-neutral `model.view.Body`: a
-/// codec parse failure or a lazy-sequence projection failure.
-pub const DecodeError = codec.dispatch.Error || model.view.ProjectError;
-
 pub const AnswerOverride = union(enum) {
     none,
     /// The outbound answer a `.resolve` event settles, by identity, so a
@@ -62,7 +58,7 @@ pub const AnswerOverride = union(enum) {
 /// (`Frame.initHeaded`), the same allocation as the bytes it borrows, so the
 /// row carries two words naming it (`Parse`) and a warmed session parks
 /// nothing for it. The ceiling keeps the row from growing unnoticed. Its
-/// reply identity is one discriminated deliver/resolve authority; the private
+/// reply identity is one discriminated deliver/resolve authority. The private
 /// retirement arm shares wire storage and adds no per-event allocation.
 pub const event_struct_budget_bytes = 208;
 
@@ -122,18 +118,12 @@ pub const inbound_head_budget_bytes = 544;
 
 /// What an owned inbound frame carries in front of its bytes
 /// (`Frame.initHeaded`): the slot `Parse.decode` fills, followed by the
-/// views its decoder's slab lends (`Head.slabOf` is that room).
+/// views its decoder's slab lends (`Frame.headed` returns that room).
 pub const Head = struct {
     body: model.view.Body,
 
     comptime {
         std.debug.assert(@sizeOf(Head) <= inbound_head_budget_bytes);
-    }
-
-    /// The room `frame`'s head lends the decoder for its argument tree, or
-    /// none for a frame with no head, whose sequences stay wire-backed.
-    pub fn slabOf(frame: *const foundation.Frame) model.view.ValueSlab {
-        return .init(std.mem.sliceAsBytes(frame.headTail(Head, model.view.Argument)));
     }
 };
 
@@ -238,8 +228,8 @@ pub const Event = struct {
     /// V1.0 when the application later reads it.
     captp_version: model.CaptpVersion,
     /// One event's reply identity. Deliver and resolve authorities never
-    /// coexist. A virtual name without a captured stamp is diagnostic only;
-    /// it cannot authorize a reply, just as an unstamped wire name cannot.
+    /// coexist. A virtual name without a captured stamp is diagnostic only.
+    /// It cannot authorize a reply, just as an unstamped wire name cannot.
     answer: Answer = .none,
     /// The allocator that owns `introduced_far_imports`, when set. Every
     /// `Event` the engine surfaces carries the same peer-lifetime allocator
@@ -347,6 +337,8 @@ pub const Event = struct {
     /// The semantic answer an inbound deliver settles. A wire answer remains
     /// wire-shaped. A V1.0 resolver-only deliver carries its session-local
     /// virtual identity here without manufacturing a wire position in `view`.
+    /// A named test seam: no production caller reads it, and engine tests
+    /// name the answer a deliver settles through it.
     pub fn deliverAnswerName(self: *const Event) ?model.AnswerName {
         if (self.kind() != .deliver) return null;
         return switch (self.answer) {

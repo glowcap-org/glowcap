@@ -1,7 +1,9 @@
 //! Private content and inventory feeds wake every membership. Wakes carry no authority:
 //! consumers check their own held source.
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use super::{Membership, State, supervision};
-use glowcap::{Result, loam};
+use glowcap::loam;
 use rooms_glowcap::client::{
 	Deadline, Tasks,
 	access::{Observation, ObservationRequest, ObservationState},
@@ -68,7 +70,7 @@ impl Wake {
 			self.updates
 				.changed()
 				.await
-				.map_err(|_| loam::refusal("Session change feed has closed"))?;
+				.map_err(|_| Error::closed("Session change feed has closed"))?;
 		}
 	}
 	pub fn retry(&self) {
@@ -92,7 +94,7 @@ impl Wake {
 		self.updates
 			.changed()
 			.await
-			.map_err(|_| loam::refusal("Session change feed has closed"))?;
+			.map_err(|_| Error::closed("Session change feed has closed"))?;
 		for status in self.updates.borrow_and_update().iter().flatten() {
 			status.clone()?;
 		}
@@ -102,7 +104,7 @@ impl Wake {
 impl<P: Tasks + Deadline + Clone + 'static> Owner<P> {
 	pub fn subscribe(&self, owner: &Rc<State<P>>) -> Result<Wake> {
 		if owner.closing.get() {
-			return Err(loam::refusal("Session is closing"));
+			return Err(Error::closed("Session is closing"));
 		}
 		let mut worker = self.worker.borrow_mut();
 		if worker.is_none() {
@@ -157,7 +159,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Owner<P> {
 		}
 		let worker = worker
 			.as_ref()
-			.ok_or_else(|| loam::refusal("Session change feed is not installed"))?;
+			.ok_or_else(|| Error::closed("Session change feed is not installed"))?;
 		let mut updates = self.updates.subscribe();
 		// Startup callers must observe the initial ready notification, including
 		// subscribers that arrive after it. They still poll their own source.
@@ -215,9 +217,6 @@ impl Receive {
 		}
 	}
 }
-fn error(error: rooms_glowcap::client::Error) -> glowcap::Error {
-	loam::refusal(error.to_string())
-}
 impl<P: Tasks + Deadline + Clone + 'static> Feed<P> {
 	async fn run(&mut self) {
 		loop {
@@ -240,10 +239,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Feed<P> {
 				self.request = Some(
 					// This private feed has one owner per exact root and live scope.
 					ObservationRequest::new_live(
-						self.workspace.mutation_sequence().await.map_err(error)?,
+						self.workspace.mutation_sequence().await.map_err(Error::from)?,
 						[self.index as u8; 16],
 					)
-					.map_err(error)?,
+					.map_err(Error::from)?,
 				);
 			}
 			self.observation = Some(
@@ -251,18 +250,18 @@ impl<P: Tasks + Deadline + Clone + 'static> Feed<P> {
 					.observe(
 						self.request
 							.as_ref()
-							.ok_or_else(|| loam::refusal("Session change feed request is not prepared"))?,
+							.ok_or_else(|| Error::closed("Session change feed request is not prepared"))?,
 					)
 					.await
-					.map_err(error)?,
+					.map_err(Error::from)?,
 			);
 			self.request.take();
 		}
 		let observation = self
 			.observation
 			.as_ref()
-			.ok_or_else(|| loam::refusal("Session change feed observation is not held"))?;
-		let mut cursor = *observation.poll(None).await.map_err(error)?.view().cursor;
+			.ok_or_else(|| Error::closed("Session change feed observation is not held"))?;
+		let mut cursor = *observation.poll(None).await.map_err(Error::from)?.view().cursor;
 		self.signals.ready.send_replace(Some(Ok(())));
 		self.updates.send_modify(|updates| updates[self.index] = Some(Ok(())));
 		loop {
@@ -270,7 +269,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Feed<P> {
 				.receive
 				.next(observation, &cursor)
 				.await
-				.map_err(error)?
+				.map_err(Error::from)?
 				.view()
 				.cursor;
 			self.updates.send_modify(|updates| updates[self.index] = Some(Ok(())));
@@ -279,11 +278,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Feed<P> {
 	async fn close(&mut self) -> Result<()> {
 		if let Some(request) = self.request.as_ref() {
 			let _serial = self.writer.mutation_guard().await;
-			self.observation = Some(self.workspace.observe(request).await.map_err(error)?);
+			self.observation = Some(self.workspace.observe(request).await.map_err(Error::from)?);
 			self.request.take();
 		}
 		if let Some(observation) = self.observation.as_ref() {
-			observation.cancel().await.map_err(error)?;
+			observation.cancel().await.map_err(Error::from)?;
 			self.receive.drain().await;
 			self.observation.take();
 		}

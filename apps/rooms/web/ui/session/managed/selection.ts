@@ -1,6 +1,7 @@
 // Which workspace view this viewer reads: one retained selection at a time,
 // prepared once and submitted until it lands, so a lost reply retries the
 // original choice rather than a new one.
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import type {
 	RoomsManagedAcquisition,
 	RoomsManagedApplication,
@@ -30,7 +31,7 @@ export class ManagedSelection {
 		if (this.#selecting != null) {
 			return this.#selectingUri === uri
 				? this.#selecting
-				: Promise.reject(new Error("Recover the original workspace selection before choosing another view"));
+				: Promise.reject(new LocalRefusal("session-switch-in-progress"));
 		}
 		this.#selectingUri = uri;
 		return this.#selecting = this.#track(this.#selectWorkspace(uri)).finally(() => {
@@ -39,9 +40,9 @@ export class ManagedSelection {
 		});
 	}
 	async #selectWorkspace(uri: string | null): Promise<void> {
-		if (this.#stopped) throw new Error("This workspace is closed");
+		if (this.#stopped) throw new LocalRefusal("session-closed");
 		if (this.#selection != null && this.#selection.uri !== uri) {
-			throw new Error("Recover the original workspace selection before choosing another view");
+			throw new LocalRefusal("session-switch-unconfirmed");
 		}
 		if (this.#selection == null) {
 			let request: RoomsManagedAcquisition;
@@ -70,7 +71,7 @@ export class ManagedSelection {
 			}
 			if (this.#stopped) {
 				request.free();
-				throw new Error("This workspace is closed");
+				throw new LocalRefusal("session-closed");
 			}
 			this.#selection = { uri, request };
 		}

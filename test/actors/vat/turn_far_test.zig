@@ -77,11 +77,11 @@ const Snapshot = struct {
     }
 };
 
-fn serveAll(peer: *engine.Peer, port: *actors.Port, vat: *actors.Vat) void {
+fn serveAll(peer: *engine.Peer, port: *actors.Port, vat: *actors.Vat) !void {
     while (peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = port.serve(vat, &e) catch {};
+        _ = try port.serve(vat, &e);
     }
 }
 
@@ -116,14 +116,14 @@ fn exercise(pair: *engine.pairing.Pair, verb: []const u8, reenter: ReentryMode) 
     const vow = try caller_port.send(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = verb });
     try caller_port.on(&caller_vat, vow, .{ .ctx = &caller_broke, .func = promise_capture.captureBroken });
     try cross_peer.pumpAll(caller_peer, host_peer);
-    serveAll(host_peer, &host_port, &host_vat);
+    try serveAll(host_peer, &host_port, &host_vat);
     try std.testing.expect(!reentry.failed);
     try std.testing.expectEqual(@as(usize, 0), host_vat.turn_break_reservations);
     try std.testing.expectEqual(@as(usize, 0), host_vat.turn_breaks.items.len);
     try std.testing.expect(host_vat.turn_breaks.capacity * @sizeOf(std.meta.Elem(@TypeOf(host_vat.turn_breaks.items))) <= actors.steady_list_bytes);
     const after = Snapshot.of(host_peer);
     try cross_peer.pumpAll(host_peer, caller_peer);
-    serveAll(caller_peer, &caller_port, &caller_vat);
+    try serveAll(caller_peer, &caller_port, &caller_vat);
     try caller_vat.drive();
     const count = (try caller_vat.near(counter, .{ .verb = "get" })).integer;
     return .{ .count = count, .caller_broke = caller_broke, .sender_broke = sender_broke, .before = before, .after = after };

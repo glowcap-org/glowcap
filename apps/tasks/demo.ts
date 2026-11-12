@@ -2,7 +2,7 @@
 //
 // Starts the Zig tasks server on a fresh SQLite store directory, then joins one client
 // per available language (Deno and Zig always, plus Python, Racket, and Rust
-// when their runtimes are on PATH) to its board over TCP. Each client watches
+// when their runtimes are on PATH) to its board over encrypted Noise TCP. Each client watches
 // the board, adds a task to the first list, marks it done by moving it to the
 // second, and confirms the move and the change. The orchestrator asserts every participating client exits
 // 0, so `zig build demo-tasks` proves one board saved in Loam holds clients
@@ -11,6 +11,7 @@
 // Run by `zig build demo-tasks`, which passes the built Zig client and server
 // paths. `--port=N` (from `-Dport`) pins the server's port. The board's name is
 // a secret the server announces when it starts, so there is no `--attach`.
+// Every client dials the locator the server announces.
 
 import {
 	buildRust,
@@ -45,13 +46,12 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 			name: "deno",
 			cmd: "deno",
 			argv: (
-				p,
-				[name],
+				_port,
+				[name, locator],
 			) => [
 				...DENO_FLAGS,
 				`${ROOT}/apps/tasks/deno/client.ts`,
-				"127.0.0.1",
-				String(p),
+				locator,
 				name,
 				"deno-ada",
 				"learn OCapN",
@@ -60,7 +60,7 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 		{
 			name: "zig",
 			cmd: ZIG_CLIENT,
-			argv: (p, [name]) => [String(p), name, "zig-niklaus", "write glowcap apps"],
+			argv: (_port, [name, locator]) => [locator, name, "zig-niklaus", "write glowcap apps"],
 		},
 	];
 	const skipped: string[] = [];
@@ -70,12 +70,11 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 			name: "python",
 			cmd: "python3",
 			argv: (
-				p,
-				[name],
+				_port,
+				[name, locator],
 			) => [
 				`${ROOT}/apps/tasks/python/client.py`,
-				"127.0.0.1",
-				String(p),
+				locator,
 				name,
 				"py-grace",
 				"try capabilities",
@@ -88,13 +87,12 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 			name: "racket",
 			cmd: "racket",
 			argv: (
-				p,
-				[name],
+				_port,
+				[name, locator],
 			) => [
 				"-y",
 				`${ROOT}/apps/tasks/racket/client.rkt`,
-				"127.0.0.1",
-				String(p),
+				locator,
 				name,
 				"rkt-alan",
 				"spawn an actor",
@@ -108,9 +106,9 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 				name: "rust",
 				cmd: `${ROOT}/apps/tasks/rust/target/debug/tasks-client`,
 				argv: (
-					p,
-					[name],
-				) => ["127.0.0.1", String(p), name, "rs-barbara", "zero-copy everything"],
+					_port,
+					[name, locator],
+				) => [locator, name, "rs-barbara", "zero-copy everything"],
 			});
 		} else skipped.push("rust (cargo build failed)");
 	} else skipped.push("rust (no cargo on PATH)");
@@ -124,7 +122,7 @@ await runCrossLangDemo(
 		serverNoun: "server",
 		clientNoun: "client",
 		server: { cmd: ZIG_SERVER, args: (pinPort) => [`--data=${DATA}`, `--port=${pinPort}`] },
-		listenPattern: /TASKS-SERVER-LISTENING (\d+) (\S+)/,
+		listenPattern: /TASKS-SERVER-LISTENING (\d+) (\S+) (\S+)/,
 		cleanup: () => Deno.remove(DATA, { recursive: true }),
 		listenMiss: "server never announced its port",
 		roster,

@@ -202,12 +202,16 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		&& request.intent.keep.is_empty()
 		&& request.sources.is_empty();
 	if !withdrawing {
-		owner.admission.borrow_mut().upload(
-			call,
-			request.sources.len(),
-			&request.intent.caption,
-			owner.platform.monotonic_millis(),
-		)?;
+		owner
+			.admission
+			.borrow_mut()
+			.upload(
+				call,
+				request.sources.len(),
+				&request.intent.caption,
+				owner.platform.monotonic_millis(),
+			)
+			.map_err(super::super::admission::callback_error)?;
 	}
 	let seat = Seat::reserve(owner, &request.intent.operation)?;
 	targets.extend(request.sources.iter().cloned());

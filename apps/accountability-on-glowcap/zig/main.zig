@@ -2,7 +2,7 @@
 //!
 //! The same accountability shape as the Goblins worked example, on glowcap as its
 //! CapTP runtime: a vat hosts an Affordance behind an OCapN capability, a caller invokes
-//! it across a real TCP/OCapN session, and every invocation produces a signed,
+//! it across a real OCapN session over encrypted Noise TCP, and every invocation produces a signed,
 //! transparency-logged Episode attributing the caller. Identity (KERI), Episodes,
 //! and the transparency log all live above glowcap, glowcap provides only the
 //! capability-secure wire.
@@ -29,6 +29,7 @@ const said = @import("said.zig");
 const accountable = @import("accountable.zig");
 const affordance = @import("affordance.zig");
 const log = @import("log.zig");
+const sealed = @import("demo_sealed");
 
 /// Finite budgets for the listen and the dial below: a partner that connects
 /// and then goes silent fails the run instead of hanging it.
@@ -40,7 +41,6 @@ const session_opts: driver.SessionOptions = .{
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
-const tcp = glowcap.net.tcp;
 
 const AFFORDANCE_NAME = affordance.AFFORDANCE_NAME;
 const frame_cap = affordance.frame_cap;
@@ -104,7 +104,7 @@ fn invoke(
 }
 
 /// The reason a settled outcome broke, or null if it did not break at all.
-fn brokenReason(settled: driver.Reply) ?[]const u8 {
+fn brokenReason(settled: driver.Reply) ?driver.core.Broken {
     return switch (settled) {
         .broken => |reason| reason,
         .fulfilled => null,
@@ -164,10 +164,10 @@ pub fn main(init: std.process.Init) !void {
 
     // ---- The capability wire (glowcap) ----------------------------------------
     banner(3, "Host publishes the Affordance behind an OCapN capability");
-    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, session_opts);
+    var server = try sealed.listen(allocator, io, 0, session_opts);
     defer server.deinit();
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const designator = try server.localDesignator(&designator_buf);
+    var locator_buf: [sealed.locator_buf_len]u8 = undefined;
+    const announced = try sealed.announce(server, &locator_buf);
     // Own the advertised route before the server starts on another thread.
     const partner = try model.clonePeerLocator(allocator, try server.advertisedLocator());
     defer model.freePeerLocator(allocator, partner);
@@ -189,12 +189,12 @@ pub fn main(init: std.process.Init) !void {
         host_future.await(io) catch {};
     };
 
-    // Caller side. `driver.connect` completes the keyed handshake before
-    // returning.
-    var cv = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, partner, .ephemeral, session_opts);
+    // Caller side. `driver.connect` completes the Noise handshake, which proves
+    // the host holds the key its locator names, before returning.
+    var cv = try driver.connect(allocator, io, sealed.transports, partner, .ephemeral, session_opts);
     var cv_open = true;
     errdefer if (cv_open) cv.deinit();
-    std.debug.print("      session open over TCP {s}\n", .{designator});
+    std.debug.print("      session open over Noise TCP {s}\n", .{announced.locator});
 
     const affordance_ref = try cv.fetch(AFFORDANCE_NAME);
 
@@ -213,7 +213,7 @@ pub fn main(init: std.process.Init) !void {
     const result: []const u8 = switch (outcome) {
         .fulfilled => |arg| affordance.valueString(arg) orelse "",
         .broken => |reason| {
-            std.debug.print("      invocation did not resolve fulfilled (reason='{s}')\n", .{reason});
+            std.debug.print("      invocation did not resolve fulfilled (reason='{f}')\n", .{reason});
             cv.deinit();
             _ = host_future.await(io) catch |err| std.debug.print("      host fiber error: {s}\n", .{@errorName(err)});
             std.process.exit(1);
@@ -235,7 +235,7 @@ pub fn main(init: std.process.Init) !void {
     if (served != served_before) {
         bail(cv, io, &host_future, "host accounted for an unattested invocation");
     }
-    std.debug.print("      refused: {s}\n", .{tampered_reason});
+    std.debug.print("      refused: {f}\n", .{tampered_reason});
 
     banner(7, "A key the caller's own log has retired is refused too");
     // This signature verifies: it is a real signature by a key this caller
@@ -249,7 +249,7 @@ pub fn main(init: std.process.Init) !void {
     if (served != served_before) {
         bail(cv, io, &host_future, "host accounted for an invocation signed by a retired key");
     }
-    std.debug.print("      refused: {s}\n", .{retired_reason});
+    std.debug.print("      refused: {f}\n", .{retired_reason});
 
     // Let the host observe EOF and finish.
     cv.deinit();
@@ -287,7 +287,7 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print(
         \\
         \\accountability-on-glowcap OK: a capability invocation crossed a real
-        \\OCapN session on the `tcp` netlayer between two glowcap peers, and the host produced a
+        \\OCapN session over encrypted Noise TCP between two glowcap peers, and the host produced a
         \\verifiable Episode attributing the attested caller. glowcap hosted the
         \\wire; identity, Episodes, and the transparency log stayed above it.
         \\

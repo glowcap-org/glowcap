@@ -101,6 +101,7 @@ pub fn glowcap_loam_effect_execution_result(raw: ?*c.GlowcapLoamEffectExecution,
         },
         .unsent, .unknown => |failure| {
             out.state = if (result == .unsent) 2 else 3;
+            out.cause = shared.GlowcapBreakCause.fromCore(failure.cause);
             out.result = switch (failure.kind) {
                 .broken => shared.GLOWCAP_ERR_BROKEN,
                 .closed => shared.GLOWCAP_ERR_CLOSED,
@@ -113,10 +114,12 @@ pub fn glowcap_loam_effect_execution_result(raw: ?*c.GlowcapLoamEffectExecution,
 }
 pub fn glowcap_loam_effect_execution_release(raw: ?*c.GlowcapLoamEffectExecution) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (raw == null) return shared.GLOWCAP_OK;
-    const self = observer(raw) catch |err| return refusal.code(err);
-    if (self.owner.host_borrow.core().withinCallback()) return refusal.code(error.Busy);
-    self.owner.value.topLevel() catch |err| return refusal.code(err);
-    self.release();
-    return shared.GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        if (raw == null) break :result shared.GLOWCAP_OK;
+        const self = observer(raw) catch |err| break :result refusal.code(err);
+        if (self.owner.host_borrow.core().withinCallback()) break :result refusal.code(error.Busy);
+        self.owner.value.topLevel() catch |err| break :result refusal.code(err);
+        self.release();
+        break :result shared.GLOWCAP_OK;
+    });
 }

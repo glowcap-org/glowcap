@@ -23,8 +23,8 @@ a shell-out. They run the same product binary as argv and REPL
 
 | Surface | Path |
 | --- | --- |
-| Cursor | [`.cursor/mcp.json`](../../../.cursor/mcp.json) → `./glowcap mcp --tools default` |
-| Claude | [`.mcp.json`](../../../.mcp.json) → `./glowcap mcp --tools default` |
+| Cursor | [`.cursor/mcp.json`](../../../.cursor/mcp.json) → `${workspaceFolder}/glowcap mcp --tools default`, plus Serena started directly |
+| Claude | [`.mcp.json`](../../../.mcp.json) → `./glowcap mcp --tools default`, plus Serena through `glowcap-dev` |
 | Shim | [`glowcap`](../../../glowcap) → `zig-out/product/bin/glowcap` |
 | Portable stub (PATH `glowcap`) | [`docs/glowcap-mcp.json`](../../../docs/glowcap-mcp.json) |
 | Human recipes | [`docs/cli.md`](../../../docs/cli.md) |
@@ -51,7 +51,8 @@ again.
 ## Before the first tool call
 
 1. **Prepare:** `./glowcap version` bootstraps a missing product. After source
-   edits, run `zig build glowcap-install` through the work skill's build front.
+   edits, run `zig build glowcap-release` through the work skill's build front
+   to restage `zig-out/product`.
 2. **Reload MCP** in the host if configs or the binary just changed.
 3. **Discover tools** with `tools/list` and never invent verb names. The
    catalog is `--tools default|full|readonly`, and project configs use
@@ -71,7 +72,7 @@ again.
 | Teardown | `close` is in the default catalog; process exit / idle caps also end the peer |
 | `listen` | Binds and returns the locator at once; accepts on a background thread. One listener per session; `close` stops it (and the held session); `info` reports `listening`/`accepted` |
 | `dial --repl` | Hidden from MCP schemas (argv/REPL attach) |
-| Locator | Pass `ocapn://…` when no session is open yet (retains). A locator while a session is already held is a one-shot sidecar | <!-- status-allow: workflow sequence -->
+| Locator | Pass `ocapn://…` when no session is open (retains). A locator while a session is already held is a one-shot sidecar |
 | Stdio | Newline-delimited JSON-RPC (MCP transport); not LSP length headers |
 
 An open session hosts the CLI's demo actors, and `cli/ocapn/builtins.zig`

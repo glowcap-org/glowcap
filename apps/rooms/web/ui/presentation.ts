@@ -17,7 +17,7 @@ const clock: PresentationClock = {
 
 /** Tokens fence retired timers. Monotonic time also handles a sleeping tab.
  * Completion clears progress immediately. A surface with a success treatment
- * may keep that treatment for `remaining`, never the old running state.  status-allow: replacement state identity */
+ * may keep that treatment for `remaining`, never the old running state. */
 export class PresentationRun {
 	#token: unknown = null;
 	#generation = 0;

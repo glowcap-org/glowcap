@@ -142,8 +142,7 @@ as the [integration guide](loam.md#choosing-an-integration) describes.
 Loam's persistence core does not depend on managed access, the Host, or CapTP
 session state. Optional integration modules connect them, and the facade
 offers managed access without requiring resource state for ordinary objects.
-Rooms stores its managed session through Loam on SQLite and IndexedDB (the
-[session guide](rooms/session.md) owns its recovery contract). The
+The [Rooms session guide](rooms/session.md) shows this layering in an application. The
 [Loam API](loam/api.md) separates record schemas, storage encoding, reference
 restoration, and wire codecs.
 
@@ -235,8 +234,8 @@ beside its option in the code.
 | `driver.HostRuntime.Options.max_pending_redeem_dials` | How many of those a partner's handoffs may hold as redeem dials, a quarter of the pool unless named. The C driver takes the default. |
 | `driver.HostRuntime.Options.listener_setup` / `GlowcapDriverOptions.listener_setup_ms` | How long setting up one listener may take before it fails. |
 | `driver_core.Host.Options.limits.max_frame_bytes` | The largest frame any peer of a byte-fed Host accepts. |
-| `SessionLimits.max_retained_sent_answer_bytes` / `GlowcapSessionLimitOptions.max_retained_sent_answer_bytes` | Bytes of resolutions a session keeps for answers it already sent, once they no longer count as data in flight. | <!-- status-allow: runtime state or operation ordering -->
-| `SessionLimits.max_queued_call_bytes` | Owned bytes of pipelined calls a session holds queued against answers that have not settled, summed across the session. Zig only. | <!-- status-allow: runtime state or operation ordering -->
+| `SessionLimits.max_retained_sent_answer_bytes` / `GlowcapSessionLimitOptions.max_retained_sent_answer_bytes` | Bytes of resolutions a session keeps for answers it already sent, once they no longer count as data in flight. |
+| `SessionLimits.max_queued_call_bytes` | Owned bytes of pipelined calls a session holds queued against answers that have not settled, summed across the session. Zig only. |
 | `driver_core.Host.Options.max_sessions` / `GlowcapSessionLimitOptions.max_sessions` | How many live sessions one Host holds, dialed and accepted together. A mint at the cap is refused. `null` in Zig turns the cap off. |
 | `driver_core.Host.Options.local_turn_budget` / `glowcap_host_new(... local_turn_budget ...)` | How many local actor turns one session may set off during one drive before the Host ends that session. `null` in Zig or `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` in C turns the cap off. A bare `Served` is unbounded. |
 | `driver_core.Host.Options.release_on_drop` / `glowcap_host_new(... release_on_drop ...)`, read with `glowcap_host_release_on_drop` and set with `glowcap_host_set_release_on_drop` | Whether a binding releases its hold on a far capability when the language reports that it went out of scope. The Host stores the setting and attaches no behavior to it ([ADR-0025](decisions/adr/ADR-0025-capability-release.md)). Rust turns it on. TypeScript, Python, and Racket turn it off, because their release runs from a finalizer, and keep the per-session opt-in. |
@@ -342,6 +341,13 @@ event-delivery storage, and passes on the Zig result. Bindings own host-language
 I/O tasks and resource idioms, and join their effects at completion barriers.
 Protocol state and lifecycle decisions remain in Zig.
 
+Broken results carry `BreakCause` beside their diagnostic text. The operation
+that knows the cause sets it, and local forwarding preserves it. A wire break
+arrives with cause `partner`. A refused bootstrap fetch keeps its cause and
+gains the `fetch` context at the Host's fetch boundary. C and binding
+predicates read this cause. Display and wire output render its label without
+treating partner text as a local diagnosis.
+
 A failure that can be returned stays in ordinary control flow. When no caller
 or close barrier is left to receive it, the `diagnostics` layer turns it into a
 typed record in the owning `GlowcapContext` diagnostic log, and the C ABI exposes that
@@ -390,9 +396,12 @@ The rules for providers:
 
 - Listener ids key the routing of accepted connections in every binding. The
   driver owns each listener's canonical public locator.
-- A provider compares its own complete effective configuration. Registering an
-  equivalent package again does nothing, and a conflicting package is
-  refused. Bindings keep no separate registry of providers or credentials.
+- A provider compares its own effective configuration, apart from which
+  profiles each package registers. A profile that an installed package
+  already serves under an equal configuration stays with that package, and
+  the driver installs only the profiles nothing serves yet. A conflicting
+  package is refused whole. Bindings keep no separate registry of providers
+  or credentials.
 - A provider may expose opaque local restoration bytes, read through a
   size query and a caller-supplied buffer. Those bytes never enter the
   locator, and only that provider package interprets them. The onion package

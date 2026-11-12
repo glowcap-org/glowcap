@@ -50,7 +50,7 @@ pub fn shutdownStream(stream: *const Stream, io: std.Io) std.Io.net.ShutdownErro
 /// mirror that can drift is across languages: the iroh sidecar keeps its own
 /// per-direction bound in Rust (`NB_STEADY_BYTES`), which
 /// `gen-iroh-sidecar-constants` writes from this constant, because this is a
-/// per-connection footprint number the ladder's 500k-connection budget owns.
+/// per-connection footprint number the footprint budget owns.
 pub const steady_outbound_bytes: usize = 16 * 1024;
 
 /// The outer frame used by byte-stream netlayers: a Syrup byte string containing
@@ -168,7 +168,7 @@ fn fillStep(r: *std.Io.Reader) FillError!Fill {
     return .filled;
 }
 
-/// The waiting room for stream bytes that have arrived but do not yet make a status-allow: pending state or quoted runtime label
+/// The waiting room for stream bytes that have arrived but do not yet make a
 /// whole frame, shared with every other tier that reads a stream
 /// (`foundation.Spill`).
 ///
@@ -317,15 +317,17 @@ pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !RecvStream {
 }
 
 /// The verdict of draining whole frames from one received chunk.
-pub const DrainVerdict = enum {
+pub const DrainVerdict = union(enum) {
     /// Every whole frame applied. Any partial tail is now in the spill.
     ok,
-    /// The stream is unrecoverable. When the envelope or the frame was
-    /// refused, the peer has already queued an `op:abort` to flush before the
-    /// connection closes (`recvOuterPrefix` projects the same typed abort a
-    /// decoder refusal does).
+    /// The stream is unrecoverable and the session is closed with its cause
+    /// recorded. When the envelope or the frame was refused, the peer has
+    /// already queued an `op:abort` to flush before the connection closes
+    /// (`recvOuterPrefix` projects the same typed abort a decoder refusal
+    /// does).
     fail,
-    /// A spill allocation failed. Close the connection.
+    /// The spill could not hold a partial frame. The session is closed with
+    /// that cause recorded, and the connection closes without reading on.
     close,
 };
 
@@ -352,12 +354,18 @@ pub fn drainWholeFrames(
     // call even if it drains mid-loop, `chunk` has been absorbed and must not be
     // re-read.
     const from_spill = spill.isActive();
-    if (from_spill) spill.absorbBytes(allocator, chunk) catch return .close;
+    if (from_spill) spill.absorbBytes(allocator, chunk) catch |err| {
+        failConsumed(peer, err);
+        return .close;
+    };
     var offset: usize = 0;
     while (true) {
         const supply = if (from_spill) spill.bytes() else chunk[offset..];
         if (supply.len == 0) break;
-        const outcome = recvOuterPrefix(peer, supply) catch return .fail;
+        const outcome = recvOuterPrefix(peer, supply) catch |err| {
+            failConsumed(peer, err);
+            return .fail;
+        };
         switch (outcome) {
             .incomplete => break,
             .consumed => |used| {
@@ -370,9 +378,34 @@ pub fn drainWholeFrames(
     // transient), so it absorbs into the bounded spill and waits for the next
     // chunk.
     if (!from_spill and offset < chunk.len) {
-        spill.absorbBytes(allocator, chunk[offset..]) catch return .close;
+        spill.absorbBytes(allocator, chunk[offset..]) catch |err| {
+            failConsumed(peer, err);
+            return .close;
+        };
     }
     return .ok;
+}
+
+/// Apply one complete transport packet the carrier has consumed, the
+/// message-framed counterpart of `drainWholeFrames`. A refusal closes the
+/// session with its cause recorded.
+pub fn applyPacket(peer: *engine.Peer, packet: []const u8) DrainVerdict {
+    peer.recvPacket(packet) catch |err| {
+        failConsumed(peer, err);
+        return .fail;
+    };
+    return .ok;
+}
+
+/// Fail the session for input its carrier consumed and cannot replay. The
+/// engine leaves local pressure, such as an allocation failure while copying
+/// the frame, retryable and unrecorded for a caller that still holds the
+/// bytes. These bytes are gone, so the cause is recorded here and the session
+/// closes. A session the refusal already closed keeps the cause that closed
+/// it.
+fn failConsumed(peer: *engine.Peer, err: anyerror) void {
+    if (peer.sessionIsClosed()) return;
+    peer.failClosed(err);
 }
 
 /// Write one frame's bytes and flush. `bytes` are borrowed for the call.

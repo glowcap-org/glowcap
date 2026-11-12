@@ -49,7 +49,7 @@ const LoweredCapability = struct {
     receipt: ?CapabilityLoweringReceipt,
 };
 
-/// One value lowering that has not yet crossed its semantic commit point. status-allow: pending state or quoted runtime label
+/// One value lowering that has not yet crossed its semantic commit point.
 /// Public only for Host-core sibling modules. Adapters call the complete
 /// send/tell/vow operations instead of managing this transaction.
 ///
@@ -140,7 +140,7 @@ pub const PreparedValues = struct {
 };
 
 /// Lowering receipts of sends made in the running turn, and the room
-/// `holdForTurn` reserved for receipts not yet committed. status-allow: pending state or quoted runtime label
+/// `holdForTurn` reserved for receipts not yet committed.
 pub const TurnReceipts = struct {
     held: std.ArrayListUnmanaged(CapabilityLoweringReceipt) = .empty,
     reserved: usize = 0,
@@ -176,9 +176,7 @@ fn commitTurnReceipts(ctx: *anyopaque, vat: *actors.Vat) void {
 /// gifts and leases. A committed foreign enrollment stays as the Session
 /// import's canonical route memo, with no additional import retain. A reentrant
 /// surviving turn may already name it. Import retirement owns it.
-fn abortTurnReceipts(ctx: *anyopaque, vat: *actors.Vat, reason: []const u8) void {
-    _ = vat;
-    _ = reason;
+fn abortTurnReceipts(ctx: *anyopaque, _: *actors.Vat, _: engine.Broken) void {
     const self: *Host = @ptrCast(@alignCast(ctx));
     const receipts = self.turn_receipts.held.items;
     var i = receipts.len;

@@ -8,7 +8,7 @@ from watcher_test import watcher_startup
 
 
 async def run() -> None:
-    board = await TaskBoard.join("127.0.0.1", int(sys.argv[1]), sys.argv[2])
+    board = await TaskBoard.join(sys.argv[1], sys.argv[2])
     try:
         before = len((await board.lists())[0].tasks)
         await asyncio.gather(board.add("python same"), board.add("python same"))

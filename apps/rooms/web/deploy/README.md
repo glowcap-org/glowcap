@@ -315,12 +315,12 @@ the reset stops working. Use `restart` to keep the existing identity and access 
 
 - Without a terminal, such as ssh with no tty or a script, pass `--yes`. At the terminal, type the full word `yes` to
   proceed. `no`, an empty answer, or end-of-input cancels, and other answers explain the choices and prompt again.
-- Reset prepares configuration and a missing image before confirmation and needs no earlier `up`. <!-- status-allow: runtime state or operation ordering -->
+- Reset prepares configuration and a missing image before confirmation and needs no earlier `up`.
   It chooses its image as `up` does. An explicit `--image` or `--build` wins, then the prepared product on a Linux
   checkout, then, from an installed executable, the saved selection or the versioned release image. It names the image
   and its revision.
 - Image preparation and Compose validation must succeed before services stop or volumes are removed.
-- If a removal fails, the stack remains stopped and the error names the failed volume. Earlier removals in an `all` reset <!-- status-allow: runtime state or operation ordering -->
+- If a removal fails, the stack remains stopped and the error names the failed volume. Earlier removals in an `all` reset
   may already have completed. Inspect the data before restarting with `deployment up`.
 
 | Unit        | Permanently removes                                                  |

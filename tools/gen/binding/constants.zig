@@ -1,7 +1,8 @@
 //! Generates the Rust, Python, and Racket ABI constant mirrors.
 //!
-//! Numeric values reflect the C ABI roots. Transport strings reflect
-//! `model.transport`, and binding-only policy comes from `binding_policy`.
+//! Numeric values and break reasons reflect the C ABI roots. Transport
+//! strings reflect `model.transport`, and binding-only policy comes from
+//! `binding_policy`.
 //! A new binding adds one emitter and one `outputs` row. The reflected table
 //! remains the only place this family names a value.
 
@@ -236,6 +237,10 @@ const constants = [_]Const{
     con("HOST_ARCHIVE_FINGERPRINT", cd.GLOWCAP_HOST_ARCHIVE_FINGERPRINT, .u64, null),
     con("DRIVER_ARCHIVE_FINGERPRINT", cdr.GLOWCAP_DRIVER_ARCHIVE_FINGERPRINT, .u64, null),
     con("TCP_ARCHIVE_FINGERPRINT", ct.GLOWCAP_TCP_ARCHIVE_FINGERPRINT, .u64, null),
+    con("TCP_PROFILE_TCP", ct.GLOWCAP_TCP_PROFILE_TCP, .uint, null),
+    con("TCP_PROFILE_KEYED_TCP", ct.GLOWCAP_TCP_PROFILE_KEYED_TCP, .uint, null),
+    con("TCP_PROFILE_NOISE_TCP", ct.GLOWCAP_TCP_PROFILE_NOISE_TCP, .uint, null),
+    con("TCP_PROFILES_ALL", ct.GLOWCAP_TCP_PROFILES_ALL, .uint, null),
     con("INPROC_ARCHIVE_FINGERPRINT", cn.GLOWCAP_INPROC_ARCHIVE_FINGERPRINT, .u64, null),
     con("ONION_ARCHIVE_FINGERPRINT", co.GLOWCAP_ONION_ARCHIVE_FINGERPRINT, .u64, null),
     con("ONION_AUTH_NONE", co.GLOWCAP_ONION_AUTH_NONE, .uint, null),
@@ -299,6 +304,8 @@ const constants = [_]Const{
     con("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", binding_policy.websocket_inbound_high_water_bytes.value, .usize, null),
 };
 
+const texts = @import("texts.zig").texts;
+
 fn isReturnCode(k: Const) bool {
     return std.mem.eql(u8, k.stem, "OK") or
         std.mem.eql(u8, k.stem, "WOULD_BLOCK") or
@@ -334,9 +341,7 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     for (constants) |k| {
         try out.print(gpa, "pub const {s}: {s} = {d};\n", .{ k.stem, k.rust_ty.spelling(), k.value });
     }
-    try out.print(gpa, "pub const HINT_DIRECT_ADDRESSES: &str = \"{s}\";\n", .{model.transport.hint_direct_addresses});
-    try out.print(gpa, "pub const HINT_ALT_LOCATORS: &str = \"{s}\";\n", .{model.transport.hint_alt_locators});
-    try out.print(gpa, "pub const HINT_VIA: &str = \"{s}\";\n", .{model.transport.hint_via});
+    for (texts) |t| try out.print(gpa, "pub const {s}: &str = \"{s}\";\n", .{ t.stem, t.value });
     inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "pub const ");
         try writeTransportName(&out, gpa, known, '_');
@@ -347,6 +352,8 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
             try out.print(gpa, "_MAX_PACKET_BYTES: usize = {d};\n", .{known.metadata().max_packet_bytes});
         }
     }
+    try @import("break_causes.zig").rust(&out, gpa);
+    try @import("release_result.zig").rust(&out, gpa);
     return out.toOwnedSlice(gpa);
 }
 
@@ -377,16 +384,17 @@ fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\
     );
+    try out.appendSlice(gpa, "from dataclasses import dataclass\nfrom enum import IntEnum\n\n");
     for (constants) |k| {
         try out.print(gpa, "{s} = {d}\n", .{ k.stem, k.value });
     }
-    try out.print(gpa, "HINT_DIRECT_ADDRESSES = \"{s}\"\n", .{model.transport.hint_direct_addresses});
-    try out.print(gpa, "HINT_ALT_LOCATORS = \"{s}\"\n", .{model.transport.hint_alt_locators});
-    try out.print(gpa, "HINT_VIA = \"{s}\"\n", .{model.transport.hint_via});
+    for (texts) |t| try out.print(gpa, "{s} = \"{s}\"\n", .{ t.stem, t.value });
     inline for (std.enums.values(model.transport.Known)) |known| {
         try writeTransportName(&out, gpa, known, '_');
         try out.print(gpa, " = \"{s}\"\n", .{known.metadata().symbol});
     }
+    try @import("break_causes.zig").python(&out, gpa);
+    try @import("release_result.zig").python(&out, gpa);
     return out.toOwnedSlice(gpa);
 }
 
@@ -411,7 +419,12 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         }
         try out.append(gpa, '\n');
     }
-    try out.appendSlice(gpa, "  ABI-RETURN-CODES\n  HINT-ALT-LOCATORS\n  HINT-DIRECT-ADDRESSES\n  HINT-VIA\n");
+    try out.appendSlice(gpa, "  ABI-RETURN-CODES\n");
+    for (texts) |t| {
+        try out.appendSlice(gpa, "  ");
+        try render.writeRacketized(gpa, &out, t.stem);
+        try out.append(gpa, '\n');
+    }
     inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "  ");
         try writeTransportName(&out, gpa, known, '-');
@@ -433,13 +446,17 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         try out.appendSlice(gpa, ")\n");
     }
     try out.appendSlice(gpa, "  ))\n");
-    try out.print(gpa, "(define HINT-DIRECT-ADDRESSES \"{s}\")\n", .{model.transport.hint_direct_addresses});
-    try out.print(gpa, "(define HINT-ALT-LOCATORS \"{s}\")\n", .{model.transport.hint_alt_locators});
-    try out.print(gpa, "(define HINT-VIA \"{s}\")\n", .{model.transport.hint_via});
+    for (texts) |t| {
+        try out.appendSlice(gpa, "(define ");
+        try render.writeRacketized(gpa, &out, t.stem);
+        try out.print(gpa, " \"{s}\")\n", .{t.value});
+    }
     inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "(define ");
         try writeTransportName(&out, gpa, known, '-');
         try out.print(gpa, " \"{s}\")\n", .{known.metadata().symbol});
     }
+    try @import("break_causes.zig").racket(&out, gpa);
+    try @import("release_result.zig").racket(&out, gpa);
     return out.toOwnedSlice(gpa);
 }

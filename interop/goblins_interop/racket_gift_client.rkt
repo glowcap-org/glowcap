@@ -98,7 +98,7 @@
   ;; reply ref's home is this gifter↔Bob connection, so glowcap can re-gift it
   ;; without an enrollment verb.
   (define runtime
-    (open-runtime #:providers (list (tcp-provider)) #:adopt-host gifter-host))
+    (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP)))) #:adopt-host gifter-host))
   (define to-bob (runtime-connect runtime (tcp-locator HOST PORT)))
   (define vendor (session-fetch to-bob VENDOR-SWISS))
   (define greeter (session-send to-bob vendor #f))

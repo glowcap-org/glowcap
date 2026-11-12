@@ -5,7 +5,7 @@
 //! canonicalize targets that arrived through different sessions or network
 //! paths. Which codec carried the same representation does not matter.
 //!
-//! The case that really earns its keep is `Reference.far`. ADR-0007's
+//! The case that matters most is `Reference.far`. ADR-0007's
 //! session-pair-uniqueness posture means same-session equality is on
 //! `(import_position, kind)`. Cross-session uniqueness is Host enrollment
 //! (`SessionPairExists` / partner-key index), not a collapse of far-ref
@@ -460,11 +460,6 @@ fn viewHintsEqual(
     const bh = try materializeBorrowedHints(b, scratch);
     defer if (b == .lazy) model.freeHints(scratch, bh);
     return hintsEqual(ah, bh);
-}
-
-/// Element-wise structural equality on two argument slices (order-sensitive).
-pub fn argumentSlicesEqual(a: []const model.Argument, b: []const model.Argument) bool {
-    return argumentsEqual(.{ .list = a }, .{ .list = b });
 }
 
 /// Pass-Invariant `Float64` equality (Model.md § Pass Invariant Equality): the

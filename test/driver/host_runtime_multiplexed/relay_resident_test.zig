@@ -58,7 +58,8 @@ fn exercise(transport: model.transport.Known, late_relay: bool) !void {
     const probe: ws_relay.Probe = .{ .needle = reply, .found = &relay_saw_reply, .registered = &registered };
     var relay_future: ?@TypeOf(try io.concurrent(ws_relay.bridgeOneRendezvousObserved, .{ io, &relay_server, allocator, probe })) = null;
     if (!late_relay) relay_future = try io.concurrent(ws_relay.bridgeOneRendezvousObserved, .{ io, &relay_server, allocator, probe });
-    errdefer if (relay_future) |*future| future.cancel(io) catch {};
+    var relay_joined = false;
+    errdefer if (!relay_joined) if (relay_future) |*future| wait.joinedUnwinding("relay", future.cancel(io));
 
     const seed: [crypto.seed_bytes]u8 = @splat(0x74);
     const secret = crypto.SecretKey.fromSeed(seed);
@@ -91,14 +92,14 @@ fn exercise(transport: model.transport.Known, late_relay: bool) !void {
 
     var done = std.atomic.Value(bool).init(false);
     var server_future = try io.concurrent(echo_server.serve, .{ server, &done });
-    defer {
+    var serving_joined = false;
+    errdefer if (!serving_joined) {
         done.store(true, .release);
-        server_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("server", server_future.await(io));
+    };
 
     if (late_relay) {
-        // tolerant: an interrupted sleep only brings the relay up sooner.
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(300), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(300), .real);
         relay_server = try std.Io.net.IpAddress.listen(&relay_at, io, .{ .reuse_address = true });
         relay_future = try io.concurrent(ws_relay.bridgeOneRendezvousObserved, .{ io, &relay_server, allocator, probe });
     }
@@ -107,8 +108,7 @@ fn exercise(transport: model.transport.Known, late_relay: bool) !void {
     const deadline = wait.deadlineAfter(io, wait.default_deadline_ms);
     while (!registered.load(.acquire)) {
         if (wait.expired(io, deadline)) return error.WaitTimedOut;
-        // tolerant: an interrupted sleep only rechecks the flag sooner.
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real);
     }
 
     try io.randomSecure(&entropy);
@@ -133,16 +133,22 @@ fn exercise(transport: model.transport.Known, late_relay: bool) !void {
         switch (try view.call(echo, "ping", &.{}, arena.allocator())) {
             .fulfilled => |arg| try std.testing.expectEqualStrings(reply, arg.string),
             .broken => |reason| {
-                std.debug.print("echo broke: {s}\n", .{reason});
+                std.debug.print("echo broke: {s}\n", .{reason.detail});
                 return error.EchoBroke;
             },
         }
     }
 
+    relay_joined = true;
     try relay_future.?.await(io);
     // A sealed symbol hands the relay ciphertext only; the keyed-relay run
     // proves the same probe sees the reply when it travels in the clear.
     try std.testing.expectEqual(!transport.metadata().sealed_channel, relay_saw_reply.load(.acquire));
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    serving_joined = true;
+    try server_future.await(io);
 }
 
 fn retire(resident: *RelayResident) void {

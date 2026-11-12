@@ -134,10 +134,9 @@ test "parse once: the engine's own frame lends its head for the argument views, 
     const allocator = std.testing.allocator;
     var headed = try engine.ownedFrameFromView(allocator, .{ .bytes = deliver_to_export7, .shape = .byte });
     defer headed.deinit();
-    const lent = engine.events.Head.slabOf(&headed);
-    try std.testing.expectEqual(engine.events.headViewsFor(deliver_to_export7.len), lent.bytes.len / @sizeOf(model.view.Argument));
-    try std.testing.expectEqual(@as(usize, engine.events.head_argument_views), lent.bytes.len / @sizeOf(model.view.Argument));
-    try std.testing.expectEqual(@as(usize, 0), lent.used);
+    const lent = headed.headTail(engine.events.Head, model.view.Argument);
+    try std.testing.expectEqual(engine.events.headViewsFor(deliver_to_export7.len), lent.len);
+    try std.testing.expectEqual(@as(usize, engine.events.head_argument_views), lent.len);
 
     const Release = struct {
         fn release(_: *anyopaque) void {}
@@ -146,6 +145,5 @@ test "parse once: the engine's own frame lends its head for the argument views, 
     var marker: u8 = 0;
     var external = try glowcap.foundation.Frame.initExternal(storage[0..], .byte, &marker, Release.release);
     defer external.deinit();
-    const none = engine.events.Head.slabOf(&external);
-    try std.testing.expectEqual(@as(usize, 0), none.bytes.len);
+    try std.testing.expectEqual(@as(usize, 0), external.headTail(engine.events.Head, model.view.Argument).len);
 }

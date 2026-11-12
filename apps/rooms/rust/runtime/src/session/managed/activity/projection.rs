@@ -89,7 +89,6 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 							json!({"kind":match event.kind {
 						registration::Kind::MintInboxFor => "mintInboxFor",
 						registration::Kind::DirectRequested => "directRequested",
-						registration::Kind::Introducible => "introducible",
 					}, "peer":event.peer, "registration":event.registration.as_str(), "opening":event.opening})
 						}
 						None => return Ok(Argument::Void),

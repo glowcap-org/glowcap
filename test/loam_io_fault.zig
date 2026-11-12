@@ -114,7 +114,12 @@ fn shrinkData(directory: []const u8, length: c_long) !void {
 /// that differ from what was committed are not.
 fn readGraph(store: *core.Store, db: *fixture.Engine, a: core.ObjectId, b: core.ObjectId) !enum { intact, refused } {
     for ([_]core.ObjectId{ a, b }) |id| {
-        const lease = f.load(store, db, id) catch return .refused;
+        // A storage refusal is the accepted outcome of a failed read or a cut
+        // file. Any other failure is a defect in the read path.
+        const lease = f.load(store, db, id) catch |err| switch (err) {
+            error.Corrupt, error.StorageFailure, error.ReopenRequired, error.Gone, error.RecordTooLarge, error.StaleCompletion => return .refused,
+            else => return err,
+        };
         const view = try store.view(lease);
         if (!std.mem.eql(u8, &old, view.payload) or view.edge_count != 1) return error.WrongData;
         var edges = view.edges();

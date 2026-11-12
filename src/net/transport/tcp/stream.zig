@@ -63,7 +63,7 @@ pub fn connectRaw(
 
 /// One accepted or dialed TCP stream, pinned for the `Connection`'s life. The
 /// shared raw-connection shell. Its cost is argued at
-/// `netlayer_support.PinnedRawStream`.
+/// `netlayer.PinnedRawStream`.
 const TcpStream = netlayer.PinnedRawStream(runtime.Connection);
 
 pub fn connectionOverRaw(
@@ -85,7 +85,7 @@ pub const transport_name = known_transport.metadata().symbol;
 /// not the largest admissible frame (a larger frame spills, bounded by
 /// `max_frame_bytes`).
 /// Post-admission TCP connect: `address` must already be a host:port admitted
-/// by `DialResolver.resolve` (or `model.uri.tcpConnectHostPort`). Do not call
+/// by `DialResolver.resolve` (or `model.uri.connectHostPort`). Do not call
 /// this to skip OCapN admission.
 pub fn connectAddress(
     io: std.Io,

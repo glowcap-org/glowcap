@@ -190,7 +190,7 @@ pub fn withdrawGift(
     const registry = exporter.giftRegistry();
     const expected = try expectedReceiver(exporter);
     try registry.validateWithdraw(receive, expected);
-    _ = try registry.applyWithdraw(registry, exporter.allocator, null, receive);
+    _ = try applyWithdraw(registry, registry, exporter.allocator, receive);
 
     // Production withdrawal uses the bootstrap `withdraw-gift` deliver. This
     // harness applies the registry explicitly above, so its observation leg
@@ -227,4 +227,18 @@ pub fn pumpAll(from: *Peer, to: *Peer) !void {
     while ((try from.step()) != .idle) {}
     while (from.takeOutbound()) |frame| try to.feedOwned(frame);
     while ((try to.step()) != .idle) {}
+}
+
+/// Prepare and commit one validated withdraw in one call. Production runs the
+/// two steps apart across the dispatch transaction, so only a harness that
+/// applies the registry by hand composes them.
+pub fn applyWithdraw(
+    registry: *engine.bootstrap.gifts.GiftRegistry,
+    deposited: *engine.bootstrap.gifts.GiftRegistry,
+    allocator: std.mem.Allocator,
+    receive: model.HandoffReceive,
+) !?model.Reference {
+    const gifts = engine.bootstrap.gifts;
+    const prepared = try gifts.GiftRegistry.prepareWithdrawCommit(deposited, gifts.giftClaim(receive));
+    return registry.commitWithdraw(deposited, allocator, null, prepared);
 }

@@ -243,6 +243,17 @@ try {
 	if (!offered.includes(LABEL) || !offered.includes("ada")) {
 		fail(`the invitation does not say what it is or who it is from: ${JSON.stringify(offered)}`);
 	}
+	// The row answers a take with the shared progress ring. The ring is drawn by
+	// a busy mark on the button, so the mark is set and read in one turn.
+	const ring = await bo.evaluate(() => {
+		const take = document.querySelector(".inviterow .room-open");
+		if (take == null) return null;
+		take.setAttribute("data-busy", "");
+		const drawn = getComputedStyle(take, "::after").width;
+		take.removeAttribute("data-busy");
+		return drawn;
+	});
+	if (ring !== "13px") fail(`a busy invitation row draws no progress ring: ${JSON.stringify(ring)}`);
 	await bo.click(".inviterow .room-open");
 	await bo.waitForFunction(
 		() => document.querySelector("#roomList li.held.here") !== null,
@@ -535,7 +546,7 @@ try {
 	await cold.fill("#nick", "cole");
 	await cold.fill("#room", "colddrop");
 	const publicLabel = (await cold.textContent('label[for="room"]'))?.trim();
-	if (publicLabel !== "Room") {
+	if (publicLabel !== "Open room") {
 		fail(
 			`the join card labeled the room field ${JSON.stringify(publicLabel)} before its access control was pressed`,
 		);

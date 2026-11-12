@@ -7,6 +7,9 @@
 // then never depends on the owner it is replacing closing cleanly.
 import { applicationModule } from "../application.ts";
 import { THEME_KEY } from "../view_preferences.ts";
+import { reloadPage } from "../page_base.ts";
+import { localArea, type PageStorage, sessionArea } from "../page_storage.ts";
+import { type LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 
 /** Marked in sessionStorage so only the tab that asked finishes the deletion. */
 const PENDING = "rooms.delete-browser-data";
@@ -17,21 +20,24 @@ const DELETED = "rooms.deleted";
  * apart from the theme, which the website shares under its own key. */
 export const ROOMS_PREFIX = "rooms.";
 
-export function requestBrowserDataDeletion(): void {
-	sessionStorage.setItem(PENDING, "yes");
+/** Mark this tab to delete on its next load. Null once marked, and otherwise
+ * the browser's refusal, with nothing marked. */
+export function requestBrowserDataDeletion(): LocalRefusal | null {
+	return sessionArea.write(PENDING, "yes");
 }
 
 /** Remove every Rooms key from `storage`, and the shared theme. The Settings
  * card is where the reader chose the theme, so deleting the page's data
- * returns the theme to the page's default too. */
-export function forgetBrowserPreferences(storage: Storage): void {
-	const keys: string[] = [];
-	for (let index = 0; index < storage.length; index += 1) {
-		const key = storage.key(index);
-		if (key != null && key.startsWith(ROOMS_PREFIX)) keys.push(key);
+ * returns the theme to the page's default too. Null once all are gone, and
+ * otherwise the first refusal, with every key it could reach removed. */
+export function forgetBrowserPreferences(storage: PageStorage): LocalRefusal | null {
+	const keys = storage.keys().filter((key) => key.startsWith(ROOMS_PREFIX));
+	let refused: LocalRefusal | null = null;
+	for (const key of [...keys, THEME_KEY]) {
+		const failed = storage.remove(key);
+		refused ??= failed;
 	}
-	for (const key of keys) storage.removeItem(key);
-	storage.removeItem(THEME_KEY);
+	return refused;
 }
 
 /** Whether a storage change another tab made announces a finished deletion.
@@ -43,9 +49,8 @@ export function isDeletionNotice(event: { key: string | null; newValue: string |
 
 /** Tell every other tab on this origin that the deletion is complete. The key
  * is removed again at once, so nothing stays behind. */
-function announceDeletion(storage: Storage): void {
-	storage.setItem(DELETED, String(Date.now()));
-	storage.removeItem(DELETED);
+function announceDeletion(storage: PageStorage): LocalRefusal | null {
+	return storage.write(DELETED, String(Date.now())) ?? storage.remove(DELETED);
 }
 
 /** Reload this tab when another tab deletes the browser's Rooms data. An open
@@ -53,7 +58,7 @@ function announceDeletion(storage: Storage): void {
  * closed database's state on screen. The listener lives as long as the page. */
 export function reloadWhenAnotherTabDeletes(): void {
 	addEventListener("storage", (event) => {
-		if (isDeletionNotice(event)) location.reload();
+		if (isDeletionNotice(event)) reloadPage();
 	});
 }
 
@@ -63,19 +68,22 @@ export function reloadWhenAnotherTabDeletes(): void {
  * an empty string when everything is gone, and otherwise the refusal to
  * show. */
 export async function finishBrowserDataDeletion(): Promise<string | null> {
-	if (sessionStorage.getItem(PENDING) !== "yes") return null;
-	sessionStorage.removeItem(PENDING);
+	if (sessionArea.read(PENDING) !== "yes") return null;
+	// A mark that stays would erase again on every load.
+	const unmarked = sessionArea.remove(PENDING);
+	if (unmarked != null) return refusalText(unmarked);
 	const deletion = new (applicationModule().RoomsBrowserData)();
 	try {
 		await deletion.erase();
-		forgetBrowserPreferences(localStorage);
 	} catch (error) {
-		return error instanceof Error ? error.message : String(error);
+		return refusalText(error);
 	} finally {
 		deletion.free();
 	}
+	const kept = forgetBrowserPreferences(localArea);
+	if (kept != null) return refusalText(kept);
 	// Everything is gone. This screen and every other tab follow.
 	delete document.documentElement.dataset.theme;
-	announceDeletion(localStorage);
-	return "";
+	const unheard = announceDeletion(localArea);
+	return unheard == null ? "" : refusalText(unheard);
 }

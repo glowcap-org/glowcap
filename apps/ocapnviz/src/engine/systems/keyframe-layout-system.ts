@@ -167,7 +167,7 @@ export class KeyframeLayoutSystem {
 	 * its neighbors re-balance, which is the response a drag wants.
 	 * This rule is only sound for a pin being ADDED or MOVED, it
 	 * compares current pins against the current arrangement. A pin
-	 * REMOVAL must recompute cold (`recompute()`): the old layout was status-allow: replacement state identity
+	 * REMOVAL must recompute cold (`recompute()`): the old layout was
 	 * an equilibrium of the pinned system, not necessarily of the
 	 * free one, and cold is still exactly right for the pin-here /
 	 * unpin round trip because the deterministic derivation

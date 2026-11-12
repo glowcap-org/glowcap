@@ -84,7 +84,7 @@ def tls_context(args: argparse.Namespace) -> ssl.SSLContext:
             else ssl.ALERT_DESCRIPTION_ACCESS_DENIED
         )
 
-        def refuse_sni(_socket: ssl.SSLSocket, _server_name: str | None, _context: ssl.SSLContext) -> int:
+        def refuse_sni(_socket: ssl.SSLSocket | ssl.SSLObject, _server_name: str | None, _context: object) -> int:
             return alert
 
         context.set_servername_callback(refuse_sni)

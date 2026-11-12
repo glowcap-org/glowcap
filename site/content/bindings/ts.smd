@@ -127,7 +127,7 @@ when another task waits for the session to shut down.
 > const peerKey = "<64 lowercase hex characters from the server>";
 > const partner = keyed.locator(peerKey, "127.0.0.1", 9099);
 >
-> await using runtime = await Runtime.open({ providers: [provider()] });
+> await using runtime = await Runtime.open({ providers: [provider({ profiles: [keyed] })] });
 > ```
 > **keyed-relay**
 > ```ts
@@ -145,13 +145,13 @@ when another task waits for the session to shut down.
 > ```
 > **tcp**
 > ```ts
-> import { locator, provider } from "@glowcap/tcp";
+> import { locator, plain, provider } from "@glowcap/tcp";
 > import { Runtime } from "@glowcap/runtime";
 >
 > // Plain TCP uses a cleartext host and port.
 > const partner = locator("127.0.0.1", 9099);
 >
-> await using runtime = await Runtime.open({ providers: [provider()] });
+> await using runtime = await Runtime.open({ providers: [provider({ profiles: [plain] })] });
 > ```
 
 From here, the CapTP workflow is the same for every transport:

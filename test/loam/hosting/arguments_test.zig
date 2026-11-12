@@ -174,7 +174,7 @@ test "loam capability arguments retain nested authority across cold reads restar
         const prepared_behavior = [_]f.hosting.Behavior{.{ .schema = 7, .context = &preparation, .prepare = RestartPreparation.prepare, .invoke = invoke }};
         if (mode == .restart) fixture.attached.behaviors = &prepared_behavior;
         try fixture.attached.sleep(fixture.root);
-        var client = host_support.init(a, @splat(0x76), f.driver.Host.Options.withFrameCap(4096));
+        var client = host_support.init(a, @splat(0x76), f.driver.Host.Options.init(.unchecked, 4096));
         defer client.deinit();
         const swiss = try fixture.host.publishDurableCapability(@splat(0x36), fixture.root);
         const pair = try pair_support.openPair(&client, &fixture.host, "127.0.0.1:9716");
@@ -242,7 +242,7 @@ test "loam capability arguments persist only a proven local recipe without parti
         try fixture.init(.{});
         defer fixture.deinit();
         fixture.attached.behaviors = &behaviors;
-        var client = host_support.init(a, @splat(0x77), f.driver.Host.Options.withFrameCap(4096));
+        var client = host_support.init(a, @splat(0x77), f.driver.Host.Options.init(.unchecked, 4096));
         defer client.deinit();
         const swiss = try fixture.host.publishDurableCapability(@splat(0x37), fixture.root);
         const pair = try pair_support.openPair(&client, &fixture.host, "127.0.0.1:9717");

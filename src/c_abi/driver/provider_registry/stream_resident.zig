@@ -54,11 +54,8 @@ pub const Adapter = struct {
     }
 };
 
-pub fn prepare(
-    owner: *Owner,
-    profile: model.transport.Metadata,
-    table_ptr: *const shared.GlowcapStreamTransport,
-) !*Adapter {
+/// Check a stream table. Nothing is built.
+pub fn validate(table_ptr: *const shared.GlowcapStreamTransport) !void {
     try validation.tablePrefix(shared.GlowcapStreamTransport, table_ptr, shared.transport_provider.GLOWCAP_STREAM_TRANSPORT_ABI_VERSION, "stream");
     const table = table_ptr.*;
     const dial_any = table.start_connect != null or table.finish_connect != null or table.cancel_connect != null;
@@ -81,6 +78,15 @@ pub fn prepare(
         shared.setLastError("driver: stream provider has no operation group or connection callbacks", .{});
         return error.InvalidArgument;
     }
+}
+
+pub fn prepare(
+    owner: *Owner,
+    profile: model.transport.Metadata,
+    table_ptr: *const shared.GlowcapStreamTransport,
+) !*Adapter {
+    try validate(table_ptr);
+    const table = table_ptr.*;
     const allocator = owner.allocator;
     const transport = try allocator.dupe(u8, profile.symbol);
     errdefer allocator.free(transport);

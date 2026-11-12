@@ -1,6 +1,7 @@
 //! Local vow minting, observation, and depth-guarded settlement.
 
 const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 const model = @import("model");
 const forwarding = @import("forwarding.zig");
 const vat_mod = @import("mod.zig");
@@ -48,6 +49,10 @@ pub fn reserveResolverPair(self: *Vat) Error!ResolverPairReservation {
 /// Nothing spends an id between the reservation and this commit, which each
 /// issuer asserts.
 pub fn spawnReservedVow(self: *Vat, reservation: ResolverPairReservation) ResolverPair {
+    // The reservation passed admission, and neither refusal can begin before
+    // its commit: a queue copy is scoped to `cloneForQueue`, whose only foreign
+    // code is a body's copy callback, given only its context and an arena,
+    // and only `deinit` sets `tearing_down`.
     self.admitMutation() catch unreachable;
     self.vow_ids.commit(reservation.vow);
     self.pending_local_vows.putAssumeCapacity(.{ .id = reservation.vow }, {});
@@ -70,7 +75,7 @@ pub fn fulfillVow(self: *Vat, resolver: u64, value: model.Argument) Error!void {
 /// Settle a resolver vow broken (ADR-0014). The same contract as
 /// `fulfillVow`. `reason` is borrowed for the call, the listener fires
 /// within it and retains nothing.
-pub fn breakVow(self: *Vat, resolver: u64, reason: []const u8) Error!void {
+pub fn breakVow(self: *Vat, resolver: u64, reason: Broken) Error!void {
     try settleResolver(self, resolver, .{ .broken = reason });
 }
 
@@ -100,19 +105,21 @@ fn settleResolver(self: *Vat, resolver: u64, outcome: Outcome) Error!void {
 fn ownOutcome(arena: std.mem.Allocator, outcome: Outcome) !Outcome {
     return switch (outcome) {
         .fulfilled => |value| .{ .fulfilled = try model.cloneArgument(arena, value) },
-        .broken => |reason| .{ .broken = try arena.dupe(u8, reason) },
+        .broken => |reason| .{ .broken = .{ .detail = try arena.dupe(u8, reason.detail), .cause = reason.cause } },
     };
 }
 
 /// Terminal cleanup of an exclusively held resolver. The static diagnostic
 /// survives listener reentry without allocation, so rollback cannot be refused.
 pub fn breakVowTerminal(self: *Vat, resolver: u64, comptime reason: []const u8) void {
+    // Its callers are a turn's abort and Host session drop, which run inside a
+    // turn or at the top level, never in a queue copy, and before `deinit`.
     self.admitMutation() catch unreachable;
     std.debug.assert(self.turn_depth == 0);
     const vow = self.resolver_vows.fetchRemove(resolver) orelse unreachable;
     self.drive_depth += 1;
     defer self.drive_depth -= 1;
-    settleLocalPrepared(self, vow.value, .{ .broken = reason });
+    settleLocalPrepared(self, vow.value, .{ .broken = Broken.unnamed(reason) });
 }
 
 /// Settle with a resolution already protected across listener reentry by the
@@ -144,6 +151,8 @@ pub fn reserveLocalListener(self: *Vat) Error!void {
 }
 
 pub fn onReservedLocal(self: *Vat, id: u64, listener: Listener) void {
+    // `reserveLocalListener` passed admission, and the same argument as
+    // `spawnReservedVow` keeps it true until this commit.
     self.admitMutation() catch unreachable;
     std.debug.assert(self.pending_local_vows.contains(.{ .id = id }));
     std.debug.assert(!self.listeners.contains(id));
@@ -230,9 +239,9 @@ pub fn settleLocal(self: *Vat, vow_id: u64, outcome: Outcome, retirement: ?*Queu
     defer endSettle(self);
     const owned = ownOutcome(arena, outcome) catch |err| {
         if (retirement) |delivery| delivery.retire(@errorName(err));
-        if (listener) |observer| fireLocalListener(self, observer, .{ .broken = @errorName(err) });
+        if (listener) |observer| fireLocalListener(self, observer, .{ .broken = Broken.unnamed(@errorName(err)) });
         return err;
     };
-    if (retirement) |delivery| delivery.retire(if (owned == .broken) owned.broken else null);
+    if (retirement) |delivery| delivery.retire(if (owned == .broken) owned.broken.detail else null);
     if (listener) |observer| fireLocalListener(self, observer, owned.resolution());
 }

@@ -25,13 +25,16 @@ Run every gate through
 | Quick fix in one layer | the rule that loads with the file | `zig build test` or narrower |
 | Substantial feature, refactor, sweep, or release check | [work skill](.agents/skills/work/SKILL.md) | `zig build check`, plus `runtime-check` when process behavior changed |
 | Red gate, flake, or bug hunt | [debugging skill](.agents/skills/debugging/SKILL.md) | reproduce alone, then the narrowest failing step |
-| Protocol semantics or layer boundary | [architecture](.agents/rules/architecture.md) + [tests](.agents/rules/tests.md) | `zig build oracle-check`, then `check-external` |
+| Protocol semantics or layer boundary | [architecture](.agents/rules/architecture.md) + [tests](.agents/rules/tests.md) | `zig build oracle-check`, then `ocapn-conformance` and `goblins-interop`; `check-external` adds every Rooms browser proof |
 | Performance claim or slow path | [profiling skill](.agents/skills/profiling/SKILL.md) | the bench's `profile-*` step, then its ReleaseFast run |
-| Wire-path allocation or copy | [memory](.agents/rules/memory.md) + [memory-ledger skill](.agents/skills/memory-ledger/SKILL.md) | `zig build test` |
+| Wire-path allocation or copy | [memory](.agents/rules/memory.md) + [memory-ledger skill](.agents/skills/memory-ledger/SKILL.md) | `zig build test` + `source-check` |
 | C ABI surface or a binding | [architecture](.agents/rules/architecture.md) + [`bindings/README.md`](bindings/README.md) | the `gen-*-check` steps ([cli rule](.agents/rules/cli.md)) + `zig build rust-test` |
 | Example or example app | [`examples/README.md`](examples/README.md) | `zig build examples` |
-| Live CapTP (shell, MCP, rooms) | [glowcap-cli](.agents/skills/glowcap-cli/SKILL.md), [glowcap-mcp](.agents/skills/glowcap-mcp/SKILL.md), [rooms-peer](.agents/skills/rooms-peer/SKILL.md) | `zig build cli-test` |
+| Live CapTP (shell, MCP, rooms) | [glowcap-cli](.agents/skills/glowcap-cli/SKILL.md), [glowcap-mcp](.agents/skills/glowcap-mcp/SKILL.md), [rooms-peer](.agents/skills/rooms-peer/SKILL.md) | `zig build cli-test` when `cli/` changed |
 | Runtime process or language workspace | [tests](.agents/rules/tests.md) | `zig build runtime-check` |
+| CI, release, or publication | [`docs/maintaining.md`](docs/maintaining.md) + [`ci/README.md`](ci/README.md) | `zig build infrastructure-check` |
+| Site page | [doc-writing skill](.agents/skills/doc-writing/SKILL.md) | `zig build site-render-check` |
+| Rooms app | [`apps/rooms/developing.md`](apps/rooms/developing.md) | the narrow `rooms-*` step for the boundary ([build steps](docs/build-steps.md)) |
 | Committed script or operations front | [`.agents/rules/scripts.md`](.agents/rules/scripts.md) | owning check + `zig build source-check` |
 | Docs, plans, or agent scaffolding | [doc-writing skill](.agents/skills/doc-writing/SKILL.md) + [doc-drift](.agents/rules/doc-drift.md), plus [agent-scaffolding](.agents/rules/agent-scaffolding.md) for `.agents/` | `zig build source-check`, plus `infrastructure-check` for executable workflow |
 
@@ -47,10 +50,13 @@ the OCapN spec in `conformance/ocapn-spec/`. The
 
 ## First Principles
 
-[Project values](.agents/rules/project-values.md) and the
-[prerelease posture](.agents/rules/prerelease.md) load in every session and
-hold the principles. Two more apply to every task:
+Read [project values](.agents/rules/project-values.md) and the
+[prerelease posture](.agents/rules/prerelease.md) first; they hold the
+principles, and Claude and Cursor load them as resident rules. Three more
+apply to every task:
 
-- Serena is first for Zig symbol work ([serena skill](.agents/skills/serena/SKILL.md)).
+- When the session has Serena, it is first for Zig symbol work ([serena skill](.agents/skills/serena/SKILL.md)).
+- Send no generated issue, patch, or comment to Zig, OCapN, or any project
+  whose policy forbids it ([`PROVENANCE.md`](PROVENANCE.md)).
 - glowcap is AI-assisted and maintainer-directed. Disclose assistance on
   landings ([`PROVENANCE.md`](PROVENANCE.md)).

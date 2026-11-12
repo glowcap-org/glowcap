@@ -1,9 +1,7 @@
 //! Import rows: the positions the partner mints, with their ADR-0004
 //! wire-delta counts split by holder, hashed under the session's secret.
 //!
-//! Name plate: `ImportTable`. Not `slot.zig` (the CapTP `Slot` sum alone) and
-//! not `export_table.zig` (the positions this session mints). An import row
-//! holds no cell: a far import is always `remote_value` of its own position
+//! An import row holds no cell: a far import is always `remote_value` of its own position
 //! (`desc:export` names it regardless of kind, ADR-0006, and remote mint is
 //! object-only, ADR-0006), so the row records only who holds its retains.
 //!
@@ -17,7 +15,7 @@
 //! V1.0 deliver advertised, the listener an `op:listen` nominated, the promise
 //! a shortening callback advanced to, is released by the session's own
 //! prepared message beside the callback, fire, or closure that spends it, and
-//! `adoptForSession` marks it so at the moment the session takes it. A caller's status-allow: state at observation
+//! `adoptForSession` marks it so at the moment the session takes it. A caller's
 //! release is validated against `releasable`, the remainder, so it can never
 //! address a row the session still has to settle through. The row's presence
 //! at that later release is then an invariant, not a runtime question.
@@ -56,7 +54,7 @@
 //! - `engine.Node.foreign_imports` validates its route id against the id kept
 //!   on the live import row, and the Host release path retires the route. A
 //!   released or reused position therefore fails an old id closed even if a
-//!   low-level embedder has not reclaimed the stale map row yet. status-allow: pending state or quoted runtime label
+//!   low-level embedder has not reclaimed the stale map row yet.
 const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");

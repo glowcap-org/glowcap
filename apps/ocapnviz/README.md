@@ -62,10 +62,16 @@ swissnum) on the socket itself, so the pasted announcement is the whole setup. O
 to the same live timeline endpoint with the same secret, so sessions the room
 server never carries still appear.
 
+The live link grants access to the trace and stays only in memory. After a
+reload, paste it again. View preferences are saved separately.
+
 Live connects as soon as you enter it. The badge under the sturdyref says
 **connecting** while it dials, **waiting** until the first observation arrives,
-and **connected** once the feed has spoken. Connecting does not start a
-capture. Press **Record** to start one, and from then on every session and message
+and **connected** once the feed has spoken. **stopped** means the viewer
+could not start or close its connection safely. Reload the page and paste the
+live link again before recording.
+
+Connecting does not start a capture. Press **Record** to start one, and from then on every session and message
 the room carries draws as it happens. **Stop** hands the capture to Play, where
 it replays like any other recording.
 
@@ -77,7 +83,7 @@ Each `op:start-session` animates from its observed depart timestamp to its
 observed arrival. The layout system reads a `<region>-` prefix on peer ids and
 pulls each peer toward its region centroid. The recognized prefixes are `us` or
 `na`, `eu`, `af`, `ap` or `as`, `sa`, and `oc`. Peer ids without one, such as
-`alice` or `dialer-3`, fall back to the concentric layout.
+`alice` or `dialer-3`, anchor at the center of the layout.
 
 ## Architecture
 

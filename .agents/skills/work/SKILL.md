@@ -73,7 +73,7 @@ An unrelated passing gate proves nothing.
 ### Review the diff cold
 
 After a coherent stretch of work, inspect the result, including code added
-earlier in this session, as if someone else wrote it. Answer: <!-- status-allow: workflow sequence -->
+earlier in this session, as if someone else wrote it. Answer:
 
 - **Cause:** Does the change remove the defect's class at its owner, or only
   suppress the observed instance?
@@ -81,7 +81,7 @@ earlier in this session, as if someone else wrote it. Answer: <!-- status-allow:
   callers share the contract? Exercise the affected sibling paths. For a new
   input assertion, cover empty, zero, and largest values at every entry that
   reaches it.
-- **Consumers:** What assumed the old ownership, lifetime, format, or refusal <!-- status-allow: workflow sequence -->
+- **Consumers:** What assumed the replaced ownership, lifetime, format, or refusal
   behavior? Compilation alone cannot prove those assumptions still hold.
 - **Truth:** Which docs, examples, generated files, and rules became untrue?
   `zig build doc-impact` lists the docs that name the changed code in their
@@ -90,11 +90,10 @@ earlier in this session, as if someone else wrote it. Answer: <!-- status-allow:
   it require changing? Collapse duplication at the shared owner;
   `source-check` names two bodies that are one shape written twice
   (`zig_duplicate_bodies`), and a pair below its bar is yours to judge. Which
-  `pub` function lost its last caller? Zig compiles an unused function
-  without complaint. `source-check` holds a private function to a caller in
-  its file (`checkZigDeadPrivateFns`), so count callers for the `pub` ones
-  using Serena's reference tools, including `cli/`, `bench/`, `examples/`,
-  `apps/`, and the bindings, which use the same exports as `test/`.
+  helper lost its last production caller? Follow its feeds and cleanup too.
+  Distinguish tests of surviving behavior from tests that merely keep a retired
+  helper in use. For Zig, use Serena's references across callers outside the
+  file: compilation leaves unused public declarations unchecked.
 - **Optimum:** How far is the result from the obvious design the
   [release bar](../../rules/project-values.md#release-bar) describes?
 

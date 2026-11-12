@@ -25,7 +25,7 @@ from unittest import mock
 import racket_catalog as program
 
 ROOT = Path(__file__).resolve().parents[1]
-SLUG, TAG = "owner/project", "v1.2.3"
+SLUG, TAG = "owner/project", "v0.2.3"
 SOURCE = program.package_source(SLUG, TAG)
 CHECKSUM = "a" * 40
 STALE = {"source": "https://github.com/owner/project.git?path=bindings/racket#v1.2.2", "checksum": "b" * 40}
@@ -40,8 +40,9 @@ class Catalog:
         self.entries, self.answer, self.checksum = list(entries), answer, checksum
         self.posts, self.fetched, self.slept = [], [], []
         self.now = 0.0
+        self.fetch = self.serve
 
-    def fetch(self, url):
+    def serve(self, url):
         self.fetched.append(url)
         if url.endswith(".CHECKSUM"):
             return self.checksum
@@ -146,7 +147,11 @@ class PublishTest(unittest.TestCase):
         for name, catalog, expected in cases:
             with self.subTest(name):
                 if name == "catalog down":
-                    catalog.fetch = lambda url, c=catalog: (500, "") if url == program.CATALOG else c.checksum
+
+                    def down(url, c=catalog):
+                        return (500, "") if url == program.CATALOG else c.checksum
+
+                    catalog.fetch = down
                 with self.assertRaises(program.Refused) as raised:
                     publish(catalog)
                 self.assertIn(expected, str(raised.exception))
@@ -206,7 +211,7 @@ class RequestTest(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"), "Basic b3duZXJAZXhhbXBsZS5pbnZhbGlkOnNlY3JldA==")
 
     def test_the_source_is_the_release_archive(self):
-        self.assertEqual(SOURCE, "https://github.com/owner/project/releases/download/v1.2.3/glowcap-racket-v1.2.3.zip")
+        self.assertEqual(SOURCE, "https://github.com/owner/project/releases/download/v0.2.3/glowcap-racket-v0.2.3.zip")
         self.assertEqual(program.CATALOG, "https://pkgs.racket-lang.org/pkg/glowcap.json")
 
 
@@ -223,7 +228,7 @@ class CommandTest(unittest.TestCase):
         )
 
     def test_a_bad_tag_or_missing_input_exits_2_before_any_request(self):
-        result = self.run_program("publish", "1.2.3", RACKET_CATALOG_EMAIL="e", RACKET_CATALOG_PASSWORD="p")
+        result = self.run_program("publish", "0.2.3", RACKET_CATALOG_EMAIL="e", RACKET_CATALOG_PASSWORD="p")
         self.assertEqual(result.returncode, 2)
         self.assertIn("not a release tag", result.stderr)
         result = self.run_program("publish", TAG, RACKET_CATALOG_EMAIL="e")

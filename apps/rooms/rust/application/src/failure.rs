@@ -66,7 +66,11 @@ codes! {
 	RoomLinksFull => ("room-links-full", "directory", AfterStateChange, "This server can't make any more room links.", Some("Rooms that already have one still work.")),
 	NotSteward => ("not-steward", "room-authority", AfterStateChange, "You don't manage this room.", Some("Whoever opened it does, and once that authority is revoked it doesn't come back.")),
 	PeerOffline => ("peer-offline", "member", AfterStateChange, "Nobody is here under that name right now.", None),
-	IntroductionPending => ("introduction-pending", "member", Soon, "They aren't set up to receive this yet.", Some("Rooms has asked them. Try again in a moment.")),
+	MemberUnreachable => ("member-unreachable", "member", AfterStateChange, "Rooms couldn't reach that member.", Some("Try again once they're online.")),
+	PeerUnreachable => ("peer-unreachable", "peer", AfterStateChange, "Rooms couldn't reach the other side.", Some("Try again once it's back online.")),
+	TransportNotDialed => ("transport-not-dialed", "address", AfterStateChange, "That address uses a transport this session doesn't dial.", Some("Start this session with that transport, or ask for an address on one it has.")),
+	IntroductionRefused => ("introduction-refused", "member", AfterStateChange, "That member's side turned the conversation down.", None),
+	IntroductionTimedOut => ("introduction-timed-out", "member", AfterStateChange, "That member didn't answer in time.", Some("Try again once they are ready to receive messages.")),
 	DirectNotAccepted => ("direct-not-accepted", "direct-conversation", AfterRequestChange, "This conversation is closed on their side.", Some("Start a new one to reach them.")),
 	DeliveryUncertain => ("delivery-uncertain", "message", AfterStateChange, "Nobody can say yet whether this reached them.", Some("Wait for the conversation to catch up before sending it again.")),
 	NotRegistered => ("not-registered", "directory-registration", AfterRequestChange, "You haven't picked a name here yet.", None),
@@ -86,14 +90,9 @@ codes! {
 	NoSuchListener => ("no-such-listener", "listener", AfterRequestChange, "There's no listener by that name.", None),
 	NoRoomManagers => ("no-room-managers", "room-authority", AfterRequestChange, "This server doesn't hand out room management.", Some("Open the room without requesting management.")),
 	SessionUnreachable => ("session-unreachable", "session-peer", AfterStateChange, "Rooms couldn't reach the session this link opens.", Some("Check that the device or server keeping it is still running, then try again.")),
-	SessionHandshakeIncomplete => ("session-handshake-incomplete", "session-peer", AfterStateChange, "Rooms reached the session, but it didn't finish connecting.", Some("Check that it is running a compatible version of Rooms, then try again.")),
 	SessionCapabilityGone => ("session-capability-gone", "session-capability", AfterRequestChange, "This session link no longer works.", Some("Ask for a current one.")),
 	SessionRestorationFailed => ("session-restoration-failed", "session-capability", AfterStateChange, "Rooms couldn't restore the saved session link.", Some("Check that the session is running. If it was reset, attach its new session link.")),
 	SavedTransportUnavailable => ("saved-transport-unavailable", "saved-address", AfterStateChange, "The saved address uses a transport this session can't reach.", Some("Enter its current address again, or start the session with a transport that reaches it.")),
-	SessionSignalingHostOffline => ("session-signaling-host-offline", "hosting-tab", AfterStateChange, "The hosting tab isn't answering on the directory this link names.", Some("On that tab, share the session and leave it open. Reloading it ends sharing.")),
-	SessionSignalingUnavailable => ("session-signaling-unavailable", "signaling-directory", AfterStateChange, "This browser couldn't connect through the directory the link names.", Some("Try again once that directory is reachable from here.")),
-	SessionWebrtcNoRoute => ("session-webrtc-no-route", "webrtc-route", AfterRequestOrStateChange, "The two browsers found each other, but couldn't open a connection between them.", Some("If the networks allow no direct connection, configure TURN or select Relay and share a new link. A link already issued keeps its original route.")),
-	DirectNoRoute => ("direct-no-route", "webrtc-route", AfterStateChange, "No direct route opened from this browser.", Some("A Rooms server gives this browser another route.")),
 	SessionPeerUnverified => ("session-peer-unverified", "session-peer", AfterRequestChange, "The session answered, but this browser couldn't confirm it is the one the link names.", Some("Try again with a link the session shows now.")),
 	LinkPreviewInvalidUrl => ("link-preview-invalid-url", "link-preview", AfterRequestChange, "That address can't be previewed.", Some("Use a public HTTP or HTTPS address without embedded credentials.")),
 	LinkPreviewAddressBlocked => ("link-preview-address-blocked", "link-preview", AfterRequestChange, "Rooms won't connect to that address for a preview.", Some("Link previews can reach only public internet addresses, never this server or its private network.")),
@@ -114,6 +113,10 @@ impl FailureCode {
 	/// back: the wire code, a colon and a space, then the detail.
 	pub fn line(self, detail: impl fmt::Display) -> String {
 		format!("{}: {detail}", self.wire())
+	}
+	/// The codes an admission owner refuses with before it starts the work.
+	pub fn admission(self) -> bool {
+		matches!(self, Self::RateLimited | Self::AdmissionBusy | Self::RequestTooLarge)
 	}
 }
 
@@ -142,42 +145,16 @@ impl<'a> Failure<'a> {
 	pub fn refused_before_dispatch(self) -> bool {
 		match self.code {
 			FailureCode::RateLimited => self.retry_advice().is_some(),
-			FailureCode::AdmissionBusy | FailureCode::RequestTooLarge => true,
-			_ => false,
+			code => code.admission(),
 		}
 	}
-	/// Read the canonical Rooms reason, including the generic binding wrapper
-	/// shipped around it, one per layer the line climbed through, and the
-	/// Host's redeem layer a handoff's dial failure wears. A code-shaped
-	/// phrase inside diagnostic detail is not a failure code. Unknown reasons
-	/// stay untyped. Reading allocates nothing.
+	/// Read only the head segment of a Rooms protocol refusal. Diagnostic
+	/// wrappers and code-shaped detail cannot select a failure code.
 	pub fn parse(reason: &'a str) -> Option<Self> {
-		let mut reason = reason;
-		loop {
-			if let Some(payload) = reason.strip_prefix(REDEEM_LAYER) {
-				reason = payload;
-				continue;
-			}
-			let Some(wrapped) = reason.strip_prefix("glowcap error ") else {
-				break;
-			};
-			let (status, payload) = wrapped.split_once(": ")?;
-			let digits = status.strip_prefix('-').unwrap_or(status);
-			if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-				return None;
-			}
-			status.parse::<i32>().ok()?;
-			reason = payload;
-		}
 		let (segment, detail) = reason.split_once(": ").unwrap_or((reason, ""));
 		FailureCode::parse(segment).map(|code| Self { code, detail })
 	}
 }
-
-/// The prefix the Host's handoff redeem puts on the failure of the dial it
-/// made (the Zig engine's `node/redeem.zig` and its `redeem/` modules write
-/// it). A status layer, not a code.
-const REDEEM_LAYER: &str = "handoff redeem failed: ";
 
 impl fmt::Display for Failure<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -238,31 +215,18 @@ mod tests {
 				detail: "alice",
 			})
 		);
-		assert_eq!(
-			Failure::parse("glowcap error -14: nick-taken: alice"),
-			Some(Failure {
-				code: FailureCode::NickTaken,
-				detail: "alice",
-			})
-		);
-		assert_eq!(
-			Failure::parse("glowcap error -12: glowcap error -8: no-server: none chosen"),
-			Some(Failure {
-				code: FailureCode::NoServer,
-				detail: "none chosen",
-			})
-		);
-		assert_eq!(
-			Failure::parse("glowcap error -12: handoff redeem failed: glowcap error -8: direct-no-route: none opened"),
-			Some(Failure {
-				code: FailureCode::DirectNoRoute,
-				detail: "none opened",
-			})
-		);
-		assert_eq!(
-			Failure::parse("glowcap error -12: handoff redeem failed: host closing"),
-			None
-		);
+		for diagnostic in [
+			"glowcap error -14: nick-taken: alice",
+			"glowcap error -12: glowcap error -8: no-server: none chosen",
+			"glowcap error -12: ExporterUnreachable: glowcap error -8: peer-offline: none opened",
+			"ExporterUnreachable: rate-limited: retry-after-ms=1; scope=introduction; owner=session",
+		] {
+			assert_eq!(
+				Failure::parse(diagnostic),
+				None,
+				"diagnostics cannot name a Rooms refusal"
+			);
+		}
 		assert_eq!(Failure::parse("transport: nick-taken: alice"), None);
 		assert_eq!(
 			Failure::parse("blob-expired: nick-taken: alice"),

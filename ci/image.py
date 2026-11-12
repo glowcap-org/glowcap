@@ -47,8 +47,17 @@ RUNNER_SDKS = (
 )
 
 
-def run(*args, capture=False):
-    return subprocess.run(args, cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE if capture else None).stdout
+# Bounds for one command, each well inside its job's deadline, so a hung
+# registry or daemon fails as that command rather than as the whole job.
+QUICK = 120
+TRANSFER = 900
+BUILD = 2400
+
+
+def run(*args, timeout, capture=False):
+    return subprocess.run(
+        args, cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE if capture else None, timeout=timeout
+    ).stdout
 
 
 def reclaim(need_gb):
@@ -61,8 +70,8 @@ def reclaim(need_gb):
         print(f"{free_gb} GB free of the {need_gb} GB a job needs; keeping the runner's SDKs.")
         return
     print(f"{free_gb} GB free of the {need_gb} GB a job needs; removing the runner's SDKs.")
-    run("sudo", "rm", "-rf", *RUNNER_SDKS, *map(str, Path("/usr/local").glob("julia*")))
-    run("docker", "image", "prune", "--all", "--force")
+    run("sudo", "rm", "-rf", *RUNNER_SDKS, *map(str, Path("/usr/local").glob("julia*")), timeout=TRANSFER)
+    run("docker", "image", "prune", "--all", "--force", timeout=TRANSFER)
     print(f"{shutil.disk_usage('/').free // 1_000_000_000} GB free now.")
 
 
@@ -79,6 +88,7 @@ def fingerprint():
         ".dockerignore",
         "apps/rooms/rust/Cargo.lock",
         capture=True,
+        timeout=QUICK,
     )
     digest = hashlib.sha256(b"glowcap-ci-image-v1\0linux/amd64\0")
     for entry in paths.split("\0"):
@@ -144,7 +154,7 @@ def prepare(publish):
         print(f"Reusing {image}", flush=True)
         output(image=image, archive="false")
         return
-    run("bash", ".devcontainer/bin/configure.sh")
+    run("bash", ".devcontainer/bin/configure.sh", timeout=QUICK)
     run(
         "devcontainer",
         "build",
@@ -155,23 +165,24 @@ def prepare(publish):
         tag,
         "--cache-from",
         reference() + ":ci",
+        timeout=BUILD,
     )
     if publish:
         # The keyed tag commits successful preparation. Publish the shared
         # cache alias first so a failed alias push cannot be hidden by a warm
         # retry. Cold builds use that alias as their layer cache.
-        run("docker", "tag", tag, reference() + ":ci")
-        run("docker", "push", reference() + ":ci")
-        run("docker", "push", tag)
+        run("docker", "tag", tag, reference() + ":ci", timeout=QUICK)
+        run("docker", "push", reference() + ":ci", timeout=TRANSFER)
+        run("docker", "push", tag, timeout=TRANSFER)
         image = resolve(tag, readonly=False)
         if image is None:
             raise RuntimeError("published image is unavailable")
         output(image=image, archive="false")
     else:
-        image = run("docker", "image", "inspect", tag, "--format", "{{.Id}}", capture=True).strip()
+        image = run("docker", "image", "inspect", tag, "--format", "{{.Id}}", capture=True, timeout=QUICK).strip()
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
             raise ValueError("invalid local image ID")
-        run("docker", "save", "-o", str(Path(os.environ["RUNNER_TEMP"]) / "devcontainer.tar"), tag)
+        run("docker", "save", "-o", str(Path(os.environ["RUNNER_TEMP"]) / "devcontainer.tar"), tag, timeout=TRANSFER)
         output(image=image, archive="true")
 
 
@@ -216,23 +227,33 @@ def start(image):
     if reference is None:
         raise ValueError("consumer requires an immutable image reference")
     if reference["registry"]:
-        run("docker", "pull", image)
+        run("docker", "pull", image, timeout=TRANSFER)
     else:
         archive = Path(os.environ["RUNNER_TEMP"]) / "devcontainer.tar"
-        run("docker", "load", "-i", str(archive))
+        run("docker", "load", "-i", str(archive), timeout=TRANSFER)
         archive.unlink()
-        run("docker", "image", "inspect", image)
+        run("docker", "image", "inspect", image, timeout=QUICK)
         # Dockerfile FROM needs a name, even for the CLI's small UID adjustment.
         # Bind that local name to the verified archive ID before creating it.
         local_name = "glowcap-ci:" + image.removeprefix("sha256:")
-        run("docker", "tag", image, local_name)
+        run("docker", "tag", image, local_name, timeout=QUICK)
         image = local_name
-    run("bash", ".devcontainer/hooks/initialize.sh")
-    config = json.loads(run("devcontainer", "read-configuration", "--workspace-folder", ".", capture=True))[
-        "configuration"
-    ]
+    run("bash", ".devcontainer/hooks/initialize.sh", timeout=QUICK)
+    config = json.loads(
+        run("devcontainer", "read-configuration", "--workspace-folder", ".", capture=True, timeout=QUICK)
+    )["configuration"]
     compose = json.loads(
-        run("docker", "compose", "-f", ".devcontainer/docker-compose.yml", "config", "--format", "json", capture=True)
+        run(
+            "docker",
+            "compose",
+            "-f",
+            ".devcontainer/docker-compose.yml",
+            "config",
+            "--format",
+            "json",
+            capture=True,
+            timeout=QUICK,
+        )
     )
     for name in ("zig-pkg", "zig-local", "cargo-build"):
         (CI_CACHE / name).mkdir(parents=True, exist_ok=True)
@@ -241,7 +262,15 @@ def start(image):
     config, compose = consumer_config(config, compose, image, directory / "compose.json")
     (directory / "compose.json").write_text(json.dumps(compose))
     (directory / "devcontainer.json").write_text(json.dumps(config))
-    run("devcontainer", "up", "--workspace-folder", ".", "--config", ".devcontainer/.ci/devcontainer.json")
+    run(
+        "devcontainer",
+        "up",
+        "--workspace-folder",
+        ".",
+        "--config",
+        ".devcontainer/.ci/devcontainer.json",
+        timeout=TRANSFER,
+    )
     run(
         "devcontainer",
         "exec",
@@ -253,6 +282,7 @@ def start(image):
         "-c",
         "git config --local user.name 'github-actions[bot]'; "
         "git config --local user.email '41898282+github-actions[bot]@users.noreply.github.com'",
+        timeout=QUICK,
     )
 
 

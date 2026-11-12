@@ -27,7 +27,7 @@ const std = @import("std");
 
 /// An immutable, structurally-shared map from `u64` to `V`. Construct with
 /// `init`, derive new versions with `put`/`remove` (each returns a new map that
-/// shares structure with the old one), and free each version with `deinit`. status-allow: replacement state identity
+/// shares structure with the old one), and free each version with `deinit`.
 /// Every version is independently owned: deriving `b` from `a` does not consume
 /// `a`, and both must be `deinit`-ed.
 pub fn PersistentMap(comptime V: type) type {
@@ -113,7 +113,7 @@ pub fn PersistentMap(comptime V: type) type {
         }
 
         /// Drop this version's reference to the trie, freeing every node a later
-        /// version or snapshot no longer shares. status-allow: lifecycle transition
+        /// version or snapshot no longer shares.
         pub fn deinit(self: *Self) void {
             if (self.root) |root| releaseNode(self.allocator, root);
             self.* = undefined;
@@ -203,7 +203,7 @@ pub fn PersistentMap(comptime V: type) type {
 
         /// A fresh same-shape copy of `node` (same bitmap and slot count) with the
         /// slot at `pos` replaced by `slot`, every surviving sibling shared and
-        /// retained. The old slot at `pos` is neither retained nor released here. status-allow: replacement state identity
+        /// retained. The old slot at `pos` is neither retained nor released here.
         /// `slot` is installed owning whatever refcount the caller handed it. The
         /// one same-size path-copy spine `nodePut` and `nodeRemove` share. The only
         /// fallible step is the allocation, before `slot` is installed, so a caller

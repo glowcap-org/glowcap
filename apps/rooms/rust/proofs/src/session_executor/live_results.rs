@@ -576,6 +576,9 @@ async fn run_case(external: bool) {
 					.await
 					.unwrap_err();
 				assert_eq!(error.message(), Some("LiveReferenceExpired"));
+				// The browser's result reader (`web/ui/session/managed/operation.ts`)
+				// recognizes expiry by exactly this display.
+				assert_eq!(error.to_string(), "glowcap error -12: LiveReferenceExpired");
 				assert_eq!(
 					finished(&cold_host, &cold_root, "posted-root", &cold_root)
 						.await

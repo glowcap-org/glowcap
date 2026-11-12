@@ -153,7 +153,7 @@ fn srcHasCallOutsideDef(
     call_needle: []const u8,
     def_path: []const u8,
 ) !bool {
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch return false;
+    var dir = try root.openDir(io, "src", .{ .iterate = true });
     defer dir.close(io);
     var walker = try dir.walk(gpa);
     defer walker.deinit();

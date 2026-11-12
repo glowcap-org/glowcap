@@ -5,6 +5,7 @@ use rooms_glowcap::client::{
 	Deadline,
 	workspace::{DirectoryAcquisition, DirectoryImport},
 };
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 pub struct RoomsManagedDirectoryAcquisition {
@@ -25,7 +26,7 @@ impl RoomsManagedDirectoryAcquisition {
 		let acquisition = self.acquisition.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(0, move |_| async move {
-			let acquisition = acquisition.reprepare().await.map_err(|error| error.to_string())?;
+			let acquisition = acquisition.reprepare().await.map_err(RuntimeError::from)?;
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedDirectoryAcquisition { driver, acquisition }.into())
@@ -43,8 +44,11 @@ impl RoomsManagedWorkspace {
 		let input = (|| {
 			let id = scalar(id, 1024)?;
 			let route = scalar(route, glowcap::loam::ReferenceRequest::MAX_URI_BYTES)?;
-			let uri = rooms_glowcap::routes::directory_recipe(&route).map_err(|error| error.to_string())?;
-			Ok((Text::new(id.into()).ok_or("Invalid directory row identity")?, uri))
+			let uri = rooms_glowcap::routes::directory_recipe(&route).map_err(RuntimeError::from)?;
+			Ok((
+				Text::new(id.into()).ok_or_else(|| RuntimeError::invalid("Invalid directory row identity"))?,
+				uri,
+			))
 		})();
 		let (id, uri) = match input {
 			Ok(input) => input,
@@ -52,14 +56,14 @@ impl RoomsManagedWorkspace {
 		};
 		let workspace = self.workspace.clone();
 		self.driver.submit(0, move |_| async move {
-			let snapshot = workspace.snapshot().await.map_err(|error| error.to_string())?;
+			let snapshot = workspace.snapshot().await.map_err(RuntimeError::from)?;
 			let Some(row) = snapshot.intent.directories.as_slice().iter().find(|row| row.id == id) else {
 				return Ok(JsValue::FALSE);
 			};
 			let held = workspace
 				.custody_recipe(custody::Coordinate::new(custody::Role::DirectoryAccess, row.access))
 				.await
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			Ok(JsValue::from_bool(held.as_deref() == Some(uri.as_str())))
 		})
 	}
@@ -80,17 +84,17 @@ impl RoomsManagedWorkspace {
 			let id = scalar(id, 1024)?;
 			let nick = scalar(nick, 32)?;
 			if !nick.is_empty() && !rooms_application::room::inbox::valid_nick(&nick) {
-				return Err("Invalid directory nickname".into());
+				return Err(RuntimeError::invalid("Invalid directory nickname"));
 			}
 			let route = scalar(route, glowcap::loam::ReferenceRequest::MAX_URI_BYTES)?;
-			let uri = rooms_glowcap::routes::directory_recipe(&route).map_err(|error| error.to_string())?;
+			let uri = rooms_glowcap::routes::directory_recipe(&route).map_err(RuntimeError::from)?;
 			if uri.len() > glowcap::loam::ReferenceRequest::MAX_URI_BYTES {
-				return Err("Directory capability recipe is too large".into());
+				return Err(RuntimeError::invalid("Directory capability recipe is too large"));
 			}
 			let bytes = id.len() + nick.len() + uri.len();
 			Ok((
-				Text::new(id.into()).ok_or("Invalid directory row identity")?,
-				Text::new(nick.into()).ok_or("Invalid nickname")?,
+				Text::new(id.into()).ok_or_else(|| RuntimeError::invalid("Invalid directory row identity"))?,
+				Text::new(nick.into()).ok_or_else(|| RuntimeError::invalid("Invalid nickname"))?,
 				uri,
 				bytes,
 			))
@@ -106,17 +110,16 @@ impl RoomsManagedWorkspace {
 				.platform
 				.within(
 					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					environment.runtime.host().enliven(&uri),
+					environment.enliven(&uri),
 				)
 				.await
-				.ok_or("Directory acquisition did not answer")?
-				.map_err(|error| error.to_string())?;
+				.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("Directory acquisition")))??;
 			// Fetching holds no workspace candidate. Session activity may commit
 			// while it waits; select intent only after the capability is held.
-			let snapshot = workspace.snapshot().await.map_err(|error| error.to_string())?;
+			let snapshot = workspace.snapshot().await.map_err(RuntimeError::from)?;
 			let held = snapshot.intent.directories.as_slice().iter().find(|row| row.id == id);
 			if held.is_none() && snapshot.intent.directories.as_slice().len() == workspace::MAX_DIRECTORIES {
-				return Err("Directory capacity is exhausted".into());
+				return Err(RuntimeError::exhausted("Directory capacity is exhausted"));
 			}
 			let mut platform = environment.platform.clone();
 			let source = match held {
@@ -149,7 +152,7 @@ impl RoomsManagedWorkspace {
 					},
 					&snapshot.intent,
 				)
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedDirectoryAcquisition { driver, acquisition }.into())

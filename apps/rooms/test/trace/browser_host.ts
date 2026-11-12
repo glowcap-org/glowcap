@@ -1,5 +1,5 @@
 import { scrapeTraceSturdyref, tracePortOf } from "./viewer.ts";
-import { tracePublishUrlOf } from "../../lib/trace_view.ts";
+import { traceCapOf, tracePublishUrlOf } from "../../lib/trace_view.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 
 const SERVER = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") ??
@@ -41,6 +41,7 @@ try {
 		port: tracePortOf(sturdyref),
 		sturdyref,
 		publish: tracePublishUrlOf(sturdyref),
+		swiss: traceCapOf(sturdyref),
 	}));
 
 	const status = await server.status;

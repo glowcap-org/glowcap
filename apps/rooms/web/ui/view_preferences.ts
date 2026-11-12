@@ -13,6 +13,7 @@ import type { PageProjection } from "./store/projection.ts";
 import { noteTrouble } from "./store.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 import { managedSessionText } from "../../lib/text/managed_session.ts";
+import { localArea, type PageStorage } from "./page_storage.ts";
 
 /** The Rooms record: every view choice but the theme. */
 export const VIEW_PREFERENCES_KEY = "rooms.view-preferences";
@@ -30,17 +31,23 @@ export function viewPreferences(projection: PageProjection): RoomsViewState {
  * other choice from the Rooms record, and the page's current value for either
  * that is unset. A record of another shape is refused once: `refuse` hears
  * why, the theme is kept, and the record is removed so the next load does not
- * say it again. */
-function storedViewState(current: RoomsViewState, refuse: (error: unknown) => void): RoomsViewState {
-	const theme = localStorage.getItem(THEME_KEY);
-	const saved = localStorage.getItem(VIEW_PREFERENCES_KEY);
+ * say it again. A browser that refuses to read storage holds nothing, so the
+ * page keeps its current choices. */
+function storedViewState(
+	current: RoomsViewState,
+	storage: PageStorage,
+	refuse: (error: unknown) => void,
+): RoomsViewState {
+	const theme = storage.read(THEME_KEY);
+	const saved = storage.read(VIEW_PREFERENCES_KEY);
 	let preferences: Omit<RoomsViewState, "theme"> = current;
 	if (saved != null) {
 		try {
 			preferences = z.parse(StoredPreferencesSchema, JSON.parse(saved));
 		} catch (error) {
-			localStorage.removeItem(VIEW_PREFERENCES_KEY);
 			refuse(error);
+			const refused = storage.remove(VIEW_PREFERENCES_KEY);
+			if (refused != null) refuse(refused);
 		}
 	}
 	return parseRoomsViewState({
@@ -54,15 +61,10 @@ function keyed({ theme, ...preferences }: RoomsViewState): { theme: string; reco
 	return { theme, record: JSON.stringify(preferences) };
 }
 
-export function bindViewPreferences(projection: PageProjection): () => void {
+export function bindViewPreferences(projection: PageProjection, storage: PageStorage = localArea): () => void {
 	const refuse = (error: unknown) =>
 		noteTrouble(projection, managedSessionText.browserPreferences, refusalText(error));
-	try {
-		projection.set(storedViewState(viewPreferences(projection), refuse));
-	} catch (error) {
-		// The browser's storage itself refused, so the page keeps its defaults.
-		refuse(error);
-	}
+	projection.set(storedViewState(viewPreferences(projection), storage, refuse));
 	let previous = keyed(viewPreferences(projection));
 	return projection.subscribe(() => {
 		const next = keyed(viewPreferences(projection));
@@ -70,11 +72,8 @@ export function bindViewPreferences(projection: PageProjection): () => void {
 		const recordMoved = next.record !== previous.record;
 		if (!themeMoved && !recordMoved) return;
 		previous = next;
-		try {
-			if (themeMoved) localStorage.setItem(THEME_KEY, next.theme);
-			if (recordMoved) localStorage.setItem(VIEW_PREFERENCES_KEY, next.record);
-		} catch (error) {
-			refuse(error);
-		}
+		const refused = (themeMoved ? storage.write(THEME_KEY, next.theme) : null) ??
+			(recordMoved ? storage.write(VIEW_PREFERENCES_KEY, next.record) : null);
+		if (refused != null) refuse(refused);
 	});
 }

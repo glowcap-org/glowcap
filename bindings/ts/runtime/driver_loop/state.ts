@@ -22,8 +22,7 @@ import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
 import type { HostFinalizerState } from "../host/finalizer.ts";
 import { type LoopEvent } from "../internal/driver_event.ts";
-import { driverCall } from "../internal/driver_failure.ts";
-import { loopS } from "../internal/ffi/driver.ts";
+import { driverRelease } from "../internal/driver_failure.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { type CloseOptions } from "../lifecycle.ts";
 import { type DriverLoopHandle, Session } from "../session.ts";
@@ -155,7 +154,7 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 		this._failBackgroundWithRelease(error);
 	}
 
-	protected _failBackgroundWithRelease(error: unknown, initialOutcome?: ReturnType<typeof driverCall>): void {
+	protected _failBackgroundWithRelease(error: unknown, initialOutcome?: ReturnType<typeof driverRelease>): void {
 		if (this._terminalFailure != null) return;
 		const failure = asGlowcapError(error, "driver loop failed");
 		this._terminalFailure = failure;
@@ -189,11 +188,7 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 		const handle = this._h;
 		this._terminalRelease = new TerminalDriverRelease(
 			failure,
-			() =>
-				driverCall(
-					"driver-loop.background.release",
-					(out) => loopS.glowcap_driver_release(handle, out),
-				),
+			() => driverRelease("driver-loop.background.release", handle),
 			() => {
 				retireDriverLoopFinalizer(this, this._finalizerState);
 				this._h = NULL;

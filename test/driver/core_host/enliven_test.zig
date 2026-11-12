@@ -1,4 +1,5 @@
 //! Owned enlivenment shares cached, wire and parked producer paths.
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const h = @import("harness.zig");
@@ -47,9 +48,9 @@ test "core host: pending forwarding from independently compiled archives retires
 }
 
 test "core host: owned observations cancel across independently compiled archives" {
-    var client = test_host.init(a, @splat(0x49), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(a, @splat(0x49), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x50), Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x50), Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -101,7 +102,7 @@ test "core host: owned observations cancel across independently compiled archive
 }
 
 test "core host: own key enliven uses exact local publication without a session or dial" {
-    var host = test_host.init(a, @splat(0x39), Host.Options.withFrameCap(h.frame_cap));
+    var host = test_host.init(a, @splat(0x39), Host.Options.init(.unchecked, h.frame_cap));
     defer host.deinit();
     const actor = try host.publish("widget", h.Widget, .{});
     const designator = host.node.publicKey().toDesignator();
@@ -132,12 +133,13 @@ test "core host: own key enliven uses exact local publication without a session 
     const refused = try host.enlivenCapability(a, missing);
     defer refused.deinit();
     try std.testing.expectEqualStrings("unknown swissnum", refused.result().failed.message);
+    try std.testing.expectEqual(BreakCause.publicationAbsent(), refused.result().failed.cause);
 }
 
 test "core host: owned enliven returns the same exact identity from wire and cache" {
-    var client = test_host.init(a, @splat(0x31), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(a, @splat(0x31), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x32), Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x32), Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -166,9 +168,9 @@ test "core host: owned enliven returns the same exact identity from wire and cac
 }
 
 test "core host: owned enliven cancellation detaches wire listener and permits immediate retry" {
-    var client = test_host.init(a, @splat(0x33), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(a, @splat(0x33), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x34), Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x34), Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -186,9 +188,9 @@ test "core host: owned enliven cancellation detaches wire listener and permits i
 }
 
 test "core host: concurrent enliven preserves each observer when the first cancels" {
-    var client = test_host.init(a, @splat(0x51), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(a, @splat(0x51), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x52), Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x52), Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -207,34 +209,43 @@ test "core host: concurrent enliven preserves each observer when the first cance
 }
 
 test "core host: owned enliven parked cancellation preserves shared observers and public completion" {
-    var host = test_host.init(a, @splat(0x35), Host.Options.withFrameCap(h.frame_cap));
-    defer host.deinit();
-    const first = try host.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7903", "one"));
-    const second = try host.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7903", "two"));
-    defer second.deinit();
-    const third = try host.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7903", "three"));
-    const public = try host.enlivenSelectOrDial(h.tcpSturdyref("127.0.0.1:7903", "public"));
-    const dial = (try host.nextAction()).?.dial;
-    first.deinit();
-    third.deinit();
-    try std.testing.expectEqual(@as(usize, 2), host.pending_enliven_count);
-    try host.dialFailed(dial.ticket, dial.route_index, "unavailable");
-    try std.testing.expectEqualStrings("unavailable", second.result().failed.message);
-    try std.testing.expectEqual(@as(usize, 0), host.pending_enliven_count);
-    var public_completed = false;
-    while (try host.nextAction()) |action| {
-        if (action == .failed) {
-            try std.testing.expectEqual(public, action.failed.vow_id);
-            public_completed = true;
+    const long_reason: [1024]u8 = @splat('x');
+    for ([_]glowcap.foundation.break_cause.RouteFailure{ .peer_unreachable, .transport_unavailable }) |route_failure| {
+        for ([_][]const u8{ "unavailable", &long_reason }) |reason| {
+            const expected_detail: []const u8 = if (reason.len == long_reason.len) long_reason[0 .. glowcap.foundation.break_cause.Broken.diagnostic_capacity - "ExporterUnreachable: ".len] else "unavailable";
+            var host = test_host.init(a, @splat(0x35), Host.Options.init(.unchecked, h.frame_cap));
+            defer host.deinit();
+            const first = try host.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7903", "one"));
+            const second = try host.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7903", "two"));
+            defer second.deinit();
+            const third = try host.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7903", "three"));
+            const public = try host.enlivenSelectOrDial(h.tcpSturdyref("127.0.0.1:7903", "public"));
+            const dial = (try host.nextAction()).?.dial;
+            first.deinit();
+            third.deinit();
+            try std.testing.expectEqual(@as(usize, 2), host.pending_enliven_count);
+            try host.dialFailed(dial.ticket, dial.route_index, route_failure, reason);
+            try std.testing.expectEqualStrings(expected_detail, second.result().failed.message);
+            try std.testing.expectEqual(route_failure.cause().withFetch(), second.result().failed.cause);
+            try std.testing.expectEqual(@as(usize, 0), host.pending_enliven_count);
+            var public_completed = false;
+            while (try host.nextAction()) |action| {
+                if (action == .failed) {
+                    try std.testing.expectEqual(public, action.failed.vow_id);
+                    try std.testing.expectEqualStrings(expected_detail, action.failed.message.bytes());
+                    try std.testing.expectEqual(route_failure.cause().withFetch(), action.failed.cause);
+                    public_completed = true;
+                }
+            }
+            try std.testing.expect(public_completed);
         }
     }
-    try std.testing.expect(public_completed);
 }
 
 test "core host: owned enliven completes when a parked dial opens" {
-    var client = test_host.init(a, @splat(0x36), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(a, @splat(0x36), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x37), Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x37), Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -256,9 +267,9 @@ test "core host: owned enliven completes when a parked dial opens" {
 
 test "core host: owned enliven survives missing target and session closure" {
     for ([_]bool{ false, true }) |close| {
-        var client = test_host.init(a, @splat(0x38), Host.Options.withFrameCap(h.frame_cap));
+        var client = test_host.init(a, @splat(0x38), Host.Options.init(.unchecked, h.frame_cap));
         defer client.deinit();
-        var server = test_host.init(a, @splat(0x39), Host.Options.withFrameCap(h.frame_cap));
+        var server = test_host.init(a, @splat(0x39), Host.Options.init(.unchecked, h.frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(h.ParkedDial) = .empty;
         defer dials.deinit(a);
@@ -268,6 +279,7 @@ test "core host: owned enliven survives missing target and session closure" {
         if (close) try client.releaseSession(pair.a) else try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
         try std.testing.expect(owned.result() == .failed);
         try std.testing.expectEqual(@as(glowcap.driver.core.VowFailure, if (close) .closed else .broken), owned.result().failed.kind);
+        try std.testing.expect(owned.result().failed.cause.context.fetch);
         try std.testing.expectError(error.EnlivenFailed, owned.take());
         try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
     }
@@ -275,9 +287,9 @@ test "core host: owned enliven survives missing target and session closure" {
 
 test "core host: owned enliven cancellation needs no allocator after admission" {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var client = test_host.init(failing.allocator(), @splat(0x40), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(failing.allocator(), @splat(0x40), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x41), Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x41), Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -300,7 +312,7 @@ test "core host: owned enliven admission rolls back every refused allocation" {
 }
 
 fn refusedAdmission(allocator: std.mem.Allocator) !void {
-    var client = test_host.init(allocator, @splat(0x42), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(allocator, @splat(0x42), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
     const owned = try client.enlivenCapability(allocator, h.tcpSturdyref("127.0.0.1:7907", "widget"));
     owned.deinit();
@@ -311,9 +323,9 @@ fn refusedAdmission(allocator: std.mem.Allocator) !void {
 test "core host: owned enliven connected admission releases every partial reservation" {
     for (0..64) |offset| {
         var failing = std.testing.FailingAllocator.init(a, .{});
-        var client = test_host.init(failing.allocator(), @splat(0x43), Host.Options.withFrameCap(h.frame_cap));
+        var client = test_host.init(failing.allocator(), @splat(0x43), Host.Options.init(.unchecked, h.frame_cap));
         defer client.deinit();
-        var server = test_host.init(a, @splat(0x44), Host.Options.withFrameCap(h.frame_cap));
+        var server = test_host.init(a, @splat(0x44), Host.Options.init(.unchecked, h.frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(h.ParkedDial) = .empty;
         defer dials.deinit(a);
@@ -339,9 +351,9 @@ test "core host: owned enliven connected admission releases every partial reserv
 test "core host: owned enliven cached acquisition survives allocator pressure beside a public completion" {
     for (0..64) |offset| {
         var failing = std.testing.FailingAllocator.init(a, .{});
-        var client = test_host.init(failing.allocator(), @splat(0x45), Host.Options.withFrameCap(h.frame_cap));
+        var client = test_host.init(failing.allocator(), @splat(0x45), Host.Options.init(.unchecked, h.frame_cap));
         defer client.deinit();
-        var server = test_host.init(a, @splat(0x46), Host.Options.withFrameCap(h.frame_cap));
+        var server = test_host.init(a, @splat(0x46), Host.Options.init(.unchecked, h.frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(h.ParkedDial) = .empty;
         defer dials.deinit(a);
@@ -349,9 +361,7 @@ test "core host: owned enliven cached acquisition survives allocator pressure be
         _ = try pair.b.served.publish(&server.vat, "widget", h.Widget, .{});
         const ref = h.tcpSturdyref("127.0.0.1:7909", "widget");
         const public = try client.enlivenSelectOrDial(ref);
-        for (0..64) |_| {
-            if (!try h.shuttleAll(&.{pair})) break;
-        } else return error.PumpDidNotQuiesce;
+        try h.shuttleUntilQuiet(&.{pair});
         // Leave the public completion unprojected in Host's action queue.
         failing.fail_index = failing.alloc_index + offset;
         const observed = client.enlivenCapability(a, ref) catch |err| {
@@ -376,9 +386,9 @@ test "core host: owned enliven cached acquisition survives allocator pressure be
 }
 
 test "core host: releasing cached owned enliven preserves a transferred public completion" {
-    var client = test_host.init(a, @splat(0x47), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(a, @splat(0x47), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x48), Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x48), Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -386,9 +396,7 @@ test "core host: releasing cached owned enliven preserves a transferred public c
     _ = try pair.b.served.publish(&server.vat, "widget", h.Widget, .{});
     const ref = h.tcpSturdyref("127.0.0.1:7910", "widget");
     const public = try client.enlivenSelectOrDial(ref);
-    for (0..64) |_| {
-        if (!try h.shuttleAll(&.{pair})) break;
-    } else return error.PumpDidNotQuiesce;
+    try h.shuttleUntilQuiet(&.{pair});
     const completion = while (try client.takeAction()) |action| {
         if (action == .settled and action.settled.vow_id == public) break action;
         client.freeAction(action);

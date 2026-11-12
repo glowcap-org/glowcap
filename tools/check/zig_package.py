@@ -77,8 +77,8 @@ def check(zig, work):
     # A core consumer has no need for either Cargo or the relay's shell fetch.
     forbidden = work / "optional-tools"
     forbidden.mkdir()
-    for name in ("cargo", "bash", "curl"):
-        tool = forbidden / name
+    for optional in ("cargo", "bash", "curl"):
+        tool = forbidden / optional
         tool.write_text('#!/bin/sh\necho "core consumer invoked optional tool: $0" >&2\nexit 1\n')
         tool.chmod(0o755)
     core_env = dict(os.environ, PATH=str(forbidden) + os.pathsep + os.environ["PATH"])

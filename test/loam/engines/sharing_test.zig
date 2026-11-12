@@ -1,4 +1,4 @@
-//! Native lost-acknowledgement recovery followed by a fresh CapTP connection.
+//! LMDB lost-acknowledgement recovery followed by a fresh CapTP connection.
 const std = @import("std");
 const f = @import("../access/sharing_fixture.zig");
 const h = f.h;

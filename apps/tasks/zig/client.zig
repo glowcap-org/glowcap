@@ -6,7 +6,10 @@
 //! board changed. Each change names a fresh sequence number from
 //! `mutation-sequence`, so a retried change applies once.
 //!
-//!   glowcap-tasks-client <port> <board-name> <nick> <task-text>
+//!   glowcap-tasks-client <locator> <board-name> <nick> <task-text>
+//!
+//! The locator is the `ocapn://` URI the server printed. The session is
+//! encrypted Noise TCP, and the handshake proves the server holds that key.
 //!
 //! It exits 0 once the task shows up in the second list and the watcher saw
 //! the change.
@@ -16,10 +19,9 @@ const glowcap = @import("glowcap");
 
 const demo_usage = @import("demo_usage");
 
+const sealed = @import("demo_sealed");
 const driver = glowcap.driver;
-const tcp = glowcap.net.tcp;
 
-const host_addr = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
 
 const Client = struct {
@@ -30,7 +32,10 @@ const Client = struct {
     fn call(self: Client, target: driver.Capability, verb: []const u8, args: []const driver.Value) driver.Value {
         return switch (self.session.call(target, verb, args, self.arena) catch |err| die(self.nick, @errorName(err))) {
             .fulfilled => |value| value,
-            .broken => |reason| die(self.nick, reason),
+            .broken => |reason| {
+                var diagnostic: [glowcap.driver.core.Broken.diagnostic_capacity]u8 = undefined;
+                die(self.nick, reason.render(&diagnostic));
+            },
         };
     }
 
@@ -90,15 +95,12 @@ fn die(nick: []const u8, reason: []const u8) noreturn {
 pub fn main(init: std.process.Init) !void {
     var args_iter = std.process.Args.Iterator.init(init.minimal.args);
     _ = args_iter.next();
-    const port_str = args_iter.next() orelse return fail("missing <port>");
+    const locator = args_iter.next() orelse return fail("missing <locator>");
     const board_name = args_iter.next() orelse return fail("missing <board-name>");
     const nick = args_iter.next() orelse return fail("missing <nick>");
     const task_text = args_iter.next() orelse return fail("missing <task-text>");
-    const port = std.fmt.parseInt(u16, port_str, 10) catch return fail("<port> must be a number");
 
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const loc = tcp.locatorFromAddress(&designator_buf, try tcp.parseHostPort(host_addr, port));
-    const session = try driver.connect(init.gpa, init.io, .{ .symbols = &.{.tcp} }, loc, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
+    const session = try sealed.connect(init.gpa, init.io, locator, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
     defer session.deinit();
     var arena_state = std.heap.ArenaAllocator.init(init.gpa);
     defer arena_state.deinit();
@@ -136,5 +138,5 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn fail(message: []const u8) error{Usage} {
-    return demo_usage.usage("usage: glowcap-tasks-client <port> <board-name> <nick> <task-text>", message);
+    return demo_usage.usage("usage: glowcap-tasks-client <locator> <board-name> <nick> <task-text>", message);
 }

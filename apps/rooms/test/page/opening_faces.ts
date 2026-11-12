@@ -3,13 +3,14 @@
 // a relay that refuses this browser, and a bundle that ran but could not open
 // its session.
 
-import type { Browser } from "playwright";
+import type { Browser, Page } from "playwright";
 import { fail } from "../support/fail.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { parseLocator } from "@glowcap/runtime";
 import { formatRoomsSturdyref, loopbackTcpDesignator } from "../../lib/locator.ts";
 import { saveAndReload } from "../../lib/text/controls.ts";
 import { joinNeedsAddress } from "../../lib/text/join.ts";
+import { PATH_OFFER } from "../../web/ui/page_base.ts";
 import {
 	serverAskFor,
 	serverNeedAddress,
@@ -26,6 +27,22 @@ import {
 	serverTurnsAway,
 	settingsRelayAway,
 } from "../../lib/text/settings.ts";
+
+/** Serve this server's page to `open` the way a host that serves one file per
+ * address serves the static export: marked static, and answering nothing below
+ * the page's own address. A deep address reaches such a page under
+ * `PATH_OFFER`, which is how that host's 404 page hands one over. */
+async function asStaticHost(open: Page, httpPort: number): Promise<void> {
+	await open.route(`http://127.0.0.1:${httpPort}/**`, async (route) => {
+		if (route.request().resourceType() !== "document") return route.fallback();
+		if (new URL(route.request().url()).pathname !== "/") {
+			return route.fulfill({ status: 404, contentType: "text/plain", body: "no such file" });
+		}
+		const served = await route.fetch();
+		const page = (await served.text()).replace("<head>", '<head><meta name="rooms-host" content="static" />');
+		await route.fulfill({ response: served, body: page });
+	});
+}
 
 export async function proveOpeningFaces(browser: Browser, httpPort: number): Promise<void> {
 	// The other two: a browser with scripting off is told why there is nothing
@@ -207,17 +224,13 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 	}
 
 	// A static page names no server under the session choices, and Attach asks
-	// for one first. The page here is this server's own, marked the way the
-	// static export marks it, so its server answers from the same origin.
+	// for one first. The page here is this server's own, served the way a static
+	// host serves its export, so its server answers from the same origin.
 	// Saving the server attaches with the link still filled in.
 	{
 		const bare = await browser.newContext();
 		const open = await bare.newPage();
-		await open.route(`http://127.0.0.1:${httpPort}/`, async (route) => {
-			const served = await route.fetch();
-			const page = (await served.text()).replace("<head>", '<head><meta name="rooms-host" content="static" />');
-			await route.fulfill({ response: served, body: page });
-		});
+		await asStaticHost(open, httpPort);
 		await open.goto(`http://127.0.0.1:${httpPort}/`);
 		await open.waitForSelector("#sessionServer", { timeout: 60_000 })
 			.catch(() => fail("session choice did not name its Rooms server"));
@@ -269,12 +282,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 	{
 		const bare = await browser.newContext();
 		const open = await bare.newPage();
-		await open.route(`http://127.0.0.1:${httpPort}/**`, async (route) => {
-			if (route.request().resourceType() !== "document") return route.fallback();
-			const served = await route.fetch();
-			const page = (await served.text()).replace("<head>", '<head><meta name="rooms-host" content="static" />');
-			await route.fulfill({ response: served, body: page });
-		});
+		await asStaticHost(open, httpPort);
 		await open.goto(`http://127.0.0.1:${httpPort}/`);
 		await establishLocalSession(open);
 		await open.fill("#nick", "asker");
@@ -316,9 +324,10 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 				.catch(() => fail("saving the server did not reload the page")),
 			open.press("#serverAddress", "Enter"),
 		]);
-		const landed = new URL(open.url());
-		if (landed.pathname !== "/join" || new URLSearchParams(landed.hash.slice(1)).get("address") !== elsewhere) {
-			fail(`the reload did not land on the act that asked: ${landed.pathname}${landed.search}${landed.hash}`);
+		await open.waitForFunction(() => location.pathname === "/join", undefined, { timeout: 30_000 })
+			.catch(() => fail(`the reload did not land on the act that asked: ${open.url()}`));
+		if (new URLSearchParams(new URL(open.url()).hash.slice(1)).get("address") !== elsewhere) {
+			fail(`the reload lost the address in the act that asked: ${open.url()}`);
 		}
 		await open.waitForSelector("#joinAddressField", { timeout: 60_000 })
 			.catch(() => fail("the join form did not come back after the reload"));
@@ -336,13 +345,8 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 	for (const path of ["/dm/alice", "/directory"]) {
 		const bare = await browser.newContext();
 		const open = await bare.newPage();
-		await open.route(`http://127.0.0.1:${httpPort}/**`, async (route) => {
-			if (route.request().resourceType() !== "document") return route.fallback();
-			const served = await route.fetch();
-			const page = (await served.text()).replace("<head>", '<head><meta name="rooms-host" content="static" />');
-			await route.fulfill({ response: served, body: page });
-		});
-		await open.goto(`http://127.0.0.1:${httpPort}${path}`);
+		await asStaticHost(open, httpPort);
+		await open.goto(`http://127.0.0.1:${httpPort}/?${PATH_OFFER}=${encodeURIComponent(path.slice(1))}`);
 		await establishLocalSession(open);
 		await open.waitForSelector("#serverAddress", { timeout: 30_000 })
 			.catch(() => fail(`opening ${path} with no Rooms server did not ask for one`));
@@ -356,9 +360,8 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 				.catch(() => fail("saving the server did not reload the page")),
 			open.press("#serverAddress", "Enter"),
 		]);
-		if (new URL(open.url()).pathname !== path) {
-			fail(`the reload did not land on the address that asked: ${new URL(open.url()).pathname}`);
-		}
+		await open.waitForFunction((path) => location.pathname === path, path, { timeout: 30_000 })
+			.catch(() => fail(`the reload did not land on the address that asked: ${open.url()}`));
 		await bare.close();
 	}
 

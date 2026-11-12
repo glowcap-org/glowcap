@@ -14,8 +14,14 @@
 //
 // Deno without `--allow-env` / `--allow-read` / `--allow-net` / `--allow-write`
 // / `--allow-run` degrades to the next rung instead of failing.
+//
+// The resolver prints only the notice that it is downloading. A soft failure
+// or the bare-name fallback becomes a resolution note (`resolution_notes.ts`):
+// a `library-resolution` event in `takeRuntimeFailures()`, and the cause a
+// failed load of the resolved path names.
 
 import { injected_adapter_key } from "./runtime.ts";
+import { noteResolution, resolveNoting } from "./resolution_notes.ts";
 import { archiveListingViolation } from "./archive_hygiene.ts";
 import { libFile } from "./surface.ts";
 import { sha256File } from "./release_checksum.ts";
@@ -307,7 +313,7 @@ function softFail(msg: string): void {
 	if (envTruthy("GLOWCAP_STRICT")) {
 		throw new Error(msg);
 	}
-	console.error(`glowcap: ${msg} (soft-fail)`);
+	noteResolution(`${msg} (soft-fail)`);
 }
 
 export function curlDownload(
@@ -491,6 +497,9 @@ function fetchIntoCache(
 		// HardFailError and STRICT always re-throw. Do not swallow them.
 		if (err instanceof HardFailError) throw err;
 		if (envTruthy("GLOWCAP_STRICT")) throw err;
+		noteResolution(
+			`could not fill the cache from ${url}: ${err instanceof Error ? err.message : String(err)} (soft-fail)`,
+		);
 	} finally {
 		try {
 			rmdirSync(lockDir);
@@ -571,14 +580,16 @@ export function libPath(stem: string): string {
 	) {
 		return stem;
 	}
-	const file = libFile(stem);
-	const dir = libDir();
-	if (dir !== null) return `${dir.replace(/\/$/, "")}/${file}`;
-	if (process.platform === "win32") {
-		throw new Error(
-			`glowcap: could not resolve an absolute path for ${file}; set GLOWCAP_LIB_DIR or populate the abi-versioned cache (Windows refuses bare DLL names to avoid search-order plants)`,
-		);
-	}
-	console.error(`glowcap: warning: loading bare ${file} via the OS search path`);
-	return file;
+	return resolveNoting(() => {
+		const file = libFile(stem);
+		const dir = libDir();
+		if (dir !== null) return `${dir.replace(/\/$/, "")}/${file}`;
+		if (process.platform === "win32") {
+			throw new Error(
+				`glowcap: could not resolve an absolute path for ${file}; set GLOWCAP_LIB_DIR or populate the abi-versioned cache (Windows refuses bare DLL names to avoid search-order plants)`,
+			);
+		}
+		noteResolution(`loading bare ${file} via the OS search path`);
+		return file;
+	});
 }

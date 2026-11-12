@@ -13,6 +13,11 @@
 # or a trace fact.
 
 LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
+    "GLOWCAP_BREAK_CAUSE": (12, (
+        ("origin", 0, 4),
+        ("reason", 4, 4),
+        ("context", 8, 4),
+    )),
     "GLOWCAP_REFERENCE": (8, (
         ("id", 0, 8),
     )),
@@ -145,7 +150,7 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("retain", 48, 8),
         ("release", 56, 8),
     )),
-    "GLOWCAP_HOST_ACTION": (120, (
+    "GLOWCAP_HOST_ACTION": (128, (
         ("kind", 0, 4),
         ("ticket", 8, 8),
         ("route_index", 16, 8),
@@ -154,6 +159,7 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("message", 96, 8),
         ("message_len", 104, 8),
         ("result", 112, 4),
+        ("cause", 116, 12),
     )),
     "GLOWCAP_HOST_PUMP_HOOKS": (48, (
         ("ctx", 0, 8),
@@ -228,7 +234,7 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("secondary_name", 64, 8),
         ("secondary_name_len", 72, 8),
     )),
-    "GLOWCAP_DRIVER_EVENT": (216, (
+    "GLOWCAP_DRIVER_EVENT": (224, (
         ("kind", 0, 4),
         ("primary_result", 4, 4),
         ("secondary_result", 8, 4),
@@ -241,19 +247,20 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("operation_id", 40, 8),
         ("listener_id", 48, 8),
         ("session", 56, 8),
-        ("action", 64, 120),
-        ("primary_name", 184, 8),
-        ("primary_name_len", 192, 8),
-        ("secondary_name", 200, 8),
-        ("secondary_name_len", 208, 8),
+        ("action", 64, 128),
+        ("primary_name", 192, 8),
+        ("primary_name_len", 200, 8),
+        ("secondary_name", 208, 8),
+        ("secondary_name_len", 216, 8),
     )),
     "GLOWCAP_TCP_STREAM_OPTIONS": (12, (
         ("keepalive_idle_sec", 0, 4),
         ("keepalive_interval_sec", 4, 4),
         ("keepalive_count", 8, 4),
     )),
-    "GLOWCAP_TCP_CONFIG": (12, (
+    "GLOWCAP_TCP_CONFIG": (16, (
         ("stream", 0, 12),
+        ("profiles", 12, 4),
     )),
     "GLOWCAP_TCP_OPERATION_OPTIONS": (12, (
         ("stream", 0, 12),

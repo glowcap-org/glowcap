@@ -448,7 +448,7 @@ pub fn argsToCWith(
 /// projects, and an `integers` run that leaves as one `_INTEGERS` value with
 /// its words lent where they lie (ADR-0064).
 /// The one encoding recursion behind both application value forms. The data
-/// arms are spelled once; the arms whose C form depends on `Input` are
+/// arms are spelled once. The arms whose C form depends on `Input` are
 /// resolved at compile time below them, and an arm neither names stops the
 /// build at this boundary, which must decide how (or whether) the typed
 /// surface carries it, instead of degrading silently to the opaque-frame

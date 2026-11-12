@@ -2,9 +2,11 @@
 //!
 //! Closing the gifter session destroys deposited gifts, a failure
 //! listener can keep a redeem-opened exporter, an early withdraw
-//! waits for a distinct deposit or breaks on gifter close, and a
+//! waits for a distinct deposit or breaks on gifter close, a
+//! condemned introducer leaves a pending dial's origin empty, and a
 //! live exporter session is reused instead of dialing a duplicate.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const test_host = @import("../../../support/core_host.zig");
@@ -36,7 +38,8 @@ const FailedRedeemListener = struct {
     host: *Host,
     session: ?*HostSession = null,
     adopt_exporter: bool,
-    adopted: bool = false,
+    /// The callback-time `tell`, latched so the test reads its exact refusal.
+    adopted: anyerror!void = error.ProbeDidNotRun,
     captured: CapturedRef = .{},
 
     fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
@@ -47,22 +50,21 @@ const FailedRedeemListener = struct {
         // `tell` is callback-safe. It claims application
         // ownership synchronously, while its encode work waits for the host
         // pump's outer unwind.
-        self.host.tell(
+        self.adopted = self.host.tell(
             session,
             .{ .far = model.FarRef.object(0) },
             .{ .verb = "keep-open", .args = &.{} },
-        ) catch return;
-        self.adopted = true;
+        );
     }
 };
 
 fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.init(.unchecked, frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.init(.unchecked, frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.init(.unchecked, frame_cap));
     defer recipient.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -141,12 +143,13 @@ fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     try pumpToQuiescence(allocator, &.{ &exporter, &gifter, &recipient }, &.{ r_to_g, r_to_e }, &dials);
 
     try std.testing.expect(listener.captured.broken);
+    try std.testing.expectEqual(BreakCause.partner().withWithdrawal(), listener.captured.cause);
     try std.testing.expectEqualStrings(
-        "handoff redeem failed: gifter session is not open",
+        "gifter session is not open",
         listener.captured.reason_buf[0..listener.captured.reason_len],
     );
     if (adopt_in_failure_listener) {
-        try std.testing.expect(listener.adopted);
+        try listener.adopted;
         try std.testing.expect(!dialed.isTerminating());
     } else {
         // The recipient opened r_to_e solely for this redemption. With no
@@ -168,11 +171,11 @@ const EarlyWithdrawOutcome = enum { deposit, close };
 
 fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.init(.unchecked, frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.init(.unchecked, frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.init(.unchecked, frame_cap));
     defer recipient.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -254,7 +257,8 @@ fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
             try pumpToQuiescence(allocator, &.{ &exporter, &gifter, &recipient }, &.{ r_to_g, r_to_e }, &dials);
 
             try std.testing.expect(redeemed.broken);
-            try std.testing.expectEqualStrings("handoff redeem failed: gifter session is not open", redeemed.reason_buf[0..redeemed.reason_len]);
+            try std.testing.expectEqual(BreakCause.partner().withWithdrawal(), redeemed.cause);
+            try std.testing.expectEqualStrings("gifter session is not open", redeemed.reason_buf[0..redeemed.reason_len]);
         },
     }
 }
@@ -267,6 +271,45 @@ test "core host: closing the gifter session wakes and breaks an early withdraw" 
     try runEarlyWithdrawComposition(.close);
 }
 
+test "core host: a condemned introducer leaves a pending dial's origin empty" {
+    const allocator = std.testing.allocator;
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x1e)), Host.Options.init(.unchecked, frame_cap));
+    defer exporter.deinit();
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x16)), Host.Options.init(.unchecked, frame_cap));
+    defer gifter.deinit();
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x1c)), Host.Options.init(.unchecked, frame_cap));
+    defer recipient.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer harness.deinitParked(allocator, &dials);
+
+    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7031", &dials);
+    _ = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "widget", Widget, .{});
+    var widget = CapturedRef{};
+    try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &widget, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &gifter, &exporter }, &.{g_to_e}, &dials);
+
+    const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7032", &dials);
+    _ = try r_to_g.b.served.publish(&r_to_g.b.host.vat, "introducer", Introducer, .{ .widget = try widget.require() });
+    var introducer = CapturedRef{};
+    try recipient.vowOn(try recipient.fetch(r_to_g.a, "introducer"), .{ .ctx = &introducer, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &gifter, &recipient }, &.{r_to_g}, &dials);
+    _ = try recipient.send(r_to_g.a, try introducer.require(), .{ .verb = "introduce", .args = &.{} });
+    try pumpToQuiescence(allocator, &.{ &exporter, &gifter, &recipient }, &.{ g_to_e, r_to_g }, &dials);
+    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
+    const ticket = dials.items[0].ticket;
+
+    // A live introducer names the designator its partner signed.
+    const signed = try recipient.pendingDialIntroducer(ticket, 0) orelse return error.TestExpectedIntroducer;
+    try std.testing.expect(signed.len > 0);
+
+    // Condemned but not yet released, the introducer still heads the dial's
+    // waiters. Its refusal must leave the origin empty, never fail the dial.
+    try driver.core.testing.condemn(&recipient, r_to_g.a, .normal_shutdown, "introducer closed");
+    const pending = recipient.pendingDial(ticket, 0) orelse return error.MissingPendingDial;
+    try std.testing.expectEqual(r_to_g.a.peer_handle, pending.introducer.?);
+    try std.testing.expectEqual(@as(?[]const u8, null), try recipient.pendingDialIntroducer(ticket, 0));
+}
+
 test "core host: a redeem reuses a live exporter session instead of dialing a duplicate" {
     // When the recipient already holds a live open
     // session to the exporter, redeeming a give that names that exporter must
@@ -276,11 +319,11 @@ test "core host: a redeem reuses a live exporter session instead of dialing a du
     // the authority, consulted at the node-action seam before any dial is
     // surfaced.
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.init(.unchecked, frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.init(.unchecked, frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.init(.unchecked, frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;

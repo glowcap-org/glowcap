@@ -60,7 +60,7 @@ function withHover(hit: Hit): PointerMachineState {
 
 // ─────────────────────── Pan tier wins everything ─────────────────────
 
-Deno.test("paused-pan → grabbing", () => {
+Deno.test("a paused pan shows the grabbing cursor", () => {
 	const fsm: PointerMachineState = {
 		fsm: {
 			kind: "paused-pan",
@@ -98,19 +98,19 @@ Deno.test("paused-pan → grabbing", () => {
 	assertEquals(cursorFor(ctx(), fsm), "grabbing" as CSSCursor);
 });
 
-Deno.test("dragging with space-pan tier → grabbing", () => {
+Deno.test("dragging with the space-pan tier shows the grabbing cursor", () => {
 	const fsm = pressed({ tier: "space-pan", verb: { kind: "pan-surface" } });
 	assertEquals(cursorFor(ctx(), fsm), "grabbing");
 });
 
-Deno.test("spaceHeld with no fsm activity → grab", () => {
+Deno.test("spaceHeld with no fsm activity shows the grab cursor", () => {
 	assertEquals(
 		cursorFor(ctx({ spaceHeld: true }), withHover(dummyHit("stage-peer"))),
 		"grab",
 	);
 });
 
-Deno.test("hand tool active → grab", () => {
+Deno.test("an active hand tool shows the grab cursor", () => {
 	assertEquals(
 		cursorFor(
 			ctx({ activeTool: "hand" }),
@@ -122,7 +122,7 @@ Deno.test("hand tool active → grab", () => {
 
 // ─────────────────────── Tool cursors ─────────────────────────────────
 
-Deno.test("Add Peer with hover → crosshair", () => {
+Deno.test("Add Peer with a hover shows the crosshair cursor", () => {
 	assertEquals(
 		cursorFor(
 			ctx({ activeTool: "add-peer" }),
@@ -135,7 +135,7 @@ Deno.test("Add Peer with hover → crosshair", () => {
 Deno.test("Open Session keeps its own cursor over a peer it will take", () => {
 	// cursor.md step 5 before step 6: the tool's cursor outranks the verb's. The node
 	// the tool is about to act on is the last place to stop saying which tool is
-	// active, otherwise every authoring tool reads the same at the moment of status-allow: state at observation
+	// active, otherwise every authoring tool reads the same at the moment of
 	// aiming, and the palette's distinction ends where it matters.
 	assertEquals(
 		cursorFor(
@@ -148,14 +148,14 @@ Deno.test("Open Session keeps its own cursor over a peer it will take", () => {
 
 // ─────────────────────── Verb-resolved cursors (Select tool) ──────────
 
-Deno.test("Select hovering peer → pointer", () => {
+Deno.test("hovering a peer with Select shows the pointer cursor", () => {
 	assertEquals(
 		cursorFor(ctx(), withHover(dummyHit("stage-peer"))),
 		"pointer",
 	);
 });
 
-Deno.test("Select hovering ruler → ew-resize (scrub cursor)", () => {
+Deno.test("hovering the ruler with Select shows the ew-resize scrub cursor", () => {
 	// A scrub moves the playhead along time; it does not resize anything. The
 	// `col-resize` handle cursor belongs to the two seams that do, an event
 	// pill's edge and the gutter's, and the two gestures must not read alike.
@@ -165,21 +165,21 @@ Deno.test("Select hovering ruler → ew-resize (scrub cursor)", () => {
 	);
 });
 
-Deno.test("Select hovering the gutter seam → col-resize", () => {
+Deno.test("hovering the gutter seam with Select shows the col-resize cursor", () => {
 	assertEquals(
 		cursorFor(ctx(), withHover(dummyHit("timeline-gutter-edge"))),
 		"col-resize",
 	);
 });
 
-Deno.test("Select hovering an overview window grip → ew-resize", () => {
+Deno.test("hovering an overview window grip with Select shows the ew-resize cursor", () => {
 	assertEquals(
 		cursorFor(ctx(), withHover(dummyHit("timeline-overview-edge"))),
 		"ew-resize",
 	);
 });
 
-Deno.test("Select hovering right-edge handle → col-resize", () => {
+Deno.test("hovering the right-edge handle with Select shows the col-resize cursor", () => {
 	assertEquals(
 		cursorFor(
 			ctx(),
@@ -189,7 +189,7 @@ Deno.test("Select hovering right-edge handle → col-resize", () => {
 	);
 });
 
-Deno.test("Select hovering overview → grab (pan-view)", () => {
+Deno.test("hovering the overview with Select shows the grab pan-view cursor", () => {
 	assertEquals(
 		cursorFor(ctx(), withHover(dummyHit("timeline-overview", { t: 0 }))),
 		"grab",
@@ -201,21 +201,21 @@ Deno.test("Select hovering overview → grab (pan-view)", () => {
 // every empty pixel announces a gesture that is not running. The
 // crosshair belongs to the sweep itself, which the in-flight tests below
 // pin.
-Deno.test("Select hovering empty stage → default (the marquee has not started)", () => {
+Deno.test("hovering the empty stage with Select shows the default cursor because the marquee has not started", () => {
 	assertEquals(
 		cursorFor(ctx(), withHover(dummyHit("stage-empty"))),
 		"default",
 	);
 });
 
-Deno.test("Select hovering empty lane → default (the marquee has not started)", () => {
+Deno.test("hovering an empty lane with Select shows the default cursor because the marquee has not started", () => {
 	assertEquals(
 		cursorFor(ctx(), withHover(dummyHit("timeline-lane-empty"))),
 		"default",
 	);
 });
 
-Deno.test("Select hovering gutter label → pointer", () => {
+Deno.test("hovering a gutter label with Select shows the pointer cursor", () => {
 	// The label's click selects the row's entity and its drag reorders the
 	// stack. `pointer` is the half that is true of a click, and the reorder is
 	// a discovered affordance; a resize cursor would describe neither.
@@ -237,13 +237,13 @@ Deno.test("a row lifted out of the stack reads grabbing", () => {
 
 // ─────────────────────── Off-canvas ───────────────────────────────────
 
-Deno.test("No hover, no tool, no flag → default", () => {
+Deno.test("no hover, no tool, and no flag shows the default cursor", () => {
 	assertEquals(cursorFor(ctx(), IDLE_MACHINE), "default");
 });
 
 // ─────────────────────── Drag-in-flight verb cursors ──────────────────
 
-Deno.test("Dragging a peer → move", () => {
+Deno.test("dragging a peer shows the move cursor", () => {
 	const fsm = pressed({
 		tier: "default",
 		verb: {
@@ -255,7 +255,7 @@ Deno.test("Dragging a peer → move", () => {
 	assertEquals(cursorFor(ctx(), fsm), "move");
 });
 
-Deno.test("Dragging an event → ew-resize", () => {
+Deno.test("dragging an event shows the ew-resize cursor", () => {
 	const fsm = pressed({
 		tier: "default",
 		verb: {
@@ -267,7 +267,7 @@ Deno.test("Dragging an event → ew-resize", () => {
 	assertEquals(cursorFor(ctx(), fsm), "ew-resize");
 });
 
-Deno.test("Dragging rubber-band → crosshair", () => {
+Deno.test("dragging a rubber band shows the crosshair cursor", () => {
 	const fsm = pressed({
 		tier: "default",
 		verb: { kind: "rubber-band", mode: "replace" },
@@ -313,7 +313,7 @@ Deno.test("the Select tool answers for every surface there is", () => {
 
 // ─────────────────── What a tool refuses, before the click ────────────
 
-Deno.test("Open Session over an end nothing attributed → not-allowed", () => {
+Deno.test("Open Session over an end nothing attributed shows the not-allowed cursor", () => {
 	// The resolver's own refusal: a new session mints its own two ends, so an
 	// end that already belongs to one has nothing to be here. No document
 	// question is involved, so no injection is needed to say so.
@@ -474,7 +474,7 @@ Deno.test("Shift previews add, Shift+Option previews remove", () => {
 	}
 });
 
-Deno.test("Option alone previews nothing — it is reserved", () => {
+Deno.test("Option alone previews nothing because it is reserved", () => {
 	// Unchanged from no modifier at all: the empty stage's ordinary arrow.
 	assertEquals(
 		cursorFor(
@@ -522,7 +522,7 @@ Deno.test("only a selecting tool previews modifiers", () => {
 
 // ─────────────────────── Affordance predicates ────────────────────────
 
-Deno.test("verbSelectsEntity: select-or-drag-peer → true", () => {
+Deno.test("verbSelectsEntity is true for select-or-drag-peer", () => {
 	assertEquals(
 		verbSelectsEntity({
 			tier: "default",
@@ -536,7 +536,7 @@ Deno.test("verbSelectsEntity: select-or-drag-peer → true", () => {
 	);
 });
 
-Deno.test("verbSelectsEntity: pan-surface → false", () => {
+Deno.test("verbSelectsEntity is false for pan-surface", () => {
 	assertEquals(
 		verbSelectsEntity({
 			tier: "space-pan",
@@ -546,7 +546,7 @@ Deno.test("verbSelectsEntity: pan-surface → false", () => {
 	);
 });
 
-Deno.test("verbSelectsEntity: tool-create (Add Peer) → false", () => {
+Deno.test("verbSelectsEntity is false for tool-create (Add Peer)", () => {
 	assertEquals(
 		verbSelectsEntity({
 			tier: "tool-create",
@@ -556,7 +556,7 @@ Deno.test("verbSelectsEntity: tool-create (Add Peer) → false", () => {
 	);
 });
 
-Deno.test("verbSelectsEntity: rubber-band → false (no entity)", () => {
+Deno.test("verbSelectsEntity is false for rubber-band because it selects no entity", () => {
 	assertEquals(
 		verbSelectsEntity({
 			tier: "default",
@@ -566,7 +566,7 @@ Deno.test("verbSelectsEntity: rubber-band → false (no entity)", () => {
 	);
 });
 
-Deno.test("verbArmsForTool: two-click-pick → true", () => {
+Deno.test("verbArmsForTool is true for two-click-pick", () => {
 	assertEquals(
 		verbArmsForTool({
 			tier: "tool-create",
@@ -580,7 +580,7 @@ Deno.test("verbArmsForTool: two-click-pick → true", () => {
 	);
 });
 
-Deno.test("verbArmsForTool: select verb → false", () => {
+Deno.test("verbArmsForTool is false for the select verb", () => {
 	assertEquals(
 		verbArmsForTool({
 			tier: "default",
@@ -594,21 +594,21 @@ Deno.test("verbArmsForTool: select verb → false", () => {
 	);
 });
 
-Deno.test("verbIsPan: space-pan → true", () => {
+Deno.test("verbIsPan is true for space-pan", () => {
 	assertEquals(
 		verbIsPan({ tier: "space-pan", verb: { kind: "pan-surface" } }),
 		true,
 	);
 });
 
-Deno.test("verbIsPan: hand-tool → true", () => {
+Deno.test("verbIsPan is true for hand-tool", () => {
 	assertEquals(
 		verbIsPan({ tier: "hand-tool", verb: { kind: "pan-surface" } }),
 		true,
 	);
 });
 
-Deno.test("verbIsPan: select verb → false", () => {
+Deno.test("verbIsPan is false for the select verb", () => {
 	assertEquals(
 		verbIsPan({
 			tier: "default",

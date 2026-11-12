@@ -105,13 +105,13 @@
     {
       "verb": "notify",
       "args": [
-        "introducible",
+        "mintInboxFor",
         "bob",
         "11111111-1111-4111-8111-111111111111",
         "opening"
       ],
       "event": {
-        "kind": "introducible",
+        "kind": "mintInboxFor",
         "peer": "bob",
         "id": "11111111-1111-4111-8111-111111111111"
       },
@@ -130,7 +130,7 @@
     {
       "verb": "notify",
       "args": [
-        "introducible",
+        "mintInboxFor",
         "",
         "11111111-1111-4111-8111-111111111111",
         "opening"

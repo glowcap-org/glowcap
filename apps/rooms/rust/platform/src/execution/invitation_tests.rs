@@ -63,9 +63,12 @@ async fn scenario() {
 	)
 	.await
 	.unwrap();
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
 	let locator = server.locator().unwrap();
 	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
 	let accepted = Rc::new(accepted.unwrap());

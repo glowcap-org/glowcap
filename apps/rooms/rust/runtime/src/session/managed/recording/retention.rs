@@ -1,5 +1,7 @@
 //! Canonical retention intent owns recovery. The local archive owns erasure.
 //! One scalar subscriber shares the session's existing two change feeds.
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use super::*;
 use crate::session::managed::{Membership, supervision};
 use tokio::sync::Mutex;
@@ -88,16 +90,13 @@ impl<P: Platform> Worker<P> {
 			.send(&root, "retention-intent", &[root.clone().into()])
 			.await?;
 		let Some([glowcap::Argument::Boolean(keep), operation]) = intent.as_list() else {
-			return Err(loam::refusal("invalid retention intent"));
+			return Err(Error::invalid("invalid retention intent"));
 		};
 		if let glowcap::Argument::String(operation) = operation {
 			if *keep {
-				return Err(loam::refusal("invalid pending history erasure"));
+				return Err(Error::invalid("invalid pending history erasure"));
 			}
-			self.archive
-				.clear_source_when_ready(&self.source)
-				.await
-				.map_err(|e| loam::refusal(e.to_string()))?;
+			self.archive.clear_source_when_ready(&self.source).await?;
 			self.writer
 				.idempotent(
 					"settle-history-erasure",
@@ -117,7 +116,7 @@ impl<P: Platform> Worker<P> {
 				.platform
 				.within(20_000, self.reconcile())
 				.await
-				.unwrap_or_else(|| Err(loam::refusal("history erasure remains pending; retry retirement")));
+				.unwrap_or_else(|| Err(Error::uncertain("history erasure remains pending; retry retirement")));
 			self.signals.ready.send_replace(Some(result.clone()));
 			if let Err(error) = &result {
 				self.writer.report("History retention", error);
@@ -133,7 +132,7 @@ impl<P: Platform> Worker<P> {
 				key = self.availability.ended() => {
 					match self.activity.archive_ended(self.writer.root()?, key) {
 						Ok(()) => self.availability.reported(key),
-						Err(error) => return Err(error),
+						Err(error) => return Err(error.into()),
 					}
 				},
 				_ = self.signals.stopping.changed() => { self.signals.stopping.borrow_and_update(); },

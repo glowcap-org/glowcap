@@ -144,7 +144,7 @@ const ANT_DASH_PX = 2;
 /** Wall-clock ms between phase steps. Phase advances ONE PIXEL per
  *  ANT_MS along the perimeter, with 2-px dashes that's half a dash
  *  per step, keeping the march fluid rather than stepped while
- *  preserving the old-school cadence. Centralized here so every status-allow: replacement state identity
+ *  preserving the old-school cadence. Centralized here so every
  *  marquee in the app marches at the same speed. */
 const ANT_MS = 30;
 

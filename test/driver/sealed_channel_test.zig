@@ -38,7 +38,7 @@ const pumpSealedPair = sealed_pair.pumpSealedPair;
 const openSealedPair = sealed_pair.openSealedPair;
 
 fn sealedHost(allocator: std.mem.Allocator, durable_seed: [crypto.seed_bytes]u8, root_byte: u8) Host {
-    return sealed_pair.sealedHost(allocator, durable_seed, root_byte, Host.Options.withFrameCap(frame_cap));
+    return sealed_pair.sealedHost(allocator, durable_seed, root_byte, Host.Options.init(.unchecked, frame_cap));
 }
 
 const Greeter = struct {
@@ -97,11 +97,11 @@ test "sealed host consumes a coalesced read larger than one Noise record" {
     const allocator = std.testing.allocator;
     const seed_a = @as([32]u8, @splat(0x41));
     const seed_b = @as([32]u8, @splat(0x42));
-    var options_a = Host.Options.withFrameCap(frame_cap);
+    var options_a = Host.Options.init(.unchecked, frame_cap);
     options_a.limits.max_frame_bytes = 100_000;
     var a = test_host.initWithRoot(allocator, seed_a, @as([32]u8, @splat(0xa2)), options_a);
     defer a.deinit();
-    var options_b = Host.Options.withFrameCap(frame_cap);
+    var options_b = Host.Options.init(.unchecked, frame_cap);
     options_b.limits.max_frame_bytes = 100_000;
     var b = test_host.initWithRoot(allocator, seed_b, @as([32]u8, @splat(0xb2)), options_b);
     defer b.deinit();
@@ -131,14 +131,14 @@ test "sealed host consumes a coalesced read larger than one Noise record" {
 
 test "sealed channel: the same pair over keyed-tcp reports unauthenticated" {
     // Evidence item two's second row: the identical topology minus the
-    // channel. The keyed dial demands the same durable key, yet nothing on a status-allow: pending state or quoted runtime label
+    // channel. The keyed dial demands the same durable key, yet nothing on a
     // cleartext socket proves it, so the honest report stays unauthenticated.
     const allocator = std.testing.allocator;
     const seed_c = @as([32]u8, @splat(0x63));
     const seed_d = @as([32]u8, @splat(0x64));
-    var c = test_host.init(allocator, seed_c, Host.Options.withFrameCap(frame_cap));
+    var c = test_host.init(allocator, seed_c, Host.Options.init(.unchecked, frame_cap));
     defer c.deinit();
-    var d = test_host.init(allocator, seed_d, Host.Options.withFrameCap(frame_cap));
+    var d = test_host.init(allocator, seed_d, Host.Options.init(.unchecked, frame_cap));
     defer d.deinit();
 
     const acceptor_designator = keyedDesignator(seed_d);

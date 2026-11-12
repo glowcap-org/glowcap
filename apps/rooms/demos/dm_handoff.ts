@@ -19,8 +19,7 @@
 //                                 over her own *direct* connection.
 //
 // Four proofs, all asserted:
-//   1. Carol's first `introduce` is refused `introduction-pending`, because Bob
-//      has not offered an inbox for her yet, and the retry after his offer works. status-allow: pending state or quoted runtime label
+//   1. Carol's single `introduce` waits until Bob offers an inbox for her.
 //   2. Carol's DM arrives on the inbox Bob minted for Carol, so Bob knows who
 //      sent it without the message naming anyone.
 //   3. Bob accepts a brand-new inbound connection for the DM, Carol reached Bob
@@ -38,7 +37,6 @@ import type { Behavior, Host, Session } from "@glowcap/runtime";
 import type { ServerEndpoint } from "../test/support/installed_server.ts";
 import { dial } from "../lib/locator.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "../lib/protocol.ts";
-import { INTRODUCTION_PENDING, roomsErrorOf } from "../lib/errors.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
 import { Directory } from "../lib/room/client.ts";
 import type { RoomsRuntime } from "../lib/locator.ts";
@@ -208,10 +206,8 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		const carolToRoom = await dial(room.locator, carol.runtime);
 		services.serve(carolToRoom);
 		const carolDir = await carolToRoom.fetch(DIRECTORY);
-		let introducible = false;
-		const carolReg = carolToRoom.spawn((verb, args) => {
+		const carolReg = carolToRoom.spawn((verb, _args) => {
 			if (verb !== NOTIFY) return null;
-			if (args[0] === "introducible" && args[1] === "bob") introducible = true;
 			return null;
 		});
 		const registration = await carolToRoom.send(carolDir, REGISTER, ["carol", carol.locator, carolReg]);
@@ -221,24 +217,12 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		) fail("Carol did not acquire her exact committed registration");
 		await carolToRoom.release(registration[2]);
 
-		// First contact: Bob has offered no inbox for Carol, so the directory asks
-		// him for one and refuses this ask. One extra round trip, once per pair.
-		let pending = false;
-		try {
-			await carolToRoom.send(carolDir, INTRODUCE, ["bob", bobRegistrationId]);
-		} catch (err) {
-			pending = roomsErrorOf(err)?.code === INTRODUCTION_PENDING;
-			if (!pending) throw err;
-		}
-		if (!pending) fail("expected the first introduce to be refused introduction-pending");
-		await untilHealthy(() => introducible, "Bob to offer the room an inbox for Carol");
+		// The original answer waits for Bob's offer and redeems it onto a
+		// direct connection. Carol makes exactly one introduction call.
+		const direct = await carolToRoom.send(carolDir, INTRODUCE, ["bob", bobRegistrationId, crypto.randomUUID()]);
 		if (asked !== "carol") {
 			fail(`expected Bob to be asked for an inbox for carol, got ${asked}`);
 		}
-
-		// Now it lands: the directory hands Carol the inbox Bob minted for her, as a
-		// gift, and her send redeems it onto a fresh direct connection to Bob.
-		const direct = await carolToRoom.send(carolDir, INTRODUCE, ["bob", bobRegistrationId]);
 		if (!(direct instanceof Ref)) fail("introduce did not return a capability");
 
 		await untilHealthy(() => bobInboundCount() >= 1, "Carol's direct connection to Bob");

@@ -91,7 +91,9 @@ export function installFakePeerConnection(
 			this.onconnectionstatechange?.();
 		}
 
-		close(): void {}
+		close(): void {
+			this.calls.push("close");
+		}
 	}
 
 	Object.defineProperty(globalThis, "RTCPeerConnection", {
@@ -118,6 +120,7 @@ export function fakeChannel(
 		ordered?: boolean;
 		maxPacketLifeTime?: number | null;
 		maxRetransmits?: number | null;
+		readyState?: RTCDataChannelState;
 	} = {},
 ): RTCDataChannel {
 	return {
@@ -125,7 +128,7 @@ export function fakeChannel(
 		ordered: options.ordered ?? true,
 		maxPacketLifeTime: options.maxPacketLifeTime ?? null,
 		maxRetransmits: options.maxRetransmits ?? null,
-		readyState: "connecting",
+		readyState: options.readyState ?? "connecting",
 		addEventListener() {},
 		close() {},
 	} as unknown as RTCDataChannel;

@@ -38,27 +38,11 @@ jobs:
       actions: read
       contents: read
     outputs:
-      version: ${{ steps.version.outputs.value }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Read the product version
-        id: version
-        run: |
-          version="$(jq -er '.abi_version | select(test("^0\\.[0-9]+\\.[0-9]+$"))' bindings/c-abi-resolve.json)"
-          echo "value=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Require the tag of this version
-        if: github.ref_type == 'tag'
-        env:
-          VERSION: ${{ steps.version.outputs.value }}
-        run: |
-          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
-            echo "release tag $GITHUB_REF_NAME does not match the tree's version v$VERSION" >&2
-            exit 1
-          fi
 
       - uses: ./.github/actions/pins
         id: pins
@@ -66,6 +50,14 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ steps.pins.outputs.python }}
+
+      - name: Read the product version
+        id: version
+        run: python3 ci/github_release.py version
+
+      - name: Require the tag of this version
+        if: github.ref_type == 'tag'
+        run: python3 ci/github_release.py version "$GITHUB_REF_NAME"
 
       - name: Require this commit's successful check workflow
         if: github.ref_type == 'tag'
@@ -75,7 +67,7 @@ jobs:
 
       - name: Require the version's changelog entry
         env:
-          VERSION: ${{ steps.version.outputs.value }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: python3 ci/release_notes.py --changelog "$VERSION"
 
   archives:
@@ -109,21 +101,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install the pinned Zig
-        run: |
-          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
-          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/zig
 
       - uses: ./.github/actions/pins
         id: pins
 
-      - name: Install the pinned Rust
-        env:
-          RUST_VERSION: ${{ steps.pins.outputs.rust }}
-        run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal
-          rustup default "$RUST_VERSION"
-          rustup component add llvm-tools
+      # The sidecar inspection reads exports with the producing toolchain's llvm-nm.
+      - uses: ./.github/actions/rust
+        with:
+          components: llvm-tools
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -140,25 +126,14 @@ jobs:
           deno-version: ${{ steps.pins.outputs.deno }}
 
       - name: Install the matching browser compiler
-        run: |
-          rustup target add wasm32-unknown-unknown
-          version="$(python3 .devcontainer/image/rooms-toolchain-version.py)"
-          cargo install wasm-bindgen-cli --version "$version" --locked
+        run: python3 ci/release_build.py browser-compiler
 
       - name: Build the release archives
-        run: |
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-            export SDKROOT
-          fi
-          zig build -Doptimize=ReleaseSafe c-sdk-pack glowcap-pack -Dcpu=baseline "-Dtarget=$RELEASE_TARGET"
+        run: python3 ci/release_build.py archives "$RELEASE_TARGET"
 
       - name: Build and verify the browser bundle and WebAssembly libraries
         if: matrix.runner == 'ubuntu-24.04'
-        run: |
-          source .devcontainer/pins.sh
-          npx --yes "playwright@$PLAYWRIGHT_VERSION" install --with-deps chromium
-          zig build portable-package-test
+        run: python3 ci/release_build.py browser-bundle
 
       - name: Verify the Zig source package
         run: zig build consumer-check --summary all
@@ -228,40 +203,13 @@ jobs:
           path: archive-artifact
 
       - name: Extract the verified Linux product
-        run: |
-          archive="$(find archive-artifact -type f -name "glowcap-v${VERSION}-${ARCHIVE_ARCH}-linux.tar.gz" -print -quit)"
-          if [ -z "$archive" ]; then
-            echo "missing Linux product archive for $ARCHIVE_ARCH" >&2
-            exit 1
-          fi
-          (cd "$(dirname "$archive")" && sha256sum --check SHA256SUMS)
-          mkdir image-context
-          tar --extract --gzip --file "$archive" --directory image-context --no-same-owner
+        run: python3 ci/release_image.py context
 
       - name: Build the exact Docker image artifact
-        run: |
-          mkdir image-artifact
-          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
-          docker buildx build \
-            --platform "linux/$IMAGE_ARCH" \
-            --build-arg SOURCE_DATE_EPOCH \
-            --file image-context/share/glowcap/deployment/rooms.Dockerfile \
-            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
-            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
-            --label "org.opencontainers.image.version=v$VERSION" \
-            --tag "$IMAGE:v$VERSION-$IMAGE_ARCH" \
-            --load \
-            image-context
-          # The runner's Docker driver loads images directly. Save that image
-          # instead of requiring a separate builder's file-export support.
-          docker image save --output "image-artifact/glowcap-rooms-v$VERSION-$IMAGE_ARCH.docker.tar" \
-            "$IMAGE:v$VERSION-$IMAGE_ARCH"
-          (cd image-artifact && sha256sum *.docker.tar > SHA256SUMS)
+        run: python3 ci/release_image.py build
 
       - name: Load and exercise the exact image artifact
-        run: |
-          docker image load --input "image-artifact/glowcap-rooms-v$VERSION-$IMAGE_ARCH.docker.tar"
-          python3 tools/check/glowcap_release_image.py "$IMAGE:v$VERSION-$IMAGE_ARCH" "$IMAGE_ARCH"
+        run: python3 ci/release_image.py exercise
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
@@ -342,7 +290,7 @@ jobs:
       - name: Publish the versioned multi-platform Rooms image
         if: steps.prepared.outputs.artifact_id == ''
         id: image
-        run: python3 ci/release_image.py artifacts
+        run: python3 ci/release_image.py publish artifacts
 
       - name: Attest the image's build provenance
         if: steps.prepared.outputs.artifact_id == ''
@@ -405,26 +353,7 @@ jobs:
         run: python3 ci/github_release.py verify-prepared "$RELEASE_TAG"
 
       - name: Fill the draft release, then make it public
-        run: |
-          python3 ci/github_release.py resume-state "$RELEASE_TAG" > artifacts/release-state.json
-          if ! jq -e '.published' artifacts/release-state.json > /dev/null; then
-            if ! jq -e '.draft_exists' artifacts/release-state.json > /dev/null; then
-              gh release create "$RELEASE_TAG" \
-                --repo "$GITHUB_REPOSITORY" \
-                --title "glowcap $RELEASE_TAG alpha" \
-                --prerelease \
-                --draft \
-                --latest=false \
-                --verify-tag \
-                --notes-file artifacts/release-notes.md
-            fi
-            while IFS= read -r asset; do
-              gh release upload "$RELEASE_TAG" "release-assets/$asset" --repo "$GITHUB_REPOSITORY"
-            done < <(jq -r '.missing_assets[]' artifacts/release-state.json)
-            python3 ci/github_release.py verify-draft "$RELEASE_TAG"
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false \
-              --notes-file artifacts/release-notes.md
-          fi
+        run: python3 ci/github_release.py publish-draft "$RELEASE_TAG"
 
       - name: Publish the language packages at the tag
         run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"

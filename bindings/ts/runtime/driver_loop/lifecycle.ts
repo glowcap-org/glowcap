@@ -19,11 +19,11 @@
 
 import { OK, TIMEOUT } from "@glowcap/abi";
 import { GlowcapError } from "../errors.ts";
-import { checkDriver, driverCall, driverLastError } from "../internal/driver_failure.ts";
+import { checkDriver, driverLastError, driverRelease } from "../internal/driver_failure.ts";
 import { loopS } from "../internal/ffi/driver.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { ab, outPointer } from "../internal/seam.ts";
-import { type CloseOptions, encodeCloseOptions, lifecycleClosed, releaseConsumed } from "../lifecycle.ts";
+import { type CloseOptions, encodeCloseOptions, lifecycleClosed } from "../lifecycle.ts";
 import { traceDrainHost } from "../trace.ts";
 import { enterDeliver, exitDeliver, insideTurn } from "../trampoline.ts";
 import { retireDriverLoopFinalizer } from "./finalizer.ts";
@@ -153,12 +153,9 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 			// Driver release below then frees loop, sessions, and host together.
 			wrapper.prepareLoopTeardown();
 			const handle = this._h;
-			const releaseOutcome = driverCall(
-				"driver-loop.close.release",
-				(out) => loopS.glowcap_driver_release(handle, out),
-			);
+			const releaseOutcome = driverRelease("driver-loop.close.release", handle);
 			const releaseResult = releaseOutcome.code;
-			if (!releaseConsumed(releaseResult)) {
+			if (!releaseOutcome.consumed) {
 				this._failBackgroundWithRelease(
 					releaseOutcome.error ?? new GlowcapError(releaseResult, "driver loop release was refused"),
 					releaseOutcome,

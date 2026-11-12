@@ -22,7 +22,7 @@ pub fn installInbound(self: *Session, id: model.AnswerPosition) !void {
 
 /// Transfer a live outbound answer's sole application-release responsibility
 /// out of the stateless serve policy. Returns false when a delayed send has not
-/// published its answer row yet. The claimant releases a wire question through status-allow: pending state or quoted runtime label
+/// published its answer row yet. The claimant releases a wire question through
 /// `op:gc-answers` and a local listen record through `releaseOutbound`, unless
 /// session teardown retires the row first.
 pub fn claimOutboundRelease(self: *Session, target: session.OutboundAnswerTarget) bool {

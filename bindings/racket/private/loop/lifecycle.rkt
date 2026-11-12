@@ -141,8 +141,9 @@
      (define-values (code failure)
        (call/driver-failure
         'driver-release
-        (lambda (out) (glowcap_driver_release (driver-loop-handle lp) out))))
-     (when (release-consumed? code)
+        (lambda (out) (glowcap_driver_release (driver-loop-handle lp) out))
+        #:result-code release-result-code))
+     (when (release-result-consumed? code)
        (set-box! (driver-loop-state lp) 'released)
        (for ([listener (in-hash-values (driver-loop-listeners lp))])
          (cond
@@ -154,7 +155,7 @@
      (values code failure)]))
 
 ;; A loop-owned host redeems handoffs inside its own steps (ADR-0024), so
-;; the exporter session it dialed exists with no wrapper yet. It wraps lazily: status-allow: pending state or quoted runtime label
+;; the exporter session it dialed exists with no wrapper yet. It wraps lazily:
 ;; `build-session` registers it, so a repeat lookup answers this same
 ;; object.
 (define (loop-wrap-session lp ptr) (wrap-loop-session lp ptr #f))

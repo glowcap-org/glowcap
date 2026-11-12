@@ -8,7 +8,7 @@ const std = @import("std");
 
 /// Add an unsigned policy duration to the signed monotonic-clock domain.
 /// Durations beyond the representable clock horizon wait until that horizon.
-/// They never fire earlier and never trap while narrowing a valid option. status-allow: event or source ordering
+/// They never fire earlier and never trap while narrowing a valid option.
 pub fn dueAt(stamp: i64, delay_ms: u64) i64 {
     std.debug.assert(stamp >= 0);
     const remaining: u64 = @intCast(std.math.maxInt(i64) - stamp);
@@ -160,9 +160,9 @@ pub fn Machine(
         /// The nearest deadline, from the cache when it holds one.
         ///
         /// Zero waiters costs nothing, and one waiter costs a comparison
-        /// rather than a walk of every slot. That difference is the whole
-        /// point at the 500k destination, where a table walk before each poll
-        /// and again after each batch is a million cold slot reads bought by
+        /// rather than a walk of every slot. That difference matters
+        /// at a large connection count, where a table walk before each poll
+        /// and again after each batch is a million cold slot reads caused by
         /// one stalled partner.
         pub fn earliestDue(self: *Self) ?i64 {
             if (self.waiting_count == 0) {

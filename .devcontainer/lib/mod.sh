@@ -12,7 +12,7 @@
 #   checkout.sh   which checkout is which, according to Git
 #   env.sh        the ignored .env a checkout carries
 #   docker.sh     the container and network Docker holds for a checkout
-#   fetch.sh      verified downloads and architecture selection
+#   fetch.sh      verified downloads, retries, and architecture selection
 #
 # launcher.sh sits beside them and is not loaded here: it is useful only on
 # the host, so the two tmux launchers source it directly and it pulls this

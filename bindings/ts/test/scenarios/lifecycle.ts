@@ -467,7 +467,7 @@ export async function run(managed: Runtime): Promise<void> {
 		let timedOut: GlowcapError | null = null;
 		try {
 			await using timeoutRuntime = await Runtime.open({
-				providers: [tcp.provider()],
+				providers: [tcp.provider({ profiles: [tcp.plain] })],
 				handshakeTimeoutMs: 250,
 			});
 			await timeoutRuntime.connect(tcp.locator("127.0.0.1", listener.port));

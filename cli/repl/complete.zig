@@ -1,4 +1,4 @@
-//! CapTP lab completion candidates (pure; hermetic tests).
+//! CapTP lab completion candidates.
 const std = @import("std");
 const registry = @import("../registry.zig");
 const builtins = @import("../ocapn/builtins.zig");
@@ -113,7 +113,7 @@ fn pushIfPrefix(out: []Candidate, written: usize, prefix: []const u8, token: []c
     return written + 1;
 }
 
-/// Wrap menu selection by `delta` (+1 Tab, -1 Shift-Tab). Pure. Hermetic tests.
+/// Wrap menu selection by `delta` (+1 Tab, -1 Shift-Tab).
 pub fn cycleSel(sel: usize, n: usize, delta: i8) usize {
     if (n == 0) return 0;
     if (delta >= 0) return (sel + 1) % n;

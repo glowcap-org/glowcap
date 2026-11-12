@@ -22,21 +22,21 @@
 //!
 //!   * `closeUserData(id) u64`, the internal user data a close submits under.
 //!   * `onClosing(backend, inner, c, how) void`, run once as the row enters
-//!     `closing`, before its state changes and before any seat is refused;
+//!     `closing`, before its state changes and before any seat is refused.
 //!   * `prepareClose(backend, inner, c) !void` and `closeRefused(backend,
 //!     inner, c) void`, the fallible preparation a requested close needs and
-//!     its undo when a later step refuses;
+//!     its undo when a later step refuses.
 //!   * `refuseExternalSend(backend, c, cause, phase) void`, which publishes
-//!     and clears the send seat in the adapter's own shape;
+//!     and clears the send seat in the adapter's own shape.
 //!   * `startClose(backend, inner, c) void`, how a requested close proceeds
-//!     once every seat is refused;
+//!     once every seat is refused.
 //!   * `owesClose`, `oweClose`, and `clearOwedClose`, the close-submission
-//!     debt;
+//!     debt.
 //!   * `lendActive(c) bool`, whether the row still lends bytes to the loop.
 //!   * `borrowFailure(backend, c) Borrowed`, `prepareFinish(backend, c,
 //!     inner_failed) bool`, `closeCause(c) ?anyerror`, and
 //!     `hasBorrowedFailure(backend, c) bool`, the failure a close result
-//!     carries and whether it is still lent;
+//!     carries and whether it is still lent.
 //!   * `retireRow(backend, c) void` and `deinitRow(backend, inner, c) void`,
 //!     the adapter's side of destruction.
 
@@ -65,7 +65,7 @@ pub fn Lifecycle(
         const Conn = Types.Conn;
         const ConnId = Types.ConnId;
 
-        /// Release a synthetic handle the loop no longer waits on. Every status-allow: lifecycle transition
+        /// Release a synthetic handle the loop no longer waits on. Every
         /// external seat has settled, so nothing is published here. The inner
         /// descriptor is driven to closed and the row retires once no inner
         /// operation or lent buffer remains.

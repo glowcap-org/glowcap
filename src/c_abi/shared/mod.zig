@@ -17,7 +17,7 @@
 
 /// Process signal handlers and alternate signal stacks belong to the embedder.
 /// Each separately compiled archive otherwise contributes Zig's 256 KiB TLS
-/// signal stack to every native thread, even threads created by another runtime.
+/// signal stack to every OS thread, even threads created by another runtime.
 /// On pthread hosts that storage consumes the thread's stack allocation. Linking
 /// several archives can exhaust a Rust worker's stack before ordinary work runs.
 /// Every public C-ABI archive root selects these standard-library options.
@@ -31,6 +31,11 @@ pub const library_options: @import("std").Options = .{
 comptime {
     _ = @import("archive_pin.zig");
 }
+
+/// Failure provenance and interpretation use the same fields in every archive.
+pub const BreakCause = @import("foundation").break_cause.BreakCause;
+pub const RouteFailure = @import("foundation").break_cause.RouteFailure;
+pub const GlowcapBreakCause = @import("break_cause.zig").GlowcapBreakCause;
 
 /// The one cross-archive schema and bounded mechanics for failures with no
 /// remaining return recipient (ADR-0031). This leaf owns no mutable global.
@@ -69,6 +74,7 @@ pub const archive_contract = @import("archive_contract.zig");
 /// archives. This inventory drives both archive identity and every generated
 /// language-binding layout expectation.
 pub const contract_layouts = [_]archive_contract.Layout{
+    archive_contract.layout("GLOWCAP_BREAK_CAUSE", GlowcapBreakCause),
     archive_contract.layout("GLOWCAP_REFERENCE", GlowcapReference),
     archive_contract.layout("GLOWCAP_ARGUMENT", GlowcapArgument),
     archive_contract.layout("GLOWCAP_FRAME", GlowcapFrame),
@@ -185,6 +191,7 @@ pub const GLOWCAP_HINTS_MAP = locator.GLOWCAP_HINTS_MAP;
 pub const GLOWCAP_HINTS_BOOLEAN_FALSE = locator.GLOWCAP_HINTS_BOOLEAN_FALSE;
 
 pub const result = @import("result.zig");
+pub const ReleaseResult = @import("release_result.zig").ReleaseResult;
 pub const GLOWCAP_OK = result.GLOWCAP_OK;
 pub const GLOWCAP_ERR_NULL_POINTER = result.GLOWCAP_ERR_NULL_POINTER;
 pub const GLOWCAP_ERR_INVALID_ARGUMENT = result.GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -260,10 +267,14 @@ pub const ctxFromOpaque = context.fromOpaque;
 
 pub const last_error = @import("last_error.zig");
 pub const setLastError = last_error.set;
+pub const setLastErrorCause = last_error.setCause;
+pub const lastErrorCauseFor = last_error.causeFor;
+pub const attachLastErrorCause = last_error.attachCause;
 pub const setLastErrorChain = last_error.setChain;
 pub const failInternal = last_error.failInternal;
 pub const failIo = last_error.failIo;
 pub const lastErrorRead = last_error.read;
+pub const lastErrorCause = last_error.readCause;
 pub const lastErrorClear = last_error.clear;
 pub const captureCallError = last_error.captureCall;
 pub const optionalCallErrorOutputIsValid = last_error.optionalOutputIsValid;

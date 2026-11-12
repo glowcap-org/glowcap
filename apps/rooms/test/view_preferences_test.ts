@@ -67,3 +67,18 @@ Deno.test("view preferences: a stored tab id nothing parses falls back to the de
 	assertEquals(projection.get().trouble.length, 1, "said once");
 	stop();
 });
+
+Deno.test("view preferences: a browser that blocks storage keeps the defaults and says so when a choice is not kept", async () => {
+	const { pageStorage } = await import("../web/ui/page_storage.ts");
+	const blocked = pageStorage(() => {
+		throw new DOMException("The operation is insecure.", "SecurityError");
+	});
+	const projection = new store.PageProjection();
+	const stop = bindViewPreferences(projection, blocked);
+	assertEquals(projection.get().theme, DEFAULT_ROOMS_VIEW_STATE.theme, "the page opens on its defaults");
+	assertEquals(projection.get().trouble.length, 0, "reading nothing is not trouble");
+	projection.set({ railOpen: !defaultRecord.railOpen });
+	assertEquals(projection.get().railOpen, !defaultRecord.railOpen, "the choice holds for this load");
+	assertEquals(projection.get().trouble.length, 1, "and the reader hears it was not kept");
+	stop();
+});

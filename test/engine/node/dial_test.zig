@@ -3,6 +3,7 @@
 //! locators retry in order on one ticket, cancellation settles every waiter,
 //! and a session that never opens fails the redeem closed.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -41,7 +42,7 @@ test "acceptGive with no dialable exporter locator fails the answer closed" {
     const action = node.nextAction().?;
     try std.testing.expectEqual(recipient, action.fail.dest.answer.recipient_peer);
     try std.testing.expectEqual(@as(u64, 7), action.fail.dest.answer.answer.position.int());
-    try std.testing.expectEqualStrings("handoff give names no dialable exporter locator", action.fail.reason.bytes());
+    try std.testing.expectEqualStrings("handoff give names no dialable exporter locator", action.fail.reason.text);
     try std.testing.expect(node.nextAction() == null);
 }
 
@@ -64,16 +65,17 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     try std.testing.expect(node.nextAction() == null);
 
     // The dial failing breaks both waiting answers, in order.
-    _ = try node.dialFailed(action.dial.pending, 0, "connection refused");
+    _ = try node.dialFailed(action.dial.pending, 0, .peer_unreachable, "connection refused");
     const first = node.nextAction().?;
     try std.testing.expectEqual(@as(u64, 11), first.fail.dest.answer.answer.position.int());
-    try std.testing.expectEqualStrings("handoff redeem failed: connection refused", first.fail.reason.bytes());
+    try std.testing.expectEqualStrings("connection refused", first.fail.reason.text);
+    try std.testing.expectEqual(BreakCause.local(.peer_unreachable), first.fail.reason.cause);
     const second = node.nextAction().?;
     try std.testing.expectEqual(@as(u64, 12), second.fail.dest.answer.answer.position.int());
     try std.testing.expect(node.nextAction() == null);
 
     // The settled ticket is retired: reporting it again is a no-op.
-    _ = try node.dialFailed(action.dial.pending, 0, "late");
+    _ = try node.dialFailed(action.dial.pending, 0, .peer_unreachable, "late");
     try std.testing.expect(node.nextAction() == null);
 }
 
@@ -102,7 +104,7 @@ test "pending dial introducers remain local to each ticket and follow waiter ret
     try std.testing.expectEqual(second, node.pendingDial(b.pending, 0).?.introducer.?);
     node.cancelInlineGive(second, 3);
     try std.testing.expect(node.pendingDial(a.pending, 0).?.introducer == null);
-    _ = try node.dialFailed(a.pending, 0, "no signaling source remains");
+    _ = try node.dialFailed(a.pending, 0, .peer_unreachable, "no signaling source remains");
     try std.testing.expect(node.pendingDial(a.pending, 0) == null);
 
     const application = try node.stageDial(first_locator);
@@ -219,7 +221,8 @@ test "owner cancellation settles every queued dial waiter without allocation" {
     const second = node.nextAction().?;
     try std.testing.expectEqual(@as(u64, 21), first.fail.dest.answer.answer.position.int());
     try std.testing.expectEqual(@as(u64, 22), second.fail.dest.answer.answer.position.int());
-    try std.testing.expectEqualStrings("handoff redeem failed: host closing", first.fail.reason.bytes());
+    try std.testing.expectEqualStrings("host closing", first.fail.reason.text);
+    try std.testing.expectEqual((BreakCause{}).withWithdrawal(), first.fail.reason.cause);
     try std.testing.expect(node.nextAction() == null);
 }
 
@@ -269,7 +272,7 @@ test "acceptGive materializes dial view once for pendingDial" {
     try std.testing.expectEqualStrings("127.0.0.1:9049", view.locator.designator);
     try std.testing.expectEqualStrings(model.transport.hint_direct_addresses, view.locator.hints.entries[0].name);
     try std.testing.expectEqualStrings("10.0.0.1:1", view.locator.hints.entries[0].value.string);
-    _ = try node.dialFailed(action.dial.pending, 0, "stop");
+    _ = try node.dialFailed(action.dial.pending, 0, .peer_unreachable, "stop");
     _ = node.nextAction();
 }
 
@@ -296,13 +299,13 @@ test "alternative locators retry in order on one ticket and a later path succeed
 
     // The primary is unreachable. The next action is the same logical dial,
     // and only its active parsed path changes.
-    _ = try node.dialFailed(ticket, 0, "primary unreachable");
+    _ = try node.dialFailed(ticket, 0, .peer_unreachable, "primary unreachable");
     const retry_one = node.nextAction().?;
     try std.testing.expect(retry_one == .dial);
     try std.testing.expectEqual(ticket, retry_one.dial.pending);
     try std.testing.expectEqualStrings("127.0.0.1:9050", node.pendingDial(ticket, 1).?.locator.designator);
 
-    _ = try node.dialFailed(ticket, 1, "first alternative unreachable");
+    _ = try node.dialFailed(ticket, 1, .peer_unreachable, "first alternative unreachable");
     const retry_two = node.nextAction().?;
     try std.testing.expect(retry_two == .dial);
     try std.testing.expectEqual(ticket, retry_two.dial.pending);
@@ -366,7 +369,7 @@ test "a conflicting handoff route plan fails instead of joining pending work" {
     const refused = node.nextAction().?;
     try std.testing.expect(refused == .fail);
     try std.testing.expectEqual(@as(u64, 62), refused.fail.dest.answer.answer.position.int());
-    try std.testing.expect(std.mem.indexOf(u8, refused.fail.reason.bytes(), "conflicts") != null);
+    try std.testing.expect(std.mem.indexOf(u8, refused.fail.reason.text, "conflicts") != null);
     try std.testing.expect(node.pendingDial(dial.dial.pending, 0) != null);
 }
 
@@ -390,7 +393,7 @@ test "a direct key fallback does not inherit the primary durable-key demand" {
     const ticket = staged.pending;
     try std.testing.expect(node.pendingDial(ticket, 0).?.demanded_partner_key.?.eql(key));
     _ = node.nextAction();
-    _ = try node.dialFailed(ticket, 0, "primary unavailable");
+    _ = try node.dialFailed(ticket, 0, .peer_unreachable, "primary unavailable");
     try std.testing.expect(node.pendingDial(ticket, 1).?.demanded_partner_key == null);
 }
 
@@ -448,16 +451,19 @@ test "alternative locator retry exhaustion breaks waiters only after the last pa
     try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 41), "give-retry", primary);
     const first = node.nextAction().?;
     const ticket = first.dial.pending;
-    _ = try node.dialFailed(ticket, 0, "primary down");
+    _ = try node.dialFailed(ticket, 0, .peer_unreachable, "primary down");
     const second = node.nextAction().?;
     try std.testing.expectEqual(ticket, second.dial.pending);
     try std.testing.expect(node.pendingDial(ticket, 1) != null);
 
-    _ = try node.dialFailed(ticket, 1, "alternative down");
+    _ = try node.dialFailed(ticket, 1, .peer_unreachable, "alternative down");
     const failed = node.nextAction().?;
     try std.testing.expect(failed == .fail);
     try std.testing.expectEqual(@as(u64, 41), failed.fail.dest.answer.answer.position.int());
-    try std.testing.expectEqualStrings("handoff redeem failed: alternative down", failed.fail.reason.bytes());
+    // Every route failed, so the break names the unreachable exporter and keeps
+    // the last route's failure as detail.
+    try std.testing.expectEqualStrings("alternative down", failed.fail.reason.text);
+    try std.testing.expectEqual(BreakCause.local(.peer_unreachable), failed.fail.reason.cause);
     try std.testing.expect(node.pendingDial(ticket, 0) == null);
     try std.testing.expect(node.nextAction() == null);
 }
@@ -506,7 +512,7 @@ test "acceptGive fails closed on unparseable exporter locator" {
     const action = node.nextAction().?;
     try std.testing.expect(action == .fail);
     try std.testing.expectEqual(@as(u64, 3), action.fail.dest.answer.answer.position.int());
-    try std.testing.expect(std.mem.indexOf(u8, action.fail.reason.bytes(), "unparseable") != null);
+    try std.testing.expect(std.mem.indexOf(u8, action.fail.reason.text, "unparseable") != null);
     try std.testing.expect(node.nextAction() == null);
 }
 
@@ -549,7 +555,7 @@ test "acceptGive joins pending dials on peer identity, not URI representation" {
     try std.testing.expectEqualStrings("127.0.0.1:9050", identity_view.locator.designator);
     try std.testing.expect(node.nextAction() == null);
 
-    _ = try node.dialFailed(action.dial.pending, 0, "connection refused");
+    _ = try node.dialFailed(action.dial.pending, 0, .peer_unreachable, "connection refused");
     try std.testing.expectEqual(@as(u64, 11), node.nextAction().?.fail.dest.answer.answer.position.int());
     try std.testing.expectEqual(@as(u64, 12), node.nextAction().?.fail.dest.answer.answer.position.int());
     try std.testing.expect(node.nextAction() == null);
@@ -572,5 +578,34 @@ test "a dialed exporter whose session never opened fails the redeem closed" {
     const action = node.nextAction().?;
     try std.testing.expectEqual(recipient, action.fail.dest.answer.recipient_peer);
     try std.testing.expectEqual(@as(u64, 21), action.fail.dest.answer.answer.position.int());
-    try std.testing.expect(std.mem.startsWith(u8, action.fail.reason.bytes(), "handoff redeem failed:"));
+    try std.testing.expect(action.fail.reason.cause.context.withdrawal);
+}
+
+test "dial exhaustion names missing transports only when every route lacks one" {
+    const Cause = engine.BreakCause;
+    for ([_]engine.RouteFailure{ .transport_unavailable, .peer_unreachable }) |first_cause| {
+        for ([_]engine.RouteFailure{ .transport_unavailable, .peer_unreachable }) |last_cause| {
+            const allocator = std.testing.allocator;
+            var node = Node.init(allocator, @splat(0x39));
+            defer node.deinit();
+            const recipient = try node.registerPeer(.{});
+            const alternative = try peerUri(allocator, "127.0.0.1:9052");
+            defer allocator.free(alternative);
+            const primary = try peerUriWithAlternatives(allocator, "127.0.0.1:9049", alternative);
+            defer allocator.free(primary);
+            try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 43), "give-retry", primary);
+            const first = node.nextAction().?.dial;
+            _ = try node.dialFailed(first.pending, first.route_index, first_cause, "UnknownTransport");
+            const last = node.nextAction().?.dial;
+            // A duplicate report must not alter the aggregate classification.
+            try std.testing.expectEqual(Node.DialFailure.stale, try node.dialFailed(first.pending, first.route_index, .peer_unreachable, "late"));
+            const expected = Cause.local(if (first_cause == .transport_unavailable and last_cause == .transport_unavailable) .transport_unavailable else .peer_unreachable);
+            const outcome = try node.dialFailed(last.pending, last.route_index, last_cause, "last route detail");
+            try std.testing.expectEqual(expected, outcome.exhausted);
+            const failed = node.nextAction().?.fail;
+            try std.testing.expectEqual(expected, failed.reason.cause);
+            try std.testing.expectEqualStrings("last route detail", failed.reason.text);
+            try std.testing.expect(node.nextAction() == null);
+        }
+    }
 }

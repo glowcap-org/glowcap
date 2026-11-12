@@ -69,6 +69,9 @@ export function SessionSettings(
 	const [accessOpen, setAccessOpen] = useState(false);
 	const [recoveryOpen, setRecoveryOpen] = useState(false);
 	const canResolve = useSessionPermission("resolvePending");
+	const canReadHistory = useSessionPermission("history");
+	const canReadArchive = useSessionPermission("readArchive");
+	const canRead = canReadHistory || (archiveTarget.kind === "peer" && canReadArchive);
 	// The list's own rows decide whether it is offered, and a read that failed
 	// is offered too, so the card can say what it could not read.
 	const session = useManagedSession();
@@ -153,13 +156,10 @@ export function SessionSettings(
 					/>
 				</EntryActs>
 			</div>
-			{
-				/* Where messages live sits with where the session lives: one tab
-				   answers "who keeps my things". A shared session's history is the
-				   session's to change, so only an administering capability sees it. */
-			}
-			{(!sharedSession || canAdminister) && (
+			{(!sharedSession || canAdminister || canRead) && (
 				<HistorySettings
+					canConfigure={!sharedSession || canAdminister}
+					canRead={canRead}
 					keepHistory={keepHistory}
 					archiveTarget={archiveTarget}
 				/>

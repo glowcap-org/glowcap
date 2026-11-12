@@ -22,6 +22,8 @@ pub(super) struct Context {
 	/// the directory's, so a bare node id resolves through discovery and a
 	/// hinted one is dialed as written.
 	pub iroh: Option<glowcap::iroh::Reachability>,
+	/// The TCP profiles each client's runtime registers, the server's own.
+	pub tcp: glowcap::tcp::Config,
 	pub directory: Locator,
 	pub server: String,
 	pub publisher: Publisher<HostPlatform>,
@@ -66,9 +68,8 @@ pub async fn run(
 		let context = Rc::new(Context {
 			names: Default::default(),
 			inboxes: shared_inboxes,
-			iroh: (config.directory.transport == glowcap::TRANSPORT_IROH
-				|| matches!(config.dm, super::config::DirectListener::Iroh))
-			.then(|| config.directory_reachability()),
+			iroh: config.iroh(),
+			tcp: config.tcp(),
 			directory: config.directory,
 			server: config.server,
 			publisher,

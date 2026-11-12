@@ -368,18 +368,6 @@ export function ensureDirectory(projection: PageProjection, dir: DirId): Directo
 	return conv;
 }
 
-/** Every room this tab is in, in the order it entered them, across every
- * directory or on one of them.
- *
- * A `Map` preserves insertion order, so this needs no timestamp on a
- * conversation to answer "the room I joined first." A reconnect replays that
- * room, and the foot names it when there is only one. */
-export function joinedRooms(projection: PageProjection, dir?: DirId): RoomConv[] {
-	return [...projection.get().convs.values()].filter((conv): conv is RoomConv =>
-		conv.type === "room" && (dir === undefined || conv.dir === dir)
-	);
-}
-
 /** The listed rooms this tab holds on `dir`: the rooms `/link <room>` names
  * and completes. A private room's id is a label, not a name anyone can find
  * the room by, so it is not among them. */
@@ -411,45 +399,6 @@ export function emptyDirs(
 	return [...s.dirs.values()].filter((dir) => !busy.has(dir.id));
 }
 
-/** The open conversation with `peer`, if there is one.
- *
- * A conversation whose member has gone is not open. The room frees a nick when
- * its holder leaves and will grant it to the next person who asks, and this side
- * has no way to tell one holder from the next. So a fresh introduction opens a
- * fresh conversation rather than continuing one that would now reach someone
- * else. Two conversations may therefore carry the same name, which is correct:
- * they are with two different people. */
-export function liveDmWith(
-	projection: PageProjection,
-	dir: DirId,
-	peer: string,
-	peerRegistrationId: string,
-): DmConv | null {
-	const want = peer.toLowerCase();
-	for (const conv of projection.get().convs.values()) {
-		if (
-			conv.type === "dm" && conv.dir === dir && conv.line !== "closed" &&
-			conv.id.toLowerCase() === want && conv.peerRegistrationId === peerRegistrationId
-		) {
-			return conv;
-		}
-	}
-	return null;
-}
-/** The conversation with `peer`, made if this tab has none, or `null` when
- * `peer` is this tab. A line to yourself is not a conversation, so the mint
- * refuses rather than leaving every caller to remember. */
-export function ensureDm(
-	projection: PageProjection,
-	dir: DirId,
-	peer: string,
-	peerRegistrationId: string,
-): DmConv | null {
-	if (isSelf(projection, dir, peer)) return null;
-	return liveDmWith(projection, dir, peer, peerRegistrationId) ??
-		makeConv(projection, { type: "dm", dir, id: peer, identity: { peerRegistrationId } });
-}
-
 /** Rebuild one direct-conversation record without claiming its old live
  * introduction survived. A fresh send requires the same registration ID.
  * A later holder of the displayed nickname receives a new conversation. */
@@ -471,12 +420,12 @@ export function restoreDm(
 
 /** Drop a conversation. If it was the one on screen, nothing is on screen now:
  * the caller chooses where to go next, but it cannot leave `activeKey` naming a
- * conversation that no longer exists. status-allow: lifecycle transition
+ * conversation that is gone.
  *
  * Its lines go the way every other line goes, through the release seam, and
  * they go before the row does: the seam finds the session by asking this store
  * which directory the conversation was on, so a conversation deleted first is
- * one whose lines can no longer be given back. A caller that handed its status-allow: lifecycle transition
+ * one whose lines cannot be given back. A caller that handed its
  * history over itself before calling this would work until one caller forgot,
  * which is the same shape as any
  * invariant kept by everybody remembering rather than by the seam that owns

@@ -11,6 +11,7 @@
 //! a corrupt frame.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 const support_actors = @import("../../support/actors.zig");
 
@@ -49,13 +50,18 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
     const gifter_locator = try model.clonePeerLocator(allocator, try gifter.advertisedLocator());
     defer model.freePeerLocator(allocator, gifter_locator);
 
+    var exporter_joined = false;
     var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
-    var gifter_future = try io.concurrent(gifterServe, .{ gifter, exporter_designator, &done });
-    defer {
+    errdefer if (!exporter_joined) {
         done.store(true, .release);
-        gifter_future.await(io) catch {};
-        exporter_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("exporter", exporter_future.await(io));
+    };
+    var gifter_joined = false;
+    var gifter_future = try io.concurrent(gifterServe, .{ gifter, exporter_designator, &done });
+    errdefer if (!gifter_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("gifter", gifter_future.await(io));
+    };
 
     // The recipient reaches everything through the fake resident: its dial
     // table holds no stream netlayer at all, so a stream fallback would fail
@@ -81,7 +87,7 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
 
     const introducer = try view.fetch("introducer");
     const introduced = try view.call(introducer, "introduce", &.{}, arena);
-    if (introduced == .broken) std.debug.print("introduce broke: {s}\n", .{introduced.broken});
+    if (introduced == .broken) std.debug.print("introduce broke: {s}\n", .{introduced.broken.detail});
     try std.testing.expect(introduced == .fulfilled);
     try std.testing.expect(introduced.fulfilled == .capability);
 
@@ -95,6 +101,15 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
     const greeted = try view.call(introduced.fulfilled.capability, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    gifter_joined = true;
+    exporter_joined = true;
+    const gifter_future_result = gifter_future.await(io);
+    const exporter_future_result = exporter_future.await(io);
+    try gifter_future_result;
+    try exporter_future_result;
 }
 
 test "a frame larger than the write window survives would_block and resumes in order (ADR-0024)" {
@@ -115,6 +130,7 @@ test "a frame larger than the write window survives would_block and resumes in o
     const Sink = support_actors.StaticReplyValueActor("take", "took");
     const serveOne = struct {
         fn run(srv: *driver.Server, latch: *std.atomic.Value(bool)) anyerror!void {
+            if (!try wait.acceptableUnlessStopped(srv, latch)) return;
             var session = try srv.accept();
             defer session.deinit();
             _ = try session.publish("sink", Sink, .{});
@@ -127,10 +143,11 @@ test "a frame larger than the write window survives would_block and resumes in o
         }
     }.run;
     var server_future = try io.concurrent(serveOne, .{ server, &done });
-    defer {
+    var serving_joined = false;
+    errdefer if (!serving_joined) {
         done.store(true, .release);
-        server_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("server", server_future.await(io));
+    };
 
     var fake = try FakeResident.init(allocator);
     defer fake.deinit();
@@ -175,4 +192,9 @@ test "a frame larger than the write window survives would_block and resumes in o
     try std.testing.expect(fake.write_blocks > 0);
     const wire = runtime.wires.get(session.peer_handle).?;
     try std.testing.expect(wire.link.pending == null);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    serving_joined = true;
+    try server_future.await(io);
 }

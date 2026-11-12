@@ -394,7 +394,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
                 if (event.kind() == kind) seen_ops[i] = true;
             }
             if (vat) |*v| {
-                if (port.?.serve(v, &event) catch false) served = true;
+                if (try port.?.serve(v, &event)) served = true;
             }
         }
         if (progress == .closed) break;

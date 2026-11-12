@@ -89,18 +89,21 @@ pub fn Executor(comptime Engine: type) type {
             return @ptrCast(@alignCast(raw orelse return error.NullPointer));
         }
 
-        /// Release a handle. A null handle is already released. A refused Store
-        /// teardown keeps the handle for a retry, and a failing engine close frees
-        /// the handle and reports the failure.
+        /// Return ownership separately from the failure code. Store refusal
+        /// retains the handle. Once the Store is gone, even a failed engine
+        /// close consumes the handle and preserves the engine's error code.
         pub fn release(raw: ?*anyopaque) i32 {
             shared.lastErrorClear();
-            if (raw == null) return shared.GLOWCAP_OK;
-            const self = from(raw) catch |err| return bridge.code(err);
-            self.store.destroy() catch |err| return bridge.code(err);
+            if (raw == null) return shared.ReleaseResult.consumed(shared.GLOWCAP_OK).raw();
+            const self = from(raw) catch |err| return shared.ReleaseResult.retained(bridge.code(err)).raw();
+            self.store.destroy() catch |err| return shared.ReleaseResult.retained(bridge.code(err)).raw();
             const closed = closeEngine(&self.engine);
             allocator.destroy(self);
-            closed catch |err| return bridge.code(err);
-            return shared.GLOWCAP_OK;
+            closed catch |err| {
+                shared.setLastError("loam: engine close failed after release consumed the handle: {s}", .{@errorName(err)});
+                return shared.ReleaseResult.consumed(bridge.codeOf(err)).raw();
+            };
+            return shared.ReleaseResult.consumed(shared.GLOWCAP_OK).raw();
         }
 
         /// Execute on the embedding's storage executor. Join it before completing or

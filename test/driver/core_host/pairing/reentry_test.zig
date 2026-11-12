@@ -60,7 +60,9 @@ const ReentryProbe = struct {
     token: model.Reference,
     ran: bool = false,
     all_refused: bool = false,
-    enqueued_ok: bool = false,
+    /// The enqueueing verbs' outcome, latched so the test reads the exact
+    /// refusal instead of a flag.
+    enqueued: anyerror!void = error.ProbeDidNotRun,
     nested_reply: CapturedString = .{},
     nested_listen: CapturedRef = .{},
 
@@ -80,20 +82,25 @@ const ReentryProbe = struct {
             refusedReentered(publishAndOpenAccepted(host, "tcp", "127.0.0.1:7009", &.{})) and
             refusedReentered(host.releaseSession(session)) and
             refusedReentered(host.exporterDialed(0, 0, session)) and
-            refusedReentered(host.dialFailed(0, 0, "no")) and
+            refusedReentered(host.dialFailed(0, 0, .peer_unreachable, "no")) and
             refusedReentered(host.provideGiftId(0, "")) and
             refusedReentered(host.breakFarVows(session, "no")) and
             refusedReentered(host.fetch(session, "widget")) and
             refusedReentered(host.enliven(session, tcpSturdyref("127.0.0.1:7001", "widget")));
-        const vow = host.send(session, self.token, .{ .verb = "poke", .args = &.{} }) catch return;
-        host.vowOn(vow, .{ .ctx = &self.nested_reply, .func = CapturedString.record }) catch return;
-        host.tell(session, self.token, .{ .verb = "poke", .args = &.{} }) catch return;
+        self.enqueued = self.enqueue();
+    }
+
+    fn enqueue(self: *ReentryProbe) !void {
+        const host = self.host;
+        const session = self.session;
+        const vow = try host.send(session, self.token, .{ .verb = "poke", .args = &.{} });
+        try host.vowOn(vow, .{ .ctx = &self.nested_reply, .func = CapturedString.record });
+        try host.tell(session, self.token, .{ .verb = "poke", .args = &.{} });
         // A settle callback is where you learn a promise, so `listenTo` is
         // enqueueing, not top-level (ADR-0003).
-        const listen_vow = host.listenTo(session, self.token) catch return;
-        host.vowOn(listen_vow, .{ .ctx = &self.nested_listen, .func = CapturedRef.record }) catch return;
-        host.setExporterLocation(session, null) catch return;
-        self.enqueued_ok = true;
+        const listen_vow = try host.listenTo(session, self.token);
+        try host.vowOn(listen_vow, .{ .ctx = &self.nested_listen, .func = CapturedRef.record });
+        try host.setExporterLocation(session, null);
     }
 };
 
@@ -104,6 +111,8 @@ const SessionCancelProbe = struct {
     session: *HostSession,
     token: model.Reference,
     ran: bool = false,
+    /// The callback-time close request's outcome, latched for the test.
+    close_begun: anyerror!void = error.ProbeDidNotRun,
     intent_visible: bool = false,
     effects_deferred: bool = false,
 
@@ -111,7 +120,11 @@ const SessionCancelProbe = struct {
         _ = resolution;
         const self: *SessionCancelProbe = @ptrCast(@alignCast(ctx.?));
         self.ran = true;
-        self.host.beginSessionClose(self.session, .cancel, 0) catch return;
+        self.close_begun = self.cancelAndObserve();
+    }
+
+    fn cancelAndObserve(self: *SessionCancelProbe) !void {
+        try self.host.beginSessionClose(self.session, .cancel, 0);
         self.intent_visible = if (self.host.send(self.session, self.token, .{ .verb = "too-late", .args = &.{} })) |_| false else |err| err == driver.core.HostError.SessionCondemned;
         self.effects_deferred = self.session.lifecyclePhase() == .cancel_pending and
             !self.session.ingressCancelled() and self.session.lastAbort() == null;
@@ -120,9 +133,9 @@ const SessionCancelProbe = struct {
 
 test "core host: callback-time session cancel records intent and defers teardown to unwind" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x1a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x1a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x1b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x1b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -141,6 +154,7 @@ test "core host: callback-time session cancel records intent and defers teardown
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
 
     try std.testing.expect(probe.ran);
+    try probe.close_begun;
     try std.testing.expect(probe.intent_visible);
     try std.testing.expect(probe.effects_deferred);
     try std.testing.expect(pair.a.isTerminating());
@@ -150,9 +164,9 @@ test "core host: callback-time session cancel records intent and defers teardown
 
 test "core host: inside a callback every top-level verb refuses and every enqueueing verb lands at the unwind" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x2a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x2b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x2b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -173,7 +187,7 @@ test "core host: inside a callback every top-level verb refuses and every enqueu
 
     try std.testing.expect(probe.ran);
     try std.testing.expect(probe.all_refused);
-    try std.testing.expect(probe.enqueued_ok);
+    try probe.enqueued;
     // The nested send encoded at the unwind and settled through the pump.
     try std.testing.expectEqualStrings("poked over fed bytes", probe.nested_reply.buf[0..probe.nested_reply.len]);
     // So did the nested listen: the partner answered its `op:listen`.

@@ -16,13 +16,11 @@ const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
-	V = "void",
 	U64 = "u64";
 
 export const relayS = lazySymbols(() => libPath("glowcap_net_transport_relay"), {
 	glowcap_relay_archive_fingerprint: { parameters: [], result: U64 },
 	glowcap_relay_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	glowcap_relay_clear_last_error: { parameters: [], result: V },
 	glowcap_relay_runtime_new: { parameters: [B, B], result: I, outBuffers: [1] },
 	glowcap_relay_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_relay_runtime_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },

@@ -124,7 +124,7 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			host.settleVow(a.ticket, { ok: a.value });
 		},
 		fail: (a) => {
-			host.settleVow(a.ticket, { err: vowFailure(a.result, a.message) });
+			host.settleVow(a.ticket, { err: vowFailure(a.result, a.message, a.cause) });
 		},
 		resume: (_a) => {
 			// parkActions normally consumes this as its `yielded` result; retain

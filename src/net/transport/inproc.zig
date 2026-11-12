@@ -271,7 +271,7 @@ const ListenerShell = netlayer.ListenerShell(struct {
     pub const close = listenerClose;
 });
 
-/// A bound in-process listener: a queue of dialed-but-not-yet-accepted duplexes, status-allow: pending state or quoted runtime label
+/// A bound in-process listener: a queue of dialed-but-not-yet-accepted duplexes,
 /// drained by `accept`.
 pub const InprocListener = struct {
     network: *Network,
@@ -544,7 +544,7 @@ fn listenerClose(self: *InprocListener) ?netlayer.ListenerCloseFailure {
     // `Network.acquire`. The registry entry is already gone, so no new pin
     // can form and the count only falls; each pinned dial either enqueued
     // before this close swept the pending list, or finds `closed` set and is
-    // refused. Freeing earlier would destroy the listener under a dial that status-allow: event or source ordering
+    // refused. Freeing earlier would destroy the listener under a dial that
     // already holds its pointer.
     while (dialsPinned(self)) self.dial_drained.waitUncancelable(io, &self.mutex);
     // A notifier runs outside this mutex so a wake implementation never joins

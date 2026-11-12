@@ -15,7 +15,7 @@ import { EMOJI_TABLE } from "../web/ui/emoji.ts";
 import "./support/browser_application.ts";
 import { PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
 import { messageMentions } from "../web/ui/markdown.ts";
-import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
+import { actionIn, commandIn, held, known, noticeIn } from "../web/ui/commands.ts";
 import type { Conv } from "../web/ui/conversation.ts";
 import type { RoomInfo } from "../lib/directory_publications.ts";
 import { assert, assertEquals } from "./assert.ts";
@@ -119,13 +119,6 @@ Deno.test("slash commands are discoverable and have one parser", () => {
 	assertEquals(noticeIn("nothing special"), null, "an ordinary line is not a notice");
 	// Written with nothing to say it is not one, the same as `/me`.
 	assertEquals(noticeIn("/notice"), null);
-	// And the whole point of sending one: it can name somebody without asking for
-	// them. Both halves are checked, because either one alone still passes every
-	// other test in this file.
-	assertEquals(notifiesYou("morning @zoe", "zoe"), true, "an ordinary mention");
-	assertEquals(notifiesYou("/notice @zoe the build is green", "zoe"), false, "a notice naming you");
-	assertEquals(notifiesYou("/notice nothing about you", "zoe"), false, "a notice naming nobody");
-	assertEquals(notifiesYou("morning @alice", "zoe"), false, "somebody else's mention");
 	assertEquals(actionIn("/ME   waves hello"), "waves hello");
 	// Written with no action, `/me` is not one: the composer says how to use it
 	// and nothing travels.
@@ -279,7 +272,7 @@ Deno.test("every spelling of a room-wide call is understood, two are proposed", 
 	if (ROOM_MENTIONS_OFFERED.length >= ROOM_MENTIONS.length) {
 		fail("every spelling is proposed, so the list is a menu of synonyms rather than a recommendation");
 	}
-	// And a room-wide call reaches you whether or not you have a name yet. status-allow: pending state or quoted runtime label
+	// And a room-wide call reaches you whether or not you have a name yet.
 	if (!messageMentions("@here anyone about?", "")) fail("a room-wide call missed a reader with no name granted");
 });
 

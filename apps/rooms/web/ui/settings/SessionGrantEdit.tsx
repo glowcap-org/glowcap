@@ -22,7 +22,7 @@ import { Switch } from "../Switch.tsx";
 import { PermissionFields, permissionRefusal, permissionSummary } from "./PermissionFields.tsx";
 import { AccessStatusTag } from "./AccessStatusTag.tsx";
 import { ShareControl } from "./ShareControl.tsx";
-import { refusalText } from "../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
 import { useAsyncAction } from "../async_action.ts";
 import { Input } from "../Input.tsx";
@@ -96,7 +96,7 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 		dirty: !removed && (pending != null || (!ended && (labelChanged || permissionsChanged))),
 		discard: () => {
 			if (busy || (pending != null && pending.phase !== "conflict")) {
-				throw new Error("Recover the original edit before discarding its draft.");
+				throw new LocalRefusal("settings-edit-unfinished");
 			}
 			management.finish(control);
 			setPermissions([...knownPermissions(control)]);
@@ -163,11 +163,10 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 		const row = said(on);
 		if (pending?.intent.kind === on && (pending.phase === "conflict" || pending.phase === "uncertain")) {
 			const conflict = pending.phase === "conflict";
-			const explanation = conflict ? text.staleEdit : text.missingEdit;
 			const diagnostic = row?.said || pending.reason;
 			return (
 				<div className="group session-edit-recovery">
-					<Said kind="warning">{diagnostic === "" ? explanation : `${explanation} (${diagnostic})`}</Said>
+					<Said kind="warning">{diagnostic}</Said>
 					{conflict && control.grant != null && on === "label" && (
 						<p className="hint">{currentLabel(knownLabel(control))}</p>
 					)}

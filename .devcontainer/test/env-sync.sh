@@ -56,7 +56,7 @@ require_absent() {
 # there is checked from the next run, with no second place to remember.
 #
 # Asking for exactly the text the bump searches for also checks the bump itself.
-# Passing one version as both the old and the new form asks each row what it status-allow: replacement state identity
+# Passing one version as both the old and the new form asks each row what it
 # looks like at the version pinned right now, and that is the anchor the next
 # bump has to find.
 # shellcheck source=../lib/update-pins-deps.sh
@@ -238,6 +238,14 @@ require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_TRACE_HOST_PORT:?R
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_OCAPNVIZ_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:5173" "docker-compose.yml ocapnviz host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_DOCS_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:1990" "docker-compose.yml site-serve host port"
 require_literal "${compose_file}" "GLOWCAP_ROOMS_DEV_HOST: 0.0.0.0" "docker-compose.yml Rooms Vite bind"
+require_literal "${compose_file}" "GLOWCAP_ROOMS_TRACE_BIND: 0.0.0.0" "docker-compose.yml trace bind"
+require_literal "${compose_file}" "GLOWCAP_ROOMS_HTTP_BIND: 0.0.0.0" "docker-compose.yml Rooms web bind"
+require_literal "${compose_file}" "GLOWCAP_ROOMS_DEV_HTTP_PUBLIC: http://localhost:\${GLOWCAP_ROOMS_WEB_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}/" "docker-compose.yml dev web address"
+require_literal "${compose_file}" "GLOWCAP_ROOMS_DEV_TRACE_CONNECT: ws://127.0.0.1:\${GLOWCAP_ROOMS_TRACE_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}/captp" "docker-compose.yml dev trace viewer route"
+require_literal "${compose_file}" "GLOWCAP_ROOMS_DEV_TRACE_PUBLISH: ws://127.0.0.1:\${GLOWCAP_ROOMS_TRACE_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}/publish" "docker-compose.yml dev trace producer route"
+require_absent "${compose_file}" 'GLOWCAP_ROOMS_HTTP_PUBLIC:' "the published web address belongs to the dev launch"
+require_absent "${compose_file}" 'GLOWCAP_ROOMS_TRACE_CONNECT:' "advertised trace routes belong to the dev launch"
+require_absent "${compose_file}" 'GLOWCAP_ROOMS_TRACE_PUBLISH:' "advertised trace routes belong to the dev launch"
 require_literal "${compose_file}" "OCAPNVIZ_HOST: 0.0.0.0" "docker-compose.yml ocapnviz Vite bind"
 require_literal "${compose_file}" "DOCS_SERVE_HOST: 0.0.0.0" "docker-compose.yml site-serve bind"
 require_line "${compose_file}" "    init: true" "docker-compose.yml reaps orphaned tool grandchildren"
@@ -336,7 +344,7 @@ done
 # Every script here reaches its siblings through "${dir}", which by
 # convention is this directory, so each of those paths has to resolve. A file
 # that moves without one of its callers is the failure this catches, and it
-# is the one a literal check cannot: a literal pins the old form and passes. status-allow: replacement state identity
+# is the one a literal check cannot: a literal pins the old form and passes.
 require_sibling_paths() {
     local file="$1" path missing=0
     while IFS= read -r path; do

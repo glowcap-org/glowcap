@@ -18,7 +18,6 @@ export const brandName = "glowcap";
 export const brandRooms = "rooms";
 export const brandRoomsTitle = "glowcap rooms";
 
-export const copyRefused = "Your browser wouldn't let the page copy that.";
 export const chooseAFile = "Choose a file";
 export function loadingWhat(what: string): string {
 	return `Loading ${what}`;
@@ -27,7 +26,7 @@ export const anotherAddress = "Another address…";
 export const secretPromise = "Sent once, cleared here immediately, and never remembered.";
 
 /** Leaving a form with unsaved changes. */
-export const unsavedLead = "Your unsaved changes will be lost. Keep editing, or discard them to continue.";
+export const unsavedLead = "Your unsaved changes will be lost.";
 export const unsavedKeep = "Keep editing";
 export const unsavedDiscard = "Discard changes";
 
@@ -37,6 +36,9 @@ export function sessionEffectMany(count: number): string {
 	return `${count} session operations need your decision.`;
 }
 export const sessionPausedSaid = "Your access to this shared session is paused.";
+export const sessionAwaySaid =
+	"This page lost its session, so nothing here sends or updates. Check that this device is online and the session is still running, then reload.";
+export const sessionAwayReload = "Reload";
 
 /** The file viewer and an attachment on a line. */
 export function viewerFit(name: string): string {
@@ -88,3 +90,8 @@ export function typingTwo(first: string, second: string): string {
 export function typingMore(first: string, second: string, more: number): string {
 	return `${first}, ${second}, and ${more} more are typing…`;
 }
+
+/** This browser refuses to keep anything for this site, so Rooms has nowhere
+ * to hold a session. Private windows and strict site settings both do this. */
+export const storageBlocked =
+	"This browser isn't letting Rooms keep anything for this site. Allow site data for this page in the browser's settings, then reload.";

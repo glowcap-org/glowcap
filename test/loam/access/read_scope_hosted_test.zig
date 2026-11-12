@@ -78,7 +78,7 @@ test "loam read scope settlement retry rechecks volatile source admission withou
     const acquired = try host.host.callLocalCapability(h.a, host.use, "readers", &.{}, 4096);
     defer acquired.deinit();
     try host.drain(&backend);
-    var peer = peer_support.init(h.a, @splat(0x81), h.driver.Host.Options.withFrameCap(4096));
+    var peer = peer_support.init(h.a, @splat(0x81), h.driver.Host.Options.init(.unchecked, 4096));
     defer peer.deinit();
     const swiss = try host.host.publishDurableCapability(@splat(0x82), acquired.result().ready.capability);
     defer host.host.removeDurable(swiss.slice()) catch unreachable;

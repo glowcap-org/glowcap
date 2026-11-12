@@ -52,7 +52,7 @@ const BenchGreeter = struct {
 pub const target_connections: u64 = 500_000;
 
 pub const Scenario = enum {
-    /// Freshly constructed peer: a connection accepted but not yet active. status-allow: pending state or quoted runtime label
+    /// Freshly constructed peer: a connection accepted but not yet active.
     idle,
     /// One export registered and one deliver turn driven: a connection that has
     /// exchanged a message and settled.

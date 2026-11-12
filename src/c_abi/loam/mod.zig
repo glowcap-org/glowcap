@@ -138,6 +138,7 @@ pub const embedding = struct {
     pub const objectToC = foreign_values.objectToC;
     pub const policy = foreign_values.policy;
     pub const code = refusal.code;
+    pub const codeOf = refusal.codeOf;
     pub const slice = foreign_values.slice;
 };
 pub fn glowcap_loam_store_new(metadata: ?[*]const u8, metadata_len: usize, schemas: ?[*]const GlowcapLoamSchema, schema_count: usize, limits: ?*const GlowcapLoamLimits, out_store: ?*?*GlowcapLoamStore) callconv(.c) i32 {
@@ -164,11 +165,13 @@ fn storeNew(gpa: std.mem.Allocator, metadata: ?[*]const u8, metadata_len: usize,
 }
 pub fn glowcap_loam_store_release(raw: ?*GlowcapLoamStore) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (raw == null) return shared.GLOWCAP_OK;
-    const owner = owners.store(raw) catch |err| return refusal.code(err);
-    if (owner.backend_owned) return refusal.code(error.BackendOwned);
-    owner.destroy() catch |err| return refusal.code(err);
-    return shared.GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        if (raw == null) break :result shared.GLOWCAP_OK;
+        const owner = owners.store(raw) catch |err| break :result refusal.code(err);
+        if (owner.backend_owned) break :result refusal.code(error.BackendOwned);
+        owner.destroy() catch |err| break :result refusal.code(err);
+        break :result shared.GLOWCAP_OK;
+    });
 }
 pub fn glowcap_loam_attach(raw: ?*GlowcapLoamStore, host_handle: ?*cd.GlowcapHost, contents: ?[*]const GlowcapLoamContent, content_count: usize, entropy: ?GlowcapLoamEntropyFn, ctx: ?*anyopaque, out_attachment: ?*?*GlowcapLoamAttachment) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -183,10 +186,12 @@ pub fn glowcap_loam_attach(raw: ?*GlowcapLoamStore, host_handle: ?*cd.GlowcapHos
 }
 pub fn glowcap_loam_attachment_release(raw: ?*GlowcapLoamAttachment) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (raw == null) return shared.GLOWCAP_OK;
-    const owner = attached.attachment(raw) catch |err| return refusal.code(err);
-    owner.destroy() catch |err| return refusal.code(err);
-    return shared.GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        if (raw == null) break :result shared.GLOWCAP_OK;
+        const owner = attached.attachment(raw) catch |err| break :result refusal.code(err);
+        owner.destroy() catch |err| break :result refusal.code(err);
+        break :result shared.GLOWCAP_OK;
+    });
 }
 pub fn glowcap_loam_advance(raw: ?*GlowcapLoamAttachment, out_progress: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -217,10 +222,12 @@ pub fn glowcap_loam_work_complete(raw: ?*GlowcapLoamWork, out_completed: ?*u32) 
 }
 pub fn glowcap_loam_work_release(raw: ?*GlowcapLoamWork) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (raw == null) return shared.GLOWCAP_OK;
-    const work = works.from(raw) catch |err| return refusal.code(err);
-    work.destroy() catch |err| return refusal.code(err);
-    return shared.GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        if (raw == null) break :result shared.GLOWCAP_OK;
+        const work = works.from(raw) catch |err| break :result refusal.code(err);
+        work.destroy() catch |err| break :result refusal.code(err);
+        break :result shared.GLOWCAP_OK;
+    });
 }
 pub fn glowcap_loam_call_reply(call: ?*GlowcapLoamCall, value: ?*const shared.GlowcapArgument) callconv(.c) i32 {
     shared.lastErrorClear();

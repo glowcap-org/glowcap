@@ -8,14 +8,16 @@
 	/* How wide the mark column is. Every list in either rail draws the same
 	   shape (a mark, a name, and sometimes a caption under the name that has
 	   to start where the name starts) so the column lives once here, and the
-	   gap after the mark is the page's --mark-gap. */
-	--mark-col: 14px;
-	/* How far the marks at a row's end sit from its edge, and less
-	   than the inset the text on the other side gets. A word is inset by the space
-	   around it. A mark is a box that already carries its own padding, so given the
-	   same number it comes to rest visibly further in than it sits from the top and
-	   bottom of its own row. This is the smaller number that makes the gap around
-	   it even. */
+	   gap after the mark is the page's --mark-gap. It is a small control's
+	   box, because the mark that ends a row is one and the mark that leads the
+	   new-room panel is one, and a row is the same row at both of its ends. */
+	--mark-col: var(--icon-button-small);
+	/* How far a mark sits from the edge of its row, at either end, and less
+	   than the inset a word gets. A word is inset by the space around it. A
+	   mark is a box that already carries its own padding, so given the same
+	   number it comes to rest visibly further in than it sits from the top and
+	   bottom of its own row. This is the smaller number that makes the gap
+	   around it even. */
 	--mark-inset: 4px;
 	/* The line a list's label sits on. Named because the "+" beside one of them is
 	   told how far to hang out of it, and a label that quietly grew would leave

@@ -1,108 +1,25 @@
-//! Product advice for opening an existing shared session. Unknown diagnostics
-//! retain their original meaning. These recognizers grant no retry authority.
-use crate::failure::{Failure, FailureCode};
+//! Advice for the credential that repairs one failed operations import.
+use crate::failure::FailureCode;
 use alloc::{format, string::String};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Advice {
-	pub code: &'static str,
-	pub subject: &'static str,
-	pub retry: &'static str,
-	pub summary: &'static str,
-	pub action: &'static str,
-}
-
-fn advice(code: FailureCode) -> Advice {
-	let definition = code.definition();
-	#[expect(
-		clippy::expect_used,
-		reason = "every definition `advice` is asked for carries a repair action; `FailureCode::definition` is the table"
-	)]
-	Advice {
-		code: definition.code.wire(),
-		subject: definition.subject,
-		retry: definition.retry.wire(),
-		summary: definition.summary,
-		action: definition.action.expect("session failure advice has a repair action"),
-	}
-}
-
-enum ConnectionFailure {
-	Unreachable,
-	Handshake,
-}
-
-fn connection_failure(reason: &str) -> Option<ConnectionFailure> {
-	if reason.contains("NetworkUnreachable") || reason.contains("Connection refused") {
-		return Some(ConnectionFailure::Unreachable);
-	}
-	if reason.contains("did not finish the OCapN handshake")
-		|| reason.contains("connection closed during the OCapN handshake")
-	{
-		return Some(ConnectionFailure::Handshake);
-	}
-	None
-}
-
-pub fn attachment(reason: &str) -> Option<Advice> {
-	// The browser's own restoration timeouts carry this code in their line;
-	// the binding's `RestorationFailed` kind arrives as its rendered name,
-	// followed by the cause when the Host reported one.
-	let restoration = reason
-		.strip_prefix("glowcap error -12: RestorationFailed")
-		.is_some_and(|cause| cause.is_empty() || cause.starts_with(": "));
-	if restoration
-		|| Failure::parse(reason).is_some_and(|failure| failure.code == FailureCode::SessionRestorationFailed)
-	{
-		return Some(advice(FailureCode::SessionRestorationFailed));
-	}
-	match connection_failure(reason) {
-		Some(ConnectionFailure::Unreachable) => {
-			return Some(advice(FailureCode::SessionUnreachable));
-		}
-		Some(ConnectionFailure::Handshake) => {
-			return Some(advice(FailureCode::SessionHandshakeIncomplete));
-		}
-		None => {}
-	}
-	if reason.contains("unknown swissnum") {
-		return Some(advice(FailureCode::SessionCapabilityGone));
-	}
-	if reason.contains("no signaling inbox for that designator") {
-		return Some(advice(FailureCode::SessionSignalingHostOffline));
-	}
-	if reason.contains("signalOffer needs a registered name") {
-		return Some(advice(FailureCode::SessionSignalingUnavailable));
-	}
-	if reason.contains("WebRTC could not establish or retain a route")
-		|| reason.contains("peers found no route to each other")
-	{
-		return Some(advice(FailureCode::SessionWebrtcNoRoute));
-	}
-	if reason.contains("PeerIdentityUnverified") {
-		return Some(advice(FailureCode::SessionPeerUnverified));
-	}
-	None
-}
-
 /// Explain why one saved operations credential could not be redeemed. The
-/// capability id selects the exact server token that repairs this intent.
-/// Unknown failures stay verbatim in the runtime issue ledger.
-pub fn operations(capability: &str, reason: &str) -> Option<String> {
-	if reason.contains("PeerIdentityUnverified") {
-		return Some(
+/// caller classifies the redeem's refusal where it holds the typed binding
+/// error, and the capability id selects the exact server token that repairs
+/// this intent. Other failures stay verbatim in the runtime issue ledger.
+pub fn operations(capability: &str, code: FailureCode) -> Option<String> {
+	match code {
+		FailureCode::SessionPeerUnverified => Some(
 			"That address names the directory by a key its listener does not prove, so this browser cannot trust the answer. Use a door that proves the key: noise-relay, noise-tcp, or iroh."
 				.into(),
-		);
+		),
+		FailureCode::SessionCapabilityGone => {
+			let token = crate::server::operations::boot_capability(capability)?.token;
+			Some(format!(
+				"The directory does not recognize that swiss number. Use the value it currently prints as {token}."
+			))
+		}
+		_ => None,
 	}
-	if !reason.contains("unknown swissnum") {
-		return None;
-	}
-	let token = crate::server::operations::boot_capability(capability)?.token;
-	Some(format!(
-		"The directory does not recognize that swiss number. Use the value it currently prints as {token}."
-	))
 }
 
 #[cfg(test)]
@@ -110,69 +27,18 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn signaling_and_identity_refusals_preserve_the_actual_failure_subject() {
-		for (reason, subject) in [
-			(
-				"glowcap error -12: peer-offline: no signaling inbox for that designator",
-				"hosting tab",
-			),
-			(
-				"glowcap error -12: not-registered: signalOffer needs a registered name",
-				"couldn't connect through the directory",
-			),
-			(
-				"glowcap error -8: WebRTC could not establish or retain a route; cleanup failed: WebRTC could not establish or retain a route",
-				"couldn't open a connection between them",
-			),
-			(
-				"glowcap error -3: host: PeerIdentityUnverified",
-				"couldn't confirm it is the one",
-			),
-			("host: NetworkUnreachable", "couldn't reach the session"),
-			("broken promise: unknown swissnum", "no longer works"),
-			("glowcap error -12: RestorationFailed", "couldn't restore"),
-			(
-				"glowcap error -12: RestorationFailed: unknown swissnum",
-				"couldn't restore",
-			),
-			(
-				"session-restoration-failed: Saved workspace connection timed out",
-				"attach its new session link",
-			),
-			(
-				"session-restoration-failed: Saved management connection timed out",
-				"couldn't restore",
-			),
-			("peer did not finish the OCapN handshake", "compatible version"),
-		] {
-			let advice = attachment(reason).unwrap();
-			let rendered = format!("{} {}", advice.summary, advice.action);
-			assert!(rendered.contains(subject), "{rendered}");
-			// The presentation's locator refusal reader must not reinterpret these
-			// peer facts as a damaged paste of a capability.
-			assert!(!rendered.starts_with("glowcap error"));
-			assert!(!rendered.contains("Check that you pasted"));
-		}
-		assert_eq!(
-			attachment("peers found no route to each other").unwrap().code,
-			"session-webrtc-no-route"
-		);
-		assert_eq!(attachment("unexpected observer failure"), None);
-	}
-
-	#[test]
 	fn operations_failures_name_the_exact_replacement_credential() {
 		assert_eq!(
-			operations("listeners", "glowcap error -12: unknown swissnum").as_deref(),
+			operations("listeners", FailureCode::SessionCapabilityGone).as_deref(),
 			Some(
 				"The directory does not recognize that swiss number. Use the value it currently prints as ROOMS-ADMIN-LISTENERS."
 			)
 		);
 		assert!(
-			operations("listeners", "glowcap error -12: PeerIdentityUnverified")
+			operations("listeners", FailureCode::SessionPeerUnverified)
 				.is_some_and(|advice| advice.contains("does not prove") && advice.contains("noise-relay"))
 		);
-		assert_eq!(operations("listeners", "connection closed"), None);
-		assert_eq!(operations("unknown", "unknown swissnum"), None);
+		assert_eq!(operations("listeners", FailureCode::SessionUnreachable), None);
+		assert_eq!(operations("unknown", FailureCode::SessionCapabilityGone), None);
 	}
 }

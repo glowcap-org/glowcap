@@ -98,8 +98,8 @@ fn observe(feed: Rc<Feed>) -> Observer {
 						feed.inbox.wake();
 						return;
 					}
-					if let Some(event) = delivery.event
-						&& let Err(failure) = feed.receive(delivery.cursor, event).await
+					if let Some(accepted) = delivery.event
+						&& let Err(failure) = feed.receive(delivery.cursor, accepted.event).await
 					{
 						*feed.failure.borrow_mut() = Some(failure);
 						feed.inbox.wake();

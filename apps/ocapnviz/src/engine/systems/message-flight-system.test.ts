@@ -66,7 +66,7 @@ function buildFiveMessageDoc(): TimelineDocument {
 	});
 }
 
-Deno.test("5 simultaneous A→B messages spread across the spine at mid-flight", () => {
+Deno.test("5 simultaneous messages from A to B spread across the spine at mid-flight", () => {
 	const engine = new Engine(buildFiveMessageDoc());
 	engine.seekTo(250); // mid-flight (sentT=0, arrivalT=500)
 
@@ -89,7 +89,7 @@ Deno.test("5 simultaneous A→B messages spread across the spine at mid-flight",
 	assertAlmostEquals(xs[4]!, 50, 0.5);
 });
 
-Deno.test("5 simultaneous A→B messages monotonically move sender→receiver (never stuck or backwards)", () => {
+Deno.test("5 simultaneous messages from A to B move monotonically from sender to receiver (never stuck or backwards)", () => {
 	// The monotonicity contract: at every wall-time, every message's
 	// x position is between the previous time's x and the receiver.
 	// Catches the `MAX_TEMPORAL_ARC > 1/π` regression where extreme-
@@ -124,7 +124,7 @@ Deno.test("5 simultaneous A→B messages monotonically move sender→receiver (n
 	}
 });
 
-Deno.test("5 simultaneous A→B messages all converge at sender at sentT", () => {
+Deno.test("5 simultaneous messages from A to B all converge at the sender at sentT", () => {
 	const engine = new Engine(buildFiveMessageDoc());
 	engine.seekTo(0);
 	for (const e of engine.queries.messagesInFlight) {
@@ -133,7 +133,7 @@ Deno.test("5 simultaneous A→B messages all converge at sender at sentT", () =>
 	}
 });
 
-Deno.test("5 simultaneous A→B messages all converge at receiver at arrivalT", () => {
+Deno.test("5 simultaneous messages from A to B all converge at the receiver at arrivalT", () => {
 	const engine = new Engine(buildFiveMessageDoc());
 	// Seek to just under arrivalT, at exactly 500 the delivered
 	// events fire and the messages are removed from flight.

@@ -76,6 +76,30 @@ async def host_actors_need_no_session() -> None:
         await host.close()
 
 
+class _Unprintable(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError("this exception has no text")
+
+
+async def unprintable_behavior_failure_breaks_the_answer() -> None:
+    """A behavior failure whose own text raises still breaks the answer with
+    its type name, and nothing unwinds through the ctypes callback."""
+    host = Host()
+    try:
+
+        def behavior(_verb, _args):
+            raise _Unprintable()
+
+        try:
+            await asyncio.wait_for(host.send(host.spawn(behavior), "go"), 5)
+        except VowBroken as broken:
+            assert broken.reason == "_Unprintable", broken.reason
+        else:
+            raise AssertionError("a raising behavior answered")
+    finally:
+        await host.close()
+
+
 async def _settle_collection(host: Host, tick: Ref, want: int) -> int:
     # Collection crosses a finalizer, the Host's GC drain, and the Vat's next
     # turn, which the send to ``tick`` drives. Bound the rounds.
@@ -302,6 +326,8 @@ async def driver_owned_session_refuses_break() -> None:
 def run() -> None:
     asyncio.run(host_actors_need_no_session())
     print("python test OK: a Host spawned, sent to, and told actors with no session")
+    asyncio.run(unprintable_behavior_failure_breaks_the_answer())
+    print("python test OK: a behavior failure with unprintable text broke its answer by type name")
     asyncio.run(spawned_entries_leave_at_collection())
     print("python test OK: a collected Host actor released its behavior entry")
     concurrent_spawns_take_their_own_ids()

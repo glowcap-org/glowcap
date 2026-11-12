@@ -23,7 +23,6 @@ const GLOWCAP_ERR_INVALID_ARGUMENT = c.GLOWCAP_ERR_INVALID_ARGUMENT;
 const GLOWCAP_ERR_WOULD_BLOCK = c.GLOWCAP_ERR_WOULD_BLOCK;
 const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
 const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
-const transport_name = "webrtc";
 
 fn readinessFd(ctx: ?*anyopaque) callconv(.c) i32 {
     const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
@@ -137,6 +136,7 @@ fn connRemoteKey(ctx: ?*anyopaque, conn: u64, out_key: ?[*]u8) callconv(.c) i32 
     const dest = out_key orelse return GLOWCAP_ERR_NULL_POINTER;
     const peer = payload.peers.get(@intCast(conn)) orelse return 0;
     if (!peer.provider_claimed) return 0;
+    // tolerant: the contract answers 1 or 0, a channel that is not open has proved no key, and its reads and writes report why it is not.
     peer.peer.checkOpen() catch return 0;
     const key = peer.peer.authorized_remote orelse return 0;
     @memcpy(dest[0..crypto.peer_key_bytes], key.asBytes());
@@ -161,16 +161,7 @@ fn ensureInitialized(payload: *NetlayerPayload) void {
     // "this transport accepts".
     const dials = exchange.dials(payload.signaling);
     const accepts = exchange.accepts(payload.signaling);
-    payload.provider_profile = .{
-        .abi_version = c.transport_provider.GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION,
-        .struct_size = @sizeOf(c.GlowcapTransportProfile),
-        .transport_name = transport_name.ptr,
-        .transport_name_len = transport_name.len,
-        .designator_scheme = c.transport_provider.GLOWCAP_DESIGNATOR_SCHEME_KEY,
-        .sealed_channel = c.transport_provider.GLOWCAP_SEALED_CHANNEL_NONE,
-        .wire_framing = c.transport_provider.GLOWCAP_WIRE_FRAMING_MESSAGE,
-        .max_packet_bytes = webrtc.max_packet_bytes,
-    };
+    payload.provider_profile = c.transport_provider.profileFromMetadata(webrtc.transport_profile);
     payload.multiplexed_transport = .{
         .abi_version = c.multiplexed_transport.GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION,
         .struct_size = @sizeOf(c.GlowcapMultiplexedTransport),

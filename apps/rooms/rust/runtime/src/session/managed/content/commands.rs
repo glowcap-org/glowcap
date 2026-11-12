@@ -40,7 +40,8 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	owner
 		.admission
 		.borrow_mut()
-		.command(call, &request, owner.platform.monotonic_millis())?;
+		.command(call, &request, owner.platform.monotonic_millis())
+		.map_err(super::super::admission::callback_error)?;
 	if local::recognizes(request.route()) {
 		let retention = matches!(
 			request.route(),

@@ -1,6 +1,8 @@
 // Capability bundles keep one canonical editable draft and never silently discard labelled values.
 import "./support/browser_application.ts";
 import { formatOpsBundle, opsBundleReady, parseOpsBundle, parseOpsBundleDraft } from "../web/ui/ops/bundle.ts";
+import { failureView } from "../lib/text/failure.ts";
+import { LOCAL_REFUSALS } from "../lib/text/local_refusals.ts";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("the server capability block is accepted without its other output", () => {
@@ -55,11 +57,24 @@ Deno.test("the editable capability bundle refuses text it would have to drop", (
 		let refused = false;
 		try {
 			parseOpsBundleDraft(raw);
-		} catch {
+		} catch (error) {
+			assertEquals(failureView(error).code, "local-capability-set-unreadable");
+			assertEquals(failureView(error).retry, "after-request-change");
 			refused = true;
 		}
 		assertEquals(refused, true);
 	}
+});
+
+Deno.test("an oversized paste is told its own reason, never to copy more", () => {
+	let view = null;
+	try {
+		parseOpsBundleDraft(`ROOMS-OPERATOR ${"x".repeat(1 << 20)}`);
+	} catch (error) {
+		view = failureView(error);
+	}
+	assertEquals(view?.summary, LOCAL_REFUSALS["capability-set-unreadable"].summary);
+	assertEquals(view?.detail, "The capability set exceeds its text limit.");
 });
 
 Deno.test("a capability block never silently changes or drops a labelled value", () => {
@@ -74,7 +89,9 @@ Deno.test("a capability block never silently changes or drops a labelled value",
 		let refused = false;
 		try {
 			parseOpsBundle(raw);
-		} catch {
+		} catch (error) {
+			assertEquals(failureView(error).code, "local-capability-set-unreadable");
+			assertEquals(failureView(error).retry, "after-request-change");
 			refused = true;
 		}
 		assertEquals(refused, true);

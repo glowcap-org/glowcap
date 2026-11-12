@@ -35,6 +35,7 @@ const surfaces = [_]Surface{
     .{ .path = "src/loam/access/core/mod.zig", .modules = &.{} },
     .{ .path = "src/loam/access/records/mod.zig", .modules = &.{"profile"} },
     .{ .path = "src/foundation/mod.zig", .modules = &.{
+        "break_cause",
         "crypto",
         "decimal",
         "error_sets",

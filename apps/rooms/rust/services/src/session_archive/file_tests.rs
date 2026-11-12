@@ -125,9 +125,12 @@ async fn scenario() {
 	));
 	let link = link.await.unwrap();
 	let runtime = Rc::new(
-		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-			.await
-			.unwrap(),
+		Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})]))
+		.await
+		.unwrap(),
 	);
 	let parsed = glowcap::parse_sturdyref(&link, glowcap::CaptpVersion::V1_0).unwrap();
 	let session = runtime

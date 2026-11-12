@@ -202,10 +202,10 @@ static int32_t release_host(GlowcapHost **host) {
         return GLOWCAP_OK;
     }
     const int32_t rc = glowcap_host_release(*host);
-    if (rc == GLOWCAP_OK) {
+    if (glowcap_release_result_consumed(rc)) {
         *host = NULL;
     }
-    return rc;
+    return glowcap_release_result_code(rc);
 }
 
 static int scene_handshake(void) {

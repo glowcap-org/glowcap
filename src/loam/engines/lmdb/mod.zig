@@ -28,7 +28,7 @@ pub const Lmdb = struct {
     dbi: c_uint,
     lock: custody.owner_lock.Held,
     /// LMDB's reader table, which holds at least `Options.max_readers` and
-    /// more when an earlier open left a larger lock file. status-allow: event or source ordering
+    /// more when an earlier open left a larger lock file.
     reader_capacity: usize,
     environment_open: bool = true,
     metadata: core.Metadata,
@@ -142,7 +142,7 @@ pub const Lmdb = struct {
         }
 
         /// Sync the installed directory entry. Failure leaves the installed
-        /// state intact for retry; close/reopen resolves an unknown outcome.
+        /// state intact for retry. Closing and reopening resolves an unknown outcome.
         pub fn finish(self: *Compaction) !void {
             if (self.phase != .installed) return error.WrongPhase;
             if (c.loam_lmdb_replacement_sync_directory(&self.files) != 0) return error.InstallOutcomeUnknown;

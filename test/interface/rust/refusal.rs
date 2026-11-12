@@ -40,7 +40,7 @@ pub async fn run() {
 		})
 	})
 	.unwrap();
-	let server = tcp::listen(
+	let server = tcp::noise::listen(
 		"127.0.0.1",
 		0,
 		tcp::ListenOptions {

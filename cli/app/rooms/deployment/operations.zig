@@ -64,10 +64,11 @@ pub fn announceKept(state: Config, docker: Docker) !void {
 }
 
 /// The revision an image recorded when it was built from a product, or
-/// `unrecorded` for an image that carries no revision label.
+/// `unrecorded` for an image that carries no revision label. An inspect that
+/// fails is reported with its cause, never shown as an unrecorded revision.
 fn imageRevision(docker: Docker, id: []const u8) ![]const u8 {
     const format = "{{index .Config.Labels \"" ++ config.revision_label ++ "\"}}";
-    const value = docker.query(&.{ "image", "inspect", "--format", format, id }) catch return "unrecorded";
+    const value = try docker.query(&.{ "image", "inspect", "--format", format, id });
     return if (value.len == 0 or std.mem.eql(u8, value, "<no value>")) "unrecorded" else value;
 }
 

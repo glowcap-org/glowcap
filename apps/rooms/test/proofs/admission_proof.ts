@@ -65,17 +65,26 @@ try {
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const first = await browser.newPage();
 	const second = await browser.newPage();
-	await join(first, "limited");
 	// A healthy member keeps this generation alive across the limited peer's
 	// leave. Last-member leave correctly closes the room and its scoped debt.
 	await join(second, "healthy");
+	// The limited member joins last, so only its own leave stands between its
+	// admitted join and the re-entry. room-join=1/6 refills in 10 s, and a
+	// window holding another page's start admits the re-entry on a loaded host.
+	await join(first, "limited");
 	// Re-entering immediately meets the exact room's retained debt. The visible
 	// membership stays unjoined, and leaving it cancels the worker's only wait.
 	await confirmTitleLeave(first);
 	await first.waitForSelector("#room");
 	await first.fill("#room", "admission");
 	await first.click("#joinBtn");
-	await first.locator("#roomList .action-feedback").waitFor({ timeout: 10_000 });
+	await first.locator("#roomList .action-feedback").waitFor({ timeout: 10_000 }).catch(async () => {
+		fail(
+			await first.locator("#line:not([disabled])").count()
+				? "immediate re-entry was admitted: its room-join token refilled before the re-entry arrived"
+				: "refused re-entry showed no feedback on its room row",
+		);
+	});
 	if (await first.locator("#line:not([disabled])").count()) fail("refused join presented an active composer");
 	await confirmTitleLeave(first);
 	await first.waitForFunction(() =>
@@ -87,9 +96,10 @@ try {
 	await first.click("#joinBtn");
 	await first.waitForSelector("#line:not([disabled])");
 	await say(first, "admitted-first");
-	await awaitBubble(second, "admitted-first", "healthy");
 	// Holding an attachment proves more than text retention alone. No upload
-	// or future post is manufactured by the countdown's expiry.
+	// or future post is manufactured by the countdown's expiry. The send
+	// follows the admitted post directly, inside message=1/6's 10 s refill,
+	// and the healthy member's delivery is read after the refusal.
 	await first.setInputFiles("#filePick", {
 		name: "kept.txt",
 		mimeType: "text/plain",
@@ -103,6 +113,7 @@ try {
 	if (await first.locator('.composer-file:has-text("kept.txt")').count() !== 1) {
 		fail("refusal discarded attachment custody");
 	}
+	await awaitBubble(second, "admitted-first", "healthy");
 	await say(second, "healthy-progress");
 	await awaitBubble(first, "healthy-progress", "limited");
 	await first.waitForTimeout(11_000);

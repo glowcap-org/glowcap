@@ -9,7 +9,8 @@ await runCrossLangDemo(
 		label: "interface Goblins creation",
 		serverNoun: "Tasks server",
 		clientNoun: "Goblins caller",
-		server: { cmd: Deno.args[0], args: () => [`--data=${data}`, "--port=0"] },
+		// The server listens in the clear because a Goblins vat speaks plain TCP, not Noise.
+		server: { cmd: Deno.args[0], args: () => [`--data=${data}`, "--port=0", "--transport=tcp"] },
 		listenPattern: /TASKS-SERVER-LISTENING (\d+) (\S+)/,
 		listenMiss: "Tasks server did not announce its board",
 		cleanup: () => Deno.remove(data, { recursive: true }),

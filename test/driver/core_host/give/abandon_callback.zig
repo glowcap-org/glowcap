@@ -53,7 +53,7 @@ pub fn exercise(host: *Host, home: *HostSession, introducer: *HostSession, hando
     try std.testing.expect(home.isTerminating());
     for (probe.created[0..probe.count]) |ref| try host.releaseCapability(ref, 1);
     while (try host.nextAction()) |action| switch (action) {
-        .dial => |dial| try host.dialFailed(dial.ticket, dial.route_index, "unavailable"),
+        .dial => |dial| try host.dialFailed(dial.ticket, dial.route_index, .peer_unreachable, "unavailable"),
         .cancel_dial => |dial| try host.dialCancelled(dial.ticket, dial.route_index),
         else => {},
     };

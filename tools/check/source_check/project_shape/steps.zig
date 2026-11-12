@@ -1,6 +1,6 @@
-//! Documented commands against the build graph: every `zig build` command
-//! cited anywhere is a real step, and the archive tables match their
-//! documentation.
+//! Documented commands against the build graph: every `zig build` command a
+//! document cites is a real step, and the archive tables match their
+//! documentation. `ci/groups_test.py` holds the commands CI runs.
 
 const std = @import("std");
 const markdown = @import("../markdown.zig");
@@ -24,16 +24,6 @@ const fixed_command_docs = [_][]const u8{
     "bindings/PACKAGING.md",
     ".serena/project.yml",
 };
-
-/// Command-invoking CI surfaces. These are workflow YAML and the gate
-/// inventory, not Markdown, so the whole file is command context, and one
-/// invocation may name several steps (`zig build fmt-check arch-check …`): a
-/// `zig build <step>` here must name a real step and a `bash <script>` must
-/// resolve.
-/// That every step has a row in a build-step inventory (`docs/build-steps*.md`) is held by
-/// `gen-build-steps-check`, which reads the build graph itself.
-const ci_command_dirs = [_][]const u8{".github/workflows"};
-const ci_command_files = [_][]const u8{"ci/groups.py"};
 
 /// Appends each command-context region of a Markdown document to `out`: every
 /// line inside a fenced code block, and the text of every inline backtick span
@@ -73,9 +63,6 @@ const CommandScan = struct {
     violations: *std.ArrayList([]const u8),
     steps: *const std.StringHashMap(void),
     path: []const u8,
-    /// A CI `zig build a b c` names several steps in one invocation, docs
-    /// cite one step per span, so token consumption stays single there.
-    multi_step: bool = false,
 
     fn region(self: CommandScan, text: []const u8) !void {
         var rest = text;
@@ -83,26 +70,17 @@ const CommandScan = struct {
             const after = rest[start + "zig build".len ..];
             rest = after;
 
-            var span = std.mem.trimStart(u8, after, " \t");
+            const span = std.mem.trimStart(u8, after, " \t");
             if (span.len == 0 or isCommandTerminator(span[0])) continue;
 
-            while (true) {
-                const token_end = firstCommandTokenEnd(span);
-                const documented_step = std.mem.trim(u8, span[0..token_end], "`'\".,);]");
-                if (documented_step.len == 0) break;
-                if (std.mem.startsWith(u8, documented_step, "-")) break;
-
-                if (!self.steps.contains(documented_step)) {
-                    try appendViolation(self.gpa, self.violations, "{s}: documents `zig build {s}`, but build.zig has no step named `{s}`", .{
-                        self.path,
-                        documented_step,
-                        documented_step,
-                    });
-                }
-                if (!self.multi_step) break;
-                const next = std.mem.trimStart(u8, span[token_end..], " \t");
-                if (next.len == 0 or isCommandTerminator(next[0])) break;
-                span = next;
+            const documented_step = std.mem.trim(u8, span[0..firstCommandTokenEnd(span)], "`'\".,);]");
+            if (documented_step.len == 0 or std.mem.startsWith(u8, documented_step, "-")) continue;
+            if (!self.steps.contains(documented_step)) {
+                try appendViolation(self.gpa, self.violations, "{s}: documents `zig build {s}`, but build.zig has no step named `{s}`", .{
+                    self.path,
+                    documented_step,
+                    documented_step,
+                });
             }
         }
 
@@ -183,34 +161,6 @@ pub fn checkDocumentedBuildSteps(
         defer regions.deinit(gpa);
         try collectCommandRegions(gpa, contents, &regions);
         for (regions.items) |text| try scan.region(text);
-    }
-
-    // The CI surfaces: every workflow on either forge plus the gate script,
-    // scanned whole-file so a renamed build step or moved install script
-    // cannot ship a broken CI run the local gate never sees.
-    var ci_files: std.ArrayList([]const u8) = .empty;
-    defer ci_files.deinit(gpa);
-    for (ci_command_files) |path| try ci_files.append(gpa, path);
-    for (ci_command_dirs) |dir_path| {
-        try collectCommandDocsUnder(io, gpa, docs_arena.allocator(), root, &ci_files, violations, dir_path, ".yml");
-    }
-    for (ci_files.items) |path| {
-        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for build-command check with {s}", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-
-        const scan = CommandScan{
-            .io = io,
-            .gpa = gpa,
-            .root = root,
-            .violations = violations,
-            .steps = &steps,
-            .path = path,
-            .multi_step = true,
-        };
-        try scan.region(contents);
     }
 }
 

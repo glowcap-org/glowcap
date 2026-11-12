@@ -20,7 +20,7 @@ import ctypes
 from ._archive_contract import load_archive
 from ._constants_gen import DRIVER_ARCHIVE_FINGERPRINT
 from ._ffi_host import _CloseOptions, _HostAction
-from ._ffi_ocapn import _LocatorView, _Reference
+from ._ffi_ocapn import _BreakCause, _LocatorView, _Reference
 from ._pin import pin_struct
 from ._sigs_gen import loop_sigs
 
@@ -129,5 +129,6 @@ _driver = load_archive(
         _Reference,
         _TransportOperationOptions,
         _TransportProvider,
+        _BreakCause,
     ),
 )

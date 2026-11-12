@@ -44,7 +44,7 @@ start with its rendered opening, including text supplied by the layout.
    numbered list. Rules a caller must follow become a bulleted list. Rows of
    similar facts become a table, and a paragraph with two ideas becomes two.
    A list earns its place by showing order or cutting words: one bullet per
-   sentence of the old paragraph is the same paragraph, harder to read. <!-- status-allow: workflow sequence -->
+   sentence of the source paragraph is the same paragraph, harder to read.
 4. **One owner per fact.** A function-by-function walk copies what doc
    comments own. Keep the model and the rules that span calls, and link the
    source. If a fact lives only in the doc, move it into the doc comment
@@ -120,8 +120,7 @@ Then rewrite:
 - Apply this pass to PR titles, descriptions, and commit subjects before
   publishing. Repository prose checks do not inspect those surfaces.
 - Plant a defect in a scratch copy to prove a new check catches it, then
-  restore and `cmp` the file. Use `command cp -f`: an interactive `cp` alias
-  skips the restore silently.
+  restore and `cmp` the file.
 - Gates: `source-check`, plus `site site-render-check` for site pages,
   `gen-site-examples-check` for snippets, and `rooms-server-test` when Rooms
   text changes.

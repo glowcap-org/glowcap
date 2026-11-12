@@ -35,7 +35,7 @@ pub const Error = error{
     MalformedPercentEncoding,
     UnsupportedUriComponent,
     InvalidHostPort,
-    /// `tcpConnectHostPort` was asked for a transport it does not resolve
+    /// `connectHostPort` was asked for a transport it does not resolve
     /// (`tcp`, `keyed-tcp`, and `noise-tcp` only).
     UnknownTransport,
     /// A `keyed-tcp` or `noise-tcp` dial has no usable `direct-addresses`
@@ -46,8 +46,6 @@ pub const Error = error{
 
 const scheme_str = "ocapn";
 const sturdyref_path_prefix = "/s/";
-
-pub const freePeer = model.freePeerLocator;
 
 /// The RFC 3986 escape-shape check, offered where URI callers already look:
 /// every `%` must carry two hex digits. Transports validating their own URL
@@ -243,10 +241,10 @@ pub fn firstDirectAddress(hint: []const u8) []const u8 {
 /// bracketed IPv6 literal such as `[::1]:9000` keeps its address intact. The
 /// brackets are stripped from the returned host, the form a host resolver
 /// expects. The port must be a decimal `u16` and the host must be non-empty.
-/// This is the one definition of that grammar: the native TCP netlayer and the
+/// This is the one definition of that grammar: the Zig TCP netlayer and the
 /// C ABI (`glowcap_designator_host_port` / `glowcap_locator_host_port`) both split
 /// through it, so a consumer dialing with its own sockets validates the same
-/// way the native dialer does.
+/// way the Zig dialer does.
 pub fn splitHostPort(designator: []const u8) Error!HostPort {
     const colon = std.mem.lastIndexOfScalar(u8, designator, ':') orelse return Error.InvalidHostPort;
     var host = designator[0..colon];
@@ -263,21 +261,6 @@ pub fn splitHostPort(designator: []const u8) Error!HostPort {
     }
     if (host.len == 0) return Error.InvalidHostPort;
     return .{ .host = host, .port = port };
-}
-
-/// Resolve the TCP provider's connect `host:port` from locator pieces. This is
-/// the one admission for `tcp` / `keyed-tcp` / `noise-tcp` hostport
-/// selection: `planDial` and `tcp.DialResolver` both call it so the
-/// first-address / split grammar cannot drift. Key-shape checks stay with the
-/// callers that own crypto (`PeerKey.fromDesignator`). Views borrow
-/// `designator` or `hint`.
-pub fn tcpConnectHostPort(
-    transport: []const u8,
-    designator: []const u8,
-    direct_addresses_hint: []const u8,
-) Error!HostPort {
-    const known = model.transport.parseKnown(transport) orelse return Error.UnknownTransport;
-    return connectHostPort(known.metadata(), designator, direct_addresses_hint);
 }
 
 pub fn connectHostPort(

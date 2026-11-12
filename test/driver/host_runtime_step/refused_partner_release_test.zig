@@ -7,6 +7,7 @@
 //! listener for every later dial.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const driver = glowcap.driver;
@@ -19,8 +20,10 @@ const Treasure = harness.Treasure;
 const opts = harness.opts;
 
 /// Accept one partner, publish the greeter, serve until the partner is gone,
-/// then record why the wire ended and release the session.
-fn serveOne(server: *driver.Server, cause: *?anyerror) anyerror!void {
+/// then record why the wire ended and release the session. Raising `stop`
+/// before a partner dials ends the task without an accept.
+fn serveOne(server: *driver.Server, cause: *?anyerror, stop: *const std.atomic.Value(bool)) anyerror!void {
+    if (!try wait.acceptableUnlessStopped(server, stop)) return;
     const session = try server.accept();
     defer session.deinit();
     _ = try session.publish("treasure", Treasure, .{});
@@ -43,10 +46,14 @@ test "host runtime: releasing the session a partner's over-cap frame ended leave
 
     // The first partner sends one call whose frame is past the listener's cap.
     // The listener refuses it and ends that session.
+    var stop = std.atomic.Value(bool).init(false);
     var first_cause: ?anyerror = null;
-    var first_serve = try io.concurrent(serveOne, .{ server, &first_cause });
+    var first_serve = try io.concurrent(serveOne, .{ server, &first_cause, &stop });
     var first_served = false;
-    defer if (!first_served) first_serve.cancel(io) catch {};
+    errdefer if (!first_served) {
+        stop.store(true, .release);
+        wait.joinedUnwinding("first", first_serve.await(io));
+    };
     {
         var client_buf: [tcp.designator_buf_len]u8 = undefined;
         var client = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&client_buf, server_address), .ephemeral, .{
@@ -62,18 +69,21 @@ test "host runtime: releasing the session a partner's over-cap frame ended leave
         @memset(oversized, 'x');
         if (client.call(treasure, "greet", &.{.{ .string = oversized }}, arena.allocator())) |reply| {
             try std.testing.expect(reply == .broken);
-        } else |_| {}
+        } else |_| {} // tolerant: the listener ending the session may fail the call outright, and the serve's latched cause below is the assertion.
     }
-    try first_serve.await(io);
     first_served = true;
+    try first_serve.await(io);
     try std.testing.expect(first_cause != null);
     try std.testing.expect(server.runtime.terminalFailure() == null);
 
     // The next honest partner opens, fetches, and calls through the same listener.
     var second_cause: ?anyerror = null;
-    var second_serve = try io.concurrent(serveOne, .{ server, &second_cause });
+    var second_serve = try io.concurrent(serveOne, .{ server, &second_cause, &stop });
     var second_served = false;
-    defer if (!second_served) second_serve.cancel(io) catch {};
+    errdefer if (!second_served) {
+        stop.store(true, .release);
+        wait.joinedUnwinding("second", second_serve.await(io));
+    };
     {
         var client_buf: [tcp.designator_buf_len]u8 = undefined;
         var client = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&client_buf, server_address), .ephemeral, opts);
@@ -85,8 +95,8 @@ test "host runtime: releasing the session a partner's over-cap frame ended leave
         try std.testing.expect(reply == .fulfilled and reply.fulfilled == .string);
         try std.testing.expectEqualStrings("hello from the step server", reply.fulfilled.string);
     }
-    try second_serve.await(io);
     second_served = true;
+    try second_serve.await(io);
     try std.testing.expect(second_cause == null);
     try std.testing.expect(server.runtime.terminalFailure() == null);
 }

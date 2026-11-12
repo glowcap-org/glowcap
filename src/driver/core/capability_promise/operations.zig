@@ -25,7 +25,7 @@ const HostSession = host_mod.HostSession;
 const Row = promise_row.Row;
 
 /// Admit one eventual send against a promise whose exporter session does not
-/// exist yet. The Host vow is public immediately. The owned values stay status-allow: pending state or quoted runtime label
+/// exist yet. The Host vow is public immediately. The owned values stay
 /// session-neutral until redemption selects the real route.
 pub fn queueSendValues(
     self: *Host,
@@ -178,7 +178,7 @@ fn cancelQueuedVowTerminal(self: *Host, vow_id: u64, owner: u64) void {
 /// Terminal callers detach the operation before entering this boundary:
 /// releasing arguments or firing a result may invoke callbacks that mutate rows.
 /// A tell has no result vow to retire its source-session operation for it.
-pub fn retireOperationTerminal(self: *Host, pending: *Row.PendingOperation, reason: []const u8, closing_peer: ?engine.PeerHandle) void {
+pub fn retireOperationTerminal(self: *Host, pending: *Row.PendingOperation, reason: engine.Broken, closing_peer: ?engine.PeerHandle) void {
     releaseRetainedCapabilitiesTerminal(self, pending, closing_peer);
     if (pending.result_vow) |vow_id| if (self.vows.contains(vow_id))
         self.fireVow(vow_id, .{ .broken = reason });
@@ -213,7 +213,7 @@ pub fn dispatchQueuedOperations(self: *Host, id: capability.PromiseId, resolved:
             // send to the capability itself could not. Its vow hears why.
             var owned = current.operations.items[current.operation_head];
             current.operation_head += 1;
-            retireOperationTerminal(self, &owned, @errorName(err), null);
+            retireOperationTerminal(self, &owned, engine.Broken.unnamed(@errorName(err)), null);
             continue;
         }) {
             .dispatched => {},

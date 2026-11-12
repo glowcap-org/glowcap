@@ -94,7 +94,7 @@ test "a resolve fulfilling with an unheld far is refused, while a near still exp
     });
 
     // The export-on-resolve asymmetry survives: a `near` naming an export that
-    // has no row yet is how the application exports that object for the first status-allow: pending state or quoted runtime label
+    // has no row yet is how the application exports that object for the first
     // time, and it is still accepted.
     try s.recordSend(.{
         .resolve = .{

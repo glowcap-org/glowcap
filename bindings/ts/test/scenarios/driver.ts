@@ -393,8 +393,8 @@ export async function run(managed: Runtime): Promise<void> {
 			}
 		}
 		const hosted = host();
-		await using firstRuntime = await Runtime.open({ providers: [tcp.provider()] });
-		await using secondRuntime = await Runtime.open({ providers: [tcp.provider()] });
+		await using firstRuntime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
+		await using secondRuntime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 		const first = await firstRuntime.connect(tcp.locator("127.0.0.1", port));
 		first.serve().catch(() => {});
 		const second = await secondRuntime.connect(tcp.locator("127.0.0.1", port));

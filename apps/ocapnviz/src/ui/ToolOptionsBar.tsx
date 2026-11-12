@@ -120,7 +120,7 @@ export class ToolDraftStore {
 }
 
 /** Compute the next auto-mint default id (`peer-N`) without
- *  advancing the engine's counter. Used to prefill the ID field status-allow: purpose clause
+ *  advancing the engine's counter. It prefills the ID field
  *  with a meaningful placeholder. The engine's actual mint may
  *  pick a different id if the user has manually used the suggested
  *  one between renders, but the next dispatch will reconcile. */

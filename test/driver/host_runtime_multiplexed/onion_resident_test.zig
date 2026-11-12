@@ -5,6 +5,7 @@
 //! answers the same way, is `test/support/onion_fake_daemon.zig`'s caveat.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
@@ -38,6 +39,7 @@ fn retire(resident: *OnionResident) void {
 }
 
 fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+    if (!try wait.acceptableUnlessStopped(server, done)) return;
     var session = try server.accept();
     defer session.deinit();
     _ = try session.publish("greeter", Greeter, .{});
@@ -121,7 +123,7 @@ test "onion listen admits pending and the loop serves a dial during its setup" {
         }
         // The runtime's park: staged work reaches the kernel before the wait.
         mux.beforeWait(.park);
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real);
     }
     return error.PublishNeverFinished;
 }
@@ -160,12 +162,15 @@ test "onion listens and dials on completion residents through Tor's SOCKS and co
     try std.testing.expect(std.mem.startsWith(u8, daemon.lastForwardTarget(), "127.0.0.1:"));
 
     var done = std.atomic.Value(bool).init(false);
+    var serving_joined = false;
     var server_future = try io.concurrent(serve, .{ server, &done });
-    var splice = try io.concurrent(fake.Daemon.spliceDial, .{daemon});
-    defer {
+    errdefer if (!serving_joined) {
         done.store(true, .release);
-        server_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("server", server_future.await(io));
+    };
+    var splice_joined = false;
+    var splice = try io.concurrent(fake.Daemon.spliceDial, .{daemon});
+    errdefer if (!splice_joined) wait.joinedUnwinding("splice", splice.cancel(io));
 
     var client_resident = try OnionResident.init(allocator, OnionBackend.initOnion(
         allocator,
@@ -188,7 +193,15 @@ test "onion listens and dials on completion residents through Tor's SOCKS and co
         try std.testing.expect(reply == .fulfilled and reply.fulfilled == .string);
         try std.testing.expectEqualStrings(greeting, reply.fulfilled.string);
     }
-    try splice.await(io);
+    splice_joined = true;
+    const spliced = splice.await(io);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    serving_joined = true;
+    const served = server_future.await(io);
+    try spliced;
+    try served;
 }
 
 test "an onion listen names no designator and needs a loopback platform" {

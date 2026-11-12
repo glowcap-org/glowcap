@@ -3,6 +3,22 @@
 // still load, while a malformed streamed module keeps its original failure.
 import { init, type WasmSource } from "@glowcap/web";
 import { fail } from "../../test/assert.ts";
+import type { Runtime } from "@glowcap/runtime";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
+
+/** A C refusal must cross the Wasm out-buffer seam without replacing its error. */
+export async function proveHostFailure(runtime: Runtime): Promise<void> {
+	const { GlowcapError } = await import("@glowcap/runtime");
+	try {
+		await runtime.host.enliven("not a sturdyref");
+	} catch (error) {
+		if (!(error instanceof GlowcapError) || error.code !== INVALID_ARGUMENT || !error.detail) {
+			fail(`Wasm Host refusal lost its code or diagnostic: ${String(error)}`);
+		}
+		return;
+	}
+	fail("malformed sturdyref unexpectedly reached an enliven result");
+}
 
 async function rejection(source: WasmSource): Promise<unknown> {
 	try {

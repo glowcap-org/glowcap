@@ -100,6 +100,23 @@ pub fn pendingDial(self: *const Host, ticket: engine.Node.PendingId, route_index
     return self.node.pendingDial(ticket, route_index);
 }
 
+/// The designator the introducing session's partner signed for the pending
+/// dial `ticket` names, borrowed from that session until it is released. Null
+/// when the dial is settled or has no introducer, when the introducer is
+/// condemned or unverified, or when its partner signed no designator. The
+/// waiters of one dial can come from several sessions, so a closed introducer
+/// leaves the origin empty instead of failing the dial for the others.
+pub fn pendingDialIntroducer(self: *Host, ticket: engine.Node.PendingId, route_index: usize) !?[]const u8 {
+    const view = self.pendingDial(ticket, route_index) orelse return null;
+    const peer = view.introducer orelse return null;
+    const session = self.sessions.get(peer) orelse return null;
+    const identity = self.partnerIdentity(session) catch |err| switch (err) {
+        error.SessionCondemned, error.PartnerUnverified, error.HandshakeIncomplete => return null,
+        else => return err,
+    };
+    return if (identity.designator.len == 0) null else identity.designator;
+}
+
 /// Complete work after a Host verb commits its Node transition. Pressure leaves
 /// the dirty/action queues as continuation state. It must not make the caller
 /// retry an operation whose authority already moved.
@@ -164,13 +181,16 @@ pub fn completeSelectedExporter(
 
 /// Report a `dial` action's failure. A failed path may leave the ticket live
 /// and queue another dial. Parked select-or-dial operations therefore settle
-/// only when Node reports exhaustion. A stale or non-running attempt is a
-/// no-op.
-pub fn dialFailed(self: *Host, ticket: engine.Node.PendingId, route_index: usize, reason: []const u8) !void {
+/// only when Node reports exhaustion, and break with the reason the Node gives
+/// its own waiters: the exporter-unreachable cause and the last route's
+/// failure. A stale or non-running attempt is a no-op.
+pub fn dialFailed(self: *Host, ticket: engine.Node.PendingId, route_index: usize, failure: engine.RouteFailure, detail: []const u8) !void {
     try self.refuseReentry();
-    const outcome = try self.node.dialFailed(ticket, route_index, reason);
-    if (outcome == .exhausted)
-        enliven_mod.settleParkedEnlivens(self, ticket, .{ .failed = reason });
+    const outcome = try self.node.dialFailed(ticket, route_index, failure, detail);
+    if (outcome == .exhausted) {
+        const terminal: engine.Broken = .{ .detail = detail, .cause = outcome.exhausted };
+        enliven_mod.settleParkedEnlivens(self, ticket, .{ .failed = terminal.bounded() });
+    }
     finishCommittedEffect(self);
 }
 

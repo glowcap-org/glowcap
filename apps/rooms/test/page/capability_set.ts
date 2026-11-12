@@ -34,6 +34,16 @@ export async function addCapability(tab: Page, toggle: string, uri: string): Pro
 	// swiss number and refused one.
 	const named = (await tab.textContent('label[for="capabilityValueUri"]'))?.trim();
 	if (named !== capabilityUriLabel) fail(`the capability value field is labeled ${JSON.stringify(named)}`);
+	// A link is nothing a password manager fills or keeps.
+	const kept = await tab.evaluate(() => {
+		const field = document.getElementById("capabilityValueUri");
+		return field instanceof HTMLInputElement
+			? { type: field.type, opted: field.hasAttribute("data-1p-ignore") && field.hasAttribute("data-lpignore") }
+			: null;
+	});
+	if (kept?.type !== "text" || !kept.opted) {
+		fail(`the capability value field is offered to password managers: ${JSON.stringify(kept)}`);
+	}
 	const nested = await tab.evaluate(() =>
 		document.getElementById("holdingsPanel")?.closest("dialog")?.contains(
 			document.getElementById("capabilityValueTitle"),

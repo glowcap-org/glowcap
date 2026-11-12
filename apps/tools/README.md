@@ -11,6 +11,15 @@ Deno runs the coordinator and one agent. The Zig agent always joins. Python,
 Racket, and Rust agents join when their runtimes are available. Common port and
 attach options are in the [app index](../README.md#how-the-cross-language-demos-run).
 
+To attach the agents to a coordinator you run yourself, start it on a port
+first. It records its locator where the demo looks for it:
+
+```sh
+deno run --allow-ffi --allow-read --allow-net --allow-write=zig-out/state/tools \
+  apps/tools/deno/coordinator.ts 9099
+zig build demo-tools -Dport=9099 -Dattach=true
+```
+
 ## Delegation
 
 The coordinator creates a tool object, either `clock` or `files` (an in-memory

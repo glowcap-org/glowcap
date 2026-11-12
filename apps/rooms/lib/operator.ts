@@ -47,6 +47,7 @@ export {
 	OperatorLinkRowSchema,
 	type OperatorPage,
 	operatorPageAnswer,
+	type OperatorPageOf,
 	type OperatorPageRows,
 	type OperatorReferenceRow,
 	OperatorReferenceRowSchema,
@@ -64,13 +65,8 @@ export {
 	StewardshipRowSchema,
 } from "./operator_rows.ts";
 import {
-	type OperatorLinkRow,
 	type OperatorPage,
-	type OperatorReferenceRow,
-	type OperatorRegistrationRow,
-	type OperatorRoomRow,
-	type OperatorSessionRow,
-	type OperatorTroubleRow,
+	type OperatorPageOf,
 	parseOperatorPageAnswer,
 	parseRow,
 	type StewardshipRow,
@@ -79,14 +75,14 @@ import {
 export { type OperatorSnapshot, OperatorSnapshotJsonSchema, parseOperatorSnapshotJson } from "./operator_snapshot.ts";
 import type { OperatorSnapshot } from "./operator_snapshot.ts";
 
-export async function operatorPage(
+export async function operatorPage<C extends OperatorCategory>(
 	session: Session,
 	cap: Ref,
-	category: OperatorCategory,
+	category: C,
 	cursor = 0,
 	query = "",
 	referenceKind: OperatorReferenceKind | null = null,
-): Promise<OperatorPage> {
+): Promise<OperatorPageOf<C>> {
 	const raw = await ask(
 		session,
 		cap,
@@ -169,38 +165,52 @@ export async function snapshotOperator(
 		throw new Error("the Rooms operator answered an invalid snapshot");
 	}
 	const revision = raw[0];
-	const byCategory = new Map<OperatorCategory, OperatorPage>();
+	const answers = new Map<OperatorCategory, unknown[]>();
 	for (const rawPage of raw[1]) {
 		if (!Array.isArray(rawPage) || rawPage.length !== 4 || !isOperatorCategory(rawPage[0])) {
 			throw new Error("the Rooms operator answered an invalid snapshot category");
 		}
 		const category = rawPage[0];
-		if (byCategory.has(category)) throw new Error("the Rooms operator repeated a snapshot category");
-		byCategory.set(category, parseOperatorPageAnswer(category, [revision, rawPage[1], rawPage[2], rawPage[3]]));
+		if (answers.has(category)) throw new Error("the Rooms operator repeated a snapshot category");
+		answers.set(category, [revision, rawPage[1], rawPage[2], rawPage[3]]);
 	}
-	if (byCategory.size !== OPERATOR_CATEGORIES.length) {
+	if (answers.size !== OPERATOR_CATEGORIES.length) {
 		throw new Error("the Rooms operator omitted a snapshot category");
 	}
-	const page = (category: OperatorCategory): OperatorPage => {
-		const found = byCategory.get(category);
-		if (found == null) throw new Error(`the Rooms operator omitted the ${category} snapshot`);
-		return found;
+	const page = <C extends OperatorCategory>(category: C): OperatorPageOf<C> => {
+		const answer = answers.get(category);
+		if (answer == null) throw new Error(`the Rooms operator omitted the ${category} snapshot`);
+		return parseOperatorPageAnswer(category, answer);
 	};
+	const pages = {
+		stewardships: page("stewardships"),
+		links: page("links"),
+		registrations: page("registrations"),
+		sessions: page("sessions"),
+		rooms: page("rooms"),
+		references: page("references"),
+		trouble: page("trouble"),
+	} satisfies Record<OperatorCategory, OperatorPage>;
+	const each = <T>(read: (page: OperatorPage) => T): Record<OperatorCategory, T> => ({
+		stewardships: read(pages.stewardships),
+		links: read(pages.links),
+		registrations: read(pages.registrations),
+		sessions: read(pages.sessions),
+		rooms: read(pages.rooms),
+		references: read(pages.references),
+		trouble: read(pages.trouble),
+	});
 	return {
 		revision,
-		stewardships: page("stewardships").rows as StewardshipRow[],
-		links: page("links").rows as OperatorLinkRow[],
-		registrations: page("registrations").rows as OperatorRegistrationRow[],
-		sessions: page("sessions").rows as OperatorSessionRow[],
-		rooms: page("rooms").rows as OperatorRoomRow[],
-		references: page("references").rows as OperatorReferenceRow[],
-		trouble: page("trouble").rows as OperatorTroubleRow[],
-		next: Object.fromEntries(
-			OPERATOR_CATEGORIES.map((category) => [category, page(category).next]),
-		) as Record<OperatorCategory, number | null>,
-		totals: Object.fromEntries(
-			OPERATOR_CATEGORIES.map((category) => [category, page(category).total]),
-		) as Record<OperatorCategory, number>,
+		stewardships: pages.stewardships.rows,
+		links: pages.links.rows,
+		registrations: pages.registrations.rows,
+		sessions: pages.sessions.rows,
+		rooms: pages.rooms.rows,
+		references: pages.references.rows,
+		trouble: pages.trouble.rows,
+		next: each((page) => page.next),
+		totals: each((page) => page.total),
 	};
 }
 

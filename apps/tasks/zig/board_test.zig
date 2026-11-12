@@ -1,4 +1,5 @@
-//! The Tasks server over real TCP, with its board in a temporary SQLite store.
+//! The Tasks server over encrypted Noise TCP, with its board in a temporary
+//! SQLite store.
 //! A client adds and moves tasks, an oversized task is refused without a
 //! change, and after the server closes and opens the same directory, the same
 //! name reaches the same board with every task on it. A failure points at
@@ -8,8 +9,8 @@ const glowcap = @import("glowcap");
 const board = @import("board.zig");
 const server_mod = @import("server.zig");
 const Storage = server_mod.Storage;
+const sealed = @import("demo_sealed");
 const driver = glowcap.driver;
-const tcp = glowcap.net.tcp;
 
 const io = std.testing.io;
 const a = std.testing.allocator;
@@ -20,20 +21,23 @@ const Running = struct {
     storage: Storage,
     stop: std.atomic.Value(bool) = .init(false),
     thread: std.Thread,
-    port: u16,
+    locator_buf: [sealed.locator_buf_len]u8,
+    locator_len: usize,
 
     fn start(self: *Running, path: [:0]const u8) !void {
-        self.* = .{ .server = undefined, .storage = undefined, .thread = undefined, .port = 0 };
-        self.server = try driver.listen(a, io, .{ .symbols = &.{.tcp} }, glowcap.ocapn.model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, server_mod.session_opts);
+        self.* = .{ .server = undefined, .storage = undefined, .thread = undefined, .locator_buf = undefined, .locator_len = 0 };
+        self.server = try sealed.listen(a, io, 0, server_mod.session_opts);
         errdefer self.server.deinit();
         try self.storage.open(a, io, self.server.runtime.core, path);
-        errdefer self.storage.close() catch {}; // tolerant: the start already failed.
-        var buf: [tcp.designator_buf_len]u8 = undefined;
-        self.port = switch (try tcp.parseDesignator(try self.server.localDesignator(&buf))) {
-            .ip4 => |address| address.port,
-            .ip6 => |address| address.port,
-        };
+        errdefer self.storage.close() catch {};
+        self.locator_len = (try sealed.announce(self.server, &self.locator_buf)).locator.len;
         self.thread = try std.Thread.spawn(.{}, serveUntilStopped, .{self});
+    }
+
+    /// The locator this run printed. A restart draws a new key, so each run
+    /// has its own.
+    fn locator(self: *const Running) []const u8 {
+        return self.locator_buf[0..self.locator_len];
     }
 
     fn serveUntilStopped(self: *Running) void {
@@ -52,12 +56,10 @@ const Client = struct {
     session: *driver.Session,
     arena: std.heap.ArenaAllocator,
     /// Why the last refused call was refused.
-    reason: []const u8 = "",
+    reason: glowcap.driver.core.Broken = .unnamed(""),
 
-    fn connect(port: u16) !Client {
-        var buf: [tcp.designator_buf_len]u8 = undefined;
-        const locator = tcp.locatorFromAddress(&buf, try tcp.parseHostPort("127.0.0.1", port));
-        return .{ .session = try driver.connect(a, io, .{ .symbols = &.{.tcp} }, locator, .ephemeral, server_mod.session_opts), .arena = .init(a) };
+    fn connect(locator: []const u8) !Client {
+        return .{ .session = try sealed.connect(a, io, locator, server_mod.session_opts), .arena = .init(a) };
     }
 
     fn deinit(self: *Client) void {
@@ -110,8 +112,8 @@ const Client = struct {
     /// The call is refused, and the reason names `cause`.
     fn expectRefused(self: *Client, cause: []const u8, result: anytype) !void {
         try std.testing.expectError(error.Refused, result);
-        if (std.mem.indexOf(u8, self.reason, cause) == null) {
-            std.debug.print("refused for \"{s}\", expected \"{s}\"\n", .{ self.reason, cause });
+        if (std.mem.indexOf(u8, self.reason.detail, cause) == null) {
+            std.debug.print("refused for \"{f}\", expected \"{s}\"\n", .{ self.reason, cause });
             return error.WrongRefusal;
         }
     }
@@ -135,8 +137,8 @@ test "tasks board keeps its lists, tasks, and name across a restart" {
     const name_len = first.storage.name.slice().len;
     @memcpy(name[0..name_len], first.storage.name.slice());
     {
-        errdefer first.finish() catch {}; // tolerant: the test already failed.
-        var client = try Client.connect(first.port);
+        errdefer first.finish() catch {};
+        var client = try Client.connect(first.locator());
         defer client.deinit();
         const root = try client.session.fetch(name[0..name_len]);
         try std.testing.expectEqual(@as(i64, 2), try client.integer(root, "lists", &.{}));
@@ -177,7 +179,7 @@ test "tasks board keeps its lists, tasks, and name across a restart" {
     try second.start(terminated);
     defer second.finish() catch |err| std.debug.panic("closing the server failed: {s}", .{@errorName(err)});
     try std.testing.expectEqualStrings(name[0..name_len], second.storage.name.slice());
-    var client = try Client.connect(second.port);
+    var client = try Client.connect(second.locator());
     defer client.deinit();
     const root = try client.session.fetch(name[0..name_len]);
     try std.testing.expectEqual(@as(i64, 2), try client.integer(root, "lists", &.{}));
@@ -239,8 +241,8 @@ test "tasks board shares read-only links that survive a restart and revokes a sh
     var list_name: []const u8 = undefined;
     var task_name: []const u8 = undefined;
     {
-        errdefer first.finish() catch {}; // tolerant: the test already failed.
-        var client = try Client.connect(first.port);
+        errdefer first.finish() catch {};
+        var client = try Client.connect(first.locator());
         defer client.deinit();
         const root = try client.session.fetch(first.storage.name.slice());
         const todo = try client.facet(root, "list", 0);
@@ -300,7 +302,7 @@ test "tasks board shares read-only links that survive a restart and revokes a sh
     var second: Running = undefined;
     try second.start(terminated);
     defer second.finish() catch |err| std.debug.panic("closing the server failed: {s}", .{@errorName(err)});
-    var client = try Client.connect(second.port);
+    var client = try Client.connect(second.locator());
     defer client.deinit();
     // Both read-only links still work after the restart, and still read only.
     const reader = try client.session.fetch(list_name);
@@ -344,8 +346,8 @@ test "tasks board watcher catches up on changes made while it was away, across a
     var receiver_name: []const u8 = undefined;
     var cursor: [56]u8 = undefined;
     {
-        errdefer first.finish() catch {}; // tolerant: the test already failed.
-        var client = try Client.connect(first.port);
+        errdefer first.finish() catch {};
+        var client = try Client.connect(first.locator());
         defer client.deinit();
         const root = try client.session.fetch(first.storage.name.slice());
         // Watch the whole board. The receiver has its own durable name.
@@ -369,7 +371,7 @@ test "tasks board watcher catches up on changes made while it was away, across a
     defer second.finish() catch |err| std.debug.panic("closing the server failed: {s}", .{@errorName(err)});
     // Another client changes the board while the watcher is away.
     {
-        var other = try Client.connect(second.port);
+        var other = try Client.connect(second.locator());
         defer other.deinit();
         const root = try other.session.fetch(second.storage.name.slice());
         const todo = try other.facet(root, "list", 0);
@@ -377,7 +379,7 @@ test "tasks board watcher catches up on changes made while it was away, across a
     }
     // The watcher comes back with its receiver's name and last cursor, and
     // learns that the board changed without missing the move.
-    var watcher = try Client.connect(second.port);
+    var watcher = try Client.connect(second.locator());
     defer watcher.deinit();
     const receiver = try watcher.session.fetch(receiver_name);
     const caught_up = try Seen.of(try watcher.reply(receiver, "poll", &.{.{ .bytes = &cursor }}));
@@ -397,7 +399,7 @@ test "tasks board fills a list to its limit and moves a task between full lists"
     var running: Running = undefined;
     try running.start(terminated);
     defer running.finish() catch |err| std.debug.panic("closing the server failed: {s}", .{@errorName(err)});
-    var client = try Client.connect(running.port);
+    var client = try Client.connect(running.locator());
     defer client.deinit();
     const root = try client.session.fetch(running.storage.name.slice());
     const todo = try client.facet(root, "list", 0);
@@ -434,7 +436,7 @@ test "tasks interface creation boundaries and public result" {
     var running: Running = undefined;
     try running.start(terminated);
     defer running.finish() catch |err| std.debug.panic("closing failed: {s}", .{@errorName(err)});
-    var client = try Client.connect(running.port);
+    var client = try Client.connect(running.locator());
     defer client.deinit();
     const root = try client.session.fetch(running.storage.name.slice());
     const list = try client.facet(root, "list", 0);
@@ -465,7 +467,7 @@ test "tasks server reads reject malformed arguments before disclosure" {
     var running: Running = undefined;
     try running.start(terminated);
     defer running.finish() catch @panic("server cleanup failed");
-    var client = try Client.connect(running.port);
+    var client = try Client.connect(running.locator());
     defer client.deinit();
     const root = try client.session.fetch(running.storage.name.slice());
     const todo = try client.facet(root, "list", 0);

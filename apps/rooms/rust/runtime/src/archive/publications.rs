@@ -261,7 +261,10 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 				// A policy refusal leaves storage usable. Reconcile that committed
 				// state before the next queued call; uncertain storage stays closed,
 				// and a reconcile that also failed is retained behind the refusal.
-				return Err(e.retain_result(self.reconcile_publications().await.map(|_| ())));
+				return Err(crate::cleanup::failed(
+					e,
+					self.reconcile_publications().await.map(|_| ()),
+				));
 			}
 		};
 		self.reconcile_publications().await?;

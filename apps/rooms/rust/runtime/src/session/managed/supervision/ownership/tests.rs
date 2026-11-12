@@ -17,7 +17,7 @@ async fn terminal_status_distinguishes_successful_retirement_from_cleanup_failur
 					signals.ready.send_replace(Some(Ok(())));
 					signals.stopping.changed().await.unwrap();
 					if failed {
-						Err(loam::refusal("exact cleanup failure"))
+						Err(Error::platform_message("exact cleanup failure"))
 					} else {
 						Ok(())
 					}
@@ -64,7 +64,7 @@ async fn readiness_retry_during_retirement_observes_the_terminal_worker() {
 		let view = spawn(&Platform, &budget, "retiring".into(), None, |signals| async move {
 			signals.ready.send_replace(Some(Ok(())));
 			retiring.await.unwrap();
-			signals.ready.send_replace(Some(Err(loam::refusal("connection ended"))));
+			signals.ready.send_replace(Some(Err(Error::closed("connection ended"))));
 			cleaning.await.unwrap();
 			Ok(())
 		});
@@ -122,7 +122,7 @@ async fn failed_retirements_charge_the_population_until_cleanup_succeeds() {
 					signals.stopping.changed().await.unwrap();
 					signals
 						.finished
-						.send_replace(Some(Err(loam::refusal("cleanup unavailable"))));
+						.send_replace(Some(Err(Error::uncertain("cleanup unavailable"))));
 					signals.stopping.changed().await.unwrap();
 					Ok(())
 				},

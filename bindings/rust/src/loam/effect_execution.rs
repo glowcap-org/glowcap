@@ -103,7 +103,8 @@ impl EffectExecution {
 					// call returns.
 					unsafe { core::slice::from_raw_parts(raw.message, raw.message_len) }
 				};
-				let failure = Error::with_detail(raw.result, String::from_utf8_lossy(message).into_owned());
+				let failure = Error::with_detail(raw.result, String::from_utf8_lossy(message).into_owned())
+					.with_raw_cause(raw.cause);
 				Ok(if raw.state == 2 {
 					EffectResult::Unsent(failure)
 				} else {

@@ -3,7 +3,7 @@
 //! The access a link carries is a ladder, none, observe, interact, admin, and
 //! code that reads it by comparing against one rung is code that will be wrong
 //! the next time a rung is added. That is not hypothetical here. `observe` was
-//! once the bottom, so "not observe" meant "more than an observer"; adding a
+//! once the bottom, so "not observe" meant "more than an observer". Adding a
 //! suspended rung below it silently promoted a link carrying nothing above an
 //! observer in three places at once, and its lines came back editable. The
 //! answer was `mayInteract`, which asks the authority by name.
@@ -17,7 +17,7 @@
 //!
 //! So this bans the spellings, not the idea. Asking whether an access is the
 //! top rung is safe by construction, because a rung above admin would be denied
-//! by `=== "admin"` rather than admitted; it is naming the bottom that admits
+//! by `=== "admin"` rather than admitted. It is naming the bottom that admits
 //! what nobody has considered. Tests may still compare, because a test asserting
 //! that a suspended grant reports "none" is asserting exactly that.
 //!

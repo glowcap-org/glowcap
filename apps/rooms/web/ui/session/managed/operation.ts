@@ -1,5 +1,7 @@
 // The original command and its result acquisition share one retained owner.
-import { managedSessionText } from "../../../../lib/text/managed_session.ts";
+import { invariant } from "../../../../lib/invariant.ts";
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
+import { structuredFailure } from "../../../../lib/error_codes.ts";
 import type {
 	RoomsManagedCommand,
 	RoomsManagedRecoveredEffect,
@@ -7,33 +9,48 @@ import type {
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { Coordinate, FieldKey, WorkspaceSnapshot } from "./model.ts";
 import { submitAcquisition, throwUnlessCommitted } from "./acquisition.ts";
+import { ReportedFailure } from "./reported_failure.ts";
 import { ResultRecipe } from "./result_recipe.ts";
 
 /** Admission proved that no effect or receipt was installed. */
-export class WorkspaceConflict extends Error {
+export class WorkspaceConflict extends LocalRefusal {
 	constructor() {
-		super(managedSessionText.workspaceConflict);
+		super("conflict");
 	}
 }
 
-/** The executor has finished observing. The upstream outcome stays unknown. */
-export class TerminalObservationError extends Error {}
+/** The executor has finished observing. The upstream outcome stays unknown,
+ * and the receipt still names the failure it saw. */
+export class TerminalObservationError extends ReportedFailure {
+	constructor(reason: string, failure: unknown = null) {
+		super(reason, failure);
+	}
+}
 
 /** The original receipt proves absence and retains the refusal diagnostic. */
-export class UnsentEffectError extends Error {}
+export class UnsentEffectError extends ReportedFailure {}
+
+/** The refusals that already say why a committed result stays held. Any
+ * other cause is reported as a result that needs recovery. */
+const HELD_REASONS = ["retained-result-unreadable", "target-gone-held", "room-saved-twice"] as const;
+
+function heldReason(cause: unknown): (typeof HELD_REASONS)[number] | "result-needs-recovery" {
+	if (!(cause instanceof LocalRefusal)) return "result-needs-recovery";
+	return HELD_REASONS.find((key) => cause.code === `local-${key}`) ?? "result-needs-recovery";
+}
 
 /** The effect committed. Failure while acquiring its result cannot undo it. */
-export class ResultAcquisitionError extends Error {
+export class ResultAcquisitionError extends LocalRefusal {
 	constructor(readonly result: unknown, cause: unknown) {
-		super(cause instanceof Error ? cause.message : String(cause), { cause });
+		super(heldReason(cause), { cause });
 	}
 }
 
 /** The effect committed, but the live references its result carried expired
  * with the session that held them, so that result can never be read. */
-export class ResultExpired extends Error {
+export class ResultExpired extends LocalRefusal {
 	constructor() {
-		super(managedSessionText.resultExpired);
+		super("result-expired");
 	}
 }
 
@@ -42,7 +59,9 @@ export async function readResult(request: Pick<RoomsManagedCommand, "result">): 
 	try {
 		value = await request.result();
 	} catch (error) {
-		if (String(error instanceof Error ? error.message : error).includes("LiveReferenceExpired")) {
+		// The Host breaks the call with the engine's reason name, exactly.
+		const failure = structuredFailure(error);
+		if (failure?.status === -12 && failure.reason === "LiveReferenceExpired") {
 			throw new ResultExpired();
 		}
 		throw error;
@@ -51,16 +70,18 @@ export async function readResult(request: Pick<RoomsManagedCommand, "result">): 
 		typeof value === "object" && value != null && "observationFailure" in value &&
 		typeof value.observationFailure === "string"
 	) {
-		if ("knownAbsent" in value && value.knownAbsent === true) throw new UnsentEffectError(value.observationFailure);
-		throw new TerminalObservationError(value.observationFailure);
+		if ("knownAbsent" in value && value.knownAbsent === true) {
+			throw new UnsentEffectError(value.observationFailure, "failure" in value ? value.failure : null);
+		}
+		throw new TerminalObservationError(value.observationFailure, "failure" in value ? value.failure : null);
 	}
 	return value;
 }
 
 /** The receipt is exactly absent: another viewer adopted and retired it. */
-export class ReceiptRetired extends Error {
+export class ReceiptRetired extends LocalRefusal {
 	constructor() {
-		super(managedSessionText.receiptRetired);
+		super("receipt-retired");
 	}
 }
 
@@ -135,7 +156,7 @@ export class ManagedOperation {
 		});
 	}
 	complete(work: (recipe: ResultRecipe) => Promise<unknown>): Promise<unknown> {
-		if (this.#closed) throw new Error("The original operation is no longer held");
+		if (this.#closed) throw new LocalRefusal("receipt-retired");
 		return this.#completing ??= work(this.#recipe ??= new ResultRecipe()).finally(() => {
 			this.#completing = null;
 		});
@@ -147,10 +168,10 @@ export class ManagedOperation {
 		source?: FieldKey,
 		createdRoom = false,
 	): Promise<void> {
-		if (this.#closed) throw new Error("The original operation is no longer held");
-		if (this.#acquired) throw new Error("The original result has already been acquired");
+		if (this.#closed) throw new LocalRefusal("receipt-retired");
+		invariant(!this.#acquired, "the original result has already been acquired");
 		if (this.#acquisition != null || this.#acquiring != null) {
-			throw new Error("Recover the original result acquisition before preparing another one");
+			throw new LocalRefusal("result-saving");
 		}
 		return this.#acquiring = (async () => {
 			const prepare = createdRoom
@@ -165,7 +186,7 @@ export class ManagedOperation {
 			);
 			if (this.#closed) {
 				acquisition.free();
-				throw new Error("The original operation is no longer held");
+				throw new LocalRefusal("receipt-retired");
 			}
 			this.#acquisition = acquisition;
 			await this.#submitAcquisition();
@@ -174,9 +195,9 @@ export class ManagedOperation {
 		});
 	}
 	retryAcquisition(): Promise<void> {
-		if (this.#closed) throw new Error("The original operation is no longer held");
+		if (this.#closed) throw new LocalRefusal("receipt-retired");
 		if (this.#acquiring != null) return this.#acquiring;
-		if (this.#acquisition == null) throw new Error("There is no retained result acquisition");
+		invariant(this.#acquisition != null, "there is no retained result acquisition");
 		return this.#acquiring ??= this.#submitAcquisition().finally(() => {
 			this.#acquiring = null;
 		});
@@ -195,7 +216,7 @@ export class ManagedOperation {
 		return this.#acquisition != null || this.#acquiring != null;
 	}
 	finish(): void {
-		if (this.acquiring) throw new Error("Recover the original result acquisition before releasing its command");
+		if (this.acquiring) throw new LocalRefusal("result-saving");
 		this.#closed = true;
 		this.#release();
 	}

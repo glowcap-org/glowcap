@@ -23,9 +23,10 @@
 ;; exiting 1. Every `notify` it hears is printed as it arrives, so a person
 ;; watching the terminal sees the room.
 ;;
-;; Set `GLOWCAP_ROOMS_TRACE_URL` to a live timeline endpoint and this vat publishes its own
+;; Set `GLOWCAP_ROOMS_TRACE_URL` and `GLOWCAP_ROOMS_TRACE_CAP` to a live timeline's
+;; producer route and swiss number (`trace-publish.rkt`) and this vat publishes its own
 ;; trace there, so the session it holds appears beside every other peer's. With
-;; the variable unset it holds no publishing socket and sends nothing.
+;; the URL unset it holds no publishing socket and sends nothing.
 
 (require goblins
          "rooms-client.rkt"

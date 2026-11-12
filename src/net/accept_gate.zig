@@ -95,6 +95,17 @@ pub const Gate = struct {
         self.operation_gate.unlock(io);
     }
 
+    /// Whether an accept or readiness wait holds the operation lease. A wait
+    /// takes the lease before it reads `stopping`, so a `shutdown` after this
+    /// reads true reaches that wait, at its check or through the nudge. Tests
+    /// read it to close under a held wait. It reads the lease the gate
+    /// already keeps, so the wait path pays nothing for it.
+    pub fn leaseHeld(self: *Gate, io: std.Io) bool {
+        if (!self.operation_gate.tryLock()) return true;
+        self.operation_gate.unlock(io);
+        return false;
+    }
+
     /// The first wake fault this gate latched, for the close barrier's report.
     pub fn failure(self: *const Gate) ?wake_channel.Failure {
         return self.wake_failure.failure();

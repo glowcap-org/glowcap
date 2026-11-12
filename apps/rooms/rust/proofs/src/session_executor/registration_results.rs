@@ -400,7 +400,7 @@ async fn run_scenarios(scenarios: &[Scenario]) {
 					host.send(
 						&callback,
 						"notify",
-						&["introducible".into(), "peer".into(), ID.into(), "opening".into()],
+						&["directRequested".into(), "peer".into(), ID.into()],
 					)
 					.await
 					.unwrap();

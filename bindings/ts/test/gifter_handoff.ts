@@ -14,7 +14,7 @@
 
 import process from "node:process";
 import { Connector, type ConnectorRequest, designatorHostPort, Ref, Runtime, Session } from "@glowcap/runtime";
-import { listen, locator, provider } from "@glowcap/tcp";
+import { listen, locator, plain, provider } from "@glowcap/tcp";
 import { connectTcp } from "../runtime/internal/seam.ts";
 import { fail } from "./assert.ts";
 
@@ -35,7 +35,7 @@ async function main(): Promise<void> {
 	const broker = await listen("127.0.0.1", 0);
 	const brokerPort = broker.port;
 	await using brokerRuntime = await Runtime.open({
-		providers: [provider()],
+		providers: [provider({ profiles: [plain] })],
 		adoptHost: broker.host,
 	});
 	const brokerAccept = (async () => {

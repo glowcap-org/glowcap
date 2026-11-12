@@ -12,6 +12,8 @@ import { roomsIdentityDoors, roomsIdentityRoute } from "../lib/routes.ts";
 import { BROWSER_OWN_DOORS, HINT_RENDEZVOUS_RELAY } from "../lib/doors.ts";
 import { browserDoors, capabilityDoors } from "../web/ui/application.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../lib/locator.ts";
+import { cleartextOf } from "../lib/runtime.ts";
+import * as tcp from "@glowcap/tcp";
 import { assert } from "./assert.ts";
 
 Deno.test("an identity route separates proving routes from baseline fallbacks", () => {
@@ -133,4 +135,20 @@ Deno.test("a Rooms sturdyref is parsed from its canonical Swiss encoding", () =>
 		parseRoomsSturdyref(sturdyref).swissnum.every((byte, index) => byte === swiss[index]),
 		"the Rooms sturdyref did not preserve its canonical Swiss bytes",
 	);
+});
+
+Deno.test("a supplied locator names at most its own cleartext TCP profile", () => {
+	const named = (locator: string) => cleartextOf(locator).map((profile) => profile.profile);
+	assert(
+		JSON.stringify(named("127.0.0.1:9000")) === JSON.stringify([tcp.plain.profile]),
+		"a bare address did not name the plain profile alone",
+	);
+	assert(
+		JSON.stringify(named("ocapn://node.keyed-tcp?direct-addresses=127.0.0.1:9000")) ===
+			JSON.stringify([tcp.keyed.profile]),
+		"a keyed locator did not name the keyed profile alone",
+	);
+	for (const sealed of ["ocapn://node.noise-tcp?direct-addresses=127.0.0.1:9000", "ocapn://node.iroh"]) {
+		assert(named(sealed).length === 0, `${sealed} named a cleartext profile`);
+	}
 });

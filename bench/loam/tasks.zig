@@ -116,7 +116,7 @@ fn runOn(comptime engine: Engine, init: std.process.Init, report: *std.ArrayList
     const allocator = allocations.allocator();
     {
         // Local, socket-free measurement identity; benchmark stores are isolated.
-        var host = try driver.Host.init(allocator, @splat(0x91), @splat(0x92), driver.Host.Options.withFrameCap(4096));
+        var host = try driver.Host.init(allocator, @splat(0x91), @splat(0x92), driver.Host.Options.init(.unchecked, 4096));
         defer host.deinit();
         var storage: tasks.Storage(engine.Type()) = undefined;
         try storage.open(allocator, io, &host, path);

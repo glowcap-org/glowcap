@@ -76,7 +76,7 @@ pub const AdmissionPlatform = struct {
         return port;
     }
 
-    /// A scripted listener binds at `openListener`; nothing pends.
+    /// A scripted listener binds at `openListener`. Nothing pends.
     pub fn listenerPending(_: *AdmissionPlatform, _: Fd) bool {
         return false;
     }

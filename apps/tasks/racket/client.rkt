@@ -3,13 +3,13 @@
 ;; the board and watch it, add a task, mark it done, print both lists, and exit 0
 ;; once the task shows up under "Done" and the watcher saw the board change.
 ;;
-;;   racket client.rkt 127.0.0.1 9099 <board-name> rkt-alan "buy groceries"
+;;   racket client.rkt <locator> <board-name> rkt-alan "buy groceries"
 
 (require racket/list
          "task-client.rkt")
 
-(define (run-client host port name nick task)
-  (define b (board-join host port name))
+(define (run-client locator name nick task)
+  (define b (board-join locator name))
   (define text (format "[~a] ~a" nick task))
   (define w (board-watch b))
   (define t (board-add b text))
@@ -41,17 +41,16 @@
 
 (module+ main
   (define args (current-command-line-arguments))
-  (when (< (vector-length args) 5)
-    (eprintf "usage: client.rkt <host> <port> <board-name> <nick> <task-text>\n")
+  (when (< (vector-length args) 4)
+    (eprintf "usage: client.rkt <locator> <board-name> <nick> <task-text>\n")
     (exit 2))
-  (define nick (vector-ref args 3))
+  (define nick (vector-ref args 2))
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (eprintf "client ~a failed: ~a\n" nick (if (exn? e) (exn-message e) e))
                      (exit 1))])
     (run-client (vector-ref args 0)
-                (string->number (vector-ref args 1))
-                (vector-ref args 2)
+                (vector-ref args 1)
                 nick
-                (vector-ref args 4))
+                (vector-ref args 3))
     (exit 0)))

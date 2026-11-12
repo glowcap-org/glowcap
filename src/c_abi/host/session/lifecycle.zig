@@ -202,15 +202,17 @@ pub fn glowcap_host_session_open_accepted(
 /// consumed handle would be invalid.
 pub fn glowcap_host_session_release(raw: ?*GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return GLOWCAP_OK;
-    const inst = instOf(session.host);
-    if (!instance.embedderOwnsDrive(inst, "session_release")) return GLOWCAP_ERR_INVALID_ARGUMENT;
-    inst.core.releaseSession(session) catch |err| {
-        const code = errToCode(err);
-        shared.setLastError("host: session_release: {s}", .{@errorName(err)});
-        return code;
-    };
-    return GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        const session = sessionFrom(raw) orelse break :result GLOWCAP_OK;
+        const inst = instOf(session.host);
+        if (!instance.embedderOwnsDrive(inst, "session_release")) break :result GLOWCAP_ERR_INVALID_ARGUMENT;
+        inst.core.releaseSession(session) catch |err| {
+            const code = errToCode(err);
+            shared.setLastError("host: session_release: {s}", .{@errorName(err)});
+            break :result code;
+        };
+        break :result GLOWCAP_OK;
+    });
 }
 
 /// Nonzero once the keyed handshake has completed and the session is open.

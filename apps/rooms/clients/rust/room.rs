@@ -54,11 +54,31 @@ fn room_ref(arg: Argument, verb: &str) -> Result<glowcap::Ref, String> {
 	glowcap::Ref::try_from(&arg).map_err(|_| format!("{verb:?} did not return a room capability"))
 }
 
-/// The wire reason a broken `send` carried, so a caller can classify it by the
-/// typed code at the front of the reason (`no-such-room` vs `room-exists`). Falls
-/// back to the debug form when the partner gave no message.
+/// The wire reason a broken `send` carried. Falls back to the debug form when
+/// the partner gave no message.
 fn reason(err: glowcap::Error) -> String {
 	err.message().map(str::to_string).unwrap_or_else(|| format!("{err:?}"))
+}
+
+/// Why `open` or `enter` failed. `Call` keeps the binding's typed error, so a
+/// caller classifies a broken answer by its kind and reason, never by text.
+/// `Answer` is a reply that was not a room capability.
+#[derive(Debug)]
+pub enum VerbFailure {
+	Call(glowcap::Error),
+	Answer(String),
+}
+
+impl std::fmt::Display for VerbFailure {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Call(err) => match err.message() {
+				Some(reason) => f.write_str(reason),
+				None => write!(f, "{err:?}"),
+			},
+			Self::Answer(said) => f.write_str(said),
+		}
+	}
 }
 
 /// The directory of rooms: an open connection plus the directory's reference.
@@ -98,23 +118,23 @@ impl Directory {
 	}
 
 	/// Create a new room and return its reference. Errs if the name is taken.
-	pub async fn open(&self, name: &str) -> Result<glowcap::Ref, String> {
+	pub async fn open(&self, name: &str) -> Result<glowcap::Ref, VerbFailure> {
 		let arg = self
 			.session
 			.send(&self.directory, OPEN, &[name.into()])
 			.await
-			.map_err(reason)?;
-		room_ref(arg, OPEN)
+			.map_err(VerbFailure::Call)?;
+		room_ref(arg, OPEN).map_err(VerbFailure::Answer)
 	}
 
 	/// Return an existing room's reference. Errs if there is no such room.
-	pub async fn enter(&self, name: &str) -> Result<glowcap::Ref, String> {
+	pub async fn enter(&self, name: &str) -> Result<glowcap::Ref, VerbFailure> {
 		let arg = self
 			.session
 			.send(&self.directory, ENTER, &[name.into()])
 			.await
-			.map_err(reason)?;
-		room_ref(arg, ENTER)
+			.map_err(VerbFailure::Call)?;
+		room_ref(arg, ENTER).map_err(VerbFailure::Answer)
 	}
 
 	/// One page of the directory's live local and foreign room publications.
@@ -200,10 +220,15 @@ async fn dial(locator: &str) -> Result<(Runtime, Session), String> {
 	let (host, port) = designator_host_port(locator)
 		.map_err(|e| format!("rooms locator is neither host:port nor an ocapn:// URI: {locator}: {e:?}"))?;
 	let loc = tcp::locator(&host, port);
-	let runtime =
-		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&rooms_host()?))
-			.await
-			.map_err(|e| format!("runtime: {e:?}"))?;
+	let runtime = Runtime::open(
+		RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP.with(tcp::Profiles::NOISE_TCP),
+			..Default::default()
+		})])
+		.adopt_host(&rooms_host()?),
+	)
+	.await
+	.map_err(|e| format!("runtime: {e:?}"))?;
 	let session = runtime
 		.connect(&loc, ConnectOptions::default())
 		.await

@@ -274,6 +274,8 @@ test "c-abi onion netlayer copies its configuration text" {
     // Without this the test would pass while the socks text was borrowed, because
     // `listen` never looks at it.
     var acceptor = try io.concurrent(acceptAndDrop, .{daemon});
+    var acceptor_joined = false;
+    errdefer if (!acceptor_joined) wait.joinedUnwinding("acceptor", acceptor.cancel(io));
     var conn: ?*co.GlowcapOnionConn = null;
     const rc = co.glowcap_onion_connect(
         netlayer_ptr,
@@ -288,7 +290,8 @@ test "c-abi onion netlayer copies its configuration text" {
     );
     try std.testing.expectEqual(c.GLOWCAP_OK, rc);
     try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_conn_release(conn.?, null, 0, null));
-    _ = acceptor.await(io) catch {};
+    acceptor_joined = true;
+    try acceptor.await(io);
 }
 
 /// Answer one dial's handshake and drop the stream. Enough to prove the dial
@@ -309,7 +312,7 @@ const SilentEndpoint = struct {
         defer stream.close(self.io);
         self.accepted.store(true, .release);
         while (!self.stop.load(.acquire))
-            std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+            try std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(2), .real);
     }
 };
 
@@ -403,18 +406,33 @@ test "c-abi onion netlayer shutdown cancels a stalled connect" {
         .accepted = &accepted,
         .stop = &stop,
     }});
-    defer {
+    var serving_joined = false;
+    // The endpoint may still be parked in `accept`, which only a cancel
+    // reaches before the deferred server deinit runs.
+    errdefer if (!serving_joined) {
         stop.store(true, .release);
-        _ = silent.await(io) catch {};
-    }
+        wait.joinedUnwinding("serving", silent.cancel(io));
+    };
 
     var attempt: ConnectAttempt = .{ .netlayer = netlayer };
     var call = try io.concurrent(ConnectAttempt.run, .{&attempt});
+    var call_joined = false;
+    // The call is parked in a C call that only a netlayer shutdown wakes.
+    errdefer if (!call_joined) {
+        co.glowcap_onion_netlayer_shutdown(netlayer);
+        wait.joinedUnwinding("call", call.await(io));
+    };
     try wait.untilFlag(io, 5_000, &accepted);
     co.glowcap_onion_netlayer_shutdown(netlayer);
     try wait.untilFlag(io, 5_000, &attempt.done);
     call.await(io);
+    call_joined = true;
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, attempt.result);
+
+    // A daemon-side endpoint that failed fails the test, whatever the client saw.
+    stop.store(true, .release);
+    serving_joined = true;
+    try silent.await(io);
 }
 
 test "c-abi onion netlayer shutdown cancels a stalled listen" {
@@ -440,16 +458,31 @@ test "c-abi onion netlayer shutdown cancels a stalled listen" {
         .accepted = &accepted,
         .stop = &stop,
     }});
-    defer {
+    var serving_joined = false;
+    // The endpoint may still be parked in `accept`, which only a cancel
+    // reaches before the deferred server deinit runs.
+    errdefer if (!serving_joined) {
         stop.store(true, .release);
-        _ = silent.await(io) catch {};
-    }
+        wait.joinedUnwinding("serving", silent.cancel(io));
+    };
 
     var attempt: ListenAttempt = .{ .netlayer = netlayer };
     var call = try io.concurrent(ListenAttempt.run, .{&attempt});
+    var call_joined = false;
+    // The call is parked in a C call that only a netlayer shutdown wakes.
+    errdefer if (!call_joined) {
+        co.glowcap_onion_netlayer_shutdown(netlayer);
+        wait.joinedUnwinding("call", call.await(io));
+    };
     try wait.untilFlag(io, 5_000, &accepted);
     co.glowcap_onion_netlayer_shutdown(netlayer);
     try wait.untilFlag(io, 5_000, &attempt.done);
     call.await(io);
+    call_joined = true;
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, attempt.result);
+
+    // A daemon-side endpoint that failed fails the test, whatever the client saw.
+    stop.store(true, .release);
+    serving_joined = true;
+    try silent.await(io);
 }

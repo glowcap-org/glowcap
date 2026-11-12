@@ -3,13 +3,6 @@
    in-message chrome live in bubbles.css. */
 /* ── Direct-message threads (sidebar) ─────────────────────────────────── */
 #dmList {
-	/* The one place the rail's mark column is a different width: a direct line
-	   wears a 22px person chip where a room wears a sigil, and a directory rim
-	   sits 3px outside that chip (1px outline, 2px offset). The column is the
-	   chip plus that rim, so the name still starts clear of it. The caption under
-	   the name reads this, so it still starts at the name. */
-	--mark-col: 28px;
-	--mark-gap: var(--avatar-gap);
 	margin: 4px 0 0;
 	padding: 0;
 	list-style: none;
@@ -52,6 +45,10 @@
 #dmList li.here::before {
 	background: var(--teal);
 }
+/* A direct line wears a 22px person chip where a room wears a sigil, centred in
+   the rail's one mark column. A directory rim sits 3px outside the chip (1px
+   outline, 2px offset), so it reaches a pixel into the inset and a pixel into
+   the gap, and the name still starts clear of it. */
 #dmList .avatar-chip {
 	justify-self: center;
 }
@@ -361,10 +358,12 @@
 	   forty, well over the twenty-four a target has to be and near what a list
 	   row usually is. The forty-four often quoted is for a control standing on
 	   its own. These stand in a column of identical rows, where the neighbour a
-	   finger might catch is another room and one more tap undoes it. */
+	   finger might catch is another room and one more tap undoes it. The ends
+	   keep the mark's inset, so a name starts where the panel above it starts
+	   the name being typed. */
 	#roomList .room-open,
 	#dmList .dm-open {
-		padding: 8px var(--row-pad);
+		padding: 8px var(--mark-inset);
 	}
 	/* The same overhang against the larger target a finger needs, so the heading
 	   stays the height of its own text here too. */

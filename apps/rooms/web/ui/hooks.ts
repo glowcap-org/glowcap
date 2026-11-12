@@ -1,6 +1,7 @@
-import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
 // React bindings for the page projection and browser media facts.
 
+import { invariant } from "../../lib/invariant.ts";
+import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
 import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
@@ -26,7 +27,7 @@ export const RoomsProjectionProvider = RoomsProjectionContext.Provider;
 export function useRoomsProjection(): PageProjection {
 	const projection = useContext(RoomsProjectionContext);
 	if (projection == null) {
-		throw new Error("rooms: the page projection was requested outside its provider");
+		invariant(false, "rooms: the page projection was requested outside its provider");
 	}
 	return projection;
 }
@@ -148,7 +149,7 @@ export function useRoomsState<T>(selector: (state: Readonly<State>) => T): T {
  *
  * Which access applies is `effectiveRoomsSessionAccess`'s answer and not this
  * one's: a browser holding its own session is not under a link's access at all
- * and can never be paused, and an attached one that has not been answered yet status-allow: pending state or quoted runtime label
+ * and can never be paused, and an attached one that has not been answered yet
  * is not paused either. Deciding that here a second time is how the two drift
  * into disagreeing about the same browser. */
 export function useSessionPaused(): boolean {

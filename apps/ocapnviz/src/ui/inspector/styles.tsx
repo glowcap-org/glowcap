@@ -324,7 +324,7 @@ export const linkRowName = {
  *  It does not shrink. A row has one thing that gives way when the panel
  *  narrows and it is the name on the left, which ellipsizes. A status
  *  badge is two or three words that mean nothing broken apart, and left
- *  to shrink it wraps and takes the row's height with it. "Not yet status-allow: pending state or quoted runtime label
+ *  to shrink it wraps and takes the row's height with it. "Not yet
  *  joined" set three lines tall beside a one-line name is what this
  *  cell exists to prevent. */
 export const linkRowMetaCell = {

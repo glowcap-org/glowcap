@@ -167,6 +167,17 @@ GROUPS = (
                 gate("zig build bindings-iroh-handoff"),
                 gate("zig build bindings-iroh-redeem-posture"),
             ],
+            "binding-proofs": [
+                gate("zig build webrtc-session"),
+                gate("zig build webrtc-mesh"),
+                gate("zig build webrtc-signaling-captp"),
+                gate("zig build webrtc-driver-provider"),
+                gate("zig build bindings-webrtc-driver-provider"),
+                gate("zig build deno-gifter-handoff"),
+                gate("zig build bindings-onion"),
+                gate("zig build rooms-terminal-client-test"),
+                gate("zig build rooms-web-tor-test"),
+            ],
         },
     ),
     Group(
@@ -178,6 +189,18 @@ GROUPS = (
                 gate("zig build loam-browser-test"),
                 gate("zig build rooms-rust-browser-test"),
                 gate("zig build ocapnviz-live-browser"),
+                gate("zig build site-render-check site-tabs-check"),
+            ],
+            "browser-journeys": [
+                *BROWSER_BUILDS,
+                gate("zig build rooms-browser-test"),
+                gate("zig build rooms-managed-rooms-browser-test"),
+                gate("zig build rooms-managed-sharing-browser-test"),
+                gate("zig build rooms-session-graph-browser-test"),
+                gate("zig build rooms-web-relay-peer"),
+                gate("zig build webrtc-datachannel-test"),
+                gate("zig build webrtc-browser-peer"),
+                gate("zig build webrtc-browser-to-browser"),
             ],
             # Every supported browser journey is release evidence. The family runs
             # concurrently within a shard and grows with every journey, so it runs
@@ -225,6 +248,19 @@ GROUPS = (
                 gate("zig build ocapn-conformance-next"),
                 gate("zig build goblins-glowcap-pair-gift"),
             ],
+            "goblins-live": [
+                build("zig build build rooms-archive-build"),
+                gate("zig build goblins-iroh"),
+                gate("zig build goblins-differential"),
+                gate("zig build goblins-rooms-dm"),
+                gate("zig build goblins-rooms-dm-iroh"),
+                gate("zig build goblins-rooms-iroh"),
+                gate("zig build goblins-rooms-peering"),
+            ],
+            "goblins-matrix": [
+                build("zig build build rooms-archive-build"),
+                long("zig build goblins-rooms-matrix-iroh"),
+            ],
         },
     ),
     Group(
@@ -240,7 +276,14 @@ GROUPS = (
                 gate("zig build bindings-relay"),
                 gate("zig build bindings-wss-relay"),
                 gate("zig build bindings-relay-iroh"),
-            ]
+            ],
+            "transport-scale": [
+                build("zig build build iroh-sidecar-build iroh-abi"),
+                gate("zig build tcp-loop"),
+                gate("zig build iroh-loop"),
+                gate("zig build bindings-iroh-loop"),
+                gate("zig build iroh-redeem"),
+            ],
         },
     ),
 )
@@ -249,3 +292,74 @@ GROUP_NAMES = tuple(group.name for group in GROUPS)
 # Every phase belongs to exactly one group.
 PHASES = {phase: gates for group in GROUPS for phase, gates in group.phases.items()}
 assert len(PHASES) == sum(len(group.phases) for group in GROUPS), "a phase name is in two groups"
+# Heavy phases a scheduled or dispatched run always includes. Any other run
+# includes one only when a changed path starts with one of its owners, the
+# sources whose change the phase alone proves. The Goblins matrix is the one
+# proof that reproduces the pinned Goblins handoff-count rejection.
+NIGHTLY = {
+    "goblins-matrix": (
+        "interop/goblins_rooms_matrix/",
+        "conformance/goblins-peer/",
+        "tools/build/relay_matrix.zig",
+        ".devcontainer/pins.sh",
+        ".devcontainer/image/racket-goblins.sh",
+        "src/ocapn/engine/handoff_recipient.zig",
+        "src/ocapn/model/handoff.zig",
+    )
+}
+assert NIGHTLY.keys() <= PHASES.keys(), "a nightly phase names no phase"
+
+# Every other step, and why CI does not run it by name. ci/groups_test.py
+# holds each step CI never reaches to one row here. A pattern names steps
+# that write, measure, or start something; a proof (`-test` or `-check`)
+# needs a row of its own.
+WRITES = "Rewrites committed files or formatting; the matching `-check` step gates the result."
+MEASURES = "A measurement, meaningful only on a quiet host (the profiling skill)."
+NARRATES = "A walkthrough a person watches; the proofs it narrates run by name."
+SERVES = "Starts a program for a person to use, with no verdict to judge."
+INTERNET = "Dials the public n0 relays and DNS, so its verdict depends on the internet."
+TOR_NETWORK = "Joins the public Tor network, whose circuit setup no gate deadline bounds."
+LOCAL = {
+    "gen-*": WRITES,
+    "*-fmt": WRITES,
+    "fmt": WRITES,
+    "set-version": WRITES,
+    "bench-*": MEASURES,
+    "profile-*": MEASURES,
+    "relay-scaling": MEASURES,
+    "demo-*": NARRATES,
+    "accountability": "runtime-check runs the same application as a contract.",
+    "quick-start": "Reruns the first example with its output shown; `examples`, part of check, runs the same executable.",
+    "glowcap": SERVES,
+    "ocapnviz-dev": SERVES,
+    "rooms-archive": SERVES,
+    "rooms-chat": SERVES,
+    "rooms-client": SERVES,
+    "rooms-dev": SERVES,
+    "rooms-irc-bridge": SERVES,
+    "rooms-irc-server": SERVES,
+    "rooms-server": SERVES,
+    "rooms-session": SERVES,
+    "rooms-trace-tail": SERVES,
+    "rooms-web": SERVES,
+    "site-serve": SERVES,
+    "tasks-server": SERVES,
+    "gen-mark-check": "Compares a fresh render byte for byte, which holds only on the architecture that drew the committed mark; source-check holds the committed files to one geometry.",
+    "docs": "Writes the API reference for a reader; nothing judges it.",
+    "doc-impact": "Lists the docs a change may stale, for a person to review.",
+    "fuzz-run": "The worker `zig build fuzz` drives, which the fuzz group runs.",
+    "glowcap-release": "Installs the ReleaseSafe product for a person; release.yml's `glowcap-pack` builds and exercises it.",
+    "check-external": "An aggregate; CI runs each of its proofs by name in the interop and browser groups.",
+    "rooms-web-responsiveness": "A timed proof: rooms-web-proofs runs a second instance after its concurrent proofs finish.",
+    "onion-loop-test": "check runs net/onion_completion_test.zig, the wrapper's only import, through test/all_test.zig.",
+    "timeout-runner-test": "The infrastructure phase runs its file directly, before any gate relies on the wrapper.",
+    "iroh-reachability": INTERNET,
+    "bindings-iroh-reachability": INTERNET,
+    "deno-iroh-reachability": INTERNET,
+    "python-iroh-reachability": INTERNET,
+    "racket-iroh-reachability": INTERNET,
+    "rust-iroh-reachability": INTERNET,
+    "goblins-onion": TOR_NETWORK,
+    "onion-session": TOR_NETWORK,
+    "ocapn-conformance-onion": TOR_NETWORK,
+}

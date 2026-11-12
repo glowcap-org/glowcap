@@ -4,6 +4,7 @@
 //! its bound address as a hint, and a dial that completes has proved it.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
@@ -64,10 +65,11 @@ test "noise-tcp listens and dials on completion residents, sealed by the Host" {
 
     var done = std.atomic.Value(bool).init(false);
     var server_future = try io.concurrent(echo_server.serve, .{ server, &done });
-    defer {
+    var serving_joined = false;
+    errdefer if (!serving_joined) {
         done.store(true, .release);
-        server_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("server", server_future.await(io));
+    };
 
     var client_resident = try TcpResident.init(allocator, try net.Backend.init(allocator, 64, 16, frame_cap), .{});
     defer retire(&client_resident);
@@ -90,4 +92,9 @@ test "noise-tcp listens and dials on completion residents, sealed by the Host" {
     const settled = try view.call(echo, "ping", &.{}, arena.allocator());
     try std.testing.expect(settled == .fulfilled and settled.fulfilled == .string);
     try std.testing.expectEqualStrings("pong, sealed", settled.fulfilled.string);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    serving_joined = true;
+    try server_future.await(io);
 }

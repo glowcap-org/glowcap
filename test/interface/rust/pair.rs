@@ -9,6 +9,14 @@ pub struct Pair {
 	runtime: Runtime,
 	serving: tokio::task::JoinHandle<glowcap::Result<()>>,
 }
+/// Cleartext `tcp`, because a proxy fixture reads the frames on the wire.
+fn plain_tcp() -> tcp::Config {
+	tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	}
+}
+
 impl Pair {
 	pub async fn open(host: &Host, options: HostOptions) -> Self {
 		let client_host = Host::with_options(options).unwrap();
@@ -40,10 +48,9 @@ impl Pair {
 		)
 		.await
 		.unwrap();
-		let runtime =
-			Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(client_host))
-				.await
-				.unwrap();
+		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(plain_tcp())]).adopt_host(client_host))
+			.await
+			.unwrap();
 		let locator = route(server.locator().unwrap());
 		let (client, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
 		let client = Rc::new(client.unwrap());

@@ -159,7 +159,7 @@ impl<P: Platform> Target<P> {
 			Some(session) => {
 				let released = self.release_reference(&session);
 				let closed = session.relinquish(PendingWork::Cancel).await.map_err(Error::from);
-				Error::fold(released, closed)
+				crate::cleanup::combine(released, closed)
 			}
 			None => Ok(()),
 		}
@@ -268,7 +268,7 @@ impl<P: Platform> Targets<P> {
 			Err(primary) => {
 				drop(reference);
 				let cleanup = session.relinquish(PendingWork::Cancel).await.map_err(Error::from);
-				Err(primary.retain_result(cleanup))
+				Err(crate::cleanup::failed(primary, cleanup))
 			}
 		}
 	}

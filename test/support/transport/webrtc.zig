@@ -34,7 +34,7 @@ pub fn hostFromSeed(allocator: std.mem.Allocator, durable_seed: [crypto.seed_byt
     var hasher = std.crypto.hash.Blake3.initKdf("glowcap webrtc interop session root v1", .{});
     hasher.update(&durable_seed);
     hasher.final(&root);
-    return Host.init(allocator, durable_seed, root, Host.Options.withFrameCap(frame_cap));
+    return Host.init(allocator, durable_seed, root, Host.Options.init(.unchecked, frame_cap));
 }
 
 pub fn locator(designator: []const u8) model.PeerLocator {

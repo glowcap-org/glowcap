@@ -69,13 +69,13 @@ impl Owners {
 			self.archive.take();
 		}
 		if let Some(transports) = self.transports.take() {
-			result = Error::fold(result, transports.close().await);
+			crate::cleanup::retain(&mut result, transports.close().await);
 		}
 		if let Some(readiness) = self.readiness.as_ref() {
-			result = Error::fold(result, readiness.remove().await);
+			crate::cleanup::retain(&mut result, readiness.remove().await);
 		}
 		if let Some(readiness) = self.management_readiness.as_ref() {
-			result = Error::fold(result, readiness.remove().await);
+			crate::cleanup::retain(&mut result, readiness.remove().await);
 		}
 		if result.is_ok() {
 			self.readiness.take();
@@ -121,7 +121,7 @@ impl Peer {
 				while let Err(cause) = owners.close().await {
 					report(Notice::Activity {
 						operation: "startup close".into(),
-						cause: glowcap::loam::refusal(cause.to_string()),
+						cause: Box::new(cause),
 					});
 					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 				}
@@ -143,7 +143,7 @@ impl Peer {
 		while let Err(cause) = self.close().await {
 			(self.report)(Notice::Activity {
 				operation: "session close".into(),
-				cause: glowcap::loam::refusal(cause.to_string()),
+				cause: Box::new(cause),
 			});
 			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 		}
@@ -253,7 +253,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		DirectorySignaling::new(HostPlatform, directories.clone(), move |failure| {
 			report(Notice::Activity {
 				operation: "WebRTC signaling".into(),
-				cause: glowcap::loam::refusal(failure.to_string()),
+				cause: Box::new(failure),
 			})
 		})
 	});
@@ -265,7 +265,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		Ok(transports) => transports,
 		Err(error) => {
 			let closed = host.close(PendingWork::Cancel).await.map_err(Error::from);
-			return Err(error.retain_result(closed));
+			return Err(crate::cleanup::failed(error, closed));
 		}
 	};
 	let locator = transports.locator().clone();
@@ -292,7 +292,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 	opened.session().on_trouble(move |operation, cause| {
 		trouble_report(Notice::Activity {
 			operation: operation.into(),
-			cause: cause.clone(),
+			cause: Box::new(cause.clone()),
 		})
 	})?;
 	opened.session().configure_credentials(credentials).await?;
@@ -336,7 +336,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		std::rc::Rc::new(move |reason| {
 			trace_report(Notice::Activity {
 				operation: "Trace publisher".into(),
-				cause: glowcap::loam::refusal(reason),
+				cause: Box::new(rooms_runtime::Error::platform_message(reason)),
 			})
 		}),
 	));
@@ -362,7 +362,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		move |result| match result {
 			Err(cause) => activity_report(Notice::Activity {
 				operation: "workspace realization".into(),
-				cause,
+				cause: Box::new(cause),
 			}),
 			Ok(state) => standing.report(&state.failures, &activity_report),
 		},

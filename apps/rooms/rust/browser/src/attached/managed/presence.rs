@@ -1,6 +1,7 @@
 //! The browser owns an opaque typing sender over an exact managed selection.
 use super::*;
 use rooms_glowcap::client::workspace::Typing;
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
@@ -9,7 +10,8 @@ impl RoomsManagedWorkspace {
 		let input = (|| {
 			let conversation = scalar(conversation, 1024)?;
 			let selected = scalar(selected, 256)?;
-			let target = custody::Coordinate::decode(&selected).map_err(|_| "Invalid typing coordinate".to_string())?;
+			let target = custody::Coordinate::decode(&selected)
+				.map_err(|_| RuntimeError::invalid("Invalid typing coordinate"))?;
 			Ok((conversation, target))
 		})();
 		let (conversation, target) = match input {
@@ -22,7 +24,7 @@ impl RoomsManagedWorkspace {
 			let sender = workspace
 				.typing_sender(&conversation, target)
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let sender = driver.hold(sender, size_of::<Typing<Platform>>())?;
 			Ok(RoomsManagedTyping { driver, sender }.into())
 		})
@@ -41,7 +43,7 @@ impl RoomsManagedTyping {
 	pub fn set(&self, on: bool) -> js_sys::Promise {
 		let sender = self.sender.clone();
 		self.driver.submit(0, move |_| async move {
-			sender.set(on).await.map_err(|e| e.to_string())?;
+			sender.set(on).await.map_err(RuntimeError::from)?;
 			Ok(JsValue::UNDEFINED)
 		})
 	}

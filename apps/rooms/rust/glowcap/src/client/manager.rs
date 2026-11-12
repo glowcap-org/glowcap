@@ -60,7 +60,7 @@ impl<'a, D: Deadline> Manager<'a, D> {
 		let grant = authority::steward_grant(&reply)?;
 		let token = CheckpointRoutes
 			.authority_token(grant.room_link)
-			.ok_or(Refusal::Token)?;
+			.ok_or(authority::Refusal::Token)?;
 		grant.verify(&token)?;
 		Ok(StewardGrant {
 			room_link: grant.room_link.into(),

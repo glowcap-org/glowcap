@@ -2,6 +2,7 @@
 //! retains. The stable tree is its own rollback receipt. No scratch allocation
 //! or second value materialization is needed.
 const std = @import("std");
+const BreakCause = @import("foundation").break_cause.BreakCause;
 const host_mod = @import("../../host.zig");
 const value_mod = @import("../../value.zig");
 const action_mod = @import("../action.zig");
@@ -14,7 +15,7 @@ fn projectedValueType(comptime project: anytype) type {
 pub fn ProjectedCompletion(comptime T: type) type {
     return union(enum) {
         settled: struct { vow_id: u64, value: T },
-        failed: struct { vow_id: u64, failure: action_mod.VowFailure, message: []const u8 },
+        failed: struct { vow_id: u64, failure: action_mod.VowFailure, message: []const u8, cause: BreakCause },
     };
 }
 
@@ -86,6 +87,7 @@ pub fn projectCompletion(
             const projected = projectOwnedValue(self, settled.value, context, project) catch |err| {
                 break :blk .{ .failed = .{
                     .vow_id = settled.vow_id,
+                    .cause = .{},
                     .failure = if (err == error.CapabilityClosed) .closed else .broken,
                     .message = if (err == error.CapabilityClosed)
                         "resolution capability closed before value projection"
@@ -99,6 +101,7 @@ pub fn projectCompletion(
             .vow_id = failed.vow_id,
             .failure = failed.failure,
             .message = failed.message.bytes(),
+            .cause = failed.cause,
         } },
         else => unreachable,
     };

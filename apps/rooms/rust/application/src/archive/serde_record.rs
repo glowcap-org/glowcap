@@ -7,10 +7,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap}
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Fields {
 	kind: Kind,
-	source: Text<128, true>,
-	generation: Text<128, true>,
-	id: Text<128, true>,
-	directory: Text<8192, true>,
+	source: Text<MAX_ID_BYTES, true>,
+	generation: Text<MAX_ID_BYTES, true>,
+	id: Text<MAX_ID_BYTES, true>,
+	directory: Text<MAX_CONTEXT_BYTES, true>,
 	at: SafeInteger,
 	#[serde(default, deserialize_with = "present")]
 	room: Option<Text<MAX_CONVERSATION_BYTES, true>>,
@@ -33,7 +33,7 @@ struct Fields {
 	#[serde(default, deserialize_with = "present")]
 	attachments: Option<List<File, 8>>,
 	#[serde(rename = "previewUrls", default, deserialize_with = "present")]
-	previews: Option<List<Text<2048, true>, 5>>,
+	previews: Option<List<Text<{ crate::open_graph::MAX_URL_BYTES }, true>, { crate::open_graph::MAX_PREVIEWS }>>,
 }
 use alloc::{string::String, vec::Vec};
 #[derive(Deserialize)]

@@ -97,5 +97,4 @@ unsafe extern "C" {
 		netlayer: *mut GlowcapIrohNetlayer,
 		out_provider: *mut GlowcapTransportProvider,
 	) -> c_int;
-	pub fn glowcap_iroh_clear_last_error();
 }

@@ -1,4 +1,5 @@
 // Read-only command affordances from the shared Rust catalog.
+import { invariant } from "../../../lib/invariant.ts";
 import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
 import type { Conv } from "../conversation.ts";
@@ -27,7 +28,10 @@ export function known(): readonly Command[] {
 	if (catalog != null) return catalog;
 	const parsed = z.safeParse(z.array(CatalogEntrySchema), JSON.parse(applicationModule().slashCatalog()));
 	if (!parsed.success) {
-		throw new Error(`the Rooms application answered an invalid command catalog:\n${z.prettifyError(parsed.error)}`);
+		invariant(
+			false,
+			`the Rooms application answered an invalid command catalog:\n${z.prettifyError(parsed.error)}`,
+		);
 	}
 	return catalog = parsed.data.map((entry) => ({
 		...entry,

@@ -33,24 +33,10 @@ fails after one diagnostic attempt, continue with `rg`, bounded reads, and the
 owning checks, and say so once. Repair the MCP only when missing symbol
 information blocks a safe edit or the user asks.
 
-## Project State
-
-- Config: [`.serena/project.yml`](../../../.serena/project.yml)
-- Cursor MCP: [`.cursor/mcp.json`](../../../.cursor/mcp.json) (stdio, started
-  with `serena start-mcp-server`)
-- Claude MCP: [`.mcp.json`](../../../.mcp.json) (stdio, through
-  `glowcap-dev`, so the pinned server and `zls` run in the worktree's
-  devcontainer whether the session runs on the host or inside it)
-- Codex MCP: [`.codex/config.toml`](../../../.codex/config.toml) (the same
-  `glowcap-dev` command; Codex reads it for a trusted project started at the
-  repository root)
-- Pi MCP: [`.pi/mcp.json`](../../../.pi/mcp.json) (the same `glowcap-dev`
-  command; Pi reads it for a trusted project, and `pi mcp list` shows the
-  connection and its tools without starting a session)
-- Runtime state: `.serena/cache`, `.serena/logs`, and `.serena/memories` are
-  per-clone and ignored.
-
 ## Cold Start
+
+`pi mcp list` shows Pi's Serena connection. Codex reads `.codex/config.toml`
+only for a trusted project started at the repository root.
 
 Warm the language server before deep symbol work. Pick the file closest to your
 task focus:

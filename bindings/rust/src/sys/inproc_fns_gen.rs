@@ -14,7 +14,7 @@
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::inproc::{GlowcapInprocConn, GlowcapInprocListener, GlowcapInprocNetlayer};
-use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame};
+use crate::sys::{GlowcapFrame, GlowcapManagedFrame};
 
 unsafe extern "C" {
 	pub fn glowcap_inproc_archive_fingerprint() -> u64;
@@ -70,10 +70,5 @@ unsafe extern "C" {
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
-	) -> c_int;
-	pub fn glowcap_inproc_clear_last_error();
-	pub fn glowcap_inproc_netlayer_new_in(
-		context: *mut GlowcapContext,
-		out_netlayer: *mut *mut GlowcapInprocNetlayer,
 	) -> c_int;
 }

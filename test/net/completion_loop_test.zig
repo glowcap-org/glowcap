@@ -511,7 +511,7 @@ fn slamOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
         .designator = designator,
         .hints = model.Hints.emptyMap(),
     };
-    var conn = tcp.connect(io, &peer, locator, read_buf, write_buf, .{}) catch return;
+    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf, .{});
     // Drop without handshaking: the defer closes the socket while the server
     // still has a recv armed and its start-session send pending.
     conn.deinit();
@@ -541,18 +541,32 @@ test "completion loop: survives abrupt mid-handshake drops under churn (close-wh
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(fixtures.runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
 
+    // A slam only connects and drops, so a failed one is a defect the test
+    // reports. The loop still counts `total` closes before it returns, so each
+    // failed slam is replaced once, and the first failure is returned after
+    // the loop has stopped. A replacement that fails too leaves the loop
+    // short, and the per-test deadline reports the stall.
+    var slam_err: ?anyerror = null;
+    var failed_slams: usize = 0;
     var wave: usize = 0;
     while (wave < waves) : (wave += 1) {
         var futures: [per_wave]std.Io.Future(anyerror!void) = undefined;
         for (&futures) |*f| f.* = try io.concurrent(slamOnce, .{ io, port, allocator });
-        for (&futures) |*f| f.await(io) catch {};
+        for (&futures) |*f| f.await(io) catch |err| {
+            if (slam_err == null) slam_err = err;
+            failed_slams += 1;
+        };
     }
+    while (failed_slams > 0) : (failed_slams -= 1) slamOnce(io, port, allocator) catch |err| {
+        if (slam_err == null) slam_err = err;
+    };
 
     // The loop must process every abrupt close as a completed lifecycle and
     // terminate, if any close stranded its slot, `run(total)` would block
     // forever and join would hang the test rather than return.
     loop_future.await(io);
     if (loop_err) |err| return err;
+    if (slam_err) |err| return err;
     try std.testing.expectEqual(@as(usize, total), loop.closed_count);
 }
 

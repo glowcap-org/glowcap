@@ -1,5 +1,6 @@
 //! Transactional dial settlement under allocator pressure.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -26,13 +27,15 @@ test "dial failure settles every waiter when diagnostics cannot allocate" {
     // The action FIFO already has room for both consequences. Fail the first
     // diagnostic allocation and prove the dial row still settles as a batch.
     failing.fail_index = failing.alloc_index;
-    _ = try node.dialFailed(dial.dial.pending, 0, "connection refused");
+    _ = try node.dialFailed(dial.dial.pending, 0, .peer_unreachable, "connection refused");
     const first = node.nextAction().?;
     const second = node.nextAction().?;
     try std.testing.expectEqual(@as(u64, 11), first.fail.dest.answer.answer.position.int());
     try std.testing.expectEqual(@as(u64, 12), second.fail.dest.answer.answer.position.int());
-    try std.testing.expectEqualStrings("handoff redeem failed: exporter dial failed", first.fail.reason.bytes());
-    try std.testing.expectEqualStrings("handoff redeem failed: exporter dial failed", second.fail.reason.bytes());
+    try std.testing.expectEqualStrings("", first.fail.reason.text);
+    try std.testing.expectEqual(BreakCause.local(.peer_unreachable), first.fail.reason.cause);
+    try std.testing.expectEqualStrings("", second.fail.reason.text);
+    try std.testing.expectEqual(BreakCause.local(.peer_unreachable), second.fail.reason.cause);
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expect(node.pendingDial(dial.dial.pending, 0) == null);
 }

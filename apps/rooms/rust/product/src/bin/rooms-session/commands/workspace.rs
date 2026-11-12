@@ -317,40 +317,9 @@ pub async fn target(options: &Options) -> Result<String, Failure> {
 	}
 	let args = vec![id_text(&directory)?, peer.into(), registration.into(), opening.clone()];
 	let setup = setup(options);
-	let mut submitted = super::admission::command_at(&setup, "startDirect", args.clone(), status.clone()).await?;
-	if submitted["result"]["status"] == "pending" {
-		let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
-		let mut after_id = 0;
-		let mut after = None::<u64>;
-		loop {
-			let batch = request(
-				&options.state,
-				json!({"verb":"tick","wait":1,"after_id":after_id,"after":after}),
-			)
-			.await?;
-			if rows(&batch, "pending")?.iter().any(|row| {
-				row["event"]["target"]["id"] == directory["id"]
-					&& row["event"]["notice"]["kind"] == "introducible"
-					&& row["event"]["notice"]["registration"] == registration
-					&& row["event"]["notice"]["opening"] == opening
-			}) {
-				break;
-			}
-			after = batch["cursor"].as_u64();
-			if let Some(row) = rows(&batch, "pending")?.last() {
-				after_id = row["id"]
-					.as_u64()
-					.ok_or_else(|| Failure::invalid("inbox event lacks id"))?;
-			}
-			if tokio::time::Instant::now() >= deadline {
-				return Err(Failure::uncertain("peer introduction remains pending"));
-			}
-		}
-		submitted = super::admission::command_at(&setup, "startDirect", args.clone(), status).await?;
-	}
-	if submitted["result"]["status"] != "ready" {
-		return Err(Failure::uncertain("peer has not supplied a direct inbox"));
-	}
+	let submitted = super::admission::command_at(&setup, "startDirect", args.clone(), status).await?;
+	serde_json::from_value::<rooms_application::content::session::results::Direct>(submitted["result"].clone())
+		.map_err(|_| Failure::uncertain("peer has not supplied a direct inbox"))?;
 	let status = request(&options.state, json!({"verb":"status"})).await?;
 	check_contact(&status, &directory)?;
 	let id = super::operation()?;

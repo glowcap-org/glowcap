@@ -53,16 +53,26 @@ enum Lookup {
 }
 pub(super) struct Settlement(pub Argument);
 impl Settlement {
-	/// One bounded diagnostic string survives observation and settlement retry.
+	/// One bounded reason survives observation and settlement retry. A failure
+	/// the catalog names is written as its refusal line, code first, from the
+	/// binding's typed cause or the peer's own refusal. Any other failure is
+	/// written as its diagnostic, which never starts with a code.
 	/// Formatting stops at `MAX_OBSERVATION_REASON_UNITS` UTF-16 units. Ordinary String growth retains at
 	/// most twice the 12 KiB UTF-8 bound, even if the peer's failure was larger.
-	/// The original receipt owns it through cold restoration. It grants no replay.
-	pub(super) fn refused(error: &glowcap::Error) -> Self {
-		Self(Argument::List(vec!["refused".into(), reason::format(error).into()]))
+	fn reason(error: &glowcap::Error) -> Argument {
+		match rooms_glowcap::client::binding_failure(error) {
+			Some(failure) => reason::format(&failure),
+			None => reason::format(error),
+		}
+		.into()
 	}
-	/// Retained uncertainty uses the same bounded diagnostic envelope as refusal.
+	/// The original receipt owns the reason through cold restoration. It grants no replay.
+	pub(super) fn refused(error: &glowcap::Error) -> Self {
+		Self(Argument::List(vec!["refused".into(), Self::reason(error)]))
+	}
+	/// Retained uncertainty names its failure the way a refusal does.
 	pub(super) fn unknown(error: &glowcap::Error) -> Self {
-		Self(Argument::List(vec!["unknown".into(), reason::format(error).into()]))
+		Self(Argument::List(vec!["unknown".into(), Self::reason(error)]))
 	}
 	pub(super) fn retirement_target(&self, reply: Reply) -> Result<Option<Ref>> {
 		let role = match reply {
@@ -89,13 +99,6 @@ impl Settlement {
 	}
 }
 impl Prepared {
-	pub fn negative(reply: Reply, error: &glowcap::Error) -> Option<Settlement> {
-		if matches!(reply, Reply::DirectAccess) {
-			direct::pending(error)
-		} else {
-			None
-		}
-	}
 	pub fn read(reply: Reply, value: &Argument, intent: &str) -> Result<Self> {
 		match (reply, value) {
 			(Reply::RoomManager, value) => manager::read(value, intent).map(Self::Capability),
@@ -111,7 +114,8 @@ impl Prepared {
 			(Reply::ManagedRoom, value) => creation::prepare(value).map(Self::Capability),
 			(Reply::Membership, value) => membership::read(value).map(Self::Complete),
 			(Reply::Line, value) => {
-				let (reference, id) = rooms_glowcap::client::posted_line::reply(value)?;
+				let (reference, id) = rooms_glowcap::client::posted_line::reply(value)
+					.map_err(|error| loam::refusal(error.to_string()))?;
 				let reference = reference.cloned();
 				let key = FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN);
 				let id = id
@@ -513,6 +517,26 @@ pub(super) fn disclose(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// The person reading a failed receipt is told what the catalog says about
+	/// it, so the code has to survive the receipt whether or not the outcome
+	/// is certain.
+	#[test]
+	fn a_terminal_reason_leads_with_the_code_its_typed_cause_names() {
+		use rooms_application::failure::{Failure, FailureCode};
+		let undialed = glowcap::Error::transport_unavailable("no provider");
+		for settlement in [Settlement::refused(&undialed), Settlement::unknown(&undialed)] {
+			let reason = failure_reason(&settlement.0).unwrap().unwrap();
+			assert_eq!(
+				Failure::parse(reason).map(|failure| failure.code),
+				Some(FailureCode::TransportNotDialed),
+				"{reason}"
+			);
+		}
+		let diagnostic = glowcap::loam::refusal("rate-limited: retry-after-ms=1000; scope=message");
+		let unknown = Settlement::unknown(&diagnostic);
+		let reason = failure_reason(&unknown.0).unwrap().unwrap();
+		assert_eq!(Failure::parse(reason).map(|failure| failure.code), None, "{reason}");
+	}
 	#[test]
 	fn an_issued_link_comes_back_as_data_and_never_enters_storage() {
 		let row = Argument::List(vec![

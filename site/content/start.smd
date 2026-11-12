@@ -21,8 +21,8 @@ If you prefer another language, choose its guide:
 
 # [Run a complete example]($section.id('run-a-complete-example'))
 
-On Linux or macOS, clone `main` and install its pinned Zig compiler under
-your home directory. You need Git, Python 3, Bash, curl, tar, and xz support.
+On Linux or macOS, clone `main`, the branch releases are tagged on, and
+install its pinned Zig compiler under your home directory. You need Git, Python 3, Bash, curl, tar, and xz support.
 The installer verifies the compiler download.
 
 ```sh
@@ -332,7 +332,7 @@ defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 switch (settled) {
     .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
-    .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+    .broken => |reason| std.debug.print("the greeter refused: {f}\n", .{reason}),
 }
 ```
 ```=html

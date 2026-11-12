@@ -37,6 +37,7 @@ const CatchInner = struct {
 
     pub fn handle(self: *CatchInner, turn: *Turn, msg: Delivery) !model.Argument {
         _ = msg;
+        // tolerant: this handler exists to absorb the inner turn's failure, and the test checks what the outer turn commits.
         _ = turn.near(self.inner, .{ .verb = "fail" }) catch {};
         return .{ .void = {} };
     }
@@ -130,7 +131,7 @@ test "a failed turn detaches all effects before a broken send listener reenters"
             const self: *@This() = @ptrCast(@alignCast(ctx));
             self.commits += 1;
         }
-        fn abort(ctx: *anyopaque, _: *actors.Vat, _: []const u8) void {
+        fn abort(ctx: *anyopaque, _: *actors.Vat, _: glowcap.ocapn.engine.Broken) void {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             self.aborts += 1;
         }
@@ -182,14 +183,14 @@ test "turn failure notifications follow every participant's rollback" {
         state: *State,
         id: u8,
         fn commit(_: *anyopaque, _: *actors.Vat) void {}
-        fn abort(ctx: *anyopaque, _: *actors.Vat, _: []const u8) void {
+        fn abort(ctx: *anyopaque, _: *actors.Vat, _: glowcap.ocapn.engine.Broken) void {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             self.state.aborted += 1;
             self.state.order = self.state.order * 10 + self.id;
         }
-        fn notify(ctx: *anyopaque, _: *actors.Vat, reason: []const u8) void {
+        fn notify(ctx: *anyopaque, _: *actors.Vat, broken: glowcap.ocapn.engine.Broken) void {
             const self: *@This() = @ptrCast(@alignCast(ctx));
-            self.state.early = self.state.early or self.state.aborted != 2 or !std.mem.eql(u8, reason, "Refused");
+            self.state.early = self.state.early or self.state.aborted != 2 or !std.mem.eql(u8, broken.detail, "Refused") or !broken.cause.isApplication();
             self.state.notified += 1;
             self.state.order = self.state.order * 10 + self.id;
         }
@@ -213,17 +214,27 @@ test "turn failure notifications follow every participant's rollback" {
 }
 
 test "reply preservation failure retracts the turn before committing sends" {
+    // The dropped send breaks with no cause: the behavior refused nothing.
+    const SendBroken = struct {
+        broke: bool = false,
+        unnamed: bool = false,
+        fn receive(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.broke = resolution == .broken;
+            if (self.broke) self.unnamed = std.meta.eql(resolution.broken.cause, .{});
+        }
+    };
     const Sender = struct {
         target: actors.Ref,
         failing: *std.testing.FailingAllocator,
         refuse_copy: bool,
-        send_broken: *bool,
+        send_broken: *SendBroken,
         bytes: [8192]u8 = @splat('x'),
 
         pub fn handle(self: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
             if (msg.is("get")) return .{ .integer = 7 };
             const vow = try turn.send(self.target, .{ .verb = "increment" });
-            try turn.vat.on(vow, .{ .ctx = self.send_broken, .func = promise_capture.captureBroken });
+            try turn.vat.on(vow, .{ .ctx = self.send_broken, .func = SendBroken.receive });
             try turn.tell(self.target, .{ .verb = "increment" });
             try turn.become(Counter, .{ .n = 99 });
             if (self.refuse_copy) {
@@ -241,7 +252,7 @@ test "reply preservation failure retracts the turn before committing sends" {
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
             self.settled += 1;
             switch (resolution) {
-                .broken => |reason| self.out_of_memory = std.mem.eql(u8, reason, "OutOfMemory"),
+                .broken => |reason| self.out_of_memory = std.mem.eql(u8, reason.detail, "OutOfMemory"),
                 .fulfilled => |value| self.length = value.bytes.len,
                 .give => unreachable,
             }
@@ -251,7 +262,7 @@ test "reply preservation failure retracts the turn before committing sends" {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         var vat = actors.Vat.init(failing.allocator());
         defer vat.deinit();
-        var send_broken = false;
+        var send_broken: SendBroken = .{};
         const counter = try vat.spawn(Counter, .{ .n = 0 });
         const sender = try vat.spawn(Sender, .{ .target = counter, .failing = &failing, .refuse_copy = refuse_copy, .send_broken = &send_broken });
         var reply: Reply = .{};
@@ -265,7 +276,8 @@ test "reply preservation failure retracts the turn before committing sends" {
         }
         failing.fail_index = std.math.maxInt(usize);
         failing.resize_fail_index = std.math.maxInt(usize);
-        try std.testing.expectEqual(refuse_copy, send_broken);
+        try std.testing.expectEqual(refuse_copy, send_broken.broke);
+        try std.testing.expectEqual(refuse_copy, send_broken.unnamed);
         try vat.drive();
         try std.testing.expectEqual(@as(i64, if (refuse_copy) 0 else 2), try count(&vat, counter));
         try std.testing.expectEqual(@as(i64, if (refuse_copy) 7 else 99), try count(&vat, sender));

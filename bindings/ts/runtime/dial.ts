@@ -12,7 +12,7 @@ import { type Locator, OwnedLocator } from "./locator.ts";
 import { HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
 import { NULL } from "./internal/ffi/runtime.ts";
 import type { Connector, ConnectorRequest } from "./transport.ts";
-import { BUFFER_TOO_SMALL, INVALID_ARGUMENT } from "@glowcap/abi";
+import { BUFFER_TOO_SMALL, INVALID_ARGUMENT, RouteFailure, routeFailureFromCause } from "@glowcap/abi";
 
 const utf8Encoder = new TextEncoder();
 
@@ -51,8 +51,7 @@ export async function dialExporter(
 	}
 	const connector = host.connectorFor(locator.transport);
 	if (connector == null) {
-		throw new GlowcapError(
-			INVALID_ARGUMENT,
+		throw GlowcapError.transportUnavailable(
 			`UnknownTransport: byte-fed Host has no connector for transport ${JSON.stringify(locator.transport)}`,
 		);
 	}
@@ -152,11 +151,19 @@ export async function runDialTicket(
 			}
 		}
 		if (host.released || signal?.aborted) return;
-		const reason = utf8Encoder.encode(error instanceof Error ? error.message : String(error));
+		const cause = (error instanceof GlowcapError ? routeFailureFromCause(error.breakCause) : null) ??
+			RouteFailure.PeerUnreachable;
+		const diagnostic = error instanceof GlowcapError && cause === RouteFailure.TransportUnavailable
+			? `glowcap error ${error.code}: ${error.detail ?? ""}`
+			: error instanceof Error
+			? error.message
+			: String(error);
+		const reason = utf8Encoder.encode(diagnostic);
 		checkHost(hostS.glowcap_host_dial_failed(
 			host.raw,
 			ticket,
 			routeIndex,
+			cause,
 			ab(reason),
 			BigInt(reason.length),
 		));

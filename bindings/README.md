@@ -105,6 +105,17 @@ A send that cannot be issued returns a failed promise. TypeScript keeps the
 original thrown value through awaiting, indexing into the result, and dependent sends, and
 reports a scheduler or callback failure as itself, not as an invalid argument.
 
+A missing publication is either a typed local miss or a partner's exact
+bootstrap fetch refusal. Use the binding's error helper so diagnostic text is
+interpreted only with the required provenance and operation context:
+
+| Binding | Missing-publication check |
+| --- | --- |
+| Rust | `error.is_publication_not_found()` |
+| TypeScript | `error instanceof PublicationNotFound` |
+| Python | `error.is_publication_not_found()` |
+| Racket | `(glowcap-publication-not-found? error)` |
+
 ### Profiles and limits
 
 Each Host chooses the `glowcap` or `interop` profile as one setting. `interop`
@@ -176,7 +187,7 @@ Runtime becomes the shutdown barrier for the Host it adopts.
   Python `serve()` task ends that session: the loop closes the transport on
   the way out, as it does for every other exit.
 - TypeScript, Python, and Rust keep at most <!-- value ../tools/gen/binding/policy.zig unobserved_outcome_cap -->1,024<!-- /value --> settled outcomes that no
-  caller has awaited yet, a cap the binding-policy generator writes into all <!-- status-allow: runtime state or operation ordering -->
+  caller has awaited yet, a cap the binding-policy generator writes into all
   three. Past it, the oldest result is dropped and a late await fails. Racket
   waits at the call site and needs no queue.
 - Racket keeps its own actor vocabulary: `spawn`, `$`, `<-`, `on`, `bcom`,
@@ -204,10 +215,27 @@ library, and onion needs a Tor daemon you run. The TCP archive carries
 `noise-tcp`, `keyed-tcp`, and the testing `tcp`. `inproc` has its own
 archive.
 
+The TCP provider registers `noise-tcp` alone. Plain `tcp` and `keyed-tcp` send cleartext with
+no peer proof, so each is an explicit opt-in through the provider's `profiles`. A runtime
+without a locator's profile refuses the dial with the code `INVALID_ARGUMENT` and the
+transport-unavailable cause, so callers branch on the cause.
+
 Applications call `runtime.connect(locator)` after composing the Runtime with
 the provider or connector they need. Each optional transport package owns its
 locator construction, configuration, setup, and options, so the generic
 binding code names no transport.
+
+A connector that cannot realize a route in its current configuration reports
+`transport_unavailable` before opening a channel. A connection attempt that
+fails keeps its I/O error. These constructors preserve that distinction through
+the Host's dial completion without interpreting diagnostic text:
+
+| Binding | Constructor |
+| --- | --- |
+| Rust | `Error::transport_unavailable(detail)` |
+| TypeScript | `GlowcapError.transportUnavailable(detail)` |
+| Python | `GlowcapError.transport_unavailable(detail)` |
+| Racket | `(make-glowcap-transport-unavailable detail)` |
 
 ### Onion and WebRTC
 
@@ -243,8 +271,14 @@ The relay package exposes one Zig provider through the C ABI.
   loop come back as one versioned failure record, which the binding reads
   field by field.
 - If the final release is refused, the binding retries it once at each later
-  safe point and stops when a result arrives. A release or cleanup failure
+  safe point and stops when ownership is consumed. A release or cleanup failure
   along the way is recorded as a consequence of the original failure.
+
+At the C boundary, release returns two facts in one signed word. Negative
+results retain ownership and are ordinary error codes. Zero consumes ownership
+successfully. Positive results consume ownership and negate the failure code.
+Use `glowcap_release_result_consumed` and `glowcap_release_result_code` to read
+those facts. All four bindings use generated accessors for this contract.
 
 Rust keeps unfinished releases if their thread exits, because the C code may
 still borrow the Rust callbacks or allocator. Finish close and any required

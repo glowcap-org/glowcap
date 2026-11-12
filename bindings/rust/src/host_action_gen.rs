@@ -47,6 +47,7 @@ pub enum HostAction {
 	Fail {
 		ticket: u64,
 		result: i32,
+		cause: crate::sys::GlowcapBreakCause,
 		message: String,
 	},
 	Close {
@@ -93,6 +94,7 @@ pub fn decode(raw: &ffi::GlowcapHostAction) -> Result<HostAction> {
 		HOST_ACTION_FAIL => HostAction::Fail {
 			ticket: raw.ticket,
 			result: raw.result,
+			cause: raw.cause,
 			message: view(raw.message, raw.message_len),
 		},
 		HOST_ACTION_CLOSE => HostAction::Close {
@@ -122,7 +124,7 @@ where
         HostAction::Flush { session } => handlers.flush(session).await,
         HostAction::NeedGiftId { ticket } => handlers.need_gift_id(ticket).await,
         HostAction::Settle { ticket, value } => handlers.settle(ticket, value).await,
-        HostAction::Fail { ticket, result, message } => handlers.fail(ticket, result, message).await,
+        HostAction::Fail { ticket, result, cause, message } => handlers.fail(ticket, result, cause, message).await,
         HostAction::Close { session, result } => handlers.close(session, result).await,
         HostAction::Resume => handlers.resume().await,
         HostAction::CancelDial { ticket, route_index } => handlers.cancel_dial(ticket, route_index).await,
@@ -135,7 +137,7 @@ pub trait HostActionHandlers {
     fn flush(&self, session: usize) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn need_gift_id(&self, ticket: u64) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn settle(&self, ticket: u64, value: Argument) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn fail(&self, ticket: u64, result: i32, message: String) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn fail(&self, ticket: u64, result: i32, cause: crate::sys::GlowcapBreakCause, message: String) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn close(&self, session: usize, result: i32) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn resume(&self) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn cancel_dial(&self, ticket: u64, route_index: usize) -> impl std::future::Future<Output = crate::Result<()>> + '_;

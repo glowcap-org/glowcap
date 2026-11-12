@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def package(prefix: Path, output: Path) -> None:
     version = json.loads((ROOT / "bindings/ts/web/deno.json").read_text())["version"]
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT))
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=60).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, timeout=60))
     output.mkdir(parents=True, exist_ok=True)
     archives = []
     for role, target in (("web", "browser"), ("c", "wasm32-freestanding")):

@@ -1,22 +1,17 @@
 //! The directory root shared by all connections. Every verb reads its
 //! arguments, asks the policy, and applies what the policy answered. The
 //! verbs that take capabilities are the only ones that accept them.
-use super::{
-	registration, signaling,
-	state::{State, Work},
-};
+use super::{registration, signaling, state::State};
 use glowcap::{Argument, Ref, current_session};
 use rooms_application::{
 	directory::{self, LIST, NAME as DIRECTORY, NAMED, Shape, WATCH, creation, registration as member, wire},
-	failure::FailureCode,
 	room::ArgumentView,
 	server::directory::Introduction,
 	signaling as signal,
 };
 use rooms_glowcap::{Value, snapshot::Arguments};
-use std::{cell::RefCell, rc::Rc};
 
-pub(super) type Shared = Rc<RefCell<State>>;
+pub(super) use super::state::Shared;
 pub(super) type Reply = Result<Argument, String>;
 
 const LIST_BASELINE: &str = rooms_application::protocol_data::LIST;
@@ -54,15 +49,21 @@ pub(super) fn root(state: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Re
 		}
 		// The root bounds cheap queries and registration independently from
 		// effects admitted at subscription, creation and introduction owners.
+		// A verb answered later is charged by its owner, once it has its seat.
 		let class = match verb {
 			rooms_application::directory::UNWATCH | signal::DONE | signal::DECLINE => {
 				Some(rooms_application::admission::Class::Cleanup)
 			}
-			creation::OPEN | creation::OPEN_MANAGED | member::OFFER_INBOX => {
-				Some(rooms_application::admission::Class::Create)
-			}
+			creation::OPEN | creation::OPEN_MANAGED => Some(rooms_application::admission::Class::Create),
 			member::REGISTER => Some(rooms_application::admission::Class::Registration),
-			INTRODUCE | member::REQUEST_DIRECT | creation::SUBSCRIBE_PUBLICATION | signal::OFFER => None,
+			INTRODUCE
+			| member::REQUEST_DIRECT
+			| member::OFFER_INBOX
+			| creation::SUBSCRIBE_PUBLICATION
+			| creation::LINK
+			| creation::PRIVATE_LINK
+			| creation::LINK_PUBLICATION
+			| signal::OFFER => None,
 			signal::OFFER_INBOX | signal::ANSWER | signal::CANDIDATE => {
 				Some(rooms_application::admission::Class::Signal)
 			}
@@ -83,7 +84,7 @@ pub(super) fn root(state: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Re
 			| creation::LINK
 			| creation::PRIVATE_LINK => super::rooms::directory_verb(&state, connection, verb, args),
 			creation::SUBSCRIBE_PUBLICATION => super::rooms::subscribe_publication(&state, connection, args),
-			creation::LINK_PUBLICATION => super::rooms::link_publication(&state, args),
+			creation::LINK_PUBLICATION => super::rooms::link_publication(&state, connection, args),
 			member::REGISTER => registration::register(&state, connection, args),
 			member::OFFER_INBOX => offer_inbox(&state, connection, args),
 			INTRODUCE => introduce(&state, connection, args),
@@ -212,6 +213,12 @@ fn unwatch(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 }
 
 fn offer_inbox(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
+	let seat = {
+		let mut state = state.borrow_mut();
+		let seat = state.reserve()?;
+		state.admit_work(connection, rooms_application::admission::Class::Create, 1)?;
+		seat
+	};
 	let (Some(offered), 4) = (capability(args, 3), args.len()) else {
 		return Err("offerInbox needs a nick, registration ID, opening identity and inbox capability".into());
 	};
@@ -227,7 +234,7 @@ fn offer_inbox(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 		.borrowed();
 	let offered = offered.clone();
 	let owner = state.clone();
-	super::answer::later(&state.borrow(), member::OFFER_INBOX, async move {
+	super::answer::later(&state.borrow(), seat, member::OFFER_INBOX, async move {
 		let value = caller.resolve(&offered).await.map_err(|e| e.to_string())?;
 		let inbox = Ref::try_from(&value).map_err(|()| "offered inbox did not resolve to a capability")?;
 		let mut state = owner.borrow_mut();
@@ -244,43 +251,38 @@ fn introduce(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 		return Err("introduce takes a valid registered name and its registration ID".into());
 	}
 	let (nick, id) = (text(args, 0).unwrap_or(""), text(args, 1).unwrap_or(""));
-	let mut state = state.borrow_mut();
-	if !rooms_application::directory::introduction::valid_opening(text(args, 2).unwrap_or("")) {
+	let opening = text(args, 2).unwrap_or("");
+	if !rooms_application::directory::introduction::valid_opening(opening) {
 		return Err("introduce needs a bounded opening identity".into());
 	}
-	state.admit_introduction(connection, nick, id, text(args, 2))?;
-	match state
+	let target = member::Id::parse(id).map_err(|e| e.to_string())?;
+	let mut held = state.borrow_mut();
+	let target_connection = held.introduction_parties(connection, nick, &target)?;
+	// No effect or allowance is committed until the held introductions have room.
+	let parked = if held.policy.introduction_ready(connection, nick, id, opening) {
+		held.introductions.unparked(connection, &target, opening)?;
+		None
+	} else {
+		Some(
+			held.introductions
+				.park(&held.policy, connection, target, opening, target_connection)?,
+		)
+	};
+	held.charge_introduction(connection, target_connection)?;
+	match held
 		.policy
-		.introduce(connection, nick, id, text(args, 2).unwrap_or(""))
-		.map_err(|refusal| refusal.reason())?
+		.introduce(connection, nick, id, opening)
+		.map_err(|r| r.reason())?
 	{
-		// A reference homed on the member's own connection: the Host hands
-		// the caller a gift, never a relay through this process.
 		Introduction::Inbox(inbox) => Ok(Argument::Reference(inbox)),
 		Introduction::Pending(tell) => {
-			// The caller is told to come back only after the member has taken
-			// the request, so the answer waits on that delivery. The seat is
-			// reserved before the turn is deferred, so a full queue refuses in
-			// the turn rather than abandoning a deferred answer.
-			let seat = state.reserve().ok_or_else(busy)?;
-			let caller = current_session()
-				.map_err(|e| e.to_string())?
-				.ok_or("introduce is reachable only over a session")?
-				.borrowed();
-			let resolver = caller.host().defer_turn().map_err(|e| e.to_string())?;
-			let caller_nick = state.policy.registered_nick(connection).unwrap_or("").to_owned();
-			let pending = FailureCode::IntroductionPending.line(format_args!(
-				"\"{nick}\" has been asked for an inbox for \"{caller_nick}\"; try again"
-			));
-			let offline =
-				FailureCode::PeerOffline.line(format_args!("\"{nick}\" could not be reached for direct messages"));
-			seat.send(Work::Introduce {
-				target: tell,
-				caller,
-				resolver,
-				pending,
-				offline,
-			});
+			let waiting = parked.ok_or("the introduction offer changed within its turn")?;
+			let answer = super::answer::deferred(
+				&held,
+				INTRODUCE,
+				super::introductions::resolve(state.clone(), waiting, tell, nick.into()),
+			)?;
+			held.introductions.hold(answer);
 			Ok(Argument::Void)
 		}
 	}
@@ -303,7 +305,9 @@ fn request_direct(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 			.coalesced(rooms_application::admission::Class::Introduction);
 		return Ok(Argument::Void);
 	}
-	state.admit_introduction(connection, nick, id, None)?;
+	let target = member::Id::parse(id).map_err(|e| e.to_string())?;
+	let target = state.introduction_parties(connection, nick, &target)?;
+	state.charge_introduction(connection, target)?;
 	if let Some(tell) = state
 		.policy
 		.request_direct(connection, nick, id, now)
@@ -340,10 +344,4 @@ fn location(state: &Shared, args: &[Argument]) -> Reply {
 	glowcap::format_locator_uri(&locator)
 		.map_err(|e| e.to_string())
 		.map(Argument::from)
-}
-
-/// The delivery queue is full: the caller retries rather than the directory
-/// growing a queue on its word.
-pub(super) fn busy() -> String {
-	"the directory is busy relaying; try again".into()
 }

@@ -25,7 +25,7 @@ impl Write for Diagnostic {
 	}
 }
 
-pub(super) fn format(error: &glowcap::Error) -> String {
+pub(super) fn format(error: &impl fmt::Display) -> String {
 	let mut diagnostic = Diagnostic {
 		text: String::new(),
 		units: 0,

@@ -203,7 +203,7 @@ export function RoomRow(
 		>
 			<button
 				type="button"
-				className="room-open invite-take"
+				className="room-open"
 				aria-label={said}
 				aria-current={here ? "page" : undefined}
 				disabled={conv.membership !== "joined" && cooldown > 0}
@@ -329,14 +329,18 @@ export function InviteRow(
  * are. Its mark is the directory glyph rather than a room's sigil, and the line
  * under it says why it is here rather than naming the directory again, because
  * the name is the row's own words above it. The way out gives the whole
- * directory back instead of one room, and pressing the row opens the join card
- * already aimed here, which is the one thing anybody wants from a server they
- * are on and in no room on. */
+ * directory back instead of one room. Each control goes where its words point:
+ * the row names the directory and opens it, as a room's row opens the room, and
+ * the line that says no room is open here opens the join card already aimed
+ * here. While the directory has a standing to report, the line says that and
+ * opens the directory, as the same line does on every other row. */
 export function EmptyDirRow(
-	{ dir, home, mark, canInteract, onJoinOn, onLeave, onAbout }: {
+	{ dir, home, mark, here, canInteract, onJoinOn, onLeave, onAbout }: {
 		dir: DirView;
 		home: DirId | null;
 		mark: string | undefined;
+		/** Whether this directory is the one on the page. */
+		here: boolean;
 		canInteract: boolean;
 		onJoinOn: (dir: DirId) => void;
 		onLeave: (dir: DirId) => void | Promise<void>;
@@ -350,30 +354,38 @@ export function EmptyDirRow(
 		dir.session,
 	);
 	const standing = dir.session === "disconnected" || progress ? dirStanding(dir.session) : "";
+	const said = dirCaptionSaid(name, dir.session);
 	return (
-		<li className="dirrow" data-dir={mark}>
+		<li className={classNames("dirrow", here && "here")} data-dir={mark}>
 			<button
 				type="button"
 				className="room-open"
-				aria-label={rowJoinRoomOn(name)}
-				disabled={!canInteract}
-				onClick={() => onJoinOn(dir.id)}
+				aria-label={here ? said : rowOpen(said)}
+				aria-current={here ? "page" : undefined}
+				onClick={() => onAbout(dir.id)}
 			>
 				<span className="hash" aria-hidden="true">
 					<Icon name="directory" size={14} />
 				</span>
 				<span className="rname" title={dir.id}>{name}</span>
 			</button>
-			<Button
-				variant="caption"
-				className="rwhere"
-				aria-label={dirCaptionSaid(name, dir.session)}
-				onClick={() => onAbout(dir.id)}
-			>
-				{standing === ""
-					? <span className="rwhere-said">{railNoRoomsYet}</span>
-					: <span className="rwhere-how">{standing}</span>}
-			</Button>
+			{standing === ""
+				? (
+					<Button
+						variant="caption"
+						className="rwhere"
+						aria-label={rowJoinRoomOn(name)}
+						disabled={!canInteract}
+						onClick={() => onJoinOn(dir.id)}
+					>
+						<span className="rwhere-said">{railNoRoomsYet}</span>
+					</Button>
+				)
+				: (
+					<Button variant="caption" className="rwhere" aria-label={said} onClick={() => onAbout(dir.id)}>
+						<span className="rwhere-how">{standing}</span>
+					</Button>
+				)}
 			{canInteract && (
 				<RowClose
 					title={railLeave}

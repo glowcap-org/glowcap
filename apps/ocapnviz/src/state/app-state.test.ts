@@ -3,9 +3,11 @@ import {
 	APP_STATE_STORAGE_KEY,
 	type AppMode,
 	type AppState,
+	liveOverrideFrom,
 	loadPersistedLayoutSizes,
 	loadPersistedStageVisibility,
 	makeInitialAppState,
+	persistAppState,
 	reducer,
 	SIZES_STORAGE_KEY,
 	toolsForMode,
@@ -102,7 +104,7 @@ Deno.test("set-live-sturdyref is independent of mode", () => {
 	assertEquals(next.mode, "play");
 });
 
-Deno.test("the current persisted mode and live sturdyref survive reload", () => {
+Deno.test("reload preserves preferences but forgets the live capability", () => {
 	const stored = {
 		mode: "build" as const,
 		liveSturdyref: "ocapn://x.tcp/s/trace",
@@ -118,7 +120,8 @@ Deno.test("the current persisted mode and live sturdyref survive reload", () => 
 	try {
 		const init = makeInitialAppState();
 		assertEquals(init.mode, "build");
-		assertEquals(init.liveSturdyref, "ocapn://x.tcp/s/trace");
+		assertEquals(init.liveSturdyref, "");
+		assertEquals(localStorage.getItem(APP_STATE_STORAGE_KEY)?.includes(stored.liveSturdyref), false);
 		assertEquals(init.autoSizeTimeline, false);
 	} finally {
 		localStorage.removeItem(APP_STATE_STORAGE_KEY);
@@ -154,5 +157,46 @@ Deno.test("stored pane sizes and layer visibility load only as the full shape", 
 	} finally {
 		localStorage.removeItem(SIZES_STORAGE_KEY);
 		localStorage.removeItem(VISIBILITY_STORAGE_KEY);
+	}
+});
+
+Deno.test("only the address fragment opens Live, never a query", () => {
+	const sturdyref = "ocapn://localhost%3A9000.tcp/s/trace";
+	const page = (tail: string) => new URL(`http://127.0.0.1:8080/${tail}`);
+	assertEquals(liveOverrideFrom(page(`#live=${encodeURIComponent(sturdyref)}`)), { liveSturdyref: sturdyref });
+	assertEquals(liveOverrideFrom(page("#live=")), { liveSturdyref: "" });
+	assertEquals(liveOverrideFrom(page("")), null);
+	assertEquals(liveOverrideFrom(page(`?live=${encodeURIComponent(sturdyref)}`)), null);
+});
+
+Deno.test("saving preferences never stores the live capability", () => {
+	const state = seed({ liveSturdyref: "ocapn://private.iroh/s/secret", mode: "live" });
+	try {
+		persistAppState(state);
+		const saved = localStorage.getItem(APP_STATE_STORAGE_KEY);
+		assertEquals(saved?.includes(state.liveSturdyref), false);
+		assertEquals(saved?.includes("liveSturdyref"), false);
+		assertEquals(makeInitialAppState().mode, "live");
+		assertEquals(makeInitialAppState().liveSturdyref, "");
+	} finally {
+		localStorage.removeItem(APP_STATE_STORAGE_KEY);
+	}
+});
+
+Deno.test("reload removes a stored capability even when preference writes are refused", () => {
+	const stored = seed({ liveSturdyref: "ocapn://private.iroh/s/secret", mode: "live" });
+	localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(stored));
+	const write = localStorage.setItem;
+	localStorage.setItem = () => {
+		throw new DOMException("full", "QuotaExceededError");
+	};
+	try {
+		const initial = makeInitialAppState();
+		assertEquals(initial.liveSturdyref, "");
+		assertEquals(initial.mode, "live");
+		assertEquals(localStorage.getItem(APP_STATE_STORAGE_KEY), null);
+	} finally {
+		localStorage.setItem = write;
+		localStorage.removeItem(APP_STATE_STORAGE_KEY);
 	}
 });

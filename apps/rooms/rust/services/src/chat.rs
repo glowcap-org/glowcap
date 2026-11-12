@@ -189,7 +189,9 @@ pub async fn run(locator: &str, room: &str, nick: &str) -> Result<(), String> {
 	let locator = rooms_glowcap::routes::locator(locator).ok_or("invalid Rooms directory locator")?;
 	let providers = match locator.transport.as_str() {
 		glowcap::TRANSPORT_TCP | glowcap::TRANSPORT_KEYED_TCP | glowcap::TRANSPORT_NOISE_TCP => {
-			vec![glowcap::tcp::provider(Default::default())]
+			vec![glowcap::tcp::provider(rooms_platform::serving::tcp_config([locator
+				.transport
+				.as_str()]))]
 		}
 		glowcap::TRANSPORT_IROH => vec![glowcap::iroh::provider(rooms_platform::serving::iroh_config(
 			glowcap::iroh::Reachability::Direct,

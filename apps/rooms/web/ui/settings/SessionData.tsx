@@ -7,7 +7,8 @@
 // lead says so once so nobody exports a file expecting their history in it.
 
 import { useRef, useState } from "react";
-import { sessionStateFile } from "../../../lib/text/settings.ts";
+import { sessionStateFile, sessionStateSaved } from "../../../lib/text/settings.ts";
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { sessionConfirmKeep } from "../../../lib/text/session.ts";
 import {
 	sessionDataClearLocalAsk,
@@ -81,7 +82,7 @@ export function SessionDataModal(
 	useChangeGroup("settings-session-data", {
 		dirty: file !== null,
 		discard: () => {
-			if (operation.current !== null) throw new Error("Wait for the session data operation to finish.");
+			if (operation.current !== null) throw new LocalRefusal("settings-session-data-busy");
 			selection.current += 1;
 			setFile(null);
 			setImportError("");
@@ -109,9 +110,9 @@ export function SessionDataModal(
 			link.download = STATE_FILE;
 			link.click();
 			URL.revokeObjectURL(url);
-			setExported(`Saved ${STATE_FILE}.`);
+			setExported(sessionStateSaved(STATE_FILE));
 		} catch (cause) {
-			setExportError(cause instanceof Error ? cause.message : String(cause));
+			setExportError(refusalText(cause));
 		} finally {
 			operation.current = null;
 			setBusy(null);
@@ -131,7 +132,7 @@ export function SessionDataModal(
 			},
 			(cause) => {
 				if (selection.current === generation) {
-					setImportError(cause instanceof Error ? cause.message : String(cause));
+					setImportError(refusalText(cause));
 				}
 			},
 		);

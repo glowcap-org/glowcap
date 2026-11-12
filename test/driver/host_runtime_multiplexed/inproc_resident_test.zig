@@ -3,6 +3,7 @@
 //! the dialer fetches and calls across the bounded pipes.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
@@ -34,6 +35,7 @@ fn retire(resident: *InprocResident) void {
 }
 
 fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+    if (!try wait.acceptableUnlessStopped(server, done)) return;
     var session = try server.accept();
     defer session.deinit();
     _ = try session.publish("treasure", Treasure, .{});
@@ -67,10 +69,11 @@ test "inproc completion residents serve a fetch and a call between two runtimes"
 
     var done = std.atomic.Value(bool).init(false);
     var server_future = try io.concurrent(serve, .{ server, &done });
-    defer {
+    var serving_joined = false;
+    errdefer if (!serving_joined) {
         done.store(true, .release);
-        server_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("server", server_future.await(io));
+    };
 
     var dialer_resident = try open(&exchange);
     defer retire(&dialer_resident);
@@ -93,4 +96,9 @@ test "inproc completion residents serve a fetch and a call between two runtimes"
     const greeted = try view.call(treasure, "greet", &.{}, arena_state.allocator());
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    serving_joined = true;
+    try server_future.await(io);
 }

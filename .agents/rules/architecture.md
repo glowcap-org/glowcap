@@ -142,5 +142,4 @@ directly rather than widening a root.
 | binding `Session` / `driver.Session` | one-partner view onto a Host session (ADR-0018) |
 | Goblins `mycapn` | product maps to Host; router tables map to `engine.Node` |
 
-There is no binding `Node` or `Connection`, no `driver.Connection`, and no
-multi-session "node" alias. `net.Connection` is the byte stream only.
+`net.Connection` is the byte stream only.

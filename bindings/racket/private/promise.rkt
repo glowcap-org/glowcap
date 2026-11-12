@@ -71,7 +71,7 @@
 (define (with-minted-vow-guard adopt abandon)
   (with-handlers ([(lambda (_) #t)
                    (lambda (failure)
-                     (with-handlers ([(lambda (_) #t)
+                     (with-handlers ([raised-failure?
                                       (lambda (cleanup)
                                         (record-runtime-failure!
                                          'binding "vow.adoption.release" cleanup))])
@@ -279,7 +279,7 @@
     [(ok) (cdr r)]
     [(failed) (raise (cdr r))]
     [(closed) (raise-glowcap who ERR-CLOSED "connection closed before ~a settled" label)]
-    [else (raise-glowcap who ERR-BROKEN "~a broke: ~a" label (cdr r))]))
+    [else (raise-broken who label (cdr r))]))
 
 ;; The one blocking fetch shape `session-fetch` and `session-enliven` share:
 ;; `mint!` runs the registering FFI verb (the one thing that differs) and
@@ -317,7 +317,7 @@
         [(closed)
          (raise-glowcap who ERR-CLOSED "connection closed before \"~a\" settled" label)]
         [else
-         (raise-glowcap who ERR-BROKEN "~a \"~a\" broke: ~a" what label (cdr r))]))
+         (raise-broken who (format "~a \"~a\"" what label) (cdr r))]))
     (lambda () (release-vow! v))))
 
 ;; Far-send / far-tell mint: encode args, call `glowcap_host_session_send` /

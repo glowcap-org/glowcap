@@ -10,14 +10,23 @@ that misses one fails here instead of in a `--locked` build on one CI lane.
 import json
 import re
 import subprocess
+import sys
 import tomllib
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "ci"))
+import release_version  # noqa: E402
 
 
 class VersionLockstep(unittest.TestCase):
+    def block_version(self, path, block):
+        match = re.search(r'^version = "([^"]+)"', block, re.M)
+        self.assertIsNotNone(match, f"{path}: a workspace package states no version")
+        assert match is not None
+        return match[1]
+
     def test_lock_files_record_the_workspace_version(self):
         """Every tracked lock file states the release version for each workspace package.
 
@@ -39,7 +48,7 @@ class VersionLockstep(unittest.TestCase):
                     stated = re.findall(r'"jsr:@glowcap/[^@"]+@([^"]+)"', source)
                 else:
                     stated = [
-                        re.search(r'^version = "([^"]+)"', block, re.M)[1]
+                        self.block_version(path, block)
                         for block in source.split("[[package]]")[1:]
                         if (
                             re.search(r"^source = \{ editable", block, re.M)
@@ -53,7 +62,7 @@ class VersionLockstep(unittest.TestCase):
 
     def test_package_metadata_matches_the_pre_one_release(self):
         version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
-        self.assertRegex(version, r"^0\.[0-9]+\.[0-9]+$")
+        self.assertTrue(release_version.accepted(version), version)
         manifest = (ROOT / "build.zig.zon").read_text()
         self.assertIn(f'.version = "{version}"', manifest)
         paths = subprocess.check_output(

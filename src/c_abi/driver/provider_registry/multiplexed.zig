@@ -540,10 +540,16 @@ pub const Adapter = struct {
     }
 };
 
-pub fn prepare(
-    owner: *Owner,
-    table_ptr: *const shared.GlowcapMultiplexedTransport,
-) !*Adapter {
+/// The operation groups a multiplexed table offers.
+pub const Groups = struct {
+    dial: bool,
+    external_claim: bool,
+    listen: bool,
+    listen_completion: bool,
+};
+
+/// Check a multiplexed table and name its operation groups. Nothing is built.
+pub fn validate(table_ptr: *const shared.GlowcapMultiplexedTransport) !Groups {
     try validation.tablePrefix(shared.GlowcapMultiplexedTransport, table_ptr, shared.multiplexed_transport.GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION, "multiplexed");
     const table = table_ptr.*;
     if (table.readiness_fd == null or table.drain_ready == null or table.try_read == null or
@@ -573,6 +579,15 @@ pub fn prepare(
         shared.setLastError("driver: multiplexed provider has no operation group", .{});
         return error.InvalidArgument;
     }
+    return .{ .dial = dial, .external_claim = external_claim, .listen = listen, .listen_completion = listen_completion };
+}
+
+pub fn prepare(
+    owner: *Owner,
+    table_ptr: *const shared.GlowcapMultiplexedTransport,
+) !*Adapter {
+    const groups = try validate(table_ptr);
+    const table = table_ptr.*;
     const adapter = try owner.allocator.create(Adapter);
     errdefer owner.allocator.destroy(adapter);
     adapter.* = .{
@@ -581,17 +596,17 @@ pub fn prepare(
         .vtable = .{
             .readiness_fd = Adapter.readinessFd,
             .drain_ready = Adapter.drainReady,
-            .dial = if (dial) .{
+            .dial = if (groups.dial) .{
                 .start_connect = Adapter.startConnect,
                 .finish_connect = Adapter.finishConnect,
                 .cancel_connect = Adapter.cancelConnect,
             } else null,
-            .external_claim = if (external_claim) .{
+            .external_claim = if (groups.external_claim) .{
                 .claim_external = Adapter.claimExternal,
             } else null,
-            .listen = if (listen) .{
+            .listen = if (groups.listen) .{
                 .listen = Adapter.listen,
-                .completion = if (listen_completion) .{
+                .completion = if (groups.listen_completion) .{
                     .finish = Adapter.finishListen,
                     .cancel = Adapter.cancelListen,
                 } else null,

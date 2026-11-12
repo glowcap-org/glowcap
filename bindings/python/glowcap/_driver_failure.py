@@ -90,8 +90,21 @@ def _call_driver(operation: str, call: Callable[[object], int]) -> _Outcome:
         return _Outcome(code, None, error)
 
 
-def _release(driver, handle, operation: str) -> _Outcome:
-    return _call_driver(operation, lambda out: driver.glowcap_driver_release(handle, out))
+@dataclass(frozen=True)
+class _ReleaseOutcome(_Outcome):
+    consumed: bool
+
+
+def _release(driver, handle, operation: str) -> _ReleaseOutcome:
+    result = _c.OK
+
+    def invoke(out) -> int:
+        nonlocal result
+        result = driver.glowcap_driver_release(handle, out)
+        return _c.release_result_code(result)
+
+    outcome = _call_driver(operation, invoke)
+    return _ReleaseOutcome(outcome.code, outcome.failure, outcome.error, _c.release_result_consumed(result))
 
 
 def _add_provider(driver, handle, package) -> None:

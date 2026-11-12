@@ -346,15 +346,8 @@ fn page_link(page: &url::Url, server: &str) -> url::Url {
 	link
 }
 
-fn local_relay_url(mut address: std::net::SocketAddr) -> String {
-	if address.ip().is_unspecified() {
-		address.set_ip(if address.is_ipv4() {
-			std::net::Ipv4Addr::LOCALHOST.into()
-		} else {
-			std::net::Ipv6Addr::LOCALHOST.into()
-		});
-	}
-	format!("ws://{address}/relay")
+fn local_relay_url(address: std::net::SocketAddr) -> String {
+	format!("ws://{}/relay", crate::local_address(address))
 }
 
 /// Print a readiness announcement. Its reader may have closed stdout once it

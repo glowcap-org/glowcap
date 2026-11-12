@@ -60,6 +60,7 @@ fn rktParamType(comptime T: type, comptime specials: []const Special) []const u8
 fn rktReturnType(comptime T: type) []const u8 {
     return switch (T) {
         i32 => "_int32",
+        u32 => "_uint32",
         u64 => "_uint64",
         usize => "_size",
         void => "_void",

@@ -149,7 +149,10 @@ async fn session_bootstrap_preserves_private_identity_and_content_across_physica
 			.await
 			.err()
 			.expect("confirmed absence refuses");
-		assert_eq!(error.kind(), ErrorKind::NotFound);
+		assert!(
+			matches!(error, rooms_runtime::Error::Captp(ref error) if error.kind() == ErrorKind::NotFound),
+			"{error:?}"
+		);
 		assert_eq!(
 			read(&path.join(METADATA), Bootstrap::BYTES).unwrap().unwrap(),
 			broken.encode()

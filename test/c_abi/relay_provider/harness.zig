@@ -66,7 +66,7 @@ pub fn waitForEvent(
     return observed;
 }
 
-/// Wait for one published record carrying `mask`, without folding earlier status-allow: event or source ordering
+/// Wait for one published record carrying `mask`, without folding earlier
 /// records into it. Use this when the atomic composition of one readiness
 /// transition is the contract under test.
 pub fn waitForEventRecord(

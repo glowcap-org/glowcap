@@ -428,7 +428,7 @@ test "settlement admission refusal leaves named answer and projection authority 
         recipient.session_state.answerTargetNamed(answer).?,
         terminal.dest.served_answer.answer,
     );
-    try std.testing.expectEqualStrings("OutboundBackpressure", terminal.reason.bytes());
+    try std.testing.expectEqualStrings("OutboundBackpressure", terminal.reason.text);
     try std.testing.expect(!recipient.session_state.answerResolvedNamed(answer));
     try std.testing.expectEqual(@as(usize, 0), recipient.queuedOutboundBytes());
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
@@ -573,4 +573,33 @@ test "answer-store allocation refusal precedes every export mutation" {
     try std.testing.expect(peer.session_state.peekResolutionNamed(answer) == null);
     try std.testing.expectEqual(@as(u64, 1), peer.session_state.exportRefcount(export_position));
     try std.testing.expectEqual(@as(usize, 0), peer.session_state.retainedSentAnswerBytes());
+}
+
+test "a listener fire naming an export past the frontier commits without allocating" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var peer = engine.testing.initRawOpenPeer(allocator);
+    defer peer.deinit();
+    defer failing.fail_index = std.math.maxInt(usize);
+
+    // Far enough past the frontier that spare rows counted by mention cannot
+    // cover the growth the first establishment needs.
+    const export_position = model.ExportPosition.from(peer.session_state.exports.nextPosition().int() + 4096);
+    const resolution: model.Resolution = .{ .fulfill = .{ .reference = .{
+        .near = model.NearRef.object(export_position.int()),
+    } } };
+    const inventory = try peer.inventoryResolution(resolution);
+    defer inventory.deinit(peer.allocator);
+    try peer.session_state.ensureSentResolutionExportCapacity(resolution, inventory);
+
+    // The commit has no failure channel, so any allocation here would fail.
+    failing.fail_index = failing.alloc_index;
+    var args = [2]model.Argument{ .{ .boolean = true }, resolution.fulfill };
+    peer.session_state.commitPreparedListenerFire(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(3) },
+        .args = &args,
+        .answer = null,
+        .resolve_me_desc = null,
+    } }, inventory, &args[1]);
+    try std.testing.expectEqual(@as(u64, 2), peer.session_state.exportRefcount(export_position));
 }

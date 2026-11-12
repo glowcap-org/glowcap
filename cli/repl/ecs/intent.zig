@@ -1,4 +1,4 @@
-//! First-class intents: keys/mouse → Intent → systems.
+//! Input intents. Key and mouse events become an Intent, which the systems consume.
 const std = @import("std");
 const vaxis = @import("vaxis");
 const Mode = @import("resources.zig").Mode;
@@ -124,7 +124,7 @@ pub fn fromKey(key: vaxis.Key, mode: Mode, menu_open: bool) ?Intent {
     return null; // TextInput
 }
 
-test "Queue push" {
+test "a pushed intent can be queued" {
     var q: Queue = .{};
     q.push(.quit);
     q.push(.redraw);

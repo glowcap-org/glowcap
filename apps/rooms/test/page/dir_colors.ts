@@ -130,7 +130,7 @@ export async function run(tab: Page): Promise<void> {
 	const wasTheme = await tab.getAttribute("html", "data-theme");
 	const tooFaint: string[] = [];
 	// At rest, which takes saying twice: the pointer sent away and the keyboard
-	// let go. Earlier checks left the pointer parked on a row and focus on the status-allow: event or source ordering
+	// let go. Earlier checks left the pointer parked on a row and focus on the
 	// caption it pressed, and either one swaps that caption's ink for the teal a
 	// link wears, hover changes its ground too. What came back was an interactive
 	// state wearing a resting state's name, and its numbers said nothing about the

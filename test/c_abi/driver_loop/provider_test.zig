@@ -187,7 +187,7 @@ test "a resident cannot return a count beyond the borrowed C buffer" {
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
 }
 
-test "provider registration requires complete profile and configuration equivalence" {
+test "provider registration refuses a served profile under another shape or configuration" {
     var first = InvalidMultiplexedResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
     defer first.wake.deinit();
     var other = InvalidMultiplexedResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
@@ -538,12 +538,13 @@ test "the provider ABI preserves typed locators and holds one package lease" {
     );
     try std.testing.expectEqual(@as(usize, 0), restoration_len);
 
-    // The earlier contract failure remains the exact teardown cause, but the status-allow: event or source ordering
-    // consuming release cannot return INVALID_ARGUMENT: that code exclusively
-    // means admission refused and the handle is still live.
+    // The carrier error remains exact even though teardown consumed ownership.
     var release_failure = cdrv.GlowcapDriverFailure.init();
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, cdrv.glowcap_driver_release(loop, &release_failure));
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, release_failure.primary_result);
+    const released = c.ReleaseResult.fromRaw(cdrv.glowcap_driver_release(loop, &release_failure));
+    loop_live = false;
+    try std.testing.expectEqual(.consumed, released.ownership);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, released.code());
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release_failure.primary_result);
     try std.testing.expectEqualStrings(
         "ProviderContract",
         release_failure.primary_name.?[0..release_failure.primary_name_len],
@@ -636,7 +637,7 @@ test "driver release returns final provider package failure" {
 
     var release_failure = cdrv.GlowcapDriverFailure.init();
     try std.testing.expectEqual(
-        c.GLOWCAP_ERR_IO,
+        -c.GLOWCAP_ERR_IO,
         cdrv.glowcap_driver_release(owned_loop.raw, &release_failure),
     );
     try std.testing.expectEqual(@as(usize, 1), resident.releases);

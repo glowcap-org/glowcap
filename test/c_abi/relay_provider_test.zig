@@ -3,6 +3,7 @@
 //! made accidentally correct by a higher adapter.
 
 const std = @import("std");
+const wait = @import("../support/wait.zig");
 const glowcap = @import("glowcap");
 const c = @import("c_abi_shared");
 const relay_archive = @import("c_abi_net_transport_relay");
@@ -36,6 +37,7 @@ fn serveUpgradesUntilClose(io: std.Io, server: *std.Io.net.Server, count: usize)
         defer leg.close();
         try ws_relay.serveUpgrade(&leg);
         var payload: [64]u8 = undefined;
+        // tolerant: the client closing its leg, by close frame, end of stream, or reset, ends this drain, and the client side holds the assertions.
         while (true) _ = ws_relay.readClientFrame(&leg, &payload) catch break;
     }
 }
@@ -209,7 +211,8 @@ test "relay C provider preserves the final tail until explicit connection releas
     var send_tail = std.atomic.Value(bool).init(false);
     defer send_tail.store(true, .release);
     var server_future = try io.concurrent(serveTailThenClose, .{ io, &server, &upgraded, &send_tail });
-    defer _ = server_future.cancel(io) catch {};
+    var server_joined = false;
+    errdefer if (!server_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var url_store: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -344,6 +347,7 @@ test "relay C provider preserves the final tail until explicit connection releas
         c.GLOWCAP_OK,
         table.conn_close.?(table.ctx, conn, &failure),
     );
+    server_joined = true;
     try server_future.await(io);
 }
 
@@ -359,7 +363,8 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
     var server_future = try io.concurrent(serveUpgradesUntilClose, .{ io, &server, 1 });
-    defer _ = server_future.cancel(io) catch {};
+    var server_joined = false;
+    errdefer if (!server_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var url_store: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -430,6 +435,7 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
     try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_connect.?(table.ctx, request_id, &failure));
     try std.testing.expectEqual(@as(i32, 0), failure.result);
     try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_connect.?(table.ctx, request_id, &failure));
+    server_joined = true;
     try server_future.await(io);
 }
 
@@ -445,7 +451,8 @@ test "relay C listener cancellation and stop each settle through the route id" {
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
     var server_future = try io.concurrent(serveUpgradesUntilClose, .{ io, &server, 2 });
-    defer _ = server_future.cancel(io) catch {};
+    var server_joined = false;
+    errdefer if (!server_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var relay_store: [64]u8 = undefined;
     var register_store: [64]u8 = undefined;
@@ -533,5 +540,6 @@ test "relay C listener cancellation and stop each settle through the route id" {
         if (index == 0)
             try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_listen.?(table.ctx, route_id, &failure));
     }
+    server_joined = true;
     try server_future.await(io);
 }

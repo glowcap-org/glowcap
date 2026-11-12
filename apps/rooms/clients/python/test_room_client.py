@@ -1,7 +1,67 @@
+import asyncio
+import pathlib
+import sys
 import unittest
 
-from _protocol_gen import ARRIVE, DEPART, MEMBERSHIP_ENDED, PUBLICATION_FIELDS, ROOM_SENDER, STAY
-from room_client import MAX_UNREAD_LINES, Room, _read_presence, _room, _watch_room_event
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_demo"))
+from python_path import add_bindings_path
+
+add_bindings_path()
+
+from _protocol_gen import ARRIVE, DEPART, MEMBERSHIP_ENDED, PUBLICATION_FIELDS, ROOM_SENDER, STAY  # noqa: E402
+from glowcap import BreakCause, BreakOrigin, BreakReason, GlowcapError, VowBroken  # noqa: E402
+from room_client import MAX_UNREAD_LINES, Room, _read_presence, _room, _watch_room_event  # noqa: E402
+from rooms_cli import enter_or_open, error_code  # noqa: E402
+from rooms_codes import NO_SUCH_ROOM, ROOM_EXISTS  # noqa: E402
+
+
+def _refused(reason: str) -> VowBroken:
+    """A break as the room's refusal arrives: a partner wrote its reason."""
+    return VowBroken(reason, BreakCause(BreakOrigin.PARTNER, BreakReason.APPLICATION))
+
+
+class _Directory:
+    """A directory that answers each verb from a script of outcomes."""
+
+    def __init__(self, enter: list, opened: list):
+        self.enter_outcomes = enter
+        self.open_outcomes = opened
+
+    @staticmethod
+    async def _answer(outcomes: list):
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    async def enter(self, _name: str):
+        return await self._answer(self.enter_outcomes)
+
+    async def open(self, _name: str):
+        return await self._answer(self.open_outcomes)
+
+
+class EnterOrOpenTests(unittest.TestCase):
+    def test_the_code_is_read_from_the_broken_reason_not_the_display(self) -> None:
+        self.assertEqual(error_code(_refused(f"{NO_SUCH_ROOM}: no room named lobby")), NO_SUCH_ROOM)
+        self.assertEqual(error_code(_refused("no code here")), "")
+        # A failure that is not the room's answer never reads as one, whatever it says.
+        self.assertEqual(error_code(GlowcapError(-1, f"{NO_SUCH_ROOM}: x")), "")
+        unreachable = BreakCause(BreakOrigin.LOCAL, BreakReason.PEER_UNREACHABLE)
+        self.assertEqual(error_code(VowBroken(f"{NO_SUCH_ROOM}: x", unreachable)), "")
+
+    def test_a_missing_room_is_opened_and_a_racing_open_enters(self) -> None:
+        fresh = _Directory([_refused(f"{NO_SUCH_ROOM}: none")], ["opened"])
+        self.assertEqual(asyncio.run(enter_or_open(fresh, "lobby")), "opened")
+        raced = _Directory([_refused(f"{NO_SUCH_ROOM}: none"), "entered"], [_refused(f"{ROOM_EXISTS}: taken")])
+        self.assertEqual(asyncio.run(enter_or_open(raced, "lobby")), "entered")
+
+    def test_any_other_failure_is_raised_as_it_came(self) -> None:
+        broken = _refused("not-registered: register first")
+        with self.assertRaises(VowBroken):
+            asyncio.run(enter_or_open(_Directory([broken], []), "lobby"))
+        with self.assertRaises(GlowcapError):
+            asyncio.run(enter_or_open(_Directory([GlowcapError(-1, "io")], []), "lobby"))
 
 
 class TerminalClientContractTests(unittest.TestCase):

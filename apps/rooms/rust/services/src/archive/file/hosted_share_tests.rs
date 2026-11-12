@@ -55,9 +55,12 @@ async fn scenario() {
 	host.remove_durable(&occupied).unwrap();
 	let root_link = worker.retry_publications().await.unwrap();
 	let worker = tokio::task::spawn_local(worker.run());
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
 	let (connected, accepted) =
 		tokio::try_join!(runtime.connect(&locator, ConnectOptions::default()), server.accept()).unwrap();
 	let accepted = Rc::new(accepted);
@@ -108,9 +111,12 @@ async fn scenario() {
 		shared.narrow(&Filter::default(), Access::Read).await.unwrap();
 	}
 	assert!(shared.narrow(&Filter::default(), Access::Read).await.is_err());
-	let other_runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let other_runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
 	let (other, accepted_other) = tokio::try_join!(
 		other_runtime.connect(&locator, ConnectOptions::default()),
 		server.accept()

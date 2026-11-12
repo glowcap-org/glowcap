@@ -11,6 +11,9 @@ import {
 	MAX_ARCHIVE_FACETS_PER_SESSION,
 	MAX_ARCHIVE_READ,
 	MemoryArchiveBackend,
+	spawnArchive,
+} from "../../lib/archive/protocol.ts";
+import {
 	narrowArchive,
 	putArchive,
 	putArchiveWithAttachments,
@@ -18,8 +21,7 @@ import {
 	readArchive,
 	readArchiveAttachment,
 	readArchiveBlob,
-	spawnArchive,
-} from "../../lib/archive/protocol.ts";
+} from "../support/archive/client.ts";
 import { fetchBlob } from "../../lib/attachment.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { assert } from "../assert.ts";

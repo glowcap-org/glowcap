@@ -1,5 +1,5 @@
 //! Production startup follows exact saved trace custody and managed admission.
-use crate::session::{Config, Peer, Transport};
+use crate::session::{Config, Dial, Peer, Transport};
 use futures_util::{SinkExt, StreamExt};
 use rooms_application::{
 	content::{
@@ -73,7 +73,14 @@ async fn scenario(refused: bool) {
 				.unwrap();
 			assert_eq!(
 				&*request.borrow(),
-				"/deployment/publish?cap=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+				"/deployment/publish",
+				"the capability never rides the route"
+			);
+			let presented = ws.next().await.unwrap().unwrap();
+			assert_eq!(
+				presented.to_text().unwrap(),
+				"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				"the producer's first message is its capability"
 			);
 			if refused {
 				ws.close(Some(CloseFrame {
@@ -101,7 +108,7 @@ async fn scenario(refused: bool) {
 		}
 	});
 	let timeline = super::Trace::start(
-		0,
+		"127.0.0.1:0".parse().unwrap(),
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
 		Some(endpoint.clone()),
 		None,
@@ -211,7 +218,7 @@ fn tcp_config(state: std::path::PathBuf) -> Config {
 		readiness_file: None,
 		relay_url: None,
 		relay_alias_url: None,
-		dial_transports: vec!["tcp".into()],
+		dial_transports: vec![Dial::Tcp],
 		ice_servers: vec![],
 	}
 }
@@ -220,9 +227,15 @@ fn tcp_config(state: std::path::PathBuf) -> Config {
 async fn trace_web_channel_requires_swiss_at_fetch_and_refuses_unknown_routes() {
 	rooms_testing::local_set::run_within(Duration::from_secs(20), async {
 		let swiss = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-		let timeline = super::Trace::start(0, swiss.into(), None, None, Rc::new(|_| {}))
-			.await
-			.unwrap();
+		let timeline = super::Trace::start(
+			"127.0.0.1:0".parse().unwrap(),
+			swiss.into(),
+			None,
+			None,
+			Rc::new(|_| {}),
+		)
+		.await
+		.unwrap();
 		let parsed = glowcap::parse_sturdyref(&timeline.sturdyref, glowcap::CaptpVersion::V1_0).unwrap();
 		let glowcap::HintValue::String(endpoint) =
 			parsed.locator.hints.get(rooms_application::web_channel::HINT).unwrap()
@@ -248,9 +261,9 @@ async fn trace_web_channel_requires_swiss_at_fetch_and_refuses_unknown_routes() 
 		let inbox = host.spawn(|_, _| Ok(glowcap::Argument::Void)).unwrap();
 		session.send(&trace, "subscribe", &[inbox.into()]).await.unwrap();
 		for route in [
-			format!("ws://127.0.0.1:{}/unknown?cap={swiss}", timeline.port),
-			format!("ws://127.0.0.1:{}/captp?cap={swiss}", timeline.port),
-			format!("ws://127.0.0.1:{}/", timeline.port),
+			format!("ws://127.0.0.1:{}/unknown?cap={swiss}", timeline.address.port()),
+			format!("ws://127.0.0.1:{}/captp?cap={swiss}", timeline.address.port()),
+			format!("ws://127.0.0.1:{}/", timeline.address.port()),
 		] {
 			let (mut ws, _) = tokio_tungstenite::connect_async(route).await.unwrap();
 			let Some(Ok(Message::Close(Some(close)))) = ws.next().await else {
@@ -262,6 +275,49 @@ async fn trace_web_channel_requires_swiss_at_fetch_and_refuses_unknown_routes() 
 		session.close(glowcap::PendingWork::Cancel).await.unwrap();
 		host.close(glowcap::PendingWork::Cancel).await.unwrap();
 		timeline.close().await;
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn trace_bind_selects_interface_and_preserves_capability_admission() {
+	rooms_testing::local_set::run_within(Duration::from_secs(15), async {
+		for bind in ["127.0.0.2:0", "0.0.0.0:0", "[::1]:0", "[::]:0"] {
+			let swiss = "trace-bind-proof";
+			let timeline = super::Trace::start(bind.parse().unwrap(), swiss.into(), None, None, Rc::new(|_| {}))
+				.await
+				.unwrap();
+			let parsed = glowcap::parse_sturdyref(&timeline.sturdyref, glowcap::CaptpVersion::V1_0).unwrap();
+			let expected = crate::local_address(bind.parse().unwrap());
+			let mut address = expected;
+			address.set_port(timeline.address.port());
+			assert_eq!(parsed.locator.designator, address.to_string());
+			// Wildcard listeners must accept another interface, not just the
+			// loopback address their same-process clients use.
+			let reached = if bind == "0.0.0.0:0" {
+				format!("127.0.0.2:{}", timeline.address.port())
+			} else {
+				address.to_string()
+			};
+			let (ws, _) = tokio_tungstenite::connect_async(format!("ws://{reached}/captp"))
+				.await
+				.unwrap();
+			let host = glowcap::Host::from_seed([220; 32]).unwrap();
+			let session = glowcap::Session::dial_channel(
+				&host,
+				&parsed.locator,
+				rooms_platform::websocket::WsBytes::new(ws).into_channel(),
+				Some(Duration::from_secs(3)),
+				None,
+			)
+			.await
+			.unwrap();
+			assert!(session.fetch("wrong-swiss").await.is_err());
+			session.fetch(swiss).await.unwrap();
+			session.close(glowcap::PendingWork::Cancel).await.unwrap();
+			timeline.close().await;
+			host.close(glowcap::PendingWork::Cancel).await.unwrap();
+		}
 	})
 	.await;
 }

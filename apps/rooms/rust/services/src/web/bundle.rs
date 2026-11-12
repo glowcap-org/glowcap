@@ -95,9 +95,9 @@ async fn compile(root: &Path, outdir: &Path, before: &str, mut stop: watch::Rece
 	// label cannot distinguish successive edits and therefore cannot drive
 	// reliable browser refresh.
 	let short = after
-		.get(..12)
+		.get(..rooms_application::web_build::DIGEST_LEN)
 		.ok_or_else(|| format!("source version `{after}` is shorter than a revision"))?;
-	let revision = format!("source-{short}");
+	let revision = format!("{}{short}", rooms_application::web_build::SOURCE_PREFIX);
 	tokio::fs::write(outdir.join("source.version"), format!("{after}\n"))
 		.await
 		.map_err(|e| e.to_string())?;

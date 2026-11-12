@@ -282,7 +282,9 @@ pub(super) fn behavior(
 			return Err(format!("IRC membership {verb} does not take capabilities"));
 		}
 		valid(&shared.borrow(), &publication, &seat)?;
-		if verb != POST {
+		// A post and a bridge form are answered later, so each charges itself
+		// once it has its seat.
+		if verb != POST && verb != bridge::SUBMIT {
 			let mut state = shared.borrow_mut();
 			let (caller, _) = super::super::rooms::caller(&mut state)?;
 			let class = match verb {
@@ -338,6 +340,7 @@ pub(super) fn behavior(
 				let mut state = shared.borrow_mut();
 				let (caller, _) = super::super::rooms::caller(&mut state)?;
 				state.ingress(caller)?;
+				let work = state.reserve()?;
 				state.admit_message(caller, text.len())?;
 				let post = state
 					.irc
@@ -349,7 +352,7 @@ pub(super) fn behavior(
 					.prepare_post(seat.connection, text)
 					.map_err(|e| e.reason())?;
 				let (shared, publication, seat) = (shared.clone(), publication.clone(), seat.clone());
-				super::super::answer::later(&state, POST, async move {
+				super::super::answer::later(&state, work, POST, async move {
 					let channel = membership(&shared, &publication, &seat).await?;
 					let receipt = if let Some(action) = post.text.strip_prefix("/me ") {
 						channel.action(action)?
@@ -384,7 +387,11 @@ pub(super) fn behavior(
 					return Err("submitBridgeForm needs an action and its answers".into());
 				};
 				let answers = bridge::Answers::decode(raw).map_err(|e| e.to_string())?;
-				let state = shared.borrow();
+				let mut state = shared.borrow_mut();
+				let (caller, _) = super::super::rooms::caller(&mut state)?;
+				state.ingress(caller)?;
+				let work = state.reserve()?;
+				state.admit_work(caller, rooms_application::admission::Class::Read, 1)?;
 				let tls = state
 					.irc
 					.core
@@ -399,7 +406,7 @@ pub(super) fn behavior(
 					_ => return Err(format!("this bridge form has no action {action}")),
 				};
 				let (shared, publication, seat) = (shared.clone(), publication.clone(), seat.clone());
-				super::super::answer::later(&state, bridge::SUBMIT, async move {
+				super::super::answer::later(&state, work, bridge::SUBMIT, async move {
 					identity::change(&shared, &publication, &seat, replacement)
 						.await
 						.map(Argument::from)

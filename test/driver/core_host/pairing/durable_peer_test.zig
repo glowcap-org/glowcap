@@ -45,8 +45,8 @@ fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof, del
     const allocator = std.testing.allocator;
     const a_seed = @as([32]u8, @splat(options.a_seed_byte));
     const b_seed = @as([32]u8, @splat(0xff));
-    const a_opts = Host.Options.withFrameCap(frame_cap);
-    const b_opts = Host.Options.withFrameCap(frame_cap);
+    const a_opts = Host.Options.init(.unchecked, frame_cap);
+    const b_opts = Host.Options.init(.unchecked, frame_cap);
     var a = test_host.init(allocator, a_seed, a_opts);
     defer a.deinit();
     var b = test_host.init(allocator, b_seed, b_opts);
@@ -170,7 +170,7 @@ test "session identity: a proved peer's reconnect supersedes the session its old
     const allocator = std.testing.allocator;
     const host_seed = @as([32]u8, @splat(0x21));
     const peer_seed = @as([32]u8, @splat(0x22));
-    var host = test_host.init(allocator, host_seed, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, host_seed, Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     const host_designator = crypto.SecretKey.fromSeed(host_seed).publicKey().toDesignator();
     const peer_designator = crypto.SecretKey.fromSeed(peer_seed).publicKey().toDesignator();
@@ -187,7 +187,7 @@ test "session identity: a proved peer's reconnect supersedes the session its old
 
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
-    var old_peer = test_host.init(allocator, peer_seed, Host.Options.withFrameCap(frame_cap));
+    var old_peer = test_host.init(allocator, peer_seed, Host.Options.init(.unchecked, frame_cap));
     defer old_peer.deinit();
     try old_peer.setAdvertisedLocator(peer_locator);
     const old_accepted = try publishAndOpenAccepted(&host, "iroh", host_designator[0..], &.{});
@@ -199,7 +199,7 @@ test "session identity: a proved peer's reconnect supersedes the session its old
 
     // The restart: the same durable identity, a fresh session key, and the
     // old session still open here.
-    var new_peer = test_host.init(allocator, peer_seed, Host.Options.withFrameCap(frame_cap));
+    var new_peer = test_host.init(allocator, peer_seed, Host.Options.init(.unchecked, frame_cap));
     defer new_peer.deinit();
     try new_peer.setAdvertisedLocator(peer_locator);
     const new_dialed = try new_peer.openDialedLocator(host_locator);

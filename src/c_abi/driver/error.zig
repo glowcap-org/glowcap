@@ -7,6 +7,7 @@ const shared = @import("c_abi_shared");
 pub fn code(kind: driver.OperationFailure.Kind) i32 {
     return switch (kind) {
         .invalid_argument => shared.GLOWCAP_ERR_INVALID_ARGUMENT,
+        .not_found => shared.GLOWCAP_ERR_NOT_FOUND,
         .would_block => shared.GLOWCAP_ERR_WOULD_BLOCK,
         .timeout => shared.GLOWCAP_ERR_TIMEOUT,
         .closed => shared.GLOWCAP_ERR_CLOSED,

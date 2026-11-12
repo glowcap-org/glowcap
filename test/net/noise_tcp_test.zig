@@ -13,6 +13,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
+const wait = @import("../support/wait.zig");
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
@@ -99,7 +100,7 @@ test "noise-tcp listener designator is the identity key, and close wakes a block
     try std.testing.expect(std.mem.indexOfScalar(u8, addr, ':') != null);
 
     var waiter = try io.concurrent(waitUntilNoiseListenerClose, .{listener});
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try wait.untilLeaseHeld(io, net.tcp.noise.white_box.acceptGate(listener));
     netlayer_test.close(listener);
     try waiter.await(io);
 }

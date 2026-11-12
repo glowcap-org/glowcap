@@ -207,7 +207,7 @@ enum Waiting {
 // a waiter lives only in `Awaited`, so an unobserved broken answer never strands
 // a channel.
 enum VowState {
-	/// Registered, not yet awaited and not yet settled. status-allow: pending state or quoted runtime label
+	/// Registered, not yet awaited and not yet settled.
 	Minted { owned: bool },
 	/// A caller is awaiting. The outcome fires this sender.
 	Awaited {

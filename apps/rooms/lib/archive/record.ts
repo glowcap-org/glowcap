@@ -9,20 +9,23 @@
 // with it.
 
 import type { Argument } from "@glowcap/runtime";
-import { MAX_ARCHIVE_CONVERSATION_BYTES } from "../application_data.ts";
+import {
+	MAX_ARCHIVE_CONTEXT_BYTES,
+	MAX_ARCHIVE_CONVERSATION_BYTES,
+	MAX_ARCHIVE_ID_BYTES,
+	MAX_LINK_PREVIEW_URL_BYTES,
+	MAX_LINK_PREVIEWS,
+} from "../application_data.ts";
 import { MAX_LINE, nickRefusal, utf8Fits } from "../limits.ts";
 import type { ArchiveConversationKind } from "./scope.ts";
 import { type ArchivedAttachment, archivedAttachmentRows, parseArchivedAttachments } from "./record_attachments.ts";
 
-/** Opaque recorder coordinates are small labels that carry no authority. The
- * shipped tab creates 128 bits as printable UUID text. */
-export const MAX_ARCHIVE_ID_BYTES = 128;
-/** Directory locators and contextual conversation labels are data from
- * another peer. Bound them independently of the much smaller room vocabulary. */
-export const MAX_ARCHIVE_CONTEXT_BYTES = 8192;
-export { MAX_ARCHIVE_CONVERSATION_BYTES };
-const MAX_ARCHIVE_LINK_PREVIEWS = 5;
-const MAX_ARCHIVE_LINK_PREVIEW_URL_BYTES = 2_048;
+/** Opaque recorder coordinates are small labels that carry no authority, so
+ * `MAX_ARCHIVE_ID_BYTES` is small. Directory locators and contextual
+ * conversation labels are data from another peer, bounded by
+ * `MAX_ARCHIVE_CONTEXT_BYTES` independently of the much smaller room
+ * vocabulary. */
+export { MAX_ARCHIVE_CONTEXT_BYTES, MAX_ARCHIVE_CONVERSATION_BYTES, MAX_ARCHIVE_ID_BYTES };
 
 export type ArchiveLineState = "present" | "edited" | "withdrawn";
 
@@ -113,15 +116,15 @@ function conversationOrder(raw: unknown): number {
 	return Number(raw);
 }
 
-function readCommon(raw: Argument[]): ArchiveCoordinates {
+function readCommon(raw: readonly unknown[]): ArchiveCoordinates {
 	return parseArchiveCoordinates(raw[1], raw[2], raw[3]);
 }
 
 function parseArchivePreviewUrls(raw: unknown): string[] {
-	if (!Array.isArray(raw) || raw.length > MAX_ARCHIVE_LINK_PREVIEWS) {
-		throw new Error(`an archive line may carry at most ${MAX_ARCHIVE_LINK_PREVIEWS} link previews`);
+	if (!Array.isArray(raw) || raw.length > MAX_LINK_PREVIEWS) {
+		throw new Error(`an archive line may carry at most ${MAX_LINK_PREVIEWS} link previews`);
 	}
-	const urls = raw.map((url) => boundedString(url, "archive link preview", MAX_ARCHIVE_LINK_PREVIEW_URL_BYTES));
+	const urls = raw.map((url) => boundedString(url, "archive link preview", MAX_LINK_PREVIEW_URL_BYTES));
 	if (new Set(urls).size !== urls.length) throw new Error("an archive line repeats a link preview");
 	return urls;
 }
@@ -133,7 +136,7 @@ export function parseArchiveRecord(raw: unknown): ArchiveRecord {
 		if (raw.length !== 8) throw new Error("an archive standing row has the wrong shape");
 		return {
 			kind: "standing",
-			...readCommon(raw as Argument[]),
+			...readCommon(raw),
 			directory: boundedString(raw[4], "archive directory", MAX_ARCHIVE_CONTEXT_BYTES),
 			room: boundedString(raw[5], "archive room", MAX_ARCHIVE_CONVERSATION_BYTES),
 			nick: archiveName(raw[6], "archive nickname"),
@@ -163,7 +166,7 @@ export function parseArchiveRecord(raw: unknown): ArchiveRecord {
 		}
 		return {
 			kind: "line",
-			...readCommon(raw as Argument[]),
+			...readCommon(raw),
 			conversationKind,
 			directory: boundedString(raw[5], "archive directory", MAX_ARCHIVE_CONTEXT_BYTES),
 			conversation: boundedString(raw[6], "archive conversation", MAX_ARCHIVE_CONVERSATION_BYTES),

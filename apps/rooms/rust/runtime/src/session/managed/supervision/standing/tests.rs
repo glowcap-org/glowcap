@@ -23,6 +23,11 @@ impl Deadline for Platform {
 			.ok()
 	}
 }
+impl crate::wall_clock::WallClock for Platform {
+	fn unix_millis(&self) -> core::result::Result<u64, crate::wall_clock::Error> {
+		Ok(0)
+	}
+}
 fn key<K>() -> custody::FieldKey<K> {
 	custody::FieldKey::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap())
 }
@@ -129,6 +134,7 @@ async fn inspect() {
 		},
 	};
 	let advice = rooms_application::admission::RetryAdvice {
+		owner: None,
 		class: rooms_application::admission::Class::RoomTransient,
 		retry_ms: 1000,
 	};
@@ -176,7 +182,13 @@ async fn inspect() {
 		let waiting = worker.stage(|| {
 			counter.set(counter.get() + 1);
 			let result = if counter.get() == 1 {
-				Err(loam::refusal("rate-limited: retry-after-ms=60000; scope=join"))
+				Err(crate::Error::admission(
+					rooms_application::admission::Refusal::Throttled {
+						class: rooms_application::admission::Class::Join,
+						retry_ms: 60_000,
+					},
+					None,
+				))
 			} else {
 				Ok(())
 			};
@@ -200,7 +212,15 @@ async fn inspect() {
 	{
 		let waiting = worker.stage(|| {
 			counter.set(counter.get() + 1);
-			async { Err::<(), _>(loam::refusal("rate-limited: retry-after-ms=1; scope=join")) }
+			async {
+				Err::<(), _>(crate::Error::admission(
+					rooms_application::admission::Refusal::Throttled {
+						class: rooms_application::admission::Class::Join,
+						retry_ms: 1,
+					},
+					None,
+				))
+			}
 		});
 		tokio::pin!(waiting);
 		assert!(
@@ -218,7 +238,15 @@ async fn inspect() {
 	{
 		let waiting = worker.stage(|| {
 			counter.set(counter.get() + 1);
-			async { Err::<(), _>(loam::refusal("rate-limited: retry-after-ms=1; scope=join")) }
+			async {
+				Err::<(), _>(crate::Error::admission(
+					rooms_application::admission::Refusal::Throttled {
+						class: rooms_application::admission::Class::Join,
+						retry_ms: 1,
+					},
+					None,
+				))
+			}
 		});
 		tokio::pin!(waiting);
 		assert!(

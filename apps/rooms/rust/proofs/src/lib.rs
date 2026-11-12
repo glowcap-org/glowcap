@@ -46,7 +46,6 @@ mod host;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod host_files;
 mod inbox_publication;
-mod introduction_client;
 mod invitation_client;
 mod membership;
 mod operator_views;
@@ -103,7 +102,6 @@ pub extern "C" fn rooms_contract_proof() -> u32 {
 	membership::run();
 	conversation::run();
 	invitation_client::run();
-	introduction_client::run();
 	inbox_publication::run();
 	grants::run();
 	checkpoint::run();

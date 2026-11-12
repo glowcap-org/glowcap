@@ -85,7 +85,7 @@ pub const ParkReason = enum { sink, fan_in };
 pub const OnPark = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, reason: ParkReason) void;
 
 /// The listen backlog both platform backends pass to `listen(2)`: pending,
-/// not-yet-accepted connections the kernel queues before refusing new ones. status-allow: pending state or quoted runtime label
+/// not-yet-accepted connections the kernel queues before refusing new ones.
 /// The loop re-arms its accept immediately after every completion, so the
 /// backlog only has to absorb a connect burst between two loop wakes.
 pub const listen_backlog: u31 = 128;
@@ -122,9 +122,9 @@ pub const Options = struct {
     /// once at `init` and recycled, never per connection, so this is a
     /// commitment rather than a ceiling: the loop reserves
     /// `max_conns * (@sizeOf(engine.Peer) + conn_slot_overhead_bytes)` bytes up
-    /// front, and a dial or accept past it is refused rather than queued. At the
-    /// 500k destination that reservation is the loop's own footprint, separate
-    /// from the outbound queues each live connection grows.
+    /// front, and a dial or accept past it is refused rather than queued. That
+    /// reservation is the loop's own footprint, separate from the outbound
+    /// queues each live connection grows.
     max_conns: usize = 1024,
     /// Slots held exclusively for dials explicitly admitted as `.reserved`.
     /// Ordinary dials and accepts cannot consume them. Reserved dials cannot

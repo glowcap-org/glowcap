@@ -5,6 +5,7 @@
 //! Each holder sees one settlement:
 //! data, a capability, or a break. The promise outlives a released vow
 //! handle, leaves with its last retain, and breaks with its session.
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const driver = glowcap.driver;
@@ -129,10 +130,21 @@ test "a vow that breaks breaks the promise on both peers" {
     var c_listened: capture.CapturedString = .{};
     try listenOn(&t.c, ReaderC.listen_vow, &c_listened);
 
-    try t.b.resolverBreak(GreeterB.resolver, "no greeting");
+    var b_sent: capture.CapturedString = .{};
+    try listenOn(&t.b, ReaderB.send_vow, &b_sent);
+    var c_sent: capture.CapturedString = .{};
+    try listenOn(&t.c, ReaderC.send_vow, &c_sent);
+    try std.testing.expect(!b_sent.fired and !c_sent.fired);
+
+    try t.b.resolverBreak(GreeterB.resolver, .{ .detail = "no greeting", .cause = BreakCause{} });
     try t.pump();
     try std.testing.expect(b_listened.broken);
     try std.testing.expect(c_listened.broken);
+    for ([_]*const capture.CapturedString{ &b_listened, &c_listened, &b_sent, &c_sent }) |result| {
+        try std.testing.expect(result.fired and result.broken);
+        try std.testing.expectEqual(BreakCause.partner(), result.cause);
+        try std.testing.expectEqualStrings("no greeting", result.text());
+    }
     try t.expectState(cap, .broken);
 
     try t.a.releaseCapability(cap, 1);
@@ -282,7 +294,7 @@ test "a vow that broke before it was asked for passes as a promise that breaks w
     defer t.deinit();
 
     const vow = try t.ask();
-    try t.b.resolverBreak(GreeterB.resolver, "no greeting");
+    try t.b.resolverBreak(GreeterB.resolver, .{ .detail = "no greeting", .cause = BreakCause{} });
     try t.pump();
     try std.testing.expect(t.a.vows.get(vow).?.completion == .failed);
     const cap = try t.a.vowCapability(vow);

@@ -5,7 +5,7 @@ import { Runtime } from "@glowcap/runtime";
 const peerKey = "<64 lowercase hex characters from the server>";
 const partner = keyed.locator(peerKey, "127.0.0.1", 9099);
 
-await using runtime = await Runtime.open({ providers: [provider()] });
+await using runtime = await Runtime.open({ providers: [provider({ profiles: [keyed] })] });
 // From here, the CapTP workflow is transport-independent.
 await using session = await runtime.connect(partner);
 const greeter = await session.fetch("greeter"); // a capability this peer published

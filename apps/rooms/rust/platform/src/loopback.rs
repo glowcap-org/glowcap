@@ -35,7 +35,11 @@ pub async fn keyed_loopback(seed: [u8; 32]) -> glowcap::Result<Loopback> {
 		},
 	)
 	.await?;
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())])).await?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await?;
 	let locator = server.locator()?;
 	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
 	let accepted = Rc::new(accepted?);

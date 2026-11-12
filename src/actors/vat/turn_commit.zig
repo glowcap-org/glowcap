@@ -8,6 +8,7 @@
 //! and dropping its local sends.
 
 const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 const vat_mod = @import("mod.zig");
 const ingress_mod = @import("ingress.zig");
 
@@ -45,9 +46,10 @@ fn trimBreaks(vat: *Vat) void {
 }
 
 /// Drop a failed outermost turn's staged sends and break their vows with
-/// `reason`. Called after the frame closed, so listeners run at depth zero and
-/// any send they make goes onto a queue directly.
-pub fn drop(vat: *Vat, reason: []const u8) void {
+/// `broken`, the failure the frame recorded. Called after the frame closed,
+/// so listeners run at depth zero and any send they make goes onto a queue
+/// directly.
+pub fn drop(vat: *Vat, broken: Broken) void {
     std.debug.assert(vat.turn_depth == 0);
     // Detach every effect list before callbacks. A broken send's listener may
     // run a new turn, which must never commit the failed turn's participants.
@@ -60,7 +62,7 @@ pub fn drop(vat: *Vat, reason: []const u8) void {
     while (i != 0) {
         i -= 1;
         const participant = participants.items[i];
-        participant.abort(participant.ctx, vat, reason);
+        participant.abort(participant.ctx, vat, broken);
     }
     var breaks = vat.turn_breaks;
     vat.turn_breaks = .empty;
@@ -69,13 +71,13 @@ pub fn drop(vat: *Vat, reason: []const u8) void {
     while (i != 0) {
         i -= 1;
         const participant = participants.items[i];
-        if (participant.abort_notify) |notify| notify(participant.ctx, vat, reason);
+        if (participant.abort_notify) |notify| notify(participant.ctx, vat, broken);
     }
-    for (breaks.items) |pending| pending.port.breakRetracted(pending.answer, reason);
+    for (breaks.items) |pending| pending.port.breakRetracted(pending.answer, broken);
     breaks.clearRetainingCapacity();
     keepLarger(vat_mod.TurnBreak, vat, &vat.turn_breaks, &breaks);
     trimBreaks(vat);
-    for (staged.items) |entry| ingress_mod.dropStaged(vat, entry, reason);
+    for (staged.items) |entry| ingress_mod.dropStaged(vat, entry, broken);
     staged.clearRetainingCapacity();
     keepLarger(ingress_mod.StagedIngress, vat, &vat.staged, &staged);
 }

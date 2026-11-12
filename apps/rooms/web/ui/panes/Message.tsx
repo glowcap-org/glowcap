@@ -260,7 +260,7 @@ function Bubble(
 			{
 				/* Changed since it was said: after the words, because it qualifies
 			    them rather than being one of them. Worth saying at all because a
-			    reader who answered what this used to say should be able to see that status-allow: purpose clause
+			    reader who answered what this said before the edit should be able to see that
 			    it moved under them, and worth saying *here* because drawn before
 			    the line it is about, it would read as a label on the message rather
 			    than a note at the end of it. */

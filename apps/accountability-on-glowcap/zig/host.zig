@@ -1,11 +1,12 @@
 //! Standalone host for the accountability-on-glowcap application.
 //!
-//! Listens on 127.0.0.1, an ephemeral port by default or the one named by
-//! `--port=N`. It prints the port so a foreign caller can connect, then serves
-//! one connection: publishes the Affordance under the name "affordance",
-//! processes invocations, and exits when the caller leaves.
+//! Listens on 127.0.0.1 over encrypted Noise TCP, an ephemeral port by
+//! default or the one named by `--port=N`. It prints its port and locator so
+//! a caller in another language can connect, then serves one connection:
+//! publishes the Affordance under the name "affordance", processes
+//! invocations, and exits when the caller leaves.
 //!
-//! The cross-seam demo script starts this, reads the port, and points
+//! The cross-language demo script starts this, reads the locator, and points
 //! its Deno or Python caller at it. The caller fetches the Affordance
 //! by name.
 
@@ -15,6 +16,7 @@ const glowcap = @import("glowcap");
 const identity = @import("identity.zig");
 const accountable = @import("accountable.zig");
 const affordance = @import("affordance.zig");
+const sealed = @import("demo_sealed");
 
 /// Finite budgets for the accept below: a stranger who connects and then
 /// stays silent holds this server's accept for ten seconds, not for as long
@@ -25,9 +27,7 @@ const session_opts: driver.SessionOptions = .{
     .settle = .{ .ms = 10_000 },
 };
 
-const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
-const tcp = glowcap.net.tcp;
 
 const AFFORDANCE_NAME = affordance.AFFORDANCE_NAME;
 const frame_cap = affordance.frame_cap;
@@ -62,26 +62,19 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    var bind_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bind_designator = try std.fmt.bufPrint(&bind_buf, "127.0.0.1:{d}", .{bind_port});
-    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = bind_designator }, .ephemeral, session_opts);
+    var server = try sealed.listen(allocator, io, bind_port, session_opts);
     defer server.deinit();
-    var bound_buf: [tcp.designator_buf_len]u8 = undefined;
-    const address = try tcp.parseDesignator(try server.localDesignator(&bound_buf));
-    const port: u16 = switch (address) {
-        .ip4 => |a| a.port,
-        .ip6 => |a| a.port,
-    };
+    var locator_buf: [sealed.locator_buf_len]u8 = undefined;
+    const announced = try sealed.announce(server, &locator_buf);
 
-    // The orchestrator parses this line to learn the port.
-    std.debug.print("ACCOUNTABILITY-HOST-LISTENING {d}\n", .{port});
+    // The orchestrator parses this line to learn the port and the locator.
+    std.debug.print("ACCOUNTABILITY-HOST-LISTENING {d} {s}\n", .{ announced.port, announced.locator });
 
     var served: usize = 0;
 
-    // The host and its foreign callers (Deno, Python) establish a real OCapN
-    // session: the accept completes the keyed `op:start-session` handshake,
-    // the same exchange the application surface and a live Goblins peer
-    // require.
+    // The host and its callers in other languages (Deno, Python) establish a
+    // real OCapN session: the accept completes the Noise handshake and the
+    // keyed `op:start-session` exchange.
     var vat = try server.accept();
     defer vat.deinit();
 

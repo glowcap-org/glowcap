@@ -1,4 +1,5 @@
 import { spawnWeb, webPort } from "../support/web_front.ts";
+import * as tcp from "@glowcap/tcp";
 /// <reference lib="dom" />
 // Two production pages consume one managed process workspace. Setup selects a
 // strong use field; reload and process restart must recover that exact owner.
@@ -149,7 +150,7 @@ try {
 				console.error("SHARED-FILE-VIEW", index + 1, await page.locator("body").innerText());
 			}
 			console.error("SHARED-FILE-STATUS", JSON.stringify(await control("status", {})));
-			const runtime = await openRoomsRuntime();
+			const runtime = await openRoomsRuntime({ cleartext: [tcp.plain] });
 			try {
 				const session = await dial(`127.0.0.1:${sessionPort}`, runtime);
 				const workspace = await session.enliven(link);
@@ -180,7 +181,7 @@ try {
 	await first.locator(".session-access-modal").getByText(managedAccessText.noControl, { exact: true }).waitFor();
 	await first.locator(".session-access-modal").getByRole("button", { name: "Close", exact: true }).click();
 	await first.click("#settingsClose");
-	const runtime = await openRoomsRuntime();
+	const runtime = await openRoomsRuntime({ cleartext: [tcp.plain] });
 	const directory = await Directory.connect(`127.0.0.1:${roomPort}`, (address) => dial(address, runtime));
 	try {
 		await proveSharedRoomLink(directory, [first, second]);
@@ -203,6 +204,13 @@ try {
 	);
 	// The actual session process restores its graph, publications and receipts.
 	await stopOwned(peer);
+	// Each page says its session is away for as long as it is, and offers the
+	// act that brings it back.
+	for (const page of [first, second]) {
+		await page.locator(".session-away-notice").waitFor({ timeout: 30_000 }).catch(async () =>
+			fail(`a page did not say its session went away: view=${await page.locator("body").innerText()}`)
+		);
+	}
 	peer = start();
 	const restored = await readAnnounced(peer, {
 		token: "ROOMS-SESSION-LISTENING",
@@ -210,7 +218,8 @@ try {
 	});
 	if (restored !== link) fail("managed process publication changed across restart");
 	for (const page of [first, second]) {
-		await page.reload();
+		await Promise.all([page.waitForEvent("load"), page.click("#sessionAwayReload")]);
+		await page.locator(".session-away-notice").waitFor({ state: "detached" });
 		await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 }).catch(async () =>
 			fail(
 				`process restart view did not settle: view=${await page.locator("body").innerText()} process=${
@@ -225,7 +234,7 @@ try {
 	await proveSharedRoomAuthorityRotation(first, async () => {
 		const status = await control("status", {});
 		console.error("ROOM-AUTHORITY-STATE", JSON.stringify(status));
-		const runtime = await openRoomsRuntime();
+		const runtime = await openRoomsRuntime({ cleartext: [tcp.plain] });
 		try {
 			const session = await dial(`127.0.0.1:${sessionPort}`, runtime);
 			const workspace = await session.enliven(link);

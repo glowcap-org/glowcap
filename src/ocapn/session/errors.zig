@@ -32,7 +32,7 @@ pub const Error = error{
     GcUnderflow,
     /// A wire retain or a summed delta would carry a count past what its
     /// `u64` holds. The same loud refusal as underflow, since the accounting
-    /// can no longer be exact. status-allow: lifecycle transition
+    /// can no longer be exact.
     GcOverflow,
     /// A message arrived (or was sent) in a state that does not admit it:
     /// `op:start-session` outside `negotiating`, or non-handshake traffic
@@ -83,13 +83,13 @@ pub const Error = error{
     /// A shortening callback's target walk exhausted
     /// `SessionLimits.max_resolution_chain` before proving the link acyclic.
     /// Rewriting independently bounds its walk and can stop at an intermediate
-    /// promise. Later callbacks may extend an admitted path; this is a work
+    /// promise. Later callbacks may extend an admitted path. This is a work
     /// budget, not a forest-depth invariant. Projects to `resource_exhausted`.
     ShorteningChainTooLong,
     /// An inbound argument tree nested deeper than
     /// `SessionLimits.max_nesting_depth`. The recursive validate / install walk
     /// is bounded so a deeply nested frame fails loud instead of
-    /// overflowing the native stack. Projects to `resource_exhausted`.
+    /// overflowing the call stack. Projects to `resource_exhausted`.
     NestingTooDeep,
     /// One inbound message asked for more equality-comparison work than
     /// `SessionLimits.max_compare_visits` allows. Comparing two sets is

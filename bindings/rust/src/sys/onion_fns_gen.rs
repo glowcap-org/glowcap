@@ -15,7 +15,7 @@ use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::onion::{GlowcapOnionConfig, GlowcapOnionConn};
 use super::onion::{GlowcapOnionListener, GlowcapOnionNetlayer};
-use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
+use crate::sys::{GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
 
 unsafe extern "C" {
 	pub fn glowcap_onion_archive_fingerprint() -> u64;
@@ -105,11 +105,5 @@ unsafe extern "C" {
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
-	) -> c_int;
-	pub fn glowcap_onion_clear_last_error();
-	pub fn glowcap_onion_netlayer_new_in(
-		context: *mut GlowcapContext,
-		config: *const GlowcapOnionConfig,
-		out_netlayer: *mut *mut GlowcapOnionNetlayer,
 	) -> c_int;
 }

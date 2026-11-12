@@ -9,7 +9,7 @@ pub(crate) struct Abort {
 	stopped: watch::Receiver<bool>,
 }
 impl Abort {
-	pub fn new(signal: Option<web_sys::AbortSignal>) -> Result<Self, String> {
+	pub fn new(signal: Option<web_sys::AbortSignal>) -> Result<Self, rooms_runtime::Error> {
 		let (stop, stopped) = watch::channel(signal.as_ref().is_some_and(web_sys::AbortSignal::aborted));
 		let callback = Closure::new(move || {
 			stop.send_replace(true);
@@ -17,7 +17,9 @@ impl Abort {
 		if let Some(signal) = &signal {
 			signal
 				.add_event_listener_with_callback("abort", callback.as_ref().unchecked_ref())
-				.map_err(|_| "Rooms cancellation handler could not be installed")?;
+				.map_err(|_| {
+					rooms_runtime::Error::platform_message("Rooms cancellation handler could not be installed")
+				})?;
 		}
 		Ok(Self {
 			signal,

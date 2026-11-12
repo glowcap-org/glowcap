@@ -61,6 +61,19 @@ pub enum Error {
 	NoSteward,
 	StewardRetired,
 }
+const STEWARD_RETIRED: crate::failure::Failure<'static> = crate::failure::Failure {
+	code: crate::failure::FailureCode::NotSteward,
+	detail: "this moderator capability was retired",
+};
+impl Error {
+	/// The catalog failure this refusal is, when it is one.
+	pub const fn failure(self) -> Option<crate::failure::Failure<'static>> {
+		match self {
+			Self::StewardRetired => Some(STEWARD_RETIRED),
+			Self::Busy | Self::Retired | Self::NoManager | Self::NoSteward => None,
+		}
+	}
+}
 impl core::fmt::Display for Error {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
@@ -68,13 +81,7 @@ impl core::fmt::Display for Error {
 			Self::Retired => f.write_str("room authority changed while acquisition was pending"),
 			Self::NoManager => f.write_str("this room does not retain its manager capability"),
 			Self::NoSteward => f.write_str("this room did not hand over its steward"),
-			Self::StewardRetired => core::fmt::Display::fmt(
-				&crate::failure::Failure {
-					code: crate::failure::FailureCode::NotSteward,
-					detail: "this moderator capability was retired",
-				},
-				f,
-			),
+			Self::StewardRetired => core::fmt::Display::fmt(&STEWARD_RETIRED, f),
 		}
 	}
 }
@@ -147,7 +154,7 @@ impl<R> Stewardship<R> {
 		Ok(attempt)
 	}
 	/// The caller has validated the reply and imported any new reference.
-	/// Failure drops that candidate and preserves the previously held authority. status-allow: ownership and operation ordering
+	/// Failure drops that candidate and preserves the previously held authority.
 	pub fn accept(&mut self, attempt: Attempt, acquisition: Acquisition<R>) -> Result<(), Error> {
 		attempt.check()?;
 		if !self.pending.ptr_eq(&Rc::downgrade(&attempt.0)) {
@@ -176,7 +183,7 @@ impl<R> Stewardship<R> {
 		}
 	}
 	/// Exact generations control retained state. Any notice invalidates pending
-	/// acquisition: its returned publication may not yet be known to this owner. status-allow: pending state or quoted runtime label
+	/// acquisition: its returned publication may not yet be known to this owner.
 	/// No list of retired tokens or unbounded pending work is retained. A
 	/// presented token is matched in constant time: the publication token is
 	/// the authority to retire it, so a mismatch takes as long as a match.

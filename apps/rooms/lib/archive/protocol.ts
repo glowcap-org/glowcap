@@ -7,26 +7,11 @@
 // value here can cross either Rooms wire profile, and no binding-local object
 // shape participates in the contract.
 
-import { type Argument, type Behavior, currentSession, Ref, type Session } from "@glowcap/runtime";
-import { ask } from "../ask.ts";
-import { type Attachment, type AttachmentSource, sendWithAttachments } from "../attachment.ts";
-import {
-	ARCHIVE_ATTACHMENT,
-	ARCHIVE_BLOB,
-	ARCHIVE_BLOB_UNHANDLED,
-	ARCHIVE_PUT_FILES,
-	dispatchArchiveBlob,
-} from "./blob_protocol.ts";
+import { type Argument, type Behavior, currentSession, type Ref, type Session } from "@glowcap/runtime";
+import { ARCHIVE_BLOB_UNHANDLED, ARCHIVE_PUT_FILES, dispatchArchiveBlob } from "./blob_protocol.ts";
 import { ARCHIVE_SHARE_UNHANDLED, dispatchArchiveDurableShare } from "./durable_protocol.ts";
 import { boundedString, opaqueId } from "./record.ts";
-import {
-	ALL_ARCHIVE_RECORDS,
-	type ArchiveAccess,
-	type ArchiveFilter,
-	archiveMatches,
-	intersectArchiveFilters,
-} from "./scope.ts";
-import { archiveRecordKey, MAX_ARCHIVE_RECORDS } from "./index.ts";
+import { type ArchiveFilter, archiveMatches, intersectArchiveFilters } from "./scope.ts";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../argument_custody.ts";
 import { type ArchiveFacet, type ArchiveFacetIssuer, archiveFacetIssuer, facetAccess, WHOLE_ARCHIVE } from "./facet.ts";
 
@@ -47,12 +32,12 @@ export { ARCHIVE_ATTACHMENT, ARCHIVE_BLOB, ARCHIVE_PUT_FILES } from "./blob_prot
 export { ARCHIVE_LIST_SHARES, ARCHIVE_REVOKE_SHARE, ARCHIVE_SHARE } from "./durable_protocol.ts";
 
 /** Largest page one read can answer in a single CapTP turn. */
-import { MAX_ARCHIVE_READ } from "./limits.ts";
+import { MAX_ARCHIVE_FACETS_PER_SESSION, MAX_ARCHIVE_READ } from "./limits.ts";
 export { MAX_ARCHIVE_READ } from "./limits.ts";
 /** Fresh forwarding actors one caller session may create over its lifetime.
  * Released facets do not refill the budget, because actor churn is still work
  * and consumes monotonic export positions even when no occurrence remains live. */
-export const MAX_ARCHIVE_FACETS_PER_SESSION = 256;
+export { MAX_ARCHIVE_FACETS_PER_SESSION } from "./limits.ts";
 
 // The record itself, and the one validator behind every form of it, live in
 // `record.ts` so a reader with no session can hold one. The verbs stay here.
@@ -70,7 +55,6 @@ export {
 	parseArchiveRecord,
 } from "./record.ts";
 import {
-	type ArchiveLine,
 	type ArchiveRecord,
 	archiveRecordRow,
 	MAX_ARCHIVE_CONTEXT_BYTES,
@@ -148,7 +132,8 @@ export function archiveFilterRow(filter: ArchiveFilter): Argument[] {
 	];
 }
 
-function safeRevision(raw: unknown, what: string): number {
+/** A revision or cursor off the wire, as the page's number. */
+export function safeRevision(raw: unknown, what: string): number {
 	if (typeof raw !== "bigint" || raw < 0n || raw > BigInt(Number.MAX_SAFE_INTEGER)) {
 		throw new Error(`${what} must be a non-negative safe integer`);
 	}
@@ -267,150 +252,4 @@ export function archiveBehavior(
 
 export function spawnArchive(session: Session, backend: ArchiveBackend): Ref {
 	return session.spawn(archiveFacetBehavior(backend, WHOLE_ARCHIVE, archiveFacetIssuer(session)));
-}
-
-export async function putArchive(session: Session, archive: Ref, record: ArchiveRecord): Promise<number> {
-	const row = archiveRecordRow(record);
-	parseArchiveRecord(row);
-	return safeRevision(
-		await ask(session, archive, ARCHIVE_PUT, [row], "the archive did not answer put"),
-		"archive put revision",
-	);
-}
-
-export async function putArchiveWithAttachments(
-	session: Session,
-	archive: Ref,
-	record: ArchiveLine,
-	sources: readonly AttachmentSource[],
-): Promise<number> {
-	const submitted = {
-		...record,
-		attachments: record.attachments.map((attachment) => ({ ...attachment, blob: null })),
-	};
-	const raw = await sendWithAttachments(
-		session,
-		archive,
-		ARCHIVE_PUT_FILES,
-		[archiveRecordRow(submitted)],
-		[...sources],
-	);
-	return safeRevision(raw, "archive putFiles revision");
-}
-
-export async function readArchiveAttachment(
-	session: Session,
-	archive: Ref,
-	record: ArchiveLine,
-	index: number,
-): Promise<Attachment | null> {
-	const metadata = record.attachments[index];
-	if (metadata?.blob == null) return null;
-	const raw = await ask(
-		session,
-		archive,
-		ARCHIVE_ATTACHMENT,
-		[archiveRecordRow(record), BigInt(index)],
-		"the archive did not answer attachment",
-	);
-	if (!(raw instanceof Ref)) throw new Error("the archive answered attachment without a capability");
-	return { ...metadata, blob: raw };
-}
-
-export async function readArchiveBlob(
-	session: Session,
-	archive: Ref,
-	digest: string,
-): Promise<Ref> {
-	if (!/^[0-9a-f]{64}$/.test(digest)) throw new Error("archive blob needs one content digest");
-	const raw = await ask(session, archive, ARCHIVE_BLOB, [digest], "the archive did not answer blob");
-	if (!(raw instanceof Ref)) throw new Error("the archive answered blob without a capability");
-	return raw;
-}
-
-export async function readArchive(
-	session: Session,
-	archive: Ref,
-	filter: ArchiveFilter = ALL_ARCHIVE_RECORDS,
-	after = 0,
-	limit = MAX_ARCHIVE_READ,
-): Promise<ArchivePage> {
-	if (!Number.isSafeInteger(after) || after < 0) {
-		throw new Error("archive read revision must be a non-negative safe integer");
-	}
-	if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("archive read limit must be positive");
-	const checkedFilter = parseArchiveFilter(archiveFilterRow(filter));
-	const effectiveLimit = Math.min(limit, MAX_ARCHIVE_READ);
-	const raw = await ask(
-		session,
-		archive,
-		ARCHIVE_READ,
-		[archiveFilterRow(checkedFilter), BigInt(after), BigInt(effectiveLimit)],
-		"the archive did not answer read",
-	);
-	if (!Array.isArray(raw) || raw.length !== 3 || typeof raw[1] !== "boolean" || !Array.isArray(raw[2])) {
-		throw new Error("the archive answered an invalid read page");
-	}
-	const next = safeRevision(raw[0], "archive read cursor");
-	if (next < after) throw new Error("the archive answered a regressing read cursor");
-	let priorRevision = after;
-	const records = raw[2].map((entry): RevisedArchiveRecord => {
-		if (!Array.isArray(entry) || entry.length < 2) throw new Error("the archive answered an invalid record");
-		const revision = safeRevision(entry[0], "archive record revision");
-		if (revision <= priorRevision || revision > next) {
-			throw new Error("the archive answered records outside its revision page");
-		}
-		priorRevision = revision;
-		const record = parseArchiveRecord(entry.slice(1));
-		if (!archiveMatches(record, checkedFilter)) throw new Error("the archive answered a record outside the filter");
-		return { revision, record };
-	});
-	if (records.length > effectiveLimit) throw new Error("the archive answered too many records");
-	if (raw[1] && (records.length !== effectiveLimit || next !== records.at(-1)?.revision)) {
-		throw new Error("the archive answered an invalid continuing page");
-	}
-	return { next, more: raw[1], records };
-}
-
-/** Read one bounded current account across as many valid wire pages as it
- * needs. A peer may keep appending while this walk runs, so the resident-record
- * ceiling is also the per-walk allocation ceiling, and reaching it with more
- * still promised is a refusal and not an unbounded chase. */
-export async function readAllArchiveRecords(
-	session: Session,
-	archive: Ref,
-	filter: ArchiveFilter = ALL_ARCHIVE_RECORDS,
-): Promise<ArchiveRecord[]> {
-	const latest = new Map<string, RevisedArchiveRecord>();
-	let scanned = 0;
-	let after = 0;
-	let more = true;
-	while (more) {
-		const page = await readArchive(session, archive, filter, after, MAX_ARCHIVE_READ);
-		scanned += page.records.length;
-		if (scanned > MAX_ARCHIVE_RECORDS) throw new Error("the archive exceeds its record ceiling");
-		for (const entry of page.records) latest.set(archiveRecordKey(entry.record), entry);
-		more = page.more;
-		if (more && scanned === MAX_ARCHIVE_RECORDS) throw new Error("the archive exceeds its record ceiling");
-		after = page.next;
-	}
-	return [...latest.values()].sort((a, b) => a.revision - b.revision).map((entry) => entry.record);
-}
-
-export async function narrowArchive(
-	session: Session,
-	archive: Ref,
-	scope: ArchiveFilter,
-	access: ArchiveAccess = "read",
-): Promise<Ref> {
-	const checked = parseArchiveFilter(archiveFilterRow(scope));
-	const raw = await ask(
-		session,
-		archive,
-		ARCHIVE_NARROW,
-		[archiveFilterRow(checked), access],
-		"the archive did not answer narrow",
-	);
-	if (!(raw instanceof Ref)) throw new Error("the archive answered narrow without a capability");
-	return raw;
 }

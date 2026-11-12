@@ -215,7 +215,9 @@ async def _dial(locator: str) -> tuple[Runtime, Session]:
         runtime = await Runtime.open(providers=[iroh_provider(IrohConfig(reach))], adopt_host=rooms_host())
         return runtime, await runtime.connect(loc)
     host, port = designator_host_port(locator)
-    runtime = await Runtime.open(providers=[tcp.provider()], adopt_host=rooms_host())
+    runtime = await Runtime.open(
+        providers=[tcp.provider(tcp.Config(profiles=(tcp.plain, tcp.noise)))], adopt_host=rooms_host()
+    )
     return runtime, await runtime.connect(tcp.locator(host, port))
 
 
@@ -307,8 +309,7 @@ class Directory:
     async def introduce(self, nick: str, registration_id: str | None = None):
         """Ask the directory to introduce us to a registered member. Returns a
         live capability to the inbox that member minted for us (redeemed by direct
-        dial). Refused ``introduction-pending`` on genuine first contact. Retry
-        once the member has offered an inbox. This client answers no
+        dial). The call waits for the member to offer an inbox. This client answers no
         ``mintInboxFor`` request, so it can reach a member but cannot be reached.
 
         :meth:`register` first: the directory reads the asker's name off its own
@@ -392,8 +393,8 @@ class DirectMessage:
     @classmethod
     async def open(cls, directory: Directory, peer: str) -> DirectMessage:
         """Open a line to ``peer``. Call :meth:`Directory.register` on
-        ``directory`` first, and expect ``introduction-pending`` on first contact:
-        both preconditions are :meth:`Directory.introduce`'s."""
+        ``directory`` first. The call waits for the peer's inbox, as
+        :meth:`Directory.introduce` does."""
         return cls(directory.session, await directory.introduce(peer), peer)
 
     async def say(self, text: str) -> None:

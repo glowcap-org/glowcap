@@ -6,8 +6,8 @@ function assert(value: unknown, message: string): asserts value {
 	if (!value) throw new Error(message);
 }
 
-const [port, name] = Deno.args;
-const board = await TaskBoard.join("127.0.0.1", Number(port), name);
+const [locator, name] = Deno.args;
+const board = await TaskBoard.join(locator, name);
 try {
 	const before = (await board.lists())[0].tasks.length;
 	await Promise.all([board.add("typescript same"), board.add("typescript same")]);

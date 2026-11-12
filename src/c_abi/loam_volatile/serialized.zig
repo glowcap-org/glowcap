@@ -23,9 +23,11 @@ pub const Serialized = struct {
 
     /// Close and free every row, so the store ends here. Every caller has
     /// joined its workers, which leaves no transaction to refuse the close.
+    /// A refused close still frees the rows, because each caller consumes
+    /// its owner on either outcome.
     pub fn close(self: *Serialized) !void {
+        defer self.engine.deinit();
         try self.engine.close();
-        self.engine.deinit();
     }
 
     /// The lock admits one call at a time, and each read ends inside its

@@ -166,7 +166,7 @@ the shipped inventory, and the known limitations with it.
    refuses without the audience-change control.
 6. **Replace the consumers** (sweep). One commit per row of the table under
    [where the code is](#where-the-code-is), deleting the replaced owner in
-   the same commit. Test: the tests that covered the old owner now cover the
+   the same commit. Test: the tests that covered the old owner cover the
    new one, and no code path recovers authority by name or ID.
 7. **The editor over every kind** (seam). Room access inventory, item
    sharing, member-to-grant inspection, the invitation choice and acceptance

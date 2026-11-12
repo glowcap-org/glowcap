@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# Land the current worktree branch on the shared local `dev` ref. Called by the
+# work skill and by agents handing a change off, from inside the worktree.
+#
+# Usage: glowcap-integrate [--sync | -m <subject>]
+#   --sync      absorb `main` and `dev` into the branch; move no shared ref.
+#   -m SUBJECT  name the squash when several commits publish as one.
+# Inputs: the worktree's clean branch (never `main` or `dev`), the `main` and
+# `dev` refs, and a reachable signing key verified by gpg.ssh.allowedSignersFile.
+# Exit status: 0 on success; 1 on a refusal, with no shared ref moved and the
+# input branch restored; the message names the remedy. Runs on bash 3.2.
 set -euo pipefail
 
 die() {
@@ -80,7 +90,7 @@ refuse_duplicate_adr_ids() {
 # compare-and-swap is contention, not permission to overwrite; observe the new
 # tips and retry. This command never moves either shared ref except for the
 # final compare-and-swap of `dev` in publish mode.
-# The record ci/gates.sh attaches to a checked commit (docs/maintaining.md)
+# The record ci/gates.py attaches to a checked commit (docs/maintaining.md)
 # follows the commit through every rewrite below.
 evidence_ref=refs/notes/evidence
 
@@ -157,7 +167,7 @@ for attempt in {1..16}; do
 			"GIT_AUTHOR_DATE=$(git log -1 --format=%aD "${head}")"
 		)
 	fi
-	publish=$(env "${author_env[@]}" git commit-tree -S "${head}^{tree}" -p "${base}" -m "${message}") ||
+	publish=$(env ${author_env[@]+"${author_env[@]}"} git commit-tree -S "${head}^{tree}" -p "${base}" -m "${message}") ||
 		refuse_publication "dev takes only commits signed at integration; make the signing key reachable (forward the agent that holds it) and retry"
 	git verify-commit "${publish}" 2>/dev/null ||
 		refuse_publication "the signature on the integrated commit does not verify; name the key in gpg.ssh.allowedSignersFile and retry"

@@ -37,9 +37,9 @@ import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
 import { type EngineError, type EngineResult, err, ok, validationError } from "../errors.ts";
 import type { EntityKind } from "./refs.ts";
-import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, writeEdgeRef } from "./edges.ts";
+import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, withEdgeRef } from "./edges.ts";
 import { type ClipboardEntities, type ClipboardPayload } from "./clipboard.ts";
-import { ENTITIES_KEY } from "./walk.ts";
+import { entityMapIn, entityMapOf } from "./entity-maps.ts";
 
 /** Per-kind id remap. Keys are payload ids. Values are target ids
  * (same when no collision, suffixed when collided). */
@@ -77,9 +77,7 @@ export function cascadePaste(
 	// 4b. Apply remap + time-offset to payload events. Event ids answer
 	//     the same uniqueness question the entity ids just did, against
 	//     the ids the target already holds.
-	const usedEventIds = new Set(
-		(observationsOf(doc) as readonly TimelineEvent[]).map((ev) => ev.id),
-	);
+	const usedEventIds = new Set(observationsOf(doc).map((ev) => ev.id));
 	const remappedEvents = remapEvents(
 		payload.events,
 		remap,
@@ -98,7 +96,7 @@ export function cascadePaste(
 	const stragglers = findStragglers(merged, remappedEntities, remappedEvents);
 	if (stragglers.length > 0) {
 		throw new Error(
-			`cascadePaste: post-merge stragglers — ${stragglers.join(", ")}. ` +
+			`cascadePaste: post-merge stragglers: ${stragglers.join(", ")}. ` +
 				`Indicates a missing entry in EVENT_EDGES / ENTITY_EDGES.`,
 		);
 	}
@@ -114,7 +112,7 @@ function validateExternalRefs(
 ): EngineError | null {
 	const missing: string[] = [];
 	for (const ref of payload.externalRefs) {
-		const map = doc.entities?.[ENTITIES_KEY[ref.kind]];
+		const map = entityMapOf(doc, ref.kind);
 		if (!map || !Object.prototype.hasOwnProperty.call(map, ref.id)) {
 			missing.push(`${ref.kind} "${ref.id}"`);
 		}
@@ -193,48 +191,51 @@ function rewriteId(remap: IdRemap, kind: EntityKind, id: string): string {
  * which fields exist, adding a new ref field to an entity
  * definition automatically gets handled here once it's declared in
  * the schema. */
-function remapEntityDef<T>(
+function remapEntityDef<T extends object>(
 	entityKind: EntityKind,
 	def: T,
 	remap: IdRemap,
 ): T {
 	const edges = ENTITY_EDGES[entityKind];
 	if (edges.length === 0) return def;
-	const source = def as unknown as Record<string, unknown>;
-	let next: Record<string, unknown> | null = null;
+	let next = def;
 	for (const edge of edges) {
-		const value = readEdgeRef(source, edge);
+		const value = readEdgeRef(def, edge);
 		if (typeof value !== "string") continue;
 		const rewritten = rewriteId(remap, edge.target, value);
 		if (rewritten === value) continue;
-		if (!next) next = { ...source };
-		writeEdgeRef(next, edge, rewritten);
+		next = withEdgeRef(next, edge, rewritten);
 	}
-	return (next ?? source) as unknown as T;
+	return next;
+}
+
+/** `map` with every definition's ref fields and key rewritten through
+ *  `remap`; undefined when the payload carries no map of this kind. */
+function remapMap<D extends object>(
+	kind: EntityKind,
+	map: Readonly<Record<string, D>> | undefined,
+	remap: IdRemap,
+): Record<string, D> | undefined {
+	if (!map) return undefined;
+	const next: Record<string, D> = {};
+	for (const [oldId, def] of Object.entries(map)) {
+		next[rewriteId(remap, kind, oldId)] = remapEntityDef(kind, def, remap);
+	}
+	return next;
 }
 
 function remapEntities(
 	entities: ClipboardEntities,
 	remap: IdRemap,
 ): ClipboardEntities {
-	const out: Record<string, Record<string, unknown>> = {};
-	for (const kind of ["peer", "session", "message"] as const) {
-		const sourceKey = ENTITIES_KEY[kind];
-		const map = (entities as Record<string, unknown>)[sourceKey] as
-			| Record<string, unknown>
-			| undefined;
-		if (!map) continue;
-		const next: Record<string, unknown> = {};
-		for (const [oldId, def] of Object.entries(map)) {
-			next[rewriteId(remap, kind, oldId)] = remapEntityDef(
-				kind,
-				def,
-				remap,
-			);
-		}
-		out[sourceKey] = next;
-	}
-	return out as unknown as ClipboardEntities;
+	const peers = remapMap("peer", entities.peers, remap);
+	const sessions = remapMap("session", entities.sessions, remap);
+	const messages = remapMap("message", entities.messages, remap);
+	return {
+		...(peers && { peers }),
+		...(sessions && { sessions }),
+		...(messages && { messages }),
+	};
 }
 
 function remapEvents(
@@ -244,25 +245,23 @@ function remapEvents(
 	usedEventIds: Set<string>,
 ): TimelineEvent[] {
 	return events.map((ev) => {
-		const next: Record<string, unknown> = { ...ev };
-		// Apply time offset.
-		next.t = (ev.t as number) + offsetT;
-		if ("arrivalT" in ev) {
-			next.arrivalT = (ev.arrivalT as number) + offsetT;
-		}
-		// Through the same loop the entity ids went through, against the
-		// ids the target holds and the ones this paste has already minted.
-		next.id = uniqueId(ev.id, usedEventIds);
+		// Time offset, and an id minted through the same loop the entity
+		// ids went through, against the ids the target holds and the ones
+		// this paste has already minted.
+		const arrival = "arrivalT" in ev ? { arrivalT: ev.arrivalT + offsetT } : {};
+		let next: TimelineEvent = {
+			...ev,
+			...arrival,
+			t: ev.t + offsetT,
+			id: uniqueId(ev.id, usedEventIds),
+		};
 		// Rewrite every ref via the edge map.
 		for (const edge of EVENT_EDGES[ev.kind]) {
-			const value = readEdgeRef(
-				ev as unknown as Record<string, unknown>,
-				edge,
-			);
+			const value = readEdgeRef(ev, edge);
 			if (typeof value !== "string") continue;
-			writeEdgeRef(next, edge, rewriteId(remap, edge.target, value));
+			next = withEdgeRef(next, edge, rewriteId(remap, edge.target, value));
 		}
-		return next as unknown as TimelineEvent;
+		return next;
 	});
 }
 
@@ -292,16 +291,16 @@ function mergeIntoDoc(
 
 	// Merge events sorted by t into the canonical observation store
 	// (recording.sources[0]). Lazy-creates the primary source if the
-	// target doc has no recording yet. status-allow: pending state or quoted runtime label
-	const existing = observationsOf(doc) as TimelineEvent[];
-	const allEvents = [...existing, ...events];
+	// target doc has no recording yet.
+	const allEvents = [...observationsOf(doc), ...events];
 	allEvents.sort((a, b) => a.t - b.t);
 
+	const noObservations: TimelineEvent[] = [];
 	const existingRecording = doc.recording ?? {
 		sources: [{
 			id: "primary",
 			meta: { kind: "authored" as const },
-			observations: [] as TimelineEvent[],
+			observations: noObservations,
 		}],
 	};
 	const sources = existingRecording.sources.map((src, i) => i === 0 ? { ...src, observations: allEvents } : src);
@@ -319,23 +318,20 @@ function findStragglers(
 ): string[] {
 	const stragglers: string[] = [];
 	const has = (kind: EntityKind, id: string): boolean => {
-		const map = doc.entities?.[ENTITIES_KEY[kind]];
+		const map = entityMapOf(doc, kind);
 		return !!map && Object.prototype.hasOwnProperty.call(map, id);
 	};
 	// Check class-2 refs in pasted entity defs.
 	for (const entityKind of ["peer", "session", "message"] as const) {
-		const map = pastedEntities[ENTITIES_KEY[entityKind]];
+		const map = entityMapIn(pastedEntities, entityKind);
 		if (!map) continue;
 		for (const [defId, def] of Object.entries(map)) {
 			for (const edge of ENTITY_EDGES[entityKind]) {
-				const value = readEdgeRef(
-					def as unknown as Record<string, unknown>,
-					edge,
-				);
+				const value = readEdgeRef(def, edge);
 				if (typeof value !== "string") continue;
 				if (!has(edge.target, value)) {
 					stragglers.push(
-						`${entityKind} "${defId}".${edge.field} → ${edge.target} "${value}" (missing)`,
+						`${entityKind} "${defId}".${edge.field} points to missing ${edge.target} "${value}"`,
 					);
 				}
 			}
@@ -344,14 +340,11 @@ function findStragglers(
 	// Check class-1 refs in pasted events.
 	for (const ev of pastedEvents) {
 		for (const edge of EVENT_EDGES[ev.kind]) {
-			const value = readEdgeRef(
-				ev as unknown as Record<string, unknown>,
-				edge,
-			);
+			const value = readEdgeRef(ev, edge);
 			if (typeof value !== "string") continue;
 			if (!has(edge.target, value)) {
 				stragglers.push(
-					`event ${ev.kind} "${ev.id}".${edge.field} → ${edge.target} "${value}" (missing)`,
+					`event ${ev.kind} "${ev.id}".${edge.field} points to missing ${edge.target} "${value}"`,
 				);
 			}
 		}

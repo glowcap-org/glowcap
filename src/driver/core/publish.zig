@@ -277,7 +277,7 @@ pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref:
 }
 
 /// Remove a minted durable publication (ADR-0007): its live row is
-/// reclaimed, future enlivenment of the old sturdyref misses, and a status-allow: replacement state identity
+/// reclaimed, future enlivenment of the old sturdyref misses, and a
 /// later mint never reuses the bytes. Alias-only like
 /// `unpublish`: issued capabilities and deposited gifts keep the exact
 /// actor. It releases the row's adopted root (ADR-0014). A name
@@ -317,7 +317,7 @@ pub const DurableRetirement = struct {
 
 /// Hide existing discovery for an already-submitted durable retirement.
 /// Cleanup remains legal after close. The receipt can only restore this exact
-/// row; it cannot mint a name or acquire authority from a supplied capability.
+/// row. It cannot mint a name or acquire authority from a supplied capability.
 pub fn fenceDurableRetirement(self: *Host, swiss: DurableSwiss) error{ ReenteredHost, WrongThread }!?DurableRetirement {
     try self.refuseReentry();
     const row = self.publications.getPtr(self.publication_secret, swiss.slice()) orelse return null;

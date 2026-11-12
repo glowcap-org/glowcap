@@ -1,7 +1,7 @@
 import type { Page } from "playwright";
 import { fail } from "../support/fail.ts";
 import { takeCapability } from "./capability_set.ts";
-import { opsDiagnosticsLabel } from "../../lib/text/ops.ts";
+import { inspectLinks, inspectModerators, inspectSessions, opsDiagnosticsLabel } from "../../lib/text/ops.ts";
 
 /**
  * Take diagnostics from an active listeners pane, prove its read-only outcome
@@ -43,7 +43,7 @@ export async function takeAndInspectDiagnostics(tab: Page, diagnosticsSwiss: str
 				.filter((control) => control.closest(".ops-head") === null).length,
 		};
 	});
-	for (const heading of ["Room access", "Connections and live references", "Room moderators"]) {
+	for (const heading of [inspectLinks.title, inspectSessions.title, inspectModerators.title]) {
 		if (!inspectShape.sections.includes(heading)) {
 			fail(`the diagnostics pane did not report ${heading}: ${JSON.stringify(inspectShape)}`);
 		}

@@ -7,15 +7,31 @@
 //!
 //! And every fuzz target has to be somewhere `zig build fuzz` will find it. The
 //! driver runs the fuzzer once per target, which it discovers by reading test
-//! names out of files called `fuzz_test.zig` one directory under `test/`. A
+//! names out of the `fuzz_test.zig` files that `test/fuzz_check.zig` imports. A
 //! target written anywhere else compiles, passes the ordinary suite by replaying
 //! its seeds, and is never once mutated, it looks like coverage and is not.
+//!
+//! Both checks read one walk of every Zig file under `test/` at any depth
+//! (`testZigFiles`), so a target nested two directories down is held exactly
+//! like one at the top.
 
 const std = @import("std");
+const source_tree = @import("source_tree.zig");
 const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
+
+/// Every Zig file under `test/` at any depth, sorted, or null when `test/` is
+/// not a directory. The caller frees the list and each path.
+fn testZigFiles(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir) !?[][]u8 {
+    return source_tree.collectSourceFiles(io, gpa, root, "test", &source_tree.isZigPath);
+}
+
+fn freeFiles(gpa: std.mem.Allocator, files: [][]u8) void {
+    for (files) |path| gpa.free(path);
+    gpa.free(files);
+}
 
 /// Every crash input in every target's regressions directory must be replayed.
 ///
@@ -33,25 +49,17 @@ pub fn checkFuzzRegressionSeeds(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var test_dir = root.openDir(io, "test", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "test/: cannot open it to check the fuzz regressions ({s})", .{@errorName(err)});
+    const test_files = (try testZigFiles(io, gpa, root)) orelse {
+        try appendViolation(gpa, violations, "test/: no such directory for the fuzz regressions check", .{});
         return;
     };
-    defer test_dir.close(io);
+    defer freeFiles(gpa, test_files);
 
-    var entries = test_dir.iterate();
-    while (try entries.next(io)) |entry| {
-        if (entry.kind != .directory) continue;
-
-        const harness_path = try std.fmt.allocPrint(gpa, "test/{s}/{s}", .{ entry.name, target_file });
-        defer gpa.free(harness_path);
-        const harness = root.readFileAlloc(io, harness_path, gpa, .limited(2 << 20)) catch |err| switch (err) {
-            // tolerant: a test tree without this file hosts no fuzz targets.
-            error.FileNotFound => continue,
-            else => {
-                try appendViolation(gpa, violations, "{s}: cannot be read for the fuzz-wiring check ({s})", .{ harness_path, @errorName(err) });
-                continue;
-            },
+    for (test_files) |harness_path| {
+        if (!std.mem.eql(u8, std.fs.path.basename(harness_path), target_file)) continue;
+        const harness = root.readFileAlloc(io, harness_path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the fuzz-wiring check ({s})", .{ harness_path, @errorName(err) });
+            continue;
         };
         defer gpa.free(harness);
 
@@ -63,7 +71,7 @@ pub fn checkFuzzRegressionSeeds(
         // target that will never take the path it was found on.
         try checkTargetsReplayRegressions(gpa, harness_path, harness, violations);
 
-        const regressions_dir = try std.fmt.allocPrint(gpa, "test/{s}/fuzz_regressions", .{entry.name});
+        const regressions_dir = try std.fmt.allocPrint(gpa, "{s}/fuzz_regressions", .{std.fs.path.dirname(harness_path).?});
         defer gpa.free(regressions_dir);
         // Git holds no empty directory, so a target without saved crashes has
         // none; the driver's copy instruction creates it with the first one.
@@ -301,7 +309,7 @@ fn checkTargetsReplayRegressions(
         const name = source[at..@min(name_end, source.len)];
         // The target's body: its own braces, not "everything until the next
         // target". A file whose last target is a five-hundred-line harness gave
-        // every earlier target a body that swallowed the whole rest of the status-allow: event or source ordering
+        // every earlier target a body that swallowed the whole rest of the
         // file, so any one target's seed list satisfied all of them, the
         // per-file check this replaced, wearing per-target clothes.
         const body = testBody(source, at);
@@ -328,14 +336,15 @@ const fuzz_root = "test/fuzz_check.zig";
 
 /// Hold every fuzz target where `zig build fuzz` can find it.
 ///
-/// `tools/fuzz/main.zig` discovers targets by scanning `test/<dir>/fuzz_test.zig`
-/// for `test "fuzz: …"` names and running the fuzzer once per name. Three ways
-/// a target can slip out of that, all of which leave a green build:
+/// `tools/fuzz/main.zig` reads the `fuzz_test.zig` files the fuzz root imports
+/// for `test "fuzz: …"` names and runs the fuzzer once per name. Three ways a
+/// target anywhere under `test/` can slip out of that, all of which leave a
+/// green build:
 ///
-///   - it lives in a file with another name, so the scan never sees it,
+///   - it lives in a file with another name, so the driver never reads it,
 ///   - it is named without the `fuzz: ` prefix, same result,
-///   - its file is not imported by the fuzz root, so it is not even compiled
-///     into the artifact the fuzzer runs.
+///   - its file is not imported by the fuzz root, so it is neither compiled
+///     into the artifact the fuzzer runs nor read by the driver.
 ///
 /// In all three the test still passes under `zig build test`, replaying its
 /// seeds without mutation. That is the failure worth guarding: a target that
@@ -352,53 +361,78 @@ pub fn checkFuzzTargetsAreReachable(
     };
     defer gpa.free(fuzz_check);
 
-    var test_dir = root.openDir(io, "test", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "test/: cannot open it to check the fuzz targets ({s})", .{@errorName(err)});
+    const files = (try testZigFiles(io, gpa, root)) orelse {
+        try appendViolation(gpa, violations, "test/: no such directory for the fuzz target check", .{});
         return;
     };
-    defer test_dir.close(io);
+    defer freeFiles(gpa, files);
 
-    var it = test_dir.iterate();
-    while (try it.next(io)) |entry| {
-        if (entry.kind != .directory) continue;
-
-        var sub = test_dir.openDir(io, entry.name, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "test/{s}: cannot be opened for the fuzz-regression replay check ({s})", .{ entry.name, @errorName(err) });
+    for (files) |path| {
+        const source = root.readFileAlloc(io, path, gpa, .limited(source_tree.source_read_limit)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the fuzz target check ({s})", .{ path, @errorName(err) });
             continue;
         };
-        defer sub.close(io);
+        defer gpa.free(source);
 
-        var files = sub.iterate();
-        while (try files.next(io)) |file| {
-            if (file.kind != .file) continue;
-            if (!std.mem.endsWith(u8, file.name, ".zig")) continue;
+        const calls = std.mem.count(u8, source, fuzz_call);
+        if (calls == 0) continue;
 
-            const path = try std.fmt.allocPrint(gpa, "test/{s}/{s}", .{ entry.name, file.name });
-            defer gpa.free(path);
-            const source = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}: cannot be read for the fuzz-regression replay check ({s})", .{ path, @errorName(err) });
-                continue;
-            };
-            defer gpa.free(source);
+        const dir = std.fs.path.dirname(path).?;
+        if (!std.mem.eql(u8, std.fs.path.basename(path), target_file)) {
+            try appendViolation(gpa, violations, "{s}: calls `{s}` but `zig build fuzz` only finds targets in files named `{s}`. Move it to {s}/{s}, or it will never be mutated.", .{ path, fuzz_call, target_file, dir, target_file });
+            continue;
+        }
 
-            const calls = std.mem.count(u8, source, fuzz_call);
-            if (calls == 0) continue;
+        const named = std.mem.count(u8, source, target_opener);
+        if (named < calls) {
+            try appendViolation(gpa, violations, "{s}: has {d} `{s}` calls but only {d} tests named `{s}…`. `zig build fuzz` selects targets by that name, so an unnamed one is never mutated.", .{ path, calls, fuzz_call, named, target_opener });
+        }
 
-            if (!std.mem.eql(u8, file.name, target_file)) {
-                try appendViolation(gpa, violations, "{s}: calls `{s}` but `zig build fuzz` only finds targets in files named `{s}`. Move it to test/{s}/{s}, or it will never be mutated.", .{ path, fuzz_call, target_file, entry.name, target_file });
-                continue;
-            }
-
-            const named = std.mem.count(u8, source, target_opener);
-            if (named < calls) {
-                try appendViolation(gpa, violations, "{s}: has {d} `{s}` calls but only {d} tests named `{s}…`. `zig build fuzz` selects targets by that name, so an unnamed one is never mutated.", .{ path, calls, fuzz_call, named, target_opener });
-            }
-
-            const import = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ entry.name, file.name });
-            defer gpa.free(import);
-            if (std.mem.indexOf(u8, fuzz_check, import) == null) {
-                try appendViolation(gpa, violations, "{s}: is not imported by {s}, so it is not in the artifact the fuzzer runs. Add `_ = @import(\"{s}\");`.", .{ path, fuzz_root, import });
-            }
+        // The exact import line the driver reads, relative to the root's own
+        // directory. A substring of the path would let `collections/fuzz_test.zig`
+        // pass for `loam/collections/fuzz_test.zig`.
+        const relative = path[(std.fs.path.dirname(fuzz_root).?.len + 1)..];
+        const import = try std.fmt.allocPrint(gpa, "@import(\"{s}\")", .{relative});
+        defer gpa.free(import);
+        if (std.mem.indexOf(u8, fuzz_check, import) == null) {
+            try appendViolation(gpa, violations, "{s}: is not imported by {s}, so it is not in the artifact the fuzzer runs and the driver never reads it. Add `_ = {s};`.", .{ path, fuzz_root, import });
         }
     }
+}
+
+test "a nested fuzz target is held to the fuzz root and its own regressions" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const target =
+        \\const regression_seeds = [_][]const u8{};
+        \\test "fuzz: probe" {
+        \\    try std.testing.fuzz({}, one, .{ .corpus = &regression_seeds });
+        \\}
+    ;
+    try tmp.dir.createDirPath(io, "test/top");
+    try tmp.dir.createDirPath(io, "test/deep/nested/fuzz_regressions");
+    try tmp.dir.writeFile(io, .{ .sub_path = "test/top/fuzz_test.zig", .data = target });
+    try tmp.dir.writeFile(io, .{ .sub_path = "test/deep/nested/fuzz_test.zig", .data = target });
+    try tmp.dir.writeFile(io, .{ .sub_path = "test/deep/nested/fuzz_regressions/crash.bin", .data = "x" });
+    // The nested path named in a comment, which a substring match would accept.
+    try tmp.dir.writeFile(io, .{ .sub_path = "test/fuzz_check.zig", .data = "_ = @import(\"top/fuzz_test.zig\");\n// deep/nested/fuzz_test.zig\n" });
+
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |v| gpa.free(v);
+        violations.deinit(gpa);
+    }
+    try checkFuzzTargetsAreReachable(io, gpa, tmp.dir, &violations);
+    try checkFuzzRegressionSeeds(io, gpa, tmp.dir, &violations);
+    try std.testing.expectEqual(@as(usize, 2), violations.items.len);
+    try std.testing.expect(std.mem.startsWith(u8, violations.items[0], "test/deep/nested/fuzz_test.zig: is not imported by test/fuzz_check.zig"));
+    try std.testing.expect(std.mem.startsWith(u8, violations.items[1], "test/deep/nested/fuzz_regressions: `crash.bin` is not replayed"));
+
+    for (violations.items) |v| gpa.free(v);
+    violations.clearRetainingCapacity();
+    try tmp.dir.writeFile(io, .{ .sub_path = "test/fuzz_check.zig", .data = "_ = @import(\"top/fuzz_test.zig\");\n_ = @import(\"deep/nested/fuzz_test.zig\");\n" });
+    try checkFuzzTargetsAreReachable(io, gpa, tmp.dir, &violations);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }

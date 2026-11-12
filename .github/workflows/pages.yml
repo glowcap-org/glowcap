@@ -59,17 +59,11 @@ jobs:
       - name: Verify the exact commit passed check
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
-          test "$DEPLOY_SHA" = "$current"
-          python3 ci/require_main_check.py "$DEPLOY_SHA"
+        run: python3 ci/require_main_check.py --tip "$DEPLOY_SHA"
 
       - uses: ./.github/actions/image
-        id: image
-
-      - uses: ./.github/actions/start
         with:
-          image: ${{ steps.image.outputs.image }}
+          start: true
 
       - name: Fetch pinned Zig dependencies
         run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json python3 ci/gates.py fetch
@@ -87,6 +81,7 @@ jobs:
     timeout-minutes: 15
     needs: build
     permissions:
+      actions: read
       contents: read
       pages: write
       id-token: write
@@ -94,12 +89,17 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The deployment is the effect, so it re-proves what the build proved:
+      # main still names this commit and its check passed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+
       - name: Refuse a stale Pages artifact
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
-          test "$DEPLOY_SHA" = "$current"
+        run: python3 ci/require_main_check.py --tip "$DEPLOY_SHA"
 
       - name: Deploy to GitHub Pages
         id: deployment

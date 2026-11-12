@@ -1,5 +1,6 @@
 //! Identity-layer route proof cases for the Node dial scheduler.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -62,7 +63,7 @@ test "id route bundles race same-key proving carriers in order" {
     try std.testing.expectEqualStrings(model.transport.iroh, first.locator.transport);
     try std.testing.expectEqualStrings(key[0..], first.locator.designator);
 
-    try std.testing.expectEqual(engine.Node.DialFailure.waiting, try node.dialFailed(ticket, 0, "iroh unavailable"));
+    try std.testing.expectEqual(engine.Node.DialFailure.waiting, try node.dialFailed(ticket, 0, .peer_unreachable, "iroh unavailable"));
     const second_action = node.nextAction().?;
     try std.testing.expectEqual(ticket, second_action.dial.pending);
     try std.testing.expectEqual(@as(usize, 1), second_action.dial.route_index);
@@ -105,7 +106,7 @@ test "id route rank fills a bounded strong window before serial weak fallback" {
 
     try std.testing.expectEqual(
         engine.Node.DialFailure.retry,
-        try node.dialFailed(first.pending, second.route_index, "relay unavailable"),
+        try node.dialFailed(first.pending, second.route_index, .peer_unreachable, "relay unavailable"),
     );
     const third = node.nextAction().?.dial;
     try std.testing.expectEqual(@as(usize, 2), third.route_index);
@@ -115,13 +116,13 @@ test "id route rank fills a bounded strong window before serial weak fallback" {
     );
     try std.testing.expectEqual(
         engine.Node.DialFailure.waiting,
-        try node.dialFailed(first.pending, first.route_index, "iroh unavailable"),
+        try node.dialFailed(first.pending, first.route_index, .peer_unreachable, "iroh unavailable"),
     );
     try std.testing.expect(node.nextAction() == null);
 
     try std.testing.expectEqual(
         engine.Node.DialFailure.retry,
-        try node.dialFailed(first.pending, third.route_index, "noise tcp unavailable"),
+        try node.dialFailed(first.pending, third.route_index, .peer_unreachable, "noise tcp unavailable"),
     );
     const weak_one = node.nextAction().?.dial;
     try std.testing.expectEqual(@as(usize, 3), weak_one.route_index);
@@ -131,14 +132,14 @@ test "id route rank fills a bounded strong window before serial weak fallback" {
     );
     try std.testing.expectEqual(
         engine.Node.DialFailure.retry,
-        try node.dialFailed(first.pending, weak_one.route_index, "onion unavailable"),
+        try node.dialFailed(first.pending, weak_one.route_index, .peer_unreachable, "onion unavailable"),
     );
     const weak_two = node.nextAction().?.dial;
     try std.testing.expectEqual(@as(usize, 4), weak_two.route_index);
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expectEqual(
-        engine.Node.DialFailure.exhausted,
-        try node.dialFailed(first.pending, weak_two.route_index, "tcp unavailable"),
+        engine.Node.DialFailure{ .exhausted = BreakCause.local(.peer_unreachable) },
+        try node.dialFailed(first.pending, weak_two.route_index, .peer_unreachable, "tcp unavailable"),
     );
     try std.testing.expect(node.nextAction().? == .fail);
     try std.testing.expect(node.nextAction() == null);
@@ -175,7 +176,7 @@ test "first completed admitted id route wins and late losers are stale" {
     try std.testing.expect(!try node.exporterDialed(first.pending, first.route_index, late));
     try std.testing.expectEqual(
         engine.Node.DialFailure.stale,
-        try node.dialFailed(first.pending, first.route_index, "late failure"),
+        try node.dialFailed(first.pending, first.route_index, .peer_unreachable, "late failure"),
     );
     node.dialCancelled(cancel.pending, cancel.route_index);
     try std.testing.expectEqual(@as(usize, 0), node.pendingDialCount());
@@ -203,7 +204,7 @@ test "id route weak fallbacks redeem without claiming the outer identity" {
     try std.testing.expect(strong.authenticated_partner_required);
     try std.testing.expect(strong.demanded_partner_key != null);
 
-    try std.testing.expectEqual(engine.Node.DialFailure.retry, try node.dialFailed(ticket, 0, "iroh unavailable"));
+    try std.testing.expectEqual(engine.Node.DialFailure.retry, try node.dialFailed(ticket, 0, .peer_unreachable, "iroh unavailable"));
     try std.testing.expectEqual(ticket, node.nextAction().?.dial.pending);
     const weak = node.pendingDial(ticket, 1).?;
     try std.testing.expectEqualStrings(model.transport.onion, weak.locator.transport);
@@ -328,7 +329,7 @@ test "weak id completion retains route advice only after withdrawal without cach
 
     try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 38), give, id_locator);
     const ticket = node.nextAction().?.dial.pending;
-    try std.testing.expectEqual(engine.Node.DialFailure.retry, try node.dialFailed(ticket, 0, "iroh unavailable"));
+    try std.testing.expectEqual(engine.Node.DialFailure.retry, try node.dialFailed(ticket, 0, .peer_unreachable, "iroh unavailable"));
     try std.testing.expectEqual(ticket, node.nextAction().?.dial.pending);
     try std.testing.expect(try node.exporterCompleted(ticket, 1, exporter, .dialed));
     try std.testing.expectEqual(@as(usize, 0), node.redeems.dials.exporters.count());

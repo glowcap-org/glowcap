@@ -46,9 +46,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Startup installs the independent credential journal before admitting
 	/// bridge requests. Its namespace comes from the actual selected Loam owner.
 	/// Neither tab labels, room names nor imported workspace intent bind secrets.
-	pub async fn configure_credentials<D: crate::documents::Document + 'static>(&self, document: D) -> Result<()> {
+	pub async fn configure_credentials<D: crate::documents::Document + 'static>(
+		&self,
+		document: D,
+	) -> core::result::Result<(), crate::Error> {
 		if self.state.credentials.borrow().is_some() {
-			return Err(glowcap::loam::refusal("bridge credentials are already owned"));
+			return Err(crate::Error::busy("bridge credentials are already owned"));
 		}
 		let raw = self.state.writer.idempotent("bridge-witnesses", &[]).await?;
 		let snapshot: Snapshot = serde_json::from_str(
@@ -59,7 +62,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		let credentials = credentials::Credentials::open(snapshot.owner, document).await?;
 		credentials.recover(&snapshot.witnesses).await?;
 		if self.state.credentials.borrow().is_some() {
-			return Err(glowcap::loam::refusal("bridge credential startup overlapped"));
+			return Err(crate::Error::busy("bridge credential startup overlapped"));
 		}
 		let credentials = Rc::new(credentials);
 		let retention = retention::Owner::start(self, credentials.clone())?;

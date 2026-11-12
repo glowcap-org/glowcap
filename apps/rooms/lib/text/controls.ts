@@ -21,7 +21,7 @@ export const dmSectionTitle = "Direct messages";
 export const railFilterLabel = "What the sidebar shows";
 export const messageRetry = "Retry failed message";
 export const discardChangesTitle = "Discard unsaved changes?";
-export const archiveShareCopy = "Copy the durable archive share";
+export const archiveShareCopy = "Copy the archive link";
 export const archiveShareWith = "Share with";
 export const archiveHistoryTitle = "Archive history";
 export const avatarLabel = "Your avatar. Choosing one isn't available.";
@@ -79,3 +79,6 @@ export function controlInProgress(action: string): string {
 }
 
 export const messageEditing = "Editing message…";
+export function copyNamed(what: string): string {
+	return `Copy ${what}`;
+}

@@ -74,7 +74,7 @@ test "completion relay survives a refused resolver wake arm through bounded poll
 }
 
 test "completion relay resolves a hostname off-loop and cancellation joins it" {
-    if (@import("builtin").os.tag != .linux and !@import("builtin").os.tag.isDarwin()) return;
+    if (@import("builtin").os.tag != .linux and !@import("builtin").os.tag.isDarwin()) return error.SkipZigTest;
 
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();

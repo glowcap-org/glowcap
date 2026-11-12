@@ -1,7 +1,7 @@
 // The address field of the join card: the directory a room lands in, typed
 // or picked from the ones this tab already holds.
 
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import { Icon } from "../icons.tsx";
 import { type DirectoryDestinationContext, joinAddressPlaceholder } from "../joining.ts";
 import { joinChooseDirectory, joinHideDirectories } from "../../../lib/text/join.ts";
@@ -39,15 +39,13 @@ export function JoinAddress(
 				<input
 					id="joinAddressField"
 					name="joinAddressField"
-					type="text"
-					inputMode="url"
 					enterKeyHint="next"
 					placeholder={joinAddressPlaceholder(defaultAddress)}
 					value={address}
 					aria-describedby={invalid === true ? "joinError" : undefined}
 					aria-invalid={invalid === true}
 					onChange={(e) => onType(e.target.value)}
-					{...identifierField}
+					{...addressField}
 				/>
 			</JoinField>
 			{

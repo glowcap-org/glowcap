@@ -1,5 +1,5 @@
 //! Sends from one turn to one recipient arrive in the order the turn made
-//! them, even when an earlier send carries a capability from another session status-allow: event or source ordering
+//! them, even when an earlier send carries a capability from another session
 //! and the Node must stage it until the gift is ready.
 
 const std = @import("std");
@@ -83,7 +83,7 @@ fn exercise(options: Host.Options, verb: []const u8, log: *std.ArrayList(u8)) !v
     try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
 }
 
-const profiles = [_]Host.Options{ Host.Options.withFrameCap(frame_cap), harness.nextRouteOptions() };
+const profiles = [_]Host.Options{ Host.Options.init(.unchecked, frame_cap), harness.nextRouteOptions() };
 
 test "core host: a staged gift send stays ahead of the same turn's later send" {
     for (profiles) |options| {

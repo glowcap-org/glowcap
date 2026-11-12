@@ -111,6 +111,8 @@ pub const embedding = @import("embedding.zig");
 /// Zig-only seams for exercising C-boundary transactions without exporting
 /// another ABI symbol. Production consumers cannot name this through a header.
 pub const testing = if (builtin.is_test) struct {
+    pub const error_projection = @import("error.zig");
+
     pub fn importObject(raw: ?*GlowcapHostSession, position: u64) !void {
         const session_ptr = instance.sessionFrom(raw) orelse return error.NullPointer;
         try session_ptr.served.port.peer.importObject(position);
@@ -162,7 +164,7 @@ pub const GlowcapContext = shared.GlowcapContext;
 /// struct added to the ABI cannot reach one mirror and miss the other
 /// (the drift that once shipped a page demanding a layout the wasm
 /// module didn't carry). Append-only: a new struct is one new row at
-/// the end. It never renumbers an earlier index a JS decoder holds. status-allow: event or source ordering
+/// the end. It never renumbers an earlier index a JS decoder holds.
 pub const WasmLayoutSpec = struct {
     /// Constant prefix in the mirrors (`<prefix>_SIZE`,
     /// `<prefix>_<FIELD>_OFF`) and the string the descriptor's
@@ -175,6 +177,7 @@ pub const WasmLayoutSpec = struct {
 };
 
 pub const wasm_layout_manifest = [_]WasmLayoutSpec{
+    .{ .prefix = "BREAK_CAUSE", .T = shared.GlowcapBreakCause },
     .{ .prefix = "MANAGED_FRAME", .T = shared.GlowcapManagedFrame },
     .{ .prefix = "REF", .T = shared.GlowcapReference },
     .{ .prefix = "ARG", .T = shared.GlowcapArgument },
@@ -315,6 +318,12 @@ pub const GLOWCAP_HOST_ACTION_RESUME: u32 = 6;
 /// `ticket`, then acknowledge it through `glowcap_host_dial_cancelled`.
 pub const GLOWCAP_HOST_ACTION_CANCEL_DIAL: u32 = 7;
 
+/// Exact partner fetch-refusal text for an unknown publication.
+/// Local misses carry the publication_absent reason instead.
+pub const GLOWCAP_UNKNOWN_SWISSNUM_MESSAGE = engine.bootstrap.unknown_swissnum_reason;
+pub const BreakCause = engine.BreakCause;
+pub const GlowcapBreakCause = shared.GlowcapBreakCause;
+
 /// Default maximum admissible frame for a host connection, mirroring
 /// `session.SessionLimits.max_frame_bytes` (1 MiB). Bindings pass this to
 /// `glowcap_host_new` / `glowcap_host_new_in` unless the embedder overrides.
@@ -372,6 +381,8 @@ pub const GlowcapHostAction = extern struct {
     /// CLOSE: GLOWCAP_OK or GLOWCAP_ERR_TIMEOUT. FAIL: GLOWCAP_ERR_BROKEN or
     /// GLOWCAP_ERR_CLOSED. Zero for every other kind.
     result: i32,
+    /// FAIL provenance, zero for other action kinds.
+    cause: shared.GlowcapBreakCause,
 };
 
 /// One shared arm callback for `GlowcapHostPumpHooks`: flush, close,
@@ -507,6 +518,7 @@ pub const glowcap_host_ref_release = host.glowcap_host_ref_release;
 pub const glowcap_host_send = @import("application_delivery.zig").glowcap_host_send;
 pub const glowcap_host_tell = @import("application_delivery.zig").glowcap_host_tell;
 pub const glowcap_host_last_error = host.glowcap_host_last_error;
+pub const glowcap_host_last_error_cause = host.glowcap_host_last_error_cause;
 pub const glowcap_host_clear_last_error = host.glowcap_host_clear_last_error;
 
 pub const glowcap_host_session_open_dialed_locator = session_lifecycle.glowcap_host_session_open_dialed_locator;
@@ -591,6 +603,7 @@ pub const GLOWCAP_HOST_ARCHIVE_FINGERPRINT = shared.archive_contract.fingerprint
 );
 
 pub fn glowcap_host_archive_fingerprint() callconv(.c) u64 {
+    shared.lastErrorClear();
     return GLOWCAP_HOST_ARCHIVE_FINGERPRINT;
 }
 

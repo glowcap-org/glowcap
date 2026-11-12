@@ -6,6 +6,8 @@
 // base.
 
 import { pageBase, servedByRooms } from "./page_base.ts";
+import { localArea, type PageStorage } from "./page_storage.ts";
+import type { LocalRefusal } from "../../lib/text/failure.ts";
 
 export const SERVER_KEY = "rooms.server";
 
@@ -31,18 +33,16 @@ export function serverBase(typed: string): { base: string | null } | { refused: 
 
 /** The server this browser chose, as a page base, or null for the page's own
  * server. A stored value that does not read as one counts as no choice. */
-export function chosenServer(storage: Pick<Storage, "getItem"> = localStorage): string | null {
-	const read = serverBase(storage.getItem(SERVER_KEY) ?? "");
+export function chosenServer(storage: PageStorage = localArea): string | null {
+	const read = serverBase(storage.read(SERVER_KEY) ?? "");
 	return "base" in read ? read.base : null;
 }
 
-/** Keep `base` as this browser's server, or forget the choice for null. */
-export function chooseServer(
-	base: string | null,
-	storage: Pick<Storage, "setItem" | "removeItem"> = localStorage,
-): void {
-	if (base == null) storage.removeItem(SERVER_KEY);
-	else storage.setItem(SERVER_KEY, base);
+/** Keep `base` as this browser's server, or forget the choice for null. Null
+ * once kept. Otherwise the browser's refusal, and the kept choice is
+ * unchanged. */
+export function chooseServer(base: string | null, storage: PageStorage = localArea): LocalRefusal | null {
+	return base == null ? storage.remove(SERVER_KEY) : storage.write(SERVER_KEY, base);
 }
 
 /** The parameter a link uses to offer this browser a server, such as the link a

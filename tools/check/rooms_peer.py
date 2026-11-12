@@ -220,23 +220,17 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
         root = Path(temp)
         rejected_bootstrap(root)
         alice, team = root / "alice", root / "team"
+        # Each peer names the listener options its transport reads.
+        listening = ["--reachability=direct"] if transport == "iroh" else ["--port=0"]
         bob, carol = team / "Bob", team / "Carol"
         with (root / "server.log").open("w+") as log:
             server = subprocess.Popen(
-                [
-                    str(FRONT),
-                    "apps",
-                    "rooms",
-                    "directory",
-                    "serve",
-                    f"--transport={transport}",
-                    "--reachability=direct",
-                    "--port=0",
-                ],
+                [str(FRONT), "apps", "rooms", "directory", "serve", f"--transport={transport}", *listening],
                 stdout=subprocess.PIPE,
                 stderr=log,
                 text=True,
             )
+            assert server.stdout is not None
             try:
                 with selectors.DefaultSelector() as selector:
                     selector.register(server.stdout, selectors.EVENT_READ)
@@ -253,8 +247,7 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                     "start",
                     "--transport",
                     transport,
-                    "--reachability",
-                    "direct",
+                    *listening,
                     "--locator",
                     locator,
                     "--nick",
@@ -271,8 +264,7 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                     "team-start",
                     "--transport",
                     transport,
-                    "--reachability",
-                    "direct",
+                    *listening,
                     "--locator",
                     locator,
                     "--lead",

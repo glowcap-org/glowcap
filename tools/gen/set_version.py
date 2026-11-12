@@ -26,12 +26,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ci"))
+import release_version
+
 DOC_HOMES = ("README.md", "SECURITY.md", "docs", "site/content")
 
 
 def tracked(root, *patterns):
     listing = subprocess.run(
-        ["git", "ls-files", "-z", "--", *patterns], cwd=root, check=True, capture_output=True
+        ["git", "ls-files", "-z", "--", *patterns], cwd=root, check=True, capture_output=True, timeout=30
     ).stdout
     return [path for path in listing.decode().split("\0") if path]
 
@@ -112,8 +115,8 @@ def edits(root, old, new, date="DATE"):
     crates, packages = [], []
     for path in tracked(root, "*Cargo.toml"):
         text = (root / path).read_text()
-        if name := re.search(r'^name = "([^"]+)"', text, re.M):
-            crates.append(name[1])
+        if crate_match := re.search(r'^name = "([^"]+)"', text, re.M):
+            crates.append(crate_match[1])
         if f'\nversion = "{old}"\n' in text:
             yield (path, f'\nversion = "{old}"\n', f'\nversion = "{new}"\n', True)
         # A dependency on a workspace crate names its path and pins the exact version.
@@ -121,15 +124,15 @@ def edits(root, old, new, date="DATE"):
             yield (path, line, line.replace(f'version = "={old}"', f'version = "={new}"'), False)
     for path in tracked(root, "*deno.json"):
         text = (root / path).read_text()
-        if name := re.search(r'^\s*"name": "([^"]+)"', text, re.M):
-            packages.append(name[1])
+        if package_match := re.search(r'^\s*"name": "([^"]+)"', text, re.M):
+            packages.append(package_match[1])
         if f'"version": "{old}"' in text:
             yield (path, f'"version": "{old}"', f'"version": "{new}"', True)
     yield ("bindings/python/pyproject.toml", f'\nversion = "{old}"\n', f'\nversion = "{new}"\n', True)
     projects = [
-        name[1]
+        project_match[1]
         for path in tracked(root, "*pyproject.toml")
-        if (name := re.search(r'^name = "([^"]+)"', (root / path).read_text(), re.M))
+        if (project_match := re.search(r'^name = "([^"]+)"', (root / path).read_text(), re.M))
     ]
     yield ("bindings/racket/info.rkt", f'(define version "{old}")', f'(define version "{new}")', True)
     # A lock records each workspace package by name and version. Dependencies
@@ -166,7 +169,7 @@ def main():
         "--date", default=datetime.date.today().isoformat(), help="the changelog section date, YYYY-MM-DD"
     )
     args = parser.parse_args()
-    if not re.fullmatch(r"0\.[0-9]+\.[0-9]+", args.version):
+    if not release_version.accepted(args.version):
         sys.exit(f"set-version: {args.version} is not a prerelease version such as 0.1.2")
     if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", args.date):
         sys.exit(f"set-version: {args.date} is not a YYYY-MM-DD date")

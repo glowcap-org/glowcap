@@ -507,7 +507,7 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
     if (forward.connect(io)) |stream| {
         stream.close(io);
         return error.TestUnexpectedResult;
-    } else |_| {}
+    } else |_| {} // tolerant: any connect refusal proves the closed listener released its socket, and the success arm fails the test.
 
     daemon.stop();
     daemon_live = false;

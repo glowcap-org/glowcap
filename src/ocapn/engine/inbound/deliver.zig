@@ -24,7 +24,7 @@ const IntroducedImports = session.validate.IntroducedImports;
 /// Where an inbound deliver goes, decided before any authority mutates: the
 /// route the classifier chose, the event it surfaces as, and the callback it
 /// settles. The classifier holds the probe order and the validate-before-
-/// mutate boundary; this record holds what it decided.
+/// mutate boundary. This record holds what it decided.
 const Route = struct {
     classified: deliver_route.Classification,
     /// Set once `Preparation.init` moves a pipelined classification into
@@ -202,7 +202,7 @@ const Preparation = union(enum) {
     /// Fills `prepared` in place for the same reason `Route.init` does.
     fn init(prepared: *Preparation, self: *Peer, route: *Route, introduced: *IntroducedImports) !void {
         // Reserve the whole possible batch once; a per-row reservation cannot
-        // express slots for rows that have not been appended yet. status-allow: pending state or quoted runtime label
+        // express slots for rows that have not been appended yet.
         var pending_batch = try self.beginPendingBatch(route.pendingPreparationCount(introduced));
         if (route.releasesIntroduced()) {
             prepared.* = .{ .release = try shortening.prepareIntroducedImportReleases(self, &pending_batch, introduced.mentions.items()) };
@@ -363,7 +363,7 @@ fn commitForwardingCallback(
 }
 
 /// Queue the deliver as an event, then apply its authority. Until authority
-/// applies, a refusal takes the event back; after that the frame is applied
+/// applies, a refusal takes the event back. After that the frame is applied
 /// and stays surfaced whatever follows. Consumes `frame_in` and `parse_in`
 /// on every outcome.
 fn surface(

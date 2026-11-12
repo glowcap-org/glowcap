@@ -17,7 +17,7 @@ test "a small straddle costs a small buffer, not a fixed floor" {
     // The byte-fed host tier reaches this on any chunk boundary that lands
     // mid-frame, which is most connections. A kilobyte-scale growth floor here
     // is multiplied by every live connection, so it is a footprint decision
-    // rather than an allocation detail: at the ladder's 500k target, a 4 KiB
+    // rather than an allocation detail: across half a million connections, a 4 KiB
     // floor is about two gigabytes for tails that hold a few bytes each.
     var spill: Spill = .{};
     defer spill.deinit(allocator);

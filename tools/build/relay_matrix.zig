@@ -69,7 +69,7 @@ const RelayRow = struct {
     /// The line the relay prints when listening (`<MARKER> <port>`).
     marker: []const u8,
     /// The relay program and its args, spawned by the harness from the repository
-    /// root; the trailing "0" asks for an ephemeral port.
+    /// root. The trailing "0" asks for an ephemeral port.
     relay_argv: []const []const u8,
     /// Environment `{key, value}` pairs the harness merges into the relay
     /// subprocess (the idle proof sets a low `GLOWCAP_RELAY_IDLE_MS`).
@@ -270,9 +270,11 @@ pub fn register(
     const goblins_rooms_irc_bridge = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
     Binary.irc_bridge.addEnv(goblins_rooms_irc_bridge);
     goblins_rooms_irc_bridge.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=bridge" });
+    // The bridge listens on iroh, which the vat reaches through the C ABI companion library.
+    goblins_rooms_irc_bridge.step.dependOn(iroh_abi_step);
     goblins_rooms_irc_bridge.step.dependOn(rooms_services_install);
     goblins_rooms_irc_bridge.step.dependOn(goblins_build.goblinsPeerModules(b));
-    const goblins_rooms_irc_bridge_step = b.step("goblins-rooms-irc-bridge", "Live Goblins through the IRC bridge: fixture IRC and a real vat exchange room lines both ways (needs deno + racket + goblins)");
+    const goblins_rooms_irc_bridge_step = b.step("goblins-rooms-irc-bridge", "Live Goblins through the IRC bridge: fixture IRC and a real vat exchange room lines both ways (needs cargo + deno + racket + goblins)");
     goblins_rooms_irc_bridge_step.dependOn(&goblins_rooms_irc_bridge.step);
 
     const goblins_rooms_irc_server = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
@@ -280,11 +282,12 @@ pub fn register(
     Binary.irc_server.addEnv(goblins_rooms_irc_server);
     goblins_rooms_irc_server.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=server" });
     goblins_rooms_irc_server.step.dependOn(&goblins_rooms_irc_bridge.step);
-    const goblins_rooms_irc_server_step = b.step("goblins-rooms-irc-server", "Live Goblins through the IRC server: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs deno + racket + goblins)");
+    const goblins_rooms_irc_server_step = b.step("goblins-rooms-irc-server", "Live Goblins through the IRC server: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs cargo + deno + racket + goblins)");
     goblins_rooms_irc_server_step.dependOn(&goblins_rooms_irc_server.step);
 
-    const goblins_rooms_irc_step = b.step("goblins-rooms-irc", "Run both live Goblins compositions for the shipped IRC bridge and IRC server (needs deno + racket + goblins)");
-    goblins_rooms_irc_step.dependOn(&goblins_rooms_irc_server.step);
+    const goblins_rooms_irc_step = b.step("goblins-rooms-irc", "Run both live Goblins compositions for the shipped IRC bridge and IRC server (needs cargo + deno + racket + goblins)");
+    goblins_rooms_irc_step.dependOn(goblins_rooms_irc_bridge_step);
+    goblins_rooms_irc_step.dependOn(goblins_rooms_irc_server_step);
 
     // The same room over encrypted QUIC. The accepting side records the
     // endpoint key QUIC authenticated. The room server's iroh listener does that
@@ -375,6 +378,6 @@ pub fn register(
         }
         previous_goblins_rooms_matrix_phase = &run.step;
     }
-    const goblins_rooms_matrix_iroh_step = b.step("goblins-rooms-matrix-iroh", "Heavy four-peer rooms matrix: pin the cross-receiver handoff-count behavior upstream watch records, then exercise mixed and homogeneous rooms, every DM pair, close/reopen, and peer restart over iroh");
+    const goblins_rooms_matrix_iroh_step = b.step("goblins-rooms-matrix-iroh", "Heavy four-peer rooms matrix: exercise mixed and homogeneous rooms, every DM pair, close/reopen, and peer restart over iroh, then pin the cross-receiver handoff-count behavior upstream watch records");
     goblins_rooms_matrix_iroh_step.dependOn(previous_goblins_rooms_matrix_phase.?);
 }

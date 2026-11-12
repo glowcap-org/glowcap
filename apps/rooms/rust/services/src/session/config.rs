@@ -1,6 +1,6 @@
 //! Standalone session options. Everything is parsed before durable custody is
 //! acquired, so a refused option never leaves a lock or a half-written state.
-use super::error::Error;
+use super::{error::Error, transports::Dial};
 pub use rooms_platform::serving::Transport;
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -17,7 +17,7 @@ pub struct Config {
 	/// `relay_url`. Unrelated peer routes are followed normally.
 	pub relay_alias_url: Option<String>,
 	/// Deployment transport composition, independent of persisted capabilities.
-	pub dial_transports: Vec<String>,
+	pub dial_transports: Vec<Dial>,
 	/// The ICE servers a WebRTC dial gathers candidates through.
 	pub ice_servers: Vec<glowcap::webrtc::IceServer>,
 }
@@ -32,7 +32,7 @@ pub const HELP: &str = "rooms-session --state=<directory> [--transport=<transpor
   --admission-rows=<1..65536>  retained grant row cap (default: 4096)
   --admission-aggregate-scale=<1..100>  root/session pool multiplier (default: 8)
   --checkpoint=<Rooms JSON>  import capability-free managed workspace intent
-  --dial-transports=tcp,iroh,onion,webrtc  install outgoing transport families before restoration
+  --dial-transports=<name>[,<name>...]  install outgoing transports before restoration: noise-tcp, iroh, onion, webrtc, keyed-tcp, tcp (tcp and keyed-tcp are cleartext, and either adds noise-tcp)
   --ice-servers=<url,...>  STUN servers for webrtc dials, or a JSON list of ICE server records (default: a public STUN server)
   --readiness-file=<path>  write the session use link (default: <state>/use.sturdyref)
   Management is published separately in <state>/management.sturdyref
@@ -59,11 +59,16 @@ const KEYS: &[&str] = &[
 ];
 
 impl Config {
+	/// Every option `parse` reads.
+	pub fn options() -> impl Iterator<Item = &'static str> {
+		KEYS.iter()
+			.chain(Transport::OPTIONS)
+			.chain(rooms_application::admission::Settings::OPTIONS)
+			.copied()
+	}
 	/// Whether `parse` reads an option of this name.
 	pub fn accepts(key: &str) -> bool {
-		KEYS.contains(&key)
-			|| Transport::OPTIONS.contains(&key)
-			|| rooms_application::admission::Settings::OPTIONS.contains(&key)
+		Self::options().any(|option| option == key)
 	}
 	/// The environment variable that stands in for an absent `--<key>`.
 	pub fn variable(key: &str) -> String {
@@ -103,15 +108,10 @@ impl Config {
 		})?;
 		let transport =
 			Transport::parse(|key| named.get(key).cloned(), &env, Self::variable, "session").map_err(Error::refused)?;
-		let dial_transports: Vec<String> = value("dial-transports")
-			.map(|value| value.split(',').map(str::to_owned).collect())
-			.unwrap_or_default();
-		if dial_transports
-			.iter()
-			.any(|name| !matches!(name.as_str(), "tcp" | "iroh" | "onion" | "webrtc"))
-		{
-			return Err(Error::refused("dial transports must be tcp, iroh, onion or webrtc"));
-		}
+		let dial_transports = match value("dial-transports") {
+			Some(names) => Dial::parse_list(&names, &Dial::ALL).map_err(Error::refused)?,
+			None => Vec::new(),
+		};
 		let ice_servers = super::webrtc::ice_servers(value("ice-servers").as_deref())?;
 		Ok(Some(Self {
 			admission: rooms_application::admission::Settings::parse_from(

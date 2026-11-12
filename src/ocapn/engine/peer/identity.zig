@@ -40,7 +40,7 @@ pub fn demandPartnerDurableKey(self: *Peer, key: foundation.crypto.PeerKey) void
 }
 
 /// Record the durable key the connection realizer proved for the byte-channel
-/// endpoint. Native iroh/WebRTC residents, the completion bridge, a completed
+/// endpoint. Zig iroh/WebRTC residents, the completion bridge, a completed
 /// Noise handshake, or a foreign realizer through the C ABI may make this
 /// assertion. The transport symbol itself is never proof. The key names the
 /// channel endpoint, not necessarily the CapTP partner across a transparent

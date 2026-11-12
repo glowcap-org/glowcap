@@ -59,8 +59,6 @@ pub const Operation = struct {
     reply: driver.Value = .{ .void = {} },
     failure: anyerror = error.CallFailed,
     failure_kind: @FieldType(@FieldType(driver.Host.Call.Result, "failed"), "kind") = .broken,
-    /// Borrows the owned forwarded result, or bounded call-arena text.
-    failure_reason: ?[]const u8 = null,
     confirmed: bool = false,
     dependent_target: ?driver.Capability = null,
     forwarded: forwarding.Forwarding = .{},
@@ -73,8 +71,15 @@ pub const Operation = struct {
     forwarded_failure: bool = false,
 };
 
+/// Which error of an endpoint is the durable behavior's refusal. Every
+/// other one is Loam's own, as `drive.failure` reads a settled call.
+pub fn endpointRefuses(err: anyerror) bool {
+    return err == error.ApplicationRefused;
+}
+
 pub const Endpoint = struct {
     entry: *h.Entry,
+    pub const refuses = endpointRefuses;
 
     pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
@@ -127,6 +132,7 @@ pub const Endpoint = struct {
 /// queue with the guard entry and carry the target capability as authority.
 /// No object identifier can manufacture this path.
 pub const DependentEndpoint = struct {
+    pub const refuses = endpointRefuses;
     owner: *h.Attachment,
     guard: driver.Capability,
     target: driver.Capability,

@@ -145,7 +145,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn every_invalid_line_is_the_line_it_replaced() {
+	fn every_invalid_variant_displays_its_operator_line() {
 		assert_eq!(
 			Invalid::NameLive { name: "x".into() }.to_string(),
 			"#x is already live here. Turn off Private to open it, or choose another name for a new private room."

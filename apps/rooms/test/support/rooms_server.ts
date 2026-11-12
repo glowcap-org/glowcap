@@ -11,7 +11,7 @@ import { Reachability } from "@glowcap/iroh";
 import { dial as dialWithRuntime, roomsHost, roomsLocator, roomsSturdyrefLocator } from "../../lib/locator.ts";
 import { isUriLocator } from "../../lib/doors.ts";
 import { roomsIdentityDoors } from "../../lib/routes.ts";
-import { openRoomsRuntime } from "../../lib/runtime.ts";
+import { cleartextOf, openRoomsRuntime } from "../../lib/runtime.ts";
 import { assert } from "../assert.ts";
 import { drainStdout, readAnnounced, readAnnouncedPort } from "./announce.ts";
 import { spawnOwned, stopOwned } from "./children.ts";
@@ -29,6 +29,7 @@ export class TestRuntimeScope {
 		if (pending === undefined) {
 			pending = openRoomsRuntime({
 				host,
+				cleartext: cleartextOf(locator),
 				iroh: isUriLocator(locator) ? { reachability: Reachability.Direct } : undefined,
 			});
 			this.#byHost.set(host, pending);
@@ -120,6 +121,8 @@ export async function withServer(fn: (port: number) => Promise<void>): Promise<v
 	}
 }
 
+/** A server that holds the peering capability, with the link it saved for it.
+ * Its state is a directory of its own, removed when `fn` returns. */
 export async function withPeeringServer(
 	fn: (port: number, swiss: string) => Promise<void>,
 ): Promise<void> {
@@ -127,7 +130,7 @@ export async function withPeeringServer(
 	const proc = spawnOwned(SERVER, {
 		args: ["--transport=tcp", "--port=0", "--capabilities=peering"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: state },
+		env: { GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -153,7 +156,7 @@ export async function roomLocator(port: number, who = "rooms-web"): Promise<stri
 			const said = (await res.text()).trim();
 			if (res.status === 200 && said.length > 0) return said;
 		} catch {
-			// not up / room not ready yet status-allow: pending state or quoted runtime label
+			// not up / room not ready yet
 		}
 		await delay(50);
 	}

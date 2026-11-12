@@ -51,7 +51,7 @@ test "TCP provider operation options inherit, override, validate, and survive li
     if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin()))
         return error.SkipZigTest;
 
-    const config: tcp.GlowcapTcpConfig = .{ .stream = enabled_stream };
+    const config: tcp.GlowcapTcpConfig = .{ .stream = enabled_stream, .profiles = tcp.GLOWCAP_TCP_PROFILES_ALL };
     var netlayer: ?*tcp.GlowcapTcpNetlayer = null;
     try std.testing.expectEqual(c.GLOWCAP_OK, tcp.glowcap_tcp_netlayer_new(&config, &netlayer));
     defer tcp.glowcap_tcp_netlayer_release(netlayer);
@@ -158,7 +158,7 @@ test "TCP provider operation options inherit, override, validate, and survive li
 }
 
 test "TCP provider listen reports its exact operation-local failure" {
-    const config: tcp.GlowcapTcpConfig = .{ .stream = enabled_stream };
+    const config: tcp.GlowcapTcpConfig = .{ .stream = enabled_stream, .profiles = tcp.GLOWCAP_TCP_PROFILES_ALL };
     var netlayer: ?*tcp.GlowcapTcpNetlayer = null;
     try std.testing.expectEqual(c.GLOWCAP_OK, tcp.glowcap_tcp_netlayer_new(&config, &netlayer));
     defer tcp.glowcap_tcp_netlayer_release(netlayer);

@@ -83,7 +83,7 @@ async fn introductions_keep_exact_live_aliases_private_and_refuse_cold_revival()
 	run().await;
 }
 pub(super) async fn run() {
-	for (malformed, pending) in [(false, false), (true, false), (false, true)] {
+	for (malformed, timed_out) in [(false, false), (true, false), (false, true)] {
 		tokio::task::LocalSet::new()
 			.run_until(async {
 				environment::within(10_000, async {
@@ -206,20 +206,21 @@ pub(super) async fn run() {
 						panic!("directory inbox configuration: {error:?}; {:?}", host.take_failures())
 					});
 					host.send(&next_directory, "configure", &[]).await.unwrap();
-					let directory = if pending {
+					let directory = if timed_out {
 						let acquisitions = acquisitions.clone();
 						exporter
-							.publish("pending-directory", move || {
+							.publish("timed-out-directory", move || {
 								Box::new(move |verb, args| {
 									let verb = verb.ok_or("fixture requires a method")?;
 									assert_eq!(verb, "introduce");
 									assert_eq!(args, &["peer".into(), REGISTRATION.into(), "opening".into()]);
 									acquisitions.set(acquisitions.get() + 1);
-									Err("introduction-pending: requested exact registration inbox".into())
+									Err(rooms_application::failure::FailureCode::IntroductionTimedOut
+										.line("inbox deadline elapsed"))
 								})
 							})
 							.unwrap();
-						importer.fetch("pending-directory").await.unwrap()
+						importer.fetch("timed-out-directory").await.unwrap()
 					} else {
 						directory
 					};
@@ -227,11 +228,11 @@ pub(super) async fn run() {
 						.import(
 							coordinate(custody::Role::DirectoryAccess, 1),
 							directory,
-							if pending {
+							if timed_out {
 								Some(
 									glowcap::format_sturdyref(
 										&locator,
-										b"pending-directory",
+										b"timed-out-directory",
 										glowcap::CaptpVersion::V1_0,
 									)
 									.unwrap(),
@@ -287,7 +288,7 @@ pub(super) async fn run() {
 						custody::FieldKey::new(NonZeroU64::new(2).unwrap(), NonZeroU64::new(1).unwrap());
 					owner.replace_workspace(&intent).await.unwrap();
 					platform.suspended.set(false);
-					let status = if malformed { "unknown" } else { "committed" };
+					let status = if malformed || timed_out { "unknown" } else { "committed" };
 					let observed = finished(&host, &other, "introduced", &source).await;
 					assert_eq!(observed.as_str(), Some(status));
 					assert_eq!(acquisitions.get(), 1);
@@ -298,38 +299,21 @@ pub(super) async fn run() {
 					assert_eq!(acquisitions.get(), 1, "receipt replay cannot introduce again");
 					assert_eq!(
 						failures.get(),
-						usize::from(malformed),
-						"terminal malformed replies have one failure owner"
+						usize::from(malformed || timed_out),
+						"a terminal reply that proves no outcome has one failure owner"
 					);
 					let result = coordinate(custody::Role::DirectAccess, 1);
 					let destination = coordinate(custody::Role::DirectAccess, 9);
-					if pending {
-						let disclosed = host
-							.send(
-								&source,
-								"effect-result",
-								&["introduced".into(), canonical.clone().into()],
-							)
-							.await
-							.unwrap();
-						assert!(matches!(
-							serde_json::from_str::<Direct>(
-								disclosed
-									.as_str()
-									.expect("pending requests disclose data without authority")
-							)
-							.unwrap(),
-							Direct::Pending
-						));
+					if timed_out {
 						assert!(
 							owner
 								.import_result(&source, "introduced", &canonical, result, destination)
 								.await
 								.is_err(),
-							"pending requests invent no inbox authority"
+							"a timeout cannot invent inbox authority"
 						);
 					}
-					if !malformed && !pending {
+					if !malformed && !timed_out {
 						contact::refuse_replacement(&host, &source, &platform).await;
 						assert!(
 							host.send(
@@ -352,9 +336,7 @@ pub(super) async fn run() {
 							panic!("private direct result");
 						};
 						let row: Direct = serde_json::from_str(data.as_str().unwrap()).unwrap();
-						let Direct::Ready { inbox } = row else {
-							panic!("ready direct inbox")
-						};
+						let Direct { inbox } = row;
 						assert_eq!(inbox.slot(), result.key.slot());
 						assert!(
 							fields.as_list().unwrap().is_empty(),
@@ -582,8 +564,8 @@ pub(super) async fn run() {
 					let (root, root_control) =
 						environment::restore(&attachment, loam::Resource::decode(resource.encode())).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();
-					assert_eq!(acquisitions.get(), if malformed || pending { 1 } else { 4 });
-					if !malformed && !pending {
+					assert_eq!(acquisitions.get(), if malformed || timed_out { 1 } else { 4 });
+					if !malformed && !timed_out {
 						// This inbox was imported through the unrevoked private root.
 						// Expiry alone refuses its saved registration alias.
 						let snapshot = host.send(&root, "snapshot", &[]).await.unwrap();

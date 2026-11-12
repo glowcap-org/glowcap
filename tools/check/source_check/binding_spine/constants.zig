@@ -15,7 +15,7 @@ const extractBraceBlock = text_match.extractBraceBlock;
 
 const ConstantsFile = struct {
     path: []const u8,
-    /// Racket states constants as `(define NAME INT)`; the other three as a
+    /// Racket states constants as `(define NAME INT)`. The other three use one
     /// `NAME … = … INT` assignment per line.
     racket: bool = false,
 };
@@ -169,7 +169,7 @@ fn compareConstant(
 /// Look up a mirror constant's expected header value, tolerating the two prefix
 /// conventions a private FFI mirror uses: an iroh Rust mirror spells the full
 /// `GLOWCAP_IROH_EV_*`, a Python one spells `_IROH_EV_*`, while the header keys
-/// are stripped of `GLOWCAP_`. The direct hit is tried first; a prefix strip
+/// are stripped of `GLOWCAP_`. The direct hit is tried first. A prefix strip
 /// only ever turns a would-be silent skip into a match, never an existing match
 /// into a miss.
 fn lookupHeaderConst(header_vals: *std.StringHashMap(i64), name: []const u8) ?i64 {

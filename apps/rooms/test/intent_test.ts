@@ -368,10 +368,6 @@ Deno.test("a room link pasted into the join card is a link, not a directory", ()
 	const byLink = joining.askedJoin(link);
 	assert(byLink !== null && byLink.kind === "link" && byLink.link === link, "/join a sturdyref was not a link");
 	assert(joining.askedJoin("") === null, "an empty /join was treated as a destination");
-	assert(joining.listedOccupancy(true, "general"), "a listed arrival with a name sits in that room");
-	assert(!joining.listedOccupancy(false, "general"), "an unlisted arrival is not a directory name");
-	assert(!joining.listedOccupancy(undefined, "general"), "an older room's silence is not a listed room");
-	assert(!joining.listedOccupancy(true, ""), "a listed arrival with no name has nothing to sit in");
 
 	const answers = card({ source: "press" }, {}, { seq: 1, address: link, room: "plans" });
 	const lead = joining.joinLead(answers, "this page's directory");

@@ -332,7 +332,7 @@ engineTest(
 		// let them.
 		//
 		// A peer's display name rather than a designator, because a designator is
-		// shortened before it is drawn and can no longer be the widest thing on status-allow: lifecycle transition
+		// shortened before it is drawn and so cannot be the widest thing on
 		// the stage. A name a person chose is not shortened, so it still can.
 		const name = "a".repeat(48);
 		const width = nodeFootprint(name, false).halfWidth * 2;

@@ -31,7 +31,7 @@ fn HashRow(comptime Position: type) type {
 /// projection can scan nested bytes: caching avoids an unbudgeted scan per
 /// pair, and the extra projection pass visits at most the set's wire region.
 /// No member becomes an owned value. Handoff comparisons may materialize lazy
-/// hints in turn scratch; freight refuses handoffs before reaching this fold.
+/// hints in turn scratch. Freight refuses handoffs before reaching this fold.
 pub fn checkBorrowed(
     scratch: std.mem.Allocator,
     items: model.view.Args,

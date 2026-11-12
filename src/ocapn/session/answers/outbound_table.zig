@@ -2,8 +2,8 @@
 //!
 //! The table is dense over position (`position_slab.zig`), and a position
 //! whose row retires is the next one minted. The partner's `op:gc-answers`
-//! grammar grants that reuse. Both profiles settle through resolver exports;
-//! their tombstones consume callbacks that race an answer's release without
+//! grammar grants that reuse. Both profiles settle through resolver exports.
+//! Their tombstones consume callbacks that race an answer's release without
 //! addressing the new question at its reused position.
 //!
 //! Every row carries the session's store stamp. `OutboundAnswerTarget` pairs

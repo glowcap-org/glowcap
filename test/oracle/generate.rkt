@@ -85,7 +85,7 @@
 
 ;; <op:listen <desc:answer 7> <desc:import-object 9>>.
 ;;
-;; Legacy op:listen wire-shape per ADR-0003 — two status-allow: supported external protocol variant
+;; The op:listen wire shape Goblins speaks (ADR-0003) has two
 ;; desc:* reference operands. `to-desc` may be `desc:answer`
 ;; (pipelining target case) or `desc:export` (local-export target
 ;; case). `listen-desc` is `desc:import-object` or
@@ -94,7 +94,7 @@
 ;; via the standard payload-position perspective flip.
 ;;
 ;; V1.0 accepts this omitted third operand only as settling-only
-;; compatibility with the earlier OCapN text. Glowcap canonically emits the status-allow: event or source ordering
+;; compatibility with the earlier OCapN text. Glowcap canonically emits the
 ;; Goblins three-operand form below. Next always carries its integer mode.
 (define (op-listen-promise-target)
   (record* 'op:listen

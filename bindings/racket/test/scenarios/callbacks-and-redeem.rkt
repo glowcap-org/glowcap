@@ -28,6 +28,7 @@
          "../../private/pump.rkt"
          "../../private/action.rkt"
          (only-in "../../private/dial.rkt" retain-host-cleanup-failure!)
+         (only-in "../../private/errors.rkt" retain-cleanup-failure raise-glowcap)
          "../../private/promise.rkt"
          "../../private/gc.rkt"
          "../../private/vat.rkt"
@@ -233,7 +234,7 @@
 ;; handshake, so the drain defers it post-lock like every write and fire: a
 ;; slow exporter stalls that one redeem, never every thread sharing the host.
 ;; Proven with a deterministic stall in a raw byte relay: the redeem dial has
-;; connected, but the relay has not yet opened its exporter leg, so its status-allow: pending state or quoted runtime label
+;; connected, but the relay has not yet opened its exporter leg, so its
 ;; handshake parks, while a sibling connection on the recipient's host
 ;; completes a full send. Releasing the relay then lets the parked redeem
 ;; finish end-to-end, which also proves the whole hermetic three-party flow:
@@ -488,3 +489,64 @@
 (server-close! sr-e-server)
 
 (printf "racket test OK: session-send-redeeming surfaces the direct session a redeemed reply lives on\n")
+
+;; ── An unproved redeem names the identity reason ────────────────────────────
+;; An accepted cleartext TCP session carries only the partner's signed claim of
+;; where it lives, so a sturdyref naming that claim refuses synchronously and
+;; the Host sends no fetch. The refusal names the same constant the
+;; asynchronous break carries, so one predicate answers both.
+(define pi-server (listen "127.0.0.1" 0))
+(define pi-refusal (make-channel))
+(define pi-thread
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pi-refusal e))])
+       (define hsession (accept pi-server))
+       (define claimed (partner-identity-designator (session-partner-identity hsession)))
+       (define parts (regexp-match #rx"^(.*):([0-9]+)$" claimed))
+       (define claim (tcp-locator (cadr parts) (string->number (caddr parts))))
+       (channel-put pi-refusal
+                    (with-handlers ([exn:fail:glowcap? values])
+                      (session-enliven hsession
+                                       (string-append (format-locator-uri claim) "/s/Z3JlZXRlcg"))
+                      'enlivened))
+       (session-serve hsession)))))
+(define pi-session (open-test-session (tcp-locator "127.0.0.1" (server-port pi-server))))
+(define pi-error (sync/timeout 30 pi-refusal))
+(expect (and (exn:fail:glowcap? pi-error)
+             (= ERR-SESSION (exn:fail:glowcap-code pi-error))
+             (equal? (break-cause 'local 'identity-unverified 0) (exn:fail:glowcap-cause pi-error))
+             (glowcap-peer-identity-unverified? pi-error))
+        (format "enliven: an unproved claim refuses with the named identity reason, got ~a" pi-error))
+(define (pi-break reason [cause (break-cause 'partner 'application 0)])
+  (cdr (vow-failure-outcome ERR-BROKEN
+         (list (break-origin-code (break-cause-origin cause))
+               (break-reason-code (break-cause-reason cause)) (break-cause-context cause)) reason)))
+(for ([reason '("PeerIdentityUnverified" "ExporterUnreachable" "ExporterUnreachable: connection refused" "unknown swissnum")])
+  (define partner (pi-break reason))
+  (expect (and (not (glowcap-peer-identity-unverified? partner))
+               (not (glowcap-exporter-unreachable? partner)))
+          "partner text cannot forge a local cause"))
+(define pi-broken (pi-break "" (break-cause 'local 'identity-unverified 0)))
+(expect (and (glowcap-peer-identity-unverified? pi-broken)
+             (equal? (break-cause 'local 'identity-unverified 0) (exn:fail:glowcap-cause pi-broken)))
+        "the local identity refusal carries typed provenance")
+(expect (glowcap-exporter-unreachable? (pi-break "connection refused" (break-cause 'local 'peer-unreachable 0)))
+        "the local route failure carries typed provenance")
+(define pi-cleanup
+  (with-handlers ([exn:fail:glowcap? values]) (raise-glowcap 'close ERR-IO "cleanup")))
+(expect (glowcap-peer-identity-unverified? (retain-cleanup-failure pi-broken pi-cleanup))
+        "a retained cleanup failure keeps the break's reason")
+(session-close! pi-session)
+(thread-wait pi-thread)
+(server-close! pi-server)
+
+(printf "racket test OK: an unproved redeem refuses with the named identity reason both forms share\n")
+
+(define unknown-cause-failure (cdr (vow-failure-outcome ERR-BROKEN '(999 0 0) "original refusal")))
+(expect (and (exn:fail:glowcap:broken? unknown-cause-failure)
+             (equal? (exn:fail:glowcap:broken-reason unknown-cause-failure) "original refusal")
+             (equal? (exn:fail:glowcap-cause unknown-cause-failure) (break-cause 'unspecified 'unspecified 0))
+             (= (exn:fail:glowcap-secondary-code unknown-cause-failure) ERR-INTERNAL)
+             (equal? (exn:fail:glowcap-secondary-name unknown-cause-failure) "UnknownBreakCause((999 0 0))"))
+        "an unknown cause retains the original failure and reports the ABI mismatch")

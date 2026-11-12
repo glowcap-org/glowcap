@@ -8,7 +8,6 @@ import {
 	dmConnectionTitle,
 	reachAboutDirectory,
 	settingsConnectionRefused,
-	settingsConnectionSaving,
 	settingsDmDefault,
 	settingsDmDirectLabel,
 	settingsDmDirectSaid,
@@ -31,11 +30,12 @@ import {
 	settingsHomeServerName,
 	settingsHomeUseServer,
 } from "../../../lib/text/settings.ts";
+import { settingsHoldingsTab } from "../../../lib/text/session_settings.ts";
 import { saveAndReload } from "../../../lib/text/controls.ts";
 import { serverNeedDm } from "../../../lib/text/session.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { refusalText } from "../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { current, type DmMode } from "../prefs.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";
@@ -59,8 +59,10 @@ import { ServerCard } from "./ServerCard.tsx";
 import { useSessionPermission } from "../hooks.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { settingsTitle } from "../../../lib/text/settings.ts";
-import { settingsConnectionTab, settingsHoldingsTab, settingsSessionTab } from "../../../lib/text/settings.ts";
+import { settingsConnectionTab } from "../../../lib/text/settings.ts";
+import { settingsSessionTab } from "../../../lib/text/session_settings.ts";
 import { ModalCard } from "../ModalCard.tsx";
+import { Choice, Choices } from "../Choices.tsx";
 
 interface SettingsProps {
 	open: boolean;
@@ -188,7 +190,7 @@ function SettingsDialog(
 	useChangeGroup("settings-direct-message", {
 		dirty,
 		discard: () => {
-			if (dmSaving.current) throw new Error(settingsConnectionSaving);
+			if (dmSaving.current) throw new LocalRefusal("connection-setting-busy");
 			setDm(live.dm);
 			setDmError("");
 		},
@@ -377,34 +379,30 @@ function SettingsDialog(
 													});
 												}}
 											>
-												<div className="choices" role="radiogroup" aria-labelledby="dmLegend">
+												<Choices labelledBy="dmLegend">
 													{DM_CHOICES.map((choice) => (
-														<label className="choice" key={choice.value}>
-															<input
-																type="radio"
-																name="dm"
-																value={choice.value}
-																checked={dm === choice.value}
-																onChange={() =>
-																	setDm(choice.value)}
-															/>
-															<span>
-																<strong>
-																	{choice.label}
-																	{choice.value === "fastest" && (
-																		<>
-																			{" "}
-																			<span className="chip choice-mark">
-																				{settingsDmDefault}
-																			</span>
-																		</>
-																	)}
-																</strong>
-																{choice.said}
-															</span>
-														</label>
+														<Choice
+															key={choice.value}
+															name="dm"
+															value={choice.value}
+															checked={dm === choice.value}
+															onChange={() => setDm(choice.value)}
+														>
+															<strong>
+																{choice.label}
+																{choice.value === "fastest" && (
+																	<>
+																		{" "}
+																		<span className="chip choice-mark">
+																			{settingsDmDefault}
+																		</span>
+																	</>
+																)}
+															</strong>
+															{choice.said}
+														</Choice>
 													))}
-												</div>
+												</Choices>
 												<p className="hint" id="dmReloadHint">
 													{settingsDmEncrypted} {settingsDmReload}
 												</p>

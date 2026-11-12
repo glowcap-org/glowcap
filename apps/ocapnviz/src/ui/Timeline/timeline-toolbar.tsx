@@ -1,3 +1,4 @@
+import type { LiveConnectionState } from "../../engine/live/status.ts";
 /**
  * Timeline control row, play/pause/restart, lane toggles, zoom,
  * fit, time readout, speed, and Live's record chrome.
@@ -19,11 +20,9 @@ import type { LaneKind } from "./state.ts";
 /** Everything the control row needs for Live's Record / Stop verb
  * and the connection badge. Provided iff the panel is in Live mode. */
 export type TimelineLive = {
-	/** Whether the feed's socket is open. Live mode dials on
-	 *  entry, so this is usually true before anyone records. The
-	 *  badge below reads it only to say when a running capture
-	 *  has lost its feed. */
-	connected: boolean;
+	/** Setup, an open subscription, or a terminal failure requiring reload.
+	 * The badge reads it while a capture is running. */
+	connection: LiveConnectionState;
 	/** True while a capture is running. Idle Live renders no
 	 *  timeline body at all, no rows, no playhead, just the
 	 *  Record affordance. */
@@ -104,13 +103,14 @@ export function TimelineToolbar(
 						{live && (
 							<LiveControls
 								recording={live.recording}
+								disabled={live.connection === "stopped"}
 								bufferHasContent={live.bufferHasContent}
 								onStart={live.onStartRecord}
 								onStop={live.onStopRecord}
 								onDiscard={live.onDiscardRecording}
 							/>
 						)}
-						{live?.recording && <LiveBadge connected={live.connected} />}
+						{live?.recording && <LiveBadge connection={live.connection} />}
 					</>
 				)
 				: (
@@ -181,7 +181,7 @@ export function TimelineToolbar(
 						gap: 4,
 						cursor: "pointer",
 					}}
-					title="Auto-size the panel to content — re-fits on row expand, collapse and mode switch. Drag the top edge to turn it off"
+					title="Auto-size the panel to content. It re-fits on row expand, collapse and mode switch. Drag the top edge to turn it off."
 				>
 					<input
 						type="checkbox"
@@ -300,20 +300,22 @@ const timeReadout = {
  *
  * It appears only while a capture is running, because that is the
  * state it reports on: a capture whose socket has dropped is still a
- * capture, and it is receiving nothing. So the two states are
- * "recording" and "reconnecting…", and the second is the one a reader
- * must not miss.
+ * capture, and it is receiving nothing. It says "reconnecting…" while
+ * recovery is possible, or "stopped" when a reload is required.
  *
  * Whether a feed is connected at all is a different fact, and it is
  * answered where a reader asks it: beside the URL in the Source panel,
  * which is green before anyone presses Record. Being connected is not
  * recording, and this badge is not a second place to read
  * the connection. */
-function LiveBadge({ connected }: { connected: boolean }) {
-	const label = connected ? "recording" : "reconnecting…";
+function LiveBadge({ connection }: { connection: LiveConnectionState }) {
+	const connected = connection === "connected";
+	const label = connection === "stopped" ? "stopped" : connected ? "recording" : "reconnecting…";
 	const color = connected ? c.danger : c.warning;
 	const bg = connected ? c.dangerSoft : c.warningSoft;
-	const title = connected
+	const title = connection === "stopped"
+		? "The live connection stopped. Reload the viewer before reconnecting."
+		: connected
 		? "Recording from the live feed; playback is disabled"
 		: "The live feed dropped. The capture is running and receiving nothing";
 	return (

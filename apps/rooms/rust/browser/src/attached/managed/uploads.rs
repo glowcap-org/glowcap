@@ -6,6 +6,7 @@ use rooms_application::{
 	content::session::uploads::{Description, Intent, Kind},
 	fields::List,
 };
+use rooms_runtime::Error as RuntimeError;
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
 	#[wasm_bindgen(js_name = prepareUpload)]
@@ -23,7 +24,7 @@ impl RoomsManagedWorkspace {
 	) -> js_sys::Promise {
 		let input = (|| {
 			if files.len() + keep.len() > rooms_application::room::line::MAX_MESSAGE_FILES {
-				return Err("Too many upload files".into());
+				return Err(RuntimeError::invalid("Too many upload files"));
 			}
 			let operation = scalar(operation, 1024)?;
 			let base = revision(&scalar(base, 20)?)?;
@@ -46,10 +47,10 @@ impl RoomsManagedWorkspace {
 				caption,
 				previews,
 				upload,
-				keep: List::new(keep).ok_or("Too many kept files")?,
-				files: List::new(descriptions).ok_or("Too many source files")?,
+				keep: List::new(keep).ok_or_else(|| RuntimeError::invalid("Too many kept files"))?,
+				files: List::new(descriptions).ok_or_else(|| RuntimeError::invalid("Too many source files"))?,
 			};
-			let bytes = intent.canonical().map_err(|e| e.to_string())?.len();
+			let bytes = intent.canonical().map_err(RuntimeError::invalid_by)?.len();
 			Ok((intent, sources, bytes))
 		})();
 		let (intent, sources, bytes) = match input {
@@ -62,7 +63,7 @@ impl RoomsManagedWorkspace {
 			let command = workspace
 				.prepare_upload(&intent, &environment.sources, sources)
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = command.retained_bytes();
 			let command = driver.hold(command, bytes)?;
 			Ok(RoomsManagedCommand { driver, command }.into())

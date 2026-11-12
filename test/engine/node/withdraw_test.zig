@@ -3,6 +3,7 @@
 //! immediately, retirement yields to newer withdrawals, and application
 //! activity keeps a redeem-opened session alive.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -211,13 +212,14 @@ test "the final failed withdraw retires a redeem-only exporter" {
 
     try std.testing.expect(try node.claimResolve(exporter, answers[0], .{ .broken = "no such gift" }));
     const broke = node.nextAction().?;
-    try std.testing.expectEqualStrings("handoff redeem failed: no such gift", broke.fail.reason.bytes());
+    try std.testing.expectEqualStrings("no such gift", broke.fail.reason.text);
+    try std.testing.expectEqual(BreakCause.partner().withWithdrawal(), broke.fail.reason.cause);
     // One withdrawal is still live, so the exporter remains available for it.
     try std.testing.expect(node.nextAction() == null);
 
     try std.testing.expect(try node.claimResolve(exporter, answers[1], .not_capability));
     const refused = node.nextAction().?;
-    try std.testing.expectEqualStrings("withdraw-gift did not resolve to a capability", refused.fail.reason.bytes());
+    try std.testing.expectEqualStrings("withdraw-gift did not resolve to a capability", refused.fail.reason.text);
     const retire = node.nextAction().?;
     try std.testing.expectEqual(exporter, retire.retire_exporter);
     try std.testing.expect(node.claimExporterRetirement(exporter));
@@ -286,7 +288,7 @@ test "a failed withdraw does not retire a selected exporter session" {
     const answer = pendingWithdrawAnswer(&node, exporter);
     try std.testing.expect(try node.claimResolve(exporter, answer, .not_capability));
     const refused = node.nextAction().?;
-    try std.testing.expectEqualStrings("withdraw-gift did not resolve to a capability", refused.fail.reason.bytes());
+    try std.testing.expectEqualStrings("withdraw-gift did not resolve to a capability", refused.fail.reason.text);
     try std.testing.expect(node.nextAction() == null);
 }
 
@@ -390,7 +392,7 @@ test "a withdraw the exporter session refuses returns its reserved answer row" {
     const dial = node.nextAction().?;
     _ = try node.exporterSelected(dial.dial.pending, 0, exporter);
     const refused = node.nextAction().?;
-    try std.testing.expectEqualStrings("handoff redeem failed: NoExporterKey", refused.fail.reason.bytes());
+    try std.testing.expectEqualStrings("NoExporterKey", refused.fail.reason.text);
     try std.testing.expectEqual(@as(usize, 0), glowcap.ocapn.session.inspect.outboundAnswerCount(&node.peer(exporter).?.session_state));
     try std.testing.expectEqual(@as(usize, 0), node.redeems.withdrawals.rows.count());
 }

@@ -25,7 +25,7 @@ pub const RustSidecar = struct {
     archive: std.Build.LazyPath,
 };
 
-/// Cargo owns incremental compilation; its stable output directory is a graph
+/// Cargo owns incremental compilation. Its stable output directory is a graph
 /// path, so linking a published transport builds its sidecar on demand. Cargo
 /// also replaces the uplifted `release/lib<name>.a` on every build, and where
 /// it cannot hard-link (the CI stores are separate mounts) the copy is a new

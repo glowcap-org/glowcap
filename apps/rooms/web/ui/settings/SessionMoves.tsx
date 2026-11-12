@@ -13,6 +13,7 @@
 // enough to need its own line, with a sentence about what attaching does to
 // what is already here, is a form and not a row.
 
+import { LocalRefusal } from "../../../lib/text/failure.ts";
 import { useRef, useState } from "react";
 import {
 	sessionCapabilityLabel,
@@ -54,7 +55,7 @@ import { Button } from "../Button.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Field } from "../Field.tsx";
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import { actionRefusal, sessionCapabilityRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
 import { useServerGate } from "../hooks.ts";
@@ -208,7 +209,7 @@ function AttachModal(
 	useChangeGroup("settings-session-attach", {
 		dirty: link !== "",
 		discard: () => {
-			if (busy) throw new Error("Wait for the session attachment to finish.");
+			if (busy) throw new LocalRefusal("settings-attach-busy");
 			setLink("");
 			setWhy("");
 		},
@@ -285,8 +286,7 @@ function AttachModal(
 					{(wiring) => (
 						<Input
 							id={wiring.id}
-							type="text"
-							{...identifierField}
+							{...addressField}
 							value={link}
 							disabled={busy}
 							aria-describedby={wiring.describedBy}

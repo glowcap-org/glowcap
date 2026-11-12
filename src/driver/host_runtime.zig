@@ -92,7 +92,7 @@ pub const HostRuntime = struct {
     active_listeners: foundation.identity_hash.Map(u64, ActiveListener) = .empty,
     opts: Options,
     wires: foundation.handle_table.Mirror(engine.PeerHandle, *Wire) = .empty,
-    /// Wires whose transport is not yet closed. Closed wire rows remain in status-allow: pending state or quoted runtime label
+    /// Wires whose transport is not yet closed. Closed wire rows remain in
     /// `wires` until explicit session release, so close completion cannot use
     /// map cardinality without conflating shutdown with memory lifetime.
     open_wire_count: usize = 0,
@@ -183,7 +183,7 @@ pub const HostRuntime = struct {
     carrier_close_waiters: usize = 0,
     /// Which face drives this runtime, chosen once at construction through
     /// `Options.drive` and never changed. The blocking Zig face waits
-    /// through `net.waitAnyReadable` and observes vows in-process through
+    /// through `net.waitAnyDescriptor` and observes vows in-process through
     /// captures. The stepped face (ADR-0024) carries the aggregate readiness
     /// set an embedder parks on and the two recipients it publishes through.
     /// Every site that services one face names the other's arm as empty, so
@@ -199,7 +199,7 @@ pub const HostRuntime = struct {
     /// listeners never remain here: finish transfers ownership to the
     /// observer, while cancellation and failure consume the attempt.
     pending_listeners: std.ArrayListUnmanaged(*PendingListener) = .empty,
-    /// One authority for every transport connect and CapTP handshake not yet status-allow: pending state or quoted runtime label
+    /// One authority for every transport connect and CapTP handshake not yet
     /// open, including synchronous constructors that pump pending actions.
     open_admissions: usize = 0,
     /// The redeem dials among `open_admissions`, held to
@@ -300,6 +300,7 @@ pub const HostRuntime = struct {
 
     pub const ProviderRegistration = provider_package.Registration;
     pub const ProviderPackage = provider_package.Package;
+    pub const ProviderOwner = provider_package.Owner;
     const InstalledProviderPackage = provider_package.Installed;
 
     /// How many ready records one drain pass claims before looping.
@@ -320,6 +321,7 @@ pub const HostRuntime = struct {
     pub const initWithCore = runtime_providers.initWithCore;
     pub const addResident = runtime_providers.addResident;
     pub const addProviderPackage = runtime_providers.addProviderPackage;
+    pub const unservedProfiles = runtime_providers.unservedProfiles;
     pub const addProviders = runtime_providers.addProviders;
 
     pub const startListener = runtime_listener_setup.startListener;

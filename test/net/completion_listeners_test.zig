@@ -8,13 +8,13 @@ const glowcap = @import("glowcap");
 
 const net = glowcap.net;
 const completion = net.completion;
+const io_uring_gate = @import("../support/io_uring_gate.zig");
 
 /// `host_optional` marks io_uring, which a host kernel or policy may refuse.
-/// Only a refusal the Linux selector would fall back from skips.
-fn exercise(comptime Backend: type, host_optional: bool) !void {
+/// Only a refusal the Linux selector falls back from skips (`io_uring_gate`).
+fn exercise(comptime Backend: type, comptime host_optional: bool) !void {
     var backend = Backend.init(std.testing.allocator, 32, 4, 64) catch |err| {
-        if (host_optional and builtin.os.tag == .linux and
-            net.linux_completion_white_box.fallbackReasonFor(err) != null) return error.SkipZigTest;
+        if (host_optional) return io_uring_gate.refused(err);
         return err;
     };
     defer backend.deinit();
@@ -76,13 +76,12 @@ fn exercise(comptime Backend: type, host_optional: bool) !void {
 
 test "completion backends accept and close on several listeners at once" {
     switch (builtin.os.tag) {
-        .linux => {
-            try exercise(net.epoll_white_box.TestBackend, false);
-            exercise(net.uring_white_box.TestBackend, true) catch |err| switch (err) {
-                error.SkipZigTest => {},
-                else => return err,
-            };
-        },
+        .linux => try exercise(net.epoll_white_box.TestBackend, false),
         else => if (builtin.os.tag.isDarwin()) try exercise(net.kqueue_white_box.TestBackend, false) else return error.SkipZigTest,
     }
+}
+
+test "io_uring accepts and closes on several listeners at once, or skips where the host refuses io_uring" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    try exercise(net.uring_white_box.TestBackend, true);
 }

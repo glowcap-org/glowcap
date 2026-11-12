@@ -13,7 +13,8 @@
          (combine-in "../host.rkt" "../host/state.rkt")
          (combine-in "../session.rkt" "../session/state.rkt")
          "../transport.rkt"
-         "stepper.rkt")
+         "stepper.rkt"
+         "../callback.rkt")
 
 (provide loop-connect-session
          wrap-loop-session)
@@ -42,8 +43,13 @@
       (drain-host-actions! m)))
   ;; The park thread may be in an unbounded fd park from before this dial
   ;; existed; the loop's one cross-thread verb makes the fd readable so it
-  ;; rebuilds its wait from the newly installed FFI deadline.
-  (check/driver (glowcap_driver_wake (driver-loop-handle lp)))
+  ;; rebuilds its wait from the newly installed FFI deadline. A loop released
+  ;; since the admission above needs no wake; the wait below ends as closed.
+  (call-with-host/terminal
+   m
+   (lambda ()
+     (when (loop-ffi-live? lp)
+       (check/driver (glowcap_driver_wake (driver-loop-handle lp))))))
   ;; Co-stepping park: a listener fire may run this dial on the park thread
   ;; itself, and then nobody else would step the handshake forward. Wait on
   ;; the loop descriptor and glowcap's nearest deadline beside the result;
@@ -52,17 +58,25 @@
     (unsafe-file-descriptor->semaphore (driver-loop-fd lp) 'read))
   (unless fd-sema
     (error 'connect "the loop readiness fd cannot be registered for polling"))
+  ;; The deadline read takes the Host lock, where loop release commits: a
+  ;; release that settled this waiter wins, and an unsettled waiter on a
+  ;; released loop ends as closed below.
+  (define result-sema (loop-dial-waiter-sema w))
   (let wait ()
-    (define result-sema (loop-dial-waiter-sema w))
-    (define wait-ms (loop-step-wait-ms lp))
-    (define woke
-      (if (negative? wait-ms)
-          (sync result-sema fd-sema)
-          (sync/timeout (/ wait-ms 1000.0) result-sema fd-sema)))
-    (unless (eq? woke result-sema)
-      (drain-host! m)
-      (wait)))
-  (define r (unbox (loop-dial-waiter-result w)))
+    (unless (sync/timeout 0 result-sema)
+      (define wait-ms
+        (call-with-host/terminal
+         m
+         (lambda () (and (loop-ffi-live? lp) (loop-step-wait-ms lp)))))
+      (when wait-ms
+        (define woke
+          (if (negative? wait-ms)
+              (sync result-sema fd-sema)
+              (sync/timeout (/ wait-ms 1000.0) result-sema fd-sema)))
+        (unless (eq? woke result-sema)
+          (drain-host! m)
+          (wait)))))
+  (define r (or (unbox (loop-dial-waiter-result w)) '(closed)))
   (case (car r)
     [(ok) (cdr r)]
     [(fail)
@@ -106,9 +120,13 @@
                      (unless (session-released? c)
                        ;; Serving releases frames parked behind the handshake
                        ;; and may invoke a hosted behavior before returning.
-                       (parameterize ([current-deliver-owner m])
-                         (check/driver (glowcap_driver_session_serve
-                                        (driver-loop-handle lp) ptr))))))))
+                       (define-values (callback-failure rc)
+                         (call-latching-callbacks
+                          (lambda ()
+                            (parameterize ([current-deliver-owner m])
+                              (glowcap_driver_session_serve (driver-loop-handle lp) ptr)))))
+                       (when callback-failure (raise callback-failure))
+                       (check/driver rc))))))
       (define terminal (hash-ref (driver-loop-closed-ptrs lp) (session-key ptr) #f))
       (when terminal
         (hash-remove! (driver-loop-closed-ptrs lp) (session-key ptr))

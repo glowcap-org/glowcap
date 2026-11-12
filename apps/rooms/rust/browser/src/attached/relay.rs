@@ -5,6 +5,7 @@ use crate::abort::stopped;
 use crate::platform::Platform;
 use glowcap::{Host, Locator, PendingWork, Session, browser::relay::Registration};
 use rooms_glowcap::client::Deadline;
+use rooms_runtime::Error as RuntimeError;
 use std::sync::Arc;
 use tokio::{
 	sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch},
@@ -16,7 +17,7 @@ const CAPACITY: usize = SEATS * 2;
 #[derive(Clone, Default)]
 struct Status {
 	ready: usize,
-	failure: Option<String>,
+	failure: Option<RuntimeError>,
 	closed: bool,
 }
 impl Status {
@@ -31,7 +32,7 @@ impl Status {
 		if let Some(error) = &self.failure {
 			return Some(Err(error.clone()));
 		}
-		ended.then(|| Err("Rooms relay listener is closed".into()))
+		ended.then(|| Err(RuntimeError::closed("Rooms relay listener is closed")))
 	}
 }
 pub(super) struct Relay {
@@ -66,8 +67,8 @@ impl Relay {
 		// Validate configuration before starting a supervisor. Constructing the
 		// locator is separate from opening a socket, so invalid routes cannot
 		// leave a partial registration pool behind.
-		glowcap::browser::relay::dial_url(&locator).map_err(|e| e.to_string())?;
-		host.set_advertised_locator(&locator).map_err(|e| e.to_string())?;
+		glowcap::browser::relay::dial_url(&locator).map_err(RuntimeError::from)?;
+		host.set_advertised_locator(&locator).map_err(RuntimeError::from)?;
 		let (stop, stopping) = watch::channel(false);
 		let (status, observed) = watch::channel(Status::default());
 		let (ended, outcome) = watch::channel(None);
@@ -121,7 +122,7 @@ impl Relay {
 				};
 				match verdict {
 					Some(Ok(())) => each(None),
-					Some(Err(reason)) => each(Some(&reason)),
+					Some(Err(reason)) => each(Some(&reason.to_string())),
 					None => {}
 				}
 				if ended || status.changed().await.is_err() {
@@ -184,8 +185,8 @@ async fn run(
 				Some((session, permit)) => {
 					if let Err(refused) = admission.offer(session) {
 						let session = refused.session;
-						if refused.capacity { report(&status, "Rooms incoming connection capacity is exhausted".into()); }
-						cleanup::retain(&mut outcome, session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()));
+						if refused.capacity { report(&status, RuntimeError::busy("Rooms incoming connection capacity is exhausted")); }
+						cleanup::retain(&mut outcome, session.close(PendingWork::Cancel).await.map_err(RuntimeError::from));
 					}
 					drop(permit);
 				},
@@ -198,7 +199,7 @@ async fn run(
 	while let Some((session, _permit)) = accepted.recv().await {
 		cleanup::retain(
 			&mut outcome,
-			session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
+			session.close(PendingWork::Cancel).await.map_err(RuntimeError::from),
 		);
 	}
 	while let Some(ended) = seats.join_next().await {
@@ -208,10 +209,10 @@ async fn run(
 }
 fn joined(result: Option<std::result::Result<Result<()>, tokio::task::JoinError>>) -> Result<()> {
 	result
-		.ok_or_else(|| "Rooms relay worker disappeared".to_string())?
-		.map_err(|e| e.to_string())?
+		.ok_or_else(|| RuntimeError::closed("Rooms relay worker disappeared"))?
+		.map_err(RuntimeError::platform)?
 }
-fn report(status: &watch::Sender<Status>, error: String) {
+fn report(status: &watch::Sender<Status>, error: RuntimeError) {
 	web_sys::console::error_1(&format!("Rooms relay: {error}").into());
 	status.send_modify(|state| state.failure = Some(error));
 }
@@ -226,18 +227,18 @@ struct Seat {
 	incoming: mpsc::Sender<Accepted>,
 }
 enum Failure {
-	Retry(String),
-	Retirement(String),
+	Retry(RuntimeError),
+	Retirement(RuntimeError),
 }
 impl Failure {
-	fn message(self) -> String {
+	fn message(self) -> RuntimeError {
 		match self {
 			Self::Retry(error) | Self::Retirement(error) => error,
 		}
 	}
 }
 async fn retire(registration: Registration, primary: Result<()>) -> std::result::Result<(), Failure> {
-	let cleanup = registration.close().await.map_err(|e| e.to_string());
+	let cleanup = registration.close().await.map_err(RuntimeError::from);
 	let failed = cleanup.is_err();
 	cleanup::combine(primary, cleanup).map_err(|error| {
 		if failed {
@@ -263,13 +264,13 @@ impl Seat {
 		loop {
 			let permit = tokio::select! { biased;
 				() = stopped(&mut stop) => return Ok(()),
-				permit = budget.clone().acquire_owned() => permit.map_err(|_| "Rooms relay admission closed")?,
+				permit = budget.clone().acquire_owned() => permit.map_err(|_| RuntimeError::closed("Rooms relay admission closed"))?,
 			};
 			let attempt = async {
-			let registration = Registration::open(&host, &locator, &register).map_err(|e| Failure::Retry(e.to_string()))?;
+			let registration = Registration::open(&host, &locator, &register).map_err(|e| Failure::Retry(e.into()))?;
 			let ready = tokio::select! { biased;
 				() = stopped(&mut stop) => None,
-				result = platform.within(10_000, registration.ready()) => Some(result.ok_or_else(|| "Rooms relay registration timed out".to_string()).and_then(|r| r.map_err(|e| e.to_string()))),
+				result = platform.within(10_000, registration.ready()) => Some(result.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("Rooms relay registration"))).and_then(|r| r.map_err(RuntimeError::from))),
 			};
 			if !matches!(ready, Some(Ok(()))) {
 				return retire(registration, ready.unwrap_or(Ok(()))).await;
@@ -277,7 +278,7 @@ impl Seat {
 			let ready = Ready::new(&status);
 			let called = tokio::select! { biased;
 				() = stopped(&mut stop) => None,
-				result = registration.incoming() => Some(result.map_err(|e| e.to_string())),
+				result = registration.incoming() => Some(result.map_err(RuntimeError::from)),
 			};
 			drop(ready);
 			if !matches!(called, Some(Ok(()))) {
@@ -286,11 +287,11 @@ impl Seat {
 			// Once transferred, the Host owns cancellation and the finite
 			// handshake. Do not drop that observation at application stop.
 			let session = registration.accept(glowcap::HANDSHAKE_TIMEOUT).await.map_err(|e| {
-				if e.secondary_error_count() > 0 { Failure::Retirement(e.to_string()) } else { Failure::Retry(e.to_string()) }
+				if e.secondary_error_count() > 0 { Failure::Retirement(e.into()) } else { Failure::Retry(e.into()) }
 			})?;
 			if let Err(error) = incoming.try_send((session, permit)) {
 				let (session, _permit) = error.into_inner();
-				return session.close(PendingWork::Cancel).await.map_err(|e| Failure::Retirement(e.to_string()));
+				return session.close(PendingWork::Cancel).await.map_err(|e| Failure::Retirement(e.into()));
 			}
 			Ok(())
 		}.await;

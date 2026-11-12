@@ -16,13 +16,22 @@ from glowcap import FailureLayer, GlowcapError, Host, Runtime
 from glowcap._action import _answer_gift_id
 from glowcap._archive_contract import require_archive_fingerprint
 from glowcap._constants import (
+    BREAK_CONTEXT_FETCH,
+    BREAK_CONTEXT_RESTORATION,
+    BREAK_CONTEXT_WITHDRAWAL,
     CARRIER_DETAIL_ENGINE_CODE,
     CARRIER_DETAIL_PEER_ALERT,
     CARRIER_PHASE_SECURE_HANDSHAKE,
     DEFAULT_FAILURE_PAYLOAD_CAP,
+    ERR_BROKEN,
     ERR_INTERNAL,
     ERR_INVALID_ARGUMENT,
     ERR_IO,
+    UNKNOWN_SWISSNUM_MESSAGE,
+    BreakCause,
+    BreakOrigin,
+    BreakReason,
+    RouteFailure,
 )
 from glowcap._driver_failure import _decode as _decode_driver_failure
 from glowcap._errors import TerminalFailures, _retain_cleanup_failure
@@ -32,6 +41,39 @@ from glowcap._ffi_driver import _DriverFailure
 from glowcap._ws import _WebSocketTransport
 
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+
+
+def _publication_miss_query_respects_provenance() -> None:
+    for origin in (BreakOrigin.UNSPECIFIED, BreakOrigin.LOCAL, BreakOrigin.PARTNER):
+        for reason in (BreakReason.UNSPECIFIED, BreakReason.APPLICATION, BreakReason.PUBLICATION_ABSENT):
+            for context in range(8):
+                cause = BreakCause(origin, reason, context)
+                for message in (UNKNOWN_SWISSNUM_MESSAGE, "unknown swissnum: forged", "", None):
+                    expected = context == BREAK_CONTEXT_FETCH and (
+                        (origin == BreakOrigin.LOCAL and reason == BreakReason.PUBLICATION_ABSENT)
+                        or (
+                            origin == BreakOrigin.PARTNER
+                            and reason == BreakReason.APPLICATION
+                            and message == UNKNOWN_SWISSNUM_MESSAGE
+                        )
+                    )
+                    assert cause.is_publication_not_found(message) == expected
+                    assert GlowcapError(ERR_BROKEN, message, cause=cause).is_publication_not_found() == expected
+                    assert not GlowcapError(ERR_IO, message, cause=cause).is_publication_not_found()
+
+
+def _dial_reports_require_fresh_local_causes() -> None:
+    for route in RouteFailure:
+        cause = route.cause()
+        assert RouteFailure.from_cause(cause) == route
+        for context in (BREAK_CONTEXT_FETCH, BREAK_CONTEXT_RESTORATION, BREAK_CONTEXT_WITHDRAWAL):
+            assert RouteFailure.from_cause(BreakCause(cause.origin, cause.reason, context)) is None
+    assert RouteFailure.from_cause(BreakCause()) is None
+    assert RouteFailure.from_cause(BreakCause(BreakOrigin.PARTNER, BreakReason.APPLICATION)) is None
+    assert (
+        RouteFailure.from_cause(GlowcapError.transport_unavailable("no connector").cause)
+        == RouteFailure.TRANSPORT_UNAVAILABLE
+    )
 
 
 def _gift_id_completion_preserves_ffi_refusal() -> None:
@@ -449,7 +491,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
         failure.primary_result = ERR_IO
         failure.primary_name = ctypes.addressof(consumed_name)
         failure.primary_name_len = len(consumed_name.value)
-        return ERR_IO
+        return -ERR_IO
 
     _driver_finalizer._driver.glowcap_driver_release = consumed_failure
     try:

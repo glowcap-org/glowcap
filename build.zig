@@ -42,7 +42,7 @@ const build_steps_doc = @import("tools/build/build_steps_doc.zig");
 /// `include/glowcap_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
 /// in `build.zig.zon`, the source gate holds the zon triple to this one). Each
 /// archive's dynamic library soname tracks `major`.
-const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 6 };
+const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 7 };
 
 /// The layer DAG, the one authoritative statement of the architecture
 /// (ADR-0011 for the sibling-codec modules below the codec layer).
@@ -73,13 +73,14 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "loam_access_core", .prefix = "loam/access/core/", .imports = &.{}, .core = true },
     .{ .name = "loam_access_records", .prefix = "loam/access/records/", .imports = &.{ "loam_access_core", "loam_records", "syrup" }, .core = true },
     .{ .name = "loam_access_storage", .prefix = "loam/access/storage/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_core" }, .core = true },
-    .{ .name = "net", .prefix = "net/", .imports = &.{ "foundation", "model", "codec", "engine" }, .core = false },
+    .{ .name = "net_thread_id", .prefix = "net/thread_id.zig", .imports = &.{"foundation"}, .core = false },
+    .{ .name = "net", .prefix = "net/", .imports = &.{ "foundation", "model", "codec", "engine", "net_thread_id" }, .core = false },
     .{ .name = "driver_core", .prefix = "driver/core/", .imports = &.{ "foundation", "model", "engine", "actors" }, .core = true },
     .{ .name = "loam_hosting", .prefix = "loam/hosting/", .imports = &.{ "foundation", "loam_core", "actors", "driver_core", "model" }, .core = true },
     .{ .name = "loam_access_hosting", .prefix = "loam/access/hosting/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_access_storage", "loam_core", "loam_hosting", "driver_core" }, .core = true },
     .{ .name = "loam_access", .prefix = "loam/access/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_access_storage", "loam_access_hosting" }, .core = true },
     .{ .name = "loam", .prefix = "loam/", .imports = &.{ "loam_collections", "loam_records", "loam_core", "loam_volatile", "loam_access", "loam_hosting" }, .core = true },
-    .{ .name = "driver", .prefix = "driver/", .imports = &.{ "foundation", "model", "engine", "actors", "net", "driver_core" }, .core = false },
+    .{ .name = "driver", .prefix = "driver/", .imports = &.{ "foundation", "model", "engine", "actors", "net", "driver_core", "net_thread_id" }, .core = false },
     .{ .name = "diagnostics", .prefix = "diagnostics/", .imports = &.{}, .core = false },
     .{ .name = "c_abi_shared", .prefix = "c_abi/shared/", .imports = &.{ "foundation", "model", "engine", "diagnostics" }, .core = false },
     .{ .name = "c_abi", .prefix = "c_abi/ocapn/", .imports = &.{ "model", "engine", "c_abi_shared" }, .core = false },
@@ -89,7 +90,7 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "c_abi_net_transport_relay", .prefix = "c_abi/net_transport/relay/", .imports = &.{ "foundation", "model", "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_net_transport_inproc", .prefix = "c_abi/net_transport/inproc/", .imports = &.{ "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_net_transport_onion", .prefix = "c_abi/net_transport/onion/", .imports = &.{ "model", "net", "c_abi_shared" }, .core = false, .graph = false },
-    .{ .name = "c_abi_host", .prefix = "c_abi/host/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared" }, .core = false, .graph = false },
+    .{ .name = "c_abi_host", .prefix = "c_abi/host/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared", "net_thread_id" }, .core = false, .graph = false },
     .{ .name = "c_abi_loam", .prefix = "c_abi/loam/", .imports = &.{ "loam_core", "loam_access", "loam_hosting", "driver_core", "c_abi_shared", "c_abi_host" }, .core = false, .graph = false },
     .{ .name = "c_abi_loam_lmdb", .prefix = "c_abi/loam_lmdb/", .imports = &.{ "loam_lmdb", "c_abi_loam", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_loam_sqlite", .prefix = "c_abi/loam_sqlite/", .imports = &.{ "loam_sqlite", "c_abi_loam", "c_abi_shared" }, .core = false, .graph = false },
@@ -151,7 +152,7 @@ comptime {
     for (archive_table) |arch| _ = layerIndex(arch.layer);
 }
 
-/// Index of `name` in `layer_table`, edges may only point at earlier rows. status-allow: event or source ordering
+/// Index of `name` in `layer_table`, edges may only point at earlier rows.
 pub fn layerIndex(comptime name: []const u8) usize {
     inline for (layer_table, 0..) |spec, i| {
         if (comptime std.mem.eql(u8, spec.name, name)) return i;
@@ -252,6 +253,7 @@ pub fn build(b: *std.Build) void {
     // core it wraps) and the shared vocabulary leaf, so it exports only
     // `glowcap_host_*`.
     const host_abi_imports = [_]AbiImport{
+        .{ .name = "net_thread_id", .module = host_mods[layerIndex("net_thread_id")] },
         .{ .name = "foundation", .module = host_mods[layerIndex("foundation")] },
         .{ .name = "model", .module = host_mods[layerIndex("model")] },
         .{ .name = "engine", .module = host_mods[layerIndex("engine")] },
@@ -513,9 +515,10 @@ pub fn build(b: *std.Build) void {
     // ── Cross-language application demos (siblings of `check`) ───────────────
     // The Zig demo clients' shared helper modules under
     // `apps/_demo/zig/`: the typed room-error vocabulary, the
-    // one-shot usage printer, and the tools capability checklist. Each std-only
-    // leaf is minted once and imported by the clients that name it.
+    // one-shot usage printer, and the tools capability checklist. Each helper
+    // is minted once and imported by the clients that name it.
     const demo_rooms_cli_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/rooms_cli.zig"), .target = target, .optimize = optimize });
+    demo_rooms_cli_mod.addImport("driver_core", host_mods[layerIndex("driver_core")]);
     const demo_usage_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/usage.zig"), .target = target, .optimize = optimize });
     const demo_tools_check_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/tools_check.zig"), .target = target, .optimize = optimize });
 

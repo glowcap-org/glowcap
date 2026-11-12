@@ -15,8 +15,8 @@ const Fixture = struct {
 
     fn init(self: *Fixture, allocator: std.mem.Allocator) !void {
         self.* = .{
-            .client = test_host.init(allocator, @splat(0x61), Host.Options.withFrameCap(h.frame_cap)),
-            .server = test_host.init(a, @splat(0x62), Host.Options.withFrameCap(h.frame_cap)),
+            .client = test_host.init(allocator, @splat(0x61), Host.Options.init(.unchecked, h.frame_cap)),
+            .server = test_host.init(a, @splat(0x62), Host.Options.init(.unchecked, h.frame_cap)),
             .pair = undefined,
         };
         errdefer self.deinit();
@@ -175,9 +175,9 @@ test "core host: shared enliven follower admission rolls back under every alloca
 }
 
 test "core host: shared enliven coalesces equal callers resumed from one parked dial" {
-    var client = test_host.init(a, @splat(0x63), Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(a, @splat(0x63), Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x64), Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x64), Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -225,7 +225,7 @@ test "core host: enliven dial continuation replay preserves cancellation refusal
 
 fn replayDialContinuation(profile: glowcap.ocapn.model.CaptpVersion, codec: glowcap.ocapn.model.CodecId, close_first: bool, offset: usize) !bool {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var options = Host.Options.withFrameCap(h.frame_cap);
+    var options = Host.Options.init(.unchecked, h.frame_cap);
     options.captp_version = profile;
     options.codec = codec;
     options.features = glowcap.ocapn.model.FeatureSet.full().forCaptpVersion(profile);

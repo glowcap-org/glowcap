@@ -225,8 +225,12 @@ pub(crate) fn drain() {
 						rc = executor.release();
 					}
 				}
-				if rc != sys::OK {
-					park_loam_store(executor);
+				if let Err(error) = executor.check(sys::release_result_code(rc)) {
+					if crate::sys::release_result_consumed(rc) {
+						crate::record_runtime_failure(crate::FailureLayer::Binding, "loam-store.release", error);
+					} else {
+						park_loam_store(executor);
+					}
 				}
 			}
 			PendingRelease::Session(shared) => {
@@ -245,8 +249,8 @@ pub(crate) fn drain() {
 				// is not consumed parks the handle again.
 				let rc = unsafe { ffi_host::glowcap_host_release(raw) };
 				if rc != sys::OK
-					&& let Err(error) = check_host(rc)
-					&& (crate::lifecycle::release_consumed(rc) || !refusal_reported)
+					&& let Err(error) = check_host(sys::release_result_code(rc))
+					&& (crate::sys::release_result_consumed(rc) || !refusal_reported)
 				{
 					record(
 						context.as_ref(),
@@ -256,7 +260,7 @@ pub(crate) fn drain() {
 					);
 					refusal_reported = true;
 				}
-				if !crate::lifecycle::release_consumed(rc) {
+				if !crate::sys::release_result_consumed(rc) {
 					PENDING.with(|pending| {
 						pending.borrow_mut().push_back(PendingRelease::Host {
 							raw,

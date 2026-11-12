@@ -269,7 +269,7 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 				"rooms: directory not ready\n".into(),
 			);
 		};
-		let Some(port) = current.trace_port else {
+		let Some(address) = current.trace_address else {
 			return response(
 				if path == "/trace" || path == "/trace/locator" {
 					StatusCode::NO_CONTENT
@@ -280,8 +280,17 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 				Bytes::new(),
 			);
 		};
-		if path == "/trace" && !request.headers().contains_key("upgrade") {
-			return response(StatusCode::OK, "text/plain", format!("{port}\n").into());
+		if path == "/trace" {
+			// The port, for a reader that dials the endpoint itself. A viewer's
+			// socket goes to `/trace/captp`, so no socket is carried here.
+			if request.headers().contains_key("upgrade") {
+				return response(
+					StatusCode::NOT_FOUND,
+					"text/plain",
+					"rooms: trace viewers connect at /trace/captp\n".into(),
+				);
+			}
+			return response(StatusCode::OK, "text/plain", format!("{}\n", address.port()).into());
 		}
 		if path == "/trace/locator" {
 			return match current.trace_locator {
@@ -293,15 +302,13 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 				),
 			};
 		}
+		// The query is carried so the endpoint, which refuses any, judges it.
 		let query = request.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
-		let endpoint = match path {
-			"/publish" => "/publish",
-			"/trace/captp" => "/captp",
-			_ => "/",
-		};
+		let endpoint = if path == "/publish" { "/publish" } else { "/captp" };
+		let address = crate::local_address(address);
 		return environment
 			.relay
-			.proxy(request, format!("ws://127.0.0.1:{port}{endpoint}{query}"));
+			.proxy(request, format!("ws://{address}{endpoint}{query}"));
 	}
 	let Some(assets) = &environment.assets else {
 		return response(

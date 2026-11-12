@@ -31,7 +31,7 @@ pub const Encoded = struct {
     frame: foundation.Frame,
     answer: ?model.AnswerPosition,
     /// The resolver export minted for `answer`. V1.0 advertises it inline as
-    /// `resolve_me_desc`; next also carries its listen mode inline.
+    /// `resolve_me_desc`. Next also carries its listen mode inline.
     resolver: ?model.ExportPosition,
     /// The near exports recording retained, in wire order
     /// (`Session.listSentExports`).

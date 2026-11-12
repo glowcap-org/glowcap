@@ -148,7 +148,7 @@ another attachment fails with `ForeignAttachment`, even in the same store.
 - Read-only methods cannot change the payload or fields.
 - Recipe records, field edges, and payload changes go in the same Store batch,
   so an aborted or uncommitted batch changes none of them.
-- Each replacement writes a new recipe record. Collection frees the old one <!-- status-allow: runtime state or operation ordering -->
+- Each replacement writes a new recipe record. Collection frees the old one
   once nothing still holds it, so frequent replacements need the same
   collection and disk headroom as other record edits.
 

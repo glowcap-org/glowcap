@@ -295,7 +295,7 @@ impl Document {
 		Ok(row.clone())
 	}
 	/// Revoke the issued moderator: its entropy retires for fresh entropy
-	/// from `draw`, so the old name answers nothing again. status-allow: replacement state identity
+	/// from `draw`, so the old name answers nothing again.
 	pub fn revoke_irc_bridge_steward(
 		&mut self,
 		publication_id: &str,

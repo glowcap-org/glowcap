@@ -5,6 +5,7 @@
 //! route plan agrees. The scheduler remains the sole owner of attempt order.
 
 const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 
 const model = @import("model");
 const session = @import("session");
@@ -62,11 +63,11 @@ fn acceptGiveTo(
     exporter_locator: []const u8,
 ) !void {
     if (exporter_locator.len == 0)
-        return withdrawals.queueFailure(self, dest, "handoff give names no dialable exporter locator", null);
+        return withdrawals.queueFailure(self, dest, Broken.unnamed("handoff give names no dialable exporter locator"), null);
 
     const parsed_locator = model.uri.parsePeer(self.allocator, exporter_locator) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => return withdrawals.queueFailure(self, dest, "handoff give names unparseable exporter locator", null),
+        else => return withdrawals.queueFailure(self, dest, Broken.unnamed("handoff give names unparseable exporter locator"), null),
     };
     var parsed_locator_owned = true;
     defer if (parsed_locator_owned) model.freePeerLocator(self.allocator, parsed_locator);
@@ -95,8 +96,8 @@ fn acceptGiveTo(
         parsed_locator_owned = false;
         break :owned plan.fromOwnedLocator(self.allocator, parsed_locator) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.UnparseableExporterLocator => return withdrawals.queueFailure(self, dest, "handoff give names unparseable exporter locator", null),
-            error.UnsupportedId => return withdrawals.queueFailure(self, dest, unsupported_id, null),
+            error.UnparseableExporterLocator => return withdrawals.queueFailure(self, dest, Broken.unnamed("handoff give names unparseable exporter locator"), null),
+            error.UnsupportedId => return withdrawals.queueFailure(self, dest, Broken.unnamed(unsupported_id), null),
         };
     };
     var staged_owned = true;
@@ -110,7 +111,7 @@ fn acceptGiveTo(
     if (state.by_identity.get(staged.identity)) |pending_id| {
         const entry = &state.pending.getPtr(pending_id).?.dialing;
         if (!model.route_bundle.samePaths(entry.plan, staged))
-            return withdrawals.queueFailure(self, dest, conflicting_routes, null);
+            return withdrawals.queueFailure(self, dest, Broken.unnamed(conflicting_routes), null);
 
         const owned_give = try self.allocator.dupe(u8, give);
         errdefer self.allocator.free(owned_give);

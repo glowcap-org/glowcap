@@ -1,10 +1,8 @@
 //! Independent user actions must not become identical receipt retries.
-use crate::task_board::Board;
-use glowcap::tcp;
 use std::{future::Future, task::Poll};
 
-pub async fn run(port: u16, name: &str) {
-	let board = Board::join(&tcp::locator("127.0.0.1", port), name).await.unwrap();
+pub async fn run(locator: &glowcap::Locator, name: &str) {
+	let board = crate::task_board::Board::join(locator, name).await.unwrap();
 	let before = board.lists().await.unwrap()[0].tasks.len();
 	let (left, right) = tokio::join!(board.add("rust same"), board.add("rust same"));
 	left.unwrap();

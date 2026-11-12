@@ -26,7 +26,9 @@ pub struct Stewardship<D> {
 	state: RefCell<custody::Stewardship<Ref>>,
 }
 fn publication(link: String) -> Result<Publication, Error> {
-	let token = CheckpointRoutes.authority_token(&link).ok_or(Refusal::Token)?;
+	let token = CheckpointRoutes
+		.authority_token(&link)
+		.ok_or(authority::Refusal::Token)?;
 	Ok(Publication::new(link, token)?)
 }
 impl<D: Deadline> Stewardship<D> {

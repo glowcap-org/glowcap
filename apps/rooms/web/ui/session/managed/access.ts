@@ -1,5 +1,6 @@
 // Held management is independent of workspace use. Inventory is descriptive.
 // A row becomes editable only through an independently retained control.
+import { invariant } from "../../../../lib/invariant.ts";
 import type {
 	RoomsManagedAcquisition,
 	RoomsManagedApplication,
@@ -10,9 +11,11 @@ import type {
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
+import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import {
 	AcquisitionConflict,
 	type SettledOutcome,
+	submissionError,
 	type SubmissionOutcome,
 	submitAcquisition,
 	throwUnlessCommitted,
@@ -208,12 +211,12 @@ export class ManagedAccess {
 		}
 	}
 	#checkOpen(): void {
-		if (this.#closed) throw new Error("Access management is closed");
+		if (this.#closed) throw new LocalRefusal("session-closed");
 	}
 	#accept<T extends { free(): void }>(handle: T): T {
 		if (this.#closed) {
 			handle.free();
-			throw new Error("Access management is closed");
+			throw new LocalRefusal("session-closed");
 		}
 		return handle;
 	}
@@ -227,7 +230,7 @@ export class ManagedAccess {
 	}
 	async #hold(id: string, handle: RoomsManagedControl): Promise<HeldControl> {
 		this.#checkOpen();
-		if (this.#controls.has(id) || this.#holding.has(id)) throw new Error("This control is already held");
+		invariant(!(this.#controls.has(id) || this.#holding.has(id)), "this control is already held");
 		this.#holding.add(id);
 		try {
 			const powers: ManagementView = await handle.describe();
@@ -269,7 +272,7 @@ export class ManagedAccess {
 		const current: GrantView | null = powers.available && powers.inspect ? await control.handle.inspect() : null;
 		this.#checkOpen();
 		if (current != null && control.grant != null && grantIdentity(current) !== grantIdentity(control.grant)) {
-			throw new Error("The held control changed its target generation");
+			throw new LocalRefusal("access-changed");
 		}
 		// A control that stops inspecting, as a revoked one does, still knows
 		// what its access was called and allowed when it last could.
@@ -333,12 +336,12 @@ export class ManagedAccess {
 	): Promise<void> {
 		this.#checkOpen();
 		if (this.#issue != null || this.#issuing) {
-			throw new Error("Recover the retained issuance before creating another access branch");
+			throw new LocalRefusal("access-share-unfinished");
 		}
 		this.#issuing = true;
 		try {
 			const base = source.powers.revision;
-			if (base == null) throw new Error("This management control is unavailable");
+			if (base == null) throw new LocalRefusal("access-unavailable");
 			const request: RoomsManagedIssuance = this.#accept(
 				await source.handle.prepareIssue(
 					base,
@@ -370,64 +373,66 @@ export class ManagedAccess {
 	}
 	async #submitIssue(): Promise<PendingIssue> {
 		const issue = this.#issue;
-		if (issue == null) throw new Error("There is no retained issuance");
+		invariant(issue != null, "there is no retained issuance");
 		if (issue.phase === "conflict") return issue;
-		try {
-			if (issue.phase !== "committed") {
-				const output: SubmissionOutcome & {
-					access?: RoomsManagedWorkspace;
-					control?: RoomsManagedControl;
-				} = await issue.request.submitOutcome();
-				if (this.#closed) {
-					output.access?.free();
-					output.control?.free();
-					throw new Error("Access management is closed");
-				}
-				issue.phase = output.status;
-				issue.reason = output.reason ?? "";
-				if (output.status === "committed") {
-					issue.access = output.access!;
-					issue.uninspected = output.control!;
-				}
-				// The session admitted nothing, so the request has no replay
-				// value: the next issuance prepares afresh, and the reason is
-				// what remains of this one.
-				if (output.status === "refused") {
-					issue.request.free();
-					this.#issue = null;
-					return issue;
-				}
+		issue.reason = "";
+		if (issue.phase !== "committed") {
+			let output: SubmissionOutcome & { access?: RoomsManagedWorkspace; control?: RoomsManagedControl };
+			try {
+				output = await issue.request.submitOutcome();
+			} catch (error) {
+				if (error instanceof LocalRefusal) throw error;
+				issue.phase = "uncertain";
+				issue.reason = refusalText(new LocalRefusal("access-issue-unknown", { cause: error }));
+				return issue;
 			}
-			if (issue.uninspected != null) {
-				issue.control = await this.hold(issue.id, issue.uninspected);
-				delete issue.uninspected;
-				// Issuing advanced the source's own revision. Without reading it
-				// again, the next issuance from this source would refuse as a
-				// change someone else made.
-				await this.#refresh(issue.source).catch(() => {
-					// tolerant: a stale source only costs the next issuance one
-					// conflict, and that refusal's review reads it again.
-				});
+			if (this.#closed) {
+				output.access?.free();
+				output.control?.free();
+				throw new LocalRefusal("session-closed");
 			}
-		} catch (error) {
-			// The original issuance receipt remains the authority for another
-			// attempt, including a result projection or publication failure.
-			if (issue.phase !== "committed") issue.phase = "uncertain";
-			issue.reason = error instanceof Error ? error.message : String(error);
+			issue.phase = output.status;
+			const failure = submissionError(output, {
+				conflict: "access-issue-conflict",
+				uncertain: "access-issue-unknown",
+			});
+			issue.reason = failure == null ? "" : refusalText(failure);
+			if (output.status === "committed") {
+				invariant(
+					output.access != null && output.control != null,
+					"committed issuance has no returned custody",
+				);
+				issue.access = output.access;
+				issue.uninspected = output.control;
+			}
+			// Refusal admitted nothing, so the next issuance prepares afresh.
+			if (output.status === "refused") {
+				issue.request.free();
+				this.#issue = null;
+				return issue;
+			}
+		}
+		if (issue.uninspected != null) {
+			issue.control = await this.hold(issue.id, issue.uninspected);
+			delete issue.uninspected;
+			// Issuing advanced the source revision. A failed refresh costs the
+			// next issuance one conflict, whose review reads the source again.
+			await this.#refresh(issue.source).catch((error) => this.#report(error));
 		}
 		return issue;
 	}
+
 	finishIssue(): void {
 		this.#checkOpen();
-		if (this.#submittingIssue != null) throw new Error("The original issuance is still submitting");
+		if (this.#submittingIssue != null) throw new LocalRefusal("access-share-submitting");
 		const issue = this.#issue;
 		if (issue == null) return;
 		if (issue.phase !== "committed" && issue.phase !== "conflict") {
-			throw new Error("Recover the original issuance first");
+			throw new LocalRefusal("access-share-unconfirmed");
 		}
-		if (issue.uninspected != null) throw new Error("Recover the returned control before finishing issuance");
+		if (issue.uninspected != null) throw new LocalRefusal("access-share-unchecked");
 		if (issue.control != null && !issue.control.saved) {
-			throw new Error("Save the issued control before finishing issuance");
+			throw new LocalRefusal("access-share-unsaved");
 		}
 		issue.request.free();
 		issue.access?.free();
@@ -440,7 +445,7 @@ export class ManagedAccess {
 	async #prepare(control: HeldControl, intent: EditIntent, base: string): Promise<void> {
 		this.#checkOpen();
 		if (control.pending != null || this.#preparing.has(control)) {
-			throw new Error("Recover the retained edit before preparing another one");
+			throw new LocalRefusal("access-edit-unfinished");
 		}
 		this.#preparing.add(control);
 		try {
@@ -469,51 +474,59 @@ export class ManagedAccess {
 	}
 	async #submit(control: HeldControl): Promise<PendingEdit> {
 		const pending = control.pending;
-		if (pending == null) throw new Error("There is no retained edit to submit");
+		invariant(pending != null, "there is no retained edit to submit");
 		if (pending.phase === "committed" || pending.phase === "conflict") return pending;
+		let outcome: SubmissionOutcome;
 		try {
-			const outcome: SubmissionOutcome = await pending.request.submitOutcome();
-			pending.phase = outcome.status;
-			pending.reason = outcome.reason ?? "";
-			// The session admitted nothing, so the request has no replay value
-			// and the control is free for a fresh edit.
-			if (outcome.status === "refused") {
-				pending.request.free();
-				delete control.pending;
-				this.#changed();
-				return pending;
-			}
-			// The owner committed exactly this intent, so it is known now even
-			// before (or without) a fresh inspection of the target.
-			if (outcome.status === "committed") {
-				const intent = pending.intent;
-				if (intent.kind === "label") {
-					control.committed = { ...control.committed, label: intent.label };
-					if (control.grant != null) control.grant = { ...control.grant, label: intent.label };
-				} else if (intent.kind === "policy") {
-					control.committed = { ...control.committed, permissions: intent.permissions };
-					if (control.grant != null) {
-						control.grant = {
-							...control.grant,
-							configured: { ...control.grant.configured, permissions: intent.permissions },
-						};
-					}
-				}
-				this.#changed();
-			}
+			outcome = await pending.request.submitOutcome();
 		} catch (error) {
+			if (error instanceof LocalRefusal) throw error;
 			pending.phase = "uncertain";
-			pending.reason = error instanceof Error ? error.message : String(error);
+			pending.reason = refusalText(new LocalRefusal("access-edit-unknown", { cause: error }));
+			return pending;
+		}
+		this.#checkOpen();
+		pending.phase = outcome.status;
+		const failure = submissionError(outcome, {
+			conflict: "access-edit-conflict",
+			uncertain: "access-edit-unknown",
+		});
+		pending.reason = failure == null ? "" : refusalText(failure);
+		// The session admitted nothing, so the request has no replay value
+		// and the control is free for a fresh edit.
+		if (outcome.status === "refused") {
+			pending.request.free();
+			delete control.pending;
+			this.#changed();
+			return pending;
+		}
+		// The owner committed exactly this intent, so it is known now even
+		// before (or without) a fresh inspection of the target.
+		if (outcome.status === "committed") {
+			const intent = pending.intent;
+			if (intent.kind === "label") {
+				control.committed = { ...control.committed, label: intent.label };
+				if (control.grant != null) control.grant = { ...control.grant, label: intent.label };
+			} else if (intent.kind === "policy") {
+				control.committed = { ...control.committed, permissions: intent.permissions };
+				if (control.grant != null) {
+					control.grant = {
+						...control.grant,
+						configured: { ...control.grant.configured, permissions: intent.permissions },
+					};
+				}
+			}
+			this.#changed();
 		}
 		return pending;
 	}
 	finish(control: HeldControl): void {
 		this.#checkOpen();
-		if (this.#submitting.has(control)) throw new Error("The original edit is still submitting");
+		if (this.#submitting.has(control)) throw new LocalRefusal("access-edit-submitting");
 		const pending = control.pending;
 		if (pending == null) return;
 		if (pending.phase !== "committed" && pending.phase !== "conflict") {
-			throw new Error("Recover the original edit before discarding its request");
+			throw new LocalRefusal("access-edit-unconfirmed");
 		}
 		pending.request.free();
 		delete control.pending;
@@ -521,10 +534,10 @@ export class ManagedAccess {
 	}
 	async reapply(control: HeldControl): Promise<void> {
 		const pending = control.pending;
-		if (pending?.phase !== "conflict") throw new Error("Only a confirmed conflict permits reapplication");
+		invariant(pending?.phase === "conflict", "only a confirmed conflict permits reapplication");
 		await this.refresh(control);
 		const revision = control.powers.revision;
-		if (revision == null) throw new Error("The held control is unavailable");
+		if (revision == null) throw new LocalRefusal("access-unavailable");
 		this.finish(control);
 		await this.prepare(control, pending.intent, revision);
 	}
@@ -568,11 +581,11 @@ export class ManagedAccess {
 	 * the row already released and only lets go of the handle. */
 	forget(control: HeldControl): Promise<void> {
 		this.#checkOpen();
-		if (control.id === OWN_CONTROL) return Promise.reject(new Error("This workspace's own access stays held."));
+		if (control.id === OWN_CONTROL) return Promise.reject(new LocalRefusal("access-own-stays-held"));
 		if (control.pending != null || this.#submitting.has(control) || this.#issue?.source === control) {
-			return Promise.reject(new Error("Finish or discard this access's unfinished change first."));
+			return Promise.reject(new LocalRefusal("access-change-unfinished"));
 		}
-		if (control.saveTask != null) return Promise.reject(new Error("Wait for this access to finish saving."));
+		if (control.saveTask != null) return Promise.reject(new LocalRefusal("access-still-saving"));
 		return control.forgetTask ??= this.#track(this.#forget(control)).finally(() => {
 			delete control.forgetTask;
 		});

@@ -31,10 +31,48 @@ pub struct StreamOptions {
 	pub keepalive: Option<Keepalive>,
 }
 
-/// Defaults inherited by every stream in the TCP provider package.
+/// The TCP profiles a provider registers.
+///
+/// A set is built only from the named constants and [`Profiles::with`], so an
+/// empty set or an unknown profile cannot be represented. Naming a profile
+/// twice is harmless. A runtime whose set lacks a profile refuses a locator of
+/// that profile with `ErrorKind::InvalidArgument` and the
+/// `RouteFailure::TransportUnavailable` cause. Other providers in the same
+/// runtime still dial their own transports.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Profiles(u32);
+
+impl Profiles {
+	/// Plain `tcp`, which is cleartext.
+	pub const TCP: Profiles = Profiles(ffi::TCP_PROFILE_TCP);
+	/// `keyed-tcp`, which is cleartext.
+	pub const KEYED_TCP: Profiles = Profiles(ffi::TCP_PROFILE_KEYED_TCP);
+	/// `noise-tcp`, which seals the session.
+	pub const NOISE_TCP: Profiles = Profiles(ffi::TCP_PROFILE_NOISE_TCP);
+	/// Every profile the package serves, including both cleartext ones.
+	pub const ALL: Profiles = Profiles(ffi::TCP_PROFILES_ALL);
+
+	/// The profiles in either set.
+	pub const fn with(self, other: Profiles) -> Profiles {
+		Profiles(self.0 | other.0)
+	}
+}
+
+impl Default for Profiles {
+	/// The sealed profile alone. Cleartext profiles are explicit opt-ins.
+	fn default() -> Self {
+		Profiles::NOISE_TCP
+	}
+}
+
+/// Defaults inherited by every stream in the TCP provider package, and the
+/// profiles it registers (`noise-tcp` alone by default). The raw
+/// [`Netlayer::listen`] and [`Netlayer::connect`] verbs are plain `tcp` and
+/// independent of the set.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Config {
 	pub stream: StreamOptions,
+	pub profiles: Profiles,
 }
 
 impl StreamOptions {
@@ -54,6 +92,7 @@ impl Config {
 	fn to_c(self) -> ffi::GlowcapTcpConfig {
 		ffi::GlowcapTcpConfig {
 			stream: self.stream.to_c(),
+			profiles: self.profiles.0,
 		}
 	}
 }
@@ -146,14 +185,14 @@ mod operation_options_tests {
 	}
 }
 
-/// Install the complete TCP provider package through the FFI driver.
+/// Install the TCP provider package for `config.profiles` through the FFI driver.
 #[cfg(feature = "async")]
 pub(crate) fn ensure_loop_provider(lp: &crate::driver_loop::LoopShared, config: Config) -> Result<()> {
 	let netlayer = Netlayer::new(config)?;
 	lp.add_provider(netlayer.transport_provider()?)
 }
 
-/// Configure this archive's complete tcp/keyed-tcp/noise-tcp package for a
+/// Configure this archive's TCP provider package for `config.profiles`, for a
 /// generic [`crate::Runtime::connect`] operation.
 #[cfg(feature = "async")]
 pub fn provider(config: Config) -> crate::driver_loop::Provider {
@@ -207,7 +246,7 @@ impl Netlayer {
 		Ok(Netlayer { raw })
 	}
 
-	/// Borrow this runtime's complete tcp/keyed-tcp/noise-tcp package. The
+	/// Borrow this netlayer's provider package for its configured profiles. The
 	/// driver acquires its own lease during registration.
 	#[cfg(feature = "async")]
 	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
@@ -223,8 +262,8 @@ impl Netlayer {
 		})
 	}
 
-	/// Bind and listen on `bind_host:port` (port 0 = OS-chosen). The returned listener
-	/// borrows this netlayer and cannot outlive it.
+	/// Bind and listen on plain `tcp` at `bind_host:port` (port 0 = OS-chosen).
+	/// The returned listener borrows this netlayer and cannot outlive it.
 	pub fn listen(&self, bind_host: &str, port: u16) -> Result<Listener<'_>> {
 		let mut raw: *mut ffi::GlowcapTcpListener = core::ptr::null_mut();
 		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_tcp_netlayer_new`, released only by its `Drop`;
@@ -234,9 +273,9 @@ impl Netlayer {
 		Ok(Listener { raw, _nl: PhantomData })
 	}
 
-	/// Connect to `host:port`, framing on `codec` with an inbound cap of
-	/// `max_frame_bytes`. The returned connection borrows this netlayer and
-	/// cannot outlive it.
+	/// Connect over plain `tcp` to `host:port`, framing on `codec` with an
+	/// inbound cap of `max_frame_bytes`. The returned connection borrows this
+	/// netlayer and cannot outlive it.
 	pub fn connect(
 		&self,
 		host: &str,
@@ -306,6 +345,12 @@ impl Listener<'_> {
 		Ok(fd)
 	}
 
+	/// A handle another thread uses to interrupt a blocked [`Listener::accept`].
+	pub fn shutdown_handle(&self) -> ListenerShutdown<'_> {
+		// SAFETY: the returned lifetime borrows this listener and prevents release.
+		unsafe { ListenerShutdown::borrowed(self.raw) }
+	}
+
 	/// Block for a client connection. The returned connection borrows this
 	/// listener (and thus the netlayer) and cannot outlive it.
 	pub fn accept(
@@ -347,6 +392,22 @@ impl Listener<'_> {
 // it non-`'static`, so callers move it into a scoped thread.
 unsafe impl Send for Listener<'_> {}
 
+/// Interrupts a blocked [`Listener::accept`] from another thread. It borrows
+/// the listener, so the listener stays alive until every handle is gone.
+/// `shutdown` cannot fail.
+pub type ListenerShutdown<'l> = crate::shutdown::ShutdownHandle<'l, ffi::GlowcapTcpListener>;
+
+// SAFETY: the C shutdown entry is idempotent, permits concurrent operations,
+// and leaves release to the owner.
+unsafe impl crate::shutdown::Target for ffi::GlowcapTcpListener {
+	type Output = ();
+
+	unsafe fn shutdown(raw: *mut Self) -> Self::Output {
+		// SAFETY: the caller holds the owner alive for this shutdown call.
+		unsafe { ffi::glowcap_tcp_listener_shutdown(raw) }
+	}
+}
+
 impl Drop for Listener<'_> {
 	fn drop(&mut self) {
 		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by its `Drop`; its `'a`
@@ -373,6 +434,14 @@ impl Connection<'_> {
 		check_tcp(unsafe { ffi::glowcap_tcp_conn_shutdown(self.raw) })
 	}
 
+	/// A handle another thread uses to interrupt a blocked [`Connection::read_frame`]
+	/// or [`Connection::write_frame`]. It borrows this connection, so the
+	/// connection cannot be moved or dropped while the handle lives.
+	pub fn shutdown_handle(&self) -> ConnectionShutdown<'_> {
+		// SAFETY: the handle's shared borrow of this connection prevents its release.
+		unsafe { ConnectionShutdown::borrowed(self.raw) }
+	}
+
 	/// Close explicitly, reporting a shutdown failure to the caller. FFI
 	/// storage is released as this value is consumed. A release-only refusal is
 	/// retained by the process diagnostic fallback because `Drop` has no caller.
@@ -382,7 +451,7 @@ impl Connection<'_> {
 
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
-	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
+	pub fn read_frame(&self) -> Result<Vec<u8>> {
 		// SAFETY: `GlowcapManagedFrame` is a plain C struct of integers, null pointers, and an `Option` function
 		// pointer; all-zero is a valid value, and the callee fills it before it is read.
 		let mut frame: crate::sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
@@ -403,7 +472,7 @@ impl Connection<'_> {
 	}
 
 	/// Write one frame's bytes and flush.
-	pub fn write_frame(&mut self, bytes: &[u8]) -> Result<()> {
+	pub fn write_frame(&self, bytes: &[u8]) -> Result<()> {
 		let f = crate::sys::GlowcapFrame {
 			bytes: bytes.as_ptr(),
 			len: bytes.len(),
@@ -415,6 +484,22 @@ impl Connection<'_> {
 		check_tcp(unsafe {
 			ffi::glowcap_tcp_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
+	}
+}
+
+/// Interrupts a blocked frame read or write from another thread. It borrows
+/// the connection, so the connection stays alive until every handle is gone.
+/// `shutdown` returns the error the transport reports.
+pub type ConnectionShutdown<'c> = crate::shutdown::ShutdownHandle<'c, ffi::GlowcapTcpConn>;
+
+// SAFETY: the C shutdown entry is idempotent, permits concurrent operations,
+// and leaves release to the owner.
+unsafe impl crate::shutdown::Target for ffi::GlowcapTcpConn {
+	type Output = Result<()>;
+
+	unsafe fn shutdown(raw: *mut Self) -> Self::Output {
+		// SAFETY: the caller holds the owner alive for this shutdown call.
+		check_tcp(unsafe { ffi::glowcap_tcp_conn_shutdown(raw) })
 	}
 }
 
@@ -430,9 +515,9 @@ impl Drop for Connection<'_> {
 	fn drop(&mut self) {
 		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
 		// `'a` borrow keeps the backend alive, so the release runs once after every borrow of it ends.
-		if let Err(error) = check_tcp(unsafe {
+		if let Err(error) = check_tcp(crate::sys::release_result_code(unsafe {
 			ffi::glowcap_tcp_conn_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
-		}) {
+		})) {
 			crate::record_runtime_failure(crate::FailureLayer::Transport, "tcp-connection-drop-release", error);
 		}
 	}
@@ -442,6 +527,53 @@ impl Drop for Connection<'_> {
 mod tests {
 	use super::*;
 	use crate::Codec;
+
+	#[test]
+	fn the_default_set_is_the_sealed_profile_alone() {
+		assert_eq!(Config::default().profiles, Profiles::NOISE_TCP);
+		assert_eq!(
+			Profiles::TCP.with(Profiles::NOISE_TCP).with(Profiles::KEYED_TCP),
+			Profiles::ALL
+		);
+		assert_eq!(Profiles::TCP.with(Profiles::TCP), Profiles::TCP);
+	}
+
+	// A thread parked in accept wakes with a refusal when another thread
+	// shuts the listener down through its borrowed handle.
+	#[test]
+	fn a_shutdown_handle_wakes_a_parked_accept() {
+		let netlayer = Netlayer::new(Config::default()).unwrap();
+		let listener = netlayer.listen("127.0.0.1", 0).unwrap();
+		let stop = listener.shutdown_handle();
+		let refused = std::thread::scope(|scope| {
+			scope.spawn(|| {
+				std::thread::sleep(std::time::Duration::from_millis(50));
+				stop.shutdown();
+			});
+			listener.accept(None, Codec::Syrup, 4096).is_err()
+		});
+		assert!(refused, "accept after shutdown refuses");
+	}
+
+	// A thread parked in a frame read wakes with a refusal when another thread
+	// shuts the connection down through its handle.
+	#[test]
+	fn a_shutdown_handle_wakes_a_parked_read() {
+		let netlayer = Netlayer::new(Config::default()).unwrap();
+		let listener = netlayer.listen("127.0.0.1", 0).unwrap();
+		let port = listener.port().unwrap();
+		let client = netlayer.connect("127.0.0.1", port, None, Codec::Syrup, 4096).unwrap();
+		let _server = listener.accept(None, Codec::Syrup, 4096).unwrap();
+		let stop = client.shutdown_handle();
+		let refused = std::thread::scope(|scope| {
+			scope.spawn(|| {
+				std::thread::sleep(std::time::Duration::from_millis(50));
+				stop.shutdown().unwrap();
+			});
+			client.read_frame().is_err()
+		});
+		assert!(refused, "a read parked before shutdown refuses");
+	}
 
 	#[test]
 	fn shuttles_a_frame_over_a_real_tcp_socket() {
@@ -454,11 +586,11 @@ mod tests {
 
 		let received = std::thread::scope(|scope| {
 			let server = scope.spawn(move || {
-				let mut conn = listener.accept(None, Codec::Syrup, 4096).unwrap();
+				let conn = listener.accept(None, Codec::Syrup, 4096).unwrap();
 				conn.read_frame().unwrap()
 			});
 
-			let mut client = netlayer.connect("127.0.0.1", port, None, Codec::Syrup, 4096).unwrap();
+			let client = netlayer.connect("127.0.0.1", port, None, Codec::Syrup, 4096).unwrap();
 			client.write_frame(b"<8'op:abort3\"bye>").unwrap();
 
 			server.join().unwrap()
@@ -482,13 +614,13 @@ mod tests {
 
 		let reply = std::thread::scope(|scope| {
 			let server = scope.spawn(move || {
-				let mut conn = listener.accept(None, Codec::Syrup, 4096).unwrap();
+				let conn = listener.accept(None, Codec::Syrup, 4096).unwrap();
 				let frame = conn.read_frame().unwrap();
 				assert_eq!(frame, QUESTION);
 				conn.write_frame(ANSWER).unwrap();
 			});
 
-			let mut client = netlayer.connect("127.0.0.1", port, None, Codec::Syrup, 4096).unwrap();
+			let client = netlayer.connect("127.0.0.1", port, None, Codec::Syrup, 4096).unwrap();
 			client.write_frame(QUESTION).unwrap();
 			let frame = client.read_frame().unwrap();
 			server.join().unwrap();

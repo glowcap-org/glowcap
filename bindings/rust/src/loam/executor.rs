@@ -45,6 +45,7 @@ pub trait Executor: Send + Sync {
 	fn commit(&self) -> i32;
 	fn collect(&self, work_limit: usize) -> i32;
 	fn recover(&self) -> i32;
+	/// Return the C release result, with ownership separate from the error code.
 	fn release(&self) -> i32;
 	fn last_error(&self, buf: &mut [u8]) -> usize;
 	/// Turn a status code into an error carrying the engine's last detail.
@@ -84,6 +85,7 @@ impl Store {
 	/// Resolve an indeterminate creation after the synchronous commit returned.
 	/// The output stays retained until the core proves commit or absence.
 	pub fn recover_creation(&self) -> Result<Resource> {
+		self.inner.live()?;
 		let resource = self
 			.inner
 			.pending_creation
@@ -105,6 +107,7 @@ impl Store {
 	/// step the engine refused or aborted committed nothing and returns the
 	/// typed cause, like a commit.
 	pub fn collect(&self, work_limit: usize) -> Result<bool> {
+		self.inner.live()?;
 		let executor = &self.inner.executor;
 		executor.check(executor.collect(work_limit))?;
 		let mut collecting = 0u32;
@@ -115,7 +118,9 @@ impl Store {
 		Ok(collecting != 0)
 	}
 	/// Refusal preserves the storage owner. The C Store's borrow counts decide
-	/// whether attachments and effects still prevent release.
+	/// whether attachments and effects still prevent release. An `Io` error
+	/// means the Store was released but the engine's close failed: the store
+	/// is closed and the error names the engine's cause.
 	pub fn close(&mut self) -> Result<()> {
 		self.inner.close()
 	}

@@ -17,7 +17,7 @@
 	display: block;
 	width: 100%;
 	padding: 10px 34px 10px 12px;
-	border-radius: 11px;
+	border-radius: var(--radius-well);
 	border: 1px solid var(--rule);
 	background: var(--paper);
 	/* What a copy field holds is a locator, a capability, or a build: pasted

@@ -29,7 +29,10 @@ async fn host_first_network_work_reuses_exporters_and_releases_owned_occurrences
 						)
 						.unwrap()])
 					} else {
-						RuntimeConfig::providers([tcp::provider(Default::default())])
+						RuntimeConfig::providers([tcp::provider(tcp::Config {
+							profiles: tcp::Profiles::TCP,
+							..Default::default()
+						})])
 					};
 					let runtime = Runtime::open(config).await.unwrap();
 					let host = runtime.host();
@@ -68,7 +71,7 @@ async fn host_first_network_work_reuses_exporters_and_releases_owned_occurrences
 					let local = owner.spawn_owned(|_, _| Ok(Argument::Void)).unwrap();
 					assert!(host.reference_session(&local).unwrap().is_none());
 					drop(local);
-					// Reacquire after the old application occurrences have retired. status-allow: replacement state identity
+					// Reacquire after the old application occurrences have retired.
 					let fresh = host.enliven_for_version(&link, CaptpVersion::V1_0).await.unwrap();
 					assert!(host.reference_session(&fresh).unwrap().unwrap().same_session(&owner));
 					owner.relinquish(PendingWork::Cancel).await.unwrap();

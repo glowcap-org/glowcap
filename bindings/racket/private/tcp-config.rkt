@@ -2,7 +2,8 @@
 ;; Ergonomic TCP configuration shared by the direct netlayer and provider
 ;; composition surfaces. Raw C layouts remain in ffi-tcp-types.rkt.
 
-(require "ffi-tcp-types.rkt"
+(require "constants.rkt"
+         "ffi-tcp-types.rkt"
          "layouts-gen.rkt"
          "transport.rkt")
 
@@ -14,7 +15,9 @@
 
 (struct tcp-keepalive (idle-seconds interval-seconds count) #:transparent)
 (struct tcp-stream-options (keepalive) #:transparent)
-(struct tcp-config (stream) #:transparent)
+;; `profiles` is a list of the TCP-PROFILE-* constants the provider registers.
+;; The C library refuses an empty list when the netlayer is created.
+(struct tcp-config (stream profiles) #:transparent)
 
 (define (make-tcp-keepalive idle-seconds interval-seconds count)
   (tcp-keepalive idle-seconds interval-seconds count))
@@ -22,8 +25,9 @@
 (define (make-tcp-stream-options #:keepalive [keepalive #f])
   (tcp-stream-options keepalive))
 
-(define (make-tcp-config #:stream [stream (make-tcp-stream-options)])
-  (tcp-config stream))
+(define (make-tcp-config #:stream [stream (make-tcp-stream-options)]
+                        #:profiles [profiles (list TCP-PROFILE-NOISE-TCP)])
+  (tcp-config stream profiles))
 
 ;; Provider configuration supplies defaults. This opaque value overrides them
 ;; for one runtime operation without exposing the generic driver's C envelope.
@@ -43,7 +47,8 @@
       (make-GlowcapTcpStreamOptions 0 0 0)))
 
 (define (tcp-config->c config)
-  (make-GlowcapTcpConfig (tcp-stream-options->c (tcp-config-stream config))))
+  (make-GlowcapTcpConfig (tcp-stream-options->c (tcp-config-stream config))
+                         (apply bitwise-ior (tcp-config-profiles config))))
 
 (define (optional-tcp-stream-options->c options)
   (and options (tcp-stream-options->c options)))

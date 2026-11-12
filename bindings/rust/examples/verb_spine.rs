@@ -128,9 +128,14 @@ async fn joined(what: &str, serving: tokio::task::JoinHandle<Result<(), Error>>)
 }
 
 async fn walk(peer_uri: String, dead_uri: String) {
+	// The runtime dials both profiles the scenes below listen on.
 	let runtime = expect_value(
 		"open a runtime over the TCP provider",
-		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())])).await,
+		Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP.with(tcp::Profiles::KEYED_TCP),
+			..Default::default()
+		})]))
+		.await,
 	);
 
 	// ── dial-ok ─────────────────────────────────────────────────────────────

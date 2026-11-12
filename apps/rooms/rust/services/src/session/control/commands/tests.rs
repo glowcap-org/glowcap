@@ -23,7 +23,7 @@ async fn refused_admission_retires_without_a_receipt_and_unknown_admission_stays
 			.submit(&workspace, "refused", 1, "setStanding", &args)
 			.await
 			.unwrap_err();
-		assert_eq!(refusal.class, "rate-limited");
+		assert_eq!(refusal.class, "rate-limited", "{}", refusal.message);
 		commands.release("refused").await.unwrap();
 		assert!(commands.0.lock().await.is_empty());
 		commands

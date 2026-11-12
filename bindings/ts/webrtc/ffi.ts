@@ -28,7 +28,6 @@ const webrtcSymbolDefs = {
 	glowcap_webrtc_archive_fingerprint: { parameters: [], result: U64 },
 	glowcap_webrtc_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 	glowcap_webrtc_netlayer_new: { parameters: [B, B], result: I, outBuffers: [1] },
-	glowcap_webrtc_netlayer_new_in: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	glowcap_webrtc_netlayer_readiness_fd: { parameters: [P], result: I },
 	glowcap_webrtc_netlayer_drain_ready: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	glowcap_webrtc_netlayer_provide_offer: { parameters: [P, B, U, B, U, B], result: I, outBuffers: [5] },

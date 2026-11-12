@@ -168,27 +168,27 @@ async fn pump(
 	report: Report,
 	ended: Rc<Cell<bool>>,
 ) {
-	let failed = |cause: String| {
+	let failed = |cause: rooms_runtime::Error| {
 		report(Notice::Activity {
 			operation: "WebRTC answering".into(),
-			cause: glowcap::loam::refusal(cause),
+			cause: Box::new(cause),
 		})
 	};
 	match route.signaling_inbox().await {
-		Err(error) => failed(error.to_string()),
+		Err(error) => failed(error.into()),
 		Ok(mut inbox) => {
 			let reply = Rc::new(route);
 			loop {
 				match inbox.next().await {
 					Ok(Some(Incoming::Offer { id, description, from })) => {
 						if let Err(error) = authority.offered(&server, reply.clone(), id, from, &description) {
-							failed(error.to_string());
+							failed(error.into());
 						}
 					}
 					Ok(Some(Incoming::Candidate { id, candidate })) => authority.far_candidate(&id, &candidate),
 					Ok(None) => break,
 					Err(error) => {
-						failed(error.to_string());
+						failed(error.into());
 						break;
 					}
 				}

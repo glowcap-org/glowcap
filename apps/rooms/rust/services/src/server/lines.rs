@@ -77,6 +77,11 @@ pub(super) fn subject(
 		let mut state = shared.borrow_mut();
 		let (connection, _) = rooms::caller(&mut state)?;
 		state.ingress(connection)?;
+		// The seat comes before the charge, so a full writer refuses with the
+		// allowance intact. The charge comes before any answer, and an
+		// unchanged subject is one, so the seat is taken whether or not the
+		// writer is used.
+		let seat = state.authority_writer.reserve()?;
 		state.admit_message(
 			connection,
 			subject.description().len() + subject.link().map_or(0, str::len),
@@ -94,7 +99,7 @@ pub(super) fn subject(
 			Some(_) => {
 				let (prepared, room) = ((room.clone(), subject.clone()), room.clone());
 				authority::submit(
-					&state,
+					seat,
 					SET_SUBJECT,
 					move |state| {
 						let (room, subject) = prepared;

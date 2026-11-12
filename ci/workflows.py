@@ -11,6 +11,7 @@ caller supplies. None of this runs on a GitHub runner.
 
 import ast
 import importlib.util
+import json
 import os
 import re
 from pathlib import Path
@@ -29,6 +30,8 @@ def text(path):
 def load(path):
     """A first-party Python program under the root as a module, for one whose name or directory `import` cannot reach."""
     spec = importlib.util.spec_from_file_location(Path(path).stem.replace("-", "_"), ROOT / path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {ROOT / path} as a module")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -112,6 +115,11 @@ def selected(expression, github=None, *, context=None, success=True, cancelled=F
     """Evaluate an `if` expression (None for a job or step without one). Refuses syntax the predicates do not use."""
     if expression is None:
         return success and not cancelled
+    return bool(value(expression, github, context=context, success=success, cancelled=cancelled))
+
+
+def value(expression, github=None, *, context=None, success=True, cancelled=False):
+    """Evaluate an expression to its value, as `a && b || c` and `fromJSON('...')` yield in a matrix or `with`."""
     expression = expression.strip().removeprefix("${{").removesuffix("}}").strip()
     expression = re.sub(r"!(?!=)", " not ", expression).replace("&&", " and ").replace("||", " or ").strip()
     root = ast.parse(expression, mode="eval").body
@@ -132,6 +140,14 @@ def selected(expression, github=None, *, context=None, success=True, cancelled=F
             value, prefix = (evaluate(argument) for argument in node.args)
             if isinstance(value, str) and isinstance(prefix, str):
                 return value.casefold().startswith(prefix.casefold())
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "fromJSON"
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            return json.loads(evaluate(node.args[0]))
         if isinstance(node, ast.Constant) and isinstance(node.value, (str, bool)):
             return node.value
         if isinstance(node, ast.Name) and node.id in values:
@@ -140,12 +156,13 @@ def selected(expression, github=None, *, context=None, success=True, cancelled=F
             return evaluate(node.value).get(node.attr, {})
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
             return not evaluate(node.operand)
-        if isinstance(node, ast.BoolOp):
-            operands = (evaluate(value) for value in node.values)
-            if isinstance(node.op, ast.And):
-                return all(operands)
-            if isinstance(node.op, ast.Or):
-                return any(operands)
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
+            # Actions returns the deciding operand, as Python does.
+            for operand in node.values:
+                found = evaluate(operand)
+                if bool(found) != isinstance(node.op, ast.And):
+                    return found
+            return found
         if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], (ast.Eq, ast.NotEq)):
             left, right = evaluate(node.left), evaluate(node.comparators[0])
             if isinstance(left, str) and isinstance(right, str):
@@ -159,4 +176,4 @@ def selected(expression, github=None, *, context=None, success=True, cancelled=F
         isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in status
         for node in ast.walk(root)
     )
-    return bool((explicit or status["success"]) and evaluate(root))
+    return evaluate(root) if explicit or status["success"] else False

@@ -47,7 +47,11 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())])).await?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await?;
 	let session = runtime
 		.connect(&tcp::locator("127.0.0.1", port), ConnectOptions::default())
 		.await?;

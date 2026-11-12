@@ -160,6 +160,26 @@ checks source diagnostics, and injects allocation failures through selection.
 `interface-conversation-check` also compiles actual Tasks reads and Loam poll,
 receive and cancel projections from the complete authored bundle.
 
+## Tasks qualification
+
+The Tasks example is the live subject of the generated callers. Tasks uses
+generated Zig creation and server read checks from authored modules. Its Rust
+client uses generated creation, move, observation, cancellation and bounded
+reads, and watcher polling uses a generated positional-record reply check that
+moves a valid returned cursor into place. Rust prepared pending arguments run
+through acquisition and replay on both wire profiles.
+
+Generated Rust and TypeScript callers [isolate public exports from private helpers](#reproduce),
+preserve positional, empty-symbol, and named invocation, and distinguish omitted
+arguments from explicit undefined values on both profiles. Both targets qualify
+list, tuple, and tagged positional-record replies. TypeScript validates existing
+objects while preserving raw settlement and shared wrappers, and generated
+replies track references for cleanup when JavaScript collects their wrappers.
+
+Scalar calls qualify arbitrary bigint integers and UTF-8 text limits on both
+profiles. Generated Rust receives Goblins handoffs, and a plain Goblins caller
+exercises Tasks creation through its generated Zig checks on Syrup/V1.0.
+
 ## Process and build costs, 2026-11-03
 
 These observations use clean source revision

@@ -52,6 +52,7 @@ Deno.test("attached image lines and refiles start their bounded automatic fetch"
 		from: "bo",
 		text: name,
 		at: sequence,
+		replayed: false,
 		lineId,
 		change,
 		editable: false,

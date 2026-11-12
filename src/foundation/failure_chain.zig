@@ -8,6 +8,7 @@
 
 pub const Classification = enum {
     invalid_argument,
+    not_found,
     would_block,
     timeout,
     closed,

@@ -36,7 +36,7 @@
 import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineEvent } from "../timeline.ts";
 import type { EntityKind } from "./refs.ts";
 
-/** Keys of `T` whose value type cannot be `undefined`. Used to forbid status-allow: purpose clause
+/** Keys of `T` whose value type cannot be `undefined`. It forbids
  * optional refs from appearing in the edge maps. Every declared ref
  * must always be present on its variant. */
 type RequiredKeys<T> = {
@@ -152,28 +152,50 @@ export const ENTITY_EDGES: EntityEdges = {
  * here, so a reference that moves inside a structure moves in the table and
  * nowhere else. */
 export function readEdgeRef(
-	container: Record<string, unknown>,
-	edge: { readonly field: unknown; readonly nested?: string },
+	container: object,
+	edge: { readonly field: PropertyKey; readonly nested?: string },
 ): unknown {
-	const value = container[edge.field as string];
-	if (edge.nested === undefined) return value;
-	return typeof value === "object" && value !== null ? (value as Record<string, unknown>)[edge.nested] : undefined;
+	const value = readField(container, edge.field);
+	if (edge.nested == null) return value;
+	return typeof value === "object" && value != null ? readField(value, edge.nested) : undefined;
+}
+
+function hasField<K extends PropertyKey>(value: object, field: K): value is object & Record<K, unknown> {
+	return field in value;
+}
+
+function readField(value: object, field: PropertyKey): unknown {
+	return hasField(value, field) ? value[field] : undefined;
 }
 
 /** Point `container`'s edge at `id`, in place, preserving whatever else the
  *  field's structure carries. An endpoint keeps its claim and what
- *  attributed it when the peer it names is rewritten. */
+ *  attributed it when the peer it names is rewritten. Throws when the
+ *  container refuses the write (frozen or sealed). */
 export function writeEdgeRef(
-	container: Record<string, unknown>,
-	edge: { readonly field: unknown; readonly nested?: string },
+	container: object,
+	edge: { readonly field: PropertyKey; readonly nested?: string },
 	id: unknown,
 ): void {
-	const field = edge.field as string;
-	if (edge.nested === undefined) {
-		container[field] = id;
-		return;
+	let next: unknown = id;
+	if (edge.nested != null) {
+		const current = readField(container, edge.field);
+		const base = typeof current === "object" && current !== null ? current : {};
+		next = { ...base, [edge.nested]: id };
 	}
-	const current = container[field];
-	const base = typeof current === "object" && current !== null ? current as Record<string, unknown> : {};
-	container[field] = { ...base, [edge.nested]: id };
+	if (!Reflect.set(container, edge.field, next)) {
+		throw new Error(`cannot write edge field "${String(edge.field)}"`);
+	}
+}
+
+/** A copy of `container` with the edge pointed at `id`; the input is
+ *  untouched and the copy keeps its type. */
+export function withEdgeRef<T extends object>(
+	container: T,
+	edge: { readonly field: PropertyKey; readonly nested?: string },
+	id: unknown,
+): T {
+	const next = { ...container };
+	writeEdgeRef(next, edge, id);
+	return next;
 }

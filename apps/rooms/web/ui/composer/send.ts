@@ -1,6 +1,7 @@
 // One interpretation of a new composer submission for every Rooms controller.
 // The result retains asynchronous command completion. Admission is not success.
 
+import { invariant } from "../../../lib/invariant.ts";
 import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
 import type { CommandPowers } from "../commands.ts";
@@ -76,7 +77,7 @@ export function planComposerSend(conv: Conv | null, draft: ComposerDraft, powers
 	);
 	const proven = z.safeParse(PreparedSchema, raw);
 	if (!proven.success) {
-		throw new Error(`the Rooms application answered an invalid composer plan:\n${z.prettifyError(proven.error)}`);
+		invariant(false, `the Rooms application answered an invalid composer plan:\n${z.prettifyError(proven.error)}`);
 	}
 	const prepared = proven.data;
 	if (prepared.kind === "nothing" || prepared.kind === "refused") return prepared;
@@ -96,6 +97,6 @@ export function applyComposerPlan(plan: ComposerPlan, conv: Conv | null, powers:
 	if (plan.kind !== "command") return plan;
 	const outcome = applyCommandPlan(plan.plan, powers, conv);
 	if (outcome.kind === "refused") return outcome;
-	if (outcome.kind !== "done") throw new Error("A Rust command gesture unexpectedly produced a message");
+	invariant(outcome.kind === "done", "a Rust command gesture unexpectedly produced a message");
 	return { kind: "handled", original: plan.original, retires: outcome.retires, completion: outcome.completion };
 }

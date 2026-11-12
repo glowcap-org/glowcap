@@ -2,18 +2,23 @@
 //! the admitted Loam call. Command strings cannot choose a bucket. The root and
 //! hosted session pools allow several collaborators' ordinary bursts while
 //! every delegated subtree retains its own allowance.
-use glowcap::{
-	Result,
-	loam::{self, Call},
-};
+use crate::Error;
+use glowcap::loam::{self, Call};
+type Result<T> = core::result::Result<T, Error>;
 use rooms_application::{
-	admission::{Charge, Class, CleanupReserve, Policy, Profile, Rate, Registry, Settings},
+	admission::{Charge, Class, CleanupReserve, Owner, Policy, Profile, Rate, Refusal, Registry, Settings},
 	room::ArgumentView,
 	session::{
 		checkpoint::commands::{Command, results},
 		command::{Effect, Request, Route},
 	},
 };
+
+/// The Loam callback boundary records ApplicationRefused before delivering the
+/// bounded application reason. Internal owners keep the typed refusal until here.
+pub(super) fn callback_error(error: Error) -> glowcap::Error {
+	loam::refusal(error.into_refusal())
+}
 
 const MAX_PATH: usize = 65;
 const MAX_CHARGES: usize = (MAX_PATH + 1) * 3;
@@ -95,19 +100,30 @@ impl Admission {
 	pub fn work(&mut self, call: &Call<'_>, class: Class, bytes: Option<usize>, now: u64) -> Result<()> {
 		let mut path = [[0; 33]; MAX_PATH];
 		let count = call.accounting_path(&mut path)?;
-		let bytes = bytes
-			.map(u32::try_from)
-			.transpose()
-			.map_err(|_| loam::refusal("request-too-large: message bytes overflow"))?;
+		let bytes = bytes.map(u32::try_from).transpose().map_err(|_| {
+			Error::admission(
+				Refusal::TooLarge {
+					class: Class::MessageBytes,
+				},
+				Some(Owner::Session),
+			)
+		})?;
 		let work = [(class, 1), (Class::MessageBytes, bytes.unwrap_or(0))];
 		self.path_work(&path[..count], &work, now)
 	}
 	pub fn upload(&mut self, call: &Call<'_>, files: usize, caption: &str, now: u64) -> Result<()> {
 		let mut path = [[0; 33]; MAX_PATH];
 		let count = call.accounting_path(&mut path)?;
-		let bytes =
-			u32::try_from(caption.len()).map_err(|_| loam::refusal("request-too-large: caption bytes overflow"))?;
-		let files = u32::try_from(files).map_err(|_| loam::refusal("request-too-large: file count overflow"))?;
+		let bytes = u32::try_from(caption.len()).map_err(|_| {
+			Error::admission(
+				Refusal::TooLarge {
+					class: Class::MessageBytes,
+				},
+				Some(Owner::Session),
+			)
+		})?;
+		let files = u32::try_from(files)
+			.map_err(|_| Error::admission(Refusal::TooLarge { class: Class::Upload }, Some(Owner::Session)))?;
 		self.path_work(
 			&path[..count],
 			&[
@@ -150,7 +166,7 @@ impl Admission {
 		} else {
 			self.registry.admit(&charges[..used], now)
 		};
-		result.map_err(|refusal| loam::refusal(refusal.reason_at(rooms_application::admission::Owner::Session)))
+		result.map_err(|refusal| Error::admission(refusal, Some(Owner::Session)))
 	}
 	pub fn command<A: ArgumentView>(&mut self, call: &Call<'_>, request: &Request<'_, A>, now: u64) -> Result<()> {
 		let class = command_class(request.route()).unwrap_or(Class::Cleanup);
@@ -229,22 +245,22 @@ fn command_class(route: Route) -> Option<Class> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	const GRANT: [[u8; 33]; 2] = [[1; 33], [9; 33]];
 	#[test]
-	fn direct_readiness_does_not_spend_the_opening_pool() {
+	fn a_direct_opening_pays_once_and_refusal_commits_nothing() {
 		let mut admission = Admission::default();
-		let path = [[1; 33], [9; 33]];
-		for _ in 0..Class::Introduction.default_rate().burst() {
-			for route in [
-				Route::Checkpoint(Command::StartDirect),
-				Route::Effect(Effect::OfferDirectInbox),
-				Route::Effect(Effect::DirectReady),
-			] {
-				admission
-					.path_work(&path, &[(command_class(route).unwrap(), 1)], 0)
-					.unwrap();
-			}
+		let class = command_class(Route::Checkpoint(Command::StartDirect)).unwrap();
+		assert_eq!(class, Class::Introduction);
+		for _ in 0..class.default_rate().burst() {
+			admission.path_work(&GRANT, &[(class, 1)], 0).unwrap();
 		}
-		assert!(admission.path_work(&path, &[(Class::Introduction, 1)], 0).is_err());
+		assert_eq!(
+			admission.path_work(&GRANT, &[(class, 1)], 0).unwrap_err().to_string(),
+			"rate-limited: retry-after-ms=5000; scope=introduction; owner=session"
+		);
+		assert!(admission.path_work(&GRANT, &[(class, 1)], 4_999).is_err());
+		admission.path_work(&GRANT, &[(class, 1)], 5_000).unwrap();
+		assert!(admission.path_work(&GRANT, &[(class, 1)], 5_000).is_err());
 	}
 	#[test]
 	fn delegated_siblings_share_parent_debt_without_spending_other_roots() {

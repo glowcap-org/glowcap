@@ -1,7 +1,5 @@
-// The Rooms failure carrier. Code membership and recovery metadata are
-// generated from Rust's application authority in `failure_data.ts`; this file
-// only reconstructs that typed cause from the generic Glowcap error display.
-
+// Rooms codes come from the application catalog. Browser errors carry fields;
+// Deno peers carry a canonical Rooms reason inside a typed partner break.
 import {
 	ADMISSION_OWNERS,
 	ADMISSION_SCOPES,
@@ -11,66 +9,85 @@ import {
 } from "./failure_data.ts";
 export * from "./failure_data.ts";
 
-const CODES: ReadonlySet<string> = new Set(ROOMS_ERROR_CODES);
-// What the Host's handoff redeem puts on the failure of the dial it made
-// (the Zig engine's `node/redeem.zig` and its `redeem/` modules write it).
-const REDEEM_LAYER = "handoff redeem failed: ";
-
-/** A failure with a machine-readable code. The message the wire carries is
- * `"<code>: <detail>"`, so a peer can reconstruct the code with `RoomsError.from`. */
+function isCode(value: unknown): value is RoomsErrorCode {
+	return typeof value === "string" && ROOMS_ERROR_CODES.some((code) => code === value);
+}
+export interface RetryAdvice {
+	readonly retryAfterMs: number;
+	readonly scope: (typeof ADMISSION_SCOPES)[number];
+	readonly owner: (typeof ADMISSION_OWNERS)[number] | null;
+}
+function retryAdvice(delay: unknown, scope: unknown, owner: unknown): RetryAdvice | null {
+	if (typeof delay !== "number" || !Number.isSafeInteger(delay) || delay < 1 || delay > MAX_RETRY_DELAY_MS) {
+		return null;
+	}
+	const selectedScope = ADMISSION_SCOPES.find((value) => value === scope);
+	if (selectedScope === undefined) return null;
+	const selectedOwner = owner == null ? null : ADMISSION_OWNERS.find((value) => value === owner);
+	if (selectedOwner === undefined) return null;
+	return { retryAfterMs: delay, scope: selectedScope, owner: selectedOwner };
+}
+/** Decode advice only at the Deno peer's Rooms wire boundary. Browser advice has
+ * already been decoded by Rust and arrives as fields. */
+function wireAdvice(code: RoomsErrorCode, detail: string): RetryAdvice | null {
+	if (code !== "rate-limited") return null;
+	const match = /^retry-after-ms=(\d+); scope=([a-z-]+)(?:; owner=([a-z-]+))?$/.exec(detail);
+	return match == null ? null : retryAdvice(Number(match[1]), match[2], match[3]);
+}
 export class RoomsError extends Error {
-	constructor(readonly code: RoomsErrorCode, readonly detail: string) {
+	constructor(readonly code: RoomsErrorCode, readonly detail: string, readonly advice = wireAdvice(code, detail)) {
 		super(`${code}: ${detail}`);
 		this.name = "RoomsError";
 	}
-
-	/** Validated server delay. Other failures and malformed metadata confer no
-	 * permission to schedule a retry. The delay never promises admission. */
 	get retryAfterMs(): number | null {
-		if (this.code !== "rate-limited") return null;
-		const match = /^retry-after-ms=(\d+); scope=([a-z-]+)(?:; owner=([a-z-]+))?$/.exec(this.detail);
-		if (match === null || !(ADMISSION_SCOPES as readonly string[]).includes(match[2])) return null;
-		if (match[3] != null && !(ADMISSION_OWNERS as readonly string[]).includes(match[3])) return null;
-		const delay = Number(match[1]);
-		return Number.isSafeInteger(delay) && delay >= 1 && delay <= MAX_RETRY_DELAY_MS ? delay : null;
+		return this.advice?.retryAfterMs ?? null;
 	}
-
 	get retryScope(): string | null {
-		if (this.retryAfterMs == null) return null;
-		const start = this.detail.indexOf("; scope=") + "; scope=".length;
-		const end = this.detail.indexOf("; owner=", start);
-		return this.detail.slice(start, end < 0 ? undefined : end);
+		return this.advice?.scope ?? null;
 	}
-	/** Reconstruct the canonical reason or the generic Glowcap error wrapper.
-	 * Code-shaped text inside detail is never promoted to a machine code. */
+	/** Read the head segment of a protocol refusal. Display wrappers and detail
+	 * never select a code. */
 	static from(reason: string): RoomsError | null {
-		let payload = reason;
-		// A line crosses one glowcap status per layer it climbs through, and a
-		// dial refused inside the runtime wears two. A handoff's dial also wears
-		// the Host's redeem layer. Each is a status, not a code.
-		while (payload.startsWith(REDEEM_LAYER) || payload.startsWith("glowcap error ")) {
-			if (payload.startsWith(REDEEM_LAYER)) {
-				payload = payload.slice(REDEEM_LAYER.length);
-				continue;
-			}
-			const split = payload.indexOf(": ");
-			if (split < 0) return null;
-			const statusText = payload.slice("glowcap error ".length, split);
-			if (!/^-?\d+$/.test(statusText)) return null;
-			const status = Number(statusText);
-			if (!Number.isInteger(status) || status < -2_147_483_648 || status > 2_147_483_647) return null;
-			payload = payload.slice(split + 2);
-		}
-		const split = payload.indexOf(": ");
-		const code = split < 0 ? payload : payload.slice(0, split);
-		if (!CODES.has(code)) return null;
-		return new RoomsError(code as RoomsErrorCode, split < 0 ? "" : payload.slice(split + 2));
+		const split = reason.indexOf(": ");
+		const code = split < 0 ? reason : reason.slice(0, split);
+		return isCode(code) ? new RoomsError(code, split < 0 ? "" : reason.slice(split + 2)) : null;
 	}
 }
 
-/** The code out of an ordinary caught error, for a consumer with no native
- * break carrier. `errors.ts` adds the native `VowBroken` arm. */
-export function roomsErrorInMessage(err: unknown): RoomsError | null {
-	if (err instanceof RoomsError) return err;
-	return RoomsError.from(err instanceof Error ? err.message : String(err));
+/** The browser's Rust boundary projects these fields on a JavaScript Error.
+ * No display text can impersonate this carrier. */
+export function structuredFailure(value: unknown): { status: number | null; reason: string } | null {
+	if (typeof value !== "object" || value === null || !("status" in value) || !("reason" in value)) return null;
+	if (typeof value.reason !== "string") return null;
+	if (value.status != null && (typeof value.status !== "number" || !Number.isInteger(value.status))) return null;
+	return { status: typeof value.status === "number" ? value.status : null, reason: value.reason };
+}
+export function roomsErrorIn(value: unknown): RoomsError | null {
+	if (value instanceof RoomsError) return value;
+	if (structuredFailure(value) === null || typeof value !== "object" || value === null) return null;
+	if (!("code" in value) || !isCode(value.code) || !("detail" in value) || typeof value.detail !== "string") {
+		return null;
+	}
+	const advice = value.code === "rate-limited" && "retryAfterMs" in value && "scope" in value
+		? retryAdvice(value.retryAfterMs, value.scope, "owner" in value ? value.owner : null)
+		: null;
+	return new RoomsError(value.code, value.detail, advice);
+}
+
+/** Retain Rust's failure fields when an effect outcome becomes an exception. */
+export function projectedError(value: unknown, fallback: string): Error {
+	const failure = structuredFailure(value);
+	if (failure === null) return new Error(fallback);
+	const typed = roomsErrorIn(value);
+	return Object.assign(
+		new Error(failure.reason),
+		failure,
+		typed == null ? {} : {
+			code: typed.code,
+			detail: typed.detail,
+			retryAfterMs: typed.retryAfterMs,
+			scope: typed.advice?.scope ?? null,
+			owner: typed.advice?.owner ?? null,
+		},
+	);
 }

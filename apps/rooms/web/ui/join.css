@@ -189,7 +189,7 @@
 	gap: var(--gap-hair);
 	width: 100%;
 	padding: 3px 8px 3px 3px;
-	border-radius: 11px;
+	border-radius: var(--radius-well);
 	border: 1px solid var(--rule);
 	background: var(--field-fill);
 	box-shadow: var(--field-lift);
@@ -266,22 +266,11 @@
 	width: 28px;
 	height: 28px;
 	font-size: var(--type-fine);
-	border-radius: 9px;
+	border-radius: var(--radius-control);
 }
 /* Held locators, hanging off the directory mark. The same rows a message menu
    uses. The box is this field's, stretched to its width so a long name still
    belongs to the question it fills. */
-/* Under the field it finishes, spanning its width. The card is a short stack of
-   short fields, so a list beside it would leave the page and a list that pushed
-   the fields down would move the button out from under the reader's hand. */
-.menu-layer.join-offers .suggest-pop {
-	top: calc(100% + 6px);
-	bottom: auto;
-	left: 0;
-	right: 0;
-	width: auto;
-	max-width: none;
-}
 .address-picks {
 	animation: rise-in .12s ease-out;
 	position: absolute;

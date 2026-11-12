@@ -16,7 +16,7 @@ test "core host: broken deferred tell retires a finishing source distinct from i
             for ([_]bool{ false, true }) |close_introducer| {
                 for ([_]bool{ false, true }) |abandon| {
                     var failing = std.testing.FailingAllocator.init(a, .{});
-                    var options = Host.Options.withFrameCap(h.frame_cap);
+                    var options = Host.Options.init(.unchecked, h.frame_cap);
                     options.captp_version = profile;
                     options.codec = codec;
                     options.features = model.FeatureSet.full().forCaptpVersion(profile);
@@ -48,7 +48,7 @@ test "core host: broken deferred tell retires a finishing source distinct from i
                     if (abandon) try host.releaseCapability(promise, 1);
                     // Failure must retire the tell without needing allocation.
                     failing.fail_index = failing.alloc_index;
-                    if (close_introducer) try host.releaseSession(intro_pair.a) else try host.dialFailed(dial.ticket, dial.route_index, "unavailable");
+                    if (close_introducer) try host.releaseSession(intro_pair.a) else try host.dialFailed(dial.ticket, dial.route_index, .peer_unreachable, "unavailable");
                     failing.fail_index = std.math.maxInt(usize);
                     try std.testing.expectEqual(@as(u24, 0), source_pair.a.pendingOperations());
                     try std.testing.expectEqual(@as(usize, 0), host.pending_operations);
@@ -61,7 +61,7 @@ test "core host: broken deferred tell retires a finishing source distinct from i
                     try std.testing.expectEqual(.terminating, source_pair.a.lifecyclePhase());
                     if (!abandon) try host.releaseCapability(promise, 1);
                     try std.testing.expectEqual(@as(usize, 0), host.capability_promises.count());
-                    if (close_introducer) try host.dialFailed(dial.ticket, dial.route_index, "unavailable");
+                    if (close_introducer) try host.dialFailed(dial.ticket, dial.route_index, .peer_unreachable, "unavailable");
                     try std.testing.expectEqual(@as(usize, 0), host.node.pendingDialCount());
                 }
             }

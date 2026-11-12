@@ -122,9 +122,9 @@ impl Netlayer {
 		// SAFETY: `raw` is the netlayer handle just taken out of `self.raw`, which now holds null so `Drop` will not
 		// release it again; this is its single release, and every listener has retired because each borrows the
 		// netlayer.
-		let release = check_onion(unsafe {
+		let release = check_onion(crate::sys::release_result_code(unsafe {
 			ffi::glowcap_onion_netlayer_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
-		});
+		}));
 		if let Some(error) = listener_failure {
 			return match release {
 				Ok(()) => Err(error),
@@ -141,9 +141,9 @@ impl Drop for Netlayer {
 			// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_onion_netlayer_new`, released only by
 			// `close` or its `Drop`; the null check above skips a handle `close` already released, so this is its
 			// single release.
-			if let Err(error) = check_onion(unsafe {
+			if let Err(error) = check_onion(crate::sys::release_result_code(unsafe {
 				ffi::glowcap_onion_netlayer_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
-			}) {
+			})) {
 				let listener_failure = lock_failure(&self.listener_close_failure).take();
 				crate::record_runtime_failure(
 					crate::FailureLayer::Transport,
@@ -172,6 +172,12 @@ impl Listener<'_> {
 	/// [`Config::service_key`] for an onion address that survives a restart.
 	pub fn service_key(&self) -> &[u8] {
 		&self.key[..self.key_len]
+	}
+
+	/// A handle another thread uses to interrupt a blocked [`Listener::accept`].
+	pub fn shutdown_handle(&self) -> ListenerShutdown<'_> {
+		// SAFETY: the returned lifetime borrows this listener and prevents release.
+		unsafe { ListenerShutdown::borrowed(self.raw) }
 	}
 
 	/// Block until Tor forwards a circuit to this service.
@@ -246,9 +252,9 @@ impl Listener<'_> {
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
 		// SAFETY: `raw` is the listener handle just taken out of `self.raw`, which now holds null so a second `release`
 		// skips it; this is its single release.
-		check_onion(unsafe {
+		check_onion(crate::sys::release_result_code(unsafe {
 			ffi::glowcap_onion_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
-		})
+		}))
 	}
 
 	/// Close explicitly and return the FFI teardown failure, if any.
@@ -265,6 +271,17 @@ impl Listener<'_> {
 // `std.Io.Threaded` backend. Borrowing the netlayer keeps it non-`'static`, so
 // callers move it into a scoped thread.
 unsafe impl Send for Listener<'_> {}
+
+// SAFETY: the C shutdown entry is idempotent, permits concurrent operations,
+// and leaves release to the owner.
+unsafe impl crate::shutdown::Target for ffi::GlowcapOnionListener {
+	type Output = ();
+
+	unsafe fn shutdown(raw: *mut Self) -> Self::Output {
+		// SAFETY: the caller holds the owner alive for this shutdown call.
+		unsafe { ffi::glowcap_onion_listener_shutdown(raw) }
+	}
+}
 
 impl Drop for Listener<'_> {
 	fn drop(&mut self) {
@@ -286,6 +303,14 @@ impl Connection<'_> {
 		check_onion(unsafe { ffi::glowcap_onion_conn_shutdown(self.raw) })
 	}
 
+	/// A handle another thread uses to interrupt a blocked [`Connection::read_frame`]
+	/// or [`Connection::write_frame`]. It borrows this connection, so the
+	/// connection cannot be moved or dropped while the handle lives.
+	pub fn shutdown_handle(&self) -> ConnectionShutdown<'_> {
+		// SAFETY: the handle's shared borrow of this connection prevents its release.
+		unsafe { ConnectionShutdown::borrowed(self.raw) }
+	}
+
 	/// Close explicitly, reporting a shutdown failure to the caller. FFI
 	/// storage is released as this value is consumed. A release-only refusal is
 	/// retained by the process diagnostic fallback because `Drop` has no caller.
@@ -295,7 +320,7 @@ impl Connection<'_> {
 
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
-	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
+	pub fn read_frame(&self) -> Result<Vec<u8>> {
 		// SAFETY: `GlowcapManagedFrame` is a plain C struct of integers, null pointers, and an `Option` function
 		// pointer; all-zero is a valid value, and the callee fills it before it is read.
 		let mut frame: crate::sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
@@ -327,7 +352,7 @@ impl Connection<'_> {
 	}
 
 	/// Write one frame's bytes to the partner.
-	pub fn write_frame(&mut self, bytes: &[u8]) -> Result<()> {
+	pub fn write_frame(&self, bytes: &[u8]) -> Result<()> {
 		let f = crate::sys::GlowcapFrame {
 			bytes: bytes.as_ptr(),
 			len: bytes.len(),
@@ -343,6 +368,17 @@ impl Connection<'_> {
 	}
 }
 
+// SAFETY: the C shutdown entry is idempotent, permits concurrent operations,
+// and leaves release to the owner.
+unsafe impl crate::shutdown::Target for ffi::GlowcapOnionConn {
+	type Output = Result<()>;
+
+	unsafe fn shutdown(raw: *mut Self) -> Self::Output {
+		// SAFETY: the caller holds the owner alive for this shutdown call.
+		check_onion(unsafe { ffi::glowcap_onion_conn_shutdown(raw) })
+	}
+}
+
 // SAFETY: as `Listener` above: a `Connection` owns its own stream plus a copy of
 // the netlayer's allocator, and the state it shares is thread-safe under the
 // concurrent blocking calls a borrowed handle makes off-thread.
@@ -352,9 +388,9 @@ impl Drop for Connection<'_> {
 	fn drop(&mut self) {
 		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
 		// `'a` borrow keeps the backend alive, so the release runs once after every borrow of it ends.
-		if let Err(error) = check_onion(unsafe {
+		if let Err(error) = check_onion(crate::sys::release_result_code(unsafe {
 			ffi::glowcap_onion_conn_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
-		}) {
+		})) {
 			crate::record_runtime_failure(crate::FailureLayer::Transport, "onion-connection-drop-release", error);
 		}
 	}

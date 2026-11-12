@@ -83,6 +83,7 @@ const wait = @import("support_wait");
 pub const deadlineAfter = wait.deadlineAfter;
 pub const expired = wait.expired;
 pub const untilFlag = wait.untilFlag;
+pub const joinedUnwinding = wait.joinedUnwinding;
 
 /// `net.tcp.connect` with a bounded retry on `ConnectionRefused`: a spawned
 /// host's readiness line can race its listener's actual bind, so the first

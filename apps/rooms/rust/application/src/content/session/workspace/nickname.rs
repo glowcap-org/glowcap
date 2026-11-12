@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// One bounded nickname copy per room worker or callback selection. It survives
 /// the borrowed workspace so replacement of the assigned name or its exact
-/// registration fences the old seat. No directory payload or authority is copied. status-allow: replacement state identity
+/// registration fences the old seat. No directory payload or authority is copied.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RoomNickname {

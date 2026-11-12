@@ -93,6 +93,9 @@ class Session(_LifecycleMixin, _VerbsMixin):
     @classmethod
     def _open_dialed_locator(cls, host: Host, locator: Locator, transport) -> Session:
         """Mint a dialing half without driving the signed handshake."""
+        # Refuse a foreign loop before the mint: a handle minted and then
+        # refused by the constructor would stay in the Host with no owner.
+        host._bind_running_loop()
         out = ctypes.c_void_p()
         with _OwnedLocator.create(locator) as owned:
             _check_host(
@@ -146,6 +149,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
             raise GlowcapError(
                 _abi.ERR_INVALID_ARGUMENT, "accepted byte-channel provider must declare its designator scheme"
             )
+        host._bind_running_loop()
         out = ctypes.c_void_p()
         _check_host(
             _host.glowcap_host_session_open_accepted(

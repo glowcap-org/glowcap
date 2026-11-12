@@ -2,8 +2,8 @@
 //! Chromium depends on.
 //!
 //! In the devcontainer the script prepares the checkout's exact pinned
-//! browsers through the managed-tool lifecycle (`tools.sh ensure playwright`);
-//! a warm run is a structural readiness check. On a host build it checks the
+//! browsers through the managed-tool lifecycle (`tools.sh ensure playwright`).
+//! A warm run is a structural readiness check. On a host build it checks the
 //! local Playwright environment instead. Preparation owns its own bounded
 //! deadline, sized from the measured cold download (the shared cache makes it
 //! a once-per-machine cost): a failed preparation is a setup failure, never a

@@ -245,7 +245,7 @@ export function App() {
 	// Runs unconditionally (rules-of-hooks). An empty url dials nothing
 	// outside Live mode.
 	const {
-		connected: liveConnected,
+		connection: liveConnection,
 		observed: liveObserved,
 		captureEngine,
 	} = useLiveConnection({
@@ -318,7 +318,7 @@ export function App() {
 		// second, because the clear names `newDoc` too.
 		clearSourceOverrides();
 		setNewDoc(newDocument());
-		// Build, not Play: there is nothing to play yet, and the reason to start an status-allow: pending state or quoted runtime label
+		// Build, not Play: there is nothing to play yet, and the reason to start an
 		// empty document is to put something in it.
 		dispatch({ type: "set-mode", mode: "build" });
 	}, [clearSourceOverrides, dispatch]);
@@ -454,7 +454,7 @@ export function App() {
 						onModeChange={handleModeChange}
 						dispatch={dispatch}
 						state={state}
-						liveConnected={liveConnected}
+						liveConnection={liveConnection}
 						liveObserved={liveObserved}
 						liveRecording={recording}
 						onStartRecord={handleStartRecord}

@@ -22,10 +22,6 @@ pub fn setDivert(next: ?Divert) void {
     divert = next;
 }
 
-pub fn hasDivert() bool {
-    return divert != null;
-}
-
 /// Write raw bytes through divert when active. Otherwise stderr, except in a
 /// test compilation, where the fallback is `test_capture` (see module doc).
 pub fn writeMsg(io: std.Io, msg: []const u8) void {

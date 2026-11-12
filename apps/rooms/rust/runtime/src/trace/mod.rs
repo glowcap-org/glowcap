@@ -77,7 +77,7 @@ impl<T: Transport> Trace<T> {
 			loop {
 				let mut attempted = None;
 				let selection = async {
-					changes.ready().await.map_err(Error::from)?;
+					changes.ready().await?;
 					let snapshot = workspace.snapshot().await.map_err(Error::peer)?;
 					let directory = snapshot
 						.intent

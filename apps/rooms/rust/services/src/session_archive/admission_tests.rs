@@ -30,7 +30,7 @@ async fn waiting_erasure_gets_released_count_capacity_before_new_requests() {
 				.is_pending()
 		);
 		// Retire real admitted custody without polling the erase again. New work
-		// cannot steal the credit assigned to the earlier asynchronous waiter. status-allow: event or source ordering
+		// cannot steal the credit assigned to the earlier asynchronous waiter.
 		let mut execution = Box::pin(worker.run());
 		let mut context = Context::from_waker(Waker::noop());
 		assert!(execution.as_mut().poll(&mut context).is_pending());

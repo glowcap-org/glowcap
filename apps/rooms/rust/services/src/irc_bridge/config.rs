@@ -6,7 +6,7 @@ use rooms_application::server::irc::{
 use rooms_platform::serving::Transport;
 use std::collections::BTreeMap;
 
-pub const HELP: &str = "rooms-irc-bridge --irc-realname='bridge bot; admin: reachable IRC nick'\n  [--network=libera] [--channel=#ocapn] [--irc-host=irc.libera.chat]\n  --irc-port=6697 --irc-nick=glowcap-rooms --tls=true|false\n  --mode=read-only|two-way --sasl-account=ACCOUNT\n  --bind=127.0.0.1 --announce-host=HOST --port=0\nTwo-way mode requires TLS and GLOWCAP_ROOMS_IRC_SASL_PASSWORD.\n";
+pub const HELP: &str = "rooms-irc-bridge --irc-realname='bridge bot; admin: reachable IRC nick'\n  [--network=libera] [--channel=#ocapn] [--irc-host=irc.libera.chat]\n  --irc-port=6697 --irc-nick=glowcap-rooms --tls=true|false\n  --mode=read-only|two-way --sasl-account=ACCOUNT\n  [--transport=<name>] and that transport's listener options\nTwo-way mode requires TLS and GLOWCAP_ROOMS_IRC_SASL_PASSWORD.\nThe Rooms listener is iroh unless --transport or GLOWCAP_ROOMS_IRC_BRIDGE_TRANSPORT\nnames another.\n";
 
 pub struct Config {
 	pub(super) network: String,
@@ -19,6 +19,29 @@ pub struct Config {
 	pub(super) transport: Transport,
 }
 impl Config {
+	/// The options that describe the IRC side. The Rooms listener takes the
+	/// transport's own.
+	const IRC: &'static [&'static str] = &[
+		"network",
+		"channel",
+		"irc-host",
+		"irc-port",
+		"irc-nick",
+		"irc-realname",
+		"mode",
+		"sasl-account",
+		"tls",
+	];
+	/// Every option `parse` reads.
+	pub fn options() -> impl Iterator<Item = &'static str> {
+		Self::IRC.iter().chain(Transport::OPTIONS).copied()
+	}
+	/// The environment variable that stands in for an absent listener option.
+	pub fn variable(key: &str) -> String {
+		format!("GLOWCAP_ROOMS_IRC_BRIDGE_{}", key.replace('-', "_").to_uppercase())
+	}
+	/// `None` means help was asked for. The IRC side is named by arguments
+	/// alone, and the SASL password by the environment alone.
 	pub fn parse(
 		args: impl IntoIterator<Item = String>,
 		env: impl Fn(&str) -> Option<String>,
@@ -32,16 +55,7 @@ impl Config {
 				.strip_prefix("--")
 				.and_then(|a| a.split_once('='))
 				.ok_or("IRC bridge options use --name=value")?;
-			if !matches!(
-				name,
-				"network"
-					| "channel" | "irc-host"
-					| "irc-port" | "irc-nick"
-					| "irc-realname"
-					| "mode" | "sasl-account"
-					| "bind" | "announce-host"
-					| "port" | "tls"
-			) {
+			if !Self::options().any(|option| option == name) {
 				// Unknown values may be attempted credentials; never repeat them.
 				return Err(format!("unknown IRC bridge option --{name}"));
 			}
@@ -88,22 +102,9 @@ impl Config {
 			"read-only" => None,
 			_ => return Err("--mode must be read-only or two-way".into()),
 		};
-		let port = decimal_port("irc-port", &value("irc-port", "6697"), false)?;
-		decimal_port("port", &value("port", "0"), true)?;
+		let port = decimal_port(&value("irc-port", "6697"))?;
 		let endpoint = Endpoint::new(&value("irc-host", "irc.libera.chat"), port, tls)?;
-		let transport = Transport::parse(
-			|key| {
-				if key == "transport" {
-					Some("tcp".into())
-				} else {
-					supplied.get(key).cloned()
-				}
-			},
-			|_| None,
-			// The bridge reads no environment, so no variable stands in.
-			str::to_owned,
-			"IRC bridge",
-		)?;
+		let transport = Transport::parse(|key| supplied.get(key).cloned(), &env, Self::variable, "IRC bridge")?;
 		Ok(Some(Self {
 			network,
 			channel,
@@ -116,18 +117,10 @@ impl Config {
 		}))
 	}
 }
-fn decimal_port(name: &str, value: &str, zero: bool) -> Result<u16, String> {
-	let port = value
-		.parse::<u16>()
-		.ok()
-		.filter(|_| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()))
-		.filter(|p| zero || *p != 0);
-	port.ok_or_else(|| {
-		format!(
-			"--{name} requires a decimal port from {} through 65535",
-			if zero { 0 } else { 1 }
-		)
-	})
+fn decimal_port(value: &str) -> Result<u16, String> {
+	rooms_application::host::port(value)
+		.filter(|port| *port != 0)
+		.ok_or_else(|| "--irc-port requires a decimal port from 1 through 65535".into())
 }
 
 #[cfg(test)]
@@ -137,15 +130,20 @@ mod tests {
 		let mut complete = vec!["--irc-realname=bridge bot; admin: alice"];
 		complete.extend_from_slice(args);
 		Config::parse(complete.into_iter().map(str::to_owned), |key| {
-			assert_eq!(key, "GLOWCAP_ROOMS_IRC_SASL_PASSWORD");
-			password.map(str::to_owned)
+			password
+				.filter(|_| key == "GLOWCAP_ROOMS_IRC_SASL_PASSWORD")
+				.map(str::to_owned)
 		})
 	}
 	#[test]
 	fn read_only_defaults_require_a_public_identity_and_never_read_secrets() {
 		assert!(Config::parse([], |_| panic!("missing identity read credentials")).is_err());
-		let config = Config::parse(["--irc-realname=bridge bot; admin: alice".to_owned()], |_| {
-			panic!("read-only startup read credentials")
+		let config = Config::parse(["--irc-realname=bridge bot; admin: alice".to_owned()], |key| {
+			assert_ne!(
+				key, "GLOWCAP_ROOMS_IRC_SASL_PASSWORD",
+				"read-only startup read credentials"
+			);
+			None
 		})
 		.unwrap()
 		.unwrap();
@@ -154,6 +152,53 @@ mod tests {
 		assert_eq!(config.channel, "#ocapn");
 		assert_eq!(config.realname, "bridge bot; admin: alice");
 		assert!(config.sasl.is_none());
+	}
+	/// A room is readable by everyone who can read its listener, so the
+	/// bridge listens sealed until its operator names a cleartext transport.
+	#[test]
+	fn the_rooms_listener_is_sealed_unless_the_operator_names_another() {
+		use rooms_application::server::operations::listeners::{self, Transport as Profile};
+		use rooms_platform::serving::TcpProfile;
+		let sealed = parse(&[], None).unwrap().unwrap();
+		assert_eq!(sealed.transport.profile(), Profile::Iroh);
+		let named = parse(&["--transport=tcp", "--port=7000"], None).unwrap().unwrap();
+		assert!(matches!(
+			named.transport,
+			Transport::Tcp {
+				profile: TcpProfile::Plain,
+				port: 7000,
+				announce: None,
+				..
+			}
+		));
+		let listener = |args: &[&str]| {
+			let mut complete = vec!["--irc-realname=bridge bot; admin: alice"];
+			complete.extend_from_slice(args);
+			Config::parse(complete.into_iter().map(str::to_owned), |key| {
+				(key == "GLOWCAP_ROOMS_IRC_BRIDGE_TRANSPORT").then(|| "noise-tcp".to_owned())
+			})
+			.unwrap()
+			.unwrap()
+			.transport
+			.profile()
+		};
+		assert_eq!(listener(&[]), Profile::NoiseTcp);
+		assert_eq!(listener(&["--transport=iroh"]), Profile::Iroh);
+		assert_eq!(
+			parse(&["--transport=tcp", "--bind=0.0.0.0"], None).err().unwrap(),
+			"IRC bridge wildcard bind needs --announce-host=<dialable-host>"
+		);
+		assert_eq!(
+			parse(&["--bind=127.0.0.1", "--port=7000"], None).err().unwrap(),
+			"IRC bridge --bind does not apply to the iroh transport"
+		);
+		assert_eq!(
+			parse(&["--transport=quic"], None).err().unwrap(),
+			format!(
+				"IRC bridge transport must be one of {}",
+				listeners::TRANSPORTS.map(Profile::name).join(", ")
+			)
+		);
 	}
 	#[test]
 	fn two_way_credentials_require_tls_and_never_accept_an_argv_password() {
@@ -189,8 +234,11 @@ mod tests {
 	#[test]
 	fn ambiguous_and_lossy_options_are_refused() {
 		for args in [
-			vec!["--port=-1"],
+			vec!["--transport=tcp", "--port=-1"],
+			vec!["--transport=tcp", "--port=+1"],
+			vec!["--port=7000"],
 			vec!["--irc-port=0"],
+			vec!["--irc-port=+6697"],
 			vec!["--tls=yes"],
 			vec!["--mode=read-only", "--sasl-account=unused"],
 			vec!["--network=one", "--network=two"],

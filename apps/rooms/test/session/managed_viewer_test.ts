@@ -3,7 +3,7 @@
 import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { ActivityDelivery, releaseActivity } from "../../web/ui/session/managed/activity.ts";
-import type { ActivityPage, ObservationView } from "../../web/ui/session/managed/model.ts";
+import type { ActivityPage, ActivityRead, ObservationView } from "../../web/ui/session/managed/model.ts";
 import { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
 import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
@@ -26,7 +26,7 @@ for (const consumer of ["refresh", "candidate", "command"] as const) {
 			prepareCommand: (_id: string, revision: string) => {
 				prepared = revision;
 				return Promise.resolve({
-					submit: () => Promise.resolve("committed"),
+					submit: () => Promise.resolve({ status: "committed" }),
 					status: () => Promise.resolve("committed"),
 					free() {},
 				});
@@ -61,7 +61,7 @@ Deno.test("managed command admission reads past a delayed presentation revision"
 		prepareCommand: (_operation: string, revision: string) => {
 			prepared = revision;
 			return Promise.resolve({
-				submit: () => Promise.resolve("committed"),
+				submit: () => Promise.resolve({ status: "committed" }),
 				status: () => Promise.resolve("committed"),
 				originalIntent: () => ["operation", Number(revision), "select", ["room"]],
 				free() {},
@@ -223,7 +223,7 @@ Deno.test("activity failure waits for another change before retrying its exact r
 		resync: false,
 	};
 	const reported = deferred<void>();
-	const activity = deferred<ActivityPage>();
+	const activity = deferred<ActivityRead>();
 	let reads = 0;
 	let readers = 0;
 	const reader = {
@@ -235,7 +235,7 @@ Deno.test("activity failure waits for another change before retrying its exact r
 			return reads === 1 ? Promise.reject(new Error("connection ended")) : activity.promise;
 		},
 		cancel: () => {
-			activity.resolve({ cursor: "", gap: false });
+			activity.resolve({ cursor: "", head: "", gap: false });
 			return Promise.resolve();
 		},
 		free() {},
@@ -272,7 +272,7 @@ Deno.test("activity failure waits for another change before retrying its exact r
 		assertEquals([reads, readers], [2, 1], "an explicit retry retains the exact reader and cursor");
 	} finally {
 		stop();
-		activity.resolve({ cursor: "", gap: false });
+		activity.resolve({ cursor: "", head: "", gap: false });
 		await session.close();
 	}
 });
@@ -305,13 +305,20 @@ Deno.test("managed activity custody transfers all handles once across presentati
 	const handle = { free: () => released++ };
 	const page = {
 		cursor: "original",
-		event: { target: { kind: "room", id: "room" }, notice: {}, files: [handle], authority: handle, route: handle },
+		event: {
+			at: 0,
+			target: { kind: "room", id: "room" },
+			notice: {},
+			files: [handle],
+			authority: handle,
+			route: handle,
+		},
 	} as unknown as ActivityPage;
-	const rejected = new ActivityDelivery(page);
+	const rejected = new ActivityDelivery(page, false);
 	rejected.close();
 	rejected.close();
 	assertEquals(released, 3);
-	const offered = new ActivityDelivery(page);
+	const offered = new ActivityDelivery(page, false);
 	const accepted = offered.take();
 	offered.close();
 	assertEquals(released, 3, "the reader cannot release handles after ownership transfers");
@@ -489,6 +496,7 @@ for (
 		const page = {
 			cursor: "original-cursor",
 			event: {
+				at: 0,
 				target: { kind: "direct", id: "dm" },
 				notice,
 				authority: {

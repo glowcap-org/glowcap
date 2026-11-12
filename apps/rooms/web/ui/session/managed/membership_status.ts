@@ -10,9 +10,10 @@ import {
 	joinRefusalKeys,
 	rememberJoinRefusal,
 } from "../../admission_feedback.ts";
+import { projectedError } from "../../../../lib/error_codes.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 
-type Failure = { target: { kind: string; id: string }; reason: string };
+type Failure = { target: { kind: string; id: string }; reason: string; failure?: unknown };
 export type MembershipStatus = { failures?: readonly Failure[]; sourceFailure?: string };
 
 function destination(projection: PageProjection, target: Failure["target"]): ActionRefusal["target"] | null {
@@ -39,8 +40,9 @@ export function membershipStatus(
 		for (const failure of state.failures ?? []) {
 			const key = `${failure.target.kind}:${failure.target.id}`;
 			current.set(key, failure.reason);
-			if (previous.get(key) !== failure.reason) report(text.roomsConnection, failure.reason);
-			const refusal = admissionRefusal(failure.reason);
+			const error = projectedError(failure.failure, failure.reason);
+			if (previous.get(key) !== failure.reason) report(text.roomsConnection, error);
+			const refusal = admissionRefusal(error);
 			if (refusal != null) {
 				const target = destination(projection, failure.target);
 				if (target != null) {

@@ -144,6 +144,9 @@ class _ListenersMixin(DriverLoopMixinBase):
         terminal result.
         """
         listener = self._listener_id(listener)
+        if self._released:
+            # Release already retired every listener with the loop.
+            return
         # A terminal setup event may already be queued while the caller is
         # cancelling its waiter. Consume it before asking FFI code to
         # cancel; a failed setup has already retired its FFI identity.

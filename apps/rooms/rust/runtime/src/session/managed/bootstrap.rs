@@ -70,9 +70,9 @@ impl Bootstrap {
 		platform: P,
 		options: BootstrapOptions,
 		mut persist: impl FnMut(Self) -> F,
-	) -> Result<Opened<P>>
+	) -> core::result::Result<Opened<P>, crate::Error>
 	where
-		P: Tasks + Deadline + Clone + 'static,
+		P: Tasks + Deadline + crate::wall_clock::WallClock + Clone + 'static,
 		F: Future<Output = Result<()>>,
 	{
 		let BootstrapOptions {
@@ -90,7 +90,10 @@ impl Bootstrap {
 				let closed = store.close();
 				#[cfg(target_arch = "wasm32")]
 				let closed = store.close().await;
-				return Err(error.with_cleanup(closed));
+				return Err(crate::cleanup::failed(
+					crate::Error::from(error),
+					closed.map_err(crate::Error::from),
+				));
 			}
 		};
 		Opened::open(
@@ -117,7 +120,7 @@ impl Bootstrap {
 		persist: &mut impl FnMut(Self) -> F,
 	) -> Result<StartupAnchor>
 	where
-		P: Tasks + Deadline + Clone + 'static,
+		P: Tasks + Deadline + crate::wall_clock::WallClock + Clone + 'static,
 		F: Future<Output = Result<()>>,
 	{
 		if let Some(anchor) = self.anchor {

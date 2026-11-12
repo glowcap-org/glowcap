@@ -13,7 +13,9 @@ test "loam recipe inspection outlives exporters and never restores authority" {
         const schemas = f.schemas ++ [_]f.loam.core.Schema{refs.schema};
         var store = try f.loam.core.Store.init(a, try backend.open(), &schemas, records.limits);
         defer store.deinit() catch unreachable;
-        var host = @import("../../support/core_host.zig").init(a, @splat(0x73), .{});
+        var host = @import("../../support/core_host.zig").init(a, @splat(0x73), .{
+            .thread_policy = .unchecked,
+        });
         defer host.deinit();
         // No local reference scope or foreign dial provider exists. Metadata
         // remains useful after revocation, including on this unconnected Host.

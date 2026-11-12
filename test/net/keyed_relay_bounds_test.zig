@@ -57,9 +57,8 @@ fn expectSizedUpgrade(response_bytes: usize, admitted: bool) !void {
     var server = try listenLoopback(io);
     defer server.deinit(io);
     var served = try io.concurrent(serveSizedUpgrade, .{ io, &server, response_bytes });
-    // best-effort: the await below settles a finished task, and this only
-    // stops one still parked when an assertion fails first.
-    defer _ = served.cancel(io) catch {};
+    var served_joined = false;
+    errdefer if (!served_joined) wait.joinedUnwinding("served", served.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -86,6 +85,7 @@ fn expectSizedUpgrade(response_bytes: usize, admitted: bool) !void {
             );
         },
     }
+    served_joined = true;
     try served.await(io);
 }
 
@@ -168,7 +168,7 @@ fn bufferScript(
             },
         }
         if (wait.expired(io, deadline)) return error.WaitTimedOut;
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real);
     }
 }
 
@@ -183,8 +183,8 @@ fn expectPongsHandBackTurns(pongs: usize, expected_turns: usize) !void {
     defer server.deinit(io);
     var staged = std.atomic.Value(usize).init(0);
     var served = try io.concurrent(servePongsThenData, .{ io, &server, pongs, &staged });
-    // best-effort: see `expectSizedUpgrade`.
-    defer _ = served.cancel(io) catch {};
+    var served_joined = false;
+    errdefer if (!served_joined) wait.joinedUnwinding("served", served.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -214,6 +214,7 @@ fn expectPongsHandBackTurns(pongs: usize, expected_turns: usize) !void {
     };
     try std.testing.expectEqual(expected_turns, handed_back);
     try std.testing.expectEqualStrings("tail", dest[0..@intCast(count)]);
+    served_joined = true;
     try served.await(io);
 }
 
@@ -244,8 +245,8 @@ test "relay nonblocking read spends the frame budget without losing a byte" {
     defer server.deinit(io);
     var staged = std.atomic.Value(usize).init(0);
     var served = try io.concurrent(serveOneByteFrames, .{ io, &server, total, &staged });
-    // best-effort: see `expectSizedUpgrade`.
-    defer _ = served.cancel(io) catch {};
+    var served_joined = false;
+    errdefer if (!served_joined) wait.joinedUnwinding("served", served.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -292,6 +293,7 @@ test "relay nonblocking read spends the frame budget without losing a byte" {
     );
     for (collected, 0..) |byte, index|
         try std.testing.expectEqual(@as(u8, @intCast(index)), byte);
+    served_joined = true;
     try served.await(io);
 }
 

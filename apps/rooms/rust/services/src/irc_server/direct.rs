@@ -119,7 +119,12 @@ impl Directs {
 			delivery: Some(delivery),
 		})
 	}
-	pub async fn say(&self, directory: &Directory<HostPlatform>, peer: &str, text: &str) -> Result<(), String> {
+	pub async fn say(
+		&self,
+		directory: &Directory<HostPlatform>,
+		peer: &str,
+		text: &str,
+	) -> Result<(), super::failure::Refused> {
 		let key = peer.to_lowercase();
 		self.state.routes.borrow_mut().retain(|_, d| d.live());
 		let held = self.state.routes.borrow().get(&key).cloned();
@@ -127,28 +132,24 @@ impl Directs {
 			Some(direct) => direct,
 			None => {
 				if self.state.routes.borrow().len() >= clients::DIRECTS {
-					return Err(capacity_refusal());
+					return Err(CAPACITY.into());
 				}
-				let direct = directory.direct(peer, None).await.map_err(|e| e.to_string())?;
+				let direct = directory.direct(peer, None).await?;
 				let id = direct.registration().clone();
-				let direct = Rc::new(
-					direct
-						.with_behavior(behavior(Rc::downgrade(&self.state), peer.into(), id))
-						.map_err(|e| e.to_string())?,
-				);
+				let direct = Rc::new(direct.with_behavior(behavior(Rc::downgrade(&self.state), peer.into(), id))?);
 				let mut routes = self.state.routes.borrow_mut();
 				if let Some(arriving) = routes.get(&key).filter(|d| d.live()) {
 					arriving.clone()
 				} else {
 					if routes.len() >= clients::DIRECTS {
-						return Err(capacity_refusal());
+						return Err(CAPACITY.into());
 					}
 					routes.insert(key, direct.clone());
 					direct
 				}
 			}
 		};
-		drop(direct.say(text).await.map_err(|e| e.to_string())?);
+		drop(direct.say(text).await?);
 		Ok(())
 	}
 	pub async fn close(mut self) -> Result<(), String> {
@@ -243,7 +244,7 @@ fn remember(state: &Rc<State>, peer: &str, id: &Id, session: &Session, reply: gl
 		return Ok(());
 	}
 	if !routes.contains_key(&key) && routes.len() >= clients::DIRECTS {
-		return Err(capacity_refusal());
+		return Err(CAPACITY.to_string());
 	}
 	let direct = Direct::adopt(Client::new(session.borrowed(), HostPlatform), reply, id.clone())
 		.with_behavior(behavior(Rc::downgrade(state), peer.into(), id.clone()))
@@ -280,11 +281,7 @@ async fn deliver(output: Output, mut incoming: mpsc::Receiver<Pending>, report: 
 #[cfg(test)]
 mod tests;
 
-fn capacity_refusal() -> String {
-	use rooms_application::failure::{Failure, FailureCode};
-	Failure {
-		code: FailureCode::TooManyDirects,
-		detail: "IRC direct line capacity reached",
-	}
-	.to_string()
-}
+const CAPACITY: rooms_application::failure::Failure<'static> = rooms_application::failure::Failure {
+	code: rooms_application::failure::FailureCode::TooManyDirects,
+	detail: "IRC direct line capacity reached",
+};

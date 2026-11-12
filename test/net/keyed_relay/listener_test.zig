@@ -156,11 +156,12 @@ test "keyed-relay listener readiness clears idle hints and retains unclaimed arr
     var relay = try io.concurrent(serveReadinessRegistrations, .{
         io, &server, &first_seen, &send_data, &replacement_seen, &release,
     });
-    defer {
+    var relay_joined = false;
+    errdefer if (!relay_joined) {
         send_data.store(true, .release);
         release.store(true, .release);
-        _ = relay.cancel(io) catch {};
-    }
+        wait.joinedUnwinding("relay", relay.cancel(io));
+    };
     const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "",
         .identity = identity.publicKey(),
@@ -198,6 +199,7 @@ test "keyed-relay listener readiness clears idle hints and retains unclaimed arr
     try std.testing.expectEqual(null, listener.close());
     listener_live = false;
     release.store(true, .release);
+    relay_joined = true;
     try relay.await(io);
 }
 
@@ -286,10 +288,11 @@ test "keyed-relay listen owns a stalled initial registration asynchronously" {
     var connected = std.atomic.Value(bool).init(false);
     var release = std.atomic.Value(bool).init(false);
     var relay = try io.concurrent(stallInitialRegistration, .{ io, &server, &connected, &release });
-    defer {
+    var relay_joined = false;
+    errdefer if (!relay_joined) {
         release.store(true, .release);
-        relay.await(io) catch {};
-    }
+        wait.joinedUnwinding("relay", relay.await(io));
+    };
 
     var result = switch (resident.netlayer().listen(allocator, .{
         .designator = "",
@@ -298,14 +301,23 @@ test "keyed-relay listen owns a stalled initial registration asynchronously" {
         .admitted => |result| result,
         .failed => |failure| return failure.cause,
     };
-    defer netlayer_test.deinit(&result);
+    var result_live = true;
+    defer if (result_live) netlayer_test.deinit(&result);
     try wait.untilFlag(io, wait.default_deadline_ms, &connected);
     const attempt = switch (result) {
         .pending => |*pending| pending,
         .ready => return error.UnexpectedReadyListener,
     };
     var pollfds: [1]std.posix.pollfd = undefined;
-    try std.testing.expectEqual(null, try net.waitAnyReadable(&.{}, &pollfds, 20, &.{attempt.readinessFd()}));
+    try std.testing.expectEqual(null, try net.waitAnyDescriptor(&pollfds, 20, &.{attempt.readinessFd()}));
+
+    // The attempt closes while the relay still stalls it. Only then is the relay
+    // released, and a relay that failed fails the test.
+    result_live = false;
+    netlayer_test.deinit(&result);
+    release.store(true, .release);
+    relay_joined = true;
+    try relay.await(io);
 }
 
 test "keyed-relay listener close wakes and joins a parked readiness wait" {
@@ -418,11 +430,13 @@ test "keyed-relay listener recovers a stalled replacement without invalidating i
         &send_recovered,
         &release,
     });
-    defer {
+    var relay_joined = false;
+    errdefer if (!relay_joined) {
+        drop_replacement.store(true, .release);
         send_recovered.store(true, .release);
         release.store(true, .release);
-        _ = relay.cancel(io) catch {};
-    }
+        wait.joinedUnwinding("relay", relay.cancel(io));
+    };
 
     var listener_arena = std.heap.ArenaAllocator.init(allocator);
     var listener_arena_live = true;
@@ -464,7 +478,7 @@ test "keyed-relay listener recovers a stalled replacement without invalidating i
         recovered_locator = listener.localLocator(allocator) catch |err| switch (err) {
             error.BindFailed => {
                 if (wait.expired(io, recovery_deadline)) return error.WaitTimedOut;
-                std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+                try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real);
                 continue;
             },
             else => return err,
@@ -486,4 +500,8 @@ test "keyed-relay listener recovers a stalled replacement without invalidating i
     listener_arena.deinit();
     listener_arena_live = false;
     try std.testing.expect(conn.socketHandle() != null);
+
+    // A relay that failed fails the test.
+    relay_joined = true;
+    try relay.await(io);
 }

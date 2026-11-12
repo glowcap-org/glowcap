@@ -198,14 +198,16 @@ fn damaged(gpa: std.mem.Allocator, smith: *std.testing.Smith, actor: *End, partn
     var unit: std.ArrayList(u8) = .empty;
     defer unit.deinit(gpa);
     if (actor.channel.hasPendingWire()) {
-        try actor.channel.takeWireInto(gpa, &unit);
+        var handshake = (try actor.channel.takeWire(gpa)).?;
+        defer handshake.deinit();
+        try unit.appendSlice(gpa, handshake.bytes());
     } else if (actor.channel.isOpen()) {
         // At least one byte, so a record exists to damage.
         try actor.channel.sealBytes(gpa, &unit, if (chunk.len == 0) "x" else chunk);
     } else return;
     if (unit.items.len == 0) return;
 
-    // Each flip lands on a position no earlier flip used, so two flips status-allow: event or source ordering
+    // Each flip lands on a position no earlier flip used, so two flips
     // cannot cancel and hand the partner the honest unit after all.
     const flips = smith.valueRangeAtMost(u8, 1, 4);
     var used: [4]usize = undefined;
@@ -229,7 +231,7 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
     var budget = Budget.draw(smith, span);
     const gpa = budget.allocator();
 
-    var pair = Pair.init() catch return;
+    var pair = try Pair.init();
     defer pair.deinit(gpa);
 
     // Every error out of a step is a property that did not hold, except the

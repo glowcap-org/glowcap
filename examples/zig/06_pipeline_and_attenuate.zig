@@ -73,7 +73,10 @@ fn onResolve(ctx: ?*anyopaque, resolution: actors.Resolution) void {
             .string => |s| s,
             else => "(unexpected)",
         }),
-        .broken => |reason| outcome.record(true, reason),
+        .broken => |reason| {
+            var diagnostic: [engine.Broken.diagnostic_capacity]u8 = undefined;
+            outcome.record(true, reason.render(&diagnostic));
+        },
         .give => {},
     }
 }

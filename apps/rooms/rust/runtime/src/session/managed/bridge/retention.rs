@@ -1,4 +1,6 @@
 //! One session worker retires credential bytes against committed Loam custody.
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use super::{credentials::Credentials, *};
 use crate::session::managed::{Membership, supervision};
 use std::{future::Future, pin::Pin};
@@ -28,14 +30,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Owner<P> {
 					let cleanup = pending.get_or_insert_with(|| {
 						let credentials = credentials.clone();
 						let writer = writer.clone();
-						Box::pin(async move { credentials.reconcile(&writer).await })
+						Box::pin(async move { credentials.reconcile(&writer).await.map_err(Error::from) })
 					});
 					let result = match platform.within(20_000, cleanup).await {
 						Some(result) => {
 							pending.take();
 							result
 						}
-						None => Err(glowcap::loam::refusal(
+						None => Err(Error::uncertain(
 							"bridge credential cleanup remains pending; retry retirement",
 						)),
 					};

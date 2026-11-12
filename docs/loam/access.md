@@ -132,11 +132,11 @@ writing starts aborts the whole batch, content included.
 ### Several changes in one transaction
 
 Several managed changes can go in one transaction. Each new preparation reads
-the Read's state including earlier changes, and the batch writes one header <!-- status-allow: runtime state or operation ordering -->
+the Read's state including earlier changes, and the batch writes one header
 update per owner.
 
 - A preparation made from older resource, grant, or control state is refused,
-  and the caller that began the batch must abort it, discarding the earlier <!-- status-allow: runtime state or operation ordering -->
+  and the caller that began the batch must abort it, discarding the earlier
   changes too.
 - A failure after a participant starts writing aborts the batch. Hosted calls
   leave the abort to their transaction runner.
@@ -160,9 +160,9 @@ expects.
 - The record count must fit within `max_leases - 1`, with cache room for the
   pinned records and one directory or history read.
 - A Read holds at most <!-- value ../../src/loam/access/storage/read.zig read_budget_bytes bytes -->21 KiB<!-- /value --> of state inside itself, including one decoded
-  grant record and 16 KiB of scratch for its resource list. An
-  Append holds at most 52 KiB of path state, and adding a resource also
-  allocates one child-list path of the same size.
+  grant record and the scratch for its resource list. An Append holds the
+  directory pages of one path inline, and adding a resource also allocates
+  one child-list path of the same size.
 - A Read lends one grant record at a time (ADR-0047). A lookup while a record
   is on loan fails with `RecordHeld` in every build mode, and the loaned
   record carries what writing and observation need. Checks on loaded records
@@ -216,7 +216,7 @@ and writes it with application content in the same batch.
 Before writing a move, the resource view refuses cycles and checks that the
 deepest child stays within the owner's depth limit. The check walks the
 subtree with at most `max_resource_depth + 1` frames and one lease at a time,
-so its cost grows with the number of children. The old parent, the new <!-- status-allow: runtime state or operation ordering -->
+so its cost grows with the number of children. The old parent, the new
 parent, the resource's own record, and the owner's revision commit together.
 
 A held use operation calls
@@ -345,6 +345,12 @@ Other requests fail as follows:
 | Sequence that has left the window | `ReceiptExpired` |
 | No sequences left | Refused |
 
+Management controls return an explicit `access:control-conflict` reply for
+an exact-intent or expected-revision conflict. Its symbol names `operation`
+or `revision`. This admission result publishes no effects. Generic broken
+promise diagnostics do not prove that result. Content methods keep the
+failure contract in the table.
+
 A revocation, deletion, or loss of scope since the first attempt can stop a
 retry.
 
@@ -360,8 +366,7 @@ Receipt limits:
 - Each value holds at most <!-- value ../../src/loam/access/records/value_record.zig max_bytes bytes -->32 KiB<!-- /value -->, nests at most <!-- value ../../src/loam/access/records/value_record.zig max_depth -->64<!-- /value --> deep, and the request and
   result together hold at most <!-- value ../../src/loam/access/records/mutation_record.zig max_edges -->64<!-- /value --> distinct capabilities.
 - A whole encoded receipt fits in <!-- value ../../src/loam/access/records/mutation_record.zig max_encoded_bytes bytes -->64 KiB<!-- /value -->.
-- Only capabilities need extra storage. In the managed bench workload, calls
-  with plain values fit in 4 KiB of call memory.
+- Only capabilities need extra storage.
 - Encoding measures before allocating. Decoded containers are owned, while
   byte strings borrow the receipt's lease.
 
@@ -586,8 +591,8 @@ Loam's collection frees the space. It keeps anything held at run time,
 anything a stored strong reference reaches, and old versions a lease still
 holds, and frees disconnected pages and payloads once nothing holds them.
 
-- Each durable name keeps its index entry forever: 25 key bytes plus 33
-  object identity bytes, 58 bytes per name, before engine overhead.
+- Each durable name keeps its index entry forever: one name key and one
+  object identity, before engine overhead.
 - Retiring things does not shrink the database file. Compacting it is a
   separate step on each [disk engine](sqlite.md#shrinking-the-file).
 - Creating a new identity reserves at most four identity paths, and ordinary

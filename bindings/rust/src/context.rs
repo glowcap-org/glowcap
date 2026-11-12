@@ -8,7 +8,7 @@ use crate::{
 
 error_slot::error_slot!(
 	// Maps a non-OK ocapn-family return code to an `Error` carrying the
-	// message the slot recorded at the moment the call failed. status-allow: state at observation
+	// message the slot recorded at the moment the call failed.
 	pub(crate) fn check;
 	/// The calling thread's last recorded ocapn-family error message, or `None` if
 	/// none is set. The host family and each transport keep their own slots, read
@@ -34,7 +34,7 @@ pub trait ContextAllocator: Send + Sync {
 	/// Return a block of at least `size` bytes aligned to `alignment`, or null on
 	/// failure.
 	fn alloc(&self, size: usize, alignment: usize) -> *mut u8;
-	/// Release a block previously returned by [`alloc`](ContextAllocator::alloc). status-allow: ownership and operation ordering
+	/// Release a block previously returned by [`alloc`](ContextAllocator::alloc).
 	///
 	/// # Safety
 	/// `ptr` must have come from this allocator with the same `size`/`alignment`.

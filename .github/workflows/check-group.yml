@@ -37,7 +37,7 @@ permissions:
 # disk to a cached target directory, and line tables keep source positions
 # without the variable data that dominates debug info.
 env:
-  EXEC: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only
+  EXEC: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only --remote-env GLOWCAP_REQUIRE_IO_URING=1
 
 jobs:
   build:
@@ -55,44 +55,53 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Name the pinned submodules
+      # The test job repeats these by alias. The cache is a transfer, so it
+      # keeps its step deadline here rather than in a composite action.
+      - &submodules-key
+        name: Name the pinned submodules
         id: submodules
         run: python3 ci/submodules.py key
 
-      - name: Restore the pinned submodule objects
+      - &submodules-restore
+        name: Restore the pinned submodule objects
         timeout-minutes: 5
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .git/modules
           key: ${{ steps.submodules.outputs.key }}
 
-      - name: Check out the pinned submodules
+      - &submodules-checkout
+        name: Check out the pinned submodules
         run: python3 ci/submodules.py checkout
 
-      - run: python3 ci/image.py reclaim
+      - &reclaim
+        run: python3 ci/image.py reclaim
 
       # Workflow steps own transfer deadlines, which composite steps cannot
       # set. A transfer finishes in seconds or stalls with no end of its own,
       # and a stalled one clears on a fresh attempt, so each required transfer
       # is bounded and retried once. The 1.62 GB image measured 255 s on a
       # hosted runner, so its bound is twice that.
-      - name: Download the unpublished PR image
+      - &image-download
+        name: Download the unpublished PR image
         id: receive_image
         if: inputs.archive == 'true'
         timeout-minutes: 10
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: &image-download
+        with: &image-transfer
           name: devcontainer-image
           path: ${{ runner.temp }}
 
-      - name: Download the unpublished PR image again
+      - &image-download-again
+        name: Download the unpublished PR image again
         if: inputs.archive == 'true' && steps.receive_image.outcome == 'failure'
         timeout-minutes: 10
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: *image-download
+        with: *image-transfer
 
-      - uses: ./.github/actions/start
+      - &start
+        uses: ./.github/actions/start
         with:
           image: ${{ inputs.image }}
 
@@ -217,39 +226,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Name the pinned submodules
-        id: submodules
-        run: python3 ci/submodules.py key
+      - *submodules-key
+      - *submodules-restore
+      - *submodules-checkout
 
-      - name: Restore the pinned submodule objects
-        timeout-minutes: 5
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .git/modules
-          key: ${{ steps.submodules.outputs.key }}
-
-      - name: Check out the pinned submodules
-        run: python3 ci/submodules.py checkout
-
-      - run: python3 ci/image.py reclaim
-
-      - name: Download the unpublished PR image
-        id: receive_image
-        if: inputs.archive == 'true'
-        timeout-minutes: 10
-        continue-on-error: true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: *image-download
-
-      - name: Download the unpublished PR image again
-        if: inputs.archive == 'true' && steps.receive_image.outcome == 'failure'
-        timeout-minutes: 10
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: *image-download
-
-      - uses: ./.github/actions/start
-        with:
-          image: ${{ inputs.image }}
+      - *reclaim
+      - *image-download
+      - *image-download-again
+      - *start
 
       - name: Restore dependency downloads
         timeout-minutes: 5

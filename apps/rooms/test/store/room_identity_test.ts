@@ -15,6 +15,11 @@ const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
 const { dirId } = await import("../../web/ui/directory.ts");
 
+/** How many room rows the rail shows on `dir`. */
+function roomRows(dir: ReturnType<typeof dirId>): number {
+	return [...projection.get().convs.values()].filter((conv) => conv.type === "room" && conv.dir === dir).length;
+}
+
 Deno.test("a publication backfill adopts the room row instead of minting a sibling", () => {
 	const dir = dirId("backfill-dir");
 	const joined = store.ensureRoom(projection, dir, "#chan", { persistId: "conv-1" });
@@ -23,7 +28,7 @@ Deno.test("a publication backfill adopts the room row instead of minting a sibli
 	const restored = store.ensureRoom(projection, dir, "#chan", { persistId: "conv-1", publicationId: "pub-7" });
 	assertEquals(restored.key, joined.key);
 	assertEquals(restored.publicationId, "pub-7");
-	assertEquals(store.joinedRooms(projection, dir).length, 1);
+	assertEquals(roomRows(dir), 1);
 	const history = store.historyOf(projection, restored.key);
 	assertEquals(history.some((item) => item.kind === "chat" && item.text === "before the restart"), true);
 	store.forgetConv(projection, restored.key);
@@ -34,7 +39,7 @@ Deno.test("a publication join adopts the publication-less row of the same name",
 	const linked = store.ensureRoom(projection, dir, "#bridge");
 	const entered = store.ensureRoom(projection, dir, "#bridge", { publicationId: "pub-9" });
 	assertEquals(entered.key, linked.key);
-	assertEquals(store.joinedRooms(projection, dir).length, 1);
+	assertEquals(roomRows(dir), 1);
 	store.forgetConv(projection, entered.key);
 });
 
@@ -43,7 +48,7 @@ Deno.test("a name entry adopts the publication-keyed row of the same name", () =
 	const published = store.ensureRoom(projection, dir, "#chan", { publicationId: "pub-3" });
 	const named = store.ensureRoom(projection, dir, "#chan");
 	assertEquals(named.key, published.key);
-	assertEquals(store.joinedRooms(projection, dir).length, 1);
+	assertEquals(roomRows(dir), 1);
 	store.forgetConv(projection, named.key);
 });
 
@@ -52,7 +57,7 @@ Deno.test("a different publication under one name stays its own room", () => {
 	const first = store.ensureRoom(projection, dir, "#chan", { publicationId: "pub-a" });
 	const second = store.ensureRoom(projection, dir, "#chan", { publicationId: "pub-b" });
 	assertEquals(first.key === second.key, false);
-	assertEquals(store.joinedRooms(projection, dir).length, 2);
+	assertEquals(roomRows(dir), 2);
 	store.forgetConv(projection, first.key);
 	store.forgetConv(projection, second.key);
 });

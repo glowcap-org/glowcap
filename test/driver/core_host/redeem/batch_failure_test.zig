@@ -77,7 +77,7 @@ const Outcome = struct { induced: bool, preflight: bool, partial: bool };
 
 fn replayBatch(profile: model.CaptpVersion, codec: model.CodecId, close_introducer: bool, offset: usize) !Outcome {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var options = Host.Options.withFrameCap(h.frame_cap);
+    var options = Host.Options.init(.unchecked, h.frame_cap);
     options.captp_version = profile;
     options.codec = codec;
     options.features = model.FeatureSet.full().forCaptpVersion(profile);
@@ -160,7 +160,10 @@ fn replayBatch(profile: model.CaptpVersion, codec: model.CodecId, close_introduc
                 try std.testing.expect(close_introducer);
             } else {
                 try std.testing.expect(induced);
-                try std.testing.expectEqualStrings("handoff redeem failed: local allocation failure", reason);
+                try std.testing.expectEqualStrings("local allocation failure", reason);
+                try std.testing.expectEqual((glowcap.driver.core.BreakCause{}).withWithdrawal(), capture.result.cause);
+                var buffer: [glowcap.driver.core.Broken.diagnostic_capacity]u8 = undefined;
+                try std.testing.expectEqualStrings("handoff redeem failed: local allocation failure", (glowcap.driver.core.Broken{ .detail = reason, .cause = capture.result.cause }).render(&buffer));
             }
         } else {
             try std.testing.expect(!close_introducer);

@@ -1,9 +1,10 @@
+// Intent names durable field coordinates. Activity describes live facts.
+// Neither projection constructs capabilities or a bearer checkpoint.
+import { invariant } from "../../../../lib/invariant.ts";
 import { RoomsError } from "../../../../lib/error_codes.ts";
 import { conversationById } from "./conversation_lookup.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 import { ROOM_SENDER } from "../../../../lib/protocol_data.ts";
-// Intent names durable field coordinates. Activity describes live facts.
-// Neither projection constructs capabilities or a bearer checkpoint.
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import { type DirId, dirId, type DirView } from "../../directory.ts";
@@ -25,7 +26,7 @@ import { releaseActivity } from "./activity.ts";
 import { AttachedLineProjection } from "../line_projection.ts";
 import { type PresentedFile, presentFile } from "./files.ts";
 import type { AttachedSessionFiles } from "../attached_files.ts";
-import { applyRoomPresence } from "../../../../lib/room/presence.ts";
+import { ActivityRosters } from "./rosters.ts";
 import { ignoredButYou, sharedHistoryOffered } from "../../../../lib/text/attached.ts";
 import { applyTyping } from "../../typing.ts";
 import { openRoomPolicy, privateRoomPolicy, type RoomPolicy } from "../../room_policy.ts";
@@ -54,6 +55,7 @@ export class ManagedProjection {
 	readonly #announcedShares = new Set<string>();
 	readonly #operationSelections = new Map<OperationsCapability, string | null>();
 	readonly #presentedCommits = new WeakSet<ManagedOperation>();
+	readonly #rosters: ActivityRosters;
 	constructor(
 		page: RoomsPageContext,
 		session: ManagedRoomsSession,
@@ -66,6 +68,7 @@ export class ManagedProjection {
 		this.#files = files;
 		this.#resynchronizeHistory = resynchronizeHistory;
 		this.#archiveUnavailable = archiveUnavailable;
+		this.#rosters = new ActivityRosters(page.projection);
 		this.#lines = new AttachedLineProjection(
 			(id) => store.convByPersistId(page.projection, id)?.key ?? null,
 			files,
@@ -76,6 +79,7 @@ export class ManagedProjection {
 		const projection = this.#page.projection;
 		const before = store.draftFor(projection, conversation.key);
 		store.setRoomMembership(projection, conversation.key, "unavailable", reason);
+		this.#rosters.forget(conversation.key);
 		const after = store.draftFor(projection, conversation.key);
 		if (before.changing != null && after.changing == null) {
 			// The edit becomes an ordinary draft. Keep it over the last accepted
@@ -97,11 +101,12 @@ export class ManagedProjection {
 		this.#stop = [
 			this.#session.subscribe(() => this.apply()),
 			this.#session.onActivity(async (delivery) => {
+				const replayed = delivery.replayed;
 				const page = delivery.take();
 				if (page.gap) this.#resynchronizeHistory();
 				try {
 					await this.#session.actions.receive(page);
-					this.activity(page);
+					this.activity(page, replayed);
 				} finally {
 					releaseActivity(page);
 				}
@@ -253,7 +258,7 @@ export class ManagedProjection {
 						row.id,
 						row.closed,
 					));
-			if (conversation == null) throw new Error("A managed conversation has no presentation directory");
+			invariant(conversation != null, "a managed conversation has no presentation directory");
 			presented.set(row.id, conversation);
 			if (row.kind === "room" && conversation.type === "room") {
 				const grants = resolveRoomGrants(conversation.grants, row);
@@ -373,7 +378,11 @@ export class ManagedProjection {
 			else if (desired == null) projection.set({ activeKey: null });
 		}
 	}
-	activity(page: ActivityPage): void {
+	/** Present one delivery. A replayed one happened before this page was
+	 * reading, so it changes what the page knows and draws nothing that was
+	 * only true at the time. */
+	activity(page: ActivityPage, replayed: boolean): void {
+		if (!replayed) this.#rosters.caughtUp();
 		const event = page.event;
 		if (event == null) return;
 		const notice = event.notice;
@@ -405,11 +414,11 @@ export class ManagedProjection {
 				return;
 			case "room":
 			case "direct":
-				this.#applyConversationNotice(event, notice);
+				this.#applyConversationNotice(event, notice, replayed);
 				return;
 			default: {
 				const target: never = event.target.kind;
-				throw new Error(`Unhandled activity target: ${target as string}`);
+				invariant(false, `unhandled activity target: ${String(target)}`);
 			}
 		}
 	}
@@ -435,7 +444,7 @@ export class ManagedProjection {
 			else store.setLiveRoom(projection, directory, change.entry);
 		}
 	}
-	#applyConversationNotice(event: ActivityEvent, notice: ActivityNotice): void {
+	#applyConversationNotice(event: ActivityEvent, notice: ActivityNotice, replayed: boolean): void {
 		const projection = this.#page.projection;
 		const conversation = store.convByPersistId(projection, event.target.id);
 		if (conversation == null) return;
@@ -466,21 +475,20 @@ export class ManagedProjection {
 			return;
 		}
 		if (notice.kind === "typing") {
-			applyTyping(this.#page, conversation.key, notice.name ?? conversation.id, notice.on === true);
+			// Whoever was typing when this happened is not typing now.
+			if (!replayed) {
+				applyTyping(this.#page, conversation.key, notice.name ?? conversation.id, notice.on === true);
+			}
 			return;
 		}
 		if (notice.kind !== "line") return;
-		this.#applyLineNotice(event, notice, conversation);
+		this.#applyLineNotice(event, notice, conversation, replayed);
 	}
-	#applyLineNotice(event: ActivityEvent, notice: LineNotice, conversation: SessionConv): void {
-		const projection = this.#page.projection;
+	#applyLineNotice(event: ActivityEvent, notice: LineNotice, conversation: SessionConv, replayed: boolean): void {
 		if (this.#hasUnjoinedSeat(conversation)) this.#joinMembership(conversation);
-		if (notice.metadata?.presence != null) {
-			const members = projection.get().members.get(conversation.key) ?? new Map();
-			const rosters = new Map(projection.get().members);
-			rosters.set(conversation.key, applyRoomPresence(members, notice.metadata.presence));
-			projection.set({ members: rosters });
-		}
+		const presence = notice.metadata?.presence;
+		if (presence?.kind === "typing" && replayed) return;
+		if (presence != null) this.#rosters.apply(conversation.key, presence, replayed);
 		const handles = event.files ?? [];
 		const files: PresentedFile[] = [];
 		// Transfer each wrapper before constructing its presentation source.
@@ -495,7 +503,8 @@ export class ManagedProjection {
 			conversationId: event.target.id,
 			from: notice.from ?? conversation.id,
 			text: notice.text ?? "",
-			at: Date.now(),
+			at: event.at,
+			replayed,
 			lineId: notice.marker?.id ?? null,
 			change: notice.marker?.change ?? null,
 			editable: this.#holdsLineHandle(event.target.id, notice.marker?.id),

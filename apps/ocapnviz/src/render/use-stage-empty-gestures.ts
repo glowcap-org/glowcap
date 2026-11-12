@@ -248,7 +248,7 @@ export function useStageEmptyGestures(args: {
 	//   shift              → add captured to selection
 	//   shift + option     → remove captured from selection
 	//   neither            → replace selection with captured
-	//   option alone       → reserved (no marquee meaning yet) status-allow: pending state or quoted runtime label
+	//   option alone       → reserved (no marquee meaning yet)
 	const rubberBandModRef = useRef<{ shift: boolean; alt: boolean }>({
 		shift: false,
 		alt: false,

@@ -1,7 +1,7 @@
 //! Custody of local projection occurrences in an adopted Passable tree.
 //! Admission uses its existing inventory. Release walks the still-owned tree
 //! instead of allocating a second reference index. The tree is depth-bounded
-//! by that inventory; no validation or graph traversal is repeated here.
+//! by that inventory. No validation or graph traversal is repeated here.
 const model = @import("model");
 const session = @import("session");
 const passable = @import("../passable.zig");

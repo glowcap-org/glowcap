@@ -7,7 +7,7 @@
 
 pub const Policy = struct { value: usize, doc: []const u8 };
 
-pub const unobserved_outcome_cap: Policy = .{ .value = 1024, .doc = "Settled Host vow outcomes retained for a caller that has not awaited yet." }; // status-allow: pending state or quoted runtime label
+pub const unobserved_outcome_cap: Policy = .{ .value = 1024, .doc = "Settled Host vow outcomes retained for a caller that has not awaited yet." };
 
 pub const readiness_drain_cap: Policy = .{ .value = 64, .doc = "Readiness records a binding pulls from a transport endpoint per drain call." };
 

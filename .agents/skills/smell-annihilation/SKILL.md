@@ -72,9 +72,10 @@ on `at`/`toOwned` without a forbid, name, or measure line is incomplete.
 1. **SCOPE.** State the defect, the intended ownership and behavior, and the
    constraints on changing them. Name the memory or performance requirement
    and the check that will establish it.
-2. **REVIEW WITH TWO INDEPENDENT READERS.** Spawn two subagents on the real
-   tree, because you have blind spots in code you wrote. Give each a different
-   concern (the layer boundary, the wire-path cost) and order both:
+2. **REVIEW WITH TWO INDEPENDENT READERS.** When the user asked for
+   independent reviewers, spawn two subagents on the real tree, because you
+   have blind spots in code you wrote. Otherwise read the tree twice
+   yourself, one concern per pass. Give each reader a different concern (the layer boundary, the wire-path cost) and order both:
 
    > Read the code, don't hand-wave; say where something is already right;
    > do not invent nits; propose, do not edit, I will execute.

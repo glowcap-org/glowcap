@@ -64,6 +64,7 @@ pub fn init(
         .codec = opts.codec,
         .captp_version = opts.captp_version,
         .features = opts.features,
+        .thread_policy = @import("../mod.zig").checked_threads,
     };
     core_opts.limits.max_frame_bytes = opts.frame_cap;
     core.* = try driver_core.Host.init(allocator, seed, session_root, core_opts);
@@ -130,27 +131,64 @@ pub fn addResident(self: *HostRuntime, profile: model.transport.Metadata, reside
     return index[0];
 }
 
-/// Install a provider package only after all validation and capacity succeeds.
-pub fn addProviderPackage(self: *HostRuntime, package: HostRuntime.ProviderPackage, indices: []usize) !bool {
-    try Internal.admitApplicationOperation(self);
-    if (package.registrations.len == 0 or indices.len != package.registrations.len)
-        return error.InvalidProviderPackage;
-    for (self.provider_packages.items) |installed| {
-        if (!try installed.overlaps(package.registrations)) continue;
-        if (!try installed.hasSameProfiles(package.registrations)) return error.ProviderConfigurationConflict;
-        if (try installed.owner.same_configuration(installed.owner.ctx, package.owner.ctx)) return false;
-        return error.ProviderConfigurationConflict;
+/// Mark the profiles of a candidate package that no installed package serves,
+/// and return how many there are. A profile that one already serves stays with
+/// it when both come from the same provider implementation with the same
+/// profile shape and configuration, so two packages from one provider compose
+/// in either order. Any other overlap is
+/// `ProviderConfigurationConflict`, and a profile a resident outside any
+/// package serves is `TransportAlreadyRegistered`. A package that names no
+/// profile, or one profile twice, is `InvalidProviderPackage`. This installs
+/// nothing, so a caller builds provider state for the unserved profiles alone.
+pub fn unservedProfiles(
+    self: *HostRuntime,
+    profiles: []const model.transport.Metadata,
+    owner: HostRuntime.ProviderOwner,
+    unserved: []bool,
+) !usize {
+    if (profiles.len == 0 or unserved.len != profiles.len) return error.InvalidProviderPackage;
+    var count: usize = 0;
+    for (profiles, unserved, 0..) |raw, *mark, i| {
+        const profile = try contract.canonicalProviderProfile(raw);
+        for (profiles[0..i]) |prior|
+            if (std.mem.eql(u8, prior.symbol, profile.symbol)) return error.InvalidProviderPackage;
+        mark.* = for (self.provider_packages.items) |installed| {
+            const served = installed.profileNamed(profile.symbol) orelse continue;
+            if (!served.eql(profile)) return error.ProviderConfigurationConflict;
+            // Only one implementation can read both owners' contexts.
+            if (installed.owner.same_configuration != owner.same_configuration)
+                return error.ProviderConfigurationConflict;
+            if (!try installed.owner.same_configuration(installed.owner.ctx, owner.ctx))
+                return error.ProviderConfigurationConflict;
+            break false;
+        } else if (self.hasTransport(profile.symbol))
+            return error.TransportAlreadyRegistered
+        else
+            true;
+        count += @intFromBool(mark.*);
     }
-    const profiles = try self.allocator.alloc(model.transport.Metadata, package.registrations.len);
+    return count;
+}
+
+/// Install a provider package and take its owner. Every profile must be
+/// unserved: `unservedProfiles` is how a caller composes with what is
+/// installed. Validation and capacity come first, so a refusal installs
+/// nothing.
+pub fn addProviderPackage(self: *HostRuntime, package: HostRuntime.ProviderPackage) !void {
+    try Internal.admitApplicationOperation(self);
+    const count = package.registrations.len;
+    if (count == 0) return error.InvalidProviderPackage;
+    const indices = try self.allocator.alloc(usize, count);
+    defer self.allocator.free(indices);
+    const profiles = try self.allocator.alloc(model.transport.Metadata, count);
     errdefer self.allocator.free(profiles);
+    for (package.registrations, profiles) |registration, *profile|
+        profile.* = try contract.canonicalProviderProfile(registration.profile);
     try self.provider_packages.ensureUnusedCapacity(self.allocator, 1);
     try addProvidersAfterAdmission(self, package.registrations, indices);
-    for (package.registrations, profiles) |registration, *profile| {
-        profile.* = try contract.canonicalProviderProfile(registration.profile);
-        profile.symbol = self.transportName(profile.symbol).?;
-    }
+    // The installed row borrows the runtime's own copy of each name.
+    for (profiles) |*profile| profile.symbol = self.transportName(profile.symbol).?;
     self.provider_packages.appendAssumeCapacity(.{ .profiles = profiles, .owner = package.owner });
-    return true;
 }
 
 pub fn addProviders(self: *HostRuntime, registrations: []const HostRuntime.ProviderRegistration, indices: []usize) !void {
@@ -179,7 +217,7 @@ fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRun
         const profile = try contract.canonicalProviderProfile(registration.profile);
         if (self.hasTransport(profile.symbol)) return error.TransportAlreadyRegistered;
         for (prepared[0..i]) |prior|
-            if (std.mem.eql(u8, prior.profile.symbol, profile.symbol)) return error.TransportAlreadyRegistered;
+            if (std.mem.eql(u8, prior.profile.symbol, profile.symbol)) return error.InvalidProviderPackage;
         var index: ?usize = null;
         for (self.residents.items, 0..) |existing, existing_index| if (existing.resident.eql(registration.resident)) {
             index = existing_index;

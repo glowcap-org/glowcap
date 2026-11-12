@@ -268,7 +268,7 @@ impl Index {
 	}
 	/// Replace only the exact row the calling line capability retained with
 	/// the line as it now reads, shared with the caller the way `record`
-	/// shares it. A queued tail keeps the row it was given, so the earlier status-allow: event or source ordering
+	/// shares it. A queued tail keeps the row it was given, so the earlier
 	/// value persists as it stood.
 	pub fn replace(&mut self, room: &str, token: Token, line: Arc<KeptLine>) -> Result<Option<Persist>, Error> {
 		validate_line(&line)?;

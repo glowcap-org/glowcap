@@ -17,15 +17,11 @@
                      glowcap_context_next_failure*
                      glowcap_locator_record_encode*
                      glowcap_uri_parse_peer*
-                     glowcap_uri_parse_peer_in*
                      glowcap_uri_parse_sturdyref*
-                     glowcap_uri_parse_sturdyref_in*
                      glowcap_uri_format_peer*
                      glowcap_uri_format_sturdyref*
                      glowcap_locator_new*
-                     glowcap_locator_new_in*
                      glowcap_locator_clone*
-                     glowcap_locator_clone_in*
                      glowcap_locator_borrow_view*
                      glowcap_sturdyref_borrow_locator*
                      glowcap_sturdyref_swissnum*
@@ -71,18 +67,10 @@
   (_fun _pointer _size _pointer -> _int32)
   #:c-id glowcap_uri_parse_peer)
 (define glowcap_uri_parse_peer (wrap-out1 glowcap_uri_parse_peer* _pointer #f))
-(define-glowcap glowcap_uri_parse_peer_in*
-  (_fun _pointer _pointer _size _pointer -> _int32)
-  #:c-id glowcap_uri_parse_peer_in)
-(define glowcap_uri_parse_peer_in (wrap-out1 glowcap_uri_parse_peer_in* _pointer #f))
 (define-glowcap glowcap_uri_parse_sturdyref*
   (_fun _uint32 _pointer _size _pointer -> _int32)
   #:c-id glowcap_uri_parse_sturdyref)
 (define glowcap_uri_parse_sturdyref (wrap-out1 glowcap_uri_parse_sturdyref* _pointer #f))
-(define-glowcap glowcap_uri_parse_sturdyref_in*
-  (_fun _pointer _uint32 _pointer _size _pointer -> _int32)
-  #:c-id glowcap_uri_parse_sturdyref_in)
-(define glowcap_uri_parse_sturdyref_in (wrap-out1 glowcap_uri_parse_sturdyref_in* _pointer #f))
 (define-glowcap glowcap_uri_format_peer*
   (_fun _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size _pointer _size _pointer -> _int32)
   #:c-id glowcap_uri_format_peer)
@@ -95,18 +83,10 @@
   (_fun _pointer _size _pointer _size _uint32 _pointer -> _int32)
   #:c-id glowcap_locator_new)
 (define glowcap_locator_new (wrap-out1 glowcap_locator_new* _pointer #f))
-(define-glowcap glowcap_locator_new_in*
-  (_fun _pointer _pointer _size _pointer _size _uint32 _pointer -> _int32)
-  #:c-id glowcap_locator_new_in)
-(define glowcap_locator_new_in (wrap-out1 glowcap_locator_new_in* _pointer #f))
 (define-glowcap glowcap_locator_clone*
   (_fun (_or-null _GlowcapLocatorView-pointer) _pointer -> _int32)
   #:c-id glowcap_locator_clone)
 (define glowcap_locator_clone (wrap-out1 glowcap_locator_clone* _pointer #f))
-(define-glowcap glowcap_locator_clone_in*
-  (_fun _pointer (_or-null _GlowcapLocatorView-pointer) _pointer -> _int32)
-  #:c-id glowcap_locator_clone_in)
-(define glowcap_locator_clone_in (wrap-out1 glowcap_locator_clone_in* _pointer #f))
 (define-glowcap glowcap_locator_borrow_view*
   (_fun _pointer _pointer -> _int32)
   #:c-id glowcap_locator_borrow_view)

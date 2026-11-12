@@ -80,12 +80,10 @@ fn ice_servers_reach_the_endpoint() {
 		include_loopback_candidates: 0,
 		worker_threads: 0,
 	};
-	let ep = test_endpoint_new(&cfg);
-	assert!(!ep.is_null());
+	// SAFETY: `cfg` and every view it names are locals that outlive the call.
+	let ep = unsafe { GlowcapWebrtcEndpoint::from_config(&cfg) }.expect("endpoint");
 	assert_eq!(
-		// SAFETY: `ep` is the non-null live handle `test_endpoint_new` returned (asserted above); only the
-		// `glowcap_webrtc_sidecar_endpoint_free` call below frees it, after this borrow ends.
-		unsafe { &*ep }.inner.ice_servers,
+		ep.inner.ice_servers,
 		vec![
 			RTCIceServer {
 				urls: vec!["stun:stun.example:3478".to_string()],
@@ -102,9 +100,8 @@ fn ice_servers_reach_the_endpoint() {
 			}
 		]
 	);
-	// SAFETY: `ep` is the owned endpoint handle `test_endpoint_new` returned; nothing has freed it, it has no peers,
-	// and it is not used after this call.
-	unsafe { glowcap_webrtc_sidecar_endpoint_free(ep) };
+	// SAFETY: `ep` is the owned endpoint this test built, with no peers, and the C release takes it back once.
+	assert_eq!(unsafe { glowcap_webrtc_sidecar_endpoint_free(Box::into_raw(ep)) }, OK);
 
 	let empty = GlowcapWebrtcEndpointConfig {
 		ice_servers: std::ptr::null(),
@@ -112,14 +109,12 @@ fn ice_servers_reach_the_endpoint() {
 		include_loopback_candidates: 0,
 		worker_threads: 0,
 	};
-	let host_only = test_endpoint_new(&empty);
-	assert!(!host_only.is_null());
-	// SAFETY: `host_only` is the non-null live handle `test_endpoint_new` returned (asserted above); only the
-	// `glowcap_webrtc_sidecar_endpoint_free` call below frees it, after this borrow ends.
-	assert!(unsafe { &*host_only }.inner.ice_servers.is_empty());
-	// SAFETY: `host_only` is the owned endpoint handle `test_endpoint_new` returned; nothing has freed it, it has no
-	// peers, and it is not used after this call.
-	unsafe { glowcap_webrtc_sidecar_endpoint_free(host_only) };
+	// SAFETY: `empty` names no ICE-server array.
+	let host_only = unsafe { GlowcapWebrtcEndpoint::from_config(&empty) }.expect("host-only endpoint");
+	assert!(host_only.inner.ice_servers.is_empty());
+	// SAFETY: `host_only` is the owned endpoint this test built, with no peers, and the C release takes it back once.
+	let released = unsafe { glowcap_webrtc_sidecar_endpoint_free(Box::into_raw(host_only)) };
+	assert_eq!(released, OK);
 }
 
 /// A null config is refused rather than silently taken as "no ICE servers",

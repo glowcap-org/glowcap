@@ -47,6 +47,7 @@ const Spec = struct {
         .{ .name = "GLOWCAP_HOST_ACTION_CLOSE", .doc = "GlowcapHostAction.kind: the host retired this session; write any queued terminal frame, close its transport, and release the session." },
         .{ .name = "GLOWCAP_HOST_ACTION_RESUME", .doc = "GlowcapHostAction.kind: the finite host scheduler yielded with internal work remaining; continue draining actions, with no session or I/O payload." },
         .{ .name = "GLOWCAP_HOST_ACTION_CANCEL_DIAL", .doc = "GlowcapHostAction.kind: interrupt and join the external dial named by ticket, then report glowcap_host_dial_cancelled." },
+        .{ .name = "GLOWCAP_UNKNOWN_SWISSNUM_MESSAGE", .doc = "Exact partner fetch-refusal text for an unknown publication. Match only with partner origin, application reason, and fetch context. Local misses carry publication_absent." },
         .{ .name = "GLOWCAP_PENDING_CANCEL", .doc = "glowcap_host_close pending policy: seal admission, cancel admitted work, and begin terminal session shutdown." },
         .{ .name = "GLOWCAP_PENDING_FINISH", .doc = "glowcap_host_close pending policy: seal admission and keep driving admitted work before terminal session shutdown." },
         .{ .name = "GLOWCAP_CLOSE_OPTIONS_ABI_VERSION", .doc = "GlowcapCloseOptions.abi_version." },
@@ -309,6 +310,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_CLOSE");
     try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_RESUME");
     try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_CANCEL_DIAL");
+    try emitConst(&b, gpa, "GLOWCAP_UNKNOWN_SWISSNUM_MESSAGE");
+
     try emitConst(&b, gpa, "GLOWCAP_PENDING_CANCEL");
     try emitConst(&b, gpa, "GLOWCAP_PENDING_FINISH");
     try emitConst(&b, gpa, "GLOWCAP_CLOSE_OPTIONS_ABI_VERSION");
@@ -369,6 +372,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "FAIL: the break reason; NULL otherwise.",
         "",
         "CLOSE: GLOWCAP_OK or GLOWCAP_ERR_TIMEOUT. FAIL: GLOWCAP_ERR_BROKEN or GLOWCAP_ERR_CLOSED; zero otherwise.",
+        "FAIL: failure provenance, reason and operation context. Zero fields otherwise.",
     });
     try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,
@@ -479,7 +483,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_host_next_action", &.{ "host", "out_action" }, "Pop the next embedder action into *out_action, or return\nGLOWCAP_ERR_WOULD_BLOCK when none is pending. Before the pop, queued Host work\nresumes and may invoke GlowcapHostBehavior synchronously; binding runtimes must\ninstall their Host delivery context around every drain. A DIAL carries ticket\nand route_index (borrow the exact pending view with glowcap_host_pending_dial).\nA SETTLE's value and a FAIL's message are host-owned until the NEXT\nglowcap_host_next_action call, which frees them. Deferred work may return\nGLOWCAP_ERR_INTERNAL under allocator pressure before an action is popped; no\naction or authority is lost, and the embedder retries this same drain call when\npressure subsides. See the one loop rule in the header preamble. Refused inside\na callback.");
     try emitFn(&b, gpa, "glowcap_host_pump_drain", &.{ "host", "hooks", "out_acted", "out_yielded" }, "Opt-in convenience drain over glowcap_host_next_action (ADR-0022). Still pops through the pull-queue internally; does not replace\nit. hooks may be NULL (every action is discarded). *out_acted is 1 when any\narm reported progress (optional, may be NULL). *out_yielded is 1 when the\nfinite Host scheduler requested another embedder turn (optional, may be NULL);\nreturn to the reactor before draining again. Resuming work may invoke\nGlowcapHostBehavior synchronously before an action hook runs, so binding\nruntimes must install their Host delivery context around this whole call. See\nGlowcapHostPumpHooks.");
     try emitFn(&b, gpa, "glowcap_host_dialed", &.{ "host", "ticket", "route_index", "session", "out_adopted" }, "Report a DIAL attempt's success. session is an open_dialed_locator against the\nexact ticket/route_index view, driven open. *out_adopted is one when this route\nwon the logical dial and zero when another route already won or the attempt was\nnot running; the executor must close and release an unadopted session. A non-OK\nreturn consumes neither attempt nor session.");
-    try emitFn(&b, gpa, "glowcap_host_dial_failed", &.{ "host", "ticket", "route_index", "reason", "reason_len" }, "Report one DIAL attempt's failure. Strong identity routes maintain their bounded\nrace before ordered weak fallbacks begin; waiters break only after every eligible\nroute fails. A stale or non-running attempt is a no-op success.");
+    try emitFn(&b, gpa, "glowcap_host_dial_failed", &.{ "host", "ticket", "route_index", "failure", "reason", "reason_len" }, "Report one DIAL attempt's failure. failure must be a GLOWCAP_ROUTE_FAILURE_* constant. Unknown values are refused.\nOnly a route with no configured transport may use TRANSPORT_UNAVAILABLE. Strong identity\nroutes maintain their bounded race before ordered weak fallbacks begin; waiters\nbreak only after every eligible route fails. The terminal cause names unavailable\ntransports only when every accepted failure did. A stale or non-running attempt\nis a no-op success.");
     try emitFn(&b, gpa, "glowcap_host_dial_cancelled", &.{ "host", "ticket", "route_index" }, "Acknowledge that a CANCEL_DIAL attempt's physical operation has stopped and its\nexecutor state can be released. Host close remains pending until this report.");
     try emitFn(&b, gpa, "glowcap_host_provide_gift_id", &.{ "host", "ticket", "gift_id", "gift_id_len" }, "Answer a NEED_GIFT_ID action with 32 caller-drawn random bytes: the host\noriginates the claimed handoff and this call flushes its legs, exporter\nfirst. A stale ticket is a no-op success.");
     try emitFn(&b, gpa, "glowcap_host_gift_id_failed", &.{ "host", "ticket" }, "Report that a NEED_GIFT_ID action could not obtain or provide entropy. The\nclaimed handoff settles broken instead of retaining a ticket the embedder has\nalready consumed. A stale ticket is a no-op success.");
@@ -572,6 +576,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_host_session_bind_verified_channel_key", &.{ "session", "designator", "designator_len" }, "Testify what the code that realized this connection proved about its far\nend: designator is the durable key that proof names, as a locator writes it.\nAn iroh listener passes what glowcap_iroh_conn_remote_node_id read off the\nQUIC handshake; a WebRTC peer passes the identity its signaling\nauthorized.\n\nThis library realizes nothing at the byte-fed tier. You own the sockets, so\nyou are the realizer, and this is the only way that proof reaches a session.\nWithout it the session reports unauthenticated durable provenance.\n\nCall it after opening the session and before feeding the first partner byte.\nGLOWCAP_ERR_SESSION means the partner's op:start-session was already applied,\nso the proof is too late to weigh. GLOWCAP_ERR_INVALID_ARGUMENT means the\ndesignator does not spell a durable key, or names a different key from one\nthis connection's realizer already asserted. Asserting the same key twice is\nthe same statement made twice and succeeds.");
 
     try emitFn(&b, gpa, "glowcap_host_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last glowcap_host_* error into out_buf, the host\nsibling of glowcap_last_error, reading this archive's own per-thread slot.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap\n0 queries the length. Returns the full message length, or 0 when none is set." ++ header_emit.last_error_freshness_doc);
+    try emitFn(&b, gpa, "glowcap_host_last_error_cause", &.{"out_cause"}, "Copy the preceding Host operation's failure metadata without clearing it. A null output is a no-op. Zero fields mean no named failure. Diagnostic text never establishes provenance.");
     try emitFn(&b, gpa, "glowcap_host_clear_last_error", &.{}, "Clear the calling thread's glowcap_host_* last-error slot.");
 
     try b.appendSlice(gpa,

@@ -134,6 +134,11 @@
       #f))
 
 (define (on-ffi-event ctx borrowed-event)
+  ;; A C callback: breaks stay disabled so the catch-all below catches only
+  ;; raised values, never a break meant for the thread.
+  (parameterize-break #f (on-ffi-event/guarded ctx borrowed-event)))
+
+(define (on-ffi-event/guarded ctx borrowed-event)
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
                      ;; Decoder failures are callerless binding failures. Keep

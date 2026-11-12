@@ -131,7 +131,10 @@ pub fn ownedFrameFromView(
 /// Dispatch a borrowed inbound frame. The transient bytes are materialized once
 /// into an owned frame because the surfaced event outlives this call.
 /// An over-cap frame, and any frame for a closed session, is refused before
-/// allocation or copying.
+/// allocation or copying. A copy that cannot be allocated returns
+/// `OutOfMemory` with the session open and nothing recorded, so a caller that
+/// still holds the bytes retries them. A carrier that consumed them fails
+/// the session itself.
 pub fn recvBorrowed(self: *Peer, frame: foundation.FrameView) !void {
     if (self.sessionIsClosed()) {
         inbound.emitAbortForError(self, error.SessionClosed);
@@ -141,7 +144,15 @@ pub fn recvBorrowed(self: *Peer, frame: foundation.FrameView) !void {
         inbound.emitAbortForError(self, err);
         return err;
     };
-    const owned = try ownedFrameFromView(self.allocator, frame);
+    const owned = ownedFrameFromView(self.allocator, frame) catch |err| switch (err) {
+        error.OutOfMemory => return err,
+        // A `word` body whose length is not a whole number of words cannot
+        // be one frame of that codec.
+        error.InvalidFrameShape => {
+            inbound.emitAbortForError(self, err);
+            return err;
+        },
+    };
     try inbound.dispatchOwnedFrame(self, owned);
 }
 

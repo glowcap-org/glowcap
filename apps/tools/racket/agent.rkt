@@ -3,24 +3,34 @@
 ;; coordinator (which may be written in any language) and proves the three
 ;; capability properties — delegation, attenuation, revocation — over the wire.
 ;;
-;;   racket agent.rkt 127.0.0.1 9099 rkt-agent
+;;   racket agent.rkt <locator> rkt-agent
+;;
+;; The locator is the `ocapn://` URI the coordinator printed.
 
 (require "../../_demo/bindings.rkt"
          "../../_demo/tools_check.rkt"
-         "../../../bindings/racket/glowcap-tcp.rkt")
+         "../../../bindings/racket/glowcap-tcp.rkt"
+         ;; The public module raises exn:fail:glowcap with its code but does
+         ;; not provide the code's name.
+         (only-in "../../../bindings/racket/private/constants.rkt" ERR-BROKEN))
 
 ;; `session-send`, summarized for the checks below: `(cons 'ok value)` on a
 ;; fulfilled reply, `(cons 'broken message)` on a broken one (revocation tests
-;; expect broken outcomes, so they are data here, not errors).
+;; expect broken outcomes, so they are data here, not errors). Any other
+;; failure, a transport or marshalling one, propagates with its own cause.
+(define (broken? e)
+  (and (exn:fail:glowcap? e) (= (exn:fail:glowcap-code e) ERR-BROKEN)))
 (define (try-call c target verb . args)
-  (with-handlers ([exn:fail? (lambda (e) (cons 'broken (exn-message e)))])
+  (with-handlers ([broken? (lambda (e) (cons 'broken (exn-message e)))])
     (cons 'ok (apply session-send c target verb args))))
 
-(define (run host port nick)
+(define (run locator nick)
   (define check (make-check nick))
 
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
-  (define c (runtime-connect runtime (tcp-locator host port)))
+  (define runtime (open-runtime
+                  #:providers
+                  (list (tcp-provider))))
+  (define c (runtime-connect runtime (parse-locator locator)))
   (define tools (session-fetch c "tools"))
 
   ;; 1. Delegation: get a clock capability and call it.
@@ -52,15 +62,14 @@
 
 (module+ main
   (define args (current-command-line-arguments))
-  (when (< (vector-length args) 3)
-    (eprintf "usage: agent.rkt <host> <port> <nick>\n")
+  (when (< (vector-length args) 2)
+    (eprintf "usage: agent.rkt <locator> <nick>\n")
     (exit 2))
-  (define host (vector-ref args 0))
-  (define port (string->number (vector-ref args 1)))
-  (define nick (vector-ref args 2))
+  (define locator (vector-ref args 0))
+  (define nick (vector-ref args 1))
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (eprintf "agent ~a failed: ~a\n" nick (if (exn? e) (exn-message e) e))
                      (exit 1))])
-    (run host port nick)
+    (run locator nick)
     (exit 0)))

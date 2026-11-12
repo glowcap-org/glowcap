@@ -291,9 +291,7 @@ fn clientOnce(
 
     var session_root: [32]u8 = undefined;
     try io.randomSecure(&session_root);
-    var client_host = try driver.core.Host.init(allocator, seed, session_root, .{
-        .limits = .{ .max_frame_bytes = frame_cap },
-    });
+    var client_host = try driver.core.Host.init(allocator, seed, session_root, driver.core.Host.Options.init(driver.checked_threads, frame_cap));
     defer client_host.deinit();
 
     try client_host.setAdvertisedLocator(.{
@@ -413,9 +411,7 @@ pub fn main(init: std.process.Init) !void {
 
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = try driver.core.Host.init(allocator, server_seed, session_root, .{
-        .limits = .{ .max_frame_bytes = frame_cap },
-    });
+    var host = try driver.core.Host.init(allocator, server_seed, session_root, driver.core.Host.Options.init(driver.checked_threads, frame_cap));
     defer host.deinit();
 
     var hub = Hub.init(allocator, io, undefined);

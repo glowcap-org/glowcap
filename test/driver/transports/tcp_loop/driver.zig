@@ -158,10 +158,9 @@ pub fn main(init: std.process.Init) !void {
     var done = std.atomic.Value(bool).init(false);
     var serving = try io.concurrent(serve, .{ server, &done });
     var serving_joined = false;
-    defer if (!serving_joined) {
+    errdefer if (!serving_joined) {
         done.store(true, .release);
-        // best-effort: this unwind already returns the run's own error, and the serving thread's failure would only repeat it.
-        serving.await(io) catch {};
+        harness.joinedUnwinding("serving", serving.await(io));
     };
 
     const baseline: i64 = counting.live.load(.acquire);

@@ -7,6 +7,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
+const wait = @import("../support/wait.zig");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
@@ -72,7 +73,7 @@ fn callAbortedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocat
     const reply = try session.call(greeter, "greet", &.{.{ .string = "glowcap" }}, arena_state.allocator());
     switch (reply) {
         .fulfilled => return error.UnexpectedFulfillment,
-        .broken => |reason| try std.testing.expectEqualStrings(abort_diagnostic, reason),
+        .broken => |reason| try std.testing.expectEqualStrings(abort_diagnostic, reason.detail),
     }
     try std.testing.expectEqualStrings(abort_diagnostic, session.abortReason().?);
     const retained = session.partnerAbort().?;
@@ -140,15 +141,17 @@ test "connect: a silent partner's handshake breaks with HandshakeTimedOut throug
     }
 }
 
-/// A raw TCP client that completes connect and then says nothing for longer
-/// than the accepter's handshake budget: the ADR-0030 slowloris, aimed at the
-/// accept path so its failure unwind runs under the testing allocator
-/// (the accept-side handshake failure once double-freed the wire buffers).
-fn silentRawDialer(io: std.Io, address: ip.IpAddress) anyerror!void {
+/// A raw TCP client that completes connect and then says nothing until the
+/// accepter's handshake budget has broken its accept: the ADR-0030 slowloris,
+/// aimed at the accept path so its failure unwind runs under the testing
+/// allocator (the accept-side handshake failure once double-freed the wire
+/// buffers). `accept_returned` is the accepter's own report, so the silence
+/// lasts exactly as long as the accept waits, whatever the machine's speed.
+fn silentRawDialer(io: std.Io, address: ip.IpAddress, accept_returned: *const std.atomic.Value(bool)) anyerror!void {
     var addr = address;
     const stream = try std.Io.net.IpAddress.connect(&addr, io, .{ .mode = .stream });
     defer stream.close(io);
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(800), .real) catch {};
+    try wait.untilFlag(io, wait.default_deadline_ms, accept_returned);
 }
 
 test "accept: a connect-then-silent dialer times out and the unwind stays memory-clean" {
@@ -167,21 +170,35 @@ test "accept: a connect-then-silent dialer times out and the unwind stays memory
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    var dialer = try io.concurrent(silentRawDialer, .{ io, address });
-    defer dialer.await(io) catch {};
+    var accept_returned = std.atomic.Value(bool).init(false);
+    var dialer = try io.concurrent(silentRawDialer, .{ io, address, &accept_returned });
+    var dialer_awaited = false;
+    errdefer if (!dialer_awaited) {
+        accept_returned.store(true, .release);
+        wait.joinedUnwinding("dialer", dialer.await(io));
+    };
 
     try std.testing.expectError(driver.Error.HandshakeTimedOut, server.accept());
+    accept_returned.store(true, .release);
+    dialer_awaited = true;
+    try dialer.await(io);
 }
 
 /// Host half that completes the keyed handshake and publishes, then never
-/// serves, the partner opens then stalls, the settle budget's target.
-fn hostAcceptPublishThenStall(server: *driver.Server, io: std.Io) anyerror!void {
+/// serves, the partner opens then stalls, the settle budget's target. It holds
+/// the connection open without pumping CapTP until the client reports that
+/// its settle budget fired (`client_done`), then exits.
+fn hostAcceptPublishThenStall(server: *driver.Server, io: std.Io, client_done: *const std.atomic.Value(bool), result: *?anyerror) void {
+    hostStall(server, io, client_done) catch |err| {
+        result.* = err;
+    };
+}
+
+fn hostStall(server: *driver.Server, io: std.Io, client_done: *const std.atomic.Value(bool)) !void {
     var session = try server.accept();
     defer session.deinit();
     _ = try session.publish("root", Greeter, .{});
-    // Hold the connection open without pumping CapTP until the client's
-    // settle budget fires and it drops the socket; then exit.
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2000), .real) catch {};
+    try wait.untilFlag(io, wait.default_deadline_ms, client_done);
 }
 
 fn silentPartnerSettleTimesOut(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
@@ -207,8 +224,18 @@ test "driver loopback: a partner that opens then stalls breaks settle with WaitT
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    const host_thread = try std.Thread.spawn(.{}, hostAcceptPublishThenStall, .{ server, io });
-    defer host_thread.join();
+    var client_done = std.atomic.Value(bool).init(false);
+    var host_result: ?anyerror = null;
+    const host_thread = try std.Thread.spawn(.{}, hostAcceptPublishThenStall, .{ server, io, &client_done, &host_result });
+    var joined = false;
+    defer if (!joined) {
+        client_done.store(true, .release);
+        host_thread.join();
+    };
 
     try silentPartnerSettleTimesOut(io, address, allocator);
+    client_done.store(true, .release);
+    host_thread.join();
+    joined = true;
+    if (host_result) |err| return err;
 }

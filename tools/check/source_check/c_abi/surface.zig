@@ -80,15 +80,15 @@ pub fn checkAbiFreeingVerb(
 }
 
 /// The minimality bar from ADR-0022: a clean C ABI is not only correctly
-/// represented but minimally shaped — one spelling per concept, no
+/// represented but minimally shaped, with one spelling per concept and no
 /// accidental variation. This holds the two structural invariants a careless
 /// addition would break (the close/release verb is held separately by
 /// `checkAbiFreeingVerb`):
 ///   - constructor-twin completeness: every `*_new` that uses the library
 ///     allocator has exactly one allocator-aware twin (`*_new_in`, or
-///     `*_new_with_allocator` for the context root), and every twin has its base;
+///     `*_new_with_allocator` for the context root), and every twin has its base.
 ///   - one error channel per archive: exactly one `last_error`/`clear_last_error`
-///     pair per family — the ocapn root, `tcp`, `inproc`, `iroh` — and no other
+///     pair per family (the ocapn root, `tcp`, `inproc`, `iroh`) and no other
 ///     error-reporting spelling.
 pub fn checkCAbiSurfaceShape(
     io: std.Io,
@@ -231,7 +231,7 @@ fn isConsumerSource(path: []const u8) bool {
 
 /// Every function the C headers export must have a consumer: a reference
 /// somewhere under `bindings/`, `examples/`, `interop/`, or `test/`. An export
-/// nobody consumes or exercises is dead surface — the drift mode is a verb the
+/// nobody consumes or exercises is dead surface. The drift mode is a verb the
 /// waist has superseded that keeps shipping because nothing points at it. The
 /// scan collects every `glowcap_*` identifier the consumer trees mention (one
 /// pass, identifier boundaries), so `glowcap_host_session_feed` cannot satisfy
@@ -324,7 +324,7 @@ pub fn checkAbiExportsConsumed(
 /// a prototype. Matching on that call shape rather than on a set of allowed
 /// return-type spellings keeps a new export visible whatever its return type is,
 /// whether `uint64_t`, a `double`, or a pointer. Each appended `name` slice
-/// references `contents`, so the caller must keep it alive; callers also read
+/// references `contents`, so the caller must keep it alive. Callers also read
 /// the declaration count, and a zero there means the scanner has stopped
 /// matching the header.
 fn collectHeaderDeclarations(
@@ -360,14 +360,14 @@ const HeaderDecl = struct { name: []const u8, offset: usize };
 /// `_release` is the only C ABI verb that frees a handle: a `*_free` export
 /// is rejected outright, and a `*_close` must document that it does not free.
 /// The endpoint
-/// surfaces converged on that law — every handle frees through exactly one
+/// surfaces converged on that law: every handle frees through exactly one
 /// `glowcap_*_release`, and a `glowcap_*_close` is a shutdown lever that
-/// leaves the handle alive — so this holds it in the generated headers:
+/// leaves the handle alive, so this holds it in the generated headers:
 /// every `*_close` declaration must carry a doc comment that says
 /// "without releasing" and never claims to free. A future netlayer that
 /// reintroduces a freeing close fails the gate instead of shipping the
 /// ambiguity to a C consumer.
-/// The generated headers the C-ABI vocabulary checks below hold — every
+/// The generated headers the C-ABI vocabulary checks below hold: every
 /// exporting archive, one list, so a new archive cannot join some checks and
 /// silently miss others.
 const abi_vocabulary_headers = [_][]const u8{

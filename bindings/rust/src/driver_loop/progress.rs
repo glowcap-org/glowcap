@@ -182,9 +182,10 @@ impl LoopShared {
 						HostAction::Fail {
 							ticket,
 							result,
+							cause,
 							message,
 						} => {
-							host.settle_vow(ticket, Err(Error::with_detail(result, message)));
+							host.settle_vow(ticket, Err(Error::with_detail(result, message).with_raw_cause(cause)));
 						}
 						// FLUSH/CLOSE/DIAL/NEED_GIFT_ID never surface: the
 						// loop executes transport-shaped actions internally.
@@ -201,7 +202,8 @@ impl LoopShared {
 		self.note_step_activity();
 	}
 
-	/// Begin a nonblocking dial and await its session handle. The handshake advances
+	/// Begin a nonblocking dial and await its session handle. A caller that
+	/// drops the future gives the handle back to the loop, which releases it. The handshake advances
 	/// across steps (`driver.HostRuntime.startDial`), so loops on one
 	/// thread can dial each other and a stalled partner costs its budget,
 	/// never the loop.
@@ -219,7 +221,8 @@ impl LoopShared {
 		// admitted. Make it rebuild its FFI-authoritative progress clock.
 		self.note_step_activity();
 		self.schedule_step();
-		match outcome.await {
+		let mut waiting = DialWaiter { lp: self, outcome };
+		match (&mut waiting.outcome).await {
 			Ok(outcome) => outcome,
 			Err(_) => Err(loop_closed_error()),
 		}
@@ -288,5 +291,23 @@ impl LoopShared {
 		};
 		pending.armed = false;
 		result.map(|()| listener)
+	}
+}
+
+/// The receiving end of one dial. The loop delivers the opened handle into
+/// the channel before the dialer is polled again, so a dialer cancelled in
+/// that window would strand an open session no one serves or closes. Dropping
+/// the waiter closes the channel and releases a handle it still holds.
+struct DialWaiter<'a> {
+	lp: &'a Rc<LoopShared>,
+	outcome: oneshot::Receiver<Result<*mut ffi_host::GlowcapHostSession>>,
+}
+
+impl Drop for DialWaiter<'_> {
+	fn drop(&mut self) {
+		self.outcome.close();
+		if let Ok(Ok(session)) = self.outcome.try_recv() {
+			self.lp.release_unclaimed_session(session);
+		}
 	}
 }

@@ -179,14 +179,17 @@ async fn next<P: Tasks + Deadline + Clone + 'static>(
 		.upgrade()
 		.ok_or_else(|| loam::refusal("Session activity has closed"))?;
 	let token = activity.token(delivery.cursor)?;
+	let head = activity.token(delivery.head)?;
 	if delivery.unavailable {
-		return Ok(json!({"cursor":token,"unavailable":true}).to_string().into());
+		return Ok(json!({"cursor":token,"head":head,"unavailable":true})
+			.to_string()
+			.into());
 	}
 	if delivery.gap {
-		return Ok(json!({"cursor":token,"gap":true}).to_string().into());
+		return Ok(json!({"cursor":token,"head":head,"gap":true}).to_string().into());
 	}
-	let Some(event) = delivery.event else {
-		return Ok(json!({"cursor":token}).to_string().into());
+	let Some(Accepted { at, event }) = delivery.event else {
+		return Ok(json!({"cursor":token,"head":head}).to_string().into());
 	};
 	let files = event
 		.files
@@ -198,7 +201,7 @@ async fn next<P: Tasks + Deadline + Clone + 'static>(
 		})
 		.collect::<Vec<_>>();
 	Ok(
-		json!({"cursor":token,"data":event.data,"files":files,"history":event.history().map(rooms_application::archive::history_data),
+		json!({"cursor":token,"head":head,"at":at,"data":event.data,"files":files,"history":event.history().map(rooms_application::archive::history_data),
 		"incoming":event.incoming.as_ref().map(super::Incoming::role)})
 		.to_string()
 		.into(),
@@ -231,7 +234,15 @@ pub(super) async fn receive<P: Tasks + Deadline + Clone + 'static>(
 			.borrow()
 			.iter()
 			.find(|entry| entry.id > cursor)
-			.map(|entry| (entry.id, entry.event.clone()));
+			.map(|entry| {
+				(
+					entry.id,
+					Accepted {
+						at: entry.at,
+						event: entry.event.clone(),
+					},
+				)
+			});
 		let oldest = activity.entries.borrow().front().map(|entry| entry.id);
 		drop(activity);
 		if let Some(oldest) = oldest
@@ -239,23 +250,26 @@ pub(super) async fn receive<P: Tasks + Deadline + Clone + 'static>(
 		{
 			return Ok(ActivityDelivery {
 				cursor: oldest - 1,
+				head: end,
 				gap: true,
 				unavailable: false,
 				event: None,
 			});
 		}
-		if let Some((id, event)) = selected {
-			let admitted = event.origin.admitted(host, platform.clone()).await?;
+		if let Some((id, accepted)) = selected {
+			let admitted = accepted.event.origin.admitted(host, platform.clone()).await?;
 			return Ok(ActivityDelivery {
 				cursor: id,
+				head: end,
 				gap: false,
 				unavailable: !admitted,
-				event: admitted.then_some(event),
+				event: admitted.then_some(accepted),
 			});
 		}
 		if !wait {
 			return Ok(ActivityDelivery {
 				cursor: end,
+				head: end,
 				gap: false,
 				unavailable: false,
 				event: None,
@@ -264,6 +278,7 @@ pub(super) async fn receive<P: Tasks + Deadline + Clone + 'static>(
 		if platform.within(5_000, notified).await.is_none() {
 			return Ok(ActivityDelivery {
 				cursor: end,
+				head: end,
 				gap: false,
 				unavailable: false,
 				event: None,

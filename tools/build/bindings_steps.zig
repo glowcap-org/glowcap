@@ -219,11 +219,13 @@ pub fn register(
         "conformance/goblins-peer/racket/iroh-netlayer.rkt",
         "conformance/goblins-peer/racket/rooms-client.rkt",
         "conformance/goblins-peer/racket/rooms-dm.rkt",
+        "bindings/racket/private/callback.rkt",
         "bindings/racket/private/gc.rkt",
         "bindings/racket/private/webrtc/runtime-test.rkt",
         "bindings/racket/private/webrtc/surface.rkt",
         "bindings/racket/private/iroh/surface.rkt",
         "bindings/racket/private/driver-failure.rkt",
+        "bindings/racket/private/errors.rkt",
         "bindings/racket/private/host.rkt",
         "bindings/racket/private/lib-resolve.rkt",
         "bindings/racket/private/listen-loop.rkt",
@@ -296,9 +298,9 @@ pub fn registerChecks(
     // the Zig toolchain, so `fmt` (write) and `fmt-check` (check) are in-tree and
     // `fmt-check` rides `check`. The Rust formatter needs cargo, so `bindings-fmt`
     // and `bindings-fmt-check` are siblings of `check`, the same posture as
-    // `rust-test` and `bindings`. Python and Racket have no formatter in the
-    // toolchain: Python's formatters forbid tabs and Racket indentation is
-    // alignment-sensitive, so they are governed by `.editorconfig` alone. The
+    // `rust-test` and `bindings`. Python's Ruff formatting and lint checks belong
+    // to `source-check`. Racket has no formatter in the toolchain and follows
+    // `.editorconfig` because its indentation is alignment-sensitive. The
     // indentation policy itself lives in `.editorconfig`, `rustfmt.toml`, and
     // the `deno.json` `fmt` blocks; these steps only run the tools.
     //
@@ -440,9 +442,7 @@ pub fn registerChecks(
     // The Python binding's type check. `python-check` under `source-check`
     // formats and lints it with the rest of the tree; the image pins mypy
     // beside ruff, so neither drifts with whatever the host has installed.
-    const mypy_check = execution.addSystemCommand(b, .build_tool, &.{
-        "mypy", "--ignore-missing-imports", "bindings/python/glowcap", "tools/run-with-timeout.py",
-    });
+    const mypy_check = execution.addSystemCommand(b, .build_tool, &(commands.mypy ++ .{ "bindings/python/glowcap", "tools/run-with-timeout.py" }));
     bindings_fmt_check_step.dependOn(&mypy_check.step);
 
     // Type-check the TypeScript binding. `deno-test` and `wasm-host-test`
@@ -478,6 +478,7 @@ pub fn registerChecks(
         "webrtc/test/channel_test.ts",
         "webrtc/test/peer_test.ts",
         "webrtc/test/listener_test.ts",
+        "webrtc/test/exchange_test.ts",
     });
     bindings_fmt_check_step.dependOn(&deno_stack_test.step);
     // Release hashing owns only a staged file, with no FFI or network access.
@@ -488,7 +489,7 @@ pub fn registerChecks(
     // These tests touch FFI but open no sockets; keep that capability out
     // of the otherwise pure stack suite.
     const deno_ffi_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/abi_value_test.ts", "bindings/ts/runtime/test/ffi_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/reference_ownership_test.ts", "bindings/ts/runtime/test/session_writer_test.ts", "bindings/ts/runtime/test/session_establishment_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts", "bindings/ts/runtime/test/driver_loop_teardown_test.ts",
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/abi_value_test.ts", "bindings/ts/runtime/test/ffi_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/reference_ownership_test.ts", "bindings/ts/runtime/test/session_writer_test.ts", "bindings/ts/runtime/test/session_establishment_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts", "bindings/ts/runtime/test/driver_loop_teardown_test.ts", "bindings/ts/runtime/test/library_resolution_test.ts",
     });
     bindings_fmt_check_step.dependOn(&deno_ffi_runtime_test.step);
     // The WebRTC driver adapter's exchange book, driven by fakes. It imports

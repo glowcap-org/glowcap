@@ -286,7 +286,7 @@ impl Generation {
 		// mix files from different immutable generations during startup.
 		let bundle = std::fs::canonicalize(bundle).map_err(|e| e.to_string())?;
 		let revision = text(&bundle.join("revision"), 128)?.trim().to_owned();
-		if !super::source::revision(&revision) {
+		if !rooms_application::web_build::is_name(&revision) {
 			return Err("browser bundle revision is malformed".into());
 		}
 		let identity = text(&bundle.join("source.version"), 128)?;

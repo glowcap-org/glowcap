@@ -1,7 +1,7 @@
 // Dialing a live feed: connect, disconnect, inbox, and the wasm peer.
 
 import { assert, assertEquals } from "@std/assert";
-import { LiveFeed, type LivePeerFactory } from "../connection.ts";
+import { LiveFeed, type LivePeerFactory, RECONNECT_MIN_MS } from "../connection.ts";
 import { startLiveMode } from "../mode.ts";
 import type { EngineError } from "../../errors.ts";
 import type { TimelineEvent } from "../../timeline.ts";
@@ -104,14 +104,14 @@ Deno.test("a faulted drop is reported once with reconnect as its recovery; a cle
 		);
 		const reported: EngineError[] = [];
 		feed.onError((error) => reported.push(error));
-		const connection: boolean[] = [];
+		const connection: string[] = [];
 		feed.onConnectionChange((value) => connection.push(value));
 		feed.connect();
 		await Promise.resolve();
 		if (failure === null) end();
 		else fail(failure);
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		assertEquals(connection, [true, false]);
+		assertEquals(connection, ["connected", "connecting"]);
 		if (failure === null) {
 			assertEquals(reported.length, 0);
 		} else {
@@ -154,11 +154,11 @@ Deno.test("disconnect closes the exact peer once and a late close reaches nobody
 		"ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
 		controlled.factory,
 	);
-	let connected: boolean | null = null;
+	let connected: string | null = null;
 	feed.onConnectionChange((v) => connected = v);
 	feed.connect();
 	await Promise.resolve();
-	assertEquals(connected, true);
+	assertEquals(connected, "connected");
 	feed.disconnect();
 	assertEquals(controlled.peers[0]?.closeCount, 1);
 	connected = null;
@@ -177,7 +177,7 @@ Deno.test("onConnectionChange: the unsubscribe releases the slot", async () => {
 		"ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
 		controlled.factory,
 	);
-	let connected: boolean | null = null;
+	let connected: string | null = null;
 	const off = feed.onConnectionChange((v) => connected = v);
 	feed.connect();
 	off();
@@ -293,16 +293,32 @@ Deno.test({
 			"ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
 			controlled.factory,
 		);
-		const states: boolean[] = [];
+		const states: string[] = [];
 		feed.onConnectionChange((connected) => states.push(connected));
 		feed.connect();
 		await Promise.resolve();
-		controlled.peers[0]?.finish();
-		await new Promise((resolve) => setTimeout(resolve, 550));
-		await Promise.resolve();
+		// The reconnect is a timer the feed schedules; it is captured here
+		// rather than waited out, so the test holds the delay it asks for.
+		const scheduled: { run: () => void; delay: number | undefined }[] = [];
+		const realSetTimeout = globalThis.setTimeout;
+		globalThis.setTimeout = ((run: () => void, delay?: number) => {
+			scheduled.push({ run, delay });
+			return 0;
+		}) as typeof setTimeout;
+		try {
+			controlled.peers[0]?.finish();
+			for (let turn = 0; turn < 10 && scheduled.length === 0; turn++) await Promise.resolve();
+		} finally {
+			globalThis.setTimeout = realSetTimeout;
+		}
+		assertEquals(scheduled.map((timer) => timer.delay), [RECONNECT_MIN_MS]);
+		assertEquals(controlled.peers.length, 1, "nothing redials before the delay elapses");
+		scheduled[0]?.run();
+		for (let turn = 0; turn < 10 && controlled.peers.length < 2; turn++) await Promise.resolve();
+		for (let turn = 0; turn < 10 && states.length < 3; turn++) await Promise.resolve();
 		assertEquals(controlled.peers.length, 2);
 		assert(controlled.records[0] !== controlled.records[1]);
-		assertEquals(states, [true, false, true]);
+		assertEquals(states, ["connected", "connecting", "connected"]);
 		feed.disconnect();
 		assertEquals(controlled.peers[1]?.closeCount, 1);
 	},
@@ -346,6 +362,7 @@ Deno.test({
 				port: number;
 				sturdyref: string;
 				publish: string;
+				swiss: string;
 			};
 			const registry = globalThis as Record<symbol, unknown>;
 			const adapterKey = Symbol.for("glowcap.runtime.adapter");
@@ -373,7 +390,7 @@ Deno.test({
 			const didFail = new Promise<never>((_, reject) => fail = reject);
 			feed.onError((error) => fail(error.cause ?? new Error(error.detail)));
 			feed.onConnectionChange((value) => {
-				if (value) connected();
+				if (value === "connected") connected();
 			});
 			const received: TimelineEvent[] = [];
 			let sawSession!: () => void;
@@ -389,12 +406,15 @@ Deno.test({
 				"Live mode did not initialize wasm",
 			);
 
-			// The endpoint refuses a producer that presents no capability, and it
-			// refuses it after the upgrade, so a bare socket opens and then goes
-			// quiet rather than failing where it was opened.
+			// The endpoint reads a producer's capability from its first message
+			// and refuses it after the upgrade, so a producer that skips it opens
+			// and then goes quiet rather than failing where it was opened.
 			publisher = new WebSocket(ready.publish);
 			await new Promise<void>((resolve, reject) => {
-				publisher!.onopen = () => resolve();
+				publisher!.onopen = () => {
+					publisher!.send(ready.swiss);
+					resolve();
+				};
 				publisher!.onerror = () => reject(new Error("publisher did not open"));
 			});
 			// A session-opened record names the transport it opened on, and the

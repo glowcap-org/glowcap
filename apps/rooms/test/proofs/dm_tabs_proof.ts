@@ -303,7 +303,7 @@ try {
 	else if (shared.dy > 1 || shared.dx > 1) {
 		fail(
 			`the close mark and the marks it replaces do not share a slot on a direct line: ` +
-				`${shared.dy.toFixed(1)}px apart vertically and ${shared.dx.toFixed(1)}px across — ${shared.boxes}`,
+				`${shared.dy.toFixed(1)}px apart vertically and ${shared.dx.toFixed(1)}px across (${shared.boxes})`,
 		);
 	} else if (!shared.pressable) {
 		fail(`a press at the centre of the close mark lands on ${shared.covering} instead of the mark`);

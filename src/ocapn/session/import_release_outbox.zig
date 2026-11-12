@@ -27,7 +27,7 @@ pub const Outbox = struct {
 };
 
 /// One owner's local holds: a stored resolution takes one per far import it
-/// names; a canonical raw-route copy keeps one under its identity memo.
+/// names. A canonical raw-route copy keeps one under its identity memo.
 /// `ImportTable.holdForResolution` takes each hold, which settles at the drain
 /// into the retains released meanwhile. The
 /// batch for the mentions a forwarded reply introduced also parks the

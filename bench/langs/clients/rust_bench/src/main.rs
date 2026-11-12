@@ -14,9 +14,12 @@ const CLIENT: &str = "rust";
 const RUNTIME: &str = "rust";
 
 async fn open_runtime() -> Result<Runtime, String> {
-	Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| format!("runtime: {e:?}"))
+	Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.map_err(|e| format!("runtime: {e:?}"))
 }
 
 async fn open_held_connection(locator: &Locator) -> Result<(Runtime, Session), String> {

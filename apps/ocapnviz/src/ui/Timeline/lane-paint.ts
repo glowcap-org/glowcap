@@ -344,7 +344,7 @@ export function drawLaneSpans(
 		}
 	}
 
-	// Sticky cross-pill label layout (later wins; earlier truncates). status-allow: event or source ordering
+	// Sticky cross-pill label layout (later wins; earlier truncates).
 	// See `layoutLaneLabels` for the algorithm.
 	const placedLabels = layoutLaneLabels(
 		longPills.map(({ span, rect }) => ({
@@ -390,7 +390,7 @@ export function drawLaneSpans(
 			// Clamp the stamp's LEFT edge to `plotX` so the stamp can't
 			// bleed into the left pad / gutter. A zero-span item at
 			// `windowStart` paints exactly at `plotX`; the clamp is a
-			// no-op for those but kicks in when an earlier-than-window status-allow: event or source ordering
+			// no-op for those but kicks in when an earlier-than-window
 			// stamp scrolls into view. Drop the stamp entirely only if
 			// even the clamped position would land off the right edge.
 			// The roundRect call below takes the CENTER via `x - w/2`,

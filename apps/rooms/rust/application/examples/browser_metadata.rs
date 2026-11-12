@@ -1,7 +1,12 @@
 //! Generate the browser's read-only mirror from its Rust application owners.
-use rooms_application::{archive, bridge, direct, directory, failure, files, grants, room, server, session, signaling};
+use rooms_application::{
+	admission, archive, bridge, direct, directory, failure, files, grants, open_graph, room, server, session,
+	signaling, web_build,
+};
 use serde_json::json;
 use std::{fmt::Write, path::Path};
+#[path = "browser_metadata/client_codes.rs"]
+mod client_codes;
 #[path = "browser_metadata/session_content.rs"]
 mod session_content;
 
@@ -123,6 +128,8 @@ fn main() -> Result<(), String> {
 		("MAX_ROOM_ATTACHMENT_BYTES", file_limits.room_bytes),
 		("MAX_ROOM_ATTACHMENTS", file_limits.room_files),
 		("MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES", archive::blobs::MAX_STAGED_BYTES),
+		("MAX_DIRECT_ATTACHMENT_BYTES", files::sources::MAX_BYTES),
+		("MAX_DIRECT_ATTACHMENTS", files::sources::MAX_SOURCES),
 		("MAX_ARCHIVE_CONVERSATION_BYTES", archive::MAX_CONVERSATION_BYTES),
 		("MAX_SERVER_ATTACHMENT_BYTES", file_limits.held_bytes),
 		("MAX_SERVER_PENDING_BYTES", file_limits.pending_bytes),
@@ -138,6 +145,15 @@ fn main() -> Result<(), String> {
 			direct::RECIPROCAL_ROUTE_TIMEOUT_MS as usize,
 		),
 		("REQUEST_TIMEOUT_MS", room::authority::REQUEST_TIMEOUT_MS as usize),
+		("INTRODUCTION_WAIT_MS", directory::introduction::WAIT_MS as usize),
+		(
+			"INTRODUCTION_TIMEOUT_MS",
+			directory::introduction::REQUEST_TIMEOUT_MS as usize,
+		),
+		(
+			"INTRODUCTION_PER_MINUTE",
+			admission::Class::Introduction.default_rate().per_minute() as usize,
+		),
 		("MAX_SIGNAL_EXCHANGES", signaling::MAX_EXCHANGES),
 		("MAX_SIGNAL_CANDIDATE", signaling::MAX_CANDIDATE),
 		("MAX_SIGNAL_ID", signaling::MAX_ID),
@@ -149,6 +165,23 @@ fn main() -> Result<(), String> {
 		("MAX_SESSION_GRANT_NOTE", grants::MAX_GRANT_NOTE_UNITS),
 		("MAX_ACTIVE_ARCHIVE_SHARES", archive::shares::MAX_ACTIVE),
 		("MAX_LIFETIME_ARCHIVE_SHARES", archive::shares::MAX_LIFETIME),
+		("MAX_ARCHIVE_READ", archive::MAX_READ),
+		("MAX_ARCHIVE_RECORDS", archive::MAX_RECORDS),
+		("MAX_ARCHIVE_ID_BYTES", archive::MAX_ID_BYTES),
+		("MAX_ARCHIVE_CONTEXT_BYTES", archive::MAX_CONTEXT_BYTES),
+		(
+			"MAX_ARCHIVE_BLOB_READS_PER_SESSION",
+			archive::blobs::MAX_READERS_PER_SESSION,
+		),
+		(
+			"MAX_ARCHIVE_FACETS_PER_SESSION",
+			archive::request::MAX_FACETS_PER_SESSION,
+		),
+		("MAX_LINK_PREVIEWS", open_graph::MAX_PREVIEWS),
+		("MAX_LINK_PREVIEW_URL_BYTES", open_graph::MAX_URL_BYTES),
+		("MAX_GATEWAY_NAME", bridge::gateway::MAX_NAME),
+		("TRANSFER_STALL_MS", files::transfer::STALL_MS as usize),
+		("TRACE_REFUSED_CLOSE_CODE", server::trace::REFUSED_CLOSE_CODE as usize),
 	] {
 		let _ = writeln!(text, "export const {name} = {value};");
 	}
@@ -156,6 +189,13 @@ fn main() -> Result<(), String> {
 		text,
 		"export const SUBJECT_LINK_SCHEME = {};",
 		json!(room::subject::LINK_SCHEME)
+	);
+	let _ = writeln!(
+		text,
+		"export const UI_BUILD = {{ sourcePrefix: {}, dirtySuffix: {}, digestLength: {} }} as const;",
+		json!(web_build::SOURCE_PREFIX),
+		json!(web_build::DIRTY_SUFFIX),
+		web_build::DIGEST_LEN
 	);
 	let mentions = room::inbox::ROOM_MENTIONS
 		.iter()
@@ -201,6 +241,16 @@ fn main() -> Result<(), String> {
 		let _ = writeln!(failures, "\t\"{}\",", owner.name());
 	}
 	failures.push_str("] as const;\n");
+	failures.push_str("export const ADMISSION_SCOPE_LABELS = {\n");
+	for class in rooms_application::admission::CLASSES {
+		let _ = writeln!(failures, "\t{}: {},", json!(class.name()), json!(class.label()));
+	}
+	failures.push_str("} as const;\n");
+	failures.push_str("export const ADMISSION_OWNER_LABELS = {\n");
+	for owner in rooms_application::admission::OWNERS {
+		let _ = writeln!(failures, "\t{}: {},", json!(owner.name()), json!(owner.label()));
+	}
+	failures.push_str("} as const;\n");
 	for definition in failure::DEFINITIONS {
 		let constant = definition.code.wire().replace('-', "_").to_uppercase();
 		let _ = writeln!(failures, "export const {constant} = {};", json!(definition.code.wire()));
@@ -220,7 +270,11 @@ fn main() -> Result<(), String> {
 	failures.push_str(
 		"export const ROOMS_ERROR_CODES: readonly RoomsErrorCode[] = Object.keys(ROOMS_FAILURES) as RoomsErrorCode[];\n",
 	);
+	let clients = client_codes::generate();
 	if std::env::args().skip(1).any(|arg| arg == "--check") {
+		for (path, text) in &clients {
+			assert_eq!(&read(path)?, text, "regenerate browser metadata");
+		}
 		assert_eq!(read(content_path)?, content, "regenerate browser metadata");
 		assert_eq!(read(zig_path)?, zig, "regenerate browser metadata");
 		// The operating guide's capability table keeps the table's rows and order.
@@ -259,6 +313,9 @@ fn main() -> Result<(), String> {
 			"run cargo run -p rooms-application --example browser_metadata to regenerate browser metadata"
 		);
 	} else {
+		for (path, text) in &clients {
+			write(path, text)?;
+		}
 		write(content_path, content)?;
 		write(zig_path, zig)?;
 		write(path, text)?;

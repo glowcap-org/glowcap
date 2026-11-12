@@ -56,10 +56,87 @@ test "Rooms peers take every listener transport and its options" {
     // The directory fronts take more listeners, once per transport, and the
     // web front takes the shared workspace's listener options beside its own.
     for (listeners[0..2]) |command| try std.testing.expect(flagNamed(command, "listen").?.repeatable);
-    for ([_][]const u8{ "session-transport", "session-relay", "session-relay-public", "session-bind", "session-onion-socks" }) |name| {
-        try std.testing.expect(flagNamed(listeners[0], name) != null);
-    }
     try std.testing.expect(flagNamed(listeners[1], "session-transport") == null);
+}
+
+/// The names under `[front]` in the list the fronts' own tests read.
+const Handed = struct {
+    lines: std.mem.SplitIterator(u8, .scalar),
+
+    fn to(front: []const u8) Handed {
+        const list = @embedFile("rooms_front_options.txt");
+        var heading: [64]u8 = undefined;
+        const marker = std.fmt.bufPrint(&heading, "[{s}]\n", .{front}) catch unreachable;
+        const start = (std.mem.indexOf(u8, list, marker) orelse return .{ .lines = std.mem.splitScalar(u8, "", '\n') }) + marker.len;
+        const end = std.mem.indexOfPos(u8, list, start, "\n[") orelse list.len;
+        return .{ .lines = std.mem.splitScalar(u8, list[start..end], '\n') };
+    }
+
+    fn next(handed: *Handed) ?[]const u8 {
+        while (handed.lines.next()) |line| {
+            if (line.len != 0 and line[0] != '#') return line;
+        }
+        return null;
+    }
+
+    fn names(front: []const u8, wanted: []const u8) bool {
+        var handed = to(front);
+        while (handed.next()) |name| {
+            if (std.mem.eql(u8, name, wanted)) return true;
+        }
+        return false;
+    }
+};
+
+test "every Rooms front is handed exactly the options the shared list names" {
+    const rooms = cli.tree.root.findChild("apps").?.findChild("rooms").?;
+    const fronts = [_]struct { front: []const u8, command: *const cli.cmd_types.Command, mode: cli.rooms.Mode }{
+        .{ .front = "rooms-web", .command = rooms.findChild("serve").?, .mode = .serve },
+        .{ .front = "rooms-server", .command = rooms.findChild("directory").?.findChild("serve").?, .mode = .service },
+        .{ .front = "rooms-session", .command = rooms.findChild("session").?.findChild("serve").?, .mode = .session_serve },
+        .{ .front = "rooms-irc-server", .command = rooms.findChild("irc").?.findChild("serve").?, .mode = .service },
+        .{ .front = "rooms-irc-bridge", .command = rooms.findChild("irc").?.findChild("bridge").?, .mode = .service },
+        .{ .front = "rooms-archive", .command = rooms.findChild("archive").?.findChild("serve").?, .mode = .service },
+    };
+    for (fronts) |entry| {
+        var listed: usize = 0;
+        var handed = Handed.to(entry.front);
+        while (handed.next()) |name| {
+            listed += 1;
+            const offered = for (entry.command.flags) |flag| {
+                if (std.mem.eql(u8, cli.rooms.handedName(entry.mode, flag.long), name)) break true;
+            } else false;
+            if (!offered) {
+                std.debug.print("{s} reads --{s}, which the command does not offer\n", .{ entry.front, name });
+                return error.OptionNotOffered;
+            }
+        }
+        try std.testing.expect(listed != 0);
+        for (entry.command.flags) |flag| {
+            const name = cli.rooms.handedName(entry.mode, flag.long);
+            if (!Handed.names(entry.front, name)) {
+                std.debug.print("the command hands {s} --{s}, which the list does not name\n", .{ entry.front, name });
+                return error.OptionNotListed;
+            }
+        }
+    }
+}
+
+test "Rooms serve offers every served-session option under its session prefix" {
+    const rooms = cli.tree.root.findChild("apps").?.findChild("rooms").?;
+    const serve = rooms.findChild("serve").?;
+    var offered: usize = 0;
+    for (rooms.findChild("session").?.findChild("serve").?.flags) |flag| {
+        // The web front names the session's directory `--session-state`.
+        if (std.mem.eql(u8, flag.long, "dir")) continue;
+        var name: [64]u8 = undefined;
+        const prefixed = try std.fmt.bufPrint(&name, "session-{s}", .{flag.long});
+        try std.testing.expect(flagNamed(serve, prefixed) != null);
+        offered += 1;
+    }
+    try std.testing.expect(offered > 0);
+    try std.testing.expect(flagNamed(serve, "session-dial-transports") != null);
+    try std.testing.expect(flagNamed(serve, "session-admission-rates") != null);
 }
 
 test "Rooms completion follows the installed session and team grammar" {
@@ -134,4 +211,25 @@ test "Rooms refuses root flags on either side of the command boundary before exe
         try std.testing.expectEqual(cli.exit_codes.usage, try cli.cmd.dispatch(&cli.tree.root, &ctx, args));
         try std.testing.expect(ctx.secret == null and ctx.state_guard == null);
     }
+}
+
+test "an installed component this user cannot reach is a reported cause, not a missing install" {
+    const gpa = std.testing.allocator;
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = cli.ctx.Ctx{ .io = runtime.io(), .gpa = gpa, .environ = &runtime.environ };
+    defer c.deinit();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try std.Io.Dir.realPathFileAlloc(tmp.dir, runtime.io(), ".", gpa);
+    defer gpa.free(root);
+    const missing = try std.fs.path.join(gpa, &.{ root, "absent" });
+    defer gpa.free(missing);
+    try std.testing.expect(!try cli.installation.exists(&c, missing));
+    // A name longer than any filesystem component is refused before lookup.
+    const long_name: [300]u8 = @splat('a');
+    const unreachable_path = try std.fs.path.join(gpa, &.{ root, &long_name });
+    defer gpa.free(unreachable_path);
+    try std.testing.expectError(error.NameTooLong, cli.installation.exists(&c, unreachable_path));
 }

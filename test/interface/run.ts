@@ -10,7 +10,7 @@ await runCrossLangDemo(
 		serverNoun: "server",
 		clientNoun: "proof",
 		server: { cmd: Deno.args[0], args: () => [`--data=${data}`, "--port=0"] },
-		listenPattern: /TASKS-SERVER-LISTENING (\d+) (\S+)/,
+		listenPattern: /TASKS-SERVER-LISTENING (\d+) (\S+) (\S+)/,
 		listenMiss: "Tasks server did not announce its board",
 		cleanup: () => Deno.remove(data, { recursive: true }),
 		roster: () =>
@@ -18,7 +18,7 @@ await runCrossLangDemo(
 				participants: [{
 					name: "generated Rust",
 					cmd: `${Deno.cwd()}/test/interface/rust/target/debug/interface-conversation-proof`,
-					argv: (port, [name]) => [String(port), name],
+					argv: (_port, [name, locator]) => [locator, name],
 				}],
 				skipped: [],
 			}),

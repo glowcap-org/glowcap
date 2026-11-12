@@ -113,7 +113,7 @@ pub fn main(init: std.process.Init) !void {
 
 /// The archived base tree, extracted once per revision. An interrupted
 /// extraction leaves only the `.partial` directory, which the next run
-/// replaces; the rename is the commit point.
+/// replaces. The rename is the commit point.
 fn prepareBase(ctx: *Ctx) ![]const u8 {
     const resolved = try runCapture(ctx, null, &.{ "git", "rev-parse", "--short=9", "--verify", try std.fmt.allocPrint(ctx.arena, "{s}^{{commit}}", .{ctx.args.base}) });
     const id = std.mem.trim(u8, resolved, " \n\r\t");
@@ -184,7 +184,7 @@ fn parseRows(arena: std.mem.Allocator, text: []const u8) ![]const Row {
         var metrics: std.ArrayList(Metric) = .empty;
         var tokens = std.mem.tokenizeAny(u8, line, " \t\r");
         while (tokens.next()) |token| {
-            if (parseMetric(arena, token) catch null) |metric| {
+            if (try parseMetric(arena, token)) |metric| {
                 try metrics.append(arena, metric);
             } else {
                 if (identity.items.len > 0) try identity.append(arena, ' ');

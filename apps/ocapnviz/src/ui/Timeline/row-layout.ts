@@ -99,7 +99,7 @@ export const LANE_ORDER: readonly Exclude<LaneKind, "ruler">[] = [
  * commit on pointerup applies that index to the rowOrder. Also
  * drives the paint path's "ghost-row" hint, a horizontal
  * indicator at the resolved target slot. Null when no row drag
- * is active (or the drag hasn't moved past the threshold yet).  status-allow: pending state or quoted runtime label */
+ * is active (or the drag hasn't moved past the threshold yet). */
 export type RowDragSnapshot = {
 	category: Exclude<LaneKind, "ruler">;
 	entityId: string;

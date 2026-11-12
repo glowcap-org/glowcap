@@ -196,7 +196,10 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
         Binary.server_proof.setTestEnv(run);
     }
     b.step("rooms-managed-rooms-browser-test", "Register, subscribe, chat and stream exact-source files through the production Rooms server").dependOn(&rooms_browser.step);
-    const graph_browser = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-all", "check_host.mjs", "--session-graph" });
+    // Chromium runs here, so the step takes the browser front that prepares the
+    // pinned browsers. The proof's own 30-second timer stays the semantic
+    // deadline; this ceiling is containment above it, as for its siblings.
+    const graph_browser = execution.addSystemCommand(b, .{ .browser_proof = 45 }, &.{ "deno", "run", "--allow-all", "check_host.mjs", "--session-graph" });
     graph_browser.setCwd(b.path("apps/rooms/rust/proofs/browser"));
     graph_browser.step.dependOn(&glue.step);
     graph_browser.step.dependOn(&host_browser_cache.step);

@@ -57,14 +57,6 @@ pub const Scope = struct {
         self.revision = self.store.metadata.revision;
     }
 
-    /// Confirmed absence permits another startup attempt. An unknown write
-    /// cannot discard the opening proposal before exact backend recovery.
-    pub fn cancelStart(self: *Scope) !void {
-        try self.host.refuseReentry();
-        if (self.store.phase != .idle or self.epoch != null) return error.Busy;
-        self.proposal = null;
-    }
-
     pub fn register(self: *Scope, owner: *h.Attachment) !void {
         if (owner.host != self.host or owner.store != self.store) return error.ForeignStore;
         if (self.epoch == null) return error.LiveScopeNotStarted;
@@ -107,11 +99,19 @@ pub const Scope = struct {
         self.owner = null;
     }
 
-    pub fn deinit(self: *Scope) !void {
+    /// Refuse with nothing changed when `deinit` would refuse once `detaching`
+    /// has unregistered. An owner that frees this scope with its attachment
+    /// asks before the attachment's own destroy commits.
+    pub fn refuseDeinit(self: *const Scope, detaching: ?*h.Attachment) !void {
         try self.host.refuseReentry();
-        if (self.owner != null or self.pending != null) return error.Busy;
+        if (self.owner) |owner| if (owner != detaching) return error.Busy;
+        if (self.pending != null) return error.Busy;
         if (self.proposal != null and (self.startup == null or self.startup.?.phase != .failed or self.store.phase != .idle)) return error.Busy;
         for (self.entries) |entry| if (entry.phase == .reserved) return error.Busy;
+    }
+
+    pub fn deinit(self: *Scope) !void {
+        try self.refuseDeinit(null);
         for (self.entries) |*entry| if (entry.phase == .committed) self.release(entry);
         self.by_recipe.deinit(self.allocator);
         self.allocator.free(self.entries);

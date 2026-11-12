@@ -155,6 +155,7 @@ fn onionLocatorFromView(view: *const c.GlowcapLocatorView) ?model.PeerLocator {
         view.hint_count != 0 or
         view.hint_wire_form != c.GLOWCAP_HINTS_BOOLEAN_FALSE)
         return null;
+    // tolerant: InvalidLocatorView is the only failure, and null is the caller's invalid-locator refusal.
     return c.locator_adapter.fromView(view, &.{}) catch null;
 }
 

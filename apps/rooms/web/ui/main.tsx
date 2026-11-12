@@ -1,4 +1,3 @@
-import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
 // The Rooms page entry, bundled to /page.js by rooms-web. Rust Wasm
 // admits durable startup choices. This module mounts their React projection.
 //
@@ -9,6 +8,8 @@ import { managedSessionText as managedText } from "../../lib/text/managed_sessio
 // parse is handed over by `boot.ts`, and that call comes last, because reaching
 // it is also how this module reports that the bundle arrived at all.
 
+import { invariant } from "../../lib/invariant.ts";
+import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
 import { type ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { addressOfActive, navigateTo } from "./routing_api.ts";
@@ -35,11 +36,11 @@ import { createManagedController } from "./session/managed/controller.ts";
 import { ManagedHistory } from "./session/managed/history.ts";
 import * as application from "./application.ts";
 import { RoomsBrowserProvider } from "./controller/browser.ts";
-import { chosenKey, createRoomsBrowserController } from "./controller/create_browser.ts";
+import { createRoomsBrowserController, forgetWorkspaceChoice, workspaceChosen } from "./controller/create_browser.ts";
 import { finishBrowserDataDeletion, reloadWhenAnotherTabDeletes } from "./controller/browser_data.ts";
 import { ModalProvider } from "./modal.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
-import { failureView, refusalText, renderFailure } from "../../lib/text/failure.ts";
+import { failureView, LocalRefusal, refusalText, renderFailure } from "../../lib/text/failure.ts";
 import { membershipStatus } from "./session/managed/membership_status.ts";
 import * as store from "./store.ts";
 import { relayAway } from "./store/projection.ts";
@@ -57,7 +58,7 @@ import {
 } from "./server_choice.ts";
 import { sessionDidNotOpen } from "../../lib/text/session.ts";
 import { settingsServerOffer, settingsServerRefused } from "../../lib/text/settings.ts";
-import { NO_SERVER, roomsErrorInMessage } from "../../lib/error_codes.ts";
+import { NO_SERVER, roomsErrorIn } from "../../lib/error_codes.ts";
 
 const page = new RoomsPage();
 function report(source: string, error: unknown): void {
@@ -72,7 +73,7 @@ function report(source: string, error: unknown): void {
 // back in when one returns. The binding lives as long as the page.
 bindGroundToConnections(page.projection);
 // A page whose server has moved to a new build reloads into it.
-const build = servedPageBuild(document, location);
+const build = servedPageBuild(document);
 if (build != null) bindReloadToBuild(page.projection, build);
 // The stylesheet refuses page scaling everywhere the root's `touch-action` is
 // honoured. This is WebKit's half, which arrives as its own gesture events.
@@ -98,7 +99,7 @@ function openWorkspace(selection: "saved" | "local" = "saved"): ReturnType<typeo
 }
 
 const mount = document.getElementById("root");
-if (!mount) throw new Error("rooms: page.html is missing its #root element");
+invariant(mount, "rooms: page.html is missing its #root element");
 
 /** The retry rhythm while the wasm runtime is fetched and instantiated: a
  * lost build race resolves in one beat, a server mid-rebuild in a few, and
@@ -174,7 +175,9 @@ async function answerServerOffer(): Promise<void> {
 		);
 		handOffNow();
 	});
-	if (use) chooseServer(base);
+	// A choice this browser cannot keep would leave the page on another server.
+	const refused = use ? chooseServer(base) : null;
+	if (refused != null) throw refused;
 }
 
 async function awaitRuntime(boot: () => Promise<unknown>): Promise<void> {
@@ -208,7 +211,7 @@ async function start(): Promise<void> {
 	startBootAsides();
 	await awaitRuntime(async () => {
 		const path = document.documentElement.dataset.roomsWasm;
-		if (path == null) throw new Error("the Rooms page has no application module");
+		invariant(path != null, "the Rooms page has no application module");
 		await application.loadApplication(fetch(path));
 	});
 	// A deletion asked for before this load finishes before anything opens
@@ -236,7 +239,7 @@ async function start(): Promise<void> {
 		await showSessionSetup(attach?.capability ?? "", deleted ?? "");
 		return;
 	}
-	if (localStorage.getItem(chosenKey()) !== "yes") {
+	if (!workspaceChosen()) {
 		standAtFrontOfPrivilegedAddress();
 		await showSessionSetup();
 		return;
@@ -313,7 +316,7 @@ async function start(): Promise<void> {
 			// page with no Rooms server has no address to give. That is the page's
 			// state, not trouble: it stays open, and Settings is where a server is
 			// chosen. Anything else is the failure it is.
-			if (server != null || roomsErrorInMessage(error)?.code !== NO_SERVER) throw error;
+			if (server != null || roomsErrorIn(error)?.code !== NO_SERVER) throw error;
 		}
 		// The session opens whether or not the relay answers. Its state is a
 		// fact on the page, and its reasons go to the trouble journal.
@@ -369,14 +372,17 @@ void start().catch((error) => {
 	console.error("rooms: opening failed:", error);
 	// A Rooms refusal says what to do. Anything else gives a person nothing to
 	// act on, so the page says so plainly and the console keeps the cause.
-	const reason = roomsErrorInMessage(error) != null ? refusalText(error) : sessionDidNotOpen;
+	const said = error instanceof LocalRefusal || roomsErrorIn(error) != null;
+	const reason = said ? refusalText(error) : sessionDidNotOpen;
 	// Forgetting this tab's session choice keeps its data and shows setup. A
 	// tab that has chosen none has only the page to reload.
 	pageDidNotOpen(
 		reason,
-		localStorage.getItem(chosenKey()) == null ? null : () => {
-			localStorage.removeItem(chosenKey());
-			location.reload();
-		},
+		workspaceChosen()
+			? () => {
+				const refused = forgetWorkspaceChoice();
+				return refused == null ? null : refusalText(refused);
+			}
+			: null,
 	);
 });

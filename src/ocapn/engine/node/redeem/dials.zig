@@ -14,6 +14,9 @@ const withdrawals = @import("withdrawals.zig");
 const gift_recipe = @import("../handoffs/gifts/recipe.zig");
 
 const Node = node_mod.Node;
+const Broken = @import("foundation").break_cause.Broken;
+const RouteFailure = @import("foundation").break_cause.RouteFailure;
+const BreakCause = @import("foundation").break_cause.BreakCause;
 const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 
 pub const PendingId = u64;
@@ -28,7 +31,7 @@ pub const PendingDialView = struct {
     authenticated_partner_required: bool = false,
 };
 pub const ExporterCompletion = enum { dialed, selected };
-pub const Failure = enum { retry, waiting, exhausted, stale };
+pub const Failure = union(enum) { retry, waiting, exhausted: BreakCause, stale };
 pub const Waiter = struct {
     dest: redeem.Destination,
     give: []u8,
@@ -56,6 +59,8 @@ pub const Dialing = struct {
     application_owned: bool = false,
     /// Host closure sealed this row against later delivery.
     cancel_requested: bool = false,
+    /// Unsupported fallbacks cannot erase an earlier attempted connection.
+    all_transports_unavailable: bool = true,
     waiters: std.ArrayListUnmanaged(Waiter) = .empty,
 };
 
@@ -115,13 +120,22 @@ pub fn pendingDial(self: *const Node, pending: PendingId, route_index: usize) ?P
 
 /// Commit delivery of one dial effect to an external executor.
 pub fn beginEffect(self: *Node, pending: PendingId, route_index: usize) bool {
+    if (!effectBeginnable(self, pending, route_index)) return false;
+    const entry = &self.redeems.dials.pending.getPtr(pending).?.dialing;
+    std.debug.assert(entry.attempts.begin(route_index));
+    return true;
+}
+
+/// Whether `beginEffect` would deliver this dial now, without delivering
+/// it. A queued dial whose pending row retired, was cancelled, or already
+/// began is dead, and the action drain drops it before it is taken.
+pub fn effectBeginnable(self: *const Node, pending: PendingId, route_index: usize) bool {
     const row = self.redeems.dials.pending.getPtr(pending) orelse return false;
     const entry = switch (row.*) {
         .dialing => |*dialing| dialing,
         .retiring => return false,
     };
-    if (entry.cancel_requested) return false;
-    return entry.attempts.begin(route_index);
+    return !entry.cancel_requested and entry.attempts.beginnable(route_index);
 }
 
 /// Roll back a callback that refused before publishing its external effect.
@@ -272,7 +286,7 @@ fn settleCancelledWaiters(self: *Node, pending: *Dialing) void {
     for (pending.waiters.items) |waiter| {
         actions.pushReserved(self, .{ .fail = .{
             .dest = redeem.failureDestination(waiter.dest),
-            .reason = .{ .static = "handoff redeem failed: host closing" },
+            .reason = Node.FailureReason.borrowed((BreakCause{}).withWithdrawal(), "host closing"),
         } });
         self.allocator.free(waiter.give);
     }
@@ -396,7 +410,7 @@ fn exporterReady(
         withdrawals.begin(self, exporter_peer, waiter.dest, waiter.give, ready.route_advice) catch |err| switch (err) {
             error.OutOfMemory => actions.pushReserved(self, .{ .fail = .{
                 .dest = redeem.failureDestination(waiter.dest),
-                .reason = .{ .static = "handoff redeem failed: local allocation failure" },
+                .reason = Node.FailureReason.borrowed((BreakCause{}).withWithdrawal(), "local allocation failure"),
             } }),
         };
     }
@@ -473,7 +487,7 @@ pub fn claimExporterRetirement(self: *Node, exporter_peer: PeerHandle) bool {
 /// Report one route failure. Strong identity routes keep a bounded race window
 /// full. Weak fallbacks remain serial. Every waiter settles only after the last
 /// eligible route fails.
-pub fn failed(self: *Node, pending: PendingId, route_index: usize, reason: []const u8) !Failure {
+pub fn failed(self: *Node, pending: PendingId, route_index: usize, failure: RouteFailure, detail: []const u8) !Failure {
     const state = &self.redeems.dials;
     const pending_row = state.pending.getPtr(pending) orelse return .stale;
     const pending_view = switch (pending_row.*) {
@@ -491,6 +505,7 @@ pub fn failed(self: *Node, pending: PendingId, route_index: usize, reason: []con
         .waiting, .exhausted => {},
     }
     pending_view.attempts.commitFailure(route_index);
+    pending_view.all_transports_unavailable = pending_view.all_transports_unavailable and failure == .transport_unavailable;
     switch (next) {
         .queue => |next_index| {
             pending_view.attempts.markScheduled(next_index);
@@ -504,12 +519,14 @@ pub fn failed(self: *Node, pending: PendingId, route_index: usize, reason: []con
         .exhausted => {},
     }
 
-    var buf: [256]u8 = undefined;
-    const message = redeem.failureMessage(&buf, reason);
-    // Preserve transport detail when memory permits; held action seats still
-    // settle the complete batch with a static reason under allocator pressure.
+    const terminal: RouteFailure = if (pending_view.all_transports_unavailable) .transport_unavailable else .peer_unreachable;
+    const cause = terminal.cause();
+    const message = (Broken{ .detail = detail, .cause = cause }).bounded().detail;
+    // Preserve transport detail when memory permits. Held action seats still
+    // settle the complete batch with the bare name under allocator pressure.
     const owned_reasons: ?[][]u8 = stage_reasons: {
         if (waiter_count == 0) break :stage_reasons null;
+        // tolerant: without the reason table every waiter settles with the bare name below, and only the transport detail is lost.
         const reasons = self.allocator.alloc([]u8, waiter_count) catch
             break :stage_reasons null;
         var initialized: usize = 0;
@@ -531,15 +548,15 @@ pub fn failed(self: *Node, pending: PendingId, route_index: usize, reason: []con
     std.debug.assert(state.by_identity.remove(entry.plan.identity));
     for (entry.waiters.items, 0..) |waiter, index| {
         const failure_reason: Node.FailureReason = if (owned_reasons) |reasons|
-            .{ .owned = reasons[index] }
+            .owned(cause, reasons[index])
         else
-            .{ .static = "handoff redeem failed: exporter dial failed" };
+            .borrowed(cause, "");
         actions.pushReserved(self, .{ .fail = .{
             .dest = redeem.failureDestination(waiter.dest),
             .reason = failure_reason,
         } });
     }
-    return .exhausted;
+    return .{ .exhausted = cause };
 }
 
 /// Evict every canonical identity row naming a dead exporter session.

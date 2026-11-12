@@ -1,7 +1,7 @@
 //! Terminal promise projection failure can synchronously fire far-vow listeners.
 //! Those listeners may project the same promise or grow the Host promise map.
 //! The row is reacquired after each callback because the map may have grown.
-//! Fixture gives stop at introducer closure; no successful withdrawal is claimed.
+//! Fixture gives stop at introducer closure. No successful withdrawal is claimed.
 const std = @import("std");
 const glowcap = @import("glowcap");
 const h = @import("../harness.zig");
@@ -55,7 +55,7 @@ test "core host: terminal projection callback preserves appended projections and
         for ([_]model.CodecId{ .syrup, .capnp }) |codec| {
             for ([_]bool{ false, true }) |grow| {
                 var failing = std.testing.FailingAllocator.init(a, .{});
-                var options = Host.Options.withFrameCap(h.frame_cap);
+                var options = Host.Options.init(.unchecked, h.frame_cap);
                 options.captp_version = profile;
                 options.codec = codec;
                 options.features = model.FeatureSet.full().forCaptpVersion(profile);
@@ -105,7 +105,7 @@ test "core host: terminal projection callback preserves appended projections and
                 try std.testing.expectError(error.PromiseBroken, host.routeCapability(live.a, promise, .object_only));
                 try host.releaseCapability(promise, 1);
                 for (probe.created[0..probe.count]) |ref| try host.releaseCapability(ref, 1);
-                try host.dialFailed(dial.ticket, dial.route_index, "unavailable");
+                try host.dialFailed(dial.ticket, dial.route_index, .peer_unreachable, "unavailable");
                 try std.testing.expectEqual(@as(usize, 0), host.capability_promises.count());
                 try std.testing.expectEqual(@as(usize, 0), host.pending_operations);
             }

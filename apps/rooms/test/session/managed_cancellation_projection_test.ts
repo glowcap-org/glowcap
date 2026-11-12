@@ -59,7 +59,7 @@ for (const owner of ["acquisition", "creation"] as const) {
 								admitted.resolve();
 								await reply.promise;
 							}
-							return "committed";
+							return { status: "committed" };
 						},
 						status: () => Promise.resolve("committed"),
 						free() {},

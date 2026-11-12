@@ -35,6 +35,7 @@ comptime {
         _ = @import("loam/core/collection_resume_test.zig");
         _ = @import("loam/core/collection_custody_test.zig");
         _ = @import("loam/hosting/actors_test.zig");
+        _ = @import("loam/hosting/failure_test.zig");
         _ = @import("loam/hosting/reference_test.zig");
         _ = @import("loam/hosting/live_epoch_test.zig");
         _ = @import("loam/hosting/live_reference_test.zig");
@@ -105,6 +106,7 @@ comptime {
     }
     if (wanted(.foundation)) {
         _ = @import("foundation/utf8_test.zig");
+        _ = @import("foundation/break_cause_test.zig");
         // Oracle protocol tests run under `zig build oracle-check` only.
         _ = @import("foundation/frame_test.zig");
         _ = @import("foundation/id_test.zig");
@@ -432,6 +434,7 @@ comptime {
         _ = @import("session/freight_scratch_test.zig");
     }
     if (wanted(.actors)) {
+        _ = @import("actors/break_cause_test.zig");
         _ = @import("actors/fuzz_test.zig");
         _ = @import("actors/vat/turn_test.zig");
         _ = @import("actors/vat/turn_commit_test.zig");
@@ -471,7 +474,9 @@ comptime {
         _ = @import("c_abi/host/handoff_test.zig");
         _ = @import("c_abi/host/stream_test.zig");
         _ = @import("c_abi/host/frame_admission_test.zig");
+        _ = @import("c_abi/host/thread_affinity_test.zig");
         _ = @import("c_abi/host/callback_test.zig");
+        _ = @import("c_abi/host/last_error_cause_test.zig");
         _ = @import("c_abi/last_error_test.zig");
         _ = @import("c_abi/failure_diagnostics_test.zig");
         _ = @import("c_abi/foreign_call_barrier_test.zig");
@@ -482,11 +487,16 @@ comptime {
         _ = @import("c_abi/relay_provider_test.zig");
         _ = @import("c_abi/relay_provider/buffered_accept_test.zig");
         _ = @import("c_abi/relay_provider/readiness_test.zig");
+        _ = @import("c_abi/relay_provider/reactor_failure_test.zig");
         _ = @import("c_abi/tcp_provider_options_test.zig");
+        _ = @import("c_abi/tcp_profiles_test.zig");
         if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
             _ = @import("c_abi/driver_loop/close_test.zig");
         _ = @import("c_abi/driver_loop/adopt_test.zig");
         _ = @import("c_abi/driver_loop/provider_test.zig");
+        _ = @import("c_abi/driver_loop/provider_composition_test.zig");
+        _ = @import("c_abi/driver_loop/provider_failure_test.zig");
+        _ = @import("c_abi/driver_loop/failure_taxonomy_test.zig");
         _ = @import("c_abi/driver_loop/readiness_contract_test.zig");
         _ = @import("c_abi/driver_loop/teardown_contract_test.zig");
         _ = @import("c_abi/driver_loop/listener_test.zig");

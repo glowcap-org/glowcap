@@ -167,7 +167,7 @@ const laneBundleCache = new WeakMap<
 
 /** Sentinel for docs with no `entities` field, keeps the WeakMap
  *  key non-null when an early-load doc has neither identity nor
- *  observations yet.  status-allow: pending state or quoted runtime label */
+ *  observations yet. */
 const EMPTY_ENTITIES: NonNullable<TimelineDocument["entities"]> = {};
 
 /** How many bundles one entities identity keeps.
@@ -332,7 +332,7 @@ export function buildLaneBundle(
 		const eff = peerEffective(doc, peerId);
 		const open = !Number.isFinite(eff.end);
 		const endT = open ? duration : eff.end;
-		// A peer that changes flavor bands its pill at the moment it status-allow: state at observation
+		// A peer that changes flavor bands its pill at the moment it
 		// changed, the way a session bands by state. The row shows what
 		// it was known as when, not only what it ended up as.
 		const segments = buildTrackSegments(
@@ -444,7 +444,7 @@ export function buildLaneBundle(
 			shape: "diamond",
 			color: profile === undefined ? colors.peerMuted : hex(glyphOnFill(colorForProfile(profile))),
 			label: stated
-				.map((s) => `${PEER_TRAJECTORY[s.property].noun} → ${s.value}`)
+				.map((s) => `${PEER_TRAJECTORY[s.property].noun}: ${s.value}`)
 				.join(", "),
 			eventId: ev.id,
 		};
@@ -506,7 +506,7 @@ export function buildLaneBundle(
 		switch (ev.kind) {
 			case "session-state-changed":
 				shape = "diamond";
-				label = `${ev.sessionId} → ${ev.state}`;
+				label = `${ev.sessionId}: ${ev.state}`;
 				break;
 			case "session-endpoint-attributed":
 				shape = "diamond";

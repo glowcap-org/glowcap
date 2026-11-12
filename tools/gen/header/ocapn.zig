@@ -254,6 +254,12 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_context_new", &.{"out_context"}, "Create a context backed by the library allocator.");
     try emitFn(&b, gpa, "glowcap_context_new_with_allocator", &.{ "allocator", "out_context" }, "Create a context backed by caller callbacks. The callbacks must be thread-safe.");
     try emitFn(&b, gpa, "glowcap_context_allocate_lifecycle_id", &.{ "context", "out_id" }, "Allocate a stable Context-local lifecycle identity. Zero is reserved for no identity; exhaustion leaves out_id unchanged.");
+    try section(&b, gpa, "Failure provenance");
+    try @import("break_cause.zig").emit(&b, gpa);
+    try @import("release_result.zig").emit(&b, gpa);
+    try emitStruct(&b, gpa, c.GlowcapBreakCause, "GlowcapBreakCause", &.{
+        "GLOWCAP_BREAK_ORIGIN_*", "GLOWCAP_BREAK_REASON_*", "GLOWCAP_BREAK_CONTEXT_* bitmask",
+    });
     try section(&b, gpa, "Unreturned failures");
     inline for (failure_consts) |name| try emitConst(&b, gpa, name);
     try emitStruct(&b, gpa, c.GlowcapFailureReport, "GlowcapFailureReport", &.{

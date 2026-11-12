@@ -1,5 +1,5 @@
 //! Canonical Host custody copied from a raw Node route. Existing identities
-//! acquire an application retain; a fresh one pins its home import locally.
+//! acquire an application retain. A fresh one pins its home import locally.
 const std = @import("std");
 const model = @import("model");
 const engine = @import("engine");

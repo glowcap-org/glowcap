@@ -34,7 +34,7 @@
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
                      (define retained error)
-                     (with-handlers ([(lambda (_) #t)
+                     (with-handlers ([raised-failure?
                                       (lambda (cleanup-error)
                                         (set! retained
                                               (retain-establishment-cleanup!
@@ -50,7 +50,7 @@
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (define retained e)
-                     (with-handlers ([(lambda (_) #t)
+                     (with-handlers ([raised-failure?
                                       (lambda (cleanup-error)
                                         (set! retained
                                               (retain-establishment-cleanup!

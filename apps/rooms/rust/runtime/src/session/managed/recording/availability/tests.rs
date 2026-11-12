@@ -22,9 +22,12 @@ async fn replacement_fences_late_exporter_end_and_local_selection_has_no_transpo
 			let accepted = server.accept().await.unwrap();
 			accepted.serve().await.unwrap();
 		});
-		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-			.await
-			.unwrap();
+		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})]))
+		.await
+		.unwrap();
 		let session = runtime.connect(&locator, Default::default()).await.unwrap();
 		let availability = Rc::new(Availability::default());
 		let old = FieldKey::new(1.try_into().unwrap(), 1.try_into().unwrap());

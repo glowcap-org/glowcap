@@ -6,10 +6,12 @@ pub(super) fn call(function: &js_sys::Function, argument: JsValue) -> Result<()>
 		.call1(&JsValue::UNDEFINED, &argument)
 		.map(|_| ())
 		.map_err(|error| {
-			error
-				.dyn_ref::<js_sys::Error>()
-				.map(|error| String::from(error.message()))
-				.or_else(|| error.as_string())
-				.unwrap_or_else(|| "Rooms view callback failed".into())
+			rooms_runtime::Error::platform_message(
+				error
+					.dyn_ref::<js_sys::Error>()
+					.map(|error| String::from(error.message()))
+					.or_else(|| error.as_string())
+					.unwrap_or_else(|| "Rooms view callback failed".into()),
+			)
 		})
 }

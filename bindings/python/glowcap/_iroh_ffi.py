@@ -16,7 +16,7 @@ from . import _constants as _c
 from ._constants import ERR_BUFFER_TOO_SMALL as _ERR_BUFFER_TOO_SMALL
 from ._constants import ERR_CLOSED as _ERR_CLOSED
 from ._constants import ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT
-from ._constants import HINT_DIRECT_ADDRESSES, IROH_NODE_ID_BYTES, TRANSPORT_IROH
+from ._constants import HINT_DIRECT_ADDRESSES, IROH_NODE_ID_BYTES, TRANSPORT_IROH, release_result_code
 from ._constants import OK as _OK
 from ._constants import WOULD_BLOCK as _WOULD_BLOCK
 from ._errors import GlowcapError
@@ -225,7 +225,7 @@ class IrohNetlayer(_FfiHandleOwner):
         )
         self._ffi = FfiHandle(
             out,
-            lambda raw: _check_iroh(_iroh().glowcap_iroh_netlayer_release(raw, None, 0, None)),
+            lambda raw: _check_iroh(release_result_code(_iroh().glowcap_iroh_netlayer_release(raw, None, 0, None))),
             _iroh().glowcap_iroh_netlayer_close,
             label="iroh netlayer",
         )

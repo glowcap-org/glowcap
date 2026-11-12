@@ -5,6 +5,8 @@
 // instead says what turning the capability on does, since that is the
 // decision in front of them.
 
+import { operatorLinksTitle, operatorNamesLead, operatorNamesTitle, operatorSessionsTitle } from "./operator.ts";
+
 export const opsListenersLabel = "Administer listeners";
 export const opsListenersShort = "Listeners";
 export const opsListenersLead = "Lists this server's live listeners and lets you bring them up or down.";
@@ -87,17 +89,17 @@ export interface OpsInspectSection {
 	readonly empty: string;
 }
 export const inspectLinks: OpsInspectSection = {
-	title: "Room access",
+	title: operatorLinksTitle,
 	lead: "Durable room entry links this directory publishes. Inspect sees that a link stands, never the link.",
 	empty: "This directory publishes no durable room entry link.",
 };
 export const inspectRegistrations: OpsInspectSection = {
-	title: "Names and connections",
-	lead: "A registered nickname holds direct-message inboxes and signaling routes on one exact session.",
+	title: operatorNamesTitle,
+	lead: operatorNamesLead,
 	empty: "No nickname is registered here.",
 };
 export const inspectSessions: OpsInspectSection = {
-	title: "Connections and live references",
+	title: operatorSessionsTitle,
 	lead: "The peer sessions this directory is holding open, by what carries each one.",
 	empty: "No other peer sessions are active.",
 };
@@ -108,7 +110,7 @@ export const inspectRooms: OpsInspectSection = {
 };
 export const inspectOccupants: OpsInspectSection = {
 	title: "Who is in a room",
-	lead: "Each membership a room is holding right now.",
+	lead: "Each membership a room holds.",
 	empty: "Nobody is in a room right now.",
 };
 export const inspectModerators: OpsInspectSection = {
@@ -133,7 +135,7 @@ export const inspectAdmission: OpsInspectSection = {
 	empty: "This directory reports no work budgets.",
 };
 export const inspectLead =
-	"What this directory holds, as the inspect capability sees it. Nothing on this page can be changed from here.";
+	"What this directory holds, as the inspect capability sees it. Nothing on this page can be changed.";
 
 /** Retained references, on the operator page. */
 export const referencesMembership = "Room memberships";
@@ -160,7 +162,7 @@ export const referencesSweepEffect = "Only this server's copies are released. Wh
 /** The operator search box, and what the lists below it count. */
 export const operatorSearching = "Searching this directory…";
 export function operatorFilteredTo(kind: string): string {
-	return `Retained references are filtered to the exact ${kind} kind.`;
+	return `Retained references show only the ${kind} kind.`;
 }
 export const operatorCountsAll = "Every list below counts what this directory holds.";
 export function operatorCountsMatching(search: string): string {
@@ -185,7 +187,7 @@ export function sectionCountMore(count: number): string {
 export const tracePublisherShared = "The shared session publishes every connection it opens";
 export const tracePublisherTab = "This tab publishes every session it opens";
 export function traceLead(publisher: string): string {
-	return `${publisher}, direct messages included, to the live timeline: who it talked to and when, never the words. Room messages show their contents, published by the room server from its side.`;
+	return `${publisher}, direct messages included, to the live timeline: who it talked to and when, never the words. Room messages show their contents, which the room server publishes.`;
 }
 export const traceNowTitle = "Publishing now";
 export const traceEndpointLabel = "Endpoint";
@@ -276,4 +278,10 @@ export function gatewayKeep(connectionNoun: string): string {
 }
 export function gatewayClose(connectionNoun: string): string {
 	return `Close ${connectionNoun}`;
+}
+export function listenerAbout(name: string): string {
+	return `about ${name}`;
+}
+export function peeringFrom(source: string): string {
+	return `from ${source}`;
 }

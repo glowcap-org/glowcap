@@ -6,7 +6,7 @@ import ctypes
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from ._lib_resolve import _lib_path
+from ._lib_resolve import _lib_path, _resolution_notes
 
 
 def require_archive_fingerprint(resolve: Callable[[], Any], stem: str, expected: int) -> None:
@@ -60,7 +60,13 @@ def load_archive(
     code rather than a string so the runtime-proof scan sees the call site. An
     absent library raises ``OSError`` from the load, which an optional
     archive's caller turns into its own build hint."""
-    lib = ctypes.CDLL(str(_lib_path(stem)))
+    path = _lib_path(stem)
+    try:
+        lib = ctypes.CDLL(path)
+    except OSError as error:
+        for note in _resolution_notes(path):
+            error.add_note(f"glowcap library resolution: {note}")
+        raise
     label = stem.removeprefix("glowcap_").removeprefix("net_transport_")
     require_archive_fingerprint(lambda: fingerprint_symbol(lib), label, fingerprint)
     facade = _Lib(lib)

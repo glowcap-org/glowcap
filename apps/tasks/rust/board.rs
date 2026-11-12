@@ -8,7 +8,7 @@
 //! look, and `stop` frees the board's observation context. The glowcap `Session` owns the peer on a background
 //! task, so the application above sees only the board methods.
 //!
-//!   let board = Board::join(&tcp::locator("127.0.0.1", 9099), &name).await?;
+//!   let board = Board::join(&locator, &name).await?;
 //!   let mut watcher = board.watch().await?;
 //!   let task = board.add("buy groceries").await?;
 //!   board.done(&task).await?;
@@ -85,9 +85,12 @@ pub struct Board {
 impl Board {
 	/// Join the board named `name` at `locator`. Call inside a `LocalSet` (the peer is `!Send`).
 	pub async fn join(locator: &Locator, name: &str) -> Result<Board, String> {
-		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-			.await
-			.map_err(|e| format!("runtime: {e}"))?;
+		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::NOISE_TCP,
+			..Default::default()
+		})]))
+		.await
+		.map_err(|e| format!("runtime: {e}"))?;
 		Self::join_with_runtime(runtime, locator, name).await
 	}
 

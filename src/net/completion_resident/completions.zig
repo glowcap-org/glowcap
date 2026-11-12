@@ -117,7 +117,7 @@ pub fn Machine(comptime Self: type) type {
         /// loopback send finishes inside it) is reaped now, so a completion
         /// that leaves no record does not wake the park. The reap can arm
         /// more (a fed starved receive, a wrapped backend's next step), so
-        /// the queue is handed over once more; a submit with nothing queued
+        /// the queue is handed over once more. A submit with nothing queued
         /// costs no syscall. Before the caller runs, the queued receives
         /// stay queued, so a turn that only consumed a reply submits nothing.
         pub fn beforeWait(self: *Self, after: resident_mod.AfterTurn) void {
@@ -157,7 +157,7 @@ pub fn Machine(comptime Self: type) type {
         /// `beforeWait` ran first, so the turn's queue is in the kernel.
         /// The watches are armed here, as the park begins: a descriptor
         /// that reads ready now ends the park at once, where a watch armed
-        /// earlier would have been reaped by a verb and left the park status-allow: event or source ordering
+        /// earlier would have been reaped by a verb and left the park
         /// asleep beside the wake it announced.
         pub fn park(self: *Self, timeout_ms: i32) bool {
             armWatches(self);

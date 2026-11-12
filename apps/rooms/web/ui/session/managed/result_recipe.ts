@@ -1,5 +1,6 @@
 // A refused result candidate can be recomposed. Its receipt and selections stay
 // fixed. Keep scalar witnesses, never a workspace snapshot or capability mirror.
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import { conversationById } from "./conversation_lookup.ts";
 import { type ConversationIntent, type DirectoryIntent, fieldKey, type WorkspaceSnapshot } from "./model.ts";
 import type { LineAdoption } from "./completed_line.ts";
@@ -25,19 +26,19 @@ export class ResultRecipe {
 		const signature = JSON.stringify(selection);
 		const previous = this.#targets.get(identity);
 		if (previous != null && previous !== signature) {
-			throw new Error("The original result target changed. Its receipt remains held for review.");
+			throw new LocalRefusal("selected-access-changed");
 		}
 		this.#targets.set(identity, signature);
 	}
 	directory(snapshot: WorkspaceSnapshot, id: string): DirectoryIntent {
 		const row = snapshot.intent.directories.find((row) => row.id === id);
-		if (row == null) throw new Error("The initiating directory was removed");
+		if (row == null) throw new LocalRefusal("directory-gone");
 		this.check(`directory:${id}`, [row.access, row.source]);
 		return row;
 	}
 	conversation(snapshot: WorkspaceSnapshot, id: string): ConversationIntent {
 		const row = conversationById(snapshot, id);
-		if (row == null) throw new Error("The initiating conversation was removed. Its original receipt remains held.");
+		if (row == null) throw new LocalRefusal("target-gone-held");
 		this.check(`conversation:${id}`, [
 			row.kind,
 			row.directory,

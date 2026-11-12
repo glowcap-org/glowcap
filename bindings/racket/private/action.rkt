@@ -24,7 +24,8 @@
          "pump.rkt"
          "session/state.rkt"
          "session/outbound.rkt"
-         "host-action-gen.rkt")
+         "host-action-gen.rkt"
+         "callback.rkt")
 
 ;; Dial owns run-dial!; session/close owns session-close!. Promise owns settle-vow!.
 ;; Lazy-require
@@ -33,13 +34,51 @@
  ["promise.rkt"
   (settle-vow!)]
  ["dial.rkt"
-  (run-dial!)]
+  (run-dial! report-dial-cancelled!)]
  ["session.rkt"
   (finish-session-close!)])
 
-(provide drain-host-actions!)
+(provide drain-host-actions!
+         spawn-dial-worker
+         cancel-dial-worker!)
 
 (struct dial-worker (thread cancelled?))
+
+;; A dial worker runs `body` (which owns its own unwind guard) in a fresh
+;; thread once `start` is posted, then runs `on-exit` with breaks disabled
+;; however the thread ends, passing it a reader of the cancellation flag.
+;; Cancellation is cooperative: it sets the flag and breaks the thread, so the
+;; break unwinds through `run-dial!`'s dynamic-wind guard, which closes an
+;; opened session and skips the failure report. `kill-thread` would skip that
+;; guard, strand the opened session, and could end the thread while it holds
+;; the Host lock. A break waits while C runs, so the canceller never waits for
+;; the worker, and `on-exit` reports what the cancellation finished. The worker
+;; absorbs only the break its own cancellation sent.
+(define (spawn-dial-worker start body #:on-exit [on-exit void])
+  (define cancelled? (box #f))
+  (define (cancelled-now?) (unbox cancelled?))
+  (dial-worker
+   (thread
+    (lambda ()
+      (with-handlers ([(lambda (e) (and (exn:break? e) (unbox cancelled?))) void])
+        ;; Breaks are off outside the body, so none can land between the body
+        ;; and `on-exit`.
+        (parameterize-break
+         #f
+         (dynamic-wind
+          void
+          (lambda ()
+            (parameterize-break
+             #t
+             (sync start)
+             (body cancelled-now?)))
+          (lambda () (on-exit cancelled-now?)))))))
+   cancelled?))
+
+;; Mark `worker` cancelled and break it. Returns without waiting for it.
+(define (cancel-dial-worker! worker)
+  (set-box! (dial-worker-cancelled? worker) #t)
+  (break-thread (dial-worker-thread worker)))
 
 ;; ── Park ──────────────────────────────────────────────────────────────────────
 ;; Run `glowcap_host_pump_drain` with park-only arms; return decoded actions
@@ -47,24 +86,26 @@
 ;; next pop frees them. Caller holds the host lock; arms must not await.
 (define (park-host-actions! m)
   (define parked '())
-  (define callback-failure #f)
   (define (arm _ctx _host action out-progressed)
-    (with-handlers ([(lambda (_) #t)
-                     (lambda (error)
-                       (set! callback-failure error)
-                       ERR-INTERNAL)])
-      (define decoded (host-decode-action! action arg<-c))
-      (set! parked (cons decoded parked))
-      (when out-progressed
-        (ptr-set! out-progressed _uint32 1))
-      OK))
+    (run-c-callback "host.pump-arm" ERR-INTERNAL
+                    (lambda ()
+                      (define decoded
+                        (with-handlers ([exn:fail?
+                                         (lambda (e)
+                                           (raise-glowcap 'glowcap ERR-INTERNAL
+                                                          "ABI returned an invalid host action: ~a"
+                                                          (exn-message e)))])
+                          (host-decode-action! action arg<-c)))
+                      (set! parked (cons decoded parked))
+                      (when out-progressed
+                        (ptr-set! out-progressed _uint32 1))
+                      OK)))
   (define arm-cb (function-ptr arm _GlowcapHostPumpArmFn))
   (define hooks (make-GlowcapHostPumpHooks #f arm-cb arm-cb arm-cb arm-cb arm-cb))
-  (define-values (rc _drained yielded) (glowcap_host_pump_drain (host-ptr m) hooks))
-  (when callback-failure
-    (raise-glowcap 'glowcap ERR-INTERNAL
-                   "ABI returned an invalid host action: ~a"
-                   callback-failure))
+  (define-values (callback-failure rc _drained yielded)
+    (call-latching-callbacks (lambda () (glowcap_host_pump_drain (host-ptr m) hooks))))
+  ;; The drain may also run a resumed behavior turn, whose failure is its own.
+  (when callback-failure (raise callback-failure))
   (check/host rc)
   (values (reverse parked) (not (zero? yielded))))
 
@@ -104,42 +145,50 @@
       (define ticket (cadr act))
       (define route-index (caddr act))
       (define attempt (cons ticket route-index))
-      (define cancelled? (box #f))
       (define start (make-semaphore 0))
       (define worker
-        (thread
-         (lambda ()
+        (spawn-dial-worker
+         start
+         (lambda (cancelled?)
            (without-deferred-drain-effects
-            (lambda ()
-              (sync start)
-              (dynamic-wind
-               void
-               (lambda () (run-dial! m ticket route-index (lambda () (unbox cancelled?))))
-               (lambda ()
-                 (call-with-host/allow-released
-                  m
-                  (lambda () (hash-remove! (host-dial-workers m) attempt))))))))))
-      (hash-set! (host-dial-workers m) attempt (dial-worker worker cancelled?))
+            (lambda () (run-dial! m ticket route-index cancelled?))))
+         ;; The worker leaves the table and reads its cancellation in one
+         ;; locked step, so exactly one of it and the canceller reports.
+         #:on-exit
+         (lambda (cancelled?)
+           (define report?
+             (call-with-host/allow-released
+              m
+              (lambda ()
+                (hash-remove! (host-dial-workers m) attempt)
+                (cancelled?))))
+           (when (eq? report? #t)
+             (without-deferred-drain-effects
+              (lambda () (report-dial-cancelled! m ticket route-index)))))))
+      (hash-set! (host-dial-workers m) attempt worker)
       (cons (lambda () (semaphore-post start)) fires))
     'cancel-dial
     (lambda (act)
       (define ticket (cadr act))
       (define route-index (caddr act))
       (define attempt (cons ticket route-index))
-      (define worker (hash-ref (host-dial-workers m) attempt #f))
       (cons
         (lambda ()
-          (when worker
-            (set-box! (dial-worker-cancelled? worker) #t)
-            (kill-thread (dial-worker-thread worker))
-            (thread-wait (dial-worker-thread worker))
+          ;; A running worker reports from its own exit once its guard has
+          ;; closed what it opened. Waiting for it here would hold the
+          ;; draining thread behind a worker whose break waits on C.
+          (define running
             (call-with-host/allow-released
              m
-             (lambda () (hash-remove! (host-dial-workers m) attempt))))
-          (call-with-host
-           m
-           (lambda ()
-             (check/host (glowcap_host_dial_cancelled (host-ptr m) ticket route-index)))))
+             (lambda ()
+               (define worker (hash-ref (host-dial-workers m) attempt #f))
+               (when worker (cancel-dial-worker! worker))
+               worker)))
+          (unless (dial-worker? running)
+            (call-with-host
+             m
+             (lambda ()
+               (check/host (glowcap_host_dial_cancelled (host-ptr m) ticket route-index))))))
         fires))
     'need-gift-id
     (lambda (act)
@@ -150,7 +199,7 @@
       (append (reverse (settle-vow! m (cadr act) (cons 'ok (caddr act)))) fires))
     'fail
     (lambda (act)
-      (define outcome (vow-failure-outcome (caddr act) (cadddr act)))
+      (define outcome (vow-failure-outcome (caddr act) (cadddr act) (list-ref act 4)))
       (append (reverse (settle-vow! m (cadr act) outcome)) fires))
     'resume
     (lambda (_act)

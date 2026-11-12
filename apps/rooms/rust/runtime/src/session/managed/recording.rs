@@ -93,7 +93,7 @@ pub(super) trait Sink {
 		files: &[Attachment<Ref>],
 		destination: Option<Destination>,
 	) -> Option<Coordinates>;
-	fn close(&self) -> Pin<Box<dyn Future<Output = Result<()>> + '_>>;
+	fn close(&self) -> Pin<Box<dyn Future<Output = core::result::Result<(), crate::Error>> + '_>>;
 }
 struct Recording<P: Platform> {
 	retention: retention::Owner<P>,
@@ -109,7 +109,11 @@ impl<P: Platform> Opened<P> {
 	/// Install before starting memberships. The archive worker and its backend
 	/// already belong to the embedding. Device archive storage may be shared by
 	/// tabs, so the stable committed owner key scopes both recording and reading.
-	pub fn record_to(&self, archive: Rc<SessionArchive<P>>, source: DocumentText) -> Result<()> {
+	pub fn record_to(
+		&self,
+		archive: Rc<SessionArchive<P>>,
+		source: DocumentText,
+	) -> core::result::Result<(), crate::Error> {
 		use std::fmt::Write;
 		let mut scoped = source
 			.as_str()
@@ -120,15 +124,19 @@ impl<P: Platform> Opened<P> {
 			let _ = write!(&mut scoped, "{byte:02x}");
 		}
 		if scoped.encode_utf16().count() > rooms_application::archive::MAX_ID_BYTES {
-			return Err(loam::refusal("archive recording source exceeds its bound"));
+			return Err(crate::Error::invalid("archive recording source exceeds its bound"));
 		}
 		self.session().install_recording(archive, scoped.into())
 	}
 }
 impl<P: Platform> Session<P> {
-	fn install_recording(&self, archive: Rc<SessionArchive<P>>, source: DocumentText) -> Result<()> {
+	fn install_recording(
+		&self,
+		archive: Rc<SessionArchive<P>>,
+		source: DocumentText,
+	) -> core::result::Result<(), crate::Error> {
 		if self.state.recording.borrow().is_some() || self.state.memberships.active() != 0 || self.state.closing.get() {
-			return Err(loam::refusal("install archive before starting session activity"));
+			return Err(crate::Error::busy("install archive before starting session activity"));
 		}
 		let reader = archive
 			.local_reader(
@@ -353,7 +361,7 @@ impl<P: Platform> Sink for Recording<P> {
 		};
 		Some(self.observe(&owner, recording))
 	}
-	fn close(&self) -> Pin<Box<dyn Future<Output = Result<()>> + '_>> {
+	fn close(&self) -> Pin<Box<dyn Future<Output = core::result::Result<(), crate::Error>> + '_>> {
 		Box::pin(async {
 			self.retention.close().await?;
 			let owner = self

@@ -48,16 +48,25 @@ def fail(message: str, status: int) -> NoReturn:
 
 
 def git(*args: str, env: dict[str, str] | None = None) -> str:
-    result = subprocess.run(["git", *args], capture_output=True, text=True, env=env)
+    try:
+        result = subprocess.run(["git", *args], capture_output=True, text=True, env=env, timeout=60)
+    except subprocess.TimeoutExpired:
+        fail(f"git {' '.join(args)}: no answer within 60 s", 1)
     if result.returncode != 0:
         fail(f"git {' '.join(args)}: {result.stderr.strip()}", 1)
     return result.stdout.strip()
 
 
 def attach_note(path: Path, commit: str) -> None:
-    result = subprocess.run(
-        ["git", "notes", f"--ref={NOTES_REF}", "add", "-f", "-F", str(path), commit], capture_output=True, text=True
-    )
+    try:
+        result = subprocess.run(
+            ["git", "notes", f"--ref={NOTES_REF}", "add", "-f", "-F", str(path), commit],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        fail(f"record written at {path}; note not attached: git notes gave no answer within 60 s", 3)
     if result.returncode != 0:
         fail(f"record written at {path}; note not attached: {result.stderr.strip()}", 3)
 
@@ -106,7 +115,10 @@ def zig_version() -> str | None:
     zig = shutil.which("zig")
     if zig is None:
         return None
-    result = subprocess.run([zig, "version"], capture_output=True, text=True)
+    try:
+        result = subprocess.run([zig, "version"], capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        fail(f"{zig} version gave no answer within 60 s", 1)
     return result.stdout.strip() if result.returncode == 0 else None
 
 

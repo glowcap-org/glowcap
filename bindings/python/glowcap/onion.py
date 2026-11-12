@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from . import _constants as _c
 from ._abi_value import _DEFAULT_CODEC, _codec_id
 from ._constants import OK as _OK
+from ._constants import release_result_code
 from ._errors import GlowcapError
 from ._ffi import FfiHandle, _ChildRetiringNetlayer, _FfiHandleOwner
 from ._ffi_ocapn import _borrowed_byte_frame, _copy_managed_frame, _ManagedFrame, _read_last_error
@@ -128,15 +129,15 @@ def _bytes_of(value: str | bytes | None) -> bytes:
 
 
 def _release_conn(raw) -> None:
-    _check_onion(_onion_lib.glowcap_onion_conn_release(raw, None, 0, None))
+    _check_onion(release_result_code(_onion_lib.glowcap_onion_conn_release(raw, None, 0, None)))
 
 
 def _release_listener(raw) -> None:
-    _check_onion(_onion_lib.glowcap_onion_listener_release(raw, None, 0, None))
+    _check_onion(release_result_code(_onion_lib.glowcap_onion_listener_release(raw, None, 0, None)))
 
 
 def _release_netlayer(raw) -> None:
-    _check_onion(_onion_lib.glowcap_onion_netlayer_release(raw, None, 0, None))
+    _check_onion(release_result_code(_onion_lib.glowcap_onion_netlayer_release(raw, None, 0, None)))
 
 
 def _shutdown_conn(raw) -> None:

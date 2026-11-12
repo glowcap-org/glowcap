@@ -15,6 +15,7 @@ pub use error::Error;
 pub use local::{Event, Local};
 pub use notice::{Notice, Report};
 pub use peer::Peer;
+pub use transports::Dial;
 
 use std::future::Future;
 

@@ -1,8 +1,9 @@
 import type { Page } from "playwright";
 import { fail } from "../support/fail.ts";
+import { roomRevokeAuthority } from "../../lib/text/room_authority.ts";
 
 /** Prove the attached path after its session peer restarted: the room was
- * realized through its durable entry link, yet revoking that entry authority status-allow: pending state or quoted runtime label
+ * realized through its durable entry link, yet revoking that entry authority
  * leaves the subscribed membership able to use its manager to replace it. */
 export async function proveSharedRoomAuthorityRotation(
 	page: Page,
@@ -19,7 +20,7 @@ export async function proveSharedRoomAuthorityRotation(
 		.catch(() => fail("the restarted attached room did not retain its manager capability"));
 	const retiredLink = (await page.textContent("#convcardRoomLink"))?.trim() ?? "";
 	await page.click("#convcardRoomLinkRevokeAsk");
-	await page.getByRole("button", { name: "Revoke room authority" }).click();
+	await page.getByRole("button", { name: roomRevokeAuthority }).click();
 	await page.waitForSelector("#convcardCreateRoomLink", { timeout: 30_000 })
 		.catch(async () => {
 			console.error("ROTATION-VIEW", await page.locator("body").innerText());

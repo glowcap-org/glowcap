@@ -102,7 +102,7 @@ pub fn checkRoomsGapSteps(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (try source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet)) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
@@ -189,7 +189,7 @@ pub fn checkRoomsRequestDeadlines(
     var seen: usize = 0;
     var walker = try dir.walk(gpa);
     defer walker.deinit();
-    while (walker.next(io) catch null) |entry| {
+    while (try walker.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.basename, ".ts")) continue;
         // Where the racing itself is written, and the helper every verb uses.
         if (std.mem.eql(u8, entry.basename, "deadline.ts")) continue;
@@ -259,7 +259,7 @@ pub fn checkRoomsComposedTokens(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (try source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet)) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
@@ -323,7 +323,7 @@ pub fn checkRoomsCardWidths(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (try source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet)) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
@@ -434,7 +434,7 @@ pub fn checkRoomsTypeRamp(
     violations: *std.ArrayList([]const u8),
 ) !void {
     // Read as written, comments included: the comment is the evidence.
-    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (try source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet)) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
@@ -528,7 +528,7 @@ pub fn checkRoomsCustomProperties(
 ) !void {
     // Every sheet, tokens.css included: it is where most of these are written,
     // and the sheet list the other rooms checks use leaves it out.
-    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (try source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet)) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
@@ -544,12 +544,16 @@ pub fn checkRoomsCustomProperties(
         for (sources.items) |s| gpa.free(s);
         sources.deinit(gpa);
     }
-    if (root.openDir(io, ui_dir, .{ .iterate = true }) catch null) |opened| {
+    const ui_tree = root.openDir(io, ui_dir, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => null,
+        else => return err,
+    };
+    if (ui_tree) |opened| {
         var dir = opened;
         defer dir.close(io);
         var walker = try dir.walk(gpa);
         defer walker.deinit();
-        while (walker.next(io) catch null) |entry| {
+        while (try walker.next(io)) |entry| {
             if (entry.kind != .file) continue;
             const ok = std.mem.endsWith(u8, entry.basename, ".ts") or
                 std.mem.endsWith(u8, entry.basename, ".tsx") or

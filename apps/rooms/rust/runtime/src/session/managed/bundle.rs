@@ -25,7 +25,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// source must still admit custody and workspace replacement at commit.
 	/// Preparation owns at most the boot inventory's six bounded URI strings
 	/// and one coordinate spine across fetches. Strings move into Imports. No
-	/// copied credential map survives commit. The old intent clone is the bounded status-allow: replacement state identity
+	/// copied credential map survives commit. The old intent clone is the bounded
 	/// transaction candidate. A release spine holds at most its selected fields.
 	pub async fn acquire_operations(
 		&self,

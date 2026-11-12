@@ -111,9 +111,9 @@ def check_web(root, scratch, transport="iroh", executable=None):
     binary = executable or root / "bin/glowcap"
     front = [str(binary), "apps", "rooms"]
     with (Path(scratch) / "web.log").open("w+") as log:
-        options = [] if transport == "iroh" else ["--transport", transport]
+        listener = ["--reachability", "direct"] if transport == "iroh" else ["--transport", transport, "--port", "0"]
         child = subprocess.Popen(
-            [*front, "serve", "--http-port", "0", "--reachability", "direct", *options],
+            [*front, "serve", "--http-port", "0", *listener],
             stdout=log,
             stderr=log,
             env={**os.environ, "GLOWCAP_ROOMS_SERVER_BIN": str(Path(scratch) / "unrelated-server")},

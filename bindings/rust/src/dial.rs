@@ -44,13 +44,10 @@ pub(crate) async fn dial_with_connector(
 pub(crate) async fn dial_exporter(locator: &Locator, host: Rc<HostShared>, origin: DialOrigin) -> Result<Session> {
 	let host = Host::from_shared(host);
 	let connector = host.shared().connector(&locator.transport).ok_or_else(|| {
-		Error::with_detail(
-			sys::ERR_INVALID_ARGUMENT,
-			format!(
-				"UnknownTransport: byte-fed Host has no connector for transport {:?}",
-				locator.transport
-			),
-		)
+		Error::transport_unavailable(format!(
+			"byte-fed Host has no connector for transport {:?}",
+			locator.transport
+		))
 	})?;
 	dial_with_connector(connector, locator, host, origin, None, Some(HANDSHAKE_TIMEOUT)).await
 }
@@ -127,7 +124,7 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 		let raw_session = session.raw_session();
 		opened = Some(session);
 		// Admit the owner task before reporting the connection to the core. Once
-		// `glowcap_host_dialed` commits, failure is no longer retryable as a dial; status-allow: lifecycle transition
+		// `glowcap_host_dialed` commits, failure is not retryable as a dial, and
 		// this gate keeps task admission on the refusal side of that boundary.
 		let (serve_tx, serve_rx) = tokio::sync::oneshot::channel::<Session>();
 		if !try_spawn_local(async move {
@@ -178,11 +175,29 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 			if host.closing() {
 				return Ok(());
 			}
-			let reason = error.to_string();
+			let cause = crate::RouteFailure::from_cause(error.cause()).unwrap_or(crate::RouteFailure::PeerUnreachable);
+			// The route cause travels separately; keep the connector diagnostic
+			// bytes without rendering the enclosing exporter label twice.
+			let reason = if cause == crate::RouteFailure::TransportUnavailable {
+				format!(
+					"glowcap error {}: {}",
+					error.code(),
+					error.message().unwrap_or_default()
+				)
+			} else {
+				error.to_string()
+			};
 			// SAFETY: as the `glowcap_host_pending_dial` probe call above for `host.raw()`, `ticket` and `route_index`;
 			// `reason` is a live local `String` borrowed for the call, and the callee reads it only during the call.
 			check_host(unsafe {
-				ffi::glowcap_host_dial_failed(host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
+				ffi::glowcap_host_dial_failed(
+					host.raw(),
+					ticket,
+					route_index,
+					cause as u32,
+					reason.as_ptr(),
+					reason.len(),
+				)
 			})
 		}
 	}

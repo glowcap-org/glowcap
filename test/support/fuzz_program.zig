@@ -91,6 +91,7 @@ pub const drain_step_cap: usize = 256;
 pub fn stepBounded(peer: *engine.Peer) !void {
     var steps: usize = 0;
     while (steps < drain_step_cap) : (steps += 1) {
+        // tolerant: a step refused for memory or for a protocol refusal the program provoked leaves the peer where the run then judges it.
         const outcome = peer.step() catch return;
         if (outcome == .idle) return;
     }
@@ -133,6 +134,7 @@ pub fn shuttle(from: *engine.Peer, to: *engine.Peer) void {
     // ever reaches the partner and no state is built on either side. A step
     // the sender cannot finish still leaves the frames it did encode, a closed
     // sender's abort among them, so the drain goes on.
+    // tolerant: a step that fails still leaves the frames it encoded, and the drain below takes them.
     stepBounded(from) catch {};
     var shuttled: usize = 0;
     while (from.takeOutbound()) |frame_in| : (shuttled += 1) {
@@ -157,8 +159,18 @@ pub fn shuttle(from: *engine.Peer, to: *engine.Peer) void {
                 else => {},
             };
         }
+        // tolerant: an application drain refused by the generated state loses only that drain, and later frames still shuttle.
         drainApplication(to) catch {};
     }
+}
+
+/// Offer one generated message to a peer's send door. The generator does not
+/// know the peer's tables, so the session may refuse the message: a position
+/// already answered, a closed session, a shortage the run induced. A refused
+/// send commits nothing, and the run judges the pair by its invariants.
+fn offer(actor: *engine.Peer, message: model.Message) void {
+    // tolerant: a refused generated send commits nothing, and the invariants the run checks hold with or without it.
+    actor.sendBorrowed(message) catch {};
 }
 
 /// One legitimate operation, chosen by the fuzzer. These are what build the
@@ -168,19 +180,19 @@ pub fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *en
         // Call the partner's bootstrap, which mints an answer on both sides.
         0 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
-            actor.sendBorrowed(.{ .deliver = .{
+            offer(actor, .{ .deliver = .{
                 .target = .{ .far = model.FarRef.object(0) },
                 .args = &.{.{ .integer = 1 }},
                 .answer = model.AnswerPosition.from(answer),
-            } }) catch {};
+            } });
         },
         // Answer one, so the partner grows a resolved answer with listeners.
         1 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
-            actor.sendBorrowed(.{ .resolve = .{
+            offer(actor, .{ .resolve = .{
                 .answer = model.AnswerPosition.from(answer),
                 .resolution = .{ .fulfill = .{ .integer = 7 } },
-            } }) catch {};
+            } });
         },
         // Watch a promise, the act that queues listener fires. Half the time
         // the listener is an object of this peer's own, so the partner takes a
@@ -189,20 +201,21 @@ pub fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *en
         2 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
             const listener: model.Reference = if (smith.valueRangeAtMost(u8, 0, 1) == 1) blk: {
+                // tolerant: a full export table refuses the publish, and later operations run on the state that exists.
                 const position = actor.exportNextObject() catch return;
                 break :blk .{ .near = model.NearRef.object(position) };
             } else .{ .far = model.FarRef.object(0) };
-            actor.sendBorrowed(.{ .listen = .{
+            offer(actor, .{ .listen = .{
                 .target = .{ .promise = .{ .answer_position = model.AnswerPosition.from(answer) } },
                 .listener = listener,
                 .mode = if (smith.valueRangeAtMost(u8, 0, 1) == 1)
                     .shortening_or_settling
                 else
                     .settling_only,
-            } }) catch {};
+            } });
         },
         // Publish an object, so there is something live to deliver to.
-        3 => _ = actor.exportNextObject() catch {},
+        3 => _ = actor.exportNextObject() catch {}, // tolerant: a full export table refuses the publish, and later operations run on the state that exists.
         // Hand the partner a reference. This is the only operation that makes
         // the partner's import table grow, and without it the release below has
         // nothing to release: a `gc-exports` for a position nobody holds is
@@ -213,11 +226,12 @@ pub fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *en
             // resolve below, and only a mention the partner receives makes it
             // hold the import: a retain taken here by hand would be a mention
             // the partner never saw, which the agreement check reports.
+            // tolerant: a full export table refuses the publish, and later operations run on the state that exists.
             const position = actor.exportNextObject() catch return;
-            actor.sendBorrowed(.{ .resolve = .{
+            offer(actor, .{ .resolve = .{
                 .answer = model.AnswerPosition.from(answer),
                 .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(position) } } },
-            } }) catch {};
+            } });
         },
         // Release an import the peer actually holds. Picking a position out of
         // the live table is what makes this the real release path, where the
@@ -228,10 +242,10 @@ pub fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *en
             const held = heldImport(actor, releasable_only, pick) orelse return;
             const positions = [_]u64{held};
             const deltas = [_]u64{1};
-            actor.sendBorrowed(.{ .gc_export = .{
+            offer(actor, .{ .gc_export = .{
                 .positions = positions[0..],
                 .deltas = deltas[0..],
-            } }) catch {};
+            } });
         },
         // Let the partner's queued traffic land. This is what turns the
         // reference sent above into an import row on the other side.
@@ -242,17 +256,17 @@ pub fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *en
         7 => {
             const answer = heldOutboundAnswer(actor) orelse return;
             const positions = [_]u64{answer};
-            actor.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..] } }) catch {};
+            offer(actor, .{ .gc_answer = .{ .positions = positions[0..] } });
         },
         // A stored resolution naming a partner object keeps that import
         // alive across the application's release, until the answer leaves.
         else => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
             const position = heldImport(actor, true, .lowest) orelse return;
-            actor.sendBorrowed(.{ .resolve = .{
+            offer(actor, .{ .resolve = .{
                 .answer = model.AnswerPosition.from(answer),
                 .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(position) } } },
-            } }) catch {};
+            } });
         },
     }
     try drainApplication(actor);
@@ -284,6 +298,7 @@ pub fn quiescent(peer: *engine.Peer) bool {
     if (peer.sessionIsClosed()) return !peer.hasOutbound();
     var steps: usize = 0;
     while (steps < drain_step_cap) : (steps += 1) {
+        // tolerant: a refused step is work the peer still owes, which is this answer's false.
         const outcome = peer.step() catch return false;
         if (outcome == .idle) return !peer.hasOutbound();
     }

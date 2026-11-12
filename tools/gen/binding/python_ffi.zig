@@ -111,6 +111,7 @@ fn pyParamType(comptime T: type, comptime specials: []const Special) []const u8 
 fn pyReturnType(comptime T: type) []const u8 {
     return switch (T) {
         i32 => "i32",
+        u32 => "u32",
         u64 => "u64",
         usize => "size",
         void => "None",
@@ -268,9 +269,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     }, "``libglowcap_ocapn`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cd, "driver_sigs", &.{
-        "_Argument",        "_Reference",       "_ManagedFrame", "_LastAbort",
-        "_HostPumpHooks",   "_LocatorHintView", "_LocatorView",  "_HostBehavior",
-        "_PartnerIdentity", "_TraceCallback",   "_CloseOptions", "_SessionLimitOptions",
+        "_BreakCause",    "_Argument",        "_Reference",           "_ManagedFrame", "_LastAbort",
+        "_HostPumpHooks", "_LocatorHintView", "_LocatorView",         "_HostBehavior", "_PartnerIdentity",
+        "_TraceCallback", "_CloseOptions",    "_SessionLimitOptions",
     }, "``libglowcap_host`` signatures, in the inventory's order.", &.{
         .{ .T = cd.GlowcapHostBehavior, .spelling = "_HostBehavior" },
         .{ .T = cd.GlowcapHostCtxFree, .spelling = "P" },
@@ -279,7 +280,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cdr, "loop_sigs", &.{
         "_DriverOptions",             "_DriverFailure",     "_CloseOptions", "_DriverEvent", "_LocatorView", "_Reference",
-        "_TransportOperationOptions", "_TransportProvider",
+        "_TransportOperationOptions", "_TransportProvider", "_BreakCause",
     }, "``libglowcap_driver`` loop-family signatures, in the inventory's order.", &.{
         .{ .T = cdr.GlowcapDriverFailure, .spelling = "_DriverFailure" },
     });

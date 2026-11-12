@@ -31,11 +31,17 @@ fn nestedArgument(
 }
 
 test "raw routing admits the depth limit and refuses the next node without mutation" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x69)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x69)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var source_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x79)), .{});
+    var source_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x79)), .{
+        .thread_policy = .unchecked,
+    });
     defer source_partner.deinit();
-    var destination_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x7a)), .{});
+    var destination_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x7a)), .{
+        .thread_policy = .unchecked,
+    });
     defer destination_partner.deinit();
     const source = (try host_pair.openPair(&host, &source_partner, "127.0.0.1:9770")).a;
     const destination = (try host_pair.openPair(&host, &destination_partner, "127.0.0.1:9771")).a;
@@ -89,9 +95,13 @@ test "raw routing admits the depth limit and refuses the next node without mutat
 }
 
 test "turn routing shares the bounded raw-argument policy" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x6a)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x6a)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x7b)), .{});
+    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x7b)), .{
+        .thread_policy = .unchecked,
+    });
     defer partner.deinit();
     const session = (try host_pair.openPair(&host, &partner, "127.0.0.1:9772")).a;
     const actor = try session.served.publish(&session.host.vat, "target", LocalActor, .{});
@@ -121,11 +131,17 @@ test "turn routing shares the bounded raw-argument policy" {
 }
 
 test "near raw routing refuses a foreign argument and accepts its own import" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x6b)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x6b)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var source_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x7c)), .{});
+    var source_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x7c)), .{
+        .thread_policy = .unchecked,
+    });
     defer source_partner.deinit();
-    var foreign_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x7d)), .{});
+    var foreign_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x7d)), .{
+        .thread_policy = .unchecked,
+    });
     defer foreign_partner.deinit();
     const source = (try host_pair.openPair(&host, &source_partner, "127.0.0.1:9773")).a;
     const foreign = (try host_pair.openPair(&host, &foreign_partner, "127.0.0.1:9774")).a;

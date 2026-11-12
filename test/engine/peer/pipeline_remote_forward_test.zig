@@ -335,6 +335,37 @@ test "stored forwarding import release retries allocator refusal without spendin
     try std.testing.expectEqual(@as(u64, 0), peer.session_state.importRefcount(.from(88)));
 }
 
+test "a drained import release reads its batch in place and allocates only its frame" {
+    const FailAfterAllocator = @import("harness.zig").FailAfterAllocator;
+    var counting = FailAfterAllocator{ .backing = std.testing.allocator, .fail_after = std.math.maxInt(usize) };
+    var peer = fixture.openPeer(counting.allocator());
+    defer peer.deinit();
+    // Warm the outbound queue so its backing is not charged to the release.
+    try peer.session_state.registerImport(.from(9));
+    try peer.sendBorrowed(.{ .deliver = .{ .target = .{ .far = model.FarRef.object(9) }, .args = &.{.{ .string = "warm" }} } });
+    _ = try peer.step();
+    var warm = peer.takeOutbound().?;
+    warm.deinit();
+    try peer.session_state.registerImport(.from(88));
+    const batch = (try session.ImportRelease.prepareForIntroduced(&peer.session_state, &.{.from(88)})).?;
+    batch.take(&peer.session_state);
+    batch.ready();
+
+    var positions = [_]u64{88};
+    var deltas = [_]u64{1};
+    const before_encode = counting.allocation_count;
+    var expected = try peer.encodeOutbound(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
+    expected.deinit();
+    const frame_allocations = counting.allocation_count - before_encode;
+
+    const before_step = counting.allocation_count;
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try std.testing.expectEqual(frame_allocations, counting.allocation_count - before_step);
+    var released = peer.takeOutbound().?;
+    released.deinit();
+    try std.testing.expectEqual(@as(u64, 0), peer.session_state.importRefcount(.from(88)));
+}
+
 test "stored forwarding import release shares the retained byte and live answer bounds" {
     var state = session.Session.init(std.testing.allocator);
     defer state.deinit();

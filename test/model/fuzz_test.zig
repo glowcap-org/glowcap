@@ -49,7 +49,7 @@ fn uriOne(_: void, smith: *std.testing.Smith) anyerror!void {
     // Both entry points, because they diverge after the scheme: a peer locator
     // refuses a path and a sturdyref requires one.
     if (uri.parsePeer(gpa, input)) |locator| {
-        defer uri.freePeer(gpa, locator);
+        defer glowcap.ocapn.model.freePeerLocator(gpa, locator);
 
         // What the writer emits, the parser has to accept.
         const written = try uri.writePeer(gpa, locator);
@@ -58,14 +58,18 @@ fn uriOne(_: void, smith: *std.testing.Smith) anyerror!void {
             std.debug.print("wrote a locator we cannot read back: {s}\n", .{written});
             return err;
         };
-        uri.freePeer(gpa, again);
-    } else |_| {}
+        glowcap.ocapn.model.freePeerLocator(gpa, again);
+    } else |err| if (err == error.OutOfMemory) return err;
 
+    // A refusal is the answer to most inputs. Running out of memory is not:
+    // this allocator fails only when a parser asks past what the input bounds.
     if (uri.parseSturdyref(gpa, input)) |sturdyref| {
         uri.freeSturdyref(gpa, sturdyref);
-    } else |_| {}
+    } else |err| if (err == error.OutOfMemory) return err;
 
     // Canonicalising twice lands where canonicalising once did.
+    // tolerant: a refused locator has no canonical form to compare, and the
+    // parses above already ran on it.
     const once = uri.canonicalPeerIdentityUri(gpa, input) catch return;
     defer gpa.free(once);
     const twice = try uri.canonicalPeerIdentityUri(gpa, once);

@@ -1,32 +1,33 @@
-//! Folding a cleanup's failure onto the failure it followed, once, for an
-//! owner whose reader is a person at a terminal rather than another caller.
-//! The first cause stays first. A cleanup that also failed is named after it
-//! rather than replacing it, so the operator reads what went wrong before what
-//! could not be undone.
-//!
-//! [`crate::Error::fold`] is the same shape for a classed failure. The two stay
-//! apart because their readers do: a classed caller matches on the class, and a
-//! process main prints one line.
+//! Fold cleanup failures without replacing the primary failure. Typed runtime
+//! owners retain both sources. Terminal owners render the same ordering.
 
-/// The outcome of `primary` followed by `cleanup`.
-pub fn combine(primary: Result<(), String>, cleanup: Result<(), String>) -> Result<(), String> {
+pub trait Failure: Sized {
+	fn with_cleanup(self, cleanup: Self) -> Self;
+}
+impl Failure for crate::Error {
+	fn with_cleanup(self, cleanup: Self) -> Self {
+		self.retain(cleanup)
+	}
+}
+impl Failure for String {
+	fn with_cleanup(self, cleanup: Self) -> Self {
+		format!("{self}; cleanup also failed: {cleanup}")
+	}
+}
+
+pub fn combine<E: Failure>(primary: Result<(), E>, cleanup: Result<(), E>) -> Result<(), E> {
 	match primary {
 		Ok(()) => cleanup,
 		Err(primary) => Err(failed(primary, cleanup)),
 	}
 }
-
-/// The failure of an owner that is already failing, with a failed `cleanup`
-/// named beside it. The primary cause stays first.
-pub fn failed(primary: String, cleanup: Result<(), String>) -> String {
+pub fn failed<E: Failure>(primary: E, cleanup: Result<(), E>) -> E {
 	match cleanup {
 		Ok(()) => primary,
-		Err(cleanup) => format!("{primary}; cleanup also failed: {cleanup}"),
+		Err(cleanup) => primary.with_cleanup(cleanup),
 	}
 }
-
-/// `combine` in place, for an owner folding several cleanups in turn.
-pub fn retain(result: &mut Result<(), String>, next: Result<(), String>) {
+pub fn retain<E: Failure>(result: &mut Result<(), E>, next: Result<(), E>) {
 	let prior = std::mem::replace(result, Ok(()));
 	*result = combine(prior, next);
 }

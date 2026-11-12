@@ -93,7 +93,8 @@ const LateNudge = struct {
     landed: std.atomic.Value(bool) = .init(false),
 
     fn send(self: *LateNudge) void {
-        std.Io.sleep(std.testing.io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+        // A raw thread has no Io task, so its sleep cannot be cancelled.
+        std.Io.sleep(std.testing.io, std.Io.Duration.fromMilliseconds(20), .real) catch unreachable;
         self.landed.store(true, .release);
         _ = self.sink.wake.nudge() catch |err| self.sink.wake_failure.record(err);
         _ = self.sink.nudging.fetchSub(1, .release);

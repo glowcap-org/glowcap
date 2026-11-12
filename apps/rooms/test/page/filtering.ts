@@ -30,6 +30,9 @@ interface Rail {
 	 * filter exists instead of. */
 	boxes: number;
 	heads: number;
+	/** Where the names start, across both lists, to the half pixel. One number
+	 * while every row keeps the rail's one name column. */
+	nameStarts: number[];
 	/** What the rooms heading says beside its own name: the two numbers once
 	 * something is hidden, and nothing at all while nothing is. */
 	said: string;
@@ -56,6 +59,12 @@ const readRail = (tab: Page) =>
 			dms: named("#dmList li .rname"),
 			boxes: document.querySelectorAll("#roomList > :not(li), #dmList > :not(li)").length,
 			heads: document.querySelectorAll(".section-head").length,
+			nameStarts: [
+				...new Set(
+					[...document.querySelectorAll("#roomList li .rname, #dmList li .rname")]
+						.map((el) => Math.round(el.getBoundingClientRect().left * 2) / 2),
+				),
+			],
 			said: document.querySelector("#railFilter .rail-filter-count")?.textContent?.trim() ?? "",
 			// What either list says when the filter is holding rows back.
 			heldRooms: named("#roomList li.empty"),
@@ -172,7 +181,7 @@ export async function run(
 	// orchard at the top, which is a different list from the one the reader
 	// made.
 	//
-	// Earlier scenes leave rooms of their own in this rail, so what is expected status-allow: event or source ordering
+	// Earlier scenes leave rooms of their own in this rail, so what is expected
 	// below is read off the list rather than written out: the four this scene
 	// reasons about have to be there, in that order, and whatever else the run
 	// has collected rides along.
@@ -217,6 +226,10 @@ export async function run(
 	}
 	if (!isWhatIsLeftOf(before.rooms, entered)) {
 		fail(`the rooms are not in the order they were entered: ${JSON.stringify(before.rooms)}`);
+	}
+	if (before.dms.length === 0) fail("the scene needs a direct line in the rail and found none");
+	if (before.nameStarts.length !== 1) {
+		fail(`room and direct rows start their names on different verticals: ${before.nameStarts}`);
 	}
 	if (before.said !== "") {
 		fail(`the rooms heading says ${JSON.stringify(before.said)} before anything has been asked of it`);

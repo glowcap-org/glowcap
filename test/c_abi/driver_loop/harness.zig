@@ -33,7 +33,7 @@ pub const default_tcp_config: ctcp.GlowcapTcpConfig = .{ .stream = .{
     .keepalive_idle_sec = 0,
     .keepalive_interval_sec = 0,
     .keepalive_count = 0,
-} };
+}, .profiles = ctcp.GLOWCAP_TCP_PROFILES_ALL };
 
 pub const driver_options_1s: cdrv.GlowcapDriverOptions = .{
     .abi_version = cdrv.GLOWCAP_DRIVER_OPTIONS_ABI_VERSION,

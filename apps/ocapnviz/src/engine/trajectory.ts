@@ -183,7 +183,7 @@ export const PEER_TRAJECTORY: Readonly<
 		lane: "peers",
 		noun: "profile",
 		// The flavor a peer is known by is as temporal as its name: a peer
-		// drawn before anyone could say what it runs changes at the moment status-allow: state at observation
+		// drawn before anyone could say what it runs changes at the moment
 		// somebody can, rather than rewriting its whole life. A live feed
 		// reaches that verdict too, `LedgerNames.learnProfile` states one
 		// when a producer speaks for an end it had been holding a place on.
@@ -452,7 +452,7 @@ export function sessionRowDisplay(
  *  being made: keyed on `t`, the row unmounts under the drag that is
  *  changing it, which takes the pointer capture with it and ends the
  *  gesture after one step. Keyed on its index within the track, the row
- *  survives a drag but is stolen by any insert or removal earlier in the status-allow: event or source ordering
+ *  survives a drag but is stolen by any insert or removal earlier in the
  *  same track, because every later index shifts by one and React hands a
  *  mounted row's fiber to a different keyframe.
  *

@@ -60,7 +60,8 @@ const Outcome = struct {
         self.called = true;
         switch (resolution) {
             .fulfilled => |value| self.void_reply = value == .void,
-            .broken => |reason| {
+            .broken => |failure| {
+                const reason = failure.detail;
                 self.reason_len = @min(reason.len, self.reason.len);
                 @memcpy(self.reason[0..self.reason_len], reason[0..self.reason_len]);
             },

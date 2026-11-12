@@ -4,6 +4,7 @@
 //! publication settles a send. Withdraw and missing-gifter cases live
 //! in `redeem/withdraw_test.zig`.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
@@ -36,9 +37,9 @@ const nextRouteOptions = harness.nextRouteOptions;
 test "core host: parked direct key sturdyref requires authenticated channel identity" {
     const allocator = std.testing.allocator;
     const server_seed = @as([32]u8, @splat(0x67));
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x66)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x66)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, server_seed, Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -70,7 +71,8 @@ test "core host: parked direct key sturdyref requires authenticated channel iden
     var refused = false;
     while (try client.nextAction()) |result| switch (result) {
         .failed => |failure| if (failure.vow_id == vow_id) {
-            try std.testing.expectEqualStrings("PeerIdentityUnverified", failure.message.bytes());
+            try std.testing.expectEqualStrings("", failure.message.bytes());
+            try std.testing.expectEqual(BreakCause.local(.identity_unverified).withFetch(), failure.cause);
             refused = true;
         },
         else => {},
@@ -81,9 +83,9 @@ test "core host: parked direct key sturdyref requires authenticated channel iden
 test "core host: id pending dial does not preselect an unverified concrete session" {
     const allocator = std.testing.allocator;
     const server_seed = @as([32]u8, @splat(0x63));
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x62)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x62)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, server_seed, Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -114,11 +116,14 @@ test "core host: id pending dial does not preselect an unverified concrete sessi
     try std.testing.expect(client.pendingDial(staged.pending, 0) != null);
 
     const routed = try client.openPendingDial(staged.pending, 0) orelse return error.MissingPendingDial;
-    defer client.releaseSession(routed) catch {};
+    var routed_released = false;
+    errdefer if (!routed_released) client.releaseSession(routed) catch {};
     try std.testing.expect(routed != dialed);
     try std.testing.expect(routed.served.port.peer.demandedPartnerKey().?.eql(
         crypto.PeerKey.fromDesignator(server_key[0..]).?,
     ));
+    routed_released = true;
+    try client.releaseSession(routed);
 }
 
 test "core host: session-scoped id sturdyrefs validate route bundle before fetch" {
@@ -184,11 +189,11 @@ test "core host: session-scoped id sturdyrefs validate route bundle before fetch
 
 test "core host: listen refuses a foreign near target before routing" {
     const allocator = std.testing.allocator;
-    var caller = test_host.init(allocator, @as([32]u8, @splat(0x38)), Host.Options.withFrameCap(frame_cap));
+    var caller = test_host.init(allocator, @as([32]u8, @splat(0x38)), Host.Options.init(.unchecked, frame_cap));
     defer caller.deinit();
-    var owner = test_host.init(allocator, @as([32]u8, @splat(0x39)), Host.Options.withFrameCap(frame_cap));
+    var owner = test_host.init(allocator, @as([32]u8, @splat(0x39)), Host.Options.init(.unchecked, frame_cap));
     defer owner.deinit();
-    var partner = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.init(.unchecked, frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -202,9 +207,9 @@ test "core host: listen refuses a foreign near target before routing" {
 
 test "core host: publication refuses callback reentry before Vat spawn" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -228,11 +233,11 @@ test "core host: publication refuses callback reentry before Vat spawn" {
 
 test "core host: foreign release validates before trace close" {
     const allocator = std.testing.allocator;
-    var caller = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.withFrameCap(frame_cap));
+    var caller = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.init(.unchecked, frame_cap));
     defer caller.deinit();
-    var owner = test_host.init(allocator, @as([32]u8, @splat(0x3e)), Host.Options.withFrameCap(frame_cap));
+    var owner = test_host.init(allocator, @as([32]u8, @splat(0x3e)), Host.Options.init(.unchecked, frame_cap));
     defer owner.deinit();
-    var partner = test_host.init(allocator, @as([32]u8, @splat(0x3f)), Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x3f)), Host.Options.init(.unchecked, frame_cap));
     defer partner.deinit();
     var caller_log = TraceLog{};
     try caller.setTrace(.{ .ctx = &caller_log, .emit = TraceLog.emit });
@@ -250,9 +255,9 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
     // ADR-0007 at the byte-fed tier: the same select-or-dial the Zig
     // HostRuntime performs, driven here by an embedder that only answers actions.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -273,7 +278,7 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
     // DIAL: an unreached peer parks the enliven on a staged dial, which
     // reaches the embedder as the ordinary `dial` action, one ticket space,
     // so the embedder's dial arm is unchanged.
-    var second = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
+    var second = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.init(.unchecked, frame_cap));
     defer second.deinit();
     const parked_vow = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7802", "widget"));
     try std.testing.expect(parked_vow != selected);
@@ -326,9 +331,9 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
 
 test "core host: select-or-dial does not attach new work to a finishing address session" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x74)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x74)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x75)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x75)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -342,7 +347,7 @@ test "core host: select-or-dial does not attach new work to a finishing address 
 
 test "core host: a select-or-dial enliven breaks when its staged dial fails" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -356,7 +361,7 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
 
     // The embedder could not open it: the parked vow breaks rather than
     // stranding, and it breaks host-scoped, no session ever existed.
-    try client.dialFailed(ticket, 0, "connection refused");
+    try client.dialFailed(ticket, 0, .peer_unreachable, "connection refused");
     var broke = false;
     while (try client.nextAction()) |action| {
         switch (action) {
@@ -373,7 +378,7 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
 
 test "core host: parked enlivens group by ticket and settle independently" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x69)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x69)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     const first = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7804", "one"));
@@ -390,7 +395,7 @@ test "core host: parked enlivens group by ticket and settle independently" {
     const second_ticket = second_dial.dial.ticket;
     try std.testing.expect(first_ticket != second_ticket);
 
-    try host.dialFailed(first_ticket, 0, "first route unavailable");
+    try host.dialFailed(first_ticket, 0, .peer_unreachable, "first route unavailable");
     var first_failed = false;
     var second_failed = false;
     while (try host.nextAction()) |action| switch (action) {
@@ -406,7 +411,7 @@ test "core host: parked enlivens group by ticket and settle independently" {
     try std.testing.expect(host.pendingDial(first_ticket, 0) == null);
     try std.testing.expect(host.pendingDial(second_ticket, 0) != null);
 
-    try host.dialFailed(second_ticket, 0, "second route unavailable");
+    try host.dialFailed(second_ticket, 0, .peer_unreachable, "second route unavailable");
     const final = (try host.nextAction()).?;
     try std.testing.expect(final == .failed);
     try std.testing.expectEqual(third, final.failed.vow_id);
@@ -414,7 +419,7 @@ test "core host: parked enlivens group by ticket and settle independently" {
 
 test "core host: a failed handoff path reuses its ticket for the next locator" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x0d)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0d)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     const alternative = try model.uri.writePeer(allocator, .{
@@ -442,22 +447,22 @@ test "core host: a failed handoff path reuses its ticket for the next locator" {
 
     // The Host action remains transport-blind: reporting failure is enough for
     // Node to advance the active view and queue the same ticket again.
-    try host.dialFailed(ticket, 0, "primary unreachable");
+    try host.dialFailed(ticket, 0, .peer_unreachable, "primary unreachable");
     const retry = (try host.nextAction()).?;
     try std.testing.expect(retry == .dial);
     try std.testing.expectEqual(ticket, retry.dial.ticket);
     try std.testing.expectEqualStrings("127.0.0.1:7811", host.pendingDial(ticket, 1).?.locator.designator);
 
-    try host.dialFailed(ticket, 1, "alternative unreachable");
+    try host.dialFailed(ticket, 1, .peer_unreachable, "alternative unreachable");
     try std.testing.expect(host.pendingDial(ticket, 0) == null);
     try std.testing.expect(try host.nextAction() == null);
 }
 
 test "core host: ordinary sturdyrefs retry alternative locators and settle" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x6b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x6b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -489,7 +494,7 @@ test "core host: ordinary sturdyrefs retry alternative locators and settle" {
     const ticket = first.dial.ticket;
     try std.testing.expectEqualStrings("127.0.0.1:7812", client.pendingDial(ticket, 0).?.locator.designator);
 
-    try client.dialFailed(ticket, 0, "primary unreachable");
+    try client.dialFailed(ticket, 0, .peer_unreachable, "primary unreachable");
     const retry = (try client.nextAction()).?;
     try std.testing.expect(retry == .dial);
     try std.testing.expectEqual(ticket, retry.dial.ticket);
@@ -523,9 +528,9 @@ test "core host: ordinary sturdyrefs retry alternative locators and settle" {
 
 test "core host: sturdyref peer mismatch and accepted TCP assertion refuse before fetch" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -553,7 +558,7 @@ test "core host: sturdyref peer mismatch and accepted TCP assertion refuse befor
 
 test "core host: feedBytes rejects an outer length over cap before its body" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(8));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, 8));
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7010", &.{});
     try std.testing.expectError(error.FrameTooLarge, host.feedBytes(session, "9:"));
@@ -561,9 +566,9 @@ test "core host: feedBytes rejects an outer length over cap before its body" {
 
 test "core host: publish, fetch, and a settled send over fed bytes" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
         parts.deinit(gpa);
     }
     // callgrind writes the base file at exit, so its pid names this run and
-    // keeps an earlier run's parts of the same name out. status-allow: event or source ordering
+    // keeps an earlier run's parts of the same name out.
     const final = try dir.readFileAlloc(io, base, gpa, .limited(1 << 30));
     defer gpa.free(final);
     const pid = callgrind.headerValue(final, "pid:") orelse return error.NotCallgrind;
@@ -159,7 +159,7 @@ test {
     _ = callgrind;
 }
 
-test "grouped digits" {
+test "grouped separates thousands with commas" {
     try std.testing.expectFmt("0", "{f}", .{grouped(0)});
     try std.testing.expectFmt("999", "{f}", .{grouped(999)});
     try std.testing.expectFmt("1,000", "{f}", .{grouped(1000)});

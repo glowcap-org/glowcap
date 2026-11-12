@@ -4,21 +4,24 @@
 // reading, not the machinery.
 
 import { browserBlocks } from "./failure.ts";
+import { historyReadAgain, historyTitle, sessionSettingsLocation } from "./session_settings.ts";
 import { serverModel, serverNeedDm } from "./session.ts";
 
 /** Session message retention and the archive capability it selects. */
 export const historyOffSession =
-	"Nothing is saved. Messages show up in whatever windows are open, and are gone after that.";
-export const historyOnSession = "Messages are saved in this session. Turn this off and new ones stop being saved.";
+	"New messages aren't saved. They show up in whatever windows are open, and are gone after that.";
+export const historyOnSession = "Messages are saved in this session.";
+/** Said beside the switch, to a reader who can use it. */
+export const historyOnSessionOff = "Turn this off and new ones stop being saved.";
 
 export const historyKeepLabel = "Keep message history";
 export const historyArchivePeerLabel = "Archive peer link";
 export const historyArchivePeerTitle = "Archive peer";
 export const historyBuiltInSession = "Built-in session archive";
-export const historyPeerUnavailable = "That archive can't be reached right now.";
+export const historyPeerUnavailable =
+	`That archive can't be reached. When it returns, choose ${historyReadAgain} under ${historyTitle} in ${sessionSettingsLocation}.`;
 export const historyPeerDurable = "Connected. Its saved link lets this session reconnect on its own.";
 export const historyPeerSaved = "Saved";
-export const historyPeerReconnect = "Reconnect";
 export const historyPeerLead =
 	"A link that can read and write the archive. A new one starts keeping messages from now on, and doesn't copy what's already there.";
 
@@ -28,13 +31,11 @@ export const historyPeerLead =
 export const recoveryPrivateNeedsLink = "This private room needs a current link. The name on its own won't find it.";
 export const recoveryPrivateRetry = "Retry the saved link for this private room, or paste a current one.";
 export const recoveryLinkRevoked =
-	"The saved link was revoked. You can rejoin by name, but that may reach a different room using the same name now.";
+	"The saved link was revoked. Rejoining by name may reach a different room that uses the name now.";
 export const recoveryPublicRetry = "Retry joining this public room by name.";
 export const recoveryLinkLabel = "Current room link";
-export const recoveryWait = "Wait for the room recovery to finish.";
 
 /** Saving, and how it can fail. */
-export const settingsConnectionSaving = "Wait for the connection setting to finish saving.";
 export const settingsConnectionRefused = "Rooms couldn't save the connection choice. Try again in a moment.";
 
 export const settingsCopyDirectory = "Copy the directory address";
@@ -43,7 +44,7 @@ export const settingsShareDirectory = "Lets anyone join this server's rooms by n
 /** The Rooms server this browser is reached through, chosen on this device. */
 export const serverOfferTitle = "Use this Rooms server?";
 export const serverOfferSay = (host: string, local: boolean) =>
-	`This link asks Rooms to use the server at ${host}. People reach this browser through it, and link previews are fetched through it. Use it only if you started it or trust whoever runs it. You can change this later in Settings, under Connection.${
+	`This link asks Rooms to use the server at ${host}. People reach this browser through it, and it fetches link previews. Use it only if you started it or trust whoever runs it. Change it later in Settings, under Connection.${
 		local
 			? " Your browser may first ask to let this page reach a server on your computer or network. Allow it."
 			: ""
@@ -117,7 +118,7 @@ export const capabilitySetPlaceholder = "ROOMS-ADMIN-LISTENERS …";
  * the reader there. */
 export const archiveNeedsPeerLead =
 	"Needs an archive peer to hold it. The archive built into this browser can't create one. Choose one in";
-export const archiveNeedsPeerLink = "Settings, under Session";
+export const archiveNeedsPeerLink = sessionSettingsLocation;
 export const archiveNeedsPeerAfter = ".";
 
 /** The Connection tab's headings. Its sentences are the share and direct
@@ -177,13 +178,11 @@ export const settingsHomeServerName = "This server's directory";
 export const settingsHomeUseServer = "Make it home";
 export const settingsHomeOption = (name: string, away: boolean): string => away ? `${name} (not connected)` : name;
 export const settingsHomeHintEmpty =
-	"This session has no home directory. Join a directory, then choose it here, so a room you join without an address opens there.";
+	"Join a directory, then choose it here, so a room you join without an address opens there.";
 export const dmConnectionTitle = "Direct message connection";
 export const operationsTitle = "Operations";
 export const settingsTitle = "Settings";
 export const operationsLoadingNoun = "operations";
-export const settingsSessionTab = "Session";
-export const settingsHoldingsTab = "Holdings";
 export const settingsConnectionTab = "Connection";
 
 /** The title row every card shares: the theme and the notification bell. */
@@ -197,8 +196,7 @@ export const notifyBlocked =
 
 /** Issued archive shares. */
 export const archiveSharesTitle = "Issued archive shares";
-export const archiveSharesLead =
-	"Links this archive has shared. Revoking one stops it working. A link handed over once isn't affected.";
+export const archiveSharesLead = "Revoking one stops it working. A link handed over once isn't affected.";
 export const archiveSharesEmpty = "This archive has shared nothing yet.";
 
 /** The operations capability set. */
@@ -213,7 +211,6 @@ export const capabilitySetRetry = "Retry";
 export const capabilitySetDiscard = "Discard";
 export const capabilitySetSave = "Save changes";
 export const capabilitySetUriRefused = "Enter the complete link the server printed.";
-export const capabilitySetIncomplete = "Enter the complete link for every item you turned on.";
 export function capabilitySetMintedSaid(flag: string): string {
 	return `The server prints it when started with ${flag}. Paste the full link here and Rooms fetches it from the server it names. Anyone holding it has this access, so this session keeps it private.`;
 }
@@ -225,3 +222,4 @@ export const recoveryRestoring = "Restoring room…";
 export const recoveryRetrySaved = "Retry saved link";
 export const recoveryUseCurrent = "Use current link";
 export const recoveryRejoinByName = "Rejoin by name";
+export const sessionStateSaved = (file: string) => `Saved ${file}.`;

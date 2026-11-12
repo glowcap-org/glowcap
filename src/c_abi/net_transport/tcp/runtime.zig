@@ -23,6 +23,28 @@ pub const GlowcapTcpOperationOptions = extern struct {
     stream: GlowcapTcpStreamOptions,
 };
 
+/// The bit one profile holds in a `profiles` set: its position in
+/// `net.tcp.profiles`, the one authority for the list and its order.
+pub fn profileBit(comptime transport: model.transport.Known) u32 {
+    inline for (net.tcp.profiles, 0..) |known, i| {
+        if (known == transport) return @as(u32, 1) << i;
+    }
+    @compileError("profile is not in net.tcp.profiles");
+}
+
+/// Every profile this provider package can serve.
+pub const profiles_all: u32 = (@as(u32, 1) << net.tcp.profiles.len) - 1;
+
+/// Refuse an empty set or a bit outside `profiles_all` before anything is
+/// created.
+pub fn profileSetFromC(set: u32, operation: []const u8) error{InvalidProfileSet}!u32 {
+    if (set == 0 or set & ~profiles_all != 0) {
+        setLastError("{s}: profiles must be a nonempty set of GLOWCAP_TCP_PROFILE_* bits (0x{x} given)", .{ operation, set });
+        return error.InvalidProfileSet;
+    }
+    return set;
+}
+
 const setLastError = c.setLastError;
 
 const GLOWCAP_OK = c.GLOWCAP_OK;
@@ -44,6 +66,8 @@ pub const TcpNetlayerPayload = struct {
     calls: c.ForeignCallBarrier = .{},
     tasks: net.OperationOwner,
     stream_options: net.tcp.StreamOptions,
+    /// The `GLOWCAP_TCP_PROFILE_*` bits this netlayer's provider registers.
+    profile_set: u32,
     provider_profiles: [net.tcp.profiles.len]ProviderProfile,
     provider_profile_abi: [net.tcp.profiles.len]c.GlowcapTransportProfile,
     provider_tables: [net.tcp.profiles.len]c.GlowcapStreamTransport,
@@ -57,22 +81,27 @@ pub const TcpNetlayerPayload = struct {
         return self.threaded.io();
     }
 
+    /// Fill provider entries for the profiles in `self.profile_set`, in
+    /// `net.tcp.profiles` order.
     pub fn initProvider(self: *TcpNetlayerPayload) void {
+        var count: usize = 0;
         for (net.tcp.profiles, 0..) |transport, i| {
-            self.provider_profiles[i] = .{ .owner = self, .transport = transport };
-            self.provider_profile_abi[i] = c.transport_provider.profileFromMetadata(transport.metadata());
-            self.provider_tables[i] = streamTransport(&self.provider_profiles[i]);
-            self.provider_entries[i] = .{
-                .profile = &self.provider_profile_abi[i],
+            if (self.profile_set & (@as(u32, 1) << @intCast(i)) == 0) continue;
+            self.provider_profiles[count] = .{ .owner = self, .transport = transport };
+            self.provider_profile_abi[count] = c.transport_provider.profileFromMetadata(transport.metadata());
+            self.provider_tables[count] = streamTransport(&self.provider_profiles[count]);
+            self.provider_entries[count] = .{
+                .profile = &self.provider_profile_abi[count],
                 .execution_model = c.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM,
-                .implementation = &self.provider_tables[i],
+                .implementation = &self.provider_tables[count],
             };
+            count += 1;
         }
         self.provider = .{
             .abi_version = c.transport_provider.GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION,
             .struct_size = @sizeOf(c.GlowcapTransportProvider),
             .entries = &self.provider_entries,
-            .entry_count = self.provider_entries.len,
+            .entry_count = count,
             .lease_ctx = self,
             .same_configuration = providerSameConfiguration,
             .retain = c.transport_provider.retainCallback(TcpNetlayerPayload),
@@ -96,6 +125,9 @@ pub const TcpNetlayerPayload = struct {
     }
 };
 
+/// Two netlayers are one configuration when their stream defaults match. The
+/// profile set stays out of the comparison so netlayers with different sets
+/// compose on one driver.
 fn providerSameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(.c) u8 {
     const lhs: *TcpNetlayerPayload = @ptrCast(@alignCast(ctx orelse return 0));
     const rhs: *TcpNetlayerPayload = @ptrCast(@alignCast(other_ctx orelse return 0));

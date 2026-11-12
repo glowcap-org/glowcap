@@ -1,5 +1,6 @@
 // Awaited archive replies retain the selected offer and receiving conversation.
 /// <reference lib="dom" />
+import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
 import "../support/match_media.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { initializeApplication } from "../support/application.ts";
@@ -175,7 +176,7 @@ Deno.test("managed archive keeps reconciled history when dismissal refuses and c
 		);
 		f.onCandidate(() => f.current.intent.archiveShares = [{ ...f.offer, from: "replacement" }]);
 		assert(
-			(await f.reading.readArchiveShare("offer")).includes("changed before dismissal"),
+			(await f.reading.readArchiveShare("offer")).includes(LOCAL_REFUSALS["history-offer-changed"].summary),
 			"replacement must survive",
 		);
 		assertEquals(f.current.intent.archiveShares?.[0].from, "replacement");
@@ -232,10 +233,10 @@ Deno.test("managed archive refuses empty continuation without another read", asy
 		return Promise.resolve({ next: String(calls), more: true, records: [] });
 	});
 	try {
-		assert(
-			(await f.reading.readArchiveShare("offer")).includes("empty continuation"),
-			"bounded empty continuation refusal",
-		);
+		const refusal = await f.reading.readArchiveShare("offer");
+		assert(refusal.includes("empty continuation"), "bounded empty continuation refusal");
+		assert(refusal.includes("local-history-invalid"), "the archive refusal names its catalog entry");
+		assert(refusal.includes("Ask whoever shared"), "the archive refusal gives a useful next step");
 		assertEquals(calls, 1);
 	} finally {
 		f.close();

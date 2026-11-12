@@ -29,8 +29,21 @@ services:
       GLOWCAP_CHECKOUT_DIR: ${GLOWCAP_CHECKOUT_DIR:?Run bash .devcontainer/bin/configure.sh}
       # rooms-dev keeps loopback as its host-shell default. In the container,
       # Vite binds wide so this worktree's loopback-only published port reaches
-      # it. The native Rooms backend remains on an ephemeral loopback port.
+      # it. The Rooms backend remains on an ephemeral loopback port.
       GLOWCAP_ROOMS_DEV_HOST: 0.0.0.0
+      # Only rooms-dev advertises routes through this worktree's host mapping.
+      # Conformance servers and their producers use in-container routes.
+      # Browsers on the host reach the page, and name its relay, at the
+      # published web port, so the front must know that address as its own.
+      GLOWCAP_ROOMS_DEV_HTTP_PUBLIC: http://localhost:${GLOWCAP_ROOMS_WEB_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}/
+      GLOWCAP_ROOMS_DEV_TRACE_CONNECT: ws://127.0.0.1:${GLOWCAP_ROOMS_TRACE_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}/captp
+      GLOWCAP_ROOMS_DEV_TRACE_PUBLISH: ws://127.0.0.1:${GLOWCAP_ROOMS_TRACE_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}/publish
+      # The trace listener must accept Docker forwarding, too. Its published
+      # host port remains loopback-only and both routes require the capability.
+      GLOWCAP_ROOMS_TRACE_BIND: 0.0.0.0
+      # The Rooms web listener defaults to loopback, which Docker forwarding
+      # cannot reach. Its published host port remains loopback-only.
+      GLOWCAP_ROOMS_HTTP_BIND: 0.0.0.0
       # The ocapnviz Vite dev server keeps loopback as its bare-host default;
       # inside the container it must bind wide or the published port above
       # reaches nothing. The config reads this variable and opens Vite's

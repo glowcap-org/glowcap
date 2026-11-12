@@ -1,4 +1,4 @@
-//! Native resource moves recover one atomic content, index and receipt outcome.
+//! LMDB resource moves recover one atomic content, index and receipt outcome.
 const std = @import("std");
 const r = @import("../access/resource_fixture.zig");
 const h = r.h;

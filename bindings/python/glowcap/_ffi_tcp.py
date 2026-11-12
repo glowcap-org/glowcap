@@ -33,7 +33,7 @@ class _TcpStreamOptions(ctypes.Structure):
 
 
 class _TcpConfig(ctypes.Structure):
-    _fields_ = [("stream", _TcpStreamOptions)]
+    _fields_ = [("stream", _TcpStreamOptions), ("profiles", ctypes.c_uint32)]
 
 
 pin_struct(_TcpStreamOptions, "GLOWCAP_TCP_STREAM_OPTIONS")

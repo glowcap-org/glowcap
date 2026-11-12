@@ -140,8 +140,7 @@ export class Runtime {
 
 		const connector = this.#host.connectorFor(partner.transport);
 		if (connector == null) {
-			throw new GlowcapError(
-				INVALID_ARGUMENT,
+			throw GlowcapError.transportUnavailable(
 				`UnknownTransport: Runtime has no connector for transport ${JSON.stringify(partner.transport)}`,
 			);
 		}

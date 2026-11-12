@@ -78,7 +78,7 @@ fn serveDeliver(
         // as the mapped-but-vanished case below does. A no-answer
         // `tell` stays a silent no-op the caller may handle.
         if (answer != null) {
-            try resolveBreak(port, answer, @errorName(Error.NoSuchActor));
+            try resolveBreak(port, answer, engine.Broken.unnamed(@errorName(Error.NoSuchActor)));
             return true;
         }
         return false;
@@ -88,7 +88,7 @@ fn serveDeliver(
     // before the arena resets or the frame is marked running.
     const opened = frame.openTurnFrame(self, local_id) catch |err| switch (err) {
         Error.NearCallTooDeep, Error.NoSuchActor => {
-            try resolveBreak(port, answer, @errorName(err));
+            try resolveBreak(port, answer, engine.Broken.unnamed(@errorName(err)));
             return true;
         },
         else => |other| return other,
@@ -132,10 +132,11 @@ fn serveDeliver(
             return true;
         },
         .refused => |failure| {
-            frame.failFrame(self, &turn, failure.name);
+            const broken = failure.broken();
+            frame.failFrame(self, &turn, turn.broke orelse broken);
             // Forwarding or an explicit break already owns this answer.
             if (turn.forwarded) return true;
-            try resolveBreak(port, answer, failure.name);
+            try resolveBreak(port, answer, engine.Broken.unnamed(broken.detail));
             return true;
         },
     }
@@ -151,7 +152,7 @@ fn fulfillServed(self: *Vat, port: *Port, answer: ?engine.AnswerTarget, value: m
         // The handler already committed. Finish nested callback
         // effects before handling either its result or refusal.
         if (self.turn_depth == 1) turn_commit.commit(self);
-        const outcome = intercepted catch |err| return resolveBreak(port, answer, @errorName(err));
+        const outcome = intercepted catch |err| return resolveBreak(port, answer, engine.Broken.unnamed(@errorName(err)));
         switch (outcome) {
             // The interceptor resolved the answer itself
             // (an originated give); the vat sends nothing.
@@ -191,7 +192,7 @@ fn fireFulfilledFar(self: *Vat, port: *Port, answer: engine.OutboundAnswerTarget
 
 /// The broken-arm sibling: remove-before-fire, reason borrowed for the
 /// call.
-fn fireBrokenFar(port: *Port, answer: engine.OutboundAnswerTarget, listener: Listener, reason: []const u8) void {
+fn fireBrokenFar(port: *Port, answer: engine.OutboundAnswerTarget, listener: Listener, reason: engine.Broken) void {
     std.debug.assert(port.far_listeners.fetchSwapRemove(answer) != null);
     port.peer.session_state.consumeOutboundAnswerNotification(answer);
     listener.func(listener.ctx, .{ .broken = reason });
@@ -247,7 +248,7 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve, answer: en
             }
             try fireFulfilledFar(self, port, answer, listener, value);
         },
-        .@"break" => |reason| fireBrokenFar(port, answer, listener, reason.message),
+        .@"break" => |reason| fireBrokenFar(port, answer, listener, engine.Broken.partner(reason.message)),
     }
     return true;
 }
@@ -293,7 +294,7 @@ pub fn breakFarVows(port: *Port, message: []const u8) void {
     // a callback from observing an old vow again. Fresh sends remain usable.
     while (port.far_listeners.pop()) |entry| {
         port.far_broken_stamp = port.peer.session_state.store_stamp_counter;
-        entry.value.func(entry.value.ctx, .{ .broken = message });
+        entry.value.func(entry.value.ctx, .{ .broken = engine.Broken.unnamed(message) });
     }
     port.far_broken_stamp = port.peer.session_state.store_stamp_counter;
     port.far_listeners.deinit(port.allocator);
@@ -309,7 +310,8 @@ fn resolveFulfillView(port: *Port, answer: ?engine.AnswerTarget, reply: model.vi
     try port.peer.sendAnswerTargetResolutionViewCopying(ans, model.view.Resolution{ .fulfill = reply });
 }
 
-pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, message: []const u8) !void {
+pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, reason: engine.Broken) !void {
     const ans = answer orelse return;
-    try port.peer.sendAnswerTargetResolutionCopying(ans, .{ .@"break" = .{ .message = message } });
+    var buffer: [engine.Broken.diagnostic_capacity]u8 = undefined;
+    try port.peer.sendAnswerTargetResolutionCopying(ans, .{ .@"break" = .{ .message = reason.render(&buffer) } });
 }

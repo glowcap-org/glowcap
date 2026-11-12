@@ -1,7 +1,7 @@
 // A rooms chat client, written on glowcap actors in Deno.
 //
 // It connects to the directory, enters the named room (opening it if it does not
-// exist yet), publishes a local `inbox` actor, and hands the room a capability to status-allow: pending state or quoted runtime label
+// exist yet), publishes a local `inbox` actor, and hands the room a capability to
 // that inbox when it subscribes. The room answers with a membership seat, and
 // from then on the room calls the client back: the client never polls. It waits
 // until everyone it expects is in the room, posts one line on its seat, and
@@ -35,7 +35,7 @@ import { enterOrOpen } from "../../lib/enter_room.ts";
 import { MEMBERSHIP_ENDED, NOTIFY, POST, ROOM_SENDER, SESSION_DEADLINE_MS, SUBSCRIBE } from "./protocol_gen.ts";
 import { dialDirectory, type RoomsDirectoryDial } from "../../lib/locator.ts";
 import { isUriLocator } from "../../lib/doors.ts";
-import { openRoomsRuntime } from "../../lib/runtime.ts";
+import { cleartextOf, openRoomsRuntime } from "../../lib/runtime.ts";
 import { Reachability } from "@glowcap/iroh";
 
 export interface RunClientOptions {
@@ -186,6 +186,7 @@ if (import.meta.main) {
 	}
 	try {
 		await using runtime = await openRoomsRuntime({
+			cleartext: cleartextOf(locator),
 			iroh: isUriLocator(locator) ? { reachability: Reachability.Direct } : undefined,
 		});
 		await runClient(

@@ -91,7 +91,9 @@ async def run() -> None:
         # Fetch a vendor, then lift Bob's greeter from an ordinary call reply.
         # The reply ref's home is this gifter<->Bob connection, so glowcap can
         # re-gift it without an enrollment verb.
-        gifter_runtime = await Runtime.open(providers=[tcp.provider()], adopt_host=gifter.host)
+        gifter_runtime = await Runtime.open(
+            providers=[tcp.provider(tcp.Config(profiles=(tcp.plain,)))], adopt_host=gifter.host
+        )
         to_bob = await gifter_runtime.connect(tcp.locator(HOST, PORT))
         to_bob.serve()
         vendor = await to_bob.fetch(VENDOR_SWISS)

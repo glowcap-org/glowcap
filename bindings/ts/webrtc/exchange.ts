@@ -125,6 +125,7 @@ export async function bringUp(
 	const candidateSends = new SignalingSendOwner(label, (error) => bringup.abort(error));
 	let peerClosed = false;
 	let session: Session | null = null;
+	let disposerFailure: { error: unknown; session: Session } | null = null;
 	const closePeer = (): void => {
 		if (peerClosed) return;
 		peerClosed = true;
@@ -166,19 +167,34 @@ export async function bringUp(
 		candidateSends.stopAdmission();
 		try {
 			stopCandidates();
+		} catch (error) {
+			// The session is set only when the bring-up succeeded. A failed
+			// bring-up already throws its own cause, so the disposer's failure
+			// is recorded beside it.
+			if (session == null) host.recordCallerlessBindingFailure("webrtc.candidates.dispose", error);
+			else disposerFailure = { error, session };
+		}
+		if (bringup.signal.aborted) closePeer();
+		try {
+			await candidateSends.join();
 		} finally {
-			if (bringup.signal.aborted) closePeer();
-			try {
-				await candidateSends.join();
-			} finally {
-				bringup.signal.removeEventListener("abort", cancel);
-				signal?.removeEventListener("abort", forwardAbort);
-			}
+			bringup.signal.removeEventListener("abort", cancel);
+			signal?.removeEventListener("abort", forwardAbort);
 		}
 	}
-	if (candidateSends.failure != null) {
-		session?.closeTransport();
-		throw candidateSends.failure;
+	if (disposerFailure != null) {
+		// The application's candidate disposer threw after the session opened:
+		// the caller gets that failure, so nothing else owns the session.
+		disposerFailure.session.closeTransport();
+		throw disposerFailure.error;
 	}
-	return session!;
+	// An abort after the session opened (a failed candidate send or remote
+	// candidate, or the caller's signal) already closed its peer, so the
+	// session closes too and the caller gets the abort's cause.
+	return await abortable(
+		Promise.resolve(session),
+		bringup.signal,
+		(error) => host.recordCallerlessBindingFailure("webrtc.session.cancel.cleanup", error),
+		(opened) => opened.closeTransport(),
+	);
 }

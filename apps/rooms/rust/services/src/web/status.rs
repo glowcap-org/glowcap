@@ -148,10 +148,8 @@ impl StatusQuery {
 	/// The address a status read defaults to: the loopback front on
 	/// `GLOWCAP_ROOMS_HTTP_PORT`, or 8080.
 	pub(crate) fn local_address(env: impl Fn(&str) -> Option<String>) -> Result<String, String> {
-		let port = env("GLOWCAP_ROOMS_HTTP_PORT")
-			.unwrap_or_else(|| "8080".into())
-			.parse::<u16>()
-			.map_err(|_| "HTTP port must be an integer from 1 through 65535")?;
+		let port = env("GLOWCAP_ROOMS_HTTP_PORT").unwrap_or_else(|| "8080".into());
+		let port = rooms_application::host::port(&port).ok_or("HTTP port must be an integer from 1 through 65535")?;
 		if port == 0 {
 			return Err("a status query needs the bound HTTP port".into());
 		}

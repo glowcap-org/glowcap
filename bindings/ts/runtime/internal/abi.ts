@@ -91,6 +91,15 @@ export const ALLOCATOR_FREE_OFF = 8;
 /** Byte offset of `user_data` in GlowcapAllocator (glowcap_context_new_with_allocator). */
 export const ALLOCATOR_USER_DATA_OFF = 16;
 
+/** Byte size of GlowcapBreakCause in the 64-bit FFI layout. */
+export const BREAK_CAUSE_SIZE = 12;
+/** Byte offset of `origin` in GlowcapBreakCause. */
+export const BREAK_CAUSE_ORIGIN_OFF = 0;
+/** Byte offset of `reason` in GlowcapBreakCause. */
+export const BREAK_CAUSE_REASON_OFF = 4;
+/** Byte offset of `context` in GlowcapBreakCause. */
+export const BREAK_CAUSE_CONTEXT_OFF = 8;
+
 /** Byte size of GlowcapFailureReport in the 64-bit FFI layout. */
 export const FAILURE_REPORT_SIZE = 136;
 /** Byte offset of `abi_version` in GlowcapFailureReport. */
@@ -180,7 +189,7 @@ export const FAILURE_EVENT_SECONDARY_MESSAGE_OFF = 136;
 export const FAILURE_EVENT_SECONDARY_MESSAGE_LEN_OFF = 144;
 
 /** Byte size of GlowcapHostAction (libglowcap_host, glowcap_host_next_action) in the 64-bit FFI layout. */
-export const HOST_ACTION_SIZE = 120;
+export const HOST_ACTION_SIZE = 128;
 /** Byte offset of `kind` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_KIND_OFF = 0;
 /** Byte offset of `ticket` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
@@ -197,6 +206,8 @@ export const HOST_ACTION_MESSAGE_OFF = 96;
 export const HOST_ACTION_MESSAGE_LEN_OFF = 104;
 /** Byte offset of `result` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
 export const HOST_ACTION_RESULT_OFF = 112;
+/** Byte offset of `cause` in GlowcapHostAction (libglowcap_host, glowcap_host_next_action). */
+export const HOST_ACTION_CAUSE_OFF = 116;
 
 /** Byte size of GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain) in the 64-bit FFI layout. */
 export const HOST_PUMP_HOOKS_SIZE = 48;
@@ -352,7 +363,7 @@ export const SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF = 40;
 export const SESSION_LIMIT_OPTIONS_MAX_SESSIONS_OFF = 48;
 
 /** Byte size of GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event) in the 64-bit FFI layout. */
-export const DRIVER_EVENT_SIZE = 216;
+export const DRIVER_EVENT_SIZE = 224;
 /** Byte offset of `kind` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_KIND_OFF = 0;
 /** Byte offset of `primary_result` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
@@ -380,13 +391,13 @@ export const DRIVER_EVENT_SESSION_OFF = 56;
 /** Byte offset of `action` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
 export const DRIVER_EVENT_ACTION_OFF = 64;
 /** Byte offset of `primary_name` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
-export const DRIVER_EVENT_PRIMARY_NAME_OFF = 184;
+export const DRIVER_EVENT_PRIMARY_NAME_OFF = 192;
 /** Byte offset of `primary_name_len` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
-export const DRIVER_EVENT_PRIMARY_NAME_LEN_OFF = 192;
+export const DRIVER_EVENT_PRIMARY_NAME_LEN_OFF = 200;
 /** Byte offset of `secondary_name` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
-export const DRIVER_EVENT_SECONDARY_NAME_OFF = 200;
+export const DRIVER_EVENT_SECONDARY_NAME_OFF = 208;
 /** Byte offset of `secondary_name_len` in GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event). */
-export const DRIVER_EVENT_SECONDARY_NAME_LEN_OFF = 208;
+export const DRIVER_EVENT_SECONDARY_NAME_LEN_OFF = 216;
 
 /** Byte size of GlowcapTransportOperationOptions (glowcap_driver_dial) in the 64-bit FFI layout. */
 export const TRANSPORT_OPERATION_OPTIONS_SIZE = 16;
@@ -462,9 +473,11 @@ export const TCP_STREAM_OPTIONS_KEEPALIVE_INTERVAL_SEC_OFF = 4;
 export const TCP_STREAM_OPTIONS_KEEPALIVE_COUNT_OFF = 8;
 
 /** Byte size of GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new) in the 64-bit FFI layout. */
-export const TCP_CONFIG_SIZE = 12;
+export const TCP_CONFIG_SIZE = 16;
 /** Byte offset of `stream` in GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new). */
 export const TCP_CONFIG_STREAM_OFF = 0;
+/** Byte offset of `profiles` in GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new). */
+export const TCP_CONFIG_PROFILES_OFF = 12;
 
 /** Byte size of GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new) in the 64-bit FFI layout. */
 export const RELAY_CONFIG_SIZE = 88;

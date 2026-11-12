@@ -9,6 +9,7 @@ import { type CSSProperties, useId, useState } from "react";
 import { ROOMS_PERMISSIONS, type RoomsPermission, SESSION_CONTENT } from "../../../lib/session_content_data.ts";
 import { Checkbox } from "../Checkbox.tsx";
 import { Said } from "../Said.tsx";
+import { Choice, Choices } from "../Choices.tsx";
 
 type SessionPermission = typeof SESSION_CONTENT.declaration.permissions[number];
 // Every permission a session declares has a reader name. The type says so.
@@ -24,11 +25,29 @@ const names: Record<SessionPermission, string> = {
 	readArchive: text.readArchive,
 	readFile: text.readFile,
 };
-const nameOf = (permission: RoomsPermission): string => names[permission as SessionPermission] ?? permission;
+const readerNames: Partial<Record<RoomsPermission, string>> = names;
+const nameOf = (permission: RoomsPermission): string => readerNames[permission] ?? permission;
 type Group = keyof typeof SESSION_CONTENT.groups;
-type Preset = keyof typeof SESSION_CONTENT.presets;
-const groups = Object.keys(SESSION_CONTENT.groups) as Group[];
-const presets = Object.entries(SESSION_CONTENT.presets) as [Preset, typeof SESSION_CONTENT.presets[Preset]][];
+const isGroup = (key: string): key is Group => Object.hasOwn(SESSION_CONTENT.groups, key);
+const groups: readonly Group[] = Object.keys(SESSION_CONTENT.groups).filter(isGroup);
+/** A group's permissions, widened so any permission can be looked up in it. */
+const fieldsOf = (group: Group): readonly RoomsPermission[] => SESSION_CONTENT.groups[group];
+interface PresetChoice {
+	readonly name: string;
+	readonly group: Group;
+	readonly label: string;
+	readonly description: string;
+	readonly values: readonly RoomsPermission[];
+}
+const presets: readonly PresetChoice[] = Object.entries(SESSION_CONTENT.presets).map(([name, preset]) => ({
+	name,
+	group: preset.group,
+	label: preset.label,
+	description: preset.description,
+	values: preset.values,
+}));
+/** The group's question lays out one row per answer, plus the custom one. */
+type QuestionStyle = CSSProperties & Record<"--answers" | "--rows", number>;
 
 /** A set of permissions in the words the picker uses: each group by the
  * preset it matches, or by its members when it matches none, then the reading
@@ -36,17 +55,16 @@ const presets = Object.entries(SESSION_CONTENT.presets) as [Preset, typeof SESSI
 export function permissionSummary(values: readonly RoomsPermission[]): string[] {
 	const said: string[] = [];
 	for (const group of groups) {
-		const fields: readonly RoomsPermission[] = SESSION_CONTENT.groups[group];
-		const held = fields.filter((field) => values.includes(field));
+		const held = fieldsOf(group).filter((field) => values.includes(field));
 		if (held.length === 0) continue;
-		const preset = presets.find(([, candidate]) =>
+		const preset = presets.find((candidate) =>
 			candidate.group === group && candidate.values.length === held.length &&
-			held.every((field) => (candidate.values as readonly RoomsPermission[]).includes(field))
+			held.every((field) => candidate.values.includes(field))
 		);
-		if (preset != null) said.push(preset[1].label);
+		if (preset != null) said.push(preset.label);
 		else said.push(...held.map(nameOf));
 	}
-	const grouped = groups.flatMap((group) => SESSION_CONTENT.groups[group] as readonly RoomsPermission[]);
+	const grouped = groups.flatMap(fieldsOf);
 	for (const permission of SESSION_CONTENT.declaration.permissions) {
 		if (!grouped.includes(permission) && values.includes(permission)) said.push(nameOf(permission));
 	}
@@ -74,7 +92,7 @@ export function PermissionFields({ value, ceiling, disabled = false, onChange }:
 	const toggle = (permission: RoomsPermission) =>
 		onChange(value.includes(permission) ? value.filter((item) => item !== permission) : [...value, permission]);
 	const independent = SESSION_CONTENT.declaration.permissions.filter((permission) =>
-		!groups.some((group) => (SESSION_CONTENT.groups[group] as readonly RoomsPermission[]).includes(permission))
+		!groups.some((group) => fieldsOf(group).includes(permission))
 	);
 	const refusal = permissionRefusal(value);
 	const checkRow = (permission: RoomsPermission) => (
@@ -91,86 +109,75 @@ export function PermissionFields({ value, ceiling, disabled = false, onChange }:
 		<>
 			<div className="permission-groups">
 				{groups.map((group) => {
-					const fields: readonly RoomsPermission[] = SESSION_CONTENT.groups[group];
-					const candidates = presets.filter(([, preset]) => preset.group === group);
-					const match = candidates.find(([, preset]) =>
-						fields.every((field) =>
-							value.includes(field) === (preset.values as readonly RoomsPermission[]).includes(field)
-						)
+					const fields = fieldsOf(group);
+					const candidates = presets.filter((preset) => preset.group === group);
+					const match = candidates.find((preset) =>
+						fields.every((field) => value.includes(field) === preset.values.includes(field))
 					);
+					const style: QuestionStyle = {
+						"--answers": candidates.length + 1,
+						"--rows": candidates.length + 2,
+					};
 					const customizing = custom[group] === true || match == null;
 					const labelId = `${id}-${group}`;
 					return (
 						<div
 							className="question permission-group"
 							key={group}
-							style={{
-								"--answers": candidates.length + 1,
-								"--rows": candidates.length + 2,
-							} as CSSProperties}
+							style={style}
 						>
 							<p className="group-label" id={labelId}>
 								{SESSION_CONTENT.groupLabels[group]}
 							</p>
-							<div className="choices" role="radiogroup" aria-labelledby={labelId}>
-								{candidates.map(([name, preset]) => {
-									const values = preset.values as readonly RoomsPermission[];
+							<Choices labelledBy={labelId}>
+								{candidates.map((preset) => {
+									const { name, values } = preset;
 									const unavailable = values.filter((permission) => !ceiling.includes(permission));
 									return (
 										<div className="choice-row" key={name}>
-											<label className="choice">
-												<input
-													type="radio"
-													name={labelId}
-													checked={!customizing && match?.[0] === name}
-													disabled={disabled || unavailable.length > 0}
-													onChange={() => {
-														setCustom((prior) => ({ ...prior, [group]: false }));
-														onChange([
-															...value.filter((permission) =>
-																!fields.includes(permission)
+											<Choice
+												name={labelId}
+												checked={!customizing && match?.name === name}
+												disabled={disabled || unavailable.length > 0}
+												onChange={() => {
+													setCustom((prior) => ({ ...prior, [group]: false }));
+													onChange([
+														...value.filter((permission) => !fields.includes(permission)),
+														...values,
+													]);
+												}}
+											>
+												<strong>{preset.label}</strong>
+												{preset.description}
+												{unavailable.length > 0 && (
+													<em className="choice-aside" data-tone="warn">
+														{unavailablePermissions(
+															unavailable.map((permission) =>
+																nameOf(permission)
 															),
-															...values,
-														]);
-													}}
-												/>
-												<span>
-													<strong>{preset.label}</strong>
-													{preset.description}
-													{unavailable.length > 0 && (
-														<em className="choice-aside" data-tone="warn">
-															{unavailablePermissions(
-																unavailable.map((permission) =>
-																	nameOf(permission)
-																),
-															)}
-														</em>
-													)}
-												</span>
-											</label>
+														)}
+													</em>
+												)}
+											</Choice>
 										</div>
 									);
 								})}
 								<div className="choice-row">
-									<label className="choice">
-										<input
-											type="radio"
-											name={labelId}
-											checked={customizing}
-											disabled={disabled}
-											onChange={() => setCustom((prior) => ({ ...prior, [group]: true }))}
-										/>
-										<span>
-											<strong>{text.custom}</strong>
-											{text.customSaid}
-											{custom[group] && match && (
-												<em className="choice-aside">{permissionMatch(match[1].label)}</em>
-											)}
-										</span>
-									</label>
+									<Choice
+										name={labelId}
+										checked={customizing}
+										disabled={disabled}
+										onChange={() => setCustom((prior) => ({ ...prior, [group]: true }))}
+									>
+										<strong>{text.custom}</strong>
+										{text.customSaid}
+										{custom[group] && match && (
+											<em className="choice-aside">{permissionMatch(match.label)}</em>
+										)}
+									</Choice>
 									{customizing && <div className="permission-picks">{fields.map(checkRow)}</div>}
 								</div>
-							</div>
+							</Choices>
 						</div>
 					);
 				})}

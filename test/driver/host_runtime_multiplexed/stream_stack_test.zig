@@ -4,6 +4,7 @@
 //! stack, and the sealed dial proves the listener's key.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
@@ -61,13 +62,18 @@ test "one stream stack dials noise-tcp and inproc through one backend" {
     defer model.freePeerLocator(allocator, inproc_locator);
 
     var done = std.atomic.Value(bool).init(false);
+    var sealed_joined = false;
     var sealed_future = try io.concurrent(echo_server.serve, .{ sealed_server, &done });
-    var inproc_future = try io.concurrent(echo_server.serve, .{ inproc_server, &done });
-    defer {
+    errdefer if (!sealed_joined) {
         done.store(true, .release);
-        sealed_future.await(io) catch {};
-        inproc_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("sealed", sealed_future.await(io));
+    };
+    var inproc_joined = false;
+    var inproc_future = try io.concurrent(echo_server.serve, .{ inproc_server, &done });
+    errdefer if (!inproc_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("inproc", inproc_future.await(io));
+    };
 
     var client = try driver.HostRuntime.init(allocator, io, .{
         .symbols = &.{ .noise_tcp, .inproc },
@@ -99,6 +105,15 @@ test "one stream stack dials noise-tcp and inproc through one backend" {
         try std.testing.expect(reply == .fulfilled and reply.fulfilled == .string);
         try std.testing.expectEqualStrings("pong from the stack", reply.fulfilled.string);
     }
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    sealed_joined = true;
+    inproc_joined = true;
+    const sealed_future_result = sealed_future.await(io);
+    const inproc_future_result = inproc_future.await(io);
+    try sealed_future_result;
+    try inproc_future_result;
 }
 
 test "a transports value serves only the symbols it names" {

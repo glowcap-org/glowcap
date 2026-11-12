@@ -3,7 +3,7 @@
 //! turn_spawn minting a capability mid-turn, turn_break carrying the
 //! refusal's own words, and vow_send/index/untag/get against answers that
 //! are still open, a pending vow passed as a capability, and the baseline
-//! peer's outbound-untag refusal. status-allow: pending state or quoted runtime label
+//! peer's outbound-untag refusal.
 
 const std = @import("std");
 const c = @import("c_abi");

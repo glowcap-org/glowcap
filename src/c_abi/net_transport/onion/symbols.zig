@@ -27,10 +27,10 @@ pub const symbols = [_]Symbol{
     // event loop). The second mark makes the TypeScript surface's Tor-reaching
     // methods async.
     //
-    // Onion has no runtime-native Tor equivalent, so its ergonomic surface
+    // No JS runtime ships its own Tor client, so the onion surface
     // dispatches these calls away from Deno's event loop. TCP and inproc use the
     // same rule for their raw Zig frame shuttles, while their high-level hosts
-    // prefer runtime-native async transports.
+    // prefer the JS runtime's own async sockets.
     // Every release is a completion barrier and is dispatched off-thread:
     // netlayer release joins connect/listen tasks, connection release joins
     // frame I/O, and listener release joins accept before withdrawing the

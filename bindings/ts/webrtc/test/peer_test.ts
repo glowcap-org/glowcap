@@ -35,6 +35,22 @@ Deno.test("RtcPeer gives the browser the embedding's ICE configuration", () => {
 	}
 });
 
+Deno.test("RtcPeer refuses an array candidate without sending it to the browser", async () => {
+	const fake = installFakePeerConnection(() => Promise.resolve());
+	const peer = new RtcPeer({ offerer: false });
+	try {
+		const remote = peer.setRemoteOffer("offer");
+		fake.instance().finishRemoteDescription();
+		await remote;
+		const error = await rejectionOf(peer.addRemoteCandidate([]));
+		if (!(error instanceof TypeError)) throw error;
+		assertDeepEquals(fake.instance().calls, ["set remote"]);
+	} finally {
+		peer.close();
+		fake.restore();
+	}
+});
+
 Deno.test("RtcPeer applies pre-SDP ICE candidates in arrival order", async () => {
 	const fake = installFakePeerConnection(() => Promise.resolve());
 	try {
@@ -269,6 +285,21 @@ Deno.test("RtcPeer close rejects a channel-open wait", async () => {
 		peer.close();
 		const error = await rejectionOf(opening);
 		if (!String(error).includes("peer closed")) throw error;
+	} finally {
+		fake.restore();
+	}
+});
+
+Deno.test("RtcPeer closes its connection when the session closes its channel", async () => {
+	const fake = installFakePeerConnection(() => Promise.resolve());
+	try {
+		const peer = new RtcPeer({ offerer: false });
+		fake.instance().emitDataChannel(fakeChannel({ readyState: "open" }));
+		await peer.waitOpen();
+		peer.channel().close();
+		assertDeepEquals(fake.instance().calls.filter((call) => call === "close"), ["close"]);
+		peer.close();
+		assertDeepEquals(fake.instance().calls.filter((call) => call === "close"), ["close"]);
 	} finally {
 		fake.restore();
 	}

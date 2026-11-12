@@ -83,7 +83,7 @@
 	   mark that replaces it are centred on the same point. Aligning their right
 	   edges instead leaves the two a few pixels apart, and a mark that shifts as
 	   it appears reads as the row twitching under the pointer. */
-	grid-template-columns: auto minmax(0, 1fr) minmax(var(--icon-button-small), auto);
+	grid-template-columns: var(--mark-col) minmax(0, 1fr) minmax(var(--icon-button-small), auto);
 	grid-template-areas: "mark name marks";
 	align-items: center;
 	column-gap: var(--mark-gap);
@@ -91,8 +91,9 @@
 	/* Even above and below. Padded 8 over 1, the button puts its own contents 3px
 	   below the centre of the cell it shares with the leave mark, and the mark
 	   then sits visibly off the count it replaced. The row closes at the bottom
-	   with its caption instead. */
-	padding: 6px var(--mark-inset) 6px var(--row-pad);
+	   with its caption instead. Both ends of a row are a mark's box, so both
+	   stand at the mark's inset. */
+	padding: 6px var(--mark-inset);
 	border-radius: var(--radius-control);
 	cursor: pointer;
 	color: inherit;
@@ -115,19 +116,8 @@
 	width: var(--mark-col);
 	flex: none;
 	display: flex;
-	justify-content: flex-end;
+	justify-content: center;
 	align-items: center;
-}
-.room-progress::after {
-	content: "";
-	box-sizing: border-box;
-	flex: none;
-	width: 13px;
-	height: 13px;
-	border: 2px solid currentColor;
-	border-right-color: transparent;
-	border-radius: 50%;
-	animation: control-busy-turn .75s linear infinite;
 }
 #roomList .room-pending .room-leave {
 	visibility: visible;
@@ -136,26 +126,18 @@
 /* Taking an invitation is a room-row act, so the row itself stays parked and
    answers with the same progress ring as the shared controls. The ring takes
    the badge slot. The invitation's origin remains readable beside it. */
-#roomList .inviterow .invite-take[data-busy] {
+#roomList .inviterow .room-open[data-busy] {
 	cursor: progress;
 	opacity: .72;
 }
-#roomList .inviterow .invite-take[data-busy]::after {
-	content: "";
-	box-sizing: border-box;
+#roomList .inviterow .room-open[data-busy]::after {
 	grid-area: marks;
 	justify-self: center;
-	width: 13px;
-	height: 13px;
-	border: 2px solid currentColor;
-	border-right-color: transparent;
-	border-radius: 50%;
-	animation: control-busy-turn .75s linear infinite;
 }
-#roomList .inviterow .invite-take[data-busy] .rcount {
+#roomList .inviterow .room-open[data-busy] .rcount {
 	visibility: hidden;
 }
-#roomList .inviterow:has(.invite-take[data-busy]) .room-leave {
+#roomList .inviterow:has(.room-open[data-busy]) .room-leave {
 	opacity: 0;
 }
 /* One template row, always. The caption is a sibling of that button and never a
@@ -261,7 +243,7 @@
 	   and was spending a quarter of them on two small marks. */
 	#roomList .room-open,
 	#dmList .dm-open {
-		grid-template-columns: auto minmax(0, 1fr) auto;
+		grid-template-columns: var(--mark-col) minmax(0, 1fr) auto;
 	}
 }
 /* Every row here is a room you are in, so the rail draws no membership tint:
@@ -315,7 +297,7 @@
 .newroom .hash {
 	width: var(--mark-col);
 	display: flex;
-	justify-content: flex-end;
+	justify-content: center;
 	align-items: center;
 	font-weight: 700;
 }
@@ -369,9 +351,10 @@
 .newroom {
 	display: none;
 	margin: 4px 0 0;
-	/* The row's insets, because this is a row: text on the left at the width a
-	   word takes, marks on the right at the narrower one a box takes. */
-	padding: 8px var(--mark-inset) 8px var(--row-pad);
+	/* One inset on every side, the one a row gives the mark at its end, because
+	   what stands at this panel's edges are controls: the mark that chooses the
+	   kind of room, and the line that names where it lands. */
+	padding: var(--mark-inset);
 	border-radius: var(--radius-control);
 	background: color-mix(in srgb, var(--accent) 7%, transparent);
 	/* It arrives over the rows it pushes down, so it floats the way the page's
@@ -382,10 +365,8 @@
 	/* The directory menu hangs off the line at the foot of this panel, so the
 	   panel is what it hangs from. */
 	position: relative;
-	/* Sigil, the name being typed, and the mark that decides what kind of room
-	   it will be: the third column is empty in the section that has no such
-	   choice, and an empty `auto` column takes no width. */
-	grid-template-columns: auto minmax(0, 1fr) auto;
+	/* The mark and the name being typed. */
+	grid-template-columns: auto minmax(0, 1fr);
 	column-gap: var(--mark-gap);
 	row-gap: var(--gap-hair);
 	align-items: center;
@@ -401,8 +382,8 @@
    Over the rows rather than pushing them down, because the panel it belongs to
    already floats over them, and a list that grew the rail would walk every row
    under the reader's pointer on each keystroke. It spans the panel's whole
-   width: the panel is three columns of one row being named, and this is about
-   the row and not about any column of it. */
+   width: the panel is the two columns of one row being named, and this is about
+   the row and not about either column of it. */
 .menu-layer.rail-offers .suggest-pop {
 	top: calc(100% + 4px);
 	bottom: auto;
@@ -418,10 +399,22 @@
 .newroom:focus-within {
 	box-shadow: var(--shadow), var(--ring);
 }
-.newroom .hash {
+/* The panel's mark stands in the rows' mark column whether it is the control
+   that chooses the kind of room or only a sigil, so the name being typed
+   starts under the names already in the list. It starts clear of the mark's
+   box, as it does on the join card, so the wash a pointer raises under the
+   mark never runs under the first letter. */
+.newroom .hash,
+.newroom .newroom-private {
 	color: var(--dir-mark, var(--ink-soft));
 }
+.newroom .newroom-private {
+	font-weight: 700;
+}
 .newroom input {
+	/* A control's height with or without one beside it, so the panel is the
+	   same panel in the section that has no kind to choose. */
+	min-height: var(--icon-button-small);
 	width: 100%;
 	font: inherit;
 	font-size: var(--type-body);
@@ -440,13 +433,6 @@
    it spans a row's. The panel's own padding is what insets it here, so unlike a
    room row's caption it needs no margins: this one really is inside the columns
    it lines up with. */
-/* Beside the field, on its row: the choice belongs to the name being typed,
-   and left to the grid's own placing it dropped onto a row of its own and made
-   the panel taller than the thing it is part of. */
-.newroom-private {
-	grid-row: 1;
-	grid-column: 3;
-}
 .newroom .rwhere {
 	grid-column: 1 / -1;
 	margin: 0;
@@ -470,13 +456,13 @@
 /* The directories this tab holds, hanging under the line that names where the
    room lands: the same rows, in the same box, that the join card's own
    directory mark opens, because it is the same choice being made from the
-   other side of the page. Held to the panel's text column so it reads as
+   other side of the page. Held inside the panel's inset so it reads as
    belonging to the line it came from rather than to the rail. */
 .where-picks {
 	animation: rise-in .12s ease-out;
 	position: absolute;
 	top: calc(100% - 4px);
-	left: var(--row-pad);
+	left: var(--mark-inset);
 	right: var(--mark-inset);
 	z-index: 7;
 	display: flex;

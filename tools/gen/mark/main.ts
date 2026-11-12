@@ -8,8 +8,9 @@
 // gen-mark-check`. Both need the pinned headless Chromium, because the one
 // authority for the mark's shape is the shader that draws it, and running the
 // shader means running a browser with a GPU adapter. The render is
-// bit-reproducible under SwiftShader, so the check can render fresh and
-// compare byte for byte rather than trusting a stored capture.
+// bit-reproducible under SwiftShader on one machine architecture, so the
+// check renders fresh and compares byte for byte rather than trusting a
+// stored capture, and both modes run only on `DRAWN_ON`.
 //
 // What it writes, all from one trace:
 //
@@ -182,12 +183,25 @@ async function build(): Promise<Output[]> {
 	}
 }
 
+/** The architecture the committed mark was drawn on. SwiftShader renders
+ * different low bits on another, where a check would call every file stale
+ * and a write would move the files off the architecture that checks them. To
+ * draw the mark elsewhere, change this and commit what `write` produces. */
+const DRAWN_ON: typeof Deno.build.arch = "aarch64";
+
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((byte, i) => byte === b[i]);
 
 async function main(): Promise<number> {
 	const mode = Deno.args[0];
 	if (mode !== "write" && mode !== "check") {
 		console.error("usage: main.ts write|check");
+		return 2;
+	}
+	if (Deno.build.arch !== DRAWN_ON) {
+		console.error(
+			`the committed mark was drawn on ${DRAWN_ON}, and this machine is ${Deno.build.arch}, where the shader renders different low bits.\n` +
+				`run this on ${DRAWN_ON}, or change DRAWN_ON in tools/gen/mark/main.ts to draw every file here.`,
+		);
 		return 2;
 	}
 	const outputs = await build();

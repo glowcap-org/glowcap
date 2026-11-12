@@ -63,8 +63,37 @@ function glowcapHostWasmPlugin(): Plugin {
 	};
 }
 
+/** A browser build must never carry the host archive loader, even when Vite
+ * can replace its Node imports with browser stubs. Inspect the resolved graph:
+ * a successful bundle alone does not prove the lazy Live path can be loaded. */
+function browserRuntimeBoundary(): Plugin {
+	const hostFfi = new URL("../../bindings/ts/runtime/ffi.ts", import.meta.url).pathname;
+	return {
+		name: "glowcap-browser-runtime-boundary",
+		enforce: "pre",
+		async resolveId(source, importer) {
+			if (!source.endsWith("/ffi.ts") && source !== "@glowcap/runtime/ffi") return null;
+			const resolved = await this.resolve(source, importer, { skipSelf: true });
+			// Deno can return a virtual module ID around the canonical file path.
+			// Match the resolved owner, so relative imports and package subpaths
+			// select the same browser adapter before its host loader is visited.
+			if (resolved?.id.includes(hostFfi)) {
+				return new URL("../../bindings/ts/web/browser_ffi.ts", import.meta.url).pathname;
+			}
+			return resolved;
+		},
+		generateBundle() {
+			if ([...this.getModuleIds()].some((id) => id.includes(hostFfi))) {
+				this.error(
+					"Browser graph includes the host FFI archive loader; map runtime/ffi.ts to web/browser_ffi.ts",
+				);
+			}
+		},
+	};
+}
+
 export default defineConfig({
-	plugins: [glowcapHostWasmPlugin(), deno(), react()],
+	plugins: [glowcapHostWasmPlugin(), browserRuntimeBoundary(), deno(), react()],
 	resolve: {
 		alias: {
 			"virtual:glowcap-web": new URL(

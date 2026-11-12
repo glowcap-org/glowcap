@@ -334,7 +334,9 @@ async fn a_failed_fetch_rejects_typed() {
 			let (ready_tx, ready_rx) = oneshot::channel::<()>();
 			let host = tokio::task::spawn_local(async move {
 				let session = server.accept().await.unwrap();
-				session.publish("svc", |_verb, _args| Ok(Argument::Void)).unwrap();
+				session
+					.publish("svc", |verb, _args| Err(verb.unwrap_or("refused").to_owned()))
+					.unwrap();
 				ready_tx.send(()).unwrap();
 				let _ = session.serve().await;
 			});
@@ -350,8 +352,102 @@ async fn a_failed_fetch_rejects_typed() {
 			assert_eq!(err.code(), crate::sys::ERR_BROKEN);
 			assert_eq!(err.message(), Some("unknown swissnum"));
 			assert!(err.is_publication_not_found());
+			assert_eq!(err.cause(), crate::BreakCause::partner().with_fetch());
+			let service = session.fetch("svc").await.unwrap();
+			for reason in [
+				"unknown swissnum",
+				"PeerIdentityUnverified",
+				"ExporterUnreachable: glowcap error -8: peer-unreachable: x",
+				"handoff redeem failed: x",
+			] {
+				let forged = session.send(&service, reason, &[]).await.unwrap_err();
+				assert_eq!(forged.cause(), crate::BreakCause::partner());
+				assert_eq!(forged.message(), Some(reason));
+				assert!(!forged.is_publication_not_found());
+				assert!(!forged.is_peer_identity_unverified());
+				assert!(!forged.is_exporter_unreachable());
+			}
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
+		})
+		.await;
+}
+
+// An accepted cleartext TCP session carries only the partner's signed claim of
+// where it lives, so a sturdyref naming that claim refuses synchronously: the
+// Host never sends the fetch. The refusal names the same constant the
+// asynchronous break carries, so one predicate answers both.
+#[tokio::test]
+async fn an_unproved_redeem_refuses_with_the_named_identity_reason() {
+	LocalSet::new()
+		.run_until(async {
+			let server = listen("127.0.0.1:0").await.unwrap();
+			let locator = tcp::locator("127.0.0.1", server.port().unwrap());
+			let (done, finished) = oneshot::channel::<()>();
+			let serving = tokio::task::spawn_local(async move {
+				let session = server.accept().await.unwrap();
+				let claimed = session.partner_identity().unwrap().designator;
+				let (address, port) = claimed.rsplit_once(':').unwrap();
+				let claim = tcp::locator(address, port.parse().unwrap());
+				let link = crate::format_sturdyref(&claim, b"svc", crate::CaptpVersion::V1_0).unwrap();
+				let err = session.enliven(&link).await.unwrap_err();
+				assert_eq!(err.kind(), ErrorKind::Session);
+				assert_eq!(
+					err.cause(),
+					crate::BreakCause::local(crate::BreakReason::IdentityUnverified)
+				);
+				assert!(err.is_peer_identity_unverified());
+				assert!(!err.is_publication_not_found());
+				done.send(()).unwrap();
+				let _ = session.serve().await;
+			});
+			let session = connect(&locator, ConnectOptions::default()).await.unwrap();
+			finished.await.unwrap();
+			session.close(crate::PendingWork::Cancel).await.unwrap();
+			serving.await.unwrap();
+		})
+		.await;
+}
+
+// A redeem whose every route to the exporter fails breaks with the local
+// peer-unreachable cause, and the predicate reads that cause. A partner's
+// break answers no predicate, whatever its text says.
+#[tokio::test]
+async fn an_unreachable_exporter_breaks_with_the_named_reason() {
+	LocalSet::new()
+		.run_until(async {
+			let runtime = crate::Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+				profiles: tcp::Profiles::TCP,
+				..Default::default()
+			})]))
+			.await
+			.unwrap();
+			let host = runtime.host();
+			let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+			let port = closed.local_addr().unwrap().port();
+			drop(closed);
+			let locator = tcp::locator("127.0.0.1", port);
+			let link = crate::format_sturdyref(&locator, b"svc", crate::CaptpVersion::V1_0).unwrap();
+			let err = host.enliven(&link).await.unwrap_err();
+			assert_eq!(err.kind(), ErrorKind::Broken, "{err:?}");
+			assert!(err.is_exporter_unreachable(), "{err:?}");
+			assert!(!err.is_peer_identity_unverified());
+			assert!(err.message().is_some_and(|reason| !reason.is_empty()), "{err:?}");
+			assert_eq!(
+				err.cause(),
+				crate::BreakCause::local(crate::BreakReason::PeerUnreachable).with_fetch()
+			);
+			for reason in [
+				"PeerIdentityUnverified",
+				"ExporterUnreachable",
+				"ExporterUnreachable: connection refused",
+				"unknown swissnum",
+			] {
+				let partner = Error::broken(reason.to_owned()).with_raw_cause(crate::BreakCause::partner().raw());
+				assert!(!partner.is_exporter_unreachable());
+				assert!(!partner.is_peer_identity_unverified());
+				assert!(!partner.is_publication_not_found());
+			}
 		})
 		.await;
 }
@@ -535,4 +631,18 @@ async fn send_to_a_self_spawned_actor_resolves_in_process() {
 			host.await.unwrap();
 		})
 		.await;
+}
+
+#[test]
+fn unknown_break_cause_retains_the_failure_and_records_the_abi_mismatch() {
+	let failure = Error::broken("original refusal".into()).with_raw_cause(crate::sys::GlowcapBreakCause {
+		origin: 999,
+		reason: 0,
+		context: 0,
+	});
+	assert_eq!(failure.kind(), ErrorKind::Broken);
+	assert_eq!(failure.message(), Some("original refusal"));
+	assert_eq!(failure.cause(), crate::BreakCause::default());
+	assert_eq!(failure.secondary_errors().len(), 1);
+	assert_eq!(failure.secondary_errors()[0].kind(), ErrorKind::Internal);
 }

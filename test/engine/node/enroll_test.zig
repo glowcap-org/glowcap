@@ -3,6 +3,7 @@
 //! exporter-location overrides record and roll back, and a released import
 //! retires its route before the partner reuses the position.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -69,7 +70,7 @@ test "interceptFulfilledRoute claims only a foreign-home reply, entropy as an ef
         model.AnswerName.fromWire(.from(52)),
         action.fail.dest.served_answer.answer.name,
     );
-    try std.testing.expectEqualStrings("NoRecipientKey", action.fail.reason.bytes());
+    try std.testing.expectEqualStrings("NoRecipientKey", action.fail.reason.text);
 
     // A settled ticket is retired: answering it again is a no-op.
     try node.provideGiftId(ticket, &gift_id);
@@ -391,7 +392,8 @@ test "removePeer evicts the exporter cache and fails stranded withdraws closed" 
     const failed = node.nextAction().?;
     try std.testing.expectEqual(recipient, failed.fail.dest.answer.recipient_peer);
     try std.testing.expectEqual(@as(u64, 61), failed.fail.dest.answer.answer.position.int());
-    try std.testing.expectEqualStrings("handoff redeem failed: exporter connection closed", failed.fail.reason.bytes());
+    try std.testing.expectEqualStrings("exporter connection closed", failed.fail.reason.text);
+    try std.testing.expectEqual(BreakCause.local(.closed).withWithdrawal(), failed.fail.reason.cause);
     try std.testing.expect(node.nextAction() == null);
 
     failing.fail_index = std.math.maxInt(usize);
@@ -428,7 +430,7 @@ test "enrollForeign gives one import one route identity, and forgets it when the
     try std.testing.expect(other.routed.id != first.routed.id);
 
     // Releasing the import forgets its route id. The partner may put a different
-    // capability at that position next, and handing out the old id for it status-allow: replacement state identity
+    // capability at that position next, and handing out the old id for it
     // would route to the capability that is gone.
     node.peer(home).?.session_state.releaseImportRetain(.from(wire_pos));
     try std.testing.expect(node.peer(home).?.session_state.foreignRouteIdFor(.from(wire_pos)) == null);
@@ -545,13 +547,13 @@ test "a released import retires its node route before the partner reuses the pos
     node.retireReleasedRoute(route_id);
     try std.testing.expect(node.routeCapability(route_id) != null);
 
-    // The final release removes the import row. The old route must status-allow: replacement state identity
+    // The final release removes the import row. The old route must
     // stop routing before the partner can put a different object at position 7.
     home_peer.session_state.releaseImportRetain(.from(position));
     try std.testing.expect(node.routeCapability(route_id) == null);
 
     // Reuse can race a low-level embedder's route cleanup. The new row records
-    // a different id, so the old route remains closed before it is retired. status-allow: replacement state identity
+    // a different id, so the old route remains closed before it is retired.
     try home_peer.session_state.registerImport(.from(position));
     const replacement = try node.enrollForeign(home, model.FarRef.object(position));
     try std.testing.expect(replacement.routed.id != route_id);

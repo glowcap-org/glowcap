@@ -245,6 +245,8 @@ test "loam managed registration context can be freed after successful attachment
     _ = try host.host.vat.driveIngressBudgeted(.local, 64);
     try std.testing.expect(refused.broken);
     try std.testing.expectEqualStrings("AttachmentClosed", refused.reason());
+    // The attachment closed. The behavior it fronted refused nothing.
+    try std.testing.expect(!refused.cause.isApplication());
 }
 
 test "loam managed revision restart reconstructs registration and current admission" {

@@ -105,6 +105,8 @@ def main() -> int:
         else:
             raise AssertionError("unknown FFI discriminant was normalized")
     failures._stale_archive_is_refused_before_use()
+    failures._dial_reports_require_fresh_local_causes()
+    failures._publication_miss_query_respects_provenance()
     failures._driver_failure_preserves_carrier_detail()
     failures._gift_id_completion_preserves_ffi_refusal()
     vow_lifetime.gc_release_refusal_stays_owned()
@@ -126,6 +128,7 @@ def main() -> int:
     print("python test OK: allocator callback exceptions stay nonfatal and observable")
     driver_release.run()
     print("python test OK: refused live driver releases stay owned and recur")
+    runtime.run_managed(runtime._missing_connector_retains_cause())
     runtime.run_managed(runtime._connector_install_is_transactional())
     runtime.run_managed(runtime._cancelled_dial_does_not_report_failure())
     runtime.run_managed(runtime._driver_completion_preserves_failure_category())
@@ -378,6 +381,12 @@ def main() -> int:
     print("python test OK: the blocking TCP and in-process transports shuttled a frame")
 
     transports._ipv6_hosts_keep_their_brackets_in_every_locator()
+    runtime.run_managed(transports._noise_only_runtime_refuses_a_plain_tcp_locator())
+    print("python test OK: a noise-only runtime refuses a plain tcp locator and connects to a noise locator")
+    runtime.run_managed(transports._plain_only_runtime_connects_plain_and_refuses_sealed())
+    print("python test OK: a plain-only runtime connects to a plain locator and refuses a noise locator")
+    runtime.run_managed(transports._an_empty_profile_list_is_refused_when_the_provider_installs())
+    print("python test OK: an empty TCP profile list is refused at install")
     transports._onion_against_a_fake_daemon()
     print("python test OK: the onion transport reached a fake Tor and reported its service")
 
@@ -502,6 +511,9 @@ def main() -> int:
 
     runtime.run_managed(verbs._enliven_round_trips_then_caches())
     print("python test OK: a sturdyref enlivens to a live capability, and a repeat enliven hits the cache")
+
+    runtime.run_managed(verbs._unproved_redeem_names_the_identity_reason())
+    print("python test OK: an unproved redeem refuses with the named identity reason both forms share")
 
     runtime.run_managed(verbs._distributed_release_reaches_each_capability_home())
     print("python test OK: distributed release reaches fetched, replied, and delivered capability homes")

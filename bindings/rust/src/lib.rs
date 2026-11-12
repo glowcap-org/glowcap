@@ -154,6 +154,9 @@ pub use runtime::{Runtime, RuntimeConfig};
 // each transport in its module. Unconditional: the core pair below is its first user.
 mod error_slot;
 
+#[cfg(any(feature = "tcp", feature = "inproc", feature = "onion"))]
+mod shutdown;
+
 // The blocking transports, each linked only when its feature is on.
 #[cfg(feature = "inproc")]
 pub mod inproc;
@@ -200,6 +203,9 @@ pub use abi_constants::{
 pub use abi_constants::{
 	WEBRTC_MAX_ICE_CREDENTIAL_BYTES, WEBRTC_MAX_ICE_SERVERS, WEBRTC_MAX_ICE_URL_BYTES, WEBRTC_MAX_ICE_URLS_PER_SERVER,
 };
+
+/// Typed local failure causes and the bootstrap's unknown-publication wire reason.
+pub use abi_constants::{BreakCause, BreakContext, BreakOrigin, BreakReason, RouteFailure, UNKNOWN_SWISSNUM_MESSAGE};
 
 /// Shared admission budgets for hosts forwarding opaque relay traffic.
 pub use abi_constants::{BINDING_RELAY_MAX_BYTES_PER_SESSION, BINDING_RELAY_TCP_DIAL_TIMEOUT_MS};

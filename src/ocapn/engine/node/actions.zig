@@ -1,6 +1,7 @@
 //! Node-owned host effects, their reserved capacity, and borrowed drain.
 
 const std = @import("std");
+const BreakCause = @import("foundation").break_cause.BreakCause;
 
 const model = @import("model");
 const node_mod = @import("../node.zig");
@@ -27,15 +28,25 @@ pub const FailureDestination = union(enum) {
     deferred: DeferredDestination,
 };
 
-pub const FailureReason = union(enum) {
-    owned: []u8,
-    static: []const u8,
+pub const FailureReason = struct {
+    // A nested tagged union plus cause occupies 32 bytes on 64-bit targets.
+    // Keep both one-byte facts in the slice's trailing alignment unit; the
+    // constructors still require mutable storage for the owning case.
+    text: []const u8,
+    storage: enum { owned, borrowed },
+    cause: BreakCause,
 
-    pub fn bytes(self: FailureReason) []const u8 {
-        return switch (self) {
-            .owned => |reason| reason,
-            .static => |reason| reason,
-        };
+    pub fn owned(cause: BreakCause, text: []u8) FailureReason {
+        return .{ .text = text, .storage = .owned, .cause = cause };
+    }
+
+    pub fn borrowed(cause: BreakCause, text: []const u8) FailureReason {
+        return .{ .text = text, .storage = .borrowed, .cause = cause };
+    }
+
+    comptime {
+        // The slice plus one word holds every field, which is the layout the comment above argues for.
+        std.debug.assert(@sizeOf(FailureReason) == @sizeOf([]const u8) + @sizeOf(usize));
     }
 };
 
@@ -48,7 +59,7 @@ pub const Action = union(enum) {
     /// retained identity, register the CapTP session, open the keyed session,
     /// bind any key the channel proved on that Peer, then feed
     /// `Node.exporterDialed(pending, route_index, peer_handle)`, or
-    /// `Node.dialFailed(pending, route_index, reason)` if any step refuses.
+    /// `Node.dialFailed(pending, route_index, failure, detail)` if any step refuses.
     /// The executor must first commit the exact dial effect. Borrow its locator
     /// via `Node.pendingDial` until a report consumes it.
     dial: struct {
@@ -73,7 +84,7 @@ pub const Action = union(enum) {
         dest: FailureDestination,
         /// Most failures own a copy of a call-scoped reason. Teardown uses
         /// one static diagnostic so its reserved consequence cannot fail
-        /// allocation. The union makes those lifetimes non-interchangeable.
+        /// allocation. The storage tag retains that ownership distinction.
         reason: FailureReason,
     },
     /// Stop selecting and close an exporter session opened solely for handoff
@@ -87,7 +98,7 @@ pub const Action = union(enum) {
     need_gift_id: struct { ticket: u64 },
     /// Release one Host capability retain transferred into a delayed
     /// inline-Passable transaction. This is terminal cleanup: Host consumes
-    /// the retain even when its home session can no longer carry wire GC. status-allow: lifecycle transition
+    /// the retain even when its home session can no longer carry wire GC.
     release_capability: u64,
     /// What a Host capability promise stands for has settled (ADR-0068): an
     /// inbound answer the Peer drained, or a Host vow the Host staged. The
@@ -120,9 +131,9 @@ pub fn deinit(self: *Node) void {
 
 fn free(self: *Node, action: Action) void {
     switch (action) {
-        .fail => |failure| switch (failure.reason) {
-            .owned => |reason| self.allocator.free(reason),
-            .static => {},
+        .fail => |failure| switch (failure.reason.storage) {
+            .owned => self.allocator.free(failure.reason.text),
+            .borrowed => {},
         },
         .dial, .cancel_dial, .flush, .settle, .retire_exporter, .need_gift_id, .release_capability, .promise_settled => {},
     }
@@ -143,7 +154,7 @@ pub fn reserve(self: *Node, immediate: usize) !void {
 
 /// Take the action returned by `peekAction` off the queue, payload intact, on
 /// a seat promised for its return. The Host parks an action whose recipient
-/// cannot take another frame yet (ADR-0017). The seat is reserved before the status-allow: pending state or quoted runtime label
+/// cannot take another frame yet (ADR-0017). The seat is reserved before the
 /// pop, so a refusal leaves the action on the queue, and `pushParked` can
 /// never allocate.
 pub fn parkPeekedAction(self: *Node) !Action {

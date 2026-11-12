@@ -147,7 +147,7 @@ fn applyStoredListener(
 }
 
 pub const PreparedListenerDrain = struct {
-    /// The payload whose listeners were taken; `abandon` gives them back.
+    /// The payload whose listeners were taken. `abandon` gives them back.
     source: *session.AnswerPayload,
     listeners: []session.ListenerEntry,
     plan: ListenerDrainPlan,
@@ -210,7 +210,7 @@ pub const PreparedListenerDrain = struct {
     }
 };
 
-/// A store-backed fire retains its payload box per carrier; a live-object or
+/// A store-backed fire retains its payload box per carrier. A live-object or
 /// static-break fire borrows nothing.
 fn retainFireTarget(peer: *Peer, target: engine.FireTarget) !void {
     switch (target) {

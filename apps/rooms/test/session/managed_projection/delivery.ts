@@ -1,21 +1,22 @@
-// The delivery owner validates once before readiness and presentation share it.
+// The delivery owner validates once before transferring its carrier and handles.
 import { assert, assertEquals } from "../../assert.ts";
 import { ActivityDelivery, releaseActivity } from "../../../web/ui/session/managed/activity.ts";
-import { ReadinessNotices } from "../../../web/ui/session/managed/readiness.ts";
+import { assertThrows } from "@std/assert";
 import type { RoomsManagedFile } from "../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import * as store from "../../../web/ui/store.ts";
 import { fixture } from "./fixture.ts";
 
-Deno.test("managed activity shares one validated notice and preserves its carrier and handles", async () => {
+Deno.test("managed activity validates its notice once and preserves its carrier and handles", () => {
 	let reads = 0;
 	let released = 0;
 	const file = { free: () => released++ } as unknown as RoomsManagedFile;
 	const raw = {
 		cursor: "original",
 		event: {
+			at: 0,
 			target: { kind: "directory" as const, id: "directory" },
 			notice: {
-				kind: "introducible",
+				kind: "mintInboxFor",
 				get registration() {
 					reads++;
 					return "registration";
@@ -25,27 +26,18 @@ Deno.test("managed activity shares one validated notice and preserves its carrie
 			files: [file],
 		},
 	};
-	const delivery = new ActivityDelivery(raw);
-	const event = delivery.event!;
-	const notices = new ReadinessNotices();
-	const waits = Array.from({ length: 32 }, () =>
-		notices.wait((offered) => {
-			assert(offered.notice === event.notice, "all readiness consumers share the parsed notice");
-			return offered.notice?.kind === "introducible" && offered.notice.registration === "registration";
-		}));
-	notices.notify(event);
-	await Promise.all(waits.map((wait) => wait.ready));
+	const event = raw.event;
+	const delivery = new ActivityDelivery(raw, false);
 	const page = delivery.take();
 	assert(page === raw, "the carrier is transferred without cloning");
 	assert(page.event === event, "the event is transferred without cloning");
 	assert(page.event?.files?.[0] === file, "transient handle identity is preserved");
-	assertEquals(reads, 1, "32 waiters must not revalidate the notice");
-	assertEquals(delivery.event, undefined, "the reader no longer exposes transferred custody");
+	assertEquals(reads, 1, "transferring the carrier must not revalidate its notice");
+	assertThrows(() => delivery.take(), Error, "already transferred custody");
 	delivery.close();
 	assertEquals(released, 0);
 	releaseActivity(page);
 	assertEquals(released, 1);
-	notices.close();
 });
 
 for (const notice of [null, { kind: "futureNotice" }, { kind: "line", text: 42 }]) {
@@ -55,16 +47,17 @@ for (const notice of [null, { kind: "futureNotice" }, { kind: "line", text: 42 }
 		const delivery = new ActivityDelivery({
 			cursor: "1",
 			event: {
+				at: 0,
 				target: { kind: "room", id: "conversation" },
 				notice,
 				files: [{ free: () => released++ } as unknown as RoomsManagedFile],
 			},
-		});
+		}, false);
 		try {
-			assertEquals(delivery.event?.notice, null);
 			const page = delivery.take();
+			assertEquals(page.event?.notice, null);
 			try {
-				f.projection.activity(page);
+				f.projection.activity(page, false);
 				assertEquals(store.historyOf(f.page.projection, f.selected().key), []);
 			} finally {
 				releaseActivity(page);

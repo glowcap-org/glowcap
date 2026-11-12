@@ -21,6 +21,7 @@
 //   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/demos/dm_reply_demo.ts
 
 import process from "node:process";
+import * as tcp from "@glowcap/tcp";
 
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { DM } from "../lib/protocol.ts";
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
 	// Alice dials Bob, fetches his `dm`, and hands it a reply inbox she hosts on
 	// this same connection (a near export on her dialing session, so it rides the
 	// call cleanly). Alice never listens.
-	const aliceRuntime = await openRoomsRuntime();
+	const aliceRuntime = await openRoomsRuntime({ cleartext: [tcp.plain] });
 	const alice = await dial(bobLocator, aliceRuntime);
 	services.serve(alice);
 	const bobDm = await alice.fetch("dm");

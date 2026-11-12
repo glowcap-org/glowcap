@@ -1,4 +1,3 @@
-import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 // Two browser tabs direct-message each other over a WebRTC DataChannel, the
 // room carrying only the signaling (ADR-0035, the live handoff-redeem proof).
 // Each tab joins with `?dm=webrtc`, so it advertises a bare
@@ -22,6 +21,7 @@ import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 // (the devcontainer image ships one).
 // Run: `zig build rooms-web-dm-webrtc`.
 
+import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
@@ -29,6 +29,7 @@ import { acquireTraceCapability, connectTraceViewer } from "../trace/viewer.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
+import { scenarioDeadline } from "../support/deadline.ts";
 import { awaitBubble, openDmTo, pathSaid } from "../page/harness.ts";
 import { factDmDirect } from "../../lib/text/conversation.ts";
 
@@ -79,8 +80,10 @@ async function send(tab: Page, text: string): Promise<void> {
 	await tab.press("#line", "Enter");
 }
 
-// Wait until a bubble carrying `text` is on screen in the active conversation.
-const deadline = setTimeout(() => fail("web-dm-webrtc scenario timed out after 28s"), 28_000);
+// The run takes about 14 s alone and 17 s with two busy threads per core.
+// The build's wrapper stops it at 58 s, so this bound holds on a runner half
+// as fast and still leaves room to tear down.
+const deadline = scenarioDeadline("web-dm-webrtc", 50);
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`); the DM channel itself is WebRTC, so no cargo either.
@@ -97,6 +100,7 @@ const httpPort = await webPort(web);
 let browser: Browser | null = null;
 let viewer: { close(): Promise<void> } | null = null;
 try {
+	deadline.at("starting the page server and its trace");
 	await waitForHttp(httpPort);
 	const sturdyref = await traceRef;
 	let sawWebrtc = false;
@@ -111,22 +115,26 @@ try {
 	const trace = sturdyref;
 
 	// Both members advertise `webrtc` identities and file signaling inboxes.
+	deadline.at("joining Alice and Bob");
 	const alice = await joinAs(browser, httpPort, "web-alice", trace);
 	const bob = await joinAs(browser, httpPort, "web-bob", trace);
 
 	// Alice redeems the introduction to Bob: her host's dial executor signals
 	// through the directory, the DataChannel opens, and the DM rides it.
+	deadline.at("opening Alice's direct line to Bob over WebRTC");
 	await openDmTo(alice.tab, "web-bob");
 	await pathSaid(alice.tab, factDmDirect, "webrtc");
 	await send(alice.tab, DM_TEXT);
 
 	// Bob renders it, the message crossed the DataChannel, with the room's
 	// only contribution the signaling exchange.
+	deadline.at("waiting for Bob to read Alice's line");
 	await openDmTo(bob.tab, "web-alice");
 	await awaitBubble(bob.tab, DM_TEXT, "Bob");
 	await pathSaid(bob.tab, factDmDirect, "webrtc");
 
 	// Bob replies over the very connection Alice's message arrived on.
+	deadline.at("waiting for Alice to read Bob's reply");
 	await send(bob.tab, REPLY_TEXT);
 	await awaitBubble(alice.tab, REPLY_TEXT, "Alice");
 
@@ -134,6 +142,7 @@ try {
 	// carries the same application message. The live product timeline must have
 	// observed the actual browser-to-browser WebRTC session, and no keyed-relay
 	// session may have stood in for it.
+	deadline.at("waiting for the timeline to show the WebRTC session");
 	await until(() => sawWebrtc, "the live timeline to observe a webrtc session after the messages arrived", 5_000);
 	if (sawRelay) fail("the WebRTC proof opened a keyed-relay session");
 
@@ -144,7 +153,7 @@ try {
 			"DataChannel off-room, and the reply rode back over the same arriving connection",
 	);
 } finally {
-	clearTimeout(deadline);
+	deadline.clear();
 	if (browser) await browser.close().catch(() => {});
 	if (viewer) await viewer.close().catch(() => {});
 	await reapOwned();

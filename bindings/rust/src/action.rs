@@ -120,7 +120,14 @@ impl HostActionHandlers for Handlers<'_> {
 				// released only by its teardown, and the `&Rc<HostShared>` borrow keeps it for the call; `reason` is a
 				// `'static` byte string whose pointer and length stay live for the call.
 				check_host(unsafe {
-					ffi::glowcap_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
+					ffi::glowcap_host_dial_failed(
+						self.host.raw(),
+						ticket,
+						route_index,
+						crate::RouteFailure::PeerUnreachable as u32,
+						reason.as_ptr(),
+						reason.len(),
+					)
 				})
 			}
 			Err(primary) => {
@@ -129,7 +136,14 @@ impl HostActionHandlers for Handlers<'_> {
 				// released only by its teardown, and the `&Rc<HostShared>` borrow keeps it for the call; `reason` is a
 				// local `String` whose pointer and length stay live for the call.
 				let report = check_host(unsafe {
-					ffi::glowcap_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
+					ffi::glowcap_host_dial_failed(
+						self.host.raw(),
+						ticket,
+						route_index,
+						crate::RouteFailure::PeerUnreachable as u32,
+						reason.as_ptr(),
+						reason.len(),
+					)
 				});
 				match report {
 					Ok(()) => Ok(()),
@@ -196,8 +210,15 @@ impl HostActionHandlers for Handlers<'_> {
 		Ok(())
 	}
 
-	async fn fail(&self, ticket: u64, result: i32, message: String) -> Result<()> {
-		self.host.settle_vow(ticket, Err(Error::with_detail(result, message)));
+	async fn fail(
+		&self,
+		ticket: u64,
+		result: i32,
+		cause: crate::sys::GlowcapBreakCause,
+		message: String,
+	) -> Result<()> {
+		self.host
+			.settle_vow(ticket, Err(Error::with_detail(result, message).with_raw_cause(cause)));
 		Ok(())
 	}
 

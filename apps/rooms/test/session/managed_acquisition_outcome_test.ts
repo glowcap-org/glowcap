@@ -5,8 +5,9 @@ import { assert, assertEquals } from "../assert.ts";
 import { snapshot, viewer } from "../support/managed_viewer.ts";
 import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
-import { AcquisitionRefused } from "../../web/ui/session/managed/acquisition.ts";
+import { SubmissionRefused } from "../../web/ui/session/managed/acquisition.ts";
 import { openChanges } from "../../web/ui/session/managed/open_changes.ts";
+import { failureView } from "../../lib/text/failure.ts";
 
 // A reason Rust reports as `refused`: a coded refusal the session is known to
 // make before any effect. A bare break stays `uncertain`.
@@ -29,7 +30,7 @@ Deno.test("a directory acquisition the session refused is forgotten and its reas
 		const outcome: unknown = await session.actions
 			.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true)
 			.then(() => null, (error: unknown) => error);
-		assert(outcome instanceof AcquisitionRefused, "the session's refusal is the caller's");
+		assert(outcome instanceof SubmissionRefused, "the session's refusal is the caller's");
 		assertEquals(outcome.message, REFUSED);
 		// Nothing was admitted, so nothing is left to pick back up or finish.
 		assertEquals([session.actions.pending, session.actions.recoverable, openChanges(session, [])], [[], [], []]);
@@ -60,10 +61,11 @@ Deno.test("a directory acquisition nothing settled is listed with its outcome un
 			.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true)
 			.then(() => null, (error: unknown) => error);
 		assert(
-			outcome instanceof Error && !(outcome instanceof AcquisitionRefused),
+			outcome instanceof Error && !(outcome instanceof SubmissionRefused),
 			"an unsettled outcome is not a refusal",
 		);
-		assert(outcome.message.includes("the reply never came"), outcome.message);
+		assertEquals(outcome.cause, "the reply never came");
+		assertEquals(failureView(outcome).code, "local-acquisition-unknown");
 		assertEquals(session.actions.pending, ["directory:directory"]);
 		assertEquals(session.actions.recoverable, ["directory:directory"]);
 		const [row] = openChanges(session, []);
@@ -88,7 +90,7 @@ Deno.test("an outcome Rust did not shape is held as unsettled, never taken as co
 		const outcome: unknown = await session.actions
 			.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true)
 			.then(() => null, (error: unknown) => error);
-		assert(outcome instanceof Error && !(outcome instanceof AcquisitionRefused), String(outcome));
+		assert(outcome instanceof Error && !(outcome instanceof SubmissionRefused), String(outcome));
 		assert(outcome.message.includes('unrecognized outcome "committed"'), outcome.message);
 		assertEquals(session.actions.recoverable, ["directory:directory"]);
 		const [row] = openChanges(session, []);
@@ -169,7 +171,7 @@ Deno.test("a workspace selection the session refused is freed and the next selec
 	const session = new ManagedRoomsSession(application, custody, custody, () => {});
 	try {
 		const outcome: unknown = await session.selectWorkspace("original").then(() => null, (error: unknown) => error);
-		assert(outcome instanceof AcquisitionRefused, "the session's refusal is the caller's");
+		assert(outcome instanceof SubmissionRefused, "the session's refusal is the caller's");
 		assertEquals(outcome.message, REFUSED);
 		assertEquals(freed, 1, "a refused selection is not held");
 		// Nothing is held, so a different selection is a fresh gesture, not a

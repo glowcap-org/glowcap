@@ -35,7 +35,7 @@ pub export fn glowcap_driver_readiness_fd(raw: ?*c.GlowcapDriverLoop, out_fd: ?*
 
 /// One loop step: accept what the listener has ready, then pump, apply
 /// cross-thread settles, service ready wires and
-/// residents, drain host actions (flushes execute here; completions queue as
+/// residents, drain host actions (flushes execute here. Completions queue as
 /// events), and advance in-flight dial handshakes, direct and redeem alike.
 /// Parks up to `timeout_ms` only when nothing is already pending. `-1` parks
 /// until readiness, `0` never parks. Returns `GLOWCAP_OK` when immediate work

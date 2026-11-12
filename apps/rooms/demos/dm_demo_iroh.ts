@@ -17,7 +17,7 @@ runDmHandoff({
 	dmText: "hi Bob, privately, from Carol, over iroh",
 	timeoutMs: 20_000,
 	bullets: [
-		"Carol's first introduce was refused pending; the room asked Bob for an inbox for her",
+		"Carol asked the room once, and the room asked Bob for an inbox for her",
 		"the room introduced Carol to Bob over iroh (handoff-give with direct addresses)",
 		"Bob accepted 1 iroh connection: Carol's direct dial; nobody dialed Carol",
 		"the DM arrived on the inbox Bob minted for Carol, so it named no sender",

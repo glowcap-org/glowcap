@@ -47,7 +47,10 @@ raco pkg install --auto --batch --no-setup \
 raco pkg install --auto --batch --no-setup \
     --checksum "${CRYPTO_LIB_CHECKSUM}" \
     crypto
-raco pkg install --auto --batch --no-setup \
+# Codeberg is the only host that serves this revision. A clone it drops
+# installs nothing, and an attempt ended after raco recorded the package is
+# skipped by the next one, so the same command is safe to run again.
+glowcap_retry 3 timeout 300 raco pkg install --auto --batch --no-setup --skip-installed \
     --checksum "${GOBLINS_CHECKSUM}" \
     "${GOBLINS_SOURCE}"
 

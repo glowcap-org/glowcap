@@ -406,8 +406,8 @@ impl HostShared {
 		// drained, and this is the only release, after which `retire_ffi_host` clears the handle.
 		let rc = unsafe { ffi::glowcap_host_release(raw) };
 		if rc != sys::OK {
-			let release = host_refusal(rc, "releasing host");
-			if crate::lifecycle::release_consumed(rc) {
+			let release = host_refusal(sys::release_result_code(rc), "releasing host");
+			if crate::sys::release_result_consumed(rc) {
 				self.retire_ffi_host(raw);
 			}
 			self.fail_close(background_failure.map_or(release.clone(), |primary| primary.with_secondary(release)));
@@ -476,14 +476,14 @@ impl Drop for HostShared {
 			// once, outside any behavior turn (`inside_turn` is false), and a consumed release clears `self.raw` while
 			// a refused one parks the handle for a later release.
 			let rc = unsafe { ffi::glowcap_host_release(raw) };
-			if crate::lifecycle::release_consumed(rc) {
+			if crate::sys::release_result_consumed(rc) {
 				self.raw.set(core::ptr::null_mut());
 			}
 			if rc != sys::OK {
-				if let Err(error) = check_host(rc) {
+				if let Err(error) = check_host(sys::release_result_code(rc)) {
 					crate::record_runtime_failure(crate::FailureLayer::Binding, "host-drop-release", error);
 				}
-				if !crate::lifecycle::release_consumed(rc) {
+				if !crate::sys::release_result_consumed(rc) {
 					crate::finalizer::park_host(raw, self.context.take(), true);
 				}
 			}

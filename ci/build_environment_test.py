@@ -34,6 +34,7 @@ pub fn build(b: *std.Build) void {
 """)
             zig = shutil.which("zig")
             self.assertIsNotNone(zig, "the build environment proof requires the pinned Zig")
+            assert zig is not None
             for label in ("before", "after"):
                 directory = root / label
                 directory.mkdir()

@@ -3,6 +3,7 @@
 //! destruction. The provider owns bounded pending requests and external work.
 const engine = @import("engine");
 const model = @import("model");
+const unknown_swissnum = engine.bootstrap.unknown_swissnum_reason;
 const Host = @import("host.zig").Host;
 const host_errors = @import("host/errors.zig");
 const capability = @import("capability.zig");
@@ -74,7 +75,7 @@ pub const Fetch = struct {
     pub fn closeLocal(self: *Fetch, reason: []const u8) void {
         const host = self.host orelse return;
         const local = self.destination.local;
-        local.recipient.failedLocal(host, local.id, .closed, reason);
+        local.recipient.failedLocal(host, local.id, .closed, engine.Broken.unnamed(reason));
         self.abandon();
     }
 
@@ -91,8 +92,8 @@ pub const Fetch = struct {
                     const retained = try host.retainLocalCapability(actor);
                     local.recipient.foundLocal(host, local.id, retained);
                 },
-                .missing => local.recipient.failedLocal(host, local.id, .broken, "unknown swissnum"),
-                .failed => |reason| local.recipient.failedLocal(host, local.id, .broken, reason),
+                .missing => local.recipient.failedLocal(host, local.id, .broken, engine.Broken.publicationAbsent(unknown_swissnum)),
+                .failed => |reason| local.recipient.failedLocal(host, local.id, .broken, .{ .detail = reason, .cause = (engine.BreakCause{}).withFetch() }),
             }
             self.abandon();
             return;
@@ -108,7 +109,7 @@ pub const Fetch = struct {
                 projected = .{ .actor = actor, .position = projection.near.export_position, .created = projection.created };
                 break :blk .{ .fulfill = .{ .reference = .{ .near = projection.near } } };
             },
-            .missing => .{ .@"break" = .{ .message = try host.allocator.dupe(u8, "unknown swissnum") } },
+            .missing => .{ .@"break" = .{ .message = try host.allocator.dupe(u8, unknown_swissnum) } },
             .failed => |reason| .{ .@"break" = .{ .message = try host.allocator.dupe(u8, reason) } },
         };
         // The engine consumes the resolution on every outcome. Its stable
@@ -163,13 +164,13 @@ pub fn resolveLocal(host: *Host, name: []const u8, recipient: Recipient, admissi
             recipient.foundLocal(host, id, retained);
         } else {
             host.vow_ids.commit(id);
-            recipient.failedLocal(host, id, .broken, "unknown swissnum");
+            recipient.failedLocal(host, id, .broken, engine.Broken.publicationAbsent(unknown_swissnum));
         }
         return id;
     }
     const lookup = host.publication_lookup orelse {
         host.vow_ids.commit(id);
-        recipient.failedLocal(host, id, .broken, "unknown swissnum");
+        recipient.failedLocal(host, id, .broken, engine.Broken.publicationAbsent(unknown_swissnum));
         return id;
     };
     var lifetime = try admission.retain(host);
@@ -188,7 +189,7 @@ pub fn resolveLocal(host: *Host, name: []const u8, recipient: Recipient, admissi
         .unhandled => {
             lifetime.complete();
             host.vow_ids.commit(id);
-            recipient.failedLocal(host, id, .broken, "unknown swissnum");
+            recipient.failedLocal(host, id, .broken, engine.Broken.publicationAbsent(unknown_swissnum));
         },
         .refused => |err| {
             lifetime.complete();

@@ -4,7 +4,7 @@
 //! the volatile overlay's allocation unwind fails these tests.
 //! Exhaustive prefixes and metadata bit flips cover these fixtures, not arbitrary
 //! syntax or physical storage faults. Allocation enumeration covers the exercised
-//! create/read/update path, not every graph shape or native LMDB allocation.
+//! create/read/update path, not every graph shape or LMDB allocation.
 const std = @import("std");
 const loam = @import("glowcap").loam;
 const f = @import("fixture.zig");
@@ -25,7 +25,7 @@ test "loam records round trip bounded edges and reject every truncated envelope"
     try std.testing.expect(edges.next().?.target.eql(id));
     try std.testing.expectEqualDeep(record.edges[1], edges.next().?);
     for (0..bytes.len) |length| {
-        if (loam.records.View.decode(bytes[0..length], f.limits.records, &f.schemas)) |_| return error.AcceptedTruncation else |_| {}
+        try std.testing.expectError(error.Corrupt, loam.records.View.decode(bytes[0..length], f.limits.records, &f.schemas));
     }
     bytes[bytes.len - 1] ^= 1;
     try std.testing.expectError(error.Corrupt, loam.records.View.decode(bytes, f.limits.records, &f.schemas));

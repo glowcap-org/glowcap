@@ -16,7 +16,7 @@
 (define SEED-HONEST (make-bytes 32 #x72))
 (define SEED-SQUATTER (make-bytes 32 #x73))
 (define SEED-RESTART (make-bytes 32 #x74))
-(define runtime (open-runtime #:providers (list (tcp-provider))))
+(define runtime (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-KEYED-TCP))))))
 
 (define (greeter bcom)
   (methods [(greet) GREETING]))

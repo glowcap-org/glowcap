@@ -78,5 +78,6 @@ pub const symbols = [_]Symbol{
         .out_params = &.{0},
         .section = "Last error.",
     },
+    .{ .name = "glowcap_driver_last_error_cause", .out_params = &.{0} },
     .{ .name = "glowcap_driver_clear_last_error" },
 };

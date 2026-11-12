@@ -17,6 +17,8 @@ import re
 import sys
 from pathlib import Path
 
+import release_version
+
 CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
 PLATFORMS = {
     "aarch64-macos": "macOS, Apple Silicon",
@@ -29,7 +31,7 @@ EXAMPLE_TARGET = "aarch64-macos"
 
 def changelog_section(version, path=CHANGELOG):
     """The version's changelog body, with the Unreleased section already emptied."""
-    sections = {}
+    sections: dict[str, list[str]] = {}
     heading = None
     for line in path.read_text().splitlines():
         if line.startswith("## "):
@@ -57,7 +59,7 @@ def render(facts, image_digest, changelog=CHANGELOG):
     repository, tag, version = facts["repository"], facts["tag"], facts["version"]
     if not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("invalid source repository")
-    if not re.fullmatch(r"v0\.[0-9]+\.[0-9]+", tag) or tag[1:] != version:
+    if release_version.of_tag(tag) is None or tag[1:] != version:
         raise ValueError("invalid release tag")
     if not re.fullmatch(r"[0-9a-f]{40}", facts["commit"]):
         raise ValueError("invalid source commit")

@@ -261,13 +261,15 @@ fn expectDuplicateKeyStructRefused(codec_id: model.CodecId) !void {
     @memcpy(buf[second_key .. second_key + 2], "k1");
     const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = wire_frame.view().shape };
 
-    const refused = blk: {
-        const body = codec.dispatch.decodeBodyForProfile(codec_id, default_profile, view) catch break :blk true;
-        const owned = body.toOwned(allocator) catch break :blk true;
+    const refusal: anyerror = blk: {
+        const body = codec.dispatch.decodeBodyForProfile(codec_id, default_profile, view) catch |err| break :blk err;
+        const owned = body.toOwned(allocator) catch |err| break :blk err;
         model.freeMessage(allocator, owned);
-        break :blk false;
+        return error.DuplicateKeyAccepted;
     };
-    try std.testing.expect(refused);
+    // The refusal is the codec's typed answer to the bytes, never an
+    // allocation failure standing in for one.
+    try std.testing.expect(refusal != error.OutOfMemory);
 }
 
 test "a duplicate-key Struct is refused identically through either codec" {

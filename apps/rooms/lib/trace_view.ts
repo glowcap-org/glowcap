@@ -10,7 +10,6 @@ import {
 	parseSturdyRef,
 	Session,
 } from "@glowcap/runtime";
-import { traceCapUrl } from "./trace_publish.ts";
 import { answerWithin } from "./deadline.ts";
 
 export type TraceRecord = Record<string, unknown>;
@@ -55,13 +54,14 @@ export function traceUrlOf(sturdyref: string): string {
 	return endpoint;
 }
 
-/** Producers use their independently advertised route and HTTP capability.
+/** The producer route the link advertises. A producer presents
+ * `traceCapOf(sturdyref)` as its first message there.
  * The endpoint always advertises the route, as the server's own reader
  * requires, so a link without it is refused. */
 export function tracePublishUrlOf(sturdyref: string): string {
 	const endpoint = parseSturdyRef(sturdyref, "v1_0").locator.hints.get("trace-publish");
 	if (typeof endpoint !== "string") throw new Error("the trace link must advertise its trace-publish endpoint");
-	return traceCapUrl(endpoint, traceCapOf(sturdyref));
+	return endpoint;
 }
 
 /** Connect one viewer and feed every record to `apply`, replay included, as
@@ -129,7 +129,7 @@ export async function connectTraceViewer(
 		});
 		const trace = await answerWithin(session.enliven(sturdyref), "the live trace capability", SUBSCRIBE_MS);
 		// Bounded, because an endpoint that holds the socket open and never answers
-		// the subscribe looks the same as one with nothing to report yet, and a status-allow: pending state or quoted runtime label
+		// the subscribe looks the same as one with nothing to report yet, and a
 		// consumer waiting on it would sit there looking correct forever.
 		await answerWithin(session.send(trace, "subscribe", [inbox]), "the live trace subscription", SUBSCRIBE_MS);
 		return {

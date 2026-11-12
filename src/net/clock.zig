@@ -6,8 +6,9 @@
 //! meaningful.
 //!
 //! A component reads time through the same path it reads I/O through, which is
-//! why there are two readers. `nowMs(io)` goes through the host `std.Io`, so a
-//! virtual `Io` controls a caller's clock exactly as it controls its sockets.
+//! why there are two readers. `nowMs(io)` and `nowNs(io)` go through the host
+//! `std.Io`, so a virtual `Io` controls a caller's clock exactly as it controls
+//! its sockets.
 //! `nowMonotonicMs()` reads the kernel directly for the completion loop, whose
 //! backends do not consume `std.Io` (ADR-0019).
 //!
@@ -24,6 +25,13 @@ pub fn nowMs(io: std.Io) i64 {
     return std.Io.Timestamp.now(io, .awake).toMilliseconds();
 }
 
+/// Monotonic nanoseconds through the host `std.Io`, for a window too short to
+/// count in milliseconds, such as a runtime's spin before it parks. Only
+/// differences are meaningful.
+pub fn nowNs(io: std.Io) i64 {
+    return @intCast(std.Io.Timestamp.now(io, .awake).toNanoseconds());
+}
+
 /// Monotonic milliseconds read straight from the kernel for the completion
 /// loop, whose backends do not consume `std.Io`. Only differences are
 /// meaningful.
@@ -31,9 +39,8 @@ pub fn nowMonotonicMs() i64 {
     return @divFloor(nowMonotonicNs(), std.time.ns_per_ms);
 }
 
-/// Monotonic nanoseconds from the same kernel clock, for a window too short
-/// to count in milliseconds, such as a runtime's spin before it parks.
-pub fn nowMonotonicNs() i64 {
+/// Monotonic nanoseconds from the kernel clock `nowMonotonicMs` reads.
+fn nowMonotonicNs() i64 {
     var ts: std.posix.timespec = .{ .sec = 0, .nsec = 0 };
     switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.MONOTONIC, &ts))) {
         // The monotonic clock with a valid out-pointer cannot fail; a zero

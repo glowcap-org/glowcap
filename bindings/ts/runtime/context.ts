@@ -209,7 +209,7 @@ export function releaseContext(context: Context): void {
 export interface ContextAllocator {
 	/** Return a block of at least `size` bytes aligned to `alignment`. */
 	alloc(size: number, alignment: number): Uint8Array;
-	/** Release a block previously returned by `alloc`.  status-allow: ownership and operation ordering */
+	/** Release a block previously returned by `alloc`. */
 	free(block: Uint8Array, size: number, alignment: number): void;
 }
 

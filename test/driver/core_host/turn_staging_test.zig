@@ -57,11 +57,11 @@ fn fetch(allocator: std.mem.Allocator, host: *Host, session: *HostSession, name:
 
 fn exercise(verb: []const u8) !struct { staged: usize, takes: usize } {
     const allocator = std.testing.allocator;
-    var a = test_host.init(allocator, @as([32]u8, @splat(0x4a)), Host.Options.withFrameCap(frame_cap));
+    var a = test_host.init(allocator, @as([32]u8, @splat(0x4a)), Host.Options.init(.unchecked, frame_cap));
     defer a.deinit();
-    var b = test_host.init(allocator, @as([32]u8, @splat(0x4b)), Host.Options.withFrameCap(frame_cap));
+    var b = test_host.init(allocator, @as([32]u8, @splat(0x4b)), Host.Options.init(.unchecked, frame_cap));
     defer b.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x4c)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x4c)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -169,7 +169,7 @@ fn exercisePromise(options: Host.Options, verb: []const u8) !PromiseResult {
 }
 
 test "core host: a failed turn's promise-only cross-session send leaves nothing on the home session" {
-    for ([_]Host.Options{ Host.Options.withFrameCap(frame_cap), harness.nextRouteOptions() }) |options| {
+    for ([_]Host.Options{ Host.Options.init(.unchecked, frame_cap), harness.nextRouteOptions() }) |options| {
         const result = try exercisePromise(options, "fail");
         try std.testing.expectEqual(@as(usize, 0), result.proxies);
         try std.testing.expectEqual(result.baseline_home_pending, result.home_pending);
@@ -180,7 +180,7 @@ test "core host: a failed turn's promise-only cross-session send leaves nothing 
 }
 
 test "core host: a successful turn's promise-only cross-session send keeps its home listener" {
-    for ([_]Host.Options{ Host.Options.withFrameCap(frame_cap), harness.nextRouteOptions() }) |options| {
+    for ([_]Host.Options{ Host.Options.init(.unchecked, frame_cap), harness.nextRouteOptions() }) |options| {
         const result = try exercisePromise(options, "ok");
         try std.testing.expectEqual(@as(usize, 1), result.proxies);
         try std.testing.expectEqual(result.baseline_home_pending + 1, result.home_pending);

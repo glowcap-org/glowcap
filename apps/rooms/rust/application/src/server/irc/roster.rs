@@ -68,7 +68,7 @@ impl Roster {
 	}
 	/// One name becoming another: both halves, so the room can say a rename
 	/// as the departure and arrival every client draws. `None` when this
-	/// roster does not hold the old name. status-allow: replacement state identity
+	/// roster does not hold the old name.
 	pub fn rename(&mut self, from: &str, to: &str) -> Result<Option<(String, String)>, Invalid> {
 		let Some(was) = display_nick(from)
 			.ok()
@@ -152,7 +152,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn every_invalid_line_is_the_line_it_replaced() {
+	fn every_invalid_variant_displays_its_operator_line() {
 		assert_eq!(
 			Invalid::NickUnrepresentable { nick: "a b".into() }.to_string(),
 			"IRC nickname cannot be represented safely in Rooms: \"a b\""

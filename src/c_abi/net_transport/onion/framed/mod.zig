@@ -112,8 +112,8 @@ fn onionConnect(
     _ = c.framingOptionsFromC(codec, max_frame_bytes, "onion connect") catch
         return GLOWCAP_ERR_INVALID_ARGUMENT;
 
-    const payload = beginConn(nl.allocator, max_frame_bytes) orelse
-        return c.failInternal("onion connect", error.OutOfMemory);
+    const payload = beginConn(nl.allocator, max_frame_bytes) catch |err|
+        return c.failInternal("onion connect", err);
     var job: ConnectJob = .{
         .netlayer = nl,
         .payload = payload,
@@ -298,8 +298,8 @@ fn onionAccept(
     const codec_id = c.framingOptionsFromC(codec, max_frame_bytes, "onion accept") catch
         return GLOWCAP_ERR_INVALID_ARGUMENT;
 
-    const payload = beginConn(lpayload.allocator, max_frame_bytes) orelse
-        return c.failInternal("onion accept", error.OutOfMemory);
+    const payload = beginConn(lpayload.allocator, max_frame_bytes) catch |err|
+        return c.failInternal("onion accept", err);
     payload.stream = lpayload.listener.acceptFrameStream(
         lpayload.allocator,
         codec_id,
@@ -502,9 +502,9 @@ pub fn connRelease(
     out_error_len: ?*usize,
 ) i32 {
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return GLOWCAP_ERR_NULL_POINTER;
+        return c.ReleaseResult.retained(GLOWCAP_ERR_NULL_POINTER).raw();
     }
-    return c.captureCallError(onionConnRelease(conn), out_error, error_cap, out_error_len);
+    return c.ReleaseResult.consumed(c.captureCallError(onionConnRelease(conn), out_error, error_cap, out_error_len)).raw();
 }
 
 /// Interrupt a blocked accept without freeing `listener` or withdrawing its
@@ -539,14 +539,14 @@ pub fn listenerRelease(
     out_error_len: ?*usize,
 ) i32 {
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return GLOWCAP_ERR_NULL_POINTER;
+        return c.ReleaseResult.retained(GLOWCAP_ERR_NULL_POINTER).raw();
     }
-    return c.captureCallError(
+    return c.ReleaseResult.consumed(c.captureCallError(
         onionListenerRelease(listener),
         out_error,
         error_cap,
         out_error_len,
-    );
+    )).raw();
 }
 
 fn onReadConnectionLost(_: *Conn) void {

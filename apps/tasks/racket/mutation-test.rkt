@@ -4,7 +4,7 @@
 (current-check-handler raise)
 
 (define args (current-command-line-arguments))
-(define b (board-join "127.0.0.1" (string->number (vector-ref args 0)) (vector-ref args 1)))
+(define b (board-join (vector-ref args 0) (vector-ref args 1)))
 (define (tasks) (task-list-tasks (car (board-lists b))))
 (define (overlap left right)
   (define start (make-semaphore 0))

@@ -19,6 +19,7 @@ const DialRecorder = harness.DialRecorder;
 const fixtures = @import("../host_runtime_multiplexed/residents.zig");
 const FakeResident = fixtures.FakeResident;
 const Treasure = fixtures.Treasure;
+const SteppedClock = @import("../../support/stepped_clock.zig").SteppedClock;
 
 const retry_interval_ms = 30;
 
@@ -64,7 +65,7 @@ fn stepServer(
             served.* = session;
             _ = try served.*.?.publish("treasure", Treasure, .{});
             try served.*.?.attend();
-        } else |_| {}
+        } else |_| {} // tolerant: the failed predecessor's arrival refuses its accept, and the next poll accepts the live connection the test asserts on.
     }
     while (try server.runtime.stepAny(0) != null) {}
 }
@@ -96,7 +97,10 @@ test "a busy-poll window ends at a retrying dial's due, as the park it replaces 
     const short_interval_ms = 10;
     var options = retryOptions(&log, .{ .max_attempts = 5, .retry_interval_ms = short_interval_ms });
     options.busy_poll_ns = driver.HostRuntime.max_busy_poll_ns;
-    var client = try retryClient(allocator, io, &fake, options);
+    // The client reads a clock that moves one microsecond per reading, so the
+    // spin's length below is a count of readings, never the host's timing.
+    var clock = SteppedClock.init(io, 0, std.time.ns_per_us);
+    var client = try retryClient(allocator, clock.io(), &fake, options);
     defer client.deinit();
     var recorder = DialRecorder{};
 
@@ -119,10 +123,11 @@ test "a busy-poll window ends at a retrying dial's due, as the park it replaces 
     // The row's due is inside the window. A spin bounded by the nearest
     // deadline returns at the due, and one bounded only by the caller's
     // budget waits out the whole window first.
-    const started = net.clock.nowMonotonicMs();
+    const started = clock.peekMs();
     _ = try client.stepAny(5_000);
-    const elapsed = net.clock.nowMonotonicMs() - started;
-    try std.testing.expect(elapsed < @divTrunc(driver.HostRuntime.max_busy_poll_ns, std.time.ns_per_ms) - 20);
+    const elapsed = clock.peekMs() - started;
+    try std.testing.expect(elapsed <= short_interval_ms);
+    try std.testing.expect(elapsed < @divTrunc(driver.HostRuntime.max_busy_poll_ns, std.time.ns_per_ms));
 
     var served: ?*driver.Session = null;
     defer if (served) |s| s.deinit();
@@ -403,7 +408,10 @@ test "a handshake deadline shorter than one interval refuses the retry without w
     defer fake.deinit();
     fake.fail_dial_transient = 1;
     var log: OutcomeLog = .{};
-    var client = try retryClient(allocator, io, &fake, .{
+    // The client's clock moves only when read, so "without waiting" is a
+    // count of readings, never the host's timing.
+    var clock = SteppedClock.init(io, 0, std.time.ns_per_us);
+    var client = try retryClient(allocator, clock.io(), &fake, .{
         .frame_cap = harness.opts.frame_cap,
         .handshake = .{ .ms = 10 },
         .settle = harness.opts.settle,
@@ -423,12 +431,12 @@ test "a handshake deadline shorter than one interval refuses the retry without w
         .failed = DialRecorder.failed,
     });
 
-    const started_ms = net.clock.nowMs(io);
+    const started_ms = clock.peekMs();
     var rounds: usize = 0;
     while (recorder.failed_err == null and rounds < 2_000) : (rounds += 1) {
         _ = try client.stepAny(0);
     }
-    const elapsed_ms = net.clock.nowMs(io) - started_ms;
+    const elapsed_ms = clock.peekMs() - started_ms;
     // The dial fault itself is the failure; the retry never ran, so no
     // interval passed waiting for it.
     try std.testing.expectEqual(@as(?anyerror, error.NetworkUnreachable), recorder.failed_err);

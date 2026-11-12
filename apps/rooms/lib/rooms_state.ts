@@ -1,11 +1,7 @@
-// Types the browser shares about a Rooms session: the controller choice, the
-// bridge form a reader answered, and the conversation ceiling the Rust
-// application enforces.
+// Types the browser shares about a Rooms session: the controller choice and
+// the bridge form a reader answered.
 
 import type { BridgeAnswers } from "./bridge/form.ts";
-
-/** Mirrors the Rust workspace conversation limit. */
-export const MAX_WORKSPACE_CONVERSATIONS = 256;
 
 /** A bridge form a reader answered, kept so a reconnect can answer it again.
  *

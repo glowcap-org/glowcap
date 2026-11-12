@@ -11,6 +11,8 @@ mod codec_values;
 mod handoff_and_observability;
 #[path = "session_tests/lifecycle.rs"]
 mod lifecycle;
+#[path = "session_tests/profiles.rs"]
+mod profiles;
 #[path = "session_tests/promise_arguments.rs"]
 mod promise_arguments;
 #[path = "session_tests/verbs.rs"]

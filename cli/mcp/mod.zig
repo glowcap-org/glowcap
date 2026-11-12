@@ -342,8 +342,8 @@ const CapsWatch = struct {
                     return;
                 }
             }
-            // tolerant: an interrupted sleep only shortens the poll interval.
-            std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
+            // tolerant: a refused sleep is this task's cancel request. Nothing is lost: the watch ends as it does on a stop.
+            std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(100), .real) catch break;
         }
         self.closeOnce();
     }

@@ -9,6 +9,7 @@ const session = glowcap.ocapn.session;
 const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllocator;
 
 const GiftRegistry = engine.bootstrap.gifts.GiftRegistry;
+const cross_peer = @import("../support/cross_peer.zig");
 
 fn limitsForBytes(bytes: usize) session.SessionLimits {
     var limits: session.SessionLimits = .{};
@@ -130,7 +131,7 @@ test "withdraw releases the row budget and accepts the full u64 count domain" {
     try std.testing.expect(live.liveBytes() > baseline);
     const receive = makeReceive("x", "recipient", std.math.maxInt(u64));
     try registry.validateWithdraw(receive, null);
-    _ = try registry.applyWithdraw(&registry, allocator, null, receive);
+    _ = try cross_peer.applyWithdraw(&registry, &registry, allocator, receive);
 
     try std.testing.expectEqual(@as(?u64, std.math.maxInt(u64)), registry.acceptedHandoffCount());
     try std.testing.expectEqual(@as(usize, 0), registry.retainedBytes());

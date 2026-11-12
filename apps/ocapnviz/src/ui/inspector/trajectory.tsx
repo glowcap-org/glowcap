@@ -324,7 +324,7 @@ export function OptionalTimeRow(
 					)
 					: (
 						<span style={{ ...valueMono, color: c.textSubtle }}>
-							—
+							none
 						</span>
 					)}
 			</span>

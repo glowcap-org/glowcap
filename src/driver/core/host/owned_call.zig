@@ -17,7 +17,7 @@ pub const Call = opaque {
     pub const Result = union(enum) {
         pending,
         ready: value_mod.Value,
-        failed: struct { kind: action.VowFailure, message: []const u8 },
+        failed: struct { kind: action.VowFailure, message: []const u8, cause: engine.BreakCause },
     };
 
     /// Retrying the same immutable reply cannot repair these preparation
@@ -71,7 +71,7 @@ pub const Call = opaque {
 const State = struct {
     host: *host_mod.Host,
     allocator: std.mem.Allocator,
-    memory: []u8,
+    /// The reply storage. Its buffer is the allocation `deinit` frees.
     fixed: std.heap.FixedBufferAllocator,
     state: union(enum) {
         starting,
@@ -80,6 +80,7 @@ const State = struct {
         ready: value_mod.Value,
         failed: struct { kind: action.VowFailure, text: FailureText },
     } = .starting,
+    release_node: host_mod.Host.DeferredRelease = .{ .run = runRelease },
 
     comptime {
         const Outcome = @FieldType(State, "state");
@@ -92,16 +93,21 @@ const State = struct {
         return switch (self.state) {
             .pending, .local => .pending,
             .ready => |value| .{ .ready = value },
-            .failed => |*failed| .{ .failed = .{ .kind = failed.kind, .message = failed.text.message() } },
+            .failed => |*failed| .{ .failed = .{ .kind = failed.kind, .message = failed.text.message(), .cause = failed.text.cause } },
             .starting => unreachable,
         };
     }
 
     /// Detach the exact pending observer or release its completed value. This
-    /// does not undo an already admitted target effect. Top-level, before Host
-    /// destruction. Cancellation needs no allocator after admission.
+    /// does not undo an already admitted target effect. Inside a Host callback
+    /// it runs when the callback's verb tail does. Before Host destruction.
+    /// Cancellation needs no allocator after admission.
     fn deinit(self: *State) void {
-        self.host.refuseReentry() catch unreachable;
+        self.host.releaseAtTopLevel(&self.release_node);
+    }
+
+    fn runRelease(node: *host_mod.Host.DeferredRelease) void {
+        const self: *State = @alignCast(@fieldParentPtr("release_node", node));
         switch (self.state) {
             .pending => |pending| release.cancelObserved(self.host, pending.id, pending.observer),
             .local => |local| {
@@ -114,7 +120,7 @@ const State = struct {
             .failed => {},
             .starting => unreachable,
         }
-        self.allocator.free(self.memory);
+        self.allocator.free(self.fixed.buffer);
         self.allocator.destroy(self);
     }
 
@@ -131,7 +137,7 @@ const State = struct {
         return .{ .ctx = self, .func = complete };
     }
 
-    fn fail(self: *State, kind: action.VowFailure, reason: []const u8) void {
+    fn fail(self: *State, kind: action.VowFailure, reason: engine.Broken) void {
         self.state = .{ .failed = .{ .kind = kind, .text = FailureText.init(reason) } };
     }
 
@@ -140,15 +146,15 @@ const State = struct {
         const pending = self.state.pending;
         switch (resolution) {
             .fulfilled => |value| {
-                const session = self.host.sessions.get(pending.peer) orelse return self.fail(.closed, "session closed");
+                const session = self.host.sessions.get(pending.peer) orelse return self.fail(.closed, engine.Broken.unnamed("session closed"));
                 const owned = self.ownWireReply(session, value) catch |err| {
-                    self.fail(.broken, @errorName(err));
+                    self.fail(.broken, engine.Broken.unnamed(@errorName(err)));
                     return;
                 };
                 self.state = .{ .ready = owned };
             },
             .broken => |reason| self.fail(@import("../vows/completion.zig").classifyFailure(self.host, pending.peer), reason),
-            .give => self.fail(.broken, "UnsupportedValue"),
+            .give => self.fail(.broken, engine.Broken.unnamed("UnsupportedValue")),
         }
     }
 
@@ -195,7 +201,7 @@ pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, session:
     errdefer allocator.destroy(self);
     const memory = try allocator.alloc(u8, reply_bytes);
     errdefer allocator.free(memory);
-    self.* = .{ .host = host, .allocator = allocator, .memory = memory, .fixed = .init(memory) };
+    self.* = .{ .host = host, .allocator = allocator, .fixed = .init(memory) };
     var staging = std.heap.ArenaAllocator.init(allocator);
     defer staging.deinit();
     _ = try @import("delivery.zig").sendObservedValuesAdmitted(host, session, target, verb, values, staging.allocator(), .{ .call = @ptrCast(self) }, admission);
@@ -209,7 +215,7 @@ pub fn createLocal(host: *host_mod.Host, allocator: std.mem.Allocator, reply_byt
     const self = try allocator.create(State);
     errdefer allocator.destroy(self);
     const memory = try allocator.alloc(u8, reply_bytes);
-    self.* = .{ .host = host, .allocator = allocator, .memory = memory, .fixed = .init(memory), .state = .{ .local = .{ .producer = producer } } };
+    self.* = .{ .host = host, .allocator = allocator, .fixed = .init(memory), .state = .{ .local = .{ .producer = producer } } };
     producer.destination = .{ .owning = @ptrCast(self) };
     return @ptrCast(self);
 }
@@ -275,7 +281,7 @@ pub fn finishLocal(observer: *Call, resolution: actors.Resolution, failure_kind:
     std.debug.assert(self.state == .local);
     if (resolution == .fulfilled) {
         const value = self.state.local.prepared orelse {
-            self.fail(.broken, "OwningReplyRequired");
+            self.fail(.broken, engine.Broken.unnamed("OwningReplyRequired"));
             return;
         };
         self.state.local.prepared = null;
@@ -283,7 +289,7 @@ pub fn finishLocal(observer: *Call, resolution: actors.Resolution, failure_kind:
     } else {
         if (self.state.local.prepared) |value| lower.releaseValueCapabilitiesTerminalAt(self.host, &.{value}, null);
         self.state.local.prepared = null;
-        self.fail(failure_kind, if (resolution == .broken) resolution.broken else "UnsupportedValue");
+        self.fail(failure_kind, if (resolution == .broken) resolution.broken else engine.Broken.unnamed("UnsupportedValue"));
     }
 }
 

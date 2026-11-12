@@ -21,11 +21,9 @@ const Peer = engine.Peer;
 /// leaves as its frame at admission and its tree is freed before this
 /// returns (`outbound/encoded.zig`). The kinds the drain still inspects are
 /// freed by the peer after `step` encodes them (or here, if recording
-/// fails). A settlement message is the exception: its resolution moves into
-/// the answer store at record time (`Session.applySentResolve`). V1.0 later
-/// encodes a resolver callback. Next notifies the mandatory listener. The
-/// store frees it on overwrite or answer teardown. Borrowed or static input
-/// goes through `sendBorrowed` instead.
+/// fails). A settlement message moves its resolution into the answer store
+/// instead (the queue-slot doc, `Outbound`, owns that exception). Borrowed or
+/// static input goes through `sendBorrowed` instead.
 pub fn send(self: *Peer, message: model.Message) !void {
     return outbound.enqueueRecorded(self, message);
 }

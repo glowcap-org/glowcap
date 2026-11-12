@@ -183,6 +183,12 @@ pub export fn glowcap_driver_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return shared.lastErrorRead(out_buf, cap);
 }
 
+/// Copy the preceding driver operation's typed local cause without clearing it.
+/// A null output is a no-op. An operation with no named cause has zero fields.
+pub export fn glowcap_driver_last_error_cause(out_cause: ?*shared.GlowcapBreakCause) void {
+    if (out_cause) |out| out.* = shared.GlowcapBreakCause.fromCore(shared.lastErrorCause());
+}
+
 /// Clear this archive's per-thread last-error message.
 pub export fn glowcap_driver_clear_last_error() void {
     shared.lastErrorClear();

@@ -25,6 +25,7 @@ import { type AbiLayout, layout64, setActiveLayout } from "../layout.ts";
 // lazily instead, keeping that runtime-only specifier off Deno's and the
 // browser bundle's static graph.
 import { adapter as denoAdapter } from "./adapters/deno.ts";
+import { openNoting } from "./resolution_notes.ts";
 
 /** An FFI pointer as a `bigint` address. `0n` is the null pointer. */
 export type Ptr = bigint;
@@ -271,7 +272,7 @@ function active(): RuntimeAdapter {
  * Bun). */
 export const ffi: RuntimeFfi = {
 	offloadsBlockingCalls: () => active().ffi.offloadsBlockingCalls(),
-	dlopen: (path, defs) => active().ffi.dlopen(path, defs),
+	dlopen: (path, defs) => openNoting(path, () => active().ffi.dlopen(path, defs)),
 	makeCallback: (def, fn) => active().ffi.makeCallback(def, fn),
 	pointerOf: (buf) => active().ffi.pointerOf(buf),
 	readMemory: (ptr, len) => active().ffi.readMemory(ptr, len),
@@ -322,7 +323,7 @@ export function lazySymbols(
 	let opened: Symbols | undefined;
 	const open = (): Symbols => {
 		if (opened !== undefined) return opened;
-		const symbols = active().ffi.dlopen(pathFn(), defs);
+		const symbols = ffi.dlopen(pathFn(), defs);
 		if (contract !== undefined) requireArchiveFingerprint(symbols, contract);
 		opened = symbols;
 		return symbols;

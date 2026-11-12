@@ -39,7 +39,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		let id = id
 			.text()
 			.as_str()
-			.ok_or_else(|| loam::refusal("invalid standing room"))?
+			.ok_or_else(|| Error::invalid("invalid standing room"))?
 			.to_owned();
 		let mut conflicts = 0;
 		if self.standing.pending.is_some() {
@@ -53,7 +53,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 						let workspace = self.workspace.clone();
 						let owner = self.writer.root()?;
 						let Some(snapshot) = self
-							.stage(|| async { workspace.owner_snapshot(&owner).await.map_err(error) })
+							.stage(|| async { workspace.owner_snapshot(&owner).await.map_err(Error::from) })
 							.await?
 						else {
 							return Ok(false);
@@ -77,7 +77,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					.intent
 					.room_standing(&id)
 					.and_then(|value| value.text().as_str())
-					.ok_or_else(|| loam::refusal("standing room was retired"))?;
+					.ok_or_else(|| Error::closed("standing room was retired"))?;
 				if reason == self.standing.applied {
 					// Confirmed current intent ends this recovery incident. A later
 					// refusal gets its own finite window; pending retries cannot reset it.
@@ -88,7 +88,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					.standing
 					.generation
 					.checked_add(1)
-					.ok_or_else(|| loam::refusal("standing operation space exhausted"))?;
+					.ok_or_else(|| Error::exhausted("standing operation space exhausted"))?;
 				let command = self
 					.workspace
 					.prepare_command(
@@ -98,14 +98,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 						&[id.clone(), reason.into()],
 					)
 					.await
-					.map_err(error)?;
+					.map_err(Error::from)?;
 				self.standing.pending = Some((reason.into(), Rc::new(command)));
 			}
 			let command = self
 				.standing
 				.pending
 				.as_ref()
-				.ok_or_else(|| loam::refusal("standing command is not retained"))?
+				.ok_or_else(|| Error::closed("standing command is not retained"))?
 				.1
 				.clone();
 			self.submission.get_or_insert_with(|| command.start_submission());
@@ -113,7 +113,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				let outcome = tokio::select! {
 					biased;
 					_ = self.stopping.changed() => return Ok(false),
-					outcome = self.submission.as_mut().ok_or_else(|| loam::refusal("standing admission is not owned"))?.within(
+					outcome = self.submission.as_mut().ok_or_else(|| Error::closed("standing admission is not owned"))?.within(
 						&self.platform, rooms_application::room::authority::REQUEST_TIMEOUT_MS) => outcome,
 				};
 				match outcome {
@@ -123,13 +123,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					}
 					Some(Err(failure)) => {
 						self.submission.take();
-						if !self.failed(error(failure)).await? {
+						if !self.failed(Error::from(failure)).await? {
 							return Ok(false);
 						}
 						self.submission = Some(command.start_submission());
 					}
 					None => {
-						if !self.failed(loam::refusal("standing admission remains pending")).await? {
+						if !self
+							.failed(Error::uncertain("standing admission remains pending"))
+							.await?
+						{
 							return Ok(false);
 						}
 					}
@@ -139,12 +142,15 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				self.standing.pending.take();
 				conflicts += 1;
 				if conflicts == 4 {
-					return Err(loam::refusal("standing admission repeatedly conflicted"));
+					return Err(Error::stale("standing admission repeatedly conflicted"));
 				}
 				continue;
 			}
 			loop {
-				let Some(status) = self.stage(|| async { command.status().await.map_err(error) }).await? else {
+				let Some(status) = self
+					.stage(|| async { command.status().await.map_err(Error::from) })
+					.await?
+				else {
 					return Ok(false);
 				};
 				match status {
@@ -158,8 +164,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 							.result()
 							.await
 							.err()
-							.map(error)
-							.unwrap_or_else(|| loam::refusal("Standing was not sent"));
+							.map(Error::from)
+							.unwrap_or_else(|| Error::uncertain("Standing was not sent"));
 						if !self.failed(failure).await? {
 							return Ok(false);
 						}
@@ -174,7 +180,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					}
 					_ => {
 						if !self
-							.failed(loam::refusal("standing requires recovery of its original receipt"))
+							.failed(Error::uncertain("standing requires recovery of its original receipt"))
 							.await?
 						{
 							return Ok(false);
@@ -186,7 +192,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				.standing
 				.pending
 				.take()
-				.ok_or_else(|| loam::refusal("confirmed standing is not retained"))?
+				.ok_or_else(|| Error::closed("confirmed standing is not retained"))?
 				.0;
 			// A newer preference may have arrived while this receipt settled.
 		}

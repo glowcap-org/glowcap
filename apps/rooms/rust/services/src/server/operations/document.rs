@@ -72,7 +72,7 @@ impl Handle {
 		let seat = self
 			.commands
 			.try_reserve()
-			.map_err(|_| "the operations writer is busy; try again")?;
+			.map_err(|_| super::super::answer::busy("operations writer").reason())?;
 		let session = current_session()
 			.map_err(|e| e.to_string())?
 			.ok_or("an operator change is reachable only over a session")?

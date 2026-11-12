@@ -86,7 +86,7 @@ const Reserved = struct {
 /// boundary. `inventory` is the recipient session's
 /// inventory of the payload's tree, which measured it and listed its
 /// references, so no pass here walks the tree. Admission and reservation are
-/// the fallible half; publication commits infallibly after the last refusal.
+/// the fallible half. Publication commits infallibly after the last refusal.
 /// A staged batch takes `failure_escrow` (`Batch.failure_escrow`), and a
 /// refusal that hands the payload back hands the escrow back with it.
 pub fn stage(
@@ -261,7 +261,7 @@ fn publish(
 
 /// A batch with no object projection waits for no gift id, so it finishes
 /// now. A refusal after the Peer consumed the carrier fails the batch through
-/// its correlated barrier; one before that hands the carrier back.
+/// its correlated barrier. One before that hands the carrier back.
 fn finishEmpty(
     self: *Node,
     recipient: *engine.Peer,

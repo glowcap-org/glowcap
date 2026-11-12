@@ -11,7 +11,7 @@ const expectFileContains = text_match.expectFileContains;
 /// `bindings-relay` matrix) must load the iroh binding lazily, only on the
 /// `?locator=` dial path, so a `?to=`-only run links no iroh FFI and the
 /// à-la-carte archive split holds (ADR-0022, ADR-0033). Rust pins this at
-/// compile time (`#[cfg(feature = "iroh")]`); the other three defer the import
+/// compile time (`#[cfg(feature = "iroh")]`). The other three defer the import
 /// by hand, so this keeps that convention a build-checked invariant rather than
 /// trusting three hand-written import sites. The rooms production relay is out
 /// of scope, it links the full stack.

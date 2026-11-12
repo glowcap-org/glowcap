@@ -256,7 +256,11 @@ pub(super) async fn run() {
 							Ok(_) => panic!("foreign session cannot realize a local worker"),
 							Err(error) => error,
 						};
-						assert_eq!(error.message(), Some("worker source belongs to another session"));
+						assert!(
+							matches!(error, rooms_runtime::Error::Refused(ref reason)
+                            if reason == "worker source belongs to another session"),
+							"{error:?}"
+						);
 					}
 					let received = Rc::new(Cell::new(0));
 					platform.suspended.set(true);

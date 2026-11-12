@@ -286,7 +286,7 @@ fn writeConstName(
 
 /// The target-independent names needed to generate Rust expectations from the
 /// actual wasm32 descriptor. Types, stems and field order come from the same
-/// archive contracts as native layouts. No pointer-width arithmetic is copied.
+/// archive contracts as the 64-bit layouts. No pointer-width arithmetic is copied.
 fn generateWasmManifest(gpa: std.mem.Allocator) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);

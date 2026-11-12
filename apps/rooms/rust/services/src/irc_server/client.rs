@@ -237,7 +237,7 @@ impl ClientState {
 						return Ok(false);
 					}
 				}
-				let mut providers = vec![tcp::provider(Default::default())];
+				let mut providers = vec![tcp::provider(self.context.tcp)];
 				if let Some(reachability) = self.context.iroh {
 					providers.push(iroh::provider(rooms_platform::serving::iroh_config(reachability)));
 				}
@@ -258,12 +258,10 @@ impl ClientState {
 				self.directory = Some(directory.clone());
 				let mut registration = directory.registration();
 				if let Err(error) = registration.register(nick, &attachment.identity, None).await {
-					self.raw(
-						super::failure::registration(&error.to_string()),
-						&["*", nick, &error.to_string()],
-					)
-					.await?;
-					return Err(error.to_string());
+					let refused = super::failure::Refused::from(error);
+					self.raw(super::failure::registration(refused.code), &["*", nick, &refused.text])
+						.await?;
+					return Err(refused.text);
 				}
 				let output = Output::new(self.writer.clone(), self.context.server.clone(), nick)?;
 				self.directs = Some(Directs::open(
@@ -397,7 +395,7 @@ impl Registered {
 						}
 						Err(error) => {
 							output
-								.numeric(super::failure::join(&error), &[nick, channel, &error])
+								.numeric(super::failure::join(error.code), &[nick, channel, &error.text])
 								.await?
 						}
 					}
@@ -426,7 +424,8 @@ impl Registered {
 				(Some(target), Some(text)) if target.starts_with('#') => {
 					if let Some(held) = self.channels.get(&fold(target)) {
 						if let Err(error) = held.room.say(text).await {
-							output.numeric("404", &[nick, target, &error.to_string()]).await?;
+							let refused = super::failure::Refused::from(error);
+							output.numeric("404", &[nick, target, &refused.text]).await?;
 						}
 					} else {
 						output
@@ -439,9 +438,9 @@ impl Registered {
 					if fold(&peer) == fold(nick) {
 						output.numeric("401", &[nick, target, "No such nick"]).await?;
 					} else if let Err(error) = self.directs.say(directory, &peer, text).await {
-						(self.report)(super::notice::Notice::DirectMessageRefused(error.clone()));
+						(self.report)(super::notice::Notice::DirectMessageRefused(error.text.clone()));
 						output
-							.numeric(super::failure::direct(&error), &[nick, target, &error])
+							.numeric(super::failure::direct(error.code), &[nick, target, &error.text])
 							.await?;
 					}
 				}
@@ -489,7 +488,8 @@ impl Registered {
 							}
 						}
 						Err(error) => {
-							output.numeric("400", &[nick, &error.to_string()]).await?;
+							let refused = super::failure::Refused::from(error);
+							output.numeric("400", &[nick, &refused.text]).await?;
 							more = false;
 						}
 					}

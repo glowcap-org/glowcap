@@ -42,7 +42,7 @@
 //! reactor's, and only the caller can hold it.
 //!
 //! Symbol names avoid the sidecar's own `glowcap_iroh_sidecar_*` exports
-//! (`glowcap_iroh_sidecar_connect_blocking`, `glowcap_iroh_sidecar_conn_close`,
+//! (`glowcap_iroh_sidecar_connect_blocking`, `glowcap_iroh_sidecar_conn_free`,
 //! …). The public surface is `glowcap_iroh_netlayer_*` and
 //! `glowcap_iroh_conn_{try_read,try_write}` / `_release`, so the private
 //! byte-level seam and the public loop-level ABI share no prefix and the two C
@@ -413,9 +413,9 @@ pub export fn glowcap_iroh_netlayer_release(
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return GLOWCAP_ERR_NULL_POINTER;
+        return c.ReleaseResult.retained(GLOWCAP_ERR_NULL_POINTER).raw();
     }
-    return c.captureCallError(irohNetlayerRelease(netlayer), out_error, error_cap, out_error_len);
+    return c.ReleaseResult.consumed(c.captureCallError(irohNetlayerRelease(netlayer), out_error, error_cap, out_error_len)).raw();
 }
 
 // ── Addressing ───────────────────────────────────────────────────────────────

@@ -223,13 +223,13 @@ pub export fn glowcap_driver_release(
     shared.lastErrorClear();
     const failure_slot = switch (failure_output.claim(out_failure, "driver release")) {
         .slot => |slot| slot,
-        .refused => |code| return code,
+        .refused => |code| return shared.ReleaseResult.retained(code).raw(),
     };
-    const inst = instanceFrom(raw) orelse return GLOWCAP_OK;
+    const inst = instanceFrom(raw) orelse return shared.ReleaseResult.consumed(GLOWCAP_OK).raw();
     if (reentrancyCode(inst, "release")) |code|
-        return failure_output.refuse(failure_slot, code, error.ReenteredHost);
+        return shared.ReleaseResult.retained(failure_output.refuse(failure_slot, code, error.ReenteredHost)).raw();
     ch.embedding.checkAttachmentsReleased(inst.host_handle) catch |err|
-        return failure_output.refuse(failure_slot, GLOWCAP_ERR_INVALID_ARGUMENT, err);
+        return shared.ReleaseResult.retained(failure_output.refuse(failure_slot, GLOWCAP_ERR_INVALID_ARGUMENT, err)).raw();
     // No projection survives release. The runtime's recipients stay installed
     // for its teardown, but from here `sinkTake` refuses (the drain then frees
     // each completion through the still-live core) and `observeClose` only
@@ -271,15 +271,9 @@ pub export fn glowcap_driver_release(
     alloc.destroy(inst);
     if (teardown_failure) |failure| {
         failure_output.setLastError("driver release", failure);
-        // INVALID_ARGUMENT is reserved for an admission refusal above and
-        // therefore means the handle remains live. Teardown has already
-        // consumed the loop; classify a provider's invalid-argument cleanup
-        // report as internal at this boundary while preserving its exact cause
-        // in last_error, so consumers can distinguish retry from consumption.
         const code = driver_error.code(failure.kind());
-        const consumed_code = if (code == GLOWCAP_ERR_INVALID_ARGUMENT) shared.GLOWCAP_ERR_INTERNAL else code;
-        failure_output.project(failure_slot, consumed_code, failure);
-        return consumed_code;
+        failure_output.project(failure_slot, code, failure);
+        return shared.ReleaseResult.consumed(code).raw();
     }
-    return GLOWCAP_OK;
+    return shared.ReleaseResult.consumed(GLOWCAP_OK).raw();
 }

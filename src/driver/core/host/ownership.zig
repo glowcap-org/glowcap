@@ -77,11 +77,11 @@ pub fn deinit(self: *Host) void {
 pub fn deinitOutcome(self: *Host) ?anyerror {
     self.assertOwner();
     std.debug.assert(!self.callback_latch.isHeld());
+    @import("admission.zig").runDeferredReleases(self);
     var first_failure: ?anyerror = null;
     // Break listeners under the callback latch; nested work only enqueues and
-    // every resulting queue row is retired later in this same sweep. The
-    // latch is never released: the Host does not outlive this sweep.
-    _ = self.callback_latch.hold();
+    // every resulting queue row is retired later in this same sweep.
+    const break_hold = self.callback_latch.hold();
     var break_it = self.sessions.valueIterator();
     while (break_it.next()) |session| {
         session.*.served.port.breakFarVows(session.*.served.closeReason("host released"));
@@ -91,6 +91,13 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
         // returned, and watched vows hold seats the Node below must see back.
         capability_promise.forgetSession(self, session.*);
     }
+    // A listener the break fired may have released an operation, which queued
+    // its release under the latch. Run those while the sessions and vows they
+    // name are alive. The latch then stays held: the Host does not outlive
+    // this sweep.
+    break_hold.release();
+    @import("admission.zig").runDeferredReleases(self);
+    _ = self.callback_latch.hold();
     var free_it = self.sessions.valueIterator();
     while (free_it.next()) |session| {
         self.traceClose(session.*);
@@ -145,6 +152,9 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     self.capabilities.deinit(self.allocator);
     // Every session key, ephemeral, and wire salt derived from the root.
     std.crypto.secureZero(u8, &self.session_seed_root);
+    // An operation is released before its Host is destroyed. One released
+    // from a destructor this sweep ran would queue behind the last drain.
+    std.debug.assert(self.deferred_releases == null);
     return first_failure;
 }
 
@@ -152,7 +162,7 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
 /// thread. No Host call may remain in flight or begin afterward.
 pub fn deinitAfterOwnershipTransfer(self: *Host) ?anyerror {
     std.debug.assert(!self.callback_latch.isHeld());
-    if (comptime admission.tracks_thread_affinity) self.owner_tid = admission.initial_owner_thread_id;
+    self.owner_tid = admission.initial_owner_thread_id;
     return deinitOutcome(self);
 }
 

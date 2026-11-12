@@ -70,11 +70,11 @@ const Pad = struct {
 
 test "cross-session: a capability minted on one session is refused as an argument on another" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
-    var other = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
+    var other = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.init(.unchecked, frame_cap));
     defer other.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -122,11 +122,11 @@ test "cross-session: a capability minted on one session is refused as an argumen
 
 test "cross-session: a capability minted on one session is refused as a send target on another" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
-    var other = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
+    var other = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.init(.unchecked, frame_cap));
     defer other.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -152,13 +152,13 @@ test "cross-session: a capability minted under one host is refused on another ho
     // Two hosts in one process is the ordinary shape, not an exotic one: a
     // binding's `connect` with no explicit host mints a fresh one per call, so
     // an application that dials twice holds capabilities from two hosts.
-    var left = test_host.init(allocator, @as([32]u8, @splat(0x11)), Host.Options.withFrameCap(frame_cap));
+    var left = test_host.init(allocator, @as([32]u8, @splat(0x11)), Host.Options.init(.unchecked, frame_cap));
     defer left.deinit();
-    var left_partner = test_host.init(allocator, @as([32]u8, @splat(0x12)), Host.Options.withFrameCap(frame_cap));
+    var left_partner = test_host.init(allocator, @as([32]u8, @splat(0x12)), Host.Options.init(.unchecked, frame_cap));
     defer left_partner.deinit();
-    var right = test_host.init(allocator, @as([32]u8, @splat(0x13)), Host.Options.withFrameCap(frame_cap));
+    var right = test_host.init(allocator, @as([32]u8, @splat(0x13)), Host.Options.init(.unchecked, frame_cap));
     defer right.deinit();
-    var right_partner = test_host.init(allocator, @as([32]u8, @splat(0x14)), Host.Options.withFrameCap(frame_cap));
+    var right_partner = test_host.init(allocator, @as([32]u8, @splat(0x14)), Host.Options.init(.unchecked, frame_cap));
     defer right_partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -186,7 +186,7 @@ test "cross-session: an adopted peer gets its own export range too" {
     // the owned mint. That is the path with the most connections on it, and
     // the one an application most plausibly holds two sessions of at once, so
     // it is the path a session-numbering fix least affords to miss.
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x50)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x50)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     var first = engine.Peer.initNegotiating(allocator);
@@ -215,7 +215,7 @@ test "cross-session: a released session's export range comes back for reuse" {
     // close them reaches that. Reuse is what makes the slot a bound
     // on how many sessions are live at once rather than on how many the host
     // may ever open.
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x51)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x51)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     var first = engine.Peer.initNegotiating(allocator);
@@ -239,7 +239,7 @@ test "cross-session: a reused export range is the oldest freed, not the newest" 
     // numbers immediately, which is the narrowest possible gap between a stale
     // capability and a live object wearing its position. Oldest-first puts
     // every other freed range in between.
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x52)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x52)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     var first = engine.Peer.initNegotiating(allocator);
@@ -270,7 +270,7 @@ test "cross-session: a host that has spent its export slot refuses rather than n
     // numbers, which aliases that host's sessions one for one, the very thing
     // the ranges exist to stop. Refusing the mint is the fail-closed answer;
     // reuse above is what keeps an honest host from ever arriving here.
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     try std.testing.expect(host.node.export_base_end > host.node.next_export_base);

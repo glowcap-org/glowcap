@@ -1,7 +1,9 @@
-//! Test compile-root wiring and separate build-family registration.
+//! Test compile-root wiring and separate build-family registration, for the
+//! suites under `test/` and for the checks' own unit tests.
 
 const std = @import("std");
 const appendViolation = @import("violation_log.zig").appendViolation;
+const blankComments = @import("text_match.zig").blankComments;
 
 const suite_roots = [_][]const u8{ "test/all_test.zig", "test/oracle_check.zig", "test/loam_lmdb_test.zig", "test/loam_sqlite_test.zig" };
 
@@ -37,8 +39,9 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     try checkTypeScript(io, gpa, root, violations);
+    try checkCheckerTests(io, gpa, root, violations);
 
-    var root_contents: [suite_roots.len][]const u8 = undefined;
+    var root_contents: [suite_roots.len][]u8 = undefined;
     var loaded: usize = 0;
     defer for (root_contents[0..loaded]) |contents| gpa.free(contents);
     for (suite_roots, 0..) |path, i| {
@@ -47,6 +50,8 @@ pub fn check(
             return;
         };
         loaded = i + 1;
+        // A commented-out import runs nothing, so it wires nothing.
+        blankComments(root_contents[i]);
     }
 
     var test_dir = root.openDir(io, "test", .{ .iterate = true }) catch |err| {
@@ -65,9 +70,7 @@ pub fn check(
             try appendViolation(gpa, violations, "test/{s}: path too long for test-suite wiring check", .{entry.path});
             continue;
         };
-        var imported = false;
-        for (root_contents) |contents|
-            imported = imported or std.mem.indexOf(u8, contents, needle) != null;
+        var imported = importedByAny(&root_contents, needle);
         if (!imported) imported = try separatelyRegistered(io, gpa, root, entry.path, violations);
         if (!imported) try appendViolation(
             gpa,
@@ -192,9 +195,136 @@ fn separatelyRegistered(
             return false;
         };
         defer gpa.free(owner);
+        blankComments(owner);
         var needle_buf: [224]u8 = undefined;
         const needle = std.fmt.bufPrint(&needle_buf, "\"test/{s}\"", .{test_path}) catch return false;
         return std.mem.indexOf(u8, owner, needle) != null;
     }
     return false;
+}
+
+/// Whether any comment-blanked root contains `needle`.
+fn importedByAny(roots: []const []u8, needle: []const u8) bool {
+    for (roots) |contents| if (std.mem.indexOf(u8, contents, needle) != null) return true;
+    return false;
+}
+
+test "a commented-out suite import wires nothing" {
+    const needle = "@import(\"net/x_test.zig\")";
+    var commented = "test {\n    // _ = @import(\"net/x_test.zig\");\n}\n".*;
+    blankComments(&commented);
+    try std.testing.expect(!importedByAny(&.{&commented}, needle));
+
+    var live = "test {\n    _ = @import(\"net/x_test.zig\"); // runs\n}\n".*;
+    blankComments(&live);
+    try std.testing.expect(importedByAny(&.{&live}, needle));
+}
+
+const checker_root = "tools/check/source_check.zig";
+const checker_modules = "tools/check/source_check";
+
+/// The checks' own unit tests reach their artifact the same way. Zig compiles
+/// a file's `test` declarations only when a test block refers to the file, and
+/// the `test` block of `checker_root` is the one list. A check module with
+/// tests that the block does not import has tests that pass by never running.
+fn checkCheckerTests(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const root_source = root.readFileAlloc(io, checker_root, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for checker test wiring with {s}", .{ checker_root, @errorName(err) });
+        return;
+    };
+    defer gpa.free(root_source);
+    const block = testBlock(root_source) orelse {
+        try appendViolation(gpa, violations, "{s}: has no `test {{` block to import the check modules' tests", .{checker_root});
+        return;
+    };
+
+    var dir = root.openDir(io, checker_modules, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for checker test wiring with {s}", .{ checker_modules, @errorName(err) });
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        const source = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}/{s}: failed to read for checker test wiring with {s}", .{ checker_modules, entry.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(source);
+        // A comment after the opening brace would hide the declaration.
+        blankComments(source);
+        if (!declaresTest(source)) continue;
+        if (!try imports(gpa, block, entry.path)) try appendViolation(
+            gpa,
+            violations,
+            "{s}/{s}: declares tests the `test` block in {s} does not import, so they never run; add `_ = @import(\"source_check/{s}\");` there",
+            .{ checker_modules, entry.path, checker_root, entry.path },
+        );
+    }
+}
+
+/// The body of the root's anonymous `test` block, with comments blanked in
+/// place, because a commented-out import runs nothing and wires nothing.
+fn testBlock(source: []u8) ?[]const u8 {
+    blankComments(source);
+    const open = "\ntest {\n";
+    const start = (std.mem.indexOf(u8, source, open) orelse return null) + open.len;
+    const len = std.mem.indexOf(u8, source[start..], "\n}") orelse return null;
+    return source[start..][0..len];
+}
+
+/// True when a line of `source` opens a `test` declaration: a named one, an
+/// anonymous one, or one named for a declaration, at any indent.
+fn declaresTest(source: []const u8) bool {
+    var lines = std.mem.splitScalar(u8, source, '\n');
+    while (lines.next()) |line| {
+        const code = std.mem.trim(u8, line, " \t\r");
+        if (std.mem.startsWith(u8, code, "test ") and std.mem.endsWith(u8, code, "{")) return true;
+    }
+    return false;
+}
+
+/// True when `block` imports the module at `path` under the modules directory.
+fn imports(gpa: std.mem.Allocator, block: []const u8, path: []const u8) !bool {
+    const line = try std.fmt.allocPrint(gpa, "_ = @import(\"source_check/{s}\");", .{path});
+    defer gpa.free(line);
+    return std.mem.indexOf(u8, block, line) != null;
+}
+
+test "a module's tests run only when the root's test block imports the module" {
+    const gpa = std.testing.allocator;
+    const root_source = try gpa.dupe(u8,
+        \\const a = @import("source_check/a.zig");
+        \\
+        \\test {
+        \\    _ = @import("source_check/b/c.zig");
+        \\    // _ = @import("source_check/d.zig");
+        \\}
+        \\
+        \\test "named" {}
+    );
+    defer gpa.free(root_source);
+    const block = testBlock(root_source).?;
+    try std.testing.expect(!try imports(gpa, block, "d.zig"));
+    try std.testing.expect(try imports(gpa, block, "b/c.zig"));
+    // A module the root imports for its code alone has unwired tests.
+    try std.testing.expect(!try imports(gpa, block, "a.zig"));
+    try std.testing.expect(!try imports(gpa, block, "c.zig"));
+    var no_block = "test \"named\" {}\n".*;
+    try std.testing.expect(testBlock(&no_block) == null);
+
+    try std.testing.expect(declaresTest("const x = 1;\ntest \"x is one\" {\n}\n"));
+    try std.testing.expect(declaresTest("test {\n    _ = x;\n}\n"));
+    try std.testing.expect(declaresTest("const T = struct {\n    test parse {\n    }\n};\n"));
+    try std.testing.expect(!declaresTest("// test \"commented\"\nconst s = \"test \\\"quoted\\\"\";\n"));
+    var trailing = "test \"x is one\" { // why\n}\n".*;
+    try std.testing.expect(!declaresTest(&trailing));
+    blankComments(&trailing);
+    try std.testing.expect(declaresTest(&trailing));
 }

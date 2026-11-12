@@ -56,7 +56,7 @@ given, a fact said twice, and sentences about the page itself. Status belongs
 on a living page ([doc-drift](doc-drift.md)), and history belongs to git. Keep a
 story only when the reader needs it to understand, such as a worked example.
 If a sentence might be narrative, cut it and reread: keep it only if the page
-no longer makes sense without it. <!-- status-allow: workflow sequence -->
+stops making sense without it.
 
 ## Tight
 
@@ -108,7 +108,9 @@ drafting a doc and tightening one.
 
 `source-check` enforces the mechanical tells (`checkHumanDocVoice`,
 `banHabitualEmDash`, `banHabitualJustification`, `checkProseSentenceLength`,
-`checkParagraphLength`).
+`checkParagraphLength`), and `banDocCommentFlaws` holds every `///` and `//!`
+line in `src`, `cli`, `tools`, and `test` to the punctuation rule and
+`vague_labels`.
 Fix the prose; never weaken the check. Retire a row in
 `tools/check/source_check/docs/voice_debt.zig` when you clear a listed file.
 

@@ -21,6 +21,8 @@ from check_packed import check_packed
 
 ROOT = Path(__file__).resolve().parents[3]
 PROOF = ROOT / "test/interface/rust"
+# A cargo build of the generated crate; its dependencies are already built in the shared target.
+COMPILE_SECONDS = 600
 CASES = [
     ("helper_collision", "Reader", "read", "text"),
     ("module_collision", "Reader", "read", "__glowcap"),
@@ -96,6 +98,7 @@ def main():
                 str(PROOF / "Cargo.toml"),
             ],
             cwd=ROOT,
+            timeout=60,
         )
     )
     manifest = (PROOF / "Cargo.toml").read_text()
@@ -327,6 +330,7 @@ def main():
             cwd=ROOT,
             env=environment,
             check=True,
+            timeout=COMPILE_SECONDS,
         )
         tests = subprocess.run(
             [
@@ -344,6 +348,7 @@ def main():
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            timeout=COMPILE_SECONDS,
         )
         if tests.returncode:
             sys.stderr.write(tests.stdout)

@@ -38,7 +38,8 @@
          "private/ffi-parent.rkt"
          "private/seam.rkt")
 
-(provide tcp-address-designator tcp-locator keyed-tcp-locator noise-tcp-locator
+(provide TCP-PROFILE-TCP TCP-PROFILE-KEYED-TCP TCP-PROFILE-NOISE-TCP
+         tcp-address-designator tcp-locator keyed-tcp-locator noise-tcp-locator
          tcp-provider tcp-connector
          make-tcp-keepalive (struct-out tcp-keepalive)
          make-tcp-stream-options (struct-out tcp-stream-options)

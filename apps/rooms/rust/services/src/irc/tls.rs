@@ -34,7 +34,7 @@ impl Endpoint {
 	}
 	pub(super) async fn connect(&self, tls: Option<&Tls>) -> Result<Box<dyn Stream>, String> {
 		let socket = if self.loopback_only {
-			if !loopback(&self.host) {
+			if !rooms_application::host::loopback(&self.host) {
 				return Err("IRC tests may dial only an explicit loopback endpoint".into());
 			}
 			let addresses: Vec<_> = lookup_host((self.host.as_str(), self.port))
@@ -65,13 +65,6 @@ impl Endpoint {
 			.map_err(|e| format!("IRC TLS handshake failed: {e}"))?;
 		Ok(Box::new(stream))
 	}
-}
-
-fn loopback(host: &str) -> bool {
-	host.eq_ignore_ascii_case("localhost")
-		|| host
-			.parse::<std::net::IpAddr>()
-			.is_ok_and(|address| address.is_loopback())
 }
 
 pub(super) trait Stream: AsyncRead + AsyncWrite + Unpin {}

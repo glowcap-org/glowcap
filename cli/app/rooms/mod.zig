@@ -9,6 +9,12 @@ pub const commands = @import("commands.zig").commands;
 
 pub const Mode = enum { service, serve, session_serve, session_ready, capabilities, status, locator, revision, page, trace, skills };
 
+/// The name a front reads a flag under. A served session keeps its state in
+/// the directory the command calls `--dir`.
+pub fn handedName(mode: Mode, flag: []const u8) []const u8 {
+    return if (mode == .session_serve and std.mem.eql(u8, flag, "dir")) "state" else flag;
+}
+
 fn env(ctx: *Ctx, key: []const u8) ?[]const u8 {
     const value = ctx.environ.get(key) orelse return null;
     return if (value.len == 0) null else value;
@@ -24,7 +30,8 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
             defer ctx.gpa.free(root);
             if (mode == .skills) {
                 const path = try std.fs.path.join(alloc, &.{ root, "share/glowcap/skills" });
-                if (!runtime.exists(ctx, path)) {
+                // tolerant: exists has reported its cause, and 1 is this command's failure exit.
+                if (!(runtime.exists(ctx, path) catch return 1)) {
                     log.err(ctx.io, "missing installed skills. Install the complete glowcap package", .{});
                     return 1;
                 }
@@ -40,14 +47,12 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                 defer ctx.gpa.free(server);
                 try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--server={s}", .{server}));
                 const assets = parsed.flagString("assets") orelse try std.fs.path.join(alloc, &.{ root, "share/glowcap/rooms" });
-                if (!runtime.exists(ctx, assets)) {
+                // tolerant: exists has reported its cause, and 1 is this command's failure exit.
+                if (!(runtime.exists(ctx, assets) catch return 1)) {
                     log.err(ctx.io, "missing prepared browser assets at {s}. Install the complete glowcap package (contributors: zig build glowcap-install)", .{assets});
                     return 1;
                 }
                 try arguments.appendSlice(alloc, &.{ "--prepared", try std.fmt.allocPrint(alloc, "--assets={s}", .{assets}) });
-                // HTTP is loopback by default. CapTP retains the server's
-                // separate authenticated discovery and operator-grant policy.
-                if (parsed.flagString("http-bind") == null) try arguments.append(alloc, "--http-bind=127.0.0.1");
                 if (parsed.flagString("state") == null and env(ctx, "GLOWCAP_ROOMS_STATE") == null) {
                     if (env(ctx, "HOME") == null and env(ctx, "XDG_STATE_HOME") == null and env(ctx, "GLOWCAP_STATE") == null) {
                         log.err(ctx.io, "name durable Rooms storage with --state when no user state directory is configured", .{});
@@ -85,7 +90,7 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                 while (flags.next()) |entry| {
                     const key = entry.key_ptr.*;
                     if (mode == .serve and std.mem.eql(u8, key, "assets")) continue;
-                    const option = if (mode == .session_serve and std.mem.eql(u8, key, "dir")) "state" else key;
+                    const option = handedName(mode, key);
                     // A repeatable flag is given to the child once per value.
                     if (parsed.repeated.get(key)) |repeated| {
                         for (repeated.items) |value| try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--{s}={s}", .{ option, value }));

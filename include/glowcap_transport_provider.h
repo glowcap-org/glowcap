@@ -315,7 +315,7 @@ typedef struct GlowcapTransportProvider {
     size_t entry_count;
     /* Package-owned lease context. */
     void *lease_ctx;
-    /* Compare complete effective configuration. */
+    /* Compare effective configuration apart from the profile set. */
     GlowcapTransportProviderSameConfigurationFn same_configuration;
     /* Acquire one registration lease. */
     GlowcapTransportRetainFn retain;

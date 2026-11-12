@@ -35,7 +35,8 @@
 ;; member's transport, so the caller picks a member this vat's netlayer speaks
 ;; to; `docs/boundaries.md` states the further limit on a keyed one.
 ;;
-;; Set `GLOWCAP_ROOMS_TRACE_URL` to a live timeline endpoint and this vat publishes its own
+;; Set `GLOWCAP_ROOMS_TRACE_URL` and `GLOWCAP_ROOMS_TRACE_CAP` to a live timeline's
+;; producer route and swiss number (`trace-publish.rkt`) and this vat publishes its own
 ;; trace there, so each direct-message connection appears beside the room's own
 ;; sessions, and disappears when the conversation is closed from either end.
 
@@ -119,27 +120,19 @@
 
       ;; Watching the directory tells this vat which exact registration to
       ;; message. The registration callback offers each requested opening.
-      (define watcher
-        (spawn (lambda (_bcom)
-                 (methods
-                  [(notify event . rest)
-                   (define name (if (pair? rest) (car rest) ""))
-                   (define registration-id
-                     (if (and (pair? rest) (pair? (cdr rest)) (pair? (cddr rest)))
-                         (caddr rest)
-                         ""))
-                   (dm-notify dm event name registration-id)
-                   (when (and (equal? event "registered")
-                              (not (string-ci=? name nick)))
-                     (say "DM SEEN ~a" name)
-                     (when (and (dm-peer)
-                                (string-ci=? name (dm-peer))
-                                (not (unbox greeted)))
-                       (set-box! greeted #t)
-                       (dm-say dm name (dm-text))))]))))
-      (on (<- directory 'watch watcher)
-          void
-          #:catch (lambda (err) (say "! could not watch the directory: ~v" err)))
+      (watch-members
+       directory
+       (lambda (event name registration-id)
+         (dm-notify dm event name registration-id)
+         (when (and (equal? event "registered")
+                    (not (string-ci=? name nick)))
+           (say "DM SEEN ~a" name)
+           (when (and (dm-peer)
+                      (string-ci=? name (dm-peer))
+                      (not (unbox greeted)))
+             (set-box! greeted #t)
+             (dm-say dm name (dm-text)))))
+       (lambda (err) (say "! could not watch the directory: ~a" err)))
 
       ;; Being in the room as well as reachable off it: a member list is what a
       ;; person clicks to start a direct message, and that list is the room's.

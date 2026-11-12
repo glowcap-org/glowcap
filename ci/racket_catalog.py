@@ -33,6 +33,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import release_version
+
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "glowcap"
 CATALOG = f"https://pkgs.racket-lang.org/pkg/{PACKAGE}.json"
@@ -156,6 +158,7 @@ def wait(source, checksum, clock=time.monotonic, sleep=time.sleep):
     """
     deadline = clock() + DEADLINE_SECONDS
     while True:
+        last: str | None
         try:
             found = entry()
         except (Refused, urllib.error.URLError) as unanswered:
@@ -197,7 +200,7 @@ def environment(name):
 
 
 def release_tag(value):
-    if not value.startswith("v") or value.count(".") != 2 or not value[1:].replace(".", "").isdigit():
+    if release_version.of_tag(value) is None:
         raise argparse.ArgumentTypeError(f"not a release tag: {value}")
     return value
 

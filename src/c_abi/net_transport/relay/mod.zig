@@ -22,6 +22,8 @@ const Payload = runtime.Payload;
 pub const symbols = @import("symbols.zig");
 pub const white_box = if (@import("builtin").is_test) struct {
     pub const ConnectionState = @import("connection/state.zig").State;
+    /// `glowcap_relay_runtime_new` with a test-owned allocator.
+    pub const runtimeNewWith = runtimeNewIn;
 } else struct {};
 
 pub const GlowcapRelayConfig = contract.GlowcapRelayConfig;
@@ -113,12 +115,12 @@ pub export fn glowcap_relay_runtime_release(
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return c.GLOWCAP_ERR_NULL_POINTER;
+        return c.ReleaseResult.retained(c.GLOWCAP_ERR_NULL_POINTER).raw();
     }
-    return c.captureCallError(
+    return c.ReleaseResult.consumed(c.captureCallError(
         releaseRuntime(relay_runtime),
         out_error,
         error_cap,
         out_error_len,
-    );
+    )).raw();
 }

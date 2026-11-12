@@ -12,12 +12,14 @@ from contextvars import ContextVar
 
 import glowcap
 from glowcap import Connector, Forward, GlowcapError, Host, Ref, Runtime, SendRedeemingResult, VowBroken, tcp
+from glowcap._constants import ERR_INVALID_ARGUMENT, RouteFailure
 from glowcap.onion import AUTH_COOKIE, AUTH_PASSWORD, SERVICE_ID_LENGTH, OnionConfig, OnionNetlayer
 from glowcap.onion import listen as onion_listen
 from glowcap.onion import provider as onion_provider
 
 from scenarios.runtime import tcp_connect
 
+_PLAIN_TCP = tcp.Config(profiles=(tcp.plain,))
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
 
 
@@ -34,6 +36,79 @@ def _ipv6_hosts_keep_their_brackets_in_every_locator() -> None:
         assert profile.locator("peer", "::1", 4242).hints == {glowcap.HINT_DIRECT_ADDRESSES: "[::1]:4242"}
         assert profile.locator("peer", "127.0.0.1", 4242).hints == {glowcap.HINT_DIRECT_ADDRESSES: "127.0.0.1:4242"}
     print("python test OK: IPv6 hosts keep their brackets in every TCP locator")
+
+
+def _assert_transport_unavailable(refusal: GlowcapError) -> None:
+    assert refusal.code == ERR_INVALID_ARGUMENT, refusal
+    assert RouteFailure.from_cause(refusal.cause) == RouteFailure.TRANSPORT_UNAVAILABLE, refusal
+
+
+async def _noise_only_runtime_refuses_a_plain_tcp_locator() -> None:
+    """A runtime opened with only the noise profile registers no other TCP
+    transport, so a plain tcp locator is refused with the transport-unavailable
+    cause before anything is dialed, while a noise-tcp locator connects."""
+    plain = await tcp.listen("127.0.0.1", 0)
+    sealed = await tcp.noise.listen("127.0.0.1", 0)
+    runtime = await Runtime.open(providers=[tcp.provider()], handshake_timeout_ms=10_000)
+    accepting = asyncio.ensure_future(anext(aiter(sealed)))
+    try:
+        try:
+            await runtime.connect(plain.locator)
+        except GlowcapError as refusal:
+            _assert_transport_unavailable(refusal)
+        else:
+            raise AssertionError("a noise-only runtime connected to a plain tcp locator")
+
+        session = await runtime.connect(sealed.locator)
+        assert session.transport_name == glowcap.TRANSPORT_NOISE_TCP, session.transport_name
+        accepted = await accepting
+        await accepted.close()
+        await session.close()
+    finally:
+        accepting.cancel()
+        await runtime.close()
+        await sealed.close()
+        await plain.close()
+
+
+async def _plain_only_runtime_connects_plain_and_refuses_sealed() -> None:
+    """The name-to-bit pairing holds for a non-noise profile: a runtime that
+    opted into plain tcp alone reaches a plain listener and refuses noise."""
+    plain = await tcp.listen("127.0.0.1", 0)
+    sealed = await tcp.noise.listen("127.0.0.1", 0)
+    runtime = await Runtime.open(
+        providers=[tcp.provider(tcp.Config(profiles=(tcp.plain,)))], handshake_timeout_ms=10_000
+    )
+    accepting = asyncio.ensure_future(anext(aiter(plain)))
+    try:
+        try:
+            await runtime.connect(sealed.locator)
+        except GlowcapError as refusal:
+            _assert_transport_unavailable(refusal)
+        else:
+            raise AssertionError("a plain-only runtime connected to a noise-tcp locator")
+
+        session = await runtime.connect(plain.locator)
+        assert session.transport_name == glowcap.TRANSPORT_TCP, session.transport_name
+        accepted = await accepting
+        await accepted.close()
+        await session.close()
+    finally:
+        accepting.cancel()
+        await runtime.close()
+        await sealed.close()
+        await plain.close()
+
+
+async def _an_empty_profile_list_is_refused_when_the_provider_installs() -> None:
+    """The C library is the one authority on a profile set: it refuses an empty list."""
+    for profiles in ((),):
+        try:
+            await Runtime.open(providers=[tcp.provider(tcp.Config(profiles=profiles))])
+        except GlowcapError as refusal:
+            assert refusal.code == ERR_INVALID_ARGUMENT, refusal
+        else:
+            raise AssertionError(f"profiles {profiles!r} were accepted")
 
 
 def _wait_for_ffi_call(owner, label: str) -> None:
@@ -307,7 +382,7 @@ def _loop_archive_stepping_parity() -> None:
     def serve() -> None:
         try:
             server = DriverLoop.open(wire_buffer_bytes=1024, max_pending_opens=8)
-            asyncio.run(tcp.provider().install(server))
+            asyncio.run(tcp.provider(_PLAIN_TCP).install(server))
             server.wrapper_host().publish("widget", lambda verb, args: "poked through the loop tier")
             listener = server.listen("tcp", "127.0.0.1:0")
             while not listener.ready and listener.failure is None:
@@ -334,7 +409,7 @@ def _loop_archive_stepping_parity() -> None:
 
     async def client() -> None:
         loop = DriverLoop.open()
-        await tcp.provider().install(loop)
+        await tcp.provider(_PLAIN_TCP).install(loop)
         loop.start()
 
         # The whole public Session surface over the loop tier: fetch settles

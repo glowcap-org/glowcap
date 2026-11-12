@@ -93,8 +93,8 @@ pub const connection_write_buf_bytes: usize = 64 * 1024;
 pub const raw_transport_default_frame_cap: usize = 4096;
 
 /// The buffer/payload lifecycle every stream-shaped transport archive's
-/// connection handles share (tcp, inproc, and onion; iroh's loop connections
-/// carry no buffers). `Payload` declares `stream` (with `shutdown`/`deinit`),
+/// connection handles share (tcp, inproc, and onion). Iroh's loop connections
+/// carry no buffers. `Payload` declares `stream` (with `shutdown`/`deinit`),
 /// `operations`, `directions`, `read_buf`, `write_buf`, and `allocator`. A
 /// comptime helper,
 /// not an `export fn`, so each archive compiles its own copy and the shared leaf
@@ -107,17 +107,12 @@ pub fn ConnLifecycle(comptime Payload: type) type {
         /// Allocate a connection payload and its buffers, leaving `.stream` for
         /// the caller to install once the connection is established. On any
         /// failure before install, release it with `abort`.
-        pub fn begin(alloc: std.mem.Allocator, max_frame_bytes: usize) ?*Payload {
-            const read_buf = alloc.alloc(u8, @min(max_frame_bytes, connection_read_buf_bytes)) catch return null;
-            const write_buf = alloc.alloc(u8, @min(max_frame_bytes, connection_write_buf_bytes)) catch {
-                alloc.free(read_buf);
-                return null;
-            };
-            const payload = alloc.create(Payload) catch {
-                alloc.free(read_buf);
-                alloc.free(write_buf);
-                return null;
-            };
+        pub fn begin(alloc: std.mem.Allocator, max_frame_bytes: usize) error{OutOfMemory}!*Payload {
+            const read_buf = try alloc.alloc(u8, @min(max_frame_bytes, connection_read_buf_bytes));
+            errdefer alloc.free(read_buf);
+            const write_buf = try alloc.alloc(u8, @min(max_frame_bytes, connection_write_buf_bytes));
+            errdefer alloc.free(write_buf);
+            const payload = try alloc.create(Payload);
             payload.read_buf = read_buf;
             payload.write_buf = write_buf;
             payload.allocator = alloc;

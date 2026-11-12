@@ -6,10 +6,13 @@
 extern "C" {
 #endif
 typedef struct GlowcapLoamVolatile GlowcapLoamVolatile;
-#define GLOWCAP_LOAM_VOLATILE_ARCHIVE_FINGERPRINT 10990329265359204167
+#define GLOWCAP_LOAM_VOLATILE_ARCHIVE_FINGERPRINT 14316550424343070161
 /* Create a new in-memory store and reserve a fresh incarnation. The open takes no path, and each open makes its own store that lives until release, so two opens with one identity coexist. create=0 returns NOT_FOUND because no store exists before it is created, and create=1 and create=2 both create. capacity_bytes bounds the stored keys and values together, independent of the resident and staged bytes in limits. The storage owner owns the returned borrowed Store; limits and schemas are copied. */
 int32_t glowcap_loam_volatile_open(const uint8_t *store_id, uint32_t create, size_t capacity_bytes, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamVolatile **out_storage, GlowcapLoamStore **out_store);
-/* Release a quiescent storage owner and its Store, then free the store, which ends it. Busy leaves both alive. Attachments and storage workers must finish first. */
+/* Release a quiescent storage owner and its Store, then free the store, which ends it. A busy Store refuses before teardown and leaves both alive. Attachments and storage workers must finish first. Once the Store is released the handle is consumed. A failing engine close still frees it and preserves the engine's failure code in the release result. Never retry a consumed result.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_loam_volatile_release(GlowcapLoamVolatile *raw);
 /* Execute one storage effect on the storage executor without touching Host state. Calls into the one engine are serialized by a lock. Join before portable work_complete or work_release. Repeated execution, foreign Store work, and completed work refuse. Operational results remain on the work handle. */
 int32_t glowcap_loam_volatile_work_run(GlowcapLoamVolatile *raw, GlowcapLoamWork *work_handle);

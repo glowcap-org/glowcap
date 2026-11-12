@@ -278,7 +278,7 @@ function AttachedFile(
 
 	// The press that asked for it is what saves it, once the bytes land. This
 	// effect is the seam between an answer that arrives later and a control
-	// pressed earlier; it fires once, because it clears the flag it waits on. status-allow: event or source ordering
+	// pressed earlier; it fires once, because it clears the flag it waits on.
 	useEffect(() => {
 		if (!wanted || file.url === undefined) return;
 		setWanted(false);
@@ -302,7 +302,7 @@ function AttachedFile(
 					tone="neutral"
 					disabled={loading}
 					onClick={() => {
-						// Already here: save it. Not here yet: ask for it, and let status-allow: pending state or quoted runtime label
+						// Already here: save it. Not here yet: ask for it, and let
 						// the effect above save it when it lands. Doing both would
 						// save a file that was already fetched twice.
 						if (file.url !== undefined) {

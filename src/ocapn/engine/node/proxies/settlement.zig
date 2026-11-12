@@ -54,7 +54,7 @@ pub fn breakRecipient(self: *Node, recipient: *topology.Recipient) void {
 }
 
 /// Settle a recipient's projection with the fire's value. A refusal before
-/// commit spends the escrowed terminal break instead; after commit, only the
+/// commit spends the escrowed terminal break instead. After commit, only the
 /// now-unneeded escrow is released.
 pub fn settleRecipient(self: *Node, recipient: *topology.Recipient, resolution: model.Resolution) void {
     const recip = self.peer(recipient.peer) orelse {
@@ -68,10 +68,10 @@ pub fn settleRecipient(self: *Node, recipient: *topology.Recipient, resolution: 
             topology.retireEscrow(self, recipient);
             return;
         },
-        else => {
-            recip.recordFailure(err);
-            return breakRecipient(self, recipient);
-        },
+        // best-effort: the partner receives the escrowed break, and the local
+        // cause is dropped because the recipient's session stays open and
+        // Node owns no diagnostic journal.
+        else => return breakRecipient(self, recipient),
     };
     recipient.releaseFailure(self.allocator);
     actions.queueProxyFlush(self, recipient.peer);
@@ -97,6 +97,8 @@ pub const RelayRecipient = struct {
             breakRecipient(self.node, self.recipient);
             return false;
         };
+        // best-effort: each refusal below breaks the recipient with its
+        // escrow and drops the local cause, as `settleRecipient` does.
         const owned = model.materializeResolutionForStore(recipient_peer.allocator, resolution) catch {
             breakRecipient(self.node, self.recipient);
             return false;
@@ -115,6 +117,7 @@ pub const RelayRecipient = struct {
             .payload = begun.payload,
             .resolution = owned,
         } };
+        // best-effort: the same escrowed break, with the cause dropped.
         const inventory = recipient_peer.inventoryResolution(owned) catch {
             payload.deinit(&recipient_peer.session_state);
             breakRecipient(self.node, self.recipient);
@@ -129,6 +132,7 @@ pub const RelayRecipient = struct {
             .{ .inbound_answer = begun.target },
             &self.recipient.failure_reason,
         ) catch {
+            // best-effort: the same escrowed break, with the cause dropped.
             payload.deinit(&recipient_peer.session_state);
             breakRecipient(self.node, self.recipient);
             return false;

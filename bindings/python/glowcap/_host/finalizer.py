@@ -11,7 +11,6 @@ from .. import _constants as _abi
 from .._errors import _host_error
 from .._failure import FailureLayer, _record_runtime_failure
 from .._ffi_host import _host
-from .._lifecycle import _release_consumed
 from .._trampoline import _inside_turn
 from .._trampoline import _unregister_behavior as _unregister_global_behavior
 
@@ -54,11 +53,8 @@ def _release_finalizer_state(state: _HostFinalizerState, *, checked: bool) -> No
     if rc == _abi.OK:
         _retire_finalizer_state(state)
         return
-    failure = _host_error(rc)
-    # INVALID_ARGUMENT is the only pre-consumption refusal. Every other
-    # status is a completed teardown outcome; retrying it would call through a
-    # dangling Host pointer.
-    if not _release_consumed(rc):
+    failure = _host_error(_abi.release_result_code(rc))
+    if not _abi.release_result_consumed(rc):
         if checked:
             raise failure
         if _inside_turn():
@@ -123,13 +119,13 @@ def _release_unpublished_host(raw, context) -> BaseException | None:
     """Release construction-owned Host authority without orphaning its Context."""
     state = _HostFinalizerState(raw, {}, [], {}, context, 0)
     rc = _host.glowcap_host_release(raw)
-    if _release_consumed(rc):
+    if _abi.release_result_consumed(rc):
         _retire_finalizer_state(state)
     else:
         # The failed construction has no wrapper that can retry. Transfer the
         # still-live Host and its allocation policy to the process retry owner.
         _defer_finalizer_state(state)
-    return None if rc == _abi.OK else _host_error(rc)
+    return None if rc == _abi.OK else _host_error(_abi.release_result_code(rc))
 
 
 def _drain_deferred_finalizer_states() -> None:

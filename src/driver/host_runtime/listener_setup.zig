@@ -52,8 +52,8 @@ pub fn startListener(
 }
 
 /// Issue the listen with its observation and profile reserved. An error is
-/// a refusal before the provider owned anything, and the caller reports it;
-/// every other outcome reaches the observer from here.
+/// a refusal before the provider owned anything, and the caller reports it.
+/// Every other outcome reaches the observer from here.
 fn listen(
     self: *HostRuntime,
     provider: Provider,

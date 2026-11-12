@@ -170,7 +170,7 @@ pub fn allocateExportMentioned(self: *Session, kind: model.RefKind, mentions: u6
 /// dispatch (for example `port.zig`'s dial-mint errdefer), so the decrement
 /// cannot underflow.
 pub fn releaseUnsharedExport(self: *Session, id: model.ExportPosition) void {
-    self.exports.decrement(id, 1) catch unreachable;
+    self.exports.decrementHeld(id, 1);
 }
 
 /// Roll back one `registerImport` retain that never became observable.

@@ -5,6 +5,7 @@
 //! would hand out a session the next step frees.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -58,11 +59,13 @@ fn holdThenStall(allocator: std.mem.Allocator, io: std.Io, address: std.Io.net.I
     defer arena.deinit();
     _ = try session.call(holder, "hold", &.{.{ .capability = local }}, arena.allocator());
     while (!stop.load(.acquire))
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(1), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(1), .real);
 }
 
 /// Call `drop` on the server's published dropper, from a partner that reads.
-fn callDrop(allocator: std.mem.Allocator, io: std.Io, address: std.Io.net.IpAddress) !void {
+/// `finished` rises once the call has returned or failed.
+fn callDrop(allocator: std.mem.Allocator, io: std.Io, address: std.Io.net.IpAddress, finished: *std.atomic.Value(bool)) !void {
+    defer finished.store(true, .release);
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&designator_buf, address), .ephemeral, opts);
     defer session.deinit();
@@ -91,11 +94,11 @@ test "a reference claim between steps refuses an exporter Session released insid
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
     var stop = std.atomic.Value(bool).init(false);
     var client = try io.concurrent(holdThenStall, .{ allocator, io, address, &stop });
-    defer {
+    var clients_joined = false;
+    errdefer if (!clients_joined) {
         stop.store(true, .release);
-        // best-effort: the client's session ends with the cancelled server side.
-        client.await(io) catch {};
-    }
+        wait.joinedUnwinding("client", client.await(io));
+    };
 
     var owned: ?*driver.Session = try server.accept();
     errdefer if (owned) |session| session.deinit();
@@ -128,9 +131,12 @@ test "a reference claim between steps refuses an exporter Session released insid
     try std.testing.expect(refused_in_a_row == 200);
 
     // A second partner's call runs the behavior that drops the first Session.
-    var dropping_client = try io.concurrent(callDrop, .{ allocator, io, address });
-    // best-effort: the dropping partner's own result is not what this proves.
-    defer dropping_client.await(io) catch {};
+    var drop_finished = std.atomic.Value(bool).init(false);
+    var dropping_client = try io.concurrent(callDrop, .{ allocator, io, address, &drop_finished });
+    errdefer if (!clients_joined) {
+        stop.store(true, .release);
+        wait.joinedUnwinding("dropping client", dropping_client.await(io));
+    };
     const dropping_session = try harness.acceptWhileStepping(server.runtime, server);
     defer dropping_session.deinit();
     _ = try dropping_session.publish("dropper", DropOwned, .{ .owned = &owned });
@@ -150,4 +156,19 @@ test "a reference claim between steps refuses an exporter Session released insid
     rounds = 0;
     while (server.runtime.wires.get(peer_handle) != null and rounds < 1_000) : (rounds += 1) try stepQuietly(server.runtime, 10);
     try std.testing.expect(server.runtime.wires.get(peer_handle) == null);
+
+    // The drop reply reaches its client only through these steps, so step
+    // until the client's call has returned before joining it.
+    const drop_deadline = wait.deadlineAfter(io, wait.default_deadline_ms);
+    while (!drop_finished.load(.acquire)) {
+        if (wait.expired(io, drop_deadline)) return error.WaitTimedOut;
+        try stepQuietly(server.runtime, 10);
+    }
+
+    // A partner task that failed fails the test.
+    clients_joined = true;
+    const held_result = client.await(io);
+    const dropped_result = dropping_client.await(io);
+    try held_result;
+    try dropped_result;
 }

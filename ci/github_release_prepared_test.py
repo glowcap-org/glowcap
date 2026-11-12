@@ -87,10 +87,10 @@ class Prepared(unittest.TestCase):
                 ],
             }
             with mock.patch.object(RELEASE, "release_for", return_value=released):
-                # The existing draft-only command keeps refusing published releases.
+                # The complete-draft check keeps refusing published releases.
                 with self.assertRaisesRegex(ValueError, "existing release is published"):
-                    run_main("verify-draft", TAG)
-                state = json.loads(run_main("resume-state", TAG))
+                    RELEASE.draft_state(REPOSITORY, TAG, "123", complete=True)
+                state = RELEASE.draft_state(REPOSITORY, TAG, "123", allow_published=True)
                 self.assertEqual(state, {"draft_exists": False, "missing_assets": [], "published": True})
             for changed in (
                 {**released, "body": RELEASE.run_marker("124")},
@@ -99,7 +99,7 @@ class Prepared(unittest.TestCase):
             ):
                 with self.subTest(changed), mock.patch.object(RELEASE, "release_for", return_value=changed):
                     with self.assertRaises(ValueError):
-                        run_main("resume-state", TAG)
+                        RELEASE.draft_state(REPOSITORY, TAG, "123", allow_published=True)
 
     def test_identity_inventory_and_saved_notes_are_required(self):
         for key, replacement in (

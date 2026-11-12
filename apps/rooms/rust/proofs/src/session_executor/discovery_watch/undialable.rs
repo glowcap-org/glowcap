@@ -2,7 +2,7 @@
 //! coded refusal, at the discovery watch and at the membership alike, dialed
 //! again only by an explicit retry.
 use super::*;
-use rooms_application::failure::{Failure, FailureCode};
+use rooms_application::failure::FailureCode;
 use tokio::sync::watch;
 
 pub(super) async fn run(
@@ -16,10 +16,7 @@ pub(super) async fn run(
 	let Err(refused) = owner.watch_directory(stale, |_, _| Ok(())).await else {
 		panic!("a saved address this session cannot dial was watched");
 	};
-	let refused = refused.to_string();
-	let coded = Failure::parse(&refused)
-		.unwrap_or_else(|| panic!("an undialable saved address carries its wire code: {refused}"));
-	assert_eq!(coded.code, FailureCode::SavedTransportUnavailable, "{refused}");
+	assert_undialable(&refused);
 	let discovery = managed::MembershipKinds {
 		discovery: true,
 		directories: false,
@@ -57,7 +54,7 @@ async fn standing(
 	dials: Option<&Cell<usize>>,
 ) {
 	let dialed = dials.map(Cell::get);
-	let (reports, mut reported) = watch::channel((0usize, 0usize, Vec::<String>::new()));
+	let (reports, mut reported) = watch::channel((0usize, 0usize, Vec::<rooms_runtime::Error>::new()));
 	let mut activity = owner
 		.supervise_workspace(
 			workspace.reference(),
@@ -67,7 +64,7 @@ async fn standing(
 			|_| Box::new(|_| Ok(Argument::Void)),
 			move |report| {
 				let report = report.expect("workspace observation admission");
-				let failures = report.failures.iter().map(|(_, error)| error.to_string()).collect();
+				let failures = report.failures.iter().map(|(_, error)| error.clone()).collect();
 				reports.send_modify(|(told, ready, standing)| {
 					*told += 1;
 					*ready = report.ready;
@@ -89,10 +86,7 @@ async fn standing(
 		"the reachable directory stays ready beside the refusal"
 	);
 	assert_eq!(failures.len(), 1, "{failures:?}");
-	assert!(
-		Failure::parse(&failures[0]).is_some_and(|coded| coded.code == FailureCode::SavedTransportUnavailable),
-		"{failures:?}"
-	);
+	assert_undialable(&failures[0]);
 	let attempt = dials.map(Cell::get);
 	assert!(dials.is_none() || attempt > dialed, "the saved address was not dialed");
 	// A refusal that clears only with a change holds no recovery timer, so no
@@ -121,4 +115,20 @@ async fn standing(
 		"an explicit retry did not dial the saved address"
 	);
 	activity.close().await.unwrap();
+}
+
+fn assert_undialable(error: &rooms_runtime::Error) {
+	let rooms_runtime::Error::Captp(binding) = error else {
+		panic!("restoration must retain its binding failure: {error:?}");
+	};
+	assert_eq!(
+		binding.cause(),
+		glowcap::BreakCause::local(glowcap::BreakReason::TransportUnavailable)
+			.with_fetch()
+			.with_restoration()
+	);
+	assert_eq!(
+		rooms_glowcap::client::binding_failure(binding).unwrap().code,
+		FailureCode::SavedTransportUnavailable
+	);
 }

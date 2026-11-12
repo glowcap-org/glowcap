@@ -32,7 +32,7 @@ export function BridgeIdentityForm(
 		? loaded.form
 		: null;
 	const [fetchWhy, setFetchWhy] = useState("");
-	// A superseded promise no longer owns this form: a seat change refetching status-allow: lifecycle transition
+	// A superseded promise no longer owns this form: a seat change refetching
 	// the declaration must not install a stale one over the newer state.
 	const fetchRequest = useRef(0);
 

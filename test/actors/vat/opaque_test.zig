@@ -1,4 +1,5 @@
 //! Local adapter payloads use the Vat's queue and transactional turn boundary.
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const actors = glowcap.actors;
@@ -22,8 +23,8 @@ const Trace = struct {
         self.settlements += 1;
         self.broken = resolution == .broken;
         if (resolution == .broken) {
-            self.reason_len = @min(self.reason.len, resolution.broken.len);
-            @memcpy(self.reason[0..self.reason_len], resolution.broken[0..self.reason_len]);
+            self.reason_len = @min(self.reason.len, resolution.broken.detail.len);
+            @memcpy(self.reason[0..self.reason_len], resolution.broken.detail[0..self.reason_len]);
         }
         // The queue releases external payload custody before the observer runs.
         std.debug.assert(self.retired == self.copies);
@@ -52,10 +53,13 @@ const Input = struct {
     }
 
     fn copy(ctx: *anyopaque, allocator: std.mem.Allocator) actors.OpaqueMessage.CopyResult {
-        return .{ .copied = copyOwned(ctx, allocator) catch return .{ .refused = .out_of_memory } };
+        const copied = copyOwned(ctx, allocator) catch |err| switch (err) {
+            error.OutOfMemory => return .{ .refused = .out_of_memory },
+        };
+        return .{ .copied = copied };
     }
 
-    fn copyOwned(ctx: *anyopaque, allocator: std.mem.Allocator) actors.Error!actors.OpaqueMessage {
+    fn copyOwned(ctx: *anyopaque, allocator: std.mem.Allocator) std.mem.Allocator.Error!actors.OpaqueMessage {
         const self: *Input = @ptrCast(@alignCast(ctx));
         if (self.copy_turn) |attempt| {
             std.testing.expectError(error.ReenteredAdmission, attempt.vat.near(attempt.target, .{ .verb = "scribble" })) catch unreachable;
@@ -331,7 +335,7 @@ test "vat opaque copying cannot invalidate unpublished queue admission by reentr
     input.copy_vow = pair.vow;
     _ = try vat.sendOpaqueFromIngress(ingress, target, input.message(), trace.listener());
     try vat.drive();
-    try vat.breakVow(pair.resolver, "finished");
+    try vat.breakVow(pair.resolver, .{ .detail = "finished", .cause = BreakCause{} });
     try std.testing.expectEqual(@as(usize, 1), trace.calls);
     try std.testing.expectEqual(@as(usize, 1), trace.retired);
 }
@@ -343,7 +347,7 @@ const CancelReentry = struct {
 
     fn settle(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *CancelReentry = @ptrCast(@alignCast(ctx.?));
-        std.debug.assert(resolution == .broken and std.mem.eql(u8, resolution.broken, "cancelled"));
+        std.debug.assert(resolution == .broken and std.mem.eql(u8, resolution.broken.detail, "cancelled"));
         self.settled += 1;
         self.vat.tell(self.target, .{ .verb = "ordinary", .args = &.{.{ .integer = 7 }} }) catch unreachable;
         self.vat.drive() catch unreachable;

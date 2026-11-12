@@ -1,3 +1,4 @@
+import { invariant } from "../../../lib/invariant.ts";
 import {
 	createContext,
 	type ReactNode,
@@ -15,9 +16,10 @@ import {
 	capabilityUriLabel,
 } from "../../../lib/text/settings.ts";
 import { holdingsSetChanged, holdingsSetSaved } from "../../../lib/text/ops.ts";
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import { ModalHead } from "../ModalHead.tsx";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { OPS_CATALOG } from "../ops/catalog.ts";
@@ -63,7 +65,7 @@ const CapabilitySetContext = createContext<CapabilitySetModel | null>(null);
 
 export function useCapabilitySetModel(): CapabilitySetModel {
 	const model = useContext(CapabilitySetContext);
-	if (model == null) throw new Error("the capability-set editor is outside its owner");
+	invariant(model != null, "the capability-set editor is outside its owner");
 	return model;
 }
 
@@ -255,7 +257,7 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 				dispatch({ kind: "bundle", bundle, refresh });
 			}, (cause) => {
 				if (!current || generation !== loadGeneration.current) return;
-				dispatch({ kind: "loadFailed", message: cause instanceof Error ? cause.message : String(cause) });
+				dispatch({ kind: "loadFailed", message: refusalText(cause) });
 			});
 		};
 		void load(false);
@@ -280,7 +282,7 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 	}
 	const dirty = state.loaded && currentBundle !== state.savedBundle;
 	const discard = () => {
-		if (committing.current) throw new Error("Wait for the capability set to finish saving.");
+		if (committing.current) throw new LocalRefusal("settings-capability-set-saving");
 		dispatch({ kind: "discard" });
 	};
 	// After a commit's final state lands, release the change group's settle.
@@ -312,7 +314,7 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 				const result = await session.replaceOpsBundle(requested);
 				dispatch({ kind: "commitSaved", result, wanted });
 			} catch (cause) {
-				dispatch({ kind: "commitFailed", message: cause instanceof Error ? cause.message : String(cause) });
+				dispatch({ kind: "commitFailed", message: refusalText(cause) });
 			} finally {
 				committing.current = false;
 				commitFinished.current = true;
@@ -437,7 +439,7 @@ function CapabilityValueModal(
 									ref={field}
 									id={wiring.id}
 									value={uri}
-									{...identifierField}
+									{...addressField}
 									aria-describedby={wiring.describedBy}
 									aria-invalid={wiring.invalid}
 									onChange={(event) => {

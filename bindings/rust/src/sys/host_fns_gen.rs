@@ -20,7 +20,9 @@ use super::host::{
 	GlowcapHostSession, GlowcapHostTurn, GlowcapPartnerIdentity, GlowcapSessionLimitOptions, GlowcapTraceCallback,
 };
 use super::ocapn::{GlowcapLocatorHintView, GlowcapLocatorView};
-use crate::sys::{GlowcapArgument, GlowcapContext, GlowcapLastAbort, GlowcapManagedFrame, GlowcapReference};
+use crate::sys::{
+	GlowcapArgument, GlowcapBreakCause, GlowcapContext, GlowcapLastAbort, GlowcapManagedFrame, GlowcapReference,
+};
 
 unsafe extern "C" {
 	pub fn glowcap_host_archive_fingerprint() -> u64;
@@ -179,6 +181,7 @@ unsafe extern "C" {
 		host: *mut GlowcapHost,
 		ticket: u64,
 		route_index: usize,
+		failure: c_uint,
 		reason: *const c_uchar,
 		reason_len: usize,
 	) -> c_int;
@@ -458,4 +461,5 @@ unsafe extern "C" {
 		designator_len: usize,
 	) -> c_int;
 	pub fn glowcap_host_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_host_last_error_cause(out_cause: *mut GlowcapBreakCause);
 }

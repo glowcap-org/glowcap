@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Never
 from urllib.parse import urlsplit
 
 from . import _constants as _c
+from ._constants import release_result_code
 from ._errors import GlowcapError
 from ._ffi import FfiHandle, _FfiHandleOwner
 from ._ffi_driver import _TransportProvider
@@ -209,7 +210,7 @@ class RelayConfig:
 
 
 def _release_runtime(raw) -> None:
-    _check_relay(_relay_lib.glowcap_relay_runtime_release(raw, None, 0, None))
+    _check_relay(release_result_code(_relay_lib.glowcap_relay_runtime_release(raw, None, 0, None)))
 
 
 class RelayRuntime(_FfiHandleOwner):

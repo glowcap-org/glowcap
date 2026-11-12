@@ -74,6 +74,15 @@ pub enum EffectStatus {
 	Unknown,
 }
 impl EffectStatus {
+	pub const fn wire(self) -> &'static str {
+		match self {
+			Self::Conflict => "conflict",
+			Self::Pending => "pending",
+			Self::Committed => "committed",
+			Self::Unsent => "unsent",
+			Self::Unknown => "unknown",
+		}
+	}
 	fn read(value: &Argument) -> Result<Self, Error> {
 		match value.as_str() {
 			Some("conflict") => Ok(Self::Conflict),

@@ -1,3 +1,4 @@
+import type { LiveConnectionState } from "./engine/live/status.ts";
 /** Inputs published by the app state owner to the visual shell. */
 
 import type { Dispatch } from "react";
@@ -29,7 +30,7 @@ export type AppViewProps = {
 	onModeChange: (mode: AppMode) => void;
 	dispatch: Dispatch<AppAction>;
 	state: AppState;
-	liveConnected: boolean;
+	liveConnection: LiveConnectionState;
 	/** At least one record has arrived on this Live dial. */
 	liveObserved: boolean;
 	/** True while the Record window is open (engine mounted). */

@@ -7,6 +7,7 @@
  * @module
  */
 
+import { releaseResultCode } from "@glowcap/abi";
 import { GlowcapError, type Host, TRANSPORT_WEBRTC } from "@glowcap/runtime";
 import {
 	DriverListener,
@@ -473,7 +474,7 @@ function installNetlayer(
 			installed = true;
 		} finally {
 			try {
-				webrtcCheck(webrtcS().glowcap_webrtc_netlayer_release(raw), "release netlayer");
+				webrtcCheck(releaseResultCode(webrtcS().glowcap_webrtc_netlayer_release(raw)), "release netlayer");
 			} catch (error) {
 				host.recordCallerlessBindingFailure("webrtc.netlayer.release", error);
 			}

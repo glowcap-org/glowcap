@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # Assert installed toolchains match pins.sh. Apt packages are presence-only.
 #
-# Every check runs, and the script reports all of them before it exits. Stopping
-# at the first failure made this a tripwire rather than a verifier: one tool that
-# could not write its state directory ended the run before the checks below it
-# were ever attempted, and the container looked verified up to that line and
-# unexamined after it.
+# Every check runs, and the script reports all of them before it exits, so one
+# failing tool never hides the checks below it.
 
 set -uo pipefail
 
@@ -131,18 +128,22 @@ expect_pin_contains "bun" BUN_VERSION bun --version
 # linked to the checkout's dispatcher, a link that dangles during the image
 # build and resolves when the workspace bind lands, like the glowcap shim.
 tools_wrapper="/workspaces/glowcap/.devcontainer/tools/wrapper.sh"
-for managed_name in $(bash -c "source '${GLOWCAP_DEVCONTAINER_DIR}/tools/lib/registry.sh' 2>/dev/null && glowcap_tools_path_names" 2>/dev/null || printf 'claude\ncodex\nopencode\nagent\ncursor-agent\n'); do
-    got="$(readlink "/usr/local/bin/${managed_name}" 2>/dev/null || true)"
-    if [[ "${got}" != "${tools_wrapper}" ]]; then
-        fail "${managed_name}: expected /usr/local/bin link to ${tools_wrapper}, got '${got:-<missing>}'"
-    fi
-done
+# The registry is the one list of managed names, and tool-links.sh linked
+# from it, so a registry that does not load is a failure, not a smaller list.
+if managed_names="$(bash -c "source '${GLOWCAP_DEVCONTAINER_DIR}/tools/lib/registry.sh' && glowcap_tools_path_names")" &&
+    [[ -n "${managed_names}" ]]; then
+    for managed_name in ${managed_names}; do
+        got="$(readlink "/usr/local/bin/${managed_name}" 2>/dev/null || true)"
+        if [[ "${got}" != "${tools_wrapper}" ]]; then
+            fail "${managed_name}: expected /usr/local/bin link to ${tools_wrapper}, got '${got:-<missing>}'"
+        fi
+    done
+else
+    fail "the image's tools registry did not list the managed command names"
+fi
 if [[ -e "${tools_wrapper}" ]]; then
     if ! bash -n "${tools_wrapper}"; then
         fail "tools/wrapper.sh does not parse"
-    fi
-    if ! bash -c "source '${GLOWCAP_DEVCONTAINER_DIR}/tools/lib/registry.sh' && glowcap_tools_path_names >/dev/null" 2>/dev/null; then
-        fail "the copied tools registry does not load"
     fi
 fi
 

@@ -1,6 +1,6 @@
-//! The live timeline endpoint: one loopback port where producers publish
+//! The live timeline endpoint: one listener where producers publish
 //! their trace over a WebSocket at `/publish` and viewers open a CapTP
-//! session over a WebSocket at `/`, every socket presenting the trace swiss.
+//! session over a WebSocket at `/captp`, every socket presenting the trace swiss.
 //! The room's own trace goes in through the same door every other peer's
 //! does. The policy in `rooms_application::server::trace` decides what each
 //! line means. This owns the sockets, the trace tap, and the trace object.
@@ -12,6 +12,7 @@ use serde_json::{Map, Value};
 use std::{
 	cell::RefCell,
 	collections::{BTreeMap, BTreeSet, VecDeque},
+	net::SocketAddr,
 	rc::Rc,
 	time::Instant,
 };
@@ -130,7 +131,7 @@ impl Feed {
 /// The running endpoint.
 pub(crate) struct Trace {
 	pub sturdyref: String,
-	pub port: u16,
+	pub address: SocketAddr,
 	feed: Shared,
 	accepting: JoinHandle<()>,
 	trace_host: Host,
@@ -139,15 +140,26 @@ pub(crate) struct Trace {
 }
 
 pub(crate) fn locator(
-	port: u16,
+	address: SocketAddr,
 	publish: Option<String>,
 	connect: Option<String>,
 ) -> Result<glowcap::Locator, super::super::error::Error> {
-	let producer = publish.unwrap_or_else(|| format!("ws://127.0.0.1:{port}{PUBLISH_PATH}"));
-	trace::producer_endpoint(&producer).map_err(super::super::error::Error::refused)?;
-	let channel = connect.unwrap_or_else(|| format!("ws://127.0.0.1:{port}{}", trace::CHANNEL_PATH));
-	rooms_application::web_channel::endpoint(&channel).map_err(super::super::error::Error::refused)?;
-	Ok(glowcap::tcp::locator("127.0.0.1", port)
+	use super::super::error::Error;
+	let address = crate::local_address(address);
+	let producer = publish.unwrap_or_else(|| format!("ws://{address}{PUBLISH_PATH}"));
+	let channel = connect.unwrap_or_else(|| format!("ws://{address}{}", trace::CHANNEL_PATH));
+	// The listener speaks cleartext WebSocket, and a producer's first message
+	// is the swiss number. A route a peer reaches over a network is a TLS
+	// proxy's.
+	for (option, route) in [("--trace-publish", &producer), ("--trace-connect", &channel)] {
+		let endpoint = rooms_application::web_channel::endpoint(route).map_err(Error::refused)?;
+		if rooms_application::web_channel::cleartext_off_loopback(&endpoint) {
+			return Err(Error::refused(format!(
+				"the trace route {route} is cleartext off loopback, so name a wss:// route with {option}"
+			)));
+		}
+	}
+	Ok(glowcap::tcp::locator(&address.ip().to_string(), address.port())
 		.with_hint("trace-publish", glowcap::HintValue::String(producer))
 		.with_hint(
 			rooms_application::web_channel::HINT,
@@ -156,18 +168,18 @@ pub(crate) fn locator(
 }
 
 impl Trace {
-	/// Bind the endpoint on `port` (zero takes an ephemeral one) guarded by
+	/// Bind the endpoint at `address` (port zero takes an ephemeral one) guarded by
 	/// `swiss`, publish the trace object under the same swiss, and tap this
 	/// process's own trace into the feed.
 	pub async fn start(
-		port: u16,
+		address: SocketAddr,
 		swiss: String,
 		publish: Option<String>,
 		connect: Option<String>,
 		report: Report,
 	) -> Result<Self, super::super::error::Error> {
-		let listener = TcpListener::bind(("127.0.0.1", port)).await?;
-		let port = listener.local_addr()?.port();
+		let listener = TcpListener::bind(address).await?;
+		let address = listener.local_addr()?;
 		let mut seed = [0u8; 32];
 		rooms_platform::entropy::fill(&mut seed)
 			.map_err(|e| super::super::error::Error::refused(format!("drawing the trace host seed failed: {e}")))?;
@@ -191,7 +203,7 @@ impl Trace {
 			weak: std::rc::Weak::new(),
 		}));
 		feed.borrow_mut().weak = Rc::downgrade(&feed);
-		let locator = locator(port, publish, connect)?;
+		let locator = locator(address, publish, connect)?;
 		let sturdyref = glowcap::format_sturdyref(&locator, swiss.as_bytes(), glowcap::CaptpVersion::V1_0)?;
 		{
 			let feed = feed.clone();
@@ -241,11 +253,17 @@ impl Trace {
 			}
 		};
 		let draining = tokio::task::spawn_local(drain);
-		let accepting = sockets::accept(listener, feed.clone(), trace_host.clone(), swiss.clone(), port);
+		let accepting = sockets::accept(
+			listener,
+			feed.clone(),
+			trace_host.clone(),
+			swiss.clone(),
+			crate::local_address(address),
+		);
 		let accepting = tokio::task::spawn_local(accepting);
 		Ok(Self {
 			sturdyref,
-			port,
+			address,
 			feed,
 			accepting,
 			trace_host,

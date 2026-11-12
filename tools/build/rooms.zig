@@ -44,7 +44,7 @@ pub const Context = struct {
     wasm_archives: *std.Build.Step,
     iroh_abi_step: *std.Build.Step,
     iroh_sidecar_archive: std.Build.LazyPath,
-    /// Native Rust links only these static archives and the iroh and WebRTC
+    /// The Rust client links only these static archives and the iroh and WebRTC
     /// companions.
     zig_archives: []const *std.Build.Step,
     /// The dynamic-install steps of exactly the archives the hermetic suite

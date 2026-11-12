@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init) !void {
     defer db.close() catch unreachable;
     var store = try core.Store.init(init.gpa, db.metadata, &actors.schemas, f.limits);
     defer store.deinit() catch unreachable;
-    var server = hosts.init(init.gpa, @splat(0x71), actors.driver.Host.Options.withFrameCap(4096));
+    var server = hosts.init(init.gpa, @splat(0x71), actors.driver.Host.Options.init(.unchecked, 4096));
     defer server.deinit();
     const attachment = try hosting.Attachment.create(init.gpa, &server, &store, &actors.behaviors, .{ .sleep_policy = .every_turn });
     defer attachment.destroy() catch unreachable;
@@ -34,7 +34,7 @@ pub fn main(init: std.process.Init) !void {
     const swiss = actors.driver.Host.DurableSwiss.fromEntropy(entropy);
     if (store.cache.allocated_bytes != 0) return error.EagerRestore;
     for (attachment.entries) |entry| if (entry.actor != null) return error.EagerRestore;
-    var client = hosts.init(init.gpa, @splat(0x72), actors.driver.Host.Options.withFrameCap(4096));
+    var client = hosts.init(init.gpa, @splat(0x72), actors.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &server, "127.0.0.1:9714");
     var root: CapturedRef = .{};

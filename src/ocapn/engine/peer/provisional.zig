@@ -53,7 +53,7 @@ pub fn retract(
 ) void {
     std.debug.assert(self.provisional);
     self.provisional = false;
-    // Newest first: a later send may name an earlier one's answer. status-allow: event or source ordering
+    // Newest first: a later send may name an earlier one's answer.
     var i = self.pending_send.pending().len;
     while (i != 0) {
         i -= 1;

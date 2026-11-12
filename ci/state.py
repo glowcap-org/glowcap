@@ -86,11 +86,15 @@ def present():
 def stamp():
     when = int(
         subprocess.run(
-            ["git", "-C", ROOT, "log", "-1", "--format=%ct", "HEAD"], capture_output=True, text=True, check=True
+            ["git", "-C", ROOT, "log", "-1", "--format=%ct", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
         ).stdout
     )
     listing = subprocess.run(
-        ["git", "-C", ROOT, "ls-files", "-z", "--recurse-submodules"], capture_output=True, check=True
+        ["git", "-C", ROOT, "ls-files", "-z", "--recurse-submodules"], capture_output=True, check=True, timeout=120
     ).stdout
     for name in listing.decode("utf-8", "surrogateescape").split("\0"):
         path = ROOT / name
@@ -130,7 +134,9 @@ def pack(archive):
     # profile so the listing shows which build fills the store.
     for profile in sorted(CARGO_BUILD.glob("*/*/*/")):
         print(f"{size(profile) / GIB:.1f}G\t{profile.relative_to(CARGO_BUILD)}")
-    subprocess.run(["tar", "-P", "--use-compress-program=zstd -T0 -3", "-cf", archive, *map(str, paths)], check=True)
+    subprocess.run(
+        ["tar", "-P", "--use-compress-program=zstd -T0 -3", "-cf", archive, *map(str, paths)], check=True, timeout=1200
+    )
     print(f"{Path(archive).stat().st_size} bytes  {archive}")
     return 0
 
@@ -147,7 +153,7 @@ def restore(directory, shards, build):
         else:
             print(f"::warning::Shard {shard} handed over no state; this job compiles its share.")
     for archive in archives:
-        subprocess.run(["tar", "-P", "--use-compress-program=zstd -d -T0", "-xf", archive], check=True)
+        subprocess.run(["tar", "-P", "--use-compress-program=zstd -d -T0", "-xf", archive], check=True, timeout=1200)
         archive.unlink()
     return 0
 

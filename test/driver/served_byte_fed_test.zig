@@ -46,7 +46,9 @@ test "actor initial ownership survives refusal before the Vat spawn" {
         try std.testing.expectEqual(@as(usize, 0), vat.actors.count());
     }
     for (0..3) |operation| {
-        var host = @import("../support/core_host.zig").init(std.testing.allocator, @splat(0x41), .{});
+        var host = @import("../support/core_host.zig").init(std.testing.allocator, @splat(0x41), .{
+            .thread_policy = .unchecked,
+        });
         defer host.deinit();
         host.beginClose(.{ .finish = .unbounded }, 0);
         var drops: usize = 0;
@@ -106,9 +108,9 @@ test "named send refuses listener allocation before publishing either leg" {
 
 // ── Byte-fed drive (ADR-0022) ────────────────────────────────────────────────
 //
-// A `driver.Served` owns no socket: the caller feeds inbound frames with
-// `feedBorrowed` and drains outbound with `takeOutbound`, owning the loop
-// itself. This is the sans-io driving mode `libglowcap_host` and a browser
+// A `driver.Served` owns no socket: the caller applies inbound frames to the
+// peer, drives them with `driveFed`, and drains outbound with `takeOutbound`,
+// owning the loop itself. This is the sans-io driving mode `libglowcap_host` and a browser
 // ride. The test shuttles a real eventual-send and its resolution between two
 // byte-fed vats over an already-open in-memory session, with no `net.Connection`
 // on either side, so the byte-fed path serves identically to the socket path.
@@ -138,7 +140,8 @@ fn shuttleFed(from: *driver.Served, from_vat: *actors.Vat, to: *driver.Served, t
     while (from.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
-        try to.feedBorrowed(to_vat, frame.view());
+        try to.port.peer.recvBorrowed(frame.view());
+        try to.driveFed(to_vat);
     }
 }
 
@@ -169,9 +172,9 @@ test "byte-fed Served serves an eventual-send with no socket (ADR-0022)" {
     var result: i64 = 0;
     try client.port.on(&client_vat, promise, .{ .ctx = &result, .func = captureFedInt });
 
-    // The deliver flows client -> server (the server's `feedBorrowed` runs the
-    // actor and encodes the resolve); the resolve flows server -> client (the
-    // client's `feedBorrowed` fires the promise listener). No socket touched.
+    // The deliver flows client -> server (the server's drive runs the actor and
+    // encodes the resolve); the resolve flows server -> client (the client's
+    // drive fires the promise listener). No socket touched.
     try shuttleFed(&client, &client_vat, &server, &server_vat);
     try shuttleFed(&server, &server_vat, &client, &client_vat);
 
@@ -326,5 +329,5 @@ test "byte-fed compose: beginTellNamed fires void after the tell, and a cancel b
     try std.testing.expect(cancel_flag.done);
     try std.testing.expectEqual(driver.PendingSend.Stage.fetching, cancel_pending.stage);
     const cancelled = try cancel_capture.finish();
-    try std.testing.expectEqualStrings("cancelled", cancelled.broken);
+    try std.testing.expectEqualStrings("cancelled", cancelled.broken.detail);
 }

@@ -1,9 +1,10 @@
 //! The browser projects Loam lifecycle and custody. Zig owns managed admission
 //! and transaction outcomes. Chromium owns IndexedDB scheduling and Web Locks.
 use glowcap::loam::{
-	Call, Content, ControlPowers, Delivery, EffectExecution, EffectResult, Graph, Invocation, InvocationBounds,
-	KindRule, Limits, Method, PendingContinuation, Policy, ReferenceRequest, Registration, Requirement, Resource,
-	Retry, Schema, Scope, StagingBounds, Store, UNCHANGED, ValueBounds, parse_control_revision, refusal,
+	Call, Content, ControlConflict, ControlPowers, Delivery, EffectExecution, EffectResult, Graph, Invocation,
+	InvocationBounds, KindRule, Limits, Method, PendingContinuation, Policy, ReferenceRequest, Registration,
+	Requirement, Resource, Retry, Schema, Scope, StagingBounds, Store, UNCHANGED, ValueBounds, parse_control_revision,
+	refusal,
 };
 use glowcap::{Argument, Host, Locator, PendingWork, Ref, Result as HostResult, Session};
 use std::{

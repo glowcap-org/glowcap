@@ -1,21 +1,24 @@
 ---
 type: living
 description: Everything glowcap implements and checks in this repository.
-sources: []
+sources:
+  - resource: /src/
+  - resource: /cli/
+  - resource: /bindings/
+  - resource: /apps/
 ---
 
 # What ships
 
-glowcap's software version is **0.1.6 alpha**. CapTP `1.0` names the wire
+glowcap's software version is **0.1.7 alpha**. CapTP `1.0` names the wire
 protocol it speaks, independently of the project's release status.
 
-Everything on this page is implemented in this repository, and
 [What you can depend on](stability.md) says how each part is checked. glowcap speaks signed CapTP 1.0 over Syrup to
 outside implementations, and most of its regular checks against
 [Spritely Goblins](https://spritely.institute/goblins/) use the cleartext `tcp`
 testing adapter.
 
-Read [known limitations](boundaries.md) before deploying. If capabilities are new to you, [capabilities](capabilities.md) starts from zero.
+Read [known limitations](boundaries.md) before deploying. [Capabilities](capabilities.md) introduces the model.
 
 glowcap speaks two wire profiles. `1.0` is pinned to what Goblins ships, and
 is the profile those regular checks exercise. `next` tracks current OCapN
@@ -49,6 +52,11 @@ The Zig package includes optional iroh, WebRTC, relay TLS, LMDB, and SQLite modu
   compare it before use, so a stale companion library is refused.
 - **Diagnostics.** Each status call starts a fresh structured diagnostic, so a refusal never inherits an earlier
   call's cause.
+- **Failure causes.** Broken results carry their cause separately from their text through Zig, C, and all four
+  bindings. Identity and routing predicates use that cause, so a partner's chosen words cannot forge a local diagnosis.
+  Failed dials retain their local route cause through promise settlement. Rooms
+  uses it to identify an unreachable member, an unverified peer, or a missing
+  browser server when every available route requires one.
 
 ### How the bindings run
 
@@ -59,7 +67,7 @@ listening, and events, over a Host it has adopted.
   through the same ABI.
 - The iroh provider dials and listens. Zig uses `iroh.MultiplexedAdapter` with `driver.connect` and
   `driver.listen`.
-- The onion archive supplies the standard Tor transport. Zig and all four bindings host onion like any other
+- The onion archive supplies the standard Tor transport. Zig and the Rust, TypeScript, Python, and Racket bindings host onion like any other
   provider, and only the onion package reads the Tor service key it stores.
 - An idle Host can move into the driver in one step and keep its identity and capabilities. A refused move leaves
   it untouched.
@@ -77,11 +85,8 @@ listening, and events, over a Host it has adopted.
   and a listener the engine fires or discards gives its listener object back to the partner in one `op:gc-exports`.
   Host preserves queued and late calls when an answer settles to an object on another session
   ([custom Node requirements](boundaries.md#protocol-and-interop)).
-
-  A failed turn withdraws its sends,
-  including staged introductions ([ADR-0058](decisions/adr/ADR-0058-transactional-turn-sends.md)).
-  glowcap accepts OCapN 1.0 `op:untag` from any peer and sends it only to a partner that advertises the `untag`
-  feature.
+- **Untag.** glowcap accepts OCapN 1.0 `op:untag` from any peer and sends it only to a partner that advertises the
+  `untag` feature.
 - **Promise arguments.** A promise passes as an argument in both directions, pending or settled. A partner's
   `desc:answer` lifts to a capability promise, and an application's vow passes as a capability on any session,
   from the C ABI and every binding ([ADR-0068](decisions/adr/ADR-0068-promise-arguments.md)). A resolution
@@ -101,12 +106,15 @@ listening, and events, over a Host it has adopted.
   `alt-locators` are weaker fallbacks tried one at a time.
   [Multi-home peers](https://glowcap.org/multihome/) explains the design, and
   [known limitations](boundaries.md#protocol-and-interop) gives the rules.
-- **Distributed garbage collection.** Zig and all four bindings release Goblins objects independently and
+- **Release ownership.** Fallible C releases report consumption separately
+  from the failure code. All four bindings read generated accessors, so a
+  failed teardown cannot invite a second release of a consumed handle.
+- **Distributed garbage collection.** Zig and the Rust, TypeScript, Python, and Racket bindings release Goblins objects independently and
   observe Goblins reclaim them. Rust releases on drop by default, set on the Host. TypeScript, Python, and Racket
   select finalizers per Session for ordinary received values. Explicit retains and resolution results
   receive finalizer cleanup even when Session GC is off ([reference lifetime](../bindings/ts/runtime/README.md#reference-lifetime)).
 - **Three-party handoff.** A capability from one peer can be passed on to another, recursively. Outbound gives wait
-  as one bounded transaction and keep their place in the recipient's queue. The Deno, Python, Rust, and Racket
+  as one bounded transaction and keep their place in the recipient's queue. The TypeScript, Python, Rust, and Racket
   matrix proves nested gives against live Goblins, with Goblins in the gifter and exporter roles too
   ([ADR-0039](decisions/adr/ADR-0039-session-owned-handoff.md)).
 - **Promise settlement across peers.** A shared promise's settled value reaches every recipient once, with nested
@@ -141,13 +149,13 @@ listening, and events, over a Host it has adopted.
   `GlowcapContext` ([ADR-0031](decisions/adr/ADR-0031-structured-diagnostics.md)).
 - **Close.** Every owner closes under an explicit policy: cancel now, or finish admitted work within a grace period
   ([ADR-0030](decisions/adr/ADR-0030-failure-and-close-policy.md)). This works on the Zig Host, the C ABI, the
-  driver loop, and all four bindings. Close reports the first failure, a bounded list of the rest, and their count.
+  driver loop, and the Rust, TypeScript, Python, and Racket bindings. Close reports the first failure, a bounded list of the rest, and their count.
   A second close waits on the first.
   TypeScript cancellation rejects pending original, repeated, and pipelined observations with typed close failures.
 
 The value model covers the pinned OCapN scalar and aggregate forms, including big integers, Struct, and Error as
-data, plus Goblins' Set and Keyword. An Error value stays distinct from a broken promise on every surface. OCapN Null
-is not implemented ([protocol limitations](boundaries.md#protocol-and-interop)).
+data, plus Goblins' Set and Keyword. An Error value stays distinct from a broken promise on every surface.
+[Known limitations](boundaries.md#protocol-and-interop) lists the forms it leaves out.
 
 Zig, C, and every binding accept a typed array of 64-bit integers as a list,
 with the same wire meaning as individual integer values. A received array
@@ -188,9 +196,9 @@ Cap'n Proto socket. Zig applications can register another codec.
 A relay locator can carry its own `rendezvous-relay` route. The Rust WebRTC stack accepts ICE server records, including
 TURN credentials. The relay forwards bytes without parsing CapTP or holding a capability.
 
-On Linux the TCP completion loop uses io_uring and falls back to epoll, and `net.tcpBackendStatus` reports which one
-it chose. `HostRuntime.tcpBackendStatus()` exposes the report for its owned
-stream stack. [Benchmarks](../bench/README.md) records the largest session run.
+On Linux the TCP completion loop uses io_uring and falls back to epoll
+([how the backend is chosen and reported](architecture.md#transports-and-connection-loops)).
+[Benchmarks](../bench/README.md) records the largest session run.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares their security and reachability.
 
@@ -226,9 +234,6 @@ transactions over SQLite, LMDB, or an in-memory engine.
   ([method](../bench/loam/README.md)). `profile-loam` attributes each marked
   phase under callgrind ([profiles](../bench/README.md)).
 
-Rooms stores its managed session through Loam on SQLite and IndexedDB. The [session guide](rooms/session.md) owns that
-contract.
-
 ### Managed access
 
 Loam supplies separate use and control capabilities, scoped policy, durable issuance with exact recovery, and paged
@@ -239,14 +244,15 @@ management and observation. The [managed access coverage](loam/coverage.md) maps
 
 `actors.Vat` is a Goblins-style actor layer above the protocol engine. It supports local actors, eventual sends that
 return vows, hosted objects, forwarding, attenuation, and revocation. Optional snapshots cover local actor state only
-and never rewind a network session.
+and never rewind a network session ([snapshot tests](../test/actors/vat/snapshot_test.zig)).
 Direct invocation, an empty-symbol method, and ordinary named methods remain distinct
 through local queues, wire delivery, forwarding, traces, and every binding
 ([invocation contract](../bindings/README.md#invocation-shape)).
 
 A Host owns one Vat and gives each session its own queue budget
 ([ADR-0014](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)). A failed turn rolls back before failure listeners
-run, and its sends are never published.
+run, and its sends, including staged introductions, are never published
+([ADR-0058](decisions/adr/ADR-0058-transactional-turn-sends.md)).
 
 Every language binding hosts objects the same way. A browser peer can answer over the connection a call arrived on,
 so a peer with no listening socket can still reply and take part in a handoff.
@@ -255,26 +261,14 @@ so a peer with no listening socket can still reply and take part in a handoff.
 
 - `zig build` installs the `glowcap` command. It can listen, dial, call, fetch, run an interactive CapTP lab, serve
   an MCP interface, and join a Rooms session ([CLI guide](cli.md)).
-- The rooms, tasks, and tools examples run one server with clients written in several bindings.
-  Tasks uses generated Zig creation and six server read checks from authored modules. Its Rust client uses generated creation, move, observation, cancellation and bounded reads.
-  Watcher polling uses a generated positional-record reply check and moves a valid returned cursor into place.
-  Tasks clients [sequence changes within each membership](../apps/tasks/README.md#try-every-binding).
-
-  Rust prepared pending arguments run through acquisition and replay on both wire profiles.
-  Generated Rust and TypeScript callers [isolate public exports from private helpers](../test/interface/authoring/README.md#reproduce),
-  preserve positional, empty-symbol, and named invocation,
-  and distinguish omitted arguments from explicit undefined values on both profiles.
-
-  Both targets qualify list, tuple, and tagged positional-record replies.
-  TypeScript validates existing objects while preserving raw settlement and shared wrappers. Generated replies track references for cleanup when JavaScript collects their wrappers.
-
-  Its scalar calls qualify arbitrary bigint integers and UTF-8 text limits on both profiles.
-  Generated Rust receives Goblins handoffs, and a plain Goblins caller exercises Tasks creation through its generated Zig checks on Syrup/V1.0.
-  Text authoring [loads rooted modules](../test/interface/authoring/README.md#imported-modules) and reports imported bound and unknown-type locations.
+- The rooms, tasks, and tools examples run one server with clients written in several bindings. Tasks clients
+  [sequence changes within each membership](../apps/tasks/README.md#try-every-binding), and generated Rust and
+  TypeScript callers are qualified against it ([coverage](../test/interface/authoring/README.md#tasks-qualification)).
   This is the first [interface generation slice](planning/interface-definitions.md), not a general interface compiler.
-- The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions. Members hold rooms
+- The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions stored through Loam ([session guide](rooms/session.md)). Members hold rooms
   and direct messages with files over WebRTC, the Noise-sealed relay, iroh, and TCP. A session process started with
   `--dial-transports=webrtc` and a WebRTC member reach each other directly, signaling through a room they share.
+  A direct opening uses one directory call and one admission charge.
   Directories peer, IRC works in both directions, and operator capabilities can be revoked.
   [What Rooms ships](../apps/rooms/shipped.md) has the details.
 - ocapnviz opens a read-only trace sturdyref as a browser peer and shows replay and live events

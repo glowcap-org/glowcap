@@ -53,7 +53,7 @@
 .button[data-size="large"][data-variant="quiet"] {
 	min-height: var(--field-h);
 	padding: 0 max(18px, var(--button-inset, 0px));
-	border-radius: 11px;
+	border-radius: var(--radius-well);
 	font-size: inherit;
 	font-weight: 800;
 }

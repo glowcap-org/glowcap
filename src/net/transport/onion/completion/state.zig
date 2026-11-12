@@ -21,13 +21,14 @@ const socks5 = @import("../socks5.zig");
 /// leg accumulates until it can answer. Keeping the accumulation pure here
 /// leaves the backend only the effects: recycle, refuse, read again, or open.
 pub const ReplyVerdict = union(enum) {
-    /// Not the whole reply yet. Read more. status-allow: pending state or quoted runtime label
+    /// Not the whole reply yet. Read more.
     need_more,
     /// A well-formed success, having taken `consumed` bytes of this chunk.
     /// Anything past that is application data the leg retains.
     complete: usize,
-    /// The reply cannot become a well-formed success.
-    refused,
+    /// The reply cannot become a well-formed success, with the proxy's
+    /// refusal or the protocol fault that says why.
+    refused: socks5.Error,
 };
 
 pub fn Types(comptime Inner: type, comptime Namespace: type) type {
@@ -112,20 +113,20 @@ pub fn Types(comptime Inner: type, comptime Namespace: type) type {
                     offset += 1;
                     if (c.reply_len == socks5.connect_reply_head_len) {
                         const head: *const [socks5.connect_reply_head_len]u8 = c.reply_prefix[0..4];
-                        const bound = socks5.boundAddress(head) catch return .refused;
+                        const bound = socks5.boundAddress(head) catch |err| return .{ .refused = err };
                         c.reply_expected = @intCast(switch (bound) {
                             .fixed => |n| 4 + n,
                             .domain => 5,
                         });
                     } else if (c.reply_len == 5 and c.reply_prefix[3] == 0x03) {
-                        if (c.reply_prefix[4] == 0) return .refused;
+                        if (c.reply_prefix[4] == 0) return .{ .refused = error.ProtocolViolation };
                         c.reply_expected = 4 + 1 + @as(u16, c.reply_prefix[4]) + 2;
                     }
                 }
                 if (c.reply_len < c.reply_expected) return .need_more;
                 var head: [socks5.connect_reply_head_len]u8 = undefined;
                 @memcpy(&head, c.reply_prefix[0..4]);
-                socks5.checkConnectReply(&head) catch return .refused;
+                socks5.checkConnectReply(&head) catch |err| return .{ .refused = err };
                 return .{ .complete = offset };
             }
         };

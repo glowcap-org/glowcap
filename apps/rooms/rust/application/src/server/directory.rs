@@ -44,9 +44,7 @@ pub use super::{Refusal, Release};
 pub enum Notice {
 	/// The name is filed. The registration id names this exact holding.
 	Registered { nick: String, id: Id },
-	/// A peer offered an inbox for this member. `introduce` may be retried.
-	Introducible { nick: String, id: Id, opening: String },
-	/// A peer asked to be introduced and no inbox was offered for it yet. status-allow: pending state or quoted runtime label
+	/// A peer asked to be introduced and no inbox was offered for it yet.
 	MintInboxFor { nick: String, id: Id, opening: String },
 	/// A peer asks this member to open the route from its side.
 	DirectRequested { nick: String, id: Id },
@@ -55,7 +53,6 @@ impl Notice {
 	pub fn kind(&self) -> Option<Kind> {
 		match self {
 			Self::Registered { .. } => None,
-			Self::Introducible { .. } => Some(Kind::Introducible),
 			Self::MintInboxFor { .. } => Some(Kind::MintInboxFor),
 			Self::DirectRequested { .. } => Some(Kind::DirectRequested),
 		}
@@ -68,6 +65,14 @@ pub struct Tell<C, R> {
 	pub connection: C,
 	pub inbox: R,
 	pub notice: Notice,
+}
+
+/// An offered inbox wakes the server's held introduction, without a wire notice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InboxOffered<C> {
+	pub caller: C,
+	pub target: Id,
+	pub opening: String,
 }
 
 /// A signaling exchange the directory let go, with the reply capability to
@@ -86,6 +91,7 @@ pub struct Dropped<C, R> {
 pub struct Effects<C, R> {
 	pub releases: Vec<Release<C, R>>,
 	pub tells: Vec<Tell<C, R>>,
+	pub offered: Vec<InboxOffered<C>>,
 	/// Directory events every watcher hears, in order.
 	pub events: Vec<Event>,
 	pub dropped: Vec<Dropped<C, R>>,
@@ -95,6 +101,7 @@ impl<C, R> Default for Effects<C, R> {
 		Self {
 			releases: Vec::new(),
 			tells: Vec::new(),
+			offered: Vec::new(),
 			events: Vec::new(),
 			dropped: Vec::new(),
 		}
@@ -114,13 +121,14 @@ impl<C, R> Effects<C, R> {
 	fn extend(&mut self, other: Self) {
 		self.releases.extend(other.releases);
 		self.tells.extend(other.tells);
+		self.offered.extend(other.offered);
 		self.events.extend(other.events);
 		self.dropped.extend(other.dropped);
 	}
 }
 
 /// What `introduce` answers: the inbox the member offered for the caller, or
-/// the member to ask for one, after which the caller is told to try again.
+/// the member to ask for one while the adapter holds the original answer.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Introduction<C, R> {
 	Inbox(R),

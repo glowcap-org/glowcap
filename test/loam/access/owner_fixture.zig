@@ -1,4 +1,4 @@
-//! Common owner operations for portable and native persistence tests.
+//! Common owner operations for portable and LMDB persistence tests.
 const std = @import("std");
 pub const glowcap = @import("glowcap");
 pub const loam = glowcap.loam;

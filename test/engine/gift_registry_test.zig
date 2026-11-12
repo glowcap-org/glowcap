@@ -16,6 +16,7 @@ const engine = glowcap.ocapn.engine;
 const session = glowcap.ocapn.session;
 
 const GiftRegistry = engine.bootstrap.gifts.GiftRegistry;
+const cross_peer = @import("../support/cross_peer.zig");
 
 /// A synthetic 32-byte receiver name from a short label. The exporter checks an
 /// inbound receive against names it derives from session keys, and a derived
@@ -47,7 +48,7 @@ fn apply(
     allocator: std.mem.Allocator,
     receive: model.HandoffReceive,
 ) !?model.Reference {
-    return registry.applyWithdraw(registry, allocator, null, receive);
+    return cross_peer.applyWithdraw(registry, registry, allocator, receive);
 }
 
 fn makeReceive(
@@ -469,7 +470,7 @@ test "an unkeyed exporter still keys the counter by the derived side" {
     const anywhere = name32("any-session-at-all");
     const first = makeReceive("gift-1", "recipient-key", &anywhere, 7);
     try registry.validateWithdraw(first, unkeyed);
-    _ = try registry.applyWithdraw(&registry, allocator, null, first);
+    _ = try cross_peer.applyWithdraw(&registry, &registry, allocator, first);
 
     try registry.deposit(allocator, default_limits, null, "gift-2", "recipient-key");
     try std.testing.expectError(
@@ -537,7 +538,6 @@ test "a non-key-width handoff key is refused rather than derived from" {
 test "a gifted near with no published name is refused at deposit" {
     const allocator = std.testing.allocator;
     const peer_fixture = @import("../support/peer_fixture.zig");
-    const cross_peer = @import("../support/cross_peer.zig");
 
     // The gifter and the exporter, wired so the deposit crosses a real wire.
     var gifter = peer_fixture.openPeer(allocator);
@@ -568,7 +568,6 @@ test "a gifted near with no published name is refused at deposit" {
 test "a gifted far is refused at deposit rather than at the recipient's expense" {
     const allocator = std.testing.allocator;
     const peer_fixture = @import("../support/peer_fixture.zig");
-    const cross_peer = @import("../support/cross_peer.zig");
 
     var gifter = peer_fixture.openPeer(allocator);
     defer gifter.deinit();

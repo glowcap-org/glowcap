@@ -89,16 +89,23 @@ pub const Attachment = struct {
         store.attachments += 1;
         return owner;
     }
+    /// Refuses with nothing changed, or releases everything. Every owner this
+    /// frees answers before `value.destroy`, the commit point, so the
+    /// teardown after it has no refusal left.
     pub fn destroy(self: *Attachment) !void {
         const gpa = self.store.allocator;
         if (self.worker.active != 0 or self.effect_observers != 0) return error.Busy;
+        if (self.live_scope) |scope| try scope.refuseDeinit(self.value);
+        try self.caps.refuseDeinit();
         try self.value.destroy();
         if (self.live_scope) |scope| {
+            // `refuseDeinit` passed and `value.destroy` unregistered the owner.
             scope.deinit() catch unreachable;
             gpa.destroy(scope);
         }
         gpa.free(self.work_slots);
         gpa.free(self.worker.slots);
+        // `refuseDeinit` passed and `value.destroy` takes no new borrow.
         self.caps.deinit() catch unreachable;
         for (self.contents) |*item| item.deinit();
         gpa.free(self.contents);

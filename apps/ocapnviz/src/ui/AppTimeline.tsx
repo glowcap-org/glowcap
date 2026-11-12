@@ -1,3 +1,4 @@
+import type { LiveConnectionState } from "../engine/live/status.ts";
 /**
  * The app's timeline bar. The bottom pane, its seam, and the panel
  * it hosts.
@@ -36,7 +37,7 @@ export function AppTimeline({
 	onFocusEvent,
 	onEditSelection,
 	gestureCtx,
-	liveConnected,
+	liveConnection,
 	liveRecording,
 	onStartRecord,
 	onStopRecord,
@@ -70,7 +71,7 @@ export function AppTimeline({
 		mode: SelectMode,
 	) => void;
 	gestureCtx: SurfaceGestureCtx;
-	liveConnected: boolean;
+	liveConnection: LiveConnectionState;
 	liveRecording: boolean;
 	onStartRecord: () => void;
 	onStopRecord: () => void;
@@ -207,7 +208,7 @@ export function AppTimeline({
 				disabled={mode === "live"}
 				live={mode === "live"
 					? {
-						connected: liveConnected,
+						connection: liveConnection,
 						recording: liveRecording,
 						bufferHasContent: (bufferEngine ? observationsOf(bufferEngine.doc).length : 0) >
 							0,

@@ -7,7 +7,22 @@
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { readErrorSlot } from "./internal/seam.ts";
-import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_FOREIGN, ABORT_DOMAIN_SESSION, BROKEN, INTERNAL, OK } from "@glowcap/abi";
+import {
+	ABORT_DOMAIN_CODEC,
+	ABORT_DOMAIN_FOREIGN,
+	ABORT_DOMAIN_SESSION,
+	BreakCause,
+	BROKEN,
+	INTERNAL,
+	INVALID_ARGUMENT,
+	OK,
+	type RawBreakCause,
+	RouteFailure,
+	routeFailureCause,
+} from "@glowcap/abi";
+import { readBreakCause } from "./internal/break_cause.ts";
+import { L } from "./internal/layout.ts";
+import { retainSecondaryFailure } from "./cleanup.ts";
 import type { CarrierFailure } from "./carrier_failure.ts";
 
 /** The calling thread's last core-archive (`glowcap_*`) error message, or null
@@ -57,23 +72,48 @@ export function abortDomainLabel(
 	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown abort domain ${domainNum}`);
 }
 
-/** An error carrying a glowcap ABI result `code`. `detail`, `abort`, and `carrierFailure` carry the diagnostic, the peer
- * abort cause, and the carrier failure when they apply. */
+/** An ABI failure with separate local provenance and diagnostic detail. */
 export class GlowcapError extends Error {
+	/** A connector cannot realize this route in its current configuration, before opening a channel. */
+	static transportUnavailable(detail: string): GlowcapError {
+		return new GlowcapError(INVALID_ARGUMENT, detail, routeFailureCause(RouteFailure.TransportUnavailable));
+	}
+
 	/** The thread-local diagnostic captured when this error was raised, if any. */
 	readonly detail: string | null;
 	/** The typed abort cause, attached when a peer refused an inbound frame. */
 	abort: AbortDetail | null = null;
 	/** FFI carrier phase and engine detail when the failure originated there. */
 	carrierFailure: CarrierFailure | null = null;
-	constructor(public readonly code: number, detail?: string) {
+	constructor(
+		public readonly code: number,
+		detail?: string,
+		public readonly breakCause: BreakCause = new BreakCause(),
+	) {
 		// For a code an FFI call returned, capture the thread-local message now.
 		// A client-side validation throw passes an explicit `detail` instead, so it
-		// never scrapes an unrelated thread-local left by some earlier call. status-allow: event or source ordering
+		// never scrapes an unrelated thread-local left by some earlier call.
 		const d = detail ?? lastError();
-		super(d ? `glowcap error ${code}: ${d}` : `glowcap error ${code}`);
+		const label = breakCause.label();
+		const display = label == null ? d : d ? `${label}: ${d}` : label;
+		super(display ? `glowcap error ${code}: ${display}` : `glowcap error ${code}`);
 		this.detail = d;
 		this.name = "GlowcapError";
+	}
+
+	/** An application protocol message, excluding runtime diagnostics and operation wrappers. */
+	applicationMessage(): string | null {
+		return this.code === BROKEN && this.breakCause.isApplication() ? this.detail : null;
+	}
+
+	/** Whether the operation refused an unverified peer identity. */
+	isPeerIdentityUnverified(): boolean {
+		return this.breakCause.isPeerIdentityUnverified();
+	}
+
+	/** Whether every route to the exporter failed. */
+	isExporterUnreachable(): boolean {
+		return this.breakCause.isExporterUnreachable();
 	}
 }
 
@@ -88,28 +128,37 @@ export {
 /** A promise the partner broke, the typed rejection an awaited `send` (or any
  * settled vow) produces. `reason` is the partner's break message. */
 export class VowBroken extends GlowcapError {
-	constructor(public readonly reason: string) {
-		super(BROKEN, reason);
+	constructor(public readonly reason: string, cause: BreakCause = new BreakCause()) {
+		super(BROKEN, reason, cause);
 		this.name = "VowBroken";
 	}
 }
 
-/** A durable publication the remote Host no longer knows. This is the status-allow: lifecycle transition
+/** A durable publication the remote Host has forgotten. This is the
  * application-facing lifecycle fact behind CapTP's canonical
  * `unknown swissnum` break: consumers can reconcile retained sturdyrefs
  * without branching on protocol text. */
 export class PublicationNotFound extends VowBroken {
-	constructor() {
-		super("unknown swissnum");
+	constructor(reason: string, cause: BreakCause) {
+		super(reason, cause);
 		this.name = "PublicationNotFound";
 	}
 }
 
 /** Project a core-issued vow failure code into the binding's typed hierarchy. */
-export function vowFailure(code: number, reason: string): GlowcapError {
-	return code === BROKEN
-		? reason === "unknown swissnum" ? new PublicationNotFound() : new VowBroken(reason)
-		: new GlowcapError(code, reason);
+export function vowFailure(code: number, reason: string, rawCause: RawBreakCause = new BreakCause()): GlowcapError {
+	const decoded = BreakCause.fromRaw(rawCause);
+	const cause = decoded ?? new BreakCause();
+	const failure = code === BROKEN
+		? cause.isPublicationNotFound(reason) ? new PublicationNotFound(reason, cause) : new VowBroken(reason, cause)
+		: new GlowcapError(code, reason, cause);
+	if (decoded === null) {
+		retainSecondaryFailure(
+			failure,
+			new GlowcapError(INTERNAL, `glowcap ABI returned unknown failure metadata ${JSON.stringify(rawCause)}`),
+		);
+	}
+	return failure;
 }
 
 /** A `fetch` that settled, but not with a capability, the application-level
@@ -130,13 +179,22 @@ export function check(code: number): void {
 	if (code !== OK) throw new GlowcapError(code);
 }
 
-/** A failed `glowcap_host_*` call as a typed error, its diagnostic read from
- * the driver archive's own slot so it never scrapes the core's unrelated one. */
+/** A failed `glowcap_host_*` call as a typed error, its diagnostic and stable
+ * name read from the driver archive's own slots so it never scrapes the core's
+ * unrelated one. */
 export function hostError(code: number): GlowcapError {
-	return new GlowcapError(code, hostLastError() ?? `host call failed (code ${code})`);
+	const raw = new Uint8Array(L.BREAK_CAUSE_SIZE);
+	hostS.glowcap_host_last_error_cause(raw);
+	return vowFailure(
+		code,
+		hostLastError() ?? `host call failed (code ${code})`,
+		readBreakCause(new DataView(raw.buffer)),
+	);
 }
 
 /** As `check`, for `glowcap_host_*` calls. */
 export function checkHost(code: number): void {
 	if (code !== OK) throw hostError(code);
 }
+
+export { BreakCause, BreakContext, BreakOrigin, BreakReason } from "@glowcap/abi";

@@ -23,6 +23,8 @@ import {
 	INTERNAL,
 	INVALID_ARGUMENT,
 } from "@glowcap/abi";
+import type { RawBreakCause } from "@glowcap/abi";
+import { readBreakCause } from "./break_cause.ts";
 import type { Ptr } from "./ffi/runtime.ts";
 import { readBytes } from "./seam.ts";
 import { readArg } from "../abi_value.ts";
@@ -40,7 +42,7 @@ export type HostAction =
 	| { kind: typeof HOST_ACTION_FLUSH; session: Ptr }
 	| { kind: typeof HOST_ACTION_NEED_GIFT_ID; ticket: bigint }
 	| { kind: typeof HOST_ACTION_SETTLE; ticket: bigint; value: Argument }
-	| { kind: typeof HOST_ACTION_FAIL; ticket: bigint; result: number; message: string }
+	| { kind: typeof HOST_ACTION_FAIL; ticket: bigint; result: number; cause: RawBreakCause; message: string }
 	| { kind: typeof HOST_ACTION_CLOSE; session: Ptr; result: number }
 	| { kind: typeof HOST_ACTION_RESUME }
 	| { kind: typeof HOST_ACTION_CANCEL_DIAL; ticket: bigint; routeIndex: bigint };
@@ -67,6 +69,7 @@ export function decodeHostAction(dv: DataView): HostAction {
 				kind,
 				ticket,
 				result: dv.getInt32(L.HOST_ACTION_RESULT_OFF, true),
+				cause: readBreakCause(dv, L.HOST_ACTION_CAUSE_OFF),
 				message: view(L.HOST_ACTION_MESSAGE_OFF, L.HOST_ACTION_MESSAGE_LEN_OFF),
 			};
 		case HOST_ACTION_CLOSE:

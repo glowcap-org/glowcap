@@ -1,5 +1,6 @@
 //! The local owner supervises membership once. Every viewer, including the
 //! local page, consumes the same managed activity reader from its held workspace.
+use rooms_runtime::Error as RuntimeError;
 mod files;
 mod incoming;
 use super::*;
@@ -20,13 +21,12 @@ impl RoomsManagedApplication {
 				.await
 				.session()
 				.connection_choice()
-				.await
-				.map_err(|e| e.to_string())?;
+				.await?;
 			let route = connection.route(environment.front.is_some());
 			let host = environment.runtime.host();
-			let key = host.designator().map_err(|e| e.to_string())?;
+			let key = host.designator().map_err(RuntimeError::from)?;
 			let direct = glowcap::Locator::bare(glowcap::TRANSPORT_WEBRTC, &key);
-			let uri = |locator: &glowcap::Locator| glowcap::format_locator_uri(locator).map_err(|e| e.to_string());
+			let uri = |locator: &glowcap::Locator| glowcap::format_locator_uri(locator).map_err(RuntimeError::from);
 			// `hello` is the one location this Host states in its CapTP hello,
 			// so it is a concrete transport. `advertised` is what the directory
 			// lists for this member and embeds in the handoffs it mints for
@@ -53,7 +53,7 @@ impl RoomsManagedApplication {
 				DirectRoute::Raced => {
 					let relay = owner.relay_locator(&environment).await?;
 					let raced = rooms_glowcap::routes::identity_route(&key, &[uri(&direct)?, uri(&relay)?])
-						.ok_or_else(|| "Rooms could not compose its identity route".to_string())?;
+						.ok_or_else(|| RuntimeError::invalid("Rooms could not compose its identity route"))?;
 					let hinted = direct.with_hint(glowcap::HINT_ALT_LOCATORS, glowcap::HintValue::String(uri(&relay)?));
 					(hinted, raced)
 				}
@@ -62,7 +62,7 @@ impl RoomsManagedApplication {
 				.runtime
 				.host()
 				.set_advertised_locator(&hello)
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let locator = uri(&advertised)?;
 			let trouble = environment.trouble.clone();
 			let mut opened = owner.opened.lock().await;
@@ -77,20 +77,19 @@ impl RoomsManagedApplication {
 						let output = match state {
 							Ok(state) => {
 								data!({"ready":state.ready,"failures":state.failures.iter().map(|(target,error)|
-							data!({"target":target_data(target),"reason":error.to_string()})).collect::<Vec<_>>()})
+							data!({"target":target_data(target),"reason":error.to_string(),"failure":crate::failure::project(error).value()})).collect::<Vec<_>>()})
 							}
-							Err(error) => data!({"ready":0,"failures":[],"sourceFailure":error.to_string()}),
+							Err(error) => data!({"ready":0,"failures":[],"sourceFailure":error.to_string(),"failure":crate::failure::project(&error).value()}),
 						};
 						if json(&output.to_string())
 							.and_then(|value| super::super::observation::call(&report, value))
 							.is_err()
 						{
-							trouble.report("Rooms activity", "The activity listener refused its report");
+							trouble.report("Rooms activity", &RuntimeError::platform_message("The activity listener refused its report"));
 						}
 					},
-				)
-				.map_err(|e| e.to_string())?;
-			let changes = opened.session().changes().map_err(|e| e.to_string())?;
+				)?;
+			let changes = opened.session().changes()?;
 			drop(opened);
 			let mut signaling = owner.signaling.lock().await;
 			if signaling.is_none() {
@@ -109,12 +108,17 @@ impl RoomsManagedApplication {
 		self.driver.submit(0, move |environment| async move {
 			let owner = owner(&environment)?;
 			let relay = owner.relay.lock().await;
-			let relay = relay.as_ref().ok_or("Rooms has not started its relay")?;
+			let relay = relay
+				.as_ref()
+				.ok_or_else(|| RuntimeError::invalid("Rooms has not started its relay"))?;
 			let trouble = environment.trouble.clone();
 			relay.observe(move |failure| {
 				let failure = failure.map_or(JsValue::NULL, JsValue::from);
 				if report.call1(&JsValue::UNDEFINED, &failure).is_err() {
-					trouble.report("Rooms relay", "The relay listener refused its report");
+					trouble.report(
+						"Rooms relay",
+						&RuntimeError::platform_message("The relay listener refused its report"),
+					);
 				}
 			});
 			Ok(JsValue::UNDEFINED)
@@ -132,7 +136,7 @@ impl RoomsManagedApplication {
 				.lock()
 				.await
 				.activity()
-				.ok_or("Rooms activity is not running")?
+				.ok_or_else(|| RuntimeError::invalid("Rooms activity is not running"))?
 				.retry();
 			Ok(JsValue::UNDEFINED)
 		})
@@ -143,12 +147,8 @@ impl RoomsManagedApplication {
 			let owner = owner(&environment)?;
 			owner.stop_signaling().await?;
 			let mut opened = owner.opened.lock().await;
-			opened.stop_activity().await.map_err(|e| e.to_string())?;
-			opened
-				.session()
-				.close_received_lines()
-				.await
-				.map_err(|e| e.to_string())?;
+			opened.stop_activity().await?;
+			opened.session().close_received_lines().await?;
 			Ok(JsValue::UNDEFINED)
 		})
 	}
@@ -169,7 +169,7 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(0, move |_| async move {
-			let reader = workspace.activity_reader().await.map_err(|e| e.to_string())?;
+			let reader = workspace.activity_reader().await.map_err(RuntimeError::from)?;
 			let reader = driver.hold(reader, size_of::<ActivityReader<Platform>>())?;
 			Ok(RoomsManagedActivityReader {
 				driver,
@@ -201,18 +201,31 @@ impl RoomsManagedActivityReader {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(103, move |_| async move {
-			let raw = reader.read(&cursor, wait).await.map_err(|e| e.to_string())?;
-			let envelope: serde_json::Value = serde_json::from_str(&raw).map_err(|_| "Invalid activity delivery")?;
+			let raw = reader.read(&cursor, wait).await.map_err(RuntimeError::from)?;
+			let envelope: serde_json::Value =
+				serde_json::from_str(&raw).map_err(|_| RuntimeError::invalid("Invalid activity delivery"))?;
 			let token = envelope["cursor"]
 				.as_str()
 				.filter(|token| token.len() <= 103)
-				.ok_or("Invalid activity cursor")?;
+				.ok_or_else(|| RuntimeError::invalid("Invalid activity cursor"))?;
+			let head = envelope["head"]
+				.as_str()
+				.filter(|head| head.len() <= 103)
+				.ok_or_else(|| RuntimeError::invalid("Invalid activity head"))?;
 			let Some(event) = envelope["data"].as_str() else {
 				return json(&raw);
 			};
 			let output = json(event)?;
+			// The journal's own time for the event, so a page that reads it
+			// later presents it when it happened.
+			let at = envelope
+				.get("at")
+				.filter(|at| at.is_u64())
+				.ok_or_else(|| RuntimeError::invalid("Missing activity time"))?;
+			super::super::view::set(&output, "at", json(&at.to_string())?)?;
 			if let Some(history) = envelope.get("history") {
-				let notice = js_sys::Reflect::get(&output, &"notice".into()).map_err(|_| "Missing activity notice")?;
+				let notice = js_sys::Reflect::get(&output, &"notice".into())
+					.map_err(|_| RuntimeError::invalid("Missing activity notice"))?;
 				super::super::view::set(&notice, "history", json(&history.to_string())?)?;
 			}
 			let mut files = Vec::new();
@@ -235,10 +248,13 @@ impl RoomsManagedActivityReader {
 			let handles: js_sys::Array = files.into_iter().map(JsValue::from).collect();
 			super::super::view::set(&output, "files", handles.into())?;
 			if let Some(role) = envelope.get("incoming").filter(|role| !role.is_null()) {
-				let role: custody::Role = serde_json::from_value(role.clone()).map_err(|_| "Invalid incoming role")?;
+				let role: custody::Role =
+					serde_json::from_value(role.clone()).map_err(|_| RuntimeError::invalid("Invalid incoming role"))?;
 				let hand = incoming::RoomsManagedIncoming::hold(&driver, (*workspace).clone(), role, token.to_owned())?;
-				let notice = js_sys::Reflect::get(&output, &"notice".into()).map_err(|_| "Missing activity notice")?;
-				let kind = js_sys::Reflect::get(&notice, &"kind".into()).map_err(|_| "Missing activity notice kind")?;
+				let notice = js_sys::Reflect::get(&output, &"notice".into())
+					.map_err(|_| RuntimeError::invalid("Missing activity notice"))?;
+				let kind = js_sys::Reflect::get(&notice, &"kind".into())
+					.map_err(|_| RuntimeError::invalid("Missing activity notice kind"))?;
 				let field = if kind == JsValue::from_str("line") {
 					"route"
 				} else {
@@ -246,7 +262,7 @@ impl RoomsManagedActivityReader {
 				};
 				super::super::view::set(&output, field, hand.into())?;
 			}
-			let result = json(&data!({"cursor":token}).to_string())?;
+			let result = json(&data!({"cursor":token,"head":head}).to_string())?;
 			if let Some(gap) = envelope.get("gap") {
 				super::super::view::set(&result, "gap", json(&gap.to_string())?)?;
 			}

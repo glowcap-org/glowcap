@@ -1,4 +1,4 @@
-//! Canonical encoding only; the shared description reader/model validates output.
+//! Canonical encoding only. The shared description reader/model validates output.
 #[derive(Clone)]
 pub enum Value {
 	Symbol(String),

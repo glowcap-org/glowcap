@@ -1,11 +1,17 @@
-// Presentation-only state for where this tab records member history. The live
-// Session and Ref stay below the store. This value is only what Settings draws.
+// Where this tab keeps history and whether its last read succeeded. Live
+// sessions and capabilities stay below the presentation store.
 
+/** `unavailable` is a read that failed and can be tried again. `denied` is a
+ * peer archive this access may not read, which no retry changes. */
 export type ArchiveTargetView =
-	| { readonly kind: "owned" }
+	| {
+		readonly kind: "owned";
+		readonly status: "idle" | "connecting" | "connected" | "unavailable";
+		readonly error: string;
+	}
 	| {
 		readonly kind: "peer";
-		readonly status: "connecting" | "connected" | "unavailable";
+		readonly status: "connecting" | "connected" | "unavailable" | "denied";
 		readonly label: string;
 		readonly error: string;
 	};

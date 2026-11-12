@@ -4,8 +4,13 @@
 //! Reader-facing props also cover short labels without sentence punctuation.
 //!
 //! The sentence heuristic is narrow to keep false positives
-//! from obscuring real prose. Comments, throw/log lines, and a shader's source
+//! from obscuring real prose. Comments, log and `invariant(` calls, and a shader's source
 //! (a template opened by `/* wgsl */`) are outside the reader-text boundary. Component specimens have explicit exemptions below.
+//!
+//! A failure a reader can meet is a LocalRefusal, whose TypeScript key type
+//! selects the catalog sentence and retry advice. A broken internal contract
+//! is an `invariant(` call, whose diagnostic is a developer's. A built-in
+//! error class (`plain_errors`) is neither, so the check refuses it.
 //!
 //! Negative probes in `SessionSetup.tsx` cover JSX text, quoted expressions
 //! and template literals. A `className` full of words stays admissible.
@@ -189,15 +194,14 @@ fn withoutJsxHoles(gpa: std.mem.Allocator, value: []const u8) !?[]u8 {
     return try out.toOwnedSlice(gpa);
 }
 
-/// Lines the check does not read: comments, imports, what goes to the log or
-/// an error carrier rather than to a person, and a selector handed to the
-/// DOM.
+/// Lines the sentence arms do not read: comments, imports, what goes to the
+/// log or an error carrier rather than to a person, and a selector handed to
+/// the DOM. Error types own whether a diagnostic is a local refusal.
 fn isUnread(line: []const u8) bool {
     return std.mem.startsWith(u8, line, "//") or
         std.mem.startsWith(u8, line, "*") or
         std.mem.startsWith(u8, line, "import ") or
-        std.mem.startsWith(u8, line, "throw ") or
-        std.mem.indexOf(u8, line, "new Error(") != null or
+        callsInvariant(line) or
         std.mem.indexOf(u8, line, "console.") != null or
         std.mem.indexOf(u8, line, "querySelector") != null or
         std.mem.indexOf(u8, line, ".startsWith(") != null or
@@ -207,11 +211,65 @@ fn isUnread(line: []const u8) bool {
         std.mem.indexOf(u8, line, ".matches(") != null;
 }
 
+/// JavaScript's built-in error classes. One constructed in the UI carries a
+/// sentence with no catalog key and no retry advice.
+const plain_errors = [_][]const u8{ "Error", "TypeError", "RangeError", "AggregateError", "SyntaxError", "ReferenceError", "EvalError", "URIError" };
+
+fn identChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_' or c == '$';
+}
+
+/// The code on a line: the text before a trailing `//` comment. A `//` right
+/// after a colon belongs to a URL.
+fn codeOf(line: []const u8) []const u8 {
+    var at: usize = 0;
+    while (std.mem.indexOfPos(u8, line, at, "//")) |slash| : (at = slash + 2) {
+        if (slash == 0 or line[slash - 1] != ':') return line[0..slash];
+    }
+    return line;
+}
+
+/// The built-in error class this line constructs, with or without `new`.
+/// A longer name that ends in one, such as an application's own subclass, is
+/// another class.
+fn plainError(line: []const u8) ?[]const u8 {
+    const code = codeOf(line);
+    for (plain_errors) |class| {
+        var at: usize = 0;
+        while (std.mem.indexOfPos(u8, code, at, class)) |found| : (at = found + 1) {
+            const end = found + class.len;
+            if (end >= code.len or code[end] != '(') continue;
+            if (found > 0 and (identChar(code[found - 1]) or code[found - 1] == '.')) continue;
+            return class;
+        }
+    }
+    return null;
+}
+
+/// True when the line calls `invariant`, and not a longer name that ends in it.
+fn callsInvariant(line: []const u8) bool {
+    var at: usize = 0;
+    while (std.mem.indexOfPos(u8, line, at, "invariant(")) |found| : (at = found + 1) {
+        if (found == 0 or !identChar(line[found - 1])) return true;
+    }
+    return false;
+}
+
 const Report = struct {
     gpa: std.mem.Allocator,
     violations: *std.ArrayList([]const u8),
     path: []const u8,
     line_no: usize,
+
+    fn sayPlainError(self: *Report, class: []const u8) !void {
+        try appendViolation(
+            self.gpa,
+            self.violations,
+            "{s}:{d}: `{s}(` names neither a refusal nor a broken contract; " ++
+                "throw a LocalRefusal with a catalog key for a failure a reader can meet, or call invariant() from apps/rooms/lib/invariant.ts",
+            .{ self.path, self.line_no, class },
+        );
+    }
 
     fn say(self: *Report, comptime shape: []const u8, text: []const u8) !void {
         try appendViolation(
@@ -341,7 +399,7 @@ fn inspectBody(report: *Report, body: []const u8) !void {
     // closing backtick opens. WGSL's `struct Point { … }` and `array<f32>`
     // read as JSX text to the arms below.
     var in_shader = false;
-    // A log call whose arguments run onto the lines below it.
+    // A log or invariant call whose arguments run onto the lines below it.
     var in_log = false;
     var lines = std.mem.splitScalar(u8, body, '\n');
     report.line_no = 0;
@@ -364,11 +422,13 @@ fn inspectBody(report: *Report, body: []const u8) !void {
             if (std.mem.indexOfPos(u8, line, open, "*/") == null) in_comment = true;
             continue;
         }
+        if (std.mem.startsWith(u8, line, "//")) continue;
+        if (plainError(line)) |class| try report.sayPlainError(class);
         if (in_log) {
             if (std.mem.indexOf(u8, line, ");") != null) in_log = false;
             continue;
         }
-        if ((std.mem.indexOf(u8, line, "console.") != null or std.mem.indexOf(u8, line, "Error(") != null) and
+        if ((std.mem.indexOf(u8, line, "console.") != null or callsInvariant(line)) and
             std.mem.indexOf(u8, line, ");") == null)
         {
             in_log = true;
@@ -399,7 +459,7 @@ pub fn checkRoomsTextCatalog(
     var inspected: usize = 0;
     var walker = try dir.walk(gpa);
     defer walker.deinit();
-    while (walker.next(io) catch null) |entry| {
+    while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!source_tree.isTypeScriptPath(entry.basename)) continue;
         if (isExempt(entry.path)) {
@@ -476,6 +536,56 @@ test "JSX text is judged with its expressions cut out, and a lone brace is code"
     try std.testing.expect(looksSpoken(words));
     try std.testing.expect(try withoutJsxHoles(gpa, "} else {") == null);
     try std.testing.expect(try withoutJsxHoles(gpa, "{ a: { b } }") == null);
+}
+
+test "an invariant diagnostic is outside UI prose and a plain Error is refused" {
+    const gpa = std.testing.allocator;
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |v| gpa.free(v);
+        violations.deinit(gpa);
+    }
+    var report: Report = .{ .gpa = gpa, .violations = &violations, .path = "probe.ts", .line_no = 0 };
+    try inspectBody(&report,
+        \\invariant(false, "Finish this first.");
+        \\invariant(
+        \\    loaded != null,
+        \\    `Wait for ${x}.`,
+        \\);
+        \\throw new LocalRefusal("busy");
+        \\// throw new Error("A comment names no carrier.");
+        \\open(); // an Error(x) named in a trailing comment
+        \\throw new UnsentEffectError(failure);
+        \\if (cause instanceof SyntaxError) return;
+        \\return errors.Error(why);
+    );
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+
+    const refused = [_][]const u8{
+        "throw new Error(why);",
+        "return Promise.reject(Error(why));",
+        "throw new TypeError(why);",
+        "throw new AggregateError(failures, why);",
+        "invariant(ready, why) ?? fail(new RangeError(why));",
+        "open(\"https://example.test/\", new Error(why));",
+    };
+    for (refused, 1..) |line, count| {
+        try inspectBody(&report, line);
+        try std.testing.expectEqual(count, violations.items.len);
+    }
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[3], "probe.ts:1: `AggregateError(`") != null);
+
+    // A sentence handed to another carrier is still read, and so is a line whose call only ends in the word.
+    try inspectBody(&report,
+        \\throw new LocalRefusal("Finish this first.");
+        \\assert_invariant(false, "Finish this first.");
+        \\console.log(
+        \\    new Error(why),
+        \\);
+    );
+    try std.testing.expectEqual(refused.len + 3, violations.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[refused.len], "probe.ts:1: literal `Finish this first.`") != null);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[refused.len + 2], "probe.ts:4: `Error(`") != null);
 }
 
 test "a shader's source is code, and text after it is still read" {

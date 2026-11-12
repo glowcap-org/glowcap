@@ -24,7 +24,7 @@ impl<D: Deadline + Clone> DirectoryAcquisition<D> {
 		self.acquisition.source()
 	}
 	pub async fn submit(&self) -> std::result::Result<(), Error> {
-		// An interrupted replay cannot inherit proof from an earlier refusal. status-allow: event or source ordering
+		// An interrupted replay cannot inherit proof from an earlier refusal.
 		self.conflicted.set(false);
 		let outcome = self.acquisition.submit().await;
 		self.conflicted.set(matches!(outcome, Err(Error::WorkspaceConflict)));

@@ -176,7 +176,7 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
     // leave the vat naming a peer that is not the one on the wire, and this
     // fails rather than reporting a session somebody else's proof vouched for.
     var trace_buf: [4096]u8 = undefined;
-    const session_line = goblins_child.awaitChildStdoutLine(io, &child, "SESSION ", &trace_buf, session_line_budget_ms) orelse {
+    const session_line = try goblins_child.awaitChildStdoutLine(io, &child, "SESSION ", &trace_buf, session_line_budget_ms) orelse {
         std.debug.print("goblins-iroh: the goblins vat never reported the session it accepted\n", .{});
         goblins_child.dumpChildStderr(io, "goblins-iroh", &child);
         return error.GoblinsReportedNoSession;
@@ -248,7 +248,7 @@ fn callEcho(
             if (!std.mem.eql(u8, text, "glowcap-over-iroh")) return error.EchoWrongPayload;
         },
         .broken => |reason| {
-            std.debug.print("goblins-iroh: echo broke: {s}\n", .{reason});
+            std.debug.print("goblins-iroh: echo broke: {f}\n", .{reason});
             return error.EchoBroke;
         },
     }

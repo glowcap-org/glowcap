@@ -87,9 +87,12 @@ fn line(state: LineState) -> Record {
 }
 async fn runtime() -> Rc<Runtime> {
 	Rc::new(
-		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-			.await
-			.unwrap(),
+		Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})]))
+		.await
+		.unwrap(),
 	)
 }
 #[tokio::test]

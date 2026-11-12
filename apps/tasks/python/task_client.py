@@ -6,7 +6,7 @@ fresh `mutation-sequence`, then `mutate` with that number, so a retried change
 applies once. Adding a task returns the task, and `done` moves that task. A
 watcher reports whether anything on the board changed since its last look, and `stop` frees the board's observation context.
 
-    board = await TaskBoard.join("127.0.0.1", 9099, board_name)
+    board = await TaskBoard.join(locator, board_name)
     watcher = await board.watch()
     task = await board.add("buy groceries")
     await board.done(task)
@@ -28,7 +28,7 @@ from python_path import add_bindings_path
 
 add_bindings_path()
 
-from glowcap import Ref, Runtime, Session, Tagged, tcp  # noqa: E402
+from glowcap import Ref, Runtime, Session, Tagged, parse_locator, tcp  # noqa: E402
 
 
 @dataclass
@@ -93,10 +93,11 @@ class TaskBoard:
         self._mutations = asyncio.Lock()
 
     @classmethod
-    async def join(cls, host: str, port: int, name: str) -> TaskBoard:
+    async def join(cls, locator: str, name: str) -> TaskBoard:
+        """Dial the server's printed locator and fetch the board named `name`."""
         runtime = await Runtime.open(providers=[tcp.provider()])
         try:
-            session = await runtime.connect(tcp.locator(host, port))
+            session = await runtime.connect(parse_locator(locator))
             session.serve()
             board = await session.fetch(name)
             todo = await session.send(board, "list", [0])

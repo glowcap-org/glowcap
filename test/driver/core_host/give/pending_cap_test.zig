@@ -11,11 +11,11 @@ const model = glowcap.ocapn.model;
 const a = std.testing.allocator;
 
 test "core host: inline gives past the session's pending-withdraw cap are refused until one settles" {
-    var options = Host.Options.withFrameCap(h.frame_cap);
+    var options = Host.Options.init(.unchecked, h.frame_cap);
     options.limits.max_pending_withdraws = 2;
     var host = support.init(a, @splat(0xc3), options);
     defer host.deinit();
-    var partner = support.init(a, @splat(0xc4), Host.Options.withFrameCap(h.frame_cap));
+    var partner = support.init(a, @splat(0xc4), Host.Options.init(.unchecked, h.frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer h.deinitParked(a, &dials);
@@ -41,7 +41,7 @@ test "core host: inline gives past the session's pending-withdraw cap are refuse
         .dial => |dial| ticket = dial.ticket,
         else => {},
     };
-    try host.dialFailed(ticket orelse return error.MissingDial, 0, "exporter unavailable");
+    try host.dialFailed(ticket orelse return error.MissingDial, 0, .peer_unreachable, "exporter unavailable");
     try std.testing.expectEqual(@as(?u32, null), host.pending_inline_gives.get(pair.a.peer_handle));
     const third = try host.acceptInlineGive(pair.a, give);
     try std.testing.expectEqual(@as(?u32, 1), host.pending_inline_gives.get(pair.a.peer_handle));

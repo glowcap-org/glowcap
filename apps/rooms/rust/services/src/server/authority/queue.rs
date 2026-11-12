@@ -61,30 +61,44 @@ impl Handle {
 	pub fn stop(&self) {
 		self.stop.send_replace(true);
 	}
-	fn reserve(&self) -> Result<mpsc::Permit<'_, Job>, String> {
+	/// A seat in the writer's queue, or the busy refusal when it is full. A
+	/// verb takes its seat before it charges the verb's allowance, so that
+	/// refusal has not spent it.
+	pub fn reserve(&self) -> Result<Seat, String> {
 		if *self.stop.borrow() {
-			return Err("the room authority writer is stopping".into());
+			return Err(STOPPING.into());
 		}
-		self.jobs.try_reserve().map_err(|_| busy())
+		self.jobs
+			.clone()
+			.try_reserve_owned()
+			.map(Seat)
+			.map_err(|refused| match refused {
+				mpsc::error::TrySendError::Full(_) => busy("room authority writer").reason(),
+				mpsc::error::TrySendError::Closed(_) => STOPPING.into(),
+			})
 	}
 }
+const STOPPING: &str = "the room authority writer is stopping";
 
-/// Carry the calling session through durable work. Commit callbacks execute
-/// outside the turn and must use this context for caller-specific replies.
+/// One reserved place in the writer's queue.
+pub(in crate::server) struct Seat(mpsc::OwnedPermit<Job>);
+
+/// Carry the calling session through durable work, in the seat
+/// `Handle::reserve` gave the caller. Commit callbacks execute outside the
+/// turn and must use this context for caller-specific replies.
 pub(in crate::server) fn submit(
-	state: &State,
+	seat: Seat,
 	verb: &'static str,
 	prepare: impl FnOnce(&State) -> Result<Option<Authority>, String> + 'static,
 	commit: impl FnOnce(&mut State, &Session) -> Outcome + 'static,
 ) -> Outcome {
-	let seat = state.authority_writer.reserve()?;
 	let caller = current_session()
 		.map_err(|e| e.to_string())?
 		.ok_or("a room authority is reachable only over a session")?
 		.borrowed();
 	let context = caller.borrowed();
 	let resolver = caller.host().defer_turn().map_err(|e| e.to_string())?;
-	seat.send(Job {
+	seat.0.send(Job {
 		verb,
 		prepare: Box::new(prepare),
 		commit: Box::new(move |state| commit(state, &context)),
@@ -110,12 +124,9 @@ where
 	let stopping = *state.authority_writer.stop.borrow();
 	async move {
 		if stopping {
-			return Err("the room authority writer is stopping".into());
+			return Err(STOPPING.into());
 		}
-		let seat = jobs
-			.reserve_owned()
-			.await
-			.map_err(|_| "the room authority writer ended")?;
+		let seat = jobs.reserve_owned().await.map_err(|_| STOPPING)?;
 		let (answer, reply) = oneshot::channel();
 		seat.send(Job {
 			verb,

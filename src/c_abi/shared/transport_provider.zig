@@ -22,7 +22,7 @@ pub const GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION: u32 = 1;
 pub const GLOWCAP_STREAM_TRANSPORT_ABI_VERSION: u32 = 1;
 /// `try_read` / `try_write` result when the operation cannot progress
 /// without blocking, for stream and multiplexed tables alike. Distinct from 0
-/// (clean end of stream on read; a full window's zero-byte write) and -1 (a
+/// (clean end of stream on read. A full window's zero-byte write) and -1 (a
 /// dead connection). The same value as the Zig contract's
 /// `net.multiplexed_resident.would_block` and the iroh sidecar's
 /// `GLOWCAP_IROH_WOULD_BLOCK`, so trampolines pass results through unchanged.
@@ -244,7 +244,7 @@ pub fn setProviderFailure(out: ?*GlowcapProviderFailure, result: i32, cause: any
 /// The callback's returned status remains the primary classification authority.
 /// `secondaryResult` supplies the transport family's stable classification for
 /// the first later consequence. Names come from the chain so a failure that
-/// crossed an earlier archive boundary is not flattened back to its Zig proxy status-allow: event or source ordering
+/// crossed an earlier archive boundary is not flattened back to its Zig proxy
 /// error name.
 pub fn setProviderFailureChain(
     out: ?*GlowcapProviderFailure,
@@ -485,7 +485,7 @@ pub const GlowcapStreamConnTakeFailureFn = *const fn (
     out_failure: ?*GlowcapProviderFailure,
 ) callconv(.c) void;
 
-/// One stream-native transport profile. Connection callbacks are required.
+/// One byte-stream transport profile. Connection callbacks are required.
 /// Staged dial and the base listener capability are each complete or absent
 /// operation groups. Listener completion is a separate optional finish/cancel
 /// pair. Without it `listen` must return READY. A
@@ -540,9 +540,10 @@ pub const GlowcapTransportReleaseFn = *const fn (
     out_failure: ?*GlowcapProviderFailure,
 ) callconv(.c) i32;
 /// Decide whether two packages produced by this provider implementation carry
-/// the same complete effective configuration. The driver calls this only when
-/// both packages advertise the same profile set and use this exact callback.
-/// Return 1 for equivalent and 0 for different.
+/// the same effective configuration, apart from which profiles each one
+/// registers. The driver calls this only when both packages use this exact
+/// callback and name a profile in common. Return 1 for equivalent and 0 for
+/// different.
 pub const GlowcapTransportProviderSameConfigurationFn = *const fn (
     ctx: ?*anyopaque,
     other_ctx: ?*anyopaque,
@@ -551,9 +552,12 @@ pub const GlowcapTransportProviderSameConfigurationFn = *const fn (
 /// A provider package installed atomically through the driver's generic
 /// registration verb. The driver copies every table and retains one package
 /// lease before publication. It releases that lease only after all listeners,
-/// connections, and copied callbacks have retired. Re-registering the same
-/// profile set is idempotent only when `same_configuration` is the same
-/// function and reports equivalent package contexts.
+/// connections, and copied callbacks have retired. A profile an installed
+/// package already serves stays with that package when `same_configuration`
+/// is the same function and reports equivalent package contexts. The driver
+/// then installs only the profiles nothing serves yet. When there are none it
+/// releases the lease it retained before returning. Any other overlap is
+/// refused and installs nothing.
 pub const GlowcapTransportProvider = extern struct {
     abi_version: u32,
     struct_size: usize,

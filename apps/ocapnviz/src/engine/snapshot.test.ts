@@ -85,7 +85,7 @@ Deno.test("restore from a snapshot taken before recording was set clears it", ()
 	assertEquals(doc.recording, undefined);
 });
 
-Deno.test("snapshot is independent — mutating snap doesn't reach doc", () => {
+Deno.test("snapshot is independent: mutating snap doesn't reach doc", () => {
 	const doc = emptyDoc();
 	doc.recording = {
 		sources: [{

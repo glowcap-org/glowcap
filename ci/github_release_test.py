@@ -169,7 +169,8 @@ class Assemble(unittest.TestCase):
             (binding / "info.rkt").write_text("uncommitted change")
             (root / "artifacts").mkdir()
             (root / "ci").mkdir()
-            shutil.copyfile(SCRIPT, root / "ci/github_release.py")
+            for program in (SCRIPT, SCRIPT.with_name("release_version.py")):
+                shutil.copyfile(program, root / "ci" / program.name)
             script = run(jobs(".github/workflows/release.yml")["release"], "Package the Racket binding")
             subprocess.run(
                 ["bash", "-e", "-c", script],
@@ -364,14 +365,16 @@ class Draft(unittest.TestCase):
         assets = [{"name": name, "state": "uploaded", "digest": self.DIGEST} for name in self.NAMES]
         return {"tag_name": TAG, "draft": True, "body": f"notes\n{MARKER}\n", "assets": assets, **changes}
 
-    def state(self, answer, *argv):
+    def state(self, answer, *, complete=False):
         def lookup(*args, **kwargs):
             if isinstance(answer, Exception):
                 raise answer
             return answer
 
         with mock.patch.object(RELEASE, "api", side_effect=lookup):
-            return run_main(*argv or ("resume-state", TAG))
+            if complete:
+                return RELEASE.draft_state(REPOSITORY, TAG, "123", complete=True)
+            return RELEASE.draft_state(REPOSITORY, TAG, "123", allow_published=True)
 
     def test_draft_state_resumes_only_matching_uploads_of_this_run(self):
         count = len(self.NAMES)
@@ -403,7 +406,7 @@ class Draft(unittest.TestCase):
             write_assets(self.NAMES)
             for label, (answer, exists, missing) in resumable.items():
                 with self.subTest(label):
-                    state = json.loads(self.state(answer))
+                    state = self.state(answer)
                     self.assertEqual(state["draft_exists"], exists)
                     self.assertEqual(len(state["missing_assets"]), missing)
                     self.assertEqual(state["missing_assets"], sorted(state["missing_assets"]))
@@ -413,24 +416,24 @@ class Draft(unittest.TestCase):
             with self.subTest("two releases for the tag"), self.assertRaisesRegex(ValueError, "multiple releases"):
                 self.state([[self.release(), self.release()]])
             with self.subTest("releases of other tags are ignored"):
-                state = json.loads(self.state([[self.release(tag_name="v0.2.0", draft=False)]]))
+                state = self.state([[self.release(tag_name="v0.2.0", draft=False)]])
                 self.assertEqual(state["draft_exists"], False)
             with self.subTest("network error"), self.assertRaises(subprocess.SubprocessError):
                 self.state(subprocess.CalledProcessError(1, ["gh", "api"]))
 
-    def test_verify_draft_requires_the_complete_draft(self):
+    def test_the_complete_check_requires_the_whole_draft(self):
         partial = self.release()
         partial["assets"].pop()
         with workdir():
             write_assets(self.NAMES)
-            self.assertIn("Complete release draft", self.state([[self.release()]], "verify-draft", TAG))
+            self.assertEqual(self.state([[self.release()]], complete=True)["missing_assets"], [])
             for label, answer in (
                 ("no draft", [[]]),
                 ("partial", [[partial]]),
                 ("published", [[self.release(draft=False)]]),
             ):
                 with self.subTest(label), self.assertRaises(ValueError):
-                    self.state(answer, "verify-draft", TAG)
+                    self.state(answer, complete=True)
 
     def test_an_incomplete_local_asset_set_is_refused_before_any_upload(self):
         with workdir():
@@ -470,7 +473,7 @@ class Published(unittest.TestCase):
         release = self.answers()[f"releases/tags/{TAG}"]
         names = release["assets"]
         failed_check = subprocess.CalledProcessError(1, ["require-main-check.py"])
-        cases = {
+        cases: dict[str, tuple[dict[str, object], subprocess.CalledProcessError | None]] = {
             "lightweight tag": ({f"git/ref/tags/{TAG}": {"object": {"type": "commit", "sha": COMMIT}}}, None),
             "unverified signature": (
                 {
@@ -525,7 +528,7 @@ class Arguments(unittest.TestCase):
     def script(self, *argv, **env):
         with tempfile.TemporaryDirectory() as temp:
             return subprocess.run(
-                [sys.executable, "-I", str(SCRIPT), *argv],
+                [sys.executable, "-E", "-s", str(SCRIPT), *argv],
                 cwd=temp,
                 capture_output=True,
                 text=True,
@@ -534,10 +537,10 @@ class Arguments(unittest.TestCase):
             )
 
     def test_missing_environment_is_refused_with_the_script_prefix(self):
-        result = self.script("verify-draft", TAG)
+        result = self.script("publish-draft", TAG)
         self.assertEqual(result.returncode, 1)
         self.assertTrue(result.stderr.startswith("github-release: invalid GITHUB_REPOSITORY"), result.stderr)
-        result = self.script("verify-draft", TAG, GITHUB_REPOSITORY=REPOSITORY)
+        result = self.script("publish-draft", TAG, GITHUB_REPOSITORY=REPOSITORY)
         self.assertTrue(result.stderr.startswith("github-release: invalid GITHUB_RUN_ID"), result.stderr)
 
     def test_an_unknown_mode_is_refused_before_any_effect(self):
@@ -547,15 +550,15 @@ class Arguments(unittest.TestCase):
 
     def test_malformed_values_are_refused(self):
         for argv, env, message in [
-            (("resume-state", TAG), {"GITHUB_RUN_ID": "0123"}, "invalid GITHUB_RUN_ID"),
-            (("resume-state", TAG), {"GITHUB_REPOSITORY": "owner"}, "invalid GITHUB_REPOSITORY"),
+            (("publish-draft", TAG), {"GITHUB_RUN_ID": "0123"}, "invalid GITHUB_RUN_ID"),
+            (("publish-draft", TAG), {"GITHUB_REPOSITORY": "owner"}, "invalid GITHUB_REPOSITORY"),
             (("assemble", "artifacts", TAG), {"GITHUB_SHA": "abc"}, "invalid GITHUB_SHA"),
         ]:
             with self.subTest(argv=argv, env=env), self.assertRaisesRegex(ValueError, message):
                 run_main(*argv, **env)
         for argv, message in [
-            (("resume-state", "v1.0.0"), "invalid prerelease tag"),
-            (("resume-state", TAG, "extra"), "unrecognized arguments"),
+            (("publish-draft", "v1.0.0"), "invalid prerelease tag"),
+            (("publish-draft", TAG, "extra"), "unrecognized arguments"),
             (("published", TAG, "extra"), "unrecognized arguments"),
             (("assemble", TAG), "required: tag"),
         ]:

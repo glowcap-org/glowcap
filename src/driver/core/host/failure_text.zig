@@ -2,20 +2,29 @@
 //! its producer without allocating at completion. It is not protocol data.
 const std = @import("std");
 const Failure = @This();
+const engine = @import("engine");
 
-bytes: [256]u8 = undefined,
+bytes: [engine.Broken.diagnostic_capacity]u8 = undefined,
 len: u16 = 0,
+cause: engine.BreakCause,
 
-pub fn init(text: []const u8) Failure {
-    var failure: Failure = .{};
-    const limit = @min(text.len, failure.bytes.len);
-    var end = limit;
-    while (end != 0 and !std.unicode.utf8ValidateSlice(text[0..end])) end -= 1;
-    @memcpy(failure.bytes[0..end], text[0..end]);
-    failure.len = @intCast(end);
+comptime {
+    // The cause occupies the existing alignment unit after the bounded length.
+    std.debug.assert(@sizeOf(Failure) == 260);
+}
+
+pub fn init(reason: engine.Broken) Failure {
+    const text = engine.Broken.truncate(reason.detail, engine.Broken.diagnostic_capacity);
+    var failure: Failure = .{ .cause = reason.cause };
+    @memcpy(failure.bytes[0..text.len], text);
+    failure.len = @intCast(text.len);
     return failure;
 }
 
 pub fn message(self: *const Failure) []const u8 {
     return self.bytes[0..self.len];
+}
+
+pub fn broken(self: *const Failure) engine.Broken {
+    return .{ .detail = self.message(), .cause = self.cause };
 }

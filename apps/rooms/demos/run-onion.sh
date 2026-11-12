@@ -2,7 +2,8 @@
 # Live Rooms-over-onion proof. The harness owns Tor explicitly. Glowcap only
 # receives configured SOCKS and control endpoints.
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+# The repository root, from this script's own place in it.
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 
 command -v tor >/dev/null || { echo "demo-rooms-onion: tor is required" >&2; exit 127; }
 command -v deno >/dev/null || { echo "demo-rooms-onion: deno is required" >&2; exit 127; }

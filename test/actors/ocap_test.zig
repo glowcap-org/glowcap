@@ -123,16 +123,11 @@ test "a caretaker composes over an attenuator: a revocable read-only view" {
     );
 }
 
-/// Pump every queued frame from `from` to `to` and step `to` so it parses them.
-fn pump(from: *glowcap.ocapn.engine.Peer, to: *glowcap.ocapn.engine.Peer) !void {
-    try cross_peer.pumpAll(from, to);
-}
-
-fn serveAll(vat: *actors.Vat, port: *actors.Port, peer: *glowcap.ocapn.engine.Peer) void {
+fn serveAll(vat: *actors.Vat, port: *actors.Port, peer: *glowcap.ocapn.engine.Peer) !void {
     while (peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = port.serve(vat, &e) catch {};
+        _ = try port.serve(vat, &e);
     }
 }
 
@@ -168,11 +163,11 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     var result: i64 = 0;
     try agent_port.on(&agent_vat, promise, .{ .ctx = &result, .func = capture.captureInt });
 
-    try pump(agent_peer, coord_peer);
-    serveAll(&coord_vat, &coord_port, coord_peer); // proxy forwards: queues the local send
+    try cross_peer.pumpAll(agent_peer, coord_peer);
+    try serveAll(&coord_vat, &coord_port, coord_peer); // proxy forwards: queues the local send
     try coord_vat.drive(); // settles the forwarded send, resolving the agent's answer
-    try pump(coord_peer, agent_peer);
-    serveAll(&agent_vat, &agent_port, agent_peer);
+    try cross_peer.pumpAll(coord_peer, agent_peer);
+    try serveAll(&agent_vat, &agent_port, agent_peer);
     try std.testing.expectEqual(@as(i64, 5), result);
 
     // Revoked: the same call now breaks the agent's answer, and the forward
@@ -182,10 +177,10 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     var broke = false;
     try agent_port.on(&agent_vat, broken_promise, .{ .ctx = &broke, .func = capture.captureBroken });
 
-    try pump(agent_peer, coord_peer);
-    serveAll(&coord_vat, &coord_port, coord_peer); // proxy refuses: breaks the answer in place
-    try pump(coord_peer, agent_peer);
-    serveAll(&agent_vat, &agent_port, agent_peer);
+    try cross_peer.pumpAll(agent_peer, coord_peer);
+    try serveAll(&coord_vat, &coord_port, coord_peer); // proxy refuses: breaks the answer in place
+    try cross_peer.pumpAll(coord_peer, agent_peer);
+    try serveAll(&agent_vat, &agent_port, agent_peer);
     try std.testing.expect(broke);
     try std.testing.expectEqual(@as(i64, 5), (try coord_vat.near(target, .{ .verb = "get" })).integer);
 }
@@ -215,16 +210,16 @@ test "a local eventual proxy defers to a far target and preserves no-answer tell
     try local.on(answer, .{ .ctx = &result, .func = capture.captureInt });
     try local.drive();
     try std.testing.expectEqual(@as(i64, 0), result);
-    try pump(&pair.p1, &pair.p2);
-    serveAll(&remote, &remote_port, &pair.p2);
-    try pump(&pair.p2, &pair.p1);
-    serveAll(&local, &local_port, &pair.p1);
+    try cross_peer.pumpAll(&pair.p1, &pair.p2);
+    try serveAll(&remote, &remote_port, &pair.p2);
+    try cross_peer.pumpAll(&pair.p2, &pair.p1);
+    try serveAll(&local, &local_port, &pair.p1);
     try std.testing.expectEqual(@as(i64, 7), result);
     try std.testing.expectEqual(@as(usize, 0), local.pending_local_vows.count());
 
     try local_port.tell(&local, proxy.proxy, .{ .verb = "increment" });
     try local.drive();
-    try pump(&pair.p1, &pair.p2);
+    try cross_peer.pumpAll(&pair.p1, &pair.p2);
     var delivered = false;
     while (pair.p2.pollEvent()) |event| {
         var owned = event;

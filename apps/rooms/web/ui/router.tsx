@@ -14,7 +14,7 @@
 //
 // Every route here files what it names as an act, with `link` for its source,
 // so a surface that ends up standing in for the conversation (the join card,
-// when the reader has no name on the directory yet) answers the link rather status-allow: pending state or quoted runtime label
+// when the reader has no name on the directory yet) answers the link rather
 // than whatever somebody typed last. The two routes that file nothing are the
 // front page and the address nothing answers, and that is the same rule from
 // the other side: landing there is where the application puts a reader when
@@ -36,6 +36,7 @@
 // else. The `dm` page-configuration parameter rides along on every
 // address the mirror writes, keeping `prefs.ts`'s bookmark contract.
 
+import { invariant } from "../../lib/invariant.ts";
 import * as store from "./store.ts";
 import { useEffect, useRef } from "react";
 import { createBrowserRouter, Outlet, RouterProvider, useLocation, useParams, useRouteError } from "react-router";
@@ -72,7 +73,7 @@ let mirroredHeld: boolean | null = null;
 let stopAddressMirror: (() => void) | null = null;
 
 function routing(): RoomsPageContext {
-	if (routingPage === null) throw new Error("rooms: routing started before the page existed");
+	invariant(routingPage != null, "rooms: routing started before the page existed");
 	return routingPage;
 }
 
@@ -248,7 +249,7 @@ function RoomRoute() {
 		}
 		const home = routing().projection.get().homeDirectory;
 		if (home === null) return; // the effect refires when the directory lands
-		// A room the page's own directory does not hold yet, with no name to status-allow: pending state or quoted runtime label
+		// A room the page's own directory does not hold yet, with no name to
 		// enter it under, is the card asking for one: the room named, the
 		// directory implied.
 		if (!net.showRoom(routing(), session, home, name)) replaceWith(joinAddress({ room: name, directory: "" }));

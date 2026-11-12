@@ -288,7 +288,7 @@ fn applyPlainOwnedFrame(
 }
 
 /// Queue the admitted frame and its parse as one event. From here the row
-/// owns both; a caller whose authority apply then fails takes the row back
+/// owns both. A caller whose authority apply then fails takes the row back
 /// with `abandonPushedEvent`. A caller refused here still owns both.
 pub fn pushAdmittedEvent(
     self: *Peer,

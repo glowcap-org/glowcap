@@ -18,9 +18,13 @@ const LocalActor = struct {
 };
 
 test "remote capability cleanup survives session cancellation and termination" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x65)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x65)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x75)), .{});
+    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x75)), .{
+        .thread_policy = .unchecked,
+    });
     defer partner.deinit();
     const session = (try host_pair.openPair(&host, &partner, "127.0.0.1:9765")).a;
     try session.served.port.peer.importObject(7);
@@ -90,7 +94,9 @@ fn receiveHandoff() model.HandoffReceive {
 }
 
 test "Host direct lower and lift admit exactly the model depth limit" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x61)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x61)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     const session = try host_pair.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9761", &.{});
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -146,11 +152,17 @@ test "Host direct lower and lift admit exactly the model depth limit" {
 }
 
 test "overdeep lower rolls back preceding Port and Node projections" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x62)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x62)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var home_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x72)), .{});
+    var home_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x72)), .{
+        .thread_policy = .unchecked,
+    });
     defer home_partner.deinit();
-    var destination_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x73)), .{});
+    var destination_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x73)), .{
+        .thread_policy = .unchecked,
+    });
     defer destination_partner.deinit();
     const home = (try host_pair.openPair(&host, &home_partner, "127.0.0.1:9762")).a;
     const destination = (try host_pair.openPair(&host, &destination_partner, "127.0.0.1:9763")).a;
@@ -188,11 +200,17 @@ test "overdeep lower rolls back preceding Port and Node projections" {
 }
 
 test "a routed reference's staging retain returns when no batch claims it" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x64)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x64)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var home_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x74)), .{});
+    var home_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x74)), .{
+        .thread_policy = .unchecked,
+    });
     defer home_partner.deinit();
-    var destination_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x75)), .{});
+    var destination_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x75)), .{
+        .thread_policy = .unchecked,
+    });
     defer destination_partner.deinit();
     const home = (try host_pair.openPair(&host, &home_partner, "127.0.0.1:9764")).a;
     const destination = (try host_pair.openPair(&host, &destination_partner, "127.0.0.1:9765")).a;
@@ -224,9 +242,13 @@ fn rejectedValues(_: void, _: []const core.Value) error{Rejected}!void {
 }
 
 test "direct mixed lift retires references around an inline give failure" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x63)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x63)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x74)), .{});
+    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x74)), .{
+        .thread_policy = .unchecked,
+    });
     defer partner.deinit();
     const session = (try host_pair.openPair(&host, &partner, "127.0.0.1:9764")).a;
     try session.served.port.peer.importObject(7);
@@ -254,9 +276,13 @@ test "direct mixed lift retires references around an inline give failure" {
 }
 
 test "projection callback failure counts inline gives separately from references" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x64)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x64)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x75)), .{});
+    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x75)), .{
+        .thread_policy = .unchecked,
+    });
     defer partner.deinit();
     const session = (try host_pair.openPair(&host, &partner, "127.0.0.1:9765")).a;
     try session.served.port.peer.importObject(7);
@@ -279,9 +305,13 @@ test "projection callback failure counts inline gives separately from references
 }
 
 test "overdeep failed-lift cleanup condemns the source session" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x65)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x65)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x76)), .{});
+    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x76)), .{
+        .thread_policy = .unchecked,
+    });
     defer partner.deinit();
     const session = (try host_pair.openPair(&host, &partner, "127.0.0.1:9766")).a;
     try session.served.port.peer.importObject(7);
@@ -303,9 +333,13 @@ test "overdeep failed-lift cleanup condemns the source session" {
 }
 
 test "allocation failure cleanup stays bounded over an overdeep remainder" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x68)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x68)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x78)), .{});
+    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x78)), .{
+        .thread_policy = .unchecked,
+    });
     defer partner.deinit();
     const session = (try host_pair.openPair(&host, &partner, "127.0.0.1:9769")).a;
     try session.served.port.peer.importObject(7);
@@ -336,7 +370,9 @@ fn identityValue(_: void, value: core.Value) !core.Value {
 }
 
 test "completion projection preserves owned data after source closure and reports refusal" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x66)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x66)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     const action: core.HostAction = .{ .settled = .{ .peer_handle = engine.PeerHandle.from(999), .vow_id = 41, .value = .{ .void = {} } } };
     const completed = host.projectCompletion(action, {}, identityValue);
@@ -355,7 +391,9 @@ test "completion projection preserves owned data after source closure and report
 }
 
 test "unresolved-promise clone rejects overdepth without retain or queue mutation" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x67)), .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x67)), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     const session = try host_pair.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9768", &.{});
     var give: model.Handoff = .{ .give = inlineGive() };

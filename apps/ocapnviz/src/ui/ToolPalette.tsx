@@ -92,7 +92,7 @@ export function ToolPalette(
 					aria-label={t.label}
 					className={`ocv-btn is-icon${tool === t.id ? " is-active" : ""}`}
 					onClick={() => onPick(t.id)}
-					title={`${t.label} — ${t.hint}`}
+					title={`${t.label}: ${t.hint}`}
 					style={paletteButton}
 				>
 					{t.glyph}

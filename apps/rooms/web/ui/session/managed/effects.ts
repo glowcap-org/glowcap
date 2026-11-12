@@ -1,4 +1,6 @@
 // Own retained gesture coordination from preparation through result acquisition.
+import { invariant } from "../../../../lib/invariant.ts";
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import { conversationById } from "./conversation_lookup.ts";
 import type { RoomsManagedCommand, RoomsManagedWorkspace } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ManagedRoomsSession } from "./session.ts";
@@ -14,6 +16,7 @@ import {
 } from "./operation.ts";
 import { discloseFailure, releaseEffect, restoreEffects, resumeEffect } from "./recovery.ts";
 import { admitCommand } from "./admission.ts";
+import { SubmissionRefused, submitCommand } from "./acquisition.ts";
 import { completeResult } from "./completion.ts";
 import { SESSION_CONTENT } from "../../../../lib/session_content_data.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
@@ -59,7 +62,7 @@ export class ManagedEffects {
 		let record = this.#records.get(id);
 		if (record == null) {
 			if (this.#records.size >= SESSION_CONTENT.limits.effects) {
-				throw new Error("Recover pending operations before preparing another command");
+				throw new LocalRefusal("unfinished-limit");
 			}
 			record = { lifecycle: new OperationLifecycle(id, () => this.environment.changed()) };
 			this.#records.set(id, record);
@@ -155,13 +158,14 @@ export class ManagedEffects {
 		signal?: AbortSignal,
 	): Promise<ManagedOperation> {
 		const own = this.#records.get(operation);
-		if (own?.command != null) {
-			if (own.intent?.name !== name || JSON.stringify(own.intent.args) !== JSON.stringify(args)) {
-				return Promise.reject(new Error("The submitted gesture has different contents"));
-			}
-			return own.command;
-		}
 		try {
+			if (own?.command != null) {
+				invariant(
+					own.intent?.name === name && JSON.stringify(own.intent.args) === JSON.stringify(args),
+					"the submitted gesture has different contents",
+				);
+				return own.command;
+			}
 			this.reserve(operation, name, args);
 		} catch (error) {
 			return Promise.reject(error);
@@ -198,7 +202,7 @@ export class ManagedEffects {
 					(id) => conversationById(this.session.current, id)?.directory,
 				)
 			) {
-				throw new Error("An operation on this target is still pending. Finish or recover it first.");
+				throw new LocalRefusal("change-blocked");
 			}
 		}
 		const record = this.#record(operation);
@@ -215,7 +219,7 @@ export class ManagedEffects {
 		continuation?: GestureContinuation,
 	): Promise<void> {
 		if (this.#records.get(operation)?.completion != null) {
-			throw new Error("Recover the original gesture before submitting it again");
+			throw new LocalRefusal("change-owned");
 		}
 		const record = this.#record(operation);
 		record.completion = complete;
@@ -257,10 +261,13 @@ export class ManagedEffects {
 	releaseOperation(id: string): Promise<void> {
 		const record = this.#records.get(id);
 		if (record?.adopted) {
-			return Promise.reject(new Error("Complete cancellation cleanup before releasing this gesture"));
+			return Promise.reject(new LocalRefusal("result-held"));
 		}
-		if (record != null && (!record.lifecycle.needsDecision || record.operation?.acquiring)) {
-			return Promise.reject(new Error("Recover the original operation and acquisition before releasing it"));
+		if (record?.operation?.acquiring) {
+			return Promise.reject(new LocalRefusal("result-saving"));
+		}
+		if (record != null && !record.lifecycle.needsDecision) {
+			return Promise.reject(new LocalRefusal("change-busy"));
 		}
 		return this.#track(
 			releaseEffect(this.workspace, id, record?.operation, (held) => this.finish(held)).then(() => {
@@ -341,10 +348,10 @@ export class ManagedEffects {
 		});
 	}
 	async #perform(operation: string, prepare: () => Promise<RoomsManagedCommand>): Promise<ManagedOperation> {
-		if (this.environment.stopped()) throw new Error("This workspace is closed");
+		if (this.environment.stopped()) throw new LocalRefusal("session-closed");
 		const record = this.#record(operation);
 		if (record.operation != null || record.preparing) {
-			throw new Error("Recover the retained request before submitting another command");
+			throw new LocalRefusal("change-replay-required");
 		}
 		record.preparing = true;
 		// This viewer's writes share one revision authority, so admissions take
@@ -356,7 +363,7 @@ export class ManagedEffects {
 		let admitted: ManagedOperation;
 		try {
 			await previous;
-			if (this.environment.stopped()) throw new Error("This workspace is closed");
+			if (this.environment.stopped()) throw new LocalRefusal("session-closed");
 			admitted = await this.#admit(operation, prepare);
 		} finally {
 			record.preparing = false;
@@ -369,7 +376,7 @@ export class ManagedEffects {
 		const request = await prepare();
 		if (this.environment.stopped()) {
 			request.free();
-			throw new Error("This workspace is closed");
+			throw new LocalRefusal("session-closed");
 		}
 		const record = this.#record(operation);
 		const pending = new ManagedOperation(operation, request, undefined, (error) => record.lifecycle.orphan(error));
@@ -377,12 +384,18 @@ export class ManagedEffects {
 		record.lifecycle.phase = "admitting";
 		record.lifecycle.outcome = "unknown";
 		this.environment.changed();
-		const admitted = await request.submit();
-		if (admitted === "conflict") {
+		// A conflict or a refusal admitted nothing: no receipt holds this command,
+		// so it is freed here and leaves nothing to decide. Only a submission
+		// nothing settled throws through with the operation kept.
+		const admitted = await submitCommand(request);
+		if (admitted.status === "conflict" || admitted.status === "refused") {
 			record.operation = undefined;
 			record.lifecycle.outcome = "notAdmitted";
 			request.free();
 			this.environment.changed();
+			if (admitted.status === "refused") {
+				throw new SubmissionRefused(admitted.reason ?? managedText.acquisitionRefused, admitted.failure);
+			}
 			await this.refresh();
 			throw new WorkspaceConflict();
 		}
@@ -416,35 +429,37 @@ export class ManagedEffects {
 						await readResult(operation.request);
 					} catch (error) {
 						if (error instanceof TerminalObservationError) {
-							throw new UnsentEffectError(error.message, { cause: error });
+							throw new UnsentEffectError(error.message, error.failure);
 						}
 						throw error;
 					} finally {
 						this.finish(operation);
 					}
-					throw new Error("The upstream operation was not sent.");
+					throw new LocalRefusal("not-sent");
 				}
 				// Failed observations disclose their reason through the exact
 				// original receipt, with current authority checked again.
 				if (status === "unknown") {
 					await discloseFailure(operation.request, () => this.finish(operation));
 				}
-				throw new Error(`The retained operation is ${status}. Recover its original receipt.`);
+				throw new LocalRefusal("change-unconfirmed", {
+					cause: `retained operation is ${status}`,
+				});
 			}
 			if (this.environment.observationFailure() != null) throw this.environment.observationFailure();
 			if (change !== this.environment.change()) continue;
 			operation.observe(() => this.environment.changed());
 			await this.environment.wait(change);
 			if (this.environment.stopped()) {
-				throw new Error("The viewer closed while its original operation remained pending");
+				throw new LocalRefusal("session-closed");
 			}
 		}
-		throw new Error("The viewer closed while its original operation remained pending");
+		throw new LocalRefusal("session-closed");
 	}
 	finish(operation: ManagedOperation): void {
 		const record = this.#records.get(operation.id);
 		if (record?.operation !== operation) {
-			throw new Error("This operation belongs to another viewer");
+			invariant(false, "this operation belongs to another viewer");
 		}
 		operation.finish();
 		if (record.completion == null) this.#forget(operation.id);
@@ -456,10 +471,10 @@ export class ManagedEffects {
 		this.#records.delete(id);
 	}
 	resume(operation: string): Promise<ManagedOperation> {
-		if (this.environment.stopped()) return Promise.reject(new Error("This workspace is closed"));
+		if (this.environment.stopped()) return Promise.reject(new LocalRefusal("session-closed"));
 		const record = this.#record(operation);
 		if (record.recovering != null) return record.recovering;
-		if (record.preparing) return Promise.reject(new Error("This operation is still preparing"));
+		if (record.preparing) return Promise.reject(new LocalRefusal("still-working"));
 		const task = this.#track(
 			record.lifecycle.own("settling", () => this.#resume(operation)).finally(() => {
 				record.recovering = undefined;
@@ -501,16 +516,20 @@ export class ManagedEffects {
 				await this.refresh();
 				throw new ReceiptRetired();
 			}
-			throw new Error("The original receipt is no longer recoverable; it cannot be resent");
+			throw new LocalRefusal("receipt-lost");
 		}
 		let retained = false;
 		try {
 			const status = await resumeEffect(recovered, () => {
 				if (request != null) this.finish(request);
 			}, (observed) => request?.observeStatus(observed));
-			if (this.environment.stopped()) throw new Error("This workspace is closed");
+			if (this.environment.stopped()) throw new LocalRefusal("session-closed");
 			if (request != null) return await this.#settle(request);
-			if (status !== "committed") throw new Error(`The original receipt is ${status}.`);
+			if (status !== "committed") {
+				throw new LocalRefusal("change-unconfirmed", {
+					cause: `original receipt is ${status}`,
+				});
+			}
 			const pending = new ManagedOperation(
 				operation,
 				recovered,

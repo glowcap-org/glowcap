@@ -251,24 +251,6 @@ pub const PartnerIdentity = struct {
     pub fn durableIdentityAuthenticated(self: PartnerIdentity) bool {
         return self.provenance != .unauthenticated;
     }
-
-    /// Whether `designator` is literally this partner's session key, in the
-    /// canonical hex encoding used by a key designator.
-    ///
-    /// **A diagnostic, not an authentication predicate** (ADR-0028). Fresh
-    /// sessions normally use a key distinct from the durable key a locator
-    /// names, so this normally answers false even for an authenticated partner.
-    /// Ask `durableIdentityAuthenticated` when durable authentication matters.
-    ///
-    /// An `address` transport such as `tcp` designates a socket address, which
-    /// the handshake signature covers but which the key does not determine, so
-    /// this is false for a verified `tcp` partner and false is the correct
-    /// answer rather than a failure.
-    pub fn designatorIsSessionKey(self: PartnerIdentity) bool {
-        const key = crypto.PeerKey.fromSlice(self.session_key) catch return false;
-        const expected = key.toDesignator();
-        return std.mem.eql(u8, self.designator, &expected);
-    }
 };
 
 /// How a partner's advertised durable identity was authenticated (ADR-0028),
@@ -351,7 +333,7 @@ pub fn spawnAt(turn: *actors.Turn, comptime Behavior: type, initial: Behavior) !
 /// a plain allocator instead of an arena frees the result with `deinit`.
 pub const Settled = union(enum) {
     fulfilled: model.Argument,
-    broken: []const u8,
+    broken: engine.Broken,
     /// The answer fulfilled with a three-party introduction: a signed
     /// `desc:handoff-give` addressed to this session's session key. This
     /// arm surfaces only on the byte-fed `Served` drive, where the caller
@@ -369,7 +351,7 @@ pub const Settled = union(enum) {
     pub fn deinit(self: Settled, allocator: std.mem.Allocator) void {
         switch (self) {
             .fulfilled => |argument| model.freeArgument(allocator, argument),
-            .broken => |reason| allocator.free(reason),
+            .broken => |reason| allocator.free(reason.detail),
             .give => |give| {
                 allocator.free(give.give_bytes);
                 allocator.free(give.exporter_locator_uri);
@@ -400,11 +382,11 @@ pub const SettleCapture = struct {
 
     /// `resolution` materialized into `allocator`, which may be plain (the
     /// verb contract allows a non-arena), so a failed later copy frees the
-    /// earlier ones and a partial `.give` never leaks. status-allow: event or source ordering
+    /// earlier ones and a partial `.give` never leaks.
     fn own(allocator: std.mem.Allocator, resolution: actors.Resolution) !Settled {
         switch (resolution) {
             .fulfilled => |arg| return .{ .fulfilled = try model.cloneArgument(allocator, arg) },
-            .broken => |reason| return .{ .broken = try allocator.dupe(u8, reason) },
+            .broken => |reason| return .{ .broken = .{ .detail = try allocator.dupe(u8, reason.detail), .cause = reason.cause } },
             .give => |give| {
                 const bytes = try allocator.dupe(u8, give.give_bytes);
                 errdefer allocator.free(bytes);

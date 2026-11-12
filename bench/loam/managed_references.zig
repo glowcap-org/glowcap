@@ -19,7 +19,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), self: *m.Managed,
     try self.store.putCopying(.{ .id = view.id, .revision = 0, .schema = view.schema, .payload = view.payload, .edges = &.{edge} }, view.revision);
     try self.finish(try self.store.prepare());
     try self.store.release(lease);
-    var witness = try driver.Host.init(self.allocator, @splat(0x85), @splat(0x86), driver.Host.Options.withFrameCap(4096));
+    var witness = try driver.Host.init(self.allocator, @splat(0x85), @splat(0x86), driver.Host.Options.init(.unchecked, 4096));
     defer witness.deinit();
     var lane = try Pair.open(&self.host, &witness, "127.0.0.1:9792");
     defer lane.close();

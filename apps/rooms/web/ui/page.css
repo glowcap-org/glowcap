@@ -38,7 +38,7 @@
 
 /* Focusing a control must never scale the application viewport. Under 16px,
    iOS zooms a focused text control and can leave the reader stranded in a
-   scaled app whose rails and composer no longer fit. This is a page invariant, status-allow: lifecycle transition
+   scaled app whose rails and composer no longer fit. This is a page invariant,
    not a field style: it comes after every component sheet and is important so
    a dense surface cannot silently opt back into viewport zoom.
 
@@ -242,13 +242,11 @@ pre > code {
 	font-size: inherit;
 }
 :root {
-	/* One height for interactive controls, so buttons and single-line inputs line
-	   up without per-element tuning. */
 	/* Avatar tints. A fixed ramp of ten that does not follow the theme, because
 	   the chip carries white initials and every tint has to clear 4.5:1 against
-	   them. Three of these are the light arm of --accent-deep, --teal, and
+	   them. --avatar-2 and --avatar-4 are the light arm of --teal and
 	   --teal-deep, so `var()` would read correctly here and then flip to a dark
-	   arm that misses the bar (3.67, 2.48, and 3.47 against white). The ramp is
+	   arm that misses the bar (2.48 and 3.47 against white). The ramp is
 	   therefore written out, and it is the one place in rooms allowed to spell a
 	   core value. The ui/tokens.css sheet owns every other colour. */
 	--avatar-1: #ae6115;

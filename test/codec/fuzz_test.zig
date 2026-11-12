@@ -120,7 +120,7 @@ fn syrupOne(_: void, smith: *std.testing.Smith) anyerror!void {
         const first = body.toOwned(gpa) catch |err| return budget.refusalEndsIt(err);
         defer model.freeMessage(gpa, first);
         expectReencodeStability(syrup, gpa, first) catch |err| return budget.onlyInducedFailure(err);
-    } else |_| {}
+    } else |err| try budget.refusalEndsIt(err);
 
     // The owned entry, which takes the multi-allocation cleanup path.
     const owned = syrup.decodeOwned(gpa, .{ .bytes = input, .shape = .byte }) catch |err| return budget.refusalEndsIt(err);
@@ -227,6 +227,8 @@ fn capnpOne(_: void, smith: *std.testing.Smith) anyerror!void {
     // filled. It then walks the raw pointer graph once against the traversal
     // budget; `toOwned` then exercises the lazy view walks and the
     // multi-allocation materializer.
+    // tolerant: a refusal of untrusted words is the answer under test, and
+    // nothing was decoded to check further.
     const body = capnp.decodeBody(frame) catch return;
     const first = body.toOwned(gpa) catch |err| return budget.refusalEndsIt(err);
     defer model.freeMessage(gpa, first);
@@ -280,9 +282,11 @@ fn handoffGiveOne(_: void, smith: *std.testing.Smith) anyerror!void {
     // These bytes reach the signature check, so a parser slip here is a slip in
     // the one place a third party's claim is weighed. The decode allocates in
     // several steps, and a refusal partway has to release what it took.
+    // A refusal is the answer to most inputs. Running out of memory is not:
+    // this allocator fails only when the decode asks past what the input bounds.
     if (syrup.decodeSignedHandoffGiveOwned(gpa, input)) |give| {
         model.freeHandoffGive(gpa, give);
-    } else |_| {}
+    } else |err| if (err == error.OutOfMemory) return err;
 }
 
 test "fuzz: standalone handoff give decode is total" {

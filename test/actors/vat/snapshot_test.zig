@@ -1,7 +1,8 @@
 //! Local time-travel: snapshots share state copy-on-write, restore is
 //! per-revision and reusable, deep-owning state round-trips leak-free,
 //! persistent actors share without a clone method, functional become keeps
-//! old revisions old, and an actor id is never reissued after restore.
+//! old revisions old, an actor id is never reissued after restore, and a
+//! restore rewinds a hosted actor's state while its network session keeps going.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -11,6 +12,7 @@ const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const Delivery = actors.Delivery;
+const capture = @import("../../support/capture.zig");
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
 const poison = @import("../../support/poison.zig");
@@ -186,7 +188,7 @@ test "a persistent actor snapshots with no clone method (share-only)" {
     defer vat.deinit();
 
     const counter = try vat.spawn(PersistentCounter, .{ .n = 5 });
-    // No `clone`, yet the snapshot succeeds: the persistent flavor is admitted by status-allow: pending state or quoted runtime label
+    // No `clone`, yet the snapshot succeeds: the persistent flavor is admitted by
     // sharing alone, which `NotSnapshottable` would reject for a mutable actor.
     var snap = try vat.snapshot();
     defer snap.deinit();
@@ -314,4 +316,83 @@ test "restore publishes its actor table before discarded state cleanup reenters"
         try std.testing.expectEqual(@as(i64, 0), (try vat.near(trace.subject, .{ .verb = "get" })).integer);
         try std.testing.expectEqual(@as(i64, 42), (try vat.near(trace.created.?, .{ .verb = "get" })).integer);
     }
+}
+
+/// The session tables a restore must leave alone, read from each peer.
+const SessionTables = struct {
+    host_exports: usize,
+    host_answers: usize,
+    caller_answers: usize,
+
+    fn of(host: *glowcap.ocapn.engine.Peer, caller: *glowcap.ocapn.engine.Peer) SessionTables {
+        return .{
+            .host_exports = host.session_state.exports.len(),
+            .host_answers = host.session_state.outbound_answers.len(),
+            .caller_answers = caller.session_state.outbound_answers.len(),
+        };
+    }
+};
+
+fn serveAll(vat: *actors.Vat, port: *actors.Port, peer: *glowcap.ocapn.engine.Peer) !void {
+    while (peer.pollEvent()) |ev| {
+        var e = ev;
+        defer e.deinit();
+        _ = try port.serve(vat, &e);
+    }
+}
+
+test "restore rewinds a hosted actor's state and leaves its network session where it was" {
+    const allocator = std.testing.allocator;
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var host = actors.Vat.init(allocator);
+    defer host.deinit();
+    var host_port = actors.Port.init(allocator, &pair.p2);
+    defer host_port.deinit(&host);
+    var caller = actors.Vat.init(allocator);
+    defer caller.deinit();
+    var caller_port = actors.Port.init(allocator, &pair.p1);
+    defer caller_port.deinit(&caller);
+
+    const counter = try host.spawn(CloneCounter, .{ .n = 7 });
+    try host_port.bindExport(&host, counter, 9);
+    try pair.p2.exportObject(9);
+    try pair.p1.importObject(9);
+    const proxy = try actors.ocap.caretaker(&caller, .{ .far = model.FarRef.object(9) });
+
+    var snap = try host.snapshot();
+    defer snap.deinit();
+
+    // The partner bumps the counter over the wire after the snapshot.
+    try caller_port.tell(&caller, proxy.proxy, .{ .verb = "increment" });
+    try caller.drive();
+    try cross_peer.pumpAll(&pair.p1, &pair.p2);
+    try serveAll(&host, &host_port, &pair.p2);
+    try std.testing.expectEqual(@as(i64, 8), try getN(&host, counter));
+
+    // Restore rewinds the actor and touches no session table on either side.
+    const before = SessionTables.of(&pair.p2, &pair.p1);
+    try host.restore(&snap);
+    try std.testing.expectEqual(@as(i64, 7), try getN(&host, counter));
+    try std.testing.expectEqual(before, SessionTables.of(&pair.p2, &pair.p1));
+
+    // The export the partner already holds still reaches the same actor, now
+    // at its restored state, and the session keeps numbering its questions
+    // forward: two more round trips settle with no abort on either side.
+    for ([_]i64{ 7, 8 }, 0..) |expected, round| {
+        if (round == 1) {
+            try caller_port.tell(&caller, proxy.proxy, .{ .verb = "increment" });
+            try caller.drive();
+        }
+        const answer = try caller_port.send(&caller, proxy.proxy, .{ .verb = "get" });
+        var result: i64 = -2;
+        try caller.on(answer, .{ .ctx = &result, .func = capture.captureInt });
+        try caller.drive();
+        try cross_peer.pumpAll(&pair.p1, &pair.p2);
+        try serveAll(&host, &host_port, &pair.p2);
+        try cross_peer.pumpAll(&pair.p2, &pair.p1);
+        try serveAll(&caller, &caller_port, &pair.p1);
+        try std.testing.expectEqual(expected, result);
+    }
+    try std.testing.expect(pair.p1.sessionIsOpen() and pair.p2.sessionIsOpen());
 }

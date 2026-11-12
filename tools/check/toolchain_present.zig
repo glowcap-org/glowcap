@@ -94,13 +94,11 @@ pub fn probeReports(
     probe: []const []const u8,
     expected: []const u8,
 ) !bool {
-    // tolerant: a probe that cannot spawn, or that refuses, answers the
-    // question the same way an empty listing does.
     const result = std.process.run(gpa, io, .{
         .argv = probe,
         .stdout_limit = .limited(1 << 20),
         .stderr_limit = .limited(1 << 16),
-    }) catch return false;
+    }) catch return false; // tolerant: a probe that cannot spawn answers as an empty listing does.
     defer gpa.free(result.stdout);
     defer gpa.free(result.stderr);
     // A probe can print a partial listing and then fail; only a clean exit

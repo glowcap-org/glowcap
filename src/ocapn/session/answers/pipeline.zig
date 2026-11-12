@@ -115,7 +115,7 @@ pub fn preparePipelinedCallTarget(
 
 /// Queue a call, charging its owned bytes against the session budget. A call
 /// drained once and re-queued behind another pending answer keeps the charge
-/// it was measured at; a fresh call (charge zero, which no message measures
+/// it was measured at. A fresh call (charge zero, which no message measures
 /// to) is measured here, and the stored call carries the result.
 pub fn enqueuePipelinedCallTarget(
     self: *Session,

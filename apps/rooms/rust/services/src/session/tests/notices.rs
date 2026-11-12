@@ -13,7 +13,7 @@ fn a_standing_failure_is_told_once() {
 	};
 	let directory = MembershipTarget::Directory("ocapn://directory".into());
 	let room = MembershipTarget::Room("room".into());
-	let gone = glowcap::loam::refusal("gone");
+	let gone = rooms_runtime::Error::closed("gone");
 	let mut standing = StandingFailures::default();
 	standing.report(&[(directory.clone(), gone.clone())], &report);
 	standing.report(&[(directory.clone(), gone.clone())], &report);
@@ -23,7 +23,7 @@ fn a_standing_failure_is_told_once() {
 		&report,
 	);
 	assert_eq!(told.borrow().len(), 2, "a new failure beside a standing one is told");
-	standing.report(&[(room.clone(), glowcap::loam::refusal("refused"))], &report);
+	standing.report(&[(room.clone(), rooms_runtime::Error::refused("refused"))], &report);
 	assert_eq!(told.borrow().len(), 3, "a changed cause is told");
 	standing.report(&[], &report);
 	standing.report(&[(directory, gone)], &report);

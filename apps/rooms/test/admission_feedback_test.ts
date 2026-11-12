@@ -11,8 +11,13 @@ import {
 	rememberJoinRefusal,
 	rememberRefusal,
 } from "../web/ui/admission_feedback.ts";
+import { refusalBesideCountdown } from "../lib/text/failure.ts";
+import { initializeApplication } from "./support/application.ts";
 const { PageProjection } = await import("../web/ui/store/projection.ts");
 const { membershipStatus } = await import("../web/ui/session/managed/membership_status.ts");
+const store = await import("../web/ui/store.ts");
+const { RoomsPage } = await import("../web/ui/page.ts");
+const { dirId } = await import("../web/ui/directory.ts");
 
 Deno.test("membership snapshots cannot renew expired advice or clear a newer gesture", () => {
 	const descriptor = Object.getOwnPropertyDescriptor(performance, "now");
@@ -25,6 +30,15 @@ Deno.test("membership snapshots cannot renew expired advice or clear a newer ges
 		const failure = {
 			target: { kind: "directory", id: "directory" },
 			reason: "rate-limited: retry-after-ms=1000; scope=join",
+			failure: {
+				status: -12,
+				reason: "rate-limited: retry-after-ms=1000; scope=join",
+				code: "rate-limited",
+				detail: "retry-after-ms=1000; scope=join",
+				retryAfterMs: 1000,
+				scope: "join",
+				owner: null,
+			},
 		};
 		update({ failures: [failure] });
 		const original = projection.get().actionRefusals.get("join:directory")!;
@@ -33,7 +47,7 @@ Deno.test("membership snapshots cannot renew expired advice or clear a newer ges
 		update({ failures: [failure] });
 		assert(projection.get().actionRefusals.get("join:directory") === original, "snapshot renewed expired advice");
 		assertEquals(remaining(original), 0);
-		rememberJoinRefusal(projection, "directory", "room", failure.reason);
+		rememberJoinRefusal(projection, "directory", "room", failure.failure);
 		const gesture = projection.get().actionRefusals.get("join:directory")!;
 		assert(gesture !== original, "new explicit gesture did not acquire its own feedback");
 		update({ failures: [failure] });
@@ -50,6 +64,39 @@ Deno.test("membership snapshots cannot renew expired advice or clear a newer ges
 		else Object.defineProperty(performance, "now", descriptor);
 	}
 });
+// The membership worker reports a refused re-entry against the room's own
+// row, and the row's feedback reads that row's keys and target (`RoomRow`).
+const ROOM_JOIN = new RoomsError("rate-limited", "retry-after-ms=9239; scope=room-join; owner=directory");
+const REPORTED = { bare: ROOM_JOIN.message, "broken call": `glowcap error -12: ${ROOM_JOIN.message}` };
+for (const [shape, reason] of Object.entries(REPORTED)) {
+	Deno.test(`a ${shape} room-join refusal from the membership worker lands on its room row`, async () => {
+		// A room's opening policy comes from Rust.
+		await initializeApplication();
+		const page = new RoomsPage();
+		const directory = dirId("directory");
+		store.openDir(page.projection, directory, "127.0.0.1:1");
+		const room = store.ensureRoom(page.projection, directory, "admission", { persistId: "admission-id" });
+		membershipStatus(page.projection, () => {})({
+			failures: [{
+				target: { kind: "room", id: "admission-id" },
+				reason,
+				failure: {
+					status: -12,
+					reason,
+					code: ROOM_JOIN.code,
+					detail: ROOM_JOIN.detail,
+					retryAfterMs: ROOM_JOIN.retryAfterMs,
+					scope: ROOM_JOIN.retryScope,
+					owner: "directory",
+				},
+			}],
+		});
+		const refusal = activeRefusal(page.projection.get().actionRefusals, joinRefusalKeys(room.dir, room.id));
+		assertEquals(refusal?.target, { directory: room.dir, room: room.id });
+		assertEquals(refusal?.text, refusalBesideCountdown(ROOM_JOIN));
+		assert(remaining(refusal) > 0, "the row shows no countdown");
+	});
+}
 Deno.test("room quota preserves draft and does not block another room or directory", () => {
 	const projection = new PageProjection();
 	const drafts = projection.get().drafts;

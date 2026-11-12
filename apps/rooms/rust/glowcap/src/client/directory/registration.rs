@@ -46,7 +46,6 @@ impl Grant {
 pub struct Registration<D: Tasks> {
 	client: Client<D>,
 	directory: Ref,
-	notifications: introduction::Notifications,
 	state: Rc<RefCell<State>>,
 	pending: Option<D::Task>,
 	closed: Option<D::Task>,
@@ -59,7 +58,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 	/// Create an independent name owner. Keep and reuse it for replacements on
 	/// this directory connection. The server decides which registration is live.
 	pub fn registration(&self) -> Registration<D> {
-		Registration::new(self.client.clone(), self.reference.clone(), self.introductions.clone())
+		Registration::new(self.client.clone(), self.reference.clone())
 	}
 	pub fn signaling_registration(&self) -> Registration<D> {
 		let mut registration = self.registration();
@@ -111,7 +110,7 @@ impl<D: Deadline> Directory<D> {
 	}
 }
 impl<D: Deadline + Tasks + Clone + 'static> Registration<D> {
-	fn new(client: Client<D>, directory: Ref, notifications: introduction::Notifications) -> Self {
+	fn new(client: Client<D>, directory: Ref) -> Self {
 		let state = Rc::new(RefCell::new(State {
 			custody: Default::default(),
 			outcome: None,
@@ -128,7 +127,6 @@ impl<D: Deadline + Tasks + Clone + 'static> Registration<D> {
 		Self {
 			client,
 			directory,
-			notifications,
 			state,
 			pending: None,
 			closed: Some(closed),
@@ -158,9 +156,8 @@ impl<D: Deadline + Tasks + Clone + 'static> Registration<D> {
 			locator: locator.to_owned(),
 			voucher,
 		};
-		let notifications = self.notifications.clone();
 		self.pending = Some(self.client.deadline.spawn(async move {
-			let result = attempt(&client, &directory, request, &weak, (notifications, admission)).await;
+			let result = attempt(&client, &directory, request, &weak, admission).await;
 			if let Some(state) = weak.upgrade() {
 				let waiter = {
 					let mut s = state.borrow_mut();
@@ -248,7 +245,7 @@ async fn attempt<D: Deadline>(
 	directory: &Ref,
 	request: Request,
 	state: &std::rc::Weak<RefCell<State>>,
-	(notifications, admission): (introduction::Notifications, registry::Attempt),
+	admission: registry::Attempt,
 ) -> Result<Grant, Error> {
 	let Request {
 		nick,
@@ -270,16 +267,6 @@ async fn attempt<D: Deadline>(
 		let inbox = weak.upgrade().ok_or("the name registration has ended")?;
 		let verb = verb.ok_or("unknown method")?;
 		let notice = policy::notice(verb, |i| args.get(i).map(Value)).map_err(|e| e.to_string())?;
-		if let Some(Notice::Event(event)) = &notice
-			&& event.kind == policy::Kind::Introducible
-		{
-			let opening = event
-				.opening
-				.as_ref()
-				.and_then(|opening| opening.text().as_str())
-				.ok_or("the introducible notice carries no opening text")?;
-			notifications.notify(&event.registration, opening);
-		}
 		let (waiter, result) = {
 			let mut i = inbox.borrow_mut();
 			match notice {

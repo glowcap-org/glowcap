@@ -294,7 +294,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 						host.settleVow(action.ticket, { ok: action.value });
 					} else if (action.kind === HOST_ACTION_FAIL) {
 						host.settleVow(action.ticket, {
-							err: vowFailure(action.result, action.message),
+							err: vowFailure(action.result, action.message, action.cause),
 						});
 					}
 					// FLUSH/CLOSE/DIAL/NEED_GIFT_ID never surface: the loop

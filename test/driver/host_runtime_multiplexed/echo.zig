@@ -3,6 +3,7 @@
 //! proves which server answered over the transport under test.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 const driver = glowcap.driver;
 
@@ -21,6 +22,7 @@ pub fn EchoServer(comptime reply: []const u8) type {
         };
 
         pub fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+            if (!try wait.acceptableUnlessStopped(server, done)) return;
             var session = try server.accept();
             defer session.deinit();
             _ = try session.publish("echo", Echo, .{});

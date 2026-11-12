@@ -29,6 +29,7 @@
 
 import { chromium } from "playwright";
 import { sitePages } from "./site_pages.ts";
+import { serveSite } from "./site_server.ts";
 
 const siteRoot = Deno.args[0];
 if (!siteRoot) {
@@ -36,30 +37,8 @@ if (!siteRoot) {
 	Deno.exit(2);
 }
 
-// The site is built for the origin root, so serve it at the root.
-const types: Record<string, string> = {
-	".html": "text/html; charset=utf-8",
-	".css": "text/css",
-	".js": "text/javascript",
-	".svg": "image/svg+xml",
-	".png": "image/png",
-	".woff2": "font/woff2",
-	".wasm": "application/wasm",
-};
-const server = Deno.serve({ port: 0, onListen: () => {} }, async (req) => {
-	const url = new URL(req.url);
-	let path = decodeURIComponent(url.pathname);
-	if (path.endsWith("/")) path += "index.html";
-	try {
-		const body = await Deno.readFile(siteRoot + path);
-		const dot = path.lastIndexOf(".");
-		const type = dot >= 0 ? types[path.slice(dot)] : undefined;
-		return new Response(body, { headers: type ? { "content-type": type } : {} });
-	} catch {
-		return new Response("not found", { status: 404 });
-	}
-});
-const base = `http://127.0.0.1:${server.addr.port}`;
+const server = await serveSite(siteRoot);
+const base = server.base;
 
 const pages = await sitePages(siteRoot);
 if (pages.length < 20) {
@@ -165,7 +144,7 @@ for (const [i, width] of widths.entries()) {
 	await page.close();
 }
 await browser.close();
-await server.shutdown();
+await server.close();
 
 if (failures.length > 0) {
 	for (const f of failures) console.error(`site_render: ${f}`);

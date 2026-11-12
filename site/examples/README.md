@@ -56,13 +56,6 @@ signaling capability, and relay locators name the rendezvous service. In-process
 dials share a Zig `Network`. Managed bindings keep their in-process API at the
 raw frame-transport seam.
 
-Transport pages may also carry an explicitly marked `PLANNED` snippet for a
-language whose low-level transport exists but whose managed application adapter
-does not. Those planned snippets show the intended consumer shape, are excluded
-from binding-page tabs, and are not compile-checked, because that binding does
-not expose the API they show. The `PLANNED` marker is the distinction: an
-unmarked example is a shipped, checked claim.
-
 ## Editing
 
 1. Change or add a snippet file under the folders above.
@@ -73,9 +66,8 @@ unmarked example is a shipped, checked claim.
    assembler) changes.
 4. `zig build gen-site-examples-check` (on `check`) fails when a page marker is
    stale.
-5. The `site-*-examples-check` steps compile or type-check every shipped source
-   file through the same public packages readers use. Explicit `PLANNED`
-   snippets are skipped, because no binding exposes the API they show.
+5. The `site-*-examples-check` steps compile or type-check every snippet
+   through the same public packages readers use.
 
 Do not hand-edit between the begin/end markers in `site/content/**/*.smd`.
 The gen step overwrites that span. Each marker is an HTML comment inside a

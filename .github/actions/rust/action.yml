@@ -1,0 +1,21 @@
+name: Install the pinned Rust
+description: Install and select the Rust toolchain .devcontainer/pins.sh declares, for a job outside the devcontainer.
+inputs:
+  components:
+    description: Space-separated rustup components beyond the minimal profile, such as llvm-tools.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned Rust
+      shell: bash
+      run: |
+        source .devcontainer/pins.sh
+        rustup toolchain install "$RUST_VERSION" --profile minimal
+        rustup default "$RUST_VERSION"
+    - name: Add the requested components
+      if: inputs.components != ''
+      env:
+        COMPONENTS: ${{ inputs.components }}
+      shell: bash
+      run: read -ra components <<< "$COMPONENTS" && rustup component add "${components[@]}"

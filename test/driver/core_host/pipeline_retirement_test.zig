@@ -1,6 +1,6 @@
 //! Host pipeline ownership: answer retirement releases the private actor root
 //! and its independently retained destination. Event disposal alone has no
-//! actor effect; closing the owning Port must release a discarded effect.
+//! actor effect. Closing the owning Port must release a discarded effect.
 const std = @import("std");
 const glowcap = @import("glowcap");
 const core = glowcap.driver.core;

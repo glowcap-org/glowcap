@@ -21,7 +21,7 @@
  *
  *   - A keyframe is a declaration AT a time. Stating `open` at t=5
  *     on a session that is already open at t=5 pins it there, so
- *     later edits to the genesis state, or to an earlier keyframe, status-allow: event or source ordering
+ *     later edits to the genesis state, or to an earlier keyframe,
  *     stop reaching past t=5. That is a real change, and only an
  *     identical declaration at the same instant is not
  *     (`keyframeExactlyAt`). `set-session-keyframe`, `set-peer-update`,

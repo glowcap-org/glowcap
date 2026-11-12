@@ -34,7 +34,7 @@ cluster. Probe in a copy of the failing proof kept outside the repository,
 with console capture, DOM dumps and screenshots, so product sources never
 carry diagnostic logging into the next build. When a proof's wait passes but
 the next step fails, suspect the wait: a transitional state can satisfy it,
-such as a destination title over the old composer. <!-- status-allow: workflow sequence -->
+such as a destination title over the old composer.
 
 ## Suspects, in order
 
@@ -59,8 +59,7 @@ Write a fix once you can say what breaks.
 ## Prove, don't assume
 
 When reasoning passes through "this can't be null / reordered / reused," make it
-observable: an assert, a focused test, or a log written to a file with `>|`
-(zsh `noclobber` silently keeps a stale log on `>`). Write the causal chain from
+observable: an assert, a focused test, or a log written to a file. Write the causal chain from
 symptom to root in one paragraph. Where it stalls is the missing knowledge.
 
 A probe that reports nothing may be aimed wrong. Before filing "the feature does

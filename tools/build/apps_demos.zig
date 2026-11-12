@@ -25,18 +25,25 @@ pub fn register(
     demo_tools_check_mod: *std.Build.Module,
     interface_checker: *std.Build.Step.Compile,
 ) void {
+    // Every demo program listens and dials through one helper: encrypted Noise
+    // TCP, where the handshake proves the server's key.
+    const demo_sealed_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/sealed.zig"), .target = target, .optimize = optimize });
+    demo_sealed_mod.addImport("glowcap", lib_mod);
+
     // The tasks cross-language application demo: a capability-secure shared task
     // board with CRUD operations and live change notifications through capability
-    // callbacks. One Zig-built client plus the Deno server and
-    // Deno/Python/Racket/Rust clients, all managing tasks on one board over TCP. Like
+    // callbacks. The Zig server and client plus the Deno, Python, Racket, and
+    // Rust clients, all managing tasks on one board over Noise TCP. Like
     // rooms, it needs `deno` (which hosts the board and runs the orchestrator)
     // and the Zig client, always built here. Python, Racket, and Rust join when their
     // runtimes are on PATH. It is a sibling step, not part of the hermetic gate.
     const tasks_client_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-tasks-client", "apps/tasks/zig/client.zig");
     tasks_client_exe.root_module.addImport("demo_usage", demo_usage_mod);
+    tasks_client_exe.root_module.addImport("demo_sealed", demo_sealed_mod);
     check_step.dependOn(&tasks_client_exe.step);
     const tasks_server_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-tasks-server", "apps/tasks/zig/server.zig");
     tasks_server_exe.root_module.addImport("glowcap_loam_sqlite", loam_sqlite);
+    tasks_server_exe.root_module.addImport("demo_sealed", demo_sealed_mod);
     tasks_server_exe.root_module.link_libc = true;
     check_step.dependOn(&tasks_server_exe.step);
     // The board server for a reader's own terminal, started from the
@@ -44,7 +51,7 @@ pub fn register(
     const tasks_server_run = execution.addArtifact(b, .service, tasks_server_exe);
     tasks_server_run.setCwd(b.path("."));
     tasks_server_run.addPassthruArgs();
-    b.step("tasks-server", "Serve a Tasks board over TCP; pass -- --data=DIR [--port=N]").dependOn(&tasks_server_run.step);
+    b.step("tasks-server", "Serve a Tasks board over Noise TCP; pass -- --data=DIR [--port=N]").dependOn(&tasks_server_run.step);
 
     const tasks_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",               "run", "--allow-ffi", "--allow-read", "--allow-write", "--allow-net", "--allow-run", "--allow-env",
@@ -57,14 +64,15 @@ pub fn register(
     const tasks_demo_step = b.step("demo-tasks", "Run the cross-language tasks board demo (needs deno; joins python3/racket/cargo clients when present)");
     tasks_demo_step.dependOn(&tasks_demo.step);
 
-    // The board server over loopback TCP with a temporary SQLite store. It needs
+    // The board server over loopback Noise TCP with a temporary SQLite store. It needs
     // no other runtime, so `check` runs it.
     const tasks_board_mod = b.createModule(.{ .root_source_file = b.path("apps/tasks/zig/board_test.zig"), .target = target, .optimize = optimize, .link_libc = true });
     tasks_board_mod.addImport("glowcap", lib_mod);
     tasks_board_mod.addImport("glowcap_loam_sqlite", loam_sqlite);
+    tasks_board_mod.addImport("demo_sealed", demo_sealed_mod);
     const tasks_board_test = b.addTest(.{ .name = "tasks-board", .root_module = tasks_board_mod });
     const run_tasks_board = execution.addZigTest(b, tasks_board_test, .unit_test);
-    const tasks_app_test_step = b.step("tasks-app-test", "Run the task board server over TCP, across a restart of its SQLite store");
+    const tasks_app_test_step = b.step("tasks-app-test", "Run the task board server over Noise TCP, across a restart of its SQLite store");
     tasks_app_test_step.dependOn(&run_tasks_board.step);
     check_step.dependOn(tasks_app_test_step);
 
@@ -80,7 +88,7 @@ pub fn register(
     commands.setLibDir(mutation_racket, .host);
     mutation_racket.step.dependOn(b.getInstallStep());
     mutation_checks.step.dependOn(&mutation_racket.step);
-    const mutation_step = b.step("tasks-mutation-check", "Prove Tasks mutation ordering and watcher startup cleanup over TCP (needs deno + python3 + racket)");
+    const mutation_step = b.step("tasks-mutation-check", "Prove Tasks mutation ordering and watcher startup cleanup over Noise TCP (needs deno + python3 + racket)");
     mutation_step.dependOn(&mutation_checks.step);
     runtime_gate.add(mutation_step);
 
@@ -89,7 +97,7 @@ pub fn register(
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
     // coordinator hands an agent capabilities to tools, attenuated to read-only,
     // and revocable, and each agent proves delegation, attenuation, and
-    // revocation over an OCapN session on the `tcp` netlayer. The coordinator and agent are different languages
+    // revocation over an OCapN session on Noise TCP. The coordinator and agent are different languages
     // on the wire, so the capability trio is real, not in-process. It needs `deno`
     // (which hosts the coordinator and runs the orchestrator); Python, Racket,
     // and Rust agents join when their runtimes are on PATH. A sibling step, not
@@ -97,6 +105,7 @@ pub fn register(
     const tools_agent_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-tools-agent", "apps/tools/zig/agent.zig");
     tools_agent_exe.root_module.addImport("demo_tools_check", demo_tools_check_mod);
     tools_agent_exe.root_module.addImport("demo_usage", demo_usage_mod);
+    tools_agent_exe.root_module.addImport("demo_sealed", demo_sealed_mod);
     check_step.dependOn(&tools_agent_exe.step);
 
     // The showcase's thesis, attenuation refuses the unsafe verb, revocation
@@ -123,7 +132,7 @@ pub fn register(
     // ── Accountability application ───────────────────────────────────────────
     // accountability-on-glowcap: a real worked application that runs ON glowcap's
     // own runtime. Two Zig glowcap peers complete an OCapN handshake over a
-    // real loopback TCP socket; the host publishes an Affordance capability and
+    // real loopback Noise TCP socket; the host publishes an Affordance capability and
     // the caller invokes it, and every invocation produces a signed,
     // transparency-logged Episode attributing the attested caller. Identity
     // (KERI), Episodes, and the transparency log all live above glowcap, the app
@@ -133,8 +142,9 @@ pub fn register(
     // lives under `apps/accountability-on-glowcap/`, beside
     // the other worked applications.
     const accountability_exe = glowcapExecutable(b, lib_mod, target, optimize, "accountability-on-glowcap", "apps/accountability-on-glowcap/zig/main.zig");
+    accountability_exe.root_module.addImport("demo_sealed", demo_sealed_mod);
     const run_accountability = execution.addLiveRun(b, .{ .deterministic = 30 }, accountability_exe);
-    const accountability_step = b.step("accountability", "Run the accountability application on glowcap's own runtime over real TCP");
+    const accountability_step = b.step("accountability", "Run the accountability application on glowcap's own runtime over Noise TCP");
     accountability_step.dependOn(&run_accountability.step);
     // A runnable application is a contract, and this one owns a real loopback
     // socket, so `runtime-check` runs it. Its generated state stays under the
@@ -152,6 +162,7 @@ pub fn register(
     // as its argument; the host installs only for this step, not on every
     // default build.
     const host_exe = glowcapExecutable(b, lib_mod, target, optimize, "accountability-host", "apps/accountability-on-glowcap/zig/host.zig");
+    host_exe.root_module.addImport("demo_sealed", demo_sealed_mod);
     const host_install = b.addInstallArtifact(host_exe, .{});
     const accountability_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",                                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",

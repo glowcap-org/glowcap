@@ -40,7 +40,7 @@ impl<P: Tasks> ReceivedLine<P> {
 	pub fn retire(&self) {
 		self.lifetime.request_close();
 	}
-	pub async fn close(&self) -> Result<()> {
+	pub async fn close(&self) -> core::result::Result<(), crate::Error> {
 		self.retire();
 		self.lifetime.ended().await
 	}
@@ -99,7 +99,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					match inbox.close().await {
 						Ok(()) => return Ok(()),
 						Err(error) => {
-							signals.finished.send_replace(Some(Err(error)));
+							signals.finished.send_replace(Some(Err(error.into())));
 						}
 					}
 					let _ = signals.stopping.changed().await;
@@ -112,7 +112,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			lifetime,
 		})
 	}
-	pub async fn close_received_lines(&self) -> Result<()> {
+	pub async fn close_received_lines(&self) -> core::result::Result<(), crate::Error> {
 		self.state.lines.close_all().await
 	}
 }

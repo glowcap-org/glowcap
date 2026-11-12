@@ -3,6 +3,7 @@
 use super::*;
 use glowcap::loam::{ObservationCursor, ObservedDescription};
 use rooms_glowcap::client::access::{Observation, ObservationRequest};
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
@@ -11,15 +12,15 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(0, move |environment| async move {
-			let sequence = workspace.mutation_sequence().await.map_err(|e| e.to_string())?;
+			let sequence = workspace.mutation_sequence().await.map_err(RuntimeError::from)?;
 			use rooms_runtime::entropy::Entropy;
 			let mut identity = [0; 16];
 			environment
 				.platform
 				.clone()
 				.fill(&mut identity)
-				.map_err(|e| e.to_string())?;
-			let request = ObservationRequest::new_live(sequence, identity).map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::platform)?;
+			let request = ObservationRequest::new_live(sequence, identity).map_err(RuntimeError::from)?;
 			let request = driver.hold(request, size_of::<ObservationRequest>() + 12 + 16)?;
 			Ok(RoomsManagedObservationRequest {
 				driver,
@@ -43,7 +44,7 @@ impl RoomsManagedObservationRequest {
 		let request = self.request.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(0, move |_| async move {
-			let observation = workspace.observe(&request).await.map_err(|e| e.to_string())?;
+			let observation = workspace.observe(&request).await.map_err(RuntimeError::from)?;
 			let observation = driver.hold(observation, size_of::<Observation<Platform>>())?;
 			Ok(RoomsManagedObservation { driver, observation }.into())
 		})
@@ -56,7 +57,7 @@ pub struct RoomsManagedObservation {
 }
 fn cursor(raw: js_sys::Uint8Array) -> Result<ObservationCursor> {
 	if raw.length() != 56 {
-		return Err("Invalid observation cursor".into());
+		return Err(RuntimeError::invalid("Invalid observation cursor"));
 	}
 	let mut cursor = [0; 56];
 	raw.copy_to(&mut cursor);
@@ -71,7 +72,7 @@ impl RoomsManagedObservation {
 		};
 		let observation = self.observation.clone();
 		self.driver.submit(56, move |_| async move {
-			let reply = observation.poll(position.as_ref()).await.map_err(|e| e.to_string())?;
+			let reply = observation.poll(position.as_ref()).await.map_err(RuntimeError::from)?;
 			project(reply.view())
 		})
 	}
@@ -82,7 +83,7 @@ impl RoomsManagedObservation {
 		};
 		let observation = self.observation.clone();
 		self.driver.submit(56, move |_| async move {
-			let reply = observation.receive(&position).await.map_err(|e| e.to_string())?;
+			let reply = observation.receive(&position).await.map_err(RuntimeError::from)?;
 			project(reply.view())
 		})
 	}
@@ -91,7 +92,7 @@ impl RoomsManagedObservation {
 	pub fn cancel(&self) -> js_sys::Promise {
 		let observation = self.observation.clone();
 		self.driver.submit(0, move |_| async move {
-			observation.cancel().await.map(Into::into).map_err(|e| e.to_string())
+			observation.cancel().await.map(Into::into).map_err(RuntimeError::from)
 		})
 	}
 }
@@ -106,6 +107,6 @@ fn project(view: glowcap::loam::ObservationDescription<'_>) -> Result<JsValue> {
 		&"cursor".into(),
 		&js_sys::Uint8Array::from(view.cursor.as_slice()),
 	)
-	.map_err(|_| "Observation cursor projection failed")?;
+	.map_err(|_| RuntimeError::invalid("Observation cursor projection failed"))?;
 	Ok(output)
 }

@@ -13,7 +13,7 @@ an `Echo` interface with two calls:
 Each bench runs one process with two threads over loopback TCP. The server
 thread binds an ephemeral port on 127.0.0.1 and the client thread makes each
 call in series, waiting for each reply before the next call: `greet` with the
-name "world", then `report` with the fixed batch `bench/iroh_bench.zig` sends.
+name "world", then `report` with the fixed batch `bench/transport_bench.zig` sends.
 The timed window covers building the request, the round trip, and reading the
 reply's fields. The comparison against the expected values runs after the
 clock stops.

@@ -180,7 +180,7 @@ pub fn enqueueBorrowed(self: *Peer, message: model.Message) !void {
 /// Record and enqueue a deliver whose arguments the caller lends as views
 /// (ADR-0064): the Host's values behind a sequence table, or a delivery
 /// forwarded from the frame it arrived in. The tree is freight, values
-/// only, and the session certifies it as such; a reference or handoff in it
+/// only, and the session certifies it as such. A reference or handoff in it
 /// refuses the send. The envelope's own references are lowered and
 /// shortened as on the owned path, and the deliver leaves as its frame
 /// before this returns, so the views are the caller's again.
@@ -254,7 +254,7 @@ pub fn enqueueInventoried(self: *Peer, message_in: model.Message, inventory: ses
 /// Queue a caller's import release. It may carry a shortening closure,
 /// trailing entries that are the session's own retains, recorded apart from
 /// the caller's. An entry naming a row a stored resolution holds stays off
-/// the wire and with the table (`Session.wireRelease`); a release naming
+/// the wire and with the table (`Session.wireRelease`). A release naming
 /// only held rows records without a frame. Consumes `message`.
 fn enqueueRelease(self: *Peer, message: model.Message, inventory: session.Inventory) !void {
     var owned = message;
@@ -377,7 +377,7 @@ pub fn settleAnswerTargetGuaranteed(
 
 /// Break a local promise projection the Node owns with an owned `reason`,
 /// consumed on every outcome. A target nobody holds any more makes the
-/// break moot; any other refusal is this peer's failure to surface.
+/// break moot. Any other refusal is this peer's failure to surface.
 pub fn breakAnswerTargetGuaranteed(self: *Peer, target: session.AnswerTarget, reason: []const u8) void {
     settleAnswerTargetGuaranteed(self, target, .{ .@"break" = .{ .message = reason } }) catch |err| switch (err) {
         // tolerant: the projection was collected, settled, or its session closed.
@@ -404,7 +404,7 @@ fn enqueueAnswerTargetResolutionAdmitted(
 }
 
 /// Queue the carrier of one deferred projection settlement. True when a
-/// carrier was queued; `OutboundBackpressure` leaves the row deferred.
+/// carrier was queued. `OutboundBackpressure` leaves the row deferred.
 pub fn retryDeferredSettlement(self: *Peer) !bool {
     const projection = self.session_state.deferredLocalPromiseSettlement() orelse return false;
     const payload = self.session_state.answerPayloadForTarget(projection.answer_target) orelse unreachable;

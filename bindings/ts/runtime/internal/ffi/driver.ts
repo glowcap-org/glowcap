@@ -58,7 +58,7 @@ export const loopS = lazySymbols(() => libPath("glowcap_driver"), {
 	glowcap_driver_session_release: { parameters: [P, P], result: I },
 	// Last error.
 	glowcap_driver_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	glowcap_driver_clear_last_error: { parameters: [], result: V },
+	glowcap_driver_last_error_cause: { parameters: [B], result: V, outBuffers: [0] },
 }, {
 	symbol: "glowcap_driver_archive_fingerprint",
 	expected: DRIVER_ARCHIVE_FINGERPRINT,

@@ -63,7 +63,7 @@ export type LiveWire = {
 	 * peer that sends the same bytes twice draws two
 	 * messages. Bounded, oldest out first. */
 	seen: Set<string>;
-	/** Names an application claimed for an end nobody could name yet, status-allow: pending state or quoted runtime label
+	/** Names an application claimed for an end nobody could name yet,
 	 * by side, held until the end attaches to a peer that can wear
 	 * them.
 	 *

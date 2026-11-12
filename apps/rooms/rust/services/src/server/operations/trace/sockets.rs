@@ -7,7 +7,7 @@ use rooms_application::server::trace::{
 	constant_time_equals, records::parse_record,
 };
 use rooms_platform::websocket::WsBytes;
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{cell::RefCell, net::SocketAddr, rc::Rc, time::Duration};
 use tokio::{
 	net::{TcpListener, TcpStream},
 	sync::Notify,
@@ -26,7 +26,7 @@ const HEAD_BYTES: usize = 4096;
 /// Accept sockets for as long as the endpoint stands. Every connection task
 /// is owned here: a panic in one is reported, and aborting this task takes
 /// them all with it.
-pub(super) async fn accept(listener: TcpListener, feed: Shared, trace_host: Host, swiss: String, port: u16) {
+pub(super) async fn accept(listener: TcpListener, feed: Shared, trace_host: Host, swiss: String, address: SocketAddr) {
 	let mut connections = JoinSet::new();
 	loop {
 		tokio::select! {
@@ -37,7 +37,7 @@ pub(super) async fn accept(listener: TcpListener, feed: Shared, trace_host: Host
 						feed.clone(),
 						trace_host.clone(),
 						swiss.clone(),
-						port,
+						address,
 					));
 				}
 				Err(error) => {
@@ -83,9 +83,12 @@ impl tokio_tungstenite::tungstenite::handshake::server::Callback for Asked {
 	}
 }
 
-/// One socket: a plain request is told where the doors are. An upgrade is
-/// admitted only with the capability, then serves as a producer or a viewer.
-async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss: String, port: u16) {
+/// One socket: a plain request is told where the doors are. An upgrade names
+/// one of two routes and carries no query, so a capability never rides a URL
+/// into a proxy's or browser's history. `/captp` is a viewer's byte channel,
+/// where fetching the trace object takes the swiss. `/publish` is a producer,
+/// admitted once its first message is the swiss.
+async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss: String, address: SocketAddr) {
 	let (head, prefix) = match tokio::time::timeout(HEAD_DEADLINE, connection_head(&mut stream)).await {
 		Ok(Ok(head)) => head,
 		_ => return,
@@ -96,7 +99,7 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 	let (reader, writer) = stream.into_split();
 	let stream = tokio::io::join(std::io::Cursor::new(prefix).chain(reader), writer);
 	let Some(head) = head else {
-		let designator = format!("127.0.0.1:{port}");
+		let designator = address.to_string();
 		match Session::accept_over(&trace_host, "tcp", &designator, &designator, stream, Some(HANDSHAKE)).await {
 			Ok(session) => serve_viewer(session, feed).await,
 			Err(cause) => feed.borrow().report.clone()(Notice::Trouble {
@@ -126,35 +129,38 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 		return;
 	};
 	let (path, query) = asked.0.borrow().clone().unwrap_or_default();
-	let presented = query
-		.as_deref()
-		.unwrap_or("")
-		.split('&')
-		.find_map(|pair| pair.strip_prefix("cap="))
-		.unwrap_or("");
 	use futures_util::{SinkExt, StreamExt};
-	// The byte channel grants no trace access. Fetch still requires the Swiss.
-	// The viewer and producer routes additionally admit their HTTP token.
-	let channel = path == trace::CHANNEL_PATH && query.is_none();
-	if !channel && (!matches!(path.as_str(), "/" | PUBLISH_PATH) || !constant_time_equals(presented, &swiss)) {
-		// Refused with no handlers installed: nothing sent is parsed.
-		let _ = ws
-			.send(Message::Close(Some(CloseFrame {
+	let routed = query.is_none() && matches!(path.as_str(), trace::CHANNEL_PATH | PUBLISH_PATH);
+	// A producer's first message is its capability, read under the handshake
+	// deadline before anything else it sends is parsed.
+	let admitted = routed
+		&& (path == trace::CHANNEL_PATH
+			|| matches!(
+				tokio::time::timeout(HANDSHAKE, ws.next()).await,
+				Ok(Some(Ok(Message::Text(presented)))) if constant_time_equals(presented.as_str(), &swiss)
+			));
+	if !admitted {
+		refuse(
+			&mut ws,
+			CloseFrame {
 				code: CloseCode::from(REFUSED_CLOSE_CODE),
 				reason: REFUSED_REASON.into(),
-			})))
-			.await;
+			},
+		)
+		.await;
 		return;
 	}
 	if path == PUBLISH_PATH {
 		let scope = feed.borrow_mut().endpoint.admit_producer(true);
 		let Some(scope) = scope else {
-			let _ = ws
-				.send(Message::Close(Some(CloseFrame {
+			refuse(
+				&mut ws,
+				CloseFrame {
 					code: CloseCode::from(PRODUCER_LIMIT_CLOSE_CODE),
 					reason: format!("rooms trace: producer limit {} reached", trace::MAX_REMOTE_PRODUCERS).into(),
-				})))
-				.await;
+				},
+			)
+			.await;
 			return;
 		};
 		let ready = {
@@ -200,7 +206,7 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 	}
 	// A viewer: the socket is the byte channel of a CapTP session on the
 	// trace host, where the trace object answers.
-	let designator = format!("127.0.0.1:{port}");
+	let designator = address.to_string();
 	let session = match Session::accept_channel(
 		&trace_host,
 		glowcap::AcceptedTransport {
@@ -285,6 +291,27 @@ async fn serve_viewer(session: Session, feed: Shared) {
 			});
 		}
 	}
+}
+
+/// Close a refused socket and read to the peer's Close reply. A producer
+/// writes its capability as soon as the socket opens, so a refusal can cross
+/// it in flight. Ending the connection with those bytes unread makes the
+/// kernel answer with a reset, which discards the refusal before the peer
+/// reads it.
+async fn refuse<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+	ws: &mut tokio_tungstenite::WebSocketStream<S>,
+	frame: CloseFrame,
+) {
+	use futures_util::{SinkExt, StreamExt};
+	// tolerant: a refused socket that cannot take its close frame, or never
+	// answers it within the handshake deadline, is dropped; it was refused
+	// either way, and only its peer's view of the code is lost.
+	let _ = tokio::time::timeout(HANDSHAKE, async {
+		if ws.send(Message::Close(Some(frame))).await.is_ok() {
+			while let Some(Ok(_)) = ws.next().await {}
+		}
+	})
+	.await;
 }
 
 #[cfg(test)]

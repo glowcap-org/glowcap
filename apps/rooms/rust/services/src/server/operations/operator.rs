@@ -167,7 +167,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 				let name = state.manager_name(&identity)?;
 				let (held, published) = (name.clone(), name.clone());
 				authority::submit(
-					&state,
+					state.authority_writer.reserve()?,
 					verbs::GIVE_MANAGER,
 					move |state| Ok(state.authority.remembered(&held, false, true, None)?),
 					move |state, caller| {
@@ -230,7 +230,7 @@ fn issue(state: &State, kind: Kind, name: String) -> Result<Argument, String> {
 	};
 	let (held, published) = (name.clone(), name);
 	authority::submit(
-		state,
+		state.authority_writer.reserve()?,
 		verb,
 		move |state| Ok(state.authority.remembered(&held, steward, !steward, None)?),
 		move |state, caller| {
@@ -262,11 +262,16 @@ fn revoke(state: &State, kind: Kind, name: &str) -> Result<Argument, String> {
 		.ok_or_else(|| format!("Room \"{name}\" has no published {} link.", link_word(kind)))?
 		.to_owned();
 	let (prepare, commit) = authority::revocation(kind, token.clone(), None);
-	authority::submit(state, verb, prepare, move |state, caller| {
-		let name = state.links.resolve(kind, &token)?;
-		commit(state)?;
-		stewardship_row(state, &name, caller)
-	})
+	authority::submit(
+		state.authority_writer.reserve()?,
+		verb,
+		prepare,
+		move |state, caller| {
+			let name = state.links.resolve(kind, &token)?;
+			commit(state)?;
+			stewardship_row(state, &name, caller)
+		},
+	)
 }
 
 /// Forget `name` entirely: anyone in the live room is removed, every link
@@ -276,7 +281,7 @@ fn forget(state: &State, name: String) -> Result<Argument, String> {
 	let reserved = history::reserve(state)?;
 	let (prepared, committed) = (name.clone(), name);
 	authority::submit(
-		state,
+		state.authority_writer.reserve()?,
 		verbs::FORGET_ROOM,
 		move |state| Ok(state.authority.with_room_forgotten(&prepared)?),
 		move |state, _| {
@@ -307,8 +312,8 @@ fn forget(state: &State, name: String) -> Result<Argument, String> {
 /// server holds a link or record under, matched the way links fold names.
 /// The room list reads the same set, so every row it shows can be acted on.
 fn owned_room(state: &State, asked: &str) -> Result<String, String> {
-	if asked.is_empty() || asked.chars().count() > MAX_DURABLE_ROOM {
-		return Err(FailureCode::NoSuchRoom.line(format_args!("A room name is 1 to {MAX_DURABLE_ROOM} characters.")));
+	if asked.chars().count() > MAX_DURABLE_ROOM {
+		return Err(FailureCode::RoomTooLong.line(format_args!("A room name is 1 to {MAX_DURABLE_ROOM} characters.")));
 	}
 	faces::owned_name(&state.rooms, &state.authority, asked)
 		.ok_or_else(|| FailureCode::NoSuchRoom.line(format_args!("This server owns no room named \"{asked}\".")))

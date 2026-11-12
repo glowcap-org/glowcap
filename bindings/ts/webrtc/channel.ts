@@ -61,8 +61,9 @@ function binaryPacket(data: unknown): Uint8Array | null {
 /** Adapt an ordered, reliable `dc` to a `Channel`. Inbound packets are bounded
  * until the runtime claims them; outbound writes resolve once `bufferedAmount`
  * is at or below the high-water, so a fast producer is backpressured rather
- * than growing memory. */
-export function rtcChannel(dc: RTCDataChannel): Channel {
+ * than growing memory. Closing the channel runs `release` after closing `dc`,
+ * so the owner of the connection beneath it retires that too. */
+export function rtcChannel(dc: RTCDataChannel, release: () => void = () => {}): Channel {
 	dc.binaryType = "arraybuffer";
 	dc.bufferedAmountLowThreshold = rtcSendHighWaterBytes;
 	const queue: Uint8Array[] = [];
@@ -156,6 +157,7 @@ export function rtcChannel(dc: RTCDataChannel): Channel {
 			dc.onerror = null;
 			close();
 			dc.close();
+			release();
 		},
 	};
 }

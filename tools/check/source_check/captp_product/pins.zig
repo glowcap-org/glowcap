@@ -46,7 +46,7 @@ const expectFileContains = text_match.expectFileContains;
 ///
 /// Each verb also names how a *foreign* realizer states the same fact, because
 /// a realizer is not always in this tree. A binding that owns its own sockets
-/// realizes its own connections, and an evidence verb only native code can
+/// realizes its own connections, and an evidence verb only the binding's own code can
 /// speak is a hole: the session is weighed on what the partner volunteered
 /// while a stronger proof sat unread one layer down. That is not hypothetical,
 /// it is how a binding-hosted iroh listener under-reported every accepted
@@ -127,13 +127,13 @@ pub fn checkDurablePinWriters(
     // halves are confirmed present rather than assumed: the declaration, and
     // one call per speaker.
     const public_header = "include/glowcap_host.h";
-    const header_source = root.readFileAlloc(io, public_header, gpa, .limited(4 << 20)) catch null;
-    defer if (header_source) |source| gpa.free(source);
+    const header_source = try readOrReport(io, gpa, root, violations, public_header);
+    defer if (header_source) |bytes| gpa.free(bytes);
 
     for (verbs) |verb| {
-        const declaring_source = root.readFileAlloc(io, verb.declared_in, gpa, .limited(4 << 20)) catch null;
-        defer if (declaring_source) |source| gpa.free(source);
-        if (declaring_source == null or std.mem.indexOf(u8, declaring_source.?, verb.declaration) == null) {
+        const declaring_source = try readOrReport(io, gpa, root, violations, verb.declared_in);
+        defer if (declaring_source) |bytes| gpa.free(bytes);
+        if (declaring_source != null and std.mem.indexOf(u8, declaring_source.?, verb.declaration) == null) {
             try appendViolation(
                 gpa,
                 violations,
@@ -142,9 +142,9 @@ pub fn checkDurablePinWriters(
             );
         }
         for (verb.speakers) |speaker| {
-            const source = root.readFileAlloc(io, speaker, gpa, .limited(4 << 20)) catch null;
-            defer if (source) |contents| gpa.free(contents);
-            if (source != null and std.mem.indexOf(u8, source.?, verb.call) != null) continue;
+            const source = try readOrReport(io, gpa, root, violations, speaker) orelse continue;
+            defer gpa.free(source);
+            if (std.mem.indexOf(u8, source, verb.call) != null) continue;
             try appendViolation(
                 gpa,
                 violations,
@@ -155,8 +155,8 @@ pub fn checkDurablePinWriters(
         switch (verb.foreign) {
             .none_because => {},
             .entry => |entry| {
-                const published = header_source != null and
-                    std.mem.indexOf(u8, header_source.?, entry) != null;
+                const header = header_source orelse continue;
+                const published = std.mem.indexOf(u8, header, entry) != null;
                 if (published) continue;
                 try appendViolation(
                     gpa,
@@ -171,26 +171,24 @@ pub fn checkDurablePinWriters(
     // The repository root's own `.zig` files (`build.zig` and its siblings) are
     // a tree the walk below cannot reach, and a build script is exactly the
     // kind of place a shortcut gets wired.
-    if (root.openDir(io, ".", .{ .iterate = true }) catch null) |top| {
-        var dir = top;
-        defer dir.close(io);
-        var it = dir.iterate();
-        while (try it.next(io)) |entry| {
-            if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".zig")) continue;
-            const contents = root.readFileAlloc(io, entry.name, gpa, .limited(4 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}: cannot be read for the pin-parity check ({s})", .{ entry.name, @errorName(err) });
-                continue;
-            };
-            defer gpa.free(contents);
-            for (verbs) |verb| {
-                if (std.mem.indexOf(u8, contents, verb.call) == null) continue;
-                try appendViolation(
-                    gpa,
-                    violations,
-                    "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0028), and that layer is the one where {s}",
-                    .{ entry.name, verb.call, verb.standing },
-                );
-            }
+    var dir = try root.openDir(io, ".", .{ .iterate = true });
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".zig")) continue;
+        const contents = root.readFileAlloc(io, entry.name, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the pin-parity check ({s})", .{ entry.name, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        for (verbs) |verb| {
+            if (std.mem.indexOf(u8, contents, verb.call) == null) continue;
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0028), and that layer is the one where {s}",
+                .{ entry.name, verb.call, verb.standing },
+            );
         }
     }
 
@@ -226,4 +224,22 @@ pub fn checkDurablePinWriters(
 /// rule, and skipping them by name keeps the walk from reading their sources.
 fn keepFirstPartyZig(path: []const u8) bool {
     return std.mem.endsWith(u8, path, ".zig") and std.mem.indexOf(u8, path, "node_modules/") == null;
+}
+
+/// A file the check must read, or null after a violation that names it and
+/// its cause. A check that cannot read a file never passes on it.
+fn readOrReport(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+) !?[]u8 {
+    return root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| switch (err) {
+        error.OutOfMemory => return err,
+        else => {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the pin-writer check ({s})", .{ path, @errorName(err) });
+            return null;
+        },
+    };
 }

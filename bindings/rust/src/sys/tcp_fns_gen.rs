@@ -14,7 +14,7 @@
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::tcp::{GlowcapTcpConfig, GlowcapTcpConn, GlowcapTcpListener, GlowcapTcpNetlayer, GlowcapTcpStreamOptions};
-use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
+use crate::sys::{GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
 
 unsafe extern "C" {
 	pub fn glowcap_tcp_archive_fingerprint() -> u64;
@@ -84,10 +84,4 @@ unsafe extern "C" {
 	) -> c_int;
 	pub fn glowcap_tcp_listener_shutdown(listener: *mut GlowcapTcpListener);
 	pub fn glowcap_tcp_listener_release(listener: *mut GlowcapTcpListener);
-	pub fn glowcap_tcp_clear_last_error();
-	pub fn glowcap_tcp_netlayer_new_in(
-		context: *mut GlowcapContext,
-		config: *const GlowcapTcpConfig,
-		out_netlayer: *mut *mut GlowcapTcpNetlayer,
-	) -> c_int;
 }

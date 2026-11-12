@@ -147,24 +147,28 @@ pub const HINT_BOOLEAN: c_uint = 3;
 pub const HINT_INTEGER: c_uint = 4;
 pub const HINTS_MAP: c_uint = 0;
 pub const HINTS_BOOLEAN_FALSE: c_uint = 1;
-pub const OCAPN_ARCHIVE_FINGERPRINT: u64 = 2768581910033367227;
-pub const HOST_ARCHIVE_FINGERPRINT: u64 = 18420649870484573527;
-pub const DRIVER_ARCHIVE_FINGERPRINT: u64 = 13392317104972679078;
-pub const TCP_ARCHIVE_FINGERPRINT: u64 = 18296072444112190878;
-pub const INPROC_ARCHIVE_FINGERPRINT: u64 = 3251188408900727712;
-pub const ONION_ARCHIVE_FINGERPRINT: u64 = 2204576816375562792;
+pub const OCAPN_ARCHIVE_FINGERPRINT: u64 = 7281719028025087839;
+pub const HOST_ARCHIVE_FINGERPRINT: u64 = 1330235606562017225;
+pub const DRIVER_ARCHIVE_FINGERPRINT: u64 = 8181358032544748319;
+pub const TCP_ARCHIVE_FINGERPRINT: u64 = 12181794617345777596;
+pub const TCP_PROFILE_TCP: c_uint = 1;
+pub const TCP_PROFILE_KEYED_TCP: c_uint = 2;
+pub const TCP_PROFILE_NOISE_TCP: c_uint = 4;
+pub const TCP_PROFILES_ALL: c_uint = 7;
+pub const INPROC_ARCHIVE_FINGERPRINT: u64 = 14345323006945864940;
+pub const ONION_ARCHIVE_FINGERPRINT: u64 = 18055016265786041278;
 pub const ONION_AUTH_NONE: c_uint = 0;
 pub const ONION_AUTH_COOKIE: c_uint = 1;
 pub const ONION_AUTH_PASSWORD: c_uint = 2;
 pub const ONION_SERVICE_ID_LEN: usize = 56;
 pub const ONION_SERVICE_KEY_CAP: usize = 256;
-pub const IROH_ARCHIVE_FINGERPRINT: u64 = 12982945291599634263;
-pub const RELAY_ARCHIVE_FINGERPRINT: u64 = 4625578368752429389;
+pub const IROH_ARCHIVE_FINGERPRINT: u64 = 14708323916831460391;
+pub const RELAY_ARCHIVE_FINGERPRINT: u64 = 1433636707851327703;
 pub const RELAY_CONFIG_ABI_VERSION: c_uint = 1;
 pub const RELAY_TRUST_SYSTEM: c_uint = 0;
 pub const RELAY_TRUST_COPIED_PEM: c_uint = 1;
 pub const RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES: usize = 4096;
-pub const WEBRTC_ARCHIVE_FINGERPRINT: u64 = 14905543536894465005;
+pub const WEBRTC_ARCHIVE_FINGERPRINT: u64 = 6378322623444944714;
 pub const IROH_REACH_DIRECT: c_uint = 0;
 pub const IROH_REACH_DISCOVERY: c_uint = 1;
 pub const IROH_REACH_DISCOVERY_NO_RELAY: c_uint = 2;
@@ -212,6 +216,7 @@ pub const BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES: usize = 1048576;
 pub const HINT_DIRECT_ADDRESSES: &str = "direct-addresses";
 pub const HINT_ALT_LOCATORS: &str = "alt-locators";
 pub const HINT_VIA: &str = "via";
+pub const UNKNOWN_SWISSNUM_MESSAGE: &str = "unknown swissnum";
 pub const TRANSPORT_TCP: &str = "tcp";
 pub const TRANSPORT_ONION: &str = "onion";
 pub const TRANSPORT_KEYED_TCP: &str = "keyed-tcp";
@@ -223,3 +228,237 @@ pub const TRANSPORT_WEBRTC_MAX_PACKET_BYTES: usize = 16384;
 pub const TRANSPORT_NOISE_TCP: &str = "noise-tcp";
 pub const TRANSPORT_NOISE_RELAY: &str = "noise-relay";
 pub const TRANSPORT_ID: &str = "id";
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum BreakOrigin {
+	#[default]
+	Unspecified = 0,
+	Local = 1,
+	Partner = 2,
+}
+impl BreakOrigin {
+	pub fn from_raw(raw: u32) -> Option<Self> {
+		match raw {
+			0 => Some(Self::Unspecified),
+			1 => Some(Self::Local),
+			2 => Some(Self::Partner),
+			_ => None,
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum BreakReason {
+	#[default]
+	Unspecified = 0,
+	Application = 1,
+	IdentityUnverified = 2,
+	PeerUnreachable = 3,
+	Closed = 4,
+	Refused = 5,
+	TransportUnavailable = 6,
+	PublicationAbsent = 7,
+}
+impl BreakReason {
+	pub fn from_raw(raw: u32) -> Option<Self> {
+		match raw {
+			0 => Some(Self::Unspecified),
+			1 => Some(Self::Application),
+			2 => Some(Self::IdentityUnverified),
+			3 => Some(Self::PeerUnreachable),
+			4 => Some(Self::Closed),
+			5 => Some(Self::Refused),
+			6 => Some(Self::TransportUnavailable),
+			7 => Some(Self::PublicationAbsent),
+			_ => None,
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum RouteFailure {
+	#[default]
+	PeerUnreachable = 0,
+	TransportUnavailable = 1,
+}
+impl RouteFailure {
+	pub fn from_raw(raw: u32) -> Option<Self> {
+		match raw {
+			0 => Some(Self::PeerUnreachable),
+			1 => Some(Self::TransportUnavailable),
+			_ => None,
+		}
+	}
+}
+impl RouteFailure {
+	pub fn cause(self) -> BreakCause {
+		match self {
+			Self::PeerUnreachable => BreakCause {
+				origin: BreakOrigin::Local,
+				reason: BreakReason::PeerUnreachable,
+				context: BreakContext(0),
+			},
+			Self::TransportUnavailable => BreakCause {
+				origin: BreakOrigin::Local,
+				reason: BreakReason::TransportUnavailable,
+				context: BreakContext(0),
+			},
+		}
+	}
+	pub fn from_cause(cause: BreakCause) -> Option<Self> {
+		if cause == Self::PeerUnreachable.cause() {
+			return Some(Self::PeerUnreachable);
+		}
+		if cause == Self::TransportUnavailable.cause() {
+			return Some(Self::TransportUnavailable);
+		}
+		None
+	}
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BreakContext(u8);
+impl BreakContext {
+	pub fn from_raw(raw: u32) -> Option<Self> {
+		if raw & !7 == 0 { Some(Self(raw as u8)) } else { None }
+	}
+	pub fn raw(self) -> u32 {
+		u32::from(self.0)
+	}
+	pub fn fetch(self) -> bool {
+		self.0 & 1 != 0
+	}
+	pub fn with_fetch(self) -> Self {
+		Self(self.0 | 1)
+	}
+	pub fn restoration(self) -> bool {
+		self.0 & 2 != 0
+	}
+	pub fn with_restoration(self) -> Self {
+		Self(self.0 | 2)
+	}
+	pub fn withdrawal(self) -> bool {
+		self.0 & 4 != 0
+	}
+	pub fn with_withdrawal(self) -> Self {
+		Self(self.0 | 4)
+	}
+}
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BreakCause {
+	pub origin: BreakOrigin,
+	pub reason: BreakReason,
+	pub context: BreakContext,
+}
+impl BreakCause {
+	pub fn local(reason: BreakReason) -> Self {
+		Self {
+			origin: BreakOrigin::Local,
+			reason,
+			context: BreakContext::default(),
+		}
+	}
+	pub fn partner() -> Self {
+		Self {
+			origin: BreakOrigin::Partner,
+			reason: BreakReason::Application,
+			context: BreakContext::default(),
+		}
+	}
+	pub(crate) fn from_raw(raw: crate::sys::GlowcapBreakCause) -> Option<Self> {
+		let origin = BreakOrigin::from_raw(raw.origin)?;
+		let reason = BreakReason::from_raw(raw.reason)?;
+		let context = BreakContext::from_raw(raw.context)?;
+		match (origin, reason) {
+			(BreakOrigin::Unspecified, BreakReason::Unspecified)
+			| (BreakOrigin::Local, BreakReason::Unspecified)
+			| (BreakOrigin::Local, BreakReason::Application)
+			| (BreakOrigin::Local, BreakReason::IdentityUnverified)
+			| (BreakOrigin::Local, BreakReason::PeerUnreachable)
+			| (BreakOrigin::Local, BreakReason::Closed)
+			| (BreakOrigin::Local, BreakReason::Refused)
+			| (BreakOrigin::Local, BreakReason::TransportUnavailable)
+			| (BreakOrigin::Local, BreakReason::PublicationAbsent)
+			| (BreakOrigin::Partner, BreakReason::Application) => Some(Self {
+				origin,
+				reason,
+				context,
+			}),
+			_ => None,
+		}
+	}
+	pub fn with_fetch(mut self) -> Self {
+		self.context = self.context.with_fetch();
+		self
+	}
+	pub fn with_restoration(mut self) -> Self {
+		self.context = self.context.with_restoration();
+		self
+	}
+	pub fn with_withdrawal(mut self) -> Self {
+		self.context = self.context.with_withdrawal();
+		self
+	}
+	pub(crate) fn raw(self) -> crate::sys::GlowcapBreakCause {
+		crate::sys::GlowcapBreakCause {
+			origin: self.origin as u32,
+			reason: self.reason as u32,
+			context: self.context.raw(),
+		}
+	}
+	pub fn is_application(self) -> bool {
+		self.origin == BreakOrigin::Local && self.reason == BreakReason::Application && self.context.raw() == 0
+			|| self.origin == BreakOrigin::Partner && self.reason == BreakReason::Application && self.context.raw() == 0
+	}
+
+	pub fn is_publication_refusal(self) -> bool {
+		self.origin == BreakOrigin::Partner && self.reason == BreakReason::Application && self.context.raw() == 1
+	}
+
+	pub fn is_publication_absent(self) -> bool {
+		self.origin == BreakOrigin::Local && self.reason == BreakReason::PublicationAbsent && self.context.raw() == 1
+	}
+
+	pub fn is_peer_identity_unverified(self) -> bool {
+		self.origin == BreakOrigin::Local
+			&& self.reason == BreakReason::IdentityUnverified
+			&& (self.context.raw() & 2) == 0
+	}
+
+	pub fn is_exporter_unreachable(self) -> bool {
+		self.origin == BreakOrigin::Local
+			&& (self.reason == BreakReason::PeerUnreachable || self.reason == BreakReason::TransportUnavailable)
+			&& (self.context.raw() & 2) == 0
+	}
+
+	pub fn is_publication_not_found(self, message: Option<&str>) -> bool {
+		self.is_publication_absent() || (self.is_publication_refusal() && message == Some(UNKNOWN_SWISSNUM_MESSAGE))
+	}
+	pub fn label(self) -> Option<&'static str> {
+		if self.context.restoration() {
+			return Some("RestorationFailed");
+		}
+		if self.context.withdrawal() {
+			return Some("handoff redeem failed");
+		}
+		if self.origin != BreakOrigin::Local {
+			return None;
+		}
+		match self.reason {
+			BreakReason::IdentityUnverified => Some("PeerIdentityUnverified"),
+			BreakReason::PeerUnreachable => Some("ExporterUnreachable"),
+			BreakReason::TransportUnavailable => Some("ExporterUnreachable"),
+			_ => None,
+		}
+	}
+}
+
+pub const fn release_result_code(result: i32) -> i32 {
+	if result > 0 { -result } else { result }
+}
+pub const fn release_result_consumed(result: i32) -> bool {
+	result >= 0
+}

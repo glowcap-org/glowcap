@@ -2,6 +2,7 @@
 //! settle that authority off-turn on the Host owner thread.
 
 const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 
 const actors = @import("actors");
 const model = @import("model");
@@ -112,7 +113,7 @@ pub fn fulfillValue(self: *Host, resolver_id: u64, value: @import("../value.zig"
 
 /// Break a resolver vow. `reason` is borrowed for this call. Ownership and
 /// retry behavior match `fulfill`.
-pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
+pub fn breakVow(self: *Host, resolver_id: u64, reason: Broken) !void {
     try self.refuseReentry();
     try settle(self, resolver_id, .{ .broken = reason }, null);
 }
@@ -120,7 +121,7 @@ pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
 /// Preserve an owning producer's typed failure through deferred settlement.
 /// Wire breaks carry their existing protocol diagnostic. Neither kind proves
 /// whether an external effect applied. Receipt outcome belongs to its owner.
-pub fn reject(self: *Host, resolver_id: u64, kind: @import("../host/action.zig").VowFailure, reason: []const u8) !void {
+pub fn reject(self: *Host, resolver_id: u64, kind: @import("../host/action.zig").VowFailure, reason: Broken) !void {
     try self.refuseReentry();
     if (!self.resolver_ids.issued(resolver_id)) return error.NoSuchResolver;
     const entry = self.resolver_index.get(resolver_id) orelse return error.AlreadySettled;
@@ -137,7 +138,7 @@ pub fn reject(self: *Host, resolver_id: u64, kind: @import("../host/action.zig")
 /// resolver already. That is complete cleanup, while an unminted id still
 /// identifies a caller defect. Top-level ownership and retry rules match break.
 pub fn abandon(self: *Host, resolver_id: u64, reason: []const u8) !void {
-    self.resolverBreak(resolver_id, reason) catch |err| switch (err) {
+    self.resolverBreak(resolver_id, Broken.unnamed(reason)) catch |err| switch (err) {
         error.AlreadySettled => {},
         else => return err,
     };
@@ -210,7 +211,7 @@ fn deferOwned(self: *Host, turn: *actors.Turn) !u64 {
 
 fn keepOwnedResolver(_: *anyopaque, _: *actors.Vat) void {}
 
-fn abortOwnedResolver(ctx: *anyopaque, _: *actors.Vat, _: []const u8) void {
+fn abortOwnedResolver(ctx: *anyopaque, _: *actors.Vat, _: Broken) void {
     const row: *settlement.VowRow = @ptrCast(@alignCast(ctx));
     terminateOwned(row.host, row.forwarded.owning.resolver);
 }

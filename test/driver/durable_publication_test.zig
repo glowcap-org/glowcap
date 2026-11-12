@@ -2,7 +2,7 @@
 //! loopback sockets (ADR-0007 steps 3–4): `Server.publishDurable` mints an
 //! unpredictable sturdyref and returns it complete. `Session.enliven` resolves
 //! the sturdyref's peer to the live dialed session it names, or dials it,
-//! so the caller never selects a session, and `removeDurable` makes the old status-allow: replacement state identity
+//! so the caller never selects a session, and `removeDurable` makes the old
 //! sturdyref miss while issued capabilities keep answering.
 //!
 //! One thread drives one host, so each server publishes, serves, and removes
@@ -11,6 +11,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
+const wait = @import("../support/wait.zig");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
@@ -102,11 +103,12 @@ fn ServeDurable(comptime Behavior: type) type {
             var count: usize = 0;
             defer for (sessions[0..count]) |s| if (s) |sess| sess.deinit();
             while (!done.load(.acquire)) {
-                if (count < sessions.len and server.waitAcceptable(20) catch false) {
-                    sessions[count] = server.accept() catch continue;
+                if (count < sessions.len and try server.waitAcceptable(20)) {
+                    sessions[count] = try server.accept();
                     count += 1;
                 }
                 for (sessions[0..count]) |s| if (s) |sess| {
+                    // tolerant: a session whose peer left refuses the step, and the test judges the served state through its clients.
                     _ = sess.stepReadable(10) catch {};
                 };
                 if (remove_requested.load(.acquire) and !removed.load(.acquire)) {
@@ -147,20 +149,24 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     var removed = std.atomic.Value(bool).init(false);
     var no_remove = std.atomic.Value(bool).init(true);
 
+    var first_joined = false;
     var first_serving = try io.concurrent(ServeDurable(FirstService).run, .{
         first, allocator, &first_uri, &first_published, &remove_requested, &removed, &done,
     });
+    errdefer if (!first_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("first", first_serving.await(io));
+    };
+    var second_joined = false;
     var second_serving = try io.concurrent(ServeDurable(SecondService).run, .{
         second, allocator, &second_uri, &second_published, &no_remove, &no_remove, &done,
     });
-    defer {
+    errdefer if (!second_joined) {
         done.store(true, .release);
-        second_serving.await(io) catch {};
-        first_serving.await(io) catch {};
-    }
-    while (!first_published.load(.acquire) or !second_published.load(.acquire)) {
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real) catch {};
-    }
+        wait.joinedUnwinding("second", second_serving.await(io));
+    };
+    try wait.untilFlag(io, wait.default_deadline_ms, &first_published);
+    try wait.untilFlag(io, wait.default_deadline_ms, &second_published);
 
     // The client dials only the first server. Enlivening the first sturdyref
     // must select that live dialed session rather than opening a second one.
@@ -189,9 +195,7 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     // already issued keeps answering, the capability, and this client's own
     // session-cached enlivenment, which is issued authority, not discovery.
     remove_requested.store(true, .release);
-    while (!removed.load(.acquire)) {
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real) catch {};
-    }
+    try wait.untilFlag(io, wait.default_deadline_ms, &removed);
     const late = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
     defer late.deinit();
     try std.testing.expectError(driver.Error.FetchBroken, late.enlivenUri(first_uri.?));
@@ -201,4 +205,13 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     const cached = try client.enlivenUri(first_uri.?);
     const cached_reply = try client.call(cached, "poke", &.{}, arena);
     try std.testing.expect(cached_reply == .fulfilled and cached_reply.fulfilled == .string);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    second_joined = true;
+    first_joined = true;
+    const second_served = second_serving.await(io);
+    const first_served = first_serving.await(io);
+    try second_served;
+    try first_served;
 }

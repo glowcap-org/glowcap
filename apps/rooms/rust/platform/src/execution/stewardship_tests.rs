@@ -92,9 +92,12 @@ async fn stewardship_keeps_rooms_isolated_and_rejects_late_authority() {
 				.unwrap();
 			}
 		}
-		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-			.await
-			.unwrap();
+		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})]))
+		.await
+		.unwrap();
 		let (session, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
 		let accepted = accepted.unwrap();
 		let serving = tokio::task::spawn_local(async move { accepted.serve().await });

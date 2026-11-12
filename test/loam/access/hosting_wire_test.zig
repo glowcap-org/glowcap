@@ -20,7 +20,7 @@ test "loam managed hosting hands a disclosed stored reference to a CapTP caller"
     var host: h.Hosted = undefined;
     try host.init(&store, &backend, data);
     defer host.deinit();
-    var client = h.host_support.init(h.a, @splat(0x62), h.driver.Host.Options.withFrameCap(4096));
+    var client = h.host_support.init(h.a, @splat(0x62), h.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const endpoint_lease = try h.c.load(&store, &backend, data.use);
     defer store.release(endpoint_lease) catch unreachable;
@@ -81,7 +81,7 @@ test "loam managed hosting returns a facet dependent on invoking and target gran
     defer host.deinit();
     const target_control = try host.restore(&backend, data.target_control.?);
     defer host.host.releaseCapability(target_control, 1) catch unreachable;
-    var client = h.host_support.init(h.a, @splat(0x62), h.driver.Host.Options.withFrameCap(4096));
+    var client = h.host_support.init(h.a, @splat(0x62), h.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const endpoint_lease = try h.c.load(&store, &backend, data.use);
     defer store.release(endpoint_lease) catch unreachable;
@@ -213,7 +213,7 @@ test "loam managed hosting held CapTP use observes pause and resume through a se
     var host: h.Hosted = undefined;
     try host.init(&store, &backend, data);
     defer host.deinit();
-    var client = h.host_support.init(h.a, @splat(0x62), h.driver.Host.Options.withFrameCap(4096));
+    var client = h.host_support.init(h.a, @splat(0x62), h.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     var swiss: [2]h.driver.Host.DurableSwiss = undefined;
     for ([_]h.driver.Capability{ host.use, host.control }, 0..) |ref, i| {

@@ -1,6 +1,8 @@
 //! Exact signaling registrations retain ownership through observation failure.
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use super::{Membership, Session, supervision};
-use glowcap::{Argument, Result, loam};
+use glowcap::{Argument, loam};
 use rooms_application::content::{
 	permissions::Permission,
 	session::{custody, workspace},
@@ -44,7 +46,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		)
 		.snapshot()
 		.await
-		.map_err(error)?
+		.map_err(Error::from)?
 		.intent
 		.connection)
 	}
@@ -55,9 +57,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// when the name has expired or been replaced.
 	pub async fn signaling_route(&self, row: &workspace::Directory) -> Result<Route<P>> {
 		let selected = workspace::SignalingSelection::directory(row)
-			.ok_or_else(|| loam::refusal("signaling has no exact registered name and source"))?;
+			.ok_or_else(|| Error::stale("signaling has no exact registered name and source"))?;
 		let source = self.directory_source(row).await?;
-		let mut route = source.workspace().signaling(&selected).await.map_err(error)?;
+		let mut route = source.workspace().signaling(&selected).await.map_err(Error::from)?;
 		let directory = self
 			.restore_custody(&[custody::Coordinate {
 				role: custody::Role::DirectoryAccess,
@@ -65,29 +67,35 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			}])
 			.await?
 			.remove(0);
-		route.retain_introducer(&directory).map_err(error)?;
-		route.check().await.map_err(error)?;
+		route.retain_introducer(&directory).map_err(Error::from)?;
+		route.check().await.map_err(Error::from)?;
 		Ok(route)
 	}
 	pub async fn signaling_registration(&self, row: &workspace::Directory) -> Result<SignalingRegistration<P>> {
 		let _permit = supervision::Permit::reserve(&self.state.signaling_observers)?;
 		let selected = workspace::SignalingSelection::directory(row)
-			.ok_or_else(|| loam::refusal("signaling has no exact registered name and source"))?;
+			.ok_or_else(|| Error::stale("signaling has no exact registered name and source"))?;
 		let id = format!(
 			"signaling-{}",
 			row.id
 				.text()
 				.as_str()
-				.ok_or_else(|| loam::refusal("invalid signaling directory"))?
+				.ok_or_else(|| Error::invalid("invalid signaling directory"))?
 		);
-		if self.state.closing.get() || self.state.signaling_observers.contains(&id) {
-			return Err(loam::refusal("signaling is closing or already supervised"));
+		if self.state.closing.get() {
+			return Err(Error::closed("Session is closing"));
+		}
+		if self.state.signaling_observers.contains(&id) {
+			return Err(Error::busy("signaling is already supervised"));
 		}
 		let source = self.directory_source(row).await?;
 		let route = self.signaling_route(row).await?;
 		// Concurrent startups may have installed this identity while we waited.
-		if self.state.closing.get() || self.state.signaling_observers.contains(&id) {
-			return Err(loam::refusal("signaling is closing or already supervised"));
+		if self.state.closing.get() {
+			return Err(Error::closed("Session is closing"));
+		}
+		if self.state.signaling_observers.contains(&id) {
+			return Err(Error::busy("signaling is already supervised"));
 		}
 		let mut changes = self.state.changes.subscribe(&self.state)?;
 		let checking = route.clone();
@@ -109,11 +117,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 						checked = platform.within(20_000, async {
 							changes.ready().await?;
 							let encoded = serde_json::to_string(&selected)
-								.map_err(|_| loam::refusal("invalid signaling selection"))?;
+								.map_err(|_| Error::invalid("invalid signaling selection"))?;
 							match writer.idempotent("signaling-selected", &[encoded.into()]).await? {
 								Argument::Boolean(false) => return Ok(false),
 								Argument::Boolean(true) => {},
-								_ => return Err(loam::refusal("invalid signaling selection acknowledgment")),
+								_ => return Err(Error::invalid("invalid signaling selection acknowledgment")),
 							}
 							let description = writer.idempotent_through(workspace.reference(), "describe-access", &[]).await?;
 							let active = match loam::UseDescription::read(&description)? {
@@ -122,9 +130,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 								_ => false,
 							};
 							if !active { return Ok(false); }
-							checking.check().await.map_err(error)?;
+							checking.check().await.map_err(Error::from)?;
 							Ok(true)
-						}) => checked.unwrap_or_else(|| Err(loam::refusal("signaling source check is still unresolved"))),
+						}) => checked.unwrap_or_else(|| Err(Error::uncertain("signaling source check is still unresolved"))),
 					};
 					let failed = match checked {
 						// Only affirmative source/selection evidence releases this owner.
@@ -167,8 +175,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	) -> Result<Membership<P>> {
 		let _permit = supervision::Permit::reserve(&self.state.signaling_observers)?;
 		let id = "signaling-routes".to_owned();
-		if self.state.closing.get() || self.state.signaling_observers.contains(&id) {
-			return Err(loam::refusal("signaling routes are closing or already followed"));
+		if self.state.closing.get() {
+			return Err(Error::closed("Session is closing"));
+		}
+		if self.state.signaling_observers.contains(&id) {
+			return Err(Error::busy("signaling routes are already followed"));
 		}
 		let mut changes = self.state.changes.subscribe(&self.state)?;
 		let session = Session {
@@ -192,7 +203,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					}
 					let followed = async {
 						changes.ready().await?;
-						let intent = workspace.snapshot().await.map_err(error)?.intent;
+						let intent = workspace.snapshot().await.map_err(Error::from)?.intent;
 						let mut selected = BTreeMap::new();
 						for row in intent.directories.as_slice() {
 							if let Some(selection) = workspace::SignalingSelection::directory(row) {
@@ -200,7 +211,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 									.id
 									.text()
 									.as_str()
-									.ok_or_else(|| loam::refusal("invalid directory"))?;
+									.ok_or_else(|| Error::invalid("invalid directory"))?;
 								selected.insert(id.to_owned(), (selection, row.clone()));
 							}
 						}
@@ -221,7 +232,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 								.map(|(id, (_, route))| (id.clone(), route.clone()))
 								.collect(),
 						);
-						Ok::<(), glowcap::Error>(())
+						Ok::<(), Error>(())
 					}
 					.await;
 					let failed = match followed {
@@ -247,7 +258,4 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			},
 		))
 	}
-}
-fn error(error: rooms_glowcap::client::Error) -> glowcap::Error {
-	loam::refusal(error.to_string())
 }

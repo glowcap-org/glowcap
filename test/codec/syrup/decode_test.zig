@@ -391,9 +391,12 @@ test "Syrup: corrupting any byte of a frame stays total: typed error or message,
                 buf[i] = corruption;
                 const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .byte };
 
+                // A refusal is a legitimate answer to corrupted bytes. Running
+                // out of memory is not: this allocator fails only when the
+                // decoder asks for more than the frame bounds.
                 if (syrup.decodeOwned(allocator, view)) |decoded| {
                     model.freeMessage(allocator, decoded);
-                } else |_| {}
+                } else |err| if (err == error.OutOfMemory) return err;
             }
         }
     }

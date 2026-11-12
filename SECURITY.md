@@ -5,7 +5,7 @@ between peers. A vulnerability in its wire path or session state machine can
 affect every product built on top of it, so security reports take precedence
 over other work here.
 
-glowcap is 0.1.6 alpha software and has had no independent security review.
+glowcap is 0.1.7 alpha software and has had no independent security review.
 The conformance and interoperability checks test protocol behavior.
 
 The core bounds inbound frames, nesting, and partner-driven session tables.
@@ -29,7 +29,7 @@ privately through a GitHub security advisory or email
 - The invariant you believe is broken.
 - A protocol scenario, trace, or written argument that reproduces the problem.
 
-Glowcap LLC aims to acknowledge reports within seven days. Reports of broken protocol invariants take priority.
+Glowcap LLC aims to acknowledge reports within seven days.
 
 ## Supported versions
 
@@ -62,7 +62,7 @@ If a target is reached both directly and through a three-party handoff, glowcap
 proves the two references compare equal when both paths lead to the same live
 exporter session. It does not assume two targets are equal when they come from
 separate sessions that share no authenticated identity.
-[docs/boundaries.md](docs/boundaries.md) records that limit. If you can show
+The [known limitations](docs/boundaries.md) record that limit. If you can show
 that this limit lets someone defeat a revocation, please report it.
 
 ## Out of scope

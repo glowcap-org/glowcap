@@ -72,4 +72,14 @@ pub const Budget = struct {
         if (err == error.OutOfMemory and self.failed()) return;
         return err;
     }
+
+    /// For setup, or a step whose owner queues work under pressure instead of
+    /// failing the verb: once the induced failure has happened, the error may
+    /// carry another name, or a later read may find work still queued, so the
+    /// run ends there. Any error before the induced failure is a setup or
+    /// property failure and fails the run.
+    pub fn endsAfterInducedFailure(self: *const Budget, err: anyerror) anyerror!void {
+        if (self.failed()) return;
+        return err;
+    }
 };

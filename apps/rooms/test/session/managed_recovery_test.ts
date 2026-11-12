@@ -1,10 +1,15 @@
 // Recovery controls name retained tasks that have stopped, never live work.
-import { assertEquals } from "../assert.ts";
+import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import type { RoomsManagedCommand, RoomsManagedRecoveredEffect } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ObservationView } from "../../web/ui/session/managed/model.ts";
 import { restoreEffects, resumeEffect } from "../../web/ui/session/managed/recovery.ts";
-import { ResultAcquisitionError, TerminalObservationError } from "../../web/ui/session/managed/operation.ts";
+import {
+	readResult,
+	ResultAcquisitionError,
+	ResultExpired,
+	TerminalObservationError,
+} from "../../web/ui/session/managed/operation.ts";
 
 Deno.test("paused unknown execution resumes before reading its unavailable result", async () => {
 	let reads = 0;
@@ -132,7 +137,7 @@ for (const expiredDuringResult of [false, true]) {
 }
 
 Deno.test("command admission hides live work and exposes its exact uncertain receipt", async () => {
-	const submitted = deferred<string>();
+	const submitted = deferred<{ status: string }>();
 	const ready = deferred<void>();
 	let status = "pending";
 	const session = viewer({
@@ -158,7 +163,7 @@ Deno.test("command admission hides live work and exposes its exact uncertain rec
 	assertEquals(session.pending, ["original"]);
 	assertEquals(session.recoverable, []);
 	assertEquals(admissions.every((ids) => ids.length === 0), true);
-	submitted.resolve("unknown");
+	submitted.resolve({ status: "unknown" });
 	// The original request cannot prove a committed receipt.
 	status = "failed";
 	await uncertain;
@@ -179,7 +184,7 @@ Deno.test("a running gesture hides its retained command through result acquisiti
 	const gesture = session.execute("original", async () => {
 		command = await session.perform("original", () =>
 			Promise.resolve({
-				submit: () => Promise.resolve("committed"),
+				submit: () => Promise.resolve({ status: "committed" }),
 				status: () => Promise.resolve("committed"),
 				free() {},
 			} as unknown as RoomsManagedCommand));
@@ -227,7 +232,7 @@ Deno.test("an acquisition decision appears after uncertainty and disappears duri
 });
 
 Deno.test("a retained receipt another viewer retired is released when recovery finds it absent", async () => {
-	const submitted = deferred<string>();
+	const submitted = deferred<{ status: string }>();
 	const session = viewer({
 		snapshot: () => Promise.resolve(snapshot()),
 		recoverEffect: () => Promise.resolve(undefined),
@@ -238,7 +243,7 @@ Deno.test("a retained receipt another viewer retired is released when recovery f
 		free() {},
 	} as unknown as RoomsManagedCommand;
 	const uncertain = Promise.allSettled([session.perform("retired", () => Promise.resolve(request))]);
-	submitted.resolve("unknown");
+	submitted.resolve({ status: "unknown" });
 	await uncertain;
 	assertEquals(session.recoverable, ["retired"]);
 	assertEquals(await session.completeOperation("retired"), true);
@@ -247,7 +252,7 @@ Deno.test("a retained receipt another viewer retired is released when recovery f
 });
 
 Deno.test("a committed receipt whose result expired with its session settles instead of failing forever", async () => {
-	const submitted = deferred<string>();
+	const submitted = deferred<{ status: string }>();
 	let status = "failed";
 	const session = viewer({
 		snapshot: () => Promise.resolve(snapshot()),
@@ -261,12 +266,13 @@ Deno.test("a committed receipt whose result expired with its session settles ins
 	const request = {
 		submit: () => submitted.promise,
 		status: () => Promise.resolve(status),
-		result: () => Promise.reject(new Error("glowcap error -12: LiveReferenceExpired")),
+		result: () =>
+			Promise.reject(Object.assign(new Error("expired result"), { status: -12, reason: "LiveReferenceExpired" })),
 		adopted: () => Promise.resolve(false),
 		free() {},
 	} as unknown as RoomsManagedCommand;
 	const uncertain = Promise.allSettled([session.perform("expired", () => Promise.resolve(request))]);
-	submitted.resolve("unknown");
+	submitted.resolve({ status: "unknown" });
 	await uncertain;
 	assertEquals(session.recoverable, ["expired"]);
 	status = "committed";
@@ -275,8 +281,28 @@ Deno.test("a committed receipt whose result expired with its session settles ins
 	await session.close();
 });
 
+Deno.test("only the projected expiry fields identify an expired result", async () => {
+	const reading = (error: Error) => readResult({ result: () => Promise.reject(error) });
+	const projected = (status: number, reason: string) => Object.assign(new Error("diagnostic"), { status, reason });
+	const [expired] = await Promise.allSettled([reading(projected(-12, "LiveReferenceExpired"))]);
+	assert(expired.status === "rejected" && expired.reason instanceof ResultExpired, "the projected reason expires");
+	for (
+		const error of [
+			new Error("glowcap error -12: LiveReferenceExpired"),
+			new Error("glowcap error -12: the peer said LiveReferenceExpired"),
+			new Error("glowcap error -8: LiveReferenceExpired"),
+			new Error("LiveReferenceExpired"),
+			projected(-8, "LiveReferenceExpired"),
+			projected(-12, "the peer said LiveReferenceExpired"),
+		]
+	) {
+		const [outcome] = await Promise.allSettled([reading(error)]);
+		assert(outcome.status === "rejected" && outcome.reason === error, error.message);
+	}
+});
+
 Deno.test("letting a receipt go releases it upstream and forgets the held operation", async () => {
-	const submitted = deferred<string>();
+	const submitted = deferred<{ status: string }>();
 	const released: string[] = [];
 	const session = viewer({
 		snapshot: () => Promise.resolve(snapshot()),
@@ -295,7 +321,7 @@ Deno.test("letting a receipt go releases it upstream and forgets the held operat
 		free() {},
 	} as unknown as RoomsManagedCommand;
 	const uncertain = Promise.allSettled([session.perform("abandoned", () => Promise.resolve(request))]);
-	submitted.resolve("unknown");
+	submitted.resolve({ status: "unknown" });
 	await uncertain;
 	assertEquals(session.recoverable, ["abandoned"]);
 	await session.releaseOperation("abandoned");
@@ -305,7 +331,7 @@ Deno.test("letting a receipt go releases it upstream and forgets the held operat
 });
 
 Deno.test("an operation still running here cannot be let go", async () => {
-	const submitted = deferred<string>();
+	const submitted = deferred<{ status: string }>();
 	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
 	const request = {
 		submit: () => submitted.promise,
@@ -319,7 +345,7 @@ Deno.test("an operation still running here cannot be let go", async () => {
 	const refused = await session.releaseOperation("live").then(() => false, () => true);
 	assertEquals(refused, true);
 	assertEquals(session.pending, ["live"]);
-	submitted.resolve("committed");
+	submitted.resolve({ status: "committed" });
 	await running;
 	await session.close();
 });
@@ -334,7 +360,7 @@ Deno.test("an uncertain result acquisition keeps its receipt until the original 
 		},
 	});
 	const request = {
-		submit: () => Promise.resolve("committed"),
+		submit: () => Promise.resolve({ status: "committed" }),
 		status: () => Promise.resolve("committed"),
 		prepareResultAcquisition: () =>
 			Promise.resolve({ submit: () => Promise.resolve({ status: "uncertain" }), free() {} }),

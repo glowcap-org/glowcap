@@ -38,10 +38,10 @@ const front = spawnWeb({
 const httpPort = await webPort(front);
 
 try {
-	const roomPort = await roomPortOf(httpPort);
-
 	// Load the runtime over the wasm peer, dialing every locator through the
-	// relay: host:port becomes ws://<web-host>/relay?target=host:port.
+	// relay: host:port becomes ws://<web-host>/relay?target=host:port. It comes
+	// before any other runtime use, because the first runtime call commits the
+	// process to its adapter: a locator read here first would bind the host's FFI.
 	const runtime = await init({
 		wasm: await Deno.readFile(WASM),
 		wsUrl: (host, port) => `ws://127.0.0.1:${httpPort}/relay?target=${host}:${port}`,
@@ -49,6 +49,7 @@ try {
 	});
 
 	try {
+		const roomPort = await roomPortOf(httpPort);
 		// A plain tcp locator to the room server, dialed through the relay. The
 		// keyed handshake terminates inside the wasm session.
 		const session = await runtime.connect(tcp.locator("127.0.0.1", roomPort));

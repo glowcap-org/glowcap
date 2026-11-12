@@ -5,7 +5,7 @@
 // host-selected dial, with peer and protocol-version identity enforced.
 
 import * as tcp from "@glowcap/tcp";
-import { INVALID_ARGUMENT } from "@glowcap/abi";
+import { BreakOrigin, BreakReason, INVALID_ARGUMENT, SESSION } from "@glowcap/abi";
 
 import { formatLocatorUri, GlowcapError, Host, Runtime, Sym, VowBroken } from "../../runtime/mod.ts";
 
@@ -92,7 +92,7 @@ export async function run(managed: Runtime): Promise<void> {
 			const locator = tcp.locator("127.0.0.1", port);
 			const shared = new Host();
 			await using sharedRuntime = await Runtime.open({
-				providers: [tcp.provider()],
+				providers: [tcp.provider({ profiles: [tcp.plain] })],
 				adoptHost: shared,
 			});
 			const session = await sharedRuntime.connect(locator);
@@ -116,5 +116,49 @@ export async function run(managed: Runtime): Promise<void> {
 
 		await Promise.all([client(), hosted]);
 		ok("a host selects a live session to enliven a sturdyref over");
+	}
+
+	// A plain TCP partner proves no key, so the accepting side holds only the
+	// partner's claimed designator. A sturdyref naming that claim refuses
+	// synchronously and the Host never sends the fetch. The refusal names the
+	// constant the asynchronous break carries, so one predicate answers both.
+	{
+		await using server = await tcp.listen("127.0.0.1", 0);
+		const port = server.port;
+
+		async function host(): Promise<void> {
+			for await (const session of server) {
+				const claimed = session.partnerIdentity().designator;
+				const split = claimed.lastIndexOf(":");
+				const claim = tcp.locator(claimed.slice(0, split), Number(claimed.slice(split + 1)));
+				let refusal: unknown = null;
+				try {
+					await session.enliven(`${formatLocatorUri(claim)}/s/c3Zj`);
+				} catch (err) {
+					refusal = err;
+				}
+				assert(refusal instanceof GlowcapError, `an unproved redeem refused with ${refusal}`);
+				assert(refusal.code === SESSION, `an unproved redeem refused with code ${refusal.code}`);
+				assert(
+					refusal.breakCause.origin === BreakOrigin.Local &&
+						refusal.breakCause.reason === BreakReason.IdentityUnverified,
+					`an unproved redeem named ${refusal.breakCause}`,
+				);
+				assert(refusal.isPeerIdentityUnverified(), "the identity predicate reads the synchronous refusal");
+				await session.close();
+				break;
+			}
+		}
+		const hosted = host();
+
+		async function client(): Promise<void> {
+			const session = await managed.connect(tcp.locator("127.0.0.1", port));
+			session.serve().catch(() => {});
+			await hosted;
+			await session.close();
+		}
+
+		await client();
+		ok("an unproved redeem refuses with the named identity reason");
 	}
 }

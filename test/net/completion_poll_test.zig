@@ -8,6 +8,7 @@ const glowcap = @import("glowcap");
 
 const net = glowcap.net;
 const completion = net.completion;
+const io_uring_gate = @import("../support/io_uring_gate.zig");
 
 const Pipe = struct {
     read: i32,
@@ -35,9 +36,10 @@ fn pollAll(backend: anytype, out: []completion.Completion, timeout_ms: i32) !usi
 }
 
 /// `host_optional` marks io_uring, which a host kernel or policy may refuse.
-fn exercise(comptime Backend: type, host_optional: bool) !void {
+/// Only a refusal the Linux selector falls back from skips (`io_uring_gate`).
+fn exercise(comptime Backend: type, comptime host_optional: bool) !void {
     var backend = Backend.init(std.testing.allocator, 32, 4, 64) catch |err| {
-        if (host_optional) return error.SkipZigTest;
+        if (host_optional) return io_uring_gate.refused(err);
         return err;
     };
     defer backend.deinit();
@@ -83,13 +85,12 @@ fn exercise(comptime Backend: type, host_optional: bool) !void {
 
 test "completion backends report readiness without consuming and cancel a poll" {
     switch (builtin.os.tag) {
-        .linux => {
-            try exercise(net.epoll_white_box.TestBackend, false);
-            exercise(net.uring_white_box.TestBackend, true) catch |err| switch (err) {
-                error.SkipZigTest => {},
-                else => return err,
-            };
-        },
+        .linux => try exercise(net.epoll_white_box.TestBackend, false),
         else => if (builtin.os.tag.isDarwin()) try exercise(net.kqueue_white_box.TestBackend, false) else return error.SkipZigTest,
     }
+}
+
+test "io_uring reports readiness without consuming and cancels a poll, or skips where the host refuses io_uring" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    try exercise(net.uring_white_box.TestBackend, true);
 }

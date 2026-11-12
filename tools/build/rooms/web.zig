@@ -22,7 +22,7 @@ pub fn register(
     compile.step.dependOn(peers);
 
     const web_test_step = b.step("rooms-web-test", "Prove the installed web front's HTTP, relay admission and startup/shutdown custody (needs cargo + deno + python3)");
-    const tor_step = b.step("rooms-web-tor-test", "Opt-in: prove the web front owns a private Tor and preserves its directory service key, with networking disabled (needs cargo + deno + python3 + tor)");
+    const tor_step = b.step("rooms-web-tor-test", "Prove the web front owns a private Tor and preserves its directory service key, with networking disabled (needs cargo + deno + python3 + tor)");
     runtime_gate.add(web_test_step);
 
     inline for (.{ false, true }) |tor| {

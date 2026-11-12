@@ -213,7 +213,7 @@ pub const Store = struct {
         return staged_record.encodeAlloc(self.allocator, bounded, self.cache.schemas);
     }
 
-    /// The encoder just produced `bytes`; decoding them once here is the
+    /// The encoder just produced `bytes`. Decoding them once here is the
     /// envelope check every later read-back and the evaluation would
     /// otherwise repeat.
     fn decodeStaged(self: *Store, bytes: []u8) !transaction.Staged {
@@ -303,7 +303,7 @@ pub const Store = struct {
     }
 
     /// Prefer retaining prepared record buffers as resident data after commit.
-    /// Installation transfers ownership without allocation; pinned/cache-full
+    /// Installation transfers ownership without allocation. Pinned and cache-full
     /// cases may leave a record cold. This changes residency, not durability.
     pub fn retainOnCommit(self: *Store) !void {
         if (self.phase != .staging) return error.WrongPhase;

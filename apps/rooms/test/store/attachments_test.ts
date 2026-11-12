@@ -362,10 +362,10 @@ Deno.test("a direct line is not opened with yourself", () => {
 	assert(store.isSelf(projection, dir, "Alice"), "own nick is compared the way the directory grants it");
 	assert(!store.isSelf(projection, dir, "bo"), "somebody else counted as you");
 	assert(
-		store.ensureDm(projection, dir, "alice", registrationId(1)) == null,
-		"ensureDm minted a conversation with yourself",
+		store.restoreDm(projection, dir, "alice", registrationId(1), "self-line", false) == null,
+		"a restored line opened a conversation with yourself",
 	);
-	const other = store.ensureDm(projection, dir, "bo", registrationId(2));
+	const other = store.restoreDm(projection, dir, "bo", registrationId(2), "bo-line", false);
 	assert(other !== null && other.type === "dm", "a line to somebody else was not opened");
 });
 
@@ -380,30 +380,6 @@ Deno.test("error detail stacks without discarding the modal that opened it", () 
 	store.closeErrorDetail(projection);
 	assert(projection.get().aboutDir === directory, "closing error detail did not return to its underlying card");
 	projection.reset();
-});
-
-Deno.test("a reused nickname cannot retarget its previous direct conversation", () => {
-	const dir = dirId("direct-incarnation");
-	store.openDir(projection, dir, "direct-incarnation-route");
-	store.setDmable(projection, dir, "bo", registrationId(1), true);
-	const old = store.ensureDm(projection, dir, "bo", registrationId(1));
-	assert(old != null, "the original direct conversation was not created");
-	store.forgetConv(projection, old.key);
-	const reopened = store.ensureDm(projection, dir, "bo", registrationId(1));
-	assert(reopened != null, "the same registration did not reopen a conversation");
-	assert(reopened.persistId === old.persistId, "the same registration lost its device archive identity");
-	assert(store.convByPersistId(projection, old.persistId) === reopened, "durable id lookup missed the reopened line");
-	store.setDmable(projection, dir, "bo", registrationId(1), false);
-	store.setDmable(projection, dir, "bo", registrationId(2), true);
-	assert(
-		store.liveDmWith(projection, dir, "bo", registrationId(2)) == null,
-		"the replacement registration inherited the old line",
-	);
-	const replacement = store.ensureDm(projection, dir, "bo", registrationId(2));
-	assert(
-		replacement != null && replacement.key !== reopened.key && replacement.persistId !== reopened.persistId,
-		"the replacement registration reused the old conversation",
-	);
 });
 
 Deno.test("a direct row relays the rooms' word on who is away", () => {

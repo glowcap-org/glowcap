@@ -61,7 +61,7 @@ Deno.test("managed draft completion needs no recovery permission before sending 
 				submit: () =>
 					++submissions === 1
 						? Promise.reject(new Error("commit acknowledgment missing"))
-						: Promise.resolve("committed"),
+						: Promise.resolve({ status: "committed" }),
 				status: () => Promise.resolve("committed"),
 				result: () => Promise.resolve(null),
 				free() {},
@@ -109,9 +109,9 @@ for (const changed of ["unrelated", "draft", "authority", "repeated"] as const) 
 							accepted.revision = String(Number(accepted.revision) + 1);
 							if (changed === "draft") conversation.draft = "another viewer's edit";
 							if (changed === "authority") conversation.access = "replacement";
-							return Promise.resolve("conflict");
+							return Promise.resolve({ status: "conflict" });
 						}
-						return Promise.resolve("committed");
+						return Promise.resolve({ status: "committed" });
 					},
 					status: () => Promise.resolve("committed"),
 					result: () => Promise.resolve(null),

@@ -5,6 +5,7 @@
 //! A second scenario drives the backend directly through one dial.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const c = @import("c_abi_shared");
@@ -55,7 +56,7 @@ const TcpProvider = struct {
     recorder: Recorder = .{},
 
     fn init(self: *TcpProvider, allocator: std.mem.Allocator) !void {
-        const config: tcp_provider.GlowcapTcpConfig = .{ .stream = .{ .keepalive_idle_sec = 0, .keepalive_interval_sec = 0, .keepalive_count = 0 } };
+        const config: tcp_provider.GlowcapTcpConfig = .{ .stream = .{ .keepalive_idle_sec = 0, .keepalive_interval_sec = 0, .keepalive_count = 0 }, .profiles = tcp_provider.GLOWCAP_TCP_PROFILES_ALL };
         self.netlayer = null;
         try std.testing.expectEqual(c.GLOWCAP_OK, tcp_provider.glowcap_tcp_netlayer_new(&config, &self.netlayer));
         errdefer tcp_provider.glowcap_tcp_netlayer_release(self.netlayer);
@@ -104,10 +105,11 @@ test "an external completion resident serves a dial through a foreign stream pro
 
     var done = std.atomic.Value(bool).init(false);
     var server_future = try io.concurrent(echo_server.serve, .{ server, &done });
-    defer {
+    var serving_joined = false;
+    errdefer if (!serving_joined) {
         done.store(true, .release);
-        server_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("server", server_future.await(io));
+    };
     {
         const client = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, .{
             .transport = net.tcp.transport_name,
@@ -121,12 +123,17 @@ test "an external completion resident serves a dial through a foreign stream pro
         switch (try client.call(echo, "ping", &.{}, arena.allocator())) {
             .fulfilled => |arg| try std.testing.expectEqualStrings("pong through a foreign provider", arg.string),
             .broken => |reason| {
-                std.debug.print("echo broke: {s}\n", .{reason});
+                std.debug.print("echo broke: {s}\n", .{reason.detail});
                 return error.EchoBroke;
             },
         }
     }
     try std.testing.expectEqual(@as(usize, 0), provider.recorder.violations);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    serving_joined = true;
+    try server_future.await(io);
 }
 
 fn echoOnce(io: std.Io, server: *std.Io.net.Server) !void {
@@ -168,7 +175,7 @@ test "foreign-provider completion backend dials, moves bytes both ways, and clos
     var designator_buf: [32]u8 = undefined;
     const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{server.socket.address.getPort()});
     var echo_future = try io.concurrent(echoOnce, .{ io, &server });
-    errdefer echo_future.cancel(io) catch {};
+    errdefer wait.joinedUnwinding("echo", echo_future.cancel(io));
 
     var provider: TcpProvider = undefined;
     try provider.init(allocator);

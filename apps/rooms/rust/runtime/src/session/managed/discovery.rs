@@ -1,7 +1,9 @@
 //! Discovery owns one exact upstream observer through admission and retirement.
 //! Public readers never receive WATCH or raw cancellation authority.
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use super::{Membership, Session, inbox, supervision};
-use glowcap::{Argument, Result, loam};
+use glowcap::{Argument, loam};
 use rooms_application::{
 	content::{
 		permissions::Permission,
@@ -17,7 +19,7 @@ use std::{
 use tokio::sync::{oneshot, watch};
 
 mod pending;
-type Pending = Pin<Box<dyn Future<Output = Result<Argument>>>>;
+type Pending = Pin<Box<dyn Future<Output = glowcap::Result<Argument>>>>;
 const WAIT_MS: u64 = 20_000;
 
 pub struct DirectoryWatch<P: Tasks> {
@@ -42,10 +44,10 @@ impl<P: Tasks> DirectoryWatch<P> {
 		let receiver = self
 			.snapshot
 			.as_mut()
-			.ok_or_else(|| loam::refusal("directory snapshot was already taken"))?;
+			.ok_or_else(|| Error::closed("directory snapshot was already taken"))?;
 		let result = receiver.await;
 		self.snapshot = None;
-		result.map_err(|_| loam::refusal("directory discovery lost its startup outcome"))?
+		result.map_err(|_| Error::closed("directory discovery lost its startup outcome"))?
 	}
 	pub fn is_active(&self) -> bool {
 		self.lifetime.is_active()
@@ -70,21 +72,21 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	) -> Result<DirectoryWatch<P>> {
 		let _permit = supervision::Permit::reserve(&self.state.discovery_observers)?;
 		let selected = workspace::DiscoverySelection::directory(row)
-			.ok_or_else(|| loam::refusal("directory discovery has no initiating source"))?;
+			.ok_or_else(|| Error::stale("directory discovery has no initiating source"))?;
 		let source = self.directory_source(row).await?;
 		let workspace = source.workspace().clone();
-		workspace.check_discovery(&selected).await.map_err(error)?;
+		workspace.check_discovery(&selected).await.map_err(Error::from)?;
 		let coordinate = custody::Coordinate {
 			role: custody::Role::DirectoryAccess,
 			key: selected.access.retag(),
 		};
 		let target = self.restore_custody(&[coordinate]).await?.remove(0);
 		let connection = supervision::retirement::exporter(&self.state.writer.host, &target)?;
-		workspace.check_discovery(&selected).await.map_err(error)?;
+		workspace.check_discovery(&selected).await.map_err(Error::from)?;
 		// No await separates the closing/identity checks from inbox and task
 		// insertion. The startup permit remains charged throughout restoration.
 		if self.state.closing.get() {
-			return Err(loam::refusal("session is closing"));
+			return Err(Error::closed("session is closing"));
 		}
 		let id = format!(
 			"discovery-{}",
@@ -92,11 +94,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				.id
 				.text()
 				.as_str()
-				.ok_or_else(|| loam::refusal("invalid discovery ID"))?
+				.ok_or_else(|| Error::invalid("invalid discovery ID"))?
 		);
 		let budget = &self.state.discovery_observers;
 		if budget.contains(&id) || budget.contains_target(&target) {
-			return Err(loam::refusal("directory discovery already has a live owner"));
+			return Err(Error::busy("directory discovery already has a live owner"));
 		}
 		let changes = self.state.changes.subscribe(&self.state)?;
 		let (synchronized, synchronizing) = watch::channel(false);
@@ -145,9 +147,6 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		})
 	}
 }
-fn error(failure: impl core::fmt::Display) -> glowcap::Error {
-	loam::refusal(failure.to_string())
-}
 
 struct Worker<P: Tasks> {
 	inbox: inbox::Inbox<P>,
@@ -165,8 +164,8 @@ struct Worker<P: Tasks> {
 impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 	async fn run(&mut self, snapshot: oneshot::Sender<Result<directory::Snapshot>>) -> Result<()> {
 		if *self.signals.stopping.borrow() {
-			let _ = snapshot.send(Err(loam::refusal("directory discovery closed before admission")));
-			return self.inbox.close().await;
+			let _ = snapshot.send(Err(Error::closed("directory discovery closed before admission")));
+			return self.inbox.close().await.map_err(Error::from);
 		}
 		// Dispatch once and continue observing the original receiver after a
 		// deadline or dropped view. Unknown WATCH never creates another observer.
@@ -178,8 +177,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		);
 		let result = match pending::wait(&self.platform, &mut admission, &mut self.signals, false).await {
 			Ok(reply) => match self.workspace.check_discovery(&self.selected).await {
-				Ok(()) => directory::snapshot(&rooms_glowcap::Value(&reply)).map_err(error),
-				Err(failure) => Err(error(failure)),
+				Ok(()) => directory::snapshot(&rooms_glowcap::Value(&reply)).map_err(Error::invalid_by),
+				Err(failure) => Err(Error::from(failure)),
 			},
 			Err(failure) => Err(failure),
 		};
@@ -190,7 +189,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		self.monitor().await;
 		// Drain even when a callback's resolver failed. A drained failure remains
 		// visible but cannot prevent exact upstream cancellation.
-		let closed = self.inbox.close().await;
+		let closed = self.inbox.close().await.map_err(Error::from);
 		if !self.inbox.drained() {
 			return closed;
 		}
@@ -209,12 +208,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			let outcome = pending::wait(&self.platform, &mut cancellation, &mut self.signals, true).await;
 			let failure = match outcome {
 				Ok(Argument::Void) => return closed,
-				Ok(_) => loam::refusal("invalid directory cancellation acknowledgment"),
+				Ok(_) => Error::invalid("invalid directory cancellation acknowledgment"),
 				Err(failure) => failure,
 			};
 			self.signals
 				.finished
-				.send_replace(Some(Err(failure.with_cleanup(closed.clone()))));
+				.send_replace(Some(Err(crate::cleanup::failed(failure, closed.clone()))));
 			// Only a confirmed refusal permits a fresh exact UNWATCH. An unknown
 			// receiver remains inside pending::wait and is continuously observed.
 			tokio::select! {
@@ -242,7 +241,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					.platform
 					.within(WAIT_MS, self.current())
 					.await
-					.unwrap_or_else(|| Err(loam::refusal("discovery source check is still unresolved"))),
+					.unwrap_or_else(|| Err(Error::uncertain("discovery source check is still unresolved"))),
 				Err(failure) => Err(failure),
 			};
 			match current {
@@ -261,11 +260,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 	}
 	async fn current(&self) -> Result<bool> {
 		let selected =
-			serde_json::to_string(&self.selected).map_err(|_| loam::refusal("invalid discovery selection"))?;
+			serde_json::to_string(&self.selected).map_err(|_| Error::invalid("invalid discovery selection"))?;
 		match self.writer.idempotent("discovery-selected", &[selected.into()]).await? {
 			Argument::Boolean(false) => return Ok(false),
 			Argument::Boolean(true) => {}
-			_ => return Err(loam::refusal("invalid discovery selection acknowledgment")),
+			_ => return Err(Error::invalid("invalid discovery selection acknowledgment")),
 		}
 		let description = self
 			.writer

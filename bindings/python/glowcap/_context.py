@@ -35,7 +35,7 @@ class Context:
     def __init__(self):
         out = ctypes.c_void_p()
         _check(_lib.glowcap_context_new(ctypes.byref(out)))
-        self._raw = out
+        self._raw: ctypes.c_void_p | None = out
         self._handle_count = 0
         self._release_requested = False
         # No callbacks for the default-allocator path.

@@ -183,13 +183,19 @@
 .icon-button[data-busy] > .icon-svg {
 	visibility: hidden;
 }
+/* The one progress ring, wherever a control waits. Its size is whole pixels.
+   A box of a fractional size is drawn on the pixel grid and turned about its
+   own centre, and the two sit far enough apart for the ring to wobble. */
 .icon-button[data-busy]::after,
-.button[data-busy]::before {
+.button[data-busy]::before,
+.link-preview-card.loading::before,
+.room-progress::after,
+#roomList .inviterow .room-open[data-busy]::after {
 	content: "";
 	box-sizing: border-box;
 	flex: none;
-	width: .9em;
-	height: .9em;
+	width: 13px;
+	height: 13px;
 	border: 2px solid currentColor;
 	border-right-color: transparent;
 	border-radius: 50%;
@@ -344,7 +350,7 @@ body {
    document scrolls, and a ground painted on `body` would carry the floor away
    with it: the composer, its tucked banner, and the log fade are anchored to
    the viewport and resolve to the solid floor, so mid-scroll they would sit on
-   a ground that had not settled yet. A fixed layer keeps the crown at the top status-allow: pending state or quoted runtime label
+   a ground that had not settled yet. A fixed layer keeps the crown at the top
    of the window and the floor under the composer wherever the conversation has
    scrolled to. (`background-attachment: fixed` says the same thing, but iOS
    Safari has never honored it. A fixed element is honored everywhere.) The

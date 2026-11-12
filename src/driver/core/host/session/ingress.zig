@@ -1,7 +1,7 @@
 //! Inbound admission and Host-latched dispatch for a byte-fed session.
 //!
-//! Stream delimiting and retained-tail ownership stay in the sibling session
-//! wire owner. This internal leaf supplies the supported Host ingress verbs
+//! Stream delimiting and retained-tail ownership stay in `stream_feed.zig`.
+//! This internal leaf supplies the supported Host ingress verbs
 //! through direct aliases in `host.zig`.
 
 const std = @import("std");
@@ -11,6 +11,7 @@ const engine = @import("engine");
 
 const host_mod = @import("../../host.zig");
 const session_wire = @import("../session.zig");
+const stream_feed = @import("stream_feed.zig");
 const host_pump = @import("../pump.zig");
 
 const Host = host_mod.Host;
@@ -30,7 +31,7 @@ pub fn feed(self: *Host, session: *HostSession, frame: foundation.FrameView) !vo
         c: *HostSession,
         f: foundation.FrameView,
         pub fn call(s: @This()) !void {
-            try session_wire.feedBorrowedCommitted(s.c, s.f);
+            try stream_feed.feedBorrowedCommitted(s.c, s.f);
         }
     }{ .c = session, .f = frame });
 }
@@ -86,7 +87,7 @@ pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
         bytes: []const u8,
         was_open: bool,
         pub fn call(s: @This()) !void {
-            try session_wire.feedStreamChunk(s.gpa, s.c, s.bytes, s.was_open);
+            try stream_feed.feedStreamChunk(s.gpa, s.c, s.bytes, s.was_open);
         }
     }{ .gpa = self.allocator, .c = session, .bytes = bytes, .was_open = was_open }) catch |err|
         return settleStartedDispatch(self, session, err);
@@ -149,7 +150,7 @@ fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.seal
             var consumed: usize = 0;
             while (true) {
                 if (s.channel.pendingPlaintext()) |plain| {
-                    session_wire.feedStreamChunk(gpa, s.c, plain, s.was_open) catch |err| {
+                    stream_feed.feedStreamChunk(gpa, s.c, plain, s.was_open) catch |err| {
                         // The Noise record is already authoritative. Keep
                         // its plaintext borrow and own the unread wire
                         // suffix before reporting or retrying upper-layer

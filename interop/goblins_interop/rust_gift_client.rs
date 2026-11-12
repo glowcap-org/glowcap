@@ -138,8 +138,14 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. The
 	// reply ref's home is this gifter↔Bob connection, so glowcap can re-gift
 	// it without an enrollment verb.
-	let runtime =
-		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&host)).await?;
+	let runtime = Runtime::open(
+		RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})])
+		.adopt_host(&host),
+	)
+	.await?;
 	let to_bob = runtime
 		.connect(&tcp::locator(HOST, port), ConnectOptions::default())
 		.await?;

@@ -1,4 +1,4 @@
-//! Native retention exercises the same owner paths and tracing as volatile.
+//! LMDB retention exercises the same owner paths and tracing as volatile.
 const std = @import("std");
 const h = @import("../access/hosting_fixture.zig");
 const cases = @import("../access/history_cases.zig");

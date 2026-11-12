@@ -9,7 +9,7 @@ await runCrossLangDemo(
 		serverNoun: "server",
 		clientNoun: "client",
 		server: { cmd: Deno.args[0], args: () => [`--data=${data}`, "--port=0"] },
-		listenPattern: /TASKS-SERVER-LISTENING (\d+) (\S+)/,
+		listenPattern: /TASKS-SERVER-LISTENING (\d+) (\S+) (\S+)/,
 		listenMiss: "Tasks server did not announce its board",
 		cleanup: () => Deno.remove(data, { recursive: true }),
 		roster: () =>
@@ -19,8 +19,8 @@ await runCrossLangDemo(
 						name: "TypeScript",
 						cmd: "deno",
 						argv: (
-							port,
-							[name],
+							_port,
+							[name, locator],
 						) => [
 							"run",
 							"--allow-ffi",
@@ -28,24 +28,24 @@ await runCrossLangDemo(
 							"--allow-net=127.0.0.1",
 							"--allow-env",
 							"apps/tasks/deno/mutation_test.ts",
-							String(port),
+							locator,
 							name,
 						],
 					},
 					{
 						name: "Python",
 						cmd: "python3",
-						argv: (port, [name]) => ["apps/tasks/python/mutation_test.py", String(port), name],
+						argv: (_port, [name, locator]) => ["apps/tasks/python/mutation_test.py", locator, name],
 					},
 					{
 						name: "Racket",
 						cmd: "racket",
-						argv: (port, [name]) => ["-y", "apps/tasks/racket/mutation-test.rkt", String(port), name],
+						argv: (_port, [name, locator]) => ["-y", "apps/tasks/racket/mutation-test.rkt", locator, name],
 					},
 					{
 						name: "Racket watcher startup",
 						cmd: "racket",
-						argv: (port, [name]) => ["-y", "apps/tasks/racket/watcher-test.rkt", String(port), name],
+						argv: (_port, [name, locator]) => ["-y", "apps/tasks/racket/watcher-test.rkt", locator, name],
 					},
 				],
 				skipped: [],

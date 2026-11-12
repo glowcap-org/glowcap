@@ -4,6 +4,7 @@
 //! signature or struct layout.
 
 const std = @import("std");
+const ReleaseResult = @import("release_result.zig").ReleaseResult;
 
 const offset_basis: u64 = 14695981039346656037;
 const prime: u64 = 1099511628211;
@@ -146,7 +147,7 @@ fn mixLayout(hash: *u64, comptime entry: Layout) void {
     // any one target is a pure function of its declared field types and their
     // order, and `usize` spells the same on every target while resolving to
     // different widths. Hashing `@sizeOf`/`@offsetOf` here made the same
-    // checkout's wasm32 archive fail the native-generated expected value, so
+    // checkout's wasm32 archive fail the value generated on the build host, so
     // no browser peer could open. Field names and symbolic type names move
     // for every real contract change; per-target resolved layout is the C
     // compiler's and each binding's generated layout table's to hold.
@@ -160,7 +161,7 @@ fn mixLayout(hash: *u64, comptime entry: Layout) void {
 /// `*c_abi.loam.layouts.Store` reads `*Store`: a C consumer observes a type's
 /// name, never the Zig file that declares it, so moving a declaration between
 /// files leaves the fingerprint alone. A path is a run of identifiers joined
-/// by dots that starts with a letter or underscore; digits, punctuation, and
+/// by dots that starts with a letter or underscore. Digits, punctuation, and
 /// spaces pass through, so `1.5` and `fn (*a.B) callconv(.c) u32` keep their
 /// shape.
 pub fn unqualified(comptime name: []const u8) []const u8 {
@@ -262,6 +263,10 @@ pub fn fingerprint(
         const Fn = @TypeOf(@field(Archive, symbol.name));
         mix(&hash, symbol.name);
         mix(&hash, unqualified(@typeName(Fn)));
+        // Return types alone cannot identify ownership semantics. Bindings
+        // must refuse an archive whose release word uses another encoding.
+        if (comptime ReleaseResult.isFunction(symbol.name, Fn))
+            mix(&hash, ReleaseResult.contract);
         mixIndexes(&hash, symbol.out_params);
         mixIndexes(&hash, symbol.pointer_params);
         mixInt(&hash, @intFromBool(symbol.nonblocking));

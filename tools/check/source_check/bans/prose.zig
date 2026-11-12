@@ -8,7 +8,7 @@ const Where = bans.Where;
 /// High-precision transition phrases forbidden by the prerelease rule
 /// from first-read surfaces (README.md, AGENTS.md, CONTRIBUTING.md, and every
 /// top-level docs/*.md), case-insensitively. Temporal narration is checked
-/// separately by static_docs, including its reasoned inline exceptions.
+/// separately by static_docs.
 pub const prerelease_prose: []const Ban = prerelease_rows: {
     const phrases = [_][]const u8{ "renamed from", "pre-1.0", "pre-publication" };
     const scopes = [_]Where{

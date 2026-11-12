@@ -32,7 +32,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
         const Identity = Types.Identity;
 
         /// A published service: its id, and the key that restores it. Tor
-        /// returns the key only for a service it minted; a restored service
+        /// returns the key only for a service it minted. A restored service
         /// keeps the key it was given.
         pub const Published = struct {
             service_id: [socks5.service_id_len]u8,
@@ -101,7 +101,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
         }
 
         /// Bind the listener and start the publish conversation. Returns the
-        /// inner descriptor at once; the service follows asynchronously.
+        /// inner descriptor at once. The service follows asynchronously.
         pub fn open(backend: *Backend, target: Target) !Inner.Fd {
             const inner_target = switch (target) {
                 .platform => |platform_target| return backend.inner.openListener(platform_target),
@@ -199,7 +199,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
 
         /// Drop the listener and its service. A running setup ends with its
         /// runtime seat completing failed, now or on the next turn when the
-        /// queue has no room; the control connection closes asynchronously
+        /// queue has no room. The control connection closes asynchronously
         /// so its in-flight operations complete and drain. Once the service
         /// exists the connection is idle and closes at once.
         fn withdraw(backend: *Backend) void {
@@ -321,7 +321,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
         }
 
         /// Fold one received chunk into the reply, line by line. A line ends
-        /// at `\n` and may span chunks; the held borrow returns when its
+        /// at `\n` and may span chunks. The held borrow returns when its
         /// chunk is spent. Every consumed line either advances the stage or
         /// ends the setup, and any terminal step ends this walk.
         fn feed(backend: *Backend, setup: *Setup, comp: completion.Completion) void {
@@ -375,7 +375,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
         }
 
         /// One complete reply line. Authentication expects only success
-        /// lines; publication harvests the service id and key. A terminal
+        /// lines. Publication harvests the service id and key. A terminal
         /// line ends the setup either way, clearing it before return.
         fn consumeLine(backend: *Backend, setup: *Setup, line: []const u8) void {
             setup.lines_seen += 1;
@@ -424,7 +424,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
 
         /// The service exists. The transient setup state dies here and the
         /// runtime's seat completes with the service, now or on the next
-        /// turn when the queue has no room yet. status-allow: pending state or quoted runtime label
+        /// turn when the queue has no room yet.
         fn complete(backend: *Backend) void {
             const row = &backend.listener;
             if (row.setup) |*setup| {
@@ -442,7 +442,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
         }
 
         /// The setup failed. The control connection closes asynchronously so
-        /// its in-flight operations drain; the cause waits on the row until
+        /// its in-flight operations drain. The cause waits on the row until
         /// the runtime's seat completes.
         fn fail(backend: *Backend, cause: anyerror) void {
             const row = &backend.listener;

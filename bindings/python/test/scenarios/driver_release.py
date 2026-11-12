@@ -83,7 +83,7 @@ async def _deferred_consuming_failure_retires_once_and_stays_ordered() -> None:
         if attempts == 1:
             return _write_failure(out, ERR_INVALID_ARGUMENT, refusal_name)
         assert original_release(_handle, out) == 0
-        return _write_failure(out, ERR_IO, consumed_name)
+        return -_write_failure(out, ERR_IO, consumed_name)
 
     _loop_module._driver.glowcap_driver_release = refuse_then_consume
     try:
@@ -115,7 +115,7 @@ async def _released_session_handle_never_reenters_the_loop() -> None:
     await honest.close()
     squatter = await tcp.keyed.listen("127.0.0.1", 0, seed=bytes([0x73]) * 32)
     try:
-        async with Runtime.open(providers=[tcp.provider()]) as runtime:
+        async with Runtime.open(providers=[tcp.provider(tcp.Config(profiles=(tcp.keyed,)))]) as runtime:
             try:
                 await asyncio.wait_for(
                     runtime.connect(tcp.keyed.locator(designator, "127.0.0.1", squatter.port)), timeout=10
@@ -154,7 +154,7 @@ async def _raw_release_of_a_wrapped_handle_retires_its_session() -> None:
     second release is refused before any FFI call reads the pointer."""
     listener = await tcp.keyed.listen("127.0.0.1", 0, seed=bytes([0x74]) * 32)
     try:
-        async with Runtime.open(providers=[tcp.provider()]) as runtime:
+        async with Runtime.open(providers=[tcp.provider(tcp.Config(profiles=(tcp.keyed,)))]) as runtime:
             dialed = await asyncio.wait_for(
                 runtime.connect(tcp.keyed.locator(listener.designator, "127.0.0.1", listener.port)), timeout=10
             )
@@ -175,8 +175,31 @@ async def _raw_release_of_a_wrapped_handle_retires_its_session() -> None:
         await asyncio.wait_for(listener.close(), timeout=10)
 
 
+async def _released_loop_refuses_listener_verbs() -> None:
+    # A Host close releases its driver loop, but a Server still names its
+    # listener. Every loop verb then refuses before reaching freed memory.
+    host = Host()
+    server = await tcp.listen("127.0.0.1", 0, host=host)
+    loop = server._driver_loop
+    await host.close()
+    for name, verb in (
+        ("locator", lambda: server.locator),
+        ("restoration state", lambda: loop.listener_restoration_state(server._listener)),
+        ("select", lambda: loop.select_listener(server._listener)),
+        ("has transport", lambda: loop._has_transport("tcp")),
+    ):
+        try:
+            verb()
+        except GlowcapError as error:
+            assert error.code == ERR_CLOSED, (name, error)
+        else:
+            raise AssertionError(f"{name} answered on a released driver loop")
+    loop.close_listener(server._listener)
+
+
 def run() -> None:
     asyncio.run(_refused_live_release_retries_at_public_boundary())
     asyncio.run(_deferred_consuming_failure_retires_once_and_stays_ordered())
     asyncio.run(_released_session_handle_never_reenters_the_loop())
     asyncio.run(_raw_release_of_a_wrapped_handle_retires_its_session())
+    asyncio.run(_released_loop_refuses_listener_verbs())

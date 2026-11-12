@@ -46,9 +46,9 @@ fn spawn(host: *driver.Host, comptime B: type, initial: B) !driver.Capability {
 
 fn allocationRefusal(failure_index: usize) !bool {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var host = support.init(failing.allocator(), @splat(0x96), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(failing.allocator(), @splat(0x96), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
-    var exporter = support.init(a, @splat(0x97), driver.Host.Options.withFrameCap(4096));
+    var exporter = support.init(a, @splat(0x97), driver.Host.Options.init(.unchecked, 4096));
     defer exporter.deinit();
     var calls: usize = 0;
     const target = try spawn(&exporter, Echo, .{ .calls = &calls });
@@ -92,9 +92,9 @@ test "core host local foreign forwarding allocation refusals retire every comple
 
 test "core host local foreign forwarding shares exact bounded result through queued hops" {
     for ([_]enum { ready, cancel, fail, finish, retire, session_finish, capacity }{ .ready, .cancel, .fail, .finish, .retire, .session_finish, .capacity }) |boundary| {
-        var host = support.init(a, @splat(0x91), driver.Host.Options.withFrameCap(4096));
+        var host = support.init(a, @splat(0x91), driver.Host.Options.init(.unchecked, 4096));
         defer host.deinit();
-        var exporter = support.init(a, @splat(0x92), driver.Host.Options.withFrameCap(4096));
+        var exporter = support.init(a, @splat(0x92), driver.Host.Options.init(.unchecked, 4096));
         defer exporter.deinit();
         var calls: usize = 0;
         const target = try spawn(&exporter, Echo, .{ .calls = &calls });
@@ -158,11 +158,11 @@ test "core host local foreign forwarding shares exact bounded result through que
 
 test "core host local foreign forwarding retracts third-party introductions on failed outer turn" {
     const wire = @import("harness.zig");
-    var host = support.init(a, @splat(0x93), driver.Host.Options.withFrameCap(wire.frame_cap));
+    var host = support.init(a, @splat(0x93), driver.Host.Options.init(.unchecked, wire.frame_cap));
     defer host.deinit();
-    var exporter = support.init(a, @splat(0x94), driver.Host.Options.withFrameCap(wire.frame_cap));
+    var exporter = support.init(a, @splat(0x94), driver.Host.Options.init(.unchecked, wire.frame_cap));
     defer exporter.deinit();
-    var third = support.init(a, @splat(0x95), driver.Host.Options.withFrameCap(wire.frame_cap));
+    var third = support.init(a, @splat(0x95), driver.Host.Options.init(.unchecked, wire.frame_cap));
     defer third.deinit();
     var dials: std.ArrayList(wire.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -245,11 +245,11 @@ test "core host wire foreign forwarding owns both session lifetimes" {
     for ([_]enum { ready, tell, fail, finish, source_cancel, queued_reply_cancel, destination_cancel, destination_finish, released_answer }{
         .ready, .tell, .fail, .finish, .source_cancel, .queued_reply_cancel, .destination_cancel, .destination_finish, .released_answer,
     }) |boundary| {
-        var client = support.init(a, @splat(0xa1), driver.Host.Options.withFrameCap(4096));
+        var client = support.init(a, @splat(0xa1), driver.Host.Options.init(.unchecked, 4096));
         defer client.deinit();
-        var middle = support.init(a, @splat(0xa2), driver.Host.Options.withFrameCap(4096));
+        var middle = support.init(a, @splat(0xa2), driver.Host.Options.init(.unchecked, 4096));
         defer middle.deinit();
-        var exporter = support.init(a, @splat(0xa3), driver.Host.Options.withFrameCap(4096));
+        var exporter = support.init(a, @splat(0xa3), driver.Host.Options.init(.unchecked, 4096));
         defer exporter.deinit();
         var calls: usize = 0;
         const target = try spawn(&exporter, Echo, .{ .calls = &calls });

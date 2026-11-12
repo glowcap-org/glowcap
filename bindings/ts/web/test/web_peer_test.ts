@@ -17,7 +17,7 @@
 import * as tcp from "@glowcap/tcp";
 import { init } from "@glowcap/web";
 import { proveChromiumNoiseRelay } from "./browser_noise_relay_proof.ts";
-import { proveResponseLoading } from "./response_loading.ts";
+import { proveHostFailure, proveResponseLoading } from "./response_loading.ts";
 import { fail } from "../../test/assert.ts";
 
 // A hang is a bug, never a slow test (the cli rule's posture): bound the whole
@@ -72,6 +72,7 @@ try {
 		wasm: new Response(wasmBytes, { headers: { "content-type": "application/octet-stream" } }),
 		wsUrl: (host, port) => `ws://${host}:${port}/`,
 	});
+	await proveHostFailure(runtime.runtime);
 
 	// 3. Dial the keyed locator. The handshake verifies the host's key inside
 	//    the wasm session; a squatter would refuse here.

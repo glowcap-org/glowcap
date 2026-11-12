@@ -104,5 +104,5 @@ pub const Value = union(enum) {
 /// tree's spine and leaves share the arena with the capture that produced it.
 pub const Reply = union(enum) {
     fulfilled: Value,
-    broken: []const u8,
+    broken: foundation.break_cause.Broken,
 };

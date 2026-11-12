@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tools/gen/set_version.py"
 SPEC = importlib.util.spec_from_file_location("set_version", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None, "the script loads as a module"
 SET_VERSION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SET_VERSION)
 CURRENT = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]

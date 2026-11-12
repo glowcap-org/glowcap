@@ -56,7 +56,7 @@ PYTHON_VERSION="3.14.10"
 SERENA_AGENT_VERSION="2.1.0"
 # dep ruff: Formats and lints every first-party Python file (`zig build python-check`).
 RUFF_VERSION="0.17.4"
-# dep mypy: Type-checks the Python binding (`zig build bindings-fmt-check`).
+# dep mypy: Type-checks the CI programs, the build tools, the Python binding and its site snippets (`zig build python-check`, `bindings-fmt-check`, `site-python-examples-check`).
 MYPY_VERSION="2.4.1"
 # The four AI harnesses are managed tools, not image content: these versions
 # are the verified cold-install seeds the dispatcher installs on first use
@@ -105,7 +105,7 @@ DENO_DIR="${CACHE_ROOT}/deno"
 NPM_CACHE_DIR="${CACHE_ROOT}/npm"
 PIP_CACHE_DIR="${CACHE_ROOT}/pip"
 UV_CACHE_DIR="${CACHE_ROOT}/uv"
-ZIG_CACHE_DIR="${CACHE_ROOT}/zig"
+ZIG_CACHE_DIR="${CACHE_ROOT}/zig/${ZIG_VERSION}"
 BUN_CACHE_DIR="${CACHE_ROOT}/bun"
 BUN_INSTALL_CACHE_DIR="${BUN_CACHE_DIR}/install"
 # Per-worktree Zig local cache and extracted packages live on a Docker volume.

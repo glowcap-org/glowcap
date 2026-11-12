@@ -285,6 +285,7 @@ pub const CapturedSettle = struct {
     text_len: usize = 0,
     msg: [160]u8 = undefined,
     msg_len: usize = 0,
+    cause: c.GlowcapBreakCause = std.mem.zeroes(c.GlowcapBreakCause),
 
     pub fn recordSettle(self: *CapturedSettle, action: *const cd.GlowcapHostAction) void {
         self.fired = true;
@@ -299,6 +300,7 @@ pub const CapturedSettle = struct {
     pub fn recordFail(self: *CapturedSettle, action: *const cd.GlowcapHostAction) void {
         self.fired = true;
         self.kind = c.GLOWCAP_RESOLUTION_BREAK;
+        self.cause = action.cause;
         self.value = argBase();
         if (action.message) |m| {
             self.msg_len = @min(action.message_len, self.msg.len);

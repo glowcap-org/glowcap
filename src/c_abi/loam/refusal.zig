@@ -5,6 +5,12 @@ const shared = @import("c_abi_shared");
 
 pub fn code(err: anyerror) i32 {
     shared.setLastError("loam: {s}", .{@errorName(err)});
+    return codeOf(err);
+}
+
+/// The C return code for `err` alone, without recording it, so a comptime
+/// check can read the mapping.
+pub fn codeOf(err: anyerror) i32 {
     return switch (err) {
         error.NullPointer => shared.GLOWCAP_ERR_NULL_POINTER,
         error.Busy, error.CustodyUnavailable, error.RecordUnloaded, error.PendingRead, error.ReaderCapacity, error.StartupPending => shared.GLOWCAP_ERR_WOULD_BLOCK,

@@ -322,3 +322,19 @@ test "C Context reports and atomically claims the cross-language failure vector"
     report.secondary_result = c.GLOWCAP_ERR_IO;
     try testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_context_report_failure(context, &report));
 }
+
+test "release ownership preserves error codes on both sides of commit" {
+    const ReleaseResult = shared.ReleaseResult;
+    const success = ReleaseResult.fromRaw(ReleaseResult.consumed(shared.GLOWCAP_OK).raw());
+    try testing.expectEqual(.consumed, success.ownership);
+    try testing.expectEqual(shared.GLOWCAP_OK, success.code());
+    for ([_]i32{ -1, shared.GLOWCAP_ERR_INVALID_ARGUMENT, shared.GLOWCAP_ERR_WOULD_BLOCK, shared.GLOWCAP_ERR_IO, -std.math.maxInt(i32) }) |code| {
+        const refused = ReleaseResult.fromRaw(ReleaseResult.retained(code).raw());
+        const consumed = ReleaseResult.fromRaw(ReleaseResult.consumed(code).raw());
+        try testing.expectEqual(.retained, refused.ownership);
+        try testing.expectEqual(.consumed, consumed.ownership);
+        try testing.expectEqual(code, refused.raw());
+        try testing.expectEqual(code, refused.code());
+        try testing.expectEqual(code, consumed.code());
+    }
+}

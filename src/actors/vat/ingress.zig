@@ -1,6 +1,7 @@
 //! Per-ingress queue admission, fair scheduling, cancellation, and driving.
 
 const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 const model = @import("model");
 const frame = @import("frame.zig");
 const vat_mod = @import("mod.zig");
@@ -62,7 +63,7 @@ pub const QueueChunk = struct {
     len: usize = 0,
     owned_bytes: u32 = 0,
     /// Turns borrowing messages from this chunk. A nested drive may
-    /// exhaust the remaining rows while an outer handler still reads an earlier status-allow: event or source ordering
+    /// exhaust the remaining rows while an outer handler still reads an earlier
     /// row, so exhaustion detaches the chunk but reclamation waits for this to
     /// reach zero.
     active_turns: u32 = 0,
@@ -170,23 +171,23 @@ pub fn commitStaged(self: *Vat, entry: StagedIngress) void {
     makeRunnable(self, state);
 }
 
-/// Discard one ingress's staged sends and break their vows with `reason`.
-pub fn dropStaged(self: *Vat, entry: StagedIngress, reason: []const u8) void {
-    breakChunks(self, entry.first, reason);
+/// Discard one ingress's staged sends and break their vows with `broken`.
+pub fn dropStaged(self: *Vat, entry: StagedIngress, broken: Broken) void {
+    breakChunks(self, entry.first, broken);
 }
 
-/// Retire every message queued from `head` on, break its vow with `reason`,
+/// Retire every message queued from `head` on, break its vow with `broken`,
 /// and release the chunks. The chain is already detached from its queue, so
 /// a listener that enqueues onto the same ingress starts a fresh one.
-fn breakChunks(self: *Vat, head: ?*QueueChunk, reason: []const u8) void {
+fn breakChunks(self: *Vat, head: ?*QueueChunk, broken: Broken) void {
     var maybe_chunk = head;
     while (maybe_chunk) |chunk| {
         maybe_chunk = chunk.next;
         chunk.next = null;
         std.debug.assert(chunk.active_turns == 0);
         for (chunk.items[chunk.head..chunk.len]) |*queued| {
-            queued.msg.retire(reason);
-            vows_mod.settleLocalPrepared(self, queued.vow, .{ .broken = reason });
+            queued.msg.retire(broken.detail);
+            vows_mod.settleLocalPrepared(self, queued.vow, .{ .broken = broken });
         }
         releaseQueueChunk(self, chunk);
     }
@@ -276,7 +277,7 @@ pub fn discardFreshIngress(self: *Vat, ingress: IngressId) void {
     self.allocator.destroy(state);
 }
 
-/// Tear down a session ingress that can no longer run. It is removed from status-allow: lifecycle transition
+/// Tear down a session ingress that cannot run again. It is removed from
 /// admission and fair scheduling before listeners fire, so a break handler
 /// cannot enqueue fresh work onto the closing Port. Every queued local vow
 /// settles broken. Unobserved turns are discarded with their chunk.
@@ -313,7 +314,7 @@ fn cancelQueued(self: *Vat, state: *IngressState, reason: []const u8) void {
     state.last = null;
     state.pending_turns = 0;
     state.pending_bytes = 0;
-    breakChunks(self, cancelled, reason);
+    breakChunks(self, cancelled, Broken.unnamed(reason));
 }
 
 /// Local eventual send (`<-`). A local target queues a turn for `drive`.

@@ -289,11 +289,13 @@ class TransferTest(unittest.TestCase):
                     )
                     self.assertIn("id", first)
                     for outcome in ("success", "failure", "cancelled", "skipped"):
+                        inputs = {"archive": "true"}
+                        prepared = {"archive": "true"}
                         context = {
-                            "inputs": {"archive": "true"},
+                            "inputs": inputs,
                             "needs": {"build": {"result": "success"}},
                             "steps": {
-                                "prepare": {"outputs": {"archive": "true"}},
+                                "prepare": {"outputs": prepared},
                                 "fetch": {"outcome": "success"},
                                 first["id"]: {"outcome": outcome},
                             },
@@ -309,8 +311,8 @@ class TransferTest(unittest.TestCase):
                                 "a compile failure must not suppress its state handoff retry",
                             )
                     if first["with"].get("name") == "devcontainer-image":
-                        context["inputs"]["archive"] = "false"
-                        context["steps"]["prepare"]["outputs"]["archive"] = "false"
+                        inputs["archive"] = "false"
+                        prepared["archive"] = "false"
                         self.assertFalse(selected(first["if"], context=context))
         self.assertTrue(
             any(item["with"].get("name") == "devcontainer-image" for item in pairs),

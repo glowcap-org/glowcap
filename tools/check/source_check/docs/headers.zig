@@ -38,10 +38,12 @@ pub fn check(
 /// A file, or a directory when the path ends in `/`.
 fn exists(io: std.Io, root: std.Io.Dir, path: []const u8) bool {
     if (std.mem.endsWith(u8, path, "/")) {
+        // tolerant: any path that cannot be opened is reported missing, which fails the check.
         var dir = root.openDir(io, path[0 .. path.len - 1], .{}) catch return false;
         dir.close(io);
         return true;
     }
+    // tolerant: any path that cannot be read is reported missing, which fails the check.
     const stat = root.statFile(io, path, .{}) catch return false;
     return stat.kind == .file;
 }

@@ -41,7 +41,7 @@ export function AppView({
 	onModeChange,
 	dispatch,
 	state,
-	liveConnected,
+	liveConnection,
 	liveObserved,
 	liveRecording,
 	onStartRecord,
@@ -113,7 +113,7 @@ export function AppView({
 			dispatch({ type: "select-scenario", id: nextId });
 			// The new doc has a new entity universe. Any prior anchor /
 			// selection is stale, clear the store so halos don't paint
-			// for ids that no longer exist. status-allow: lifecycle transition
+			// for ids that no longer exist.
 			onClearStoreSelection();
 		},
 		[
@@ -406,7 +406,7 @@ export function AppView({
 				source={sourceInfo}
 				engine={engine}
 				liveSturdyref={state.liveSturdyref}
-				liveConnected={liveConnected}
+				liveConnection={liveConnection}
 				liveObserved={liveObserved}
 				liveRecording={liveRecording}
 				onScenarioChange={handleScenarioChange}
@@ -471,7 +471,7 @@ export function AppView({
 					onFocusEvent={setFocusedEventId}
 					onEditSelection={onTimelineEditSelection}
 					gestureCtx={gestureCtx}
-					liveConnected={liveConnected}
+					liveConnection={liveConnection}
 					liveRecording={liveRecording}
 					onStartRecord={onStartRecord}
 					onStopRecord={onStopRecord}

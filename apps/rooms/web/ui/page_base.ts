@@ -5,6 +5,8 @@
 // and its router, so one build works at whatever path the build named. A
 // server route the page reads sits under the base too, through `pageRoute`.
 
+import { invariant } from "../../lib/invariant.ts";
+
 /** The page base as a URL, always ending in `/`. */
 export function pageBase(): URL {
 	return new URL(".", document.baseURI);
@@ -51,9 +53,34 @@ export function pathOffer(page: URL, base: URL = pageBase()): URL | null {
 	return rest;
 }
 
+/** The address a reload asks a static host for, or null where reloading the
+ * address as it stands is answered. A Rooms server answers every path under
+ * the base with the page. A static host answers only the page's own file, so a
+ * place below the base goes under `PATH_OFFER`, in the form `pathOffer` reads
+ * back. A host whose 404 page hands deep links over would get there by a
+ * failed request. A host without one, as a development preview is, would
+ * strand the reader on its own 404. */
+export function reloadAddress(page: URL, base: URL = pageBase(), served: boolean = servedByRooms()): URL | null {
+	if (served) return null;
+	const below = pagePath(page.pathname, base).slice(1);
+	if (below === "") return null;
+	const at = new URL(base);
+	at.searchParams.set(PATH_OFFER, below + page.search);
+	at.hash = page.hash;
+	return at;
+}
+
+/** Load the page again where it stands. The one way the page reloads itself,
+ * so each reload asks its host for an address that host answers. */
+export function reloadPage(): void {
+	const at = reloadAddress(new URL(location.href));
+	if (at == null) location.reload();
+	else location.replace(at);
+}
+
 /** A server route under the page base, such as `locator`. A name starting
  * with `/` would leave the base, so it is refused. */
 export function pageRoute(name: string, base: URL = pageBase()): URL {
-	if (name.startsWith("/")) throw new Error(`page route ${name} must be relative to the page base`);
+	invariant(!name.startsWith("/"), `page route ${name} must be relative to the page base`);
 	return new URL(name, base);
 }

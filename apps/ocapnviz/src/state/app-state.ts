@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { StageVisibility } from "../render/stage-visibility.ts";
 import { scenarios } from "../fixtures/index.ts";
 import type { LaneKind } from "../ui/Timeline/state.ts";
-import { loadStoredValue, persistStoredValue } from "./storage.ts";
+import { forgetStoredValue, loadStoredValue, persistStoredValue } from "./storage.ts";
 
 /** Three sibling modes operating on one in-memory document buffer.
  * `live`: the feed connects on entry, and nothing renders until
@@ -270,42 +270,67 @@ export function savePersistedTimelineView(v: PersistedTimelineView): void {
 /** Live mode accepts the durable trace capability announced by rooms. */
 export const DEFAULT_LIVE_STURDYREF = "";
 
-/** Honor `?live=<sturdyref>` (or empty `?live=` for no selected capability)
- * so deep links / headless browsers jump straight into Live mode.
- * Returns null when the query didn't request Live, or when we're
- * in a non-browser environment without `location` (Deno tests). */
-export function readLiveOverride(): { liveSturdyref: string } | null {
-	const loc = (globalThis as { location?: { search?: string } }).location;
-	if (!loc?.search) return null;
-	const params = new URLSearchParams(loc.search);
+/** The Live deep link in a page address's fragment: `#live=<sturdyref>`, or
+ * an empty `#live=` for no selected capability. A sturdyref is a capability,
+ * so it rides the fragment, which the browser never sends to a server. A
+ * `?live=` query is not a deep link and is ignored. Null when the fragment
+ * asks for nothing. */
+export function liveOverrideFrom(address: { readonly hash: string }): { liveSturdyref: string } | null {
+	const params = new URLSearchParams(address.hash.slice(1));
 	if (!params.has("live")) return null;
 	return {
 		liveSturdyref: params.get("live") || DEFAULT_LIVE_STURDYREF,
 	};
 }
 
+/** Honor the page's `#live=` deep link so a link or headless browser opens
+ * straight into Live mode, then drop the fragment from the address, so the
+ * capability is not left in history or a copied link. Null when the page
+ * asked for nothing, or outside a browser. */
+export function readLiveOverride(): { liveSturdyref: string } | null {
+	let page: Location | undefined;
+	try {
+		page = globalThis.location;
+	} catch {
+		// tolerant: Deno without `--location` has no page address to read.
+		return null;
+	}
+	if (page == null) return null;
+	const override = liveOverrideFrom(page);
+	if (override != null) globalThis.history?.replaceState(globalThis.history.state, "", page.pathname + page.search);
+	return override;
+}
+
 const PersistedAppStateSchema = z.object({
 	scenarioId: z.string(),
-	liveSturdyref: z.string(),
 	mode: z.enum(["live", "play", "build"]),
 	tool: z.enum(["select", "hand", "add-peer", "open-session", "send-message"]),
 	firstPickNodeId: z.string().nullable(),
 	autoSizeTimeline: z.boolean(),
-}) satisfies z.ZodType<AppState>;
+}) satisfies z.ZodType<Omit<AppState, "liveSturdyref">>;
 
 /** Read persisted `AppState`. Returns `null` on missing or
  * malformed input, including a stored value that is not the full
  * shape. The caller falls back to defaults whole. Checks for
  * `localStorage` directly (not `window`) so this works in both
  * browser and Deno test environments. */
-export function loadPersistedAppState(): AppState | null {
-	return parseStored(PersistedAppStateSchema, loadStoredValue(APP_STATE_STORAGE_KEY));
+export function loadPersistedAppState(): Omit<AppState, "liveSturdyref"> | null {
+	const stored = parseStored(PersistedAppStateSchema, loadStoredValue(APP_STATE_STORAGE_KEY));
+	// Remove any stored capability even if saving preferences is refused.
+	forgetStoredValue(APP_STATE_STORAGE_KEY);
+	if (stored !== null) persistAppState(stored);
+	return stored;
+}
+
+/** Persist only preferences. Live capabilities remain in memory. */
+export function persistAppState(state: Omit<AppState, "liveSturdyref">): void {
+	persistStoredValue(APP_STATE_STORAGE_KEY, JSON.stringify(PersistedAppStateSchema.parse(state)));
 }
 
 /**
  * Compose the initial reducer state. Precedence (highest first):
- *   1. `?live=<sturdyref>` query string ⇒ Live mode + capability (intent is a
- *      one-shot deep link. Persisted state shouldn't override).
+ *   1. A `#live=<sturdyref>` fragment, for Live mode and that capability.
+ *      The link is a one-shot request, so persisted state does not override it.
  *   2. localStorage-persisted previous session.
  *   3. Hardcoded defaults.
  */
@@ -317,9 +342,7 @@ export function makeInitialAppState(): AppState {
 		scenarioId: persisted?.scenarioId ?? scenarios[0]?.id ?? "",
 		mode: initialMode,
 		tool: persisted?.tool ?? "select",
-		liveSturdyref: live?.liveSturdyref ??
-			persisted?.liveSturdyref ??
-			DEFAULT_LIVE_STURDYREF,
+		liveSturdyref: live?.liveSturdyref ?? DEFAULT_LIVE_STURDYREF,
 		// Don't restore in-flight two-click state across reloads,
 		// tools are stateless across sessions.
 		firstPickNodeId: null,

@@ -9,16 +9,22 @@
 // the control that was pressed, which is still live. The async API is the
 // fallback for a browser that has disabled execCommand.
 
+import { LocalRefusal } from "../../lib/text/failure.ts";
+
 /** Write `text` to the clipboard. `from` is the control that asked, so the
  * selection is taken inside whatever layer still accepts input. */
 export async function writeClipboard(text: string, from: ParentNode): Promise<void> {
 	if (copyWithExecCommand(text, from)) return;
 	const api = navigator.clipboard?.writeText?.bind(navigator.clipboard);
 	if (api != null) {
-		await api(text);
+		try {
+			await api(text);
+		} catch (cause) {
+			throw new LocalRefusal("clipboard-unavailable", { cause });
+		}
 		return;
 	}
-	throw new Error("clipboard unavailable");
+	throw new LocalRefusal("clipboard-unavailable");
 }
 
 /** The live layer that still accepts a selection: a modal dialog if the control

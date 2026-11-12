@@ -10,7 +10,9 @@ test "core host: durable publication reservations release custody on cancellatio
 }
 
 fn exercise(allocator: std.mem.Allocator, commit: bool) !void {
-    var host = test_host.init(allocator, @splat(0x65), .{});
+    var host = test_host.init(allocator, @splat(0x65), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     const actor = try host.vat.spawn(Actor, .{});
     defer host.vat.releaseActor(actor.local);

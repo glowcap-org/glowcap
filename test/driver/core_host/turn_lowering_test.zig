@@ -41,9 +41,9 @@ const SendThen = struct {
 
 fn exercise(verb: []const u8) !struct { exports_before: usize, exports_after: usize, pending_before: usize, pending_after: usize } {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

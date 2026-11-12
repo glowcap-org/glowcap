@@ -37,7 +37,7 @@
   (printf "racket-goblins-interop: goblins published its echo sturdyref path on ~a:~a\n" HOST PORT)
 
   (define locator (tcp-locator HOST PORT))
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define runtime (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))))
   (define session (runtime-connect runtime locator))
   (printf "racket-goblins-interop: session open, keyed start-session accepted by goblins\n")
 

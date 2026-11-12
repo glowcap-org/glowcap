@@ -10,9 +10,14 @@ async fn rooms_server_service_operator_reset_exceeds_writer_capacity() {
 }
 
 async fn runtime() -> Runtime {
-	Runtime::open(RuntimeConfig::providers([glowcap::tcp::provider(Default::default())]))
-		.await
-		.unwrap()
+	Runtime::open(RuntimeConfig::providers([glowcap::tcp::provider(
+		glowcap::tcp::Config {
+			profiles: glowcap::tcp::Profiles::TCP,
+			..Default::default()
+		},
+	)]))
+	.await
+	.unwrap()
 }
 
 fn top(answer: Argument) -> Vec<Argument> {

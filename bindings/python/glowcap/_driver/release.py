@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 from .._driver_failure import _release
 from .._ffi_driver import _driver
-from .._lifecycle import _release_consumed
 from .finalizer import _defer_live_driver_release, _DriverFinalizerState, _release_driver_finalizer_state
 
 
@@ -49,7 +48,7 @@ class _DriverReleaseOwner:
         if not handle:
             raise RuntimeError("driver release authority was already consumed")
         outcome = _release(_driver, handle, operation)
-        consumed = _release_consumed(outcome.code)
+        consumed = outcome.consumed
         if consumed:
             self._state.handle = None
             self._finalizer.detach()

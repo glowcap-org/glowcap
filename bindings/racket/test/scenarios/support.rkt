@@ -31,10 +31,17 @@
 ;; Accordingly each helper call opens one test-owned Runtime; sharing one here
 ;; would silently reuse peer identity and reject a second session to the same
 ;; partner as a duplicate pair. The aggregate retires every Runtime at teardown.
-(define shared-tcp-provider (tcp-provider))
+;; A locator's own profile picks the provider, so a session dials with exactly
+;; the profile its listener registered and an adopted Host's loop agrees.
+(define (provider-for loc)
+  (define profile
+    (cond [(equal? (locator-transport loc) TRANSPORT-KEYED-TCP) TCP-PROFILE-KEYED-TCP]
+          [(equal? (locator-transport loc) TRANSPORT-NOISE-TCP) TCP-PROFILE-NOISE-TCP]
+          [else TCP-PROFILE-TCP]))
+  (tcp-provider (make-tcp-config #:profiles (list profile))))
 (define extra-runtimes (box '()))
 
-(define (open-test-session loc #:provider [provider shared-tcp-provider]
+(define (open-test-session loc #:provider [provider (provider-for loc)]
                            #:connector [connector #f] #:adopt-host [adopted-host #f]
                            #:codec [codec #f] #:captp-version [captp-version #f]
                            #:features [features #f]

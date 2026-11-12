@@ -7,6 +7,9 @@
 //! client then calls the widget directly, on a session its own runtime dialed
 //! to the widget host while the call was in flight.
 //!
+//! Every session uses encrypted Noise TCP, so each client authenticates the
+//! directory and the widget host by the keys their locators carry.
+//!
 //! Three roles in one process: the widget host (exporter), the directory
 //! (gifter), and the clients (recipients). The widget host and the directory
 //! each serve from one thread. Each client runs its own `driver.Session`.
@@ -94,7 +97,7 @@ fn serveDirectory(
 
 /// One client: ask the directory for the widget, then poke it directly.
 fn client(io: std.Io, allocator: std.mem.Allocator, directory_locator: model.PeerLocator) anyerror!void {
-    const session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, directory_locator, .ephemeral, opts);
+    const session = try driver.connect(allocator, io, .{ .symbols = &.{.noise_tcp} }, directory_locator, .ephemeral, opts);
     defer session.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -120,27 +123,34 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
     var done = std.atomic.Value(bool).init(false);
 
-    var widget_host = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var widget_host = try driver.listen(allocator, io, .{ .symbols = &.{.noise_tcp} }, model.transport.noise_tcp, .{ .designator = "127.0.0.1:0" }, .{ .keyed = try driver.drawSessionSecret(io) }, opts);
     defer widget_host.deinit();
     try widget_host.publish("widget", Widget, .{});
     const widget_locator = try model.clonePeerLocator(allocator, try widget_host.advertisedLocator());
     defer model.freePeerLocator(allocator, widget_locator);
 
-    var directory_host = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var directory_host = try driver.listen(allocator, io, .{ .symbols = &.{.noise_tcp} }, model.transport.noise_tcp, .{ .designator = "127.0.0.1:0" }, .{ .keyed = try driver.drawSessionSecret(io) }, opts);
     defer directory_host.deinit();
     const directory_locator = try model.clonePeerLocator(allocator, try directory_host.advertisedLocator());
     defer model.freePeerLocator(allocator, directory_locator);
 
     var directory_ready = std.atomic.Value(bool).init(false);
+    // The success path awaits both hosts and returns the first client failure,
+    // then the directory's, then the widget's. These joins run only while another
+    // error unwinds, and that error is the one reported.
+    var widget_joined = false;
     var widget_future = try io.concurrent(serveAll, .{ widget_host, &done });
-    var directory_future = try io.concurrent(serveDirectory, .{ directory_host, widget_locator, &directory_ready, &done });
-    var hosts_joined = false;
-    defer if (!hosts_joined) {
+    errdefer if (!widget_joined) {
         done.store(true, .release);
-        // best-effort: unwind join only. The success path awaits with `try`,
-        // so the error that got us here is the one reported.
-        directory_future.await(io) catch {};
+        // tolerant: the error already unwinding is the one reported.
         widget_future.await(io) catch {};
+    };
+    var directory_joined = false;
+    var directory_future = try io.concurrent(serveDirectory, .{ directory_host, widget_locator, &directory_ready, &done });
+    errdefer if (!directory_joined) {
+        done.store(true, .release);
+        // tolerant: the error already unwinding is the one reported.
+        directory_future.await(io) catch {};
     };
     while (!directory_ready.load(.acquire)) try std.Io.sleep(io, .fromMilliseconds(2), .real);
 
@@ -159,7 +169,8 @@ pub fn main(init: std.process.Init) !void {
     };
 
     done.store(true, .release);
-    hosts_joined = true;
+    widget_joined = true;
+    directory_joined = true;
     const directory_result = directory_future.await(io);
     const widget_result = widget_future.await(io);
     if (first_err) |err| return err;

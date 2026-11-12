@@ -11,7 +11,6 @@ from .. import _constants as _c
 from .._driver_failure import _release, _report_fields
 from .._failure import FailureLayer, _record_runtime_failure
 from .._ffi_driver import _driver
-from .._lifecycle import _release_consumed
 
 
 class _DriverFinalizerState:
@@ -37,7 +36,6 @@ def _release_driver_finalizer_state(state: _DriverFinalizerState) -> None:
     if not handle:
         return
     outcome = _release(_driver, handle, state.operation)
-    rc = outcome.code
     if outcome.error is not None:
         if not state.release_failure_reported:
             state.release_failure_reported = True
@@ -53,7 +51,7 @@ def _release_driver_finalizer_state(state: _DriverFinalizerState) -> None:
             except BaseException as recorder_error:
                 _record_runtime_failure(FailureLayer.BINDING, state.operation, error)
                 _record_runtime_failure(FailureLayer.BINDING, f"{state.operation}.diagnostic", recorder_error)
-        if not _release_consumed(rc):
+        if not outcome.consumed:
             with _deferred_driver_finalizers_lock:
                 if state.handle and state not in _deferred_driver_finalizers:
                     _deferred_driver_finalizers.append(state)

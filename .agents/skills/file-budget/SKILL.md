@@ -42,7 +42,7 @@ least one of these boundaries:
 
 Extract the smallest complete subject that gives dependencies one direction:
 
-- Move its state and invariants with its operations. If the old file still <!-- status-allow: workflow sequence -->
+- Move its state and invariants with its operations. If the source file still
   owns the state while the new file manipulates it through a wide helper
   surface, the boundary is cosmetic.
 - If two proposed modules must import each other, extract their shared
@@ -116,6 +116,6 @@ together leave a split incomplete unless a supported consumer requires them.
 
 ## Handoff
 
-Report the old and new line counts, the ownership seam created, and the checks <!-- status-allow: workflow sequence -->
-that passed. If the correct extraction cannot fit the current task, leave the
+Report the line counts before and after, the ownership seam created, and the
+checks that passed. If the correct extraction cannot fit the current task, leave the
 additive work undone rather than crossing the limit.

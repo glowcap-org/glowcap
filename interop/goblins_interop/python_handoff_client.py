@@ -46,7 +46,7 @@ async def converse() -> None:
         swiss = await read_swiss(proc, "python-goblins-handoff", miss="never saw the introducer readiness line")
         print(f"python-goblins-handoff: alice published introducer swiss={swiss} on {HOST}:{PORT}")
 
-        async with Runtime.open(providers=[tcp.provider()]) as runtime:
+        async with Runtime.open(providers=[tcp.provider(tcp.Config(profiles=(tcp.plain,)))]) as runtime:
             session = await runtime.connect(tcp.locator(HOST, PORT))
             print("python-goblins-handoff: session open (recipient -> alice)")
             session.serve()

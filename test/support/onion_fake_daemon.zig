@@ -91,6 +91,7 @@ pub const Daemon = struct {
         // descriptors. Closing first would pull a listen fd out from under a
         // parked accept, which does not wake it.
         @atomicStore(bool, &self.stopping, true, .release);
+        // tolerant: a control thread that ended with an error loses only its report, and the daemon is being torn down.
         if (self.control_thread) |*f| _ = f.await(self.io) catch {};
         self.control.deinit(self.io);
         self.socks.deinit(self.io);
@@ -121,14 +122,20 @@ pub const Daemon = struct {
         var live: [max_control_sessions]?std.Io.Future(anyerror!void) = @splat(null);
         var next: usize = 0;
         defer for (&live) |*slot| {
+            // tolerant: a control session that ended with an error loses only its report, and the daemon is stopping.
             if (slot.*) |*f| _ = f.await(self.io) catch {};
         };
         while (next < live.len) {
             if (@atomicLoad(bool, &self.stopping, .acquire)) return;
             // Poll before accepting, so this loop is never parked in a syscall the
             // stop flag cannot interrupt.
-            if (!self.acceptable()) continue;
-            const stream = self.control.accept(self.io) catch return;
+            if (!try self.acceptable()) continue;
+            const stream = self.control.accept(self.io) catch |err| {
+                // Stopping closes the listener under a ready poll, which is
+                // the one accept failure that ends serving quietly.
+                if (@atomicLoad(bool, &self.stopping, .acquire)) return;
+                return err;
+            };
             live[next] = try self.io.concurrent(controlConversation, .{ self, stream });
             next += 1;
         }
@@ -136,13 +143,13 @@ pub const Daemon = struct {
 
     /// Whether a control connection is waiting, polled with a short timeout so the
     /// accept loop keeps checking the stop flag.
-    fn acceptable(self: *Daemon) bool {
+    fn acceptable(self: *Daemon) !bool {
         var fds = [_]std.posix.pollfd{.{
             .fd = self.control.socket.handle,
             .events = std.posix.POLL.IN,
             .revents = 0,
         }};
-        const ready = std.posix.poll(&fds, 20) catch return false;
+        const ready = try std.posix.poll(&fds, 20);
         return ready != 0;
     }
 
@@ -151,7 +158,7 @@ pub const Daemon = struct {
     fn controlConversation(self: *Daemon, stream: std.Io.net.Stream) anyerror!void {
         defer stream.close(self.io);
         if (self.control_delay_ms != 0) {
-            std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(self.control_delay_ms), .real) catch {};
+            try std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(self.control_delay_ms), .real);
         }
 
         var read_buf: [1024]u8 = undefined;
@@ -163,6 +170,7 @@ pub const Daemon = struct {
 
         var line_buf: [1024]u8 = undefined;
         while (true) {
+            // tolerant: the peer leaving, by end of stream or reset, ends the conversation, and tests read the daemon's replies, never this read's cause.
             const line = takeLine(r, &line_buf) catch return;
             if (std.mem.startsWith(u8, line, "AUTHENTICATE")) {
                 try w.writeAll("250 OK\r\n");
@@ -279,7 +287,9 @@ const Relay = struct {
 
     fn shutdown(self: *Relay) void {
         if (self.shutdown_started.swap(true, .acq_rel)) return;
+        // tolerant: the client socket may already be closed by its peer, and the shutdown only wakes the pump that is being stopped.
         _ = self.client.shutdown(self.io, .both) catch {};
+        // tolerant: the service socket may already be closed by its peer, and the shutdown only wakes the pump that is being stopped.
         _ = self.service.shutdown(self.io, .both) catch {};
     }
 
@@ -299,9 +309,12 @@ fn pump(relay: *Relay, from: std.Io.net.Stream, to: std.Io.net.Stream) void {
     var chunk: [4096]u8 = undefined;
     var bufs = [_][]u8{&chunk};
     while (true) {
+        // tolerant: either side closing ends the relay, which is its contract, and the endpoints' own reads carry the assertions.
         const n = reader.interface.readVec(&bufs) catch return;
         if (n == 0) return;
+        // tolerant: either side closing ends the relay, which is its contract, and the endpoints' own reads carry the assertions.
         writer.interface.writeAll(chunk[0..n]) catch return;
+        // tolerant: either side closing ends the relay, which is its contract, and the endpoints' own reads carry the assertions.
         writer.interface.flush() catch return;
     }
 }

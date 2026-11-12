@@ -63,7 +63,8 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     defer _ = dialer.deinit();
 
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &server, allocator });
-    defer _ = relay_future.cancel(io) catch {};
+    var relay_future_joined = false;
+    errdefer if (!relay_future_joined) wait.joinedUnwinding("relay", relay_future.cancel(io));
 
     // `listen` schedules registration without performing network I/O itself.
     // The relay fixture accepts that leg first and pings it before accepting
@@ -76,7 +77,8 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     defer netlayer_test.close(listener);
 
     var serve_future = try io.concurrent(serveRegistered, .{ listener, identity.publicKey(), allocator });
-    defer _ = serve_future.cancel(io) catch {};
+    var serve_future_joined = false;
+    errdefer if (!serve_future_joined) wait.joinedUnwinding("serve", serve_future.cancel(io));
 
     // `listenBlocking` consumes the pending construction result only after
     // registration, so the cold dial cannot race the relay's registration
@@ -106,9 +108,16 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
         fetch_pump.handshakeToOpen(&peer, &conn, startSession("client")) catch |err| break :blk err;
         const reference = fetch_pump.settleFetch(allocator, &peer, &conn, "thermostat") catch |err| break :blk err;
         model.freeReference(allocator, reference);
+        // The relay stream supplies the connection's close transaction, so a
+        // graceful close sends this side's close frame and completes only
+        // when the partner's close arrives back through the bridge.
+        std.testing.expect(conn.transport.try_close_fn != null) catch |err| break :blk err;
+        if (conn.closeGracefully(10_000)) |failure| break :blk failure.cause;
         break :blk {};
     };
 
+    serve_future_joined = true;
+    relay_future_joined = true;
     const serve_result = serve_future.await(io);
     const relay_result = relay_future.await(io);
     try client_result;
@@ -168,7 +177,8 @@ test "keyed-relay routes a cold dial through the target's other relay" {
     defer _ = dialer.deinit();
 
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &target_server, allocator });
-    defer _ = relay_future.cancel(io) catch {};
+    var relay_future_joined = false;
+    errdefer if (!relay_future_joined) wait.joinedUnwinding("relay", relay_future.cancel(io));
 
     const listener = try netlayer_test.listenBlocking(registered.netlayer(), allocator, .{
         .designator = "",
@@ -176,7 +186,8 @@ test "keyed-relay routes a cold dial through the target's other relay" {
     });
     defer netlayer_test.close(listener);
     var serve_future = try io.concurrent(serveRegistered, .{ listener, identity.publicKey(), allocator });
-    defer _ = serve_future.cancel(io) catch {};
+    var serve_future_joined = false;
+    errdefer if (!serve_future_joined) wait.joinedUnwinding("serve", serve_future.cancel(io));
 
     const advertised = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, advertised);
@@ -207,6 +218,8 @@ test "keyed-relay routes a cold dial through the target's other relay" {
         break :blk {};
     };
 
+    serve_future_joined = true;
+    relay_future_joined = true;
     const serve_result = serve_future.await(io);
     const relay_result = relay_future.await(io);
     try client_result;

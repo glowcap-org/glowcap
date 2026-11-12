@@ -1,5 +1,6 @@
 // Each opening owns its cancellation and late membership cleanup. Selection
 // consumes the opening before it changes presentation or waits for a receipt.
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import { SESSION_CONTENT } from "../../../../lib/session_content_data.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import { conversationById } from "./conversation_lookup.ts";
@@ -116,10 +117,10 @@ export class ManagedOpenings {
 		target: AcquisitionTarget | null = null,
 		cancel?: AbortSignal,
 	): Promise<T> {
-		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
+		if (this.#stopped) return Promise.reject(new LocalRefusal("session-closed"));
 		if (cancel?.aborted) return Promise.reject(cancel.reason);
 		if (this.#workers.size >= SESSION_CONTENT.limits.effects) {
-			return Promise.reject(new Error("Finish pending conversation openings before starting another"));
+			return Promise.reject(new LocalRefusal("busy"));
 		}
 		this.dismiss();
 		const attempt = new ConversationOpening(this.session, () => {

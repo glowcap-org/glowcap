@@ -52,7 +52,7 @@ test "access capability descriptors bound selected controls and refuse malformed
         if (scratch.decodeOwned(a, try view(truncated))) {
             scratch.deinit(a);
             return error.AcceptedTruncation;
-        } else |_| {}
+        } else |err| try std.testing.expectEqual(error.MalformedFrame, err);
     }
 }
 

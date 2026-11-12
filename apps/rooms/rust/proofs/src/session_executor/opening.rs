@@ -99,6 +99,9 @@ pub(super) async fn run() {
 					.await
 					.err()
 					.expect("persistence failure cannot expose use or control");
+				let rooms_runtime::Error::Captp(refused) = refused else {
+					panic!("opening must retain the persistence failure without a cleanup failure: {refused:?}");
+				};
 				assert_eq!(refused.message(), Some("bootstrap storage refused"));
 				assert_eq!(
 					refused.secondary_error_count(),

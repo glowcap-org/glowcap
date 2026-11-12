@@ -34,7 +34,7 @@ pub async fn rooms_session_bootstrap_durability_contract(metadata: bool) {
 				rooms_browser::storage::session::Prepared::open(database.clone(), tab, platform.clone()).await;
 			let (failure, seed) = if metadata {
 				(
-					prepared.err().expect("unsupported metadata durability must refuse"),
+					rooms_runtime::Error::from(prepared.err().expect("unsupported metadata durability must refuse")),
 					None,
 				)
 			} else {

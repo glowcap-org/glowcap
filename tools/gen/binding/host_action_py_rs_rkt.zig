@@ -138,6 +138,7 @@ fn emitPyClass(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Arm) !vo
         .fail => try out.appendSlice(gpa,
             \\    ticket: int
             \\    result: int
+            \\    cause: tuple[int, int, int]
             \\    message: str
             \\
             \\
@@ -176,7 +177,7 @@ fn emitPyDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Arm)
             \\
         , .{arm.variant}),
         .fail => try out.print(gpa,
-            \\        return {s}(ticket=a.ticket, result=a.result, message=_view(a.message, a.message_len))
+            \\        return {s}(ticket=a.ticket, result=a.result, cause=(a.cause.origin, a.cause.reason, a.cause.context), message=_view(a.message, a.message_len))
             \\
         , .{arm.variant}),
     }
@@ -270,7 +271,7 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
             .ticket => try out.print(gpa, "        HostAction::{s} {{ ticket }} => handlers.{s}(ticket).await,\n", .{ arm.variant, method }),
             .dial_attempt => try out.print(gpa, "        HostAction::{s} {{ ticket, route_index }} => handlers.{s}(ticket, route_index).await,\n", .{ arm.variant, method }),
             .settle => try out.print(gpa, "        HostAction::{s} {{ ticket, value }} => handlers.{s}(ticket, value).await,\n", .{ arm.variant, method }),
-            .fail => try out.print(gpa, "        HostAction::{s} {{ ticket, result, message }} => handlers.{s}(ticket, result, message).await,\n", .{ arm.variant, method }),
+            .fail => try out.print(gpa, "        HostAction::{s} {{ ticket, result, cause, message }} => handlers.{s}(ticket, result, cause, message).await,\n", .{ arm.variant, method }),
         }
     }
     try out.appendSlice(gpa,
@@ -291,7 +292,7 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
             .ticket => ", ticket: u64",
             .dial_attempt => ", ticket: u64, route_index: usize",
             .settle => ", ticket: u64, value: Argument",
-            .fail => ", ticket: u64, result: i32, message: String",
+            .fail => ", ticket: u64, result: i32, cause: crate::sys::GlowcapBreakCause, message: String",
         };
         try out.print(gpa, "    fn {s}(&self{s}) -> impl std::future::Future<Output = crate::Result<()>> + '_;\n", .{ method, parameters });
     }
@@ -325,6 +326,7 @@ fn emitRustVariant(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Arm)
         .fail => {
             try ha.tline(out, gpa, 2, "ticket: u64,");
             try ha.tline(out, gpa, 2, "result: i32,");
+            try ha.tline(out, gpa, 2, "cause: crate::sys::GlowcapBreakCause,");
             try ha.tline(out, gpa, 2, "message: String,");
         },
     }
@@ -367,6 +369,7 @@ fn emitRustDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Ar
         .fail => {
             try ha.tline(out, gpa, 3, "ticket: raw.ticket,");
             try ha.tline(out, gpa, 3, "result: raw.result,");
+            try ha.tline(out, gpa, 3, "cause: raw.cause,");
             try ha.tline(out, gpa, 3, "message: view(raw.message, raw.message_len),");
         },
     }
@@ -478,7 +481,7 @@ fn emitRacketDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.
             \\
         , .{arm.racket}),
         .fail => try out.print(gpa,
-            \\     (list '{s} (GlowcapHostAction-ticket a) (GlowcapHostAction-result a)
+            \\     (list '{s} (GlowcapHostAction-ticket a) (GlowcapHostAction-result a) (break-cause-fields<-c (GlowcapHostAction-cause a))
             \\           (view->string (GlowcapHostAction-message a) (GlowcapHostAction-message-len a)))]
             \\
         , .{arm.racket}),

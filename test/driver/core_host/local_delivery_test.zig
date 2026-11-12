@@ -28,7 +28,7 @@ fn spawn(host: *driver.Host, comptime B: type, initial: B) !driver.Capability {
 }
 
 test "core host owning local call preserves nested repeated capability identities" {
-    var host = support.init(a, @splat(0x61), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x61), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const ref = try spawn(&host, Echo, .{ .calls = &calls });
@@ -49,7 +49,7 @@ test "core host owning local call preserves nested repeated capability identitie
 }
 
 test "core host owning local observer cancellation frees caller input before the effect runs" {
-    var host = support.init(a, @splat(0x62), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x62), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const target = try spawn(&host, Echo, .{ .calls = &calls });
@@ -70,9 +70,9 @@ test "core host owning local observer cancellation frees caller input before the
 
 test "core host owning local delivery preserves imported identities and refuses retired homes" {
     for ([_]enum { live, queued, deferred }{ .live, .queued, .deferred }) |retirement| {
-        var host = support.init(a, @splat(0x83), driver.Host.Options.withFrameCap(4096));
+        var host = support.init(a, @splat(0x83), driver.Host.Options.init(.unchecked, 4096));
         defer host.deinit();
-        var exporter = support.init(a, @splat(0x84), driver.Host.Options.withFrameCap(4096));
+        var exporter = support.init(a, @splat(0x84), driver.Host.Options.init(.unchecked, 4096));
         defer exporter.deinit();
         var remote_calls: usize = 0;
         const published = try spawn(&exporter, Echo, .{ .calls = &remote_calls });
@@ -136,7 +136,7 @@ const Plain = struct {
 };
 
 test "core host owning local refusal keeps effect and capability custody atomic" {
-    var host = support.init(a, @splat(0x63), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x63), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const ref = try spawn(&host, Echo, .{ .calls = &calls });
@@ -186,7 +186,7 @@ const Forwarder = struct {
 };
 
 test "core host owning local forwarding shares one exact reply owner through queued hops" {
-    var host = support.init(a, @splat(0x77), .{ .host_work_quantum = 1 });
+    var host = support.init(a, @splat(0x77), .{ .thread_policy = .unchecked, .host_work_quantum = 1 });
     defer host.deinit();
     var calls: usize = 0;
     const target = try spawn(&host, Echo, .{ .calls = &calls });
@@ -206,7 +206,7 @@ test "core host owning local forwarding shares one exact reply owner through que
 }
 
 test "core host owning local refused forwarding retracts the staged target before its effect" {
-    var host = support.init(a, @splat(0x78), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x78), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const target = try spawn(&host, Echo, .{ .calls = &calls });
@@ -224,7 +224,7 @@ test "core host owning local refused forwarding retracts the staged target befor
 }
 
 test "core host owning local forwarded deferral retains the original bounded result for retry" {
-    var host = support.init(a, @splat(0x79), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x79), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var resolver: u64 = 0;
     const target = try spawn(&host, Deferred, .{ .resolver = &resolver });
@@ -246,7 +246,7 @@ test "core host owning local forwarded deferral retains the original bounded res
 }
 
 test "core host owning local deferred reply refuses preparation and retries the same resolver" {
-    var host = support.init(a, @splat(0x64), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x64), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var resolver: u64 = 0;
     const ref = try spawn(&host, Deferred, .{ .resolver = &resolver });
@@ -273,7 +273,7 @@ test "core host owning local deferred reply refuses preparation and retries the 
 }
 
 test "core host owning local canceled deferred observer leaves physical work until settlement" {
-    var host = support.init(a, @splat(0x65), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x65), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var resolver: u64 = 0;
     const ref = try spawn(&host, Deferred, .{ .resolver = &resolver });
@@ -288,7 +288,7 @@ test "core host owning local canceled deferred observer leaves physical work unt
 }
 
 test "core host owning local failed deferred turn retracts its resolver and prepared reply" {
-    var host = support.init(a, @splat(0x66), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x66), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var resolver: u64 = 0;
     const ref = try spawn(&host, Deferred, .{ .resolver = &resolver, .fail = true });
@@ -313,7 +313,7 @@ const Outer = struct {
 };
 
 test "core host owning local nested execution cannot publish before the outer turn commits" {
-    var host = support.init(a, @splat(0x67), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x67), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const ref = try spawn(&host, Echo, .{ .calls = &calls });
@@ -343,7 +343,7 @@ const Becoming = struct {
 };
 
 test "core host owning local reply is captured before become retires the borrowed state" {
-    var host = support.init(a, @splat(0x68), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x68), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     const text = try a.dupe(u8, "before");
     const ref = try spawn(&host, Becoming, .{ .text = text });
@@ -356,7 +356,7 @@ test "core host owning local reply is captured before become retires the borrowe
 }
 
 fn deferredAllocationRefusal(allocator: std.mem.Allocator, fail: bool) !void {
-    var host = support.init(allocator, @splat(0x69), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(allocator, @splat(0x69), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var resolver: u64 = 0;
     const ref = try spawn(&host, Deferred, .{ .resolver = &resolver, .fail = fail });
@@ -382,7 +382,7 @@ test "core host owning local deferred allocation refusals release every producer
 }
 
 test "core host owning local public progress respects its quantum and wakes remaining work" {
-    var host = support.init(a, @splat(0x70), .{ .host_work_quantum = 1 });
+    var host = support.init(a, @splat(0x70), .{ .thread_policy = .unchecked, .host_work_quantum = 1 });
     defer host.deinit();
     var calls: usize = 0;
     const ref = try spawn(&host, Echo, .{ .calls = &calls });
@@ -401,7 +401,7 @@ test "core host owning local public progress respects its quantum and wakes rema
 }
 
 test "core host owning local finish preserves already admitted deferral and refuses new calls" {
-    var host = support.init(a, @splat(0x71), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x71), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var resolver: u64 = 0;
     const ref = try spawn(&host, Deferred, .{ .resolver = &resolver });
@@ -423,7 +423,7 @@ test "core host owning local finish preserves already admitted deferral and refu
 test "core host retained child allocation refusal preserves parent custody for retry" {
     for (0..128) |failure_index| {
         var failing = std.testing.FailingAllocator.init(a, .{});
-        var host = support.init(failing.allocator(), @splat(0x75), driver.Host.Options.withFrameCap(4096));
+        var host = support.init(failing.allocator(), @splat(0x75), driver.Host.Options.init(.unchecked, 4096));
         defer host.deinit();
         var calls: usize = 0;
         const ref = try spawn(&host, Echo, .{ .calls = &calls });
@@ -458,7 +458,7 @@ test "core host retained child allocation refusal preserves parent custody for r
 
 test "core host owning local cancellation retires queued and deferred work without late invocation" {
     for ([_]bool{ false, true }) |deferred| {
-        var host = support.init(a, @splat(0x72), driver.Host.Options.withFrameCap(4096));
+        var host = support.init(a, @splat(0x72), driver.Host.Options.init(.unchecked, 4096));
         defer host.deinit();
         var resolver: u64 = 0;
         const ref = try spawn(&host, Deferred, .{ .resolver = &resolver });
@@ -480,7 +480,7 @@ test "core host owning local cancellation retires queued and deferred work witho
 test "core host owning local caller allocations stay separate from queued input and forwarding" {
     var live: metrics.LiveBytesAllocator = .{ .backing = a };
     var count: metrics.CountingAllocator = .{ .backing = live.allocator() };
-    var host = support.init(a, @splat(0x80), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x80), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const target = try spawn(&host, Echo, .{ .calls = &calls });
@@ -505,7 +505,7 @@ test "core host owning local caller allocations stay separate from queued input 
 test "core host owning local warmed custody allocates only its producer and vow row" {
     var live: metrics.LiveBytesAllocator = .{ .backing = a };
     var counted: metrics.CountingAllocator = .{ .backing = live.allocator() };
-    var host = support.init(counted.allocator(), @splat(0x81), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(counted.allocator(), @splat(0x81), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const target = try spawn(&host, Echo, .{ .calls = &calls });
@@ -542,7 +542,7 @@ test "core host owning local warmed custody allocates only its producer and vow 
 }
 
 test "core host owning local reply uses its value tree as the capability receipt" {
-    var host = support.init(a, @splat(0x82), driver.Host.Options.withFrameCap(4096));
+    var host = support.init(a, @splat(0x82), driver.Host.Options.init(.unchecked, 4096));
     defer host.deinit();
     var calls: usize = 0;
     const ref = try spawn(&host, Echo, .{ .calls = &calls });

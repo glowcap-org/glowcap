@@ -28,7 +28,7 @@ function fixture(onRelease?: () => void) {
 		},
 	} as unknown as Session;
 	return {
-		registration: new DirectoryRegistration(session, ref(), (value) => session.release(value), () => {}),
+		registration: new DirectoryRegistration(session, ref(), (value) => session.release(value)),
 		released,
 		inboxes,
 		answer: (next: () => Promise<unknown>) => answer = next,

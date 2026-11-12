@@ -26,6 +26,7 @@ pub const step_name = "gen-ts-abi";
 const Output = @import("output").Output;
 const ffi = @import("ts_ffi.zig");
 const table = @import("ts_abi_constants.zig");
+const texts = @import("texts.zig").texts;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/ts/abi/constants.ts", .generate = generateConstants },
@@ -152,21 +153,9 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
             .{ entry.archive, entry.ts, entry.value },
         );
     }
-    try out.print(
-        gpa,
-        "/** Locator hint name carrying dial addresses for a transport whose designator is a key. */\nexport const HINT_DIRECT_ADDRESSES = \"{s}\";\n",
-        .{model.transport.hint_direct_addresses},
-    );
-    try out.print(
-        gpa,
-        "/** Locator hint name carrying a pipe-separated list of complete peer URIs to try after this locator. The value is routing advice, and the exporter's locator stays the signed authority for a redeem. */\nexport const HINT_ALT_LOCATORS = \"{s}\";\n",
-        .{model.transport.hint_alt_locators},
-    );
-    try out.print(
-        gpa,
-        "/** Locator hint name carrying the `id` transport's route bundle. */\nexport const HINT_VIA = \"{s}\";\n",
-        .{model.transport.hint_via},
-    );
+    for (texts) |t| {
+        try out.print(gpa, "/** {s} */\nexport const {s} = \"{s}\";\n", .{ t.doc, t.stem, t.value });
+    }
     inline for (std.enums.values(model.transport.Known)) |known| {
         const designator: []const u8 = switch (known.metadata().designator_scheme) {
             .address => "a dial address",
@@ -231,6 +220,8 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.appendSlice(gpa, "] as const;\n");
 
+    try @import("break_causes.zig").typescript(&out, gpa);
+    try @import("release_result.zig").typescript(&out, gpa);
     return out.toOwnedSlice(gpa);
 }
 
@@ -249,6 +240,7 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "MANAGED_FRAME", c.GlowcapManagedFrame, "GlowcapManagedFrame (owned, self-releasing)");
     try emitLayout(&out, gpa, "LAST_ABORT", c.GlowcapLastAbort, "GlowcapLastAbort");
     try emitLayout(&out, gpa, "ALLOCATOR", c.GlowcapAllocator, "GlowcapAllocator (glowcap_context_new_with_allocator)");
+    try emitLayout(&out, gpa, "BREAK_CAUSE", c.GlowcapBreakCause, "GlowcapBreakCause");
     try emitLayout(&out, gpa, "FAILURE_REPORT", c.GlowcapFailureReport, "GlowcapFailureReport");
     try emitLayout(&out, gpa, "FAILURE_EVENT", c.GlowcapFailureEvent, "GlowcapFailureEvent");
     try emitLayout(&out, gpa, "HOST_ACTION", cd.GlowcapHostAction, "GlowcapHostAction (libglowcap_host, glowcap_host_next_action)");

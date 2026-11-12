@@ -61,20 +61,36 @@ impl From<rooms_platform::storage::StorageError> for Failure {
 }
 impl From<Error> for Failure {
 	fn from(error: Error) -> Self {
-		let class = match &error {
-			Error::Refused(_) => "refused",
-			Error::Invalid(_) => "invalid",
-			Error::Busy(_) => "busy",
-			Error::Exhausted(_) => "exhausted",
-			Error::Stale(_) => "stale",
-			Error::Closed(_) => "closed",
-			Error::Uncertain(_) => "uncertain",
-			Error::Captp(_) => "captp",
-			Error::Peer(_) => "peer",
-			Error::Storage(_) => "storage",
-			Error::Cleanup { .. } => "cleanup",
-		};
-		Self::new(class, error.retry().wire(), error)
+		Self::new(class(&error), error.retry().wire(), error)
+	}
+}
+/// A failure the catalog names is classed by its code, whichever owner
+/// carried it. Any other is classed by the owner that failed. Context and a
+/// failed cleanup describe the failure inside them, as `Error::retry` reads
+/// them. An admission class says nothing was sent, so text a peer wrote earns
+/// one only as a validated refusal.
+fn class(error: &Error) -> &'static str {
+	let named = |failure: Option<rooms_application::failure::Failure<'_>>, owner| {
+		failure
+			.filter(|failure| !failure.code.admission() || failure.refused_before_dispatch())
+			.map_or(owner, |failure| failure.code.wire())
+	};
+	match error {
+		Error::Context { source, .. } => class(source),
+		Error::Cleanup { primary, .. } => class(primary),
+		Error::Admission { refusal, .. } => refusal.code().wire(),
+		Error::Coded { code, .. } => code.wire(),
+		Error::Captp(error) => named(rooms_glowcap::client::binding_failure(error), "captp"),
+		Error::Peer(error) => named(error.failure(), "peer"),
+		Error::Refused(_) => "refused",
+		Error::Invalid(_) => "invalid",
+		Error::Busy(_) => "busy",
+		Error::Exhausted(_) => "exhausted",
+		Error::Stale(_) => "stale",
+		Error::Closed(_) => "closed",
+		Error::Uncertain(_) => "uncertain",
+		Error::Storage(_) => "storage",
+		Error::Platform(_) => "platform",
 	}
 }
 
@@ -113,5 +129,42 @@ mod tests {
 			Failure::from(std::io::Error::from(std::io::ErrorKind::BrokenPipe)).class,
 			"io"
 		);
+	}
+	/// One branch on the class serves a code this session named and a code a
+	/// peer's refusal carried, through any context or cleanup around either.
+	#[test]
+	fn a_failure_the_catalog_names_is_classed_by_its_code() {
+		use rooms_application::{admission, failure::FailureCode};
+		let coded = Failure::from(Error::coded(FailureCode::LinkPreviewTimedOut, "the site was slow"));
+		assert_eq!(coded.class, FailureCode::LinkPreviewTimedOut.wire());
+		assert_eq!(coded.retry, FailureCode::LinkPreviewTimedOut.definition().retry.wire());
+		let admission = || Error::Admission {
+			refusal: admission::Refusal::Capacity,
+			owner: None,
+		};
+		assert_eq!(Failure::from(admission()).class, FailureCode::AdmissionBusy.wire());
+		assert_eq!(
+			Failure::from(admission().with_context("posting")).class,
+			FailureCode::AdmissionBusy.wire()
+		);
+		assert_eq!(
+			Failure::from(admission().retain(Error::closed("release failed"))).class,
+			FailureCode::AdmissionBusy.wire()
+		);
+		// A refusal Rooms retained reads the way a live one does.
+		let peer = |text: &str| Error::peer(rooms_glowcap::client::Error::RefusedObservation(text.into()));
+		assert_eq!(
+			Failure::from(peer("nick-taken: Ann")).class,
+			FailureCode::NickTaken.wire()
+		);
+		assert_eq!(
+			Failure::from(peer("admission-busy: the server work queue is full")).class,
+			FailureCode::AdmissionBusy.wire()
+		);
+		// A rate limit with no advice it can read is not proof nothing was sent.
+		assert_eq!(Failure::from(peer("rate-limited: soon")).class, "peer");
+		assert_eq!(Failure::from(peer("the member hung up")).class, "peer");
+		let undialed = Error::Captp(std::rc::Rc::new(glowcap::Error::transport_unavailable("no provider")));
+		assert_eq!(Failure::from(undialed).class, FailureCode::TransportNotDialed.wire());
 	}
 }

@@ -1,4 +1,3 @@
-import { spawnWeb, webPort } from "../support/web_front.ts";
 // A Deno peer direct-messages a browser member by cold-dial rendezvous, end
 // to end (ADR-0034 capability 5, the Deno-dialer row). The browser tab opens
 // no listening socket, so it cannot be dialed the ordinary way: it registers
@@ -31,12 +30,13 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // Chromium (the devcontainer image ships one).
 // Run: `zig build rooms-web-dm-deno`.
 
+import { spawnWeb, webPort } from "../support/web_front.ts";
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { formatPeerUri, Runtime, TRANSPORT_NOISE_RELAY } from "@glowcap/runtime";
-import * as relay from "@glowcap/relay";
+import { formatPeerUri, type Runtime, TRANSPORT_NOISE_RELAY } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
 import { dial, roomsHost } from "../../lib/locator.ts";
+import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../../lib/room/client.ts";
 import { reapOwned } from "../support/children.ts";
@@ -106,12 +106,10 @@ try {
 
 	// The Deno peer composes TCP for the room and noise-relay for direct dials.
 	const carolHost = roomsHost();
-	const runtime = await Runtime.open({
-		adoptHost: carolHost,
-		providers: [
-			tcp.provider(),
-			relay.provider({ relayUrl: `ws://127.0.0.1:${httpPort}/relay` }),
-		],
+	const runtime = await openRoomsRuntime({
+		host: carolHost,
+		cleartext: [tcp.plain],
+		relay: { relayUrl: `ws://127.0.0.1:${httpPort}/relay` },
 	});
 	carolRuntime = runtime;
 	const roomLocator = (await (await fetch(`http://127.0.0.1:${httpPort}/locator`)).text()).trim();
@@ -126,7 +124,7 @@ try {
 		formatPeerUri(TRANSPORT_NOISE_RELAY, carolHost.designator()),
 	);
 
-	// Wait until the directory says web-bob is introducible.
+	// Wait until the directory announces web-bob's registration.
 	const dmable = new Set<string>();
 	await carol.watch((event) => {
 		if (event.kind === "registered") dmable.add(event.name.toLowerCase());

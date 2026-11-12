@@ -57,7 +57,7 @@ pub const Prepared = union(enum) {
 /// publication: allocating later could accept a call without its mandatory
 /// callback on OOM. The prepared token frees both on refusal, or transfers them
 /// to the answer store until listener drain/GC/teardown. Bounded by inbound
-/// answer and per-target listener limits; deliver-only allocates neither.
+/// answer and per-target listener limits. A deliver-only turn allocates neither.
 pub fn prepare(owner: *Session, deliver: *const model.view.Deliver) !?Prepared {
     const resolver = deliver.resolve_me_desc orelse return null;
     const position = resolver.position() orelse return error.UnexpectedMessage;

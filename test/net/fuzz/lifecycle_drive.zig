@@ -104,10 +104,16 @@ var ctx_allocator: ?std.mem.Allocator = null;
 var contexts_built: usize = 0;
 var contexts_seen_on_close: usize = 0;
 var contexts_freed: usize = 0;
+/// A context the adoption hook could not allocate. The hook has no error
+/// channel, so the run reads this after the loop ends.
+var context_refusal: ?anyerror = null;
 
 fn makeConnCtx() ?*anyopaque {
     const a = ctx_allocator orelse return null;
-    const cell = a.create(u8) catch return null;
+    const cell = a.create(u8) catch |err| {
+        context_refusal = err;
+        return null;
+    };
     cell.* = 1;
     contexts_built += 1;
     return @ptrCast(cell);
@@ -207,7 +213,8 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     // rest.
     if (backend.schedule.len < 8) return;
 
-    var loop = completion.Loop(LifecycleBackend, DialAnything).initWithBackendOptions(
+    try buildHello(allocator);
+    var loop = try completion.Loop(LifecycleBackend, DialAnything).initWithBackendOptions(
         allocator,
         .{ .read_buffers = 2 },
         makeLifecyclePeer,
@@ -235,13 +242,12 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
             .on_park = onParked,
             .on_close = countClose,
         },
-    ) catch return;
+    );
     // The adoption hook reads the loop it is called from, and the loop is what
     // it is passed as the shared context.
     loop.make_ctx = &loop;
     ctx_allocator = allocator;
     serve_backend = &loop.backend;
-    buildHello(allocator);
     defer {
         ctx_allocator = null;
         serve_backend = null;
@@ -253,9 +259,11 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     contexts_built = 0;
     contexts_seen_on_close = 0;
     contexts_freed = 0;
+    context_refusal = null;
     var deinited = false;
-    defer if (!deinited) {
+    errdefer if (!deinited) {
         loop.backend.draining = true;
+        // A drain failure here cannot change the error already being returned.
         loop.closeAndDrain() catch {};
         loop.deinit();
     };
@@ -270,16 +278,31 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
             .transport = "fuzz",
             .designator = "peer",
             .hints = model.Hints.emptyFalse(),
-        }) catch break;
+        }) catch |err| switch (err) {
+            // The schedule refuses some dial starts, which is the arm under test.
+            error.SubmissionQueueFull => break,
+            else => return err,
+        };
     }
 
-    loop.run(.forever) catch {};
+    // `run` returns only loop-global failures, and three are legal endings
+    // whose accounting is asserted right after: the schedule runs out
+    // (`ScheduleIdle`, `ScheduleDone`), the backend refuses the listener's
+    // accept re-arm or a close retry (`SubmissionQueueFull`), or an accept
+    // completes with the backend's unclassified failure, which the loop
+    // treats as a listener refusal that recurs for every arrival
+    // (`AcceptFailed`). Any other failure is a defect the run reports.
+    loop.run(.forever) catch |err| switch (err) {
+        error.ScheduleIdle, error.ScheduleDone, error.SubmissionQueueFull, error.AcceptFailed => {},
+        else => return err,
+    };
 
+    if (context_refusal) |err| return err;
     try std.testing.expect(!generation_repeated);
 
     // The live loop, wherever the schedule left it. This is the strongest
     // place to look: connections are still open, still parked, still holding
-    // whatever the schedule built, and a count that has drifted has not yet status-allow: pending state or quoted runtime label
+    // whatever the schedule built, and a count that has drifted has not yet
     // been washed out by a teardown that resets everything anyway.
     try expectAccountingExact(&loop);
     // `deinit` on a live loop is a call the API allows, and it is the only
@@ -308,6 +331,7 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     // outstanding operation retires and teardown is reached from wherever the
     // schedule left the loop.
     loop.backend.draining = true;
+    // tolerant: a drain that stops early leaves the counts the accounting check below reads, so a real defect still fails there.
     loop.closeAndDrain() catch {};
     try expectAccountingExact(&loop);
 
@@ -319,6 +343,9 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     try std.testing.expectEqual(close_hook_fires, loop.closed_count);
     try std.testing.expectEqual(contexts_built, contexts_seen_on_close);
     try std.testing.expectEqual(contexts_built, contexts_freed);
+    try std.testing.expect(quiescent(&loop));
+    deinited = true;
+    loop.deinit();
 }
 
 /// Whether every live connection has retired its operations, the state

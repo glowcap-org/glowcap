@@ -2,6 +2,7 @@
 //! acquisition commits the exact occurrences and row together. Missing
 //! custody stays absent.
 use super::*;
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
@@ -51,7 +52,7 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(id.len(), move |_| async move {
-			let mut snapshot = workspace.snapshot().await.map_err(|e| e.to_string())?;
+			let mut snapshot = workspace.snapshot().await.map_err(RuntimeError::from)?;
 			let rows = &mut snapshot.intent.accesses;
 			let Some(index) = rows
 				.as_slice()
@@ -71,7 +72,7 @@ impl RoomsManagedWorkspace {
 			let releases = [custody::Coordinate::new(custody::Role::SessionControl, control)];
 			let acquisition = workspace
 				.prepare_acquisition(snapshot.revision, Vec::new(), &releases, &snapshot.intent)
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedAcquisition { driver, acquisition }.into())
@@ -116,7 +117,7 @@ impl RoomsManagedWorkspace {
 				}
 				None => None,
 			};
-			let mut snapshot = workspace.snapshot().await.map_err(|e| e.to_string())?;
+			let mut snapshot = workspace.snapshot().await.map_err(RuntimeError::from)?;
 			let existing = snapshot
 				.intent
 				.accesses
@@ -124,7 +125,9 @@ impl RoomsManagedWorkspace {
 				.iter()
 				.position(|row| row.id.text().as_str() == Some(&id));
 			if existing.is_some() && !replace_view {
-				return Err("Access row already exists; recover its original request".into());
+				return Err(RuntimeError::invalid(
+					"Access row already exists; recover its original request",
+				));
 			}
 			let mut releases = Vec::new();
 			if let Some(index) = existing
@@ -146,11 +149,12 @@ impl RoomsManagedWorkspace {
 					.intent
 					.accesses
 					.try_push(workspace::Access {
-						id: rooms_application::fields::Text::new(id.into()).ok_or("Invalid row identity")?,
+						id: rooms_application::fields::Text::new(id.into())
+							.ok_or_else(|| RuntimeError::invalid("Invalid row identity"))?,
 						access: access.as_ref().map(|(key, _, _)| *key),
 						control: control.as_ref().map(|(key, _, _)| *key),
 					})
-					.map_err(|_| "Saved access capacity is exhausted")?;
+					.map_err(|_| RuntimeError::exhausted("Saved access capacity is exhausted"))?;
 			}
 			// Each selected occurrence is held once through the same bounded
 			// candidate. Foreign recipes use the established home and the exact
@@ -172,7 +176,7 @@ impl RoomsManagedWorkspace {
 			}
 			let acquisition = workspace
 				.prepare_acquisition(snapshot.revision, imports, &releases, &snapshot.intent)
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedAcquisition { driver, acquisition }.into())

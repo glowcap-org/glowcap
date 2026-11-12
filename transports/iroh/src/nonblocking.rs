@@ -257,18 +257,20 @@ async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) -> Result<(), ()> {
 			continue;
 		}
 		if closed {
-			send.finish().map_err(|_| ())?;
-			// finish queues FIN; it does not acknowledge the final bytes. The
-			// stream holds the last connection reference after conn_free, so
-			// dropping it here would implicitly close QUIC and discard the tail.
+			// After the local close the drained tail is a bounded farewell, as a
+			// write that outlives the drain deadline above is. finish queues FIN
+			// and does not acknowledge the final bytes. The stream holds the last
+			// connection reference after conn_free, so dropping it here would
+			// implicitly close QUIC and discard the tail. Wait for the partner's
+			// acknowledgement within the bound.
 			let deadline = close_deadline.expect("closed writer has a drain deadline");
-			return match tokio::time::timeout_at(deadline, send.stopped()).await {
-				Ok(Ok(_)) => Ok(()),
-				Ok(Err(iroh::endpoint::StoppedError::ConnectionLost(
-					ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed,
-				))) => Ok(()),
-				_ => Err(()),
-			};
+			// tolerant: a partner that already closed, reset, went silent, or did
+			// not acknowledge within the bound leaves with the tail. Release
+			// itself completed, so its barrier reports success.
+			if send.finish().is_ok() {
+				let _ = tokio::time::timeout_at(deadline, send.stopped()).await;
+			}
+			return Ok(());
 		}
 		notified.await;
 	}

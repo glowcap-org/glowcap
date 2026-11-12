@@ -11,7 +11,7 @@ const H = loam_engine.Header(.{
     .owner = "in-memory owner",
     .open_params = &.{ "store_id", "create", "capacity_bytes", "schemas", "schema_count", "limits", "out_storage", "out_store" },
     .open_doc = "Create a new in-memory store and reserve a fresh incarnation. The open takes no path, and each open makes its own store that lives until release, so two opens with one identity coexist. create=0 returns NOT_FOUND because no store exists before it is created, and create=1 and create=2 both create. capacity_bytes bounds the stored keys and values together, independent of the resident and staged bytes in limits. The storage owner owns the returned borrowed Store; limits and schemas are copied.",
-    .release_doc = "Release a quiescent storage owner and its Store, then free the store, which ends it. Busy leaves both alive. Attachments and storage workers must finish first.",
+    .release_doc = "Release a quiescent storage owner and its Store, then free the store, which ends it. A busy Store refuses before teardown and leaves both alive. Attachments and storage workers must finish first.",
     .work_run_note = " Calls into the one engine are serialized by a lock.",
 }, @import("c_abi_loam_volatile"));
 pub const step_name = H.step_name;

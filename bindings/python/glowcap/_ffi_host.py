@@ -27,7 +27,7 @@ from ._archive_contract import load_archive
 # The trace record's digest is a fixed-width array, so its width is the
 # reflected constant rather than a number retyped here.
 from ._constants_gen import HOST_ARCHIVE_FINGERPRINT, TRACE_DIGEST_BYTES
-from ._ffi_ocapn import _Argument, _LastAbort, _LocatorHintView, _LocatorView, _ManagedFrame, _Reference
+from ._ffi_ocapn import _Argument, _BreakCause, _LastAbort, _LocatorHintView, _LocatorView, _ManagedFrame, _Reference
 from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
@@ -79,6 +79,7 @@ class _HostAction(ctypes.Structure):
         ("message", ctypes.c_void_p),
         ("message_len", ctypes.c_size_t),
         ("result", ctypes.c_int32),
+        ("cause", _BreakCause),
     ]
 
 
@@ -189,6 +190,7 @@ _host = load_archive(
     lambda lib: lib.glowcap_host_archive_fingerprint,
     HOST_ARCHIVE_FINGERPRINT,
     driver_sigs(
+        _BreakCause,
         _Argument,
         _Reference,
         _ManagedFrame,

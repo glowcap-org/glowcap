@@ -392,7 +392,7 @@
            ([exn?
              (lambda (e)
                (define cleanup
-                 (with-handlers ([exn? values])
+                 (with-handlers ([exn:fail? values])
                    (check/onion (glowcap_onion_listener_release h))
                    #f))
                (raise (if cleanup (retain-cleanup-failure e cleanup) e)))])

@@ -93,10 +93,14 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 	async function settle(command) {
 		const step = ++settling;
 		let cursor = (await observation.poll()).cursor;
+		let admitted;
 		try {
-			await command.submit();
+			admitted = await command.submit();
 		} catch (error) {
 			throw new Error(`managed command ${step} admission: ${error}`, { cause: error });
+		}
+		if (["conflict", "refused", "uncertain"].includes(admitted.status)) {
+			throw new Error(`managed command ${step} admission: ${JSON.stringify(admitted)}`);
 		}
 		for (;;) {
 			const status = await command.status();
@@ -115,12 +119,18 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 			cursor = (await observation.receive(cursor)).cursor;
 		}
 	}
+	// A management request commits, or the proof stops on the outcome it read.
+	async function committed(request, what) {
+		const outcome = await request.submitOutcome();
+		if (outcome.status !== "committed") throw new Error(`${what} did not commit: ${JSON.stringify(outcome)}`);
+		return outcome;
+	}
 	async function lifecycle(control, verb, revision) {
 		const method = { pause: "preparePause", resume: "prepareResume", revoke: "prepareRevoke" }[verb];
 		const request = await control[method](revision);
 		held.push(request);
 		if (verb === "pause" || verb === "revoke") sourcePaused = true;
-		await request.submit();
+		await committed(request, verb);
 		if (verb === "resume") sourcePaused = false;
 		lifecycleChanged();
 		return request;
@@ -155,7 +165,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 			}),
 		);
 		held.push(request);
-		const [workspace, control] = await request.submit();
+		const { access: workspace, control } = await committed(request, "issuance");
 		held.push(workspace, control);
 		activityReader = await workspace.activityReader();
 		let activityCursor = "";
@@ -382,7 +392,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 					["webrtc"],
 				);
 				held.push(connection);
-				if (await connection.submit() !== "committed") {
+				if ((await connection.submit()).status !== "committed") {
 					throw new Error("the WebRTC connection choice did not commit");
 				}
 			}
@@ -519,26 +529,15 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 			registration,
 			opening: "opening",
 		};
-		let introduce = await workspace.prepareCommand(
+		const introduce = await workspace.prepareCommand(
 			"introduce",
 			(await workspace.snapshot()).revision,
 			"startDirect",
 			["home", "managed-direct-peer", registration, "opening"],
 		);
 		held.push(introduce);
-		let introduced = await settle(introduce);
-		if (introduced.status === "pending") {
-			await notice((event) => event.notice.kind === "introducible" && event.notice.registration === registration);
-			introduce = await workspace.prepareCommand(
-				"introduce-ready",
-				(await workspace.snapshot()).revision,
-				"startDirect",
-				["home", "managed-direct-peer", registration, "opening"],
-			);
-			held.push(introduce);
-			introduced = await settle(introduce);
-		}
-		if (introduced.status !== "ready") throw new Error("the exact introduction did not return its inbox");
+		const introduced = await settle(introduce);
+		if (typeof introduced.inbox !== "string") throw new Error("the exact introduction did not return its inbox");
 		const directAccess = key();
 		const directSource = key();
 		const directIntent = await workspace.snapshot();
@@ -587,7 +586,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 				);
 				held.push(command);
 				let cursor = (await peerObservation.poll()).cursor;
-				if (await command.submit() === "conflict") continue;
+				if ((await command.submit()).status === "conflict") continue;
 				for (;;) {
 					const status = await command.status();
 					if (status === "committed") return { command, result: await command.result() };

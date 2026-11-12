@@ -182,7 +182,7 @@ impl<D: Deadline> File<D> {
 			FileReader::Mediated { reader, .. } => reader
 				.read(offset as usize, expected)
 				.await
-				.map_err(glowcap::loam::refusal)?,
+				.map_err(Error::SourceRead)?,
 			FileReader::Capability(caller) => {
 				let reply = caller
 					.call_reference(

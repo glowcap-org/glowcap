@@ -1,15 +1,16 @@
 ---
 description: "Committed helper scripts need one caller, one owner, a stable interface, and verification at the boundary they serve."
-globs: **/*.sh, **/ops, glowcap, .agents/hooks/*, .agents/skills/**/bin/*, apps/**/scripts/**, tools/**/*.py, .devcontainer/**/*.py
+globs: **/*.sh, glowcap, .agents/hooks/*, .agents/skills/**/bin/*, apps/**/scripts/**, tools/**/*.py, .devcontainer/**/*.py, ci/**/*.py, .devcontainer/bin/*
 paths:
   - "**/*.sh"
-  - "**/ops"
   - "glowcap"
   - ".agents/hooks/*"
   - ".agents/skills/**/bin/*"
   - "apps/**/scripts/**"
   - "tools/**/*.py"
   - ".devcontainer/**/*.py"
+  - "ci/**/*.py"
+  - ".devcontainer/bin/*"
 ---
 
 # glowcap — Script Standard
@@ -76,5 +77,5 @@ should never invoke directly. An internal script's header names its public
 caller so a future reader can find the owning interface.
 
 Remove a script when its caller disappears, its effect moves into a better
-owner, or the behavior no longer pays for its maintenance. Leave no orphan, <!-- status-allow: workflow sequence -->
+owner, or the behavior no longer pays for its maintenance. Leave no orphan,
 compatibility wrapper, or pair of scripts that each own half of one effect.

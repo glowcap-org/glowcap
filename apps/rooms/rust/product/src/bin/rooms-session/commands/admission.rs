@@ -76,10 +76,8 @@ async fn command_once(options: &Options, id: &str, base: u64, name: &str, args: 
 			let mut response = match request(&options.state, envelope.clone()).await {
 				Ok(response) => response,
 				Err(failure)
-					if matches!(
-						failure.class.as_str(),
-						"rate-limited" | "admission-busy" | "request-too-large"
-					) =>
+					if rooms_application::failure::FailureCode::parse(&failure.class)
+						.is_some_and(rooms_application::failure::FailureCode::admission) =>
 				{
 					return Err(retire_refusal(options, id, failure).await);
 				}

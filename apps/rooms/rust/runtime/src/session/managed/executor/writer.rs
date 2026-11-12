@@ -10,9 +10,9 @@ pub(in crate::session::managed) struct Writer {
 	pub(in crate::session::managed) trouble: RefCell<Option<Box<ExecutionReporter>>>,
 }
 impl Writer {
-	pub(in crate::session::managed) fn report(&self, scope: &str, error: &glowcap::Error) {
+	pub(in crate::session::managed) fn report(&self, scope: &str, error: &(impl Clone + Into<crate::Error>)) {
 		if let Some(report) = self.trouble.borrow().as_ref() {
-			report(scope, error);
+			report(scope, &error.clone().into());
 		}
 	}
 	pub fn new(host: Host) -> Self {

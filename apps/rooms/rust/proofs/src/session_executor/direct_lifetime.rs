@@ -213,11 +213,7 @@ async fn run(boundary: Boundary) {
 					}
 				};
 				assert_eq!(
-					rooms_application::failure::Failure::parse(&refusal.to_string())
-						.unwrap()
-						.retry_advice()
-						.unwrap()
-						.class,
+					refusal.admission_refusal().unwrap().retry_advice().unwrap().class,
 					rooms_application::admission::Class::Read
 				);
 				assert!(

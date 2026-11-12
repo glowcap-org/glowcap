@@ -54,7 +54,7 @@
      ;; outcome outlives the popped action's until-next-pop lifetime.
      (list 'settle (GlowcapHostAction-ticket a) (arg<-c (GlowcapHostAction-value a)))]
     [(= kind HOST-ACTION-FAIL)
-     (list 'fail (GlowcapHostAction-ticket a) (GlowcapHostAction-result a)
+     (list 'fail (GlowcapHostAction-ticket a) (GlowcapHostAction-result a) (break-cause-fields<-c (GlowcapHostAction-cause a))
            (view->string (GlowcapHostAction-message a) (GlowcapHostAction-message-len a)))]
     [(= kind HOST-ACTION-CLOSE)
      (list 'close (GlowcapHostAction-session a) (GlowcapHostAction-result a))]

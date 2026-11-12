@@ -33,7 +33,7 @@ pub trait Transport: Deadline + Clone + 'static {
 	fn sleep(&self, milliseconds: u64) -> impl Future<Output = ()>;
 }
 
-const REFUSED: u16 = 4403;
+const REFUSED: u16 = rooms_application::server::trace::REFUSED_CLOSE_CODE;
 const RETRY_MS: u64 = 1_000;
 const MAX_PENDING: usize = 4096;
 const MAX_PENDING_BYTES: usize = 4 * 1024 * 1024;
@@ -81,7 +81,7 @@ impl Publisher {
 			ended,
 		});
 		let publisher = Self(inner.clone());
-		let target = match publish_target(&scope, &swiss) {
+		let target = match publish_target(&scope) {
 			Ok(target) => target,
 			Err(reason) => {
 				inner.stopped.set(true);
@@ -94,7 +94,16 @@ impl Publisher {
 		};
 		tokio::task::spawn_local(async move {
 			finished.send_replace(Some(
-				run(transport, inner, target, on_status, on_refused, changes, &finished).await,
+				run(
+					transport,
+					inner,
+					Door { target, swiss },
+					on_status,
+					on_refused,
+					changes,
+					&finished,
+				)
+				.await,
 			));
 		});
 		publisher
@@ -198,19 +207,28 @@ impl Publisher {
 	}
 }
 
+/// Where a producer connects, and the capability it presents first.
+struct Door {
+	target: String,
+	swiss: String,
+}
+
 async fn run<T: Transport>(
 	transport: T,
 	inner: Rc<Inner>,
-	target: String,
+	door: Door,
 	on_status: Rc<dyn Fn(bool)>,
 	on_refused: Rc<dyn Fn(String)>,
 	mut changes: watch::Receiver<()>,
 	finished: &watch::Sender<Option<Result<(), Error>>>,
 ) -> Result<(), Error> {
 	while !inner.stopped.get() {
-		match bounded(&transport, transport.connect(&target)).await {
+		match bounded(&transport, transport.connect(&door.target)).await {
 			Ok(mut socket) => {
 				let mut failed = bounded(&transport, socket.ready()).await.is_err();
+				if !failed && !inner.stopped.get() {
+					failed = bounded(&transport, socket.send(door.swiss.clone())).await.is_err();
+				}
 				if !failed && !inner.stopped.get() {
 					failed = bounded(&transport, await_ready(&mut socket, &inner, &on_refused))
 						.await
@@ -409,10 +427,12 @@ fn set_connected(inner: &Inner, connected: bool, on_status: &Rc<dyn Fn(bool)>) {
 	on_status(connected);
 }
 
-pub(super) fn publish_target(scope: &str, swiss: &str) -> Result<String, Error> {
-	let mut target = rooms_application::server::trace::producer_endpoint(scope).map_err(Error::invalid)?;
-	target.query_pairs_mut().append_pair("cap", swiss);
-	Ok(target.into())
+/// The producer route. The capability is never part of it: `run` sends the
+/// swiss as the socket's first message.
+pub(super) fn publish_target(scope: &str) -> Result<String, Error> {
+	Ok(rooms_application::server::trace::producer_endpoint(scope)
+		.map_err(Error::invalid)?
+		.into())
 }
 
 fn record_fits(event: &TraceEvent) -> bool {

@@ -276,7 +276,7 @@ test "the listen's answer is installed before the op:listen is encoded" {
         try installRemotePromise(&pair.p1, .from(5));
         const answer = (try engine.listen.listenOnFar(&pair.p1, .{ .far = model.FarRef.promise(5) })).position;
 
-        // Nothing has been encoded yet, and the answer is already one we hold, status-allow: pending state or quoted runtime label
+        // Nothing has been encoded yet, and the answer is already one we hold,
         // so the notification cannot arrive on an answer we do not.
         try std.testing.expect(pair.p1.takeOutbound() == null);
         try std.testing.expect(pair.p1.session_state.outbound_answers.contains(answer));
@@ -363,8 +363,7 @@ test "every allocation failure inside listenOnFar rolls the whole nomination bac
                 var frame = peer.takeOutbound().?;
                 frame.deinit();
                 continue;
-            } else |_| {}
-            try std.testing.expectError(error.OutOfMemory, attempt);
+            } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
             failures += 1;
 
             // Nothing of the nomination survives: no export row, no answer

@@ -1,12 +1,20 @@
-"""The blocking TCP transport, glowcap's ``libglowcap_net_transport_tcp``
+"""The TCP transport package, glowcap's ``libglowcap_net_transport_tcp``
 archive.
 
-This is a companion to the core :mod:`glowcap` module. Importing it loads
-``libglowcap_net_transport_tcp`` on top of the core ``libglowcap_ocapn``. It
-shares the core's frame, context, and value layout but adds the
-``glowcap_tcp_*`` family, a host-owned blocking frame shuttle over a real
-kernel socket, with its own thread-local last-error. A consumer that shuttles
-whole frames over TCP by hand composes it with the core:
+Dial and listen through :class:`glowcap.Runtime` with the sealed provider, whose
+default profile is ``noise-tcp``:
+
+    async with Runtime.open(providers=[tcp.provider()]) as runtime:
+        session = await runtime.connect(locator)
+
+This module also owns the async listeners: :attr:`noise.listen` for the sealed
+profile, :attr:`keyed.listen`, and :func:`glowcap.tcp.listen`. Each registers
+only its own profile. ``keyed-tcp`` and plain ``tcp`` are cleartext with no peer
+proof, so each is an explicit opt-in.
+
+The archive also exports a blocking frame shuttle over one kernel socket, with
+its own thread-local last-error. It speaks plain cleartext ``tcp`` whatever the
+config's profiles say, and suits tests and peers that speak nothing else:
 
     from glowcap.tcp import TcpNetlayer
 
@@ -14,10 +22,6 @@ whole frames over TCP by hand composes it with the core:
         listener = nl.listen("127.0.0.1", 0)
         conn = nl.connect("127.0.0.1", listener.port())
         conn.write_frame(frame)
-
-This module also owns the async TCP listener package. Dial composes
-:class:`glowcap.Runtime` with a typed locator. Listening is
-:func:`glowcap.tcp.listen`, :attr:`keyed.listen`, or :attr:`noise.listen`.
 """
 
 from __future__ import annotations
@@ -25,8 +29,10 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from ._constants import release_result_code
 
 if TYPE_CHECKING:
     from ._host import Host
@@ -36,6 +42,9 @@ from ._constants import (
     BINDING_STREAM_READ_CHUNK_BYTES,
     HINT_DIRECT_ADDRESSES,
     RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+    TCP_PROFILE_KEYED_TCP,
+    TCP_PROFILE_NOISE_TCP,
+    TCP_PROFILE_TCP,
     TRANSPORT_KEYED_TCP,
     TRANSPORT_NOISE_TCP,
     TRANSPORT_TCP,
@@ -47,6 +56,7 @@ from ._ffi_ocapn import _borrowed_byte_frame, _copy_managed_frame, _ManagedFrame
 from ._ffi_tcp import _tcp_lib, _TcpConfig, _TcpStreamOptions
 from ._locator import Locator, designator_host_port
 from ._socket_address import address_designator
+from ._tcp_listen import Server, listen_profile
 from ._transport import Connector, Provider, _rollback_failed_provider, _rollback_failed_transport
 
 __all__ = [
@@ -55,6 +65,7 @@ __all__ = [
     "TcpListener",
     "TcpConnection",
     "Config",
+    "plain",
     "StreamOptions",
     "Keepalive",
     "address_designator",
@@ -81,13 +92,6 @@ class StreamOptions:
     """Policy for one stream. ``None`` at an operation inherits the provider."""
 
     keepalive: Keepalive | None = None
-
-
-@dataclass(frozen=True)
-class Config:
-    """Defaults inherited by every stream in the TCP provider package."""
-
-    stream: StreamOptions = StreamOptions()
 
 
 def _stream_options(value: StreamOptions) -> _TcpStreamOptions:
@@ -137,11 +141,28 @@ def locator(host: str, port: int) -> Locator:
     return Locator(TRANSPORT_TCP, address_designator(host, port), {}, "boolean-false")
 
 
-class _KeyAddressedProfile:
-    __slots__ = ("_transport",)
+class _PlainProfile:
+    """The cleartext ``tcp`` profile: its ``profile`` bit, locator, and listener."""
 
-    def __init__(self, transport: str) -> None:
+    __slots__ = ("_transport", "profile")
+
+    def __init__(self) -> None:
+        self._transport = TRANSPORT_TCP
+        self.profile = TCP_PROFILE_TCP
+
+    def locator(self, host: str, port: int) -> Locator:
+        return locator(host, port)
+
+    async def listen(self, bind_host: str, port: int = 0, **options) -> Server:
+        return await listen(bind_host, port, **options)
+
+
+class _KeyAddressedProfile:
+    __slots__ = ("_transport", "profile")
+
+    def __init__(self, transport: str, profile: int) -> None:
         self._transport = transport
+        self.profile = profile
 
     def locator(self, designator: str, host: str, port: int) -> Locator:
         """Build this key-addressed TCP profile's typed locator."""
@@ -156,19 +177,57 @@ class _KeyAddressedProfile:
         codec: str | None = None,
         advertised_host: str | None = None,
         host: Host | None = None,
-        config: Config = Config(),
+        stream: StreamOptions = StreamOptions(),
     ) -> Server:
-        """Bind this key-addressed profile through the TCP provider."""
-        from ._tcp_listen import listen_keyed, listen_noise
-
-        bind = listen_keyed if self._transport == TRANSPORT_KEYED_TCP else listen_noise
-        return await bind(
-            bind_host, port, seed=seed, codec=codec, advertised_host=advertised_host, host=host, config=config
-        )
+        """Bind this key-addressed profile through a provider that registers only it."""
+        return await listen_profile(self, bind_host, port, seed, codec, advertised_host, host, stream)
 
 
-keyed = _KeyAddressedProfile(TRANSPORT_KEYED_TCP)
-noise = _KeyAddressedProfile(TRANSPORT_NOISE_TCP)
+plain = _PlainProfile()
+keyed = _KeyAddressedProfile(TRANSPORT_KEYED_TCP, TCP_PROFILE_KEYED_TCP)
+noise = _KeyAddressedProfile(TRANSPORT_NOISE_TCP, TCP_PROFILE_NOISE_TCP)
+
+_Profile = _PlainProfile | _KeyAddressedProfile
+
+
+async def listen(
+    bind_host: str,
+    port: int = 0,
+    *,
+    host: Host | None = None,
+    codec: str | None = None,
+    advertised_host: str | None = None,
+    stream: StreamOptions | None = None,
+) -> Server:
+    """Bind a driver-owned TCP listener, optionally adopting ``host``."""
+    return await listen_profile(plain, bind_host, port, None, codec, advertised_host, host, stream)
+
+
+@dataclass(frozen=True)
+class Config:
+    """Defaults inherited by every stream in the TCP provider package.
+
+    ``profiles`` lists the profile values the provider registers: any of
+    :data:`plain`, :data:`keyed`, and :data:`noise`. It defaults to ``(noise,)``.
+    Plain ``tcp`` and ``keyed-tcp`` are cleartext with no peer proof, so each is
+    an explicit opt-in. The list limits which TCP profiles this provider
+    registers. Other providers still dial their own transports. The raw
+    :class:`TcpNetlayer` ``listen`` and ``connect`` verbs speak plain ``tcp`` and
+    are independent of the list.
+
+    The C library refuses an empty list with ``ERR_INVALID_ARGUMENT`` when the
+    netlayer is created, which is when a provider is installed.
+    """
+
+    stream: StreamOptions = StreamOptions()
+    profiles: tuple[_Profile, ...] = field(default_factory=lambda: (noise,))
+
+
+def _profile_bits(profiles: tuple[_Profile, ...]) -> int:
+    bits = 0
+    for profile in profiles:
+        bits |= profile.profile
+    return bits
 
 
 def _tcp_last_error() -> str | None:
@@ -187,7 +246,7 @@ def _check_tcp(code: int) -> None:
 
 
 def _release_connection(raw) -> None:
-    _check_tcp(_tcp_lib.glowcap_tcp_conn_release(raw, None, 0, None))
+    _check_tcp(release_result_code(_tcp_lib.glowcap_tcp_conn_release(raw, None, 0, None)))
 
 
 def _shutdown_connection(raw) -> None:
@@ -305,7 +364,7 @@ class TcpNetlayer(_ChildRetiringNetlayer[TcpConnection | TcpListener]):
 
     def __init__(self, config: Config = Config()):
         out = ctypes.c_void_p()
-        raw_config = _TcpConfig(_stream_options(config.stream))
+        raw_config = _TcpConfig(_stream_options(config.stream), _profile_bits(config.profiles))
         _check_tcp(_tcp_lib.glowcap_tcp_netlayer_new(ctypes.byref(raw_config), ctypes.byref(out)))
         self._ffi = FfiHandle(out, _release_netlayer, _tcp_lib.glowcap_tcp_netlayer_shutdown, label="TCP netlayer")
         # Children borrow this netlayer's pinned std.Io backend. A weak set
@@ -314,7 +373,7 @@ class TcpNetlayer(_ChildRetiringNetlayer[TcpConnection | TcpListener]):
         self._init_children()
 
     def _transport_provider(self):
-        """Borrow this runtime's complete tcp/keyed-tcp/noise-tcp package."""
+        """Borrow this runtime's provider package for the profiles its config named."""
         from ._ffi_driver import _TransportProvider
 
         package = _TransportProvider()
@@ -323,6 +382,7 @@ class TcpNetlayer(_ChildRetiringNetlayer[TcpConnection | TcpListener]):
         return package
 
     def listen(self, host: str, port: int = 0) -> TcpListener:
+        """Bind plain ``tcp``."""
         buf, n = _str_buf(host)
         out = ctypes.c_void_p()
         with self._ffi.lease() as raw:
@@ -338,6 +398,7 @@ class TcpNetlayer(_ChildRetiringNetlayer[TcpConnection | TcpListener]):
         *,
         options: StreamOptions | None = None,
     ) -> TcpConnection:
+        """Dial plain ``tcp``."""
         buf, n = _str_buf(host)
         out = ctypes.c_void_p()
         raw_options, options_ptr = _stream_options_ptr(options)
@@ -362,7 +423,7 @@ class TcpNetlayer(_ChildRetiringNetlayer[TcpConnection | TcpListener]):
 
 
 def provider(config: Config | None = None) -> Provider:
-    """Build the configured FFI package for all TCP profiles."""
+    """Build the configured FFI package for the profiles ``config`` names, ``noise-tcp`` alone by default."""
     selected = config if config is not None else Config()
 
     async def install(loop) -> None:
@@ -394,9 +455,3 @@ def connector() -> Connector:
             raise
 
     return Connector((TRANSPORT_TCP,), realize)
-
-
-# Public high-level listening lives with the transport package. Importing this
-# after the provider definitions avoids a cycle: the implementation composes
-# the package's Provider only when a listener is opened.
-from ._tcp_listen import Server, listen  # noqa: E402

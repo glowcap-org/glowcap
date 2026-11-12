@@ -17,23 +17,12 @@ import { draftWithMention, recalledDraft } from "../../composer/draft.ts";
 import { type Conv, isSessionConv } from "../../conversation.ts";
 import { applicationModule } from "../../application.ts";
 import { pickedSource } from "../../file_source.ts";
-import { refusalText } from "../../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import type { RoomsBrowserSource } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { type ManagedOperation, ResultAcquisitionError, ResultExpired, TerminalObservationError } from "./operation.ts";
-import { managedSessionText, resultAcquisitionFailure } from "../../../../lib/text/managed_session.ts";
 import { CompletedLine, isLineResult } from "./completed_line.ts";
 
 type Draft = ReturnType<typeof store.draftFor>;
-/** The composer's own refusal to take a third send: the draft stays, and the
- * sentence is the whole notice. */
-class ComposerBusy extends Error {}
-/** What the failure toast says. The composer's own refusal is already the
- * reader's sentence, and everything else is rendered from its failure code. */
-function failureNotice(error: unknown): string {
-	if (error instanceof ComposerBusy) return error.message;
-	if (error instanceof ResultAcquisitionError) return resultAcquisitionFailure(error.message);
-	return refusalText(error);
-}
 interface Send {
 	draft: Draft;
 	task: Promise<void>;
@@ -44,7 +33,7 @@ interface Send {
  * exact receipt; `degraded` means delivery is known but its result
  * acquisition failed, so the receipt is partial and the original operation
  * retains recovery; `expired` means the line's returned authority expired
- * with an earlier session and it stands as sent, unchangeable.  status-allow: event or source ordering */
+ * with an earlier session and it stands as sent, unchangeable. */
 type LineSettlement =
 	| { kind: "acquired"; completed: CompletedLine }
 	| { kind: "degraded"; completed: CompletedLine; failure: ResultAcquisitionError }
@@ -64,7 +53,7 @@ type Composer = Pick<
 export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSession, powers: CommandPowers): Composer {
 	const projection = page.projection;
 	const failures = (error: unknown) => {
-		store.toast(projection, "failure", failureNotice(error));
+		store.toast(projection, "failure", refusalText(error));
 	};
 	const sending = new Map<string, Send>();
 	// Recovery belongs to the submitted draft. A new draft in the same
@@ -119,7 +108,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		if (previous.queued != null) {
 			return previous.queued.draft === draft
 				? previous.queued.task
-				: Promise.reject(new ComposerBusy(managedSessionText.composerBusy));
+				: Promise.reject(new LocalRefusal("composer-busy"));
 		}
 		// One next gesture per conversation. Send transfers its immutable plan
 		// and files out of the editable draft. Later typing cannot cancel that
@@ -130,7 +119,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			if (cleared == null && store.draftFor(projection, row.key) !== draft) return;
 			return start(row, draft, plan, cleared);
 		};
-		// An uncertain earlier receipt retains its own recovery. It cannot status-allow: event or source ordering
+		// An uncertain earlier receipt retains its own recovery. It cannot
 		// cancel the distinct gesture already submitted behind it.
 		const task = previous.task.then(runQueued, runQueued);
 		previous.queued = { draft, task };
@@ -173,10 +162,10 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			if (!isSessionConv(row)) return;
 			const item = store.historyOf(projection, row.key).find((line) => line.id === draft.changing);
 			if (item?.kind !== "chat" || item.lineId == null || !item.held) {
-				throw new Error("The original line authority is no longer held");
+				throw new LocalRefusal("message-gone");
 			}
 			const refusal = composerLineRefusal(row, draft.text);
-			if (refusal != null) throw new Error(refusal);
+			if (refusal != null) throw new LocalRefusal("message-too-long", { cause: refusal });
 			const completeDraft = async () => {
 				if (store.draftFor(projection, row.key) !== draft) return;
 				store.cancelChange(projection, row.key);
@@ -345,7 +334,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		keep: number[] = [],
 	): Promise<ManagedOperation> {
 		const original = conversationById(session.current, id);
-		if (original == null) throw new Error("The original conversation was removed");
+		if (original == null) throw new LocalRefusal("conversation-gone");
 		const identity = conversationIdentity(original);
 		const originalLine = line == null ? undefined : original.lines?.find((row) => row.id === line)?.handle;
 		session.effects.reserve(operation, line == null ? "say" : "editLine", [
@@ -376,7 +365,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 						current == null || conversationIdentity(current) !== identity ||
 						(line != null && current.lines?.find((row) => row.id === line)?.handle !== originalLine)
 					) {
-						throw new Error("The original upload target changed during preparation");
+						throw new LocalRefusal("message-selection-changed");
 					}
 					return session.workspace.prepareUpload(
 						operation,

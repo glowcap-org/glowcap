@@ -70,13 +70,12 @@ pub const HintedPending = hinted_try_io.HintedPending;
 pub const TryRead = hinted_try_io.TryRead;
 pub const TryWrite = hinted_try_io.TryWrite;
 pub const HintedTryIo = hinted_try_io.HintedTryIo;
-pub const SubmissionDebt = @import("submission_debt.zig").State;
 pub const CloseReason = contract.CloseReason;
 pub const CloseReport = contract.CloseReport;
 pub const Completion = contract.Completion;
 
 /// The init drive's poll bound while a listener setup finishes. The setup's
-/// own deadline lives in the backend; this bound only keeps each turn from
+/// own deadline lives in the backend. This bound only keeps each turn from
 /// parking the init caller.
 pub const listener_setup_poll_ms: i32 = 100;
 pub const Interest = contract.Interest;
@@ -176,9 +175,9 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// same one-writer-per-event shape as the counters below it.
         ///
         /// A count rather than a walk because `closeAndDrain` asks once per
-        /// poll. At the 500k destination a walk there touches every slot's
-        /// cache line on every one of the thousands of polls a full drain
-        /// takes, which is a shutdown that reads as a hang.
+        /// poll. A walk there touches every slot's cache line on every one
+        /// of the thousands of polls a full drain takes, which is a shutdown
+        /// that reads as a hang.
         live_count: usize = 0,
         /// True while `deinit` tears the loop down: cross-connection entries
         /// (`armOutbound`, `closeSlot`) no-op then, because a submit during
@@ -222,7 +221,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// must be retried. Bounds the next wait like an owed close, so the
         /// wake channel cannot silently go deaf.
         wake_rearm_pending: bool = false,
-        /// A cancellation the backend has not admitted yet. Kept separate from status-allow: pending state or quoted runtime label
+        /// A cancellation the backend has not admitted yet. Kept separate from
         /// `wake_cancel_pending`: a refused submit mints no completion, while an
         /// admitted cancel must be drained even if the target recv wins first.
         wake_cancel_submit_pending: bool = false,
@@ -267,8 +266,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// Head of the intrusive backpressure-parked list (see `Conn.next_link`).
         /// `conns.len` when nothing is parked. It makes the fan-in release
         /// proportional to the connections parked rather than to
-        /// `max_conns`, which at the 500k target is half a million cold slot
-        /// reads per departure to re-arm, usually, nothing.
+        /// `max_conns`, which can be half a million cold slot reads per
+        /// departure to re-arm, usually, nothing.
         parked_head: usize,
 
         /// Build a loop over a backend the caller already constructed. Use this
@@ -436,8 +435,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 // being served to completion.
                 _ = Lifecycle.teardown(self, slot);
             };
-            // Both counts are edge-triggered against slots that no longer status-allow: lifecycle transition
-            // exist, so a missed release here is a silent drift that only
+            // Both counts are edge-triggered against slots that are gone,
+            // so a missed release here is a silent drift that only
             // shows up as a table walk that never stops finding work.
             std.debug.assert(self.waiting_count == 0);
             std.debug.assert(self.over_mark_count == 0);

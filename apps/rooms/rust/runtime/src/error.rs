@@ -13,6 +13,21 @@ use std::{borrow::Cow, fmt, rc::Rc};
 /// behind `Rc` rather than being flattened to text for the second reader.
 #[derive(Clone, Debug)]
 pub enum Error {
+	/// A local admission owner rejected this attempt before dispatch.
+	Admission {
+		refusal: rooms_application::admission::Refusal,
+		owner: Option<rooms_application::admission::Owner>,
+	},
+	Context {
+		operation: Cow<'static, str>,
+		source: Box<Self>,
+	},
+	/// A local owner reached a failure the catalog names. The code is the
+	/// fact, and the detail says what this owner saw.
+	Coded {
+		code: rooms_application::failure::FailureCode,
+		detail: &'static str,
+	},
 	/// The request was understood but policy does not permit it.
 	Refused(Cow<'static, str>),
 	/// Caller-supplied arguments, or a retained document, failed validation.
@@ -27,7 +42,7 @@ pub enum Error {
 	/// The intent, generation, or context the request named has been
 	/// superseded. Re-read the current state before asking again.
 	Stale(Cow<'static, str>),
-	/// A runtime owner or operation is no longer available. status-allow: lifecycle transition
+	/// A runtime owner or operation is no longer available.
 	Closed(Cow<'static, str>),
 	/// An effect was sent but its answer was lost, so whether it applied is
 	/// unknown. Only a withdrawal or a fresh observation is safe.
@@ -40,6 +55,8 @@ pub enum Error {
 	/// A platform-independent storage owner failed. The adapter's concrete
 	/// error remains available as the source without coupling runtime to it.
 	Storage(Rc<dyn std::error::Error>),
+	/// A platform operation or task failed outside protocol and storage owners.
+	Platform(Rc<dyn std::error::Error>),
 	Cleanup {
 		primary: Box<Self>,
 		cleanup: Box<Self>,
@@ -47,11 +64,70 @@ pub enum Error {
 }
 
 impl Error {
-	pub fn fold(primary: Result<(), Self>, cleanup: Result<(), Self>) -> Result<(), Self> {
-		match (primary, cleanup) {
-			(Ok(()), result) => result,
-			(Err(error), result) => Err(error.retain_result(result)),
+	pub fn with_context(self, operation: impl Into<Cow<'static, str>>) -> Self {
+		Self::Context {
+			operation: operation.into(),
+			source: Box::new(self),
 		}
+	}
+	pub fn admission(
+		refusal: rooms_application::admission::Refusal,
+		owner: Option<rooms_application::admission::Owner>,
+	) -> Self {
+		Self::Admission { refusal, owner }
+	}
+	/// Only an admission owner or a validated peer verdict authorizes cooldown.
+	pub fn admission_retry(&self) -> Option<rooms_application::admission::RetryAdvice> {
+		match self {
+			Self::Admission { refusal, owner } => refusal.retry_advice(*owner),
+			Self::Captp(error) => {
+				rooms_glowcap::client::binding_admission_refusal(error).and_then(|failure| failure.retry_advice())
+			}
+			Self::Peer(error) => error.admission_refusal().and_then(|failure| failure.retry_advice()),
+			Self::Cleanup { primary, .. } => primary.admission_retry(),
+			Self::Context { source, .. } => source.admission_retry(),
+			_ => None,
+		}
+	}
+	/// The retry condition of a failure that stands until something changes,
+	/// or none when the recovery timer owns the next attempt. A catalog code
+	/// names the change it waits for, and one that asks for a retry soon
+	/// waits for nothing. Without a code, a failure stands only when `retry`
+	/// says no later attempt of the same request can succeed. A receipt is
+	/// the exception: its `Never` forbids replaying that one effect, and the
+	/// worker's next attempt is a new request.
+	pub fn standing_retry(&self) -> Option<Retry> {
+		match self {
+			Self::Admission { refusal, .. } => awaited_change(refusal.code()),
+			Self::Coded { code, .. } => awaited_change(*code),
+			Self::Captp(error) => binding_standing_retry(error),
+			Self::Peer(error) => match error.as_ref() {
+				rooms_glowcap::client::Error::Binding(error) | rooms_glowcap::client::Error::Unsent(error) => {
+					binding_standing_retry(error)
+				}
+				// A lost observation forbids replaying that one effect. The
+				// worker's next attempt is a new request.
+				rooms_glowcap::client::Error::Observation(_) => None,
+				// A refused receipt keeps its line and drops the cause. A
+				// reach code is a failure the timer reattempts, and a line
+				// with no code names no change to wait for.
+				refused @ rooms_glowcap::client::Error::RefusedObservation(_) => refused
+					.failure_code()
+					.filter(|code| !rooms_glowcap::client::reach_code(*code))
+					.and_then(awaited_change),
+				other => match other.failure_code() {
+					Some(code) => awaited_change(code),
+					None => request_bound(other.retry()),
+				},
+			},
+			Self::Cleanup { primary, .. } => primary.standing_retry(),
+			Self::Context { source, .. } => source.standing_retry(),
+			_ => request_bound(self.retry()),
+		}
+	}
+
+	pub fn coded(code: rooms_application::failure::FailureCode, detail: &'static str) -> Self {
+		Self::Coded { code, detail }
 	}
 	pub fn refused(text: impl Into<Cow<'static, str>>) -> Self {
 		Self::Refused(text.into())
@@ -83,16 +159,36 @@ impl Error {
 	/// where a hosted behavior answers its caller. Nothing inside the runtime
 	/// reads the text back.
 	///
+	/// A failure the catalog names is written as its line alone, so the
+	/// partner reads the code first whatever context or cleanup surrounds it
+	/// here. Any other failure is written whole.
+	///
 	/// The result is bounded here rather than at each break, because a refusal
 	/// crosses a broken promise to a partner and a retained cleanup chain has
 	/// no length of its own. Bounding it once means no caller has to remember.
 	pub fn into_refusal(self) -> String {
-		let mut text = self.to_string();
+		let mut text = self.failure_line().unwrap_or_else(|| self.to_string());
 		text.truncate(rooms_application::failure::reason_prefix(&text).len());
 		text
 	}
+	fn failure_line(&self) -> Option<String> {
+		match self {
+			Self::Admission { .. } | Self::Coded { .. } => Some(self.to_string()),
+			Self::Context { source, .. } => source.failure_line(),
+			Self::Cleanup { primary, .. } => primary.failure_line(),
+			Self::Captp(error) => rooms_glowcap::client::binding_failure(error).map(|failure| failure.to_string()),
+			Self::Peer(error) => error.failure().map(|failure| failure.to_string()),
+			_ => None,
+		}
+	}
 	pub fn storage(error: impl std::error::Error + 'static) -> Self {
 		Self::Storage(Rc::new(error))
+	}
+	pub fn platform(error: impl std::error::Error + 'static) -> Self {
+		Self::Platform(Rc::new(error))
+	}
+	pub fn platform_message(text: impl Into<String>) -> Self {
+		Self::platform(TextError(text.into()))
 	}
 	pub fn storage_message(text: impl Into<String>) -> Self {
 		Self::storage(TextError(text.into()))
@@ -103,7 +199,10 @@ impl Error {
 	/// something the partner did.
 	pub fn peer(error: rooms_glowcap::client::Error) -> Self {
 		match error {
-			rooms_glowcap::client::Error::Binding(error) if error.kind() != glowcap::ErrorKind::Broken => {
+			rooms_glowcap::client::Error::Binding(error)
+				if error.kind() != glowcap::ErrorKind::Broken
+					|| error.cause().origin != glowcap::BreakOrigin::Partner =>
+			{
 				Self::Captp(Rc::from(error))
 			}
 			error => Self::Peer(Rc::new(error)),
@@ -178,17 +277,29 @@ impl Error {
 			| Refusal::Unknown => Self::Invalid(text.into()),
 		}
 	}
+	/// Operator responses bound both shape and retained inventory size.
+	pub fn operator(error: rooms_application::server::operations::operator::view::Refusal) -> Self {
+		match error {
+			rooms_application::server::operations::operator::view::Refusal::Budget => {
+				Self::exhausted(error.to_string())
+			}
+			_ => Self::invalid_by(error),
+		}
+	}
 	/// When asking again can succeed, in the wire taxonomy's own words. A
 	/// class answers this without its text, which is the point of having one.
 	pub fn retry(&self) -> Retry {
 		match self {
+			Self::Admission { refusal, .. } => refusal.code().definition().retry,
+			Self::Context { source, .. } => source.retry(),
+			Self::Coded { code, .. } => code.definition().retry,
 			Self::Refused(_) => Retry::Never,
 			Self::Invalid(_) => Retry::AfterRequestChange,
 			Self::Busy(_) => Retry::Soon,
 			Self::Exhausted(_) => Retry::AfterStateChange,
 			Self::Stale(_) | Self::Closed(_) | Self::Uncertain(_) => Retry::AfterStateChange,
 			Self::Captp(error) => rooms_glowcap::client::binding_retry(error),
-			Self::Storage(_) => Retry::AfterStateChange,
+			Self::Storage(_) | Self::Platform(_) => Retry::AfterStateChange,
 			Self::Peer(error) => error.retry(),
 			Self::Cleanup { primary, .. } => primary.retry(),
 		}
@@ -197,12 +308,6 @@ impl Error {
 		Self::Cleanup {
 			primary: Box::new(self),
 			cleanup: Box::new(cleanup),
-		}
-	}
-	pub fn retain_result(self, cleanup: Result<(), Self>) -> Self {
-		match cleanup {
-			Ok(()) => self,
-			Err(error) => self.retain(error),
 		}
 	}
 }
@@ -219,6 +324,9 @@ impl std::error::Error for TextError {}
 impl fmt::Display for Error {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
+			Self::Admission { refusal, owner } => f.write_str(&refusal.line(*owner)),
+			Self::Context { operation, source } => write!(f, "{operation}: {source}"),
+			Self::Coded { code, detail } => f.write_str(&code.line(detail)),
 			Self::Refused(error)
 			| Self::Invalid(error)
 			| Self::Busy(error)
@@ -228,7 +336,7 @@ impl fmt::Display for Error {
 			| Self::Uncertain(error) => f.write_str(error),
 			Self::Captp(error) => error.fmt(f),
 			Self::Peer(error) => error.fmt(f),
-			Self::Storage(error) => error.fmt(f),
+			Self::Storage(error) | Self::Platform(error) => error.fmt(f),
 			Self::Cleanup { primary, cleanup } => write!(f, "{primary}; cleanup also failed: {cleanup}"),
 		}
 	}
@@ -237,9 +345,11 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		match self {
+			Self::Admission { .. } | Self::Coded { .. } => None,
+			Self::Context { source, .. } => Some(source.as_ref()),
 			Self::Captp(error) => Some(error.as_ref()),
 			Self::Peer(error) => Some(error.as_ref()),
-			Self::Storage(error) => Some(error.as_ref()),
+			Self::Storage(error) | Self::Platform(error) => Some(error.as_ref()),
 			Self::Cleanup { primary, .. } => Some(primary.as_ref()),
 			Self::Refused(_)
 			| Self::Invalid(_)
@@ -268,10 +378,109 @@ impl From<rooms_glowcap::client::Error> for Error {
 	}
 }
 
+/// The change a catalog code waits for, or none when it asks for a retry
+/// soon: the recovery timer makes that attempt.
+fn awaited_change(code: rooms_application::failure::FailureCode) -> Option<Retry> {
+	let retry = code.definition().retry;
+	(retry != Retry::Soon).then_some(retry)
+}
+/// The retry condition when only a different request can succeed, so no
+/// timer helps.
+fn request_bound(retry: Retry) -> Option<Retry> {
+	matches!(retry, Retry::Never | Retry::AfterRequestChange).then_some(retry)
+}
+
+/// A binding failure stands by its catalog code's retry condition, unless its
+/// cause clears with time. The code still names that failure to a person.
+fn binding_standing_retry(error: &glowcap::Error) -> Option<Retry> {
+	if rooms_glowcap::client::clears_with_time(error.cause()) {
+		return None;
+	}
+	match rooms_glowcap::client::binding_failure(error) {
+		Some(failure) => awaited_change(failure.code),
+		None => request_bound(rooms_glowcap::client::binding_retry(error)),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::Error;
-	use rooms_application::failure::Retry;
+	use rooms_application::failure::{FailureCode, Retry};
+
+	#[test]
+	fn admission_evidence_survives_context_and_cleanup_but_diagnostics_cannot_create_it() {
+		use rooms_application::admission::{Class, Refusal};
+		let refusal = Refusal::Throttled {
+			class: Class::Join,
+			retry_ms: 100,
+		};
+		let reason = refusal.reason();
+		let local = Error::admission(refusal, None);
+		let advice = local.admission_retry().unwrap();
+		let contextual = local
+			.clone()
+			.with_context("registering membership")
+			.retain(Error::closed("cleanup ended"));
+		assert_eq!(contextual.admission_retry(), Some(advice));
+		let observed = Error::from(rooms_glowcap::client::Error::RefusedObservation(reason.clone()));
+		assert_eq!(observed.admission_retry(), Some(advice));
+		for unclassified in [
+			Error::from(glowcap::loam::refusal(&reason)),
+			Error::from(rooms_glowcap::client::Error::Observation(reason.clone())),
+			Error::platform_message(reason),
+		] {
+			assert!(unclassified.admission_retry().is_none());
+			assert!(unclassified.standing_retry().is_none());
+			assert!(
+				unclassified.retain(local.clone()).admission_retry().is_none(),
+				"a cleanup refusal cannot authorize retry of the primary operation"
+			);
+		}
+	}
+
+	#[test]
+	fn a_failure_stands_by_its_code_or_when_only_a_new_request_helps() {
+		use rooms_application::admission::{Class, Refusal};
+		let oversized = Error::admission(Refusal::TooLarge { class: Class::Join }, None);
+		assert_eq!(oversized.standing_retry(), Some(Retry::AfterRequestChange));
+		let throttled = Error::admission(
+			Refusal::Throttled {
+				class: Class::Join,
+				retry_ms: 5,
+			},
+			None,
+		);
+		assert_eq!(throttled.standing_retry(), None, "the timer retries a rate refusal");
+		assert!(oversized.with_context("joining").standing_retry().is_some());
+		// No later attempt of the same request can succeed.
+		assert_eq!(
+			Error::invalid("Membership locator exceeds its bound").standing_retry(),
+			Some(Retry::AfterRequestChange)
+		);
+		assert_eq!(Error::refused("not permitted").standing_retry(), Some(Retry::Never));
+		// A refused receipt stands by its code alone. The timer reattempts a
+		// reach failure and a refusal that names no code.
+		let receipt = |line: &str| Error::from(rooms_glowcap::client::Error::RefusedObservation(line.into()));
+		assert_eq!(receipt("host queue full").standing_retry(), None);
+		assert_eq!(receipt("peer-unreachable: no route").standing_retry(), None);
+		assert_eq!(receipt("member-unreachable: gone").standing_retry(), None);
+		assert_eq!(
+			receipt("nick-taken: Ann").standing_retry(),
+			Some(FailureCode::NickTaken.definition().retry)
+		);
+		// These clear when a deadline passes, a slot frees, or a worker
+		// returns, and none of them wakes the loop: the recovery timer does.
+		for timed in [
+			Error::uncertain("Membership admission remains pending"),
+			Error::closed("Membership retry owner closed"),
+			Error::exhausted("retained capacity is full"),
+			Error::stale("moved"),
+			Error::busy("working"),
+			Error::from(rooms_glowcap::client::Error::Timeout("late")),
+		] {
+			assert!(timed.standing_retry().is_none(), "{timed}");
+		}
+	}
 
 	#[test]
 	fn failure_classes_survive_without_reading_their_text() {
@@ -295,6 +504,12 @@ mod tests {
 		assert_eq!(Error::stale("moved").retry(), Retry::AfterStateChange);
 		assert_eq!(Error::closed("gone").retry(), Retry::AfterStateChange);
 		assert_eq!(Error::uncertain("lost").retry(), Retry::AfterStateChange);
+		// A coded failure answers with its catalog row, and its text is the
+		// line a peer would read for that code.
+		let coded = Error::coded(FailureCode::LinkPreviewTimedOut, "the site was slow");
+		assert_eq!(coded.retry(), Retry::Soon);
+		assert_eq!(coded.standing_retry(), None);
+		assert_eq!(coded.to_string(), "link-preview-timed-out: the site was slow");
 		let cleanup = Error::invalid("bad").retain(Error::closed("gone"));
 		assert_eq!(
 			cleanup.retry(),
@@ -342,6 +557,32 @@ mod tests {
 		let refusal = error.into_refusal();
 		assert!(refusal.len() <= MAX_REASON_BYTES, "{} bytes", refusal.len());
 		assert!(refusal.starts_with("xxx"), "the primary cause still leads");
+	}
+
+	/// The partner branches on the code at the head of the line, so context
+	/// and a failed cleanup around a named failure do not come before it.
+	#[test]
+	fn a_refusal_the_catalog_names_leads_with_its_code() {
+		use rooms_application::{
+			admission,
+			failure::{Failure, FailureCode},
+		};
+		let busy = Error::admission(admission::Refusal::Capacity, None)
+			.with_context("posting")
+			.retain(Error::storage_message("flush failed"));
+		let line = busy.into_refusal();
+		let failure = Failure::parse(&line).expect("a coded line");
+		assert_eq!(failure.code, FailureCode::AdmissionBusy);
+		assert!(failure.refused_before_dispatch());
+		let relayed = Error::peer(rooms_glowcap::client::Error::RefusedObservation(
+			"nick-taken: Ann".into(),
+		))
+		.with_context("registering");
+		assert_eq!(relayed.into_refusal(), "nick-taken: Ann");
+		assert_eq!(
+			Error::closed("owner stopped").with_context("posting").into_refusal(),
+			"posting: owner stopped"
+		);
 	}
 
 	#[test]

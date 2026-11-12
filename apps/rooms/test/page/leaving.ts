@@ -17,6 +17,7 @@ import { namedRoomRow } from "../support/conversation_row.ts";
 import { fail } from "../support/fail.ts";
 import { openDirectoryCardFromCaption, reachDirectoryOnCard, showDirectoryFromCaption } from "./harness.ts";
 import { run as goneRun } from "./gone.ts";
+import { rowJoinRoomOn } from "../../lib/text/conversation.ts";
 import { homeDirectoryName } from "../../lib/text/directory.ts";
 import { joinAddressHere } from "../../lib/text/join.ts";
 
@@ -80,8 +81,19 @@ export async function run(
 				`out by ${stranded.underTheName.toFixed(1)}px`,
 		);
 	}
-	// And it is the same directory, reachable again from its own row.
-	await tab.click("#roomList li.dirrow .room-open");
+	// Each control goes where its words point. The row names the directory and
+	// opens it, and the line that says no room is open here offers one.
+	await showDirectoryFromCaption(tab, tab.locator("#roomList li.dirrow .room-open"));
+	if (await tab.locator('#roomList li.dirrow.here .room-open[aria-current="page"]').count() !== 1) {
+		fail("the row of the directory on the page does not say it is the one on the page");
+	}
+	const offers = (await tab.getAttribute("#roomList li.dirrow .rwhere", "aria-label")) ?? "";
+	if (offers !== rowJoinRoomOn(stranded?.named ?? "")) {
+		fail(
+			`the line under a stranded directory announces ${JSON.stringify(offers)} rather than joining a room on it`,
+		);
+	}
+	await tab.click("#roomList li.dirrow .rwhere");
 	await tab.waitForSelector("#joinForm", { timeout: 10_000 })
 		.catch(() => fail("a directory with nothing on it did not offer a way to join a room on it"));
 	// Filled with the directory's own identity rather than with what was once
@@ -105,7 +117,7 @@ export async function run(
 	// directory is a live session, a name registered on it, and everything
 	// reachable through that name, so letting it go has to be all of that. A row
 	// removed from a list while the session went on running is the failure worth
-	// checking for, and it does not look like a failure at the moment it happens: status-allow: state at observation
+	// checking for, and it does not look like a failure at the moment it happens:
 	// it looks like it worked, and then the directory comes back on its own.
 	// The title's mark asks first, in the same card the Leave control uses.
 	await showDirectoryFromCaption(tab, aboutOf("elsewhere"));
@@ -268,7 +280,7 @@ export async function run(
 	// Back on the foreign room so the rail field names that directory: empty
 	// locator means this page's own, and this check is that the other one fills.
 	await namedRoomRow(tab, "elsewhere").locator(".room-open").click();
-	// The old room's enabled composer can remain during authoritative lookup. status-allow: replacement state identity
+	// The old room's enabled composer can remain during authoritative lookup.
 	// Naming the next room requires the foreign destination to be selected.
 	await namedRoomRow(tab, "elsewhere", true).waitFor({ timeout: 30_000 });
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })

@@ -331,7 +331,7 @@ try {
 		});
 		await opener.click("#sendBtn");
 		// The reloaded sender has a fresh directory registration. Its peer must
-		// select that new identity, keeping the old sender's history separate. status-allow: replacement state identity
+		// select that new identity, keeping the old sender's history separate.
 		await other.locator(`#dmList li:not(.closed) .dm-open:has(.rname:text-is("${mode.first}"))`).click({
 			timeout: 20_000,
 		});

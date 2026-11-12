@@ -131,9 +131,9 @@ pub export fn glowcap_iroh_netlayer_try_accept(
     const slot = out_conn orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = null;
     const raw = nl.resident.loopTryAccept() orelse return GLOWCAP_ERR_WOULD_BLOCK;
-    const payload = ownership.registerConn(nl, raw) orelse {
+    const payload = ownership.registerConn(nl, raw) catch |err| {
         nl.resident.loopConnClose(raw);
-        return c.failInternal("iroh accept", error.OutOfMemory);
+        return c.failInternal("iroh accept", err);
     };
     slot.* = @ptrCast(payload);
     return GLOWCAP_OK;
@@ -194,9 +194,9 @@ pub export fn glowcap_iroh_netlayer_finish_connect(
     slot.* = null;
     var text: iroh.DialText = .{};
     const raw = nl.resident.loopFinishConnect(request_id, &text) catch |err| return dialErrorToCode(err, text.slice());
-    const payload = ownership.registerConn(nl, raw) orelse {
+    const payload = ownership.registerConn(nl, raw) catch |err| {
         nl.resident.loopConnClose(raw);
-        return c.failInternal("iroh finish_connect", error.OutOfMemory);
+        return c.failInternal("iroh finish_connect", err);
     };
     slot.* = @ptrCast(payload);
     return GLOWCAP_OK;

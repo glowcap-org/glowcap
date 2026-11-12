@@ -66,7 +66,19 @@ pub const GlowcapTcpStreamOptions = runtime.GlowcapTcpStreamOptions;
 /// Defaults inherited by every connection this netlayer dials or accepts.
 pub const GlowcapTcpConfig = extern struct {
     stream: GlowcapTcpStreamOptions,
+    /// A nonempty set of `GLOWCAP_TCP_PROFILE_*` bits. The provider registers
+    /// exactly these profiles. The raw endpoint verbs are plain tcp and
+    /// independent of the set.
+    profiles: u32,
 };
+/// The `profiles` bit for plain `tcp`, which is cleartext.
+pub const GLOWCAP_TCP_PROFILE_TCP = runtime.profileBit(.tcp);
+/// The `profiles` bit for `keyed-tcp`, which is cleartext.
+pub const GLOWCAP_TCP_PROFILE_KEYED_TCP = runtime.profileBit(.keyed_tcp);
+/// The `profiles` bit for `noise-tcp`, which seals the session.
+pub const GLOWCAP_TCP_PROFILE_NOISE_TCP = runtime.profileBit(.noise_tcp);
+/// Every profile the provider package serves.
+pub const GLOWCAP_TCP_PROFILES_ALL = runtime.profiles_all;
 /// Provider-owned payload for one generic driver dial or listener operation.
 /// Omit the common envelope to inherit `GlowcapTcpConfig`. Supplying this value
 /// overrides the stream settings, including an explicit all-zero disable.
@@ -124,10 +136,13 @@ pub export fn glowcap_tcp_netlayer_new(
     out_netlayer: ?*?*GlowcapTcpNetlayer,
 ) i32 {
     c.lastErrorClear();
-    const stream_options = streamOptionsFromC((config orelse return GLOWCAP_ERR_NULL_POINTER).stream, "tcp netlayer_new") catch
+    const cfg = config orelse return GLOWCAP_ERR_NULL_POINTER;
+    const stream_options = streamOptionsFromC(cfg.stream, "tcp netlayer_new") catch
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
+    const profile_set = runtime.profileSetFromC(cfg.profiles, "tcp netlayer_new") catch
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_netlayer orelse return GLOWCAP_ERR_NULL_POINTER;
-    return netlayerNewIn(c.library_allocator, stream_options, slot);
+    return netlayerNewIn(c.library_allocator, stream_options, profile_set, slot);
 }
 
 /// Create a netlayer handle whose backend, endpoints, and per-connection buffers
@@ -139,15 +154,19 @@ pub export fn glowcap_tcp_netlayer_new_in(
 ) i32 {
     c.lastErrorClear();
     const c_ctx = c.ctxFromOpaque(context) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const stream_options = streamOptionsFromC((config orelse return GLOWCAP_ERR_NULL_POINTER).stream, "tcp netlayer_new_in") catch
+    const cfg = config orelse return GLOWCAP_ERR_NULL_POINTER;
+    const stream_options = streamOptionsFromC(cfg.stream, "tcp netlayer_new_in") catch
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
+    const profile_set = runtime.profileSetFromC(cfg.profiles, "tcp netlayer_new_in") catch
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_netlayer orelse return GLOWCAP_ERR_NULL_POINTER;
-    return netlayerNewIn(c_ctx.allocator(), stream_options, slot);
+    return netlayerNewIn(c_ctx.allocator(), stream_options, profile_set, slot);
 }
 
 fn netlayerNewIn(
     alloc: std.mem.Allocator,
     stream_options: net.tcp.StreamOptions,
+    profile_set: u32,
     slot: *?*GlowcapTcpNetlayer,
 ) i32 {
     const payload = alloc.create(TcpNetlayerPayload) catch |err|
@@ -157,6 +176,7 @@ fn netlayerNewIn(
     payload.references = .init(1);
     payload.calls = .{};
     payload.stream_options = stream_options;
+    payload.profile_set = profile_set;
     payload.tasks.init(payload.io()) catch |err| {
         payload.threaded.deinit();
         alloc.destroy(payload);
@@ -167,8 +187,8 @@ fn netlayerNewIn(
     return GLOWCAP_OK;
 }
 
-/// Borrow this TCP runtime's complete provider package: plain TCP, keyed TCP,
-/// and Noise-sealed TCP. The returned table is copied. Its callback contexts
+/// Borrow this TCP runtime's provider package: the profiles its config chose
+/// among plain TCP, keyed TCP, and Noise-sealed TCP. The returned table is copied. Its callback contexts
 /// borrow `netlayer`, which must outlive the driver registration.
 pub export fn glowcap_tcp_transport_provider(
     netlayer: ?*GlowcapTcpNetlayer,
@@ -279,8 +299,8 @@ fn tcpConnect(
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     };
 
-    const payload = beginConn(nl.allocator, max_frame_bytes) orelse
-        return c.failInternal("tcp connect", error.OutOfMemory);
+    const payload = beginConn(nl.allocator, max_frame_bytes) catch |err|
+        return c.failInternal("tcp connect", err);
     var job: ConnectJob = .{
         .netlayer = nl,
         .payload = payload,
@@ -419,8 +439,8 @@ fn tcpAccept(
     const codec_id = c.framingOptionsFromC(codec, max_frame_bytes, "tcp accept") catch
         return GLOWCAP_ERR_INVALID_ARGUMENT;
 
-    const payload = beginConn(lpayload.allocator, max_frame_bytes) orelse
-        return c.failInternal("tcp accept", error.OutOfMemory);
+    const payload = beginConn(lpayload.allocator, max_frame_bytes) catch |err|
+        return c.failInternal("tcp accept", err);
     payload.stream = lpayload.listener.acceptFrameStream(lpayload.allocator, codec_id, max_frame_bytes, payload.read_buf, payload.write_buf, stream_options) catch |err| {
         abortConn(payload);
         setLastError("accept: {s}", .{@errorName(err)});
@@ -535,9 +555,9 @@ pub export fn glowcap_tcp_conn_release(
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return GLOWCAP_ERR_NULL_POINTER;
+        return c.ReleaseResult.retained(GLOWCAP_ERR_NULL_POINTER).raw();
     }
-    return c.captureCallError(tcpConnRelease(conn), out_error, error_cap, out_error_len);
+    return c.ReleaseResult.consumed(c.captureCallError(tcpConnRelease(conn), out_error, error_cap, out_error_len)).raw();
 }
 
 /// Interrupt a blocked accept without freeing the listener. Release joins any

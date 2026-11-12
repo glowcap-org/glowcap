@@ -67,10 +67,6 @@ export fn glowcap_iroh_sidecar_conn_flush(conn: *anyopaque) i32 {
     _ = conn;
     @panic(msg);
 }
-export fn glowcap_iroh_sidecar_conn_close(conn: *anyopaque) void {
-    _ = conn;
-    @panic(msg);
-}
 export fn glowcap_iroh_sidecar_conn_free(conn: *anyopaque) void {
     _ = conn;
     @panic(msg);

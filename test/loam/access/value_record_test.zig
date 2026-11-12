@@ -54,7 +54,11 @@ test "loam mutation receipt value decoding releases nested allocations on trunca
         if (Codec.decode(Value, a, encoded[0..length], &context)) |partial| {
             Codec.free(a, partial);
             return error.AcceptedTruncation;
-        } else |_| {}
+        } else |err| switch (err) {
+            // A cut inside the frame is malformed, and a cut between whole fields leaves a record missing some.
+            error.MalformedFrame, error.InvalidRecord => {},
+            else => return err,
+        }
     }
     for (0..16) |index| {
         var failing = std.testing.FailingAllocator.init(a, .{ .fail_index = index });

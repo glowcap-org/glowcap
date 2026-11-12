@@ -48,11 +48,8 @@ jobs:
         run: python3 ci/submodules.py checkout
 
       - uses: ./.github/actions/image
-        id: image
-
-      - uses: ./.github/actions/start
         with:
-          image: ${{ steps.image.outputs.image }}
+          start: true
 
       - name: Cold-install the pinned coding agents
         run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json python3 tools/run-with-timeout.py --kill-after 30s 20m bash .devcontainer/test/tool-install.sh claude codex cursor-agent opencode

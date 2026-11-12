@@ -12,15 +12,28 @@ impl From<rooms_platform::serving::OpenError> for Error {
 
 /// Why a session-peer operation did not complete.
 ///
-/// The first seven arms are the classes a caller acts on, in the same vocabulary
-/// the runtime uses, so a failure that crosses into this process keeps the
-/// answer to "can asking again work?". Each carries its diagnosis as text
-/// because that text is also a contract: over CapTP it is the exact break
-/// reason an attached view shows, and for options it is the exact line the
-/// operator reads. Foreign causes are boxed so a `Result` of this type stays
-/// small on every hot return path.
+/// The arms from `Refused` to `Uncertain` are the classes a caller acts on, in
+/// the same vocabulary the runtime uses, so a failure that crosses into this
+/// process keeps the answer to "can asking again work?". Each carries its
+/// diagnosis as text because that text is also a contract: over CapTP it is
+/// the exact break reason an attached view shows, and for options it is the
+/// exact line the operator reads. Foreign causes are boxed so a `Result` of
+/// this type stays small on every hot return path.
 #[derive(Debug)]
 pub enum Error {
+	Admission {
+		refusal: rooms_application::admission::Refusal,
+		owner: Option<rooms_application::admission::Owner>,
+	},
+	Context {
+		operation: Cow<'static, str>,
+		source: Box<Self>,
+	},
+	/// A failure that names its own catalog code, which owns its retry class.
+	Coded {
+		code: rooms_application::failure::FailureCode,
+		detail: &'static str,
+	},
 	Refused(Cow<'static, str>),
 	/// Caller-supplied arguments, or a retained document, failed validation.
 	Invalid(Cow<'static, str>),
@@ -35,6 +48,7 @@ pub enum Error {
 	/// unknown. Only a withdrawal or a fresh observation is safe.
 	Uncertain(Cow<'static, str>),
 	Storage(Box<dyn std::error::Error + Send + Sync>),
+	Platform(Box<dyn std::error::Error + Send + Sync>),
 	Captp(Box<glowcap::Error>),
 	/// A remote application failure. The single-threaded runtime cannot move
 	/// its shared source here, but its exact retry verdict still crosses.
@@ -99,27 +113,19 @@ impl Error {
 			cleanup: Box::new(cleanup),
 		}
 	}
-	/// Retain a cleanup outcome beside `self` when the cleanup failed too.
-	pub fn retain_result(self, cleanup: Result<(), Self>) -> Self {
-		match cleanup {
-			Ok(()) => self,
-			Err(cleanup) => self.retain(cleanup),
-		}
-	}
-	/// Fold a cleanup outcome into an outcome already in hand: a cleanup failure
-	/// never hides the primary one, and a clean primary adopts the cleanup's.
-	pub fn fold(primary: Result<(), Self>, cleanup: Result<(), Self>) -> Result<(), Self> {
-		match (primary, cleanup) {
-			(Ok(()), outcome) => outcome,
-			(Err(primary), Ok(())) => Err(primary),
-			(Err(primary), Err(cleanup)) => Err(primary.retain(cleanup)),
-		}
+}
+impl crate::cleanup::Failure for Error {
+	fn with_cleanup(self, cleanup: Self) -> Self {
+		self.retain(cleanup)
 	}
 }
 
 impl fmt::Display for Error {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
+			Self::Admission { refusal, owner } => f.write_str(&refusal.line(*owner)),
+			Self::Context { operation, source } => write!(f, "{operation}: {source}"),
+			Self::Coded { code, detail } => f.write_str(&code.line(detail)),
 			Self::Refused(text)
 			| Self::Invalid(text)
 			| Self::Busy(text)
@@ -127,7 +133,7 @@ impl fmt::Display for Error {
 			| Self::Stale(text)
 			| Self::Closed(text)
 			| Self::Uncertain(text) => f.write_str(text),
-			Self::Storage(e) => e.fmt(f),
+			Self::Storage(e) | Self::Platform(e) => e.fmt(f),
 			Self::Captp(e) => e.fmt(f),
 			Self::Peer { reason, .. } => f.write_str(reason),
 			Self::Listener(e) => e.fmt(f),
@@ -140,7 +146,9 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		match self {
-			Self::Storage(e) => Some(e.as_ref()),
+			Self::Admission { .. } | Self::Coded { .. } => None,
+			Self::Context { source, .. } => Some(source.as_ref()),
+			Self::Storage(e) | Self::Platform(e) => Some(e.as_ref()),
 			Self::Captp(e) => Some(e.as_ref()),
 			Self::Listener(e) => Some(e.as_ref()),
 			Self::Io { source, .. } => Some(source),
@@ -184,6 +192,12 @@ impl From<rooms_runtime::Error> for Error {
 	fn from(error: rooms_runtime::Error) -> Self {
 		use rooms_runtime::Error as Shared;
 		match error {
+			Shared::Admission { refusal, owner } => Self::Admission { refusal, owner },
+			Shared::Context { operation, source } => Self::Context {
+				operation,
+				source: Box::new(Self::from(*source)),
+			},
+			Shared::Coded { code, detail } => Self::Coded { code, detail },
 			Shared::Refused(e) => Self::Refused(e),
 			Shared::Invalid(e) => Self::Invalid(e),
 			Shared::Busy(e) => Self::Busy(e),
@@ -202,6 +216,7 @@ impl From<rooms_runtime::Error> for Error {
 				reason: e.to_string(),
 			},
 			Shared::Storage(e) => Self::Storage(Box::new(TextError(e.to_string()))),
+			Shared::Platform(e) => Self::Platform(Box::new(TextError(e.to_string()))),
 			Shared::Cleanup { primary, cleanup } => Self::from(*primary).retain(Self::from(*cleanup)),
 		}
 	}
@@ -210,7 +225,7 @@ impl From<rooms_runtime::Error> for Error {
 #[cfg(test)]
 mod tests {
 	use super::Error;
-	use rooms_application::failure::Retry;
+	use rooms_application::failure::{FailureCode, Retry};
 	use rooms_runtime::Error as Shared;
 
 	/// Every class the runtime can report has to arrive here as the same
@@ -229,6 +244,16 @@ mod tests {
 			Error::from(Shared::storage_message("disk")),
 			Error::Storage(_)
 		));
+		// A coded failure keeps its code, which owns its retry class.
+		let coded = Error::from(Shared::coded(FailureCode::LinkPreviewTimedOut, "the site was slow"));
+		assert!(matches!(
+			&coded,
+			Error::Coded {
+				code: FailureCode::LinkPreviewTimedOut,
+				..
+			}
+		));
+		assert_eq!(coded.to_string(), "link-preview-timed-out: the site was slow");
 	}
 
 	/// A primary failure keeps its place, and the cleanup retained behind it

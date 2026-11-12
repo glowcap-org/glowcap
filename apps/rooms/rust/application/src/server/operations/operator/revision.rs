@@ -102,7 +102,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn every_invalid_line_is_the_line_it_replaced() {
+	fn every_invalid_variant_displays_its_operator_line() {
 		assert_eq!(
 			Invalid::WatcherLimit.to_string(),
 			alloc::format!("this Rooms operator already has {MAX_WATCHERS} watchers")

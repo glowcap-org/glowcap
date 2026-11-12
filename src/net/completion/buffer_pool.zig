@@ -52,6 +52,7 @@ pub const BufferPool = struct {
     pub fn acquire(self: *BufferPool) ?u16 {
         if (self.free.pop()) |idx| return idx;
         if (self.items.items.len >= self.cap) return null;
+        // tolerant: refused growth reads as an exhausted pool; the receive waits for a returned buffer.
         const buf = self.allocator.alloc(u8, self.bytes) catch return null;
         self.items.appendAssumeCapacity(buf);
         return @intCast(self.items.items.len - 1);

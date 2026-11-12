@@ -3,7 +3,7 @@
 //! A host that does not retain imports introduced by an inbound deliver should
 //! release them immediately via `op:gc-exports`. Likewise, once an outbound
 //! answer is resolved the host may collect its wire question or local listen
-//! record. This is adapter policy; the session tables own identity and counts.
+//! record. This is adapter policy. The session tables own identity and counts.
 //! Collection prepares before serving and releases after callbacks return.
 //!
 //! One exception to "the vat did not retain it, so nobody did": an event the
@@ -138,8 +138,8 @@ fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEn
 
 /// Collect the event's exact answer identities with bounded stack storage.
 /// A long alias list emits more batches instead of allocating a temporary
-/// vector. A send refusal propagates after any preceding batches committed;
-/// the consumed event's serving boundary owns terminal failure.
+/// vector. A send refusal propagates after any preceding batches committed.
+/// The consumed event's serving boundary owns terminal failure.
 fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
     var positions: [32]u64 = undefined;
     var count: usize = 0;
@@ -158,7 +158,7 @@ fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
         try peer.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..count] } });
 }
 
-/// Leave application-owned answers to their owner; retire unclaimed local
+/// Leave application-owned answers to their owner. Retire unclaimed local
 /// listen records here. Only an unclaimed wire question needs a GC frame.
 fn releaseWithoutWire(peer: *engine.Peer, answer: engine.OutboundAnswerTarget) !bool {
     // Preparation proved the identity before serving. A callback may have
@@ -171,7 +171,7 @@ fn releaseWithoutWire(peer: *engine.Peer, answer: engine.OutboundAnswerTarget) !
 }
 
 /// A collection turn borrows the event across serving. Resolve identities
-/// must be live before callbacks run; afterwards an owner may have retired
+/// must be live before callbacks run. Afterwards an owner may have retired
 /// them synchronously. Keeping that distinction here rejects stale input
 /// without collecting an answer twice or touching a reused position.
 pub const Collection = struct {

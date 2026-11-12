@@ -39,7 +39,7 @@ for (const timing of ["before failure", "after failure"] as const) {
 			prepareCommand: (id: string, revision: string, name: string, args: string[]) =>
 				Promise.resolve({
 					originalIntent: () => [id, Number(revision), name, args],
-					submit: () => Promise.resolve("committed"),
+					submit: () => Promise.resolve({ status: "committed" }),
 					status: () => Promise.resolve("committed"),
 					free() {},
 				}),
@@ -134,7 +134,7 @@ for (const failure of ["admission", "cleanup"] as const) {
 						if (name === (failure === "admission" ? "openManagedRoom" : "leaveConversation")) {
 							throw new Error("lost reply");
 						}
-						return "committed";
+						return { status: "committed" };
 					},
 					status: () => {
 						if (name === "leaveConversation") {

@@ -301,7 +301,7 @@ Declared in [`.devcontainer/pins.sh`](../.devcontainer/pins.sh):
 - **Python**: The Python binding and the OCapN test suite.
 - **Serena**: Symbol-level navigation of the Zig code for coding agents.
 - **ruff**: Formats and lints every first-party Python file (`zig build python-check`).
-- **mypy**: Type-checks the Python binding (`zig build bindings-fmt-check`).
+- **mypy**: Type-checks the CI programs, the build tools, the Python binding and its site snippets (`zig build python-check`, `bindings-fmt-check`, `site-python-examples-check`).
 - **Coding agents**: Claude Code, opencode, Codex and Cursor Agent, installed on first use.
 - **Dev Container CLI**: Starts and rebuilds the container from the host.
 - **Racket and Spritely Goblins**: The reference peer for interop tests.

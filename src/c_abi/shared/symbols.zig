@@ -28,7 +28,7 @@ pub const Symbol = struct {
     /// TCP, inproc, and onion mark every call that can park, including a parent
     /// release that joins Zig operation ownership. Their TypeScript surfaces
     /// refuse runtimes whose FFI cannot honor that dispatch. High-level JS hosts
-    /// otherwise use runtime-native async sockets where available.
+    /// otherwise use the JS runtime's own async sockets where available.
     nonblocking: bool = false,
     /// Whether the symbol may park the calling OS thread (a socket or pipe
     /// wait, a dial). Every Racket row for such a symbol carries

@@ -15,8 +15,8 @@
 //! reclaim rules cannot drift apart again.
 //!
 //! The steady bound is the caller's, because it is a footprint decision and the
-//! callers sit at different scales: four of these ride on every `engine.Peer` at
-//! 500k connections, while the reserved queues are one per node and per host. It
+//! callers sit at different scales: four of these ride on every `engine.Peer`,
+//! while the reserved queues are one per node and per host. It
 //! is a byte count rather than a row count, so the bound means the same thing
 //! whatever `T` is.
 //!
@@ -104,7 +104,7 @@ pub fn ActionFifo(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        /// Rows pushed and not yet popped live at `list.items[head..]`. status-allow: pending state or quoted runtime label
+        /// Rows pushed and not yet popped live at `list.items[head..]`.
         list: std.ArrayListUnmanaged(T) = .empty,
         head: usize = 0,
 
@@ -142,7 +142,7 @@ pub fn ActionFifo(comptime T: type) type {
 
         /// Pop the front row, owning nothing: the caller (or its deferred
         /// free) owns the row's payload. Null when empty, which also rewinds
-        /// the drained list while retaining previously reserved backing. status-allow: ownership and operation ordering
+        /// the drained list while retaining previously reserved backing.
         pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
             // `retain_all`, not a byte bound: `reserve` runs at vow-mint time
             // and `pushReserved` spends it at settle time, with this drain in

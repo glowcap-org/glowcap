@@ -1,12 +1,13 @@
 // Typing is a level: a rate-limited flag is sent again after the room's stated
 // delay, and any other refusal ends typing for that conversation.
+import { RoomsError } from "../../lib/error_codes.ts";
 import { assertEquals } from "../assert.ts";
 import { viewer } from "../support/managed_viewer.ts";
 import { initializeApplication } from "../support/application.ts";
 
 await initializeApplication();
 
-function sender(answers: Array<string | null>) {
+function sender(answers: Array<Error | null>) {
 	const sent: boolean[] = [];
 	const session = viewer({
 		typingSender: () =>
@@ -14,7 +15,7 @@ function sender(answers: Array<string | null>) {
 				set: (on: boolean) => {
 					sent.push(on);
 					const refusal = answers.shift() ?? null;
-					return refusal == null ? Promise.resolve() : Promise.reject(new Error(refusal));
+					return refusal == null ? Promise.resolve() : Promise.reject(refusal);
 				},
 				free() {},
 			}),
@@ -23,14 +24,18 @@ function sender(answers: Array<string | null>) {
 }
 
 Deno.test("a rate-limited typing flag is sent again after the stated delay", async () => {
-	const { session, sent } = sender(["rate-limited: retry-after-ms=5; scope=room-transient; owner=directory"]);
+	const { session, sent } = sender([
+		new RoomsError("rate-limited", "retry-after-ms=5; scope=room-transient; owner=directory"),
+	]);
 	await session.typing.set("room", "seat", true);
 	assertEquals(sent, [true, true]);
 	await session.typing.close();
 });
 
 Deno.test("a flag that changed during the delay sends only the latest level", async () => {
-	const { session, sent } = sender(["rate-limited: retry-after-ms=20; scope=room-transient; owner=directory"]);
+	const { session, sent } = sender([
+		new RoomsError("rate-limited", "retry-after-ms=20; scope=room-transient; owner=directory"),
+	]);
 	const first = session.typing.set("room", "seat", true);
 	await new Promise((resume) => setTimeout(resume, 1));
 	void session.typing.set("room", "seat", false);
@@ -40,7 +45,7 @@ Deno.test("a flag that changed during the delay sends only the latest level", as
 });
 
 Deno.test("any other refusal ends typing for that conversation", async () => {
-	const { session, sent } = sender(["glowcap error -12: ApplicationRefused"]);
+	const { session, sent } = sender([new Error("glowcap error -12: ApplicationRefused")]);
 	let refused = false;
 	await session.typing.set("room", "seat", true).catch(() => {
 		refused = true;

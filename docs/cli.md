@@ -99,7 +99,7 @@ glowcap --json ocapn listen --publish greeter
 glowcap: listening, and will publish greeter when a partner connects (Ctrl-C to stop)
 ```
 
-The process then waits for a partner. This is not a hang. `%3A` is a
+The process waits for a partner. `%3A` is a
 percent-encoded `:`, so the designator is `127.0.0.1:46659`.
 
 **Terminal B.** Create a separate identity and call the greeter:
@@ -296,6 +296,23 @@ A script picks its identity with `GLOWCAP_STATE`, `GLOWCAP_IDENTITY`, or
 `--identity`, and should pass `--json` on every verb. `ocapn info` prints the
 session summary: `front` (`argv`, `repl`, or `mcp`), the state path, and the
 partner's `abort_kind` and `abort` reason when one was retained.
+
+A broken call prints `{"ok":false,"broken":"<text>","cause":{...}}`. The text
+is for a person, and a partner can write any text there. `cause` says who
+established the break (`origin` is `local`, `partner`, or `unspecified`), its
+`reason`, and whether it happened during a `fetch`, a `restoration`, or a
+`withdrawal`. A script branches on `cause`.
+
+| `reason` | The break |
+| --- | --- |
+| `application` | An object's own code refused or failed the call, in its own words. |
+| `identity_unverified` | The peer did not prove the identity its address names. |
+| `peer_unreachable` | No route reached the peer that holds the object. |
+| `closed` | The peer that holds the object ended its session. |
+| `refused` | A fetched, handed-over, or restored reference resolved to something that is not an object. |
+| `transport_unavailable` | The object's address names a transport this side does not dial. |
+| `publication_absent` | The peer publishes nothing under that name. |
+| `unspecified` | Nothing established a reason. |
 
 A `keyed-relay` locator names a peer with no listening socket: a browser tab,
 or any process that registered its identity at a relay instead.

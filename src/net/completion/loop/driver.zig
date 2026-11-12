@@ -97,7 +97,7 @@ pub fn Machine(
             // `out.len`"; this is where that is consumed, so this is where it
             // is checked.
             std.debug.assert(n <= completions.len);
-            // Held, not propagated yet. The three sweeps below repair what the status-allow: pending state or quoted runtime label
+            // Held, not propagated yet. The three sweeps below repair what the
             // batch left behind, a connection parked buffer-starved after its
             // recycle already ran, a deadline that came due, and a dispatch
             // failure is loop-global, so for some of those connections this is
@@ -192,7 +192,7 @@ pub fn Machine(
             // the backend is still writing from.
             const first = !self.shutting_down;
             self.shutting_down = true;
-            // Do not set tearing_down yet: closeConn must still submitClose. status-allow: pending state or quoted runtime label
+            // Do not set tearing_down yet: closeConn must still submitClose.
             // freeConnCtx skips drainActions while shutting_down.
 
             // Cancel a pending accept and close the listen handle first so the

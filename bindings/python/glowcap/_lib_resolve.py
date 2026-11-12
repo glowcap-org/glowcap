@@ -8,7 +8,8 @@ Publishable cascade (ADR-0023, see ``c-abi-resolve.json`` and
    ``$XDG_CACHE_HOME/glowcap/c-abi`` or ``~/.cache/glowcap/c-abi``).
 3. In-tree ``zig-out/lib`` when a glowcap checkout is discoverable (dev only).
 4. Bare library name (OS dynamic-linker search): refused on Windows (DLL
-   search-order plant risk). Elsewhere a last resort with a stderr warning.
+   search-order plant risk). Elsewhere a last resort, retained as a
+   resolution note.
 
 Download posture (native C-ABI packaging practice): HTTPS-only base URL,
 required SHA256SUMS verification before extract, extract only the ``lib/``
@@ -19,6 +20,11 @@ version with no release attempts no network inside the tree. Hygiene failures
 (non-HTTPS, checksum miss/mismatch, unsafe/link tar members, extract
 refusal) always hard-fail. ``GLOWCAP_STRICT=1`` fail-closes soft paths
 (network/tooling). ``GLOWCAP_ALLOW_INSECURE=1`` is the only escape from HTTPS.
+
+The resolver prints only the notice that it is downloading. A soft failure or
+the bare-name fallback becomes a resolution note: an archive that then fails
+to load carries the notes on its ``OSError``, and once the package has loaded,
+``take_runtime_failures()`` returns them as ``library-resolution`` events.
 """
 
 from __future__ import annotations
@@ -33,9 +39,11 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import NoReturn
 
 
@@ -167,10 +175,55 @@ def _cache_lib_dir(contract: dict, version: str, target: str) -> pathlib.Path:
     return pathlib.Path(_apply_contract_template(layout, version=version, target=target, cache_base=str(base)))
 
 
+# Notes wait here until the failure journal installs its sink. The cap
+# bounds a resolver retried in a loop before the package ever loads.
+_NOTE_CAP = 16
+_notes_lock = threading.Lock()
+_pending_notes: list[str] = []
+_note_sink: Callable[[str], None] | None = None
+# Each resolution also keeps its notes beside the path it returns, so a load
+# of that path that fails names them whether or not the journal took them.
+# Keyed by path, so it holds one entry per archive this process resolves, and
+# a later clean resolution of the same path clears it.
+_NOTES_PER_PATH = 8
+_resolving = threading.local()
+_notes_by_path: dict[str, tuple[str, ...]] = {}
+
+
+def _note(msg: str) -> None:
+    collecting = getattr(_resolving, "notes", None)
+    if collecting is not None and len(collecting) < _NOTES_PER_PATH:
+        collecting.append(msg)
+    with _notes_lock:
+        sink = _note_sink
+        if sink is None:
+            if len(_pending_notes) < _NOTE_CAP:
+                _pending_notes.append(msg)
+            return
+    sink(msg)
+
+
+def _resolution_notes(path: str) -> tuple[str, ...]:
+    """The notes the latest resolution of ``path`` made."""
+    with _notes_lock:
+        return _notes_by_path.get(path, ())
+
+
+def _install_note_sink(sink: Callable[[str], None]) -> None:
+    """Route resolution notes, including those already taken, to ``sink``."""
+    global _note_sink
+    with _notes_lock:
+        backlog = tuple(_pending_notes)
+        _pending_notes.clear()
+        _note_sink = sink
+    for msg in backlog:
+        sink(msg)
+
+
 def _soft_fail(msg: str) -> None:
     if _env_truthy("GLOWCAP_STRICT"):
         raise RuntimeError(msg)
-    print(f"glowcap: {msg} (soft-fail)", file=sys.stderr)
+    _note(f"{msg} (soft-fail)")
 
 
 def _hard_fail(msg: str) -> NoReturn:
@@ -375,7 +428,24 @@ def _lib_dir() -> pathlib.Path | None:
 
 
 def _lib_path(stem: str) -> str:
-    """Resolve an archive: absolute path under the cascade, or a bare name."""
+    """Resolve an archive: absolute path under the cascade, or a bare name.
+    The notes this resolution makes stay beside the path it returns."""
+    notes: list[str] = []
+    outer = getattr(_resolving, "notes", None)
+    _resolving.notes = notes
+    try:
+        path = _resolve_lib_path(stem)
+    finally:
+        _resolving.notes = outer
+    with _notes_lock:
+        if notes:
+            _notes_by_path[path] = tuple(notes)
+        else:
+            _notes_by_path.pop(path, None)
+    return path
+
+
+def _resolve_lib_path(stem: str) -> str:
     name = _lib_file(stem)
     directory = _lib_dir()
     if directory is not None:
@@ -388,5 +458,5 @@ def _lib_path(stem: str) -> str:
             f"{name}; set GLOWCAP_LIB_DIR or populate the abi-versioned cache "
             "(Windows refuses bare DLL names to avoid search-order plants)"
         )
-    print(f"glowcap: warning: loading bare {name} via the OS search path", file=sys.stderr)
+    _note(f"loading bare {name} via the OS search path")
     return name

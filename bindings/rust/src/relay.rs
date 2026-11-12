@@ -188,7 +188,7 @@ pub enum Trust<'a> {
 	CopiedPem(&'a [u8]),
 }
 
-/// URLs and trust used to construct the shared relay archive provider. status-allow: purpose clause
+/// URLs and trust used to construct the shared relay archive provider.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<'a> {
 	/// The relay WebSocket URL used for outbound keyed/noise legs.
@@ -289,7 +289,9 @@ impl Runtime {
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
 		// SAFETY: `raw` is this `Runtime`'s handle from `glowcap_relay_runtime_new`, taken out of `self` above so
 		// `Drop` will not release it again; the three null and zero diagnostic arguments omit the error capture.
-		check_relay(unsafe { ffi::glowcap_relay_runtime_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut()) })
+		check_relay(crate::sys::release_result_code(unsafe {
+			ffi::glowcap_relay_runtime_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+		}))
 	}
 }
 
@@ -299,9 +301,9 @@ impl Drop for Runtime {
 			// SAFETY: `self.raw` is this `Runtime`'s non-null handle (checked above) from `glowcap_relay_runtime_new`;
 			// `Drop` runs once and `close` has nulled the field when it released first, and the three null and zero
 			// diagnostic arguments omit the error capture.
-			&& let Err(error) = check_relay(unsafe {
+			&& let Err(error) = check_relay(crate::sys::release_result_code(unsafe {
 				ffi::glowcap_relay_runtime_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
-			}) {
+			})) {
 			crate::record_runtime_failure(crate::FailureLayer::Transport, "relay-runtime-drop-release", error);
 		}
 	}

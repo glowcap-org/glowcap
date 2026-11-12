@@ -32,6 +32,8 @@ async function scene(
 			`--irc-port=${listener.addr.port}`,
 			`--tls=${tls}`,
 			...(tls ? ["--mode=two-way", "--sasl-account=bridge-account"] : []),
+			// The bridge's own listener, reached on this machine alone.
+			"--reachability=direct",
 		],
 		cwd: ROOT,
 		stdout: "piped",
@@ -46,18 +48,18 @@ async function scene(
 	try {
 		const reader = proc.stdout.getReader();
 		let text = "";
-		let port: string | undefined;
+		let address: string | undefined;
 		try {
-			while (!port) {
+			while (!address) {
 				const next = await within(reader.read(), "bridge announcement");
 				assert(!next.done, "bridge exited before announcement");
 				text += new TextDecoder().decode(next.value);
-				port = text.match(/ROOMS-IRC-BRIDGE-LISTENING (\d+) fixture\/#news\n/)?.[1];
+				address = text.match(/ROOMS-IRC-BRIDGE-LISTENING (ocapn:\S+) fixture\/#news\n/)?.[1];
 			}
 		} finally {
 			reader.releaseLock();
 		}
-		directory = await Directory.connect(`127.0.0.1:${port}`, dial);
+		directory = await Directory.connect(address, dial);
 		await run(directory, async () => {
 			const conn = await within<Deno.Conn>(listener.accept(), "IRC connection");
 			sockets.push(conn);
@@ -194,6 +196,7 @@ roomsTest("the installed IRC bridge rejects a public test endpoint before DNS or
 			"--irc-host=irc.libera.chat",
 			"--irc-port=6697",
 			"--tls=false",
+			"--reachability=direct",
 		],
 		cwd: ROOT,
 		stdout: "piped",
@@ -213,9 +216,9 @@ roomsTest("the installed IRC bridge rejects a public test endpoint before DNS or
 		} finally {
 			stdout.releaseLock();
 		}
-		const port = announcement.match(/ROOMS-IRC-BRIDGE-LISTENING (\d+) blocked\/#never-joined/)?.[1];
-		assert(port !== undefined, `guarded bridge announced an unexpected endpoint: ${announcement}`);
-		directory = await Directory.connect(`127.0.0.1:${port}`, dial);
+		const address = announcement.match(/ROOMS-IRC-BRIDGE-LISTENING (ocapn:\S+) blocked\/#never-joined/)?.[1];
+		assert(address !== undefined, `guarded bridge announced an unexpected endpoint: ${announcement}`);
+		directory = await Directory.connect(address, dial);
 		room = await Room.subscribe(directory.session, await directory.enter("blocked/#never-joined"), "reader");
 		const stderr = proc.stderr.getReader();
 		let diagnostic = "";

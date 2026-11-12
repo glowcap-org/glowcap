@@ -1,7 +1,8 @@
 //! The web command selects HTTP and supervision. Server options retain their
 //! existing parser and environment, so both entrypoints validate one contract.
 use crate::server;
-use rooms_platform::serving::relay;
+use rooms_application::server::operations::listeners;
+use rooms_platform::serving::{Family, relay};
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub struct Config {
@@ -40,7 +41,8 @@ pub(super) struct Session {
 }
 pub const HELP: &str = concat!(
 	"rooms-web [http-port] [room-port] [options]
-  --http-bind=<host> --http-port=<port>  HTTP listener (default: 0.0.0.0:8080)
+  [room-port] is the directory's --port
+  --http-bind=<host> --http-port=<port>  HTTP listener (default: 127.0.0.1:8080, or GLOWCAP_ROOMS_HTTP_BIND and GLOWCAP_ROOMS_HTTP_PORT)
   --http-public=<url>  the address browsers reach this server at, named by every link it prints (default: http://localhost:<port>/, or GLOWCAP_ROOMS_HTTP_PUBLIC)
   --assets=<directory>  Rooms web source, or an artifact directory with --prepared (default: apps/rooms/web)
   --prepared  serve a prepared bundle without invoking browser build tools
@@ -56,7 +58,8 @@ pub const HELP: &str = concat!(
   --session-transport=<transport>  the shared session's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
       a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --session-relay names another, and --session-relay-public applies only with --session-relay
   --session-<option>=<value>  any other rooms-session option, such as --session-bind or --session-reachability (or GLOWCAP_ROOMS_SESSION_<OPTION>)
-  --history --bind=<host> --announce-host=<host>
+  --history
+  --bind=<host> --port=<port> --announce-host=<host>  the directory's tcp, keyed-tcp, noise-tcp listener options
   --capabilities=all|<name>[,<name>...]  mint operator capabilities, as rooms-server (or GLOWCAP_ROOMS_CAPABILITIES)
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
@@ -77,7 +80,41 @@ Preparation defaults to zig-out/rooms-web; serve its current directory with --pr
 rooms-web --export-static=<new-directory> --assets=<prepared-generation> [--base=/<path>/]  write a prepared generation as files for a static host at that base path (default /)
 "
 );
+/// The options this front reads for itself and an operator names.
+const KEYS: &[&str] = &[
+	"http-bind",
+	"http-port",
+	"http-public",
+	"assets",
+	"allow-origin",
+	"http-admission-per-address",
+	"http-trusted-proxies",
+];
+/// The prefix that hands an option to the shared session.
+const SESSION: &str = "session-";
 impl Config {
+	/// The options whoever launches this front sets for it: where its
+	/// directory's executable is and how its browser assets were built.
+	pub const LAUNCHER: &'static [&'static str] = &["server", "prepared", "no-browser-assets"];
+	/// Every option `parse` reads: its own, the directory's, which it hands
+	/// on, and the shared session's under their prefix.
+	pub fn options() -> impl Iterator<Item = String> {
+		KEYS.iter()
+			.chain(Self::LAUNCHER)
+			.copied()
+			.chain(server::Config::options())
+			.map(str::to_owned)
+			.chain(
+				rooms_application::admission::Settings::OPTIONS
+					.iter()
+					.flat_map(|key| [format!("http-{key}"), format!("browser-{key}")]),
+			)
+			.chain(crate::session::Config::options().map(|option| format!("{SESSION}{option}")))
+	}
+	/// Whether `parse` reads an option of this name.
+	pub fn accepts(key: &str) -> bool {
+		Self::options().any(|option| option == key)
+	}
 	pub fn parse(
 		args: impl IntoIterator<Item = String>,
 		env: impl Fn(&str) -> Option<String>,
@@ -101,12 +138,18 @@ impl Config {
 					declared.push(arg.clone());
 					continue;
 				}
+				// `options` names every option this front reads or hands on, so
+				// a name outside it is refused here, whichever front it was
+				// meant for.
+				if !Self::accepts(key) {
+					return Err(format!("unknown option: --{key}"));
+				}
 				let takes_value = matches!(
 					key,
 					"http-bind" | "http-port" | "http-public" | "assets" | "server" | "allow-origin" | "capabilities"
 				) || key.starts_with("http-admission-")
 					|| key.starts_with("browser-admission-")
-					|| key.starts_with("session-");
+					|| key.starts_with(SESSION);
 				// `--allow-origin=` is a value, the empty list, as its help says.
 				let empty_is_value = key == "allow-origin";
 				if takes_value && (!option.contains('=') || (value.is_empty() && !empty_is_value)) {
@@ -145,9 +188,8 @@ impl Config {
 			.remove("http-port")
 			.or_else(|| positional.first().cloned())
 			.or_else(|| env("GLOWCAP_ROOMS_HTTP_PORT"))
-			.unwrap_or_else(|| "8080".into())
-			.parse::<u16>()
-			.map_err(|_| "HTTP port must be an integer from 0 through 65535")?;
+			.unwrap_or_else(|| "8080".into());
+		let port = rooms_application::host::port(&port).ok_or("HTTP port must be an integer from 0 through 65535")?;
 		let prepared = match options.remove("prepared").as_deref() {
 			None | Some("0" | "false" | "no") => false,
 			Some("1" | "true" | "yes") => true,
@@ -158,7 +200,11 @@ impl Config {
 			Some("1" | "true" | "yes") => true,
 			Some(_) => return Err("--no-browser-assets takes a boolean".into()),
 		};
-		let bind = options.remove("http-bind").unwrap_or_else(|| "0.0.0.0".into());
+		let bind = options
+			.remove("http-bind")
+			.or_else(|| env("GLOWCAP_ROOMS_HTTP_BIND"))
+			.filter(|value| !value.is_empty())
+			.unwrap_or_else(|| "127.0.0.1".into());
 		let public = options
 			.remove("http-public")
 			.or_else(|| env("GLOWCAP_ROOMS_HTTP_PUBLIC"))
@@ -199,15 +245,9 @@ impl Config {
 		let mut session = BTreeMap::new();
 		let prefixed: Vec<(String, String)> = options
 			.keys()
-			.filter_map(|key| {
-				key.strip_prefix("session-")
-					.map(|option| (key.clone(), option.to_owned()))
-			})
+			.filter_map(|key| key.strip_prefix(SESSION).map(|option| (key.clone(), option.to_owned())))
 			.collect();
 		for (key, option) in prefixed {
-			if !crate::session::Config::accepts(&option) {
-				return Err(format!("unknown option: --{key}"));
-			}
 			if let Some(value) = options.remove(&key) {
 				session.insert(option, value);
 			}
@@ -220,19 +260,22 @@ impl Config {
 				"the shared session's options need --session-state=<directory> or GLOWCAP_ROOMS_SESSION_STATE".into(),
 			);
 		}
-		options
-			.entry("port".into())
-			.or_insert_with(|| positional.get(1).cloned().unwrap_or_else(|| "9099".into()));
+		if let Some(port) = positional.get(1) {
+			options.insert("port".into(), port.clone());
+		}
+		// The room port has a default only under TCP, where clients dial it.
+		// An onion directory that names no port is forwarded over a private
+		// socket, and the directory refuses a transport name it does not know.
+		let default_port = directory_option(&options, &env, "port").is_none()
+			&& directory_option(&options, &env, "transport")
+				.and_then(|name| listeners::Transport::parse(&name))
+				.is_some_and(|profile| matches!(Family::of(profile), Family::Tcp(_)));
+		if default_port {
+			options.insert("port".into(), "9099".into());
+		}
 		// A private Tor serves every onion door that names no running Tor:
 		// the directory's, and the shared session's when there is one.
-		let directory_value = |name: &str| {
-			options
-				.get(name)
-				.cloned()
-				.or_else(|| env(&server::Config::variable(name)))
-				.map(|s| s.trim().to_owned())
-				.filter(|s| !s.is_empty())
-		};
+		let directory_value = |name: &str| directory_option(&options, &env, name);
 		let session_value = |name: &str| {
 			session
 				.get(name)
@@ -345,6 +388,21 @@ impl PeerEnvironment {
 			.map(str::to_owned)
 			.or_else(|| env(key))
 	}
+}
+
+/// What the directory reads for `name`: this front's argument, or the
+/// directory's own variable when that holds anything.
+fn directory_option(
+	options: &BTreeMap<String, String>,
+	env: &impl Fn(&str) -> Option<String>,
+	name: &str,
+) -> Option<String> {
+	options
+		.get(name)
+		.cloned()
+		.or_else(|| env(&server::Config::variable(name)))
+		.map(|value| value.trim().to_owned())
+		.filter(|value| !value.is_empty())
 }
 
 /// The option that names a public address for a relay a peer under this

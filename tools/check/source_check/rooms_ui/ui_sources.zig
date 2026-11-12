@@ -20,10 +20,7 @@ pub fn loadRoomsCss(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !?[]u8 {
-    const sheet = source_tree.concatDirFiles(io, gpa, root, ui_dir, keepRoomsSheet) catch {
-        try appendViolation(gpa, violations, "{s}: failed to concatenate rooms stylesheets", .{ui_dir});
-        return null;
-    };
+    const sheet = try source_tree.concatDirFiles(io, gpa, root, ui_dir, keepRoomsSheet);
     if (sheet == null) {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
     }

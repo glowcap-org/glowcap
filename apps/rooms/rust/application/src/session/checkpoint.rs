@@ -18,7 +18,7 @@ mod validate;
 use crate::grants::Access;
 use alloc::string::String;
 
-pub const MAX_CONVERSATIONS: usize = 256;
+pub const MAX_CONVERSATIONS: usize = crate::content::session::workspace::MAX_CONVERSATIONS;
 pub const MAX_CHECKPOINT_UNITS: usize = 512 * 1024;
 
 /// Reopening the same registered peer names the history already kept for it.

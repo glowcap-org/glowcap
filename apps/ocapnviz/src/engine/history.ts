@@ -150,7 +150,7 @@ export class History {
 	}
 }
 
-/** Whether two snapshots say the same thing, used to drop a no-op status-allow: purpose clause
+/** Whether two snapshots say the same thing, for dropping a no-op
  * transaction (focused and did not type, dragged and returned to the
  * start) from the history stack.
  *

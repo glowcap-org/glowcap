@@ -126,15 +126,22 @@ pub fn main(init: std.process.Init) !void {
     const directory_locator = try model.clonePeerLocator(allocator, try directory_host.advertisedLocator());
     defer model.freePeerLocator(allocator, directory_locator);
 
+    // The success path awaits both hosts and returns the directory's error,
+    // then the widget's. These joins run only while another error unwinds, and
+    // that error is the one reported.
+    var widget_joined = false;
     var widget_future = try io.concurrent(serveWidget, .{ widget_host, &done });
-    var directory_future = try io.concurrent(serveDirectory, .{ directory_host, widget_locator, &done });
-    var hosts_joined = false;
-    defer if (!hosts_joined) {
+    errdefer if (!widget_joined) {
         done.store(true, .release);
-        // best-effort: unwind join only. The success path uses `try await`
-        // before the print, so the error that got us here is the one reported.
-        directory_future.await(io) catch {};
+        // tolerant: the error already unwinding is the one reported.
         widget_future.await(io) catch {};
+    };
+    var directory_joined = false;
+    var directory_future = try io.concurrent(serveDirectory, .{ directory_host, widget_locator, &done });
+    errdefer if (!directory_joined) {
+        done.store(true, .release);
+        // tolerant: the error already unwinding is the one reported.
+        directory_future.await(io) catch {};
     };
 
     // ── The client. This is the whole program. ───────────────────────────────
@@ -168,9 +175,12 @@ pub fn main(init: std.process.Init) !void {
     if (!std.mem.eql(u8, spun.fulfilled.string, "widget spun")) return error.UnexpectedReply;
 
     done.store(true, .release);
-    try directory_future.await(io);
-    try widget_future.await(io);
-    hosts_joined = true;
+    widget_joined = true;
+    directory_joined = true;
+    const directory_result = directory_future.await(io);
+    const widget_result = widget_future.await(io);
+    try directory_result;
+    try widget_result;
     if (directory_host.close()) |failure| return failure.chain.cause;
     if (widget_host.close()) |failure| return failure.chain.cause;
 

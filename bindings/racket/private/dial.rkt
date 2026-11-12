@@ -45,6 +45,7 @@
 
 (provide dial-exporter
          run-dial!
+         report-dial-cancelled!
          retain-host-cleanup-failure!
          runtime?
          runtime-host
@@ -194,9 +195,8 @@
                       "operation options are not supported by this connector Runtime"))
      (define connector (host-connector-for (runtime-host rt) transport))
      (unless connector
-       (raise-glowcap 'runtime-connect ERR-INVALID-ARGUMENT
-                      "UnknownTransport: Runtime has no connector for transport \"~a\""
-                      transport))
+       (raise (make-glowcap-transport-unavailable
+               (format "runtime-connect: Runtime has no connector for transport \"~a\"" transport))))
      (dial-byte-fed connector (runtime-host rt) loc
                     (runtime-handshake-timeout-ms rt) #f)]))
 
@@ -218,19 +218,31 @@
     [(host-connector-for m transport)
      (dial-byte-fed (host-connector-for m transport) m loc HANDSHAKE-TIMEOUT-MS introducer)]
     [else
-     (raise-glowcap 'connect ERR-INVALID-ARGUMENT
-                    "Host has no explicit connector for transport \"~a\""
-                    transport)]))
+     (raise (make-glowcap-transport-unavailable
+             (format "connect: Host has no explicit connector for transport ~s" transport)))]))
 
 ;; Cleanup is a second outcome, not the dial's outcome. Keep its exact first
 ;; failure on the owning Host so the close barrier can return it, while letting
 ;; the dial executor finish reporting the original refusal to its waiting vow.
 (define (retain-host-cleanup-failure! m cleanup)
-  (with-handlers ([(lambda (_) #t)
+  (with-handlers ([raised-failure?
                    (lambda (error)
                      (record-host-runtime-failure! m error)
                      (void))])
     (cleanup)))
+
+;; Report that a cancelled dial worker has unwound, from that worker's own
+;; exit. The worker has no caller to raise to, so a refusal stays on the Host
+;; for its close barrier, and a released Host takes no report.
+(define (report-dial-cancelled! m ticket route-index)
+  (unless (unbox (host-released? m))
+    (retain-host-cleanup-failure!
+     m
+     (lambda ()
+       (with-host-drain m
+         (lambda ()
+           (check/host (glowcap_host_dial_cancelled (host-ptr m) ticket route-index))
+           (drain-host-actions! m)))))))
 
 ;; Execute one DIAL action, post-lock: the drain parks it among the fires,
 ;; because the dial is a connect syscall plus a whole keyed handshake and
@@ -250,11 +262,15 @@
   (define reported? #f)
   (define adopted? #f)
   (define failure "dial interrupted")
+  (define cause 'peer-unreachable)
   (dynamic-wind
    void
    (lambda ()
      (with-handlers ([converts-to-broken?
                       (lambda (e)
+                        (when (exn:fail:glowcap? e)
+                          (set! cause (or (route-failure-from-cause (exn:fail:glowcap-cause e))
+                                           'peer-unreachable)))
                         (set! failure (exn->message e)))])
        (define-values (rc locator-handle)
          (glowcap_host_pending_dial (host-ptr m) ticket route-index))
@@ -269,7 +285,7 @@
        (with-host-drain m
          (lambda ()
            ;; The report and local commit bit are one unbreakable transition:
-           ;; after host-dialed succeeds this ticket no longer admits a failure status-allow: lifecycle transition
+           ;; after host-dialed succeeds this ticket admits no failure
            ;; report, even if a later drain effect is interrupted.
            (parameterize-break
             #f
@@ -303,5 +319,21 @@
                (lambda ()
                 (with-host-drain m
                   (lambda ()
-                    (host-dial-failed! m ticket route-index failure)
+                    (host-dial-failed! m ticket route-index cause failure)
                     (drain-host-actions! m))))))))))))
+
+
+(module+ test
+  (require rackunit)
+  (lazy-require ["session.rkt" (host-enliven)])
+  (define host (make-fresh-host))
+  (dynamic-wind
+   void
+   (lambda ()
+     (check-exn
+      (lambda (failure)
+        (and (exn:fail:glowcap? failure)
+             (equal? (exn:fail:glowcap-cause failure) (break-cause 'local 'transport-unavailable break-context-fetch))
+             (glowcap-exporter-unreachable? failure)))
+      (lambda () (host-enliven host "ocapn://127.0.0.1%3A1.tcp/s/c3Zj"))))
+   (lambda () (host-close! host))))

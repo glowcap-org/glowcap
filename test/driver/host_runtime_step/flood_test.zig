@@ -5,7 +5,9 @@
 //! Redeem dials a partner's handoffs induce hold at most their share of that
 //! pool, so accepts and the application's own dials still admit beside them.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -22,7 +24,9 @@ const DialRecorder = harness.DialRecorder;
 const opts = harness.opts;
 
 /// Accept one honest partner, publish the greeter, and serve until it leaves.
-fn serveHonest(server: *driver.Server) anyerror!void {
+/// Raising `stop` before a partner dials ends the task without an accept.
+fn serveHonest(server: *driver.Server, stop: *const std.atomic.Value(bool)) anyerror!void {
+    if (!try wait.acceptableUnlessStopped(server, stop)) return;
     const session = try server.accept();
     defer session.deinit();
     _ = try session.publish("treasure", Treasure, .{});
@@ -83,9 +87,13 @@ test "host runtime: a flood of half-open signed handshakes is refused at max_pen
 
     // An honest session now opens, fetches the published capability, and
     // makes one call that returns within its ten second budget.
-    var serve_future = try io.concurrent(serveHonest, .{bounded});
+    var stop = std.atomic.Value(bool).init(false);
+    var serve_future = try io.concurrent(serveHonest, .{ bounded, &stop });
     var served = false;
-    defer if (!served) serve_future.cancel(io) catch {};
+    errdefer if (!served) {
+        stop.store(true, .release);
+        wait.joinedUnwinding("serve", serve_future.await(io));
+    };
     {
         var client_buf: [tcp.designator_buf_len]u8 = undefined;
         var client = try driver.connect(
@@ -104,8 +112,8 @@ test "host runtime: a flood of half-open signed handshakes is refused at max_pen
         try std.testing.expect(reply == .fulfilled and reply.fulfilled == .string);
         try std.testing.expectEqualStrings("hello from the step server", reply.fulfilled.string);
     }
-    try serve_future.await(io);
     served = true;
+    try serve_future.await(io);
 }
 
 /// Step until every open admission has settled. The handshake deadline is the
@@ -167,6 +175,7 @@ test "host runtime: redeem dials hold at most their share of the open pool while
     const refused = if (first_refused) first else second;
     const held = if (first_refused) second else first;
     try std.testing.expect(refused.result().failed.kind == .broken);
+    try std.testing.expectEqual(BreakCause.local(.peer_unreachable).withFetch(), refused.result().failed.cause);
     try std.testing.expectEqualStrings(@errorName(driver.Error.PendingOpenLimitReached), refused.result().failed.message);
 
     // The application's own dial is not held to the share.
@@ -182,11 +191,11 @@ test "host runtime: redeem dials hold at most their share of the open pool while
     // Nor is an accept: an honest partner opens while the share is held.
     var stop = std.atomic.Value(bool).init(false);
     var client = try io.concurrent(harness.connectAndHold, .{ allocator, io, bounded_address, &stop });
-    defer {
+    var client_joined = false;
+    errdefer if (!client_joined) {
         stop.store(true, .release);
-        // tolerant: the client is torn down after the assertions, and its close is not the subject.
-        client.await(io) catch {};
-    }
+        wait.joinedUnwinding("client", client.await(io));
+    };
     var acceptable = false;
     var rounds: usize = 0;
     while (!acceptable and rounds < 500) : (rounds += 1) acceptable = try bounded.waitAcceptable(10);
@@ -206,4 +215,8 @@ test "host runtime: redeem dials hold at most their share of the open pool while
     try std.testing.expectEqual(@as(usize, 1), runtime.redeem_dial_admissions);
     try std.testing.expect(again.result() == .pending);
     try stepUntilNoOpens(runtime);
+
+    stop.store(true, .release);
+    client_joined = true;
+    try client.await(io);
 }

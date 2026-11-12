@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Companion files. A few pins are restated outside pins.sh, because a
 # Dockerfile and a deno.json cannot source a shell file. Each restatement is a
-# row here naming the file, the exact text the old version produces, and the status-allow: replacement state identity
+# row here naming the file, the exact text the old version produces, and the
 # text the new one must produce. A bump rewrites every row or none, so the
 # copies cannot fall out of step with the pin.
 #
@@ -33,7 +33,9 @@ glowcap_pins_companions() {
             printf '%s\t%s\t%s\n' \
                 build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\"" \
                 site/build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\"" \
-                tools/consumer/build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\""
+                tools/consumer/build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\"" \
+                .devcontainer/Dockerfile "tool/zig/${old}" "tool/zig/${new}" \
+                .devcontainer/devcontainer.json "tool/zig/${old}" "tool/zig/${new}"
             ;;
         debian)
             printf '%s\t%s\t%s\n' \
@@ -70,7 +72,7 @@ glowcap_pins_companions() {
 # Point `glowcap_pins_companion_staged` at the staged copy of one companion
 # file, taken from disk the first time it is asked for and reused after that.
 # Two deps can restate their pins in the same file, so a later edit has to
-# build on the earlier one. status-allow: event or source ordering
+# build on the earlier one.
 # Staging each from the original would let whichever landed last drop the
 # other's change.
 #

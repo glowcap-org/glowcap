@@ -328,7 +328,7 @@ export function BulkEnumSelect<T extends string>(
 			aria-label={ariaLabel}
 			style={inlineSelectInput}
 		>
-			{commonValue === null && <option value={MIXED}>— mixed —</option>}
+			{commonValue === null && <option value={MIXED}>Mixed values</option>}
 			{(commonValue === null ? options : offeredWith(options, commonValue)).map(
 				(o) => (
 					<option key={o} value={o}>
@@ -355,7 +355,7 @@ export function TimeScrubInput(
 		value: number;
 		/** Lower bound for the scrub. Defaults to 0. Entity-specific
 		 *  containment constraints (e.g. "session.closed can't be
-		 *  earlier than session.opened") raise this so the scrub status-allow: event or source ordering
+		 *  earlier than session.opened") raise this so the scrub
 		 *  can't produce an invalid state. */
 		min?: number;
 		max: number;

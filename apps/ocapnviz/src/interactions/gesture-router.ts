@@ -282,7 +282,7 @@ export type ModalHoldSource = {
  * meanwhile, because a claim is refused while one is live.
  *
  * A gesture already in flight would refuse this claim, and its surface is
- * behind the modal where the person can no longer reach it, so it is ended status-allow: lifecycle transition
+ * behind the modal where the person cannot reach it, so it is ended
  * first. A window blur is the interruption every gesture watch already
  * listens for, so this dispatches one rather than spelling a second way to
  * interrupt.
@@ -426,7 +426,7 @@ export function watchGestureEnd(
 		// we found out.
 		end("finished");
 	};
-	// Focus went elsewhere mid-drag, so the reader is no longer driving this status-allow: lifecycle transition
+	// Focus went elsewhere mid-drag, so the reader stopped driving this
 	// gesture and never ended it.
 	const onBlur = () => {
 		if (lease.pointer() === null) return;

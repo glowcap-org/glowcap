@@ -127,6 +127,14 @@ until the loop has work, then steps it.
 - A bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial creates
   one loop per connection. `listen` binds the loop's listener, and a dial that
   shares a loop-backed server's Host runs on that same loop.
+- `(tcp-provider)` registers `noise-tcp` alone. Plain `tcp` and `keyed-tcp` send
+  cleartext with no peer proof, so each is an explicit opt-in:
+  `(make-tcp-config #:profiles (list TCP-PROFILE-TCP TCP-PROFILE-KEYED-TCP))`.
+  A runtime without a locator's profile refuses the dial with
+  `ERR-INVALID-ARGUMENT` and the transport-unavailable cause, so branch on
+  `(route-failure-from-cause (exn:fail:glowcap-cause e))`. An empty list is
+  refused with `ERR-INVALID-ARGUMENT` when the provider installs. The listen
+  helpers register exactly their own profile and take `#:stream`.
 - A supplied Host moves into the loop in one step, keeping its identity and
   capabilities.
 - A byte-fed dial needs a connector registered on the Host. That connector is
@@ -201,7 +209,7 @@ though the actor API uses the same words (`spawn`, `$`, `<-`).
 
 - An inner actor state change is not rolled back when an outer actor later
   fails.
-- Local time travel rewinds actor state to an earlier snapshot. It is <!-- status-allow: runtime state or operation ordering -->
+- Local time travel rewinds actor state to an earlier snapshot. It is
   available only on the TCP and onion listeners, through the listener's
   `#:time-travel?` policy. Dialing sessions, iroh, and the relay listeners do
   not expose it.

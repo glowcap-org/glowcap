@@ -26,9 +26,18 @@
          closing-state wire-failure transport-lost? transport-close-started?
          retained-partner-abort))
 
-(define (session-ptr c) (session-ffi c))
 (define (session-closed? c) (unbox (async-connection-closed? (session-async c))))
 (define (session-released? c) (unbox (async-connection-released? (session-async c))))
+
+;; The FFI handle for a session verb. Release frees it under the Host lock and
+;; marks the shell released in that same region, so a caller reading the
+;; handle under the lock either gets a live one or ERR-CLOSED. A check made
+;; before taking the lock proves nothing: a close on another thread can free
+;; the handle while this one waits for the lock.
+(define (session-ptr c)
+  (when (session-released? c)
+    (raise-glowcap 'session ERR-CLOSED "the session has been released"))
+  (session-ffi c))
 (define (session-closing? c) (unbox (session-closing-state c)))
 
 ;; The byte path can fail in a callerless action drain. Retain the exact first
@@ -49,18 +58,18 @@
   (when failure (raise failure)))
 
 ;; Close the physical byte channel exactly once. A close refusal is terminal
-;; evidence, but never skips FFI retirement or replaces an earlier cause. status-allow: event or source ordering
+;; evidence, but never skips FFI retirement or replaces an earlier cause.
 (define (close-session-transport! c)
   (set-box! (session-closing-state c) #t)
   (outbound-stop! (session-outbound c))
   (when (box-cas-strong! (session-transport-close-started? c) #f #t)
-    (with-handlers ([(lambda (_) #t)
+    (with-handlers ([raised-failure?
                      (lambda (error)
                        (record-session-wire-failure! c error)
                        (void))])
       ((async-transport-close! (async-connection-transport (session-async c)))))))
 
-;; Retire a loop-backed shell after its loop can no longer project events. status-allow: lifecycle transition
+;; Retire a loop-backed shell after its loop can no longer project events.
 ;; Driver release owns the C allocation; this only completes Racket waiters.
 (define (loop-owner-failed! c error)
   (define ac (session-async c))
@@ -96,7 +105,7 @@
 ;; and never blocks the release.
 (define (retain-partner-abort! c)
   (unless (session-released? c)
-    (with-handlers ([exn? (lambda (error) (record-session-wire-failure! c error))])
+    (with-handlers ([exn:fail? (lambda (error) (record-session-wire-failure! c error))])
       (set-box! (session-retained-partner-abort c) (read-partner-abort (session-ptr c))))))
 
 ;; The partner's op:abort kind and diagnostic as a `partner-abort`, or #f when

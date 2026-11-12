@@ -13,6 +13,7 @@
 //! and `zig build goblins-onion` are the opt-in live Tor proofs.
 
 const std = @import("std");
+const wait = @import("../support/wait.zig");
 const borrowedHandle = @import("../support/borrowed_transport.zig").borrowedHandle;
 const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
@@ -343,8 +344,8 @@ test "onion listener returns Unix-socket removal failure" {
     var observed: FakeControlResult = .{ .lines = .empty, .allocator = allocator };
     defer observed.deinit();
     var control_server = try io.concurrent(fakeControlServe, .{ io, &ctrl_listener, &observed });
-    // Cancellation is expected when setup or an assertion fails before await.
-    defer _ = control_server.cancel(io) catch {};
+    var control_joined = false;
+    errdefer if (!control_joined) wait.joinedUnwinding("control server", control_server.cancel(io));
 
     const listener = switch (onion.Listener.create(allocator, io, .{
         .socks = "127.0.0.1:1",
@@ -368,6 +369,7 @@ test "onion listener returns Unix-socket removal failure" {
     const failure = cleanup orelse return error.ExpectedCleanupFailure;
     try std.testing.expect(failure.cause != error.FileNotFound);
     try std.testing.expectEqual(@as(u16, 0), failure.secondary_count);
+    control_joined = true;
     try control_server.await(io);
 }
 

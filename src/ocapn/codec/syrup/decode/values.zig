@@ -289,6 +289,7 @@ fn readIntegerRun(slab: *model.view.ValueSlab, bytes: []const u8, cursor: *usize
     var position = cursor.*;
     while (position < bytes.len and bytes[position] != ']') {
         if (writer.count == syntax.max_collection_elements) return null;
+        // tolerant: a malformed integer is not this shape, which null says.
         const integer = syntax.readInteger(bytes, &position) catch return null;
         if (!writer.append(integer)) return null;
     }

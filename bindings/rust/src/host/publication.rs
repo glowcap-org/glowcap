@@ -251,6 +251,8 @@ impl Resolver {
 	/// Top-level: refused inside a behavior callback. The settle pumps the
 	/// sessions the deferred answers dirtied. A refused conversion or FFI
 	/// settle leaves this resolver live so the caller can retry or break it.
+	/// Once the settle commits it returns success, and a pump that cannot be
+	/// scheduled is reported by Host close.
 	pub fn fulfill(&mut self, value: &Argument) -> Result<()> {
 		let id = self.live_id()?;
 		let mut arena = crate::SendArena::default();
@@ -263,7 +265,9 @@ impl Resolver {
 		self.id = None;
 		// A settle can advance a FINISH close; wake any parked close driver.
 		self.shared.note_close_activity();
-		self.shared.schedule_kick()?;
+		// The settle committed, so a refused progress kick is latched for
+		// Host close rather than reported as a failed settle.
+		self.shared.schedule_kick_or_record();
 		Ok(())
 	}
 
@@ -279,7 +283,9 @@ impl Resolver {
 		check_host(unsafe { ffi::glowcap_host_resolver_fulfill_value(self.shared.raw.get(), id, &c_value) })?;
 		self.id = None;
 		self.shared.note_close_activity();
-		self.shared.schedule_kick()?;
+		// The settle committed, so a refused progress kick is latched for
+		// Host close rather than reported as a failed settle.
+		self.shared.schedule_kick_or_record();
 		Ok(())
 	}
 
@@ -295,7 +301,9 @@ impl Resolver {
 		self.id = None;
 		// A settle can advance a FINISH close; wake any parked close driver.
 		self.shared.note_close_activity();
-		self.shared.schedule_kick()?;
+		// The settle committed, so a refused progress kick is latched for
+		// Host close rather than reported as a failed settle.
+		self.shared.schedule_kick_or_record();
 		Ok(())
 	}
 }

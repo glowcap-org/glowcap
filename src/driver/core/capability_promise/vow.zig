@@ -64,10 +64,10 @@ pub fn stage(self: *Host, id: capability.PromiseId, session: *HostSession, resol
             else => if (promise_answer.ownData(self, session, argument)) |data|
                 .{ .settling_data = data }
             else |err|
-                .{ .breaking = Row.Failure.init(@errorName(err)) },
+                .{ .breaking = Row.Failure.init(engine.Broken.unnamed(@errorName(err))) },
         },
         .broken => |reason| .{ .breaking = Row.Failure.init(reason) },
-        .give => .{ .breaking = Row.Failure.init(vow_completion.give_reason) },
+        .give => .{ .breaking = Row.Failure.init(engine.Broken.unnamed(vow_completion.give_reason)) },
     };
     publishStaged(self, id, state);
 }
@@ -80,13 +80,13 @@ pub fn stage(self: *Host, id: capability.PromiseId, session: *HostSession, resol
 pub fn stageHeld(self: *Host, id: capability.PromiseId, row: *const vow_settlement.VowRow) void {
     const state: Row.State = switch (row.completion) {
         .none => unreachable,
-        .failed => |failed| .{ .breaking = Row.Failure.init(failed.message.bytes()) },
+        .failed => |failed| .{ .breaking = Row.Failure.init(.{ .detail = failed.message.bytes(), .cause = failed.cause }) },
         .fulfilled => |fulfilled| switch (fulfilled.value) {
             .capability => |ref| retainedState(self, id, ref),
             else => if (promise_answer.cloneData(self, fulfilled.value)) |data|
                 .{ .settling_data = data }
             else |err|
-                .{ .breaking = Row.Failure.init(@errorName(err)) },
+                .{ .breaking = Row.Failure.init(engine.Broken.unnamed(@errorName(err))) },
         },
     };
     publishStaged(self, id, state);
@@ -114,11 +114,11 @@ fn publishStaged(self: *Host, id: capability.PromiseId, state: Row.State) void {
 /// projection breaks as a resolution cycle does.
 fn retainedState(self: *Host, id: capability.PromiseId, ref: capability.Ref) Row.State {
     const target = self.capabilities.resolve(ref) orelse
-        return .{ .breaking = Row.Failure.init(@errorName(error.UnknownCapability)) };
+        return .{ .breaking = Row.Failure.init(engine.Broken.unnamed(@errorName(error.UnknownCapability))) };
     if (target == .deferred and target.deferred == id)
-        return .{ .breaking = Row.Failure.init(engine.resolution_chain.cycle_message) };
+        return .{ .breaking = Row.Failure.init(engine.Broken.unnamed(engine.resolution_chain.cycle_message)) };
     const retained = self.capabilities.retain(self.allocator, target) catch |err|
-        return .{ .breaking = Row.Failure.init(@errorName(err)) };
+        return .{ .breaking = Row.Failure.init(engine.Broken.unnamed(@errorName(err))) };
     return .{ .settling = .{ .ref = retained, .claimed_wire_retain = false } };
 }
 
@@ -128,10 +128,10 @@ fn retainedState(self: *Host, id: capability.PromiseId, ref: capability.Ref) Row
 /// cycle does, with the lift undone.
 fn liftedState(self: *Host, id: capability.PromiseId, session: *HostSession, reference: *const model.Reference) Row.State {
     const lifted = capability_lift.liftReference(self, session, .fromOwned(reference)) catch |err|
-        return .{ .breaking = Row.Failure.init(@errorName(err)) };
+        return .{ .breaking = Row.Failure.init(engine.Broken.unnamed(@errorName(err))) };
     if (self.capabilities.resolve(lifted.ref)) |target| if (target == .deferred and target.deferred == id) {
         self.rollbackCapabilityLift(lifted);
-        return .{ .breaking = Row.Failure.init(engine.resolution_chain.cycle_message) };
+        return .{ .breaking = Row.Failure.init(engine.Broken.unnamed(engine.resolution_chain.cycle_message)) };
     };
     self.commitCapabilityLift(lifted);
     return .{ .settling = lifted };
@@ -148,7 +148,7 @@ pub fn settle(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
         .breaking => |held| {
             // The break replaces the row's copy, so the reason leaves it first.
             const failure = held;
-            return capability_promise.breakPromise(self, id, failure.message());
+            return capability_promise.breakPromise(self, id, failure.broken());
         },
         // The vow publishes only after staging.
         .pending => unreachable,

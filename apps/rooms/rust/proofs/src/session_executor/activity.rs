@@ -26,6 +26,8 @@ pub(super) async fn run(
 			Ok(Argument::Bytes(vec![1, 2, 3, 4]))
 		})
 		.unwrap();
+	let wall = || rooms_runtime::wall_clock::WallClock::unix_millis(platform).unwrap();
+	let before = wall();
 	host.send(
 		callback,
 		"notify",
@@ -47,6 +49,9 @@ pub(super) async fn run(
 	let token = reply["cursor"].as_str().unwrap();
 	assert!(reply["data"].as_str().unwrap().contains("Retained activity"));
 	assert_eq!(reply["files"][0]["name"], "retained.bin");
+	let at = reply["at"].as_u64().expect("the journal's time for the event");
+	assert!((before..=wall()).contains(&at), "{at}");
+	assert_eq!(reply["head"], token, "the newest event is where the journal ends");
 	let policy = rooms_glowcap::policy::descriptor().unwrap();
 	let terms = policy
 		.value_for_kind(
@@ -60,6 +65,7 @@ pub(super) async fn run(
 	let observed = observing.activity_reader().await.unwrap();
 	let delivery: serde_json::Value = serde_json::from_str(&observed.read("", false).await.unwrap()).unwrap();
 	assert!(delivery["data"].as_str().unwrap().contains("Retained activity"));
+	assert_eq!(delivery["at"], at, "a later reader is told when the event happened");
 	assert!(
 		observing
 			.activity_file(delivery["cursor"].as_str().unwrap(), 0)

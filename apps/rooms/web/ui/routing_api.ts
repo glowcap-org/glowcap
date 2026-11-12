@@ -6,8 +6,10 @@
 // when it loads. Until then a navigate is a programming error: SessionSetup
 // never changes the address, it reloads.
 
+import { invariant } from "../../lib/invariant.ts";
+
 let navigate = (path: string): void => {
-	throw new Error(`rooms: navigation before the session UI is established (${path})`);
+	invariant(false, `rooms: navigation before the session UI is established (${path})`);
 };
 let address = (): string => "/";
 

@@ -166,7 +166,7 @@ pub const Backend = struct {
         );
     }
 
-    /// Reflect a completed operation in the kernel interest set. The old mask status-allow: replacement state identity
+    /// Reflect a completed operation in the kernel interest set. The old mask
     /// is a superset of the remaining directions, so a failed update leaves
     /// pending work observable. Keep the row in that case: removing it would
     /// make the next submission use ADD against a possibly live kernel entry.
@@ -193,7 +193,7 @@ pub const Backend = struct {
 
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
-    /// A platform listener is bound when `openListener` returns; nothing
+    /// A platform listener is bound when `openListener` returns. Nothing
     /// pends.
     pub fn listenerPending(_: *const Backend, _: Fd) bool {
         return false;

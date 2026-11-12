@@ -5,6 +5,7 @@ use crate::abort::stopped;
 use crate::signaling::Listener;
 use glowcap::{DialOrigin, HintValue, Locator};
 use rooms_glowcap::{client::directory::signaling::Route, routes::Address};
+use rooms_runtime::Error as RuntimeError;
 use rooms_runtime::session::managed::{SessionChanges, SignalingRegistration};
 use std::{
 	cell::RefCell,
@@ -25,12 +26,12 @@ impl Routes {
 		let hint = match target.hints.get("signaling-directory") {
 			Some(HintValue::String(value)) => Some(
 				Address::directory(value)
-					.map_err(|e| e.to_string())?
-					.ok_or("Invalid signaling directory")?
+					.map_err(RuntimeError::from)?
+					.ok_or_else(|| RuntimeError::invalid("Invalid signaling directory"))?
 					.authority,
 			),
 			None => None,
-			_ => return Err("Invalid signaling directory hint".into()),
+			_ => return Err(RuntimeError::invalid("Invalid signaling directory hint")),
 		};
 		let mut matching = entries.values().filter(|entry| {
 			if hint.as_ref().is_some_and(|hint| hint != &entry.authority) {
@@ -49,9 +50,9 @@ impl Routes {
 		});
 		let selected = matching
 			.next()
-			.ok_or("No held managed signaling registration for this route")?;
+			.ok_or_else(|| RuntimeError::invalid("No held managed signaling registration for this route"))?;
 		if matching.next().is_some() {
-			return Err("The managed signaling route is ambiguous".into());
+			return Err(RuntimeError::invalid("The managed signaling route is ambiguous"));
 		}
 		Ok(selected.route.clone())
 	}
@@ -113,10 +114,10 @@ async fn run(
 			let opened = owner.opened.lock().await;
 			let snapshot = opened
 				.workspace()
-				.map_err(|e| e.to_string())?
+				.map_err(RuntimeError::from)?
 				.snapshot()
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			// Refused preparation belongs to its original scalar selection. Only
 			// replacement, removal or an explicit retry permits another attempt.
 			// Running registrations retain their own shared retirement barrier.
@@ -128,34 +129,30 @@ async fn run(
 				let Some(selected) = workspace::SignalingSelection::directory(row) else {
 					continue;
 				};
-				let id = row.id.text().as_str().ok_or("Invalid directory ID")?.to_owned();
-				// A successor cannot file an inbox until the old listener has joined. status-allow: replacement state identity
+				let id = row
+					.id
+					.text()
+					.as_str()
+					.ok_or_else(|| RuntimeError::invalid("Invalid directory ID"))?
+					.to_owned();
+				// A successor cannot file an inbox until the old listener has joined.
 				if held.contains_key(&id) {
 					continue;
 				}
 				let prepared = async {
-					let source = opened
-						.session()
-						.directory_source(row)
-						.await
-						.map_err(|e| e.to_string())?;
+					let source = opened.session().directory_source(row).await?;
 					let location = source
 						.directory_reader()
-						.await
-						.map_err(|e| e.to_string())?
+						.await?
 						.advertised_location()
 						.await
-						.map_err(|e| e.to_string())?;
+						.map_err(RuntimeError::from)?;
 					let authority = Address::directory(&location)
-						.map_err(|e| e.to_string())?
-						.ok_or("Invalid advertised directory")?
+						.map_err(RuntimeError::from)?
+						.ok_or_else(|| RuntimeError::invalid("Invalid advertised directory"))?
 						.authority;
-					let registration = opened
-						.session()
-						.signaling_registration(row)
-						.await
-						.map_err(|e| e.to_string())?;
-					Ok::<_, String>((authority, registration))
+					let registration = opened.session().signaling_registration(row).await?;
+					Ok::<_, RuntimeError>((authority, registration))
 				}
 				.await;
 				match prepared {
@@ -180,7 +177,7 @@ async fn run(
 				}
 			}
 			drop(opened);
-			Ok::<_, String>(())
+			Ok::<_, RuntimeError>(())
 		}
 		.await;
 		if let Err(error) = reconciled {
@@ -197,13 +194,13 @@ async fn run(
 				if let Err(error) = changed
 					&& let Some(environment) = embedding.upgrade()
 				{
-					environment.trouble.report("Managed signaling changes", &error.to_string());
+					environment.trouble.report("Managed signaling changes", &error);
 				}
 			},
 			ended = workers.join_next(), if !workers.is_empty() => {
 				match ended {
 					Some(Ok((id, result))) => { held.remove(&id); cleanup::retain(&mut outcome, result); },
-					Some(Err(error)) => { cleanup::retain(&mut outcome, Err(error.to_string())); break; },
+					Some(Err(error)) => { cleanup::retain(&mut outcome, Err(RuntimeError::platform(error))); break; },
 					None => unreachable!("nonempty signaling workers"),
 				}
 			},
@@ -218,7 +215,7 @@ async fn run(
 	while let Some(ended) = workers.join_next().await {
 		match ended {
 			Ok((_, result)) => cleanup::retain(&mut outcome, result),
-			Err(error) => cleanup::retain(&mut outcome, Err(error.to_string())),
+			Err(error) => cleanup::retain(&mut outcome, Err(RuntimeError::platform(error))),
 		}
 	}
 	outcome
@@ -251,7 +248,7 @@ async fn listen(
 		}
 		let route = registration.route().clone();
 		if let Some(Err(error)) = registration.status() {
-			trouble.report("Managed signaling", &error.to_string());
+			trouble.report("Managed signaling", &error);
 			registration.retry();
 		}
 		let result = match Listener::open(route.clone(), glowcap::HANDSHAKE_TIMEOUT).await {
@@ -274,27 +271,30 @@ async fn listen(
                         match accepted {
                             Ok(session) => if let Err(refused) = accepting.offer(session) {
                                 pressure.send_replace(true);
-                                if refused.capacity { reporting.report("Managed signaling", "Incoming connection capacity is exhausted"); }
-                                rejections.spawn_local(async move { refused.session.close(glowcap::PendingWork::Cancel).await.map_err(|e| e.to_string()) });
+                                if refused.capacity { reporting.report("Managed signaling", &RuntimeError::busy("Incoming connection capacity is exhausted")); }
+                                rejections.spawn_local(async move { refused.session.close(glowcap::PendingWork::Cancel).await.map_err(RuntimeError::from) });
                             },
-                            Err(error) => reporting.report("Managed signaling", &error.to_string()),
+                            Err(error) => reporting.report("Managed signaling", &RuntimeError::from(error)),
                         }
                     },
                 ).await;
 				routes.0.borrow_mut().remove(id);
 				if let Err(error) = report.activity {
-					trouble.report("Managed signaling", &error.to_string());
+					trouble.report("Managed signaling", &RuntimeError::from(error));
 				}
-				report.retirement.map_err(|e| e.to_string())
+				report.retirement.map_err(RuntimeError::from)
 			}
 			Err(error) => {
-				trouble.report("Managed signaling", &error.to_string());
+				trouble.report("Managed signaling", &RuntimeError::from(error));
 				Ok(())
 			}
 		};
 		let mut result = result;
 		while let Some(ended) = rejections.join_next().await {
-			cleanup::retain(&mut result, ended.map_err(|e| e.to_string()).and_then(|result| result));
+			cleanup::retain(
+				&mut result,
+				ended.map_err(RuntimeError::platform).and_then(|result| result),
+			);
 		}
 		if *stop.borrow() {
 			break result;
@@ -310,9 +310,12 @@ async fn listen(
 		delay = (delay * 2).min(30_000);
 	};
 	routes.0.borrow_mut().remove(id);
-	cleanup::retain(&mut result, registration.close().await.map_err(|e| e.to_string()));
+	cleanup::retain(&mut result, registration.close().await);
 	while let Some(ended) = rejections.join_next().await {
-		cleanup::retain(&mut result, ended.map_err(|e| e.to_string()).and_then(|result| result));
+		cleanup::retain(
+			&mut result,
+			ended.map_err(RuntimeError::platform).and_then(|result| result),
+		);
 	}
 	result
 }

@@ -36,7 +36,7 @@ export type { ScrubberProps } from "./scrubber-props.ts";
 
 /** Default host `title` when the pointer is not on a gutter eyeball. */
 const SCRUBBER_HOST_TITLE =
-	"Wheel = zoom · Shift+wheel = pan · gutter wheel = scroll · drag ruler = scrub · Alt+drag = pan (time + rows) · double-click = fit";
+	"The wheel zooms, Shift with the wheel pans, and the wheel over the gutter scrolls. Drag the ruler to scrub, Alt+drag to pan time and rows, and double-click to fit.";
 
 /** Maximum visible window width in Live mode, the zoom-out
  *  floor expressed as "what fits in the timeline at min zoom."

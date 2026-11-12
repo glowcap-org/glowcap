@@ -55,14 +55,14 @@ pub fn main(init: std.process.Init) !void {
         _ = try h.access.stagePublication(&store, control_lease, control_entropy);
         try h.f.commit(&store, &db);
         if (scenario == .cancel) {
-            var client = h.host_support.init(init.gpa, @splat(0x63), h.driver.Host.Options.withFrameCap(4096));
+            var client = h.host_support.init(init.gpa, @splat(0x63), h.driver.Host.Options.init(.unchecked, 4096));
             defer client.deinit();
             const pair = try pairs.openPair(&client, &server.host, "127.0.0.1:9732");
             const use = try fetch(&server, &client, pair, use_entropy);
             try observation.createWitness(&server, &client, pair, use, data.owner);
         }
         if (scenario == .retire or scenario == .cleanup) {
-            var client = h.host_support.init(init.gpa, @splat(0x63), h.driver.Host.Options.withFrameCap(4096));
+            var client = h.host_support.init(init.gpa, @splat(0x63), h.driver.Host.Options.init(.unchecked, 4096));
             defer client.deinit();
             const pair = try pairs.openPair(&client, &server.host, "127.0.0.1:9732");
             const use = try fetch(&server, &client, pair, use_entropy);
@@ -73,7 +73,7 @@ pub fn main(init: std.process.Init) !void {
     // Startup does not need an inventory of owner, grant, or endpoint IDs.
     if (store.cache.allocated_bytes != 0 or server.host.publications.count() != 0) return error.EagerRestore;
     for (server.attached.entries) |entry| if (entry.actor != null) return error.EagerRestore;
-    var client = h.host_support.init(init.gpa, @splat(0x63), h.driver.Host.Options.withFrameCap(4096));
+    var client = h.host_support.init(init.gpa, @splat(0x63), h.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &server.host, "127.0.0.1:9732");
     const use = try fetch(&server, &client, pair, use_entropy);
@@ -190,7 +190,7 @@ const Server = struct {
     last_entropy: publication.Entropy = @splat(0),
 
     fn init(self: *Server, store: *core.Store, db: *fixture.Engine, io: std.Io) !void {
-        self.host = h.host_support.init(store.allocator, @splat(0x61), h.driver.Host.Options.withFrameCap(4096));
+        self.host = h.host_support.init(store.allocator, @splat(0x61), h.driver.Host.Options.init(.unchecked, 4096));
         self.caps = try h.c.storage.Capabilities.init(store.allocator, store, .{});
         self.service = .{
             .capabilities = &self.caps,

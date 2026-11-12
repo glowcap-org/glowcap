@@ -115,7 +115,8 @@ is to change the shader.
 - `zig build gen-mark` renders the shader in the pinned headless browser,
   traces that render, and rewrites all the generated files together.
 - `zig build gen-mark-check` renders again and fails if any committed file no
-  longer matches.
+  longer matches. Both steps run only on the machine architecture
+  [the generator](../tools/gen/mark/main.ts) names.
 - Both steps need a browser, so they run beside `zig build check` rather than
   inside it. `zig build source-check` covers the part that needs no browser:
   it checks that the committed files share one geometry.

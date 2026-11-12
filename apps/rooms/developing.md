@@ -38,7 +38,7 @@ different production compiler.
 | `zig build rooms-rust-test` | The Rust application contracts (part of `runtime-check`) | Cargo |
 | `zig build rooms-peers-test` | The archive, session, and room server as installed processes: identity, restart, and signals (part of `runtime-check`) | Cargo |
 | `zig build rooms-terminal-client-test` | The Zig, Rust, Python, and Racket client contracts | Cargo, Python, Racket |
-| `zig build demo-rooms` | Five language clients share one TCP room. `-Dport=` pins the port, `-Dattach=true` joins a running server | Deno. Other runtimes join when present |
+| `zig build demo-rooms` | Clients in several languages share one TCP room. `-Dport=` pins the port, `-Dattach=true` joins a running server | Deno. Other runtimes join when present |
 | `zig build demo-rooms-iroh`, `demo-rooms-onion` | The same tour over encrypted QUIC and over Tor | Cargo, Deno. Tor |
 | `zig build demo-rooms-dm`, `demo-rooms-dm-iroh` | A room introduces two members who then message directly | Deno. Cargo |
 | `zig build goblins-rooms`, `goblins-rooms-dm`, `goblins-rooms-iroh` | A real Goblins vat in the room, and direct messages with it | Racket with Goblins, Deno |
@@ -278,6 +278,25 @@ listed: `GLOWCAP_ROOMS_DEV_ALLOWED_HOSTS` replaces the default with a
 comma-separated list, and `GLOWCAP_ROOMS_DEV_HOST` is where it listens (the
 devcontainer sets `0.0.0.0`).
 
+The dev front tells its backend the address browsers reach it at, as
+`--http-public`: `http://localhost:<port>/` for the port Vite listens on, or
+`GLOWCAP_ROOMS_DEV_HTTP_PUBLIC` where something publishes that port at another
+address, as the devcontainer does. The backend prints that address as `web ui`
+and its shared session treats a relay route there as the front's own relay.
+Where the backend cannot reach that address itself, as in the devcontainer,
+open the page at exactly that address. A browser at another name for the same
+machine, such as `127.0.0.1` for `localhost`, advertises a relay route under
+that name, which the shared session dials as a foreign relay and cannot reach.
+
+`GLOWCAP_ROOMS_DEV_TRACE_CONNECT` and `GLOWCAP_ROOMS_DEV_TRACE_PUBLISH` supply
+advertised trace routes for the development backend. The dev front passes them
+as `--trace-connect` and `--trace-publish`. The server validates the endpoints.
+
+Your own value wins over each of these three defaults, given as the flag or
+as the server's variable, such as `GLOWCAP_ROOMS_HTTP_PUBLIC`. The
+devcontainer sets the three for its published host ports, without changing
+other server launches.
+
 ### As an onion service
 
 `zig build rooms-web -Dtransport=onion` publishes the directory as a Tor
@@ -458,7 +477,7 @@ answers the same kind of reference. `refile(caption, ...keep)` changes the
 files, keeping the ones whose indices it names and adding the connection's
 freshly staged uploads. Refiling down to no files and no caption withdraws
 the line. Line references restart with a room generation and never enter
-durable history, so a new room cannot govern a row restored from an earlier <!-- status-allow: runtime state or operation ordering -->
+durable history, so a new room cannot govern a row restored from an earlier
 one.
 
 Direct inboxes follow the same rule. `dm(text)` carries no claimed sender

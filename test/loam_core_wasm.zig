@@ -3,7 +3,7 @@ const std = @import("std");
 const loam = @import("loam");
 
 export fn exercise() u32 {
-    run() catch return 1;
+    run() catch |err| return @intFromError(err);
     return 0;
 }
 

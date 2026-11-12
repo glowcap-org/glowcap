@@ -9,7 +9,7 @@ export const noDirectoryToGiveBack = "There is no directory to give back.";
 /** Why a direct line cannot open to this reader. */
 export const directNotSelf = "You can't start a direct message with yourself.";
 /** Why a room entry link was not a room entry link. */
-export const notARoomEntryLink = "That link didn't open a room: that isn't a room entry link";
+export const notARoomEntryLink = "This isn't a room entry link. Ask someone in the room to share one.";
 /** Why a room entry link did not open, once the adapter knows the cause. */
 export function thatLinkDidNotOpen(why: string): string {
 	return `That link didn't open a room: ${why}`;
@@ -104,7 +104,7 @@ export function whoisAway(away: string): string {
 	return `away: ${away}`;
 }
 export const whoisHereNow = "here now";
-export const whoisNotHere = "not here just now";
+export const whoisNotHere = "not here";
 export const noSubject = "This room has no subject.";
 export function subjectIs(description: string, link?: string): string {
 	return link === undefined ? `The subject is: ${description}` : `The subject is: ${description} (${link})`;

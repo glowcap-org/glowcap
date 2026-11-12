@@ -120,7 +120,10 @@ void glowcap_inproc_listener_shutdown(GlowcapInprocListener *listener);
    out_error/out_error_len optionally capture this call's diagnostic before an
    off-thread runtime regains control: omit all three diagnostic arguments, or
    provide out_error_len. It receives the full length; out_error receives at most
-   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_inproc_listener_release(GlowcapInprocListener *listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Copy the calling thread's last in-process-transport error into out_buf, the
    inproc sibling of glowcap_last_error, reading this archive's own per-thread

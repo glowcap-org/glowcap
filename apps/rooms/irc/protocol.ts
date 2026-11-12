@@ -151,14 +151,3 @@ export async function* readIrcLines(readable: ReadableStream<Uint8Array>): Async
 		reader.releaseLock();
 	}
 }
-
-/** RFC 1459's case-insensitive nickname/channel comparison. */
-export function ircFold(value: string): string {
-	return value.toLowerCase().replace(/[\[\\\]^]/g, (c) => ({ "[": "{", "]": "}", "\\": "|", "^": "~" })[c]!);
-}
-
-export function nickFromPrefix(prefix: string | null): string | null {
-	if (prefix === null) return null;
-	const end = prefix.search(/[!@]/);
-	return end < 0 ? prefix : prefix.slice(0, end);
-}

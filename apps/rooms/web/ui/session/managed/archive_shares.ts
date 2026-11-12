@@ -1,9 +1,9 @@
-import { conversationById } from "./conversation_lookup.ts";
-import { LOCAL_LIMITS } from "./local_gestures.ts";
-import { archiveDropFull, archiveReadFull } from "../../../../lib/text/archive.ts";
-import { managedSessionText as managedText, sharedHistoryLabel } from "../../../../lib/text/managed_session.ts";
 // Incoming choices select session archive custody. Displayed files retain the
 // exact reader through offer dismissal and later workspace selection changes.
+import { conversationById } from "./conversation_lookup.ts";
+import { LOCAL_LIMITS } from "./local_limits.ts";
+import { archiveDropFull, archiveReadFull } from "../../../../lib/text/archive.ts";
+import { managedSessionText as managedText, sharedHistoryLabel } from "../../../../lib/text/managed_session.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { RoomsWorkspaceController } from "../../controller/session.ts";
@@ -15,7 +15,7 @@ import * as store from "../../store.ts";
 import { reconcileSharedArchive } from "../shared_archive_projection.ts";
 import type { ArchiveRecord } from "../../../../lib/archive/protocol.ts";
 import { MAX_ARCHIVE_READ, MAX_ARCHIVE_RECORDS } from "../../../../lib/archive/limits.ts";
-import { refusalText } from "../../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { revisionReadKey } from "./reads.ts";
 
 function offerIdentity(row: ReceivedArchive): string {
@@ -56,18 +56,18 @@ export function managedArchiveReading(
 		try {
 			const conversation = store.getConv(page.projection, key);
 			if (conversation == null || conversation.type === "directory") {
-				throw new Error("Select a room or direct conversation to share its history");
+				throw new LocalRefusal("pick-conversation");
 			}
 			const kind = records === "standing" ? "standing" : conversation.type === "room" ? "room" : "direct";
 			const original = conversationById(session.current, conversation.persistId);
-			if (original == null) throw new Error("The original conversation is no longer held");
+			if (original == null) throw new LocalRefusal("conversation-gone");
 			const identity = conversationIdentity(original);
 			const recipient = conversation.type === "dm"
 				? conversation.persistId
 				: await session.actions.direct(conversation.dir, peer?.trim() || "", false);
 			const selected = conversationById(session.current, conversation.persistId);
 			if (selected == null || conversationIdentity(selected) !== identity) {
-				throw new Error("The original conversation changed while acquiring the history recipient");
+				throw new LocalRefusal("conversation-changed");
 			}
 			await session.actions.run(durable ? "offerDurableArchive" : "shareArchiveHistory", [
 				conversation.persistId,
@@ -88,7 +88,7 @@ export function managedArchiveReading(
 		const selected = shares.find((row) => row.id === id);
 		if (selected == null) return;
 		if (identity != null && offerIdentity(selected) !== identity) {
-			throw new Error("The original archive offer changed before dismissal");
+			throw new LocalRefusal("history-offer-changed");
 		}
 		snapshot.intent.archiveShares = shares.filter((row) => row.id !== id);
 		await session.actions.replace(snapshot);
@@ -119,7 +119,7 @@ export function managedArchiveReading(
 					session.permits("readFile"),
 				),
 			);
-			if (!fresh()) throw new Error("The original archive selection or reading permission changed");
+			if (!fresh()) throw new LocalRefusal("history-offer-changed");
 			const records: ArchiveRecord[] = [];
 			let after = "0";
 			while (records.length < MAX_ARCHIVE_RECORDS) {
@@ -136,17 +136,25 @@ export function managedArchiveReading(
 					after,
 					MAX_ARCHIVE_READ,
 				);
-				if (!fresh()) throw new Error("The original archive selection or reading permission changed");
+				if (!fresh()) throw new LocalRefusal("history-offer-changed");
 				for (const { record } of result.records) records.push(record);
 				if (records.length > MAX_ARCHIVE_RECORDS || (result.more && records.length === MAX_ARCHIVE_RECORDS)) {
-					throw new Error("The archive exceeded its declared record bound");
+					throw new LocalRefusal("history-invalid", {
+						cause: "the archive exceeded its declared record bound",
+					});
 				}
 				if (!result.more) break;
-				if (result.records.length === 0) throw new Error("The archive returned an empty continuation page");
-				if (BigInt(result.next) <= BigInt(after)) throw new Error("The archive cursor did not advance");
+				if (result.records.length === 0) {
+					throw new LocalRefusal("history-invalid", {
+						cause: "the archive returned an empty continuation page",
+					});
+				}
+				if (BigInt(result.next) <= BigInt(after)) {
+					throw new LocalRefusal("history-invalid", { cause: "the archive cursor did not advance" });
+				}
 				after = result.next;
 			}
-			if (!fresh()) throw new Error("The original receiving conversation or archive offer changed");
+			if (!fresh()) throw new LocalRefusal("history-offer-changed");
 			const selectedSource = source;
 			reconcileSharedArchive(
 				page,

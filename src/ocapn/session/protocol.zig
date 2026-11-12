@@ -100,7 +100,7 @@ pub fn admits(self: *const Session, body: model.view.Body) Error!void {
     try admitInState(self, body);
 }
 
-/// Record a send whose tree nobody has inventoried yet: prepared engine status-allow: pending state or quoted runtime label
+/// Record a send whose tree nobody has inventoried yet: prepared engine
 /// messages, bindings, and tests. The engine's outbound path takes the
 /// inventory once at admission and records through `recordSendInventoried`.
 pub fn recordSend(self: *Session, message: model.Message) !void {
@@ -388,6 +388,7 @@ pub fn commitPreparedListenerFire(
 ) void {
     std.debug.assert(message == .deliver and message.deliver.answer == null);
     std.debug.assert(message.deliver.resolve_me_desc == null);
-    sent_exports.retainRef(self, message.deliver.target) catch unreachable;
-    sent_exports.recordMentions(self, inventory, value, true) catch unreachable;
+    // The target is the partner's listener import, which takes no export retain.
+    std.debug.assert(message.deliver.target == .far);
+    sent_exports.recordMentionsAssumeCapacity(self, inventory, value, true);
 }

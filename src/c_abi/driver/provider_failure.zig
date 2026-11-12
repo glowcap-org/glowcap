@@ -15,55 +15,53 @@ const driver = @import("driver");
 const net = @import("net");
 const shared = @import("c_abi_shared");
 const carrier_phase = @import("carrier_phase.zig");
+const error_projection = @import("error.zig");
 
-fn statusError(code: i32) anyerror {
-    return switch (code) {
-        shared.GLOWCAP_ERR_NULL_POINTER => error.ProviderNullPointer,
-        shared.GLOWCAP_ERR_INVALID_ARGUMENT => error.ProviderInvalidArgument,
-        shared.GLOWCAP_ERR_INTERNAL => error.ProviderInternal,
-        shared.GLOWCAP_ERR_WOULD_BLOCK => error.ProviderWouldBlock,
-        shared.GLOWCAP_ERR_CLOSED => error.ProviderClosed,
-        shared.GLOWCAP_ERR_TIMEOUT => error.ProviderTimedOut,
-        shared.GLOWCAP_ERR_SESSION => error.ProviderSession,
-        shared.GLOWCAP_ERR_MALFORMED => error.ProviderMalformed,
-        shared.GLOWCAP_ERR_FRAME_TOO_LARGE => error.ProviderFrameTooLarge,
-        shared.GLOWCAP_ERR_IO => error.ProviderIo,
-        else => error.ProviderFailure,
-    };
+/// The stable result vocabulary a provider may report, each with the Zig
+/// cause its report decodes to. A code outside this table is a refused
+/// report, never a guess.
+const statuses = [_]struct { code: i32, cause: anyerror }{
+    .{ .code = shared.GLOWCAP_ERR_NULL_POINTER, .cause = error.ProviderNullPointer },
+    .{ .code = shared.GLOWCAP_ERR_INVALID_ARGUMENT, .cause = error.ProviderInvalidArgument },
+    .{ .code = shared.GLOWCAP_ERR_NOT_FOUND, .cause = error.ProviderNotFound },
+    .{ .code = shared.GLOWCAP_ERR_INTERNAL, .cause = error.ProviderInternal },
+    .{ .code = shared.GLOWCAP_ERR_WOULD_BLOCK, .cause = error.ProviderWouldBlock },
+    .{ .code = shared.GLOWCAP_ERR_CLOSED, .cause = error.ProviderClosed },
+    .{ .code = shared.GLOWCAP_ERR_TIMEOUT, .cause = error.ProviderTimedOut },
+    .{ .code = shared.GLOWCAP_ERR_SESSION, .cause = error.ProviderSession },
+    .{ .code = shared.GLOWCAP_ERR_MALFORMED, .cause = error.ProviderMalformed },
+    .{ .code = shared.GLOWCAP_ERR_FRAME_TOO_LARGE, .cause = error.ProviderFrameTooLarge },
+    .{ .code = shared.GLOWCAP_ERR_IO, .cause = error.ProviderIo },
+};
+
+/// The failure class whose C projection (`error.zig`) is `code`, read back
+/// from that projection so the two directions cannot disagree. A null
+/// pointer is an invalid argument the projection never emits.
+fn classificationOf(comptime code: i32) foundation.FailureClassification {
+    if (code == shared.GLOWCAP_ERR_NULL_POINTER) return .invalid_argument;
+    for (std.enums.values(foundation.FailureClassification)) |class| {
+        if (error_projection.code(class) == code) return class;
+    }
+    @compileError(std.fmt.comptimePrint("provider status {d} has no failure class", .{code}));
 }
 
-fn statusClassification(code: i32) foundation.FailureClassification {
-    return switch (code) {
-        shared.GLOWCAP_ERR_NULL_POINTER,
-        shared.GLOWCAP_ERR_INVALID_ARGUMENT,
-        => .invalid_argument,
-        shared.GLOWCAP_ERR_INTERNAL => .internal,
-        shared.GLOWCAP_ERR_WOULD_BLOCK => .would_block,
-        shared.GLOWCAP_ERR_CLOSED => .closed,
-        shared.GLOWCAP_ERR_TIMEOUT => .timeout,
-        shared.GLOWCAP_ERR_SESSION => .session,
-        shared.GLOWCAP_ERR_MALFORMED => .malformed,
-        shared.GLOWCAP_ERR_FRAME_TOO_LARGE => .frame_too_large,
-        shared.GLOWCAP_ERR_IO => .io,
-        else => unreachable,
-    };
+comptime {
+    // Every class the driver projects to C decodes back from a provider.
+    for (std.enums.values(foundation.FailureClassification)) |class| {
+        for (statuses) |row| {
+            if (row.code == error_projection.code(class)) break;
+        } else @compileError("failure class " ++ @tagName(class) ++ " has no provider status row");
+    }
 }
 
-fn statusIsStable(code: i32) bool {
-    return switch (code) {
-        shared.GLOWCAP_ERR_NULL_POINTER,
-        shared.GLOWCAP_ERR_INVALID_ARGUMENT,
-        shared.GLOWCAP_ERR_INTERNAL,
-        shared.GLOWCAP_ERR_WOULD_BLOCK,
-        shared.GLOWCAP_ERR_CLOSED,
-        shared.GLOWCAP_ERR_TIMEOUT,
-        shared.GLOWCAP_ERR_SESSION,
-        shared.GLOWCAP_ERR_MALFORMED,
-        shared.GLOWCAP_ERR_FRAME_TOO_LARGE,
-        shared.GLOWCAP_ERR_IO,
-        => true,
-        else => false,
-    };
+const Status = struct { cause: anyerror, classification: foundation.FailureClassification };
+
+/// A stable status decoded, or null when `code` is outside the vocabulary.
+fn status(code: i32) ?Status {
+    inline for (statuses) |row| {
+        if (row.code == code) return .{ .cause = row.cause, .classification = comptime classificationOf(row.code) };
+    }
+    return null;
 }
 
 fn name(pointer: ?[*]const u8, len: usize) ?[]const u8 {
@@ -88,28 +86,29 @@ pub fn operation(
         report.carrier_peer_alert,
         report.carrier_engine_code,
     ) catch return error.InvalidProviderFailure;
-    const valid_secondary = if (report.secondary_count == 0)
-        report.secondary_result == 0 and report.secondary_name == null and report.secondary_name_len == 0
-    else
-        report.secondary_count <= std.math.maxInt(u16) and
-            statusIsStable(report.secondary_result) and secondary_name != null;
-    if (report.result != code or !statusIsStable(code) or primary_name == null or !valid_secondary)
-        return error.InvalidProviderFailure;
+    if (report.result != code or primary_name == null) return error.InvalidProviderFailure;
+    const primary = status(code) orelse return error.InvalidProviderFailure;
     var failure: driver.OperationFailure = .{
         .chain = .{
-            .cause = statusError(code),
+            .cause = primary.cause,
             .cause_name = primary_name,
-            .classification = statusClassification(code),
+            .classification = primary.classification,
         },
         .carrier_phase = phase,
         .carrier_detail = detail,
     };
-    if (report.secondary_count != 0) {
-        failure.chain.secondary_cause = statusError(report.secondary_result);
-        failure.chain.secondary_cause_name = secondary_name;
-        failure.chain.secondary_classification = statusClassification(report.secondary_result);
-        failure.chain.secondary_count = @intCast(report.secondary_count);
+    if (report.secondary_count == 0) {
+        if (report.secondary_result != 0 or report.secondary_name != null or report.secondary_name_len != 0)
+            return error.InvalidProviderFailure;
+        return failure;
     }
+    if (report.secondary_count > std.math.maxInt(u16) or secondary_name == null)
+        return error.InvalidProviderFailure;
+    const secondary = status(report.secondary_result) orelse return error.InvalidProviderFailure;
+    failure.chain.secondary_cause = secondary.cause;
+    failure.chain.secondary_cause_name = secondary_name;
+    failure.chain.secondary_classification = secondary.classification;
+    failure.chain.secondary_count = @intCast(report.secondary_count);
     return failure;
 }
 

@@ -1,4 +1,5 @@
 // A proved conflict releases the candidate. Uncertainty retains exact replay.
+import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { AcquisitionConflict } from "../../web/ui/session/managed/acquisition.ts";
@@ -6,6 +7,7 @@ import { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
 import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { ConversationOpening } from "../../web/ui/session/managed/openings.ts";
 import { OPEN_ROOM_POLICY } from "../../lib/room/policy.ts";
+import { LocalRefusal } from "../../lib/text/failure.ts";
 
 Deno.test("a cancelled uncertain room admission recovers and leaves its exact membership before a fresh join", async () => {
 	const current = snapshot();
@@ -280,11 +282,11 @@ for (const refusal of ["conflict", "uncertain", "replaced"]) {
 				preparations.push([operation, revision, name, args]);
 				return Promise.resolve({
 					submit: () => {
-						if (submissions++ > 0) return Promise.resolve("pending");
+						if (submissions++ > 0) return Promise.resolve({ status: "pending" });
 						if (refusal === "uncertain") return Promise.reject(new Error("lost admission"));
 						current.revision = "2";
 						if (refusal === "replaced") current.intent.directories[0].access = "replacement";
-						return Promise.resolve("conflict");
+						return Promise.resolve({ status: "conflict" });
 					},
 					status: () => Promise.resolve("committed"),
 					free: () => freed++,
@@ -543,7 +545,7 @@ for (const timing of ["preparing", "committed"] as const) {
 					originalIntent: () => [id, Number(revision), name, args],
 					submit: () => {
 						if (name === "openManagedRoom") submitted++;
-						return Promise.resolve("committed");
+						return Promise.resolve({ status: "committed" });
 					},
 					status: () => Promise.resolve("committed"),
 					free: () => freed++,
@@ -616,3 +618,18 @@ for (const timing of ["preparing", "committed"] as const) {
 		}
 	});
 }
+
+Deno.test("an acquisition already gone lets go quietly and refuses recovery in words", async () => {
+	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
+	try {
+		await session.actions.release("directory:gone");
+		const [recovered] = await Promise.allSettled([session.actions.recoverAcquisition("directory:gone")]);
+		assertEquals(recovered.status, "rejected");
+		if (recovered.status === "rejected") {
+			assert(recovered.reason instanceof LocalRefusal, "a missing acquisition is a refusal the page words");
+			assertEquals(recovered.reason.message, LOCAL_REFUSALS["acquisition-gone"].summary);
+		}
+	} finally {
+		await session.close();
+	}
+});

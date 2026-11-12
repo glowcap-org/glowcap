@@ -81,7 +81,7 @@ def cesr_decode_64(prim: str) -> bytes:
     return raw[2:]
 
 
-# Base64url alphabet, used to decode the 1-char index in CESR `A`-prefixed status-allow: purpose clause
+# Base64url alphabet, for decoding the 1-char index in CESR `A`-prefixed
 # indexed Ed25519 signatures. CESR primitive codes per WebOfTrust spec.
 _B64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 

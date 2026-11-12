@@ -1,6 +1,7 @@
 //! Directory metadata stays descriptive. Held readers own exact admission.
 use super::*;
 use rooms_glowcap::client::workspace::DirectoryReader;
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
@@ -8,10 +9,7 @@ impl RoomsManagedWorkspace {
 	pub fn resynchronize_discovery(&self) -> js_sys::Promise {
 		let workspace = self.workspace.clone();
 		self.driver.submit(0, move |_| async move {
-			workspace
-				.resynchronize_discovery()
-				.await
-				.map_err(|error| error.to_string())?;
+			workspace.resynchronize_discovery().await.map_err(RuntimeError::from)?;
 			Ok(JsValue::UNDEFINED)
 		})
 	}
@@ -22,7 +20,7 @@ impl RoomsManagedWorkspace {
 			let selection = scalar(selection, 8192)?;
 			let bytes = selection.len();
 			let selection: rooms_glowcap::client::workspace::PublicRoomImport =
-				serde_json::from_str(&selection).map_err(|_| "Invalid public room selection")?;
+				serde_json::from_str(&selection).map_err(|_| RuntimeError::invalid("Invalid public room selection"))?;
 			Ok((expected, selection, bytes))
 		})();
 		let (expected, selection, bytes) = match input {
@@ -35,7 +33,7 @@ impl RoomsManagedWorkspace {
 			let acquisition = match workspace.prepare_public_room(expected, selection).await {
 				Ok(acquisition) => acquisition,
 				Err(rooms_glowcap::client::Error::WorkspaceConflict) => return Ok(JsValue::NULL),
-				Err(error) => return Err(error.to_string()),
+				Err(error) => return Err(error.into()),
 			};
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
@@ -51,10 +49,7 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(id.len(), move |_| async move {
-			let reader = workspace
-				.directory_reader(&id)
-				.await
-				.map_err(|error| error.to_string())?;
+			let reader = workspace.directory_reader(&id).await.map_err(RuntimeError::from)?;
 			let reader = driver.hold(reader, size_of::<DirectoryReader<Platform>>())?;
 			Ok(RoomsManagedDirectoryReader { driver, reader }.into())
 		})
@@ -75,8 +70,8 @@ impl RoomsManagedDirectoryReader {
 		};
 		let reader = self.reader.clone();
 		self.driver.submit(name.len(), move |_| async move {
-			let rooms = reader.named_rooms(&name).await.map_err(|error| error.to_string())?;
-			json(&serde_json::to_string(&rooms).map_err(|_| "Invalid directory projection")?)
+			let rooms = reader.named_rooms(&name).await.map_err(RuntimeError::from)?;
+			json(&serde_json::to_string(&rooms).map_err(|_| RuntimeError::invalid("Invalid directory projection"))?)
 		})
 	}
 	/// One page of live rooms as `{ rooms, next }`. Pass nothing for the
@@ -86,13 +81,13 @@ impl RoomsManagedDirectoryReader {
 			None => None,
 			Some(text) => match rooms_application::directory::Cursor::parse(&text) {
 				Some(cursor) => Some(cursor),
-				None => return rejected("Invalid directory page cursor".into()),
+				None => return rejected(RuntimeError::invalid("Invalid directory page cursor")),
 			},
 		};
 		let reader = self.reader.clone();
 		self.driver.submit(0, move |_| async move {
-			let page = reader.list(after.as_ref()).await.map_err(|error| error.to_string())?;
-			json(&serde_json::to_string(&page).map_err(|_| "Invalid directory projection")?)
+			let page = reader.list(after.as_ref()).await.map_err(RuntimeError::from)?;
+			json(&serde_json::to_string(&page).map_err(|_| RuntimeError::invalid("Invalid directory projection"))?)
 		})
 	}
 	#[wasm_bindgen(js_name = advertisedLocation)]
@@ -103,7 +98,7 @@ impl RoomsManagedDirectoryReader {
 				.advertised_location()
 				.await
 				.map(Into::into)
-				.map_err(|error| error.to_string())
+				.map_err(RuntimeError::from)
 		})
 	}
 	#[wasm_bindgen(js_name = memberRegistration)]
@@ -118,7 +113,7 @@ impl RoomsManagedDirectoryReader {
 				.member_registration(&peer)
 				.await
 				.map(|id| id.as_str().into())
-				.map_err(|error| error.to_string())
+				.map_err(RuntimeError::from)
 		})
 	}
 }

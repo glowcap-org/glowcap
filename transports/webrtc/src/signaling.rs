@@ -133,9 +133,9 @@ impl OutText {
 	}
 
 	fn report_len(&self, len: usize) {
-		if !self.out_len.is_null() {
-			// SAFETY: `new`'s contract, a non-null `out_len` is one writable word.
-			unsafe { *self.out_len = len };
+		// SAFETY: `new`'s contract makes `out_len` null or one writable word, and `as_mut` maps null to `None`.
+		if let Some(slot) = unsafe { self.out_len.as_mut() } {
+			*slot = len;
 		}
 	}
 

@@ -117,7 +117,7 @@ export async function managedDirect(
 	);
 	held.push(refile);
 	let senderCursor = (await peerObservation.poll()).cursor;
-	if (await refile.submit() === "conflict") throw new Error("the direct refile conflicted before admission");
+	if ((await refile.submit()).status === "conflict") throw new Error("the direct refile conflicted before admission");
 	for (;;) {
 		const status = await refile.status();
 		if (status === "committed") break;

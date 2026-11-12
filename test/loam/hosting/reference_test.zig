@@ -44,7 +44,9 @@ test "loam settled handoff save validates the canonical foreign object against i
         var fixture: f.Fixture = undefined;
         try fixture.init(.{});
         defer fixture.deinit();
-        var remote = @import("../../support/core_host.zig").init(a, @splat(0x73), .{});
+        var remote = @import("../../support/core_host.zig").init(a, @splat(0x73), .{
+            .thread_policy = .unchecked,
+        });
         defer remote.deinit();
         const pair = try pairs.openPair(&fixture.host, &remote, "127.0.0.1:7917");
         const target = try remote.spawn(pair.b, wire.Widget, .{});
@@ -76,7 +78,9 @@ test "loam retained reference preparation refuses foreign Host work before alloc
     var fixture: f.Fixture = undefined;
     try fixture.init(.{});
     defer fixture.deinit();
-    var other = @import("../../support/core_host.zig").init(a, @splat(0x71), .{});
+    var other = @import("../../support/core_host.zig").init(a, @splat(0x71), .{
+        .thread_policy = .unchecked,
+    });
     defer other.deinit();
     var work = try other.admitPendingWork();
     defer work.complete();
@@ -189,7 +193,7 @@ test "loam foreign promise save refuses before fetching a durable name" {
     var fixture: f.Fixture = undefined;
     try fixture.init(.{});
     defer fixture.deinit();
-    var remote = support.init(a, @splat(0x73), f.driver.Host.Options.withFrameCap(wire.frame_cap));
+    var remote = support.init(a, @splat(0x73), f.driver.Host.Options.init(.unchecked, wire.frame_cap));
     defer remote.deinit();
     var dials: std.ArrayList(wire.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -199,9 +203,10 @@ test "loam foreign promise save refuses before fetching a durable name" {
     defer fixture.host.releaseCapabilityTerminal(promise, null);
     const uri = try model.uri.writeSturdyref(a, wire.tcpSturdyref("127.0.0.1:7917", "promise"));
     defer a.free(uri);
-    const result = refs.beginSave(fixture.attached, a, promise, uri);
-    defer if (result) |save| save.deinit() else |_| {};
-    try std.testing.expectError(error.NotDurable, result);
+    if (refs.beginSave(fixture.attached, a, promise, uri)) |save| {
+        save.deinit();
+        return error.TestUnexpectedResult;
+    } else |err| try std.testing.expectEqual(error.NotDurable, err);
     try std.testing.expectEqual(@as(usize, 0), fixture.attached.reference_saves);
     try std.testing.expectEqual(@as(usize, 0), fixture.host.pendingVowCount());
 }
@@ -217,7 +222,9 @@ test "loam local recipe survives reverse attachment startup and collection while
     defer store.deinit() catch unreachable;
     var scope = try refs.Scope.init(a, 2);
     defer scope.deinit() catch unreachable;
-    var host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{});
+    var host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     var source = try f.hosting.Attachment.create(a, &host, &store, &f.behaviors, .{ .reference_scope = &scope, .attachment_name = "source" });
     defer source.destroy() catch unreachable;
@@ -266,7 +273,9 @@ test "loam local recipe survives reverse attachment startup and collection while
     try store.deinit();
     try backend.close();
     store = try f.loam.core.Store.init(a, try backend.open(), &schemas, limits);
-    host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{});
+    host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{
+        .thread_policy = .unchecked,
+    });
     source = try f.hosting.Attachment.create(a, &host, &store, &f.behaviors, .{ .reference_scope = &scope, .attachment_name = "source" });
     // The durable edge protects the target before its restoration owner exists.
     try records.collect(&store, &backend);

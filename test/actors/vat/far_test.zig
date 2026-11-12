@@ -3,6 +3,7 @@
 //! registered during the sweep, and listeners that re-enter serve still
 //! read intact bytes off one converged resolve.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -55,7 +56,7 @@ test "far tell delivers with no answer and the partner replies nothing" {
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = host_port.serve(&host_vat, &e) catch {};
+        _ = try host_port.serve(&host_vat, &e);
     }
 
     // The actor ran on the host.
@@ -100,7 +101,7 @@ test "far observation refuses every completed answer beyond a bounded history" {
             while (host_peer.pollEvent()) |ev| {
                 var e = ev;
                 defer e.deinit();
-                _ = host_port.serve(&host_vat, &e) catch {};
+                _ = try host_port.serve(&host_vat, &e);
             }
             // The host's resolve travels back to the caller and is applied.
             try cross_peer.pumpAll(host_peer, caller_peer);
@@ -111,7 +112,7 @@ test "far observation refuses every completed answer beyond a bounded history" {
             while (caller_peer.pollEvent()) |ev| {
                 var e = ev;
                 defer e.deinit();
-                _ = caller_port.serve(&caller_vat, &e) catch {};
+                _ = try caller_port.serve(&caller_vat, &e);
             }
 
             if (i % 2 == 1) try std.testing.expectEqual(@as(i64, @intCast((i + 1) * 5)), captured.value.?);
@@ -387,18 +388,27 @@ const RegisterOnBreak = struct {
     late_broke: *bool,
     registered: bool = false,
     nested: bool = false,
+    /// A listener has no result channel, so a failed send or registration
+    /// waits here for the test to read.
+    failure: ?anyerror = null,
 
     fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *RegisterOnBreak = @ptrCast(@alignCast(ctx.?));
         if (resolution != .broken or self.registered) return;
         self.registered = true;
-        const late = self.port.send(
+        self.registerLate() catch |err| {
+            self.failure = err;
+        };
+        if (self.nested) self.port.breakFarVows("nested break");
+    }
+
+    fn registerLate(self: *RegisterOnBreak) !void {
+        const late = try self.port.send(
             self.vat,
             .{ .far = model.FarRef.object(6) },
             .{ .verb = "late" },
-        ) catch return;
-        self.port.on(self.vat, late, .{ .ctx = self.late_broke, .func = promise_capture.captureBroken }) catch {};
-        if (self.nested) self.port.breakFarVows("nested break");
+        );
+        try self.port.on(self.vat, late, .{ .ctx = self.late_broke, .func = promise_capture.captureBroken });
     }
 };
 
@@ -424,6 +434,7 @@ test "a far vow registered during breakFarVows also fires broken" {
         // Reentrant registration and a nested drain both use the same owner.
         port.breakFarVows("connection closed");
         try std.testing.expect(reactor.registered);
+        if (reactor.failure) |err| return err;
         try std.testing.expect(late_broke);
     }
 }
@@ -445,7 +456,7 @@ test "far observation cancellation and terminal refusal need no completion alloc
     try std.testing.expect(port.takeListener(&vat, vow) != null);
     try port.on(&vat, vow, listener);
     failing.fail_index = failing.alloc_index;
-    try port.settleFar(&vat, vow.far, .{ .broken = "failed" });
+    try port.settleFar(&vat, vow.far, .{ .broken = .{ .detail = "failed", .cause = BreakCause{} } });
     try std.testing.expect(captured.broken);
     try std.testing.expectError(error.AlreadySettled, port.on(&vat, vow, listener));
     try std.testing.expect(!failing.has_induced_failure);

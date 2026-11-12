@@ -72,13 +72,15 @@ fn writeNamed(ctx: *Ctx, name: []const u8, data: []const u8) !void {
 
 const Field = enum { p50, rps, cold_ms };
 
-fn fieldValue(r: Row, f: Field) f64 {
+/// The row's measured value for `f`, or null when the row holds no number
+/// (the `-` placeholder of a run that did not measure it).
+fn fieldValue(r: Row, f: Field) ?f64 {
     const s = switch (f) {
         .p50 => r.p50,
         .rps => r.rps,
         .cold_ms => r.cold_ms,
     };
-    return std.fmt.parseFloat(f64, s) catch 0;
+    return std.fmt.parseFloat(f64, s) catch null;
 }
 
 /// A stable color per client: the reference row is teal, every other row draws
@@ -112,7 +114,7 @@ fn writeSvg(ctx: *Ctx, rows: []const Row, stamp: i64, name: []const u8, title: [
     const slot = pw / @as(f64, @floatFromInt(nbars));
     const bw = slot * 0.6;
     var maxv: f64 = 0.0001;
-    for (rows) |r| maxv = @max(maxv, fieldValue(r, field));
+    for (rows) |r| maxv = @max(maxv, fieldValue(r, field) orelse 0);
 
     var s: std.ArrayList(u8) = .empty;
     defer s.deinit(ctx.gpa);
@@ -129,8 +131,12 @@ fn writeSvg(ctx: *Ctx, rows: []const Row, stamp: i64, name: []const u8, title: [
     try s.appendSlice(a, "</text>\n");
     try s.print(a, "<text x=\"{d}\" y=\"{d}\" text-anchor=\"end\" font-size=\"11\" fill=\"{s}\">0</text>\n", .{ x0 - 8, y1 + 4, INK_SOFT });
     for (rows, 0..) |r, i| {
-        const v = fieldValue(r, field);
         const cx = x0 + slot * (@as(f64, @floatFromInt(i)) + 0.5);
+        try s.print(a, "<text x=\"{d}\" y=\"{d}\" text-anchor=\"middle\" font-size=\"11\" fill=\"{s}\">{s}</text>\n", .{ cx, y1 + 18, INK, r.name });
+        const v = fieldValue(r, field) orelse {
+            try s.print(a, "<text x=\"{d}\" y=\"{d}\" text-anchor=\"middle\" font-size=\"10\" fill=\"{s}\">unmeasured</text>\n", .{ cx, y1 - 4, INK_SOFT });
+            continue;
+        };
         const bx = cx - bw / 2.0;
         const by = y1 - (v / maxv) * ph;
         const color = paletteColor(rows, i);
@@ -138,7 +144,6 @@ fn writeSvg(ctx: *Ctx, rows: []const Row, stamp: i64, name: []const u8, title: [
         try s.print(a, "<text x=\"{d}\" y=\"{d}\" text-anchor=\"middle\" font-size=\"10\" fill=\"{s}\">", .{ cx, by - 4, INK });
         try fmtNum(&s, a, v, precision);
         try s.appendSlice(a, "</text>\n");
-        try s.print(a, "<text x=\"{d}\" y=\"{d}\" text-anchor=\"middle\" font-size=\"11\" fill=\"{s}\">{s}</text>\n", .{ cx, y1 + 18, INK, r.name });
     }
     try s.appendSlice(a, "</svg>\n");
 

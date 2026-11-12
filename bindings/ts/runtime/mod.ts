@@ -29,6 +29,10 @@
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 
 export {
+	BreakCause,
+	BreakContext,
+	BreakOrigin,
+	BreakReason,
 	FetchFailed,
 	GlowcapError,
 	PublicationNotFound,

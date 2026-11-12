@@ -26,6 +26,7 @@ const carrier_failure = @import("../../carrier_failure.zig");
 const model = @import("model");
 const completion_listener = @import("completion/listener.zig");
 const leg_access = @import("completion/leg_access.zig");
+const socks_dial = @import("completion/socks_dial.zig");
 const completion_state = @import("completion/state.zig");
 const socks5 = @import("socks5.zig");
 
@@ -64,6 +65,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
         const Conn = Types.Conn;
         const RetryState = submission_debt.State(Types);
         const Listener = completion_listener.Machine(Self, Inner, Types);
+        const Socks = socks_dial.Handshake(Self, Types);
         pub const ListenTarget = Listener.Target;
         pub const ListenerAddress = Listener.Address;
 
@@ -410,7 +412,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
                 .connect => {
                     if (c.state == .closing) {} else if (comp.result < 0) self.fail(c) else {
                         c.state = .greeting_send;
-                        self.submitHandshake(c);
+                        Socks.submit(self, c);
                     }
                 },
                 .send => self.onSend(c, comp.result),
@@ -427,26 +429,8 @@ pub fn CompletionBackend(comptime Inner: type) type {
                 return;
             }
             switch (c.state) {
-                .greeting_send => {
-                    const remaining = socks5.greeting.len - c.handshake_send_offset;
-                    if (result > remaining) return self.fail(c);
-                    c.handshake_send_offset += @intCast(result);
-                    if (c.handshake_send_offset != socks5.greeting.len) return self.submitHandshake(c);
-                    c.handshake_send_offset = 0;
-                    c.state = .greeting_recv;
-                    self.armRecv(c);
-                },
-                .request_send => {
-                    const remaining = c.request.len - c.handshake_send_offset;
-                    if (result > remaining) return self.fail(c);
-                    c.handshake_send_offset += @intCast(result);
-                    if (c.handshake_send_offset != c.request.len) return self.submitHandshake(c);
-                    c.handshake_send_offset = 0;
-                    c.state = .reply_recv;
-                    c.reply_len = 0;
-                    c.reply_expected = socks5.connect_reply_head_len;
-                    self.armRecv(c);
-                },
+                .greeting_send => Socks.greetingSent(self, c, result),
+                .request_send => Socks.requestSent(self, c, result),
                 .open => {
                     if (c.external_send_ud) |ud| {
                         self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = result });
@@ -479,29 +463,8 @@ pub fn CompletionBackend(comptime Inner: type) type {
                 return;
             }
             switch (c.state) {
-                .greeting_recv => {
-                    const need = socks5.greeting_reply_len - c.greeting_reply_len;
-                    const take = @min(need, bytes.len);
-                    @memcpy(c.greeting_reply[c.greeting_reply_len..][0..take], bytes[0..take]);
-                    c.greeting_reply_len += @intCast(take);
-                    if (take != bytes.len) {
-                        self.inner.recycleBorrowed(comp);
-                        self.fail(c);
-                        return;
-                    }
-                    self.inner.recycleBorrowed(comp);
-                    if (c.greeting_reply_len != socks5.greeting_reply_len) {
-                        self.armRecv(c);
-                        return;
-                    }
-                    socks5.checkGreetingReply(&c.greeting_reply) catch {
-                        self.fail(c);
-                        return;
-                    };
-                    c.state = .request_send;
-                    self.submitHandshake(c);
-                },
-                .reply_recv => self.consumeReply(c, comp),
+                .greeting_recv => Socks.greetingReceived(self, c, comp, bytes),
+                .reply_recv => Socks.consumeReply(self, c, comp),
                 .open => {
                     if (c.external_recv_ud) |ud| {
                         c.external_recv_ud = null;
@@ -530,49 +493,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
             }
         }
 
-        /// Apply one received chunk to the SOCKS reply this leg is waiting
-        /// on. The accumulation is the state module's. This owns only what
-        /// each verdict costs: the borrowed chunk, the leg's fate, and the
-        /// caller's connect seat.
-        fn consumeReply(self: *Self, c: *Conn, comp: completion.Completion) void {
-            const bytes = comp.borrowed.recvBytes().?;
-            switch (c.accumulateReply(bytes)) {
-                .refused => {
-                    self.inner.recycleBorrowed(comp);
-                    self.fail(c);
-                },
-                .need_more => {
-                    self.inner.recycleBorrowed(comp);
-                    self.armRecv(c);
-                },
-                .complete => |consumed| {
-                    // Anything past the reply is application data that arrived
-                    // coalesced behind it; retain the chunk so the first
-                    // receive seat lends it before another read is armed.
-                    if (consumed < bytes.len) {
-                        c.held_recv = comp;
-                        c.held_offset = @intCast(consumed);
-                    } else self.inner.recycleBorrowed(comp);
-                    c.state = .open;
-                    if (c.external_connect_ud) |ud| {
-                        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = 0 });
-                        c.external_connect_ud = null;
-                    }
-                },
-            }
-        }
-
-        fn submitHandshake(self: *Self, c: *Conn) void {
-            const whole: []const u8 = if (c.state == .greeting_send) &socks5.greeting else &c.request;
-            const bytes = whole[c.handshake_send_offset..];
-            self.inner.submitSend(Identity.userData(.send, c.id), c.inner_fd, bytes) catch {
-                self.retries.oweSubmission(&self.conns, c, .send);
-                return;
-            };
-            c.pending.arm(.send);
-        }
-
-        fn armRecv(self: *Self, c: *Conn) void {
+        pub fn armRecv(self: *Self, c: *Conn) void {
             if (c.state == .closing or c.pending.get(.recv)) return;
             self.inner.submitRecv(Identity.userData(.recv, c.id), c.inner_fd) catch {
                 self.retries.oweSubmission(&self.conns, c, .recv);
@@ -624,7 +545,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
                 const c = owed.conn;
                 if (owed.includes(.recv) and needsRecv(c)) self.armRecv(c);
                 if (owed.includes(.send) and (c.state == .greeting_send or c.state == .request_send))
-                    self.submitHandshake(c);
+                    Socks.submit(self, c);
                 if (owed.includes(.close)) Leg.beginInnerClose(self, &self.inner, c);
                 if (self.conns.get(c.id)) |live| Leg.maybeFinish(self, &self.inner, live);
             }

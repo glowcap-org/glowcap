@@ -111,6 +111,10 @@ testing and iroh netlayers.
 - `seven-caps-peer.rkt` stays compatible with the capabilities the upstream
   suite expects.
 - The testing TCP netlayer is cleartext loopback. The iroh netlayer is encrypted
-  and refuses a hello whose locator does not name the authenticated endpoint.
-  It is interop scaffolding, not a Spritely
-  product, with no graceful shutdown and no reconnect.
+  and refuses a hello whose iroh locator names an endpoint other than the
+  authenticated one. A hello claiming another transport, such as a browser
+  reached through a relay, is admitted and traced as unauthenticated. Goblins
+  files that session under the claimed name, so any endpoint that reaches
+  this vat can take a name on another transport. The adapter is interop
+  scaffolding, not a Spritely product, with no graceful shutdown and no
+  reconnect.

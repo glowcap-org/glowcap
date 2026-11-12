@@ -113,7 +113,7 @@ pub const Port = struct {
     }
 
     /// Promise-pipelined eventual-send through this Port's answer namespace.
-    /// A vow whose question the session no longer holds is settled as far as status-allow: lifecycle transition
+    /// A vow whose question the session has dropped is settled as far as
     /// this Port can tell, so pipelining onto it is refused.
     pub fn sendToAnswer(self: *Port, vat: *Vat, answer: engine.OutboundAnswerTarget, msg: Message) Error!Vow {
         if (!self.peer.session_state.hasLiveOutboundAnswer(answer)) return error.AlreadySettled;
@@ -160,12 +160,12 @@ pub const Port = struct {
 
     /// Rollback removed the send before this notification. Its observer can
     /// still cancel through takeListener while another failure listener runs.
-    pub fn breakRetracted(self: *Port, answer: engine.OutboundAnswerTarget, reason: []const u8) void {
+    pub fn breakRetracted(self: *Port, answer: engine.OutboundAnswerTarget, broken: engine.Broken) void {
         const entry = self.far_listeners.fetchSwapRemove(answer) orelse return;
-        entry.value.func(entry.value.ctx, .{ .broken = reason });
+        entry.value.func(entry.value.ctx, .{ .broken = broken });
     }
 
-    /// Reserve the exact listener table a not-yet-committed send will use. status-allow: pending state or quoted runtime label
+    /// Reserve the exact listener table a not-yet-committed send will use.
     /// Keeping this at the Port seam prevents Host and other adapters from
     /// reaching into Vat or per-session listener maps independently.
     pub fn reserveListener(self: *Port, vat: *Vat, location: VowLocation) Error!ListenerReservation {
@@ -433,8 +433,7 @@ fn commitTurn(ctx: *anyopaque, vat: *Vat) void {
 
 /// Retract the failed turn's far sends. The Vat notifies their listeners only
 /// after every participant has undone its effects.
-fn abortTurn(ctx: *anyopaque, vat: *Vat, reason: []const u8) void {
-    _ = reason;
+fn abortTurn(ctx: *anyopaque, vat: *Vat, _: engine.Broken) void {
     const port: *Port = @ptrCast(@alignCast(ctx));
     const Breaker = struct {
         port: *Port,

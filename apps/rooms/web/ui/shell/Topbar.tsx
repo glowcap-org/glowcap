@@ -13,6 +13,7 @@ import {
 	factLineNotOpen,
 	markPrivateRoom,
 	memberOffline,
+	membersTitle,
 	railHide,
 	railShow,
 	titleAboutDirectory,
@@ -303,18 +304,25 @@ function TopbarPane(
 					disabled={!canInteract || (conv.type === "room" && conv.standingPending)}
 				/>
 			)}
+			{
+				/* Wherever the member column stands, this shows and hides it. Before
+				    a room is open the wide layout still draws the column, saying
+				    what would fill it, so the button is there too and counts
+				    nothing: a zero would report a room with nobody in it. A phone
+				    draws no column there, so it has nothing to put away. */
+			}
 			<IconButton
 				id="membersToggle"
 				icon="group"
-				label={said}
+				label={isRoom ? said : membersTitle}
 				size={mobile ? "large" : "normal"}
-				badge={memberCount > 99 ? "99+" : memberCount}
+				badge={isRoom ? (memberCount > 99 ? "99+" : memberCount) : undefined}
 				// Past two digits the exact number stops being what anyone reads: a
 				// room of 143 and a room of 178 are the same room to a reader. The
 				// roster behind the button keeps the real figure, as does the label
 				// the button answers to.
 				aria-pressed={rosterShown}
-				hidden={!isRoom}
+				hidden={!isRoom && (conv !== null || mobile)}
 				onClick={() => browser.showRoster(!rosterShown)}
 			/>
 		</header>

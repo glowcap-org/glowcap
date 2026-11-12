@@ -199,12 +199,16 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		.find(|row| row.operation == request.operation)
 	{
 		content::receipts::authenticate(call, input, &metadata, &request.operation, &source)?;
-		owner.admission.borrow_mut().work(
-			call,
-			rooms_application::admission::Class::Read,
-			None,
-			owner.platform.monotonic_millis(),
-		)?;
+		owner
+			.admission
+			.borrow_mut()
+			.work(
+				call,
+				rooms_application::admission::Class::Read,
+				None,
+				owner.platform.monotonic_millis(),
+			)
+			.map_err(super::super::admission::callback_error)?;
 		let receipt = effects::inspect(
 			&metadata.effects,
 			&request.operation,
@@ -230,12 +234,16 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	if !request.selected(&metadata.intent) {
 		return Err(loam::refusal("original bridge seat or continuing access changed"));
 	}
-	owner.admission.borrow_mut().work(
-		call,
-		rooms_application::admission::Class::Create,
-		None,
-		owner.platform.monotonic_millis(),
-	)?;
+	owner
+		.admission
+		.borrow_mut()
+		.work(
+			call,
+			rooms_application::admission::Class::Create,
+			None,
+			owner.platform.monotonic_millis(),
+		)
+		.map_err(super::super::admission::callback_error)?;
 	let credentials = owner
 		.credentials
 		.borrow()

@@ -11,9 +11,9 @@ pub(super) async fn wait<P: Deadline>(
 	signals.retrying.borrow_and_update();
 	loop {
 		if let Some(result) = platform.within(WAIT_MS, pending.as_mut()).await {
-			return result;
+			return result.map_err(Error::from);
 		}
-		let failure = loam::refusal(if cleanup {
+		let failure = Error::uncertain(if cleanup {
 			"directory cancellation is still unresolved"
 		} else {
 			"directory discovery admission is still unresolved"
@@ -26,7 +26,7 @@ pub(super) async fn wait<P: Deadline>(
 		}
 		loop {
 			tokio::select! {
-				result = pending.as_mut() => return result,
+				result = pending.as_mut() => return result.map_err(Error::from),
 				_ = signals.retrying.changed() => break,
 				_ = signals.stopping.changed() => {
 					if cleanup || *signals.stopping.borrow_and_update() {

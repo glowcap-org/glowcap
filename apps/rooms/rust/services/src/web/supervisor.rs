@@ -160,15 +160,15 @@ impl Supervisor {
 			if self.config.room.trace_port == 0 {
 				return Err("an attached directory needs an explicit timeline port".into());
 			}
-			Some(self.config.room.trace_port)
+			Some(self.config.room.trace_address())
 		} else {
 			None
 		};
 		let mut announcement = Announcement::new(locator, trace, Some(endpoint));
 		announcement.trace_locator = trace
-			.map(|port| {
+			.map(|address| {
 				crate::server::trace_locator(
-					port,
+					address,
 					self.config.room.trace_publish.clone(),
 					self.config.room.trace_connect.clone(),
 				)
@@ -325,9 +325,15 @@ async fn probe(endpoint: &Endpoint, mut stop: watch::Receiver<bool>) -> Result<S
 	// The probe wears the Rooms profile, so the directory advertises it the
 	// identity route across every listener, not the one tcp door it dialed.
 	let identity = glowcap::Host::with_options(rooms_glowcap::host_options()).map_err(|e| e.to_string())?;
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&identity))
-		.await
-		.map_err(|e| e.to_string())?;
+	let runtime = Runtime::open(
+		RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})])
+		.adopt_host(&identity),
+	)
+	.await
+	.map_err(|e| e.to_string())?;
 	let check = async {
 		let session = runtime
 			.connect(&tcp::locator(host, *port), ConnectOptions::default())

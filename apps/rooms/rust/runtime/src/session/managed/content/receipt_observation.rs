@@ -78,7 +78,7 @@ pub(in crate::session::managed) fn initialize<P: Tasks + Deadline + Clone + 'sta
 							if status.as_str() != Some("pending") {
 								return Ok(status);
 							}
-							wake.changed().await?;
+							wake.changed().await.map_err(super::super::admission::callback_error)?;
 						}
 					})
 					.await;

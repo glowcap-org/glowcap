@@ -51,7 +51,7 @@ const Tor = harness.Tor;
 
 const frame_cap = 16 * 1024;
 /// Tor's default `SocksTimeout`: how long it holds a dial unattached when the
-/// service's descriptor has not reached the directories yet, before it answers status-allow: pending state or quoted runtime label
+/// service's descriptor has not reached the directories yet, before it answers
 /// the SOCKS request with a refusal.
 const tor_socks_timeout_ms = 120_000;
 /// One dial attempt's budget. The handshake budget covers the SOCKS connect as
@@ -214,7 +214,7 @@ fn expectEchoAnswer(session: *driver.Session, allocator: std.mem.Allocator, swis
             if (!std.mem.eql(u8, text, echo_payload)) return error.EchoWrongPayload;
         },
         .broken => |reason| {
-            std.debug.print("goblins-onion: echo broke: {s}\n", .{reason});
+            std.debug.print("goblins-onion: echo broke: {f}\n", .{reason});
             return error.EchoBroke;
         },
     }

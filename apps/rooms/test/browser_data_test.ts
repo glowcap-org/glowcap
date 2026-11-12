@@ -5,6 +5,8 @@ import { assertEquals } from "./assert.ts";
 import { forgetBrowserPreferences, isDeletionNotice, ROOMS_PREFIX } from "../web/ui/controller/browser_data.ts";
 import { THEME_KEY, VIEW_PREFERENCES_KEY } from "../web/ui/view_preferences.ts";
 import { SERVER_KEY } from "../web/ui/server_choice.ts";
+import { pageStorage } from "../web/ui/page_storage.ts";
+import { LocalRefusal } from "../lib/text/failure.ts";
 
 class MemoryStorage implements Storage {
 	#items = new Map<string, string>();
@@ -44,8 +46,44 @@ Deno.test("forgetting browser preferences removes every Rooms key and the theme,
 	storage.setItem(SERVER_KEY, "https://rooms.example/");
 	storage.setItem(THEME_KEY, "light");
 	storage.setItem("other-page", "kept");
-	forgetBrowserPreferences(storage);
+	assertEquals(forgetBrowserPreferences(pageStorage(() => storage)), null);
 	assertEquals(storage.keys(), ["other-page"]);
+});
+
+Deno.test("a deletion the browser refuses to finish says so instead of reporting it done", () => {
+	const storage = new MemoryStorage();
+	storage.setItem(VIEW_PREFERENCES_KEY, "{}");
+	const refusing = pageStorage(() => ({
+		length: storage.length,
+		key: (index: number) => storage.key(index),
+		getItem: (key: string) => storage.getItem(key),
+		setItem: (key: string, value: string) => storage.setItem(key, value),
+		removeItem: () => {
+			throw new DOMException("The operation is insecure.", "SecurityError");
+		},
+	}));
+	assertEquals(forgetBrowserPreferences(refusing) instanceof LocalRefusal, true);
+	assertEquals(storage.keys(), [VIEW_PREFERENCES_KEY], "nothing it could not reach is claimed gone");
+});
+
+Deno.test("one key the browser refuses still lets every other key go", () => {
+	const storage = new MemoryStorage();
+	const stuck = `${ROOMS_PREFIX}workspace-choice.tab-1`;
+	storage.setItem(stuck, "yes");
+	storage.setItem(VIEW_PREFERENCES_KEY, "{}");
+	storage.setItem(THEME_KEY, "light");
+	const refusing = pageStorage(() => ({
+		length: storage.length,
+		key: (index: number) => storage.key(index),
+		getItem: (key: string) => storage.getItem(key),
+		setItem: (key: string, value: string) => storage.setItem(key, value),
+		removeItem: (key: string) => {
+			if (key === stuck) throw new DOMException("The operation is insecure.", "SecurityError");
+			storage.removeItem(key);
+		},
+	}));
+	assertEquals(forgetBrowserPreferences(refusing) instanceof LocalRefusal, true);
+	assertEquals(storage.keys(), [stuck], "only the refused key remains");
 });
 
 Deno.test("another tab's finished deletion is recognized by the notice it writes, and nothing else", () => {

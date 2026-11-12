@@ -91,8 +91,10 @@ capture is running is not app state: `App` holds a `recording` flag beside the
 buffer engine and passes it to `useLiveConnection`, because it lasts as long as
 the session and nothing reloads into the middle of one.
 
-The `?live=<sturdyref>` query parameter sets both the mode and capability on
-load. Play and Build have no deep link.
+A `#live=<sturdyref>` fragment sets both the mode and capability on load, and
+the page then drops it from the address. The capability rides the fragment
+because a browser never sends one to a server. Play and Build have no deep
+link.
 
 `useBufferEngine` backs Play and Build from the fixture, file, or recording.
 `useLiveConnection` holds the feed and, while recording, mounts a capture engine

@@ -240,6 +240,7 @@ const Endpoint = struct {
     index: usize,
     completion: calls.Completion,
 
+    pub const refuses = calls.endpointRefuses;
     pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);

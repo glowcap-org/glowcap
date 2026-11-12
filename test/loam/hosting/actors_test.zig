@@ -85,7 +85,7 @@ test "loam forwarded calls carry the delivering session across the local hop" {
     var source: GenericForward = .{ .target = target };
     const behaviors = [_]f.hosting.Behavior{.{ .schema = 7, .context = &source, .invoke = GenericForward.invoke }};
     fixture.attached.behaviors = &behaviors;
-    var caller = host_support.init(std.testing.allocator, @splat(0x72), f.driver.Host.Options.withFrameCap(4096));
+    var caller = host_support.init(std.testing.allocator, @splat(0x72), f.driver.Host.Options.init(.unchecked, 4096));
     defer caller.deinit();
     const swiss = try fixture.host.publishDurableCapability(@splat(0x38), fixture.root);
     const pair = try pairs.openPair(&caller, &fixture.host, "127.0.0.1:9745");

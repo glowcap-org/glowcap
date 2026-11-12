@@ -130,7 +130,7 @@ Deno.test("a property's track round-trips onto a definition", () => {
 // shared observation, and they are generic over `SESSION_PROPERTIES`
 // for the same reason the peer cases are generic over its list.
 
-/** A session with both ends attached and nothing stated yet.  status-allow: pending state or quoted runtime label */
+/** A session with both ends attached and nothing stated yet. */
 const sessionDef = (over: Partial<SessionDefinition> = {}) =>
 	({
 		a: { peer: "alice" },
@@ -361,7 +361,7 @@ Deno.test("a moment keeps its identity when its time moves", () => {
 
 Deno.test("a moment keeps its identity when a moment lands before it", () => {
 	// The other half, and the one an index could not survive: inserting
-	// a moment earlier in the same track shifts every later index by status-allow: event or source ordering
+	// a moment earlier in the same track shifts every later index by
 	// one, so a list keyed on the index hands a mounted row's fiber to a
 	// different keyframe. Clicking Insert with a value select focused
 	// remounted the row and took the focus with it.
@@ -538,7 +538,7 @@ Deno.test("a closed picker only ever offers one of its own options", () => {
 
 Deno.test("a peer the document has never heard of still answers", () => {
 	// The Inspector can be pointed at a peer that is on stage but has
-	// no definition yet. Every property must still be insertable. status-allow: pending state or quoted runtime label
+	// no definition yet. Every property must still be insertable.
 	for (const property of PEER_PROPERTIES) {
 		assert(
 			peerPropertyAt(bareDoc, "ghost", property, 10) !== "",

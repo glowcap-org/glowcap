@@ -13,7 +13,7 @@ import re
 import unittest
 
 import yaml
-from workflows import ROOT, WORKFLOWS, Loader, duplicate_mapping_keys, jobs, text, workflow
+from workflows import ROOT, WORKFLOWS, Loader, duplicate_mapping_keys, jobs, text, value, workflow
 
 AUDITED = sorted(WORKFLOWS.glob("*.yml")) + sorted(ROOT.glob(".github/actions/*/action.yml"))
 # An inline script is one command's flags or a few lines of glue. A longer
@@ -87,31 +87,37 @@ class WorkflowAudit(unittest.TestCase):
         validation = workflow(".github/workflows/validate-release.yml")
         self.assertEqual(list(validation["on"]), ["schedule", "workflow_dispatch"])
         self.assertEqual(validation["permissions"], {"contents": "read"})
+        self.assertEqual(validation["defaults"], {"run": {"shell": "bash"}}, "a failed download fails its pipe")
         found = validation["jobs"]
-        self.assertEqual(list(found), ["newest", "installer-linux", "installer-macos", "registries"])
-        self.assertEqual(found["installer-macos"]["if"], "github.event_name == 'workflow_dispatch'")
-        self.assertNotIn("if", found["installer-linux"])
-        for name in ("installer-linux", "installer-macos"):
-            with self.subTest(job=name):
-                self.assertEqual(found[name]["env"]["VERSION"], "${{ needs.newest.outputs.version }}")
-                script = next(
-                    step["run"] for step in found[name]["steps"] if step["name"] == "Run the installed product"
-                )
-                self.assertIn("glowcap version | tee version.txt", script)
-                self.assertIn('grep -Fx "glowcap $VERSION" version.txt', script)
+        self.assertEqual(list(found), ["newest", "installer", "registries"])
+        installer = found["installer"]
+        self.assertNotIn("if", installer)
+        linux = ["ubuntu-24.04", "ubuntu-24.04-arm"]
+        for event, runners in (("schedule", linux), ("workflow_dispatch", [*linux, "macos-15", "macos-15-intel"])):
+            with self.subTest(event=event):
+                self.assertEqual(value(installer["strategy"]["matrix"]["runner"], {"event_name": event}), runners)
+        self.assertEqual(installer["env"]["VERSION"], "${{ needs.newest.outputs.version }}")
+        self.assertFalse(any("uses" in item for item in installer["steps"]), "the reader's host has no checkout")
+        script = next(item["run"] for item in installer["steps"] if item["name"] == "Run the installed product")
+        self.assertIn("glowcap version | tee version.txt", script)
+        self.assertIn('grep -Fx "glowcap $VERSION" version.txt', script)
         checkout = found["registries"]["steps"][0]
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "refs/tags/v${{ needs.newest.outputs.version }}")
-        # The job runs the four package proofs, so it installs every tool they run.
-        installs = "\n".join(f"{step.get('uses', '')}\n{step.get('run', '')}" for step in found["registries"]["steps"])
+        # The job runs the four package proofs, so it installs every tool they
+        # run. Its checkout is the released tag, so it uses no local action
+        # that tag may lack: the pins action is the only one.
+        installs = "\n".join(f"{item.get('uses', '')}\n{item.get('run', '')}" for item in found["registries"]["steps"])
         for tool in (
             "actions/setup-python@",
-            'pip install "uv==$UV_VERSION"',
+            "astral-sh/setup-uv@",
             "denoland/setup-deno@",
             'rustup default "$RUST_VERSION"',
             "Bogdanp/setup-racket@",
         ):
             self.assertIn(tool, installs)
+        local = {item["uses"] for item in found["registries"]["steps"] if item.get("uses", "").startswith("./")}
+        self.assertEqual(local, {"./.github/actions/pins"})
 
 
 if __name__ == "__main__":

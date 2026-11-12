@@ -1,4 +1,4 @@
-//! Native atomic record participation, not a durable capability owner. This
+//! LMDB atomic record participation, not a durable capability owner. This
 //! fixture keeps its exact Loam object references. No ID-to-capability lookup
 //! or control/publication restoration is implied by the record round trip.
 const structural_policy = @import("../access/grant_fixture.zig").structural_policy;

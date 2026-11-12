@@ -115,7 +115,7 @@ impl Session {
 
 	/// Transfer an admitted dial to Host custody without closing it. Its pump
 	/// observes lifetime. Application handles acquired through reference_session
-	/// own it. With no application handle yet, Host shutdown remains the owner. status-allow: pending state or quoted runtime label
+	/// own it. With no application handle yet, Host shutdown remains the owner.
 	pub(crate) fn into_host_retained(mut self) -> Self {
 		if self.owns_session {
 			self.shared.owner_handles.set(self.shared.owner_handles.get() - 1);
@@ -198,7 +198,7 @@ impl Session {
 	/// automatic seam.
 	///
 	/// `cap` is taken by value, so the handle you released is gone. A clone
-	/// made earlier reads [`Ref::released`] as true and is a caller error to status-allow: event or source ordering
+	/// made earlier reads [`Ref::released`] as true and is a caller error to
 	/// use. Another occurrence may keep the same Host identity live, so the
 	/// binding refuses the spent occurrence before local dispatch or ABI use.
 	///
@@ -326,7 +326,7 @@ impl Session {
 	/// the reply. `await` it for the value (a capability via `Ref::try_from`, a
 	/// typed `Err` on a partner break).
 	///
-	/// `target` is a capability `&Ref` *or* a `&RemotePromise` from an earlier status-allow: event or source ordering
+	/// `target` is a capability `&Ref` *or* a `&RemotePromise` from an earlier
 	/// send: passing the latter pipelines (ADR-0003). The call is addressed at
 	/// the answer that send will resolve, so a dependent chain costs one round
 	/// trip instead of one per link. `args` may contain capabilities via
@@ -360,7 +360,7 @@ impl Session {
 	/// `via` is resolved from the reply's own token, which carries the exporter
 	/// session it lives in, rather than from watching which dial ran during
 	/// the send. So it is right with several redeems in flight at once, and it
-	/// names the exporter even when the redeem reused a session an earlier status-allow: event or source ordering
+	/// names the exporter even when the redeem reused a session an earlier
 	/// one already dialed, where there is no fresh dial to observe. `via` is
 	/// `None` when the reply is not a redeemed-handoff capability (an ordinary
 	/// far reply) or when its exporter session has already gone.

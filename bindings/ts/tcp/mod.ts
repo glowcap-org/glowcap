@@ -1,15 +1,23 @@
 // The TCP provider package owns locator construction and FFI listening for
-// all three profiles it advertises. Importing the package remains safe before a
-// browser installs its wasm runtime adapter: FFI code loads only when a
+// all three profiles it advertises. A provider registers `noise` alone unless
+// its `Config.profiles` lists more. Importing the package remains safe before
+// a browser installs its wasm runtime adapter: FFI code loads only when a
 // listener or `@glowcap/tcp/transport` operation is used.
 
-import { TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@glowcap/abi";
-import { keyedLocator, noiseLocator } from "./address.ts";
+import {
+	TCP_PROFILE_KEYED_TCP,
+	TCP_PROFILE_NOISE_TCP,
+	TCP_PROFILE_TCP,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_TCP,
+} from "@glowcap/abi";
+import { keyedLocator, locator as plainLocator, noiseLocator } from "./address.ts";
 import type { KeyedListenOptions, ListenOptions, Server } from "./listen.ts";
 
 export { addressDesignator, locator } from "./address.ts";
 export type { KeyedListenOptions, ListenOptions, Server } from "./listen.ts";
-export type { Config, Keepalive, OperationOptions, StreamOptions } from "./transport.ts";
+export type { Config, Keepalive, OperationOptions, Profile, ProfileValue, StreamOptions } from "./transport.ts";
 export { options, provider } from "./transport.ts";
 
 /** Bind the plain profile through this package's FFI provider. */
@@ -37,14 +45,23 @@ async function listenNoise(
 	return await (await import("./listen.ts")).listenNoise(hostname, port, options);
 }
 
+/** The plain cleartext profile over this TCP package. List it in `Config.profiles` to register it. */
+export const plain = {
+	profile: TCP_PROFILE_TCP,
+	locator: plainLocator,
+	listen,
+};
+
 /** The identity-addressed cleartext profile over this TCP package. */
 export const keyed = {
+	profile: TCP_PROFILE_KEYED_TCP,
 	locator: keyedLocator,
 	listen: listenKeyed,
 };
 
 /** The Noise_XK-sealed profile over this TCP package. */
 export const noise = {
+	profile: TCP_PROFILE_NOISE_TCP,
 	locator: noiseLocator,
 	listen: listenNoise,
 };

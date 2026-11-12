@@ -80,6 +80,8 @@ fn a_line_that_is_not_a_timeline_record_is_refused() {
 	assert!(!constant_time_equals("abc", "abd"));
 	assert!(!constant_time_equals("abc", "ab"));
 	assert!(!constant_time_equals("", "a"));
+	// A length difference that is a multiple of 256, padded with NULs, still differs.
+	assert!(!constant_time_equals("", &"\0".repeat(256)));
 }
 
 #[test]

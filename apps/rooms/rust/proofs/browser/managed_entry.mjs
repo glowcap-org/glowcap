@@ -6,11 +6,17 @@ export async function managedApplication(binding, tab, reopening) {
 	const workspace = await app.workspace();
 	const management = await app.management();
 	const held = [workspace, management];
+	// A management request commits, or the proof stops on the outcome it read.
+	async function committed(request, what) {
+		const outcome = await request.submitOutcome();
+		if (outcome.status !== "committed") throw new Error(`${what} did not commit: ${JSON.stringify(outcome)}`);
+		return outcome;
+	}
 	async function lifecycle(control, verb, revision) {
 		const method = { pause: "preparePause", resume: "prepareResume", revoke: "prepareRevoke" }[verb];
 		const request = await control[method](revision);
 		held.push(request);
-		await request.submit();
+		await committed(request, verb);
 		return request;
 	}
 
@@ -68,7 +74,7 @@ export async function managedApplication(binding, tab, reopening) {
 				"Loam application",
 			]);
 			held.push(command);
-			if (await command.submit() !== "committed" || await command.submit() !== "committed") {
+			if ((await command.submit()).status !== "committed" || (await command.submit()).status !== "committed") {
 				throw new Error("local command did not recover its committed receipt");
 			}
 			if (await command.status() !== "committed" || await command.result() !== null) {
@@ -90,8 +96,9 @@ export async function managedApplication(binding, tab, reopening) {
 				editCeiling: rights,
 				issueCeiling: null,
 			};
+			const issuingRevision = (await management.inspect()).revision;
 			const issuing = await management.prepareIssue(
-				(await management.inspect()).revision,
+				issuingRevision,
 				JSON.stringify({ ceiling: rights, configured: rights }),
 				"Saved observer",
 				false,
@@ -99,14 +106,27 @@ export async function managedApplication(binding, tab, reopening) {
 				JSON.stringify(powers),
 			);
 			held.push(issuing);
-			const issued = await issuing.submitOutcome();
-			if (issued.status !== "committed") throw new Error(`issuance did not commit: ${JSON.stringify(issued)}`);
-			const { access: use, control } = issued;
+			const { access: use, control } = await committed(issuing, "issuance");
 			held.push(use, control);
+			const staleIssuance = await management.prepareIssue(
+				issuingRevision,
+				JSON.stringify({ ceiling: rights, configured: rights }),
+				"Must not be issued",
+				false,
+				0,
+				JSON.stringify(powers),
+			);
+			held.push(staleIssuance);
+			const issuanceConflict = await staleIssuance.submitOutcome();
+			if (issuanceConflict.status !== "conflict" || !issuanceConflict.reason.includes("RevisionConflict")) {
+				throw new Error(
+					`stale issuance did not retain its admission conflict: ${JSON.stringify(issuanceConflict)}`,
+				);
+			}
 			const label = await control.prepareLabel((await control.inspect()).revision, "Saved observer renamed");
 			held.push(label);
-			await label.submit();
-			await label.submit();
+			await committed(label, "label edit");
+			await committed(label, "label edit replay");
 			if ((await control.inspect()).label !== "Saved observer renamed") {
 				throw new Error("exact label edit did not replay");
 			}

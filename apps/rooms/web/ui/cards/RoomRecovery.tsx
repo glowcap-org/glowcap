@@ -7,7 +7,6 @@ import {
 	recoveryPrivateNeedsLink,
 	recoveryPrivateRetry,
 	recoveryPublicRetry,
-	recoveryWait,
 } from "../../../lib/text/settings.ts";
 import {
 	recoveryRejoinByName,
@@ -20,12 +19,13 @@ import { Button } from "../Button.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import { actionRefusal } from "../error_text.ts";
 import { Field } from "../Field.tsx";
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import type { RoomConv } from "../conversation.ts";
 import { useChangeGroup, useCommitSettling } from "../commitment.tsx";
 import { Said } from "../Said.tsx";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 import { Input } from "../Input.tsx";
+import { LocalRefusal } from "../../../lib/text/failure.ts";
 
 export function RoomRecovery({ conv, blocked }: { conv: RoomConv; blocked: boolean }) {
 	const session = useRoomsSession();
@@ -37,7 +37,7 @@ export function RoomRecovery({ conv, blocked }: { conv: RoomConv; blocked: boole
 	useChangeGroup(`room-recovery:${conv.key}`, {
 		dirty: link !== "",
 		discard: () => {
-			if (recovering) throw new Error(recoveryWait);
+			if (recovering) throw new LocalRefusal("room-recovery-busy");
 			setLink("");
 			setSaid("");
 		},
@@ -77,7 +77,7 @@ export function RoomRecovery({ conv, blocked }: { conv: RoomConv; blocked: boole
 									setLink(event.currentTarget.value);
 									setSaid("");
 								}}
-								{...identifierField}
+								{...addressField}
 								placeholder={sturdyrefPlaceholder}
 								aria-describedby={wiring.describedBy}
 								aria-invalid={wiring.invalid}

@@ -104,10 +104,12 @@ fn chat(locator: &str, room: &str) -> Chat {
 fn installed_chat_switches_preserves_refused_membership_and_observes_shutdown() {
 	for transport in ["tcp", "iroh"] {
 		let mut command = executable("GLOWCAP_ROOMS_SERVER_TEST_BIN", env!("CARGO_BIN_EXE_rooms-server"));
-		command.args([&format!("--transport={transport}"), "--port=0"]);
-		if transport == "iroh" {
-			command.arg("--reachability=direct");
-		}
+		command.arg(format!("--transport={transport}"));
+		command.arg(if transport == "iroh" {
+			"--reachability=direct"
+		} else {
+			"--port=0"
+		});
 		let mut server = Chat::spawn(command, "server");
 		let banner = server.until("ROOMS-SERVER-LISTENING ");
 		let announced = banner.strip_prefix("ROOMS-SERVER-LISTENING ").unwrap();
@@ -123,7 +125,7 @@ fn installed_chat_switches_preserves_refused_membership_and_observes_shutdown() 
 		first.send("/list");
 		first.until("occupied (1)");
 		first.send("/enter occupied");
-		// The next ordinary post must still use the old membership. status-allow: replacement state identity
+		// The next ordinary post must still use the old membership.
 		first.send("still-in-general");
 		first.until("alice: still-in-general");
 		first.send("/open second");

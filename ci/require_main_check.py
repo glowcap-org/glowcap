@@ -1,8 +1,10 @@
 """Pages and releases publish only a commit on main that passed full validation.
 
-Usage: python3 ci/require_main_check.py COMMIT
+Usage: python3 ci/require_main_check.py [--tip] COMMIT
 GITHUB_REPOSITORY names the repository. The runner supplies gh and its token.
-Require COMMIT to be reachable from main. Main is a fast-forward of dev, so the
+With --tip, require COMMIT to be main's tip, so a build or deployment main has
+moved past refuses and the newer commit's run publishes instead. Require
+COMMIT to be reachable from main. Main is a fast-forward of dev, so the
 validating run is the push run on dev, or a manual check on dev or main, with
 successful gates and macos-runtime jobs. Print the accepted run URL, or fail
 with a diagnostic. Each API request has a 30-second deadline. API failures
@@ -48,6 +50,7 @@ def lookup(endpoint, key, kind, *fields):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--tip", action="store_true", help="also require COMMIT to be main's tip")
     parser.add_argument("commit")
     args = parser.parse_args()
     if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", args.commit):
@@ -55,6 +58,17 @@ def main():
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         parser.error("GITHUB_REPOSITORY must name owner/repository")
+
+    if args.tip:
+        status, ref = lookup(f"repos/{repository}/git/ref/heads/main", "object", dict)
+        if status:
+            return status
+        if ref.get("sha") != args.commit:
+            print(
+                f"require-main-check: main moved from {args.commit} to {ref.get('sha')}; its own run publishes it.",
+                file=sys.stderr,
+            )
+            return 1
 
     # Comparing the commit to main reads "identical" or "ahead" exactly when
     # main contains it.

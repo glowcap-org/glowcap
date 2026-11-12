@@ -182,13 +182,6 @@ export function bridgeFormSecretIds(form: BridgeForm): ReadonlySet<string> {
 	return new Set(bridgeFormFields(form).filter((field) => field.kind === "secret").map((field) => field.id));
 }
 
-/** Whether a form asks for anything Rooms must not keep. The disclosure a
- * reader sees turns on this, so it is answered here and no surface decides for
- * itself what counts as a credential. */
-export function bridgeFormHasSecret(form: BridgeForm): boolean {
-	return bridgeFormFields(form).some((field) => field.kind === "secret");
-}
-
 /** Split what a reader typed into the half that may be remembered and the half
  * that may not.
  *

@@ -43,7 +43,7 @@ export async function bubbleInkContrast(
  * These fields are controlled: the driver writes the element's value and
  * dispatches an input event, and the page answers by putting the value it holds
  * back. A render landing between those two (a settling join, a directory
- * arriving) restores the old text under the write, and the event that follows status-allow: replacement state identity
+ * arriving) restores the old text under the write, and the event that follows
  * carries the restored value rather than the intended one. Nobody typing sees
  * this, because a keystroke is one event with a render either side of it. A
  * driver filling forty characters at once is the only thing fast enough.
@@ -271,7 +271,8 @@ export async function openDirectoryCard(tab: Page): Promise<void> {
 		.catch(() => fail("the directory conversation's title did not open its card"));
 }
 
-/** Pressing a rail caption selects that directory's conversation. */
+/** Pressing a rail control that names a directory, a row's caption or a
+ * directory's own row, selects that directory's conversation. */
 export async function showDirectoryFromCaption(tab: Page, caption: Locator): Promise<void> {
 	const said = (await caption.getAttribute("aria-label")) ?? "";
 	await caption.click();

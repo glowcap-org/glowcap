@@ -132,8 +132,15 @@ Python loads the separate Host and driver libraries and steps the loop, while
 asyncio waits on a file descriptor that signals when the loop has work.
 
 Pass `iroh.provider(config)`, `tcp.provider(config)`, or another transport
-package to choose a transport. The driver starts with no transports and
-installs the providers you pass. A routed `keyed-relay` or `noise-relay` locator
+package to choose a transport. `tcp.provider` registers `noise-tcp` alone. Plain `tcp` and
+`keyed-tcp` send cleartext with no peer proof, so each is an explicit opt-in:
+`tcp.Config(profiles=(tcp.plain, tcp.keyed))`.
+
+A runtime without a locator's profile raises `GlowcapError` with code `ERR_INVALID_ARGUMENT`
+and the transport-unavailable `cause`, so branch on the cause. An empty list is refused when
+the provider installs.
+
+The driver starts with no transports and installs the providers you pass. A routed `keyed-relay` or `noise-relay` locator
 likewise loads the relay library and installs its provider.
 
 `Runtime.open(providers=[...])` or `Runtime.open(connectors=[...])` names the
@@ -173,7 +180,7 @@ and can be used through any session on that Host.
 | Module | Purpose |
 | --- | --- |
 | `glowcap` | Async sessions, hosts, values, locators, and actors. |
-| `glowcap.tcp` | Typed TCP-profile locators, the complete provider package, and blocking frame handles. |
+| `glowcap.tcp` | Typed TCP-profile locators, the provider package, and blocking frame handles. |
 | `glowcap.inproc` | Blocking in-process connections. |
 | `glowcap.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for a program that owns its own loop. |
 | `glowcap.iroh` | Optional encrypted QUIC and `listen`. |

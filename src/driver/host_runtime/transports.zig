@@ -47,7 +47,7 @@ pub const Transports = struct {
     };
 };
 
-/// Register everything `transports` names on a runtime that has none yet. status-allow: pending state or quoted runtime label
+/// Register everything `transports` names on a runtime that has none yet.
 pub fn install(self: *HostRuntime, transports: Transports) !void {
     if (transports.symbols.len != 0) try installStack(self, transports);
     if (transports.residents.len == 0) return;
@@ -78,17 +78,13 @@ fn installSupported(self: *HostRuntime, transports: Transports) !void {
 
     const registrations = try self.allocator.alloc(HostRuntime.ProviderRegistration, transports.symbols.len);
     defer self.allocator.free(registrations);
-    const indices = try self.allocator.alloc(usize, transports.symbols.len);
-    defer self.allocator.free(indices);
     const resident = owned.resident.resident();
     for (transports.symbols, registrations) |symbol, *registration|
         registration.* = .{ .profile = symbol.metadata(), .resident = resident };
-    const installed = try self.addProviderPackage(.{
+    try self.addProviderPackage(.{
         .registrations = registrations,
         .owner = .{ .ctx = owned, .same_configuration = StackOwner.sameConfiguration, .release = StackOwner.releaseOpaque },
-    }, indices);
-    // A runtime with no transports yet has no package to overlap. status-allow: pending state or quoted runtime label
-    std.debug.assert(installed);
+    });
     if (builtin.os.tag == .linux)
         self.stream_backend_status = net.tcpBackendStatus(&owned.resident);
     owned_live = false;

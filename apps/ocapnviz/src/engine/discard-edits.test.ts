@@ -191,7 +191,7 @@ engineTest("a discard empties the history it swept past", () => {
 	e.discardAllEdits();
 	assertEquals(docText(e), sourceText());
 	// Not a step in the history: the steps it swept past lead back
-	// through a document that is no longer there, so they go with it and status-allow: lifecycle transition
+	// through a document that is gone, so they go with it and
 	// the buffer is left exactly as a freshly built one.
 	assert(!e.canUndo, "the discard left steps behind it");
 	assert(!e.canRedo, "the discard left a way forward");

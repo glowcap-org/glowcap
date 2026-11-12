@@ -55,11 +55,16 @@ pub const State = struct {
         self.scheduled |= bit(index);
     }
 
-    pub fn begin(self: *State, index: usize) bool {
+    /// Whether `begin` would admit this route, without beginning it.
+    pub fn beginnable(self: State, index: usize) bool {
         const route = bit(index);
-        if (self.scheduled & route == 0 or self.failed & route != 0 or
-            self.in_flight & route != 0) return false;
-        self.in_flight |= route;
+        return self.scheduled & route != 0 and self.failed & route == 0 and
+            self.in_flight & route == 0;
+    }
+
+    pub fn begin(self: *State, index: usize) bool {
+        if (!self.beginnable(index)) return false;
+        self.in_flight |= bit(index);
         return true;
     }
 

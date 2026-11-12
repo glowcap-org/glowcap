@@ -58,6 +58,9 @@ const Active = struct {
     label: []u8,
     started_ms: i64,
     timeout_ms: i32,
+    /// Why this queue broke the wait itself. A break the queue did not ask
+    /// for stays `.none` and is shown with its own reason.
+    ended: enum { none, cancelled, timed_out } = .none,
     /// The driver's cooperative fetch-then-deliver context, armed only for a
     /// name-target call/tell (`composed`). The driver owns the chaining, so
     /// this queue keeps no continuation state of its own.
@@ -108,6 +111,13 @@ pub const Queue = struct {
         return self.active != null or self.pending.items.len > 0;
     }
 
+    /// Whether the active line still waits on its partner. A line whose
+    /// answer has landed stays active until the next pump prints it.
+    pub fn waiting(self: *const Queue) bool {
+        const active = self.active orelse return false;
+        return !active.flag.done;
+    }
+
     pub fn enqueue(self: *Queue, ctx: *Ctx, line: []const u8, store: *blocks.Store, progress: *teach.Progress) !void {
         const owned = try self.gpa.dupe(u8, line);
         errdefer self.gpa.free(owned);
@@ -125,8 +135,11 @@ pub const Queue = struct {
         progress: *teach.Progress,
         complete_state: *complete.State,
     ) !Flash {
-        if (self.active == null) return .none;
-        if (ctx.activeSession()) |session| session.breakFarVows("cancelled");
+        const active = self.active orelse return .none;
+        if (ctx.activeSession()) |session| {
+            if (!active.flag.done) active.ended = .cancelled;
+            session.breakFarVows("cancelled");
+        }
         return self.pump(ctx, store, progress, complete_state);
     }
 
@@ -177,6 +190,7 @@ pub const Queue = struct {
             if (active.timeout_ms != 0) {
                 const elapsed = clock.nowMs() - active.started_ms;
                 if (elapsed >= active.timeout_ms) {
+                    if (!active.flag.done) active.ended = .timed_out;
                     session.breakFarVows("wait timed out");
                 }
             }
@@ -207,11 +221,13 @@ pub const Queue = struct {
         settled: driver.Settled,
     ) !Flash {
         switch (settled) {
-            .broken => |reason| {
-                if (std.mem.eql(u8, reason, "cancelled")) {
+            .broken => |failure| {
+                var reason_buffer: [glowcap.driver.core.Broken.diagnostic_capacity]u8 = undefined;
+                const reason = failure.render(&reason_buffer);
+                if (active.ended == .cancelled) {
                     try store.setLine(active.block_idx, .error_line, "! cancelled");
                     try store.appendLine(.tip, "tip: Esc cancels the active wait. Queued CapTP turns still run");
-                } else if (std.mem.eql(u8, reason, "wait timed out")) {
+                } else if (active.ended == .timed_out) {
                     try store.setLine(active.block_idx, .error_line, "! WaitTimedOut");
                     try store.appendLine(.tip, "tip: fetch a name, then call #<cap> with the id it prints");
                 } else if (active.composed and active.pending.stage == .fetching) {
@@ -278,7 +294,7 @@ pub const Queue = struct {
             const reply: driver.Reply = if (ctx.activeSession()) |session|
                 try session.liftSettled(settled, lift_arena.allocator())
             else
-                .{ .broken = "session closed" };
+                .{ .broken = glowcap.driver.core.Broken.unnamed("session closed") };
             try ocapn.printSettled(ctx, reply);
             const text = std.mem.trimEnd(u8, out.items, "\n");
             if (text.len == 0) {

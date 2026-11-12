@@ -42,16 +42,11 @@ pub struct Connection {
 	pub connection: FieldKey<super::custody::IrcConnection>,
 }
 
-/// A directory introduction either requests an inbox or returns its exact
-/// registration-scoped custody. Pending is a known protocol answer, not an
-/// uncertain transport outcome. A later attempt uses a new command identity.
+/// An introduction receipt owns the exact registration-scoped inbox.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "camelCase", deny_unknown_fields)]
-pub enum Direct {
-	Pending,
-	Ready {
-		inbox: FieldKey<super::custody::DirectAccess>,
-	},
+#[serde(deny_unknown_fields)]
+pub struct Direct {
+	pub inbox: FieldKey<super::custody::DirectAccess>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

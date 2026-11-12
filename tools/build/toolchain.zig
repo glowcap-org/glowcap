@@ -40,6 +40,10 @@ const in_tree_runtimes = [_]toolchain_check.Runtime{
         .why = "every first-party Python file, from the CI programs to the binding, is formatted and linted by the one pinned tool",
     },
     .{
+        .program = "mypy",
+        .why = "the CI programs and the build tools are type-checked by the one pinned tool, which also types the Python binding and its site snippets",
+    },
+    .{
         .program = "sh",
         .why = "the complete-installation proof runs build-owned POSIX staging recipes, including file copying and Git revision stamping",
     },

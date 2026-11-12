@@ -37,7 +37,7 @@ import {
 } from "@glowcap/runtime/transport";
 import type { DriverProvider, ProviderTarget, Ptr } from "@glowcap/runtime/transport";
 import { relayS } from "./ffi.ts";
-import { INVALID_ARGUMENT, TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "@glowcap/abi";
+import { INVALID_ARGUMENT, releaseResultCode, TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "@glowcap/abi";
 import { dialUrl, routeFromLocator } from "./route.ts";
 
 const OK = 0;
@@ -125,7 +125,8 @@ export async function installProvider(
 		// Registration retained the runtime; this drops only the constructor lease.
 		new FfiDiagnostic("relay").check(
 			"runtime release",
-			(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
+			async (error, cap, errorLen) =>
+				releaseResultCode(await relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen)),
 		));
 }
 

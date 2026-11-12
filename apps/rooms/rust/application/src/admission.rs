@@ -6,7 +6,7 @@ mod settings;
 #[cfg(test)]
 mod tests;
 use crate::failure::FailureCode;
-use alloc::string::String;
+use alloc::{format, string::String};
 use bucket::Bucket;
 pub use bucket::Rate;
 pub use registry::{Charge, Policy, Registry, Statistics};
@@ -65,7 +65,7 @@ pub const CLASS_COUNT: usize = 20;
 /// Bound untrusted retry metadata before a consumer schedules a wait.
 pub const MAX_RETRY_DELAY_MS: u64 = 60_000;
 /// Diagnostic attribution identifies the refusing boundary, never authority.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Owner {
 	Directory,
 	Session,
@@ -80,6 +80,14 @@ impl Owner {
 			Self::Session => "session",
 			Self::DirectInbox => "direct-inbox",
 			Self::Http => "http",
+		}
+	}
+	pub const fn label(self) -> &'static str {
+		match self {
+			Self::Directory => "at the directory",
+			Self::Session => "in this session",
+			Self::DirectInbox => "at the recipient",
+			Self::Http => "at the web server",
 		}
 	}
 	pub fn parse(name: &str) -> Option<Self> {
@@ -124,7 +132,7 @@ impl Class {
 			Self::MessageBytes => Rate::new(64 * 1024, 128 * 1024),
 			Self::Transient => Rate::new(crate::content::session::workspace::MAX_CONVERSATIONS as u32, 512),
 			Self::RoomTransient => Rate::new(4, 120),
-			// First contact has an initial request and a later readiness lookup.
+			// One token admits the complete direct opening.
 			Self::Introduction => Rate::new(8, 12),
 			Self::Recipient => Rate::new(12, 30),
 			Self::Create => Rate::new(16, 30),
@@ -147,6 +155,30 @@ impl Class {
 			// directory. An override of either class stands alone.
 			Self::Rendezvous => Self::Registration.default_rate(),
 			Self::Cleanup => Rate::new(512, 1024),
+		}
+	}
+	pub const fn label(self) -> &'static str {
+		match self {
+			Self::Connection => "Opening connections",
+			Self::Join => "Joining rooms",
+			Self::RoomJoin => "Joining this room",
+			Self::Message => "Sending messages",
+			Self::MessageBytes => "Message size",
+			Self::Transient => "Presence updates",
+			Self::RoomTransient => "Presence updates in this room",
+			Self::Introduction => "Starting conversations",
+			Self::Recipient => "Receiving conversation requests",
+			Self::Create => "Creating rooms",
+			Self::Read => "Reading data",
+			Self::Upload => "Uploading files",
+			Self::Signal => "Connecting browsers",
+			Self::Ingress => "Incoming requests",
+			Self::HttpStart => "Opening web requests",
+			Self::Transfer => "Transferring files",
+			Self::Preview => "Link previews",
+			Self::Registration => "Registering a name",
+			Self::Rendezvous => "Reaching a member",
+			Self::Cleanup => "Closing work",
 		}
 	}
 	pub fn parse(name: &str) -> Option<Self> {
@@ -180,30 +212,28 @@ impl Class {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetryAdvice {
+	pub owner: Option<Owner>,
 	pub class: Class,
 	pub retry_ms: u64,
 }
 impl RetryAdvice {
 	pub fn parse(detail: &str) -> Option<Self> {
-		let detail = match detail.split_once("; owner=") {
-			Some((advice, owner)) => {
-				Owner::parse(owner)?;
-				advice
-			}
-			None => detail,
+		let (detail, owner) = match detail.split_once("; owner=") {
+			Some((advice, owner)) => (advice, Some(Owner::parse(owner)?)),
+			None => (detail, None),
 		};
 		let (delay, scope) = detail.strip_prefix("retry-after-ms=")?.split_once("; scope=")?;
 		if delay.is_empty() || !delay.bytes().all(|byte| byte.is_ascii_digit()) {
 			return None;
 		}
-		let retry_ms = delay.parse().ok()?;
-		if !(1..=MAX_RETRY_DELAY_MS).contains(&retry_ms) {
-			return None;
-		}
-		Some(Self {
-			class: Class::parse(scope)?,
-			retry_ms,
-		})
+		Self::bounded(owner, Class::parse(scope)?, delay.parse().ok()?)
+	}
+	/// Advice a consumer may schedule a wait on: a delay that is not zero and
+	/// not past `MAX_RETRY_DELAY_MS`.
+	fn bounded(owner: Option<Owner>, class: Class, retry_ms: u64) -> Option<Self> {
+		(1..=MAX_RETRY_DELAY_MS)
+			.contains(&retry_ms)
+			.then_some(Self { owner, class, retry_ms })
 	}
 }
 
@@ -254,21 +284,43 @@ pub enum Refusal {
 	TooLarge { class: Class },
 }
 impl Refusal {
+	pub const fn code(self) -> FailureCode {
+		match self {
+			Self::Throttled { .. } => FailureCode::RateLimited,
+			Self::Capacity => FailureCode::AdmissionBusy,
+			Self::TooLarge { .. } => FailureCode::RequestTooLarge,
+		}
+	}
+	pub fn retry_advice(self, owner: Option<Owner>) -> Option<RetryAdvice> {
+		let Self::Throttled { class, retry_ms } = self else {
+			return None;
+		};
+		RetryAdvice::bounded(owner, class, retry_ms)
+	}
+
+	/// The line a caller reads: the code, then the detail, naming the owner
+	/// that refused when the caller knows it.
+	pub fn line(self, owner: Option<Owner>) -> String {
+		self.code().line(self.detail(owner))
+	}
 	pub fn reason_at(self, owner: Owner) -> String {
-		let mut reason = self.reason();
-		reason.push_str("; owner=");
-		reason.push_str(owner.name());
-		reason
+		self.line(Some(owner))
 	}
 	pub fn reason(self) -> String {
-		match self {
-			Self::Throttled { class, retry_ms } => {
-				FailureCode::RateLimited.line(format_args!("retry-after-ms={retry_ms}; scope={}", class.name()))
-			}
-			Self::Capacity => FailureCode::AdmissionBusy.line("admission accounting is at capacity"),
-			Self::TooLarge { class } => {
-				FailureCode::RequestTooLarge.line(format_args!("{} exceeds one admitted burst", class.name()))
-			}
+		self.line(None)
+	}
+	/// What follows the code in the line, for a reader that carries the code
+	/// as its own field.
+	pub fn detail(self, owner: Option<Owner>) -> String {
+		let mut detail = match self {
+			Self::Throttled { class, retry_ms } => format!("retry-after-ms={retry_ms}; scope={}", class.name()),
+			Self::Capacity => String::from("admission accounting is at capacity"),
+			Self::TooLarge { class } => format!("{} exceeds one admitted burst", class.name()),
+		};
+		if let Some(owner) = owner {
+			detail.push_str("; owner=");
+			detail.push_str(owner.name());
 		}
+		detail
 	}
 }

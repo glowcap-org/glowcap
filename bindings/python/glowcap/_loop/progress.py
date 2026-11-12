@@ -263,7 +263,9 @@ class _ProgressMixin(DriverLoopMixinBase):
                     host.settle_vow(event.decoded.ticket, True, event.decoded.value)
                 else:
                     host.settle_vow(
-                        event.decoded.ticket, False, _vow_failure(event.decoded.result, event.decoded.message)
+                        event.decoded.ticket,
+                        False,
+                        _vow_failure(event.decoded.result, event.decoded.message, event.decoded.cause),
                     )
             if isinstance(event.decoded, (Settle, Fail)):
                 done = self._completions.pop(event.decoded.ticket, None)
@@ -272,6 +274,8 @@ class _ProgressMixin(DriverLoopMixinBase):
                         done.set_result(True)
                     else:
                         assert isinstance(event.decoded, Fail)
-                        done.set_exception(_vow_failure(event.decoded.result, event.decoded.message))
+                        done.set_exception(
+                            _vow_failure(event.decoded.result, event.decoded.message, event.decoded.cause)
+                        )
         else:
             raise GlowcapError(_c.ERR_INTERNAL, f"glowcap ABI returned unknown loop event kind {event.kind}")

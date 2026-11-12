@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, fmt, rc::Rc};
 pub enum Notice {
 	Activity {
 		operation: String,
-		cause: glowcap::Error,
+		cause: Box<dyn std::error::Error>,
 	},
 	/// What the serving loop says about partners and accepts.
 	Partner(PartnerNotice),
@@ -38,14 +38,14 @@ pub type Report = Rc<dyn Fn(Notice)>;
 pub struct StandingFailures(BTreeMap<MembershipTarget, String>);
 
 impl StandingFailures {
-	pub fn report(&mut self, failures: &[(MembershipTarget, glowcap::Error)], report: &Report) {
+	pub fn report(&mut self, failures: &[(MembershipTarget, rooms_runtime::Error)], report: &Report) {
 		let mut standing = BTreeMap::new();
 		for (target, cause) in failures {
 			let line = cause.to_string();
 			if self.0.get(target) != Some(&line) {
 				report(Notice::Activity {
 					operation: format!("{target:?}"),
-					cause: cause.clone(),
+					cause: Box::new(cause.clone()),
 				});
 			}
 			standing.insert(target.clone(), line);

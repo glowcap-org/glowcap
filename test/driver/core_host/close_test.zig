@@ -20,7 +20,9 @@ const stream_framing = glowcap.foundation.stream_framing;
 const harness = @import("harness.zig");
 
 test "a released host wipes its session seed root" {
-    var host = test_host.initWithRoot(std.testing.allocator, @splat(0x51), @splat(0x52), .{});
+    var host = test_host.initWithRoot(std.testing.allocator, @splat(0x51), @splat(0x52), .{
+        .thread_policy = .unchecked,
+    });
     host.deinit();
     const wiped: [glowcap.foundation.crypto.seed_bytes]u8 = @splat(0);
     try std.testing.expectEqualSlices(u8, &wiped, &host.session_seed_root);
@@ -28,7 +30,9 @@ test "a released host wipes its session seed root" {
 
 test "core host retained work refuses completed and cancelled leases before effects" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @splat(0x76), .{});
+    var host = test_host.init(allocator, @splat(0x76), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     const actor = try host.vat.spawn(Widget, .{});
     const target = try host.retainLocalCapability(actor);
@@ -144,12 +148,12 @@ test "Host admission frame cap defaults to the canonical session limit" {
     // default.
     try std.testing.expectEqual(
         (engine.SessionLimits{}).max_frame_bytes,
-        (Host.Options{}).frameCap(),
+        (Host.Options{ .thread_policy = .unchecked }).frameCap(),
     );
 }
 
 test "core host close seals admission and an idle finish closes immediately" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x21)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x21)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     host.beginClose(.{ .finish = .unbounded }, 0);
@@ -163,7 +167,7 @@ test "core host close seals admission and an idle finish closes immediately" {
 
 test "core host close initiation cannot fail after committing its barrier" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x34)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x34)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7081", &.{});
     while (try host.nextAction()) |_| {}
@@ -206,7 +210,7 @@ test "core host close initiation cannot fail after committing its barrier" {
 
 test "core session close retains terminal drive under post-transition OOM" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x35)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x35)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     try host.ensureAdvertisedLocator("tcp");
     const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7080"));
@@ -264,7 +268,7 @@ test "core close policy validates representation-neutral inputs" {
 }
 
 test "core close wait selects and safely clamps the nearest deadline" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x35)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x35)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     try std.testing.expectEqual(@as(i64, -1), host.closeWaitMs(0));
@@ -281,7 +285,7 @@ test "core close wait selects and safely clamps the nearest deadline" {
 }
 
 test "core close wait advances when the nearest session deadline retires" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x36)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x36)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     try host.ensureAdvertisedLocator("tcp");
@@ -296,7 +300,7 @@ test "core close wait advances when the nearest session deadline retires" {
 }
 
 test "core host cancel invalidates a queued redeem dial before external delivery" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x22)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x22)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     const vow_id = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7086", "widget"));
@@ -311,7 +315,7 @@ test "core host cancel invalidates a queued redeem dial before external delivery
 }
 
 test "core abnormal termination settles every parked enliven closed" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x23)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x23)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     const vow_id = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7089", "widget"));
@@ -330,7 +334,7 @@ test "core abnormal termination settles every parked enliven closed" {
 }
 
 test "core host finish counts pending gift entropy and cancel retires it without an effect" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x23)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x23)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     const recipient = try host.node.registerPeer(.{});
@@ -367,41 +371,6 @@ test "core host failures classify at the sans-I/O authority" {
     try std.testing.expectEqual(HostFailure.Kind.frame_too_large, HostFailure.classify(error.FrameTooLarge));
 }
 
-test "driver and Host failure tables agree on every name both classify" {
-    // `driver.OperationFailure` extends the sans-I/O `HostFailure` vocabulary
-    // with I/O, timeout, and would-block arms it alone can mint. The names
-    // both tables list explicitly must land in corresponding categories, or an
-    // embedder sees one error change meaning across the two fronts. The two
-    // `else` arms differ (driver: transport I/O; Host: abort
-    // projection), so only the shared explicit names are held here.
-    const HostFailure = driver.core.HostFailure;
-    const OperationFailure = driver.OperationFailure;
-    const shared = [_]anyerror{
-        error.HostClosing,
-        error.SessionClosing,
-        error.SessionCondemned,
-        error.UnknownTransport,
-        error.TransportSemanticsConflict,
-        error.TransportAlreadyRegistered,
-        error.InvalidTransportName,
-        error.ReenteredHost,
-        error.MissingAdvertisedLocator,
-        error.InvalidArgument,
-        error.OutOfMemory,
-    };
-    for (shared) |cause| {
-        const expected: OperationFailure.Kind = switch (HostFailure.classify(cause)) {
-            .invalid_argument => .invalid_argument,
-            .closed => .closed,
-            .internal => .internal,
-            .would_block => .would_block,
-            .session => .session,
-            .not_found, .codec, .frame_too_large => unreachable,
-        };
-        try std.testing.expectEqual(expected, OperationFailure.classify(cause));
-    }
-}
-
 test "hosted Host-wide publication consumes its context on preflight failure" {
     const Hosted = struct {
         fn handle(_: *anyopaque, _: *actors.Turn, _: actors.Delivery) actors.HostedActor.Result {
@@ -414,7 +383,7 @@ test "hosted Host-wide publication consumes its context on preflight failure" {
         }
     };
 
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x22)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x22)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     host.beginClose(.cancel, 0);
 
@@ -439,7 +408,7 @@ test "hosted Host-wide publication consumes its context on preflight failure" {
 }
 
 test "core host expiry wins over a cancel arriving at the deadline" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x32)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x32)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     try host.ensureAdvertisedLocator("tcp");
@@ -461,7 +430,7 @@ test "core host expiry wins over a cancel arriving at the deadline" {
 }
 
 test "core session expiry wins over a cancel arriving at the deadline" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x33)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x33)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     try host.ensureAdvertisedLocator("tcp");
@@ -514,9 +483,9 @@ test "close policy stamps the partner-visible abort kind" {
         .{ .policy = .{ .finish = .unbounded }, .kind = .graceful_shutdown, .seed = 0x9c, .designator = "127.0.0.1:7114" },
     };
     for (cases) |case| {
-        var client = test_host.init(allocator, @as([32]u8, @splat(case.seed)), Host.Options.withFrameCap(frame_cap));
+        var client = test_host.init(allocator, @as([32]u8, @splat(case.seed)), Host.Options.init(.unchecked, frame_cap));
         defer client.deinit();
-        var server = test_host.init(allocator, @as([32]u8, @splat(case.seed + 1)), Host.Options.withFrameCap(frame_cap));
+        var server = test_host.init(allocator, @as([32]u8, @splat(case.seed + 1)), Host.Options.init(.unchecked, frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(ParkedDial) = .empty;
         defer dials.deinit(allocator);

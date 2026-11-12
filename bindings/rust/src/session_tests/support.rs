@@ -16,14 +16,23 @@ pub(super) use tokio::sync::oneshot;
 pub(super) use tokio::task::LocalSet;
 
 pub(crate) async fn connect(locator: &crate::Locator, options: ConnectOptions<'_>) -> crate::Result<crate::Session> {
-	let runtime = crate::Runtime::open(RuntimeConfig::providers([crate::tcp::provider(Default::default())])).await?;
+	let runtime = crate::Runtime::open(RuntimeConfig::providers([crate::tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await?;
 	runtime.connect(locator, options).await
 }
 
 pub(super) async fn connect_with_host(locator: &crate::Locator, host: Host) -> crate::Result<crate::Session> {
-	let runtime =
-		crate::Runtime::open(RuntimeConfig::providers([crate::tcp::provider(Default::default())]).adopt_host(&host))
-			.await?;
+	let runtime = crate::Runtime::open(
+		RuntimeConfig::providers([crate::tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})])
+		.adopt_host(&host),
+	)
+	.await?;
 	runtime.connect(locator, ConnectOptions::default()).await
 }
 

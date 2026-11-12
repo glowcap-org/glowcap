@@ -5,8 +5,11 @@
 // them all and when one comes back, and on a beat while it has none, which
 // includes the wait for a first connection. Checks may overlap.
 
+import { UI_BUILD } from "./application_data.ts";
 import type { PageProjection } from "./store/projection.ts";
 import { watchConnections } from "./connection_watch.ts";
+import { reloadPage } from "./page_base.ts";
+import { type PageStorage, sessionArea } from "./page_storage.ts";
 
 const RECHECK_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -69,20 +72,49 @@ function beatEvery(ms: number): Beat {
 
 /** Whether to reload for `build`. A tab does not retry its last reload target,
  * so a server whose page and `/ui-version` disagree cannot loop it on that
- * target. A different target still permits an update or rollback. */
-export function firstReloadFor(build: string, storage: () => Pick<Storage, "getItem" | "setItem">): boolean {
-	try {
-		const kept = storage();
-		if (kept.getItem(RELOADED_FOR_KEY) === build) return false;
-		kept.setItem(RELOADED_FOR_KEY, build);
-	} catch {
-		// tolerant: a tab whose storage refuses reloads without the guard.
+ * target. A different target still permits an update or rollback. A tab whose
+ * browser will not keep the target never reloads by itself, because nothing
+ * would stop that loop, so it stays on its build until a person reloads. */
+export function firstReloadFor(build: string, storage: PageStorage): boolean {
+	if (storage.read(RELOADED_FOR_KEY) === build) return false;
+	return storage.write(RELOADED_FOR_KEY, build) == null;
+}
+
+const DIGEST = new RegExp(`^[0-9a-f]{${UI_BUILD.digestLength}}$`);
+/** The two types a build name arrives as: `rooms-web` labels it text, and a
+ * static host labels the exported extensionless `ui-version` file as bytes. */
+const NAME_TYPES = ["text/plain", "application/octet-stream"];
+
+/** The build `response` names (`rooms_application::web_build`), else null. A
+ * static host that answers every path with the page is not naming a build, and
+ * neither is a refused, empty, or mislabeled answer: each reads as no answer,
+ * which never reloads. A mislabeled body is cancelled unread. */
+export async function servedBuild(response: Response): Promise<string | null> {
+	if (!response.ok || !namesBuild(response.headers.get("content-type"))) {
+		await response.body?.cancel();
+		return null;
 	}
-	return true;
+	return buildName(await response.text());
+}
+
+/** Whether a response labeled `contentType` can carry a build name, so a
+ * mislabeled answer is dropped before its body is read. */
+function namesBuild(contentType: string | null): boolean {
+	return NAME_TYPES.includes(contentType?.split(";")[0].trim().toLowerCase() ?? "");
+}
+
+function buildName(body: string): string | null {
+	const name = body.trim();
+	const digest = name.startsWith(UI_BUILD.sourcePrefix)
+		? name.slice(UI_BUILD.sourcePrefix.length)
+		: name.endsWith(UI_BUILD.dirtySuffix)
+		? name.slice(0, -UI_BUILD.dirtySuffix.length)
+		: name;
+	return DIGEST.test(digest) ? name : null;
 }
 
 /** The build stamped on `document`, or null on a page without one. */
-export function servedPageBuild(document: Document, location: Location): PageBuild | null {
+export function servedPageBuild(document: Document): PageBuild | null {
 	const current = document.documentElement.dataset.uiBuild;
 	if (current == null) return null;
 	return {
@@ -94,15 +126,15 @@ export function servedPageBuild(document: Document, location: Location): PageBui
 					cache: "no-store",
 					signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 				});
-				return response.ok ? (await response.text()).trim() || null : null;
+				return await servedBuild(response);
 			} catch {
 				// tolerant: an unanswered check waits for the next drop, return, or beat.
 				return null;
 			}
 		},
 		reload(build) {
-			if (!firstReloadFor(build, () => sessionStorage)) return false;
-			location.reload();
+			if (!firstReloadFor(build, sessionArea)) return false;
+			reloadPage();
 			return true;
 		},
 	};

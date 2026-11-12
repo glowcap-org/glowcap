@@ -48,7 +48,7 @@ function laneChips(
  *
  *  Read through `pillSize`: raising `EDGE_CHIP_LABEL.fontPx` or its
  *  padding grows the chips this file separates, and the angle sweep below then
- *  fails on the stride that no longer clears them, instead of passing over status-allow: lifecycle transition
+ *  fails on the stride that no longer clears them, instead of passing over
  *  chips that now overlap on screen. */
 const WIDEST_CHIP = "capnp · glowcap-next";
 const CHIP = pillSize(WIDEST_CHIP.length, EDGE_CHIP_LABEL, true);

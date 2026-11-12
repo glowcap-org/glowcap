@@ -42,6 +42,7 @@ comptime {
 /// such as `GlowcapManagedFrame` lands on its own alignment.
 export fn glowcap_wasm_alloc(len: usize) usize {
     if (len == 0) return 0;
+    // tolerant: OutOfMemory is the only failure, and 0 is this export's documented refusal.
     const buf = shared.library_allocator.alignedAlloc(u8, wasm_block_alignment, len) catch return 0;
     return @intFromPtr(buf.ptr);
 }
@@ -192,7 +193,7 @@ extern "env" fn glowcap_hosted_free_trampoline(ctx: ?*anyopaque) callconv(.c) vo
 /// index of `glowcap_behavior_trampoline`, passed as the `behavior` argument to
 /// `glowcap_host_session_publish` / `glowcap_host_session_spawn` /
 /// `glowcap_host_turn_spawn`. Taking the trampoline's address also references
-/// the import so `wasm-ld` cannot dead-strip an as-yet-uncalled seam. status-allow: pending state or quoted runtime label
+/// the import so `wasm-ld` cannot dead-strip an as-yet-uncalled seam.
 export fn glowcap_wasm_behavior_trampoline_addr() usize {
     return @intFromPtr(&glowcap_behavior_trampoline);
 }

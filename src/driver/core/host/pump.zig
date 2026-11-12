@@ -11,6 +11,7 @@ const engine = @import("engine");
 
 const host_mod = @import("../host.zig");
 const host_close = @import("close.zig");
+const host_admission = @import("admission.zig");
 const pump_schedule = @import("pump/schedule.zig");
 const pending_dial_identity = @import("../pending_dial_identity.zig");
 const capability_promise = @import("../capability_promise.zig");
@@ -29,11 +30,21 @@ pub const queueHostAction = pump_schedule.queueHostAction;
 pub const UniqueSessionActionTag = pump_schedule.UniqueSessionActionTag;
 const queueUniqueSessionAction = pump_schedule.queueUniqueSessionAction;
 
-/// The tail of every top-level verb: encode and pump until quiescent. A nested
-/// verb returns immediately. A Host callback or Zig Vat execution owns that
-/// boundary. The next top-level Host tail picks up queued effects.
+/// The tail of every top-level verb: run the releases callbacks queued, then
+/// encode and pump until quiescent, and repeat while a callback in that pump
+/// queued another release. A nested verb returns immediately. A Host callback
+/// or Zig Vat execution owns that boundary. The next top-level Host tail picks
+/// up queued effects.
 pub fn finishVerb(self: *Host) !void {
     if (self.withinCallback()) return;
+    while (true) {
+        host_admission.runDeferredReleases(self);
+        try pumpVerb(self);
+        if (self.deferred_releases == null) return;
+    }
+}
+
+fn pumpVerb(self: *Host) !void {
     const hold = self.callback_latch.hold();
     defer hold.release();
     if (self.lifecyclePhase() == .terminating) {
@@ -66,8 +77,9 @@ pub fn finishVerb(self: *Host) !void {
 /// the fed session's work may have flooded a *sibling*. The flooded session is
 /// condemned (typed `resource_exhausted` abort) and a `close` action names it
 /// for the embedder. The verb that ran this pump succeeds. A budget breach
-/// inside the fed session's own dispatch (`feed`'s latched `feedBorrowed`)
-/// never reaches here: it keeps `failDispatch` semantics and fails that feed.
+/// inside the fed session's own dispatch (`feed`'s latched
+/// `feedBorrowedCommitted`) never reaches here: it keeps `failDispatch`
+/// semantics and fails that feed.
 fn drainWork(self: *Host) !void {
     var remaining = self.opts.host_work_quantum;
     work: while (remaining != 0) {
@@ -250,7 +262,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !ActionOutcome {
             // Attempt-only action: pending row owns URI + parsed parts.
             // Unparseable gives never reach a dial action (acceptGive fails
             // them). Pre-flight reuses an already-open Host session the Node
-            // identity cache may have missed (earlier app dial, accepted status-allow: event or source ordering
+            // identity cache may have missed (earlier app dial, accepted
             // inbound hello). ADR-0007 session-pair uniqueness would refuse a
             // duplicate dial and break the redeem.
             const view = self.node.pendingDial(d.pending, d.route_index) orelse return .done;
@@ -309,14 +321,16 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !ActionOutcome {
             switch (f.dest) {
                 .answer => |answer| {
                     const session = self.sessions.get(answer.recipient_peer) orelse return .done;
-                    try session.served.port.settleFar(&self.vat, answer.answer, .{ .broken = f.reason.bytes() });
+                    try session.served.port.settleFar(&self.vat, answer.answer, .{ .broken = .{ .detail = f.reason.text, .cause = f.reason.cause } });
                     markDirty(self, answer.recipient_peer);
                 },
                 .served_answer => |answer| {
+                    var buffer: [engine.Broken.diagnostic_capacity]u8 = undefined;
+                    const reason: engine.Broken = .{ .detail = f.reason.text, .cause = f.reason.cause };
                     const session = self.sessions.get(answer.recipient_peer) orelse return .done;
                     session.served.port.peer.sendAnswerTargetResolutionCopying(
                         answer.answer,
-                        .{ .@"break" = .{ .message = f.reason.bytes() } },
+                        .{ .@"break" = .{ .message = reason.render(&buffer) } },
                     ) catch |err| switch (err) {
                         error.OutboundBackpressure => return .{ .parked_on = answer.recipient_peer },
                         else => return err,
@@ -326,7 +340,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !ActionOutcome {
                 .deferred => |deferred| return capability_promise.breakPromise(
                     self,
                     @fromBackingInt(@intCast(deferred.id)),
-                    f.reason.bytes(),
+                    .{ .detail = f.reason.text, .cause = f.reason.cause },
                 ),
             }
         },
@@ -429,7 +443,7 @@ pub fn retireTransportClosed(self: *Host, session: *HostSession, reason: []const
 }
 
 /// Retire a session whose sealed channel refused (ADR-0041): a handshake or
-/// record that did not verify. There may be no CapTP session at all yet, and status-allow: pending state or quoted runtime label
+/// record that did not verify. There may be no CapTP session at all yet, and
 /// after one opens no plaintext byte may follow the failure, so no `op:abort`
 /// is manufactured in either case. The embedder is told to close the transport
 /// and every later verb refuses `SessionCondemned`. Any ingress cancellation or
@@ -536,7 +550,7 @@ pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, messag
     };
     // Vows and queued turns cannot survive until an embedder observes CLOSE.
     // Break first so every admitted operation settles before close reaches its
-    // barrier, including listeners installed while an earlier break fires. status-allow: event or source ordering
+    // barrier, including listeners installed while an earlier break fires.
     session.served.port.breakFarVows(session.served.closeReason(message));
     self.cancelSessionIngress(session, message) catch |err| if (first_error == null) {
         first_error = err;

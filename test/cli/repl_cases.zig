@@ -188,9 +188,12 @@ test "log divert captures Ctx.logErr off stderr" {
     const Capture = struct {
         list: *std.ArrayList(u8),
         gpa: std.mem.Allocator,
+        failure: ?anyerror = null,
         fn write(ptr: *anyopaque, msg: []const u8) void {
             const self: *@This() = @ptrCast(@alignCast(ptr));
-            self.list.appendSlice(self.gpa, msg) catch {};
+            self.list.appendSlice(self.gpa, msg) catch |err| {
+                self.failure = err;
+            };
         }
     };
     var cap = Capture{ .list = &list, .gpa = gpa };
@@ -207,9 +210,9 @@ test "log divert captures Ctx.logErr off stderr" {
         .environ = &runtime.environ,
     };
     ctx.logErr("dial needs an ocapn:// locator", .{});
+    if (cap.failure) |err| return err;
     try std.testing.expect(std.mem.indexOf(u8, list.items, "dial needs an ocapn:// locator") != null);
     try std.testing.expect(std.mem.indexOf(u8, list.items, "glowcap: error:") != null);
-    try std.testing.expect(log.hasDivert());
 }
 
 test "layout transcriptInnerH and emergency row sum" {
@@ -273,7 +276,7 @@ test "teach guide toggles walkthrough chrome" {
     try std.testing.expectEqualStrings(cli.repl_copy.workbench_footer, p.promptFooter());
 }
 
-test "teach parseTourPane" {
+test "parseTourPane names a pane or returns null" {
     try std.testing.expect(cli.repl_teach.parseTourPane("exports") == .exports);
     try std.testing.expect(cli.repl_teach.parseTourPane("imports") == .imports);
     try std.testing.expect(cli.repl_teach.parseTourPane("answers") == .answers);

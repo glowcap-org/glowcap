@@ -1,6 +1,7 @@
 //! Deployment route aliases select the same registry before carrier opening.
 //! Both Zig execution paths share this policy. Peer hints remain untrusted.
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 const admission = @import("../../support/keyed_relay_admission.zig");
 const ws_relay = @import("../../support/ws_relay.zig");
@@ -107,7 +108,8 @@ test "relay alias opens a public WSS hint through the internal pollable carrier"
     const refused = plain.dialRawOutcome(relay.noise.locator(&designator, public_route, &plain_hints));
     try std.testing.expectEqualStrings("SecureCarrierUnavailable", refused.failed.chain.primaryName());
     var future = try io.concurrent(acceptAlias, .{ io, &server, &designator });
-    defer _ = future.cancel(io) catch {};
+    var future_joined = false;
+    errdefer if (!future_joined) wait.joinedUnwinding("future", future.cancel(io));
     var hints: [1]model.HintEntry = undefined;
     const outcome = resident.dialRawOutcome(relay.noise.locator(&designator, public_route, &hints));
     var connection = switch (outcome) {
@@ -118,6 +120,7 @@ test "relay alias opens a public WSS hint through the internal pollable carrier"
         },
     };
     defer _ = connection.close();
+    future_joined = true;
     try future.await(io);
 }
 

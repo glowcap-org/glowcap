@@ -10,9 +10,9 @@ const model = @import("model");
 const engine = @import("engine");
 const connection = @import("../connection.zig");
 const carrier_failure = @import("../carrier_failure.zig");
-const support = @import("../netlayer_support.zig");
+const operation = @import("operation.zig");
 
-const Buffers = support.Buffers;
+const Buffers = operation.Buffers;
 const Connection = connection.Connection;
 
 pub const RestorationStateError = error{ProviderFailure};
@@ -67,7 +67,7 @@ pub fn RawConnectionDialOutcome(comptime RawConnection: type) type {
 pub const ListenError = error{ InvalidAddress, InvalidOptions, BindFailed } || std.mem.Allocator.Error;
 pub const AcceptError = error{
     /// The kernel refused the accept itself for a reason that will not clear
-    /// on its own (descriptor quota, memory); the chain carries which.
+    /// on its own (descriptor quota, memory). The chain carries which.
     AcceptRefused,
     ConnectionLost,
     SocketConfigurationFailed,
@@ -136,13 +136,13 @@ pub fn adaptBlockingDial(comptime callback: fn (
     *engine.Peer,
     model.PeerLocator,
     Buffers,
-    support.OperationOptions,
+    operation.OperationOptions,
 ) DialError!Connection) *const fn (
     *anyopaque,
     *engine.Peer,
     model.PeerLocator,
     Buffers,
-    support.OperationOptions,
+    operation.OperationOptions,
 ) DialOutcome {
     return struct {
         fn call(
@@ -150,7 +150,7 @@ pub fn adaptBlockingDial(comptime callback: fn (
             peer: *engine.Peer,
             locator: model.PeerLocator,
             bufs: Buffers,
-            options: support.OperationOptions,
+            options: operation.OperationOptions,
         ) DialOutcome {
             return .{ .connected = callback(ctx, peer, locator, bufs, options) catch |err|
                 return .{ .failed = .init(err) } };

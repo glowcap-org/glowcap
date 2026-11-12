@@ -119,7 +119,7 @@
   ;; because the caller is a detached thread. Returns whether the call failed.
   (define (call-live! id proc)
     (define failure
-      (with-handlers ([(lambda (_) #t) values])
+      (with-handlers ([raised-failure? values])
         (atomically
          (lambda ()
            (when (hash-ref live id #f)

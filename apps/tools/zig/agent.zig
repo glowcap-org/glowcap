@@ -3,7 +3,11 @@
 //! and proves the three capability properties (delegation, attenuation, and
 //! revocation) over the wire.
 //!
-//!   glowcap-tools-agent <port> <nick>
+//!   glowcap-tools-agent <locator> <nick>
+//!
+//! The locator is the `ocapn://` URI the coordinator printed. The session is
+//! encrypted Noise TCP, and the handshake proves the coordinator holds that
+//! key.
 //!
 //! One owning `driver.connect` is the whole setup. Each request is one
 //! `session.call`, which blocks until the reply settles and returns the outcome
@@ -15,12 +19,11 @@ const glowcap = @import("glowcap");
 
 const demo_check = @import("demo_tools_check");
 const demo_usage = @import("demo_usage");
+const sealed = @import("demo_sealed");
 
 const actors = glowcap.actors;
 const driver = glowcap.driver;
-const tcp = glowcap.net.tcp;
 
-const host = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
 
 /// True when the call fulfilled with an integer, the shape a clock answers.
@@ -52,14 +55,10 @@ pub fn main(init: std.process.Init) !void {
 
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
-    const port_str = args.next() orelse return fail("missing <port>");
+    const locator = args.next() orelse return fail("missing <locator>");
     const nick = args.next() orelse return fail("missing <nick>");
-    const port = try std.fmt.parseInt(u16, port_str, 10);
 
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const address = try tcp.parseHostPort(host, port);
-    const loc = tcp.locatorFromAddress(&designator_buf, address);
-    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, loc, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
+    var session = try sealed.connect(allocator, io, locator, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -94,5 +93,5 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn fail(message: []const u8) error{Usage} {
-    return demo_usage.usage("usage: glowcap-tools-agent <port> <nick>", message);
+    return demo_usage.usage("usage: glowcap-tools-agent <locator> <nick>", message);
 }

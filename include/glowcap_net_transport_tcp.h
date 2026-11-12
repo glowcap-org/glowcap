@@ -25,9 +25,9 @@
 extern "C" {
 #endif
 /* Orientation: the low-level endpoint API is blocking, cleartext TCP for
-   a byte-fed GlowcapHost. The same archive also owns the complete
-   TCP provider package: tcp, keyed-tcp, and noise-tcp. Read a frame with
-   glowcap_tcp_conn_read_frame, feed its bytes to the Host, and
+   a byte-fed GlowcapHost. The same archive also owns the
+   TCP provider package: tcp, keyed-tcp, and noise-tcp, chosen at creation.
+   Read a frame with glowcap_tcp_conn_read_frame, feed its bytes to the Host, and
    write Host output with glowcap_tcp_conn_write_frame. The netlayer owns
    the I/O backend; create
    it, make connections/listeners from it, then release it after every
@@ -53,26 +53,39 @@ typedef struct GlowcapTcpStreamOptions {
   uint32_t keepalive_interval_sec;
   uint32_t keepalive_count;
 } GlowcapTcpStreamOptions;
-/* Defaults inherited by connections from this netlayer. */
+/* Defaults inherited by connections from this netlayer, and the profiles
+   the provider registers. `profiles` is a nonempty set of
+   GLOWCAP_TCP_PROFILE_* bits and zero is refused. The raw endpoint verbs
+   glowcap_tcp_connect and glowcap_tcp_listen are plain tcp and independent
+   of the set. */
 typedef struct GlowcapTcpConfig {
   GlowcapTcpStreamOptions stream;
+  uint32_t profiles;
 } GlowcapTcpConfig;
 /* Per-operation override carried through GlowcapTransportOperationOptions. */
 typedef struct GlowcapTcpOperationOptions {
   GlowcapTcpStreamOptions stream;
 } GlowcapTcpOperationOptions;
+
+/* The `profiles` bits. tcp and keyed-tcp are cleartext with no peer proof.
+   noise-tcp seals the session and proves the peer's key. */
+#define GLOWCAP_TCP_PROFILE_TCP 1u
+#define GLOWCAP_TCP_PROFILE_KEYED_TCP 2u
+#define GLOWCAP_TCP_PROFILE_NOISE_TCP 4u
+#define GLOWCAP_TCP_PROFILES_ALL 7u
+
 /* Return the exact callable-surface fingerprint of this archive. A dynamic loader must compare it with the binding-generated GLOWCAP_TCP_ARCHIVE_FINGERPRINT before calling any other glowcap_tcp_* function. */
 uint64_t glowcap_tcp_archive_fingerprint(void);
 /* Create the netlayer handle that owns the blocking I/O backend, allocating
    through the library allocator. `config` is required and supplies inherited
-   stream defaults. Release with glowcap_tcp_netlayer_release after releasing
+   stream defaults and the nonempty profile set the provider registers. Release with glowcap_tcp_netlayer_release after releasing
    every endpoint made from it. */
 int32_t glowcap_tcp_netlayer_new(const GlowcapTcpConfig *config, GlowcapTcpNetlayer **out_netlayer);
 /* Create a netlayer whose backend and per-connection buffers allocate through
    `context`, with the same required configuration. */
 int32_t glowcap_tcp_netlayer_new_in(GlowcapContext *context, const GlowcapTcpConfig *config, GlowcapTcpNetlayer **out_netlayer);
-/* Fill out_provider with this runtime's complete TCP package: tcp, keyed-tcp,
-   and noise-tcp. Install it once with glowcap_driver_add_provider. The driver
+/* Fill out_provider with this runtime's TCP package: the profiles its config
+   named among tcp, keyed-tcp, and noise-tcp. Install it once with glowcap_driver_add_provider. The driver
    acquires the provider lease through retain and releases it after all transport
    use retires; release the TCP runtime only after the driver is released. */
 int32_t glowcap_tcp_transport_provider(GlowcapTcpNetlayer *netlayer, GlowcapTransportProvider *out_provider);
@@ -87,8 +100,7 @@ void glowcap_tcp_netlayer_release(GlowcapTcpNetlayer *netlayer);
 /* Connect to host:port and return an owned connection framing on `codec`,
    refusing inbound frames over max_frame_bytes. `options == NULL` inherits the
    netlayer's stream defaults; a nonnull zeroed value disables keepalive for this
-   connection. Blocking; `host` is borrowed. GLOWCAP_ERR_INVALID_ARGUMENT for a
-   bad option, codec, frame cap, or address; GLOWCAP_ERR_TIMEOUT when the connect
+   connection. Blocking; `host` is borrowed. GLOWCAP_ERR_INVALID_ARGUMENT for a bad option, codec, frame cap, or address; GLOWCAP_ERR_TIMEOUT when the connect
    timeout elapses; GLOWCAP_ERR_IO when the dial fails otherwise. Release with
    glowcap_tcp_conn_release.
 
@@ -97,8 +109,8 @@ void glowcap_tcp_netlayer_release(GlowcapTcpNetlayer *netlayer);
    provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
 int32_t glowcap_tcp_connect(GlowcapTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, const GlowcapTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, GlowcapTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
-/* Bind and listen on host:port (port 0 picks an OS-chosen port; read it back
-   with glowcap_tcp_listener_port). Release with glowcap_tcp_listener_release. */
+/* Bind and listen on plain tcp at host:port (port 0 picks an OS-chosen port; read
+   it back with glowcap_tcp_listener_port). Release with glowcap_tcp_listener_release. */
 int32_t glowcap_tcp_listen(GlowcapTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, GlowcapTcpListener **out_listener);
 /* The OS-resolved local port of a listener (useful after binding to port 0). */
 int32_t glowcap_tcp_listener_port(GlowcapTcpListener *listener, uint16_t *out_port);
@@ -144,7 +156,10 @@ int32_t glowcap_tcp_conn_shutdown(GlowcapTcpConn *conn);
    out_error/out_error_len optionally capture this call's diagnostic before an
    off-thread runtime regains control: omit all three diagnostic arguments, or
    provide out_error_len. It receives the full length; out_error receives at most
-   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_tcp_conn_release(GlowcapTcpConn *conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal accept admission and interrupt a blocked accept without freeing the
    listener. May race operations; join the embedding's leases before release.

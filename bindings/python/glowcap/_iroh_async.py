@@ -335,7 +335,7 @@ class _IrohTransport:
                 chunks.append(ctypes.string_at(self._read_buf, n))
             if chunks:
                 return b"".join(chunks)
-            # Nothing buffered yet: park on this connection's readiness, not a status-allow: pending state or quoted runtime label
+            # Nothing buffered yet: park on this connection's readiness, not a
             # wire read. False means it was released/closed under us.
             if not await self._loop.wait_readable(self._conn):
                 return None

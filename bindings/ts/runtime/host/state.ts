@@ -444,7 +444,7 @@ export abstract class HostState {
 	}
 
 	/** Execute one core-issued dial cancellation and acknowledge physical
-	 * retirement only after its task can no longer touch the Host.  status-allow: lifecycle transition */
+	 * retirement only after its task can no longer touch the Host. */
 	async cancelDialTask(ticket: bigint, routeIndex: bigint): Promise<void> {
 		const key = `${ticket}:${routeIndex}`;
 		const task = this._dialTasks.get(key);

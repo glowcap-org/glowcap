@@ -12,7 +12,9 @@ mod transport;
 #[cfg(all(feature = "tcp", feature = "async"))]
 pub(crate) use transport::ensure_loop_provider;
 #[cfg(feature = "tcp")]
-pub use transport::{Config, Connection, Keepalive, Listener, Netlayer, StreamOptions};
+pub use transport::{
+	Config, Connection, ConnectionShutdown, Keepalive, Listener, ListenerShutdown, Netlayer, Profiles, StreamOptions,
+};
 #[cfg(all(feature = "tcp", feature = "async"))]
 pub use transport::{OperationOptions, provider};
 
@@ -24,7 +26,7 @@ pub use crate::tcp_listen::{ListenOptions, Server};
 /// Bind the plain TCP profile through this package's FFI provider.
 #[cfg(all(feature = "tcp", feature = "async"))]
 pub async fn listen(bind_host: &str, port: u16, options: ListenOptions) -> Result<Server> {
-	crate::tcp_listen::listen(bind_host, port, crate::TRANSPORT_TCP, options).await
+	crate::tcp_listen::listen(bind_host, port, crate::TRANSPORT_TCP, Profiles::TCP, options).await
 }
 
 /// Spell a TCP `host:port` designator, including IPv6 brackets.
@@ -63,7 +65,7 @@ fn key_addressed_locator(transport: &str, designator: &str, host: &str, port: u1
 /// Identity-addressed cleartext over this TCP package.
 pub mod keyed {
 	#[cfg(all(feature = "tcp", feature = "async"))]
-	use super::{ListenOptions, Server};
+	use super::{ListenOptions, Profiles, Server};
 	use crate::Locator;
 	#[cfg(all(feature = "tcp", feature = "async"))]
 	use crate::Result;
@@ -75,14 +77,21 @@ pub mod keyed {
 	/// Bind identity-addressed cleartext through this package's FFI provider.
 	#[cfg(all(feature = "tcp", feature = "async"))]
 	pub async fn listen(bind_host: &str, port: u16, options: ListenOptions) -> Result<Server> {
-		crate::tcp_listen::listen(bind_host, port, crate::TRANSPORT_KEYED_TCP, options).await
+		crate::tcp_listen::listen(
+			bind_host,
+			port,
+			crate::TRANSPORT_KEYED_TCP,
+			Profiles::KEYED_TCP,
+			options,
+		)
+		.await
 	}
 }
 
 /// Noise_XK-sealed streams over this TCP package.
 pub mod noise {
 	#[cfg(all(feature = "tcp", feature = "async"))]
-	use super::{ListenOptions, Server};
+	use super::{ListenOptions, Profiles, Server};
 	use crate::Locator;
 	#[cfg(all(feature = "tcp", feature = "async"))]
 	use crate::Result;
@@ -94,7 +103,14 @@ pub mod noise {
 	/// Bind Noise_XK-sealed streams through this package's FFI provider.
 	#[cfg(all(feature = "tcp", feature = "async"))]
 	pub async fn listen(bind_host: &str, port: u16, options: ListenOptions) -> Result<Server> {
-		crate::tcp_listen::listen(bind_host, port, crate::TRANSPORT_NOISE_TCP, options).await
+		crate::tcp_listen::listen(
+			bind_host,
+			port,
+			crate::TRANSPORT_NOISE_TCP,
+			Profiles::NOISE_TCP,
+			options,
+		)
+		.await
 	}
 }
 

@@ -1,3 +1,4 @@
+import { invariant } from "../../../lib/invariant.ts";
 import type { ArchiveCoordinates } from "../../../lib/archive/protocol.ts";
 import { PresenceNarration } from "./presence_narration.ts";
 import type { Presence } from "../../../lib/room/presence.ts";
@@ -9,6 +10,8 @@ export interface PresentedLine<F extends FileDescription = FileDescription> {
 	from: string;
 	text: string;
 	at: number;
+	/** Read after it happened. The page learns it and announces nothing. */
+	replayed: boolean;
 	lineId: number | null;
 	change: "said" | "edited" | "refiled" | "withdrawn" | null;
 	editable: boolean;
@@ -199,8 +202,8 @@ export class AttachedLineProjection<F extends FileDescription = FileDescription>
 				return;
 			}
 			case "system": {
-				this.#presence.present(key, event.presence, event.text, performance.now(), (text) => {
-					const item = store.sysItem(projection, text, disposition.audience);
+				this.#presence.present(key, event.presence, event.text, event.at, (text) => {
+					const item = store.sysItem(projection, text, disposition.audience, event.at);
 					store.deliver(projection, key, item);
 					return item.id;
 				}, (id, text) => {
@@ -275,7 +278,7 @@ export class AttachedLineProjection<F extends FileDescription = FileDescription>
 				});
 				this.#openArrivingImages(key, event, mine, attachments);
 				if (
-					conversation.type === "dm" && !mine && projection.get().activeKey !== key &&
+					conversation.type === "dm" && !mine && !event.replayed && projection.get().activeKey !== key &&
 					!silencedFrom(event.from, false, projection.get().ignored)
 				) maybeNotify(projection, event.from, event.text || event.attachments[0]?.name || "sent a file");
 				return;
@@ -285,7 +288,7 @@ export class AttachedLineProjection<F extends FileDescription = FileDescription>
 				// this typecheck before it can run. A kind's case must say its
 				// custody when it is written.
 				const unhandled: never = disposition;
-				throw new Error(`Unhandled line disposition: ${unhandled as string}`);
+				invariant(false, `unhandled line disposition: ${String(unhandled)}`);
 			}
 		}
 	}
@@ -293,7 +296,7 @@ export class AttachedLineProjection<F extends FileDescription = FileDescription>
 	#holdIncoming(event: PresentedLine<F>, directory: DirId): AttachmentView[] {
 		if (event.attachments.length === 0) return [];
 		const files = this.#files;
-		if (files == null) throw new Error("the attached line projection has no file capability owner");
+		invariant(files != null, "the attached line projection has no file capability owner");
 		const unavailable = this.#page.projection.get().dirs.get(directory)?.session === "disconnected"
 			? EARLIER_CONNECTION_BYTES_UNAVAILABLE
 			: undefined;
@@ -302,7 +305,7 @@ export class AttachedLineProjection<F extends FileDescription = FileDescription>
 
 	#releaseIncoming(event: PresentedLine<F>): void {
 		if (event.attachments.length === 0) return;
-		if (this.#files == null) throw new Error("the attached line projection has no file capability owner");
+		invariant(this.#files != null, "the attached line projection has no file capability owner");
 		this.#files.releaseIncoming(event.attachments);
 	}
 

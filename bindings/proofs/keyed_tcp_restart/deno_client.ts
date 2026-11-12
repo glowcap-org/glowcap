@@ -14,7 +14,7 @@ const SEED_HAPPY = new Uint8Array(32).fill(0x71);
 const SEED_HONEST = new Uint8Array(32).fill(0x72);
 const SEED_SQUATTER = new Uint8Array(32).fill(0x73);
 const SEED_RESTART = new Uint8Array(32).fill(0x74);
-await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+await using runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.keyed] })] });
 
 function greeter(verb: string | null, _args: unknown[]): string | null {
 	if (verb === "greet") return GREETING;

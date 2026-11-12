@@ -30,6 +30,7 @@ import {
 	ONION_SERVICE_ID_LEN,
 	ONION_SERVICE_KEY_CAP,
 	RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+	releaseResultCode,
 	TRANSPORT_ONION,
 } from "@glowcap/abi";
 import { onionS } from "./ffi.ts";
@@ -156,7 +157,8 @@ export class Connection {
 					await checkDiagnosedCall(
 						"onion",
 						"connection release",
-						(error, cap, errorLen) => onionS.glowcap_onion_conn_release(pointer, error, cap, errorLen),
+						async (error, cap, errorLen) =>
+							releaseResultCode(await onionS.glowcap_onion_conn_release(pointer, error, cap, errorLen)),
 					);
 				} catch (error) {
 					consumedReleaseFailure(error);
@@ -257,7 +259,10 @@ export class Listener {
 				try {
 					await this.#releaseDiagnostic.check(
 						"listener release",
-						(error, cap, errorLen) => onionS.glowcap_onion_listener_release(pointer, error, cap, errorLen),
+						async (error, cap, errorLen) =>
+							releaseResultCode(
+								await onionS.glowcap_onion_listener_release(pointer, error, cap, errorLen),
+							),
 					);
 				} catch (error) {
 					consumedReleaseFailure(error);
@@ -336,7 +341,8 @@ export class Netlayer {
 			(pointer) =>
 				new FfiDiagnostic("onion").check(
 					"netlayer release",
-					(error, cap, errorLen) => onionS.glowcap_onion_netlayer_release(pointer, error, cap, errorLen),
+					async (error, cap, errorLen) =>
+						releaseResultCode(await onionS.glowcap_onion_netlayer_release(pointer, error, cap, errorLen)),
 				),
 		);
 	}

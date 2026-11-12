@@ -131,7 +131,7 @@ class Identity:
             _render_rotation(BLANK_SAID, self.aid, self._sn, prior, new_current.verkey, next_digest, BLANK_SIG)
         )
         # The rotation is signed by the key it retires, proving that the holder of
-        # the old key authorized the handover. The SAID is a digest over every status-allow: replacement state identity
+        # the old key authorized the handover. The SAID is a digest over every
         # other field, so signing these three commits to the whole event.
         sig = b64url(retiring.sign(f"{said}|{new_current.verkey}|{next_digest}"))
 

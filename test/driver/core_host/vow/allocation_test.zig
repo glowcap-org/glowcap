@@ -25,9 +25,9 @@ test "core host: a settle under OOM never strands a vow and never trips the rese
         const allocator = failing.allocator();
         var saw_oom = false;
         {
-            var client = test_host.init(allocator, @as([32]u8, @splat(0x9a)), Host.Options.withFrameCap(frame_cap));
+            var client = test_host.init(allocator, @as([32]u8, @splat(0x9a)), Host.Options.init(.unchecked, frame_cap));
             defer client.deinit();
-            var server = test_host.init(allocator, @as([32]u8, @splat(0x9b)), Host.Options.withFrameCap(frame_cap));
+            var server = test_host.init(allocator, @as([32]u8, @splat(0x9b)), Host.Options.init(.unchecked, frame_cap));
             defer server.deinit();
             var dials: std.ArrayList(ParkedDial) = .empty;
             defer dials.deinit(std.testing.allocator);
@@ -76,9 +76,9 @@ test "core host: fetch allocation failures are pre-commit and a committed vow id
     while (true) : (offset += 1) {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         const allocator = failing.allocator();
-        var client = test_host.init(allocator, @as([32]u8, @splat(0xa8)), Host.Options.withFrameCap(frame_cap));
+        var client = test_host.init(allocator, @as([32]u8, @splat(0xa8)), Host.Options.init(.unchecked, frame_cap));
         defer client.deinit();
-        var server = test_host.init(std.testing.allocator, @as([32]u8, @splat(0xa9)), Host.Options.withFrameCap(frame_cap));
+        var server = test_host.init(std.testing.allocator, @as([32]u8, @splat(0xa9)), Host.Options.init(.unchecked, frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(ParkedDial) = .empty;
         defer dials.deinit(std.testing.allocator);

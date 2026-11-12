@@ -60,7 +60,7 @@ export type RenderFrameArgs = {
 	 * gate. Peers, sessions, and messages by entity key. */
 	selection: ReadonlySet<EntityRefKey>;
 	/** Anchor, the Inspector-follow entity (and range-extension
-	 * pivot). Always inside `selection` when set. Used to paint status-allow: purpose clause
+	 * pivot). Always inside `selection` when set. It paints
 	 * an additional inner ring on the anchor's halo so the user
 	 * can see WHICH selected entity the Inspector is tracking
 	 * when more than one is selected. Single-select case looks
