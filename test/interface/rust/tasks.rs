@@ -4,23 +4,20 @@ use crate::{interface, task_board::Board};
 mod mutations;
 #[path = "refusal.rs"]
 mod refusal;
-use glowcap::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
+use glowcap::{Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
 use std::rc::Rc;
 
 async fn call(session: &Session, target: &Ref, verb: &str, args: &[Argument]) -> Argument {
 	session.send(target, verb, args).await.expect("raw call failed")
 }
 
-pub async fn run(port: u16, name: &str) {
+/// Run against the fixture server's sealed `noise-tcp` locator, which the
+/// default provider dials.
+pub async fn run(locator: &Locator, name: &str) {
 	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
 		.await
 		.unwrap();
-	let session = Rc::new(
-		runtime
-			.connect(&tcp::locator("127.0.0.1", port), ConnectOptions::default())
-			.await
-			.unwrap(),
-	);
+	let session = Rc::new(runtime.connect(locator, ConnectOptions::default()).await.unwrap());
 	let root = session.fetch(name).await.unwrap();
 	let list = Ref::try_from(&call(&session, &root, "list", &[0i64.into()]).await).unwrap();
 	assert!(matches!(
@@ -57,7 +54,7 @@ pub async fn run(port: u16, name: &str) {
 	));
 	assert_eq!(call(&session, &list, "count", &[]).await.as_i64(), Some(2));
 	// Exercise the real application bodies, not only generated fixture wrappers.
-	let board = Board::join(&tcp::locator("127.0.0.1", port), name).await.unwrap();
+	let board = Board::join(locator, name).await.unwrap();
 	let lists = board.lists().await.unwrap();
 	assert_eq!(lists.len(), 2);
 	assert_eq!(lists[0].name, "To do");
@@ -92,6 +89,6 @@ pub async fn run(port: u16, name: &str) {
 
 	session.close(PendingWork::Cancel).await.unwrap();
 	runtime.close(PendingWork::Cancel).await.unwrap();
-	mutations::run(port, name).await;
+	mutations::run(locator, name).await;
 	refusal::run().await;
 }

@@ -58,7 +58,7 @@ pub fn installIfChanged(b: *std.Build, artifact: *std.Build.Step.Compile, dir: s
 }
 
 /// Shared archives use their ABI major as the runtime identity. ELF export
-/// visibility and version scripts require LLVM/lld; Zig's non-LLVM x86 backend
+/// visibility and version scripts require LLVM/lld. Zig's non-LLVM x86 backend
 /// leaks hidden exports and does not enforce version scripts.
 pub fn configureSharedArchive(artifact: *std.Build.Step.Compile) void {
     const target = artifact.root_module.resolved_target.?.result;

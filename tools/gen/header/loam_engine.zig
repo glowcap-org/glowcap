@@ -29,6 +29,9 @@ pub const Engine = struct {
     work_run_note: []const u8 = "",
 };
 
+/// The consumed-with-failure half of every engine's release contract.
+const release_consumed_doc = " Once the Store is released the handle is consumed. A failing engine close still frees it and preserves the engine's failure code in the release result. Never retry a consumed result.";
+
 /// The header generator for `engine`, reflecting `c_module`.
 pub fn Header(comptime engine: Engine, comptime c_module: type) type {
     return struct {
@@ -72,7 +75,7 @@ pub fn Header(comptime engine: Engine, comptime c_module: type) type {
             try b.appendSlice(gpa, "typedef struct " ++ engine.typedef ++ " " ++ engine.typedef ++ ";\n");
             try E.emitConst(&b, gpa, "GLOWCAP_LOAM_" ++ engine.macro ++ "_ARCHIVE_FINGERPRINT");
             try E.emitFn(&b, gpa, prefix ++ "open", engine.open_params, engine.open_doc);
-            try E.emitFn(&b, gpa, prefix ++ "release", &.{"raw"}, engine.release_doc);
+            try E.emitFn(&b, gpa, prefix ++ "release", &.{"raw"}, engine.release_doc ++ release_consumed_doc);
             try E.emitFn(&b, gpa, prefix ++ "work_run", &.{ "raw", "work_handle" }, "Execute one storage effect on the storage executor without touching Host state." ++ engine.work_run_note ++ " Join before portable work_complete or work_release. Repeated execution, foreign Store work, and completed work refuse. Operational results remain on the work handle.");
             try E.emitFn(&b, gpa, prefix ++ "restore", &.{ "raw", "attachment", "object", "out_ref" }, "Privileged restoration reads and validates a persisted rooted endpoint, then returns one held capability occurrence on the supplied Host attachment. A record that is not resident returns GLOWCAP_LOAM_ERR_STALE_COMPLETION while one of the Store's commits is in flight. Retry after that work completes. Serialized object names never invoke. Release the occurrence through the existing Host reference release.");
             try E.emitFn(&b, gpa, prefix ++ "commit", &.{"raw"}, "Submit privileged unattached staging through the same Store write/install contract. Committed output installs once; unchanged aborts and returns UNCHANGED with its storage cause in last_error; an unknown outcome leaves recovery required. Execute outside Host turns.");

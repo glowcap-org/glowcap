@@ -44,7 +44,6 @@ const Endpoint = struct {
 
     fn init(self: *Endpoint, io: std.Io, allocator: std.mem.Allocator, seed: ?*const [32]u8) !void {
         self.endpoint = try iroh.Resident.init(io, seed, .{ .reachability = .local_discovery });
-        // best-effort: this unwind returns the adapter's init error, and a failed endpoint close would only mask it.
         errdefer self.endpoint.deinit() catch {};
         self.adapter = try iroh.MultiplexedAdapter.init(allocator, &self.endpoint);
     }
@@ -120,7 +119,7 @@ pub fn main(init: std.process.Init) !void {
     const widget = switch (try to_gifter.call(introducer, "introduce", &.{}, arena.allocator())) {
         .fulfilled => |value| if (value == .capability) value.capability else return error.NoIntroduction,
         .broken => |reason| {
-            std.debug.print("iroh-redeem: introduce broke: {s}\n", .{reason});
+            std.debug.print("iroh-redeem: introduce broke: {f}\n", .{reason});
             return error.NoIntroduction;
         },
     };

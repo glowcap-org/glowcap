@@ -1,3 +1,4 @@
+import type { LiveConnectionState } from "../engine/live/status.ts";
 /**
  * The left catalog rail, Tools, the buffer's source, and the Legend.
  *
@@ -27,7 +28,7 @@ export function LeftRail({
 	source,
 	engine,
 	liveSturdyref,
-	liveConnected,
+	liveConnection,
 	liveObserved,
 	liveRecording,
 	onScenarioChange,
@@ -44,7 +45,7 @@ export function LeftRail({
 	source: BufferSourceInfo | null;
 	engine: Engine;
 	liveSturdyref: string;
-	liveConnected: boolean;
+	liveConnection: LiveConnectionState;
 	liveObserved: boolean;
 	liveRecording: boolean;
 	onScenarioChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
@@ -96,7 +97,7 @@ export function LeftRail({
 					source={source}
 					engine={engine}
 					liveSturdyref={liveSturdyref}
-					liveConnected={liveConnected}
+					liveConnection={liveConnection}
 					liveObserved={liveObserved}
 					liveRecording={liveRecording}
 					onScenarioChange={onScenarioChange}

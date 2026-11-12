@@ -97,7 +97,7 @@ test "loam LMDB foreign roles survive compaction and restore a later vat during 
                 while (try source.host.nextAction()) |action| if (action == .dial) break :blk action.dial;
                 return error.MissingDial;
             };
-            try source.host.dialFailed(unavailable.ticket, unavailable.route_index, "unavailable");
+            try source.host.dialFailed(unavailable.ticket, unavailable.route_index, .peer_unreachable, "unavailable");
         }
         try source.drain(&source_db);
         try std.testing.expect(parked.broken);
@@ -105,7 +105,7 @@ test "loam LMDB foreign roles survive compaction and restore a later vat during 
         try std.testing.expectEqual(@as(usize, 0), source.attached.reference_saves);
         // Retire any emitted adapter intent whose observer was canceled.
         while (try source.host.nextAction()) |action| if (action == .dial)
-            try source.host.dialFailed(action.dial.ticket, action.dial.route_index, "unavailable");
+            try source.host.dialFailed(action.dial.ticket, action.dial.route_index, .peer_unreachable, "unavailable");
         if (pause_source) _ = try h.f.change(&source_store, &source_db, source_data.owner, .{ .resume_access = source_data.grant });
     }
     var memory: h.loam.hosting.Call.Memory = undefined;

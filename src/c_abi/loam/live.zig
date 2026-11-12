@@ -23,6 +23,8 @@ pub fn glowcap_loam_live_start(raw: ?*c.GlowcapLoamAttachment, prior: ?*const c.
         return refusal.code(err);
     };
     scope.startHosted(owner.value, id) catch |err| {
+        // `startHosted` refuses before it mutates, so the scope is as `init`
+        // left it, and `topLevel` above already passed the reentry check.
         scope.deinit() catch unreachable;
         allocator.destroy(scope);
         return refusal.code(err);

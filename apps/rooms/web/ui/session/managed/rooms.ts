@@ -4,11 +4,9 @@ import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { RoomsRoomController } from "../../controller/session.ts";
 import * as store from "../../store.ts";
-import { refusalText } from "../../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { coordinate, fieldKey, type RoomIntent } from "./model.ts";
 import type { BridgeForm } from "../../../../lib/bridge/form.ts";
-import { WorkspaceConflict } from "./operation.ts";
-import { MAX_CONFLICT_REPREPARATIONS } from "./acquisition.ts";
 import { ResultRecipe } from "./result_recipe.ts";
 
 export function managedRoomActions(page: RoomsPageContext, session: ManagedRoomsSession): RoomsRoomController {
@@ -16,7 +14,7 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 	const room = (key: string) => {
 		const view = store.getConv(projection, key);
 		const row = view?.type === "room" ? conversationById(session.current, view.persistId) : null;
-		if (row?.kind !== "room") throw new Error("This room is no longer in the workspace");
+		if (row?.kind !== "room") throw new LocalRefusal("room-gone");
 		return row;
 	};
 	const outcome = async (work: () => Promise<unknown>): Promise<string> => {
@@ -38,7 +36,9 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 	}
 	async function drop(key: string, property: "moderator" | "control", expected: string): Promise<void> {
 		const selected = room(key);
-		if (selected[property] !== expected) throw new Error("The selected room authority changed");
+		if (selected[property] !== expected) {
+			throw new LocalRefusal("room-authority-changed");
+		}
 		const snapshot = await session.candidate();
 		const row = conversationById(snapshot, selected.id) as RoomIntent;
 		if (property === "moderator") delete row.moderator;
@@ -54,12 +54,12 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 		submitBridgeForm: (key, scope, action, answers, secrets) =>
 			outcome(async () => {
 				const row = room(key);
-				if (row.seat == null) throw new Error("The original room membership is not held");
+				if (row.seat == null) throw new LocalRefusal("room-gone");
 				const declaration: BridgeForm | null = await session.workspace.readBridgeForm(
 					coordinate("roomSeat", row.seat),
 				);
 				if (declaration == null || declaration.scope !== scope) {
-					throw new Error("The bridge form changed. Review its current declaration before submitting.");
+					throw new LocalRefusal("room-access-changed");
 				}
 				const operation = crypto.randomUUID();
 				const snapshot = await session.refresh();
@@ -91,24 +91,15 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 				const recipe = new ResultRecipe();
 				recipe.conversation(session.current!, selected.id);
 				const operation = crypto.randomUUID();
-				for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
-					try {
-						const command = await session.command(
-							"issueRoomModerator",
-							[selected.id],
-							operation,
-							(snapshot) => {
-								recipe.conversation(snapshot, selected.id);
-							},
-						);
-						return await session.completeResult(command);
-					} catch (error) {
-						if (!(error instanceof WorkspaceConflict) || attempt + 1 === MAX_CONFLICT_REPREPARATIONS) {
-							throw error;
-						}
-					}
-				}
-				throw new Error("Steward issuance exceeded conflict re-preparation attempts.");
+				const command = await session.command(
+					"issueRoomModerator",
+					[selected.id],
+					operation,
+					(snapshot) => {
+						recipe.conversation(snapshot, selected.id);
+					},
+				);
+				return await session.completeResult(command);
 			}),
 		managerRoom: (key, uri) => outcome(() => role(key, "control", uri)),
 		dropRoomManager: (key, token) => outcome(() => drop(key, "control", token)),

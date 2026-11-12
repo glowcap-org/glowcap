@@ -44,13 +44,16 @@
 ;; member on the same server keeps glowcap's own profile. Start the server
 ;; with `--capabilities=trace` and the ocapnviz viewer draws that split live.
 ;;
-;; Set `GLOWCAP_ROOMS_TRACE_URL` to that endpoint's address and this vat publishes its own
-;; trace there too, so the sessions it holds appear beside every other peer's:
+;; Set `GLOWCAP_ROOMS_TRACE_URL` to the trace link's `trace-publish` route and
+;; `GLOWCAP_ROOMS_TRACE_CAP` to the link's swiss number, and this vat publishes its
+;; own trace there too, so the sessions it holds appear beside every other peer's:
 ;;
-;;   GLOWCAP_ROOMS_TRACE_URL=ws://127.0.0.1:9300/ racket -y rooms-chat.rkt \
+;;   GLOWCAP_ROOMS_TRACE_URL=ws://127.0.0.1:9300/publish \
+;;   GLOWCAP_ROOMS_TRACE_CAP=<swiss> racket -y rooms-chat.rkt \
 ;;     127.0.0.1:9099 general goblins-carol
 ;;
-;; With the variable unset the vat holds no publishing socket and sends nothing.
+;; With the URL unset the vat holds no publishing socket and sends nothing.
+;; `trace-publish.rkt` says what each variable must hold.
 
 (require goblins
          goblins/actor-lib/methods
@@ -108,7 +111,7 @@
 ;; terminal loop waits on it before reading a line, so a typed command always has
 ;; a directory to reach. It is also what lets a piped script behave the way a
 ;; person does, typing after the banner rather than into a vat that has not
-;; dialed yet. status-allow: pending state or quoted runtime label
+;; dialed yet.
 (define opened (make-semaphore 0))
 (define connected (box #f))
 
@@ -202,28 +205,9 @@
          (hash-remove! registrations (string-downcase name))
          (set-box! reachable-box (set-remove (unbox reachable-box) name))]))
     (dm-notify dm event name registration-id))
-  (define watcher
-    (spawn (lambda (_bcom)
-             (methods
-              [(notify event . rest)
-               (define name (if (pair? rest) (car rest) ""))
-               (define registration-id
-                 (if (and (pair? rest) (pair? (cdr rest)) (pair? (cddr rest)))
-                     (caddr rest)
-                     ""))
-               (heard-member event name registration-id)]))))
-  ;; The watch answers with the baseline: the rooms, then the registrations
-  ;; already current when the watch began, then a count. A member who
-  ;; registered before this vat watched is only reachable through that answer,
-  ;; because the directory tells watchers about registrations as they happen
-  ;; and does not repeat the earlier ones. status-allow: event or source ordering
-  (on (<- directory 'watch watcher)
-      (lambda (snapshot)
-        (when (and (list? snapshot) (>= (length snapshot) 2) (list? (cadr snapshot)))
-          (for ([row (in-list (cadr snapshot))])
-            (when (and (list? row) (= (length row) 2) (string? (car row)) (string? (cadr row)))
-              (heard-member "registered" (car row) (cadr row))))))
-      #:catch (lambda (err) (say "! could not watch the directory: ~v" err))))
+  (watch-members directory
+                 heard-member
+                 (lambda (err) (say "! could not watch the directory: ~a" err))))
 
 (chat-vat
  'run

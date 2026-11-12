@@ -89,7 +89,7 @@ engineTest(
 		assertEquals(
 			sent?.kind === "message-sent" ? sent.arrivalT : undefined,
 			1500,
-			"rejected — original arrivalT preserved",
+			"rejected, and the original arrivalT is preserved",
 		);
 	},
 );
@@ -139,7 +139,7 @@ engineTest("move-event slides a peer's renames with the peer", () => {
 engineTest("move-event slides a whole peer earlier", () => {
 	// Ordering is judged against the finished gesture. Checking a slid
 	// departure against where the join still sits would refuse every
-	// backward drag, because the join has not been written yet. status-allow: pending state or quoted runtime label
+	// backward drag, because the join has not been written yet.
 	const peerDoc = TimelineDocument.parse({
 		id: "peer-slide-back",
 		duration: 5000,
@@ -201,7 +201,7 @@ engineTest("move-event refuses a rename dragged before its peer joins", () => {
 	assertEquals(
 		primaryObservations(e.doc).find((ev) => ev.id === "p2")?.t,
 		1300,
-		"refused — the rename stays inside the peer's life",
+		"refused: the rename stays inside the peer's life",
 	);
 });
 

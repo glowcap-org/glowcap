@@ -10,7 +10,7 @@ export function archiveDoorOffered(waiting: number): string {
 	return waiting === 1 ? "1 offered" : `${waiting} offered`;
 }
 export const archiveDoorHintOffered = "Somebody has offered you a read-only account, and you can hand one over too.";
-export const archiveDoorHint = "Hand one member a read-only copy of what your archive kept.";
+export const archiveDoorHint = "Hand one member a read-only copy.";
 export const archiveDoorOpen = "Archive history…";
 
 /** What an incoming share is, from how long it lasts and what it holds. */
@@ -48,11 +48,10 @@ export function archiveDmLead(nick: string): string {
 	return `Hand ${nick} a read-only copy of what your archive kept of this conversation. It reaches nothing else you have.`;
 }
 export const archiveRoomLead =
-	"A room keeps no past of its own. What you have of this one is yours. You can hand a read-only copy of it to one member in a direct message. It doesn't put them in the room.";
+	"A room keeps no past of its own, so what you have of this one is yours. Hand a read-only copy to one member in a direct message. It doesn't put them in the room.";
 export const archivePeerHintNobody =
-	"Nobody in this room can receive one. It travels over a direct message, and that needs a member who has registered for them here.";
-export const archivePeerHint =
-	"A member's nickname. It travels over a direct message, so it goes to one person and reaches nothing else of yours.";
+	"Nobody in this room can receive one. That needs a member registered for direct messages here.";
+export const archivePeerHint = "A member's nickname. It reaches nothing else of yours.";
 export const archiveWhatTitle = "What to hand over";
 export const archiveWhatLine = "What was said here";
 export const archiveWhatLineSaid = "The messages from this room that your archive kept.";

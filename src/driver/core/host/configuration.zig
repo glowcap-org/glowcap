@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const actors = @import("actors");
+const foundation = @import("foundation");
 
 const model = @import("model");
 const engine = @import("engine");
@@ -27,6 +28,13 @@ pub const InitError = error{ InvalidHostWorkQuantum, InvalidSessionLimit };
 pub const default_max_sessions: usize = 1024;
 
 pub const Options = struct {
+    pub const ThreadPolicy = union(enum) {
+        /// The embedder guarantees single-threaded access without a runtime check.
+        unchecked,
+        /// The first admitted verb claims the Host. Other threads are refused.
+        checked: foundation.thread_affinity.Reader,
+    };
+
     /// Full CapTP session limits applied to every minted peer (ADR-0030).
     /// Defaults match `session.SessionLimits{}`, including the 1 MiB
     /// `max_frame_bytes` the driver C ABI publishes as
@@ -93,11 +101,14 @@ pub const Options = struct {
     /// operation. The next host-driving producer refuses `OutboundBackpressure`
     /// until frames drain. Null derives from `max_frame_bytes`.
     outbound_high_water_bytes: ?usize = null,
+    /// Every embedder chooses its thread-ownership policy. The core reads no
+    /// threads. Checked owners supply a reader. HostRuntime and the OS C Host
+    /// use the shared OS reader. Unchecked owners enforce confinement themselves.
+    thread_policy: ThreadPolicy,
 
-    /// Convenience for the common case: default Options with only the frame
-    /// admission cap overridden.
-    pub fn withFrameCap(cap: usize) Options {
-        var options: Options = .{};
+    /// Default session options with an explicit thread policy and frame cap.
+    pub fn init(thread_policy: ThreadPolicy, cap: usize) Options {
+        var options: Options = .{ .thread_policy = thread_policy };
         options.limits.max_frame_bytes = cap;
         return options;
     }

@@ -8,6 +8,8 @@
 //! returned action leaves its dial, flush, handoff, or settlement consequence
 //! unsettled.
 
+const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 const shared = @import("c_abi_shared");
 const driver_core = @import("driver_core");
 const model = @import("model");
@@ -35,7 +37,7 @@ pub fn resolverFulfillValue(host: ?*c.GlowcapHost, resolver_id: u64, value: ?*co
     const converted = marshal.valueMessageFromC(inst, null, 0, @ptrCast(c_value), 1) catch |err| return host_error.errToCode(err);
     // Lowering rollback receipts must survive listener reentry, independently
     // of the C argument scratch a nested top-level call may reuse.
-    var arena = @import("std").heap.ArenaAllocator.init(inst.allocator);
+    var arena = std.heap.ArenaAllocator.init(inst.allocator);
     defer arena.deinit();
     inst.core.resolverFulfillValue(resolver_id, converted.args[0], arena.allocator()) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
@@ -50,7 +52,7 @@ pub fn resolverBreak(
     const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const reason = shared.sliceFromC(message, message_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.resolverBreak(resolver_id, reason) catch |err| return host_error.errToCode(err);
+    inst.core.resolverBreak(resolver_id, Broken.unnamed(reason)) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -221,14 +223,17 @@ pub fn dialFailed(
     host: ?*c.GlowcapHost,
     ticket: u64,
     route_index: usize,
+    failure: u32,
     reason: ?[*]const u8,
     reason_len: usize,
 ) i32 {
     const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (!instance.embedderOwnsDrive(inst, "dial_failed")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const route_failure = std.enums.fromInt(shared.RouteFailure, failure) orelse return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+
     const reason_bytes = shared.sliceFromC(reason, reason_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.dialFailed(ticket, route_index, reason_bytes) catch |err| return host_error.errToCode(err);
+    inst.core.dialFailed(ticket, route_index, route_failure, reason_bytes) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 

@@ -57,7 +57,6 @@
 // the tab holds no handle for that line, and `/edit` there says it has no
 // message it can still change rather than failing strangely.
 
-import { messageMentions } from "./markdown.ts";
 export type {
 	Command,
 	CommandHere,
@@ -68,6 +67,7 @@ export type {
 } from "./commands/types.ts";
 export { held, hereOf, known } from "./commands/catalog.ts";
 export { inviteWhy } from "./commands/targets.ts";
+import { invariant } from "../../lib/invariant.ts";
 import type { Command, CommandPowers } from "./commands/types.ts";
 import type { LineCarried } from "./conversation.ts";
 import { known } from "./commands/catalog.ts";
@@ -114,17 +114,6 @@ export function lineCarried(text: string): LineCarried | undefined {
 	return undefined;
 }
 
-/** Whether a line arriving in a room should pull a reader back to it.
- *
- * One authority for that question, because it is answered in two moods: a
- * mention asks for you, and a notice is the one line that can name you without
- * asking. Left as a conjunction at the call site, removing either half still
- * compiled and still passed, which is why it is a function with a test rather
- * than two conditions somebody has to keep remembering to write together. */
-export function notifiesYou(text: string, nick: string): boolean {
-	return noticeIn(text) === null && messageMentions(text, nick);
-}
-
 /** A command read off the wire acts on nothing: reading a line must not join a
  * room or change a theme. Only the `line` kinds are run this way and none of
  * them reaches for a power, so every one of these throwing would be a defect
@@ -160,7 +149,7 @@ const NO_POWERS: CommandPowers = {
 };
 
 function reading(): never {
-	throw new Error("a command read off the wire tried to act");
+	invariant(false, "a command read off the wire tried to act");
 }
 
 /** The command a line names, or null when it names none.

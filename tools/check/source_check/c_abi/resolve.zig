@@ -116,19 +116,23 @@ pub fn checkCAbiResolve(
         "bindings/ts/runtime/internal/ffi/c-abi-resolve.json",
         "bindings/racket/private/c-abi-resolve.json",
     };
-    {
-        const canonical = root.readFileAlloc(io, contract_path, gpa, .limited(1 << 20)) catch null;
-        defer if (canonical) |bytes| gpa.free(bytes);
-        if (canonical) |canonical_bytes| {
-            for (package_copies) |copy_path| {
-                const copy = root.readFileAlloc(io, copy_path, gpa, .limited(1 << 20)) catch {
-                    try appendViolation(gpa, violations, "{s}: missing package copy of `{s}`", .{ copy_path, contract_path });
-                    continue;
-                };
-                defer gpa.free(copy);
-                if (!std.mem.eql(u8, canonical_bytes, copy)) {
-                    try appendViolation(gpa, violations, "{s}: differs from `{s}` — the shipped cascade must be byte-identical to the root contract", .{ copy_path, contract_path });
-                }
+    copies: {
+        const canonical = root.readFileAlloc(io, contract_path, gpa, .limited(1 << 20)) catch |err| switch (err) {
+            error.OutOfMemory => return err,
+            else => {
+                try appendViolation(gpa, violations, "{s}: cannot be read to compare its package copies ({s})", .{ contract_path, @errorName(err) });
+                break :copies;
+            },
+        };
+        defer gpa.free(canonical);
+        for (package_copies) |copy_path| {
+            const copy = root.readFileAlloc(io, copy_path, gpa, .limited(1 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: cannot read the package copy of `{s}` ({s})", .{ copy_path, contract_path, @errorName(err) });
+                continue;
+            };
+            defer gpa.free(copy);
+            if (!std.mem.eql(u8, canonical, copy)) {
+                try appendViolation(gpa, violations, "{s}: differs from `{s}` — the shipped cascade must be byte-identical to the root contract", .{ copy_path, contract_path });
             }
         }
     }

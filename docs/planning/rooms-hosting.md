@@ -25,7 +25,7 @@ Store and archive. Its bootstrap persists separate Host, Store and owner
 identities, but its lifetime owner closes the composition together.
 The [session guide](../rooms/session.md) owns the existing contracts.
 
-Directory registration and room membership currently select people through
+Directory registration and room membership select people through
 their connection. Directory tests require one name per connection. Reconnect
 can recognize the transport's durable identity. Those assumptions prevent
 independent personas from sharing a Host's connection to a directory.
@@ -308,7 +308,7 @@ its login state.
 
 ### Route publications without scanning partitions
 
-A Host currently installs one publication-lookup callback. Multiple Stores
+A Host installs one publication-lookup callback. Multiple Stores
 need one worker-owned router there, not a sequence of probes through every
 Store. A public routing discriminator selects a partition, and the remaining
 unpredictable capability name is checked there. Routing metadata grants no
@@ -472,7 +472,7 @@ The initial supported host runs one worker with one partition. The two-Store
 proof establishes routing and lifetime separation without requiring a
 multi-worker operator interface. Scale settings do not follow session count.
 Adding workers later must compose existing owners, not change capability or
-session semantics. Stopped backup and restore are required now. Fleet
+session semantics. Stopped backup and restore are required. Fleet
 orchestration is not.
 
 The first integrated proof uses two session roots in one Store and Host,

@@ -206,7 +206,7 @@
 ;; Prefer the live Context without making failure of that recorder permission
 ;; to lose either the original callerless failure or the recorder refusal.
 (define (record-callerless-with-fallback! layer operation error recorder)
-  (with-handlers ([(lambda (_) #t)
+  (with-handlers ([raised-failure?
                    (lambda (recorder-error)
                      (record-runtime-failure! layer operation error)
                      (record-runtime-failure!
@@ -293,6 +293,11 @@
         ;; completed teardown while this thread was parked on the semaphore.
         (dynamic-wind void run (lambda () (set-box! owner #f)))))]))
 
+;; True when the current thread owns the Host lock: inside a behavior turn or
+;; a locked drain. A wait for loop steps from here would wait on itself.
+(define (host-lock-held? m)
+  (eq? (unbox (host-lock-owner m)) (current-thread)))
+
 (define (call-with-host m thunk)
   (call-with-host*
    m
@@ -367,7 +372,7 @@
 ;; The answer comes from the reference's own routing token, not from whichever
 ;; exporter this host dialed most recently, so it is exact with several redeems
 ;; in flight at once. It is also a lookup rather than a dial: a reference whose
-;; exporter an earlier redeem already reached resolves to that same live status-allow: event or source ordering
+;; exporter an earlier redeem already reached resolves to that same live
 ;; session and opens no second session.
 (define (host-exporter-for m ref)
   (define ptr
@@ -384,7 +389,7 @@
        (or (host-session-for-ptr m ptr)
            ;; A loop-owned host redeems handoffs inside its own steps
            ;; (ADR-0024), so the exporter session it dialed exists with no
-           ;; wrapper yet. Wrap it lazily (the wrap registers it, so a status-allow: pending state or quoted runtime label
+           ;; wrapper yet. Wrap it lazily (the wrap registers it, so a
            ;; repeat lookup answers this same object), and the loop stays
            ;; its release authority.
            (let ([lp (host-loop-of m)])

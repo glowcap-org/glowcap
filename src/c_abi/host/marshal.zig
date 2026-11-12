@@ -21,6 +21,7 @@ pub const zero_action = c.GlowcapHostAction{
     .message = null,
     .message_len = 0,
     .result = shared.GLOWCAP_OK,
+    .cause = std.mem.zeroes(shared.GlowcapBreakCause),
 };
 
 /// Project one settled/failed completion onto the shared C action shape.
@@ -40,6 +41,7 @@ pub fn projectCompletionInto(inst: *instance.Instance, action: driver_core.HostA
         },
         .failed => |failed| {
             slot.kind = c.GLOWCAP_HOST_ACTION_FAIL;
+            slot.cause = shared.GlowcapBreakCause.fromCore(failed.cause);
             slot.ticket = failed.vow_id;
             slot.result = switch (failed.failure) {
                 .broken => shared.GLOWCAP_ERR_BROKEN,
@@ -122,7 +124,7 @@ fn refusePlainReference(ctx: void, ref: shared.GlowcapReference) anyerror!model.
 }
 
 /// Convert one capability-free C argument for a resolver settle, into the
-/// instance's argument scratch (borrowed byte payloads; the vat's settle
+/// instance's argument scratch (borrowed byte payloads. The vat's settle
 /// spine clones what a listener may outlive). Resets the scratch exactly as
 /// `valueMessageFromC` does at a top-level call.
 pub fn plainArgumentFromC(inst: *instance.Instance, arg: shared.GlowcapArgument) !model.Argument {

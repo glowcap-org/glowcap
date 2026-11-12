@@ -160,7 +160,7 @@ pub const Server = struct {
     }
 
     /// Remove a minted durable publication (see `driver_core.Host.removeDurable`):
-    /// the old sturdyref misses afterward, while issued capabilities and status-allow: replacement state identity
+    /// the old sturdyref misses afterward, while issued capabilities and
     /// deposited gifts keep the exact actor.
     pub fn removeDurable(
         self: *Server,

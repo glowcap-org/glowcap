@@ -40,7 +40,7 @@ pub const Producer = struct {
         self.refs -= 1;
         if (self.refs != 0) return;
         switch (self.destination) {
-            .owning => |observer| if (observer) |call| owned.finishLocal(call, .{ .broken = "HostReleased" }, .closed),
+            .owning => |observer| if (observer) |call| owned.finishLocal(call, .{ .broken = engine.Broken.unnamed("HostReleased") }, .closed),
             .public => |reply| reply.deinit(),
             .discard => {},
         }
@@ -84,7 +84,7 @@ pub const Producer = struct {
         if (self.outcome == .pending) self.outcome = switch (resolution) {
             .fulfilled => .fulfilled,
             .broken => |reason| .{ .broken = FailureText.init(reason) },
-            .give => .{ .broken = FailureText.init("UnsupportedValue") },
+            .give => .{ .broken = FailureText.init(engine.Broken.unnamed("UnsupportedValue")) },
         };
         self.publish();
     }
@@ -93,7 +93,7 @@ pub const Producer = struct {
         if (self.phase != .committed or self.outcome == .pending) return;
         const resolution: actors.Resolution = switch (self.outcome) {
             .fulfilled => .{ .fulfilled = .{ .void = {} } },
-            .broken => |*reason| .{ .broken = reason.message() },
+            .broken => |*reason| .{ .broken = reason.broken() },
             .pending => unreachable,
         };
         switch (self.destination) {
@@ -113,14 +113,14 @@ pub const Producer = struct {
         self.release();
     }
 
-    fn abort(ctx: *anyopaque, _: *actors.Vat, reason: []const u8) void {
+    fn abort(ctx: *anyopaque, _: *actors.Vat, broken: engine.Broken) void {
         const self: *Producer = @ptrCast(@alignCast(ctx));
         self.phase = .committed;
-        self.outcome = .{ .broken = FailureText.init(reason) };
+        self.outcome = .{ .broken = FailureText.init(broken) };
         self.failure_kind = .broken;
     }
 
-    fn notifyAbort(ctx: *anyopaque, _: *actors.Vat, _: []const u8) void {
+    fn notifyAbort(ctx: *anyopaque, _: *actors.Vat, _: engine.Broken) void {
         const self: *Producer = @ptrCast(@alignCast(ctx));
         self.publish();
         self.release();
@@ -332,6 +332,9 @@ pub fn enqueue(host: *host_mod.Host, source: *Producer, target: capability.Ref, 
 /// owning resolvers are private settlement authorities and retire in place.
 pub fn cancel(host: *host_mod.Host) void {
     if (host.vat.isExecuting()) return;
+    // Outside execution no queue copy runs, and staged entries and active
+    // local turns exist only inside a turn or drive. Host close runs before
+    // the Vat's `deinit`, so no refusal remains.
     host.vat.cancelLocalIngress("HostClosing") catch unreachable;
     // Terminal settlement has no application callback and removes only
     // existing rows: no growth or relocation can invalidate this traversal.

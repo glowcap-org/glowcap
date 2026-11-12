@@ -141,7 +141,7 @@ borrowed view that owns nothing, and records the sizes of the message structs.
 
 # [Encrypted transport round-trip]($section.id('encrypted-transport-round-trip'))
 
-`bench-iroh` times one full OCapN `greet` round-trip on loopback over
+`bench-transports` times one full OCapN `greet` round-trip on loopback over
 [iroh]($link.page('transports/iroh'))'s keyed QUIC and over cleartext TCP as a
 baseline.
 

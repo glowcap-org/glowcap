@@ -1,5 +1,6 @@
 /** FFI iroh endpoint, connection, and provider-package ownership. */
 
+import { releaseResultCode } from "@glowcap/abi";
 import { GlowcapError, HINT_DIRECT_ADDRESSES, type Locator, Reachability, TRANSPORT_IROH } from "@glowcap/runtime";
 import type { DriverLoop } from "@glowcap/runtime/transport";
 import {
@@ -194,7 +195,7 @@ export class IrohNetlayer {
 
 	/** This endpoint's comma-separated direct socket addresses, the dialing hint
 	 * a partner needs because the sidecar binds relay-less and lookup-less. Empty
-	 * when the endpoint has no direct addresses yet.  status-allow: pending state or quoted runtime label */
+	 * when the endpoint has no direct addresses yet. */
 	directAddresses(): string {
 		const probeLen = new Uint8Array(8);
 		const probeRc = irohS().glowcap_iroh_netlayer_direct_addrs(
@@ -283,7 +284,8 @@ export class IrohNetlayer {
 		this.#raw = NULL;
 		this.#releasePromise = this.#releaseDiagnostic.check(
 			"release endpoint",
-			(error, cap, errorLen) => irohS().glowcap_iroh_netlayer_release(raw, error, cap, errorLen),
+			async (error, cap, errorLen) =>
+				releaseResultCode(await irohS().glowcap_iroh_netlayer_release(raw, error, cap, errorLen)),
 		);
 		await this.#releasePromise;
 	}
@@ -357,7 +359,8 @@ export class IrohNetlayer {
 			} finally {
 				await this.#releaseDiagnostic.check(
 					"release endpoint",
-					(error, cap, errorLen) => irohS().glowcap_iroh_netlayer_release(raw, error, cap, errorLen),
+					async (error, cap, errorLen) =>
+						releaseResultCode(await irohS().glowcap_iroh_netlayer_release(raw, error, cap, errorLen)),
 				);
 			}
 		})();
@@ -426,7 +429,7 @@ export class IrohConnection {
 	}
 
 	/** Non-blocking read of raw inbound bytes into `buf`: the byte count (>0),
-	 * `WOULD_BLOCK` when nothing is buffered yet, `CLOSED` on a clean end of status-allow: pending state or quoted runtime label
+	 * `WOULD_BLOCK` when nothing is buffered yet, `CLOSED` on a clean end of
 	 * stream, or throws on a fault. The caller frames these bytes itself. */
 	tryReadInto(buf: Uint8Array): number {
 		const rc = irohS().glowcap_iroh_conn_try_read(

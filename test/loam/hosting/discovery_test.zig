@@ -101,7 +101,7 @@ test "loam publication cold fetch coalesces names and preserves exact authority 
     defer fixture.deinit();
     _ = try stage(&fixture, 0x41);
     try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 2, .max_fetches_per_origin = 2 });
-    var client = hosts.init(std.testing.allocator, @splat(0x82), f.driver.Host.Options.withFrameCap(4096));
+    var client = hosts.init(std.testing.allocator, @splat(0x82), f.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9720");
     const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x41));
@@ -131,7 +131,7 @@ test "loam publication canceled cold fetch retains submitted storage custody" {
     defer fixture.deinit();
     _ = try stage(&fixture, 0x42);
     try f.hosting.publication.listen(fixture.attached, .{});
-    var client = hosts.init(std.testing.allocator, @splat(0x83), f.driver.Host.Options.withFrameCap(4096));
+    var client = hosts.init(std.testing.allocator, @splat(0x83), f.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9721");
     const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x42));
@@ -155,7 +155,7 @@ test "loam publication cold fetch refuses pressure and distinguishes missing nam
     defer fixture.deinit();
     _ = try stage(&fixture, 0x43);
     try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 1 });
-    var client = hosts.init(std.testing.allocator, @splat(0x84), f.driver.Host.Options.withFrameCap(4096));
+    var client = hosts.init(std.testing.allocator, @splat(0x84), f.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9722");
     const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x43));
@@ -194,9 +194,9 @@ test "loam publication fetch slots are shared per origin" {
     defer fixture.deinit();
     _ = try stage(&fixture, 0x46);
     try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 4, .max_fetches_per_origin = 1 });
-    var first_client = hosts.init(std.testing.allocator, @splat(0x86), f.driver.Host.Options.withFrameCap(4096));
+    var first_client = hosts.init(std.testing.allocator, @splat(0x86), f.driver.Host.Options.init(.unchecked, 4096));
     defer first_client.deinit();
-    var second_client = hosts.init(std.testing.allocator, @splat(0x87), f.driver.Host.Options.withFrameCap(4096));
+    var second_client = hosts.init(std.testing.allocator, @splat(0x87), f.driver.Host.Options.init(.unchecked, 4096));
     defer second_client.deinit();
     const first_pair = try pairs.openPair(&first_client, &fixture.host, "127.0.0.1:9729");
     const second_pair = try pairs.openPair(&second_client, &fixture.host, "127.0.0.1:9730");
@@ -226,7 +226,7 @@ test "loam publication retirement races cold lookup and unknown outcomes fail cl
         defer fixture.deinit();
         const publication = try stage(&fixture, 0x45);
         try f.hosting.publication.listen(fixture.attached, .{});
-        var client = hosts.init(std.testing.allocator, @splat(0x85), f.driver.Host.Options.withFrameCap(4096));
+        var client = hosts.init(std.testing.allocator, @splat(0x85), f.driver.Host.Options.init(.unchecked, 4096));
         defer client.deinit();
         const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9723");
         const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x45));
@@ -270,7 +270,7 @@ test "loam publication cold read failure and cancellation retire all storage own
         defer fixture.deinit();
         _ = try stage(&fixture, 0x46);
         try f.hosting.publication.listen(fixture.attached, .{});
-        var client = hosts.init(std.testing.allocator, @splat(0x86), f.driver.Host.Options.withFrameCap(4096));
+        var client = hosts.init(std.testing.allocator, @splat(0x86), f.driver.Host.Options.init(.unchecked, 4096));
         defer client.deinit();
         const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9724");
         const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x46));
@@ -317,7 +317,7 @@ test "loam publication cold population does not create startup endpoints or scan
     try std.testing.expectEqual(@as(usize, 0), fixture.host.publications.count());
     try std.testing.expectEqual(@as(usize, 0), fixture.data.store.cache.allocated_bytes);
     try std.testing.expectEqual(@as(u64, 0), fixture.attached.stats.loads);
-    var client = hosts.init(std.testing.allocator, @splat(0x87), f.driver.Host.Options.withFrameCap(4096));
+    var client = hosts.init(std.testing.allocator, @splat(0x87), f.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9725");
     const swiss = f.driver.Host.DurableSwiss.fromEntropy(entropy);
@@ -356,7 +356,7 @@ test "loam publication cold fetch preserves pipelined calls in both protocol pro
         defer fixture.deinit();
         _ = try stage(&fixture, 0x48);
         try f.hosting.publication.listen(fixture.attached, .{});
-        var options = f.driver.Host.Options.withFrameCap(4096);
+        var options = f.driver.Host.Options.init(.unchecked, 4096);
         options.captp_version = profile;
         options.features = model.FeatureSet.full().forCaptpVersion(profile);
         fixture.host.opts.captp_version = profile;
@@ -397,7 +397,7 @@ test "loam publication deferred fetch preserves virtual answers and detached res
         defer fixture.deinit();
         _ = try stage(&fixture, 0x49);
         try f.hosting.publication.listen(fixture.attached, .{});
-        var client = hosts.init(std.testing.allocator, @splat(0x8a), f.driver.Host.Options.withFrameCap(4096));
+        var client = hosts.init(std.testing.allocator, @splat(0x8a), f.driver.Host.Options.init(.unchecked, 4096));
         defer client.deinit();
         const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9727");
         const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x49));
@@ -439,7 +439,7 @@ test "loam publication bounds distinct cold names separately from fetch waiters"
     defer fixture.deinit();
     _ = try stage(&fixture, 0x4a);
     try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 2, .max_fetches_per_origin = 2 });
-    var client = hosts.init(std.testing.allocator, @splat(0x8b), f.driver.Host.Options.withFrameCap(4096));
+    var client = hosts.init(std.testing.allocator, @splat(0x8b), f.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9728");
     const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x4a));
@@ -454,4 +454,39 @@ test "loam publication bounds distinct cold names separately from fetch waiters"
     try pairs.pumpToQuiescence(&.{pair});
     _ = try accepted.require();
     try std.testing.expectEqual(@as(u64, 1), fixture.attached.stats.loads);
+}
+
+/// An actor with no behavior, spawned and released only to size the Vat's
+/// retirement list.
+const Idle = struct {
+    unused: u8 = 0,
+
+    pub fn handle(_: *Idle, _: *f.actors.Turn, _: f.actors.Delivery) !@import("glowcap").ocapn.model.Argument {
+        return .{ .void = {} };
+    }
+};
+
+test "loam attachment destroy refused at its Vat boundary leaves discovery installed" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var fixture: f.Fixture = undefined;
+    try fixture.initAllocator(failing.allocator(), .{});
+    defer fixture.deinit();
+    // Runs before the teardown above, which must allocate.
+    defer failing.fail_index = std.math.maxInt(usize);
+    try f.hosting.publication.listen(fixture.attached, .{});
+    // A burst of released actors leaves the retirement list burst-sized, so
+    // the next outer turn, destroy's barrier, first allocates a trimmed one.
+    const burst = f.actors.steady_list_bytes / @sizeOf(*anyopaque) + 32;
+    for (0..burst) |_| {
+        const actor = try fixture.host.vat.spawn(Idle, .{});
+        fixture.host.vat.releaseActor(actor.local);
+    }
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, fixture.attached.destroy());
+    try std.testing.expect(failing.has_induced_failure);
+    // The refusal changed nothing: the lookup still answers cold fetches and
+    // the attachment still accepts work.
+    try std.testing.expect(fixture.attached.discovery != null);
+    try std.testing.expect(fixture.host.publication_lookup != null);
+    try std.testing.expect(!fixture.attached.closing);
 }

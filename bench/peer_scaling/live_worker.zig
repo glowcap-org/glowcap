@@ -49,6 +49,7 @@ fn rootFor(role: u8, shard: usize) [32]u8 {
 /// the run measures the session cap at the bound a service would set.
 fn initHost(allocator: std.mem.Allocator, role: u8, shard: usize, max_sessions: usize) !Host {
     return Host.init(allocator, rootFor(role, 0), rootFor(role, shard + 1), .{
+        .thread_policy = driver.checked_threads,
         .limits = .{ .max_frame_bytes = frame_cap },
         .max_sessions = max_sessions,
     });

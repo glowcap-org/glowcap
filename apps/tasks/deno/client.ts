@@ -3,18 +3,18 @@
 // shows up under "Done" and the watcher saw the board change. The orchestrator
 // runs one of these per language.
 //
-//   deno run --allow-ffi --allow-read --allow-net client.ts 127.0.0.1 9099 \
+//   deno run --allow-ffi --allow-read --allow-net client.ts <locator> \
 //     <board-name> deno-alice "buy groceries"
 
 import { TaskBoard } from "./task_client.ts";
 
-const [host, portStr, name, nick, taskText] = Deno.args;
-if (!host || !portStr || !name || !nick || !taskText) {
-	console.error("usage: client.ts <host> <port> <board-name> <nick> <task-text>");
+const [locator, name, nick, taskText] = Deno.args;
+if (!locator || !name || !nick || !taskText) {
+	console.error("usage: client.ts <locator> <board-name> <nick> <task-text>");
 	Deno.exit(2);
 }
 
-const board = await TaskBoard.join(host, Number(portStr), name);
+const board = await TaskBoard.join(locator, name);
 const text = `[${nick}] ${taskText}`;
 
 const watcher = await board.watch();

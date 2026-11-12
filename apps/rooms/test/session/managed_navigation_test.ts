@@ -1,10 +1,11 @@
 // Immediate conversation selection survives delayed admission and exact target retirement.
 import { assertEquals } from "../assert.ts";
-import { deferred, snapshot } from "../support/managed_viewer.ts";
+import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { ManagedOpenings } from "../../web/ui/session/managed/openings.ts";
 import { ManagedNavigation } from "../../web/ui/session/managed/navigation.ts";
-import { WorkspaceConflict } from "../../web/ui/session/managed/operation.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
+import { initializeApplication } from "../support/application.ts";
+await initializeApplication();
 
 for (const cancelAt of ["handoff", "selection"] as const) {
 	Deno.test(`opening cancellation at ${cancelAt} owns membership independently of form and selection`, async () => {
@@ -203,28 +204,26 @@ for (const conflict of [false, true]) {
 		const release = deferred<void>();
 		const admitted: string[] = [];
 		let attempts = 0;
-		const session = {
-			current,
-			execute: async (
-				_id: string,
-				prepare: () => Promise<unknown>,
-				complete: (command: unknown) => Promise<void>,
-			) => {
-				await complete(await prepare());
-			},
-			command: async (_name: string, args: string[], _id: string, validate: (value: typeof current) => void) => {
-				validate(current);
-				if (++attempts === 1) {
-					entered.resolve();
-					await release.promise;
-					if (conflict) throw new WorkspaceConflict();
-				}
-				admitted.push(args[0]);
-				current.intent.active = args[0];
-				return {};
-			},
-			completeResult: () => Promise.resolve(),
-		} as unknown as ManagedRoomsSession;
+		const session = viewer({
+			snapshot: () => Promise.resolve(current),
+			prepareCommand: (_id: string, _revision: string, _name: string, args: string[]) =>
+				Promise.resolve({
+					submit: async () => {
+						if (++attempts === 1) {
+							entered.resolve();
+							await release.promise;
+							if (conflict) return { status: "conflict" };
+						}
+						admitted.push(args[0]);
+						current.intent.active = args[0];
+						return { status: "pending" };
+					},
+					status: () => Promise.resolve("committed"),
+					free() {},
+				}),
+		});
+		await session.refresh();
+		session.completeResult = () => Promise.resolve();
 		const navigation = new ManagedNavigation(session);
 		const first = navigation.select("first");
 		await entered.promise;
@@ -236,6 +235,7 @@ for (const conflict of [false, true]) {
 		assertEquals(current.intent.active, "second");
 		assertEquals(navigation.selected, undefined);
 		await navigation.close();
+		await session.close();
 	});
 }
 
@@ -255,20 +255,22 @@ Deno.test("navigation revision contention preserves the visible room and permits
 	});
 	let conflicts = true;
 	let attempts = 0;
-	const session = {
-		current,
-		pending: [],
-		execute: async (_id: string, prepare: () => Promise<unknown>, complete: (command: unknown) => Promise<void>) =>
-			complete(await prepare()),
-		command: (_name: string, _args: string[], _id: string, validate: (value: typeof current) => void) => {
-			validate(current);
-			attempts++;
-			if (conflicts) return Promise.reject(new WorkspaceConflict());
-			current.intent.active = "room";
-			return Promise.resolve({});
-		},
-		completeResult: () => Promise.resolve(),
-	} as unknown as ManagedRoomsSession;
+	const session = viewer({
+		snapshot: () => Promise.resolve(current),
+		prepareCommand: () =>
+			Promise.resolve({
+				submit: () => {
+					attempts++;
+					if (conflicts) return Promise.resolve({ status: "conflict" });
+					current.intent.active = "room";
+					return Promise.resolve({ status: "pending" });
+				},
+				status: () => Promise.resolve("committed"),
+				free() {},
+			}),
+	});
+	await session.refresh();
+	session.completeResult = () => Promise.resolve();
 	const navigation = new ManagedNavigation(session);
 	const [outcome] = await Promise.allSettled([navigation.select("room")]);
 	assertEquals(outcome.status, "rejected");
@@ -279,6 +281,7 @@ Deno.test("navigation revision contention preserves the visible room and permits
 	assertEquals(current.intent.active, "room");
 	assertEquals(navigation.selected, undefined);
 	await navigation.close();
+	await session.close();
 });
 
 Deno.test("known navigation refusal releases its visible selection after the room is removed", async () => {
@@ -295,23 +298,25 @@ Deno.test("known navigation refusal releases its visible selection after the roo
 		standing: null,
 		draft: "",
 	});
-	const session = {
-		current,
-		pending: [],
-		execute: async (_id: string, prepare: () => Promise<unknown>) => {
-			await prepare();
-		},
-		command: (_name: string, _args: string[], _id: string, validate: (value: typeof current) => void) => {
-			validate(current);
-			current.intent.conversations = [];
-			return Promise.reject(new WorkspaceConflict());
-		},
-	} as unknown as ManagedRoomsSession;
+	const session = viewer({
+		snapshot: () => Promise.resolve(current),
+		prepareCommand: () =>
+			Promise.resolve({
+				submit: () => {
+					current.intent.conversations = [];
+					return Promise.resolve({ status: "conflict" });
+				},
+				status: () => Promise.resolve("committed"),
+				free() {},
+			}),
+	});
+	await session.refresh();
 	const navigation = new ManagedNavigation(session);
 	const [outcome] = await Promise.allSettled([navigation.select("room")]);
 	assertEquals(outcome.status, "rejected");
 	assertEquals(navigation.selected, undefined);
 	await navigation.close();
+	await session.close();
 });
 
 for (const superseded of ["none", "room", "view"] as const) {

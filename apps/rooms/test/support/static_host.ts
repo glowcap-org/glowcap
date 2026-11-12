@@ -40,13 +40,20 @@ export async function serveStaticExport(): Promise<StaticHost> {
 	const index = await Deno.readFile(`${page}/index.html`);
 	const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, async (request) => {
 		const path = decodeURIComponent(new URL(request.url).pathname);
-		// A path with no extension is a page route, answered by the one page.
-		if (!/\.[a-z0-9]+$/i.test(path)) {
-			return new Response(index, { headers: { "content-type": CONTENT_TYPES.html } });
+		const found = await Deno.realPath(`${page}${path}`).catch(() => null);
+		const file = found != null && found.startsWith(`${page}/`) && (await Deno.stat(found)).isFile ? found : null;
+		if (file == null) {
+			// A route with no file behind it is answered by the one page. A file the
+			// export wrote is served as itself, `ui-version` included: answering that
+			// with the page tells the page another build is being served, and it
+			// reloads out from under whatever it was doing.
+			if (!/\.[a-z0-9]+$/i.test(path)) {
+				return new Response(index, { headers: { "content-type": CONTENT_TYPES.html } });
+			}
+			return new Response("not here\n", { status: 404 });
 		}
-		const file = await Deno.realPath(`${page}${path}`).catch(() => null);
-		if (file == null || !file.startsWith(page)) return new Response("not here\n", { status: 404 });
-		const type = CONTENT_TYPES[file.slice(file.lastIndexOf(".") + 1)];
+		const name = file.slice(file.lastIndexOf("/") + 1);
+		const type = name.includes(".") ? CONTENT_TYPES[name.slice(name.lastIndexOf(".") + 1)] : CONTENT_TYPES.txt;
 		if (type == null) return new Response("not served\n", { status: 404 });
 		return new Response(await Deno.readFile(file), { headers: { "content-type": type } });
 	});

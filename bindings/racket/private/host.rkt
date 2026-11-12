@@ -76,7 +76,7 @@
   (define-values (selected-codec selected-captp-version)
     (host-profile-values 'make-host profile codec captp-version))
   ;; Keep an owned copy so caller mutation cannot split the FFI identity from
-  ;; the seed used to derive the host's designator. status-allow: purpose clause
+  ;; the seed used to derive the host's designator.
   (define durable-seed (bytes->immutable-bytes (bytes-copy seed)))
   ;; The durable identity followed by a session-key root drawn here, at this
   ;; binding's entropy boundary, because the library draws none (ADR-0028).
@@ -102,13 +102,13 @@
                    (lambda (error)
                      (define cleanup-code (glowcap_host_release ptr))
                      (define cleanup
-                       (with-handlers ([(lambda (_) #t) values])
-                         (check/host cleanup-code)
+                       (with-handlers ([raised-failure? values])
+                         (check/host (release-result-code cleanup-code))
                          #f))
                      ;; A pre-commit refusal leaves an FFI Host borrowing
                      ;; this Context. Leak the pair rather than free its
                      ;; allocator policy under the still-live Host.
-                     (when (release-consumed? cleanup-code)
+                     (when (release-result-consumed? cleanup-code)
                        (glowcap_context_release context))
                      (raise (if cleanup
                                 (retain-cleanup-failure error cleanup)
@@ -166,7 +166,7 @@
 
 (define (run-host-release-worker! m barrier close-sessions?)
   (define outcome
-    (with-handlers ([(lambda (_) #t)
+    (with-handlers ([raised-failure?
                      (lambda (error)
                        (record-host-runtime-failure! m error)
                        (release-result (host-runtime-primary m)))])
@@ -204,10 +204,10 @@
                     (let ([code (glowcap_host_release ptr)])
                       (values
                        code
-                       (with-handlers ([(lambda (_) #t) values])
-                         (check/host code)
+                       (with-handlers ([raised-failure? values])
+                         (check/host (release-result-code code))
                          #f)))))
-              (when (release-consumed? release-code)
+              (when (release-result-consumed? release-code)
                 (glowcap_context_release (host-context m))
                 (trace-detach-host! m)
                 ((unbox host-gc-retire-hook) m)
@@ -333,7 +333,7 @@
   ;; A close request issued outside a turn is close-relevant activity: a
   ;; driver already parked on host progress with no finite deadline must
   ;; re-check. A mid-turn request needs no bump here, because the enclosing
-  ;; drain bumps when the turn unwinds; bumping earlier lets the turn's own status-allow: event or source ordering
+  ;; drain bumps when the turn unwinds; bumping earlier lets the turn's own
   ;; pump observe closure before the parked release executes.
   (when (eq? (car disposition) 'wait) (host-bump-progress! m))
   (case (car disposition)
@@ -404,9 +404,9 @@
   (check/host (glowcap_host_dialed (host-ptr m) ticket route-index session-ptr adopted))
   (not (zero? (ptr-ref adopted _uint8))))
 
-(define (host-dial-failed! m ticket route-index reason)
+(define (host-dial-failed! m ticket route-index failure reason)
   (define bs (string->bytes/utf-8 reason))
-  (check/host (glowcap_host_dial_failed (host-ptr m) ticket route-index (pin-immobile bs) (bytes-length bs))))
+  (check/host (glowcap_host_dial_failed (host-ptr m) ticket route-index (break-route-failure-code failure) (pin-immobile bs) (bytes-length bs))))
 
 ;; Retain and select this Host's complete acceptable location.
 (define (host-set-advertised-locator! m loc)
@@ -572,7 +572,7 @@
         (raise-glowcap 'host-publish-reference ERR-INTERNAL "publication returned an invalid name length"))
       (bytes->string/utf-8 out))))
 
-;; Remove a minted durable publication (ADR-0007): the old sturdyref misses status-allow: replacement state identity
+;; Remove a minted durable publication (ADR-0007): the old sturdyref misses
 ;; from now on, while issued refs and deposited gifts keep the exact actor.
 ;; Returns #f when no such durable name exists.
 (define (host-remove-durable m swiss)

@@ -1,5 +1,5 @@
 //! Trace local promise projections through the Session's existing owners.
-//! Stamps preserve answer identity; they do not retain an internally chained
+//! Stamps preserve answer identity. They do not retain an internally chained
 //! projection. This allocation-free mark/sweep supplies that lifetime without
 //! strong reference cycles. Scratch lives in the existing resolver-purpose
 //! union and never changes the identity of its answer.
@@ -121,8 +121,8 @@ fn selfRooted(owner: *session.Session, position: model.ExportPosition, projectio
 
 /// Trace each rooted tree and reachable projection once, then collect an
 /// unrooted resolved component as a unit. Pending projections remain local
-/// producer roots. No heap table or recursion across the promise graph exists;
-/// value-tree recursion is bounded by the admission-time model depth check.
+/// producer roots. No heap table or recursion across the promise graph exists.
+/// Value-tree recursion is bounded by the admission-time model depth check.
 ///
 /// The paced entry: the trace runs once `traceInterval` collections have
 /// asked for it, or at once when the registry is empty.

@@ -70,7 +70,7 @@ fn validateProjectionOp(self: *Session, receiver: anytype, answer: model.AnswerP
 
 /// The one `op:start-session` kind rule, shared by all three dispatch
 /// validators: the session must still be negotiating, this half of the
-/// handshake must not have been observed yet (`half` names which flag the status-allow: pending state or quoted runtime label
+/// handshake must not have been observed yet (`half` names which flag the
 /// caller's direction owns), and the declared CapTP version must match the
 /// session's negotiated profile.
 fn validateStartSession(
@@ -172,7 +172,7 @@ pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void
 }
 
 /// Validate a settlement of an outbound question or local listen record.
-/// Only the wire entry point requires a question; resolver callbacks may
+/// Only the wire entry point requires a question. Resolver callbacks may
 /// settle listen records. Symmetrically with a
 /// deliver's args, the fulfill payload's references are validated and
 /// depth-bounded: a `near` must name one of our exports, a `far` is a fresh

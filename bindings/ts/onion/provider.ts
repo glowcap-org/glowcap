@@ -11,7 +11,7 @@ import {
 	withCleanup,
 } from "@glowcap/runtime/transport";
 import type { DriverProvider, ProviderTarget } from "@glowcap/runtime/transport";
-import { TRANSPORT_ONION } from "@glowcap/abi";
+import { releaseResultCode, TRANSPORT_ONION } from "@glowcap/abi";
 import { onionS } from "./ffi.ts";
 import { checkOnion, type NetlayerOptions, openNetlayer } from "./ffi_archive.ts";
 
@@ -29,7 +29,8 @@ export async function installProvider(loop: ProviderTarget, options: NetlayerOpt
 	}, () =>
 		new FfiDiagnostic("onion").check(
 			"netlayer release",
-			(error, cap, errorLen) => onionS.glowcap_onion_netlayer_release(raw, error, cap, errorLen),
+			async (error, cap, errorLen) =>
+				releaseResultCode(await onionS.glowcap_onion_netlayer_release(raw, error, cap, errorLen)),
 		));
 }
 

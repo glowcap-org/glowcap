@@ -97,8 +97,8 @@ pub const Resident = struct {
 
     /// Close the endpoint and its runtime. Every connection minted from this
     /// resident must already be closed.
-    pub fn deinit(self: *Resident) error{SidecarTeardownFailed}!void {
-        if (sidecar.glowcap_iroh_sidecar_endpoint_free(self.endpoint) != 0) return error.SidecarTeardownFailed;
+    pub fn deinit(self: *Resident) error{EndpointReleaseFailed}!void {
+        if (sidecar.glowcap_iroh_sidecar_endpoint_free(self.endpoint) != 0) return error.EndpointReleaseFailed;
     }
 
     /// This resident as a `Netlayer`. `self` must outlive every connection
@@ -318,7 +318,7 @@ pub const Resident = struct {
     }
 
     /// Non-blocking read of raw bytes from a loop connection into `buf`:
-    /// the byte count, `loop_would_block` when nothing is buffered yet, 0 on a status-allow: pending state or quoted runtime label
+    /// the byte count, `loop_would_block` when nothing is buffered yet, 0 on a
     /// clean end of stream, or negative on a read fault. The host frames these
     /// bytes itself (the peer's stream-input path), the same shape `tcp` uses.
     pub fn loopTryRead(self: *Resident, conn: *anyopaque, buf: []u8) isize {

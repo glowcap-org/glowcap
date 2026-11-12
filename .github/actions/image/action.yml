@@ -1,8 +1,11 @@
 name: Prepare the CI image
-description: Resolve a toolchain image or build it once for this workflow run.
+description: Resolve a toolchain image or build it once for this workflow run, and start it when this job is its consumer.
 inputs:
   publish:
     description: Whether a built image is pushed to the registry, which needs packages write.
+    default: "false"
+  start:
+    description: Whether this job starts the prepared image itself, instead of handing it to other jobs.
     default: "false"
 outputs:
   image:
@@ -17,17 +20,16 @@ runs:
     - name: Reclaim disk space for the toolchain image
       shell: bash
       run: python3 ci/image.py reclaim
-    - name: Install the pinned Dev Containers CLI
-      shell: bash
-      run: . .devcontainer/pins.sh && npm install -g "@devcontainers/cli@$DEVCONTAINER_CLI_VERSION"
-    - name: Authenticate to the image registry
-      env:
-        GH_TOKEN: ${{ github.token }}
-      shell: bash
-      run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+    - uses: ./.github/actions/devcontainer-cli
     - name: Resolve or build the toolchain image once
       id: prepare
       env:
         PUBLISH: ${{ inputs.publish }}
       shell: bash
       run: python3 ci/image.py prepare --publish "$PUBLISH"
+    - name: Start the prepared devcontainer
+      if: inputs.start == 'true'
+      env:
+        IMAGE: ${{ steps.prepare.outputs.image }}
+      shell: bash
+      run: python3 ci/image.py start "$IMAGE"

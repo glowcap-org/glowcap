@@ -8,7 +8,9 @@
  * terminal/readiness state over one fd so a single loop thread multiplexes
  * many connections. The endpoint owns the private tokio runtime driving both
  * surfaces. No call panics across this boundary. Failures come back as null
- * handles or negative return values.
+ * handles or negative return values. A NULL handle is refused and never
+ * dereferenced: a call that borrows one returns its failure value, and a
+ * release or close is a no-op.
  *
  * This is the private byte-level seam. It is prefixed
  * glowcap_iroh_sidecar_* so it shares no symbol prefix with the public
@@ -216,14 +218,8 @@ intptr_t glowcap_iroh_sidecar_conn_write(glowcap_iroh_sidecar_conn *conn, const 
  * and -1 once it is closed or lost. Borrows the handle. */
 int32_t glowcap_iroh_sidecar_conn_flush(glowcap_iroh_sidecar_conn *conn);
 
-/* Gracefully close. A blocking-surface connection finishes its send stream and
- * closes QUIC. A readiness-surface connection marks its writer closed so the
- * writer drains admitted bytes and finishes the stream asynchronously, without
- * parking the caller's reactor thread. Idempotent. Borrows the handle. The
- * handle stays valid until glowcap_iroh_sidecar_conn_free. */
-void glowcap_iroh_sidecar_conn_close(glowcap_iroh_sidecar_conn *conn);
-
-/* Release a connection handle, closing it first if still open. A
+/* Release a connection handle, closing it gracefully first if still open: a
+ * blocking-surface connection finishes its send stream and closes QUIC. A
  * readiness-surface connection transfers any admitted final write batch to its
  * writer task, which drains asynchronously. Release never joins that task on
  * the caller's reactor thread. NULL is a no-op. The handle is invalid afterward. */
@@ -317,7 +313,7 @@ size_t glowcap_iroh_sidecar_conn_id(const glowcap_iroh_sidecar_conn *conn);
 
 /* Non-blocking read: copy up to `len` buffered inbound bytes into `buf`. Returns
  * the byte count (> 0), 0 at clean end of stream, -1 on error, or
- * GLOWCAP_IROH_WOULD_BLOCK when no bytes are buffered yet. The connection must status-allow: pending state or quoted runtime label
+ * GLOWCAP_IROH_WOULD_BLOCK when no bytes are buffered yet. The connection must
  * have been moved to the readiness surface. Borrows the handle. */
 intptr_t glowcap_iroh_sidecar_conn_try_read(glowcap_iroh_sidecar_conn *conn, uint8_t *buf, size_t len);
 

@@ -60,7 +60,8 @@ fn onResolve(ctx: ?*anyopaque, resolution: actors.Resolution) void {
             result.outcome = .fulfilled;
         },
         .broken => |reason| {
-            result.copyText(reason);
+            var diagnostic: [engine.Broken.diagnostic_capacity]u8 = undefined;
+            result.copyText(reason.render(&diagnostic));
             result.outcome = .broken;
         },
         .give => result.outcome = .give,

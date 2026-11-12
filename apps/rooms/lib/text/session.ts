@@ -5,8 +5,6 @@
 // the one protocol term on this screen that is also an ordinary English word,
 // so it stands without explanation. Everything else is named for what it does.
 
-import { serverUnreachable } from "./failure.ts";
-
 export const sessionSetupTitle = "Choose a session";
 export const sessionSetupLead =
 	"Your rooms, messages and settings live in a session. Pick where this browser keeps its session.";
@@ -16,8 +14,7 @@ export const sessionLocalTitle = "This browser";
  * the server like any chat app, so the row makes no privacy claim. It names
  * the cost of keeping the session here, which is the reason to pick the other
  * option. */
-export const sessionLocalHint =
-	"Your session stays in this browser. Clear the browser and it's gone, and there's no copy anywhere else.";
+export const sessionLocalHint = "Clear the browser and your session is gone. There's no copy anywhere else.";
 export const sessionLocalCommit = "Use this browser";
 /** Said when the page could not open its session for a reason Rooms cannot
  * name. The browser console holds the cause, and the one act under it says
@@ -29,8 +26,7 @@ export const bootReload = "Reload";
 export const sessionSharedTitle = "Shared session";
 /** The reader pastes a link. That the link is a capability is true but not
  * what this row is for. */
-export const sessionSharedHint =
-	"Use a session another device or a server is already keeping. Paste the link it gave you.";
+export const sessionSharedHint = "Use a session another device or a server is already keeping.";
 /** Named for what a reader pastes. The hint explains the form, for somebody
  * matching it against a printed capability. */
 export const sessionSharedFieldLabel = "Session link";
@@ -69,10 +65,6 @@ export const serverNeedDm = "Direct messages are set to go through the Rooms ser
 export const sessionServerAttachLead = `${serverNeedAddress} Test a server's address, and saving it attaches.`;
 export const sessionServerSave = "Save";
 export const sessionServerSaveAttach = "Save and attach";
-/** A session act that broke on the way, while this browser has a Rooms
- * server to go through: that server is the likeliest cause. */
-export const sessionServerUnreachable = (host: string, detail: string) =>
-	serverUnreachable(host, "Check that it is running, or change it.", detail);
 /** The same dialog in the open workspace, opened by an act that needs a
  * Rooms server when the page has none: `need` is one of the needs above. The
  * session keeps its server, so saving reloads, and the act is waiting on the
@@ -85,7 +77,7 @@ export const serverAskAfterDoor = (door: string) => `${door} A Rooms server can 
 /** The same ask after a direct line to `peer` found no route on a page with
  * no server: a route through a server is the other way to that person. */
 export const serverAskAfterDirect = (peer: string) =>
-	`No direct route to ${peer} opened from this browser. A Rooms server gives this browser another way to reach them. ${serverAskHow}`;
+	`No direct route to ${peer} opened. A Rooms server gives this browser another way to reach them. ${serverAskHow}`;
 
 /** The advanced section and the two confirmations under it. Each
  * confirmation names what survives as well as what goes, since "delete" alone

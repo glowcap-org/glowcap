@@ -6,6 +6,10 @@
 const std = @import("std");
 const execution = @import("execution.zig");
 
+/// The pinned mypy and the flags every first-party Python type check runs
+/// under, so the published binding is held to what the CI programs are.
+pub const mypy = [_][]const u8{ "mypy", "--ignore-missing-imports", "--check-untyped-defs" };
+
 /// Run a system command from the repository root.
 pub fn addRootedSystemCommand(
     b: *std.Build,

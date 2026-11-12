@@ -142,7 +142,10 @@ void glowcap_onion_netlayer_shutdown(GlowcapOnionNetlayer *netlayer);
    out_error/out_error_len optionally capture this call's diagnostic before an
    off-thread runtime regains control: omit all three diagnostic arguments, or
    provide out_error_len. It receives the full length; out_error receives at most
-   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_onion_netlayer_release(GlowcapOnionNetlayer *netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Dial the onion service `service_id` through the configured Tor and return an
    owned connection framing on `codec`, refusing inbound frames over
@@ -236,7 +239,10 @@ int32_t glowcap_onion_conn_shutdown(GlowcapOnionConn *conn);
    out_error/out_error_len optionally capture this call's diagnostic before an
    off-thread runtime regains control: omit all three diagnostic arguments, or
    provide out_error_len. It receives the full length; out_error receives at most
-   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_onion_conn_release(GlowcapOnionConn *conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal accept admission and interrupt a blocked accept without freeing the
    listener or withdrawing its service. May race operations; join the embedding's
@@ -251,7 +257,10 @@ void glowcap_onion_listener_shutdown(GlowcapOnionListener *listener);
    out_error/out_error_len optionally capture this call's diagnostic before an
    off-thread runtime regains control: omit all three diagnostic arguments, or
    provide out_error_len. It receives the full length; out_error receives at most
-   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_onion_listener_release(GlowcapOnionListener *listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Copy the calling thread's last onion-transport error into out_buf, the onion
    sibling of glowcap_last_error, reading this archive's own per-thread slot. A

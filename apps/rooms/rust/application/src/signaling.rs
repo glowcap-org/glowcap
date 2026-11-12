@@ -14,7 +14,8 @@ pub const MAX_CANDIDATE: usize = 4096;
 /// channel and the relay dial after a failure run under the Host's handshake
 /// budget instead. The Host dials the server route only after the direct
 /// attempt reports failure, and the page awaits its introduction under
-/// `room::authority::REQUEST_TIMEOUT_MS`, so this stays below that budget.
+/// `directory::introduction::REQUEST_TIMEOUT_MS`. Its redemption portion
+/// exceeds this exchange budget independently of the server's offer wait.
 /// The answerer waits for the channel under this budget alone, and once its
 /// answer has gone out it ends quietly when the budget runs out, because the
 /// offerer decided first at its own connect bound.

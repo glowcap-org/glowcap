@@ -11,6 +11,7 @@
 
 import type { Page } from "playwright";
 import { takeCapability } from "../page/capability_set.ts";
+import { traceCapOf, tracePublishUrlOf } from "../../lib/trace_view.ts";
 
 // The viewer contract itself is shared with the `rooms-trace-tail` tool, so it
 // lives beside the publishing half rather than under the proofs. What stays
@@ -26,6 +27,14 @@ export {
 } from "../../lib/trace_view.ts";
 
 const ANNOUNCE = "ROOMS-TRACE-LISTENING ";
+
+/** The environment a Goblins vat publishes its own trace under
+ * (`conformance/goblins-peer/racket/trace-publish.rkt`): the producer route the
+ * link advertises and, apart from it, the swiss number the vat presents there
+ * as its first message. */
+export function vatTraceEnv(sturdyref: string): { GLOWCAP_ROOMS_TRACE_URL: string; GLOWCAP_ROOMS_TRACE_CAP: string } {
+	return { GLOWCAP_ROOMS_TRACE_URL: tracePublishUrlOf(sturdyref), GLOWCAP_ROOMS_TRACE_CAP: traceCapOf(sturdyref) };
+}
 
 /** Tee the child's stderr through to this process and resolve the announced
  * trace sturdyref when it passes by. The stream keeps flowing after the match,

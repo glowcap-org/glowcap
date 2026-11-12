@@ -1,6 +1,8 @@
-//! Validate documentation examples against the product's command registry.
+//! Validate documentation examples against the product's command registry,
+//! and the break reasons `docs/cli.md` tabulates against the ones a call prints.
 const std = @import("std");
 const cli = @import("cli");
+const Reason = @import("glowcap").foundation.break_cause.Reason;
 const corpus = @import("source_check/docs/corpus.zig");
 const violation_log = @import("source_check/violation_log.zig");
 const Command = cli.cmd_types.Command;
@@ -11,9 +13,64 @@ pub fn main(init: std.process.Init) !void {
     var root = try std.Io.Dir.cwd().openDir(init.io, std.mem.span(init.minimal.args.vector[1]), .{ .iterate = true });
     defer root.close(init.io);
     var violations: std.ArrayList([]const u8) = .empty;
-    for (try corpus.load(init.io, gpa, root, &violations, gpa)) |entry| try checkText(gpa, &violations, entry.path, entry.text);
+    var tabulated = false;
+    for (try corpus.load(init.io, gpa, root, &violations, gpa)) |entry| {
+        try checkText(gpa, &violations, entry.path, entry.text);
+        if (!std.mem.eql(u8, entry.path, reasons_doc)) continue;
+        tabulated = true;
+        try checkReasons(gpa, &violations, entry.path, entry.text);
+    }
+    if (!tabulated) try violation_log.appendViolation(gpa, &violations, "{s}: the doc that tabulates the break reasons is not among the docs checked", .{reasons_doc});
     for (violations.items) |message| std.debug.print("{s}\n", .{message});
     if (violations.items.len != 0) std.process.exit(1);
+}
+
+/// The doc whose `reason` table a script author reads before branching on `cause`.
+const reasons_doc = "docs/cli.md";
+
+/// The table headed `reason` has one row per `Reason`, spelled as its tag,
+/// which is the word a broken call prints.
+fn checkReasons(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), path: []const u8, text: []const u8) !void {
+    var seen: std.EnumSet(Reason) = .empty;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    var number: usize = 0;
+    var header: ?usize = null;
+    var fenced = false;
+    // The first table headed `reason` is the reason table. Its rows run from
+    // the rule under the header to the first line that is no table row.
+    var table: enum { before, rule, rows, after } = .before;
+    while (lines.next()) |line| {
+        number += 1;
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~")) fenced = !fenced;
+        if (table == .after) break;
+        const row = !fenced and std.mem.startsWith(u8, line, "|");
+        var cells = std.mem.tokenizeScalar(u8, line, '|');
+        const cell = std.mem.trim(u8, cells.next() orelse "", " \t\r");
+        switch (table) {
+            .before => if (row and std.mem.eql(u8, cell, "`reason`")) {
+                header = number;
+                table = .rule;
+            },
+            .rule => table = if (row and std.mem.indexOfNone(u8, line, "|-: \t\r") == null) .rows else .after,
+            .rows => if (!row) {
+                table = .after;
+            } else {
+                const name = std.mem.trim(u8, cell, "`");
+                const reason = std.meta.stringToEnum(Reason, name) orelse {
+                    try violation_log.appendViolation(gpa, violations, "{s}:{d}: `{s}` is no break reason a call prints", .{ path, number, name });
+                    continue;
+                };
+                if (seen.contains(reason)) try violation_log.appendViolation(gpa, violations, "{s}:{d}: the reason table lists `{s}` twice", .{ path, number, name });
+                seen.insert(reason);
+            },
+            .after => unreachable,
+        }
+    }
+    const at = header orelse return violation_log.appendViolation(gpa, violations, "{s}: no table headed `reason` lists the break reasons", .{path});
+    for (std.enums.values(Reason)) |reason| {
+        if (!seen.contains(reason)) try violation_log.appendViolation(gpa, violations, "{s}:{d}: the reason table omits `{s}`", .{ path, at, @tagName(reason) });
+    }
 }
 
 fn checkText(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), path: []const u8, text: []const u8) !void {
@@ -262,4 +319,34 @@ test "every shell invocation is checked across assignments wrappers and pipeline
     try std.testing.expectEqual(@as(usize, 5), violations.items.len);
     try checkText(gpa, &violations, "x.md", "```sh\nglowcap apps rooms session start --dir <member-dir>\necho 'glowcap invalid'\nglowcap help | cat -n\n```\n");
     try std.testing.expectEqual(@as(usize, 5), violations.items.len);
+}
+
+test "the reason table names every break reason once and nothing else" {
+    const gpa = std.testing.allocator;
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |v| gpa.free(v);
+        violations.deinit(gpa);
+    }
+    var table: std.ArrayList(u8) = .empty;
+    defer table.deinit(gpa);
+    try table.appendSlice(gpa, "| `reason` | The break |\n| --- | --- |\n");
+    for (std.enums.values(Reason)) |reason| try table.print(gpa, "| `{s}` | x |\n", .{@tagName(reason)});
+    try checkReasons(gpa, &violations, "x.md", table.items);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+    // A later table is not the reason table, whatever its header, and a
+    // table in a code fence is an example. Neither is read for reasons.
+    try table.appendSlice(gpa, "\n| other | y |\n| --- | --- |\n| `unknown` | y |\n\n| `reason` | y |\n| --- | --- |\n| `closed` | y |\n");
+    try checkReasons(gpa, &violations, "x.md", table.items);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+    try table.insertSlice(gpa, 0, "```md\n| `reason` | The break |\n| --- | --- |\n| `unknown` | x |\n```\n\n");
+    try checkReasons(gpa, &violations, "x.md", table.items);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+    try checkReasons(gpa, &violations, "x.md", "| `reason` | The break |\n| --- | --- |\n| `closed` | x |\n| `closed` | x |\n| `gone` | x |\n");
+    try std.testing.expectEqual(std.enums.values(Reason).len + 1, violations.items.len);
+    try checkReasons(gpa, &violations, "x.md", "No table here.\n");
+    try std.testing.expectEqual(std.enums.values(Reason).len + 2, violations.items.len);
+    // A header with no rule under it heads no table, so every reason is missing.
+    try checkReasons(gpa, &violations, "x.md", "| `reason` | The break |\n| `closed` | x |\n");
+    try std.testing.expectEqual(2 * std.enums.values(Reason).len + 2, violations.items.len);
 }

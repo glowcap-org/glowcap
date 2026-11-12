@@ -18,7 +18,7 @@ const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 async function serveRooms(): Promise<number> {
 	const front = spawnWeb({
-		args: ["--transport=iroh", "0", "0"],
+		args: ["--transport=iroh", "0"],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "inherit",

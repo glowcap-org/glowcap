@@ -80,7 +80,13 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		// continuing connection owns; every other ending cuts what the
 		// membership let into the room.
 		if how != Departure::Continued {
-			let _ = self.files.close_member(&member.files);
+			#[expect(
+				clippy::expect_used,
+				reason = "this server's store minted the member's scope in `seating`"
+			)]
+			self.files
+				.close_member(&member.files)
+				.expect("a member's file scope belongs to this server's store");
 			let minter = holder.unwrap_or(member.connection);
 			self.retire_invitations_from(key, minter);
 		}
@@ -151,7 +157,13 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		for line in &room.lines {
 			self.retire_line(*line);
 		}
-		let _ = self.files.close_room(&room.files);
+		#[expect(
+			clippy::expect_used,
+			reason = "this server's store minted the room's scope in `entrance`"
+		)]
+		self.files
+			.close_room(&room.files)
+			.expect("a room's file scope belongs to this server's store");
 		if room.policy.is_listed() {
 			let public = folded(&room.name);
 			if self.public.get(&public) == Some(key) {
@@ -174,7 +186,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	}
 
 	/// A line stops answering its holders: its row goes, and the history
-	/// row it named, if any, is no longer editable from here. status-allow: lifecycle transition
+	/// row it named, if any, is no longer editable from here.
 	pub(super) fn retire_line(&mut self, key: super::LineKey) {
 		let Some(line) = self.lines.remove(&key) else {
 			return;

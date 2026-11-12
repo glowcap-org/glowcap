@@ -17,7 +17,7 @@ export const phaseDisconnected = "Not connected";
 
 /** Why direct messages cannot run on a directory that is not live. */
 export function dmBlockedWhile(phaseWord: string): string {
-	return `Not while this directory is ${phaseWord}`;
+	return `Unavailable: this directory is ${phaseWord}`;
 }
 
 /** How a connected directory is reached, by the transport its connection runs

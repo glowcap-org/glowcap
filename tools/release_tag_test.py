@@ -62,12 +62,16 @@ done
 
 def load_front():
     spec = importlib.util.spec_from_file_location("release_tag", RELEASE)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {RELEASE} as a module")
     front = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(front)
     return front
 
 
 class ReleaseTagTest(unittest.TestCase):
+    keys: Path
+
     @classmethod
     def setUpClass(cls):
         keys = tempfile.TemporaryDirectory()

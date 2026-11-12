@@ -24,6 +24,13 @@ on:
 permissions:
   contents: read
 
+# Two dispatches at one tag would race the same registry uploads. Every step
+# skips a version its registry holds, so the second waits, then finds the
+# first one's work and finishes what remains.
+concurrency:
+  group: publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
   contract:
     timeout-minutes: 5
@@ -40,22 +47,17 @@ jobs:
           ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
 
-      - name: Require the tag's version
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
-          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
-            echo "release tag $RELEASE_TAG does not match the tree's version tag $expected_tag" >&2
-            exit 1
-          fi
-
       - uses: ./.github/actions/pins
         id: pins
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ steps.pins.outputs.python }}
+
+      - name: Require the tag's version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python3 ci/github_release.py version "$RELEASE_TAG"
 
       - name: Verify the public release behind the tag
         id: released
@@ -85,12 +87,14 @@ jobs:
         with:
           python-version: ${{ steps.pins.outputs.python }}
 
+      - name: Install the pinned uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+          enable-cache: false
+
       - name: Build the distributions
-        env:
-          UV_VERSION: ${{ steps.pins.outputs.uv }}
-        run: |
-          python3 -m pip install "uv==$UV_VERSION"
-          uv build --sdist --wheel --out-dir dist bindings/python
+        run: uv build --sdist --wheel --out-dir dist bindings/python
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
@@ -121,15 +125,7 @@ jobs:
           ref: ${{ needs.contract.outputs.commit }}
           persist-credentials: false
 
-      - uses: ./.github/actions/pins
-        id: pins
-
-      - name: Install the pinned Rust
-        env:
-          RUST_VERSION: ${{ steps.pins.outputs.rust }}
-        run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal
-          rustup default "$RUST_VERSION"
+      - uses: ./.github/actions/rust
 
       - name: Authenticate as the crates.io trusted publisher
         if: env.CARGO_REGISTRY_TOKEN == ''
@@ -144,14 +140,7 @@ jobs:
           # downloads only on request. The archive it downloads is this release's.
           GLOWCAP_DOWNLOAD: "1"
           GLOWCAP_STRICT: "1"
-        run: |
-          status="$(curl -sS -o /dev/null -w '%{http_code}' -A "glowcap-publish ($GITHUB_REPOSITORY)" \
-            "https://crates.io/api/v1/crates/glowcap/$VERSION")"
-          case "$status" in
-            200) echo "crates.io already holds glowcap $VERSION" ;;
-            404) cargo publish --manifest-path bindings/rust/Cargo.toml ;;
-            *) echo "crates.io lookup for glowcap $VERSION answered $status" >&2; exit 1 ;;
-          esac
+        run: python3 ci/crate_publish.py
 
       - name: Install the published version in a fresh consumer
         env:

@@ -16,9 +16,9 @@ import {
 	historyKeepLabel,
 	historyOffSession,
 	historyOnSession,
+	historyOnSessionOff,
 	historyPeerDurable,
 	historyPeerLead,
-	historyPeerReconnect,
 	historyPeerSaved,
 	historyPeerUnavailable,
 } from "../../../lib/text/settings.ts";
@@ -26,12 +26,14 @@ import {
 	historyArchiveTitle,
 	historyChangePeerAsk,
 	historyKeptBy,
+	historyKeptByOff,
 	historyOwnedSession,
 	historyPeerCommit,
 	historyPeerModalLead,
 	historyPeerSessionRetains,
 	historyPeerTaken,
 	historyPeerUnavailableSaid,
+	historyReadAgain,
 	historyTitle,
 	historyUsePeerAsk,
 	historyUseSessionArchive,
@@ -39,7 +41,7 @@ import {
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import { actionRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
 import { useServerGate } from "../hooks.ts";
@@ -50,43 +52,74 @@ import { Switch } from "../Switch.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
-import { refusalText } from "../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 import { Input } from "../Input.tsx";
 
-/** Where history is written now, said once under the switch. */
+/** Where history is written now, said once. What the switch would change is
+ * said only to a reader who is shown the switch. */
 function historySaid(
 	keepHistory: boolean,
 	archiveTarget: ArchiveTargetView,
+	canConfigure: boolean,
 ): string {
 	if (!keepHistory) {
 		return historyOffSession;
 	}
 	if (archiveTarget.kind === "owned") {
-		return historyOnSession;
+		return canConfigure ? `${historyOnSession} ${historyOnSessionOff}` : historyOnSession;
 	}
-	if (archiveTarget.status === "connected") {
-		return historyKeptBy(archiveTarget.label);
+	// What this access may read does not change who keeps the messages.
+	if (archiveTarget.status === "connected" || archiveTarget.status === "denied") {
+		const kept = historyKeptBy(archiveTarget.label);
+		return canConfigure ? `${kept} ${historyKeptByOff}` : kept;
 	}
 	return historyPeerUnavailableSaid(archiveTarget.label);
 }
 
+/** What a press answered. A retry's reply is given under the archive status
+ * it answered. The switch's reply is about no read, so it has none. */
+export type PressReply = { readonly text: string; readonly under: ArchiveTargetView["status"] | null };
+
+/** A retry's reply stands only while the status it was given under holds,
+ * because a read that settled since says more. Any other reply stands until
+ * the next press. */
+export function standingReply(reply: PressReply, status: ArchiveTargetView["status"]): string {
+	return reply.under == null || reply.under === status ? reply.text : "";
+}
+
 export function HistorySettings(
-	{ keepHistory, archiveTarget }: {
+	{ keepHistory, archiveTarget, canConfigure, canRead }: {
+		canConfigure: boolean;
+		canRead: boolean;
 		keepHistory: boolean;
 		archiveTarget: ArchiveTargetView;
 	},
 ) {
 	const session = useRoomsSession();
 	const [busy, setBusy] = useState(false);
-	const [why, setWhy] = useState("");
+	const [reply, setReply] = useState<PressReply>({ text: "", under: null });
+	const failure = standingReply(reply, archiveTarget.status) || archiveTarget.error;
 	const toggle = async () => {
 		setBusy(true);
-		setWhy("");
+		setReply({ text: "", under: null });
 		try {
 			await session.setKeepHistory(!keepHistory);
 		} catch (error) {
-			setWhy(refusalText(error));
+			setReply({ text: refusalText(error), under: null });
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const retry = async () => {
+		setBusy(true);
+		const under = archiveTarget.status;
+		setReply({ text: "", under });
+		try {
+			setReply({ text: await session.retryHistory(), under });
+		} catch (error) {
+			setReply({ text: refusalText(error), under });
 		} finally {
 			setBusy(false);
 		}
@@ -96,19 +129,33 @@ export function HistorySettings(
 		<>
 			<h3 className="well-title overline" id="historyLegend">{historyTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="historyLegend">
-				{why !== "" && <Said kind="failure">{why}</Said>}
-				<div className="switch-row">
-					<p className="group-label" id="keepHistoryLegend">{historyKeepLabel}</p>
-					<Switch
-						id="keepHistoryToggle"
-						checked={keepHistory}
-						label={historyKeepLabel}
-						busy={busy}
-						aria-labelledby="keepHistoryLegend"
-						onClick={() => void toggle()}
-					/>
-				</div>
-				<p className="hint" id="historyWhere">{historySaid(keepHistory, archiveTarget)}</p>
+				{failure !== "" && <Said kind="failure">{failure}</Said>}
+				{canConfigure && (
+					<div className="switch-row">
+						<p className="group-label" id="keepHistoryLegend">{historyKeepLabel}</p>
+						<Switch
+							id="keepHistoryToggle"
+							checked={keepHistory}
+							label={historyKeepLabel}
+							busy={busy}
+							aria-labelledby="keepHistoryLegend"
+							onClick={() => void toggle()}
+						/>
+					</div>
+				)}
+				<p className="hint" id="historyWhere">{historySaid(keepHistory, archiveTarget, canConfigure)}</p>
+				{canRead && archiveTarget.status === "unavailable" && (
+					<div className="actions">
+						<Button
+							id="historyReadAgain"
+							busy={busy}
+							disabled={busy}
+							onClick={() => void retry()}
+						>
+							{historyReadAgain}
+						</Button>
+					</div>
+				)}
 			</div>
 		</>
 	);
@@ -117,21 +164,20 @@ export function HistorySettings(
 export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTargetView }) {
 	const openModalFrom = useOpenModal();
 	const session = useRoomsSession();
-	const [busy, setBusy] = useState<"own" | "reconnect" | null>(null);
+	const [busy, setBusy] = useState(false);
 	const [why, setWhy] = useState("");
 	const [peerOpen, setPeerOpen] = useState(false);
 	const onPeer = archiveTarget.kind === "peer";
-	const act = async (which: "own" | "reconnect", request: () => Promise<unknown>) => {
-		if (busy !== null) return;
-		setBusy(which);
+	const useOwn = async () => {
+		if (busy) return;
+		setBusy(true);
 		setWhy("");
 		try {
-			const answer = await request();
-			if (typeof answer === "string" && answer !== "") setWhy(answer);
+			await session.useOwnedArchive();
 		} catch (error) {
 			setWhy(refusalText(error));
 		} finally {
-			setBusy(null);
+			setBusy(false);
 		}
 	};
 	return (
@@ -143,23 +189,14 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 						{onPeer ? archiveTarget.label : historyBuiltInSession}
 					</span>
 					{onPeer && <span className="tag">{historyPeerSaved}</span>}
-					{onPeer && archiveTarget.status === "unavailable" && (
-						<div className="actions">
-							<Button
-								type="button"
-								variant="quiet"
-								busy={busy === "reconnect"}
-								disabled={busy !== null}
-								onClick={() => void act("reconnect", () => session.retryArchivePeer())}
-							>
-								{historyPeerReconnect}
-							</Button>
-						</div>
-					)}
 				</div>
 				<p className="hint">
 					{onPeer
-						? archiveTarget.status === "unavailable" ? historyPeerUnavailable : historyPeerDurable
+						? archiveTarget.status === "unavailable"
+							? historyPeerUnavailable
+							: archiveTarget.status === "denied"
+							? archiveTarget.error
+							: historyPeerDurable
 						: historyOwnedSession}
 				</p>
 				<div className="actions">
@@ -167,9 +204,9 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 						<Button
 							type="button"
 							variant="quiet"
-							busy={busy === "own"}
-							disabled={busy !== null}
-							onClick={() => void act("own", () => session.useOwnedArchive())}
+							busy={busy}
+							disabled={busy}
+							onClick={() => void useOwn()}
 						>
 							{historyUseSessionArchive}
 						</Button>
@@ -178,7 +215,7 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 						id="archivePeerOpen"
 						type="button"
 						variant="quiet"
-						disabled={busy !== null}
+						disabled={busy}
 						onClick={(event) => openModalFrom(event.currentTarget, () => setPeerOpen(true))}
 					>
 						{onPeer ? historyChangePeerAsk : historyUsePeerAsk}
@@ -208,7 +245,7 @@ function ArchivePeerModal(
 	useChangeGroup("settings-archive-peer", {
 		dirty: link !== "",
 		discard: () => {
-			if (busy) throw new Error("Wait for the archive peer change to finish.");
+			if (busy) throw new LocalRefusal("settings-archive-peer-changing");
 			setLink("");
 			setWhy("");
 			setTaken("");
@@ -261,8 +298,7 @@ function ArchivePeerModal(
 					{(wiring) => (
 						<Input
 							id={wiring.id}
-							type="password"
-							{...identifierField}
+							{...addressField}
 							aria-describedby={wiring.describedBy}
 							aria-invalid={wiring.invalid}
 							value={link}

@@ -20,7 +20,7 @@ const SCHEMA: &str = "rooms-server/1";
 pub(crate) struct Announcement {
 	schema: String,
 	pub location: String,
-	pub trace_port: Option<u16>,
+	pub trace_address: Option<std::net::SocketAddr>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub trace_locator: Option<String>,
 	pub local_endpoint: Option<rooms_platform::serving::endpoint::Endpoint>,
@@ -32,13 +32,13 @@ pub(crate) struct Announcement {
 impl Announcement {
 	pub fn new(
 		location: String,
-		trace_port: Option<u16>,
+		trace_address: Option<std::net::SocketAddr>,
 		local_endpoint: Option<rooms_platform::serving::endpoint::Endpoint>,
 	) -> Self {
 		Self {
 			schema: SCHEMA.into(),
 			location,
-			trace_port,
+			trace_address,
 			trace_locator: None,
 			local_endpoint,
 			capabilities: Vec::new(),
@@ -59,7 +59,7 @@ impl Announcement {
 		if ready.schema != SCHEMA {
 			return Err("server readiness schema is unsupported".into());
 		}
-		if ready.trace_port == Some(0) {
+		if ready.trace_address.is_some_and(|address| address.port() == 0) {
 			return Err("server readiness names an unbound timeline port".into());
 		}
 		if let Some(locator) = &ready.trace_locator {

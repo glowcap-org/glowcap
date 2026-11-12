@@ -76,7 +76,7 @@ export type PointerEvent_ =
 	| {
 		kind: "pointer-up";
 		snapshot: PointerSnapshot;
-		/** Up-time context. Used to re-resolve the click verb if no status-allow: purpose clause
+		/** Up-time context. It re-resolves the click verb if no
 		 *  drag occurred (D, modifier-at-up wins for click). */
 		ctxAtUp: GestureContext;
 	}
@@ -321,7 +321,7 @@ function onSpaceDown(
 			return { state, effects: [] };
 		case "pressed": {
 			// Pause an in-flight press; pan begins on next pointer-move.
-			// No drag-pause yet. There was no drag in flight. status-allow: pending state or quoted runtime label
+			// No drag-pause yet. There was no drag in flight.
 			return {
 				state: {
 					fsm: {

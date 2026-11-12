@@ -27,7 +27,8 @@
          "errors.rkt"
          "value.rkt"
          "abi-value.rkt"
-         "vat.rkt")
+         "vat.rkt"
+         "callback.rkt")
 
 ;; Session + pump for the local-send await path (session eagerly requires this
 ;; module; lazy-require breaks the cycle).
@@ -134,9 +135,16 @@
 ;; its raises (an attenuator's "Attenuated", a revoked caretaker's "Revoked",
 ;; an unknown-method error) cross the boundary as a broken answer. Decode,
 ;; routing, reply encoding, and FFI settlement failures remain binding/wire
-;; failures and unwind into the Session owner instead of being mislabeled as a
-;; partner-visible behavior result.
+;; failures: the callback latches them and returns ERR-INTERNAL, and the feed
+;; that ran it raises the exact failure into the Session owner once C returns,
+;; instead of mislabeling it as a partner-visible behavior result.
 (define (serve-foreign-call v turn verb-ptr verb-len args-ptr args-len out-reply run)
+  (run-c-callback "host.behavior" ERR-INTERNAL
+                  (lambda ()
+                    (serve-foreign-call/latched v turn verb-ptr verb-len args-ptr args-len
+                                                out-reply run))))
+
+(define (serve-foreign-call/latched v turn verb-ptr verb-len args-ptr args-len out-reply run)
   (define method (decode-verb verb-ptr verb-len))
   (define args (args<-c args-ptr args-len))
   ;; An FFI callback can only run synchronously inside the pump's feed
@@ -216,7 +224,7 @@
                 #:closed-message (format "connection closed before ~a settled" label)))
   (define r (unbox result))
   (if (eq? (car r) 'broken)
-      (raise-glowcap who ERR-BROKEN "~a broke: ~a" label (cdr r))
+      (raise-broken who label (cdr r))
       (cdr r)))
 
 ;; The awaiting loop for a send whose target resolved to a local actor: the

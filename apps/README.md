@@ -38,9 +38,14 @@ Rooms, Tasks, and Tools share one convention:
 - Python, Racket, and Rust join when their runtimes are on `PATH`. Missing
   optional runtimes are reported and skipped.
 - `-Dport=9099` chooses a port instead of using an available one.
-- `-Dattach=true` runs the clients against an existing server and leaves it
-  running. Tasks has no attach mode, because its board's name is a secret
-  that only a server the demo starts announces.
+- Every server listens on encrypted Noise TCP and prints its locator, an
+  `ocapn://` address naming its key. Each client dials that locator.
+- `-Dattach=true` with `-Dport` runs the clients against the server already
+  listening on that port and leaves it running. The Tools coordinator records
+  its locator under `zig-out/state/tools/` for this. Tasks has no attach mode,
+  because its board's name is a secret that only a server the demo starts
+  announces. `demo-accountability` has none either, because each caller needs
+  a fresh host.
 
 These demos are not part of `zig build check` because they depend on external
 runtimes. Individual app guides list their exceptions and extra requirements.

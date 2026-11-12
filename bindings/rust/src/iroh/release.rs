@@ -125,7 +125,7 @@ impl NetlayerRelease {
 				}
 				// SAFETY: `close` is `close_ffi` in production, and `raw` is the address of the
 				// `GlowcapIrohNetlayer` this `NetlayerRaw` is dropping; this frame holds the `RELEASE_RUNNING` claim,
-				// so no release has run yet, and `close` is a shutdown lever that does not free the handle. status-allow: pending state or quoted runtime label
+				// so no release has run yet, and `close` is a shutdown lever that does not free the handle.
 				unsafe { close(raw) };
 				if let Err(error) = call_release(release, raw) {
 					*lock_iroh(&self.failure, "iroh-release-failure-lock-poison") = Some(error.clone());
@@ -148,14 +148,14 @@ unsafe fn close_ffi(raw: usize) {
 unsafe fn release_ffi(raw: usize) -> i32 {
 	// SAFETY: the caller has already joined the dispatcher task, so this frame
 	// is the handle's last owner and the release is the final use of `raw`.
-	unsafe {
+	crate::sys::release_result_code(unsafe {
 		ffi::glowcap_iroh_netlayer_release(
 			raw as *mut GlowcapIrohNetlayer,
 			core::ptr::null_mut(),
 			0,
 			core::ptr::null_mut(),
 		)
-	}
+	})
 }
 
 // The raw netlayer handle is shared (behind an `Arc`) between the public

@@ -36,11 +36,11 @@ test "core host: a later Host publication cannot take over a session's own name"
     var host_freed = false;
     var session_row = TaggedRow{ .tag = "session", .freed = &session_freed };
     var host_row = TaggedRow{ .tag = "host", .freed = &host_freed };
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x7a)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x7a)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x7b)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x7b)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var other = test_host.init(allocator, @as([32]u8, @splat(0x7c)), Host.Options.withFrameCap(frame_cap));
+    var other = test_host.init(allocator, @as([32]u8, @splat(0x7c)), Host.Options.init(.unchecked, frame_cap));
     defer other.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

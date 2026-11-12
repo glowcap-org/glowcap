@@ -26,7 +26,6 @@ export class DirectoryRegistration {
 	readonly #session: Session;
 	readonly #directory: Ref;
 	readonly #releaseLocal: (ref: Ref) => void;
-	readonly #onIntroducible: (peer: string, registrationId: string, opening: string) => void;
 	#nameCapability: Promise<Ref> | null = null;
 	#registering = false;
 
@@ -34,12 +33,10 @@ export class DirectoryRegistration {
 		session: Session,
 		directory: Ref,
 		releaseLocal: (ref: Ref) => void,
-		onIntroducible: (peer: string, registrationId: string, opening: string) => void,
 	) {
 		this.#session = session;
 		this.#directory = directory;
 		this.#releaseLocal = releaseLocal;
-		this.#onIntroducible = onIntroducible;
 	}
 
 	register(
@@ -64,8 +61,6 @@ export class DirectoryRegistration {
 				onMintInboxFor?.(peer, parseRegistrationId(id, "mintInboxFor"), parseDirectOpening(args[3]));
 			} else if (event === DIRECT_REQUESTED && peer) {
 				onDirectRequested?.(peer, parseRegistrationId(id, "directRequested"));
-			} else if (event === "introducible" && peer) {
-				this.#onIntroducible(peer, parseRegistrationId(id, "introducible"), parseDirectOpening(args[3]));
 			}
 			return null;
 		});

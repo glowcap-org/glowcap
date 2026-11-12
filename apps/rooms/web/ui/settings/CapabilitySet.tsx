@@ -5,13 +5,13 @@ import {
 	capabilitySetDiscard,
 	capabilitySetEditUri,
 	capabilitySetInclude,
-	capabilitySetIncomplete,
 	capabilitySetPlaceholder,
 	capabilitySetRetry,
 	capabilitySetSave,
 	capabilitySetTitle,
 } from "../../../lib/text/settings.ts";
 import { holdingsEditAsControls, holdingsEditAsText } from "../../../lib/text/ops.ts";
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { IconButton } from "../IconButton.tsx";
 import { OPS_CATALOG } from "../ops/catalog.ts";
 import { formatOpsBundle, OPS_BUNDLE_CAPABILITIES, opsBundleReady, parseOpsBundleDraft } from "../ops/bundle.ts";
@@ -37,27 +37,27 @@ export function CapabilitySetForm() {
 		try {
 			const parsed = parseOpsBundleDraft(text);
 			if (parsed.size > 0 && !opsBundleReady(parsed)) {
-				throw new Error(capabilitySetIncomplete);
+				throw new LocalRefusal("capability-set-incomplete");
 			}
 			model.setDraft(parsed);
 			model.setError("");
 			setMode("controls");
 		} catch (cause) {
-			model.setError(cause instanceof Error ? cause.message : String(cause));
+			model.setError(refusalText(cause));
 		}
 	};
 	const save = () => {
 		try {
 			const wanted = mode === "controls" ? model.draft : parseOpsBundleDraft(text);
 			if (wanted.size > 0 && !opsBundleReady(wanted)) {
-				throw new Error(capabilitySetIncomplete);
+				throw new LocalRefusal("capability-set-incomplete");
 			}
 			// A capability is acquired from the address it names, so one this
 			// browser cannot open on its own needs the Rooms server first.
 			if ([...wanted.values()].some(linkNeedsServer) && serverGate(serverNeedAddress) == null) return;
 			void model.commit(wanted);
 		} catch (cause) {
-			model.setError(cause instanceof Error ? cause.message : String(cause));
+			model.setError(refusalText(cause));
 		}
 	};
 	const dirty = model.dirty;

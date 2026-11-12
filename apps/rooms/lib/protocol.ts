@@ -354,12 +354,12 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
  * from the member's signed hello, not from stamping this argument. A second
  * `register` for the same nick replaces the prior intro when it comes from the
  * connection holding it. A new connection may replace that live claim with a
- * single-use voucher created by the old name capability. Another caller is status-allow: replacement state identity
+ * single-use voucher created by the old name capability. Another caller is
  * refused `nick-taken` while the holder remains open.
  * `introduce(nick, registrationId, opening)` returns the inbox that registration offered for
  * this caller and opening (see
  * `offerInbox`) as a `desc:handoff-give`: the caller redeems by dialing the
- * member *directly*, and is refused `introduction-pending` until there is one. A
+ * member *directly*. The answer waits for that inbox, up to `INTRODUCTION_WAIT_MS`. A
  * caller that has not registered cannot be introduced at all: the directory reads
  * the asker's name off its registration, never from the message.
  *
@@ -394,7 +394,7 @@ export { INTRODUCE, VOUCHER } from "./protocol_data.ts";
  * for one peer, and the directory hands it to that peer alone, so the inbox a
  * message arrives on identifies the sender and no message has to name anybody.
  *
- * The inbox must answer on a connection this member has not seen yet: a peer status-allow: pending state or quoted runtime label
+ * The inbox must answer on a connection this member has not seen yet: a peer
  * reaches it by redeeming the introduction, which dials this endpoint and opens a
  * fresh session. Publish it host-wide, then offer the position that name holds on
  * the directory's own connection. An object published on one session has no name
@@ -595,28 +595,18 @@ export { MEMBER_REGISTRATION } from "./protocol_data.ts";
  * and `registrationId` identifies that registration).
  * A member's register inbox also hears `notify("registered", nick, registrationId)`, the
  * discovery notification for the name granted in the committed reply. It hears
- * `notify("mintInboxFor", peer, registrationId)` when someone has asked to be introduced and
- * the member has offered no inbox for them yet: create one and `offerInbox` it. status-allow: pending state or quoted runtime label
+ * `notify("mintInboxFor", peer, registrationId, opening)` when someone has asked to be introduced and
+ * the member has offered no inbox for them yet: create one and `offerInbox` it.
  * It hears `notify("directRequested", peer, registrationId)` whenever that peer requests an
  * introduction, so a target with the compatible carrier can establish the
  * reciprocal route before any user message is sent.
- * It hears `notify("introducible", peer, registrationId, opening)` when a peer it was waiting on has
- * offered an inbox for that exact opening, so an `introduce` refused `introduction-pending`
- * is worth retrying.
+ * Offering an inbox resolves the original introduction answer without another
+ * call or a readiness notice. If the inbox does not arrive within
+ * `INTRODUCTION_WAIT_MS`, the directory refuses with `introduction-timed-out`.
  *
- * Fresh openings use distinct identities, and retries keep their original one.
- * Introduction transfers the offer out of directory storage. A retired callback
- * cannot be inherited by a later opening, and sibling readiness cannot wake it.
- * That notice can arrive before the refusal it belongs to, and a client that
- * parks the line instead of handing the refusal back to its caller has to
- * expect it. One `introduce` makes the room do two things: ask the member for
- * an inbox, and refuse the asker as pending. A member that offers quickly
- * triggers `introducible` to the asker first, where it finds nothing waiting
- * yet, and no second notice follows. So a parking client remembers a notice status-allow: pending state or quoted runtime label
- * that arrived early and lets the refusal ask again at once. `lib/room/client.ts`
- * keeps that memo, and so does the Goblins vat's
- * `conformance/goblins-peer/racket/rooms-dm.rkt`. A client that surfaces the
- * refusal needs neither.
+ * Fresh openings use distinct identities. Introduction transfers the offer out
+ * of directory storage. A retired callback cannot be inherited by a later
+ * opening, and sibling readiness cannot wake it.
  *
  * A room also pushes application-state signals on this same inbox. These are
  * additive `notify` tails, so a baseline Rooms client that accepts
@@ -634,7 +624,7 @@ export { MEMBER_REGISTRATION } from "./protocol_data.ts";
  * invalidates the room or steward generation. Its line text is blank, like the
  * existing listed-status notification. */
 export { NOTIFY } from "./protocol_data.ts";
-/** `notify` tag: this room no longer holds the membership behind the inbox.  status-allow: lifecycle transition */
+/** `notify` tag: this room no longer holds the membership behind the inbox. */
 export { MEMBERSHIP_ENDED } from "./protocol_data.ts";
 /** `notify` tag: invalidate the room link alone or it and its moderator. */
 export { ROOM_AUTHORITY_CHANGED } from "./protocol_data.ts";

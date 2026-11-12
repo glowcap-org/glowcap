@@ -216,6 +216,18 @@ feature_tip=$(git -C "${tree}" rev-parse feature-work)
 [[ $(git -C "${tree}" log -1 --format='%an <%ae> %cn' dev) == 'draft author <draft@glowcap.invalid> glowcap test' ]]
 git -C "${tree}" verify-commit dev 2>/dev/null
 
+# Several authors fall to the integrator. The empty author override must
+# expand under `set -u` on bash 3.2, which dies on a bare empty-array expansion.
+for author in first second; do
+	printf '%s\n' "${author}" >"${tree}/author-${author}"
+	git -C "${tree}" add "author-${author}"
+	git -C "${tree}" -c user.name="${author} author" -c user.email="${author}@glowcap.invalid" commit -qm "author-${author}"
+done
+(cd "${tree}" && "${integrate}" -m "Land two authors" >/dev/null)
+[[ $(git -C "${tree}" log -1 --format='%an %cn' dev) == 'glowcap test glowcap test' ]]
+git -C "${tree}" verify-commit dev 2>/dev/null
+[[ -z $(git -C "${tree}" status --porcelain) ]]
+
 # Without a reachable signing key nothing lands: dev and the branch's own
 # commit stay where they were, and the refusal names the remedy.
 printf 'unsigned\n' >"${tree}/unsigned"

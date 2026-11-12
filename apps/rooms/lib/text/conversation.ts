@@ -27,12 +27,14 @@ export function conversationBeginning(earlier: EarlierHistory): string {
 	}
 }
 
-/** Who can get in. Private and open rooms say opposite things, so the open
- * sentence must never show over a private room. */
+/** Who can get in. Private, moderated and open rooms say different things, so
+ * each sentence shows only over its own kind of room. */
 export const conversationPrivateRoom =
 	"This room is private. It's not listed and typing the name won't get you in. Everyone here was sent a link, and /invite makes another to pass on.";
 
 export const conversationPublicRoom = "Anyone who knows the name can join. Your name here is just a display name.";
+export const conversationModeratedRoom =
+	"Anyone who knows the name can watch, and an invitation lets somebody post. Your name here is just a display name.";
 
 export const conversationJoiningRoom = "Joining this room. Its access policy and messages will appear when you arrive.";
 /** A room still to be joined whose directory is not answering. */
@@ -54,8 +56,7 @@ export function conversationClosedDirect(nick: string): string {
 
 export const directReconnect = "Reconnect";
 export const directReconnecting = "Reconnecting…";
-export const directPeerUnavailable =
-	"The same person isn't connected here right now. You can still read saved messages.";
+export const directPeerUnavailable = "The same person isn't connected here. You can still read saved messages.";
 export const directNoRegistration = "This conversation has no directory entry to reconnect to.";
 export const directDirectoryUnavailable = "The directory for this conversation is no longer held.";
 
@@ -66,13 +67,13 @@ export const reachDirect = "Set up through the server above. The conversation ha
 export const reachRoomLink = "The room's own link. Anyone with it can get in. Not the server address above.";
 
 export const reachRoomHeld =
-	"You're in for as long as this session lasts. The address above is the server's, not the room's. Whoever manages the room can make a permanent link from Links.";
+	"You're in for as long as this session lasts. The address above isn't the room's. Whoever manages the room can make a permanent link from Links.";
 
 export function reachPublicRoom(room: string): string {
-	return `${room} is a name on this server, so the address above is the server's. Anyone who can reach the server can join by that name.`;
+	return `${room} is a name on this server. Anyone who can reach the server can join by that name.`;
 }
 
-/** The spinner label over earlier messages, which a screen reader reads out.  status-allow: event or source ordering */
+/** The spinner label over earlier messages, which a screen reader reads out. */
 export const conversationLoadingEarlier = "Loading earlier messages";
 
 /** Time suffixes beside message timestamps. */
@@ -91,6 +92,7 @@ export function presenceTitle(state: string, reason?: string): string {
 /** The facts on a conversation card. */
 export const factPrivateRoom = "Private room";
 export const factPublicRoom = "Public room";
+export const factModeratedRoom = "Moderated room";
 export const factDirectMessage = "Direct message";
 export const factDirectory = "Directory";
 export const factLineOpen = "Open";
@@ -157,7 +159,7 @@ export function titleCloseDm(nick: string): string {
 	return `Close the direct message with ${nick}`;
 }
 export const titleDmEncrypted = "Encrypted";
-export const titleDmEncryptedLong = "Direct · browser to browser, encrypted";
+export const titleDmEncryptedLong = "Direct · encrypted";
 export const railHide = "Hide the rooms list";
 export const railShow = "Show the rooms list";
 export function titleMembersHere(count: number): string {
@@ -221,7 +223,7 @@ export const cannotSendReadOnly = "Your session link is read only, so you can't 
 export const cannotSendDmClosed = "This direct message is closed.";
 export const cannotSendRegistrationEnded =
 	"This name is no longer held. Start a new conversation with whoever has it now.";
-export const cannotSendObserver = "You're here as an observer. An invitation to take part is what lets you post.";
+export const cannotSendObserver = "You're here as an observer. An invitation lets you post.";
 /** An observer seat on a bridged room. The bridge runs one way, so the seat
  * cannot post. It speaks in the bridge's terms because no invitation would
  * change that. */
@@ -278,7 +280,7 @@ export const directoryNameNotGranted = "Not granted yet";
 export const directoryRoomsYouAreIn = "Rooms you're in";
 export const directoryRoomsNone = "None";
 export const directoryGrantedNameNote =
-	"A directory grants your name for as long as you're connected and takes it back when you disconnect, so it isn't a name you hold anywhere else.";
+	"A directory grants your name only while you're connected, and only on that directory.";
 
 /** The roster beside a room. */
 export function rosterManageIdentity(badge: string): string {
@@ -312,9 +314,8 @@ export function standingWhyLabel(about: string): string {
 /** What a room's mark says, and the three answers the access control
  * offers. */
 export const markPrivateRoom = "A private room: it isn't listed, and only people it was handed to are here";
-export const markModeratedRoom =
-	"A moderated room: it is listed, and its public name offers watching rather than speaking";
-export const accessModeratedSaid = "Anyone with the name can come and watch. An invitation is what lets somebody post.";
+export const markModeratedRoom = "A moderated room: it is listed, and its name lets people watch but not post";
+export const accessModeratedSaid = "Anyone with the name can come and watch. Only an invitation lets somebody post.";
 export const accessPrivateSaid = "The name gets nobody in. A room link or an invitation still does.";
 export const accessOpenSaid = "Anyone with the name can come in and post.";
 export const accessTitle = "Room access";

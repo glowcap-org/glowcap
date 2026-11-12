@@ -189,7 +189,7 @@ export function ScrubInput(
 
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState("");
-	// Display width captured at the moment we swap into edit mode. status-allow: state at observation
+	// Display width captured at the moment we swap into edit mode.
 	// Native <input> defaults to size=20 (~20 char widths), which is
 	// much wider than this control's display state, pinning to the
 	// measured width prevents any shift when the mode flips.
@@ -544,7 +544,7 @@ export function ScrubInput(
 				...style,
 			}}
 			title={label
-				? `${label} (drag to scrub — axis locks to first motion; click to type; double-click to reset)`
+				? `${label}: drag to scrub (the axis locks to the first motion), click to type, or double-click to reset`
 				: undefined}
 		>
 			{format(value)}

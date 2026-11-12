@@ -1,85 +1,23 @@
 //! Direct inbox acquisition through a held directory and the Host's handoff path.
 use super::*;
-use rooms_application::{
-	directory::{introduction as policy, registration::Id},
-	failure::{Failure, FailureCode},
-};
-use std::{
-	cell::{Cell, RefCell},
-	future::poll_fn,
-	task::{Poll, Waker},
-};
+use rooms_application::directory::{introduction as policy, registration::Id};
+use std::{cell::Cell, future::poll_fn, task::Poll};
 
-#[derive(Default)]
-struct State {
-	notices: policy::Notices<Waker, (Id, String)>,
-	active: usize,
-}
 #[derive(Clone, Default)]
-pub(crate) struct Notifications(Rc<RefCell<State>>);
-impl Notifications {
-	pub(super) fn notify(&self, id: &Id, opening: &str) {
-		let wake = self.0.borrow_mut().notices.notify(&(id.clone(), opening.into()));
-		for w in wake {
-			w.wake();
-		}
-	}
+pub(crate) struct Slots(Rc<Cell<usize>>);
+impl Slots {
 	fn enter(&self) -> Result<Active, Error> {
-		let mut state = self.0.borrow_mut();
-		if state.active == policy::MAX_OUTSTANDING {
+		if self.0.get() == policy::MAX_OUTSTANDING {
 			return Err(policy::Error::Full.into());
 		}
-		state.active += 1;
+		self.0.set(self.0.get() + 1);
 		Ok(Active(self.clone()))
 	}
-	async fn wait(&self, id: &Id, opening: &str, use_banked: bool) -> Result<(), Error> {
-		let mut held = Wait {
-			notifications: self.clone(),
-			ticket: None,
-		};
-		poll_fn(|cx| {
-			let mut state = self.0.borrow_mut();
-			if let Some(ticket) = held.ticket.as_ref() {
-				match state.notices.observe(ticket, cx.waker().clone()) {
-					Ok(true) => {
-						held.ticket = None;
-						Poll::Ready(Ok(()))
-					}
-					Ok(false) => Poll::Pending,
-					Err(e) => Poll::Ready(Err(e.into())),
-				}
-			} else {
-				match state
-					.notices
-					.wait(&(id.clone(), opening.into()), use_banked, cx.waker().clone())
-				{
-					Ok(Some(ticket)) => {
-						held.ticket = Some(ticket);
-						Poll::Pending
-					}
-					Ok(None) => Poll::Ready(Ok(())),
-					Err(e) => Poll::Ready(Err(e.into())),
-				}
-			}
-		})
-		.await
-	}
 }
-struct Active(Notifications);
+struct Active(Slots);
 impl Drop for Active {
 	fn drop(&mut self) {
-		self.0.0.borrow_mut().active -= 1;
-	}
-}
-struct Wait {
-	notifications: Notifications,
-	ticket: Option<policy::Ticket>,
-}
-impl Drop for Wait {
-	fn drop(&mut self) {
-		if let Some(ticket) = self.ticket.as_ref() {
-			self.notifications.0.borrow_mut().notices.cancel(ticket);
-		}
+		self.0.0.set(self.0.0.get() - 1);
 	}
 }
 /// The inbox and the actual connection on which a reciprocal inbox belongs.
@@ -112,7 +50,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 		let opening = format!("direct:{next}");
 		self.introduce_opening(peer, expected, &opening).await
 	}
-	/// One opening is retained across every retry. Registrations namespace it.
+	/// One call waits for the inbox belonging to these exact registrations.
 	pub async fn introduce_opening(
 		&self,
 		peer: &str,
@@ -128,23 +66,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 				Some(id) => id.clone(),
 				None => self.member_registration(peer).await?,
 			};
-			match self.introduce_once(peer, &id, opening).await {
-				Err(e) if pending(&e) => {}
-				result => return result,
-			}
-			let mut retries = policy::Retries::default();
-			while let Some(use_banked) = retries.next_wait() {
-				self.client
-					.deadline
-					.within(policy::WAIT_MS, self.introductions.wait(&id, opening, use_banked))
-					.await
-					.ok_or(policy::Error::Pending)??;
-				match self.introduce_once(peer, &id, opening).await {
-					Err(e) if pending(&e) => {}
-					result => return result,
-				}
-			}
-			Err(policy::Error::Pending.into())
+			self.introduce_once(peer, &id, opening).await
 		};
 		let (mut work, mut closed) = (std::pin::pin!(work), std::pin::pin!(self.client.session.closed()));
 		poll_fn(|cx| {
@@ -165,7 +87,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 			.client
 			.deadline
 			.within(
-				authority::REQUEST_TIMEOUT_MS,
+				policy::REQUEST_TIMEOUT_MS,
 				self.client
 					.session
 					.send_redeeming(&self.reference, policy::INTRODUCE, &args),
@@ -198,12 +120,4 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 			owns_connection,
 		})
 	}
-}
-fn pending(error: &Error) -> bool {
-	let Error::Binding(error) = error else { return false };
-	error.kind() == glowcap::ErrorKind::Broken
-		&& error
-			.message()
-			.and_then(Failure::parse)
-			.is_some_and(|f| f.code == FailureCode::IntroductionPending)
 }

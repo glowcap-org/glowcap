@@ -14,11 +14,19 @@
 //     forwards `read` and refuses `write`. No special API.
 //   - revocation  — a revocable handle is a forwarder with a flag you flip.
 //
-// Run it with a port:  deno run --allow-ffi --allow-net --allow-read coordinator.ts 9099
+// Run it on a port:
+//
+//   deno run --allow-ffi --allow-net --allow-read --allow-write=zig-out/state/tools \
+//     apps/tools/deno/coordinator.ts 9099
+//
+// It listens on encrypted Noise TCP and prints its locator, the `ocapn://` URI
+// an agent dials. On a chosen port it also records that locator under
+// `zig-out/state/tools/`, where `zig build demo-tools -Dport=9099
+// -Dattach=true` finds it.
 
 import { type Argument, Session } from "@glowcap/runtime";
-import * as tcp from "@glowcap/tcp";
-import { GRANT, GRANT_REVOCABLE, REVOKE_LAST, TOOLS } from "./protocol.ts";
+import { listenSealed } from "../../_demo/sealed.ts";
+import { GRANT, GRANT_REVOCABLE, locatorRecord, REVOKE_LAST, TOOLS } from "./protocol.ts";
 import { revocable, toolFor } from "./capabilities.ts";
 
 /** A tool is a plain behavior function. These are the things the coordinator
@@ -49,8 +57,13 @@ function coordinatorBehavior(session: Session) {
 }
 
 const port = Number(Deno.args[0] ?? "0");
-const server = await tcp.listen("127.0.0.1", port);
-console.log(`TOOLS-SERVER-LISTENING ${server.port}`);
+const server = await listenSealed(port);
+if (port !== 0) {
+	const record = locatorRecord(port);
+	await Deno.mkdir(new URL(".", record), { recursive: true });
+	await Deno.writeTextFile(record, `${server.uri}\n`);
+}
+console.log(`TOOLS-SERVER-LISTENING ${server.port} ${server.uri}`);
 
 for await (const session of server) {
 	session.publish(TOOLS, coordinatorBehavior(session));

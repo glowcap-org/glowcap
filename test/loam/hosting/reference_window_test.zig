@@ -14,7 +14,9 @@ test "loam saved proof stages one recipe per transaction and never reuses an abo
         defer store.deinit() catch unreachable;
         var scope = try refs.Scope.init(a, 2);
         defer scope.deinit() catch unreachable;
-        var host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{});
+        var host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{
+            .thread_policy = .unchecked,
+        });
         defer host.deinit();
         const source = try f.hosting.Attachment.create(a, &host, &store, &f.behaviors, .{ .reference_scope = &scope, .attachment_name = "source" });
         defer source.destroy() catch unreachable;
@@ -85,7 +87,9 @@ test "loam reference preparation restores more cold recipes than cache slots" {
         defer store.deinit() catch unreachable;
         var scope = try refs.Scope.init(a, 2);
         defer scope.deinit() catch unreachable;
-        var host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{});
+        var host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{
+            .thread_policy = .unchecked,
+        });
         defer host.deinit();
         const source = try f.hosting.Attachment.create(a, &host, &store, &f.behaviors, .{ .reference_scope = &scope, .attachment_name = "source" });
         defer source.destroy() catch unreachable;

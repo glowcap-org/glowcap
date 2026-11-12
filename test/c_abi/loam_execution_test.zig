@@ -19,12 +19,15 @@ const Kv = struct {
     reentrant_store: ?*c.GlowcapLoamStore = null,
     reentries: usize = 0,
     independent_thread_checked: bool = false,
+    /// Why the independent thread's admission failed, for the test to report.
+    worker_refusal: ?anyerror = null,
     const WorkerProbe = struct {
         store: *c.GlowcapLoamStore,
-        admitted: bool = false,
+        admitted: anyerror!void = error.ProbeDidNotRun,
         fn run(self: *WorkerProbe) void {
-            _ = c.embedding.store(self.store) catch return;
-            self.admitted = true;
+            if (c.embedding.store(self.store)) |_| {
+                self.admitted = {};
+            } else |err| self.admitted = err;
         }
     };
     fn deinit(self: *Kv) void {
@@ -108,7 +111,10 @@ const Kv = struct {
                 var probe: WorkerProbe = .{ .store = store };
                 const worker = std.Thread.spawn(.{}, WorkerProbe.run, .{&probe}) catch return shared.GLOWCAP_ERR_INTERNAL;
                 worker.join();
-                if (!probe.admitted) return shared.GLOWCAP_ERR_INTERNAL;
+                probe.admitted catch |err| {
+                    self.worker_refusal = err;
+                    return shared.GLOWCAP_ERR_INTERNAL;
+                };
                 self.independent_thread_checked = true;
             }
             if (c.glowcap_loam_store_release(store) != shared.GLOWCAP_ERR_INVALID_ARGUMENT or
@@ -232,6 +238,7 @@ test "portable Loam startup preserves emissions across reads and refuses callbac
     var suspended_after_emission = false;
     for (0..32) |_| {
         const code = c.glowcap_loam_store_plan(store, 0, Kv.callback, &kv);
+        if (kv.worker_refusal) |err| return err;
         if (code == shared.GLOWCAP_OK) break;
         try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, code);
         suspended_after_emission = suspended_after_emission or kv.writes.items.len != 0;

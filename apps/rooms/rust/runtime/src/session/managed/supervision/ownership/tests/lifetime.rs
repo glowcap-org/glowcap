@@ -20,9 +20,12 @@ async fn connection() -> (Session, tokio::task::JoinHandle<()>) {
 		let accepted = server.accept().await.unwrap();
 		accepted.serve().await.unwrap();
 	});
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
 	let session = runtime.connect(&locator, Default::default()).await.unwrap();
 	(session, peer)
 }

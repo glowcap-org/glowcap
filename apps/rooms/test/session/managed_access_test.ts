@@ -4,6 +4,7 @@
 /// <reference lib="dom" />
 import "../support/match_media.ts";
 import { assert, assertEquals } from "../assert.ts";
+import { LocalRefusal } from "../../lib/text/failure.ts";
 import { keptPowers, knownLabel, ManagedAccess, NO_MANAGEMENT } from "../../web/ui/session/managed/access.ts";
 import type { HeldControl } from "../../web/ui/session/managed/access.ts";
 import type {
@@ -94,7 +95,15 @@ Deno.test("managed issuance coalesces submission and close drains returned custo
 	assert(!closed, "close must not free a request while its submission owns returned wrappers");
 	const wrapper = { free: () => freed++ };
 	result.resolve({ status: "committed", access: wrapper, control: wrapper });
-	await Promise.all([first, second, closing]);
+	const outcomes = await Promise.allSettled([first, second]);
+	await closing;
+	for (const outcome of outcomes) {
+		assert(
+			outcome.status === "rejected" && outcome.reason instanceof LocalRefusal,
+			"closed session refuses each caller",
+		);
+		assertEquals(outcome.reason.code, "local-session-closed");
+	}
 	assertEquals(freed, 3);
 	await access.close();
 	assertEquals(freed, 3);

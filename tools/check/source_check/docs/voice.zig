@@ -1,5 +1,6 @@
 //! Human doc voice: the banned scaffold needles, habitual em-dash shapes,
 //! semicolons and em dashes in reader prose,
+//! semicolons, em dashes, and vague labels in Zig doc comments,
 //! the justification tic and its closed `apps/` debt list, connective arrows
 //! outside fences, headings that spend contrast before the subject has a
 //! name, and the prose sentence and paragraph ceilings.
@@ -27,19 +28,11 @@ pub fn checkHumanDocVoice(
 ) !void {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
-    const arena = arena_state.allocator();
+    const walk: Walk = .{ .io = io, .arena = arena_state.allocator(), .gpa = gpa, .root = root, .violations = violations };
 
     for (bans.human_doc_voice_scopes) |scope| {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban
-        // rows; do not report it a second time here.
-        bans.collectFiles(io, arena, root, scope.where, &files) catch continue;
-        for (files.items) |path| {
-            // tolerant: a read failure is either an optional file or already
-            // reported by the ban rows; these line-structure checks stay
-            // silent on it.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+        for (try walk.files(scope.where)) |path| {
+            const contents = try walk.read(path) orelse continue;
             try banConnectiveArrowOutsideFences(gpa, violations, path, contents);
             if (std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".smd")) {
                 try banNegationHeadings(gpa, violations, path, contents);
@@ -50,66 +43,42 @@ pub fn checkHumanDocVoice(
     // The em-dash overuse rows apply to prose wherever it lives, including the
     // Zig doc comments the doc-voice audience table counts as human surfaces.
     for (em_dash_scopes) |where| {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, where, &files) catch continue;
-        for (files.items) |path| {
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+        for (try walk.files(where)) |path| {
+            const contents = try walk.read(path) orelse continue;
             try banHabitualEmDash(gpa, violations, path, contents);
         }
     }
-    for (try humanPages(io, arena, root)) |path| {
-        // tolerant: a read failure already reports through the ban rows.
-        const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+    for (try humanPages(walk)) |path| {
+        const contents = try walk.read(path) orelse continue;
         try banHabitualEmDash(gpa, violations, path, contents);
     }
 
     for (reader_scopes) |where| {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, where, &files) catch continue;
-        for (files.items) |path| {
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+        for (try walk.files(where)) |path| {
+            const contents = try walk.read(path) orelse continue;
             try reader_voice.banReaderFlaws(gpa, violations, path, contents, .{ .insiders = true });
         }
     }
 
-    layouts: {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, .{ .tree = .{ .dir = "site/layouts", .suffixes = &.{".shtml"} } }, &files) catch break :layouts;
-        for (files.items) |path| {
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
-            try reader_voice.banLayoutFlaws(gpa, violations, path, contents);
-        }
+    for (try walk.files(.{ .tree = .{ .dir = "site/layouts", .suffixes = &.{".shtml"} } })) |path| {
+        const contents = try walk.read(path) orelse continue;
+        try reader_voice.banLayoutFlaws(gpa, violations, path, contents);
     }
 
-    cli: {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } }, &files) catch break :cli;
-        for (files.items) |path| {
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
-            try reader_voice.banCliStringFlaws(gpa, violations, path, contents);
+    for (try walk.files(.{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } })) |path| {
+        const contents = try walk.read(path) orelse continue;
+        try reader_voice.banCliStringFlaws(gpa, violations, path, contents);
+    }
+    for (doc_comment_scopes) |where| {
+        for (try walk.files(where)) |path| {
+            const contents = try walk.read(path) orelse continue;
+            try reader_voice.banDocCommentFlaws(gpa, violations, path, contents);
         }
     }
 
     for (contributor_scopes) |where| {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, where, &files) catch continue;
-        for (files.items) |path| {
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+        for (try walk.files(where)) |path| {
+            const contents = try walk.read(path) orelse continue;
             try reader_voice.banReaderFlaws(gpa, violations, path, contents, .{
                 .insiders = kinds.classify(path, contents).audience == .human,
             });
@@ -120,13 +89,8 @@ pub fn checkHumanDocVoice(
     // prose tree. `apps/` files still carrying it ride the closed debt list
     // in `voice_debt.zig` until each is rewritten.
     for (justification_tic_scopes) |where| {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, where, &files) catch continue;
-        for (files.items) |path| {
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+        for (try walk.files(where)) |path| {
+            const contents = try walk.read(path) orelse continue;
             try banHabitualJustification(gpa, violations, path, contents);
         }
     }
@@ -151,21 +115,63 @@ const reader_scopes = [_]bans.Where{
     .{ .files = &kinds.human_roots },
 };
 
+/// The Zig trees whose doc comments a reader of the API sees.
+const doc_comment_scopes = [_]bans.Where{
+    .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "tools", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "test", .suffixes = &.{".zig"} } },
+};
+
 /// The human pages inside the contributor trees.
-fn humanPages(io: std.Io, arena: std.mem.Allocator, root: std.Io.Dir) ![]const []const u8 {
+fn humanPages(walk: Walk) ![]const []const u8 {
     var found: std.ArrayList([]const u8) = .empty;
     for (contributor_scopes) |where| {
-        var files: std.ArrayList([]const u8) = .empty;
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, where, &files) catch continue;
-        for (files.items) |path| {
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
-            if (kinds.classify(path, contents).audience == .human) try found.append(arena, path);
+        for (try walk.files(where)) |path| {
+            const contents = try walk.read(path) orelse continue;
+            if (kinds.classify(path, contents).audience == .human) try found.append(walk.arena, path);
         }
     }
     return found.items;
 }
+
+/// The voice walks' file access. A tree that cannot be opened and a file that
+/// cannot be read are each a violation naming the path and its cause, since
+/// a check that could not read a file has not passed it.
+const Walk = struct {
+    io: std.Io,
+    arena: std.mem.Allocator,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+
+    fn files(self: Walk, where: bans.Where) ![]const []const u8 {
+        var found: std.ArrayList([]const u8) = .empty;
+        bans.collectFiles(self.io, self.arena, self.root, where, &found) catch |err| switch (err) {
+            error.OutOfMemory => return err,
+            else => {
+                const name = switch (where) {
+                    .tree => |tree| tree.dir,
+                    .file => |path| path,
+                    .files => "a listed file",
+                };
+                try appendViolation(self.gpa, self.violations, "{s}: cannot be walked for the doc-voice checks ({s})", .{ name, @errorName(err) });
+                return &.{};
+            },
+        };
+        return found.items;
+    }
+
+    fn read(self: Walk, path: []const u8) !?[]const u8 {
+        return self.root.readFileAlloc(self.io, path, self.arena, .limited(4 << 20)) catch |err| switch (err) {
+            error.OutOfMemory => return err,
+            else => {
+                try appendViolation(self.gpa, self.violations, "{s}: cannot be read for the doc-voice checks ({s})", .{ path, @errorName(err) });
+                return null;
+            },
+        };
+    }
+};
 
 /// Markdown written for people building glowcap: design records, plans,
 /// guides, and the READMEs beside the code. It keeps the reader pages'
@@ -421,23 +427,17 @@ pub fn checkProseSentenceLength(
 ) !void {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
-    const arena = arena_state.allocator();
+    const walk: Walk = .{ .io = io, .arena = arena_state.allocator(), .gpa = gpa, .root = root, .violations = violations };
 
     for (prose_scopes) |where| {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, where, &files) catch continue;
-        for (files.items) |path| {
+        for (try walk.files(where)) |path| {
             if (!std.mem.endsWith(u8, path, ".md") and !std.mem.endsWith(u8, path, ".smd")) continue;
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            const contents = try walk.read(path) orelse continue;
             try checkSentencesIn(gpa, violations, path, contents);
         }
     }
-    for (try humanPages(io, arena, root)) |path| {
-        // tolerant: a read failure already reports through the ban rows.
-        const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+    for (try humanPages(walk)) |path| {
+        const contents = try walk.read(path) orelse continue;
         try checkSentencesIn(gpa, violations, path, contents);
     }
 }
@@ -457,17 +457,12 @@ pub fn checkParagraphLength(
 ) !void {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
-    const arena = arena_state.allocator();
+    const walk: Walk = .{ .io = io, .arena = arena_state.allocator(), .gpa = gpa, .root = root, .violations = violations };
 
     for (paragraph_scopes) |where| {
-        var files: std.ArrayList([]const u8) = .empty;
-        defer files.deinit(arena);
-        // tolerant: an unopenable tree already violates through the ban rows.
-        bans.collectFiles(io, arena, root, where, &files) catch continue;
-        for (files.items) |path| {
+        for (try walk.files(where)) |path| {
             if (std.mem.startsWith(u8, path, "docs/decisions/")) continue;
-            // tolerant: a read failure already reports through the ban rows.
-            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            const contents = try walk.read(path) orelse continue;
             if (std.mem.indexOf(u8, contents[0..@min(contents.len, 400)], "GENERATED") != null) continue;
             try paragraphs.checkIn(gpa, violations, path, contents);
         }

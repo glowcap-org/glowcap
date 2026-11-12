@@ -334,8 +334,7 @@ files. The app holds four repository permissions on this repository alone:
 Contents and Workflows, both read and write, which promotion needs, and
 Administration and Code scanning alerts, both read-only, which the
 [repository policy workflow](../.github/workflows/repository-policy.yml) needs.
-Its client ID is the
-`PROMOTE_APP_CLIENT_ID` variable and its private key the
+Its client ID is the `PROMOTE_APP_CLIENT_ID` variable and its private key the
 `PROMOTE_APP_PRIVATE_KEY` secret. Until both exist, promotion fails at its
 first step and `main` stays where it was.
 
@@ -414,7 +413,7 @@ pull-request bypass does not apply to pushes or to `main`.
 Immutable releases hold a published release and its assets as they were, which
 is the policy the release workflow already follows.
 
-Four workflows watch the posture without being asked. The `workflows` job of
+Four checks watch the posture without being asked. The `workflows` job of
 the check workflow audits every workflow and action file with
 [zizmor](https://docs.zizmor.sh) on each push and pull request, and
 `.github/zizmor.yml` records a finding a design answers with its reason. The

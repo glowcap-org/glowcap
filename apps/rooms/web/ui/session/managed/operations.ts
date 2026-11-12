@@ -1,7 +1,8 @@
-import { conversationById } from "./conversation_lookup.ts";
-import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 // Operations select separately retained fields. Reads use scoped Rust
 // readers. Writes run through the original command and its exact receipt.
+import { projectedError } from "../../../../lib/error_codes.ts";
+import { conversationById } from "./conversation_lookup.ts";
+import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
@@ -11,8 +12,7 @@ import type { OperatorReferenceKind, OperatorSnapshot } from "../../../../lib/op
 import { parseOperatorSnapshotJson } from "../../../../lib/operator_snapshot.ts";
 import { appendOperatorPage, operatorStateOf } from "../../ops/operator_projection.ts";
 import { type Coordinate, fieldKey, type WorkspaceIntent } from "./model.ts";
-import { refusalText } from "../../../../lib/text/failure.ts";
-import { recoverManagerJoinFirst } from "../../../../lib/text/room_authority.ts";
+import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { formatOpsBundle, parseOpsBundleDraft } from "../../ops/bundle.ts";
 import type { RoomsManagedOperationsReader } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { operationCommand, operationHolding, operationKind, operationSelection } from "./operations_selection.ts";
@@ -39,7 +39,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 	}
 	function selected(cap: OperationsCapability): { coordinate: Coordinate; kind?: string } {
 		const row = holding(cap);
-		if (row == null) throw new Error(`This workspace holds no ${cap} capability`);
+		if (row == null) throw new LocalRefusal("operations-access-missing", { cause: cap });
 		return row;
 	}
 	const outcome = async (work: () => Promise<unknown>): Promise<string> => {
@@ -169,7 +169,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			await session.completeResult(command);
 			row = session.current?.intent.operations?.find((row) => row.connection?.operation === command.id);
 		}
-		if (row == null) throw new Error("The acquired connection is no longer selected");
+		if (row == null) throw new LocalRefusal("connection-gone");
 		await session.actions.run("operations", [JSON.stringify(row.handle), "ircConnection", action, ...args]);
 		const retired = await session.candidate();
 		retired.intent.operations = retired.intent.operations?.filter((entry) =>
@@ -184,7 +184,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			const row = operationHolding(intent, cap);
 			if (row != null) {
 				const uri: string | null = await session.workspace.custodyRecipe(JSON.stringify(row.coordinate));
-				if (uri == null) throw new Error(`The held ${cap} capability has no durable recipe`);
+				if (uri == null) throw new LocalRefusal("capability-unsavable", { cause: cap });
 				entries.set(cap, uri);
 			}
 		}
@@ -233,9 +233,9 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 				return { bundle: raw, failures: [] };
 			} catch (error) {
 				if (error instanceof OperationsAcquisitionRefused) {
-					const failures = error.failures.map(({ capability, reason, advice }) => ({
+					const failures = error.failures.map(({ capability, reason, advice, failure }) => ({
 						capability,
-						reason: advice == null ? refusalText(new Error(reason)) : `${advice} (${reason})`,
+						reason: advice == null ? refusalText(projectedError(failure, reason)) : `${advice} (${reason})`,
 					}));
 					// The draft may be repaired or discarded. Its exact refusal
 					// remains in the existing bounded browser journal for inspection.
@@ -304,10 +304,10 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		recoverRoomManager: (key) =>
 			outcome(async () => {
 				const row = store.getConv(projection, key);
-				if (row?.type !== "room") throw new Error("This room is no longer held");
+				if (row?.type !== "room") throw new LocalRefusal("room-gone");
 				const held = conversationById(session.current, row.persistId);
 				if (held?.kind !== "room" || held.seat == null) {
-					throw new Error(recoverManagerJoinFirst);
+					throw new LocalRefusal("manager-recovery-needs-membership");
 				}
 				const identity: string = await session.workspace.roomManagementIdentity(
 					JSON.stringify({ role: "roomSeat", key: held.seat }),
@@ -324,13 +324,13 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		publishPeeredRoom: (key, name) =>
 			outcome(async () => {
 				const room = store.getConv(projection, key);
-				if (room?.type !== "room") throw new Error("This room is no longer held");
+				if (room?.type !== "room") throw new LocalRefusal("room-gone");
 				const selected = conversationById(session.current, room.persistId);
 				if (selected?.kind !== "room" || selected.access == null) {
-					throw new Error("No room publication authority is held");
+					throw new LocalRefusal("room-access-changed");
 				}
 				const publisher = holding("peering");
-				if (publisher == null) throw new Error("This workspace holds no peering capability");
+				if (publisher == null) throw new LocalRefusal("operations-access-missing");
 				const command = await session.command("publishPeeredRoom", [
 					room.dir,
 					name,
@@ -343,7 +343,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		revokePeeredPublication: (id) =>
 			outcome(async () => {
 				const row = session.current?.intent.peering.find((row) => row.id === String(id));
-				if (row == null) throw new Error("The original publication lease is no longer held");
+				if (row == null) throw new LocalRefusal("publication-gone");
 				await session.actions.run("revokePeeredRoom", [row.id, JSON.stringify(row.lease)]);
 				await refresh("peering");
 			}),

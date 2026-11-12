@@ -131,7 +131,7 @@ export const DEFAULT_REFERENCE_SECTION: ReferenceSectionId = "attribution";
 /** Top-bar button that opens the Reference. An icon among icons, with the
  *  conventional picture for help. */
 export function ReferenceButton({ onOpen }: { onOpen: () => void }) {
-	const label = "Reference — what every word in this app means";
+	const label = "Reference: what every word in this app means";
 	return (
 		<button
 			type="button"
@@ -371,7 +371,7 @@ const proseWrap = { textWrap: "pretty" } satisfies React.CSSProperties;
  * spans the panel stops here instead. A row's sentence takes no cap: the grid
  * has already put a word and a badge to its left, and its column is inside a
  * comfortable measure on its own. Capping it a second time only breaks lines
- * earlier than the layout needs and makes the rows taller than they read.  status-allow: event or source ordering */
+ * earlier than the layout needs and makes the rows taller than they read. */
 const measured = {
 	...proseWrap,
 	maxWidth: "68ch",

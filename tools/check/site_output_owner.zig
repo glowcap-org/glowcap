@@ -123,7 +123,14 @@ fn clearOutput(
     };
     const marked = blk: {
         defer out.close(io);
-        break :blk if (out.access(io, marker_name, .{})) |_| true else |_| false;
+        out.access(io, marker_name, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :blk false,
+            else => {
+                std.debug.print("site-output-owner: unable to read the marker in `{s}`: {t}\n", .{ output_path, err });
+                std.process.exit(1);
+            },
+        };
+        break :blk true;
     };
 
     const repo_root = std.fs.path.dirname(source_path) orelse source_path;

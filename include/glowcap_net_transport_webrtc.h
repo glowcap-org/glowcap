@@ -231,7 +231,10 @@ int32_t glowcap_webrtc_netlayer_provide_candidate(GlowcapWebrtcNetlayer *netlaye
    nonzero instead. GLOWCAP_ERR_INVALID_ARGUMENT with no effect when no such
    exchange is in progress or its channel has already opened. */
 int32_t glowcap_webrtc_netlayer_fail_exchange(GlowcapWebrtcNetlayer *netlayer, uint64_t exchange);
-/* Release the endpoint after every peer created from it is released. NULL is a no-op. */
+/* Release the endpoint after every peer created from it is released. NULL is a no-op.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_webrtc_netlayer_release(GlowcapWebrtcNetlayer *netlayer);
 /* Create a peer from netlayer in one of the two signaling roles into out_peer.
    is_offerer nonzero creates the offerer; zero creates the answerer. Release with
@@ -296,7 +299,10 @@ int32_t glowcap_webrtc_peer_try_send_packet(GlowcapWebrtcPeer *peer, const uint8
    Idempotent; glowcap_webrtc_peer_release is still required afterward. */
 void glowcap_webrtc_peer_close(GlowcapWebrtcPeer *peer);
 /* Release the peer and close its channel. If this consumes the endpoint's final
-   lease, its teardown outcome is returned here. NULL is a no-op. */
+   lease, its teardown outcome is returned here. NULL is a no-op.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_webrtc_peer_release(GlowcapWebrtcPeer *peer);
 /* Fill the generic multiplexed provider package. The driver claims a peer you
    signaled by hand through claim_external, by the stable subject

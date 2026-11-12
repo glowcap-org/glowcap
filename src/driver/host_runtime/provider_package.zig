@@ -7,7 +7,6 @@ const std = @import("std");
 
 const model = @import("model");
 const net = @import("net");
-const runtime_contract = @import("contract.zig");
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
 pub const Selected = struct {
@@ -47,22 +46,10 @@ pub const Installed = struct {
     profiles: []model.transport.Metadata,
     owner: Owner,
 
-    pub fn overlaps(self: Installed, candidate: []const Registration) !bool {
-        for (self.profiles) |installed| for (candidate) |registration| {
-            const profile = try runtime_contract.canonicalProviderProfile(registration.profile);
-            if (std.mem.eql(u8, installed.symbol, profile.symbol)) return true;
-        };
-        return false;
-    }
-
-    pub fn hasSameProfiles(self: Installed, candidate: []const Registration) !bool {
-        if (self.profiles.len != candidate.len) return false;
-        for (self.profiles) |installed| {
-            for (candidate) |registration| {
-                if (installed.eql(try runtime_contract.canonicalProviderProfile(registration.profile))) break;
-            } else return false;
-        }
-        return true;
+    /// The profile this package serves under `symbol`, when it serves one.
+    pub fn profileNamed(self: Installed, symbol: []const u8) ?model.transport.Metadata {
+        for (self.profiles) |installed| if (std.mem.eql(u8, installed.symbol, symbol)) return installed;
+        return null;
     }
 
     pub fn deinit(self: *Installed, allocator: std.mem.Allocator) ?OperationFailure {

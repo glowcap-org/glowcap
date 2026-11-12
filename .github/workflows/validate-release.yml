@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+# Bash with pipefail, so `curl | sh` fails when the download does.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   newest:
     runs-on: ubuntu-24.04
@@ -21,49 +26,34 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/pins
+        id: pins
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ steps.pins.outputs.python }}
+
       - name: Read the newest release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          version="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName | ltrimstr("v") | select(test("^0\\.[0-9]+\\.[0-9]+$"))')"
-          if [ -z "$version" ]; then
-            echo "no release with a version tag" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        run: python3 ci/github_release.py version --newest
 
-  # The matrix cannot gate one job's rows by event, so the Linux and macOS
-  # installs are two jobs with one step list each.
-  installer-linux:
+  # The installer runs where the reader runs it: a bare host with no checkout.
+  installer:
     needs: newest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
-    env:
-      VERSION: ${{ needs.newest.outputs.version }}
-    steps:
-      - name: Install the newest release through the site
-        run: curl -fsSL https://glowcap.org/install.sh | sh
-
-      - name: Run the installed product
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          glowcap version | tee version.txt
-          grep -Fx "glowcap $VERSION" version.txt
-          glowcap help > /dev/null
-
-  installer-macos:
-    needs: newest
-    if: github.event_name == 'workflow_dispatch'
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [macos-15, macos-15-intel]
+        runner: >-
+          ${{ github.event_name == 'workflow_dispatch'
+          && fromJSON('["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15", "macos-15-intel"]')
+          || fromJSON('["ubuntu-24.04", "ubuntu-24.04-arm"]') }}
     runs-on: ${{ matrix.runner }}
     env:
       VERSION: ${{ needs.newest.outputs.version }}
@@ -98,14 +88,18 @@ jobs:
           python-version: ${{ steps.pins.outputs.python }}
 
       - name: Install the pinned uv
-        env:
-          UV_VERSION: ${{ steps.pins.outputs.uv }}
-        run: python3 -m pip install "uv==$UV_VERSION"
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+          enable-cache: false
 
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: ${{ steps.pins.outputs.deno }}
 
+      # The checkout is the released tag, whose tree can predate the local
+      # actions this workflow's branch holds, so this job uses only the pins
+      # action every release carries and installs Rust from its output.
       - name: Install the pinned Rust
         env:
           RUST_VERSION: ${{ steps.pins.outputs.rust }}

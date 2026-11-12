@@ -211,8 +211,13 @@ export function updateAttachment(projection: PageProjection, key: string, id: nu
 	updateAttachments(projection, key, new Map([[id, fields]]));
 }
 
-export function sysItem(projection: PageProjection, text: string, audience: SysAudience = "here"): Item {
-	return { kind: "sys", id: projection.allocItemId(), text, at: Date.now(), audience };
+export function sysItem(
+	projection: PageProjection,
+	text: string,
+	audience: SysAudience = "here",
+	at = Date.now(),
+): Item {
+	return { kind: "sys", id: projection.allocItemId(), text, at, audience };
 }
 
 /** Add one line to a conversation.

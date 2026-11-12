@@ -2,6 +2,7 @@ const std = @import("std");
 const linux = std.os.linux;
 const net = @import("glowcap").net;
 const uring = net.uring_white_box;
+const io_uring_gate = @import("../support/io_uring_gate.zig");
 
 test "io_uring initialization failures identify unavailable host support at their source" {
     try std.testing.expectEqual(error.IoUringSystemOutdated, uring.initFailureFor(error.SystemOutdated));
@@ -62,10 +63,6 @@ test "io_uring listener cancellation waits for a target already completing" {
 }
 
 test "io_uring dialed and accepted sockets disable Nagle" {
-    const enabled = uring.dialAndAcceptSetNodelay(std.testing.allocator) catch |err| {
-        if (net.linux_completion_white_box.fallbackReasonFor(err) != null)
-            return error.SkipZigTest;
-        return err;
-    };
+    const enabled = uring.dialAndAcceptSetNodelay(std.testing.allocator) catch |err| return io_uring_gate.refused(err);
     try std.testing.expect(enabled);
 }

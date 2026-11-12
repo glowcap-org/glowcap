@@ -144,7 +144,7 @@ pub(crate) struct SessionShared {
 	// the partner's framing is unrecoverable. The lock orders writes but cannot
 	// make one atomic. Once this is set the
 	// session refuses further writes rather than appending to a stream the
-	// partner can no longer parse. status-allow: lifecycle transition
+	// partner can no longer parse.
 	pub(crate) torn: Cell<bool>,
 	// Wakes the serve task off its parked read when the connection closes.
 	pub(crate) closed: Notify,

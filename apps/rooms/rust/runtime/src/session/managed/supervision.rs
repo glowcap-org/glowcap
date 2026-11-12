@@ -1,7 +1,9 @@
 //! Live membership owns its callback and original requests through settlement.
 //! Observation wakes progress. Abandoning readiness never cancels the worker.
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use super::{Inbox, Session, realization};
-use glowcap::{Argument, Result, loam};
+use glowcap::{Argument, loam};
 use rooms_application::content::session::{custody, results, workspace};
 use rooms_glowcap::client::{
 	Deadline, Tasks,
@@ -63,7 +65,7 @@ impl<P: Tasks> Membership<P> {
 		// sender will publish another ready value after cleanup finishes.
 		tokio::select! {
 			biased;
-			ended = self.ended() => ended.and(Err(loam::refusal("Membership worker has retired"))),
+			ended = self.ended() => ended.and(Err(Error::closed("Membership worker has retired"))),
 			ready = outcome(self.ready.subscribe()) => ready,
 		}
 	}
@@ -106,7 +108,7 @@ async fn outcome(mut state: watch::Receiver<Option<Result<()>>>) -> Result<()> {
 		state
 			.changed()
 			.await
-			.map_err(|_| loam::refusal("Membership worker lost its close barrier"))?;
+			.map_err(|_| Error::closed("Membership worker lost its close barrier"))?;
 	}
 }
 
@@ -141,13 +143,13 @@ fn key<K>(entropy: &mut dyn crate::entropy::Entropy) -> Result<custody::FieldKey
 	let mut bytes = [0; 16];
 	entropy
 		.fill(&mut bytes)
-		.map_err(|_| loam::refusal("Membership entropy is unavailable"))?;
-	let malformed = || loam::refusal("Membership entropy is malformed");
+		.map_err(|_| Error::platform_message("Membership entropy is unavailable"))?;
+	let malformed = || Error::platform_message("Membership entropy is malformed");
 	let slot = NonZeroU64::new(u64::from_be_bytes(bytes[..8].try_into().map_err(|_| malformed())?));
 	let generation = NonZeroU64::new(u64::from_be_bytes(bytes[8..].try_into().map_err(|_| malformed())?));
 	Ok(custody::FieldKey::new(
-		slot.ok_or_else(|| loam::refusal("Empty membership custody identity"))?,
-		generation.ok_or_else(|| loam::refusal("Empty membership custody generation"))?,
+		slot.ok_or_else(|| Error::platform_message("Empty membership custody identity"))?,
+		generation.ok_or_else(|| Error::platform_message("Empty membership custody generation"))?,
 	))
 }
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
@@ -164,14 +166,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		+ 'static,
 	) -> Result<Membership<P>> {
 		if locator.len() > 16384 {
-			return Err(loam::refusal("Membership locator exceeds its bound"));
+			return Err(Error::invalid("Membership locator exceeds its bound"));
 		}
 		let permit = Permit::reserve(&self.state.memberships)?;
 		let source = self.directory_source(row).await?;
 		let mut selected = row.clone();
 		selected.inbox = Some(key(entropy)?);
 		let selection = workspace::InboxSelection::directory(&selected)
-			.ok_or_else(|| loam::refusal("Directory has no exact initiating source"))?;
+			.ok_or_else(|| Error::stale("Directory has no exact initiating source"))?;
 		let target = Target::Directory {
 			locator: locator.into(),
 			name: key(entropy)?,
@@ -199,14 +201,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			id: row.id.clone(),
 			directory: row.directory.clone(),
 			nickname: workspace::RoomNickname::select(intent, &row.directory)
-				.ok_or_else(|| loam::refusal("Room has no directory nickname"))?,
+				.ok_or_else(|| Error::stale("Room has no directory nickname"))?,
 			access: row.access,
 			accepted: row.accepted,
 			public_entry: row.public_entry.clone(),
 			publication: row.publication.clone(),
 			source: row
 				.source
-				.ok_or_else(|| loam::refusal("Room has no initiating source"))?,
+				.ok_or_else(|| Error::stale("Room has no initiating source"))?,
 			inbox: key(entropy)?,
 		};
 		let target = Target::Room {
@@ -241,7 +243,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			introduction: row.introduction.clone(),
 			source: row
 				.source
-				.ok_or_else(|| loam::refusal("Direct has no initiating source"))?,
+				.ok_or_else(|| Error::stale("Direct has no initiating source"))?,
 			inbox: key(entropy)?,
 		};
 		self.start_membership(source, selected, Target::Direct, entropy, permit, receive)
@@ -267,7 +269,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		let operation = operation
 			.text()
 			.as_str()
-			.ok_or_else(|| loam::refusal("generated membership identifier is not text"))?
+			.ok_or_else(|| Error::platform_message("generated membership identifier is not text"))?
 			.to_owned();
 		let mut inbox = self.open_inbox(selected.clone(), receive).await?;
 		if matches!(selected, workspace::InboxSelection::Direct { .. }) {
@@ -277,19 +279,28 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				.map_err(|e| loam::refusal(e.to_string()))
 				.and_then(|()| inbox.publish(&self.state.writer.host, publication_entropy))
 			{
-				return Err(error.with_cleanup(inbox.close().await));
+				return Err(crate::cleanup::failed(
+					Error::from(error),
+					inbox.close().await.map_err(Error::from),
+				));
 			}
 		}
 		let installation = match source.prepare_inbox(&selected, inbox.reference()).await {
 			Ok(installation) => installation,
-			Err(error) => return Err(error.with_cleanup(inbox.close().await)),
+			Err(error) => return Err(crate::cleanup::failed(error, inbox.close().await.map_err(Error::from))),
 		};
 		if self.state.closing.get() {
-			return Err(loam::refusal("Session is closing").with_cleanup(inbox.close().await));
+			return Err(crate::cleanup::failed(
+				Error::closed("Session is closing"),
+				inbox.close().await.map_err(Error::from),
+			));
 		}
 		let budget = self.state.memberships.clone();
 		if budget.contains(&operation) {
-			return Err(loam::refusal("Membership identity is already active").with_cleanup(inbox.close().await));
+			return Err(crate::cleanup::failed(
+				Error::busy("Membership identity is already active"),
+				inbox.close().await.map_err(Error::from),
+			));
 		}
 		let workspace = installation.1.workspace().clone();
 		let retirement = Some(Rc::new(retirement::Owner::new(self.state.writer.host.clone())));
@@ -338,7 +349,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					_ = cancellation.changed() => Ok(()),
 					ended = async {
 						match retirement {
-							Some(owner) => owner.ended().await,
+							Some(owner) => owner.ended().await.map_err(Error::from),
 							None => std::future::pending().await,
 						}
 					} => {
@@ -350,7 +361,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				};
 				if worker.ready.borrow().is_none() {
 					worker.ready.send_replace(Some(match &outcome {
-						Ok(()) => Err(loam::refusal("Membership closed before readiness")),
+						Ok(()) => Err(Error::closed("Membership closed before readiness")),
 						Err(error) => Err(error.clone()),
 					}));
 				}
@@ -367,14 +378,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 							&& worker.submission.is_none()
 							&& !worker.connection_expiry_pending)
 					{
-						return merge(outcome, closed);
+						return crate::cleanup::combine(outcome, closed);
 					}
 					// Requests arriving during this attempt receive its result.
 					// Consume them before publishing failure so an abandoned view
 					// cannot accidentally start another refused cleanup attempt.
 					worker.stopping.borrow_and_update();
 					worker.retrying.borrow_and_update();
-					finished.send_replace(Some(merge(outcome.clone(), closed)));
+					finished.send_replace(Some(crate::cleanup::combine(outcome.clone(), closed)));
 					// Exact failed cleanup remains owned until a later close or retry.
 					tokio::select! {
 						_ = worker.stopping.changed() => {},
@@ -383,12 +394,6 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				}
 			},
 		))
-	}
-}
-fn merge(first: Result<()>, next: Result<()>) -> Result<()> {
-	match first {
-		Ok(()) => next,
-		Err(error) => Err(error.with_cleanup(next)),
 	}
 }
 /// A callback and its exact initiating source outlive readiness waits. Shared
@@ -420,10 +425,11 @@ struct Worker<P: Tasks> {
 	rate_retry: rate_retry::Window,
 }
 impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
-	async fn stage<T, F, Fut>(&mut self, mut attempt: F) -> Result<Option<T>>
+	async fn stage<T, F, Fut, E>(&mut self, mut attempt: F) -> Result<Option<T>>
 	where
 		F: FnMut() -> Fut,
-		Fut: Future<Output = Result<T>>,
+		Fut: Future<Output = core::result::Result<T, E>>,
+		E: Into<Error>,
 	{
 		loop {
 			let result = tokio::select! {
@@ -437,7 +443,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			match result {
 				Ok(value) => return Ok(Some(value)),
 				Err(failure) => {
-					if !self.failed(failure).await? {
+					if !self.failed(failure.into()).await? {
 						return Ok(None);
 					}
 				}
@@ -485,8 +491,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			Ok(false)
 		}
 	}
-	async fn failed(&mut self, failure: glowcap::Error) -> Result<bool> {
-		let retry = rooms_application::failure::Failure::parse(&failure.to_string()).and_then(|f| f.retry_advice());
+	async fn failed(&mut self, failure: crate::Error) -> Result<bool> {
+		let retry = failure.admission_retry();
 		self.ready.send_replace(Some(Err(failure)));
 		if let Some(retry) = retry {
 			return self.retry_after(retry).await;
@@ -508,22 +514,5 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			self.ready.send_replace(self.live.then_some(Ok(())));
 		}
 		Ok(changed)
-	}
-}
-fn error(error: rooms_glowcap::client::Error) -> glowcap::Error {
-	match error {
-		rooms_glowcap::client::Error::Binding(error) | rooms_glowcap::client::Error::Unsent(error) => {
-			super::retained::name_undialable(*error)
-		}
-		rooms_glowcap::client::Error::Observation(reason)
-		| rooms_glowcap::client::Error::RefusedObservation(reason) => {
-			// The retained reason already crossed the binding wrapper. Normalize only
-			// validated Rooms carriers before placing it back in a binding error.
-			match rooms_application::failure::Failure::parse(&reason) {
-				Some(failure) => loam::refusal(failure.to_string()),
-				None => loam::refusal(reason),
-			}
-		}
-		error => loam::refusal(error.to_string()),
 	}
 }

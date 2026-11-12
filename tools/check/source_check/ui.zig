@@ -184,7 +184,7 @@ pub fn checkUiCore(
         }
 
         // And nothing extra in the consumer's directory, so a retired face
-        // cannot linger as a stale copy the core no longer owns. status-allow: lifecycle transition
+        // cannot linger as a stale copy the core no longer owns.
         try checkOnlyDeclared(io, gpa, root, violations, consumer.fonts_dir, declared.items, &.{});
     }
 
@@ -540,11 +540,11 @@ pub fn checkUiProductTokens(
         }
     }
 
-    const site = source_tree.concatDirFiles(io, gpa, root, "site/assets", struct {
+    const site = try source_tree.concatDirFiles(io, gpa, root, "site/assets", struct {
         fn keep(name: []const u8) bool {
             return std.mem.endsWith(u8, name, ".css") and !std.mem.eql(u8, name, "tokens.css") and !std.mem.eql(u8, name, "mark.css");
         }
-    }.keep) catch null;
+    }.keep);
     if (site) |css| {
         defer gpa.free(css);
         try checkSurfaceInk(gpa, violations, "site/assets", css);
@@ -552,11 +552,11 @@ pub fn checkUiProductTokens(
         try appendViolation(gpa, violations, "site/assets: could not read the site stylesheets", .{});
     }
 
-    const rooms = source_tree.concatDirFiles(io, gpa, root, "apps/rooms/web/ui", struct {
+    const rooms = try source_tree.concatDirFiles(io, gpa, root, "apps/rooms/web/ui", struct {
         fn keep(name: []const u8) bool {
             return std.mem.endsWith(u8, name, ".css") and !std.mem.eql(u8, name, "tokens.css") and !std.mem.eql(u8, name, "mark.css");
         }
-    }.keep) catch null;
+    }.keep);
     if (rooms) |css| {
         defer gpa.free(css);
         try checkSurfaceInk(gpa, violations, "apps/rooms/web/ui", css);

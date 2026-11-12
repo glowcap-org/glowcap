@@ -114,7 +114,7 @@ pub(super) async fn run(
 	assert_eq!(joins.get(), prior + 2, "cleanup cannot redispatch membership effects");
 }
 async fn ready_count(
-	reported: &mut watch::Receiver<(usize, Vec<(managed::MembershipTarget, glowcap::Error)>)>,
+	reported: &mut watch::Receiver<(usize, Vec<(managed::MembershipTarget, rooms_runtime::Error)>)>,
 	expected: usize,
 ) {
 	loop {

@@ -1,6 +1,6 @@
 //! Sturdyref enlivenment for the byte-fed host core: turning a complete
 //! sturdyref (ADR-0007) into a live capability, and the select-or-dial form
-//! (ADR-0007) that stages a dial first when no session to the peer is open yet. status-allow: pending state or quoted runtime label
+//! (ADR-0007) that stages a dial first when no session to the peer is open yet.
 //!
 //! Host owns parked rows, vows, and dial actions. Enlivenment selects its
 //! completion recipient before admission: ordinary APIs queue public outcomes,
@@ -56,7 +56,7 @@ pub const PendingEnlivenOutcome = union(enum) {
         session: *HostSession,
         provenance: PeerProvenance,
     },
-    failed: []const u8,
+    failed: engine.Broken,
 };
 
 pub const matchSturdyrefPeer = identity.matchSturdyrefPeer;
@@ -265,18 +265,19 @@ pub fn failParkedEnliven(
     parked: PendingEnliven,
     session_peer: ?engine.PeerHandle,
     failure: host_action.VowFailure,
-    reason: []const u8,
+    reason: engine.Broken,
 ) void {
     if (parked.recipient == .observed) {
         parked.recipient.observed.fail(failure, reason);
         return;
     }
-    const retained = host_action.retainFailureMessage(self.allocator, reason);
+    const retained = host_action.retainFailureMessage(self.allocator, reason.detail);
     self.actions.pushReserved(.{ .failed = .{
         .peer_handle = session_peer,
         .vow_id = parked.vow_id,
         .failure = failure,
         .message = retained,
+        .cause = reason.cause.withFetch(),
     } });
 }
 
@@ -295,19 +296,19 @@ pub fn continueParkedEnliven(
         parked.sturdyref.peer.transport,
         model.transport.id,
     ) or (self.designatorScheme(parked.sturdyref.peer.transport) catch {
-        failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(HostError.UnknownTransport));
+        failParkedEnliven(self, parked, session.peer_handle, .broken, .{ .detail = @errorName(HostError.UnknownTransport), .cause = engine.RouteFailure.transport_unavailable.cause() });
         return;
     }) == .key;
     if (requires_verified_identity and provenance != .verified) {
-        failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(HostError.PeerIdentityUnverified));
+        failParkedEnliven(self, parked, session.peer_handle, .broken, .{ .detail = "", .cause = engine.BreakCause.local(.identity_unverified) });
         return;
     }
     self.node.replaceDiscoveredExporterLocation(session.peer_handle, parked.sturdyref.peer) catch |err| {
-        failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(err));
+        failParkedEnliven(self, parked, session.peer_handle, .broken, engine.Broken.unnamed(@errorName(err)));
         return;
     };
     const progress = admitRemoteFetch(self, session, parked.sturdyref.swissnum, parked.vow_id, parked.recipient, provenance) catch |err| {
-        failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(err));
+        failParkedEnliven(self, parked, session.peer_handle, .broken, engine.Broken.unnamed(@errorName(err)));
         return;
     };
     if (progress == .sent) host_pump.markDirty(self, session.peer_handle);
@@ -348,10 +349,10 @@ fn settleParkedEnliven(
 pub fn cancelParkedEnlivens(self: *Host, reason: []const u8) void {
     var groups = self.pending_enlivens.valueIterator();
     while (groups.next()) |group| {
-        failParkedEnliven(self, group.first, null, .closed, reason);
+        failParkedEnliven(self, group.first, null, .closed, engine.Broken.unnamed(reason));
         freeParkedEnliven(self, group.first);
         for (group.rest.items) |parked| {
-            failParkedEnliven(self, parked, null, .closed, reason);
+            failParkedEnliven(self, parked, null, .closed, engine.Broken.unnamed(reason));
             freeParkedEnliven(self, parked);
         }
         self.pending_enliven_count -= 1 + group.rest.items.len;

@@ -50,7 +50,11 @@ use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
-use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier, teardown_status};
+use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier};
+
+#[path = "../../ffi_handles.rs"]
+mod ffi_handles;
+use ffi_handles::{borrowed, reclaimed};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
 type Readiness = glowcap_sidecar_runtime::Readiness<GlowcapIrohReadyEvent>;
@@ -131,7 +135,7 @@ const REACH_DISCOVERY_NO_RELAY: u32 = 2;
 const REACH_LOCAL_DISCOVERY: u32 = 3;
 
 /// `conn_try_read` / `conn_try_write` return this when the operation cannot make
-/// progress without blocking: no inbound bytes are buffered yet, or the outbound status-allow: pending state or quoted runtime label
+/// progress without blocking: no inbound bytes are buffered yet, or the outbound
 /// buffer has no room. The loop yields the connection and re-arms it on the next
 /// readiness event. Distinct from `0` (clean end of stream or zero-length write)
 /// and `-1` (error). Mirrors `GLOWCAP_IROH_WOULD_BLOCK` in the header and the
@@ -308,33 +312,18 @@ pub struct GlowcapIrohConn {
 	writers: Arc<TaskBarrier>,
 }
 
-/// Create an endpoint. `secret_seed32` is either null (generate a fresh random
-/// endpoint key) or a pointer to 32 bytes of Ed25519 secret key material.
-/// `reachability` selects how this endpoint becomes reachable and is mandatory,
-/// one of `GLOWCAP_IROH_REACH_*`, with no implicit default. An unknown value
-/// returns null. Returns an owned handle (release with
-/// `glowcap_iroh_sidecar_endpoint_free`) or null on failure. Blocks until the
-/// UDP sockets are bound.
-///
-/// # Safety
-/// `config` must be readable. When non-null, `secret_seed32` must address 32
-/// readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_new(
-	secret_seed32: *const u8,
-	config: *const GlowcapIrohEndpointConfig,
-) -> *mut GlowcapIrohEndpoint {
-	if config.is_null() {
-		return std::ptr::null_mut();
-	}
-	// Safety: the contract requires a readable config when non-null.
-	let GlowcapIrohEndpointConfig {
-		reachability,
-		connect_timeout_ms,
-		idle_timeout_ms,
-		worker_threads,
-	} = unsafe { *config };
-	let result = catch_unwind(AssertUnwindSafe(|| {
+impl GlowcapIrohEndpoint {
+	/// Bind one endpoint and its private runtime. `secret_seed` is the Ed25519
+	/// secret key, or `None` for a fresh random one. `None` when the
+	/// reachability is unknown, or the runtime or the UDP sockets cannot be
+	/// created. Blocks until the sockets are bound.
+	pub(crate) fn bind(secret_seed: Option<[u8; 32]>, config: GlowcapIrohEndpointConfig) -> Option<Box<Self>> {
+		let GlowcapIrohEndpointConfig {
+			reachability,
+			connect_timeout_ms,
+			idle_timeout_ms,
+			worker_threads,
+		} = config;
 		let rt = RuntimeOwner::new(
 			tokio::runtime::Builder::new_multi_thread()
 				.worker_threads(if worker_threads == 0 {
@@ -389,10 +378,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_new(
 					.build(),
 			);
 		}
-		if !secret_seed32.is_null() {
-			let mut seed = [0u8; 32];
-			// Safety: the contract requires 32 readable bytes when non-null.
-			seed.copy_from_slice(unsafe { std::slice::from_raw_parts(secret_seed32, 32) });
+		if let Some(seed) = secret_seed {
 			builder = builder.secret_key(SecretKey::from(seed));
 		}
 		let ep = rt.block_on(builder.bind()).ok()?;
@@ -406,7 +392,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_new(
 		} else {
 			std::time::Duration::from_millis(connect_timeout_ms)
 		};
-		Some(Box::into_raw(Box::new(GlowcapIrohEndpoint {
+		Some(Box::new(GlowcapIrohEndpoint {
 			connect_timeout,
 			readiness: OnceLock::new(),
 			accept: OnceLock::new(),
@@ -415,12 +401,41 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_new(
 			next_conn_id: AtomicUsize::new(1),
 			ep,
 			rt,
-		})))
-	}));
-	match result {
-		Ok(Some(handle)) => handle,
-		_ => std::ptr::null_mut(),
+		}))
 	}
+}
+
+/// Create an endpoint. `secret_seed32` is either null (generate a fresh random
+/// endpoint key) or a pointer to 32 bytes of Ed25519 secret key material.
+/// `reachability` selects how this endpoint becomes reachable and is mandatory,
+/// one of `GLOWCAP_IROH_REACH_*`, with no implicit default. An unknown value
+/// returns null. Returns an owned handle (release with
+/// `glowcap_iroh_sidecar_endpoint_free`) or null on failure. Blocks until the
+/// UDP sockets are bound.
+///
+/// # Safety
+/// `config` must be null or readable. When non-null, `secret_seed32` must
+/// address 32 readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_new(
+	secret_seed32: *const u8,
+	config: *const GlowcapIrohEndpointConfig,
+) -> *mut GlowcapIrohEndpoint {
+	// SAFETY: this function's `# Safety` contract makes `config` null or readable, and `as_ref` maps null to `None`.
+	let Some(&config) = (unsafe { config.as_ref() }) else {
+		return std::ptr::null_mut();
+	};
+	let secret_seed = if secret_seed32.is_null() {
+		None
+	} else {
+		// SAFETY: the same contract makes a non-null `secret_seed32` address 32 readable bytes, and `[u8; 32]` has
+		// alignment 1.
+		Some(unsafe { secret_seed32.cast::<[u8; 32]>().read() })
+	};
+	catch_unwind(AssertUnwindSafe(|| GlowcapIrohEndpoint::bind(secret_seed, config)))
+		.ok()
+		.flatten()
+		.map_or(std::ptr::null_mut(), Box::into_raw)
 }
 
 /// Return a UTF-8 string's complete byte count, copying it only when the
@@ -441,22 +456,16 @@ fn write_str(s: &str, out: *mut u8, out_cap: usize) -> isize {
 /// terminator.
 ///
 /// # Safety
-/// `ep` must be live, and `out` must be writable for `out_cap` bytes when the
-/// capacity is nonzero.
+/// `ep` must be null or live, and `out` must be writable for `out_cap` bytes
+/// when the capacity is nonzero. Null is refused with -1.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_node_id(
 	ep: *const GlowcapIrohEndpoint,
 	out: *mut u8,
 	out_cap: usize,
 ) -> isize {
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: the `# Safety` contract requires `ep` to be a live endpoint handle from
-		// `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; this function does not
-		// check for null, so the contract is the only guard. The shared borrow ends with this closure.
-		let ep = unsafe { &*ep };
-		write_str(&ep.ep.id().to_string(), out, out_cap)
-	}));
-	result.unwrap_or(-1)
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(ep, -1, |ep| write_str(&ep.ep.id().to_string(), out, out_cap)) }
 }
 
 /// Write the endpoint's directly dialable socket addresses into `out` as a
@@ -468,26 +477,24 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_node_id(
 /// enough. Borrows the handle. Writes no terminator.
 ///
 /// # Safety
-/// `ep` must be live, and `out` must be writable for `out_cap` bytes when the
-/// capacity is nonzero.
+/// `ep` must be null or live, and `out` must be writable for `out_cap` bytes
+/// when the capacity is nonzero. Null is refused with -1.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_direct_addrs(
 	ep: *const GlowcapIrohEndpoint,
 	out: *mut u8,
 	out_cap: usize,
 ) -> isize {
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: as `glowcap_iroh_sidecar_endpoint_node_id` above, `ep` is the live endpoint handle the `# Safety`
-		// contract requires, with no null check in this function; the shared borrow ends with this closure.
-		let ep = unsafe { &*ep };
+	let write = |ep: &GlowcapIrohEndpoint| {
 		let joined = dialable_addrs(&ep.ep)
 			.iter()
 			.map(|a| a.to_string())
 			.collect::<Vec<_>>()
 			.join(",");
 		write_str(&joined, out, out_cap)
-	}));
-	result.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(ep, -1, write) }
 }
 
 /// Close the endpoint without releasing its handle: an in-flight bounded accept
@@ -499,19 +506,15 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_direct_addrs(
 /// `ep` must be null or a live endpoint handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIrohEndpoint) {
-	if ep.is_null() {
-		return;
-	}
-	let _ = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `ep` is non-null (checked above), and the caller's contract makes it a live endpoint handle
-		// borrowed for this call; closing only cancels dials and spawns the endpoint close, leaving the handle valid.
-		let ep = unsafe { &*ep };
+	let close = |ep: &GlowcapIrohEndpoint| {
 		if let Some(dials) = ep.dials.get() {
 			dials.cancel_all();
 		}
 		let endpoint = ep.ep.clone();
 		drop(ep.rt.spawn(async move { endpoint.close().await }));
-	}));
+	};
+	// SAFETY: the handle contract `borrowed` states. Closing leaves the handle valid.
+	unsafe { borrowed(ep, (), close) }
 }
 
 /// Release an endpoint handle. Blocks while iroh delivers queued connection
@@ -520,40 +523,35 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIro
 /// connection minted from this endpoint first.
 ///
 /// # Safety
-/// `ep` must be null or an owned endpoint handle not previously freed, and status-allow: ownership and operation ordering
+/// `ep` must be null or an owned endpoint handle not already freed, and
 /// every connection minted from it must already have been released.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_free(ep: *mut GlowcapIrohEndpoint) -> i32 {
-	if ep.is_null() {
-		return 0;
+	// SAFETY: the caller transfers the endpoint after all connections are released.
+	unsafe {
+		reclaimed(ep, |handle| {
+			if let Some(dials) = handle.dials.get() {
+				dials.cancel_all();
+			}
+			let writer_result = handle.writers.wait();
+			let endpoint = handle.ep.clone();
+			let (closed_tx, closed_rx) = mpsc::sync_channel(1);
+			drop(handle.rt.spawn(async move {
+				endpoint.close().await;
+				let _ = closed_tx.send(());
+			}));
+			// tolerant: a close that no peer acknowledges within the bound is the
+			// peer's silence, not this teardown's failure. A peer that closed at the
+			// same moment and then released its endpoint keeps our connection
+			// draining until noq's backed-off probe timeout, and that peer learns
+			// nothing more from waiting longer.
+			let _ = closed_rx.recv_timeout(CLOSE_DRAIN_TIMEOUT);
+			// RuntimeOwner is safe to drop even when this C call originated inside an
+			// unrelated Tokio runtime.
+			drop(handle);
+			writer_result
+		})
 	}
-	teardown_status(|| {
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, an owned endpoint
-		// handle that `glowcap_iroh_sidecar_endpoint_new` boxed with `Box::into_raw` and that has not been freed, with
-		// every connection minted from it already released; this takes back that one allocation and `ep` is not used
-		// again.
-		let handle = unsafe { Box::from_raw(ep) };
-		if let Some(dials) = handle.dials.get() {
-			dials.cancel_all();
-		}
-		let writer_result = handle.writers.wait();
-		let endpoint = handle.ep.clone();
-		let (closed_tx, closed_rx) = mpsc::sync_channel(1);
-		drop(handle.rt.spawn(async move {
-			endpoint.close().await;
-			let _ = closed_tx.send(());
-		}));
-		// tolerant: a close that no peer acknowledges within the bound is the
-		// peer's silence, not this teardown's failure. A peer that closed at the
-		// same moment and then released its endpoint keeps our connection
-		// draining until noq's backed-off probe timeout, and that peer learns
-		// nothing more from waiting longer.
-		let _ = closed_rx.recv_timeout(CLOSE_DRAIN_TIMEOUT);
-		// RuntimeOwner is safe to drop even when this C call originated inside an
-		// unrelated Tokio runtime.
-		drop(handle);
-		writer_result
-	})
 }
 
 #[cfg(test)]

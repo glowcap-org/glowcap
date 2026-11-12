@@ -26,11 +26,14 @@ async fn refused_post_preserves_membership_and_other_peer_and_cleanup_progress()
 			.await
 			.err()
 			.expect("quota refuses before broadcast");
-		let reason = error.to_string();
-		let advice = rooms_application::failure::Failure::parse(&reason)
-			.unwrap()
-			.retry_advice()
-			.unwrap();
+		// The rendered text wraps the reason in the binding's diagnostic, which
+		// names no code. The typed error still carries it.
+		assert_eq!(rooms_application::failure::Failure::parse(&error.to_string()), None);
+		assert_eq!(
+			error.failure_code(),
+			Some(rooms_application::failure::FailureCode::RateLimited)
+		);
+		let advice = error.admission_refusal().unwrap().retry_advice().unwrap();
 		assert_eq!(advice.class, rooms_application::admission::Class::Message);
 		let other_runtime = super::runtime().await;
 		let other = Client::new(

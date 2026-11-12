@@ -28,7 +28,7 @@ from typing import Protocol
 
 from . import _constants as _c
 from ._abi_value import _DEFAULT_CODEC
-from ._constants import TRANSPORT_WEBRTC
+from ._constants import TRANSPORT_WEBRTC, release_result_code
 from ._errors import GlowcapError
 from ._ffi import FfiHandle, _FfiHandleOwner
 from ._ffi_ocapn import _read_last_error, _str_buf
@@ -311,8 +311,8 @@ class _Signaler:
             entry.offer = self._spawn("webrtc.offer", self._offer(exchange, target, offer), exchange)
             return _c.OK
         except BaseException as error:
-            self._end(exchange)
             self._record("webrtc.send_offer", error)
+            self._end_from_callback(exchange)
             return _c.ERR_IO
 
     def _on_send_answer(self, _ctx, exchange, designator, dlen, sdp, slen) -> int:
@@ -323,8 +323,8 @@ class _Signaler:
             self._signaling.answer(exchange, target, answer)
             return _c.OK
         except BaseException as error:
-            self._end(exchange)
             self._record("webrtc.send_answer", error)
+            self._end_from_callback(exchange)
             return _c.ERR_IO
 
     def _on_send_candidate(self, _ctx, exchange, ice, ice_len) -> int:
@@ -342,7 +342,15 @@ class _Signaler:
             return _c.ERR_IO
 
     def _on_done(self, _ctx, exchange) -> None:
-        self._end(exchange)
+        self._end_from_callback(exchange)
+
+    def _end_from_callback(self, exchange: int) -> None:
+        """End ``exchange`` from a C callback, where nothing may unwind: a
+        cancel refused by a closed event loop is recorded instead."""
+        try:
+            self._end(exchange)
+        except BaseException as error:
+            self._record("webrtc.end_exchange", error)
 
     def _end(self, exchange: int) -> None:
         """Forget ``exchange``, stop waiting for its answer, and end its
@@ -386,7 +394,9 @@ class _Netlayer(_FfiHandleOwner):
         self._signaler = signaler
         signaler.netlayer = out
         self._ffi = FfiHandle(
-            out, lambda raw: _check_webrtc(_webrtc().glowcap_webrtc_netlayer_release(raw)), label="webrtc netlayer"
+            out,
+            lambda raw: _check_webrtc(release_result_code(_webrtc().glowcap_webrtc_netlayer_release(raw))),
+            label="webrtc netlayer",
         )
 
     @classmethod

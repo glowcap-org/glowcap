@@ -468,7 +468,7 @@ export class DirectMessage {
 		return fetchBlobChunk(this.#session, attachment, offset, maxLen);
 	}
 
-	/** Give back a file capability this member no longer needs.  status-allow: lifecycle transition */
+	/** Give back a file capability this member no longer needs. */
 	release(attachment: Attachment): void {
 		this.#session.release(attachment.blob);
 	}

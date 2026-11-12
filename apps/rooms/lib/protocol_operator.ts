@@ -32,7 +32,7 @@ export const DOWN = "down";
 /** The Rooms operator's stewardship verbs. `giveSteward(name)` returns the
  * current durable authority for one server-owned room, creating it when none
  * has been issued. `revokeSteward(name)` rotates that authority: copied links
- * and already-live references from the old generation both stop governing.  status-allow: replacement state identity */
+ * and already-live references from the old generation both stop governing. */
 export const GIVE_STEWARD = "giveSteward";
 export const GIVE_MANAGER = "giveManager";
 export const REVOKE_STEWARD = "revokeSteward";

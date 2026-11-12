@@ -59,7 +59,11 @@
            [final-owner (host-retain-reference m source)])
       (host-release-reference! m source)
       (values (make-weak-box final-owner) (ref-id final-owner))))
-  (for ([_ (in-range 4)]) (collect-garbage) (sleep 0))
+  ;; A major collection is the costly step: collect only until the wrapper goes.
+  (let collect ([rounds 4])
+    (collect-garbage)
+    (sleep 0)
+    (when (and (weak-box-value weak) (> rounds 1)) (collect (sub1 rounds))))
   (drain-host-gc! m)
   (expect (not (weak-box-value weak)) "retain: the last wrapper was collected")
   ;; This probe bypasses the binding's spent-wrapper guard and owns no C retain.

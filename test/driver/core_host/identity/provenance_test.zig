@@ -52,10 +52,10 @@ test "partner identity: each leg reports the fact it holds, not the transport's 
     // was handed a verified remote by the code that realized the connection,
     // and the acceptor has no channel proof.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     const server_seed = @as([32]u8, @splat(0x3d));
-    var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, server_seed, Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -94,10 +94,10 @@ test "verified channel key: an embedder's testimony reaches provenance on both l
     // because the proof belongs to the connection rather than to a direction.
     const allocator = std.testing.allocator;
     const client_seed = @as([32]u8, @splat(0x4c));
-    var client = test_host.init(allocator, client_seed, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, client_seed, Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     const server_seed = @as([32]u8, @splat(0x4d));
-    var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, server_seed, Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -149,11 +149,13 @@ test "verified channel key: an embedder's testimony reaches provenance on both l
 test "partner identity: a session that does not verify its partner reports no identity" {
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, @as([32]u8, @splat(0x2a)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .verify_partner = false,
     });
     defer client.deinit();
     var server = test_host.init(allocator, @as([32]u8, @splat(0x2b)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .verify_partner = false,
     });
@@ -176,11 +178,36 @@ test "partner identity: a session that does not verify its partner reports no id
 
 test "partner identity: a session whose partner has not spoken yet reports no identity" {
     const allocator = std.testing.allocator;
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
 
     // Accepted, but no partner bytes have been fed, so no `op:start-session`
-    // has arrived and there is no key yet. status-allow: pending state or quoted runtime label
+    // has arrived and there is no key yet.
     const accepted = try publishAndOpenAccepted(&server, "tcp", "127.0.0.1:7004", "");
     try std.testing.expectError(error.HandshakeIncomplete, server.partnerIdentity(accepted));
+}
+
+test "partner identity: an iroh relay cannot authenticate another transport's claim" {
+    const allocator = std.testing.allocator;
+    const client_seed = @as([32]u8, @splat(0x8a));
+    const client_key = keyedDesignator(client_seed);
+    const relay_key = keyedDesignator(@as([32]u8, @splat(0x8b)));
+    for ([_]model.PeerLocator{
+        tcpLocator("browser.example:9000"),
+        .{ .transport = "webrtc", .designator = &client_key, .hints = model.Hints.emptyFalse() },
+    }) |claimed| {
+        var server = test_host.init(allocator, @as([32]u8, @splat(0x8c)), Host.Options.init(.unchecked, frame_cap));
+        defer server.deinit();
+        try server.ensureAdvertisedLocator("iroh");
+        const accepted = try server.openAcceptedAdvertised("iroh");
+        try server.bindVerifiedChannelKey(accepted, &relay_key);
+        var hello = try handshake_support.signedHelloFrame(allocator, crypto.SecretKey.fromSeed(client_seed), claimed.transport, claimed.designator, claimed.hints);
+        defer hello.deinit();
+        try server.feed(accepted, hello.view());
+        try std.testing.expect(accepted.sessionOpen());
+        const identity = try server.partnerIdentity(accepted);
+        try std.testing.expectEqualStrings(claimed.designator, identity.designator);
+        try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, identity.provenance);
+        try std.testing.expect(!identity.durableIdentityAuthenticated());
+    }
 }

@@ -1,5 +1,7 @@
 // One production viewer over explicit managed use. Rust owns memberships,
 // persistent authority, retained effect execution and physical storage.
+import { invariant } from "../../../../lib/invariant.ts";
+import { connectionLost, LocalRefusal } from "../../../../lib/text/failure.ts";
 import type {
 	RoomsManagedActivityReader,
 	RoomsManagedApplication,
@@ -19,11 +21,12 @@ import { ManagedNavigation } from "./navigation.ts";
 import { ManagedTyping } from "./typing.ts";
 import { ManagedSelection } from "./selection.ts";
 import { indexAcceptedConversations } from "./conversation_lookup.ts";
-import type { ActivityPage, DirectoryIntent, ObservationView, UseView, WorkspaceSnapshot } from "./model.ts";
+import type { ActivityRead, DirectoryIntent, ObservationView, UseView, WorkspaceSnapshot } from "./model.ts";
 import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
 import { managedAccessText as text, savedControlSource } from "../../../../lib/text/managed_access.ts";
-import { READINESS_WAIT_MS, ReadinessNotices } from "./readiness.ts";
-import type { ReadinessNotice } from "./readiness.ts";
+
+// Registration is observed through the existing workspace subscription.
+const DIRECTORY_REGISTRATION_WAIT_MS = 30_000;
 
 export class ManagedRoomsSession {
 	readonly application: RoomsManagedApplication;
@@ -42,7 +45,6 @@ export class ManagedRoomsSession {
 	readonly #listeners = new Set<() => void>();
 	readonly #activityListeners = new Set<(delivery: ActivityDelivery) => void | Promise<void>>();
 	readonly #waiters = new Set<() => void>();
-	readonly #notices = new ReadinessNotices();
 	#snapshot: WorkspaceSnapshot | null = null;
 	#access: UseView = { status: "outOfScope" };
 	#observation: RoomsManagedObservation | null = null;
@@ -58,7 +60,14 @@ export class ManagedRoomsSession {
 	#activityFailure: unknown = null;
 	#retryObservation = 0;
 	#retryingUpdates = false;
+	#away = false;
 	#activityCursor = "";
+	/** How far behind the journal this reader is, or null once every event it
+	 * reads is news. It is behind at first, and after a failed read, a gap, or
+	 * a stretch with no reader, and it then reads without waiting. `head` is
+	 * where the journal ended when it began to catch up, or null until a read
+	 * says where. Every event up to it had already happened. */
+	#activityBehind: { readonly head: string | null } | null = { head: null };
 	readonly #report: (source: string, error: unknown) => void;
 
 	constructor(
@@ -123,7 +132,13 @@ export class ManagedRoomsSession {
 	get updatesFailure(): unknown {
 		return this.#observationFailure ?? this.#activityFailure;
 	}
-	/** A retry was asked and no stream has answered it yet.  status-allow: pending state or quoted runtime label */
+	/** Whether the link to a session a process elsewhere runs has broken. An
+	 * update the session answers proves the link again. A session this browser
+	 * runs has no link to lose. */
+	get away(): boolean {
+		return this.#away;
+	}
+	/** A retry was asked and no stream has answered it yet. */
 	get updatesRetrying(): boolean {
 		return this.#retryingUpdates;
 	}
@@ -138,7 +153,7 @@ export class ManagedRoomsSession {
 		return () => this.#listeners.delete(listener);
 	};
 	onActivity(listener: (delivery: ActivityDelivery) => void | Promise<void>): () => void {
-		if (this.#activityListeners.size !== 0) throw new Error("Activity custody already has a presentation owner");
+		invariant(this.#activityListeners.size === 0, "activity custody already has a presentation owner");
 		this.#activityListeners.add(listener);
 		this.#changed();
 		return () => {
@@ -174,19 +189,14 @@ export class ManagedRoomsSession {
 	}
 	bindPresentation(stop: () => Promise<void>): void {
 		if (this.#presentation != null || this.#stopped) {
-			throw new Error("This viewer already has a presentation owner");
+			invariant(false, "this viewer already has a presentation owner");
 		}
 		this.#presentation = stop;
 	}
-	waitNotice(
-		matches: (event: ReadinessNotice) => boolean,
-	): { ready: Promise<void>; cancel(): void } {
-		return this.#notices.wait(matches);
-	}
 	async refresh(): Promise<WorkspaceSnapshot> {
-		if (this.#stopped) throw new Error("This workspace is closed");
+		if (this.#stopped) throw new LocalRefusal("session-closed");
 		const snapshot: WorkspaceSnapshot = await this.workspace.snapshot();
-		if (this.#stopped) throw new Error("This workspace is closed");
+		if (this.#stopped) throw new LocalRefusal("session-closed");
 		if (this.#snapshot == null || BigInt(snapshot.revision) >= BigInt(this.#snapshot.revision)) {
 			indexAcceptedConversations(snapshot);
 			this.#snapshot = snapshot;
@@ -210,7 +220,7 @@ export class ManagedRoomsSession {
 		const deadline = setTimeout(() => {
 			expired = true;
 			wake();
-		}, READINESS_WAIT_MS);
+		}, DIRECTORY_REGISTRATION_WAIT_MS);
 		signal?.addEventListener("abort", wake, { once: true });
 		try {
 			while (!this.#stopped && !signal?.aborted) {
@@ -219,13 +229,13 @@ export class ManagedRoomsSession {
 				if (
 					row == null || row.access !== original.access || row.source !== original.source ||
 					row.nick !== original.nick || row.nickAllocation !== original.nickAllocation
-				) throw new Error("The original directory or nickname choice changed");
+				) throw new LocalRefusal("registration-changed");
 				if (row.name != null && row.assignedNick != null) return;
 				if (this.#observationFailure != null) throw this.#observationFailure;
-				if (expired) throw new Error("Directory registration did not complete. Review its original operation.");
+				if (expired) throw new LocalRefusal("registration-unfinished");
 				await this.#wait(change);
 			}
-			if (this.#stopped) throw new Error("This workspace is closed");
+			if (this.#stopped) throw new LocalRefusal("session-closed");
 		} finally {
 			clearTimeout(deadline);
 			signal?.removeEventListener("abort", wake);
@@ -250,7 +260,7 @@ export class ManagedRoomsSession {
 		})()).catch((error) => this.#report(text.management, error));
 	}
 	async start(): Promise<void> {
-		if (this.#observation != null) throw new Error("This workspace viewer is already running");
+		invariant(this.#observation == null, "this workspace viewer is already running");
 		const registering: RoomsManagedObservationRequest = await this.workspace.prepareObservation();
 		this.#observationRequest = registering;
 		const observation = await registering.submit();
@@ -268,7 +278,7 @@ export class ManagedRoomsSession {
 		// Only start() launches this loop, with the observation already bound.
 		// A null here names a lifecycle state, not an expected branch.
 		const observation = this.#observation;
-		if (observation == null) throw new Error("the workspace observation runs only while the viewer is started");
+		invariant(observation != null, "the workspace observation runs only while the viewer is started");
 		let project = false;
 		while (!this.#stopped) {
 			const retry = this.#retryObservation;
@@ -288,11 +298,13 @@ export class ManagedRoomsSession {
 				project = false;
 				this.#observationFailure = null;
 				this.#retryingUpdates = false;
+				this.#away = false;
 				this.#changed();
 			} catch (error) {
 				if (this.#stopped) break;
 				this.#observationFailure = error;
 				this.#retryingUpdates = false;
+				this.#lost(error);
 				this.#report(text.observation, error);
 				this.#changed();
 				// Keep the same registration and accepted cursor. A failed
@@ -305,6 +317,9 @@ export class ManagedRoomsSession {
 		while (!this.#stopped) {
 			const change = this.#change;
 			if (!this.permits("observeWorkspace") || this.#activityListeners.size === 0) {
+				// Whatever happens while nothing reads has already happened to the
+				// next reader.
+				this.#activityBehind = { head: null };
 				// Nothing reads activity now, so no failure of it is waiting on a retry.
 				if (this.#activityFailure != null) {
 					this.#activityFailure = null;
@@ -318,29 +333,36 @@ export class ManagedRoomsSession {
 			try {
 				const reader: RoomsManagedActivityReader = this.#activity ?? await this.workspace.activityReader();
 				this.#activity = reader;
-				const delivery: ActivityPage<unknown> = await reader.read(this.#activityCursor, true);
-				offered = new ActivityDelivery(delivery);
+				const behind = this.#activityBehind;
+				const delivery: ActivityRead<unknown> = await reader.read(this.#activityCursor, behind == null);
+				// A gap skips to what the journal still holds, which ends where the
+				// journal ends now.
+				const head = delivery.gap ? delivery.head : behind?.head ?? delivery.head;
+				const empty = delivery.event == null && !delivery.gap && !delivery.unavailable;
+				const caughtUp = behind != null && (empty || this.#activityCursor === head);
+				offered = new ActivityDelivery(delivery, behind != null && !caughtUp);
 				const listener = this.#activityListeners.values().next().value;
 				if (this.#stopped || listener == null) {
 					offered.close();
 					continue;
 				}
 				if (delivery.gap) await this.workspace.resynchronizeDiscovery();
-				if (offered.event != null) {
-					this.#notices.notify(offered.event);
-				}
 				await listener(offered);
 				this.#activityCursor = delivery.cursor;
-				if (this.#activityFailure != null) {
+				this.#activityBehind = (behind == null || caughtUp) && !delivery.gap ? null : { head };
+				if (this.#activityFailure != null || this.#away) {
 					this.#activityFailure = null;
 					this.#retryingUpdates = false;
+					this.#away = false;
 					this.#changed();
 				}
 			} catch (error) {
 				offered?.close();
 				if (this.#stopped) break;
 				this.#activityFailure = error;
+				this.#activityBehind = { head: null };
 				this.#retryingUpdates = false;
+				this.#lost(error);
 				this.#report(text.activity, error);
 				this.#changed();
 				// A source observation or an explicit retry wakes this exact reader.
@@ -350,6 +372,11 @@ export class ManagedRoomsSession {
 				offered?.close();
 			}
 		}
+	}
+	/** A read whose connection is gone, and not one the session refused, says
+	 * the link is gone. */
+	#lost(error: unknown): void {
+		if (!this.local && connectionLost(error)) this.#away = true;
 	}
 	#track<T>(task: Promise<T>): Promise<T> {
 		const tracked = task.finally(() => this.#inFlight.delete(tracked));
@@ -401,7 +428,6 @@ export class ManagedRoomsSession {
 		this.openings.stop();
 		this.typing.stop();
 		this.selection.stop();
-		this.#notices.close();
 		this.#changed();
 		// Keep the observation handle if cancellation refuses. A retry uses the
 		// original registration and cannot create a second watcher.

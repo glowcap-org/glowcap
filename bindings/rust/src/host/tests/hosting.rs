@@ -207,3 +207,49 @@ async fn callback_sends_and_tells_use_the_active_turn() {
 		})
 		.await;
 }
+
+#[test]
+fn a_committed_settle_succeeds_when_its_progress_kick_is_refused() {
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.enable_all()
+		.build()
+		.expect("current-thread runtime");
+	let host = Host::new_host();
+	let saved = Rc::new(RefCell::new(None));
+	let (worker_host, worker_saved) = (host.clone(), saved.clone());
+	let worker = host
+		.spawn(move |_, _| {
+			*worker_saved.borrow_mut() = Some(worker_host.defer_turn().map_err(|e| e.to_string())?);
+			Ok(Argument::Void)
+		})
+		.unwrap();
+	let answer = tokio::task::LocalSet::new().block_on(&runtime, async {
+		let answer = host.send(&worker, "work", &[]);
+		tokio::time::timeout(std::time::Duration::from_secs(2), async {
+			while saved.borrow().is_none() {
+				tokio::task::yield_now().await;
+			}
+		})
+		.await
+		.expect("the worker defers its answer");
+		answer
+	});
+	// Outside a LocalSet the settle commits but its progress kick is refused.
+	let mut resolver = saved.borrow_mut().take().unwrap();
+	resolver
+		.fulfill(&"settled".into())
+		.expect("a committed settle reports success");
+	assert!(resolver.fulfill(&"again".into()).is_err(), "the settle committed once");
+	// The refused kick is latched and surfaces, as itself, at the next
+	// progress head, which settles the waiting answer with it.
+	tokio::task::LocalSet::new().block_on(&runtime, async {
+		host.shared.schedule_kick().unwrap();
+		let settled = tokio::time::timeout(std::time::Duration::from_secs(2), answer)
+			.await
+			.unwrap();
+		let error = settled.expect_err("the waiter receives the latched kick failure");
+		assert!(error.to_string().contains("LocalSet"), "{error}");
+		drop(worker);
+		host.close(PendingWork::Cancel).await.unwrap();
+	});
+}

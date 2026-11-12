@@ -1,4 +1,4 @@
-//! Native managed owners reopen their own indexes and recover atomic changes.
+//! LMDB managed owners reopen their own indexes and recover atomic changes.
 const std = @import("std");
 const Temp = @import("engine_fixture").Temp;
 const f = @import("../access/owner_fixture.zig");

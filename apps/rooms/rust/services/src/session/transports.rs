@@ -6,6 +6,7 @@ use glowcap::{
 	webrtc::{self, IceServer, SignalingAuthority},
 };
 use rooms_platform::serving::{Listener, iroh_config};
+use rooms_runtime::cleanup;
 use std::{collections::BTreeSet, rc::Rc};
 
 /// The provider families a locator can name. A family is one provider package
@@ -22,12 +23,66 @@ pub enum Family {
 	Webrtc,
 }
 
+/// One outgoing transport an operator names in `--dial-transports`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Dial {
+	NoiseTcp,
+	Iroh,
+	Onion,
+	Webrtc,
+	KeyedTcp,
+	Tcp,
+}
+impl Dial {
+	pub const ALL: [Self; 6] = [
+		Self::NoiseTcp,
+		Self::Iroh,
+		Self::Onion,
+		Self::Webrtc,
+		Self::KeyedTcp,
+		Self::Tcp,
+	];
+	pub const fn name(self) -> &'static str {
+		match self {
+			Self::NoiseTcp => glowcap::TRANSPORT_NOISE_TCP,
+			Self::Iroh => glowcap::TRANSPORT_IROH,
+			Self::Onion => glowcap::TRANSPORT_ONION,
+			Self::Webrtc => glowcap::TRANSPORT_WEBRTC,
+			Self::KeyedTcp => glowcap::TRANSPORT_KEYED_TCP,
+			Self::Tcp => glowcap::TRANSPORT_TCP,
+		}
+	}
+	/// The transports a comma-separated `--dial-transports` value names, each
+	/// one of `offered`. The refusal says which name is not and what is.
+	pub fn parse_list(names: &str, offered: &[Self]) -> Result<Vec<Self>, String> {
+		names
+			.split(',')
+			.map(|name| {
+				offered.iter().copied().find(|dial| dial.name() == name).ok_or_else(|| {
+					let offered: Vec<_> = offered.iter().map(|dial| dial.name()).collect();
+					format!("--dial-transports takes {}, not \"{name}\"", offered.join(", "))
+				})
+			})
+			.collect()
+	}
+	const fn family(self) -> Family {
+		match self {
+			Self::NoiseTcp | Self::KeyedTcp | Self::Tcp => Family::Tcp,
+			Self::Iroh => Family::Iroh,
+			Self::Onion => Family::Onion,
+			Self::Webrtc => Family::Webrtc,
+		}
+	}
+}
+
 /// What the peer must be able to dial. Declared by deployment before
 /// restoration, independent of persisted capabilities. A relay URL adds
 /// the relay family for browser members reachable only by rendezvous.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Needs {
 	families: BTreeSet<Family>,
+	/// The TCP transports the operator named: `tcp`, `keyed-tcp`, `noise-tcp`.
+	tcp: BTreeSet<Dial>,
 	relay_url: Option<String>,
 	relay_alias_url: Option<String>,
 	ice_servers: Vec<IceServer>,
@@ -35,7 +90,7 @@ pub struct Needs {
 
 impl Needs {
 	pub fn configured(
-		transports: &[String],
+		transports: &[Dial],
 		relay_url: Option<String>,
 		relay_alias_url: Option<String>,
 		ice_servers: Vec<IceServer>,
@@ -45,26 +100,26 @@ impl Needs {
 				"a relay alias requires a relay URL reaching the same registry",
 			));
 		}
-		let mut families = BTreeSet::new();
-		for transport in transports {
-			let family = match transport.as_str() {
-				"tcp" => Family::Tcp,
-				"iroh" => Family::Iroh,
-				"onion" => Family::Onion,
-				"webrtc" => Family::Webrtc,
-				_ => return Err(Error::invalid("unknown configured dial transport")),
-			};
-			families.insert(family);
-		}
+		let mut families: BTreeSet<Family> = transports.iter().map(|dial| dial.family()).collect();
+		let tcp = transports
+			.iter()
+			.copied()
+			.filter(|dial| dial.family() == Family::Tcp)
+			.collect();
 		if relay_url.is_some() {
 			families.insert(Family::Relay);
 		}
 		Ok(Self {
 			families,
+			tcp,
 			relay_url,
 			relay_alias_url,
 			ice_servers,
 		})
+	}
+	/// The TCP profiles the dial runtime registers for these needs.
+	pub fn tcp(&self) -> glowcap::tcp::Config {
+		rooms_platform::serving::tcp_config(self.tcp.iter().map(|dial| dial.name()))
 	}
 	pub fn dials(&self, family: Family) -> bool {
 		self.families.contains(&family)
@@ -83,12 +138,13 @@ fn installed(listener: &Listener) -> Family {
 
 /// The listener and the dial runtime over one Host.
 ///
-/// Listening with `ListenerIdentity::Host` installs the listener's own provider
-/// family on the Host's driver loop, and a provider name may be installed once.
-/// The dial runtime adopting that same Host therefore adds exactly the families
-/// the checkpoint needs that the listener did not already install. Nothing else
-/// is opened: an iroh endpoint the session never dials through would still
-/// reach relays and discovery, which a `check` run must not.
+/// Opening the listener installs its provider family on the Host's driver
+/// loop. The dial runtime adopting that same Host adds the families the needs
+/// name that the listener did not install, and the TCP profiles they name
+/// beside a TCP listener's own. A session dials a cleartext TCP profile only
+/// when it listens on it or `--dial-transports` names it. Nothing else is
+/// opened: an iroh endpoint the session never dials through would still reach
+/// relays and discovery.
 ///
 /// The WebRTC family takes the signaling authority the peer composed over its
 /// directories. It is `Some` exactly when the needs include that family. That
@@ -114,7 +170,7 @@ impl Transports {
 		let (listener, locator) = Listener::open(transport, host, keys).await?;
 		let answering = match Self::answering(host, needs, signaling, &locator).await {
 			Ok(answering) => answering,
-			Err(error) => return Err(error.retain_result(listener.close().await.map_err(Error::from))),
+			Err(error) => return Err(cleanup::failed(error, listener.close().await.map_err(Error::from))),
 		};
 		let (webrtc, registered) = match answering {
 			Some((server, registered)) => (Some(Rc::new(server)), registered),
@@ -128,7 +184,7 @@ impl Transports {
 					Some(server) => server.close().await.map_err(Error::from),
 					None => Ok(()),
 				};
-				return Err(error.retain_result(Error::fold(listener, webrtc)));
+				return Err(cleanup::failed(error, cleanup::combine(listener, webrtc)));
 			}
 		};
 		Ok(Self {
@@ -167,14 +223,23 @@ impl Transports {
 		});
 		match registered {
 			Ok(registered) => Ok(Some((server, registered))),
-			Err(error) => Err(Error::from(error).retain_result(server.close().await.map_err(Error::from))),
+			Err(error) => Err(cleanup::failed(
+				Error::from(error),
+				server.close().await.map_err(Error::from),
+			)),
 		}
 	}
 	async fn dial_runtime(host: &Host, installed: Family, needs: &Needs) -> Result<Runtime, Error> {
 		let mut providers = Vec::new();
-		for family in needs.families.iter().filter(|family| **family != installed) {
+		// TCP profiles compose one by one, so a TCP listener's profile stays
+		// with it and the named ones join. Every other family installs whole.
+		for family in needs
+			.families
+			.iter()
+			.filter(|family| **family != installed || **family == Family::Tcp)
+		{
 			providers.push(match family {
-				Family::Tcp => tcp::provider(Default::default()),
+				Family::Tcp => tcp::provider(needs.tcp()),
 				Family::Iroh => iroh::provider(iroh_config(iroh::Reachability::Discovery)),
 				Family::Relay => {
 					let Some(url) = needs.relay_url.as_deref() else {
@@ -237,6 +302,6 @@ impl Transports {
 			None => Ok(()),
 		};
 		let runtime = self.dial.close(PendingWork::Cancel).await.map_err(Error::from);
-		Error::fold(Error::fold(listener, webrtc), runtime)
+		cleanup::combine(cleanup::combine(listener, webrtc), runtime)
 	}
 }

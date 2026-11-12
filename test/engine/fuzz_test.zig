@@ -10,7 +10,7 @@
 //! first byte is even. Stream boundaries are the envelope's, and
 //! `test/net/fuzz_test.zig` searches those.
 //!
-//! What makes it worth more than a decode fuzzer is the state underneath. A
+//! The fuzzer runs against state built by real traffic. A
 //! cold peer has empty tables, so untrusted bytes meet almost no code: they are
 //! refused for being out of order and the run ends. The interesting bugs live
 //! where a message is *plausible*, an answer position that exists, an import
@@ -103,6 +103,7 @@ const held_resolution = @import("fuzz/held_resolution.zig");
 /// crash into a program that does something else.
 const regression_seeds = [_][]const u8{
     resolverRetainReleasedProgram(),
+    injectOutOfMemoryProgram(),
 };
 
 /// A program written out draw by draw, for a state the search is not owed to
@@ -122,6 +123,14 @@ const Program = struct {
         std.mem.writeInt(u32, self.bytes[self.len..][0..4], 0, .little);
         self.bytes[self.len + 4] = 0;
         self.len += 5;
+    }
+
+    /// `step` with a chunk for the inject arm to read.
+    fn stepWith(self: *Program, chunk: []const u8) void {
+        std.mem.writeInt(u32, self.bytes[self.len..][0..4], @intCast(chunk.len), .little);
+        @memcpy(self.bytes[self.len + 4 ..][0..chunk.len], chunk);
+        self.bytes[self.len + 4 + chunk.len] = 0;
+        self.len += 5 + chunk.len;
     }
 
     fn end(self: *Program) void {
@@ -174,6 +183,30 @@ fn resolverRetainReleasedProgram() []const u8 {
         p.draw(0);
         p.draw(1);
         p.draw(3);
+        p.end();
+        break :blk p.bytes[0..p.len].*;
+    };
+    return &entry;
+}
+
+/// How many allocations `pairing.pairedWithLimits` makes, so a budget drawn
+/// at this index fails the first allocation after the handshake. The
+/// fuzz test holds the count, because a program built on a stale count
+/// fails inside the handshake and ends before its first step.
+const pairing_allocations = 30;
+
+/// A fuzzer finding: the budget runs out at the borrowed door's copy, which
+/// refuses with `OutOfMemory` and commits nothing. Under an allocator that
+/// keeps refusing, the embedder condemns the session and the run goes on.
+fn injectOutOfMemoryProgram() []const u8 {
+    const entry = comptime blk: {
+        var p: Program = .{};
+        p.draw(session_span + 1 + pairing_allocations);
+        // An odd first byte takes the borrowed door.
+        p.stepWith(&.{1});
+        // Act on p1, and inject.
+        p.draw(0);
+        p.draw(inject_draw);
         p.end();
         break :blk p.bytes[0..p.len].*;
     };
@@ -234,7 +267,7 @@ const program_seeds = blk: {
 
 /// Feed the fuzzer's own bytes in as one frame, through whichever door its
 /// first byte picks.
-fn inject(peer: *engine.Peer, bytes: []const u8) !void {
+fn inject(budget: *const Budget, peer: *engine.Peer, bytes: []const u8) !void {
     var scratch: [max_chunk]u8 = undefined;
     const valid: usize = @min(bytes.len, scratch.len);
     @memcpy(scratch[0..valid], bytes[0..valid]);
@@ -245,15 +278,25 @@ fn inject(peer: *engine.Peer, bytes: []const u8) !void {
         // behind a head before it decodes. A refusal is a legitimate answer to
         // untrusted bytes; the session is condemned and there is nothing
         // further to apply.
-        peer.recvBorrowed(.{ .bytes = scratch[0..valid], .shape = .byte }) catch {};
+        peer.recvBorrowed(.{ .bytes = scratch[0..valid], .shape = .byte }) catch |err| if (err == error.OutOfMemory) try refusedForMemory(budget, peer);
     } else {
         // The owned door consumes the frame on every outcome.
-        const frame = engine.ownedFrameFromView(std.testing.allocator, .{ .bytes = scratch[0..valid], .shape = .byte }) catch return;
-        peer.feedOwned(frame) catch {};
+        const frame = try engine.ownedFrameFromView(std.testing.allocator, .{ .bytes = scratch[0..valid], .shape = .byte });
+        peer.feedOwned(frame) catch |err| if (err == error.OutOfMemory) try refusedForMemory(budget, peer);
     }
     // The transport's buffer is gone before the application drains.
     @memset(scratch[0..valid], 'x');
     try drainApplication(peer);
+}
+
+/// A door refused an injected chunk for memory. The peer allocates from the
+/// run's budget, which past its failure point refuses every allocation, so
+/// offering the bytes again cannot succeed and the embedder condemns the
+/// session, as `shuttle` does. Before that point the testing allocator
+/// underneath does not run out, so the refusal is a defect.
+fn refusedForMemory(budget: *const Budget, peer: *engine.Peer) !void {
+    try budget.onlyInducedFailure(error.OutOfMemory);
+    program.condemnForMemory(peer);
 }
 
 /// A frame the session really would have accepted, with a few bytes broken.
@@ -270,7 +313,7 @@ fn inject(peer: *engine.Peer, bytes: []const u8) !void {
 /// session actually holds, and then damaged. The near-miss region around a valid
 /// frame is where the interesting refusals live, and it is unreachable from
 /// noise.
-fn injectDamagedFrame(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine.Peer) !void {
+fn injectDamagedFrame(budget: *const Budget, smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine.Peer) !void {
     // Make the partner say something first. Waiting for it to have traffic
     // queued would mean this arm usually found nothing and did nothing.
     try legitimateOp(smith, partner, actor);
@@ -290,7 +333,7 @@ fn injectDamagedFrame(smith: *std.testing.Smith, actor: *engine.Peer, partner: *
         const at = smith.valueRangeAtMost(u16, 0, @intCast(bytes.len - 1));
         damaged[at] ^= smith.valueRangeAtMost(u8, 1, 255);
     }
-    try inject(actor, damaged[0..bytes.len]);
+    try inject(budget, actor, damaged[0..bytes.len]);
 }
 
 fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
@@ -304,7 +347,7 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
     // Syrup, because that is what the seed corpus is written in. A pair that
     // negotiated the other codec refuses every seed at its first byte, and the
     // whole corpus becomes noise with nothing to say so.
-    var pair = pairing.pairedWithLimits(gpa, .syrup, bounds.tight) catch return;
+    var pair = pairing.pairedWithLimits(gpa, .syrup, bounds.tight) catch |err| return budget.endsAfterInducedFailure(err);
     defer pair.deinit();
 
     var chunk: [max_chunk]u8 = undefined;
@@ -338,8 +381,8 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
         // end, so putting injection at zero would have made the fallback
         // inject, the opposite of what the weighting is for.
         switch (smith.valueRangeAtMost(u8, 0, 4)) {
-            damaged_draw => try injectDamagedFrame(smith, actor, partner),
-            inject_draw => try inject(actor, chunk[0..len]),
+            damaged_draw => try injectDamagedFrame(&budget, smith, actor, partner),
+            inject_draw => try inject(&budget, actor, chunk[0..len]),
             else => try legitimateOp(smith, actor, partner),
         }
 
@@ -375,6 +418,14 @@ test "fuzz: no program of operations and untrusted bytes crashes or leaks a sess
         var pair = try pairing.pairedWithLimits(std.testing.allocator, .syrup, bounds.tight);
         defer pair.deinit();
         try std.testing.expect(pair.p1.session_state.handshakeComplete());
+    }
+
+    // `injectOutOfMemoryProgram` places its failure by this count.
+    {
+        var counting = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var pair = try pairing.pairedWithLimits(counting.allocator(), .syrup, bounds.tight);
+        defer pair.deinit();
+        try std.testing.expectEqual(@as(usize, pairing_allocations), counting.alloc_index);
     }
 
     // The operations have to do what their comments claim. Handing the partner

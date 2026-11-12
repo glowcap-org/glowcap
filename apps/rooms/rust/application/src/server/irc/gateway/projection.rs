@@ -287,9 +287,7 @@ pub fn connection_choice(raw: &str) -> Result<NetworkChoice, Invalid> {
 	let port = if port_text.is_empty() {
 		if tls { 6697 } else { 6667 }
 	} else {
-		port_text
-			.parse::<u16>()
-			.ok()
+		crate::host::port(&port_text)
 			.filter(|port| *port >= 1)
 			.ok_or(Invalid::ConnectionPort)?
 	};
@@ -401,7 +399,7 @@ mod tests {
 	use crate::server::irc::model::channel_key;
 
 	#[test]
-	fn every_invalid_line_is_the_line_it_replaced() {
+	fn every_invalid_variant_displays_its_operator_line() {
 		let lines = [
 			(Invalid::TooManyNetworks, "too many IRC networks to describe"),
 			(

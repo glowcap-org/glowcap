@@ -47,7 +47,7 @@ pub const CryptoError = error{
 
 /// A per-session Ed25519 public key: the raw 32-byte `q` value.
 ///
-/// It's only ever used to check signatures. A key never grants authority. That status-allow: purpose clause
+/// It only ever checks signatures. A key never grants authority. That
 /// always lives in a `Reference`.
 pub const PeerKey = struct {
     bytes: [peer_key_bytes]u8,
@@ -209,7 +209,9 @@ pub const X25519KeyMaterial = struct {
 /// Ed25519 key plus a signature binding it to this mapped static and the
 /// handshake context. Equality of mapped points alone is never identity proof.
 pub fn x25519FromPeerKey(key: PeerKey) ?[X25519.public_length]u8 {
+    // tolerant: a key that is not a curve point has no X25519 form, which null says.
     const ed = Ed25519.PublicKey.fromBytes(key.bytes) catch return null;
+    // tolerant: a point with no Montgomery form has no X25519 key, which null says.
     return X25519.publicKeyFromEd25519(ed) catch null;
 }
 
@@ -219,6 +221,7 @@ pub fn x25519FromPeerKey(key: PeerKey) ?[X25519.public_length]u8 {
 /// X25519 key is. Null only for a degenerate key that maps to the identity
 /// element, which a key built from a valid seed does not.
 pub fn x25519FromSecretKey(secret: *const SecretKey) ?X25519KeyMaterial {
+    // tolerant: a secret with no X25519 form is refused by null.
     const pair = X25519.KeyPair.fromEd25519(secret.keypair) catch return null;
     return .{ .secret = pair.secret_key, .public = pair.public_key };
 }

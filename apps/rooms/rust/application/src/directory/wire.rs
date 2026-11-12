@@ -220,7 +220,7 @@ mod tests {
 		// A page that exactly fits the rest of the walk is the last page.
 		let exact = Page::cut((0..MAX_ROWS).map(keyed));
 		assert_eq!((exact.rooms.len(), &exact.next), (MAX_ROWS, &None));
-		// A later source lists after every row of an earlier one. status-allow: event or source ordering
+		// A later source lists after every row of an earlier one.
 		let foreign = Cursor {
 			kind: PublicationKind::Foreign,
 			key: "#a".into(),

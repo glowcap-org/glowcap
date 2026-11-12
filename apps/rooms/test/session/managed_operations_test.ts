@@ -82,7 +82,9 @@ Deno.test("membership snapshots preserve journal history and report changed or r
 	);
 	assertEquals(page.projection.get().dirs.get(dirId("same"))?.session, "disconnected");
 	status({ failures: [failures[0], { ...failures[1], reason: "directory refused" }] });
-	assertEquals(reports.at(-1), "directory refused");
+	const refusal = reports.at(-1);
+	assert(refusal instanceof Error, "membership reports preserve the projected error");
+	assertEquals(refusal.message, "directory refused");
 	status({});
 	status({ failures, sourceFailure: "source unavailable" });
 	assertEquals(reports.length, 7);

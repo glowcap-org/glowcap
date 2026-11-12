@@ -250,7 +250,7 @@ projected by the codec carrying the message.
 
 Adopt the receive-side replay rule with the certificate format. The current
 draft requires each `handoff-count` to be unused in the Exporter-Receiver
-session. It does not require increasing counts. Glowcap currently follows
+session. It does not require increasing counts. Glowcap follows
 Goblins by rejecting every count at or below the largest accepted count.
 Keep that behavior until this adoption, then admit an unseen lower count
 while refusing a repeated one. Bound the retained replay state and reserve

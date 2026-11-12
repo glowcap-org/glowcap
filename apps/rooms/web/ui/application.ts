@@ -1,9 +1,9 @@
 // The page loads the production Rust application before restoring durable
 // choices. This module adapts its JSON projection to existing presentation
 // types. It owns no protocol calls, validation rules, or Host.
+import { invariant } from "../../lib/invariant.ts";
 import * as z from "zod/mini";
 import type { InitInput } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
-import { ROOMS_FAILURES, type RoomsErrorCode, type RoomsFailureRetry } from "../../lib/error_codes.ts";
 import { type DirId, dirId } from "./directory.ts";
 
 /** Parse a JSON projection from the Rust application, proving its shape
@@ -12,7 +12,7 @@ import { type DirId, dirId } from "./directory.ts";
 function projected<S extends z.ZodMiniType>(encoded: string, schema: S, what: string): z.infer<S> {
 	const parsed = z.safeParse(schema, JSON.parse(encoded));
 	if (!parsed.success) {
-		throw new Error(`the Rooms application answered an invalid ${what}:\n${z.prettifyError(parsed.error)}`);
+		invariant(false, `the Rooms application answered an invalid ${what}:\n${z.prettifyError(parsed.error)}`);
 	}
 	return parsed.data;
 }
@@ -32,7 +32,7 @@ export async function loadApplication(source: InitInput | Promise<InitInput>): P
 }
 
 export function applicationModule(): Application {
-	if (loaded == null) throw new Error("the Rooms application has not initialized");
+	invariant(loaded != null, "the Rooms application has not initialized");
 	return loaded;
 }
 
@@ -41,11 +41,14 @@ export function directoryId(locator: string): DirId | null {
 	return authority == null ? null : dirId(authority);
 }
 
-/** Whether `text` reads as a directory address. A malformed one is no address. */
+/** Whether `text` reads as a directory address. Rust refusing a malformed one
+ * means no address. A missing module or a trap is a fault and throws. */
 export function namesDirectory(text: string): boolean {
+	const application = applicationModule();
 	try {
-		return directoryId(text) != null;
-	} catch {
+		return application.directoryAuthority(text) != null;
+	} catch (error) {
+		if (error instanceof WebAssembly.RuntimeError) throw error;
 		return false;
 	}
 }
@@ -158,29 +161,6 @@ export function nicknameAvailability(
 
 export function suggestedNickname(nick: string): string {
 	return applicationModule().suggestedNickname(nick);
-}
-
-export interface SessionFailureAdvice {
-	readonly code: RoomsErrorCode;
-	readonly subject: string;
-	readonly retry: RoomsFailureRetry;
-	readonly summary: string;
-	readonly action: string;
-}
-
-/** The retry posture is not a free field: it must equal the posture the
- * failure table declares for the code. */
-const SessionFailureAdviceSchema: z.ZodMiniType<SessionFailureAdvice> = z.object({
-	code: z.custom<RoomsErrorCode>((value) => typeof value === "string" && Object.hasOwn(ROOMS_FAILURES, value)),
-	subject: z.string(),
-	retry: z.custom<RoomsFailureRetry>(() => true),
-	summary: z.string(),
-	action: z.string(),
-}).check(z.refine((advice) => advice.retry === ROOMS_FAILURES[advice.code].retry));
-
-export function attachmentFailureAdvice(reason: string): SessionFailureAdvice | null {
-	const encoded = applicationModule().attachmentFailureAdvice(reason);
-	return encoded == null ? null : projected(encoded, SessionFailureAdviceSchema, "attachment failure advice");
 }
 
 export function markdownDocument(text: string): string {

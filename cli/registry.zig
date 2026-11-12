@@ -68,7 +68,7 @@ pub const commands = [_]Command{
     },
     .{
         .name = "probe",
-        .help = "Dial, handshake, report ok, close",
+        .help = "Dial a locator, complete the handshake, report the result, and close.",
         .mcp_default = true,
         .positionals = &[_]Positional{.{ .name = "locator", .help = "ocapn:// URI" }},
         .run = ocapn.cmdProbe,
@@ -126,7 +126,7 @@ pub const commands = [_]Command{
     },
     .{
         .name = "info",
-        .help = "Show identity / session summary",
+        .help = "Show this identity and the open session.",
         .mcp_default = true,
         .mcp_readonly = true,
         .run = ocapn.cmdInfo,

@@ -24,7 +24,7 @@ import { segmentCellClass } from "./tokens.ts";
  * control that throws one away. Mode switching owns neither effect.
  */
 function recordingHolds(act: string): string {
-	return `Stop the recording before ${act} — Stop claims the capture, ` +
+	return `Stop the recording before ${act}. Stop claims the capture, ` +
 		`Discard throws it away.`;
 }
 
@@ -141,7 +141,7 @@ export function SaveOpenControls(
 				className="ocv-btn is-ghost is-icon"
 				onClick={onNew}
 				disabled={recording}
-				title={recording ? recordingHolds("starting a new document") : "New — start an empty document in Build"}
+				title={recording ? recordingHolds("starting a new document") : "New: start an empty document in Build"}
 				aria-label="New"
 			>
 				<NewDocGlyph />
@@ -150,7 +150,7 @@ export function SaveOpenControls(
 				type="button"
 				className="ocv-btn is-ghost is-icon"
 				onClick={onSave}
-				title="Save (Cmd/Ctrl+S) — download this timeline as a JSON file"
+				title="Save (Cmd/Ctrl+S): download this timeline as a JSON file"
 				aria-label="Save"
 			>
 				<SaveGlyph />
@@ -168,7 +168,7 @@ export function SaveOpenControls(
 				disabled={recording}
 				title={recording
 					? recordingHolds("opening a file")
-					: "Open (Cmd/Ctrl+O) — load a timeline from a JSON file"}
+					: "Open (Cmd/Ctrl+O): load a timeline from a JSON file"}
 				aria-label="Open"
 			>
 				<FolderGlyph />

@@ -3,6 +3,7 @@
 use super::{Result, cleanup};
 use crate::abort::stopped;
 use glowcap::{PendingWork, Session};
+use rooms_runtime::Error as RuntimeError;
 use std::{
 	cell::{Cell, RefCell},
 	future::poll_fn,
@@ -93,13 +94,13 @@ impl Admission {
 async fn serve(session: Session, mut stop: watch::Receiver<bool>) -> Result<()> {
 	let serving = session.serve();
 	tokio::pin!(serving);
-	let ended = tokio::select! { result = &mut serving => Some(result.map_err(|e| e.to_string())), () = stopped(&mut stop) => None };
+	let ended = tokio::select! { result = &mut serving => Some(result.map_err(RuntimeError::from)), () = stopped(&mut stop) => None };
 	let result = cleanup::combine(
 		ended.clone().unwrap_or(Ok(())),
-		session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
+		session.close(PendingWork::Cancel).await.map_err(RuntimeError::from),
 	);
 	if ended.is_none() {
-		cleanup::combine(result, serving.await.map_err(|e| e.to_string()))
+		cleanup::combine(result, serving.await.map_err(RuntimeError::from))
 	} else {
 		result
 	}
@@ -109,7 +110,7 @@ async fn run(state: Rc<State>, mut stop: watch::Receiver<bool>) -> Result<()> {
 		tokio::select! { biased;
 			() = stopped(&mut stop) => break,
 			Some(ended) = poll_fn(|cx| state.workers.borrow_mut().poll_join_next(cx)) => {
-				if let Err(error) = ended.map_err(|e| e.to_string()).and_then(|outcome| outcome) { super::driver::report(&error); }
+				if let Err(error) = ended.map_err(RuntimeError::platform).and_then(|outcome| outcome) { super::driver::report(&error); }
 			},
 			() = state.changed.notified() => {},
 		}
@@ -119,7 +120,7 @@ async fn run(state: Rc<State>, mut stop: watch::Receiver<bool>) -> Result<()> {
 	while let Some(ended) = poll_fn(|cx| state.workers.borrow_mut().poll_join_next(cx)).await {
 		cleanup::retain(
 			&mut outcome,
-			ended.map_err(|e| e.to_string()).and_then(|outcome| outcome),
+			ended.map_err(RuntimeError::platform).and_then(|outcome| outcome),
 		);
 	}
 	outcome

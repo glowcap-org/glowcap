@@ -30,7 +30,8 @@ pub fn errToCode(err: anyerror) i32 {
     // naming the value it refused (`shared.refKindFromC`), which is the whole
     // diagnostic; stamping the bare error name over it would throw that away.
     // Every other error names itself and nothing more.
-    if (err != error.InvalidArgument) shared.setLastError("host: {s}", .{@errorName(err)});
+    if (err != error.InvalidArgument)
+        shared.setLastErrorCause(shared.lastErrorCauseFor(err), "host: {s}", .{@errorName(err)});
     return switch (err) {
         // These are C marshalling failures, not Host-domain failures.
         error.UnsupportedValue => shared.GLOWCAP_ERR_UNSUPPORTED_VALUE,

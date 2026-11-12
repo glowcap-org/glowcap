@@ -508,7 +508,7 @@ Rust into one Wasm memory, so calls from Rust into managed access need no
 JavaScript round trip or second Wasm instance. The browser executor and
 transport adapters drive the Host.
 
-## Costs and rejected alternatives
+## Costs
 
 Managed access creates an owner only when asked and a callable endpoint only
 when its access must be handed out. Schema definitions are shared within an
@@ -522,17 +522,6 @@ outlive a deferred answer or storage operation is kept or copied, within
 explicit bounds, and Host references are kept alive through retain and
 release. A plain read through a managed facet writes
 nothing and waits in no application queue.
-
-| Alternative | Why we rejected it |
-| --- | --- |
-| Put managed access inside the protocol engine | Resource policy would tie applications to session rules and add work for unrelated protocol users. |
-| Add managed access state to every actor | Short-lived callbacks and resolvers would pay for trees and lifecycles they never use. |
-| Add a managed access Host or driver | It would duplicate how work runs, durable names, pending work, and shutdown. |
-| Keep a grant evaluator in Rust beside Zig | Two places would decide scope and status, defeating the shared implementation. |
-| Offer only a Zig compile-time generic model | Applications in other languages could not supply their types through a runtime ABI without a second implementation. |
-| Express everything as a permission mask | It loses scope relations, constraints, content facts, and status dependencies. |
-| Forward every managed call unchanged | Returned capabilities and deferred deliveries could escape the grant they came from. |
-| Keep every stored resource in memory as an actor | Storage size would decide memory use with no permission reason. |
 
 ## Tests
 

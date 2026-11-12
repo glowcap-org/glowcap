@@ -74,9 +74,8 @@ impl<R> Offers<R> {
 }
 
 impl<C: Copy + Ord, R: Clone> Registry<C, R> {
-	/// Borrow existing offer custody before admission. Reading an offered inbox
-	/// does not ask its owner to mint another one. The adapter checks this in the
-	/// same synchronous turn as admission and consumption.
+	/// Borrow offer custody to decide whether an introduction needs a waiting
+	/// slot. The adapter checks and consumes it in one synchronous turn.
 	pub fn introduction_ready(&self, connection: C, nick: &str, id: &str, opening: &str) -> bool {
 		let Some(caller) = self.own(connection) else {
 			return false;
@@ -92,14 +91,19 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		for_id: &str,
 		opening: &str,
 	) -> Result<InboxOffer<C>, Refusal> {
-		let peers = self.check_offer(connection, for_nick, for_id, opening)?;
+		if let Some(refusal) = nick_refusal(for_nick) {
+			return Err(Refusal::coded(FailureCode::NickTooLong, refusal));
+		}
+		// A registration ID is the directory's own value, never a person's
+		// choice, so a malformed one is a caller defect with no code.
+		let target = Id::parse(for_id).map_err(|_| Refusal::plain("offerInbox has an invalid registration ID"))?;
+		let peers = self.check_offer(connection, for_nick, &target, opening)?;
 		Ok(InboxOffer {
 			registry: self.identity.clone(),
 			connection,
 			owner: peers.owner.id.clone(),
 			peer: for_nick.into(),
-			target: Id::parse(for_id)
-				.map_err(|_| Refusal::coded(FailureCode::NickTooLong, "offerInbox has an invalid registration ID"))?,
+			target,
 			opening: opening.into(),
 		})
 	}
@@ -107,14 +111,14 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		if !Rc::ptr_eq(&offer.registry, &self.identity) {
 			return Err(Refusal::plain("the inbox offer belongs to another directory"));
 		}
-		let peers = self.check_offer(offer.connection, &offer.peer, offer.target.as_str(), &offer.opening)?;
+		let peers = self.check_offer(offer.connection, &offer.peer, &offer.target, &offer.opening)?;
 		if peers.owner.id != offer.owner {
 			return Err(Refusal::coded(
 				FailureCode::NotRegistered,
 				"the inbox owner's registration changed before its capability settled",
 			));
 		}
-		let waiting = (peers.recipient.connection, peers.recipient.inbox.clone());
+		let caller = peers.recipient.connection;
 		let gone = || {
 			Refusal::coded(
 				FailureCode::NotRegistered,
@@ -132,45 +136,38 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			offer.target.as_str().into(),
 			own_key.clone(),
 		);
-		effects.tell(
-			waiting.0,
-			waiting.1,
-			Notice::Introducible {
-				nick: own.nick.clone(),
-				id: own.id.clone(),
-				opening: offer.opening,
-			},
-		);
+		effects.offered.push(super::super::InboxOffered {
+			caller,
+			target: own.id.clone(),
+			opening: offer.opening,
+		});
 		Ok(effects)
 	}
+	/// The registrations an offer names, read when the offer is prepared and
+	/// again when its inbox settles.
+	///
+	/// The name and ID were validated once, where the offer was prepared.
 	fn check_offer(
 		&self,
 		connection: C,
 		for_nick: &str,
-		for_id: &str,
+		for_id: &Id,
 		opening: &str,
 	) -> Result<InboxPeers<'_, C, R>, Refusal> {
-		if let Some(refusal) = nick_refusal(for_nick).or_else(|| {
-			Id::parse(for_id)
-				.is_err()
-				.then(|| "offerInbox has an invalid registration ID".into())
-		}) {
-			return Err(Refusal::coded(FailureCode::NickTooLong, refusal));
-		}
 		let own = self
 			.own(connection)
 			.ok_or_else(|| Refusal::coded(FailureCode::NotRegistered, "offerInbox needs a registered name"))?;
 		let waiting = self
 			.rows
 			.get(&fold(for_nick))
-			.filter(|waiting| waiting.id.as_str() == for_id)
+			.filter(|waiting| waiting.id == *for_id)
 			.ok_or_else(|| {
 				Refusal::coded(
 					FailureCode::PeerOffline,
 					format!("the registration for \"{for_nick}\" changed before its inbox arrived"),
 				)
 			})?;
-		own.offered.admit(for_id, opening)?;
+		own.offered.admit(for_id.as_str(), opening)?;
 		Ok(InboxPeers {
 			owner: own,
 			recipient: waiting,

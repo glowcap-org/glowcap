@@ -24,12 +24,14 @@ const RECORD_CONFIRM: ConfirmRequest = {
 
 export function LiveControls({
 	recording,
+	disabled,
 	bufferHasContent,
 	onStart,
 	onStop,
 	onDiscard,
 }: {
 	recording: boolean;
+	disabled: boolean;
 	/** Drives the discard-warning gate on Record. True iff the
 	 * buffer has any events (fixture loaded, file opened, prior
 	 * recording present). */
@@ -75,6 +77,7 @@ export function LiveControls({
 				) return;
 				onStart();
 			}}
+			disabled={disabled}
 			title="Start recording from now"
 			aria-label="Start recording"
 		>

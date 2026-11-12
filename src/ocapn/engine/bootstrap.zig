@@ -17,6 +17,10 @@ const signatures = @import("bootstrap/signatures.zig");
 pub const gifts = @import("bootstrap/gifts.zig");
 
 /// A recognized inbound bootstrap-fetch.
+/// The break reason a fetch of a swissnum nothing publishes settles with.
+/// Bindings and peers match this exact text, so every refusal spells it here.
+pub const unknown_swissnum_reason = "unknown swissnum";
+
 pub const FetchRequest = struct {
     swissnum: []const u8,
     answer: model.AnswerName,
@@ -64,9 +68,11 @@ pub fn gifterKeyForSession(
 ) ?[32]u8 {
     if (session_name.len != 32) return null;
     const partner_key = session.partnerSessionKey() orelse return null;
+    // tolerant: MalformedKey is the only failure, and a malformed key names no side.
     const derived_gifter_side = handoff_names.sideName(partner_key) catch return null;
     if (!std.mem.eql(u8, &derived_gifter_side, &gifter_side)) return null;
     const local_key = session.localSessionKey() orelse return null;
+    // tolerant: MalformedKey is the only failure, and a malformed key names no side.
     const local_side = handoff_names.sideName(local_key) catch return null;
     const expected_session = handoff_names.sessionName(gifter_side, local_side);
     if (!std.mem.eql(u8, session_name, &expected_session)) return null;
@@ -158,7 +164,7 @@ pub fn resolveForSwissnum(
         .deferred => null,
         // Named: one owned diagnostic on refusal. Successful fetch is POD;
         // the ordinary settlement queue consumes either resolution.
-        .missing => .{ .@"break" = .{ .message = try session.allocator.dupe(u8, "unknown swissnum") } },
+        .missing => .{ .@"break" = .{ .message = try session.allocator.dupe(u8, unknown_swissnum_reason) } },
         .refused => |err| .{ .@"break" = .{ .message = try session.allocator.dupe(u8, @errorName(err)) } },
     };
 }
@@ -206,11 +212,11 @@ pub fn resolveForDeposit(
     // not something this exporter can serve to anyone; handed back verbatim on
     // the recipient's session it would say `<desc:export N>` for an export that
     // session never made. Refusing it here blames the gifter, on the gifter's
-    // own session, at the moment it deposits. Left to be discovered at withdraw status-allow: state at observation
+    // own session, at the moment it deposits. Left to be discovered at withdraw
     // it would instead abort the recipient's session, which is a seam a gifter
     // could aim: `Session.validateSend` refuses the fulfill (the backstop that
     // also covers the in-process `gifts.GiftRegistry.depositOwned`), and by then the
-    // party that earned the refusal is no longer the party that pays it. status-allow: lifecycle transition
+    // party that earned the refusal is no longer the party that pays it.
     if (gifted == .far) return error.InvalidGift;
     // This registry belongs to the depositing session. The give's signed
     // session name selects it at withdrawal, so no peer-supplied namespace key

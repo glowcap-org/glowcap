@@ -150,7 +150,7 @@ export function Composer(
 	// leaves the box, and Enter takes a row they cannot see. `nearest` rather
 	// than centring, so a pick already in view does not shunt the list under the
 	// pointer for no reason. Layout, not paint: the row is picked and scrolled to
-	// in one frame rather than flashing at the old offset first. status-allow: replacement state identity
+	// in one frame rather than flashing at the old offset first.
 	useLayoutEffect(() => {
 		if (!listOpen) return;
 		document.getElementById(`complete-${pick}`)?.scrollIntoView({ block: "nearest" });

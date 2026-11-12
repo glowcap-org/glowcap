@@ -65,7 +65,11 @@ async fn main() -> Result<(), Fail> {
 async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 	// `connect` completes the keyed handshake; the host's retained identity is
 	// the recipient key the gift Alice deposits will name.
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())])).await?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await?;
 	let session = runtime
 		.connect(&tcp::locator(HOST, port), ConnectOptions::default())
 		.await?;

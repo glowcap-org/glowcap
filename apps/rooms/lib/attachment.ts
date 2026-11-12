@@ -74,7 +74,7 @@ export const ATTACHMENT_RECORD_SPAN = 7;
 /** Read the file records a message carries, one after another from `recordAt`,
  * each `"file", name, mime, size, blob, width, height`. Empty for an ordinary
  * line. A record that does not read ends the walk, because the rest of the
- * line can no longer be trusted to be what it claims.  status-allow: lifecycle transition */
+ * line can no longer be trusted to be what it claims. */
 export function readAttachments(args: Argument[], recordAt = ROOM_RECORD_AT): Attachment[] {
 	const out: Attachment[] = [];
 	for (let at = recordAt; args[at] === "file"; at += ATTACHMENT_RECORD_SPAN) {
@@ -363,7 +363,7 @@ export class UploadStopped extends Error {
 
 /** Wait for one chunk's answer, and give up if it never comes. The bound is
  * larger than an ordinary request's because a read for bytes the room has not
- * received yet waits instead of answering short, and that wait is expected.  status-allow: pending state or quoted runtime label */
+ * received yet waits instead of answering short, and that wait is expected. */
 function chunkWithin<T>(answer: Promise<T>, what: string, stallMs: number): Promise<T> {
 	return answerWithin(answer, what, stallMs);
 }

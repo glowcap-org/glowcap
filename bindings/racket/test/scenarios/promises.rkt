@@ -527,7 +527,7 @@
 (define ub-session (open-test-session (tcp-locator "127.0.0.1" (server-port ub-server))))
 (semaphore-wait ub-ready)
 (define ub-cap (session-fetch ub-session "svc"))
-;; Fire the failing verb and never await it. No later operation exists yet: status-allow: pending state or quoted runtime label
+;; Fire the failing verb and never await it. No later operation exists yet:
 ;; creation itself must flush the deliver and let the server observe it.
 (void (session-send-promise ub-session ub-cap 'boom))
 (semaphore-wait ub-boom-seen)

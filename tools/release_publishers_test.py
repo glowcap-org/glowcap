@@ -20,6 +20,7 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
+from typing import TypedDict
 from unittest import mock
 from urllib.parse import urlsplit
 
@@ -28,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT = ROOT / "tools/release-publishers.py"
 SPEC = importlib.util.spec_from_file_location("release_publishers", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None, "the script loads as a module"
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 SLUG = "owner/project"
@@ -39,23 +41,34 @@ SOURCE = MODULE.catalog.package_source(SLUG, TAG)
 RACKET_SECRETS = MODULE.RACKET_SECRETS
 
 
+class Environment(TypedDict):
+    reviewers: list[int]
+    protected: bool
+    custom: bool
+    tags: list[str]
+
+
 class World:
     """Fake registry answers and a fake gh. Every default is a fully set up repository."""
 
     def __init__(self):
-        self.environments = {
+        self.environments: dict[str, Environment] = {
             name: {"reviewers": [USER], "protected": False, "custom": True, "tags": ["v*"]}
             for name in MODULE.ENVIRONMENTS
         }
-        self.jsr = {package: {"owner": "owner", "name": "project"} for package in PACKAGES}
-        self.jsr_total = None
+        self.jsr: dict[str, dict[str, str] | None] = {
+            package: {"owner": "owner", "name": "project"} for package in PACKAGES
+        }
+        self.jsr_total: int | None = None
         self.pypi, self.crate, self.racket = 200, 200, (200, SOURCE)
         self.secrets = {"crates-io": set(), "racket": set(RACKET_SECRETS)}
         self.tag = TAG
         self.fetched, self.calls, self.fetch_errors = [], [], {}
         self.racket_checksum, self.racket_error = "a" * 40, None
+        self.fetch = self.answer_fetch
+        self.gh = self.answer_gh
 
-    def fetch(self, url, slug):
+    def answer_fetch(self, url, slug):
         self.fetched.append(url)
         for fragment, error in self.fetch_errors.items():
             if fragment in url:
@@ -76,7 +89,7 @@ class World:
     def refuse(self, args, text="gh: Not Found (HTTP 404)"):
         return subprocess.CalledProcessError(1, ["gh", *args], stderr=text)
 
-    def gh(self, *args, input=None):
+    def answer_gh(self, *args, input=None):
         self.calls.append((args, input))
         match args:
             case ("repo", "view", *_):
@@ -87,12 +100,12 @@ class World:
                 return self.tag + "\n"
             case ("api", "-X", "PUT", path, "--input", "-"):
                 body = json.loads(input)
-                known = self.environments.get(path.rsplit("/", 1)[1], {"tags": []})
+                known = self.environments.get(path.rsplit("/", 1)[1])
                 self.environments[path.rsplit("/", 1)[1]] = {
                     "reviewers": [entry["id"] for entry in body["reviewers"]],
                     "protected": body["deployment_branch_policy"]["protected_branches"],
                     "custom": body["deployment_branch_policy"]["custom_branch_policies"],
-                    "tags": known["tags"],
+                    "tags": known["tags"] if known else [],
                 }
                 return ""
             case ("api", "-X", "POST", path, "-f", name, "-f", _):
@@ -236,10 +249,15 @@ class CheckTest(unittest.TestCase):
         result.ask_secret.assert_not_called()
 
     def test_registry_user_agent_names_the_repository(self):
-        seen = []
+        seen: list[str] = []
         world = World()
         original = world.fetch
-        world.fetch = lambda url, slug: (seen.append(slug), original(url, slug))[1]
+
+        def recorded(url, slug):
+            seen.append(slug)
+            return original(url, slug)
+
+        world.fetch = recorded
         run(world, "--check", "pypi")
         self.assertEqual(seen, [SLUG])
 
@@ -385,7 +403,8 @@ class JsrTest(unittest.TestCase):
     def test_guided_confirmation_verifies_again(self):
         world = World()
         world.jsr["web"] = None
-        original, reads = world.fetch, []
+        original = world.fetch
+        reads: list[str] = []
 
         def repaired_after_the_first_read(url, slug):
             answer = original(url, slug)

@@ -338,7 +338,7 @@ export function useScrubberScene(args: {
 		};
 
 		// Paint each frame. Stage's tick (which calls `engine.tick`)
-		// registers earlier in commit order, so engine state is fresh status-allow: event or source ordering
+		// registers earlier in commit order, so engine state is fresh
 		// when we run.
 		app.ticker.add(repaint);
 		cleanups.push(() => app.ticker?.remove(repaint));

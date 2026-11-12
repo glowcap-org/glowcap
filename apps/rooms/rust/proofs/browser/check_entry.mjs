@@ -77,6 +77,12 @@ async function lifetime(binding) {
 	try {
 		await sibling.attachWorkspace("invalid");
 	} catch (error) {
+		if (
+			!(error instanceof Error) || error.status !== -2 || typeof error.reason !== "string" ||
+			error.detail !== error.reason || error.code != null || error.retryAfterMs != null
+		) {
+			throw new Error(`queued locator failure lost its structured fields: ${JSON.stringify(error)}`);
+		}
 		failure = error.message;
 	}
 	if (failure == null || failure.includes("closed")) throw new Error("closing one application retired its sibling");
@@ -86,6 +92,55 @@ async function lifetime(binding) {
 	}
 	first.free();
 	sibling.free();
+	const standalone = new binding.RoomsManagedApplication(crypto.randomUUID(), reportTrouble);
+	const forwarded = new binding.RoomsManagedApplication(
+		crypto.randomUUID(),
+		reportTrouble,
+		undefined,
+		new URL(".", document.baseURI).href,
+	);
+	try {
+		const invalidAdvice = `ocapn://${"a".repeat(52)}.iroh/s/held?captp-websocket=ws%3A%2F%2F127.0.0.1%3A9%2F`;
+		for (const application of [standalone, forwarded]) {
+			let invalid;
+			try {
+				await application.attachWorkspace(invalidAdvice);
+			} catch (error) {
+				invalid = error;
+			}
+			if (invalid?.code === "no-server" || !invalid?.reason?.includes("advice requires cleartext TCP")) {
+				throw new Error(`server configuration changed advice validation: ${JSON.stringify(invalid)}`);
+			}
+		}
+		for (const method of ["publish", "attachWorkspace", "attachControl"]) {
+			let refusal;
+			try {
+				await standalone[method]("ocapn://127.0.0.1%3A1234.tcp/s/held");
+			} catch (error) {
+				refusal = error;
+			}
+			if (
+				!(refusal instanceof Error) || refusal.code !== "no-server" ||
+				refusal.detail !== "no server is chosen and none sent this page" ||
+				refusal.status != null || refusal.retryAfterMs != null
+			) {
+				throw new Error(`${method} lost its server requirement: ${JSON.stringify(refusal)}`);
+			}
+		}
+		let unsupported;
+		try {
+			await standalone.attachWorkspace("ocapn://unavailable.unsupported/s/held");
+		} catch (error) {
+			unsupported = error;
+		}
+		if (!(unsupported instanceof Error) || unsupported.code === "no-server") {
+			throw new Error("an unsupported transport was mistaken for missing Rooms forwarding");
+		}
+	} finally {
+		await Promise.all([standalone.close(), forwarded.close()]);
+		standalone.free();
+		forwarded.free();
+	}
 }
 
 const binding = await import(new URL("rooms_browser.js", root));

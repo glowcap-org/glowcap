@@ -27,8 +27,9 @@ respect ([doc-voice](../../rules/doc-voice.md)).
 
 1. **SCOPE.** State the behavior under review, its expected contract, and the
    constraints on changing it.
-2. **REVIEW WITH INDEPENDENT LENSES.** Spawn one subagent per lens on the real
-   tree. `provenance` runs on every review, plus `ocapn-wire` and
+2. **REVIEW WITH INDEPENDENT LENSES.** When the user asked for independent
+   reviewers, spawn one subagent per lens on the real tree. Otherwise run the
+   lenses in sequence yourself. `provenance` runs on every review, plus `ocapn-wire` and
    `goblins-interop` when protocol substance is in scope. Order each lens to
    read code and docs, say where something is already right, invent no nits,
    and propose without editing (unless the user asked to execute).
@@ -103,7 +104,7 @@ The following policies constrain what the project may send upstream:
   July 2026). glowcap falls within that wording. The
   [announcement](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html)
   also lists projects written and maintained with heavy LLM use among those that
-  may no longer be welcome. Review as if the rule applies, and do not argue it <!-- status-allow: workflow sequence -->
+  may no longer be welcome. Review as if the rule applies, and do not argue it
   down to a narrower reading than its text.
 - **Zig** forbids LLM-assisted contributions outright, including issues and
   comments, because review is how it grows contributors.

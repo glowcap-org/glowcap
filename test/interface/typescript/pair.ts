@@ -12,7 +12,7 @@ export async function withPair(
 ): Promise<void> {
 	await using host = new Host(undefined, { profile });
 	await using server = await tcp.listen("127.0.0.1", 0, { host });
-	await using runtime = await Runtime.open({ profile, providers: [tcp.provider()] });
+	await using runtime = await Runtime.open({ profile, providers: [tcp.provider({ profiles: [tcp.plain] })] });
 	const accepting = server[Symbol.asyncIterator]().next();
 	const client = await runtime.connect(tcp.locator("127.0.0.1", server.port));
 	const incoming = await accepting;

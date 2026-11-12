@@ -15,6 +15,8 @@ interface Notice {
 export class PresenceNarration {
 	readonly #notices = new Map<string, Notice>();
 	constructor(readonly windowMs = PRESENCE_WINDOW_MS) {}
+	/** `now` is when the event happened, in milliseconds, so events read long
+	 * after they happened fold exactly as they did for whoever was reading. */
 	present(
 		conversation: string,
 		presence: Presence | undefined,

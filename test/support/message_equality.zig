@@ -23,7 +23,8 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
             if (x.resolve_me_desc) |xr| {
                 if (!model.referencesStructurallyEqual(xr, y.resolve_me_desc.?)) break :blk false;
             }
-            break :blk model.equality.argumentSlicesEqual(x.args, y.args);
+            // Order-sensitive element-wise equality, as one list.
+            break :blk model.argumentsEqual(.{ .list = x.args }, .{ .list = y.args });
         },
         .resolve => |x| resolutionsEqual(x.resolution, b.resolve.resolution) and x.answer == b.resolve.answer,
         .gc_export => |x| std.mem.eql(u64, x.positions, b.gc_export.positions) and std.mem.eql(u64, x.deltas, b.gc_export.deltas),

@@ -22,7 +22,7 @@ const stream_framing = glowcap.foundation.stream_framing;
 pub const frame_cap = 4096;
 
 pub fn nextRouteOptions() Host.Options {
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.captp_version = .next;
     options.features = model.FeatureSet.full().forCaptpVersion(.next);
     return options;
@@ -52,7 +52,7 @@ pub const FairCounter = struct {
 /// The exporter's vendor: replies with a capability to an object it hosts, so
 /// a caller comes by that capability through an ordinary call instead of
 /// through `fetch`. `fetch` is the one path that enrolls its result on its
-/// own, so this is how a test gets a capability that has no routing token yet. status-allow: pending state or quoted runtime label
+/// own, so this is how a test gets a capability that has no routing token yet.
 pub const Vendor = struct {
     widget: model.Reference,
     pub fn handle(self: *Vendor, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
@@ -83,6 +83,7 @@ pub const Pair = host_pair.Pair;
 pub const shuttle = host_pair.shuttle;
 
 pub const shuttleAll = host_pair.shuttleAll;
+pub const shuttleUntilQuiet = host_pair.shuttleUntilQuiet;
 
 pub const tcpLocator = host_pair.tcpLocator;
 

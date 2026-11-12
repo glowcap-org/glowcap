@@ -43,20 +43,7 @@ unsafe extern "C" {
 	) -> c_int;
 	pub fn glowcap_locator_record_bytes_release(bytes: *mut c_uchar, len: usize);
 	pub fn glowcap_uri_parse_peer(uri: *const c_uchar, uri_len: usize, out_locator: *mut *mut GlowcapLocator) -> c_int;
-	pub fn glowcap_uri_parse_peer_in(
-		context: *mut GlowcapContext,
-		uri: *const c_uchar,
-		uri_len: usize,
-		out_locator: *mut *mut GlowcapLocator,
-	) -> c_int;
 	pub fn glowcap_uri_parse_sturdyref(
-		captp_version: c_uint,
-		uri: *const c_uchar,
-		uri_len: usize,
-		out_sturdyref: *mut *mut GlowcapSturdyRef,
-	) -> c_int;
-	pub fn glowcap_uri_parse_sturdyref_in(
-		context: *mut GlowcapContext,
 		captp_version: c_uint,
 		uri: *const c_uchar,
 		uri_len: usize,
@@ -101,21 +88,7 @@ unsafe extern "C" {
 		hint_wire_form: c_uint,
 		out_locator: *mut *mut GlowcapLocator,
 	) -> c_int;
-	pub fn glowcap_locator_new_in(
-		context: *mut GlowcapContext,
-		transport: *const c_uchar,
-		transport_len: usize,
-		designator: *const c_uchar,
-		designator_len: usize,
-		hint_wire_form: c_uint,
-		out_locator: *mut *mut GlowcapLocator,
-	) -> c_int;
 	pub fn glowcap_locator_clone(view: *const GlowcapLocatorView, out_locator: *mut *mut GlowcapLocator) -> c_int;
-	pub fn glowcap_locator_clone_in(
-		context: *mut GlowcapContext,
-		view: *const GlowcapLocatorView,
-		out_locator: *mut *mut GlowcapLocator,
-	) -> c_int;
 	pub fn glowcap_locator_borrow_view(loc: *const GlowcapLocator, out_view: *mut *const GlowcapLocatorView) -> c_int;
 	pub fn glowcap_sturdyref_borrow_locator(
 		sturdyref: *const GlowcapSturdyRef,
@@ -179,17 +152,4 @@ unsafe extern "C" {
 	pub fn glowcap_locator_hint_wire_form(loc: *mut GlowcapLocator, out_wire_form: *mut u32) -> c_int;
 	pub fn glowcap_locator_release(loc: *mut GlowcapLocator);
 	pub fn glowcap_context_new(out_context: *mut *mut GlowcapContext) -> c_int;
-	pub fn glowcap_clear_last_error();
-	pub fn glowcap_locator_hint(
-		loc: *mut GlowcapLocator,
-		key: *const c_uchar,
-		key_len: usize,
-		out_hint: *mut GlowcapLocatorHintView,
-	) -> c_int;
-	pub fn glowcap_locator_host_port(
-		loc: *mut GlowcapLocator,
-		out_host: *mut *const c_uchar,
-		out_host_len: *mut usize,
-		out_port: *mut u16,
-	) -> c_int;
 }

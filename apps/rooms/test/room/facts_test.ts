@@ -19,12 +19,8 @@ import {
 	MAX_ROOM,
 	MAX_SEAT_BADGE,
 	MAX_SEAT_SAID,
-	MAX_SIGNAL_CANDIDATE,
-	MAX_SIGNAL_ID,
-	MAX_SIGNAL_SDP,
 	MAX_SUBJECT_DESCRIPTION,
 	MAX_SUBJECT_LINK,
-	relayedSignalFits,
 	SUBJECT_LINK_SCHEME,
 } from "../../lib/limits.ts";
 import {
@@ -473,41 +469,3 @@ function refused(run: () => unknown): boolean {
 		return true;
 	}
 }
-
-Deno.test("a relayed bring-up is held to a size at both ends of the relay", () => {
-	// The directory carries an offer, an answer, and every candidate between two
-	// members as they stand, so their size is the room's to bound rather than a
-	// sender's to choose. A member holds what arrives to the same size, because a
-	// directory is whatever answered the address they typed and what it relays is
-	// only as bounded as it felt like being, and on that side the id becomes a
-	// map key and the payload is parsed before anything else looks at it.
-	assertEquals(relayedSignalFits("description", "x1", "v=0\r\no=- 1 1 IN IP4 0.0.0.0"), true);
-	assertEquals(relayedSignalFits("candidate", "x1", '{"candidate":"a=candidate:1 1 udp"}'), true);
-
-	assertEquals(relayedSignalFits("description", "x1", "v".repeat(MAX_SIGNAL_SDP + 1)), false);
-	assertEquals(relayedSignalFits("description", "x1", "é".repeat(MAX_SIGNAL_SDP / 2)), true);
-	assertEquals(relayedSignalFits("description", "x1", "é".repeat(Math.floor(MAX_SIGNAL_SDP / 2) + 1)), false);
-	assertEquals(relayedSignalFits("candidate", "x1", "c".repeat(MAX_SIGNAL_CANDIDATE + 1)), false);
-	assertEquals(relayedSignalFits("candidate", "x1", "é".repeat(MAX_SIGNAL_CANDIDATE / 2)), true);
-	assertEquals(
-		relayedSignalFits("candidate", "x1", "é".repeat(Math.floor(MAX_SIGNAL_CANDIDATE / 2) + 1)),
-		false,
-	);
-	// A candidate is a line, a description is a document: the looser bound is not
-	// the one a candidate gets.
-	assertEquals(relayedSignalFits("candidate", "x1", "c".repeat(MAX_SIGNAL_SDP)), false);
-
-	assertEquals(relayedSignalFits("description", "", "v=0"), false, "an exchange with no handle was acted on");
-	assertEquals(
-		relayedSignalFits("description", "x".repeat(MAX_SIGNAL_ID + 1), "v=0"),
-		false,
-		"a handle longer than one may be became a key",
-	);
-	assertEquals(
-		relayedSignalFits("description", "é".repeat(Math.floor(MAX_SIGNAL_ID / 2) + 1), "v=0"),
-		false,
-		"a byte-long handle became a key",
-	);
-	assertEquals(relayedSignalFits("description", "é".repeat(MAX_SIGNAL_ID / 2), "v=0"), true);
-	assertEquals(relayedSignalFits("candidate", "x1", ""), false, "an empty candidate was acted on");
-});

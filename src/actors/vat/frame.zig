@@ -4,6 +4,7 @@
 //! boundaries. Retired actor boxes park here until that boundary.
 
 const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 const model = @import("model");
 
 const boxed = @import("boxed.zig");
@@ -27,7 +28,7 @@ pub fn hasRetiredState(self: *const Vat) bool {
 
 /// Cap on synchronous near-call (`$`) nesting depth. Eventual-sends do not count
 /// (they queue and drive iteratively). Only a handler that near-calls another
-/// actor that near-calls back recurses the native stack, so this bounds that
+/// actor that near-calls back recurses the calling thread's stack, so this bounds that
 /// recursion well below a stack overflow while leaving ample room for the few
 /// levels real code nests.
 const max_near_call_depth: u32 = 128;
@@ -36,7 +37,7 @@ const max_near_call_depth: u32 = 128;
 /// consume without allocation: one for every live actor, plus any actor rows
 /// and staged becomes the caller is about to add. `releaseActor`, Port teardown,
 /// and frame unwind are infallible. Their capacity is escrowed at
-/// the earlier fallible spawn/become seam instead of losing reclamation to OOM. status-allow: event or source ordering
+/// the earlier fallible spawn/become seam instead of losing reclamation to OOM.
 /// The sum is a table count plus at most one row and the bounded frame depth.
 pub fn reserveRetirementCapacity(self: *Vat, additional_actors: usize, possible_becomes: usize) Error!void {
     try self.retired_boxes.ensureUnusedCapacity(self.allocator, self.actors.count() + additional_actors + possible_becomes);
@@ -63,21 +64,22 @@ pub const EventualOutcome = union(enum) {
     pending,
     deferred,
     discarded,
-    broken: []const u8,
+    /// The call broke, by `breakWith`, a returned error, or a hosted failure.
+    broken: Broken,
 };
 
 pub fn callQueued(self: *Vat, source: Source, id: u64, msg: Queued, answer: ?u64) ?vat_mod.Outcome {
     var outcome: EventualOutcome = .pending;
     const result = callWithOrigin(self, source, id, Dispatch.fromQueued(msg), .{ .eventual = .{ .answer = answer, .outcome = &outcome } });
     return switch (outcome) {
-        .pending => if (result) |value| .{ .fulfilled = value } else |err| .{ .broken = @errorName(err) },
+        .pending => if (result) |value| .{ .fulfilled = value } else |err| .{ .broken = Broken.unnamed(@errorName(err)) },
         .deferred => null,
         .discarded => .{ .fulfilled = .{ .void = {} } },
-        .broken => |reason| .{ .broken = reason },
+        .broken => |broken| .{ .broken = broken },
     };
 }
 
-/// Free every reply a handler moved to the vat and not yet reclaimed. Called status-allow: pending state or quoted runtime label
+/// Free every reply a handler moved to the vat and not yet reclaimed. Called
 /// when an outermost turn begins (mirroring the turn arena's reset) and at
 /// teardown, so a moved reply lives exactly as long as a borrowed one would.
 pub fn drainMovedReplies(self: *Vat) void {
@@ -157,11 +159,16 @@ fn beginTurn(self: *Vat, boundary: *TurnBoundary) std.mem.Allocator {
         // This outermost turn invalidates its predecessor's borrowed scratch.
         // The reset keeps a bounded amount of memory, so steady traffic
         // allocates nothing and one large turn cannot pin its peak.
-        _ = self.turn_arena.reset(.{ .retain_with_limit = vat_mod.steady_turn_arena_bytes });
-        // Moved replies share the arena's lifetime, so reclaim the previous
-        // outermost turn's moved bytes at the same boundary its scratch
-        // resets. A borrowed reply from the last turn is now invalid too.
-        drainMovedReplies(self);
+        // A turn a dropped send's listener opens allocates past the failed
+        // turn's scratch, which still holds the break that listener reads.
+        if (self.drop_depth == 0) {
+            _ = self.turn_arena.reset(.{ .retain_with_limit = vat_mod.steady_turn_arena_bytes });
+            // Moved replies share the arena's lifetime, so reclaim the
+            // previous outermost turn's moved bytes at the same boundary its
+            // scratch resets. A borrowed reply from the last turn is now
+            // invalid too.
+            drainMovedReplies(self);
+        }
     }
     return self.turn_arena.allocator();
 }
@@ -171,9 +178,11 @@ fn endTurn(self: *Vat) void {
     if (self.turn_depth != 0) return;
     // A successful outermost turn committed its sends inside its frame; a
     // failed one drops them now, with listeners running at depth zero.
-    if (self.turn_failure) |reason| {
+    if (self.turn_failure) |broken| {
         self.turn_failure = null;
-        turn_commit.drop(self, reason);
+        self.drop_depth += 1;
+        defer self.drop_depth -= 1;
+        turn_commit.drop(self, broken);
     }
     std.debug.assert(self.staged.items.len == 0);
     std.debug.assert(self.participants.items.len == 0);
@@ -192,8 +201,8 @@ const TurnFrame = struct { box: *StateBox, arena: std.mem.Allocator, id: u64 };
 /// the handler runs: a handler may spawn, which can resize `actors` and
 /// invalidate the cell pointer. Close with `defer closeTurnFrame(id)`.
 pub fn openTurnFrame(self: *Vat, id: u64) Error!TurnFrame {
-    // Bound the near-call recursion before it can overflow the native
-    // stack: each nested `$` deepens `turn_depth`, so refuse once it would
+    // Bound the near-call recursion before it can overflow the calling
+    // thread's stack: each nested `$` deepens `turn_depth`, so refuse once it would
     // exceed the cap rather than crashing on a cyclic local graph.
     if (self.turn_depth >= max_near_call_depth) return error.NearCallTooDeep;
     const cell = self.actors.getPtr(id) orelse return error.NoSuchActor;
@@ -227,10 +236,10 @@ pub fn commitFrame(self: *Vat, turn: *Turn) void {
 }
 
 /// Close a frame whose handler failed: release its staged become, and at the
-/// outermost frame record `reason` so the turn's effects drop when it closes.
-pub fn failFrame(self: *Vat, turn: *Turn, reason: []const u8) void {
+/// outermost frame record `broken` so the turn's effects drop when it closes.
+pub fn failFrame(self: *Vat, turn: *Turn, broken: Broken) void {
     if (turn.pending_become) |box| releaseBox(self.allocator, box);
-    if (self.turn_depth == 1) self.turn_failure = reason;
+    if (self.turn_depth == 1) self.turn_failure = broken;
 }
 
 pub fn callLocal(self: *Vat, source: Source, id: u64, msg: Delivery) anyerror!model.Argument {
@@ -247,7 +256,7 @@ fn callWithOrigin(self: *Vat, source: Source, id: u64, msg: Dispatch, origin: @F
         .delivery => null,
         .owned => |body| body,
     };
-    var refusal: ?[]const u8 = null;
+    var hosted: ?Broken = null;
     var reply_copied = false;
     const result: anyerror!model.Argument = switch (msg) {
         .delivery => |delivery| switch (box.handle(box.ptr, &turn, delivery)) {
@@ -259,14 +268,14 @@ fn callWithOrigin(self: *Vat, source: Source, id: u64, msg: Dispatch, origin: @F
                 break :copied owned;
             },
             .refused => |failure| refused: {
-                refusal = failure.name;
+                hosted = failure.broken();
                 break :refused failure.localError();
             },
         },
         .owned => |body| owning: {
             const handle = box.handleOpaque orelse break :owning Error.UnsupportedDelivery;
-            if (handle(box.ptr, &turn, body)) |reason| {
-                refusal = reason;
+            if (handle(box.ptr, &turn, body)) |failure| {
+                hosted = failure.broken();
                 break :owning Error.OpaqueHandlerRefused;
             }
             break :owning .{ .void = {} };
@@ -290,7 +299,7 @@ fn callWithOrigin(self: *Vat, source: Source, id: u64, msg: Dispatch, origin: @F
                 (turn.pending_become != null or cell_now.pending_become != null);
             if (install_at_unwind and !reply_copied and !replyOutlivesBox(self, value, turn.moves_begin)) {
                 reply = model.cloneArgument(arena, value) catch |err| {
-                    failFrame(self, &turn, @errorName(err));
+                    failFrame(self, &turn, Broken.unnamed(@errorName(err)));
                     return err;
                 };
             }
@@ -307,13 +316,15 @@ fn callWithOrigin(self: *Vat, source: Source, id: u64, msg: Dispatch, origin: @F
         // forward breaks it through rollback, preserving the original reason.
         // An answerless forward captured no completion owner. Keep its refusal
         // for input retirement even though no caller awaits a reply.
-        if (refusal) |reason| {
-            if (turn.origin == .eventual) switch (turn.origin.eventual.outcome.*) {
-                .pending, .discarded => turn.origin.eventual.outcome.* = .{ .broken = reason },
-                .deferred, .broken => {},
-            };
-        }
-        failFrame(self, &turn, refusal orelse @errorName(err));
+        // A break the behavior already gave its call stands. Otherwise the
+        // hosted failure says whose it is, and any other error is this
+        // side's failure to run the behavior or carry its answer.
+        const broken = turn.broke orelse hosted orelse Broken.unnamed(@errorName(err));
+        if (turn.origin == .eventual) switch (turn.origin.eventual.outcome.*) {
+            .pending, .discarded => turn.origin.eventual.outcome.* = .{ .broken = broken },
+            .deferred, .broken => {},
+        };
+        failFrame(self, &turn, broken);
         return err;
     }
 }
@@ -341,7 +352,7 @@ fn replyOutlivesBox(self: *const Vat, value: model.Argument, moves_begin: ?usize
 
 /// End one frame of an actor's reentrant run. When the last frame unwinds,
 /// install any promoted `become`: swap the actor's live box for the new one,
-/// releasing the old live reference (a snapshot that shares it keeps it status-allow: replacement state identity
+/// releasing the old live reference (a snapshot that shares it keeps it
 /// alive). Deferring the swap to zero depth is what keeps a running outer
 /// frame's `self` valid across a reentrant inner become.
 fn finishCellRun(self: *Vat, id: u64) void {
@@ -352,7 +363,7 @@ fn finishCellRun(self: *Vat, id: u64) void {
     if (cell.running != 0) return;
     if (cell.pending_become) |next| {
         cell.pending_become = null;
-        // Retire rather than release: a reply handed back by an earlier frame of status-allow: event or source ordering
+        // Retire rather than release: a reply handed back by an earlier frame of
         // this same actor may still borrow the outgoing box, and that frame has
         // already returned, so no sever can reach it. `stageBecome` reserved this
         // slot, so the append cannot fail here during unwind.
@@ -366,7 +377,7 @@ fn finishCellRun(self: *Vat, id: u64) void {
 
 /// Retire a zero-rooted, non-running actor row (ADR-0014): remove the row and
 /// park its box until the next outermost-turn boundary, the borrowed-reply
-/// lifetime, so a reply an earlier turn handed out never dangles. Registration status-allow: event or source ordering
+/// lifetime, so a reply an earlier turn handed out never dangles. Registration
 /// escrowed one retired-list slot for every live actor. Removing this row
 /// releases that exact obligation before the append consumes it, so this path
 /// is allocation-free even in destructor and frame-unwind contexts. A staged

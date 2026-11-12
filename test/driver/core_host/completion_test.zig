@@ -18,7 +18,9 @@ fn refuse(_: void, _: core.Value) !core.Value {
 
 test "Host projection rollback stops at its acquired prefix before an invalid suffix" {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var host = test_host.init(failing.allocator(), @splat(0x5a), .{});
+    var host = test_host.init(failing.allocator(), @splat(0x5a), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     const session = try h.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7917", &.{});
     const held = try host.spawn(session, h.Widget, .{});
@@ -56,9 +58,9 @@ const Nested = struct {
 
 test "Host completion owns nested occurrences and projection adds independent retains without allocation" {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var client = test_host.init(failing.allocator(), @splat(0x51), core.Host.Options.withFrameCap(h.frame_cap));
+    var client = test_host.init(failing.allocator(), @splat(0x51), core.Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = test_host.init(a, @splat(0x52), core.Host.Options.withFrameCap(h.frame_cap));
+    var server = test_host.init(a, @splat(0x52), core.Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -73,9 +75,7 @@ test "Host completion owns nested occurrences and projection adds independent re
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const vow = try client.sendValues(pair.a, target.result().ready.capability, "get", &.{}, arena.allocator());
-    for (0..64) |_| {
-        if (!try h.shuttleAll(&.{pair})) break;
-    } else return error.PumpDidNotQuiesce;
+    try h.shuttleUntilQuiet(&.{pair});
     const action = while (try client.takeAction()) |action| {
         if (action == .settled and action.settled.vow_id == vow) break action;
         client.freeAction(action);
@@ -108,11 +108,17 @@ test "Host completion owns nested occurrences and projection adds independent re
 }
 
 test "Host completion uses actual capability home after its source session closes" {
-    var host = test_host.init(a, @splat(0x53), .{});
+    var host = test_host.init(a, @splat(0x53), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var first = test_host.init(a, @splat(0x54), .{});
+    var first = test_host.init(a, @splat(0x54), .{
+        .thread_policy = .unchecked,
+    });
     defer first.deinit();
-    var second = test_host.init(a, @splat(0x55), .{});
+    var second = test_host.init(a, @splat(0x55), .{
+        .thread_policy = .unchecked,
+    });
     defer second.deinit();
     const source = (try h.host_pair.openPair(&host, &first, "127.0.0.1:7912")).a;
     const home = (try h.host_pair.openPair(&host, &second, "127.0.0.1:7913")).a;
@@ -138,9 +144,13 @@ test "Host completion uses actual capability home after its source session close
 }
 
 test "Host completion projection rolls back a retained prefix before a closed capability" {
-    var host = test_host.init(a, @splat(0x56), .{});
+    var host = test_host.init(a, @splat(0x56), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
-    var partner = test_host.init(a, @splat(0x57), .{});
+    var partner = test_host.init(a, @splat(0x57), .{
+        .thread_policy = .unchecked,
+    });
     defer partner.deinit();
     const session = (try h.host_pair.openPair(&host, &partner, "127.0.0.1:7914")).a;
     const peer = session.peer_handle;
@@ -165,7 +175,9 @@ test "Host completion projection rolls back a retained prefix before a closed ca
 }
 
 test "Host completion borrowed retry and discard release exactly their owned occurrences" {
-    var host = test_host.init(a, @splat(0x58), .{});
+    var host = test_host.init(a, @splat(0x58), .{
+        .thread_policy = .unchecked,
+    });
     defer host.deinit();
     const session = try h.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7915", &.{});
     while (try host.nextAction()) |_| {}
@@ -202,7 +214,9 @@ fn refusedMaterialization(references: usize) !void {
     var refused: usize = 0;
     for (0..64) |offset| {
         var failing = std.testing.FailingAllocator.init(a, .{});
-        var host = test_host.init(failing.allocator(), @splat(0x59), .{});
+        var host = test_host.init(failing.allocator(), @splat(0x59), .{
+            .thread_policy = .unchecked,
+        });
         defer host.deinit();
         const session = try h.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7916", &.{});
         const text: [8192]u8 = @splat('x');

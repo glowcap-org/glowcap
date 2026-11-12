@@ -16,7 +16,8 @@
 ;; The bound functions and their out-cell wrappers are generated from the
 ;; archive's annotated symbol inventory (`ffi-onion-gen.rkt`, `zig build
 ;; gen-binding-racket-ffi`); this module owns the prose and re-provides them.
-(require ffi/unsafe
+(require "constants.rkt"
+         ffi/unsafe
          "ffi-shared.rkt"
          "ffi-onion-gen.rkt")
 (provide (except-out (all-from-out "ffi-onion-gen.rkt")
@@ -40,7 +41,7 @@
          glowcap_onion_listener_release)
 
 (define (glowcap_onion_netlayer_release netlayer)
-  (call/without-diagnostic glowcap_onion_netlayer_release* netlayer))
+  (release-result-code (call/without-diagnostic glowcap_onion_netlayer_release* netlayer)))
 
 (define (glowcap_onion_connect netlayer service-id service-id-len codec max-frame)
   (call/out _pointer #f
@@ -77,7 +78,7 @@
   (call/without-diagnostic glowcap_onion_conn_write_frame* conn frame))
 
 (define (glowcap_onion_conn_release conn)
-  (call/without-diagnostic glowcap_onion_conn_release* conn))
+  (release-result-code (call/without-diagnostic glowcap_onion_conn_release* conn)))
 
 (define (glowcap_onion_listener_release listener)
-  (call/without-diagnostic glowcap_onion_listener_release* listener))
+  (release-result-code (call/without-diagnostic glowcap_onion_listener_release* listener)))

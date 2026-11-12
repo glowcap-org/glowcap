@@ -17,6 +17,13 @@ export const GRANT = "grant"; // grant(toolName) returns a capability to the too
 export const GRANT_REVOCABLE = "grant-revocable"; // returns a revocable capability
 export const REVOKE_LAST = "revoke-last"; // revoke the last revocable grant
 
+/** Where a coordinator on a chosen port records its locator, so agents can
+ * attach to it with only the port. The coordinator's key changes each run, so
+ * the port alone cannot name it. */
+export function locatorRecord(port: number): URL {
+	return new URL(`../../../zig-out/state/tools/coordinator-${port}.locator`, import.meta.url);
+}
+
 /** Tool method verbs. */
 export const NOW = "now"; // clock.now() returns integer timestamp
 export const READ = "read"; // files.read(path) returns contents

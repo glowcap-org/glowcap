@@ -103,9 +103,9 @@ const DigestLog = struct {
 
 test "core host: the live trace reports open, both message directions, and close" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var client_log = TraceLog{};
     var server_log = TraceLog{};
@@ -153,9 +153,9 @@ test "core host: the live trace reports open, both message directions, and close
 
 test "core host: deinit closes every traced open exactly once" {
     const allocator = std.testing.allocator;
-    var peer = test_host.init(allocator, @as([32]u8, @splat(0x40)), Host.Options.withFrameCap(frame_cap));
+    var peer = test_host.init(allocator, @as([32]u8, @splat(0x40)), Host.Options.init(.unchecked, frame_cap));
     defer peer.deinit();
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x41)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x41)), Host.Options.init(.unchecked, frame_cap));
     var log = TraceLog{};
     try host.setTrace(.{ .ctx = &log, .emit = TraceLog.emit });
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -181,7 +181,7 @@ test "core host: a glowcap-to-glowcap pair holds the next profile over capnp" {
     // that completes here is both ends agreeing on the version they put in
     // `op:start-session` and on the grammar that framed it.
     const allocator = std.testing.allocator;
-    var opts = Host.Options.withFrameCap(frame_cap);
+    var opts = Host.Options.init(.unchecked, frame_cap);
     opts.codec = .capnp;
     opts.captp_version = .next;
     var a = test_host.init(allocator, @as([32]u8, @splat(0x4a)), opts);
@@ -216,7 +216,7 @@ test "core host: one host holds a next capnp session and a baseline session at o
     // Neither side is told anything out of band. Each hello states what its
     // sender prefers, and each session settles its own pair from the two.
     const allocator = std.testing.allocator;
-    var glowcap_opts = Host.Options.withFrameCap(frame_cap);
+    var glowcap_opts = Host.Options.init(.unchecked, frame_cap);
     glowcap_opts.codec = .capnp;
     glowcap_opts.captp_version = .next;
 
@@ -225,7 +225,7 @@ test "core host: one host holds a next capnp session and a baseline session at o
     var glowcap_peer = test_host.init(allocator, @as([32]u8, @splat(0x5b)), glowcap_opts);
     defer glowcap_peer.deinit();
     // A peer that knows only the baseline: the profile a Goblins vat speaks.
-    var baseline_peer = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.withFrameCap(frame_cap));
+    var baseline_peer = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.init(.unchecked, frame_cap));
     defer baseline_peer.deinit();
 
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -260,12 +260,12 @@ test "core host: one host holds a next capnp session and a baseline session at o
 
 test "core host: feature offers are carried by the signed hello and intersected" {
     const allocator = std.testing.allocator;
-    var limited_opts = Host.Options.withFrameCap(frame_cap);
+    var limited_opts = Host.Options.init(.unchecked, frame_cap);
     limited_opts.features = model.FeatureSet.minimum();
     var limited = test_host.init(allocator, @as([32]u8, @splat(0x6d)), limited_opts);
     defer limited.deinit();
 
-    var full = test_host.init(allocator, @as([32]u8, @splat(0x6e)), Host.Options.withFrameCap(frame_cap));
+    var full = test_host.init(allocator, @as([32]u8, @splat(0x6e)), Host.Options.init(.unchecked, frame_cap));
     defer full.deinit();
 
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -284,7 +284,7 @@ test "core host: the live trace reports each session's settled profile, not the 
     // preference. Both sessions here are opened by one host that prefers
     // `next` over Cap'n Proto, and only one partner can follow it.
     const allocator = std.testing.allocator;
-    var glowcap_opts = Host.Options.withFrameCap(frame_cap);
+    var glowcap_opts = Host.Options.init(.unchecked, frame_cap);
     glowcap_opts.codec = .capnp;
     glowcap_opts.captp_version = .next;
 
@@ -292,7 +292,7 @@ test "core host: the live trace reports each session's settled profile, not the 
     defer hub.deinit();
     var glowcap_peer = test_host.init(allocator, @as([32]u8, @splat(0x6b)), glowcap_opts);
     defer glowcap_peer.deinit();
-    var baseline_peer = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.withFrameCap(frame_cap));
+    var baseline_peer = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.init(.unchecked, frame_cap));
     defer baseline_peer.deinit();
 
     var hub_log = TraceLog{};
@@ -326,11 +326,11 @@ test "core host: both peers of one session report the same wire name" {
     // the pair sorted, so the dialer and the accepter compute the same digits
     // and a viewer can tell one wire watched twice from two wires.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x71)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x71)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x72)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x72)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
-    var third = test_host.init(allocator, @as([32]u8, @splat(0x73)), Host.Options.withFrameCap(frame_cap));
+    var third = test_host.init(allocator, @as([32]u8, @splat(0x73)), Host.Options.init(.unchecked, frame_cap));
     defer third.deinit();
 
     var client_log = TraceLog{};
@@ -377,7 +377,7 @@ test "core host: a three-vat handoff holds glowcap between the glowcap pair and 
     // on another that negotiated independently, so its signed envelope is
     // Syrup whatever each session settled.
     const allocator = std.testing.allocator;
-    var glowcap_opts = Host.Options.withFrameCap(frame_cap);
+    var glowcap_opts = Host.Options.init(.unchecked, frame_cap);
     glowcap_opts.codec = .capnp;
     glowcap_opts.captp_version = .next;
 
@@ -386,7 +386,7 @@ test "core host: a three-vat handoff holds glowcap between the glowcap pair and 
     var gifter = test_host.init(allocator, @as([32]u8, @splat(0x76)), glowcap_opts);
     defer gifter.deinit();
     // The Goblins-shaped peer: it knows only the baseline.
-    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x7c)), Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x7c)), Host.Options.init(.unchecked, frame_cap));
     defer recipient.deinit();
 
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
@@ -478,9 +478,9 @@ test "core host: both ends of a wire tag one message identically" {
     // Derived, not claimed: a producer cannot assert that some other message
     // is this one without holding its bytes.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x8a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x8a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x8b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x8b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
 
     var client_log = DigestLog{};
@@ -549,9 +549,9 @@ test "core host: explicit trace replay borrows live rows without admitting reent
         }
     };
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @splat(0x3b), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @splat(0x3b), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @splat(0x3c), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @splat(0x3c), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

@@ -159,6 +159,12 @@ impl Listener<'_> {
 		Ok(fd)
 	}
 
+	/// A handle another thread uses to interrupt a blocked [`Listener::accept`].
+	pub fn shutdown_handle(&self) -> ListenerShutdown<'_> {
+		// SAFETY: the returned lifetime borrows this listener and prevents release.
+		unsafe { ListenerShutdown::borrowed(self.raw) }
+	}
+
 	/// Block until a dialer connects. The returned connection borrows this
 	/// listener (and thus the netlayer) and cannot outlive it.
 	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
@@ -188,9 +194,9 @@ impl Listener<'_> {
 		// SAFETY: `raw` is this `Listener`'s handle from `Netlayer::listen`, moved out of `self.raw` just above and
 		// non-null, so it is released exactly once and `Drop` sees null afterward; the netlayer outlives it through the
 		// `'a` borrow, and the null error buffer with length zero asks for no error text.
-		check_inproc(unsafe {
+		check_inproc(crate::sys::release_result_code(unsafe {
 			ffi::glowcap_inproc_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
-		})
+		}))
 	}
 
 	/// Close explicitly and return the FFI teardown failure, if any.
@@ -209,6 +215,22 @@ impl Listener<'_> {
 // rendezvous the committed scoped-thread test exercises. Borrowing the netlayer
 // keeps it non-`'static`, so callers move it into a scoped thread.
 unsafe impl Send for Listener<'_> {}
+
+/// Interrupts a blocked [`Listener::accept`] from another thread. It borrows
+/// the listener, so the listener stays alive until every handle is gone.
+/// `shutdown` cannot fail.
+pub type ListenerShutdown<'l> = crate::shutdown::ShutdownHandle<'l, ffi::GlowcapInprocListener>;
+
+// SAFETY: the C shutdown entry is idempotent, permits concurrent operations,
+// and leaves release to the owner.
+unsafe impl crate::shutdown::Target for ffi::GlowcapInprocListener {
+	type Output = ();
+
+	unsafe fn shutdown(raw: *mut Self) -> Self::Output {
+		// SAFETY: the caller holds the owner alive for this shutdown call.
+		unsafe { ffi::glowcap_inproc_listener_shutdown(raw) }
+	}
+}
 
 impl Drop for Listener<'_> {
 	fn drop(&mut self) {
@@ -230,9 +252,17 @@ pub struct Connection<'a> {
 }
 
 impl Connection<'_> {
+	/// A handle another thread uses to interrupt a blocked [`Connection::read_frame`]
+	/// or [`Connection::write_frame`]. It borrows this connection, so the
+	/// connection cannot be moved or dropped while the handle lives.
+	pub fn shutdown_handle(&self) -> ConnectionShutdown<'_> {
+		// SAFETY: the handle's shared borrow of this connection prevents its release.
+		unsafe { ConnectionShutdown::borrowed(self.raw) }
+	}
+
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
-	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
+	pub fn read_frame(&self) -> Result<Vec<u8>> {
 		// SAFETY: `GlowcapManagedFrame` is a plain C struct of integers, null pointers, and an `Option` function
 		// pointer; all-zero is a valid value, and the callee fills it before it is read.
 		let mut frame: crate::sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
@@ -253,7 +283,7 @@ impl Connection<'_> {
 	}
 
 	/// Write one frame's bytes into the partner's pipe.
-	pub fn write_frame(&mut self, bytes: &[u8]) -> Result<()> {
+	pub fn write_frame(&self, bytes: &[u8]) -> Result<()> {
 		let f = crate::sys::GlowcapFrame {
 			bytes: bytes.as_ptr(),
 			len: bytes.len(),
@@ -265,6 +295,22 @@ impl Connection<'_> {
 		check_inproc(unsafe {
 			ffi::glowcap_inproc_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
+	}
+}
+
+/// Interrupts a blocked frame read or write from another thread. It borrows
+/// the connection, so the connection stays alive until every handle is gone.
+/// `shutdown` cannot fail.
+pub type ConnectionShutdown<'c> = crate::shutdown::ShutdownHandle<'c, ffi::GlowcapInprocConn>;
+
+// SAFETY: the C shutdown entry is idempotent, permits concurrent operations,
+// and leaves release to the owner.
+unsafe impl crate::shutdown::Target for ffi::GlowcapInprocConn {
+	type Output = ();
+
+	unsafe fn shutdown(raw: *mut Self) -> Self::Output {
+		// SAFETY: the caller holds the owner alive for this shutdown call.
+		unsafe { ffi::glowcap_inproc_conn_shutdown(raw) }
 	}
 }
 
@@ -300,16 +346,54 @@ mod tests {
 
 		let received = std::thread::scope(|scope| {
 			let server = scope.spawn(move || {
-				let mut conn = listener.accept(Codec::Syrup, 4096).unwrap();
+				let conn = listener.accept(Codec::Syrup, 4096).unwrap();
 				conn.read_frame().unwrap()
 			});
 
-			let mut client = netlayer.connect("demo", Codec::Syrup, 4096).unwrap();
+			let client = netlayer.connect("demo", Codec::Syrup, 4096).unwrap();
 			client.write_frame(b"<8'op:abort3\"bye>").unwrap();
 
 			server.join().unwrap()
 		});
 		assert_eq!(received, b"<8'op:abort3\"bye>");
+	}
+
+	// A thread parked in a frame read wakes with a refusal when another thread
+	// shuts the connection down through its handle.
+	#[test]
+	fn a_shutdown_handle_wakes_a_parked_read() {
+		let netlayer = Netlayer::new().unwrap();
+		let listener = netlayer.listen("parked-read").unwrap();
+		let client = netlayer.connect("parked-read", Codec::Syrup, 4096).unwrap();
+		let _server = listener.accept(Codec::Syrup, 4096).unwrap();
+		let stop = client.shutdown_handle();
+		let refused = std::thread::scope(|scope| {
+			scope.spawn(|| {
+				std::thread::sleep(std::time::Duration::from_millis(50));
+				stop.shutdown();
+			});
+			client.read_frame().is_err()
+		});
+		assert!(refused, "a read parked before shutdown refuses");
+	}
+
+	// A thread parked in accept wakes with a refusal when another thread
+	// shuts the listener down through its borrowed handle.
+	#[test]
+	fn a_shutdown_handle_wakes_a_parked_accept() {
+		let netlayer = Netlayer::new().unwrap();
+		let listener = netlayer.listen("parked").unwrap();
+		let stop = listener.shutdown_handle();
+		let refused = std::thread::scope(|scope| {
+			scope.spawn(|| {
+				std::thread::sleep(std::time::Duration::from_millis(50));
+				stop.shutdown();
+			});
+			listener.accept(Codec::Syrup, 4096).is_err()
+		});
+		assert!(refused, "accept after shutdown refuses");
+		stop.shutdown();
+		listener.close().unwrap();
 	}
 
 	// A dial to a designator with no bound listener fails with the transport's

@@ -14,7 +14,7 @@ use crate::dial::{ConnectOptions, dial_with_connector};
 use crate::driver_loop::{LoopShared, Provider};
 use crate::host::Host;
 use crate::session::Session;
-use crate::{Connector, Error, Locator, PendingWork, Result, sys};
+use crate::{Connector, Error, Locator, PendingWork, Result};
 
 enum Mode {
 	#[cfg(not(target_arch = "wasm32"))]
@@ -94,8 +94,9 @@ pub struct Runtime {
 	mode: Mode,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn composition_error(message: impl Into<String>) -> Error {
-	Error::with_detail(sys::ERR_INVALID_ARGUMENT, message.into())
+	Error::with_detail(crate::sys::ERR_INVALID_ARGUMENT, message.into())
 }
 
 impl Runtime {
@@ -217,8 +218,8 @@ impl Runtime {
 			Mode::ByteFed { handshake_timeout } => {
 				let transport_options = options.transport_options(locator)?;
 				let connector = self.host.shared().connector(&locator.transport).ok_or_else(|| {
-					composition_error(format!(
-						"UnknownTransport: Runtime has no connector for transport {:?}",
+					Error::transport_unavailable(format!(
+						"Runtime has no connector for transport {:?}",
 						locator.transport
 					))
 				})?;
@@ -244,6 +245,7 @@ impl Runtime {
 #[cfg(all(test, feature = "tcp"))]
 mod tests {
 	use super::*;
+	use crate::sys;
 	use std::cell::RefCell;
 	#[cfg(not(target_arch = "wasm32"))]
 	use std::rc::Rc;
@@ -312,7 +314,11 @@ mod tests {
 				);
 
 				let runtime = Runtime::open(
-					RuntimeConfig::providers([crate::tcp::provider(Default::default())]).adopt_host(&host),
+					RuntimeConfig::providers([crate::tcp::provider(crate::tcp::Config {
+						profiles: crate::tcp::Profiles::TCP,
+						..Default::default()
+					})])
+					.adopt_host(&host),
 				)
 				.await
 				.expect("the same Host accepts a repaired provider setup");

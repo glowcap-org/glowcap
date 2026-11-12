@@ -185,7 +185,7 @@ pub fn preparePipelinedCall(
 /// then its listeners (ADR-0003, ADR-0004 for
 /// projections). Calls go first because a drained call may settle further
 /// answers. The resolution itself is already stored: `applySentResolve`
-/// stored it when the resolve was recorded, at the moment the answer's status status-allow: state at observation
+/// stored it when the resolve was recorded, at the moment the answer's status
 /// flipped, so a call, projection, or `op:listen` that arrived between record
 /// and this drain was served directly. Only the work that anchored while the
 /// answer was still pending remains. The resolution frame is already on
@@ -288,7 +288,7 @@ pub fn respondToProjection(
 /// Drain the `op:get` / `op:index` projections anchored on the answer just
 /// settled (ADR-0004): each one resolves its
 /// projected answer to the named field or element, re-anchors when the
-/// resolution is itself a promise, or breaks. This never grows the native
+/// resolution is itself a promise, or breaks. This never grows the call
 /// stack: the shared stored-resolution walker returns one terminal value,
 /// pending exact incarnation, or break before this batch is touched.
 fn drainProjections(

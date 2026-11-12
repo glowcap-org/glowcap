@@ -2,23 +2,39 @@
 //! coordinator (which may be written in any language) and proves the three
 //! capability properties — delegation, attenuation, revocation — over the wire.
 //!
-//!   cargo run --bin tools-agent -- 127.0.0.1 9099 rs-agent
+//!   cargo run --bin tools-agent -- <locator> rs-agent
+//!
+//! The locator is the `ocapn://` URI the coordinator printed.
 
 #[path = "../../_demo/rust/run_local.rs"]
 mod demo_run;
 #[path = "../../_demo/rust/tools_check.rs"]
 mod tools_check;
 
-use glowcap::{Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, tcp};
+use glowcap::{Argument, ConnectOptions, ErrorKind, Locator, PendingWork, Ref, Runtime, RuntimeConfig, tcp};
+
+/// Whether the partner broke the call. Only a broken promise is the refusal
+/// these checks look for, so a transport or marshalling failure is returned
+/// with its own cause.
+fn broke(outcome: glowcap::Result<Argument>, what: &str) -> Result<bool, String> {
+	match outcome {
+		Ok(_) => Ok(false),
+		Err(err) if err.kind() == ErrorKind::Broken => Ok(true),
+		Err(err) => Err(format!("{what}: {err}")),
+	}
+}
 
 fn cap(arg: &Argument) -> Result<Ref, String> {
 	Ref::try_from(arg).map_err(|_| "grant did not return a capability".to_string())
 }
 
 async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| format!("runtime: {e}"))?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::NOISE_TCP,
+		..Default::default()
+	})]))
+	.await
+	.map_err(|e| format!("runtime: {e}"))?;
 	let session = runtime
 		.connect(locator, ConnectOptions::default())
 		.await
@@ -50,7 +66,7 @@ async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
 	let write = session
 		.send(&files, "write", &["report.txt".into(), "tampered".into()])
 		.await;
-	ok &= tools_check::check(nick, "attenuation: write is refused", write.is_err());
+	ok &= tools_check::check(nick, "attenuation: write is refused", broke(write, "write")?);
 
 	let revocable = cap(&session
 		.send(&tools, "grant-revocable", &["clock".into()])
@@ -68,7 +84,7 @@ async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
 	ok &= tools_check::check(
 		nick,
 		"revocation: the handle breaks after revoke",
-		session.send(&revocable, "now", &[]).await.is_err(),
+		broke(session.send(&revocable, "now", &[]).await, "now after revoke")?,
 	);
 
 	let session_error = session.close(PendingWork::Cancel).await.err();
@@ -96,16 +112,18 @@ async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
 	let args: Vec<String> = std::env::args().collect();
-	if args.len() < 4 {
-		eprintln!("usage: tools-agent <host> <port> <nick>");
+	if args.len() < 3 {
+		eprintln!("usage: tools-agent <locator> <nick>");
 		std::process::exit(2);
 	}
-	let Ok(port) = args[2].parse::<u16>() else {
-		eprintln!("usage: tools-agent <host> <port> <nick> (port must be a number)");
-		std::process::exit(2);
+	let locator = match glowcap::parse_locator(&args[1]) {
+		Ok(locator) => locator,
+		Err(err) => {
+			eprintln!("usage: tools-agent <locator> <nick> ({err})");
+			std::process::exit(2);
+		}
 	};
-	let locator = tcp::locator(&args[1], port);
-	let nick = args[3].clone();
+	let nick = args[2].clone();
 
 	let result = demo_run::run_with_timeout(&nick, 15, run(&locator, &nick)).await;
 	demo_run::exit_on_result(&nick, "agent", result);

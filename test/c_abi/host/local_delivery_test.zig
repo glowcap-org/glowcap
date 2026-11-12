@@ -206,7 +206,7 @@ test "libglowcap_host owning local C forwarding and effects preserve exact repli
         var borrow = try cd.embedding.borrowForAttachment(raw);
         defer borrow.release();
         const host = borrow.core();
-        var exporter = support.init(a, @splat(0x7a), driver.Host.Options.withFrameCap(4096));
+        var exporter = support.init(a, @splat(0x7a), driver.Host.Options.init(.unchecked, 4096));
         defer exporter.deinit();
         const actor = try exporter.vat.spawn(Echo, .{});
         const target = try exporter.retainLocalCapability(actor);

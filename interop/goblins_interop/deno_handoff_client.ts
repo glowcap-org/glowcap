@@ -57,7 +57,7 @@ try {
 
 	// `connect` completes the keyed handshake; the machine's retained identity is
 	// the recipient key the gift Alice deposits will name.
-	await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+	await using runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 	const session = await runtime.connect(tcp.locator(HOST, PORT));
 	console.log("deno-goblins-handoff: session open (recipient -> alice)");
 	session.serve().catch(() => {}); // tolerant: the partner hanging up ends the serve loop

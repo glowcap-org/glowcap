@@ -6,7 +6,6 @@
 // across it, and a record handed back for its bytes is written in the form the
 // runtime reads.
 
-import type { Argument } from "@glowcap/runtime";
 import type { ArchivedAttachment } from "./record_attachments.ts";
 import { type ArchiveLine, type ArchiveRecord, parseArchiveRecord } from "./record.ts";
 
@@ -72,7 +71,7 @@ function fields(raw: unknown, what: string, known: readonly string[]): Record<st
 	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
 		throw new Error(`${what} must be a document`);
 	}
-	const document = raw as Record<string, unknown>;
+	const document: Record<string, unknown> = Object.fromEntries(Object.entries(raw));
 	for (const key of Object.keys(document)) {
 		if (!known.includes(key)) throw new Error(`${what} carries an unknown field: ${key}`);
 	}
@@ -81,20 +80,20 @@ function fields(raw: unknown, what: string, known: readonly string[]): Record<st
 
 /** A safe integer becomes the wire's integer, and anything else stays as it is,
  * so the row validator refuses it with the sentence that names the field. */
-function integer(raw: unknown): Argument {
-	return typeof raw === "number" && Number.isSafeInteger(raw) ? BigInt(raw) : (raw as Argument);
+function integer(raw: unknown): unknown {
+	return typeof raw === "number" && Number.isSafeInteger(raw) ? BigInt(raw) : raw;
 }
 
-function attachmentRow(raw: unknown): Argument {
-	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return raw as Argument;
+function attachmentRow(raw: unknown): unknown {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return raw;
 	const attachment = fields(raw, "an archive attachment document", ATTACHMENT_KEYS);
 	return [
-		attachment.name as Argument,
-		attachment.mime as Argument,
+		attachment.name,
+		attachment.mime,
 		integer(attachment.size),
 		integer(attachment.width),
 		integer(attachment.height),
-		attachment.blob as Argument,
+		attachment.blob,
 	];
 }
 
@@ -102,19 +101,17 @@ function attachmentRow(raw: unknown): Argument {
  * the same validator the wire row answers to. An unknown field is refused as
  * the runtime refuses one, so the two readers cannot drift apart quietly. */
 export function parseArchiveRecordDocument(raw: unknown): ArchiveRecord {
-	const kind = raw !== null && typeof raw === "object" && !Array.isArray(raw)
-		? (raw as { kind?: unknown }).kind
-		: undefined;
+	const kind = raw !== null && typeof raw === "object" && !Array.isArray(raw) && "kind" in raw ? raw.kind : undefined;
 	if (kind === "standing") {
 		const document = fields(raw, "an archive standing document", STANDING_KEYS);
 		return parseArchiveRecord([
 			"standing",
-			document.source as Argument,
-			document.generation as Argument,
-			document.id as Argument,
-			document.directory as Argument,
-			document.room as Argument,
-			document.nick as Argument,
+			document.source,
+			document.generation,
+			document.id,
+			document.directory,
+			document.room,
+			document.nick,
 			integer(document.at),
 		]);
 	}
@@ -128,20 +125,20 @@ export function parseArchiveRecordDocument(raw: unknown): ArchiveRecord {
 			: document.attachments ?? [];
 		return parseArchiveRecord([
 			"line",
-			document.source as Argument,
-			document.generation as Argument,
-			document.id as Argument,
-			document.conversationKind as Argument,
-			document.directory as Argument,
-			document.conversation as Argument,
-			document.from as Argument,
-			document.text as Argument,
-			document.mine as Argument,
+			document.source,
+			document.generation,
+			document.id,
+			document.conversationKind,
+			document.directory,
+			document.conversation,
+			document.from,
+			document.text,
+			document.mine,
 			integer(document.at),
 			integer(document.order),
-			document.state as Argument,
-			attachments as Argument,
-			previews as Argument,
+			document.state,
+			attachments,
+			previews,
 		]);
 	}
 	throw new Error("archive record kind is unknown");

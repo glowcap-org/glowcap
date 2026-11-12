@@ -8,9 +8,9 @@
 //! a snapshot's boxes.
 //!
 //! That is a lot of sharing to get right, and getting it wrong is quiet. A write
-//! that forgets to clone corrupts a snapshot nobody has restored yet. A restore status-allow: pending state or quoted runtime label
+//! that forgets to clone corrupts a snapshot nobody has restored yet. A restore
 //! that takes a box without retaining it frees state something else still names.
-//! A count that never falls leaks. None of those crashes at the moment it status-allow: state at observation
+//! A count that never falls leaks. None of those crashes at the moment it
 //! happens.
 //!
 //! So this keeps its own record: a plain integer per actor, and per snapshot the
@@ -92,7 +92,7 @@ fn vatOne(_: void, smith: *std.testing.Smith) anyerror!void {
     // same set of actors.
     var refs: [max_actors]actors.Ref = undefined;
     var expected: [max_actors]i64 = @splat(0);
-    for (&refs) |*ref| ref.* = vat.spawn(Counter, .{ .n = 0 }) catch return;
+    for (&refs) |*ref| ref.* = try vat.spawn(Counter, .{ .n = 0 });
 
     var kept: [kept_snapshots]?Kept = @splat(null);
     defer for (&kept) |*slot| {
@@ -107,13 +107,13 @@ fn vatOne(_: void, smith: *std.testing.Smith) anyerror!void {
             // because a mutation happened between them.
             op_write, 1 => {
                 const which = smith.valueRangeAtMost(u8, 0, max_actors - 1);
-                _ = vat.near(refs[which], .{ .verb = "bump" }) catch continue;
+                _ = try vat.near(refs[which], .{ .verb = "bump" });
                 expected[which] += 1;
             },
             // Take a snapshot, remembering what everything held.
             op_snapshot => {
                 const slot = smith.valueRangeAtMost(u8, 0, kept_snapshots - 1);
-                const snap = vat.snapshot() catch continue;
+                const snap = try vat.snapshot();
                 if (kept[slot]) |*old| old.snap.deinit();
                 kept[slot] = .{ .snap = snap, .expected = expected };
             },
@@ -121,7 +121,7 @@ fn vatOne(_: void, smith: *std.testing.Smith) anyerror!void {
             op_restore => {
                 const slot = smith.valueRangeAtMost(u8, 0, kept_snapshots - 1);
                 const k = if (kept[slot]) |*k| k else continue;
-                vat.restore(&k.snap) catch continue;
+                try vat.restore(&k.snap);
                 expected = k.expected;
             },
             else => {},

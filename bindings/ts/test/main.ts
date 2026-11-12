@@ -28,7 +28,7 @@ if (runtime === "bun") {
 	process.exit(0);
 }
 
-await using managed = await Runtime.open({ providers: [tcp.provider()] });
+await using managed = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 await roundtrip.run(managed);
 await enliven.run(managed);
 await pipeline.run(managed);

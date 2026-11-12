@@ -124,7 +124,7 @@ Deno.test(
 		// Explicit `entities` entries win over event-payload values,
 		// the transform only fills GAPS, never overwrites. Allows
 		// the user to author a different identity (label, profile)
-		// in entities even if an observation still carries the old. status-allow: replacement state identity
+		// in entities even if an observation still carries the old.
 		const doc = TimelineDocument.parse({
 			id: "test",
 			duration: 5000,
@@ -288,7 +288,7 @@ Deno.test("TimelineDocument: absent rowOrder / rowHidden stays absent", () => {
 	assertEquals(parsed.rowHidden, undefined);
 });
 
-Deno.test("TimelineDocument: events is optional in input — recording-only docs parse", () => {
+Deno.test("TimelineDocument: events is optional in input, so recording-only docs parse", () => {
 	// A recording-only doc carries observations in `recording.sources`
 	// and shouldn't have to ship an empty `events: []` alongside.
 	// Post-parse, observations live only in the recording layer.

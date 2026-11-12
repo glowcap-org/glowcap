@@ -15,7 +15,7 @@ pub enum Completion<E> {
 /// Replacement validates the role's encoding and byte ceiling before admission.
 /// Dropping an observer must retain admitted work and its storage lease until
 /// finish_pending observes the actual outcome. Read and replace refuse while an
-/// earlier observation remains pending. Implementations need not suspend. status-allow: event or source ordering
+/// earlier observation remains pending. Implementations need not suspend.
 pub trait Document {
 	type Error: std::error::Error + 'static;
 	fn document(&self) -> rooms_application::documents::SessionDocument;

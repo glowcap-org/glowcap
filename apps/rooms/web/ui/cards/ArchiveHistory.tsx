@@ -1,7 +1,7 @@
 // Conversation-card archive share controls. Incoming offers draw on the DM
 // that carried them. A room card names a member and hands a facet over that DM.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { archiveHistoryTitle, archiveShareCopy, archiveShareWith } from "../../../lib/text/controls.ts";
 import { archiveNeedsPeerAfter, archiveNeedsPeerLead, archiveNeedsPeerLink } from "../../../lib/text/settings.ts";
 import {
@@ -54,6 +54,9 @@ import { identifierField } from "../field.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { actionRefusal } from "../error_text.ts";
 import { Input } from "../Input.tsx";
+import { Choice, Choices } from "../Choices.tsx";
+import { MenuLayer } from "../Menu.tsx";
+import { useSuggest } from "../Suggest.tsx";
 
 /** The way in to handing an archive account over. The form behind it is a
  * name, two questions and an act, which is a card's worth of work rather than
@@ -230,54 +233,46 @@ export function DmArchiveHistory(
 				<p className="lead">{archiveDmLead(conv.id)}</p>
 				<div className="question">
 					<p className="group-label" id="convcardArchiveDmLasting">{archiveLastingTitle}</p>
-					<div className="choices" role="radiogroup" aria-labelledby="convcardArchiveDmLasting">
-						<label className="choice">
-							<input
-								type="radio"
-								name="convcardArchiveDmLasting"
-								value="once"
-								checked={!keeping}
-								disabled={working}
-								onChange={() => setLasting("once")}
-							/>
-							<span>
-								<strong>{archiveLastingOnce}</strong>
-								{archiveLastingOnceDm}
-							</span>
-						</label>
-						<label className="choice">
-							<input
-								type="radio"
-								name="convcardArchiveDmLasting"
-								value="kept"
-								checked={keeping}
-								disabled={working || !canKeep}
-								onChange={() => setLasting("kept")}
-							/>
-							<span>
-								<strong>{archiveLastingKept}</strong>
-								{canKeep ? archiveLastingKeptSaid : (
-									<>
-										{archiveNeedsPeerLead} {
-											/* Settings will not open over this card (`settingsBlocked`
+					<Choices labelledBy="convcardArchiveDmLasting">
+						<Choice
+							name="convcardArchiveDmLasting"
+							value="once"
+							checked={!keeping}
+							disabled={working}
+							onChange={() => setLasting("once")}
+						>
+							<strong>{archiveLastingOnce}</strong>
+							{archiveLastingOnceDm}
+						</Choice>
+						<Choice
+							name="convcardArchiveDmLasting"
+							value="kept"
+							checked={keeping}
+							disabled={working || !canKeep}
+							onChange={() => setLasting("kept")}
+						>
+							<strong>{archiveLastingKept}</strong>
+							{canKeep ? archiveLastingKeptSaid : (
+								<>
+									{archiveNeedsPeerLead} {
+										/* Settings will not open over this card (`settingsBlocked`
 										    in App says why), so the card goes first. */
-										}
-										<Button
-											variant="link"
-											onClick={() => {
-												browser.closeAboutConversation();
-												browser.setSettingsTab("session");
-												browser.openSettings();
-											}}
-										>
-											{archiveNeedsPeerLink}
-										</Button>
-										{archiveNeedsPeerAfter}
-									</>
-								)}
-							</span>
-						</label>
-					</div>
+									}
+									<Button
+										variant="link"
+										onClick={() => {
+											browser.closeAboutConversation();
+											browser.setSettingsTab("session");
+											browser.openSettings();
+										}}
+									>
+										{archiveNeedsPeerLink}
+									</Button>
+									{archiveNeedsPeerAfter}
+								</>
+							)}
+						</Choice>
+					</Choices>
 				</div>
 				<div className="actions">
 					<Button
@@ -321,6 +316,21 @@ export function RoomArchiveHistory({ conv, you }: { conv: RoomConv; you: string 
 	// mint one, so that answer is closed rather than offered and refused.
 	const canKeep = archive.kind === "peer" && archive.status === "connected";
 	const keeping = canKeep && lasting === "kept";
+	// The name is finished the way the rail finishes a member's name.
+	const peerField = useRef<HTMLInputElement>(null);
+	const peerWrap = useRef<HTMLDivElement>(null);
+	const peerOffered = useRef<HTMLDivElement>(null);
+	const suggest = useSuggest({
+		id: "convcardArchivePeer",
+		label: archiveShareWith,
+		offers: members,
+		value: peer,
+		sigil: "@",
+		onTake: (name) => {
+			setPeer(name);
+			peerField.current?.focus();
+		},
+	});
 	const hand = async () => {
 		if (working) return;
 		setWorking(true);
@@ -355,104 +365,100 @@ export function RoomArchiveHistory({ conv, you }: { conv: RoomConv; you: string 
 					hint={members.length === 0 ? archivePeerHintNobody : archivePeerHint}
 				>
 					{(wiring) => (
-						<Input
-							id={wiring.id}
-							{...identifierField}
-							list="convcardArchivePeerList"
-							placeholder={members[0] ?? "alice"}
-							value={peer}
-							onChange={(event) => setPeer(event.currentTarget.value)}
-							aria-describedby={wiring.describedBy}
-							aria-invalid={wiring.invalid}
-						/>
+						<div ref={peerWrap}>
+							<Input
+								ref={peerField}
+								id={wiring.id}
+								{...identifierField}
+								{...suggest.aria}
+								{...suggest.caret}
+								placeholder={members[0] ?? "alice"}
+								value={peer}
+								onChange={(event) => {
+									setPeer(event.currentTarget.value);
+									suggest.typed();
+								}}
+								onKeyDown={(event) => {
+									suggest.keyDown(event);
+								}}
+								aria-describedby={wiring.describedBy}
+								aria-invalid={wiring.invalid}
+							/>
+							{suggest.list !== null && (
+								<MenuLayer holder={peerWrap} layer={peerOffered} className="field-offers">
+									{suggest.list}
+								</MenuLayer>
+							)}
+						</div>
 					)}
 				</Field>
-				<datalist id="convcardArchivePeerList">
-					{members.map((name) => <option key={name} value={name} />)}
-				</datalist>
 				<div className="question">
 					<p className="group-label" id="convcardArchiveWhat">{archiveWhatTitle}</p>
-					<div className="choices" role="radiogroup" aria-labelledby="convcardArchiveWhat">
-						<label className="choice">
-							<input
-								type="radio"
-								name="convcardArchiveWhat"
-								value="line"
-								checked={records === "line"}
-								disabled={working}
-								onChange={() => setRecords("line")}
-							/>
-							<span>
-								<strong>{archiveWhatLine}</strong>
-								{archiveWhatLineSaid}
-							</span>
-						</label>
-						<label className="choice">
-							<input
-								type="radio"
-								name="convcardArchiveWhat"
-								value="standing"
-								checked={records === "standing"}
-								disabled={working}
-								onChange={() => setRecords("standing")}
-							/>
-							<span>
-								<strong>{archiveWhatStanding}</strong>
-								{archiveWhatStandingSaid}
-							</span>
-						</label>
-					</div>
+					<Choices labelledBy="convcardArchiveWhat">
+						<Choice
+							name="convcardArchiveWhat"
+							value="line"
+							checked={records === "line"}
+							disabled={working}
+							onChange={() => setRecords("line")}
+						>
+							<strong>{archiveWhatLine}</strong>
+							{archiveWhatLineSaid}
+						</Choice>
+						<Choice
+							name="convcardArchiveWhat"
+							value="standing"
+							checked={records === "standing"}
+							disabled={working}
+							onChange={() => setRecords("standing")}
+						>
+							<strong>{archiveWhatStanding}</strong>
+							{archiveWhatStandingSaid}
+						</Choice>
+					</Choices>
 				</div>
 				<div className="question">
 					<p className="group-label" id="convcardArchiveLasting">{archiveLastingTitle}</p>
-					<div className="choices" role="radiogroup" aria-labelledby="convcardArchiveLasting">
-						<label className="choice">
-							<input
-								type="radio"
-								name="convcardArchiveLasting"
-								value="once"
-								checked={!keeping}
-								disabled={working}
-								onChange={() => setLasting("once")}
-							/>
-							<span>
-								<strong>{archiveLastingOnce}</strong>
-								{archiveLastingOnceRoom}
-							</span>
-						</label>
-						<label className="choice">
-							<input
-								type="radio"
-								name="convcardArchiveLasting"
-								value="kept"
-								checked={keeping}
-								disabled={working || !canKeep}
-								onChange={() => setLasting("kept")}
-							/>
-							<span>
-								<strong>{archiveLastingKept}</strong>
-								{canKeep ? archiveLastingKeptSaid : (
-									<>
-										{archiveNeedsPeerLead} {
-											/* Settings will not open over this card (`settingsBlocked`
+					<Choices labelledBy="convcardArchiveLasting">
+						<Choice
+							name="convcardArchiveLasting"
+							value="once"
+							checked={!keeping}
+							disabled={working}
+							onChange={() => setLasting("once")}
+						>
+							<strong>{archiveLastingOnce}</strong>
+							{archiveLastingOnceRoom}
+						</Choice>
+						<Choice
+							name="convcardArchiveLasting"
+							value="kept"
+							checked={keeping}
+							disabled={working || !canKeep}
+							onChange={() => setLasting("kept")}
+						>
+							<strong>{archiveLastingKept}</strong>
+							{canKeep ? archiveLastingKeptSaid : (
+								<>
+									{archiveNeedsPeerLead} {
+										/* Settings will not open over this card (`settingsBlocked`
 										    in App says why), so the card goes first. */
-										}
-										<Button
-											variant="link"
-											onClick={() => {
-												browser.closeAboutConversation();
-												browser.setSettingsTab("session");
-												browser.openSettings();
-											}}
-										>
-											{archiveNeedsPeerLink}
-										</Button>
-										{archiveNeedsPeerAfter}
-									</>
-								)}
-							</span>
-						</label>
-					</div>
+									}
+									<Button
+										variant="link"
+										onClick={() => {
+											browser.closeAboutConversation();
+											browser.setSettingsTab("session");
+											browser.openSettings();
+										}}
+									>
+										{archiveNeedsPeerLink}
+									</Button>
+									{archiveNeedsPeerAfter}
+								</>
+							)}
+						</Choice>
+					</Choices>
 				</div>
 				<div className="actions">
 					<Button

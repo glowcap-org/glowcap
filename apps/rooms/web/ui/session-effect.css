@@ -54,6 +54,11 @@
 .session-paused-notice {
 	grid-template-columns: minmax(0, 1fr);
 	gap: 0;
+}
+/* A session out of reach is a condition too, so it wears the same mark. It
+   keeps the second column, because reloading is an act for the reader. */
+.session-paused-notice,
+.session-away-notice {
 	padding-left: calc(var(--notice-inset) - var(--notice-mark));
 	/* The mark carries the emphasis so the band does not have to: the page's full
 	   warning ink, over a fill left at a ninth of it. Mixed with `transparent`
@@ -64,7 +69,8 @@
 	border-bottom-color: color-mix(in srgb, var(--warn) 30%, var(--rule));
 	background: color-mix(in srgb, var(--warn) 9%, var(--paper-raised));
 }
-.session-paused-notice p {
+.session-paused-notice p,
+.session-away-notice p {
 	font-weight: 600;
 }
 /* Rows: each session it found is a name with the act that takes it at the end

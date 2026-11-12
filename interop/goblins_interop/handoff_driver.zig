@@ -86,7 +86,7 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
             else => return error.HandoffFailed,
         },
         .broken => |reason| {
-            std.debug.print("goblins-handoff: get-greeter broke: {s}\n", .{reason});
+            std.debug.print("goblins-handoff: get-greeter broke: {f}\n", .{reason});
             return error.HandoffFailed;
         },
     };
@@ -97,7 +97,7 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
             else => return error.HandoffFailed,
         },
         .broken => |reason| {
-            std.debug.print("goblins-handoff: greet broke: {s}\n", .{reason});
+            std.debug.print("goblins-handoff: greet broke: {f}\n", .{reason});
             return error.HandoffFailed;
         },
     }

@@ -80,6 +80,9 @@ test "C header struct layouts match the Zig c_abi source" {
     try expectLayoutParity(c.GlowcapTransportProviderEntry, cabi_loop.GlowcapTransportProviderEntry);
     try expectLayoutParity(c.GlowcapTransportProvider, cabi_loop.GlowcapTransportProvider);
     try expectLayoutParity(c.GlowcapRelayConfig, cabi_relay.GlowcapRelayConfig);
+    try expectLayoutParity(c.GlowcapTcpStreamOptions, cabi_tcp.GlowcapTcpStreamOptions);
+    try expectLayoutParity(c.GlowcapTcpConfig, cabi_tcp.GlowcapTcpConfig);
+    try expectLayoutParity(c.GlowcapTcpOperationOptions, cabi_tcp.GlowcapTcpOperationOptions);
 }
 
 test "the generated WebRTC header exposes its control and provider surface" {
@@ -90,6 +93,30 @@ test "the generated WebRTC header exposes its control and provider surface" {
     try std.testing.expect(@hasDecl(c, "GlowcapWebrtcReadyEvent"));
     try std.testing.expect(@hasDecl(c, "GlowcapWebrtcSignaling"));
     try std.testing.expect(@hasDecl(c, "GlowcapWebrtcConfig"));
+}
+
+test "C header break reasons are the bytes the Host settles with" {
+    try std.testing.expectEqualStrings(cabi_driver.GLOWCAP_UNKNOWN_SWISSNUM_MESSAGE, c.GLOWCAP_UNKNOWN_SWISSNUM_MESSAGE);
+    const Cause = cabi_driver.BreakCause;
+    inline for (.{ "origin", "reason" }) |field| {
+        inline for (std.enums.values(@FieldType(Cause, field))) |value| {
+            const name = comptime blk: {
+                var prefix: [field.len]u8 = undefined;
+                const tag = @tagName(value);
+                var suffix: [tag.len]u8 = undefined;
+                break :blk "GLOWCAP_BREAK_" ++ std.ascii.upperString(&prefix, field) ++ "_" ++ std.ascii.upperString(&suffix, tag);
+            };
+            try expectConst(@field(c, name), @backingInt(value));
+        }
+    }
+    const Context = @FieldType(Cause, "context");
+    inline for (comptime std.meta.fieldNames(Context)) |field| {
+        const name = comptime blk: {
+            var suffix: [field.len]u8 = undefined;
+            break :blk "GLOWCAP_BREAK_CONTEXT_" ++ std.ascii.upperString(&suffix, field);
+        };
+        try expectConst(@field(c, name), @as(u32, 1) << @bitOffsetOf(Context, field));
+    }
 }
 
 test "C header return codes match the Zig c_abi source" {
@@ -110,6 +137,10 @@ test "C header return codes match the Zig c_abi source" {
     try expectConst(c.GLOWCAP_RELAY_CONFIG_ABI_VERSION, cabi_relay.GLOWCAP_RELAY_CONFIG_ABI_VERSION);
     try expectConst(c.GLOWCAP_RELAY_TRUST_SYSTEM, cabi_relay.GLOWCAP_RELAY_TRUST_SYSTEM);
     try expectConst(c.GLOWCAP_RELAY_TRUST_COPIED_PEM, cabi_relay.GLOWCAP_RELAY_TRUST_COPIED_PEM);
+    try expectConst(c.GLOWCAP_TCP_PROFILE_TCP, cabi_tcp.GLOWCAP_TCP_PROFILE_TCP);
+    try expectConst(c.GLOWCAP_TCP_PROFILE_KEYED_TCP, cabi_tcp.GLOWCAP_TCP_PROFILE_KEYED_TCP);
+    try expectConst(c.GLOWCAP_TCP_PROFILE_NOISE_TCP, cabi_tcp.GLOWCAP_TCP_PROFILE_NOISE_TCP);
+    try expectConst(c.GLOWCAP_TCP_PROFILES_ALL, cabi_tcp.GLOWCAP_TCP_PROFILES_ALL);
 }
 
 test "C header discriminants match the Zig c_abi source" {

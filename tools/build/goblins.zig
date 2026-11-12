@@ -239,10 +239,11 @@ pub fn register(ctx: Context) Registered {
 
     // Every language client otherwise compiles only under the opt-in benchmark,
     // where a missing runtime looks like a routine skip. Compile all of them
-    // under `check`; the Zig host/client remain compile-only, and each binding
+    // under `check`; the Zig host, client, and orchestrator remain compile-only, and each binding
     // client goes through its standard compiler without running the benchmark.
     check_step.dependOn(&langs_host_exe.step);
     check_step.dependOn(&langs_zig_client_exe.step);
+    check_step.dependOn(&langs_orchestrator.step);
 
     const rust_langs_check = execution.addSystemCommand(b, .build_tool, &.{
         "cargo",

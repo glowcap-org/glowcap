@@ -49,14 +49,18 @@ tagged with the Store and revision it read, and a stale result is retried.
   waiting name holds its 16 secret bytes.
 - A submitted lookup runs to completion even if everyone waiting on it
   leaves.
-- Each name keeps a permanent index entry, whose size
-  [owner cleanup](access.md#bounded-owner-cleanup) gives. Collection keeps
-  that entry when it frees the name's record.
+- Each name keeps a permanent index entry, and collection keeps that entry
+  when it frees the name's record
+  ([freeing the space](access.md#freeing-the-space)).
 
 ## Retiring a name
 
-To stop a name from answering fetches, load its current record, begin a
-transaction, call `stageRetirement`, and submit through `attachment.submit`.
+To stop a name from answering fetches:
+
+1. Load its current record.
+2. Begin a transaction and call `stageRetirement`.
+3. Submit through `attachment.submit`.
+
 Fetches stop finding the name once the retirement commits, and stay stopped
 if the outcome is unknown. The attachment's write queue finishes the job, and
 a retirement that recovery shows never landed makes the name answer again.

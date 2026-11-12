@@ -26,6 +26,7 @@ from ._constants_gen import (
     FAILURE_SCOPE_TRANSPORT,
 )
 from ._errors import GlowcapError
+from ._lib_resolve import _install_note_sink
 
 
 class FailureLayer(Enum):
@@ -193,6 +194,11 @@ class _RuntimeFailureQueue:
 
 
 _runtime_failures = _RuntimeFailureQueue()
+# The resolver ran before this journal existed; its notes arrive now and any
+# later archive's notes follow directly.
+_install_note_sink(
+    lambda note: _runtime_failures.record(FailureLayer.BINDING, "library-resolution", RuntimeError(note))
+)
 
 
 def _record_runtime_failure(layer: FailureLayer, operation: str, error: BaseException) -> None:

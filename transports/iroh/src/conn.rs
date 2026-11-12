@@ -22,22 +22,17 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_remote_node_id(
 	conn: *const GlowcapIrohConn,
 	out_key32: *mut u8,
 ) -> i32 {
-	if conn.is_null() || out_key32.is_null() {
+	if out_key32.is_null() {
 		return -1;
 	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: upheld by the caller after the null check above.
-		let conn = unsafe { &*conn };
-		*conn.conn.remote_id().as_bytes()
-	}));
-	match result {
-		Ok(bytes) => {
-			// SAFETY: upheld by the caller; the source is exactly 32 bytes.
-			unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_key32, 32) };
-			0
-		}
-		Err(_) => -1,
-	}
+	let copy = |conn: &GlowcapIrohConn| {
+		let bytes = *conn.conn.remote_id().as_bytes();
+		// SAFETY: upheld by the caller after the null check above. The source is exactly 32 bytes.
+		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_key32, 32) };
+		0
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(conn, -1, copy) }
 }
 
 /// Read up to `len` bytes from the stream into `buf`, blocking until at least
@@ -51,18 +46,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_remote_node_id(
 /// refused defensively. A zero-length read does not dereference `buf`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_read(conn: *mut GlowcapIrohConn, buf: *mut u8, len: usize) -> isize {
-	if conn.is_null() {
-		return -1;
-	}
-	if len == 0 {
-		return 0;
-	}
-	if buf.is_null() || ffi_len(len).is_none() {
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: upheld by the caller after the pointer and length checks above.
-		let conn = unsafe { &*conn };
+	let read = |conn: &GlowcapIrohConn| {
+		if len == 0 {
+			return 0;
+		}
+		if buf.is_null() || ffi_len(len).is_none() {
+			return -1;
+		}
 		// SAFETY: `buf` is non-null and `len` is nonzero and fits in `isize` (all checked above), and the `# Safety`
 		// contract has the caller keep `len` writable bytes at `buf` for the call; the slice is the only reference to
 		// them and is dropped when this closure returns.
@@ -72,7 +62,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_read(conn: *mut GlowcapIrohCo
 			Err(_) => return -1,
 		};
 		// The stream was moved into the reader task by `conn_set_nonblocking`;
-		// the blocking read is no longer this caller's to make. status-allow: lifecycle transition
+		// the blocking read is no longer this caller's to make.
 		let recv = match guard.as_mut() {
 			Some(recv) => recv,
 			None => return -1,
@@ -86,8 +76,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_read(conn: *mut GlowcapIrohCo
 			| Err(ReadError::ConnectionLost(ConnectionError::LocallyClosed)) => 0,
 			Err(_) => -1,
 		}
-	}));
-	result.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(conn, -1, read) }
 }
 
 /// Write all `len` bytes from `buf` to the stream, blocking until accepted by
@@ -104,21 +95,16 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_write(
 	buf: *const u8,
 	len: usize,
 ) -> isize {
-	if conn.is_null() {
-		return -1;
-	}
-	if len == 0 {
-		return 0;
-	}
-	let Some(written) = ffi_len(len) else {
-		return -1;
-	};
-	if buf.is_null() {
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: upheld by the caller after the pointer and length checks above.
-		let conn = unsafe { &*conn };
+	let write = |conn: &GlowcapIrohConn| {
+		if len == 0 {
+			return 0;
+		}
+		let Some(written) = ffi_len(len) else {
+			return -1;
+		};
+		if buf.is_null() {
+			return -1;
+		}
 		// SAFETY: `buf` is non-null and `len` is nonzero and fits in `isize` (all checked above, `ffi_len` for the
 		// length), and the `# Safety` contract has the caller keep `len` readable bytes at `buf` for the call;
 		// `write_all` finishes reading the slice before this closure returns.
@@ -135,8 +121,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_write(
 			Ok(()) => written,
 			Err(_) => -1,
 		}
-	}));
-	result.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(conn, -1, write) }
 }
 
 /// Report stream health after writes. QUIC transmits written bytes eagerly, so
@@ -147,36 +134,16 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_write(
 /// `conn` must be null or a live connection handle. Null is refused.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_flush(conn: *mut GlowcapIrohConn) -> i32 {
-	if conn.is_null() {
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: upheld by the caller after the null check above.
-		let conn = unsafe { &*conn };
-		if conn.conn.close_reason().is_some() { -1 } else { 0 }
-	}));
-	result.unwrap_or(-1)
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(conn, -1, |conn| if conn.conn.close_reason().is_some() { -1 } else { 0 }) }
 }
 
 /// Gracefully close the connection: finish the send stream (the partner's read
-/// sees clean end of stream) and queue a QUIC close. Idempotent. Safe to call
-/// before `glowcap_iroh_sidecar_conn_free`. Borrows the handle.
-///
-/// # Safety
-/// `conn` must be null or a live connection handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_close(conn: *mut GlowcapIrohConn) {
-	if conn.is_null() {
-		return;
-	}
-	// SAFETY: `conn` is non-null (checked above) and, per this function's `# Safety` contract, a live connection handle
-	// from `make_conn` that the caller does not free during the call; the borrow ends once `writers` is cloned into an
-	// owned handle.
-	let writers = unsafe { &*conn }.writers.clone();
+/// sees clean end of stream) and queue a QUIC close. Idempotent. Borrows the
+/// handle. `glowcap_iroh_sidecar_conn_free` runs it first, so it is not
+/// exported: no C caller needs the close without the free.
+fn conn_close(conn: &GlowcapIrohConn) {
 	if catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: as the `writers` clone above, `conn` is the non-null live handle this function's contract requires;
-		// the shared borrow ends with this closure.
-		let conn = unsafe { &*conn };
 		// On the readiness surface, ownership has already transferred to the
 		// tasks. Let the writer drain every admitted byte and finish its stream;
 		// closing the QUIC connection here would discard the final owned batch.
@@ -207,7 +174,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_close(conn: *mut GlowcapIrohC
 	}))
 	.is_err()
 	{
-		writers.record_failure();
+		conn.writers.record_failure();
 	}
 }
 
@@ -222,25 +189,20 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_close(conn: *mut GlowcapIrohC
 /// blocking call is still borrowing this box, so the free below cannot race one.
 ///
 /// # Safety
-/// `conn` must be null or an owned connection handle not previously freed. status-allow: ownership and operation ordering
+/// `conn` must be null or an owned connection handle not already freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_free(conn: *mut GlowcapIrohConn) {
-	if conn.is_null() {
+	// SAFETY: this function's `# Safety` contract makes `conn` null or an owned connection handle from `make_conn`
+	// that has not been freed, and `as_ref` maps null to `None`. `conn_ref` is last used before `reclaimed`
+	// takes the allocation back.
+	let Some(conn_ref) = (unsafe { conn.as_ref() }) else {
 		return;
-	}
+	};
 	// Unblock any parked blocking read/write (closes the connection without
 	// taking a stream lock, so a writer parked on flow control cannot deadlock).
-	// SAFETY: this function holds the same owned live handle contract.
-	unsafe { glowcap_iroh_sidecar_conn_close(conn) };
-	// SAFETY: `conn` is non-null (checked above) and, per this function's `# Safety` contract, an owned connection
-	// handle from `make_conn` that has not been freed; `glowcap_iroh_sidecar_conn_close` above only borrowed it, so the
-	// box is still allocated, and this borrow ends with the statement.
-	let nonblocking = unsafe { (&*conn).nb.get().is_some() };
-	if !nonblocking {
+	conn_close(conn_ref);
+	if conn_ref.nb.get().is_none() {
 		let _ = catch_unwind(AssertUnwindSafe(|| {
-			// SAFETY: as the `nonblocking` read above, `conn` is still the allocated box; `conn_ref` is dropped at the
-			// end of this closure, before the `Box::from_raw` below.
-			let conn_ref = unsafe { &*conn };
 			// Fence: wait out an in-flight blocking call. A reader/writer holds
 			// `recv`/`send` for the whole `block_on`; once close has unblocked it,
 			// acquiring both locks proves the call has returned its borrow. The
@@ -249,24 +211,24 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_free(conn: *mut GlowcapIrohCo
 			let _send = conn_ref.send.lock();
 		}));
 	}
-	// SAFETY: as the `nonblocking` read above, `conn` is still allocated; the borrow ends once `writers` is cloned into
-	// an owned handle, so recording a failure after the box is freed touches no freed memory.
-	let writers = unsafe { &*conn }.writers.clone();
-	if catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `conn` is non-null (checked above) and, per this function's `# Safety` contract, the owned handle
-		// `make_conn` created with `Box::into_raw`, not previously freed; the lock fence above proves no blocking call status-allow: ownership and operation ordering
-		// still borrows it, and no later use follows, so this takes back that one allocation.
-		let inner = *unsafe { Box::from_raw(conn) };
-		// The reader has no useful work after local release; abort it. The writer
-		// owns every byte `conn_try_write` admitted, so detach it. Its writer permit
-		// remains the endpoint's explicit barrier before runtime shutdown, without
-		// retaining one completed JoinHandle per lifetime connection.
-		if let Some((reader, writer)) = inner.nb_tasks.into_inner() {
-			reader.abort();
-			drop(writer);
-		}
-	}))
-	.is_err()
+	// An owned clone, so recording a failure after the box is freed touches no
+	// freed memory.
+	let writers = conn_ref.writers.clone();
+	// SAFETY: the lock fence ended all borrows, and this call owns the allocation.
+	if unsafe {
+		reclaimed(conn, |inner| {
+			let inner = *inner;
+			// The reader has no useful work after local release; abort it. The writer
+			// owns every byte `conn_try_write` admitted, so detach it. Its writer permit
+			// remains the endpoint's explicit barrier before runtime shutdown, without
+			// retaining one completed JoinHandle per lifetime connection.
+			if let Some((reader, writer)) = inner.nb_tasks.into_inner() {
+				reader.abort();
+				drop(writer);
+			}
+			Ok::<(), core::convert::Infallible>(())
+		})
+	} != 0
 	{
 		writers.record_failure();
 	}

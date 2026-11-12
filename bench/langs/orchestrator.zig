@@ -323,7 +323,6 @@ fn startHost(ctx: *Ctx) !Host {
             return error.HostExitedBeforeReady;
         const listen = jf(line, "\"listen\"") orelse continue;
         const colon = std.mem.lastIndexOfScalar(u8, listen, ':') orelse continue;
-        // tolerant: a listen field without a numeric port is skipped, and a host that never prints one exits and fails the read above.
         const port = std.fmt.parseInt(u16, listen[colon + 1 ..], 10) catch continue;
         return .{ .child = child, .port = port };
     }

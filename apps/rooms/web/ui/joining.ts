@@ -6,6 +6,7 @@
 // reader has typed under it, and what this browser remembers. The whole
 // question can therefore be answered in a test without a page.
 
+import { LocalRefusal } from "../../lib/text/failure.ts";
 import * as z from "zod/mini";
 import { type DirId, dirId, dirMarkIn, type DirView, liveRoomNames } from "./directory.ts";
 import type { JoinNickTarget } from "./join_nick.ts";
@@ -43,7 +44,7 @@ import {
 
 export const JOIN_DEFAULT_ROOM = "general";
 export const JOIN_DEFAULT_NICK = "guest";
-/** Shape of an address, used when this page's own address is not known yet.  status-allow: pending state or quoted runtime label */
+/** Shape of an address, used when this page's own address is not known yet. */
 export const JOIN_ADDRESS_SHAPE = "ocapn://designator.transport";
 
 export interface DirectoryDestination {
@@ -103,15 +104,6 @@ export function askedJoin(asked: string): AskedJoin | null {
 	// reader gives text that holds no destination.
 	const parsed = z.safeParse(AskedJoinSchema, JSON.parse(encoded));
 	return parsed.success ? parsed.data : null;
-}
-
-/** Whether a link-join sits in the listed room.
- *
- * `listed` is what the occupancy said on arrival. Unknown, an older room,
- * is not a listed room: guessing from the name would open a public room that
- * merely shares a private occupancy's label. */
-export function listedOccupancy(listed: boolean | undefined, name: string): boolean {
-	return listed === true && name !== "";
 }
 
 /** A room link typed into a join, and what to call the room it opens.
@@ -191,7 +183,7 @@ export function planJoinDestination(destination: RoomDestination): JoinDestinati
 		};
 	}
 	const planned = roomLinkDestination(linked.link, linked.label);
-	if (planned === null) throw new Error("that is not a room entry link");
+	if (planned === null) throw new LocalRefusal("not-room-entry");
 	return planned;
 }
 
@@ -514,7 +506,7 @@ export function joinLead(answers: JoinAnswers, where: string): string {
 
 /** What this card is a gate on, when it is a gate on anything.
  *
- * A link names a destination the reader has not necessarily seen yet, so it status-allow: pending state or quoted runtime label
+ * A link names a destination the reader has not necessarily seen yet, so it
  * speaks up. A press that already named the room does too: the card is then a
  * gate on that room, and the missing answer is the name. What this browser
  * merely remembers is an offer, and describing an offer as though it were a
@@ -536,7 +528,7 @@ function aimedAt(answers: JoinAnswers, where: string): string | null {
  * as a shape rather than as a value already typed. `address` is the shared
  * route every other surface hands out (`peer.dirAddress`), so the hint and the
  * copyable address name the same thing. Null when the page has no home
- * directory yet.  status-allow: pending state or quoted runtime label */
+ * directory yet. */
 export function joinAddressPlaceholder(address: string | null): string {
 	if (address == null) return JOIN_ADDRESS_SHAPE;
 	let typed = address.trim();

@@ -3,8 +3,7 @@
 import type { ManagedRoomsSession } from "./session.ts";
 import { conversationById } from "./conversation_lookup.ts";
 import { WorkspaceConflict } from "./operation.ts";
-import { MAX_CONFLICT_REPREPARATIONS } from "./acquisition.ts";
-import { conversationNoLongerOpen } from "../../../../lib/text/attached.ts";
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
 
 // Selection exercises no authority. It refuses only when the chosen row is
 // gone. The shared admission fence keeps that row's identity across conflicts,
@@ -28,8 +27,8 @@ export class ManagedNavigation {
 		return this.#desired ?? this.#pending ?? undefined;
 	}
 	select(id: string): Promise<void> {
-		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
-		if (this.#session.current == null) return Promise.reject(new Error("This workspace has no accepted selection"));
+		if (this.#stopped) return Promise.reject(new LocalRefusal("session-closed"));
+		if (this.#session.current == null) return Promise.reject(new LocalRefusal("workspace-unavailable"));
 		this.#desired = { id, operation: crypto.randomUUID() };
 		this.#changed();
 		return this.#running ??= this.#drain().finally(() => {
@@ -39,37 +38,29 @@ export class ManagedNavigation {
 	async #drain(): Promise<void> {
 		while (!this.#stopped && (this.#pending != null || this.#desired != null)) {
 			const choice = this.#pending ??= this.#desired!;
-			let conflicts = 0;
-			while (conflicts < MAX_CONFLICT_REPREPARATIONS) {
-				try {
-					await this.#session.execute(
-						choice.operation,
-						() =>
-							this.#session.command("select", [choice.id], choice.operation, (snapshot) => {
-								if (conversationById(snapshot, choice.id) == null) {
-									throw new Error(conversationNoLongerOpen);
-								}
-							}),
-						async (command) => {
-							await this.#session.completeResult(command);
-						},
-					);
-					break;
-				} catch (error) {
-					if (
-						error instanceof WorkspaceConflict && ++conflicts < MAX_CONFLICT_REPREPARATIONS &&
-						!this.#stopped
-					) continue;
-					if (!this.#session.pending.includes(choice.operation)) {
-						this.#pending = null;
-						// A revision conflict proves non-admission, not loss of the
-						// selected conversation. Keep the local choice visible while
-						// reporting its failed save. Exact-target refusal clears it.
-						if (!(error instanceof WorkspaceConflict) && this.#desired === choice) this.#desired = null;
-						this.#changed();
-					}
-					throw error;
+			try {
+				await this.#session.execute(
+					choice.operation,
+					() =>
+						this.#session.command("select", [choice.id], choice.operation, (snapshot) => {
+							if (conversationById(snapshot, choice.id) == null) {
+								throw new LocalRefusal("conversation-not-open");
+							}
+						}),
+					async (command) => {
+						await this.#session.completeResult(command);
+					},
+				);
+			} catch (error) {
+				if (!this.#session.pending.includes(choice.operation)) {
+					this.#pending = null;
+					// A revision conflict proves non-admission, not loss of the
+					// selected conversation. Keep the local choice visible while
+					// reporting its failed save. Exact-target refusal clears it.
+					if (!(error instanceof WorkspaceConflict) && this.#desired === choice) this.#desired = null;
+					this.#changed();
 				}
+				throw error;
 			}
 			this.#pending = null;
 			if (this.#desired === choice) this.#desired = null;

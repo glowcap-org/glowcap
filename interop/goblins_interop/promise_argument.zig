@@ -80,7 +80,7 @@ fn expectEcho(reply: driver.core.Reply, who: []const u8) !void {
             if (!std.mem.eql(u8, text, "promise-ping")) return error.EchoWrongPayload;
         },
         .broken => |reason| {
-            std.debug.print("goblins-interop: {s} broke: {s}\n", .{ who, reason });
+            std.debug.print("goblins-interop: {s} broke: {f}\n", .{ who, reason });
             return error.EchoBroke;
         },
     }
@@ -187,7 +187,7 @@ fn serveReader(server: *driver.Server, allocator: std.mem.Allocator, shared: *Sh
         if (shared.read_resolver) |resolver| {
             if (!shared.read_settled) {
                 if (shared.failure) |why| {
-                    try shared.host.resolverBreak(resolver, why);
+                    try shared.host.resolverBreak(resolver, glowcap.driver.core.Broken.unnamed(why));
                     shared.read_settled = true;
                 } else if (shared.text_ready) {
                     try shared.host.resolverFulfillValue(resolver, .{ .string = shared.text[0..shared.text_len] }, arena_state.allocator());
@@ -226,7 +226,7 @@ pub fn receiveFromGoblins(init: std.process.Init) !void {
     defer if (!reaped) child.kill(io);
 
     var scratch: [4096]u8 = undefined;
-    const line = goblins_child.awaitChildStdoutLine(io, &child, "ANSWER ARG", &scratch, @intCast(goblins_child.deadline_ms)) orelse {
+    const line = try goblins_child.awaitChildStdoutLine(io, &child, "ANSWER ARG", &scratch, @intCast(goblins_child.deadline_ms)) orelse {
         std.debug.print("goblins-interop: the answer-argument dialer printed no verdict\n", .{});
         goblins_child.dumpChildStderr(io, "goblins-interop", &child);
         return error.AnswerArgumentNeverSettled;

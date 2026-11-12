@@ -3,10 +3,10 @@
 # job (the checks sequence, the release legs) installs the pinned
 # compiler through this script, so the version and SHA-256 authority stays in
 # pins.sh + checksums.sh. ZIG_INSTALL_DIR overrides the /opt/zig prefix for
-# runners without root; the /usr/local/bin symlink is laid only for the
-# default prefix. Alone among the installers this one runs anywhere, the
-# release workflow uses it on macOS runners, so it carries no devcontainer
-# guard and stays portable to macOS (bash 3.2, shasum, bsdtar).
+# an install without root. The /usr/local/bin symlink is laid only for the
+# default prefix, which is what a CI job uses. Alone among the installers
+# this one runs anywhere, CI uses it on macOS runners, so it carries no
+# devcontainer guard and stays portable to macOS (bash 3.2, shasum, bsdtar).
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,6 +40,7 @@ install_dir="${ZIG_INSTALL_DIR:-/opt/zig}"
 mkdir -p "${install_dir}"
 tar -xJf "${tmp}/${tarball}" --strip-components=1 -C "${install_dir}"
 if [[ -z "${ZIG_INSTALL_DIR:-}" ]]; then
+    mkdir -p /usr/local/bin
     ln -sf "${install_dir}/zig" /usr/local/bin/zig
 fi
 "${install_dir}/zig" version

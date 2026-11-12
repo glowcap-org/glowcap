@@ -33,10 +33,10 @@ type WorldSnapshot = {
 type TraceAnnouncement = {
 	port: number;
 	sturdyref: string;
-	/** Ready to open: the endpoint admits no producer that presents no
-	 * capability, and the host that minted one hands this back rather than
-	 * leaving each caller to assemble it. */
+	/** The producer route. A producer is admitted once its first message
+	 * there is `swiss`. */
 	publish: string;
+	swiss: string;
 };
 
 function fail(message: string): never {
@@ -75,7 +75,9 @@ async function readTraceAnnouncement(
 		!("sturdyref" in parsed) || typeof parsed.sturdyref !== "string" ||
 		parsed.sturdyref.length === 0 ||
 		!("publish" in parsed) || typeof parsed.publish !== "string" ||
-		parsed.publish.length === 0
+		parsed.publish.length === 0 ||
+		!("swiss" in parsed) || typeof parsed.swiss !== "string" ||
+		parsed.swiss.length === 0
 	) {
 		fail(`invalid trace host announcement: ${JSON.stringify(parsed)}`);
 	}
@@ -83,6 +85,7 @@ async function readTraceAnnouncement(
 		port: parsed.port as number,
 		sturdyref: parsed.sturdyref,
 		publish: parsed.publish,
+		swiss: parsed.swiss,
 	};
 }
 
@@ -194,10 +197,15 @@ function assertWorld(
 	}
 }
 
-async function openPublisher(publish: string): Promise<WebSocket> {
+/** Open the producer route and present the capability as the first message,
+ * the only place the endpoint reads it. */
+async function openPublisher(publish: string, swiss: string): Promise<WebSocket> {
 	const socket = new WebSocket(publish);
 	await new Promise<void>((resolve, reject) => {
-		socket.onopen = () => resolve();
+		socket.onopen = () => {
+			socket.send(swiss);
+			resolve();
+		};
 		socket.onerror = () => reject(new Error("trace producer WebSocket did not open"));
 	});
 	return socket;
@@ -313,7 +321,7 @@ try {
 		readTraceAnnouncement(traceHost.stdout),
 	]);
 	const { sturdyref } = trace;
-	publisher = await openPublisher(trace.publish);
+	publisher = await openPublisher(trace.publish, trace.swiss);
 
 	browser = await launchHeadless();
 	const context = await browser.newContext({
@@ -349,8 +357,11 @@ try {
 		}
 	});
 
-	const pageUrl = `http://127.0.0.1:${httpPort}/?live=${encodeURIComponent(sturdyref)}`;
+	const pageUrl = `http://127.0.0.1:${httpPort}/#live=${encodeURIComponent(sturdyref)}`;
 	await page.goto(pageUrl, { waitUntil: "networkidle" });
+	if (new URL(page.url()).hash !== "") {
+		throw new Error(`the page kept the capability in its address: ${page.url()}`);
+	}
 	const canvas = page.locator("canvas#ocv-pixi");
 	await canvas.waitFor({ state: "visible" });
 	await liveFeedSessionOpen(page).waitFor({

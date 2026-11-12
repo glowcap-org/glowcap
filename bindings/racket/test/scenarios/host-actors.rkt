@@ -183,3 +183,76 @@
 (void (sync/timeout 5 (thread-dead-evt driven-serving)))
 (server-close! far-server)
 (printf "racket test OK: a Host send pumped a far reference's session, a close left its partner abort, and a driver-owned session refused the break\n")
+
+;; A cancelled dial worker unwinds through its own guard, which is where an
+;; opened session is closed and the failure report is skipped, and the break
+;; that cancelled it ends the thread quietly.
+(define dw-parked (make-semaphore 0))
+(define dw-guard (box 'not-run))
+(define dw-exited (make-semaphore 0))
+(define dw
+  (spawn-dial-worker
+   (make-semaphore 1)
+   (lambda (cancelled?)
+     (dynamic-wind
+      void
+      (lambda () (semaphore-post dw-parked) (sync never-evt))
+      (lambda () (set-box! dw-guard (cancelled?)))))
+   #:on-exit (lambda (_cancelled?) (semaphore-post dw-exited))))
+(void (sync dw-parked))
+(cancel-dial-worker! dw)
+(expect (sync/timeout 5 dw-exited) "cancel-dial: the cancelled worker exits")
+(expect (eq? #t (unbox dw-guard))
+        (format "cancel-dial: the worker's guard runs and sees the cancellation, got ~a"
+                (unbox dw-guard)))
+(printf "racket test OK: a cancelled dial worker unwinds through its guard\n")
+
+;; Cancelling never waits for the worker. A worker inside C holds its break
+;; until C returns, so the canceller returns first, and the worker's exit
+;; then sees the cancellation.
+(define dwc-in-c (make-semaphore 0))
+(define dwc-c-returns (make-semaphore 0))
+(define dwc-exit (box 'not-run))
+(define dwc-exited (make-semaphore 0))
+(define dwc
+  (spawn-dial-worker
+   (make-semaphore 1)
+   (lambda (_cancelled?)
+     (parameterize-break #f
+       (semaphore-post dwc-in-c)
+       (semaphore-wait dwc-c-returns)))
+   #:on-exit (lambda (cancelled?) (set-box! dwc-exit (cancelled?)) (semaphore-post dwc-exited))))
+(void (sync dwc-in-c))
+(define dwc-canceller (thread (lambda () (cancel-dial-worker! dwc))))
+(expect (sync/timeout 5 (thread-dead-evt dwc-canceller))
+        "cancel-dial: the canceller returns while the worker is still inside C")
+(semaphore-post dwc-c-returns)
+(expect (sync/timeout 5 dwc-exited) "cancel-dial: the worker exits once C returns")
+(expect (eq? #t (unbox dwc-exit))
+        (format "cancel-dial: the worker's exit sees the cancellation, got ~a" (unbox dwc-exit)))
+(printf "racket test OK: cancelling a dial worker never waits for it\n")
+
+;; Every `on` listener on one local vow fires, oldest first. A listener whose
+;; finally raises escapes the drive once that vow's listeners have all fired,
+;; and the turns after it in the batch stay queued for the next drive.
+(define lv (make-vat))
+(define lv-heard '())
+(define (lv-hear! tag) (set! lv-heard (cons tag lv-heard)))
+(with-vat lv
+  (define counter (spawn ^counter 0))
+  (define first-vow (<- counter 'add 1))
+  (on first-vow (lambda (n) (lv-hear! (list 'a n))) #:finally (lambda () (error 'lv "finally failed")))
+  (on first-vow (lambda (n) (lv-hear! (list 'b n))))
+  (on (<- counter 'add 2) (lambda (n) (lv-hear! (list 'c n))))
+  (define escaped
+    (with-handlers ([exn:fail? exn-message])
+      (drive lv)
+      #f))
+  (expect (and escaped (regexp-match? #rx"finally failed" escaped))
+          (format "vat drive: a listener's raise escapes the drive, got ~a" escaped))
+  (expect (equal? '((b 1) (a 1)) lv-heard)
+          (format "vat on: both listeners on one vow fire, oldest first, got ~a" lv-heard))
+  (drive lv)
+  (expect (equal? '((c 3) (b 1) (a 1)) lv-heard)
+          (format "vat drive: the turn after the raise runs on the next drive, got ~a" lv-heard)))
+(printf "racket test OK: every listener on a local vow fires, and a raise keeps the batch queued\n")

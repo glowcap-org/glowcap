@@ -2,6 +2,7 @@
 //! immediate pipelining through the exporter, and a staged gift whose
 //! failure settles its vow.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
@@ -54,7 +55,7 @@ const give_capture = @import("give/capture.zig");
 const NestedCallCapture = give_capture.NestedCallCapture;
 
 test "core local capability verbs share admission and publication identity" {
-    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x47)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x47)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7098", &.{});
 
@@ -89,9 +90,9 @@ test "core local capability verbs share admission and publication identity" {
 
 test "application-delivered give uses Host identity without fabricating wire rows" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x70)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x70)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
-    var partner = test_host.init(allocator, @as([32]u8, @splat(0x71)), Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x71)), Host.Options.init(.unchecked, frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -125,7 +126,7 @@ test "application-delivered give uses Host identity without fabricating wire row
         .flush => {},
         else => return error.UnexpectedAction,
     };
-    try host.dialFailed(dial_ticket orelse return error.MissingDial, dial_route_index, "fixture exporter unavailable");
+    try host.dialFailed(dial_ticket orelse return error.MissingDial, dial_route_index, .peer_unreachable, "fixture exporter unavailable");
     while (try host.nextAction()) |action| switch (action) {
         .flush => {},
         else => return error.UnexpectedAction,
@@ -139,11 +140,11 @@ test "application-delivered give uses Host identity without fabricating wire row
 test "failed application operation leaves a provisional exporter retireable" {
     const allocator = std.testing.allocator;
     var failing = std.testing.FailingAllocator.init(allocator, .{});
-    var client = test_host.init(failing.allocator(), @as([32]u8, @splat(0x48)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(failing.allocator(), @as([32]u8, @splat(0x48)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x49)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x49)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
-    var introducer = test_host.init(allocator, @as([32]u8, @splat(0x4f)), Host.Options.withFrameCap(frame_cap));
+    var introducer = test_host.init(allocator, @as([32]u8, @splat(0x4f)), Host.Options.init(.unchecked, frame_cap));
     defer introducer.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -193,9 +194,9 @@ test "failed application operation leaves a provisional exporter retireable" {
 
 test "core host: Error remains fulfilled data across recursive lower and lift" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x48)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x48)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
-    var partner = test_host.init(allocator, @as([32]u8, @splat(0x49)), Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x49)), Host.Options.init(.unchecked, frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -217,18 +218,18 @@ test "core host: Error remains fulfilled data across recursive lower and lift" {
     try std.testing.expectEqualStrings("failure is a value", lifted[0].list[0].@"error".message);
 
     const fulfilled: driver.core.Reply = .{ .fulfilled = lifted[0].list[0] };
-    const broken: driver.core.Reply = .{ .broken = "failure is an outcome" };
+    const broken: driver.core.Reply = .{ .broken = .{ .detail = "failure is an outcome", .cause = BreakCause{} } };
     try std.testing.expect(fulfilled == .fulfilled);
     try std.testing.expect(broken == .broken);
 }
 
 test "core host: an inline give becomes one nested promise identity and terminally breaks" {
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.limits.queue_cap = 3;
     var host = test_host.init(allocator, @as([32]u8, @splat(0x4a)), options);
     defer host.deinit();
-    var partner = test_host.init(allocator, @as([32]u8, @splat(0x4b)), Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x4b)), Host.Options.init(.unchecked, frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -302,11 +303,12 @@ test "core host: an inline give becomes one nested promise identity and terminal
         else => return error.UnexpectedAction,
     };
     try std.testing.expect(dial_ticket != null);
-    try host.dialFailed(dial_ticket.?, 0, "exporter unavailable");
+    try host.dialFailed(dial_ticket.?, 0, .peer_unreachable, "exporter unavailable");
     try std.testing.expect(pipelined.broken);
+    try std.testing.expectEqual(BreakCause.local(.peer_unreachable), pipelined.cause);
     try std.testing.expect(listened.broken);
     try std.testing.expectEqualStrings(
-        "handoff redeem failed: exporter unavailable",
+        "exporter unavailable",
         pipelined.reason_buf[0..pipelined.reason_len],
     );
     session.served.port.peer.session_state.collectLocalPromiseProjectionsNow();
@@ -326,9 +328,9 @@ test "core host: an inline give becomes one nested promise identity and terminal
 
 test "core host: releasing queued promise operations cancels their exact ownership" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x52)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x52)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
-    var partner = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.init(.unchecked, frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -378,7 +380,7 @@ test "core host: releasing queued promise operations cancels their exact ownersh
         .flush => {},
         else => return error.UnexpectedAction,
     };
-    try host.dialFailed(ticket orelse return error.MissingDial, 0, "cancelled owner");
+    try host.dialFailed(ticket orelse return error.MissingDial, 0, .peer_unreachable, "cancelled owner");
     try std.testing.expectEqual(@as(usize, 0), host.capability_promises.get(promise_id).?.operations.items.len);
     while (try host.nextAction()) |action| switch (action) {
         .flush => {},
@@ -403,7 +405,7 @@ fn runNestedGivePipelining(case: PipeliningCase) !void {
     const application = case.application;
     const version = case.version;
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.captp_version = version;
     var exporter = test_host.init(allocator, @as([32]u8, @splat(0x5e)), options);
     defer exporter.deinit();

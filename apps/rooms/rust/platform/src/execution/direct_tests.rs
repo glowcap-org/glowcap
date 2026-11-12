@@ -14,9 +14,12 @@ async fn direct_sibling_calls_and_deferred_effects_observe_the_receiver() {
 }
 async fn scenario() {
 	let server = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
 	let locator = server.locator().unwrap();
 	let (caller, peer) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
 	let peer = Rc::new(peer.unwrap());

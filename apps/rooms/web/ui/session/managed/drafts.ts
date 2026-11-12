@@ -3,7 +3,7 @@
 import { conversationById } from "./conversation_lookup.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import { conversationIdentity } from "./model.ts";
-import { refusalText } from "../../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { WorkspaceConflict } from "./operation.ts";
 
 export class ManagedDrafts {
@@ -33,10 +33,10 @@ export class ManagedDrafts {
 		return this.#values.get(id) ?? accepted;
 	}
 	stage(id: string, text: string): void {
-		if (this.#stopped) throw new Error("This workspace is closed");
+		if (this.#stopped) throw new LocalRefusal("session-closed");
 		const row = conversationById(this.#session.current, id);
 		if (row == null) {
-			throw new Error("This conversation is no longer held");
+			throw new LocalRefusal("conversation-gone");
 		}
 		if (!this.#values.has(id)) this.#origins.set(id, { identity: conversationIdentity(row), accepted: row.draft });
 		this.#values.set(id, text);

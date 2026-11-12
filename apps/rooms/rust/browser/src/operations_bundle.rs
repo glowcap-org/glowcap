@@ -1,10 +1,10 @@
 //! Presentation transfer for the shared operations-bundle grammar.
-use rooms_application::server::operations::bundle::{Draft, MAX_BUNDLE_BYTES};
+use rooms_application::server::operations::bundle::{Draft, Invalid, MAX_BUNDLE_BYTES};
 use wasm_bindgen::prelude::*;
 
 fn text(raw: js_sys::JsString) -> Result<String, JsValue> {
 	if raw.length() as usize > MAX_BUNDLE_BYTES {
-		return Err(js_sys::Error::new("The capability set exceeds its text limit.").into());
+		return Err(js_sys::Error::new(&Invalid::BundleLimit.to_string()).into());
 	}
 	let scalar = String::from(&raw);
 	let round_trip = js_sys::JsString::from(scalar.as_str());

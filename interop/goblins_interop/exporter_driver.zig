@@ -112,7 +112,7 @@ fn serveExporter(
     defer for (sessions[0..count]) |s| if (s) |sess| sess.deinit();
 
     while (!done.load(.acquire)) {
-        if (count < sessions.len and server.waitAcceptable(20) catch false) {
+        if (count < sessions.len and try server.waitAcceptable(20)) {
             // tolerant: a failed accept costs one dial, which the peer's own timeout reports, and the next loop iteration accepts again.
             const session = server.accept() catch continue;
             sessions[count] = session;

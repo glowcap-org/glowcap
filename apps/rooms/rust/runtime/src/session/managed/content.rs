@@ -130,12 +130,16 @@ impl<P: Tasks + Deadline + Clone + 'static> loam::ForwardAdmission for SessionCo
 			_ if input.selector == "signaling-route" => Class::Signal,
 			_ => Class::Read,
 		};
-		owner.admission.borrow_mut().work(
-			call,
-			class,
-			(class == Class::Message).then_some(input.material_bytes),
-			owner.platform.monotonic_millis(),
-		)
+		owner
+			.admission
+			.borrow_mut()
+			.work(
+				call,
+				class,
+				(class == Class::Message).then_some(input.material_bytes),
+				owner.platform.monotonic_millis(),
+			)
+			.map_err(super::admission::callback_error)
 	}
 }
 impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
@@ -328,7 +332,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			owner
 				.admission
 				.borrow_mut()
-				.work(call, class, None, owner.platform.monotonic_millis())?;
+				.work(call, class, None, owner.platform.monotonic_millis())
+				.map_err(super::admission::callback_error)?;
 		}
 		let input = continuing::input(self, input)?;
 		if input.verb == "retire-host-registrations" {
@@ -378,7 +383,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			return discovery::invoke(call, input);
 		}
 		if input.verb == "resynchronize-discovery" {
-			owner.discovery_refresh.request()?;
+			owner
+				.discovery_refresh
+				.request()
+				.map_err(super::admission::callback_error)?;
 			return Ok(Argument::Void);
 		}
 		if input.verb == "check-discovery" {
@@ -510,12 +518,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			let record = records::metadata(input)?;
 			let id = operation(&input.args[0])?;
 			if record.effects.as_slice().iter().any(|receipt| receipt.operation == id) {
-				owner.admission.borrow_mut().work(
-					call,
-					rooms_application::admission::Class::Read,
-					None,
-					owner.platform.monotonic_millis(),
-				)?;
+				owner
+					.admission
+					.borrow_mut()
+					.work(
+						call,
+						rooms_application::admission::Class::Read,
+						None,
+						owner.platform.monotonic_millis(),
+					)
+					.map_err(super::admission::callback_error)?;
 				let source = call.source()?;
 				authenticate(call, input, &record, &id, &source)?;
 				let intent = Text::new(canonical(input.args)?.into())

@@ -76,7 +76,7 @@ class Runtime:
     forms are supported::
 
         async with Runtime.open(providers=[tcp.provider()]) as runtime:
-            session = await runtime.connect(tcp.locator("127.0.0.1", 9099))
+            session = await runtime.connect(tcp.noise.locator(designator, "127.0.0.1", 9099))
 
         runtime = await Runtime.open(providers=[tcp.provider()])
         session = await runtime.connect(locator)
@@ -340,8 +340,8 @@ async def dial_exporter(locator: Locator, host: Host, introducer: Session | None
     """Redeem a DIAL action through the Host's retained connector authority."""
     connector = host._connector_for(locator.transport)
     if connector is None:
-        raise GlowcapError(
-            _ERR_INVALID_ARGUMENT, f"handoff redeem has no registered connector for {locator.transport!r}"
+        raise GlowcapError.transport_unavailable(
+            f"handoff redeem has no registered connector for {locator.transport!r}"
         )
     return await connector.connect(host, locator, _abi.HANDSHAKE_TIMEOUT_MS, introducer)
 
@@ -397,9 +397,16 @@ async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
             session.close_transport()
         if host.released:
             return
-        reason = (str(error) or type(error).__name__).encode()
+        reported = _abi.RouteFailure.from_cause(error.cause) if isinstance(error, GlowcapError) else None
+        cause = reported if reported is not None else _abi.RouteFailure.PEER_UNREACHABLE
+        diagnostic = (
+            f"glowcap error {error.code}: {error.message or ''}"
+            if isinstance(error, GlowcapError) and cause == _abi.RouteFailure.TRANSPORT_UNAVAILABLE
+            else str(error) or type(error).__name__
+        )
+        reason = diagnostic.encode()
         _buf, ptr = _byte_buf(reason)
-        _check_host(_host.glowcap_host_dial_failed(host.raw, ticket, route_index, ptr, len(reason)))
+        _check_host(_host.glowcap_host_dial_failed(host.raw, ticket, route_index, cause, ptr, len(reason)))
         host.signal_close_activity()
         if not isinstance(error, Exception):
             raise

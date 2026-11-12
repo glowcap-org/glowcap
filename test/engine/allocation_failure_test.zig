@@ -24,7 +24,7 @@ const agreement = @import("scenarios").agreement;
 const FailingOnce = @import("../support/failing_once.zig").FailingOnce;
 
 /// Steps per program. Enough to build answers, listeners, imports, and
-/// releases on both sides; each run replays them all.
+/// releases on both sides. Each run replays them all.
 const steps = 160;
 /// Draw bytes per program: eight per draw, and a step draws a handful.
 const draw_bytes = 1 << 15;

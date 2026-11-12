@@ -66,7 +66,6 @@ const Node = struct {
         self.key = key;
         self.port = .{ .hub = hub, .self_node = self };
         self.sidecar = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-        // best-effort: this unwind returns the backend's init error, and a failed sidecar close would only mask it.
         errdefer self.sidecar.deinit() catch {};
         const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
         self.resident = try WebrtcResident.init(
@@ -268,7 +267,7 @@ pub fn main(init: std.process.Init) !void {
     const widget = switch (try to_gifter.call(introducer, "introduce", &.{}, arena.allocator())) {
         .fulfilled => |value| if (value == .capability) value.capability else return error.NoIntroduction,
         .broken => |reason| {
-            std.debug.print("webrtc-redeem: introduce broke: {s}\n", .{reason});
+            std.debug.print("webrtc-redeem: introduce broke: {f}\n", .{reason});
             return error.NoIntroduction;
         },
     };

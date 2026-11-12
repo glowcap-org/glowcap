@@ -1,0 +1,20 @@
+name: Install the pinned Zig
+description: Install the checksummed Zig .devcontainer/pins.sh declares under /opt/zig with a /usr/local/bin link, for a job on a hosted runner outside the devcontainer.
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned Zig
+      shell: bash
+      # The installer's default prefix links zig into /usr/local/bin, which a
+      # hosted runner already has on PATH, so later steps find it and this
+      # step writes nothing to the job environment.
+      # The lookup is checked as the job's own user, because an earlier PATH
+      # entry holding another zig would otherwise build with the wrong one.
+      run: |
+        sudo bash .devcontainer/image/zig.sh
+        found="$(command -v zig || true)"
+        if [[ "$found" != /usr/local/bin/zig ]]; then
+          echo "zig resolves to ${found:-nothing}, not the pinned /usr/local/bin/zig" >&2
+          exit 1
+        fi
+        zig version

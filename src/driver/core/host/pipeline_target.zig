@@ -18,6 +18,12 @@ const Forwarder = struct {
         return turn.forward(self.target, verb, try args.values());
     }
 
+    /// On a queued or served turn the destination refuses through its own
+    /// answer, so every error here is the forwarder's.
+    pub fn refuses(_: anyerror) bool {
+        return false;
+    }
+
     pub fn deinit(self: *Forwarder, _: std.mem.Allocator) void {
         self.host.releaseCapabilityTerminal(self.target, null);
     }

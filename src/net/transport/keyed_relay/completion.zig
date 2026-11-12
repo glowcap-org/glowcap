@@ -299,6 +299,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 if (registration.config) |config| {
                     if (config.url.scheme.secure() and options.tls_owner == null)
                         return error.SecureCarrierUnavailable;
+                    // tolerant: a host that does not parse as an address is a name, which false says.
                     const literal = if (std.Io.net.IpAddress.parse(config.url.host, config.url.port)) |_| true else |_| false;
                     if (!literal and options.resolver_io == null) return error.ResolverUnavailable;
                 }
@@ -376,7 +377,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return Poll.waitBound(self, self.platform.waitBoundMs(requested_ms));
         }
 
-        /// A relay listener is the platform's own; only a wrapped backend's
+        /// A relay listener is the platform's own. Only a wrapped backend's
         /// listener can report a pending setup.
         pub fn listenerPending(self: *Self, fd: Fd) bool {
             return self.platform.listenerPending(fd);

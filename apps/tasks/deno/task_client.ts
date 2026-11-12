@@ -7,7 +7,7 @@
 // task. A watcher reports whether anything on the board changed since its last
 // look, and `stop` frees the board's observation context.
 //
-//   const board = await TaskBoard.join("127.0.0.1", 9099, boardName);
+//   const board = await TaskBoard.join(locator, boardName);
 //   const watcher = await board.watch();
 //   const task = await board.add("buy groceries");
 //   await board.done(task);
@@ -16,7 +16,15 @@
 //   await board.leave();
 
 import * as tcp from "@glowcap/tcp";
-import { type Argument, type Ref, retainSecondaryFailure, Runtime, type Session, Tagged } from "@glowcap/runtime";
+import {
+	type Argument,
+	parseLocator,
+	type Ref,
+	retainSecondaryFailure,
+	Runtime,
+	type Session,
+	Tagged,
+} from "@glowcap/runtime";
 
 export interface TaskList {
 	name: string;
@@ -123,10 +131,11 @@ export class TaskBoard {
 		this.#done = done;
 	}
 
-	static async join(host: string, port: number, name: string): Promise<TaskBoard> {
+	/** Dial the server's printed locator and fetch the board named `name`. */
+	static async join(locator: string, name: string): Promise<TaskBoard> {
 		const runtime = await Runtime.open({ providers: [tcp.provider()] });
 		try {
-			const session = await runtime.connect(tcp.locator(host, port));
+			const session = await runtime.connect(parseLocator(locator));
 			session.serve().catch((error: unknown) => console.error("tasks: the board connection failed:", error));
 			const board = ref(await session.fetch(name), "board");
 			const todo = ref(await session.send(board, "list", [0n]), "list 0");

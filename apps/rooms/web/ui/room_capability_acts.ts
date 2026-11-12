@@ -8,7 +8,7 @@
 // wells that read it.
 
 import { useState } from "react";
-import { roomAccessNow, roomCapabilityWait } from "../../lib/text/room_authority.ts";
+import { roomAccessNow } from "../../lib/text/room_authority.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsState } from "./hooks.ts";
@@ -16,6 +16,7 @@ import { actionRefusal } from "./error_text.ts";
 import type { RoomConv } from "./conversation.ts";
 import { useChangeGroup, useCommitSettling } from "./commitment.tsx";
 import { policyForRoomPreset, type RoomPreset } from "./room_policy.ts";
+import { LocalRefusal } from "../../lib/text/failure.ts";
 
 export type AuthorityAct = "drop-manager" | "drop-steward" | "revoke-steward" | "revoke-room" | "unregister-room";
 
@@ -69,7 +70,7 @@ export function useRoomCapabilityActs(
 	// same answer decides two things that must agree: whether the field renders,
 	// and whether what it holds counts as an unsaved change. Read apart, a route
 	// that takes the capability some other way (minting one, recovering one)
-	// leaves text behind a field that no longer exists, and the card then refuses status-allow: lifecycle transition
+	// leaves text behind a field that is gone, and the card then refuses
 	// to close over changes a reader cannot see, find, or edit.
 	const managerTakeShown = conv.managerToken == null && authoritySource !== "bridge";
 	const stewardTakeShown = !held;
@@ -77,7 +78,7 @@ export function useRoomCapabilityActs(
 		dirty: (managerTakeShown && managerPasted !== "") || (stewardTakeShown && pasted !== ""),
 		discard: () => {
 			if (authorityWorking) {
-				throw new Error(roomCapabilityWait);
+				throw new LocalRefusal("room-link-busy");
 			}
 			setManagerPasted("");
 			setPasted("");

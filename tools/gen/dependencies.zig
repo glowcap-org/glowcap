@@ -82,7 +82,7 @@ const Kind = struct {
     /// every file under a directory when it ends in one.
     file: []const u8,
     leader: []const u8,
-    /// Reads the declarations; null for a manifest whose lines do not map
+    /// Reads the declarations. Null for a manifest whose lines do not map
     /// one to one onto dependencies, where the comments are the whole list.
     declarations: ?*const fn (std.mem.Allocator, []const []const u8, *std.ArrayList(Decl)) anyerror!void,
     /// Whether a comment must name the dependency it sits above.
@@ -213,7 +213,11 @@ pub fn main(init: std.process.Init) !void {
     if (failed) std.process.exit(1);
 
     if (check) {
-        const committed = cwd.readFileAlloc(io, output_path, gpa, .limited(1 << 20)) catch "";
+        const committed = cwd.readFileAlloc(io, output_path, gpa, .limited(1 << 20)) catch |err| switch (err) {
+            // A missing mirror is stale like any other mismatch.
+            error.FileNotFound => "",
+            else => return err,
+        };
         if (!std.mem.eql(u8, committed, out.items)) {
             std.debug.print("gen-dependencies: {s} is stale. Run `zig build gen-dependencies` and commit it.\n", .{output_path});
             std.process.exit(1);

@@ -7,8 +7,10 @@
 // Nothing is process-global, and a non-modal surface can render its own prompt
 // over the same context.
 
+import { invariant } from "../../lib/invariant.ts";
 import { discardChangesTitle } from "../../lib/text/controls.ts";
 import { unsavedDiscard, unsavedKeep, unsavedLead } from "../../lib/text/page.ts";
+import { refusalText } from "../../lib/text/failure.ts";
 import {
 	createContext,
 	type ReactNode,
@@ -158,7 +160,7 @@ export function CommitmentProvider({ children }: { children: ReactNode }) {
 				setPending(null);
 				await run(request.proceed);
 			} catch (cause) {
-				setError(cause instanceof Error ? cause.message : String(cause));
+				setError(refusalText(cause));
 			} finally {
 				setBusy(false);
 			}
@@ -183,7 +185,7 @@ export function CommitmentProvider({ children }: { children: ReactNode }) {
 
 export function useCommitments(): CommitmentBoundary {
 	const boundary = useContext(CommitmentContext);
-	if (boundary == null) throw new Error("a change commitment was requested outside its provider");
+	invariant(boundary != null, "a change commitment was requested outside its provider");
 	return boundary;
 }
 

@@ -33,7 +33,7 @@ pub fn releaseArguments(peer: *Peer, imports: ?[]model.ImportPosition) !void {
 }
 
 /// Consume a retargeted call and its exact original import mentions. The reply
-/// remains the original inbound answer; our call has no wire answer and uses
+/// remains the original inbound answer. Our call has no wire answer and uses
 /// our own resolver export. A collected baseline reply still executes the call.
 pub fn send(peer: *Peer, message_in: model.Message, target: ?session.AnswerTarget, imports: ?[]model.ImportPosition) !void {
     var message = message_in;
@@ -67,7 +67,7 @@ pub fn send(peer: *Peer, message_in: model.Message, target: ?session.AnswerTarge
 
 /// Settle one released resolution's batch and publish what it owed the
 /// wire. Admission/encoding refusal leaves the settled batch intact for
-/// retry; accounting commits with frame publication. The shared GC closure
+/// retry. Accounting commits with frame publication. The shared GC closure
 /// also spends retained shortening edges. An entry naming a row another
 /// resolution holds by now stays with the table.
 pub fn drainImportRelease(peer: *Peer) !bool {
@@ -80,25 +80,28 @@ pub fn drainImportRelease(peer: *Peer) !bool {
         return true;
     }
     try peer.checkOutboundWaterline();
-    var message = try model.cloneMessage(peer.allocator, .{ .gc_export = batch.release() });
-    defer model.freeMessage(peer.allocator, message);
-    _ = try peer.session_state.expandSessionGcExportReleases(peer.allocator, &message.gc_export);
-    const wire = try peer.session_state.wireRelease(peer.allocator, message.gc_export);
+    // The batch keeps its arrays until the frame is queued, so the release is
+    // read in place. Only a trailing shortening closure allocates an owned
+    // extension.
+    const expanded = try peer.session_state.expandSessionGcExportReleases(peer.allocator, batch.release());
+    defer if (expanded) |owned| model.freeMessage(peer.allocator, .{ .gc_export = owned });
+    const release = expanded orelse batch.release();
+    const wire = try peer.session_state.wireRelease(peer.allocator, release);
     defer wire.deinit(peer.allocator);
     if (wire == .none) {
-        peer.session_state.recordSessionImportRelease(message.gc_export);
+        peer.session_state.recordSessionImportRelease(release);
         outbox.removeHead(&peer.session_state);
         return true;
     }
-    var frame = try peer.encodeOutbound(switch (wire) {
-        .all => message,
-        .some => |gc_export| .{ .gc_export = gc_export },
+    var frame = try peer.encodeOutbound(.{ .gc_export = switch (wire) {
+        .all => release,
+        .some => |gc_export| gc_export,
         .none => unreachable,
-    });
+    } });
     errdefer frame.deinit();
     try peer.admitOutboundProducer(frame.bytes().len);
     try peer.ensureOutboundCapacity(1);
-    peer.session_state.recordSessionImportRelease(message.gc_export);
+    peer.session_state.recordSessionImportRelease(release);
     peer.outbound.pushAssumeCapacity(frame);
     outbox.removeHead(&peer.session_state);
     return true;

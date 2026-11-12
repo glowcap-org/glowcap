@@ -374,7 +374,8 @@ const BrokenCapture = struct {
         const self: *BrokenCapture = @ptrCast(@alignCast(ctx.?));
         self.fired = true;
         switch (resolution) {
-            .broken => |message| {
+            .broken => |failure| {
+                const message = failure.detail;
                 self.broken = true;
                 self.message_len = @min(message.len, self.message.len);
                 @memcpy(self.message[0..self.message_len], message[0..self.message_len]);
@@ -465,7 +466,7 @@ test "reply interceptor nested calls commit their local and far sends" {
             self.calls += 1;
             switch (result) {
                 .fulfilled => |value| self.value = value.integer,
-                .broken => |reason| self.refused = std.mem.eql(u8, reason, "HookRefused"),
+                .broken => |reason| self.refused = std.mem.eql(u8, reason.detail, "HookRefused"),
                 .give => unreachable,
             }
         }

@@ -203,7 +203,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         /// Complete `user_data` when the listener's setup ends. Only a
-        /// wrapped backend's listener can be pending; the runtime never asks
+        /// wrapped backend's listener can be pending. The runtime never asks
         /// about an inproc one.
         pub fn submitListenReady(self: *Self, user_data: u64, fd: Fd) !void {
             if (fd == listen_fd) return error.ListenerClosed;

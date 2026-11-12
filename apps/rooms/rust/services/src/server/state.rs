@@ -8,7 +8,7 @@ use super::{
 	notice::{Notice, Report},
 	operations::listeners::Registry,
 };
-use glowcap::{Argument, Host, Locator, Ref, Resolver, Session};
+use glowcap::{Argument, Host, Locator, Ref, Session};
 use rooms_application::{
 	directory::{Cursor, PublicationKind, RoomInfo, Shape, registration::Id, wire},
 	room::{inbox::NOTIFY, stewardship::Kind},
@@ -43,22 +43,15 @@ pub(super) enum Work {
 		originator: u64,
 		reply: Ref,
 	},
-	/// Ask a member for an inbox, then break the caller's deferred answer
-	/// with `pending` once the member has taken the request, or `offline`
-	/// when it could not be reached.
-	Introduce {
-		target: Tell<u64, Ref>,
-		caller: Session,
-		resolver: Resolver,
-		pending: String,
-		offline: String,
-	},
 	/// A deferred answer that waits on something the loop owns: a blob's
 	/// bytes, a link's persistence.
 	Task(Pin<Box<dyn Future<Output = ()>>>),
 }
 
-/// Work queued but not yet started. status-allow: pending state or quoted runtime label
+/// How many tasks the serving loop runs at once, and how many more the channel
+/// queues behind them: blob reads, deliveries, and the tasks a listener keeps
+/// for as long as it serves. A held introduction takes none of them, because
+/// `introductions::Pending` bounds and runs its own.
 pub(super) const WORK_LIMIT: usize = 256;
 
 /// One accepted connection: its session view, the durable identity it
@@ -91,6 +84,7 @@ pub(super) struct SessionFace {
 pub(super) struct State {
 	pub admission: super::admission::Admission,
 	pub policy: Policy,
+	pub introductions: super::introductions::Pending,
 	pub rooms: Rooms<u64, Ref>,
 	pub irc: super::irc::Runtime,
 	/// The durable authority as last installed. The loop's authority worker
@@ -159,6 +153,7 @@ impl State {
 		Self {
 			admission: super::admission::Admission::new(admission),
 			policy: Policy::default(),
+			introductions: Default::default(),
 			rooms,
 			irc: Default::default(),
 			authority,
@@ -315,6 +310,7 @@ impl State {
 		if !self.connections.contains_key(&connection) {
 			return;
 		}
+		self.introductions.closed(connection);
 		super::irc::departed(self, connection);
 		let effects = self.policy.connection_closed(connection);
 		let rooms = self.rooms.connection_closed(connection);
@@ -405,9 +401,14 @@ impl State {
 	pub fn share(shared: &Shared) {
 		shared.borrow_mut().shared = Rc::downgrade(shared);
 	}
-	/// A seat in the work queue. `None` means the queue is full.
-	pub fn reserve(&self) -> Option<mpsc::Permit<'_, Work>> {
-		self.work.try_reserve().ok()
+	/// A seat in the work queue, or the busy refusal when it is full. A verb
+	/// whose answer comes later takes its seat before it charges the verb's
+	/// allowance or changes anything, so that refusal has spent neither.
+	pub fn reserve(&self) -> Result<mpsc::OwnedPermit<Work>, String> {
+		self.work.clone().try_reserve_owned().map_err(|refused| match refused {
+			mpsc::error::TrySendError::Full(_) => super::answer::work_busy(),
+			mpsc::error::TrySendError::Closed(_) => "the server is closing".into(),
+		})
 	}
 	/// The identity route across every listener this server holds, or
 	/// `None` while one listener is the whole of it.
@@ -482,6 +483,16 @@ impl State {
 	/// Perform everything one directory verb asked for: notices first,
 	/// then what goes back, the same order the room effects keep.
 	pub fn apply(&self, effects: Effects<u64, Ref>) {
+		if effects
+			.events
+			.iter()
+			.any(|event| matches!(event, rooms_application::directory::Event::Member { .. }))
+		{
+			self.introductions.revalidate(&self.policy);
+		}
+		for offered in effects.offered {
+			self.introductions.offered(&offered);
+		}
 		for tell in effects.tells {
 			self.tell_member(&tell);
 		}
@@ -615,12 +626,11 @@ impl State {
 pub(super) fn notice_args(notice: &MemberNotice) -> Vec<Argument> {
 	let (kind, nick, id) = match notice {
 		MemberNotice::Registered { nick, id } => (rooms_application::protocol_data::REGISTERED, nick, id),
-		MemberNotice::Introducible { nick, id, .. } => ("introducible", nick, id),
 		MemberNotice::MintInboxFor { nick, id, .. } => ("mintInboxFor", nick, id),
 		MemberNotice::DirectRequested { nick, id } => (rooms_application::protocol_data::DIRECT_REQUESTED, nick, id),
 	};
 	let mut args = vec![kind.into(), nick.as_str().into(), id.as_str().into()];
-	if let MemberNotice::Introducible { opening, .. } | MemberNotice::MintInboxFor { opening, .. } = notice {
+	if let MemberNotice::MintInboxFor { opening, .. } = notice {
 		args.push(opening.as_str().into());
 	}
 	args

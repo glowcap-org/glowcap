@@ -29,7 +29,7 @@
 //   5. Closing the conversation in the browser takes that session off the
 //      timeline, reported by the vat's own end.
 //   6. Reopening the conversation starts one new session only after both views
-//      of the old one closed, rather than stacking it beside a stale session. status-allow: replacement state identity
+//      of the first one closed, rather than stacking it beside a stale session.
 //
 // `--iroh` runs the same scenario over encrypted QUIC instead of cleartext TCP.
 // Which transport the vat is reached over is the locator the room announced,
@@ -52,15 +52,10 @@ import { enterOrOpen } from "../../apps/rooms/lib/enter_room.ts";
 import { openRoomsRuntime } from "../../apps/rooms/lib/runtime.ts";
 import { DM } from "../../apps/rooms/lib/protocol.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen, roomsLocator } from "../../apps/rooms/lib/locator.ts";
-import {
-	acquireTraceCapability,
-	connectTraceViewer,
-	scrapeTraceSturdyref,
-	tracePublishUrlOf,
-} from "../../apps/rooms/test/trace/viewer.ts";
+import { acquireTraceCapability, connectTraceViewer, vatTraceEnv } from "../../apps/rooms/test/trace/viewer.ts";
 import { nonEphemeralPort } from "../../bindings/ts/test/ports.ts";
-import { webPort } from "../../apps/rooms/test/support/web_front.ts";
-import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
+import { webAnnouncements, webPort } from "../../apps/rooms/test/support/web_front.ts";
+import { confirmTitleLeave, directOpened } from "../../apps/rooms/test/page/harness.ts";
 import { until as untilWithin } from "../../apps/rooms/test/support/wait.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 
@@ -107,7 +102,7 @@ async function waitForLocator(port: number): Promise<string> {
 			const text = (await res.text()).trim();
 			if (res.status === 200 && text.length > 0) return text;
 		} catch {
-			// the front is not up, or the room has not announced yet status-allow: pending state or quoted runtime label
+			// the front is not up, or the room has not announced yet
 		}
 		await new Promise((r) => setTimeout(r, 50));
 	}
@@ -215,25 +210,22 @@ try {
 	if (!IROH) env.GLOWCAP_RELAY_TCP_PEERS = loopbackTcpDesignator(vatPort);
 	web = new Deno.Command(WEB, {
 		args: [
-			"--transport=tcp",
 			// The Goblins netlayer dials the addresses announced by this fixture.
-			...(IROH ? ["--transport=iroh", "--reachability=direct"] : []),
-			"0",
-			"0",
+			// The HTTP port, then a room port for the transport that listens on one.
+			...(IROH ? ["--transport=iroh", "--reachability=direct", "0"] : ["--transport=tcp", "0", "0"]),
 		],
 		cwd: ROOT,
 		env,
-		// Piped for the HTTP port the front announces first. `webPort` drains the
-		// rest. Its stderr is read rather than inherited, because the trace
-		// capability is announced there and a viewer needs it;
-		// `scrapeTraceSturdyref` tees the stream onward, so nothing the server
-		// says is lost by reading it here.
+		// Piped for the front's startup block: its HTTP port and the trace link
+		// it prints for the directory it runs. One reader takes every
+		// announcement and passes the stream through. Its stderr is inherited,
+		// so nothing it says waits on a reader.
 		stdout: "piped",
-		stderr: "piped",
+		stderr: "inherit",
 	}).spawn();
 
 	const httpPort = await webPort(web);
-	const traceRef = await scrapeTraceSturdyref(web.stderr);
+	const traceRef = await webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
 	const roomLocator = await waitForLocator(httpPort);
 	const viewer = await watchTimeline(traceRef);
 	closeViewer = viewer.close;
@@ -261,7 +253,7 @@ try {
 			VAT_NICK,
 		],
 		cwd: RACKET_DIR,
-		env: { GLOWCAP_ROOMS_TRACE_URL: tracePublishUrlOf(traceRef) },
+		env: vatTraceEnv(traceRef),
 		stdout: "piped",
 		stderr: "piped",
 	}).spawn();
@@ -366,7 +358,9 @@ try {
 	const dmButton = tab.locator(`#members li:has-text("${VAT_NICK}") button.dm-btn`);
 	await dmButton.waitFor({ state: "visible", timeout: WAIT_MS });
 	await dmButton.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: WAIT_MS });
+	// The room's composer stays live while the conversation opens, so the line
+	// waits for the conversation itself.
+	await directOpened(tab, VAT_NICK, WAIT_MS);
 	await tab.fill("#line", TO_VAT);
 	await tab.press("#line", "Enter");
 
@@ -509,12 +503,14 @@ try {
 	);
 
 	// (6) Opening the same person's conversation again must mint a new session,
-	// not leave the old one standing and add another edge beside it. The first status-allow: replacement state identity
+	// not leave the existing one standing and add another edge beside it. The first
 	// message forces lazy redemption of the fresh introduction; delivery and the
 	// reply prove the replacement is usable, not merely connected.
 	const opensBeforeReopen = opensNow().length;
 	await dmButton.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: WAIT_MS });
+	// The room's composer stays live while the conversation opens, so the line
+	// waits for the conversation itself.
+	await directOpened(tab, VAT_NICK, WAIT_MS);
 	await tab.fill("#line", TO_VAT_AGAIN);
 	await tab.press("#line", "Enter");
 	await until(
@@ -575,7 +571,9 @@ try {
 } finally {
 	// best-effort: this teardown runs after the verdict, and a close that fails leaks only that handle's process or socket.
 	if (closeViewer) await closeViewer().catch(() => {});
+	// best-effort: the same teardown, for the browser.
 	if (browser) await browser.close().catch(() => {});
+	// best-effort: the same teardown, for the peer directory.
 	if (glowcapDir) await glowcapDir.close().catch(() => {});
 	if (glowcapListener) glowcapListener.close();
 	// best-effort: same teardown after the verdict, and a runtime that fails to close leaks only its own sockets.

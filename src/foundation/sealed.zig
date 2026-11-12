@@ -42,6 +42,7 @@ const crypto = @import("crypto.zig");
 const spill = @import("spill.zig");
 const frame = @import("frame.zig");
 const identity_binding = @import("sealed_identity.zig");
+const records = @import("sealed_records.zig");
 
 /// The longest transport symbol a sealed channel's prologue holds. A Host
 /// refuses a longer sealed-channel transport profile at definition.
@@ -73,7 +74,7 @@ pub const SealedError = error{
     /// A handshake identity payload did not prove the exact Ed25519 key,
     /// authenticated X25519 static, role, and initial transcript together.
     IdentityMismatch,
-    /// The far end answered a handshake message this side has not sent yet status-allow: pending state or quoted runtime label
+    /// The far end answered a handshake message this side has not sent yet
     /// (its reply is still parked in `pending`). An honest peer cannot see an
     /// unsent message, so the bytes cannot verify and the turn order is
     /// already broken.
@@ -127,7 +128,7 @@ pub const SealedChannel = struct {
     /// after consuming the reply to its previous one.
     pending: [msg3_wire_bytes]u8,
     pending_len: usize,
-    /// Inbound wire bytes that do not yet form a whole handshake message or status-allow: pending state or quoted runtime label
+    /// Inbound wire bytes that do not yet form a whole handshake message or
     /// record. Bounded. See the type header.
     staged: spill.Spill,
     /// The scratch one inbound record's plaintext is opened into. The
@@ -322,7 +323,7 @@ pub const SealedChannel = struct {
             // rather than assume the unit still needs caller bytes.
             const take = @min(unit_len -| self.staged.len, bytes.len);
 
-            // A staged unit has already consumed bytes from an earlier call, status-allow: event or source ordering
+            // A staged unit has already consumed bytes from an earlier call,
             // but none from this one. Reserve every allocation the completed
             // unit can need before committing this call's suffix, so OOM keeps
             // the exact caller slice retryable.
@@ -473,7 +474,7 @@ pub const SealedChannel = struct {
 
     /// Zero the plaintext a record wrote into the scratch and nothing past
     /// it. It runs before the next record opens and before the scratch is
-    /// moved, since a move copies the scratch and frees the old block as is. status-allow: replacement state identity
+    /// moved, since a move copies the scratch and frees the old block as is.
     fn wipePlain(self: *SealedChannel) void {
         std.crypto.secureZero(u8, self.plain[0..self.plain_used]);
         self.plain_used = 0;
@@ -513,15 +514,6 @@ pub const SealedChannel = struct {
         return frame.Frame.initOwned(gpa, storage, .byte, .fromByteUnits(1)) catch unreachable;
     }
 
-    /// Drain the pending handshake message into `out`, the loop-tier sibling
-    /// of `takeWire` for an owner that stages ciphertext in a byte queue
-    /// rather than moving whole frames. Appends nothing when none is pending.
-    pub fn takeWireInto(self: *SealedChannel, gpa: std.mem.Allocator, out: *std.ArrayList(u8)) std.mem.Allocator.Error!void {
-        if (self.pending_len == 0) return;
-        try out.appendSlice(gpa, self.pending[0..self.pending_len]);
-        self.pending_len = 0;
-    }
-
     /// Seal one encoded outbound frame into an owned wire frame the embedder
     /// writes verbatim: the outer Syrup prefix as its own small record, then
     /// the frame bytes across as many records as they need, so the plaintext
@@ -529,10 +521,12 @@ pub const SealedChannel = struct {
     pub fn sealFrame(self: *SealedChannel, gpa: std.mem.Allocator, frame_bytes: []const u8) SealError!frame.Frame {
         var prefix_buf: [stream_framing.prefix_buffer_bytes]u8 = undefined;
         const spans = [_][]const u8{ stream_framing.renderPrefix(&prefix_buf, frame_bytes.len), frame_bytes };
-        const plan = try self.planSeal(&spans);
+        std.debug.assert(self.phase == .open);
+        const send = &self.phase.open.send;
+        const plan = try records.plan(send, &spans);
         const storage = try gpa.alloc(u8, plan.bytes);
         errdefer gpa.free(storage);
-        const written = try self.sealSpans(&spans, storage);
+        const written = try records.sealSpans(send, &spans, storage);
         std.debug.assert(written == storage.len);
         // A byte frame over byte-aligned storage cannot be shape-refused.
         return frame.Frame.initOwned(gpa, storage, .byte, .fromByteUnits(1)) catch unreachable;
@@ -543,52 +537,16 @@ pub const SealedChannel = struct {
     /// framed wire stream (prefixes included), so record boundaries need no
     /// alignment with frame boundaries and none is created. An allocation
     /// refusal appends nothing and advances no cipher state, so the caller
-    /// may retry the same bytes.
+    /// may retry the same bytes. A named test seam: production seals whole
+    /// frames through `sealFrame`, and the channel and fuzz tests seal
+    /// unaligned stream chunks through this.
     pub fn sealBytes(self: *SealedChannel, gpa: std.mem.Allocator, out: *std.ArrayList(u8), bytes: []const u8) SealError!void {
         const spans = [_][]const u8{bytes};
-        const plan = try self.planSeal(&spans);
-        try out.ensureUnusedCapacity(gpa, plan.bytes);
-        out.items.len += try self.sealSpans(&spans, out.unusedCapacitySlice());
-    }
-
-    const SealPlan = struct { records: usize, bytes: usize };
-
-    /// Size `spans` as sealed records. Each span fills whole records on its
-    /// own boundary, so the plaintext inside the records is exactly the
-    /// unsealed stream. Refuses before any cipher state advances.
-    fn planSeal(self: *SealedChannel, spans: []const []const u8) (noise.NoiseError || SealedError)!SealPlan {
         std.debug.assert(self.phase == .open);
-        const record_overhead = noise.record_header_bytes + noise.tag_bytes;
-        var plan: SealPlan = .{ .records = 0, .bytes = 0 };
-        for (spans) |span| {
-            const records = std.math.divCeil(usize, span.len, noise.max_record_plaintext_bytes) catch unreachable;
-            plan.records = std.math.add(usize, plan.records, records) catch
-                return SealedError.OutboundOverflow;
-            plan.bytes = std.math.add(usize, plan.bytes, span.len) catch
-                return SealedError.OutboundOverflow;
-        }
-        const overhead = std.math.mul(usize, plan.records, record_overhead) catch
-            return SealedError.OutboundOverflow;
-        plan.bytes = std.math.add(usize, plan.bytes, overhead) catch
-            return SealedError.OutboundOverflow;
-        try self.phase.open.send.ensureNonceCapacity(plan.records);
-        return plan;
-    }
-
-    /// Seal `spans` into `out`, which `planSeal` sized, and return the bytes
-    /// written.
-    fn sealSpans(self: *SealedChannel, spans: []const []const u8, out: []u8) noise.NoiseError!usize {
         const send = &self.phase.open.send;
-        var written: usize = 0;
-        for (spans) |span| {
-            var offset: usize = 0;
-            while (offset < span.len) {
-                const take = @min(noise.max_record_plaintext_bytes, span.len - offset);
-                written += (try noise.sealRecord(send, span[offset..][0..take], out[written..])).len;
-                offset += take;
-            }
-        }
-        return written;
+        const plan = try records.plan(send, &spans);
+        try out.ensureUnusedCapacity(gpa, plan.bytes);
+        out.items.len += try records.sealSpans(send, &spans, out.unusedCapacitySlice());
     }
 
     /// Retire the channel: wipe the handshake or transport keys and drop any

@@ -415,7 +415,7 @@ const small_read_buffer_bytes: u32 = 4 * 1024;
 /// Build a large but structurally valid `op:deliver` frame in the negotiated
 /// codec: the client handshakes against a server twin, then sends a fetch whose
 /// swissnum is padded to many kilobytes, so the frame is larger than one pool
-/// buffer yet well under the peers' `max_frame_bytes`. Returns the client's status-allow: pending state or quoted runtime label
+/// buffer yet well under the peers' `max_frame_bytes`. Returns the client's
 /// start-session bytes and the big deliver bytes, both owned by the caller.
 fn buildBigDeliverScript(
     allocator: std.mem.Allocator,
@@ -480,4 +480,55 @@ test "completion loop: an incomplete prefix over one read buffer but under the p
     // Both prefix chunks were consumed (3 = client_ss + prefix1 + prefix2): the
     // admissible-but-incomplete frame crossed the pool-buffer boundary.
     try std.testing.expectEqual(@as(usize, 3), loop.backend.chunk_idx[0]);
+}
+
+test "completion loop: a spill that cannot hold a partial frame closes the session with its cause" {
+    var peer = handshake.stubPeer(std.testing.allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = frame_cap;
+    var spill: glowcap.net.Spill = .{};
+    defer spill.deinit(std.testing.allocator);
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+
+    // An outer envelope announcing more bytes than this chunk carries.
+    const verdict = glowcap.net.drainWholeFrames(&peer, &spill, "12:abc", failing.allocator());
+    try std.testing.expectEqual(glowcap.net.DrainVerdict.close, verdict);
+    const recorded = peer.lastAbort() orelse return error.TestExpectedFailure;
+    try std.testing.expectEqualStrings("OutOfMemory", recorded.error_name);
+    try std.testing.expect(peer.sessionIsClosed());
+}
+
+test "completion loop: a consumed packet the peer cannot copy closes the session with its cause" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = handshake.stubPeer(failing.allocator());
+    defer peer.deinit();
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectEqual(glowcap.net.DrainVerdict.fail, glowcap.net.applyPacket(&peer, "3:abc"));
+    const recorded = peer.lastAbort() orelse return error.TestExpectedFailure;
+    try std.testing.expectEqualStrings("OutOfMemory", recorded.error_name);
+    try std.testing.expect(peer.sessionIsClosed());
+}
+
+test "completion loop: a whole frame the drain cannot copy closes the session with its cause" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = handshake.stubPeer(failing.allocator());
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = frame_cap;
+    var spill: glowcap.net.Spill = .{};
+    defer spill.deinit(std.testing.allocator);
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectEqual(glowcap.net.DrainVerdict.fail, glowcap.net.drainWholeFrames(&peer, &spill, "5:3:abc", std.testing.allocator));
+    const recorded = peer.lastAbort() orelse return error.TestExpectedFailure;
+    try std.testing.expectEqualStrings("OutOfMemory", recorded.error_name);
+    try std.testing.expect(peer.sessionIsClosed());
+}
+
+test "peer: a borrowed frame it cannot copy stays retryable with nothing recorded" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = handshake.stubPeer(failing.allocator());
+    defer peer.deinit();
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, peer.recvPacket("3:abc"));
+    try std.testing.expect(peer.lastAbort() == null);
+    try std.testing.expect(!peer.sessionIsClosed());
 }

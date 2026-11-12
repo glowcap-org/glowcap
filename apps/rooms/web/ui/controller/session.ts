@@ -1,6 +1,7 @@
 // What an established Rooms session can do for this tab, split by the surface
 // that asks: directory, conversation, room, workspace, and operations.
 
+import { invariant } from "../../../lib/invariant.ts";
 import { createContext, useContext } from "react";
 import type { OperatorReferenceKind, OperatorResetScope } from "../../../lib/operator.ts";
 import type { BridgeForm } from "../../../lib/bridge/form.ts";
@@ -130,7 +131,7 @@ export interface RoomsWorkspaceController {
 	clearRoomsState(): Promise<string>;
 	setKeepHistory(keep: boolean): Promise<void>;
 	takeArchivePeer(sturdyref: string): Promise<string>;
-	retryArchivePeer(): Promise<string>;
+	retryHistory(): Promise<string>;
 	useOwnedArchive(): Promise<void>;
 	shareArchiveHistory(key: string, peer?: string, records?: "line" | "standing"): Promise<string>;
 	offerDurableArchive(key: string, peer?: string, records?: "line" | "standing"): Promise<string>;
@@ -205,7 +206,7 @@ export const RoomsSessionProvider = RoomsSessionContext.Provider;
 export function useRoomsSession(): RoomsSessionController {
 	const controller = useContext(RoomsSessionContext);
 	if (controller == null) {
-		throw new Error("rooms: session behavior was requested before a session was established");
+		invariant(false, "rooms: session behavior was requested before a session was established");
 	}
 	return controller;
 }

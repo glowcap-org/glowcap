@@ -158,22 +158,27 @@ pub const Attachment = struct {
         return self;
     }
 
-    /// Refuses pending work. Stops future calls and releases the attachment's
-    /// ownership. Live endpoint boxes retain only its closed routing metadata
-    /// until their existing Host/Vat custody ends. Do not use self afterward.
+    /// Refuses pending work with nothing changed. Otherwise stops future calls
+    /// and releases the attachment's ownership. Live endpoint boxes retain only
+    /// its closed routing metadata until their existing Host/Vat custody ends.
+    /// Do not use self after it succeeds.
     pub fn destroy(self: *Attachment) !void {
         try self.topLevel();
         if (self.pending_bytes != 0 or self.writing != null or self.reference_saves != 0 or self.effect_continuations != 0) return error.Busy;
         for (self.reads) |read| if (read != null) return error.Busy;
         for (self.retirements) |retirement| if (retirement != null) return error.Busy;
         if (self.options.live_scope) |scope| if (scope.hasPendingWork()) return error.Busy;
-        if (self.discovery) |discovery| try discovery.destroy();
         // Cross a normal Vat boundary to retire released proxy boxes before
-        // freeing the entry storage their destructors reference.
+        // freeing the entry storage their destructors reference. The boundary
+        // changes nothing this attachment owns, so its refusal leaves it whole.
         _ = try self.host.vat.near(self.runner, .{ .verb = "barrier", .args = &.{} });
+        // The commit point. Uninstalling discovery is the last refusal, and
+        // the teardown after it has none.
+        if (self.discovery) |discovery| try discovery.destroy();
         self.host.vat.releaseActor(self.runner.local);
         for (self.entries) |*entry| if (entry.retention) |token| {
-            try self.store.releaseRetention(token);
+            // Every held token came from this Store's current opening.
+            self.store.releaseRetention(token) catch unreachable;
             entry.retention = null;
         };
         if (self.options.reference_scope) |scope| scope.unregister(self);

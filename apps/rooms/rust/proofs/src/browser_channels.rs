@@ -19,7 +19,11 @@ pub async fn rooms_browser_websocket_contract(location: String) {
 				rooms_browser::transport::open::<rooms_browser::platform::Platform, _>(
 					&host,
 					Some(super::page_server()),
-					|_, _| Err("this scenario has no signaling directory".into()),
+					|_, _| {
+						Err(rooms_runtime::Error::invalid(
+							"this scenario has no signaling directory",
+						))
+					},
 					ice.clone(),
 				)
 				.await
@@ -79,6 +83,11 @@ async fn rtc_sessions(caller: Host, server: Host, left: glowcap::Channel, right:
 	server
 		.publish("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
 		.unwrap();
+	server
+		.publish("refuse", || {
+			Box::new(|verb, _| Err(verb.unwrap_or("refused").to_owned()))
+		})
+		.unwrap();
 	let caller_key = caller.designator().unwrap();
 	let server_key = server.designator().unwrap();
 	let locator = Locator::bare("webrtc", &server_key);
@@ -106,7 +115,23 @@ async fn rtc_sessions(caller: Host, server: Host, left: glowcap::Channel, right:
 			Argument::List(payload)
 		);
 	}
-	drop((echo, dialed, accepted));
+	let refusal = dialed.fetch("refuse").await.unwrap();
+	for text in [
+		"unknown swissnum",
+		"PeerIdentityUnverified",
+		"ExporterUnreachable: glowcap error -8: peer-offline: x",
+		"handoff redeem failed: x",
+		"RestorationFailed: peer-offline: x",
+	] {
+		let error = dialed.send(&refusal, text, &[]).await.unwrap_err();
+		assert_eq!(error.cause(), glowcap::BreakCause::partner());
+		assert_eq!(error.message(), Some(text));
+		assert!(!error.is_publication_not_found());
+		assert!(!error.is_peer_identity_unverified());
+		assert!(!error.is_exporter_unreachable());
+		assert!(rooms_glowcap::client::binding_failure(&error).is_none());
+	}
+	drop((echo, refusal, dialed, accepted));
 	let (left, right) = tokio::join!(caller.close(PendingWork::Cancel), server.close(PendingWork::Cancel));
 	left.unwrap();
 	right.unwrap();

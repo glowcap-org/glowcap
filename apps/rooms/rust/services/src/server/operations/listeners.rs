@@ -123,9 +123,7 @@ pub(crate) async fn open_declared(
 		// never reaches the peer whose shutdown would close them.
 		let open = shared.borrow_mut().listeners.drain();
 		for listener in open {
-			if let Err(closing) = listener.close().await {
-				error = error.retain(Err(closing.into()));
-			}
+			error = crate::cleanup::failed(error, listener.close().await.map_err(Into::into));
 		}
 		return Err(error);
 	}
@@ -165,7 +163,7 @@ async fn up(shared: &Shared, writer: &Store, transport: Transport, ask: Ask, rem
 		.work
 		.clone()
 		.try_reserve_owned()
-		.map_err(|_| Refusal::plain("the server is busy admitting listeners; try again"))?;
+		.map_err(|_| super::super::answer::busy("server work"))?;
 	let (listener, locator) = bring_up(&host, transport, &ask).await?;
 	let listener = Rc::new(listener);
 	let install = || {

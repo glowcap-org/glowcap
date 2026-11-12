@@ -1,5 +1,7 @@
 // The persisted request drives first completion and recovery after reload.
 // Capability occurrences stay in the receipt until their atomic adoption.
+import { invariant } from "../../../../lib/invariant.ts";
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import { type ManagedOperation, ResultAcquisitionError } from "./operation.ts";
 import { conversationIdentity, type Coordinate, type DirectIntent, isCoordinate, type RoomIntent } from "./model.ts";
@@ -9,19 +11,27 @@ import type { ResultRecipe } from "./result_recipe.ts";
 import { CompletedLine, isLineResult, type LineAdoption, type LineResult } from "./completed_line.ts";
 import { readDirectReceipt } from "./direct_receipt.ts";
 
-/** A receipt's string fields, proved present before custody moves. The Rust
- * runtime owns each command's result shape. A malformed receipt names a
- * defect there, and it refuses here rather than acquiring a wrong key. */
+/** Persisted receipts can outlive the build that wrote them. */
+function retained(condition: unknown, diagnostic: string): asserts condition {
+	if (!condition) throw new LocalRefusal("retained-result-unreadable", { cause: diagnostic });
+}
+function hasField<K extends string>(value: object, key: K): value is Record<K, unknown> {
+	return key in value;
+}
+function hasStringFields<T extends string>(value: unknown, fields: readonly T[]): value is Record<T, string> {
+	return value != null && typeof value === "object" && !Array.isArray(value) &&
+		fields.every((field) => hasField(value, field) && typeof value[field] === "string");
+}
 function receiptFields<T extends string>(result: unknown, fields: readonly T[]): Record<T, string> {
-	if (result == null || typeof result !== "object") {
-		throw new Error("The command receipt is not an object");
+	retained(hasStringFields(result, fields), "the command receipt has invalid fields");
+	return result;
+}
+function retainedJson(value: string): unknown {
+	try {
+		return JSON.parse(value);
+	} catch (cause) {
+		throw new LocalRefusal("retained-result-unreadable", { cause });
 	}
-	for (const field of fields) {
-		if (typeof (result as Record<string, unknown>)[field] !== "string") {
-			throw new Error(`The command receipt's ${field} is not a string`);
-		}
-	}
-	return result as Record<T, string>;
 }
 
 type Completion = Readonly<
@@ -36,15 +46,15 @@ function prepareCompletion(original: unknown, result: unknown): Completion {
 	let name: string;
 	let args: readonly string[];
 	if (Array.isArray(original)) {
-		if (!isRetainedCommandIntent(original)) throw new Error("The retained command intent is malformed");
+		retained(isRetainedCommandIntent(original), "the retained command intent is malformed");
 		if (!original[3].every((arg): arg is string => typeof arg === "string")) {
-			throw new Error("A retained command argument is not a string");
+			retained(false, "a retained command argument is not a string");
 		}
 		name = original[2];
 		args = original[3];
 	} else if (original != null && typeof original === "object" && "upload" in original && original.upload != null) {
 		if (!("conversation" in original) || typeof original.conversation !== "string") {
-			throw new Error("A retained upload intent has no conversation");
+			retained(false, "a retained upload intent has no conversation");
 		}
 		name = "upload";
 		args = [original.conversation];
@@ -52,7 +62,7 @@ function prepareCompletion(original: unknown, result: unknown): Completion {
 		name = "bridge";
 		args = [];
 	} else {
-		throw new Error("The retained intent has no completion owner");
+		retained(false, "the retained intent has no completion owner");
 	}
 	switch (name) {
 		case "say":
@@ -60,7 +70,7 @@ function prepareCompletion(original: unknown, result: unknown): Completion {
 		case "sendFiles":
 		case "refileLine":
 			if (result != null && !isLineResult(result)) {
-				throw new Error("The command receipt does not have the line result shape");
+				retained(false, "the command receipt does not have the line result shape");
 			}
 			return { kind: "line", name, args, result: result ?? null };
 		default:
@@ -88,7 +98,7 @@ export function completeResult(session: ManagedRoomsSession, operation: ManagedO
 				if (!canRetry) throw new ResultAcquisitionError(result, error);
 			}
 		}
-		throw new Error("Result completion exceeded conflict re-preparation attempts.");
+		throw new LocalRefusal("conflict");
 	});
 }
 
@@ -122,7 +132,7 @@ async function completeOnce(
 	}
 	function room(id: string): RoomIntent {
 		const row = conversation(id);
-		if (row.kind !== "room") throw new Error("The initiating room changed");
+		if (row.kind !== "room") throw new LocalRefusal("room-gone");
 		return row;
 	}
 	// The retained command name discriminates its receipt. Each case proves
@@ -147,13 +157,11 @@ async function completeOnce(
 			break;
 		}
 		case "startDirect": {
-			// The receipt mirrors the Rust `results::Direct` enum: pending
-			// carries no inbox; only ready does.
+			// The receipt owns one exact inbox.
 			const receipt = readDirectReceipt(result);
-			if (receipt.status === "pending") return result;
 			const directory = recipe.directory(snapshot, args[0]);
 			if (directory.name == null || directory.inbox == null) {
-				throw new Error("The initiating nickname registration was retired. Its receipt remains held.");
+				throw new LocalRefusal("target-gone-held");
 			}
 			const introduction = {
 				access: directory.access,
@@ -196,7 +204,7 @@ async function completeOnce(
 		case "upload":
 		case "sendFiles":
 		case "refileLine": {
-			if (completion.kind !== "line") throw new Error("The posting completion has no line receipt");
+			invariant(completion.kind === "line", "the posting completion has no line receipt");
 			const receipt = completion.result;
 			const row = conversation(args[0]);
 			// The composer owns draft admission. Acquiring a line cannot clear a
@@ -230,7 +238,7 @@ async function completeOnce(
 		case "acceptInvitation": {
 			const receipt = receiptFields(result, ["entrance"]);
 			const invitation = snapshot.intent.invitations.find((row) => row.id === args[0]);
-			if (invitation == null) throw new Error("The original invitation was removed. Its receipt remains held.");
+			if (invitation == null) throw new LocalRefusal("target-gone-held");
 			recipe.check(`invitation:${invitation.id}`, [
 				invitation.directory,
 				invitation.authority,
@@ -271,14 +279,14 @@ async function completeOnce(
 		}
 		case "publishPeeredRoom": {
 			const receipt = receiptFields(result, ["lease"]);
-			const access: unknown = JSON.parse(args[2]);
-			if (typeof access !== "string") throw new Error("The retained publication authority is not a key");
+			const access: unknown = retainedJson(args[2]);
+			retained(typeof access === "string", "the retained publication authority is not a key");
 			if (
 				!snapshot.intent.conversations.some((row) =>
 					row.kind === "room" && row.directory === args[0] && row.access === access
 				)
 			) {
-				throw new Error("The original room publication authority changed");
+				throw new LocalRefusal("room-access-changed");
 			}
 			snapshot.intent.peering.push({
 				id: operation.id,
@@ -293,16 +301,25 @@ async function completeOnce(
 			if (args[1] === "giveManager") {
 				const receipt = receiptFields(result, ["control"]);
 				const matches: RoomIntent[] = [];
+				const unanswered: unknown[] = [];
 				for (const row of snapshot.intent.conversations) {
 					if (row.kind !== "room" || row.seat == null) continue;
 					// A seat the room has since retired answers nothing, and the
-					// room it stood in is not the one the operator named here.
-					const identity = await session.workspace.roomManagementIdentity(
-						JSON.stringify({ role: "roomSeat", key: row.seat }),
-					).catch(() => null);
-					if (identity === args[2]) matches.push(row);
+					// room it stood in is not the one the operator named here. Its
+					// failure is kept so that no match reports why, rather than
+					// reading a lost route as a missing room.
+					try {
+						const identity = await session.workspace.roomManagementIdentity(
+							JSON.stringify({ role: "roomSeat", key: row.seat }),
+						);
+						if (identity === args[2]) matches.push(row);
+					} catch (error) {
+						unanswered.push(error);
+					}
 				}
-				if (matches.length !== 1) throw new Error("Manager recovery requires one exact held room");
+				if (matches.length === 0 && unanswered.length > 0) throw unanswered[0];
+				if (matches.length === 0) throw new LocalRefusal("target-gone-held");
+				if (matches.length > 1) throw new LocalRefusal("room-saved-twice");
 				conversation(matches[0].id);
 				matches[0].control = retain("roomControl", receipt.control);
 			} else return result;
@@ -311,13 +328,13 @@ async function completeOnce(
 		case "operations": {
 			if (args[1] !== "ircGateway" || args[2] !== "connection") return result;
 			const receipt = receiptFields(result, ["connection"]);
-			const gateway: unknown = JSON.parse(args[0]);
-			if (!isCoordinate(gateway)) throw new Error("The retained gateway selection is not a coordinate");
+			const gateway: unknown = retainedJson(args[0]);
+			retained(isCoordinate(gateway), "the retained gateway selection is not a coordinate");
 			if (
 				!snapshot.intent.operations?.some((row) =>
 					row.kind === "ircGateway" && row.handle.role === gateway.role && row.handle.key === gateway.key
 				)
-			) throw new Error("The original gateway selection changed");
+			) throw new LocalRefusal("gateway-changed");
 			snapshot.intent.operations = [...(snapshot.intent.operations ?? []), {
 				kind: "ircConnection",
 				handle: { role: "ircConnection", key: retain("ircConnection", receipt.connection) },

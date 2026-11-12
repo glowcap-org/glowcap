@@ -28,7 +28,7 @@
 ;; write ends this session, settling its far vows closed, and keeps the exact
 ;; write error observable on it. Returns #f after such a failure.
 (define (write-session-outbound! c)
-  (with-handlers ([(lambda (_e) #t)
+  (with-handlers ([raised-failure?
                    (lambda (error)
                      (record-session-outbound-failure! c error)
                      (retire-session-wire-failure! c)

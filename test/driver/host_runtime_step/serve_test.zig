@@ -6,6 +6,7 @@
 //! sink, and a refusing open observer settles failure cleanly.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -37,14 +38,16 @@ test "attendance failure settles registered reply listeners before the wait fram
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
     var stop = std.atomic.Value(bool).init(false);
     var client = try io.concurrent(connectAndHold, .{ allocator, io, address, &stop });
-    defer {
+    var client_joined = false;
+    errdefer if (!client_joined) {
         stop.store(true, .release);
-        client.await(io) catch {};
-    }
+        wait.joinedUnwinding("client", client.await(io));
+    };
     const accepted = try server.accept();
     defer accepted.deinit();
     const promise = try accepted.beginFetch("pending");
-    defer promise.release() catch {};
+    var promise_released = false;
+    errdefer if (!promise_released) promise.release() catch {};
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
@@ -55,6 +58,14 @@ test "attendance failure settles registered reply listeners before the wait fram
     // Settlement retires the vow row and its listener. A failed attendance
     // must leave no listener pointing into the now-returned wait frame.
     try std.testing.expectError(error.NoSuchVow, accepted.runtime.core.vowSession(promise.id));
+    // The settle retired the vow, and releasing the handle after it is harmless.
+    promise_released = true;
+    try promise.release();
+
+    // A client task that failed fails the test, whatever the server saw.
+    stop.store(true, .release);
+    client_joined = true;
+    try client.await(io);
 }
 
 test "Zig operation failures classify at the I/O-owning driver" {
@@ -163,10 +174,11 @@ test "server close stops admission while a yielded session retains the Host runt
         address,
         &stop,
     });
-    defer {
+    var client_joined = false;
+    errdefer if (!client_joined) {
         stop.store(true, .release);
-        client.await(io) catch {};
-    }
+        wait.joinedUnwinding("client", client.await(io));
+    };
 
     const accepted = try server.accept();
     defer accepted.deinit();
@@ -177,6 +189,11 @@ test "server close stops admission while a yielded session retains the Host runt
 
     try std.testing.expectEqual(driver.core.Host.LifecyclePhase.active, accepted.runtime.lifecyclePhase());
     _ = try accepted.publish("after-listener-close", Treasure, .{});
+
+    // A client task that failed fails the test, whatever the server saw.
+    stop.store(true, .release);
+    client_joined = true;
+    try client.await(io);
 }
 
 test "a server pumped only by the readiness descriptor and stepAny serves a budgeted call, and the close observer hears the hangup" {
@@ -204,10 +221,11 @@ test "a server pumped only by the readiness descriptor and stepAny serves a budg
     var stop = std.atomic.Value(bool).init(false);
 
     var serve_future = try io.concurrent(stepServe, .{ server, ready_fd, &stop });
-    defer {
+    var serving_joined = false;
+    errdefer if (!serving_joined) {
         stop.store(true, .release);
-        serve_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("serve", serve_future.await(io));
+    };
 
     {
         var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -232,9 +250,14 @@ test "a server pumped only by the readiness descriptor and stepAny serves a budg
     // close observer, without any blocking verb running on the server.
     var waited: usize = 0;
     while (!closed.load(.acquire) and waited < 10_000) : (waited += 10) {
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(10), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(10), .real);
     }
     try std.testing.expect(closed.load(.acquire));
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    stop.store(true, .release);
+    serving_joined = true;
+    try serve_future.await(io);
 }
 
 test "a close observer may drop its owning Session without freeing the pump's borrowed wire" {
@@ -264,18 +287,18 @@ test "a close observer may drop its owning Session without freeing the pump's bo
     var stop = std.atomic.Value(bool).init(false);
     var client = try io.concurrent(connectAndHold, .{ allocator, io, address, &stop });
     var client_done = false;
-    defer {
+    errdefer if (!client_done) {
         stop.store(true, .release);
-        if (!client_done) client.await(io) catch {};
-    }
+        wait.joinedUnwinding("client", client.await(io));
+    };
 
     owned = try server.accept();
     errdefer if (owned) |session| session.deinit();
     try owned.?.attend();
 
     stop.store(true, .release);
-    try client.await(io);
     client_done = true;
+    try client.await(io);
     var rounds: usize = 0;
     while (!observer.dropped and rounds < 1_000) : (rounds += 1)
         _ = server.runtime.stepAny(10) catch |err| switch (err) {
@@ -312,10 +335,11 @@ test "a vow nobody parked on reaches the completion sink instead of being freed 
     var stop = std.atomic.Value(bool).init(false);
     const server_ready = try server.runtime.readinessDescriptor();
     var serve_future = try io.concurrent(stepServe, .{ server, server_ready, &stop });
-    defer {
+    var serving_joined = false;
+    errdefer if (!serving_joined) {
         stop.store(true, .release);
-        serve_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("serve", serve_future.await(io));
+    };
 
     // The client is built stepped with the recording sink; the sink learns
     // the core it frees through once the runtime exists.
@@ -341,6 +365,11 @@ test "a vow nobody parked on reaches the completion sink instead of being freed 
         _ = try client.runtime.stepAny(10);
     }
     try std.testing.expectEqual(vow_id, sink.settled.load(.acquire));
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    stop.store(true, .release);
+    serving_joined = true;
+    try serve_future.await(io);
 }
 
 test "a refusing open observer settles failure and releases the unexposed session" {

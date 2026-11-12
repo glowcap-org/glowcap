@@ -86,7 +86,7 @@ async fn close<S: AsyncRead + AsyncWrite + Unpin>(
 	reason: Option<CloseFrame>,
 	received: bool,
 ) -> Result<(), String> {
-	match tokio::time::timeout(Duration::from_secs(3), async {
+	let closed = match tokio::time::timeout(Duration::from_secs(3), async {
 		if received {
 			socket.flush().await
 		} else {
@@ -98,5 +98,18 @@ async fn close<S: AsyncRead + AsyncWrite + Unpin>(
 		Ok(Ok(())) | Ok(Err(Error::ConnectionClosed | Error::AlreadyClosed)) => Ok(()),
 		Ok(Err(_)) => Err("timeline socket close failed".into()),
 		Err(_) => Err("timeline socket close timed out".into()),
+	};
+	if closed.is_ok() && !received {
+		// The peer may still be writing when this side closes, as a publisher
+		// presenting its capability on open does. Read to its Close reply:
+		// ending with those bytes unread makes the kernel answer with a reset,
+		// which discards the close frame and its code before the peer reads it.
+		// tolerant: a peer that never replies within the bound only delays this
+		// socket's end; the close frame was already sent.
+		let _ = tokio::time::timeout(Duration::from_secs(3), async {
+			while let Some(Ok(_)) = socket.next().await {}
+		})
+		.await;
 	}
+	closed
 }

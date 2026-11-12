@@ -19,7 +19,7 @@ fn tcp_config(state: PathBuf) -> Config {
 		readiness_file: None,
 		relay_url: None,
 		relay_alias_url: None,
-		dial_transports: vec!["tcp".into()],
+		dial_transports: vec![transports::Dial::Tcp],
 		ice_servers: vec![],
 	}
 }
@@ -99,11 +99,37 @@ fn session_relay_alias_requires_a_configured_registry_and_resolves_environment()
 	let needs = transports::Needs::configured(&webrtc.dial_transports, None, None, webrtc.ice_servers).unwrap();
 	assert!(needs.dials(transports::Family::Webrtc));
 	assert!(!needs.dials(transports::Family::Relay));
+	// `tcp` is the cleartext transport here as it is for `--transport`.
+	use glowcap::tcp::Profiles;
+	assert_eq!(needs.tcp().profiles, Profiles::NOISE_TCP.with(Profiles::TCP));
+	use transports::Dial;
+	let named = |dials: &[Dial]| transports::Needs::configured(dials, None, None, vec![]).unwrap();
+	assert_eq!(named(&[Dial::NoiseTcp]).tcp().profiles, Profiles::NOISE_TCP);
+	assert!(named(&[Dial::NoiseTcp]).dials(transports::Family::Tcp));
+	assert_eq!(
+		named(&[Dial::KeyedTcp]).tcp().profiles,
+		Profiles::NOISE_TCP.with(Profiles::KEYED_TCP)
+	);
 	assert!(
-		Config::parse(["--state=place".into(), "--dial-transports=webrtc,quic".into()], |_| {
-			None
-		})
-		.is_err()
+		Config::parse(
+			["--state=place".into(), "--dial-transports=keyed-tcp,noise-tcp".into()],
+			|_| None
+		)
+		.is_ok()
+	);
+	let unknown = Config::parse(["--state=place".into(), "--dial-transports=webrtc,quic".into()], |_| {
+		None
+	})
+	.err()
+	.expect("quic is not a transport a session dials");
+	assert_eq!(
+		unknown.to_string(),
+		"--dial-transports takes noise-tcp, iroh, onion, webrtc, keyed-tcp, tcp, not \"quic\""
+	);
+	let offered = format!("before restoration: {} (", Dial::ALL.map(Dial::name).join(", "));
+	assert!(
+		super::config::HELP.contains(&offered),
+		"the help names every dial transport"
 	);
 	assert!(
 		Config::parse(
@@ -163,8 +189,12 @@ async fn refused_startup_clears_stale_readiness_after_acquiring_custody() {
 async fn managed_peer_tcp_use_and_restart_preserve_durable_identity() {
 	rooms_testing::local_set::run_within(Duration::from_secs(20), async {
 		let temp = Scratch::create("session-peer");
+		// The fixture session listens on plain tcp, so its caller opts in.
 		let runtime = glowcap::Runtime::open(glowcap::RuntimeConfig::providers([glowcap::tcp::provider(
-			Default::default(),
+			glowcap::tcp::Config {
+				profiles: glowcap::tcp::Profiles::TCP,
+				..Default::default()
+			},
 		)]))
 		.await
 		.unwrap();
@@ -204,6 +234,56 @@ async fn managed_peer_tcp_use_and_restart_preserve_durable_identity() {
 			assert!(!temp.join("use.sturdyref").exists());
 		}
 		runtime.close(PendingWork::Cancel).await.unwrap();
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn a_sealed_session_dials_keyed_tcp_once_its_operator_names_it() {
+	rooms_testing::local_set::run_within(Duration::from_secs(10), async {
+		use glowcap::{BreakCause, BreakReason, ConnectOptions, Host, tcp};
+		let sealed = Transport::Tcp {
+			profile: rooms_platform::serving::TcpProfile::Noise,
+			bind: "127.0.0.1".into(),
+			port: 0,
+			announce: None,
+		};
+		let other = Host::from_seed([64; 32]).unwrap();
+		let options = tcp::ListenOptions {
+			identity: tcp::ListenerIdentity::Host(other.clone()),
+			..Default::default()
+		};
+		let keyed = tcp::keyed::listen("127.0.0.1", 0, options).await.unwrap();
+		let locator = keyed.locator().unwrap();
+		for (seed, named) in [(65, false), (66, true)] {
+			let host = Host::from_seed([seed; 32]).unwrap();
+			let names: Vec<_> = named.then_some(transports::Dial::KeyedTcp).into_iter().collect();
+			let needs = transports::Needs::configured(&names, None, None, vec![]).unwrap();
+			let mut keys = rooms_platform::serving::onion::KeyFile(None);
+			let opened = transports::Transports::open(&host, &sealed, &needs, &mut keys, None)
+				.await
+				.unwrap();
+			let runtime = opened.runtime();
+			let (dialed, _) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), async {
+				// Bounded, so a dial that was refused fails on its own assertion below.
+				if named {
+					let _ = tokio::time::timeout(Duration::from_secs(3), keyed.accept()).await;
+				}
+			});
+			match dialed {
+				Ok(_) => assert!(named, "a session dialed keyed-tcp its operator did not name"),
+				Err(error) => {
+					assert!(
+						!named,
+						"a session could not dial the keyed-tcp its operator named: {error}"
+					);
+					assert_eq!(error.cause(), BreakCause::local(BreakReason::TransportUnavailable));
+				}
+			}
+			opened.close().await.unwrap();
+		}
+		keyed.close().await.unwrap();
+		other.close(PendingWork::Cancel).await.unwrap();
 	})
 	.await;
 }

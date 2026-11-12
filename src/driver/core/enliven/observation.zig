@@ -1,5 +1,5 @@
 //! Owned enliven outcomes and exact observation cancellation. Network dialing
-//! remains Host work even when an individual observer no longer needs it. status-allow: lifecycle transition
+//! remains Host work even when an individual observer no longer needs it.
 const std = @import("std");
 const model = @import("model");
 const engine = @import("engine");
@@ -13,6 +13,8 @@ const FailureText = @import("../host/failure_text.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 
+pub const not_capability: engine.Broken = .{ .detail = "NotCapability", .cause = engine.BreakCause.local(.refused) };
+
 pub const Enliven = struct {
     host: *Host,
     allocator: std.mem.Allocator,
@@ -25,6 +27,7 @@ pub const Enliven = struct {
         failed: struct { kind: action.VowFailure, text: FailureText },
         taken,
     } = .starting,
+    release_node: host_mod.Host.DeferredRelease = .{ .run = runRelease },
 
     comptime {
         // The exact listener fits beneath the existing inline failure arm;
@@ -36,7 +39,7 @@ pub const Enliven = struct {
     pub const Result = union(enum) {
         pending,
         ready: struct { capability: capability.Ref, provenance: host_mod.PeerProvenance },
-        failed: struct { kind: action.VowFailure, message: []const u8 },
+        failed: struct { kind: action.VowFailure, message: []const u8, cause: engine.BreakCause },
     };
 
     /// The result capability and failure text borrow this operation. The
@@ -45,7 +48,7 @@ pub const Enliven = struct {
         return switch (self.state) {
             .dialing, .fetching, .lookup => .pending,
             .ready => |ready| .{ .ready = .{ .capability = ready.capability, .provenance = ready.provenance } },
-            .failed => |*failed| .{ .failed = .{ .kind = failed.kind, .message = failed.text.message() } },
+            .failed => |*failed| .{ .failed = .{ .kind = failed.kind, .message = failed.text.message(), .cause = failed.text.cause } },
             .starting, .taken => unreachable,
         };
     }
@@ -63,11 +66,17 @@ pub const Enliven = struct {
         return ready.capability;
     }
 
-    /// Synchronously detach pending observation or release its result. A shared
-    /// dial stays owned by Host until its executor reports a terminal outcome.
-    /// Call only at the top-level Host boundary, before destroying Host.
+    /// Detach pending observation or release its result. A shared dial stays
+    /// owned by Host until its executor reports a terminal outcome. At the top
+    /// level this runs before returning. Inside a Host callback it runs when
+    /// the callback's verb tail does. Either way the operation is the Host's
+    /// from this call on. Call on the owner thread, before destroying Host.
     pub fn deinit(self: *Enliven) void {
-        self.host.refuseReentry() catch unreachable;
+        self.host.releaseAtTopLevel(&self.release_node);
+    }
+
+    fn runRelease(node: *host_mod.Host.DeferredRelease) void {
+        const self: *Enliven = @alignCast(@fieldParentPtr("release_node", node));
         switch (self.state) {
             .lookup => |id| {
                 const lookup = self.host.publication_lookup orelse unreachable;
@@ -82,8 +91,8 @@ pub const Enliven = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn fail(self: *Enliven, kind: action.VowFailure, reason: []const u8) void {
-        self.state = .{ .failed = .{ .kind = kind, .text = FailureText.init(reason) } };
+    pub fn fail(self: *Enliven, kind: action.VowFailure, reason: engine.Broken) void {
+        self.state = .{ .failed = .{ .kind = kind, .text = FailureText.init(.{ .detail = reason.detail, .cause = reason.cause.withFetch() }) } };
     }
 
     fn receive(self: *Enliven, session: *HostSession, reference: model.Reference, provenance: host_mod.PeerProvenance, occurrence: enum { wire, cached }) void {
@@ -91,7 +100,7 @@ pub const Enliven = struct {
             // A cache hit contributes no wire occurrence. Another unprojected
             // completion may still own the import that cache entry names.
             if (occurrence == .wire) self.host.discardCapabilityObservation(session, .fromOwned(&reference));
-            self.fail(.broken, @errorName(err));
+            self.fail(.broken, engine.Broken.unnamed(@errorName(err)));
             return;
         };
         self.state = .{ .ready = .{ .capability = ref, .provenance = provenance } };
@@ -106,15 +115,15 @@ pub const Enliven = struct {
         const fetching = self.state.fetching;
         switch (resolution) {
             .fulfilled => |value| {
-                const session = self.host.sessions.get(fetching.peer) orelse return self.fail(.closed, "session closed");
+                const session = self.host.sessions.get(fetching.peer) orelse return self.fail(.closed, engine.Broken.unnamed("session closed"));
                 if (value != .reference) {
                     self.host.discardValueObservation(session, value);
-                    return self.fail(.broken, "NotCapability");
+                    return self.fail(.broken, not_capability);
                 }
                 self.receive(session, value.reference, fetching.provenance, .wire);
             },
             .broken => |reason| self.fail(@import("../vows/completion.zig").classifyFailure(self.host, fetching.peer), reason),
-            .give => self.fail(.broken, "NotCapability"),
+            .give => self.fail(.broken, not_capability),
         }
     }
 };
@@ -137,9 +146,9 @@ pub const Recipient = union(enum) {
         }
     }
 
-    pub fn failedLocal(self: Recipient, host: *Host, id: u64, kind: action.VowFailure, reason: []const u8) void {
+    pub fn failedLocal(self: Recipient, host: *Host, id: u64, kind: action.VowFailure, reason: engine.Broken) void {
         switch (self) {
-            .action => host.actions.pushReserved(.{ .failed = .{ .peer_handle = null, .vow_id = id, .failure = kind, .message = action.retainFailureMessage(host.allocator, reason) } }),
+            .action => host.actions.pushReserved(.{ .failed = .{ .peer_handle = null, .vow_id = id, .failure = kind, .message = action.retainFailureMessage(host.allocator, reason.detail), .cause = reason.cause } }),
             .observed => |owned| owned.fail(kind, reason),
         }
     }

@@ -12,6 +12,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
+const wait = @import("../support/wait.zig");
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
@@ -142,7 +143,7 @@ test "keyed-tcp listener close wakes and joins a blocked readiness wait" {
         .identity = secret.publicKey(),
     });
     var waiter = try io.concurrent(waitUntilKeyedListenerClose, .{listener});
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try wait.untilLeaseHeld(io, net.tcp.keyed.white_box.acceptGate(listener));
     netlayer_test.close(listener);
     try waiter.await(io);
 }

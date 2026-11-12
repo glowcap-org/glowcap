@@ -1,10 +1,52 @@
 //! Supervise only the process this start creates. Workspace and lifecycle leases
 //! make concurrent starts explicit. Settings are durable before process launch.
 use super::{Failure, Options, request, workspace};
+use rooms_application::server::operations::listeners;
+use rooms_platform::serving::{Family, Transport};
 use serde_json::{Value, json};
 use std::os::unix::process::CommandExt;
 use std::{collections::BTreeMap, path::Path, process::Stdio, time::Duration};
 use tokio::process::Command;
+
+/// Lay what this start names over what the workspace stored. A stored
+/// listener option belongs to the transport it was given for, so a start
+/// under another transport leaves it behind.
+fn settle<'a>(
+	settings: &mut BTreeMap<String, String>,
+	supplied: impl Fn(&str) -> Option<&'a str>,
+	running: bool,
+) -> Result<(), Failure> {
+	settings.entry("transport".into()).or_insert("iroh".into());
+	// Every listener option the session reads, and its dial settings.
+	for key in
+		Transport::OPTIONS
+			.iter()
+			.copied()
+			.chain(["relay-url", "relay-alias-url", "dial-transports", "ice-servers"])
+	{
+		if let Some(value) = supplied(key) {
+			if running && settings.get(key).map(String::as_str) != Some(value) {
+				return Err(Failure::invalid("stop the session before changing transport settings"));
+			}
+			settings.insert(key.into(), value.into());
+		}
+	}
+	// An unknown transport keeps everything, and the session's own parse names it.
+	if let Some(family) = settings
+		.get("transport")
+		.and_then(|name| listeners::Transport::parse(name))
+		.map(Family::of)
+	{
+		settings.retain(|key, _| {
+			let key = key.as_str();
+			key == "transport"
+				|| !Transport::OPTIONS.contains(&key)
+				|| family.reads().contains(&key)
+				|| supplied(key).is_some()
+		});
+	}
+	Ok(())
+}
 
 pub async fn start(options: &Options) -> Result<Value, Failure> {
 	// Resolve before creating state or launching a peer. Keep the original URL
@@ -49,17 +91,7 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 			.map(|raw| serde_json::from_slice(&raw))
 			.transpose()?
 			.unwrap_or_default();
-		settings.entry("transport".into()).or_insert("iroh".into());
-		// Every listener option the session reads, and its dial settings.
-		let listener = rooms_platform::serving::Transport::OPTIONS.iter().copied();
-		for key in listener.chain(["relay-url", "relay-alias-url", "dial-transports", "ice-servers"]) {
-			if let Some(value) = supplied.get(key) {
-				if running && settings.get(key).map(String::as_str) != Some(value) {
-					return Err(Failure::invalid("stop the session before changing transport settings"));
-				}
-				settings.insert(key.into(), value.into());
-			}
-		}
+		settle(&mut settings, |key| supplied.get(key), running)?;
 		if !settings.contains_key("relay-url")
 			&& let Some(locator) = supplied.get("locator")
 			&& (locator.starts_with("http://") || locator.starts_with("https://"))
@@ -177,4 +209,43 @@ pub fn state_path(root: &Path, nick: &str) -> Result<std::path::PathBuf, Failure
 		));
 	}
 	Ok(root.join(nick))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn settled(stored: &[(&str, &str)], named: &[(&str, &str)]) -> Vec<(String, String)> {
+		let mut settings = stored.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+		let supplied = |key: &str| named.iter().find(|(k, _)| *k == key).map(|(_, v)| *v);
+		settle(&mut settings, supplied, false).unwrap();
+		settings.into_iter().collect()
+	}
+
+	fn pairs(rows: &[(&str, &str)]) -> Vec<(String, String)> {
+		rows.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+	}
+
+	#[test]
+	fn a_start_under_another_transport_leaves_the_stored_listener_options_behind() {
+		let stored = [
+			("dial-transports", "iroh"),
+			("reachability", "direct"),
+			("transport", "iroh"),
+		];
+		assert_eq!(settled(&stored, &[]), pairs(&stored));
+		assert_eq!(
+			settled(&stored, &[("transport", "tcp"), ("port", "0")]),
+			pairs(&[("dial-transports", "iroh"), ("port", "0"), ("transport", "tcp")])
+		);
+		// What this start names is kept for the session's parse to refuse.
+		assert_eq!(
+			settled(&[], &[("transport", "tcp"), ("reachability", "direct")]),
+			pairs(&[("reachability", "direct"), ("transport", "tcp")])
+		);
+		assert_eq!(
+			settled(&[("port", "7000")], &[("transport", "carrier-pigeon")]),
+			pairs(&[("port", "7000"), ("transport", "carrier-pigeon")])
+		);
+	}
 }

@@ -116,5 +116,4 @@ unsafe extern "C" {
 		netlayer: *mut GlowcapWebrtcNetlayer,
 		out_provider: *mut GlowcapTransportProvider,
 	) -> c_int;
-	pub fn glowcap_webrtc_clear_last_error();
 }

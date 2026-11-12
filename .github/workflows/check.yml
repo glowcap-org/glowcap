@@ -97,18 +97,16 @@ jobs:
           min-severity: low
           advanced-security: true
       # SARIF mode sends the findings to code scanning and exits 0 on them, so
-      # the verdict is read from the report: one finding fails this job.
+      # the verdict is read from the report: one finding, or a report that
+      # audited nothing, fails this job.
       - name: Refuse findings
         env:
           REPORT: ${{ steps.zizmor.outputs.output-file }}
-        run: |
-          jq -r '.runs[].results[] | "\(.ruleId) \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.message.text)"' "$REPORT" > findings
-          cat findings
-          test ! -s findings
+        run: python3 ci/sarif.py refuse "$REPORT"
 
   # A pull request that adds or moves a dependency is compared with the
   # dependency graph: a known vulnerability at any severity fails the review.
-  # The graph covers the Actions, Cargo, and Python manifests.
+  # The graph covers the Actions, Cargo, Python, and Deno manifests.
   # Outside pull requests this job succeeds without a comparison, so the
   # aggregate can require it without accepting skipped validation jobs.
   dependencies:
@@ -167,33 +165,38 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Name the pinned submodules
+      # The submodule and Zig package caches are transfers, which keep their
+      # step deadlines here rather than in a composite action. macos-runtime
+      # repeats these steps by alias.
+      - &submodules-key
+        name: Name the pinned submodules
         id: submodules
         run: python3 ci/submodules.py key
 
-      - name: Restore the pinned submodule objects
+      - &submodules-restore
+        name: Restore the pinned submodule objects
         timeout-minutes: 5
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .git/modules
           key: ${{ steps.submodules.outputs.key }}
 
-      - name: Check out the pinned submodules
+      - &submodules-checkout
+        name: Check out the pinned submodules
         run: python3 ci/submodules.py checkout
 
-      - name: Install the pinned Zig
-        run: |
-          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
-          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/zig
 
-      - name: Restore Zig package downloads
+      - &zig-packages
+        name: Restore Zig package downloads
         timeout-minutes: 5
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: zig-pkg
           key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
 
-      - name: Fetch pinned Zig dependencies
+      - &zig-fetch
+        name: Fetch pinned Zig dependencies
         run: python3 ci/gates.py fetch
 
       - name: Deep mutation fuzzing
@@ -217,34 +220,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Name the pinned submodules
-        id: submodules
-        run: python3 ci/submodules.py key
-
-      - name: Restore the pinned submodule objects
-        timeout-minutes: 5
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .git/modules
-          key: ${{ steps.submodules.outputs.key }}
-
-      - name: Check out the pinned submodules
-        run: python3 ci/submodules.py checkout
-
-      - name: Install the pinned Zig
-        run: |
-          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
-          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
-
-      - name: Restore Zig package downloads
-        timeout-minutes: 5
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: zig-pkg
-          key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
-
-      - name: Fetch pinned Zig dependencies
-        run: python3 ci/gates.py fetch
+      - *submodules-key
+      - *submodules-restore
+      - *submodules-checkout
+      - uses: ./.github/actions/zig
+      - *zig-packages
+      - *zig-fetch
 
       - uses: ./.github/actions/pins
         id: pins

@@ -45,7 +45,7 @@ import {
 } from "@glowcap/runtime/transport";
 import type { Codec, Locator, Ptr } from "@glowcap/runtime/transport";
 import { inprocS } from "./ffi.ts";
-import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC } from "@glowcap/abi";
+import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, releaseResultCode, TRANSPORT_INPROC } from "@glowcap/abi";
 
 const OK = 0;
 
@@ -164,7 +164,8 @@ export class Listener {
 				try {
 					await this.#releaseDiagnostic.check(
 						"listener release",
-						(error, cap, errorLen) => inprocS.glowcap_inproc_listener_release(p, error, cap, errorLen),
+						async (error, cap, errorLen) =>
+							releaseResultCode(await inprocS.glowcap_inproc_listener_release(p, error, cap, errorLen)),
 					);
 				} catch (error) {
 					consumedReleaseFailure(error);

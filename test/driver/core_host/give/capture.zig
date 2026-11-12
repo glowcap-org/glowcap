@@ -16,8 +16,8 @@ pub const NestedCallCapture = struct {
             },
             .broken => |message| {
                 self.broken = true;
-                self.reason_len = @min(message.len, self.reason_buf.len);
-                @memcpy(self.reason_buf[0..self.reason_len], message[0..self.reason_len]);
+                self.reason_len = @min(message.detail.len, self.reason_buf.len);
+                @memcpy(self.reason_buf[0..self.reason_len], message.detail[0..self.reason_len]);
             },
             .give => self.broken = true,
         }

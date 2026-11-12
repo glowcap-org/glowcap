@@ -4,17 +4,19 @@
 // `done <index>` (an index in "To do"), `list`, and `quit`. It lists again after
 // each change. Ctrl-D leaves.
 //
-//   deno run --allow-ffi --allow-read --allow-net board.ts 127.0.0.1 9099 <board-name>
+//   deno run --allow-ffi --allow-read --allow-net board.ts <locator> <board-name>
+//
+// The locator is the `ocapn://` URI the server printed.
 
 import { TaskBoard, type TaskList } from "./task_client.ts";
 
-const [host, portStr, name] = Deno.args;
-if (!host || !portStr || !name) {
-	console.error("usage: board.ts <host> <port> <board-name>");
+const [locator, name] = Deno.args;
+if (!locator || !name) {
+	console.error("usage: board.ts <locator> <board-name>");
 	Deno.exit(2);
 }
 
-const board = await TaskBoard.join(host, Number(portStr), name);
+const board = await TaskBoard.join(locator, name);
 console.log("(connected, commands: add <text>, done <index>, list, quit)");
 printLists(await board.lists());
 await readCommands();

@@ -37,7 +37,10 @@ async fn attached(link: &str, management_link: &str, original_base: Option<u64>)
 		"management has its own publication"
 	);
 	let runtime = Runtime::open(RuntimeConfig::providers([
-		tcp::provider(Default::default()),
+		tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		}),
 		iroh::provider(iroh::Config::new(iroh::Reachability::Direct)),
 	]))
 	.await
@@ -132,7 +135,10 @@ pub fn shutdown_with_live_observer(link: &str, halt: impl FnOnce()) {
 		.block_on(rooms_testing::local_set::run(async {
 			let parsed = glowcap::parse_sturdyref(link, CaptpVersion::V1_0).unwrap();
 			let runtime = Runtime::open(RuntimeConfig::providers([
-				tcp::provider(Default::default()),
+				tcp::provider(tcp::Config {
+					profiles: tcp::Profiles::TCP,
+					..Default::default()
+				}),
 				iroh::provider(iroh::Config::new(iroh::Reachability::Direct)),
 			]))
 			.await

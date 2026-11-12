@@ -95,7 +95,7 @@ never `WOULD_BLOCK`.
    application schemas.
    - In Rust, the `Sqlite` value names the directory, identity, open mode, and
      `capacity_bytes`, the most the database file may grow to. It must be at
-     least 1 MiB, and it is separate from the cache and pending-write limits
+     least <!-- value ../../src/loam/core/backend.zig min_capacity_bytes bytes -->1 MiB<!-- /value -->, and it is separate from the cache and pending-write limits
      in `Limits`.
    - The `Lmdb` value takes `map_bytes` instead, the largest size its file may
      reach.
@@ -223,10 +223,18 @@ conflict.
 
 A resent `issue-access` uses the same receipts as `derive`. Loam checks that
 the caller still holds management and an unrevoked source, then returns the
-original pair instead of comparing the old revision as if the request were <!-- status-allow: runtime state or operation ordering -->
+original pair instead of comparing the old revision as if the request were
 new. A resent edit likewise finds its receipt first, while a new edit that
-changes nothing still checks the expected revision. Application-specific
-management data and behavior are not part of this shared model. Rooms, a chat
+changes nothing still checks the expected revision.
+
+A control that rejects an edit or issuance at its revision or exact-intent
+check returns `<access:control-conflict 'revision>` or
+`<access:control-conflict 'operation>`. This reply confirms that the rejected
+intent published no effects. Rust's `ControlConflict::read` decodes that
+verdict. A broken promise containing `RevisionConflict` or `OperationConflict`
+is still an uncertain failure. Its diagnostic does not establish this verdict.
+
+Management data and behavior remain application-owned. Rooms, a chat
 application built on glowcap, keeps its own, and its
 [session guide](../rooms/session.md) describes how.
 
@@ -377,7 +385,7 @@ Rules for adding the results together:
   the reference, graph, and call parts to your own callback's needs. Store
   staging, capability operations, registration, promise resolution, Rust
   buffers, and Host network state have their own limits.
-- A graph bound covers the old and new graph together. Page counts leave out <!-- status-allow: runtime state or operation ordering -->
+- A graph bound covers the old and new graph together. Page counts leave out
   the root, payload totals include it, and capability field counts leave out
   the resource link and page links.
   [ADR-0057](../decisions/adr/ADR-0057-retained-content-pages.md)
@@ -499,9 +507,9 @@ A C policy carries a table of prerequisites:
   requires, in the same sorted order as `permissions`. Unused rows must be
   zero, and a permission that requires itself or an undeclared bit is
   refused.
-- The table takes 512 bytes inside the policy and allocates nothing. Checking
-  it visits at most 64 permissions.
-- Owner records save the table within their 4 KiB payload limit. An owner
+- The table lives inside the policy and allocates nothing. Checking it visits
+  at most <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions.
+- Owner records save the table within their <!-- value ../../src/loam/access/records/owner_record.zig max_encoded_bytes bytes -->4 KiB<!-- /value --> payload limit. An owner
   record written without the table or the kind list cannot be read, so create
   a new store with a fresh identity and grant access again. Opening a store or
   importing grants refuses ones that do not fit the policy.
@@ -514,7 +522,7 @@ the permissions it supports alone and for children added later.
   Derivation, edits, and control limits follow these rules after a reopen.
 - `value_for_kind` builds the terms for one kind through Loam's Zig check. It
   returns data only and grants nothing.
-- Kinds add 384 bytes plus a count inside the policy, with no allocation. The
+- Kinds live inside the policy, with no allocation. The
   largest owner policy fits the <!-- value ../../src/loam/access/records/owner_record.zig max_encoded_bytes bytes -->4 KiB<!-- /value --> owner record.
 
 [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md)

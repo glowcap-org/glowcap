@@ -3,13 +3,21 @@ import {
 	FEATURE_FULL,
 	FEATURE_MULTI_LOCATION,
 	formatLocatorUri,
+	GlowcapError,
 	Host,
 	Runtime,
 	type Session,
 } from "../../runtime/mod.ts";
 import { assert, assertDeepEquals, assertEquals } from "../../test/assert.ts";
 import { addressDesignator, keyedLocator, locator, noiseLocator } from "../address.ts";
-import { HINT_DIRECT_ADDRESSES } from "@glowcap/abi";
+import {
+	HINT_DIRECT_ADDRESSES,
+	INVALID_ARGUMENT,
+	RouteFailure,
+	routeFailureFromCause,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_TCP,
+} from "@glowcap/abi";
 
 Deno.test("high-level servers expose the driver's complete listener locator", async () => {
 	const plain = await tcp.listen("127.0.0.1", 0);
@@ -44,7 +52,7 @@ Deno.test("high-level servers expose the driver's complete listener locator", as
 Deno.test("closing a TCP listener preserves its Host and yielded session", async () => {
 	const host = new Host();
 	const server = await tcp.listen("127.0.0.1", 0, { host });
-	const runtime = await Runtime.open({ providers: [tcp.provider()] });
+	const runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 	let client: Session | null = null;
 	let accepted: Session | null = null;
 	try {
@@ -91,7 +99,7 @@ Deno.test("closing a TCP listener preserves its Host and yielded session", async
 
 Deno.test("closing an owned-loop TCP listener preserves its yielded session", async () => {
 	const server = await tcp.listen("127.0.0.1", 0);
-	const runtime = await Runtime.open({ providers: [tcp.provider()] });
+	const runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 	let client: Session | null = null;
 	let accepted: Session | null = null;
 	try {
@@ -179,5 +187,76 @@ Deno.test("an IPv6 host keeps its brackets in every locator the package builds",
 	for (const build of [keyedLocator, noiseLocator]) {
 		assertDeepEquals([...build("peer", "::1", 4242).hints], [[HINT_DIRECT_ADDRESSES, "[::1]:4242"]]);
 		assertDeepEquals([...build("peer", "127.0.0.1", 4242).hints], [[HINT_DIRECT_ADDRESSES, "127.0.0.1:4242"]]);
+	}
+});
+
+function assertTransportUnavailable(refusal: unknown, message: string): void {
+	assert(
+		refusal instanceof GlowcapError && refusal.code === INVALID_ARGUMENT &&
+			routeFailureFromCause(refusal.breakCause) === RouteFailure.TransportUnavailable,
+		message,
+	);
+}
+
+Deno.test("a runtime opened with only the noise profile refuses a plain tcp locator", async () => {
+	const plain = await tcp.listen("127.0.0.1", 0);
+	const sealed = await tcp.noise.listen("127.0.0.1", 0);
+	const runtime = await Runtime.open({ providers: [tcp.provider()] });
+	let client: Session | null = null;
+	let accepted: Session | null = null;
+	try {
+		const refusal = await runtime.connect(plain.locator).then(() => null, (error: unknown) => error);
+		assertTransportUnavailable(refusal, "noise-only runtime did not refuse a plain tcp locator with its cause");
+
+		const next = sealed[Symbol.asyncIterator]().next();
+		client = await runtime.connect(sealed.locator);
+		const result = await next;
+		assert(!result.done, "sealed listener did not yield a session");
+		accepted = result.value;
+		assert(client.transportName === TRANSPORT_NOISE_TCP, "sealed dial lost its transport name");
+	} finally {
+		await accepted?.close();
+		await client?.close();
+		await runtime.close();
+		await sealed.close();
+		await plain.close();
+	}
+});
+
+Deno.test("a runtime opened with only the plain profile connects plain and refuses a sealed locator", async () => {
+	const plain = await tcp.listen("127.0.0.1", 0);
+	const sealed = await tcp.noise.listen("127.0.0.1", 0);
+	const runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
+	let client: Session | null = null;
+	let accepted: Session | null = null;
+	try {
+		const refusal = await runtime.connect(sealed.locator).then(() => null, (error: unknown) => error);
+		assertTransportUnavailable(refusal, "plain-only runtime did not refuse a sealed locator with its cause");
+
+		const next = plain[Symbol.asyncIterator]().next();
+		client = await runtime.connect(plain.locator);
+		const result = await next;
+		assert(!result.done, "plain listener did not yield a session");
+		accepted = result.value;
+		assert(client.transportName === TRANSPORT_TCP, "plain dial lost its transport name");
+	} finally {
+		await accepted?.close();
+		await client?.close();
+		await runtime.close();
+		await sealed.close();
+		await plain.close();
+	}
+});
+
+Deno.test("an empty profile list is refused when the provider installs", async () => {
+	for (const profiles of [[]]) {
+		const refusal = await Runtime.open({ providers: [tcp.provider({ profiles })] }).then(
+			() => null,
+			(error: unknown) => error,
+		);
+		assert(
+			refusal instanceof GlowcapError && refusal.code === INVALID_ARGUMENT,
+			`an empty profile list was not refused with INVALID_ARGUMENT`,
+		);
 	}
 });

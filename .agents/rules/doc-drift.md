@@ -1,12 +1,14 @@
 ---
 description: "Doc kinds, audiences and headers, and claims that match current code or are removed."
-globs: **/*.md, site/content/**, .cursor/*.json, .claude/*.json, .mcp.json, .serena/*.yml
+globs: **/*.md, site/content/**, .cursor/*.json, .claude/*.json, .mcp.json, .pi/mcp.json, .codex/config.toml, .serena/*.yml
 paths:
   - "**/*.md"
   - "site/content/**"
   - ".cursor/*.json"
   - ".claude/*.json"
   - ".mcp.json"
+  - ".pi/mcp.json"
+  - ".codex/config.toml"
   - ".serena/*.yml"
 ---
 
@@ -65,8 +67,9 @@ code spans, so it carries no second list.
 Rules for every doc:
 
 - Write present-tense contracts. No "future X" once X lands, no stale status
-  markers, no "formerly" or transition narration. History lives in git or an <!-- status-allow: quoted narration vocabulary -->
-  ADR that still owns a decision.
+  markers, no transition narration. History lives in git or an ADR that still
+  owns a decision. `checkNarration` in `static_docs.zig` refuses the phrases
+  that always date a sentence, in static docs and source comments alike.
 - Do not hardcode a count the code can outgrow. Describe the set or cite the
   check that holds the number.
 - A comment explaining a technique names the condition under which it is
@@ -74,7 +77,7 @@ Rules for every doc:
   gets ported to sites where it does not hold. When two similar functions
   differ, the more careful one says why the cheaper path is closed to it.
 - A rename or file move sweeps docs, tests, examples, and agent rules in the
-  same change. Grep the old name and path across the tree, because a path <!-- status-allow: workflow sequence -->
+  same change. Grep the replaced name and path across the tree, because a path
   written as a string is invisible to every typechecker.
 - A change rereads the docs that explain the code it touched:
   `zig build doc-impact` lists them from those sources. A source path that

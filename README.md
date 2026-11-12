@@ -12,7 +12,7 @@ durable application state. It combines [OCapN](https://github.com/ocapn/ocapn)
 and CapTP networking with [Loam](https://github.com/glowcap-org/glowcap/blob/main/docs/loam.md), its transactional storage and
 durable actor system. Applications control memory, I/O, and scheduling.
 
-**0.1.6 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
+**0.1.7 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
 change before 1.0, including in patch releases. Pin a release or commit and
 read the [changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md) before upgrading.
 glowcap has not received an independent security audit.
@@ -58,9 +58,8 @@ export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 
-Open the link it prints: the Rooms page at
-[glowcap.org/rooms/app/](https://glowcap.org/rooms/app/), with your server
-filled in. [Run Rooms](https://glowcap.org/rooms/start/) walks through joining
+Open the link it prints under **open the page**: the
+[Rooms page](https://glowcap.org/rooms/app/) with your server filled in. [Run Rooms](https://glowcap.org/rooms/start/) walks through joining
 a room and messaging another member directly.
 
 ## Quick start
@@ -129,7 +128,7 @@ const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, a
 switch (settled) {
     .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
     .broken => |reason| {
-        std.debug.print("the greeter refused: {s}\n", .{reason});
+        std.debug.print("the greeter refused: {f}\n", .{reason});
         return error.GreeterRefused;
     },
 }
@@ -197,7 +196,7 @@ The baseline is CapTP 1.0 encoded in Syrup, the wire Goblins and the pinned
 suite speak:
 
 ```sh
-zig build ocapn-conformance  # five of the six upstream OCapN suite modules, against a glowcap peer
+zig build ocapn-conformance  # the portable upstream OCapN modules plus the strict abort probe, against a glowcap peer
 ```
 
 [The conformance manifest](https://github.com/glowcap-org/glowcap/blob/main/docs/ocapn-conformance.md)
@@ -243,7 +242,7 @@ Reference pages:
 The [protocol diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/README.md) draw each message
 flow, and the [decision records](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/README.md) explain why each
 design was chosen.
-[SECURITY.md](https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md) explains how to report a vulnerability.
+The [security policy](https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md) explains how to report a vulnerability.
 
 ## Corporate sponsorship
 

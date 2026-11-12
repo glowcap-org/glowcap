@@ -102,7 +102,7 @@ fn reentryBehavior(
     ok = ok and cd.glowcap_host_next_action(rc.host, &action) == inv;
     var adopted: u8 = 0;
     ok = ok and cd.glowcap_host_dialed(rc.host, 0, 0, rc.session, &adopted) == inv;
-    ok = ok and cd.glowcap_host_dial_failed(rc.host, 0, 0, "x", 1) == inv;
+    ok = ok and cd.glowcap_host_dial_failed(rc.host, 0, 0, @backingInt(c.RouteFailure.peer_unreachable), "x", 1) == inv;
     ok = ok and cd.glowcap_host_provide_gift_id(rc.host, 0, "x", 1) == inv;
     var new_session: ?*cd.GlowcapHostSession = null;
     ok = ok and openDialed(rc.host, "tcp", 3, "d", 1, &new_session) == inv;
@@ -338,7 +338,7 @@ test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-
     try pump(&hosts, &.{pair}, &dials, &watches);
     const worker_ref = try fetched.requireRef();
 
-    // The behavior returns and every wire quiesces, yet the answer is still status-allow: pending state or quoted runtime label
+    // The behavior returns and every wire quiesces, yet the answer is still
     // open: the deferral holds it for the resolver.
     var vow: u64 = 0;
     try expectOk(cd.glowcap_host_session_send(pair.a, &worker_ref, "work", 4, null, 0, &vow));

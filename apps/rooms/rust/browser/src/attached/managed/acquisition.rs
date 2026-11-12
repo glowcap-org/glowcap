@@ -5,6 +5,7 @@ use rooms_glowcap::client::{
 	Deadline,
 	workspace::{ResultAcquisition, ResultImport},
 };
+use rooms_runtime::Error as RuntimeError;
 use workspace::ImportRecipe as Incoming;
 pub(super) fn candidate(
 	expected: js_sys::JsString,
@@ -13,12 +14,13 @@ pub(super) fn candidate(
 ) -> Result<(u64, Vec<custody::Coordinate>, workspace::Intent)> {
 	let expected = revision(&scalar(expected, 20)?)?;
 	let releases = scalar(releases, 16384)?;
-	let releases: Vec<custody::Coordinate> = serde_json::from_str(&releases).map_err(|_| "Invalid custody releases")?;
+	let releases: Vec<custody::Coordinate> =
+		serde_json::from_str(&releases).map_err(|_| RuntimeError::invalid("Invalid custody releases"))?;
 	if releases.len() > rooms_application::content::session::records::FIELDS_PER_PAGE {
-		return Err("Custody releases exceed one page".into());
+		return Err(RuntimeError::invalid("Custody releases exceed one page"));
 	}
 	let intent = scalar(intent, custody::MAX_AUTHORITY_BYTES)?;
-	let intent = workspace::Intent::decode(&intent).map_err(|_| "Invalid workspace intent")?;
+	let intent = workspace::Intent::decode(&intent).map_err(|_| RuntimeError::invalid("Invalid workspace intent"))?;
 	Ok((expected, releases, intent))
 }
 #[wasm_bindgen]
@@ -26,7 +28,7 @@ impl RoomsManagedWorkspace {
 	#[wasm_bindgen(js_name = preparePresentationImport)]
 	pub fn prepare_presentation_import(&self, raw: js_sys::JsString) -> js_sys::Promise {
 		let input = scalar(raw, custody::MAX_AUTHORITY_BYTES)
-			.and_then(|raw| workspace::PresentationImport::decode(&raw).map_err(Into::into));
+			.and_then(|raw| workspace::PresentationImport::decode(&raw).map_err(RuntimeError::invalid));
 		let input = match input {
 			Ok(input) => input,
 			Err(error) => return rejected(error),
@@ -34,11 +36,11 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(custody::MAX_AUTHORITY_BYTES, move |_| async move {
-			let snapshot = workspace.snapshot().await.map_err(|error| error.to_string())?;
-			let intent = input.apply(&snapshot.intent)?;
+			let snapshot = workspace.snapshot().await.map_err(RuntimeError::from)?;
+			let intent = input.apply(&snapshot.intent).map_err(RuntimeError::invalid)?;
 			let request = workspace
 				.prepare_acquisition(snapshot.revision, Vec::new(), &[], &intent)
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = request.retained_bytes();
 			let request = driver.hold(request, bytes)?;
 			Ok(RoomsManagedAcquisition {
@@ -54,7 +56,7 @@ impl RoomsManagedWorkspace {
 		let input = (|| {
 			let expected = revision(&scalar(expected, 20)?)?;
 			let raw = scalar(raw, workspace::ConfigurationImport::MAX_BYTES)?;
-			let imported = workspace::ConfigurationImport::decode(&raw)?;
+			let imported = workspace::ConfigurationImport::decode(&raw).map_err(RuntimeError::invalid)?;
 			validate_recipes(&imported.imports)?;
 			Ok(((expected, Vec::new(), imported.intent), imported.imports, None))
 		})();
@@ -76,19 +78,21 @@ impl RoomsManagedWorkspace {
 			let source = source
 				.map(|raw| -> Result<custody::Coordinate> {
 					let raw = scalar(raw, 256)?;
-					let source = custody::Coordinate::decode(&raw).map_err(|_| "Invalid source coordinate")?;
+					let source = custody::Coordinate::decode(&raw)
+						.map_err(|_| RuntimeError::invalid("Invalid source coordinate"))?;
 					if source.role != custody::Role::SessionAccess {
-						return Err("An acquisition source must be session access".into());
+						return Err(RuntimeError::invalid("An acquisition source must be session access"));
 					}
 					Ok(source)
 				})
 				.transpose()?;
 			let raw = scalar(imports, 131072)?;
-			let imports: Vec<Incoming> = serde_json::from_str(&raw).map_err(|_| "Invalid custody acquisition")?;
+			let imports: Vec<Incoming> =
+				serde_json::from_str(&raw).map_err(|_| RuntimeError::invalid("Invalid custody acquisition"))?;
 			if imports.len() + usize::from(source.is_some())
 				> rooms_application::content::session::records::FIELDS_PER_PAGE
 			{
-				return Err("Custody acquisition exceeds one page".into());
+				return Err(RuntimeError::invalid("Custody acquisition exceeds one page"));
 			}
 			validate_recipes(&imports)?;
 			Ok((candidate, imports, source))
@@ -99,9 +103,11 @@ impl RoomsManagedWorkspace {
 pub(super) fn validate_recipes(imports: &[Incoming]) -> Result<()> {
 	for entry in imports {
 		if entry.coordinate.role.live() || entry.uri.len() > glowcap::loam::ReferenceRequest::MAX_URI_BYTES {
-			return Err("This acquisition requires a bounded durable capability recipe".into());
+			return Err(RuntimeError::invalid(
+				"This acquisition requires a bounded durable capability recipe",
+			));
 		}
-		glowcap::parse_sturdyref(&entry.uri, glowcap::CaptpVersion::V1_0).map_err(|e| e.to_string())?;
+		glowcap::parse_sturdyref(&entry.uri, glowcap::CaptpVersion::V1_0).map_err(RuntimeError::from)?;
 	}
 	Ok(())
 }
@@ -133,11 +139,12 @@ fn acquire(owner: &RoomsManagedWorkspace, input: Result<AcquisitionInput>) -> js
 					.platform
 					.within(
 						rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-						environment.runtime.host().enliven(&entry.uri),
+						environment.enliven(&entry.uri),
 					)
 					.await
-					.ok_or("Capability acquisition did not answer")?
-					.map_err(|e| e.to_string())?;
+					.ok_or_else(|| {
+						RuntimeError::from(rooms_glowcap::client::Error::Timeout("Capability acquisition"))
+					})??;
 				imports.push(Import {
 					coordinate: entry.coordinate,
 					reference,
@@ -147,14 +154,14 @@ fn acquire(owner: &RoomsManagedWorkspace, input: Result<AcquisitionInput>) -> js
 			workspace
 				.resolve_imported_rooms(&mut imports, &mut intent)
 				.await
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			workspace
 				.validate_room_authority_imports(&imports, &intent)
 				.await
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let acquisition = workspace
 				.prepare_acquisition(expected, imports, &releases, &intent)
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedAcquisition { driver, acquisition }.into())
@@ -243,9 +250,9 @@ pub(super) fn result_acquisition(
 		let candidate = candidate(expected, releases, intent)?;
 		let raw = scalar(mappings, 32768)?;
 		let pairs: Vec<[custody::Coordinate; 2]> =
-			serde_json::from_str(&raw).map_err(|_| "Invalid result selection")?;
+			serde_json::from_str(&raw).map_err(|_| RuntimeError::invalid("Invalid result selection"))?;
 		if pairs.len() > rooms_application::content::session::records::FIELDS_PER_PAGE {
-			return Err("Result selection exceeds one page".into());
+			return Err(RuntimeError::invalid("Result selection exceeds one page"));
 		}
 		let imports: Vec<_> = pairs
 			.into_iter()
@@ -260,9 +267,10 @@ pub(super) fn result_acquisition(
 	let source = match source
 		.map(|value| {
 			let value = scalar(value, 1024)?;
-			let coordinate = custody::Coordinate::decode(&value).map_err(|_| "Invalid worker source custody")?;
+			let coordinate = custody::Coordinate::decode(&value)
+				.map_err(|_| RuntimeError::invalid("Invalid worker source custody"))?;
 			if coordinate.role != custody::Role::SessionAccess {
-				return Err("Worker source must select session access".into());
+				return Err(RuntimeError::invalid("Worker source must select session access"));
 			}
 			Ok(coordinate.key.retag())
 		})
@@ -273,7 +281,7 @@ pub(super) fn result_acquisition(
 	};
 	let owner = driver.clone();
 	driver.submit(custody::MAX_AUTHORITY_BYTES + 32768, move |_| async move {
-		let request = prepare(expected, &imports, &releases, &intent, source).map_err(|e| e.to_string())?;
+		let request = prepare(expected, &imports, &releases, &intent, source).map_err(RuntimeError::from)?;
 		let bytes = request.retained_bytes();
 		let request = owner.hold(request, bytes)?;
 		Ok(RoomsManagedResultAcquisition { driver: owner, request }.into())

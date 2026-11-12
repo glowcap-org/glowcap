@@ -3,12 +3,25 @@
 //! A completion loop and a byte-fed Host each belong to one thread once a
 //! driver claims them, and each asserts that claim on every public mutation
 //! in the builds where the check is worth its cost. The policy for *when* to
-//! track is the owner's (the loop tracks under runtime safety, the Host on
-//! every non-freestanding target), and so is the thread id itself: this
-//! layer owns no threads, so each owner reads its own id and mints the token
-//! here, where the two cannot drift on what "this thread" means.
+//! track is the owner's (the loop tracks under runtime safety, a Host under
+//! its explicit checked policy). This layer owns no threads, so the raw
+//! thread id comes from the layer that does, and every owner mints its token
+//! here, where the owners cannot drift on what "this thread" means.
 
 const std = @import("std");
+
+/// Where an owner that may not read threads learns which thread is calling.
+/// The embedder that owns threads supplies it, and `read` returns the calling
+/// thread's raw OS id. The owner mints that id into a token with
+/// `OwnerThread.token`.
+pub const Reader = struct {
+    ctx: ?*anyopaque = null,
+    read: *const fn (?*anyopaque) u64,
+
+    pub fn token(self: Reader) u64 {
+        return OwnerThread(true).token(self.read(self.ctx));
+    }
+};
 
 /// The token vocabulary for one owner. With `tracks` false every member is
 /// `void` and the owner pays nothing. With it true the token is a thread id

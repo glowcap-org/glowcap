@@ -208,7 +208,7 @@ pub fn stageDial(
     const dialer = resident.dialer() orelse return Error.UnknownTransport;
     const request_id = try Internal.mintRuntimeId(&runtime.next_request);
     const origin: net.DialOrigin = switch (outcome) {
-        .redeem => |redeem| pendingDialOrigin(self, redeem.ticket, redeem.route_index),
+        .redeem => |redeem| try pendingDialOrigin(self, redeem.ticket, redeem.route_index),
         .operation, .listener_accept => .application,
     };
     var attempt = switch (dialer.startDial(
@@ -249,17 +249,12 @@ pub fn stageDial(
     self.pending_opens.appendAssumeCapacity(row);
 }
 
-/// The origin of a handoff dial: the designator the introducing session's
-/// partner signed, borrowed from that session for the start call. A closed
-/// or unverified introducer, or one that signed no designator, leaves the
-/// origin empty, and the provider decides what an offer without one means.
-fn pendingDialOrigin(self: *HostRuntime, ticket: u64, route_index: usize) net.DialOrigin {
-    const view = self.core.pendingDial(ticket, route_index) orelse return .application;
-    const peer = view.introducer orelse return .application;
-    const session = self.core.sessionForPeer(peer) orelse return .application;
-    const identity = self.core.partnerIdentity(session) catch return .application;
-    if (identity.designator.len == 0) return .application;
-    return .{ .introducer = identity.designator };
+/// The origin of a handoff dial, borrowed from the introducing session for
+/// the start call (`Host.pendingDialIntroducer`). An empty origin leaves the
+/// provider to decide what an offer without one means.
+fn pendingDialOrigin(self: *HostRuntime, ticket: u64, route_index: usize) !net.DialOrigin {
+    const designator = try self.core.pendingDialIntroducer(ticket, route_index) orelse return .application;
+    return .{ .introducer = designator };
 }
 
 pub fn handshakeDeadline(self: *const HostRuntime) ?i64 {
@@ -308,7 +303,7 @@ pub fn advancePendingOpens(self: *HostRuntime) !void {
         if (row.stage == .retry_wait) {
             // The handshake budget still owns the row's whole life: a wait
             // that outlives it fails the dial even though the interval has
-            // not yet elapsed. status-allow: pending state or quoted runtime label
+            // not yet elapsed.
             const now_ms = self.nowMs();
             if (row.deadline_ms) |deadline| {
                 if (now_ms >= deadline) {
@@ -383,7 +378,8 @@ fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
         .redeem => |redeem| {
             const adopted = self.core.exporterDialed(redeem.ticket, redeem.route_index, row.session) catch |err| {
                 try self.releaseWire(row.session);
-                try self.core.dialFailed(redeem.ticket, redeem.route_index, @errorName(err));
+                const failure = self.operationFailure(err);
+                try self.core.dialFailed(redeem.ticket, redeem.route_index, failure.routeFailure(), failure.chain.primaryName());
                 return err;
             };
             if (!adopted) {
@@ -415,7 +411,7 @@ fn failPendingOpenFailure(self: *HostRuntime, row: *PendingOpen, original_failur
             const obs = observation.observer;
             obs.failed(obs.ctx, observation.tag, failure);
         },
-        .redeem => |redeem| try self.core.dialFailed(redeem.ticket, redeem.route_index, failure.chain.primaryName()),
+        .redeem => |redeem| try self.core.dialFailed(redeem.ticket, redeem.route_index, failure.routeFailure(), failure.chain.primaryName()),
         .listener_accept => |observation| {
             const obs = observation.observer;
             obs.abandoned(obs.ctx, observation.tag);
@@ -526,13 +522,16 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !void {
         };
         break :blk view.locator;
     };
+    const origin: net.DialOrigin = switch (row.outcome) {
+        .redeem => |redeem| pendingDialOrigin(self, redeem.ticket, redeem.route_index) catch |err| {
+            pending.remove(&self.pending_opens, row);
+            return failPendingOpen(self, row, err);
+        },
+        .operation, .listener_accept => .application,
+    };
     // Resident dialers admit only inherited options, so the faithful
     // re-issue carries the same inherited shape the first attempt passed.
     row.dial_attempt = wait.attempt + 1;
-    const origin: net.DialOrigin = switch (row.outcome) {
-        .redeem => |redeem| pendingDialOrigin(self, redeem.ticket, redeem.route_index),
-        .operation, .listener_accept => .application,
-    };
     var attempt = switch (dialer.startDial(request_id, locator, .inherit, origin)) {
         .admitted => |attempt| attempt,
         .failed => |failure| return retryOrFailResidentDial(self, row, wait.resident, failure),
@@ -576,7 +575,7 @@ pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: 
         return failPendingOpen(self, row, err);
     };
     // The hello's flush action drained to a no-op while the wire did not
-    // exist yet; push the queued frame now that it does. status-allow: pending state or quoted runtime label
+    // exist yet; push the queued frame now that it does.
     const wire = self.wires.get(row.session.peer_handle).?;
     Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
 }

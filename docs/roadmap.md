@@ -35,12 +35,12 @@ for an earlier one to start, not to finish. A plan marked as waiting for
 review needs that review before its first step.
 
 1. **Promise projection and forwarding.** Resolve pending local answer
-   forwarding and local-only vow capabilities. Establish the required behavior from OCapN and
-   independent messages before changing the owning runtime. Done when calls
-   preserve their target, outcome, and required ordering through settlement,
-   with cancellation and release coverage. A wire restriction needs its
-   external rule and upstream dependency, not just an expected refusal in a
-   local test ([plan to plan](planning/plan-to-plan.md)).
+   forwarding and local-only vow capabilities. Establish the required behavior
+   from OCapN and independent messages before changing the owning runtime.
+   Done when calls preserve their target, outcome, and required ordering
+   through settlement, with cancellation and release coverage. A wire
+   restriction needs its external rule and upstream dependency, not just an
+   expected refusal in a local test ([plan to plan](planning/plan-to-plan.md)).
 2. **Adapter contract gaps.** Make Rust shutdown finish finalizer recovery or
    return an owned failure before its executor exits. Prove refused C releases
    cannot silently strand recovery. Support Unix-socket Tor endpoints
@@ -102,21 +102,21 @@ review needs that review before its first step.
    [effect contract](rooms/session-effects.md) describe the session that
    exists.
 10. **Interface definitions.** Prove one complete authored contract and useful
-   generated clients and server checks, including capabilities, promises,
-   ownership, and retained mutations. The
-   [interface plan](planning/interface-definitions.md) owns acceptance.
-   [ADR-0069](decisions/adr/ADR-0069-proposed-interface-language.md) recommends
-   one model, canonical Syrup descriptions, and a small authoring language.
-   Generation from Syrup precedes the frontend comparison and cost decision,
-   which must pass before complete Tasks migration.
-   Adoption requires the plan's Rooms-management, TypeScript,
-   and no-Zig consumer proofs before distribution and broader migrations.
+    generated clients and server checks, including capabilities, promises,
+    ownership, and retained mutations. The
+    [interface plan](planning/interface-definitions.md) owns acceptance.
+    [ADR-0069](decisions/adr/ADR-0069-proposed-interface-language.md) recommends
+    one model, canonical Syrup descriptions, and a small authoring language.
+    Generation from Syrup precedes the frontend comparison and cost decision,
+    which must pass before complete Tasks migration.
+    Adoption requires the plan's Rooms-management, TypeScript,
+    and no-Zig consumer proofs before distribution and broader migrations.
 
-   The bounded proof can run beside Rooms work, with protocol correctness
-   retaining priority.
+    The bounded proof can run beside Rooms work, with protocol correctness
+    retaining priority.
 
-   [Discovery](planning/interface-discovery.md) needs a concrete consumer and
-   separate review. Neither generation nor publication depends on it.
+    [Discovery](planning/interface-discovery.md) needs a concrete consumer and
+    separate review. Neither generation nor publication depends on it.
 11. **Hosted access C surface.** Bounded resource-tree operations and the
     owner lifecycle, create, open, retire, are reachable only from Zig. Project
     them through the C ABI over the existing Host, with Zig admission,
@@ -132,12 +132,14 @@ review needs that review before its first step.
     custody and recovery. Hosting builds on the Rooms plan's policy catalog
     and room-owned grants, so it starts after those land. Both contracts wait
     for maintainer review before implementation.
-13. **A failed dial keeps its cause.** When the shared session cannot reach a
-    directory, the page is told `PromiseBroken` and nothing more. The Host
-    settles the promise with a bare break, and the dial's own failure (no
-    route, a refused connection, an unfinished handshake) is not carried into
-    it. Carry the dial failure into the break at the Host, so every holder of
-    the promise reads the cause and the Rooms page can name a remedy
+13. **Name the linked Rust transport libraries for what they are.** The iroh
+    and WebRTC transports are Rust libraries linked in beside the Zig code,
+    and the code calls them sidecars, a word that usually means a separate
+    process. The name reaches exported `glowcap_iroh_sidecar_*` symbols,
+    build steps, file names, and
+    [ADR-0021](decisions/adr/ADR-0021-iroh-transport-sidecar.md). After 0.1.7,
+    choose one name that says a linked library, rename every use in one breaking change
+    with its changelog entry, and add no new use of the old word before then
     ([plan to plan](planning/plan-to-plan.md)).
 
 The [Loam guide](loam.md) covers the Loam foundation, its managed access
@@ -167,7 +169,7 @@ required for each release.
   package and consumer proof
   ([plan to plan](planning/plan-to-plan.md)).
 
-## Waiting on you
+## Waiting on the maintainer
 
 Each item is a maintainer action or a decision only the maintainer can make.
 None of them needs a plan until the decision is made.

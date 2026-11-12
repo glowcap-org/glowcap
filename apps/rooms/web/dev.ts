@@ -42,8 +42,44 @@ export function parseDevelopmentLaunch(args: string[]): DevelopmentLaunch {
 	return { web: args[0], port, args: args.slice(2) };
 }
 
+/** A value the person gave, as a server argument or as the backend's own
+ * `GLOWCAP_ROOMS_<OPTION>` variable, takes precedence over a development
+ * default. The backend owns validation, including duplicate flags and endpoint
+ * grammar.
+ *
+ * Browsers reach the backend through this front, so the address the backend
+ * names in its links and hands its shared session as its own relay is this
+ * front's `port`, or the address `GLOWCAP_ROOMS_DEV_HTTP_PUBLIC` says a
+ * container publishes that port at. */
+export function developmentBackendArguments(
+	args: readonly string[],
+	env: (name: string) => string | undefined,
+	port: number,
+): string[] {
+	const fallbacks: Record<string, string | undefined> = {
+		"http-public": `http://localhost:${port}/`,
+		"trace-connect": undefined,
+		"trace-publish": undefined,
+	};
+	const defaults: string[] = [];
+	for (const [option, fallback] of Object.entries(fallbacks)) {
+		const flag = `--${option}`;
+		const variable = option.replaceAll("-", "_").toUpperCase();
+		if (args.some((arg) => arg === flag || arg.startsWith(`${flag}=`))) continue;
+		// The backend reads an empty variable as absent, so this does too, for
+		// the backend's variable and for the development one.
+		const given = (name: string) => env(name) || undefined;
+		if (given(`GLOWCAP_ROOMS_${variable}`) != null) continue;
+		const value = given(`GLOWCAP_ROOMS_DEV_${variable}`) ?? fallback;
+		if (value != null) defaults.push(`${flag}=${value}`);
+	}
+	return ["--http-bind=127.0.0.1", "--http-port=0", "--no-browser-assets", ...defaults, ...args];
+}
+
+/** The backend's own listener, from the port it announces. Its `web ui` line
+ * names the address browsers use, which is this front's. */
 export function backendFromOutput(output: string): string | null {
-	const match = output.match(/(?:^|\n)\s*web ui\s+http:\/\/localhost:(\d+)(?:\r?\n|$)/);
+	const match = output.match(/(?:^|\n)ROOMS-WEB-LISTENING (\d+)(?:\r?\n|$)/);
 	if (match?.[1] == null) return null;
 	const port = Number(match[1]);
 	return Number.isInteger(port) && port > 0 && port <= 65_535 ? `http://127.0.0.1:${port}` : null;
@@ -104,12 +140,16 @@ async function mirrorAndFindBackend(
 	const decoder = new TextDecoder();
 	const encoder = new TextEncoder();
 	let pending = "";
+	let backend: string | null = null;
 	const write = async (line: string) => {
-		const backend = backendFromOutput(line);
-		if (backend != null) {
-			found.resolve(backend);
-			line = `  web server       ${backend} (internal)\n`;
+		const announced = backendFromOutput(line);
+		if (announced != null) {
+			backend = announced;
+			line = `rooms-dev: web server ${announced} (internal)\n`;
 		}
+		// Vite starts once the backend has printed its links and says it is
+		// ready, so no page loads from a backend that is still starting.
+		if (backend != null && line.trimEnd() === "rooms: ready") found.resolve(backend);
 		await Deno.stdout.write(encoder.encode(line));
 	};
 	try {
@@ -133,18 +173,16 @@ async function mirrorAndFindBackend(
 
 async function run(launch: DevelopmentLaunch): Promise<void> {
 	const backendChild = new Deno.Command(launch.web, {
-		args: [
-			"--http-bind=127.0.0.1",
-			"--http-port=0",
-			"--no-browser-assets",
-			...launch.args,
-		],
+		args: developmentBackendArguments(launch.args, (name) => Deno.env.get(name), launch.port),
 		stdin: "null",
 		stdout: "piped",
 		stderr: "inherit",
 	}).spawn();
 	const backend = Promise.withResolvers<string>();
 	const output = mirrorAndFindBackend(backendChild.stdout, backend);
+	const outputEnded = output.then(() => {
+		throw new Error("rooms-web closed its startup and status output");
+	});
 	const backendStatus = backendChild.status;
 	let viteChild: Deno.ChildProcess | null = null;
 	let viteStatus: Promise<Deno.CommandStatus> | null = null;
@@ -155,6 +193,7 @@ async function run(launch: DevelopmentLaunch): Promise<void> {
 	try {
 		const target = await Promise.race<string | null>([
 			backend.promise,
+			outputEnded,
 			backendStatus.then((result) => {
 				throw new Error(`rooms-web exited before its HTTP backend was ready (${result.code})`);
 			}),
@@ -175,6 +214,7 @@ async function run(launch: DevelopmentLaunch): Promise<void> {
 			viteStatus = viteChild.status;
 			await Promise.race([
 				signals.promise,
+				outputEnded,
 				backendStatus.then((result) => {
 					throw new Error(`rooms-web exited while Vite was serving (${result.code})`);
 				}),
@@ -204,7 +244,7 @@ async function run(launch: DevelopmentLaunch): Promise<void> {
 	try {
 		await output;
 	} catch (error) {
-		cleanup.push(error);
+		if (error !== failure) cleanup.push(error);
 	}
 	for (const signal of handledSignals) Deno.removeSignalListener(signal, stop);
 	if (failure != null && cleanup.length > 0) {

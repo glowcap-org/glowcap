@@ -136,7 +136,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
     }
 
     _ = docker.query(&.{ "version", "--format", "{{.Server.Version}}" }) catch |err| {
-        log.err(ctx.io, "Docker with Compose and a reachable daemon are required on this host", .{});
+        log.err(ctx.io, "Docker with Compose and a reachable daemon are required on this host. Start Docker, then rerun this command.", .{});
         return err;
     };
     _ = try docker.query(&.{ "compose", "version" });

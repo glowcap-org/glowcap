@@ -139,6 +139,7 @@ pub const RoutingVerifier = struct {
             self.gifter_key;
         if (signature.len != crypto.signature_bytes) return false;
         const sig = crypto.Signature.fromBytes(signature[0..crypto.signature_bytes].*);
+        // tolerant: every verify error names a signature that does not hold, which is this callback's false.
         crypto.verify(key, payload, sig) catch return false;
         return true;
     }

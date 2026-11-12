@@ -4,11 +4,16 @@
 # devcontainer and Rooms deploy base images, Zig packages (build.zig.zon), Mbed
 # TLS, and the conformance submodules move through their own owners and are not
 # watched here. Every update waits a week after its release, so a version pulled
-# or compromised in its first days never reaches a pull request.
+# or compromised in its first days never reaches a pull request. Each committed
+# lockfile's directory is listed under its ecosystem (ci/dependabot_test.py).
 version: 2
 updates:
+  # Dependabot reads the workflows from the root and each composite action
+  # from its own directory.
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /.github/actions/*
     cooldown:
       default-days: 7
     schedule:
@@ -24,10 +29,13 @@ updates:
       - /apps/tasks/rust
       - /apps/tools/rust
       - /bench/capnp/rust
+      - /bench/interface
       - /bench/langs/clients/rust_bench
       - /bindings/proofs/loam_browser/rust
       - /bindings/rust
       - /bindings/rust/relay
+      - /tools/interface/authoring/capnp
+      - /tools/interface/authoring/capnp/e2e
       - /transports
     cooldown:
       default-days: 7
@@ -41,6 +49,7 @@ updates:
   - package-ecosystem: uv
     directories:
       - /bindings/python
+      - /ci
       - /conformance/ocapn-conformance
     cooldown:
       default-days: 7
@@ -49,4 +58,22 @@ updates:
     open-pull-requests-limit: 2
     groups:
       python:
+        patterns: ["*"]
+
+  # Playwright's npm package moves with its browser build, which pins.sh owns.
+  - package-ecosystem: deno
+    directories:
+      - /
+      - /apps/ocapnviz
+      - /apps/rooms
+      - /bindings/ts
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: playwright
+    groups:
+      deno:
         patterns: ["*"]

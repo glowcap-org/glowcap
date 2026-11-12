@@ -1,7 +1,9 @@
 //! One held workspace observation drives membership realization without polling.
 //! The session retains the actual task through exact cancellation and retry.
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use super::{Membership, MembershipReceiver, MembershipReport, MembershipTarget, Memberships, Session, supervision};
-use glowcap::{Ref, Result, loam};
+use glowcap::{Ref, loam};
 use rooms_glowcap::client::{
 	Deadline, Tasks,
 	access::{Observation, ObservationRequest},
@@ -32,7 +34,7 @@ impl Refresh {
 			.generation
 			.get()
 			.checked_add(1)
-			.ok_or_else(|| loam::refusal("discovery refresh identity exhausted"))?;
+			.ok_or_else(|| Error::exhausted("discovery refresh identity exhausted"))?;
 		self.generation.set(next);
 		self.wake.notify_one();
 		Ok(())
@@ -74,14 +76,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		report: impl FnMut(Result<&MembershipReport>) + 'static,
 	) -> Result<WorkspaceActivity<P>> {
 		if self.state.closing.get() {
-			return Err(loam::refusal("Session is closing"));
+			return Err(Error::closed("Session is closing"));
 		}
 		if locator.len() > 16384 {
-			return Err(loam::refusal("Workspace locator exceeds its bound"));
+			return Err(Error::invalid("Workspace locator exceeds its bound"));
 		}
 		let id = "workspace-observation";
 		if self.state.workspace_observers.contains(id) {
-			return Err(loam::refusal("Workspace realization is already active"));
+			return Err(Error::busy("Workspace realization is already active"));
 		}
 		let session = std::rc::Rc::downgrade(&self.state);
 		let workspace = Workspace::local(
@@ -126,7 +128,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					_ = worker.run() => {},
 				}
 				if worker.signals.ready.borrow().is_none() {
-					worker.signals.ready.send_replace(Some(Err(loam::refusal(
+					worker.signals.ready.send_replace(Some(Err(Error::closed(
 						"Workspace realization closed before readiness",
 					))));
 				}
@@ -172,7 +174,7 @@ struct Worker<P: Tasks + Deadline + Clone + 'static, E, F, R> {
 /// `cleanup` cancels whichever phase was reached.
 enum Watch<P: Tasks + Deadline + Clone + 'static> {
 	Idle,
-	Requested(ObservationRequest),
+	Requested(Box<ObservationRequest>),
 	Observing(Observation<P>),
 	Polled {
 		observation: Observation<P>,
@@ -188,9 +190,6 @@ impl<P: Tasks + Deadline + Clone + 'static> Watch<P> {
 			other => other,
 		};
 	}
-}
-fn error(error: rooms_glowcap::client::Error) -> glowcap::Error {
-	loam::refusal(error.to_string())
 }
 impl<P, E, F, R> Worker<P, E, F, R>
 where
@@ -211,20 +210,20 @@ where
 					Ok(sequence) => {
 						let mut identity = [0; 16];
 						if let Err(failure) = self.entropy.fill(&mut identity) {
-							self.fail(loam::refusal(failure.to_string()));
+							self.fail(Error::platform_message(failure.to_string()));
 							self.retry().await;
 							continue;
 						}
 						match ObservationRequest::new_live(sequence, identity) {
-							Ok(request) => self.watch = Watch::Requested(request),
+							Ok(request) => self.watch = Watch::Requested(Box::new(request)),
 							Err(failure) => {
-								self.fail(error(failure));
+								self.fail(Error::from(failure));
 								self.retry().await;
 							}
 						}
 					}
 					Err(failure) => {
-						self.fail(error(failure));
+						self.fail(Error::from(failure));
 						self.retry().await;
 					}
 				},
@@ -233,7 +232,7 @@ where
 					break;
 				}
 				Some(Err(failure)) => {
-					self.fail(error(failure));
+					self.fail(Error::from(failure));
 					self.retry().await;
 				}
 			}
@@ -242,7 +241,7 @@ where
 			match observation.poll(None).await {
 				Ok(state) => self.watch.polled(*state.view().cursor),
 				Err(failure) => {
-					self.fail(error(failure));
+					self.fail(Error::from(failure));
 					self.retry().await;
 				}
 			}
@@ -278,7 +277,7 @@ where
 						return;
 					};
 					let Some(state) = self.session.upgrade() else {
-						self.fail(loam::refusal("Workspace session owner has closed"));
+						self.fail(Error::closed("Workspace session owner has closed"));
 						return;
 					};
 					let session = Session { state };
@@ -288,7 +287,7 @@ where
 						change = self.pending_receive.next(observation, cursor) => {
 							match change {
 								Ok(state) => self.watch.polled(*state.view().cursor),
-								Err(failure) => { self.fail(error(failure)); self.retry().await; }
+								Err(failure) => { self.fail(Error::from(failure)); self.retry().await; }
 							}
 							None
 						},
@@ -318,12 +317,12 @@ where
 						self.recovery_delay = 200;
 					}
 				}
-				Err(failure) => self.fail(error(failure)),
+				Err(failure) => self.fail(Error::from(failure)),
 			}
 			self.changed().await;
 		}
 	}
-	fn fail(&mut self, failure: glowcap::Error) {
+	fn fail(&mut self, failure: crate::Error) {
 		self.signals.ready.send_replace(Some(Err(failure.clone())));
 		(self.report)(Err(failure));
 	}
@@ -353,7 +352,7 @@ where
 		match result {
 			Ok(state) => self.watch.polled(*state.view().cursor),
 			Err(failure) => {
-				self.fail(error(failure));
+				self.fail(Error::from(failure));
 				self.retry().await;
 			}
 		}
@@ -363,15 +362,15 @@ where
 		let discovery = self.discovery.close().await;
 		let members = match members {
 			Ok(()) => discovery,
-			Err(error) => Err(error.with_cleanup(discovery)),
+			Err(error) => Err(crate::cleanup::failed(error, discovery)),
 		};
 		let observation = async {
 			if let Watch::Requested(request) = &self.watch {
-				let observation = self.workspace.observe(request).await.map_err(error)?;
+				let observation = self.workspace.observe(request).await.map_err(Error::from)?;
 				self.watch = Watch::Observing(observation);
 			}
 			if let Watch::Observing(observation) | Watch::Polled { observation, .. } = &self.watch {
-				observation.cancel().await.map_err(error)?;
+				observation.cancel().await.map_err(Error::from)?;
 				self.pending_receive.drain().await;
 				self.watch = Watch::Idle;
 			}
@@ -380,7 +379,7 @@ where
 		.await;
 		match members {
 			Ok(()) => observation,
-			Err(failure) => Err(failure.with_cleanup(observation)),
+			Err(failure) => Err(crate::cleanup::failed(failure, observation)),
 		}
 	}
 }

@@ -37,7 +37,7 @@ Deno.test("resolveGesture is total over (every surface × every tool)", () => {
 
 // ─────────────────────── Spacebar wins ──────────────────────
 
-Deno.test("spaceHeld → tier=space-pan regardless of surface/tool/modifier", () => {
+Deno.test("spaceHeld resolves to tier=space-pan regardless of surface, tool, or modifier", () => {
 	for (const surface of ALL_SURFACES) {
 		for (const tool of ALL_TOOLS) {
 			const r = resolveGesture(
@@ -58,7 +58,7 @@ Deno.test("spaceHeld → tier=space-pan regardless of surface/tool/modifier", ()
 
 // ─────────────────────── Hand tool wins after Space ───────────────────
 
-Deno.test("Hand tool → tier=hand-tool regardless of surface/modifier", () => {
+Deno.test("the Hand tool resolves to tier=hand-tool regardless of surface or modifier", () => {
 	for (const surface of ALL_SURFACES) {
 		const r = resolveGesture(
 			ctx({
@@ -85,7 +85,7 @@ Deno.test("Select tool with no modifier returns the default verb", () => {
 
 // ─────────────────────── Modifiers veto tool-create ──────────────
 
-Deno.test("Add Peer + Shift → falls through to default (no tool-create)", () => {
+Deno.test("Add Peer with Shift falls through to the default and does not create a tool", () => {
 	const r = resolveGesture(
 		ctx({
 			hit: dummyHit("stage-empty"),
@@ -96,7 +96,7 @@ Deno.test("Add Peer + Shift → falls through to default (no tool-create)", () =
 	assert(r.tier !== "tool-create", `expected non-tool-create, got ${r.tier}`);
 });
 
-Deno.test("Open Session + Cmd on peer → surface default", () => {
+Deno.test("Open Session with Cmd on a peer resolves to the surface default", () => {
 	const hit = dummyHit("stage-peer", { peerId: "alice" });
 	const r = resolveGesture(
 		ctx({
@@ -113,7 +113,7 @@ Deno.test("Open Session + Cmd on peer → surface default", () => {
 
 // ─────────────────────── Tool-create paths ────────────────────────────
 
-Deno.test("Add Peer on empty stage → create-peer-at", () => {
+Deno.test("Add Peer on the empty stage resolves to create-peer-at", () => {
 	const r = resolveGesture(
 		ctx({ hit: dummyHit("stage-empty"), activeTool: "add-peer" }),
 	);
@@ -121,7 +121,7 @@ Deno.test("Add Peer on empty stage → create-peer-at", () => {
 	if (r.tier === "tool-create") assertEquals(r.verb.kind, "create-peer-at");
 });
 
-Deno.test("Add Peer on a peer (wrong surface) → falls through to default", () => {
+Deno.test("Add Peer on a peer (the wrong surface) falls through to the default", () => {
 	const r = resolveGesture(
 		ctx({ hit: dummyHit("stage-peer"), activeTool: "add-peer" }),
 	);
@@ -320,6 +320,6 @@ Deno.test("Timeline ruler always resolves to scrub (tool doesn't override)", () 
 Deno.test("surfaceDefault is total on SurfaceId", () => {
 	for (const surface of ALL_SURFACES) {
 		const verb = surfaceDefault(dummyHit(surface));
-		assert(verb.kind, `${surface} → no default verb`);
+		assert(verb.kind, `${surface} has no default verb`);
 	}
 });

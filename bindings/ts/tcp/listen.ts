@@ -18,13 +18,18 @@ import {
 } from "@glowcap/runtime/transport";
 import type { Codec } from "@glowcap/runtime/transport";
 import { addressDesignator } from "./address.ts";
-import { type Config, installProvider as installTcpProvider } from "./transport.ts";
-import { INVALID_ARGUMENT } from "@glowcap/abi";
+import {
+	installProvider as installTcpProvider,
+	type Profile,
+	type ProfileValue,
+	type StreamOptions,
+} from "./transport.ts";
+import { INVALID_ARGUMENT, TCP_PROFILE_KEYED_TCP, TCP_PROFILE_NOISE_TCP, TCP_PROFILE_TCP } from "@glowcap/abi";
 
 /** Configure a TCP listener and the Host shared by its accepted sessions. */
 export interface ListenOptions {
-	/** Defaults inherited by every TCP stream admitted through this provider. */
-	readonly config?: Config;
+	/** Socket options inherited by every TCP stream this listener admits. */
+	readonly stream?: StreamOptions;
 	/** Dialable address to sign when the socket binds a wildcard interface. */
 	readonly advertisedHost?: string;
 	/** Cancel listener construction before the driver reports readiness. */
@@ -108,10 +113,12 @@ function dialableSocketAddress(boundAddress: string, advertisedHost?: string): s
 	return advertisedHost == null ? boundAddress : addressDesignator(advertisedHost, port);
 }
 
-/** Bind plain TCP through the generic driver. A supplied Host is transferred
- * before binding, preserving that wrapper as the server's Host authority. */
+/** Bind one TCP profile through the generic driver, with a provider that
+ * registers only that profile. A supplied Host is transferred before binding,
+ * preserving that wrapper as the server's Host authority. */
 function listenProfile(
-	transport: string,
+	transport: Profile,
+	profile: ProfileValue,
 	bindHost: string,
 	port: number,
 	options: ListenOptions,
@@ -122,7 +129,7 @@ function listenProfile(
 		seed,
 		codec: options.codec,
 		async open(loop, adopt, ownedLoop) {
-			installTcpProvider(loop, options.config);
+			installTcpProvider(loop, { stream: options.stream, profiles: [profile] });
 			const listener = adopt(
 				await DriverListener.open(loop, transport, addressDesignator(bindHost, port), options.signal),
 			);
@@ -137,7 +144,7 @@ export function listen(
 	port: number,
 	options: ListenOptions = {},
 ): Promise<Server> {
-	return listenProfile(TRANSPORT_TCP, bindHost, port, options);
+	return listenProfile(TRANSPORT_TCP, { profile: TCP_PROFILE_TCP }, bindHost, port, options);
 }
 
 /** Bind a driver-loop `noise-tcp` server. Reuse the optional 32-byte `seed`
@@ -148,7 +155,14 @@ export function listenNoise(
 	port: number,
 	options: KeyedListenOptions = {},
 ): Promise<Server> {
-	return listenProfile(TRANSPORT_NOISE_TCP, bindHost, port, options, options.seed);
+	return listenProfile(
+		TRANSPORT_NOISE_TCP,
+		{ profile: TCP_PROFILE_NOISE_TCP },
+		bindHost,
+		port,
+		options,
+		options.seed,
+	);
 }
 
 export function listenKeyed(
@@ -156,5 +170,12 @@ export function listenKeyed(
 	port: number,
 	options: KeyedListenOptions = {},
 ): Promise<Server> {
-	return listenProfile(TRANSPORT_KEYED_TCP, bindHost, port, options, options.seed);
+	return listenProfile(
+		TRANSPORT_KEYED_TCP,
+		{ profile: TCP_PROFILE_KEYED_TCP },
+		bindHost,
+		port,
+		options,
+		options.seed,
+	);
 }

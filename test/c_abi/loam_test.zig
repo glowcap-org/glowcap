@@ -9,6 +9,7 @@ const callbacks = @import("loam_callbacks.zig");
 
 test {
     _ = @import("loam_attach.zig");
+    _ = @import("loam_live_release.zig");
     _ = @import("loam_sqlite.zig");
     _ = @import("loam_volatile.zig");
 }
@@ -420,9 +421,10 @@ fn checkSaveQuota(owner: *c.embedding.Attachment, reference: shared.GlowcapRefer
     }
     // Completed proofs still own custody and count against the configured
     // ceiling. The former unprojected default refused the 65th proof.
-    const refused = refs.beginSave(owner.value, std.testing.allocator, held, null);
-    defer if (refused) |save| save.deinit() else |_| {};
-    try std.testing.expectError(error.ReferenceCapacity, refused);
+    if (refs.beginSave(owner.value, std.testing.allocator, held, null)) |save| {
+        save.deinit();
+        return error.TestUnexpectedResult;
+    } else |err| try std.testing.expectEqual(error.ReferenceCapacity, err);
 }
 
 test "Loam C validates managed and save capacities before opening storage" {

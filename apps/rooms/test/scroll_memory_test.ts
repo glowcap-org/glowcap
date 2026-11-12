@@ -1,7 +1,13 @@
 // Scroll memory remains bounded to the most recently visited workspace positions.
-import { MAX_WORKSPACE_CONVERSATIONS } from "../lib/rooms_state.ts";
+import { SESSION_CONTENT } from "../lib/session_content_data.ts";
 import { ScrollMemory } from "../web/ui/scroll_memory.ts";
 import { assert } from "./assert.ts";
+import { initializeApplication } from "./support/application.ts";
+
+// The ceiling is the Rust workspace's, which the page asks the application for.
+await initializeApplication();
+
+const MAX_WORKSPACE_CONVERSATIONS = SESSION_CONTENT.limits.conversations;
 
 Deno.test("scroll memory keeps only the most recently visited workspace", () => {
 	const memory = new ScrollMemory();

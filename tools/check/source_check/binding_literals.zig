@@ -82,7 +82,7 @@ pub fn check(
         // Grammar helpers live in locator modules; connection modules import them.
         // Socket-address spelling lives below transport packages, never in the
         // generic OCapN locator or session modules. Hint→host:port for dial is
-        // still core `planDial` / `tcpConnectHostPort` (ADR-0029).
+        // still core `planDial` / `connectHostPort` (ADR-0029).
         const locator_grammar_home = [_]struct {
             connection: []const u8,
             owner: []const u8,

@@ -3,7 +3,7 @@
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
-import { refusalText } from "../../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 
 export async function editLine(
 	page: RoomsPageContext,
@@ -17,11 +17,11 @@ export async function editLine(
 	const row = store.getConv(projection, key);
 	const item = store.historyOf(projection, key).find((line) => line.id === id);
 	if (row == null || row.type === "directory" || item?.kind !== "chat" || item.lineId == null || !item.held) {
-		throw new Error("The original line authority is no longer held");
+		throw new LocalRefusal("message-gone");
 	}
 	if (item.pendingEdit != null) {
 		if (item.pendingEdit.text !== text) {
-			throw new Error("Finish or recover the original edit before changing this line again");
+			throw new LocalRefusal("message-edit-unfinished");
 		}
 		await session.completeOperation(item.pendingEdit.operation);
 		return;

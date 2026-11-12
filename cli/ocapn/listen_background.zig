@@ -134,7 +134,7 @@ fn isSessionFailure(err: anyerror) bool {
     // a new pump error cannot silently become listener-fatal here.
     return switch (driver.OperationFailure.classify(err)) {
         .timeout, .closed, .session, .malformed, .frame_too_large, .io => true,
-        .invalid_argument, .would_block, .internal => false,
+        .invalid_argument, .not_found, .would_block, .internal => false,
     };
 }
 

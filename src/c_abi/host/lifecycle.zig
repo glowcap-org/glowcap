@@ -74,16 +74,16 @@ pub fn state(host: ?*c.GlowcapHost, out_state: ?*u32) i32 {
 }
 
 pub fn release(host: ?*c.GlowcapHost) i32 {
-    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_OK;
+    const inst = instance.instanceFrom(host) orelse return shared.ReleaseResult.consumed(shared.GLOWCAP_OK).raw();
     if (inst.drive_owner == .driver) {
         shared.setLastError("host: release refused because the driver owns this host", .{});
-        return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+        return shared.ReleaseResult.retained(shared.GLOWCAP_ERR_INVALID_ARGUMENT).raw();
     }
-    inst.core.checkReleaseOwnershipTransfer() catch |err| return host_error.errToCode(err);
+    inst.core.checkReleaseOwnershipTransfer() catch |err| return shared.ReleaseResult.retained(host_error.errToCode(err)).raw();
     c.embedding.checkAttachmentsReleased(host) catch {
         shared.setLastError("host: release refused while storage attachments borrow this host", .{});
-        return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+        return shared.ReleaseResult.retained(shared.GLOWCAP_ERR_INVALID_ARGUMENT).raw();
     };
-    if (instance.releaseInstance(inst)) |failure| return host_error.errToCode(failure);
-    return shared.GLOWCAP_OK;
+    if (instance.releaseInstance(inst)) |failure| return shared.ReleaseResult.consumed(host_error.errToCode(failure)).raw();
+    return shared.ReleaseResult.consumed(shared.GLOWCAP_OK).raw();
 }

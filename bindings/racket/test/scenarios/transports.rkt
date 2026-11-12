@@ -1,7 +1,8 @@
 #lang racket/base
 ;; One family of the Racket binding's test suite, loadable on its own.
 
-(require "prelude.rkt")
+(require racket/async-channel
+         "prelude.rkt")
 
 ;; ── À-la-carte transports: one round-trip over each composable transport module ─
 ;; Each transport archive ships as its own composable module (`glowcap-tcp.rkt`,
@@ -131,6 +132,63 @@
       (cdr settled)
       settled))
 
+;; ── A callback failure never unwinds through C ───────────────────────────────
+;; A reply the binding cannot encode is a binding failure, not a behavior
+;; result. The hosted callback latches it and hands C a refusal code, so the
+;; core finishes the feed and settles the turn, and the feed that ran the
+;; callback raises the exact cause. The partner's call then breaks, and the
+;; serving Host still drains and closes, which a feed abandoned mid-call by a
+;; raise through the C frame would not.
+(define (^unencodable _bcom)
+  (methods [(unencodable) (make-hash)]))
+(define (callback-failure-reaches-the-feed)
+  (define chost (make-fresh-host))
+  (define shost (make-fresh-host))
+  (define to-server (make-async-channel))
+  (define to-client (make-async-channel))
+  (define ((frame-reader ch)) (or (sync/timeout 10 ch) eof))
+  (define client-read (frame-reader to-client))
+  (define server-read (frame-reader to-server))
+  (define client-session
+    (open-dialed-over chost "tcp" (tcp-address-designator "127.0.0.1" 1)
+                      (connection-transport client-read
+                                            (lambda (f) (async-channel-put to-server f)))))
+  (drain-host! chost)
+  (define server-session
+    (open-accepted-over shost "tcp" (tcp-address-designator "127.0.0.1" 1)
+                        (connection-transport server-read
+                                              (lambda (f) (async-channel-put to-client f)))
+                        #:designator-scheme DESIGNATOR-SCHEME-ADDRESS))
+  (drain-host! shost)
+  (run-handshake! server-session #f)
+  (run-handshake! client-session #f)
+  (session-publish server-session "bad" ^unencodable)
+  (define fetched (scripted-fetch! client-session "bad"))
+  (session-flush! client-session)
+  (feed-next! server-session server-read)
+  (session-flush! server-session)
+  (feed-next! client-session client-read)
+  (define bad-ref (cdr (session-vow-state fetched)))
+  (define vow (session-far-send client-session bad-ref 'unencodable '() #t))
+  (drain-host! chost)
+  (session-flush! client-session)
+  (define raised
+    (with-handlers ([exn:fail? values])
+      (let feed ()
+        (feed-next! server-session server-read)
+        (if (eq? 'pending (session-vow-state vow))
+            (feed)
+            #f))))
+  (drain-host! shost)
+  (session-close! server-session)
+  (session-close! client-session)
+  raised)
+(define cb-raised (callback-failure-reaches-the-feed))
+(expect (and (exn:fail:glowcap? cb-raised)
+             (= (exn:fail:glowcap-code cb-raised) ERR-UNSUPPORTED-VALUE))
+        (format "callback failure: the feed raises the exact encode failure, got ~e" cb-raised))
+(printf "racket test OK: a hosted callback failure returns a code to C and reaches its feed\n")
+
 ;; libglowcap_net_transport_inproc: the socket-free netlayer. A listener binds a
 ;; string designator; a dialer names it. The listener adds only a wake descriptor
 ;; so a Racket green thread can park without freezing the place.
@@ -239,27 +297,65 @@
     (or (find-executable-path named)
         (error 'start-fake-tor "cannot locate the racket executable ~a" named))))
 
-;; Start the fake daemon and return its two endpoints, the box its records
-;; accumulate in, and a thunk that stops it.
+;; One daemon serves the whole suite: a Racket child costs a process start,
+;; and the scenarios below need ten. Its drain thread copies every record into
+;; each open view. This thread is stopped for the duration of every blocking
+;; onion call, which is why the records it collects are only ever read between
+;; them. The plumber kills the child when this place exits.
+(define fake-tor-views (box '()))
+(define fake-tor-endpoints #f)
+(define fake-tor-marks 0)
+
+(define (fake-tor-daemon)
+  (unless fake-tor-endpoints
+    (define-values (proc pout pin _perr)
+      (subprocess #f #f (current-error-port)
+                  racket-exe "-y" (path->string fake-tor-path)))
+    (close-output-port pin)
+    (void (plumber-add-flush! (current-plumber)
+                              (lambda (_handle) (subprocess-kill proc #t))))
+    (define boot (box '()))
+    (set-box! fake-tor-views (list boot))
+    (thread (lambda ()
+              (let loop ()
+                (define line (read-line pout 'any))
+                (unless (eof-object? line)
+                  (for ([view (in-list (unbox fake-tor-views))])
+                    (set-box! view (cons line (unbox view))))
+                  (loop)))))
+    (set! fake-tor-endpoints
+          (cons (await-record boot #rx"^control (.*)$")
+                (await-record boot #rx"^socks (.*)$")))
+    (set-box! fake-tor-views '()))
+  fake-tor-endpoints)
+
+;; Open a view on the shared daemon and return its two endpoints, the box this
+;; view's records accumulate in, and a thunk that closes the view. The view
+;; starts at a marker the daemon itself reports, so a record another scenario
+;; produced never lands in this one, whenever the drain thread reads it.
 (define (start-fake-tor)
-  (define-values (proc pout pin perr)
-    (subprocess #f #f (current-error-port)
-                racket-exe "-y" (path->string fake-tor-path)))
-  (close-output-port pin)
+  (define endpoints (fake-tor-daemon))
+  (define control (car endpoints))
   (define seen (box '()))
-  ;; Drains the daemon's stdout so a full pipe can never stall it. This thread is
-  ;; stopped for the duration of every blocking onion call, which is why the records
-  ;; it collects are only ever read between them.
-  (thread (lambda ()
-            (let loop ()
-              (define line (read-line pout 'any))
-              (unless (eof-object? line)
-                (set-box! seen (cons line (unbox seen)))
-                (loop)))))
-  (values (await-record seen #rx"^control (.*)$")
-          (await-record seen #rx"^socks (.*)$")
+  (set-box! fake-tor-views (cons seen (unbox fake-tor-views)))
+  (set! fake-tor-marks (add1 fake-tor-marks))
+  (define mark (format "line MARK ~a" fake-tor-marks))
+  (define parts (regexp-match #rx"^(.*):([0-9]+)$" control))
+  (define-values (in out) (tcp-connect (cadr parts) (string->number (caddr parts))))
+  (fprintf out "MARK ~a\r\n" fake-tor-marks)
+  (flush-output out)
+  (void (read-line in 'any))
+  (close-output-port out)
+  (close-input-port in)
+  (await-record seen (regexp (string-append "^(" (regexp-quote mark) ")$")))
+  (set-box! seen
+            (let newer ([lines (unbox seen)])
+              (if (equal? (car lines) mark) '() (cons (car lines) (newer (cdr lines))))))
+  (values control
+          (cdr endpoints)
           seen
-          (lambda () (subprocess-kill proc #t))))
+          (lambda ()
+            (set-box! fake-tor-views (remq seen (unbox fake-tor-views))))))
 
 ;; The generic driver retains the package callback context after the onion
 ;; constructor reference is dropped by the transport-owned installer.

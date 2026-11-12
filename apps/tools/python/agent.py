@@ -2,7 +2,9 @@
 coordinator (which may be written in any language) and proves the three
 capability properties — delegation, attenuation, revocation — over the wire.
 
-    python3 agent.py 127.0.0.1 9099 py-agent
+    python3 agent.py <locator> py-agent
+
+The locator is the ``ocapn://`` URI the coordinator printed.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from tools_check import make_check
 
 add_bindings_path()
 
-from glowcap import Runtime, VowBroken, tcp  # noqa: E402
+from glowcap import Runtime, VowBroken, parse_locator, tcp  # noqa: E402
 
 TOOLS = "tools"
 GRANT, GRANT_REVOCABLE, REVOKE_LAST = "grant", "grant-revocable", "revoke-last"
@@ -25,10 +27,10 @@ NOW, READ, WRITE = "now", "read", "write"
 
 
 async def main() -> None:
-    if len(sys.argv) < 4:
-        print("usage: agent.py <host> <port> <nick>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print("usage: agent.py <locator> <nick>", file=sys.stderr)
         sys.exit(2)
-    host, port, nick = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+    locator, nick = sys.argv[1], sys.argv[2]
 
     check = make_check(nick)
 
@@ -40,7 +42,7 @@ async def main() -> None:
             return True
 
     async with Runtime.open(providers=[tcp.provider()]) as runtime:
-        session = await runtime.connect(tcp.locator(host, port))
+        session = await runtime.connect(parse_locator(locator))
         session.serve()
         tools = await session.fetch(TOOLS)
 

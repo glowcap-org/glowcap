@@ -34,7 +34,12 @@ pub fn fileContains(
     path: []const u8,
     needle: []const u8,
 ) !bool {
-    const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch return false;
+    // An absent file contains nothing. Any other read failure is returned, so
+    // a forbid never passes over a file it could not read.
+    const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
     defer gpa.free(contents);
     return std.mem.indexOf(u8, contents, needle) != null;
 }
@@ -127,7 +132,7 @@ pub fn extractBraceBlock(text: []const u8, marker: []const u8) ?[]const u8 {
 /// character is part of an identifier, so a needle spelled with trailing
 /// punctuation (`"return sendLocal("`) still matches.
 ///
-/// A needle that begins with an identifier character no longer matches mid- status-allow: lifecycle transition
+/// A needle that begins with an identifier character never matches mid-
 /// identifier, so `"tell_local("` is not found inside `"run_tell_local("`. Spell
 /// such a needle with whatever precedes it when that is what you meant.
 pub fn containsAsSymbol(haystack: []const u8, needle: []const u8) bool {
@@ -152,6 +157,47 @@ pub fn isIdentChar(byte: u8) bool {
 /// Whether `byte` can begin an identifier.
 pub fn isIdentStart(byte: u8) bool {
     return std.ascii.isAlphabetic(byte) or byte == '_';
+}
+
+/// Blank every `//` comment in Zig source in place, keeping byte offsets so
+/// reported line numbers still point at the right place. Zig has no block
+/// comments. A `//` inside a string or character literal is not a comment, so
+/// a locator such as `"tcp://host"` survives.
+pub fn blankComments(src: []u8) void {
+    var i: usize = 0;
+    while (i < src.len) {
+        switch (src[i]) {
+            '"', '\'' => |quote| {
+                i += 1;
+                while (i < src.len and src[i] != quote) : (i += 1) {
+                    if (src[i] == '\\') i += 1;
+                }
+                i += 1;
+            },
+            '/' => {
+                if (i + 1 < src.len and src[i + 1] == '/') {
+                    while (i < src.len and src[i] != '\n') : (i += 1) src[i] = ' ';
+                } else i += 1;
+            },
+            else => i += 1,
+        }
+    }
+}
+
+test "blankComments erases comments without mistaking a locator for one" {
+    var src = "a // gone\n.handshake = .{ .ms = 1 },".*;
+    blankComments(&src);
+    try std.testing.expect(std.mem.indexOf(u8, &src, "gone") == null);
+    try std.testing.expect(std.mem.indexOf(u8, &src, ".handshake = .{ .ms = 1 }") != null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, &src, "\n"));
+
+    var uri = "\"tcp://host\", .{ .handshake = .{ .ms = 9 } }".*;
+    blankComments(&uri);
+    try std.testing.expectEqualStrings("\"tcp://host\", .{ .handshake = .{ .ms = 9 } }", &uri);
+
+    var commented = "// .handshake = .unbounded\n.{}".*;
+    blankComments(&commented);
+    try std.testing.expect(std.mem.indexOf(u8, &commented, "unbounded") == null);
 }
 
 /// `line` before its `//` comment, or all of it. A `//` inside a string

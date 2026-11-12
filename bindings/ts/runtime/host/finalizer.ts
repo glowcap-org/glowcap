@@ -1,10 +1,9 @@
-import { OK } from "@glowcap/abi";
+import { OK, releaseResultCode, releaseResultConsumed } from "@glowcap/abi";
 import { Context, recordCallerlessFailure, releaseContext } from "../context.ts";
 import { GlowcapError, hostLastError } from "../errors.ts";
 import { deferFinalizerRetry, type FinalizerRetry } from "../finalizer_retry.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
-import { releaseConsumed } from "../lifecycle.ts";
 import { traceDetachHost, traceDrainHost } from "../trace.ts";
 import { unregisterBehavior } from "../trampoline.ts";
 
@@ -40,8 +39,9 @@ export function releaseHostState(
 		retireHostFinalizerState(state);
 		return;
 	}
-	const failure = new GlowcapError(rc, hostLastError() ?? `FFI Host release failed (code ${rc})`);
-	const consumed = releaseConsumed(rc);
+	const code = releaseResultCode(rc);
+	const failure = new GlowcapError(code, hostLastError() ?? `FFI Host release failed (code ${code})`);
+	const consumed = releaseResultConsumed(rc);
 	if (!checked && !state.releaseFailureReported && state.context != null) {
 		state.releaseFailureReported = true;
 		recordCallerlessFailure(state.context, {
@@ -50,7 +50,7 @@ export function releaseHostState(
 			scopeId: state.diagnosticId,
 			operation: "host.finalizer.release",
 			primaryName: consumed ? "HostReleaseFailed" : "HostReleaseRefused",
-			primaryResult: rc,
+			primaryResult: code,
 			primaryMessage: failure.detail ?? failure.message,
 		});
 	}

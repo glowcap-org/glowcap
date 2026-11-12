@@ -25,6 +25,7 @@ def text(path):
 
 SCRIPT = ROOT / "tools/repository-policy.py"
 SPEC = importlib.util.spec_from_file_location("repository_policy", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None, "the script loads as a module"
 COMMAND = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(COMMAND)
 POLICY_FILE = ROOT / ".github/repository-policy.json"

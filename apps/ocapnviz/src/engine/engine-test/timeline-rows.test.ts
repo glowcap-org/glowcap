@@ -294,7 +294,7 @@ engineTest(
 );
 
 engineTest(
-	"effectiveRowVisMode composes the all → category → entity cascade as union-of-hides",
+	"effectiveRowVisMode composes the all, category, and entity cascade as a union of hides",
 	() => {
 		const e = new Engine(structuredClone(doc));
 		// All defaults → fully visible.
@@ -336,7 +336,7 @@ engineTest(
 );
 
 engineTest(
-	"effectiveRowVisMode: parametric matrix — every (all, cat, entity) triple unions to OR of axis bits",
+	"effectiveRowVisMode: in the parametric matrix, every (all, cat, entity) triple unions to the OR of the axis bits",
 	() => {
 		// The 4×4×4 = 64 triples are too many to enumerate; this test
 		// covers the asymmetric cases that matter (orthogonal-axis
@@ -498,7 +498,7 @@ engineTest(
 );
 
 engineTest(
-	"effectiveStart cascades: peer→world, session→peers, message→session",
+	"effectiveStart cascades from world to peer, from peers to session, and from session to message",
 	() => {
 		// Fixture peer 'a' joined at t=0; session s1 opened at t=0;
 		// message m1 sent at t=1000. All explicit.

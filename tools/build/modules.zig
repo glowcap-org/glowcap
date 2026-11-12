@@ -10,7 +10,7 @@ const std = @import("std");
 /// heterogeneous cores and the separate machines of CI build and test jobs
 /// each miss the others' cache. Call it first in `build`, before any
 /// dependency configures, so their generators use the same host. Measure the
-/// host with -Dcpu=native.
+/// host with `-Dcpu=native`.
 pub fn baselineTarget(b: *std.Build) std.Build.ResolvedTarget {
     b.graph.host = b.resolveTargetQuery(.{ .cpu_model = .baseline });
     return b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });

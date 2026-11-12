@@ -9,7 +9,7 @@ from pathlib import Path
 
 from workflows import ROOT
 
-PASS = {
+PASS: dict[str, dict[str, object]] = {
     name: {"result": "success"} for name in ("plan", "image", "linux", "macos-runtime", "workflows", "dependencies")
 }
 PASS["plan"]["outputs"] = {"full": "true"}
@@ -84,11 +84,12 @@ class ReportTest(unittest.TestCase):
                 self.assertIn("Job details unavailable", summary)
 
     def test_links_failures_and_times_only_the_current_attempt(self):
+        job_url = "https://github.com/owner/project/actions/runs/123/job/456"
         jobs = [
             {
                 "name": "linux (runtime) / test (runtime)",
                 "conclusion": "failure",
-                "html_url": "https://github.com/owner/project/actions/runs/123/job/456",
+                "html_url": job_url,
                 "started_at": "2026-10-30T12:00:00Z",
                 "completed_at": "2026-10-30T12:02:00Z",
             },
@@ -96,7 +97,7 @@ class ReportTest(unittest.TestCase):
         ]
         result, summary, call = report_run({**PASS, "linux": {"result": "failure"}}, jobs=jobs)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("[linux (runtime) / test (runtime)](" + jobs[0]["html_url"] + "): failure", summary)
+        self.assertIn("[linux (runtime) / test (runtime)](" + job_url + "): failure", summary)
         self.assertIn(" | 120 |", summary)
         self.assertEqual(
             call, ["api", "--paginate", "--slurp", "repos/owner/project/actions/runs/123/attempts/2/jobs?per_page=100"]

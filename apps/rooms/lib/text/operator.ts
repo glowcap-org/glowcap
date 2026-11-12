@@ -70,8 +70,7 @@ export const operatorProofSession = "session only";
 export const operatorProofBridge = "through the bridge";
 
 export const operatorLoadMore = "Load more";
-export const operatorLead =
-	"Everything this server holds that you can change, and the diagnostics that show how it is running.";
+export const operatorLead = "What this server holds that you can change, and how it is running.";
 
 /** Room access: the durable entry links. */
 export const operatorLinksTitle = "Room access";
@@ -95,21 +94,21 @@ export const operatorSweepDisconnected = "Disconnected";
 export const operatorSweepRelease = "Release";
 export const operatorSweepReleased = "Released";
 
-/** Names and connections: nickname registrations. */
-export const operatorNamesTitle = "Names and connections";
+/** Nickname registrations. */
+export const operatorNamesTitle = "Nicknames";
 export const operatorNamesLead =
 	"A registered nickname holds direct-message inboxes and signaling routes on one exact session.";
 export const operatorNamesEmpty = "No nicknames are registered.";
 export const operatorYours = "yours";
 export const operatorNickRemoveEffect =
-	"The holder loses this name, its vouchers, inbox offers, and directory-routed DM reachability.";
+	"The holder loses this name, its vouchers, inbox offers, and directory-routed reachability.";
 export const operatorNickRemove = "Remove nickname claim";
 export const operatorNamesSweepSubject = "nickname claims";
 export const operatorNamesSweepEffect =
 	"Each holder loses that name, its vouchers, inbox offers, and directory-routed reachability.";
 
-/** Connections and live references: peer sessions. */
-export const operatorSessionsTitle = "Connections and live references";
+/** Peer sessions. */
+export const operatorSessionsTitle = "Peer sessions";
 export const operatorSessionsLead = "Disconnecting someone ends their memberships and names here.";
 export const operatorSessionsEmpty = "No peer sessions are connected.";
 export const operatorUnnamedPeer = "Unnamed peer";
@@ -124,7 +123,7 @@ export const operatorSessionsSweepEffect =
 /** Rooms and object capabilities: the application owners. */
 export const operatorRoomsTitle = "Rooms and their connections";
 export const operatorRoomsLead =
-	"Each row is a room or connection the directory can close in one step. Local rooms release their membership links. Peered rooms release their room link. IRC rooms disconnect through the bridge that owns their sockets.";
+	"Each row is a room or connection the directory can close. Local rooms release their membership links, peered rooms their room link, and IRC rooms disconnect through their bridge.";
 export const operatorRoomsEmpty = "No room owners are live.";
 export const operatorUnnamedPrivateRoom = "Unnamed private room";
 /** The act and its effect for one room owner, by kind of owner. */
@@ -168,15 +167,13 @@ export function operatorRoomWith(members: readonly { nick: string; state: string
 	}`;
 }
 export const operatorRoomsSweepSubject = "room owners";
-export const operatorRoomsSweepEffect =
-	"Each room closes in one step, releasing its memberships and the live references it holds.";
+export const operatorRoomsSweepEffect = "Each room closes, releasing its memberships and the live references it holds.";
 
 /** Room authority: every room the server owns with its manager and moderator links. */
 export const operatorModerationTitle = "Rooms and their links";
 export const operatorModerationLead =
-	"Every room this server owns, including rooms nobody is in right now, with the links that stand for it. A manager link runs a room, and a moderator link moderates it. A room an IRC bridge runs is listed here with its moderator link and takes no manager link. Peered rooms stay with their remote source.";
-export const operatorModerationEmpty =
-	"This server owns no rooms right now, and no room has a moderator or manager link.";
+	"Every room this server owns, including empty ones, with the links that stand for it. A room an IRC bridge runs has no manager link. Peered rooms stay with their remote source.";
+export const operatorModerationEmpty = "This server owns no rooms.";
 /** The row's tags: which links stand for the room. */
 export const operatorManagerPart = "Manager";
 export const operatorModeratorPart = "Moderator";
@@ -189,13 +186,12 @@ export function operatorRoomLinksCardTitle(title: string): string {
 	return `Links for ${title}`;
 }
 export const operatorRoomLinksLead =
-	"Each link gives its power to whoever holds it. Copy a link for a handoff or a recovery, and revoke it to stop every copy at once. The room stays listed here while anyone is in it, while any link stands for it, or while this server keeps its name and settings.";
+	"Each link gives its power to whoever holds it. Copy one for a handoff or a recovery, and revoke it to stop every copy. The room stays listed here while anyone is in it, any link stands for it, or this server keeps its name and settings.";
 export const operatorManagerLinkTitle = "Manager link";
 export const operatorManagerHeldHint = managerLinkPower;
 export const operatorManagerNoneHint = "No manager link stands for this room. Issue one to copy it.";
 /** Said in place of the manager link on a room an IRC bridge runs. */
-export const operatorBridgedManagerHint =
-	"An IRC bridge runs this room, so it has no manager link. The moderator link is issued here.";
+export const operatorBridgedManagerHint = "An IRC bridge runs this room, so it has no manager link.";
 export const operatorModeratorLinkTitle = "Moderator link";
 export const operatorModeratorHeldHint = moderatorLinkPower;
 export const operatorModeratorNoneHint = "No moderator link stands for this room. Issue one to copy it.";
@@ -203,7 +199,7 @@ export const operatorRevokeAsk = "Revoke…";
 /** The one act that removes a room from this server entirely. */
 export const operatorForgetRoomTitle = "Forget the room";
 export const operatorForgetRoomHint =
-	"Forgetting the room removes anyone in it, stops every link to it at once, drops its subject and kept messages, frees its name, and takes it off this list.";
+	"Forgetting the room removes anyone in it, stops every link to it, drops its subject and kept messages, and frees its name.";
 export const operatorForgetRoomAsk = "Forget room…";
 export const operatorForgetRoom = "Forget room";
 export const operatorForgetRoomEffect =
@@ -227,7 +223,7 @@ export const operatorModeratorRevokeEffect =
 /** Directory trouble: the failures diagnostics reports. */
 export const operatorTroubleTitle = "Directory trouble";
 export const operatorTroubleLead =
-	"The recent failures that diagnostics reports. Clearing removes these rows. It changes no room, session, or saved history.";
+	"Recent failures that diagnostics reports. Clearing them changes no room, session, or saved history.";
 export const operatorTroubleEmpty = "The directory has reported no trouble.";
 export const operatorTroubleClearAsk = "Clear the list…";
 export const operatorTroubleClearEffect =
@@ -236,5 +232,7 @@ export const operatorTroubleClear = "Clear directory trouble";
 
 /** Reset and recovery. */
 export const operatorResetTitle = "Reset and recovery";
-export const operatorResetLead =
-	"Reset one kind of thing at a time. This operator connection and its nickname remain so the action can answer.";
+export const operatorResetLead = "This operator connection and its nickname remain through every reset.";
+export function operatorReferenceMember(member: string): string {
+	return `member ${member}`;
+}

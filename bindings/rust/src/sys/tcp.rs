@@ -23,7 +23,17 @@ pub struct GlowcapTcpStreamOptions {
 #[derive(Clone, Copy, Default)]
 pub struct GlowcapTcpConfig {
 	pub stream: GlowcapTcpStreamOptions,
+	pub profiles: u32,
 }
+
+/// The `GlowcapTcpConfig::profiles` bit for plain `tcp`.
+pub const TCP_PROFILE_TCP: u32 = crate::abi_constants_gen::TCP_PROFILE_TCP;
+/// The `GlowcapTcpConfig::profiles` bit for `keyed-tcp`.
+pub const TCP_PROFILE_KEYED_TCP: u32 = crate::abi_constants_gen::TCP_PROFILE_KEYED_TCP;
+/// The `GlowcapTcpConfig::profiles` bit for `noise-tcp`.
+pub const TCP_PROFILE_NOISE_TCP: u32 = crate::abi_constants_gen::TCP_PROFILE_NOISE_TCP;
+/// Every profile bit.
+pub const TCP_PROFILES_ALL: u32 = crate::abi_constants_gen::TCP_PROFILES_ALL;
 
 const _: () = {
 	use core::mem::{offset_of, size_of};
@@ -38,6 +48,7 @@ const _: () = {
 	assert!(offset_of!(GlowcapTcpStreamOptions, keepalive_count) == GLOWCAP_TCP_STREAM_OPTIONS_KEEPALIVE_COUNT_OFF);
 	assert!(size_of::<GlowcapTcpConfig>() == GLOWCAP_TCP_CONFIG_SIZE);
 	assert!(offset_of!(GlowcapTcpConfig, stream) == GLOWCAP_TCP_CONFIG_STREAM_OFF);
+	assert!(offset_of!(GlowcapTcpConfig, profiles) == GLOWCAP_TCP_CONFIG_PROFILES_OFF);
 };
 
 #[repr(C)]

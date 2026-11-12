@@ -8,80 +8,70 @@
 //! A backend is a struct providing the platform completion primitive. The loop
 //! calls only these. Nothing in the loop issues a syscall directly:
 //!
-//!   * `pub const Fd = <platform socket handle type>;`
-//!   * `pub fn init(allocator, queue_entries: u16, read_buffers: u16,
-//!     read_buffer_bytes: u32) !Backend;`: the backend owns a shared pool of
-//!     `read_buffers` buffers with `read_buffer_bytes` bytes each.
-//!   * `pub fn deinit(self: *Backend) void;`
-//!   * `pub const ListenTarget;`, the backend-owned listen target, the
-//!     listening counterpart of `ConnectTarget`. A platform backend's is the
-//!     port it binds on its construction-time interface; an adapter's wraps its
+//!   * `Fd`: the platform socket handle type.
+//!   * `init(allocator, queue_entries, read_buffers, read_buffer_bytes)`: build
+//!     the backend. It owns a shared pool of `read_buffers` buffers with
+//!     `read_buffer_bytes` bytes each.
+//!   * `deinit(self)`: release the backend.
+//!   * `ListenTarget`: the backend-owned listen target, the listening
+//!     counterpart of `ConnectTarget`. A platform backend's is the port it
+//!     binds on its construction-time interface. An adapter's wraps its
 //!     platform's beside the adapter's own listener.
-//!   * `pub fn loopListenTarget(port: u16) ListenTarget;`, the listener
-//!     `completion.Loop`'s `listen` option opens: the platform listener on
-//!     `port`, or a transport's own acceptor where it has no port.
-//!   * `pub fn openListener(self: *Backend, target: ListenTarget) !Fd;`: bind
-//!     and listen for TCP, or arm a userspace transport acceptor.
-//!   * `pub fn listenerPending(self: *const Backend, fd: Fd) bool;`: whether the
-//!     listener on `fd` still finishes a setup after `openListener` returned.
-//!     A backend whose listeners are live at once answers false.
-//!   * `pub const ConnectTarget;`, the backend-owned dial target. There is no
-//!     shared union through which one backend could receive another's target.
-//!   * `pub fn startDial(self: *Backend, user_data: u64,
-//!     target: ConnectTarget) !Fd;`: own the whole start and report terminal
-//!     success as result zero; the returned handle belongs to the loop slot
-//!     before the completion arrives.
-//!   * `pub const ListenerAddress;`
-//!   * `pub fn listenerAddress(self: *Backend, fd: Fd) !ListenerAddress;`
-//!   * `pub fn listenerPort(address: ListenerAddress) ?u16;`
-//!   * `pub fn closeFd(self: *Backend, fd: Fd) void;`
-//!   * `pub fn submitAccept(self: *Backend, user_data: u64,
-//!     listen_fd: Fd) !void;`: success reports the accepted handle in
-//!     `Completion.accepted_fd`, or in `result` for an ordinary non-negative OS
-//!     handle; failure reports a negative result and no handle.
-//!   * `pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void;`, the
-//!     backend selects a shared-pool buffer and lends it through
-//!     `Completion.borrowed`; pool pressure reports `recv_no_buffer` rather
-//!     than a connection failure.
-//!   * `pub fn submitSend(self: *Backend, user_data: u64, fd: Fd,
-//!     bytes: []const u8) !void;`
-//!   * `pub fn submitCancel(self: *Backend, cancel_user_data: u64,
-//!     target_user_data: u64, fd: Fd) !void;`: cancel the exact submitted recv
-//!     without closing its handle. The target and cancellation completions may
-//!     arrive in either order.
-//!   * `pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void;`,
-//!     cancel a pending accept and close its handle, or close a connection
-//!     after the loop calls `shutdownFd`. A userspace backend whose shutdown is
-//!     a no-op must synthesize completions for every pending recv and send. A
-//!     close result releases the handle whatever its sign: the loop records a
-//!     negative one as the connection's close failure and never retries it.
-//!   * `pub fn shutdownFd(self: *Backend, fd: Fd) void;`
-//!   * `pub fn wireFraming(self: *Backend, fd: Fd)
-//!     model.transport.WireFraming;`: whether recv completions are arbitrary
+//!   * `loopListenTarget(port)`: the listener `completion.Loop`'s `listen`
+//!     option opens, either the platform listener on `port` or a transport's
+//!     own acceptor where it has no port.
+//!   * `openListener(self, target)`: bind and listen for TCP, or arm a
+//!     userspace transport acceptor.
+//!   * `listenerPending(self, fd)`: whether the listener on `fd` still finishes
+//!     a setup after `openListener` returned. A backend whose listeners are
+//!     live at once answers false.
+//!   * `ConnectTarget`: the backend-owned dial target. No shared union lets one
+//!     backend receive another's target.
+//!   * `startDial(self, user_data, target)`: own the whole start and report
+//!     terminal success as result zero. The returned handle belongs to the loop
+//!     slot before the completion arrives.
+//!   * `ListenerAddress`: the backend-owned address a listener reports.
+//!   * `listenerAddress(self, fd)`: the address of the listener on `fd`.
+//!   * `listenerPort(address)`: the port of an address, or null when it has none.
+//!   * `closeFd(self, fd)`: close a handle directly.
+//!   * `submitAccept(self, user_data, listen_fd)`: success reports the accepted
+//!     handle in `Completion.accepted_fd`, or in `result` for an ordinary
+//!     non-negative OS handle. Failure reports a negative result and no handle.
+//!   * `submitRecv(self, user_data, fd)`: the backend selects a shared-pool
+//!     buffer and lends it through `Completion.borrowed`. Pool pressure reports
+//!     `recv_no_buffer` rather than a connection failure.
+//!   * `submitSend(self, user_data, fd, bytes)`: send `bytes` on `fd`.
+//!   * `submitCancel(self, cancel_user_data, target_user_data, fd)`: cancel the
+//!     exact submitted recv without closing its handle. The target and
+//!     cancellation completions may arrive in either order.
+//!   * `submitClose(self, user_data, fd)`: cancel a pending accept and close its
+//!     handle, or close a connection after the loop calls `shutdownFd`. A
+//!     userspace backend whose shutdown is a no-op must synthesize completions
+//!     for every pending recv and send. A close result releases the handle
+//!     whatever its sign: the loop records a negative one as the connection's
+//!     close failure and never retries it.
+//!   * `shutdownFd(self, fd)`: shut a connection down ahead of its close.
+//!   * `wireFraming(self, fd)`: whether recv completions are arbitrary
 //!     byte-stream chunks or complete message packets for this connection.
-//!   * `pub fn recycleBorrowed(self: *Backend, completion: Completion) void;`:
-//!     release the exact receive buffer or cold-path failure record after the
-//!     loop has consumed it.
-//!   * `pub fn poll(self: *Backend, out: []Completion,
-//!     timeout_ms: i32) !usize;`: flush submissions and wait in the
-//!     backend's own queue; a timeout or explicit wake with no completions
+//!   * `recycleBorrowed(self, completion)`: release the exact receive buffer or
+//!     cold-path failure record after the loop has consumed it.
+//!   * `poll(self, out, timeout_ms)`: flush submissions and wait in the
+//!     backend's own queue. A timeout or explicit wake with no completions
 //!     returns zero. The resident parks the runtime here.
-//!   * `pub fn peek(self: *Backend, out: []Completion) !usize;`: reap what
-//!     the kernel already completed and submit nothing, so a caller that
-//!     batches its submissions for one later `flush` can still turn
-//!     completions into state between its verbs.
+//!   * `peek(self, out)`: reap what the kernel already completed and submit
+//!     nothing, so a caller that batches its submissions for one later `flush`
+//!     can still turn completions into state between its verbs.
 //!
 //! Every backend also provides one readiness verb for descriptors it does not
 //! own. Adapters run I/O through it (`net/transport/external/completion.zig`),
 //! and the completion resident arms it on the runtime's other wake descriptors
 //! as each park begins. The loop never calls it:
 //!
-//!   * `pub fn submitPoll(self: *Backend, user_data: u64, fd: Fd,
-//!     interest: Interest) !void;`: complete once with a non-negative
-//!     result when `fd` is readable or writable, or has failed or hung up,
-//!     consuming nothing. It is one-shot, it
-//!     occupies that direction of `fd` like a recv or send, `submitCancel`
-//!     retires it, and it never closes `fd`.
+//!   * `submitPoll(self, user_data, fd, interest)`: complete once with a
+//!     non-negative result when `fd` is readable or writable, or has failed or
+//!     hung up, consuming nothing. It is one-shot and occupies that direction of
+//!     `fd` like a recv or send. `submitCancel` retires it, and it never closes
+//!     `fd`.
 //!
 //! A `submit*` refusal must mint no completion for that `user_data`. The loop
 //! counts an operation only after successful submission. Violating this rule
@@ -447,7 +437,7 @@ pub fn failureFromErrno(errno: std.posix.E) anyerror {
 ///
 /// No record is copied on the way through an adapter that owns none of
 /// them, and an adapter's own record never reaches its caller. What was
-/// owed earlier leaves first, so a flood on wrapped connections cannot status-allow: event or source ordering
+/// owed earlier leaves first, so a flood on wrapped connections cannot
 /// starve the adapter's own, and each connection's records keep their
 /// order: a wrapped connection's never enter the ready queue, and an
 /// adapter connection's projections leave it as they were owed. A dispatch

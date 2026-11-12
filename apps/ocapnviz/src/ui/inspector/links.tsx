@@ -90,7 +90,7 @@ export function PeerLinkRow(
 		peerProfile: string;
 		/** When provided AND not "active", paints the lifecycle chip
 		 * in place of the plain profile meta. So the user sees
-		 * "not yet joined" / "left" without losing the row. Omit or status-allow: pending state or quoted runtime label
+		 * "not yet joined" / "left" without losing the row. Omit or
 		 * pass "active" for the default profile-only meta. */
 		lifecycle?: LifecycleStatus;
 		/** "This row's target peer is also in the user's

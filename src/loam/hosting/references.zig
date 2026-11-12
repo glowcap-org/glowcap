@@ -120,19 +120,23 @@ pub fn copySaved(call: *h.Call, save: *Save) !Replacement {
         .failed => |err| return savedFailure(call, save, err),
         .ready => {},
     }
-    _ = try hold(call, saved.capability);
-    return switch (saved.recipe) {
+    // Every refusal and allocation comes before the retain: a refused copy
+    // leaves the call's custody as it found it.
+    const replacement: Replacement = switch (saved.recipe) {
         .edge => |edge| .{ .edge = edge },
         .recipe => |recipe| blk: {
-            const state = try call.arena().create(SavedState);
-            state.* = .{ .call = call, .recipe = switch (recipe) {
+            const copied: recipe_mod.Recipe = switch (recipe) {
                 .local => |local| .{ .local = .{ .attachment = try call.arena().dupe(u8, local.attachment), .target = local.target } },
                 .foreign => |uri| .{ .foreign = try call.arena().dupe(u8, uri) },
                 .live => return error.LiveReferenceRequiresDeclaration,
-            } };
+            };
+            const state = try call.arena().create(SavedState);
+            state.* = .{ .call = call, .recipe = copied };
             break :blk .{ .saved = @ptrCast(state) };
         },
     };
+    _ = try hold(call, saved.capability);
+    return replacement;
 }
 
 pub fn hold(call: *h.Call, capability: driver.Capability) !driver.Capability {
@@ -273,6 +277,8 @@ pub const Set = struct {
             };
             var scratch = self.call.memory.scratch();
             defer scratch.deinit();
+            // The call arena outlives this Save only because its release
+            // runs at the top level (`drive.retirePreparation` asserts it).
             slot.save = try save_mod.beginPrepared(self.call.attachment, self.call.arena(), scratch.allocator(), slot.capability.?, uri, self.call.work);
             self.call.attachment.host.releaseCapabilityTerminal(slot.capability.?, null);
             slot.capability = null;
@@ -367,6 +373,7 @@ pub const Set = struct {
                     var scratch = self.call.memory.scratch();
                     defer scratch.deinit();
                     const sturdy = try model.uri.parseSturdyref(scratch.allocator(), uri);
+                    // In the call arena for the reason the Save above is.
                     slot.enliven = if (self.call.work) |work|
                         try work.enliven(self.call.attachment.host, self.call.arena(), sturdy)
                     else
@@ -374,7 +381,7 @@ pub const Set = struct {
                 }
                 switch (slot.enliven.?.result()) {
                     .pending => return .waiting,
-                    .failed => |failed| return self.call.restorationFailed(failed.message),
+                    .failed => |failed| return self.call.restorationFailed(.{ .detail = failed.message, .cause = failed.cause }),
                     .ready => |ready| {
                         try save_mod.validateForeignObject(self.call.attachment.host, ready.capability);
                         slot.capability = try slot.enliven.?.take();

@@ -1,5 +1,5 @@
 //! Local callable custody for an answer whose published root is a handoff.
-//! The answer owns this cold ticket; the composition owns the actual callable.
+//! The answer owns this cold ticket. The composition owns the actual callable.
 const std = @import("std");
 const model = @import("model");
 const session = @import("session");
@@ -26,7 +26,7 @@ pub const Projection = struct {
 pub const Projected = struct { near: model.NearRef, target: u64 };
 
 /// One cold allocation and one reserved Event seat per projected object
-/// answer. The AnswerPayload owns it; its final release only publishes POD.
+/// answer. The AnswerPayload owns it. Its final release only publishes POD.
 const Ticket = struct {
     target: Target,
     peer: *engine.Peer,

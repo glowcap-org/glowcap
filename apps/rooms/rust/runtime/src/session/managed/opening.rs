@@ -74,7 +74,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 		reply_bytes: NonZeroUsize,
 		live_capacity: u32,
 		persist: impl FnOnce(StartupAnchor) -> F,
-	) -> Result<Self> {
+	) -> core::result::Result<Self, crate::Error>
+	where
+		P: crate::wall_clock::WallClock,
+	{
 		let session = Session::new(host.clone(), platform.clone(), reply_bytes);
 		let attachment = store.attach(&host, vec![session.registration()])?;
 		let mut owner = Self {
@@ -88,7 +91,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 			activity: None,
 		};
 		if let Err(error) = owner.start(live_capacity, persist).await {
-			return Err(error.with_cleanup(owner.close().await));
+			return Err(crate::cleanup::failed(crate::Error::from(error), owner.close().await));
 		}
 		Ok(owner)
 	}
@@ -199,10 +202,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 		entropy: E,
 		kinds: super::MembershipKinds,
 		receive: impl FnMut(&super::MembershipTarget) -> super::MembershipReceiver + 'static,
-		report: impl FnMut(Result<&super::MembershipReport>) + 'static,
-	) -> Result<&super::WorkspaceActivity<P>> {
+		report: impl FnMut(core::result::Result<&super::MembershipReport, crate::Error>) + 'static,
+	) -> core::result::Result<&super::WorkspaceActivity<P>, crate::Error> {
 		if self.activity.is_some() {
-			return Err(loam::refusal("Workspace realization is already owned"));
+			return Err(crate::Error::busy("Workspace realization is already owned"));
 		}
 		let activity = self
 			.session
@@ -213,7 +216,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 		self.activity.as_ref()
 	}
 	/// Failure retains the exact activity and cancellation custody for retry.
-	pub async fn stop_activity(&mut self) -> Result<()> {
+	pub async fn stop_activity(&mut self) -> core::result::Result<(), crate::Error> {
 		if let Some(activity) = self.activity.as_mut() {
 			activity.close().await?;
 			self.activity.take();
@@ -237,7 +240,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 	}
 	/// A failed worker or storage close remains owned for exact recovery and a
 	/// later close attempt. Closing follows effect, attachment, Store order.
-	pub async fn close(&mut self) -> Result<()> {
+	pub async fn close(&mut self) -> core::result::Result<(), crate::Error> {
 		self.stop_activity()
 			.await
 			.map_err(|error| error.with_context("closing workspace activity"))?;

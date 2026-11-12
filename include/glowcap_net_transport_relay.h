@@ -62,7 +62,10 @@ int32_t glowcap_relay_transport_provider(GlowcapRelayRuntime *runtime, GlowcapTr
 /* Release the caller's runtime reference. The provider lease keeps the runtime
    alive until its driver is released. out_error/out_error_len optionally capture
    this call's diagnostic before an off-thread runtime regains control: omit all
-   three diagnostic arguments, or provide out_error_len. */
+   three diagnostic arguments, or provide out_error_len.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_relay_runtime_release(GlowcapRelayRuntime *runtime, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Copy this archive's calling-thread diagnostic, NUL-terminating when cap is
    nonzero. NULL or zero capacity queries the full length. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */

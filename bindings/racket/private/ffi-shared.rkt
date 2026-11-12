@@ -137,10 +137,17 @@
 ;; `glowcap_host_pending_dial`); a SETTLE's `value` sub-structure and a
 ;; FAIL's `message` are host-owned and valid until the next
 ;; `glowcap_host_next_action`, so the binding copies them out immediately.
+(define-cstruct _GlowcapBreakCause
+  ([origin _uint32] [reason _uint32] [context _uint32]) #:malloc-mode 'atomic-interior)
+
+;; Snapshot the nested view before a Host drain can overwrite its storage.
+(define (break-cause-fields<-c raw)
+  (list (GlowcapBreakCause-origin raw) (GlowcapBreakCause-reason raw) (GlowcapBreakCause-context raw)))
+
 (define-cstruct _GlowcapHostAction
   ([kind _uint32] [ticket _uint64] [route-index _size] [session _pointer]
    [value _GlowcapArgument] [message _pointer] [message-len _size]
-   [result _int32]) #:malloc-mode 'atomic-interior)
+   [result _int32] [cause _GlowcapBreakCause]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `GlowcapLastAbort` in glowcap_ocapn.h: two leading u32s, five
 ;; (pointer, length) views of process-static strings the library owns, then a
 ;; bounded secondary-failure count.
@@ -227,6 +234,7 @@
              GLOWCAP-REFERENCE-LAYOUT)
 (pin-layout! '_GlowcapArgument _GlowcapArgument GLOWCAP-ARGUMENT-SIZE
              GLOWCAP-ARGUMENT-LAYOUT)
+(pin-layout! '_GlowcapBreakCause _GlowcapBreakCause GLOWCAP-BREAK-CAUSE-SIZE GLOWCAP-BREAK-CAUSE-LAYOUT)
 (pin-layout! '_GlowcapHostAction _GlowcapHostAction GLOWCAP-HOST-ACTION-SIZE
              GLOWCAP-HOST-ACTION-LAYOUT)
 (pin-layout! '_GlowcapLastAbort _GlowcapLastAbort GLOWCAP-LAST-ABORT-SIZE

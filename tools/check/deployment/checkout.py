@@ -81,7 +81,7 @@ os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
     # macOS contributors select a separately prepared Linux product explicitly.
     args = () if sys.platform.startswith("linux") else ("--build", product)
     # Reset must work with only an operator override present: no successful up,
-    # managed Compose file, or saved image exists yet. Preparation must not status-allow: pending state or quoted runtime label
+    # managed Compose file, or saved image exists yet. Preparation must not
     # start old data, and an unconfirmed reset must not stop or erase anything.
     result = call("reset", "all", *args, detached=True, ok=False)
     assert "ConfirmationRequired" in result.stderr, result.stderr
@@ -100,11 +100,11 @@ os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
         assert preparation_log.exists(), "checkout reset did not request preparation"
         requests = [json.loads(line) for line in preparation_log.read_text().splitlines()]
         assert requests[-1] == ["apps", "rooms", "deployment", "reset", "all", "--yes"]
-        before = log.read_text()
+        logged = log.read_text()
         previous = {name: (state / name).read_bytes() for name in ("image", "docker-compose.override.yml")}
         env["FAIL_PREPARATION"] = "1"
         failed = call("up", ok=False)
-        assert failed.returncode == 37 and log.read_text() == before, failed
+        assert failed.returncode == 37 and log.read_text() == logged, failed
         assert all((state / name).read_bytes() == content for name, content in previous.items())
         del env["FAIL_PREPARATION"]
         run(binary, "apps", "rooms", "deployment", "up", f"--dir={state}", env=env)

@@ -43,10 +43,10 @@ Two pinned sources disagree on the shape accepted for a peer locator's hints:
 | Source | Says |
 | ------ | ---- |
 | draft Netlayers specification | hints are “just a mapping of information” |
-| Spritely Goblins (`goblins/ocapn/structs-urls.rkt`) | the constructor contract accepts only false or a string |
+| Racket Goblins at the pin (`goblins/ocapn/structs-urls.rkt`) | the constructor contract accepts only false or a string |
 
 glowcap represents non-empty hints as a Syrup dict. The constructor contract
-applies only where Goblins-side code builds a locator. The wire unmarshaller
+applies only where Racket Goblins builds a locator. The wire unmarshaller
 uses the raw constructor, so a dict-hinted locator arriving on the wire does
 decode, and `zig build goblins-gift-hints` observes that live. The finding
 records the source mismatch and does not say which hints shape upstream should
@@ -54,13 +54,13 @@ choose.
 
 ## Handoff withdrawal looks up sessions by the full node value
 
-Two pinned observations in the same Goblins revision treat locator hints
+Two pinned observations in the pinned Racket Goblins revision treat locator hints
 differently:
 
 | Source | Says |
 | ------ | ---- |
-| Spritely Goblins (`goblins/ocapn/structs-urls.rkt`) | `same-node-location?` compares transport and designator, "ignoring hints" |
-| Spritely Goblins (`goblins/ocapn/captp.rkt`) | withdrawal resolves its session via `locations->open-session-names`, keyed by the full node value |
+| Racket Goblins at the pin (`goblins/ocapn/structs-urls.rkt`) | `same-node-location?` compares transport and designator, "ignoring hints" |
+| Racket Goblins at the pin (`goblins/ocapn/captp.rkt`) | withdrawal resolves its session via `locations->open-session-names`, keyed by the full node value |
 
 The withdrawal lookup is `equal?`-keyed over the whole node, hints included, and
 the table is registered under the partner's hello-declared location. Observed
@@ -75,8 +75,8 @@ designator and transport are the only pieces of information which need to
 match" and that two locators differing only in hints "be considered to be the
 same peer", the rule `same-node-location?` implements. The `equal?`-keyed
 withdrawal table treats two forms of the same peer as different peers, on the
-one path where that breaks a protocol operation. Nothing in the all-Goblins
-ecosystem emits hint-varying locators, so the contradiction is latent there. A
+one path where that breaks a protocol operation. The pinned Racket Goblins fixtures emit identical hints in the hello and
+give, so those fixtures do not expose the mismatch. A
 second implementation that uses the stated freedom trips it.
 
 ## Handoff replay count uses the wrong session

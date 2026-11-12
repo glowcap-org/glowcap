@@ -4,6 +4,7 @@
 // Run by `zig build demo-rooms-dm`.
 
 import { startServer } from "../test/support/installed_server.ts";
+import * as tcp from "@glowcap/tcp";
 import { runDmHandoff } from "./dm_handoff.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
@@ -13,7 +14,7 @@ runDmHandoff({
 	dmText: "hi Bob, privately, from Carol",
 	timeoutMs: 10_000,
 	bullets: [
-		"Carol's first introduce was refused pending; the room asked Bob for an inbox for her",
+		"Carol asked the room once, and the room asked Bob for an inbox for her",
 		"the room introduced Carol to Bob (a desc:handoff-give, redeemed transparently)",
 		"Bob accepted 1 connection: Carol's direct dial; nobody dialed Carol",
 		"the DM arrived on the inbox Bob minted for Carol, so it named no sender",
@@ -21,7 +22,7 @@ runDmHandoff({
 	async startMember(_who) {
 		const host = roomsHost();
 		const member = await roomsListen("127.0.0.1", 0, host);
-		const runtime = await openRoomsRuntime({ host });
+		const runtime = await openRoomsRuntime({ host, cleartext: [tcp.plain] });
 		return {
 			host,
 			runtime,

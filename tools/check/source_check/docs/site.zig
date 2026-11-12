@@ -13,9 +13,9 @@ const source_tree = @import("../source_tree.zig");
 /// The site content pages are `.smd` (Zine), whose intra-site links use
 /// `$link.page('id')` and asset references use `$image.siteAsset('name')` rather
 /// than Markdown `](path)`. Zine resolves them when `zig build site` runs, but
-/// that is a sibling step; this gate holds the same references in the hermetic
+/// that is a sibling step. This gate holds the same references in the hermetic
 /// `check`. A `$link.page('id')` resolves to `site/content/id.smd` or
-/// `site/content/id/index.smd`; a `$image.siteAsset('name')` resolves to
+/// `site/content/id/index.smd`. A `$image.siteAsset('name')` resolves to
 /// `site/assets/name` or the capture output manifest. Rendering verifies the
 /// generated files themselves. (Absolute `https://` links carry their own Markdown
 /// `](url)` form and are not this gate's concern.)
@@ -55,8 +55,8 @@ pub fn checkSiteContentLinks(
 
 /// Each binding direction tabs only the transport-specific setup and renders
 /// the transport-independent CapTP workflow once. Keep both halves intact when
-/// tightening site prose. The generator remains the sole transport inventory;
-/// freshness is `zig build gen-site-examples-check`.
+/// tightening site prose. The generator remains the sole transport inventory.
+/// Freshness is `zig build gen-site-examples-check`.
 pub fn checkSiteTransportTabs(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -255,7 +255,7 @@ test "site heading fragments follow the browser slug rule" {
 /// `$site.page('<id>')`, where `<id>` is the content path without `.smd` (a
 /// trailing `/index.smd` collapses to its directory, and the root `index.smd` is
 /// the home page, id `''`, linked as the brand). Adding a page and forgetting its
-/// nav entry was a real hazard the relay page had to sidestep by hand; this makes
+/// nav entry was a real hazard the relay page had to sidestep by hand. This makes
 /// the reachability an invariant instead of a convention.
 pub fn checkSiteNavParity(
     io: std.Io,
@@ -303,8 +303,8 @@ pub fn checkSiteNavParity(
 }
 
 /// Owned site SVGs must be ASCII-only. A non-ASCII byte in one of these files is
-/// almost always a literal typographic glyph — an em-dash, a middot — that
-/// should have been a numeric entity (`&#8212;`, `&#183;`); saved raw it
+/// almost always a literal typographic glyph (an em-dash or a middot) that
+/// should have been a numeric entity (`&#8212;`, `&#183;`). Saved raw it
 /// corrupts the XML and the diagram silently stops rendering, which bit this
 /// project more than once. Enforcing ASCII (entities for any non-ASCII glyph)
 /// makes that failure mode unrepresentable. Only `.svg` is checked: PNGs and
@@ -364,7 +364,7 @@ fn isSiteSurface(path: []const u8) bool {
 /// A site surface that declares an animation must also carry the
 /// `prefers-reduced-motion` guard that turns it off. The animated diagrams
 /// and the why-page walkthrough all pair `@keyframes` with a reduced-motion
-/// rule whose base styles are the finished static picture; a future animation
+/// rule whose base styles are the finished static picture. A future animation
 /// added without that pair strips the accessibility fallback from a page
 /// nobody re-tests by hand. Checked wherever site-owned styles live:
 /// `site/assets`, `site/layouts`, and `site/content`.

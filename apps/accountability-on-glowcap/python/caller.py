@@ -1,4 +1,4 @@
-"""Python caller for the accountability-on-glowcap cross-seam demo.
+"""Python caller for the accountability-on-glowcap cross-language demo.
 
 Connects to a running Zig host, builds a KERI-anchored identity with a real key
 event log (``identity.py``), rotates it once, then invokes the Affordance capability:
@@ -11,7 +11,9 @@ exercised, because all three are the contract:
 * a key the log has already rotated away from, which the host can attest but will
   not bind to the claimed AID.
 
-    python3 caller.py <port>
+    python3 caller.py <locator>
+
+The locator is the ``ocapn://`` URI the host printed.
 
 Or driven by the demo.ts orchestrator, which starts the Zig host first.
 """
@@ -28,17 +30,18 @@ from python_path import add_bindings_path
 
 add_bindings_path()
 
-from glowcap import Runtime, VowBroken, tcp  # noqa: E402
+from glowcap import Runtime, VowBroken, parse_locator, tcp  # noqa: E402
 from identity import Identity, b64url  # noqa: E402
 
 
-async def run(port: int) -> None:
+async def run(locator: str) -> None:
     print("accountability-on-glowcap python caller")
-    print(f"  connecting to 127.0.0.1:{port}…")
+    print(f"  connecting to {locator}…")
 
-    # `connect` completes the keyed op:start-session handshake before returning.
+    # `connect` completes the Noise handshake, which proves the host holds the
+    # key the locator names, before returning.
     runtime = await Runtime.open(providers=[tcp.provider()])
-    session = await runtime.connect(tcp.locator("127.0.0.1", port))
+    session = await runtime.connect(parse_locator(locator))
     # `fetch`/`send` drive the inbound loop themselves, no separate serve() call.
     affordance = await session.fetch("affordance")
 
@@ -112,11 +115,10 @@ async def refusal(session, affordance, args) -> str | None:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("usage: caller.py <port>", file=sys.stderr)
+        print("usage: caller.py <locator>", file=sys.stderr)
         return 2
-    port = int(sys.argv[1])
     try:
-        asyncio.run(run(port))
+        asyncio.run(run(sys.argv[1]))
         return 0
     except Exception as exc:
         print(f"FAIL: {exc}", file=sys.stderr)

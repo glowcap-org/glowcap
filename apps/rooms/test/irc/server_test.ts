@@ -1,5 +1,5 @@
 // The Rooms IRC server carries independent client sessions, rooms, and direct messages across supported transports.
-import { type Behavior } from "@glowcap/runtime";
+import type { Behavior } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
 import { Reachability } from "@glowcap/iroh";
 import { DirectMessage, Directory, type Message, Room } from "../../lib/room/client.ts";
@@ -71,17 +71,17 @@ Deno.test({
 		await using _serverOwner = { [Symbol.asyncDispose]: () => server.close() };
 		const roomLocator = server.locator;
 
-		const roomsRuntime = await openRoomsRuntime();
+		const roomsRuntime = await openRoomsRuntime({ cleartext: [tcp.plain] });
 		const roomsDir = await Directory.connect(roomLocator, (locator) => dial(locator, roomsRuntime));
 		const roomsRoom = await Room.subscribe(roomsDir.session, await roomsDir.open("general"), ROOMS_NICK);
-		const unicodeRuntime = await openRoomsRuntime();
+		const unicodeRuntime = await openRoomsRuntime({ cleartext: [tcp.plain] });
 		const unicodeDir = await Directory.connect(roomLocator, (locator) => dial(locator, unicodeRuntime));
 		const unicodeRoom = await Room.subscribe(unicodeDir.session, await unicodeDir.enter("general"), "élise");
 
 		const bobHost = roomsHost();
 		const bobEndpoint = await tcp.noise.listen("127.0.0.1", 0, { host: bobHost });
 		const bobAccepting = acceptDirect(bobEndpoint);
-		const bobRuntime = await openRoomsRuntime({ host: bobHost });
+		const bobRuntime = await openRoomsRuntime({ host: bobHost, cleartext: [tcp.plain] });
 		const bobDir = await Directory.connect(roomLocator, (locator) => dial(locator, bobRuntime));
 		const bobRoom = await Room.subscribe(bobDir.session, await bobDir.enter("general"), "bob");
 		const bobInbox: { from: string; text: string }[] = [];
@@ -97,6 +97,20 @@ Deno.test({
 		await bobDir.register("bob", bobEndpoint.uri, { onMintInboxFor: bobOfferer.offer });
 
 		await using ircServer = await startIrcServer(roomLocator);
+		// A name a Rooms member holds is the directory's to refuse. The IRC client
+		// reads the directory's own line, with no binding wrapper around it.
+		const held = await Deno.connect({ hostname: "127.0.0.1", port: ircServer.port });
+		try {
+			const refused = readIrcLines(held.readable)[Symbol.asyncIterator]();
+			await writeAll(held, encodeIrc("NICK", ["bob"]));
+			await writeAll(held, encodeIrc("USER", ["bob", "0", "*", "Bob"]));
+			const taken = await nextMatching(refused, (line) => line.command === "433", "a directory-held nickname");
+			assertEquals(taken.params.at(-1)?.split(": ")[0], "nick-taken", taken.params.join(" "));
+		} finally {
+			try {
+				held.close();
+			} catch { /* the refusal ended the socket */ }
+		}
 		const irc = await Deno.connect({ hostname: "127.0.0.1", port: ircServer.port });
 		const lines = readIrcLines(irc.readable)[Symbol.asyncIterator]();
 		try {
@@ -312,7 +326,7 @@ Deno.test({
 	},
 });
 
-for (const [directoryTransport, inboxTransport] of [["tcp", "noise"], ["iroh", "iroh"], ["tcp", "tcp"]] as const) {
+for (const [directoryTransport, inboxTransport] of [["tcp", "noise-tcp"], ["iroh", "iroh"], ["tcp", "tcp"]] as const) {
 	Deno.test(`TLS IRC clients hold independent sessions and multiple rooms (${directoryTransport}/${inboxTransport})`, async () => {
 		const server = await startServer(
 			directoryTransport === "iroh"
@@ -321,7 +335,9 @@ for (const [directoryTransport, inboxTransport] of [["tcp", "noise"], ["iroh", "
 		);
 		await using _serverOwner = { [Symbol.asyncDispose]: () => server.close() };
 		await using runtime = await openRoomsRuntime(
-			directoryTransport === "iroh" ? { iroh: { reachability: Reachability.Direct } } : {},
+			directoryTransport === "iroh"
+				? { iroh: { reachability: Reachability.Direct } }
+				: { cleartext: [tcp.plain] },
 		);
 		const directory = await Directory.connect(server.locator, (locator) => dial(locator, runtime));
 		await directory.open("one");

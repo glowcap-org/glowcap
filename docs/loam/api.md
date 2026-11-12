@@ -87,9 +87,9 @@ grant. A reference to another peer must have an established way to restore
 it. Saving a reference that cannot outlive the process returns `NotDurable`,
 though an in-memory record can hold it while the process runs.
 
-Replacing a field drops the old reference only when the new payload and edge <!-- status-allow: runtime state or operation ordering -->
+Replacing a field drops the old reference only when the new payload and edge
 commit. An abort releases what the transaction held. If the completion is
-lost, Loam keeps enough to tell whether the old or the new references <!-- status-allow: runtime state or operation ordering -->
+lost, Loam keeps enough to tell whether the old or the new references
 survived. Cleanup outside the store after a commit has an owner and a bounded
 number of retries.
 
@@ -131,7 +131,7 @@ begin(domain, expected_revision) -> Transaction
 Transaction.read / create / replace / remove / set_root
 Transaction.store_capability(held_reference) -> staged reference field
 Transaction.enlist(participant) -> participant access to this transaction
-Transaction.prepare() -> Prepared | NeedRecords | Error
+Transaction.prepare() -> Prepared | Error
 submit(Prepared) -> ticket
 complete(ticket, backend_outcome) -> Installed | Unchanged | RecoveryRequired
 ```
@@ -158,7 +158,8 @@ its own write, opens its own engine transaction, or saves a grant before its
 content. New capabilities and change events stay unpublished until the
 commit lands.
 
-`NeedRecords` pauses a transaction before it is submitted. Load the missing
+A staging step that needs a record that is not loaded fails with
+`RecordUnloaded` before the transaction is prepared. Load the missing
 records, then check again against the current revisions. Staging callbacks can
 run more than once, so they must not publish, do I/O, or cause effects that
 cannot be repeated. Once submitted, work goes through completion and recovery

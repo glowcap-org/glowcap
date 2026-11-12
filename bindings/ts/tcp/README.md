@@ -40,6 +40,13 @@ const greeter = await session.fetch("greeter");
 console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
+A provider registers the sealed `noise-tcp` profile alone. Plain `tcp` and `keyed-tcp` send
+cleartext with no peer proof, so each is an explicit opt-in: `provider({ profiles: [noise, keyed] })`,
+with `plain`, `keyed`, and `noise` exported by this package. A runtime without a locator's profile
+rejects `Runtime.connect` with a `GlowcapError` whose code is `INVALID_ARGUMENT` and whose
+`breakCause` is the transport-unavailable break cause, so branch on `breakCause`. An empty list is refused with
+`INVALID_ARGUMENT` when the provider installs.
+
 ## Listen
 
 Save this example as `server.ts` and run `deno run --allow-all server.ts`.

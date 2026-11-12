@@ -30,7 +30,7 @@
 	padding: 0 13px;
 	font: inherit;
 	line-height: normal;
-	border-radius: 11px;
+	border-radius: var(--radius-well);
 	border: 1px solid var(--rule);
 	background: var(--field-fill);
 	box-shadow: var(--field-lift);
@@ -247,7 +247,7 @@
 	align-items: center;
 	height: var(--field-h);
 	border: 1px solid var(--rule);
-	border-radius: 11px;
+	border-radius: var(--radius-well);
 	background: var(--field-fill);
 	box-shadow: var(--field-lift);
 	overflow: hidden;

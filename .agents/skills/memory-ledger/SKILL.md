@@ -370,6 +370,12 @@ declaration under `src/`.
   exporter) takes the null path allocation-free and embeds the verbatim hello
   bytes its receiver's withdrawal keying matches. The derivation lives at the
   declaration.
+- **Deposit-gift tree**: `handoff_gifter.prepareDepositGiftInBatch`, over
+  `model.cloneMessage`. One owned deliver per handoff deposit, built from the
+  borrowed gift id and reference, because lowering and shortening rewrite its
+  reference slot in place, the prepared token outlives the call while the Node
+  stages the recipient, and commit records exports from the same tree. Freed
+  at commit or abandonment.
 - **Handoff canonicalization**: one owned signing-domain buffer per certificate.
   An immediate withdrawal never owns the inbound tree. A Syrup-forwarded give
   carries its exact signed envelope, so receive bypasses typed hints. Cap'n
@@ -408,6 +414,22 @@ declaration under `src/`.
   into identity and dial parts, keep no verbatim URI, and carry only the ticket
   in `Node.Action.dial` / `HostAction.dial`. An unparseable locator fails closed
   with no staged heap. **No re-parse anywhere on the redeem dial path.**
+- **Redeem failure detail**: `redeem/dials.failed` stages one detail copy per
+  waiter. `withdrawals.queueFailure` copies one detail per completion.
+  `Broken.bounded` retains a UTF-8 prefix within its named diagnostic capacity,
+  including the wire label. `FailureReason` stores provenance beside its ownership tag,
+  preserving the Node footprint.
+
+  Allocation failure keeps the typed cause. Wire rendering uses a stack buffer.
+  Retained Host `FailureText` is 260 bytes.
+- **Restoration diagnostic retention**: `Call.restorationFailed` copies the
+  Host's rendered inner reason into the bounded working arena before the
+  restoration owner retires. Its typed cause survives allocation refusal.
+  The outer label renders at the text boundary. `Call.refusal` and
+  `Call.restoration_failure` retain independent candidates; settlement selects
+  the candidate matching the returned error. Their inline cost is included in
+  the enclosing operation's `@sizeOf` accounting. Each candidate allocates at
+  most once in the bounded call arena.
 
 ### Actor layer
 
@@ -433,8 +455,11 @@ declaration under `src/`.
   - The producing archive catches the error. Receivers recover a typed ordinal
     only in that compilation. Nothing allocates, copies or traverses.
   - `OpaqueMessage.VTable` adds one constant protocol identity, independent of
-    its address. `Vat.turn_failure` retains an optional text slice for
-    rollback. Sessions and queue rows gain none.
+    its address. `Vat.turn_failure` retains an optional break, its text slice
+    and cause, for rollback. A `breakWith` text lives in the turn arena, which
+    `Vat.drop_depth` keeps from resetting while the failed turn drops. Turns
+    a drop listener runs add their scratch to it until the first outermost
+    turn after the drop, which trims back to `steady_turn_arena_bytes`. Sessions and queue rows gain none.
   - The Host footprint test pins the added bytes.
 - **Owning local completion**: `local_delivery.Producer` and `VowRow` sizes
   are pinned in `test/driver/core_host/local_delivery_test.zig`. The reply
@@ -517,7 +542,7 @@ declaration under `src/`.
   copied and a non-snapshotting actor pays one pointer indirection. Deleting the
   layer forces an eager O(total-mutable-bytes) snapshot copy.
 - **Retired boxes**: `Vat.retired_boxes`. A `become` install swaps the cell's
-  box but its reference falls at the next outermost turn, because an _earlier_ <!-- status-allow: workflow sequence -->
+  box but its reference falls at the next outermost turn, because an _earlier_
   frame of the same actor may already have returned a reply borrowing it, leaving
   no live frame to copy it.
   - Registration escrows one pointer slot per live actor so last-root release

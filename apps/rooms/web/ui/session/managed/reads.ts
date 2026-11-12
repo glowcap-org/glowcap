@@ -1,6 +1,7 @@
 // Read workers retain their wrappers until they drain. Retirement stops new
 // reads. The session closes its application before waiting for these workers.
-import { LOCAL_LIMITS } from "./local_gestures.ts";
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
+import { LOCAL_LIMITS } from "./local_limits.ts";
 
 /** Key sharing one in-flight read across concurrent callers asking for the
  * same subject at the same workspace revision. A revision change is a new
@@ -22,11 +23,11 @@ export class ManagedReads {
 		return this.#tasks.size;
 	}
 	run<T>(key: unknown, work: () => Promise<T>): Promise<T> {
-		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
+		if (this.#stopped) return Promise.reject(new LocalRefusal("session-closed"));
 		const existing = this.#tasks.get(key);
 		if (existing != null) return existing as Promise<T>;
 		if (this.#tasks.size >= LOCAL_LIMITS.reads) {
-			return Promise.reject(new Error("Finish another read before requesting more workspace data"));
+			return Promise.reject(new LocalRefusal("busy"));
 		}
 		const task = Promise.resolve().then(work).finally(() => this.#tasks.delete(key));
 		this.#tasks.set(key, task);

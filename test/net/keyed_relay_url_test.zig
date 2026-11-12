@@ -2,6 +2,7 @@
 //! loopback in `test/net/keyed_relay/`. These cases pin the bounded grammar.
 
 const std = @import("std");
+const wait = @import("../support/wait.zig");
 const glowcap = @import("glowcap");
 const keyed_relay = glowcap.net.relay;
 const ws_relay = @import("../support/ws_relay.zig");
@@ -471,7 +472,8 @@ test "resident DNS dial preserves the exact WebSocket refusal" {
     var server = try listen_address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
     var server_future = try io.concurrent(refuseUpgrade, .{ io, &server });
-    defer _ = server_future.cancel(io) catch {};
+    var server_future_joined = false;
+    errdefer if (!server_future_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -491,6 +493,7 @@ test "resident DNS dial preserves the exact WebSocket refusal" {
         .transport = keyed_relay.transport_name,
         .designator = &designator,
     }, &stop);
+    server_future_joined = true;
     try server_future.await(io);
 
     switch (outcome) {

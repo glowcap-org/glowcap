@@ -42,9 +42,9 @@ fn pumpToQuiescence(client_host: *Host, client: *HostSession, server_host: *Host
 test "openAcceptedAdvertisedOver adopts an embedder-pinned peer: handshake, fetch, per-event serve, release without freeing" {
     const allocator = std.testing.allocator;
 
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
 
     // The embedder-pinned peer: owned by this frame, adopted by the host,
@@ -129,7 +129,7 @@ test "openAcceptedAdvertisedOver adopts an embedder-pinned peer: handshake, fetc
 
 test "openDialedOver retains onion profile knowledge through adoption" {
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.captp_version = .next;
     options.codec = .capnp;
     var host = test_host.init(allocator, @as([32]u8, @splat(0x0c)), options);

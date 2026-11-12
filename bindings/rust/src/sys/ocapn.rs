@@ -12,6 +12,15 @@
 //! code is expected of a `sys` layer and allowed only here.
 #![allow(dead_code)]
 
+/// One C representation of typed failure metadata in every archive.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GlowcapBreakCause {
+	pub origin: u32,
+	pub reason: u32,
+	pub context: u32,
+}
+
 use core::ffi::{c_uchar, c_uint, c_void};
 
 use super::layouts_gen::*;
@@ -187,6 +196,11 @@ pub struct GlowcapLastAbort {
 // reflected off the real Zig C ABI types, so this pin cannot drift from them.
 const _: () = {
 	use core::mem::{offset_of, size_of};
+	assert!(size_of::<GlowcapBreakCause>() == GLOWCAP_BREAK_CAUSE_SIZE);
+	assert!(offset_of!(GlowcapBreakCause, origin) == GLOWCAP_BREAK_CAUSE_ORIGIN_OFF);
+	assert!(offset_of!(GlowcapBreakCause, reason) == GLOWCAP_BREAK_CAUSE_REASON_OFF);
+	assert!(offset_of!(GlowcapBreakCause, context) == GLOWCAP_BREAK_CAUSE_CONTEXT_OFF);
+
 	assert!(size_of::<GlowcapReference>() == GLOWCAP_REFERENCE_SIZE);
 	assert!(offset_of!(GlowcapReference, id) == GLOWCAP_REFERENCE_ID_OFF);
 

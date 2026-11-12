@@ -3,6 +3,7 @@
 //! following data buffered while their reply owns write progress.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 const c = @import("c_abi_shared");
 const relay_archive = @import("c_abi_net_transport_relay");
@@ -81,7 +82,8 @@ test "relay C accept publishes payload buffered by the registered listener" {
         &data_drained,
         &close_answered,
     });
-    defer _ = relay.cancel(io) catch {};
+    var relay_joined = false;
+    errdefer if (!relay_joined) wait.joinedUnwinding("relay", relay.cancel(io));
 
     const port = server.socket.address.getPort();
     var relay_store: [64]u8 = undefined;
@@ -185,6 +187,7 @@ test "relay C accept publishes payload buffered by the registered listener" {
     _ = try harness.waitForEvent(io, table, route_id, c.GLOWCAP_MULTIPLEXED_EV_LISTEN);
     try std.testing.expectEqual(c.GLOWCAP_OK, table.stop_listen.?(listener, &failure));
 
+    relay_joined = true;
     relay.await(io) catch |err| {
         std.debug.print("relay test server: {s}\n", .{@errorName(err)});
         return err;

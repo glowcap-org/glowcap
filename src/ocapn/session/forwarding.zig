@@ -45,7 +45,7 @@ pub const ForwardedReply = struct {
     /// Retire this resolver once the carried result is stored, and give the
     /// stored resolution the batch holding and parking the mentions the
     /// result introduced (`introduced`): they have no caller, so they leave
-    /// with the resolution. One Session commit; the engine never mutates
+    /// with the resolution. One Session commit. The engine never mutates
     /// answer payload ownership.
     pub fn complete(self: ForwardedReply, owner: *Session, introduced: ?*session.ImportRelease) void {
         if (introduced) |batch| {

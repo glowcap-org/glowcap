@@ -27,6 +27,7 @@ import {
 	releaseManagedFrame,
 	requireOffThreadFfi,
 	SingleFlight,
+	TCP_CONFIG_PROFILES_OFF,
 	TCP_CONFIG_SIZE,
 	TCP_CONFIG_STREAM_OFF,
 	TCP_STREAM_OPTIONS_KEEPALIVE_COUNT_OFF,
@@ -37,7 +38,14 @@ import {
 } from "@glowcap/runtime/transport";
 import type { Codec, ProviderTarget, Ptr } from "@glowcap/runtime/transport";
 import { tcpS } from "./ffi.ts";
-import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@glowcap/abi";
+import {
+	RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+	releaseResultCode,
+	TCP_PROFILE_NOISE_TCP,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_TCP,
+} from "@glowcap/abi";
 
 const OK = 0;
 
@@ -55,10 +63,23 @@ export interface StreamOptions {
 	readonly keepalive?: Keepalive;
 }
 
+/** A transport name the TCP archive serves. */
+export type Profile = typeof TRANSPORT_TCP | typeof TRANSPORT_KEYED_TCP | typeof TRANSPORT_NOISE_TCP;
+
 /** Provider-wide TCP configuration, inherited by every dialed or accepted stream. A dial's `OperationOptions` can
- * override it. */
+ * override it. `profiles` lists the profile values the provider registers (`plain`, `keyed`, `noise`) and defaults to
+ * `[noise]`. Plain `tcp` and `keyed-tcp` are cleartext with no peer proof, so each is an explicit opt-in. The list
+ * limits which TCP profiles this provider registers, and other providers still dial their own transports. The raw
+ * `Netlayer.listen` and `Netlayer.connect` verbs speak plain `tcp` and are independent of the list. The C library
+ * refuses an empty list with `INVALID_ARGUMENT` when the netlayer is created, which is when a provider is installed. */
 export interface Config {
 	readonly stream?: StreamOptions;
+	readonly profiles?: readonly ProfileValue[];
+}
+
+/** A profile value of this package (`plain`, `keyed`, or `noise`): it carries the bit the provider registers. */
+export interface ProfileValue {
+	readonly profile: number;
 }
 
 /** Per-dial TCP policy overriding the provider's inherited Config. */
@@ -99,6 +120,11 @@ function encodeStreamOptions(options: StreamOptions = {}): Uint8Array {
 function encodeConfig(config: Config): Uint8Array {
 	const raw = new Uint8Array(TCP_CONFIG_SIZE);
 	raw.set(encodeStreamOptions(config.stream), TCP_CONFIG_STREAM_OFF);
+	const set = (config.profiles ?? [{ profile: TCP_PROFILE_NOISE_TCP }]).reduce(
+		(bits, value) => bits | value.profile,
+		0,
+	);
+	new DataView(raw.buffer).setUint32(TCP_CONFIG_PROFILES_OFF, set, true);
 	return raw;
 }
 
@@ -151,7 +177,8 @@ export class Connection {
 					await checkDiagnosedCall(
 						"tcp",
 						"connection release",
-						(error, cap, errorLen) => tcpS.glowcap_tcp_conn_release(p, error, cap, errorLen),
+						async (error, cap, errorLen) =>
+							releaseResultCode(await tcpS.glowcap_tcp_conn_release(p, error, cap, errorLen)),
 					);
 				} catch (error) {
 					consumedReleaseFailure(error);
@@ -297,6 +324,7 @@ export class Netlayer {
 		this.release();
 		await this.#ffi.waitClosed();
 	}
+	/** Bind plain `tcp`. */
 	listen(host: string, port = 0): Listener {
 		const h = new TextEncoder().encode(host);
 		const out = new Uint8Array(8);
@@ -305,6 +333,7 @@ export class Netlayer {
 		);
 		return new Listener(outPointer(out), this.#ffi);
 	}
+	/** Dial plain `tcp`. */
 	connect(
 		host: string,
 		port: number,
@@ -340,7 +369,7 @@ export class Netlayer {
 	}
 }
 
-/** Install this archive's tcp/keyed-tcp/noise-tcp package once per driver.
+/** Install this archive's provider package for the profiles `config` names, once per driver.
  * Registration acquires the FFI lease before this function drops the
  * construction reference; no binding-side owner is retained. */
 export function installProvider(loop: ProviderTarget, config: Config = {}): void {
@@ -358,7 +387,8 @@ export function installProvider(loop: ProviderTarget, config: Config = {}): void
 	}
 }
 
-/** Configure this archive's tcp/keyed-tcp/noise-tcp package for `connect`. */
+/** Configure this archive's provider package for `connect`: the profiles `config` names, `noise-tcp` alone by
+ * default. */
 export function provider(config: Config = {}): import("@glowcap/runtime").DriverProvider {
 	return {
 		install(loop) {

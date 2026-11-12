@@ -78,7 +78,8 @@ async def serve_once(server, served: list, name: str, behavior) -> None:
 
 
 async def run(peer_uri: str, dead_uri: str) -> None:
-    runtime = await Runtime.open(providers=[tcp.provider()])
+    # The runtime dials both profiles the scenes below listen on.
+    runtime = await Runtime.open(providers=[tcp.provider(tcp.Config(profiles=(tcp.plain, tcp.keyed)))])
     try:
         # ── dial-ok ──────────────────────────────────────────────────────────
         session = await runtime.connect(parse_locator(peer_uri))

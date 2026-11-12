@@ -22,12 +22,12 @@ import {
 import { Engine } from "../engine/engine.ts";
 import type { TimelineDocument } from "../engine/timeline.ts";
 import { dialLiveFeed, startLiveMode } from "../engine/live/mode.ts";
+import type { LiveConnectionState } from "../engine/live/status.ts";
 import type { LiveFeed } from "../engine/live/connection.ts";
 import type { EngineError } from "../engine/errors.ts";
 import { pushError } from "../ui/error/error-bus.ts";
 import type { Theme } from "../ui/tokens.ts";
 import {
-	APP_STATE_STORAGE_KEY,
 	type AppState,
 	clampSizes,
 	DEFAULT_SIZES,
@@ -35,6 +35,7 @@ import {
 	type LayoutSizes,
 	loadPersistedLayoutSizes,
 	loadPersistedStageVisibility,
+	persistAppState,
 	SIZES_STORAGE_KEY,
 	THEME_STORAGE_KEY,
 	VISIBILITY_STORAGE_KEY,
@@ -269,13 +270,13 @@ export function useOverStage(): boolean {
 	return over;
 }
 
-/** Mirror `state` into `localStorage` on every change. Persistence
+/** Save preferences on every change, excluding live capabilities. Persistence
  * failures (quota, private mode, …) silently no-op so a broken
  * storage doesn't break the app. */
 export function useAppStatePersistence(state: AppState): void {
 	useEffect(() => {
 		if (typeof globalThis.window === "undefined") return;
-		persistStoredValue(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+		persistAppState(state);
 	}, [state]);
 }
 
@@ -370,7 +371,7 @@ export function bufferSourceTracker(): BufferSourceTracker {
  * The live feed's connection, and the capture that rides on it.
  *
  * These are two facts and this hook keeps them apart. A URL means a
- * socket: entering Live mode dials, and `connected` says only that a
+ * socket: entering Live mode dials, and an open connection says that a
  * feed is there to record if the reader wants one. Recording is the
  * reader's own act, and it is what mounts an `Engine` folding arriving
  * events into a document. The capture. Connected is not recording,
@@ -394,10 +395,10 @@ export function useLiveConnection(input: {
 	sturdyref: string;
 	recording: boolean;
 }): {
-	/** The trace capability is subscribed. Says nothing about recording. */
-	connected: boolean;
+	/** CapTP setup, an open subscription, or a terminal failure requiring reload. */
+	connection: LiveConnectionState;
 	/** At least one record has arrived on this dial. Independent of
-	 *  `connected`: a quiet feed that has spoken is not a new endpoint
+	 *  the connection state: a quiet feed that has spoken is not a new endpoint
 	 *  still waiting for its first observation. */
 	observed: boolean;
 	/** The engine capturing arriving events, or null when nothing is
@@ -406,16 +407,23 @@ export function useLiveConnection(input: {
 } {
 	const { sturdyref, recording } = input;
 	const [captureEngine, setCaptureEngine] = useState<Engine | null>(null);
-	const [connected, setConnected] = useState(false);
+	const [connection, setConnection] = useState<LiveConnectionState>("connecting");
+	const requiresReload = useRef(false);
 	const [observed, setObserved] = useState(false);
 
 	useEffect(() => {
 		if (!sturdyref) {
 			setCaptureEngine(null);
-			setConnected(false);
+			setConnection("connecting");
 			setObserved(false);
 			return;
 		}
+		if (requiresReload.current) {
+			setConnection("stopped");
+			setCaptureEngine(null);
+			return;
+		}
+		setConnection("connecting");
 		// A sturdyref that cannot be parsed, dialed, or enlivened is the user's
 		// typo or a stale capability, and it
 		// belongs on the error bus beside every other thing the user can
@@ -428,9 +436,10 @@ export function useLiveConnection(input: {
 		// never in how they subscribe, so the capability act is spelled once.
 		const dial = {
 			sturdyref,
-			onConnectionChange: (up: boolean) => {
-				setConnected(up);
-				if (!up) setObserved(false);
+			onConnectionChange: (state: LiveConnectionState) => {
+				if (state === "stopped") requiresReload.current = true;
+				setConnection(state);
+				if (state !== "connected") setObserved(false);
 			},
 			onError,
 		};
@@ -445,7 +454,7 @@ export function useLiveConnection(input: {
 			unsubObserved();
 			handle.dispose();
 			setCaptureEngine(null);
-			setConnected(false);
+			setConnection("connecting");
 			setObserved(false);
 		};
 		// Deps: the sturdyref, because a different capability is a different feed, and
@@ -454,5 +463,5 @@ export function useLiveConnection(input: {
 		// one of them throws a running capture away.
 	}, [sturdyref, recording]);
 
-	return { connected, observed, captureEngine };
+	return { connection, observed, captureEngine };
 }

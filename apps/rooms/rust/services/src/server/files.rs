@@ -127,6 +127,9 @@ fn read(shared: &Shared, blob: &Blob, verb: &str, args: &[Argument]) -> Result<A
 	let mut state = shared.borrow_mut();
 	let (connection, _) = super::rooms::caller(&mut state)?;
 	state.ingress(connection)?;
+	// Whether this read waits is known only after it is charged, so its seat
+	// is taken whether or not it is used.
+	let seat = state.reserve()?;
 	state.admit_work(connection, rooms_application::admission::Class::Transfer, 1)?;
 	let now = state.now();
 	let outcome = state
@@ -137,7 +140,7 @@ fn read(shared: &Shared, blob: &Blob, verb: &str, args: &[Argument]) -> Result<A
 		ReadOutcome::Ready(bytes) => Ok(Argument::Bytes(bytes.to_vec())),
 		ReadOutcome::Waiting(ticket) => {
 			let waiting = wait(shared.clone(), ticket);
-			answer::later(&state, rooms_application::protocol_data::READ, waiting)
+			answer::later(&state, seat, rooms_application::protocol_data::READ, waiting)
 		}
 	}
 }

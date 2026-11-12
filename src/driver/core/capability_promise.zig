@@ -108,7 +108,7 @@ pub fn finishSettlement(self: *Host, id: capability.PromiseId) !host_pump.Action
         // (`promise_projection.prepare`). The break rewrites the row's copy,
         // so the reason leaves it first.
         const failure = row.state.broken;
-        return breakPromise(self, id, failure.message());
+        return breakPromise(self, id, failure.broken());
     }
     return switch (row.origin) {
         .answer => promise_answer.settle(self, id),
@@ -270,7 +270,7 @@ pub fn completeFulfilled(self: *Host, id: capability.PromiseId, lifted: Host.Cap
 
 /// The newest projection still owed to a live recipient. A projection whose
 /// recipient has already closed or left is dropped on the way. The shell may
-/// remain indexed until its transport retires; only a live wire can receive a resolution.
+/// remain indexed until its transport retires. Only a live wire can receive a resolution.
 pub fn nextOwedProjection(self: *Host, row: *Row) ?struct { projection: Row.Projection, recipient: *HostSession } {
     while (row.projections.items.len != 0) {
         const projection = row.projections.items[row.projections.items.len - 1];
@@ -291,7 +291,7 @@ fn settleProjections(self: *Host, row: *Row, resolved: capability.Ref) !?host_pu
         projectCapability(self, owed.recipient, owed.projection, resolved) catch |err| {
             if (err == error.OutboundBackpressure) return .{ .parked_on = owed.projection.peer_handle };
             if (retriesLater(err)) return err;
-            breakProjection(self, owed.recipient, owed.projection, @errorName(err)) catch |break_err| {
+            breakProjection(self, owed.recipient, owed.projection, engine.Broken.unnamed(@errorName(err))) catch |break_err| {
                 if (break_err == error.OutboundBackpressure) return .{ .parked_on = owed.projection.peer_handle };
                 return break_err;
             };
@@ -319,10 +319,11 @@ fn projectCapability(self: *Host, recipient: *HostSession, projection: Row.Proje
 }
 
 /// Resolve a projection broken, with the reason the recipient hears.
-pub fn breakProjection(self: *Host, recipient: *HostSession, projection: Row.Projection, reason: []const u8) !void {
+pub fn breakProjection(self: *Host, recipient: *HostSession, projection: Row.Projection, reason: engine.Broken) !void {
+    var buffer: [engine.Broken.diagnostic_capacity]u8 = undefined;
     try recipient.served.port.peer.sendAnswerTargetResolutionCopying(
         projection.answer_target,
-        .{ .@"break" = .{ .message = reason } },
+        .{ .@"break" = .{ .message = reason.render(&buffer) } },
     );
     host_pump.markDirty(self, projection.peer_handle);
 }
@@ -330,14 +331,14 @@ pub fn breakProjection(self: *Host, recipient: *HostSession, projection: Row.Pro
 /// Break the promise toward every projection, parking on a recipient whose
 /// outbound pressure stops it, as `fulfill` does. A row that already broke
 /// breaks the projections owed since.
-pub fn breakPromise(self: *Host, id: capability.PromiseId, reason: []const u8) !host_pump.ActionOutcome {
+pub fn breakPromise(self: *Host, id: capability.PromiseId, reason: engine.Broken) !host_pump.ActionOutcome {
     return breakPromiseImpl(self, id, reason, false);
 }
 
 fn breakPromiseImpl(
     self: *Host,
     id: capability.PromiseId,
-    reason: []const u8,
+    reason: engine.Broken,
     terminal: bool,
 ) !host_pump.ActionOutcome {
     var row = self.capability_promises.getPtr(id) orelse return .done;
@@ -353,13 +354,14 @@ fn breakPromiseImpl(
         } else return .done,
         .fulfilled, .fulfilled_data => return .done,
     }
+    var buffer: [engine.Broken.diagnostic_capacity]u8 = undefined;
     const was_pending = row.state == .pending;
     while (nextOwedProjection(self, row)) |owed| {
         const projection = owed.projection;
         const recipient = owed.recipient;
         recipient.served.port.peer.sendAnswerTargetResolutionCopying(
             projection.answer_target,
-            .{ .@"break" = .{ .message = reason } },
+            .{ .@"break" = .{ .message = reason.render(&buffer) } },
         ) catch |err| {
             if (!terminal) {
                 if (err == error.OutboundBackpressure) return .{ .parked_on = projection.peer_handle };
@@ -398,7 +400,7 @@ fn breakPromiseImpl(
 
     for (operations.items[operation_head..]) |pending| {
         var owned = pending;
-        retireOperationTerminal(self, &owned, failure.message(), null);
+        retireOperationTerminal(self, &owned, failure.broken(), null);
     }
     operations.deinit(self.allocator);
     return .done;
@@ -470,7 +472,7 @@ pub fn sessionReleased(self: *Host, peer_handle: engine.PeerHandle, reason: []co
             self.node.cancelInlineGive(peer_handle, @backingInt(id));
         // Terminal: every projection is broken or its recipient condemned, so
         // no recipient is ever returned to park on.
-        std.debug.assert((breakPromiseImpl(self, id, reason, true) catch unreachable) == .done);
+        std.debug.assert((breakPromiseImpl(self, id, engine.Broken.unnamed(reason), true) catch unreachable) == .done);
     }
 
     std.debug.assert(!self.pending_inline_gives.contains(peer_handle));
@@ -500,7 +502,7 @@ pub fn sessionReleased(self: *Host, peer_handle: engine.PeerHandle, reason: []co
             if (detached != null) break;
         }
         var pending = detached orelse break;
-        retireOperationTerminal(self, &pending, reason, peer_handle);
+        retireOperationTerminal(self, &pending, engine.Broken.unnamed(reason), peer_handle);
     }
 }
 

@@ -202,6 +202,7 @@ async function bridgePhase(): Promise<void> {
 			"--mode=two-way",
 			"--sasl-account=bridge-account",
 			"--tls=true",
+			"--reachability=direct",
 		],
 		{
 			env: {
@@ -212,13 +213,13 @@ async function bridgePhase(): Promise<void> {
 	);
 	try {
 		const announced = await bridge.waitFor(
-			/ROOMS-IRC-BRIDGE-LISTENING (\d+) (\S+)/,
+			/ROOMS-IRC-BRIDGE-LISTENING (ocapn:\S+) (\S+)/,
 			"IRC bridge announcement",
 		);
 		const goblins = await runChild("racket", [
 			"-y",
 			`${ROOT}/conformance/goblins-peer/racket/rooms-member.rkt`,
-			`127.0.0.1:${announced[1]}`,
+			announced[1],
 			announced[2],
 			"goblins-carol",
 			"hello IRC from Goblins",

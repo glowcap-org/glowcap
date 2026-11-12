@@ -407,7 +407,8 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 		assert!(wasm.contains("content-type: application/wasm"), "{wasm}");
 		let retired = web.request("HEAD", "/glowcap_host.wasm", "").await;
 		assert!(retired.starts_with("HTTP/1.1 404"), "{retired}");
-		for path in ["/trace?cap=0000", "/publish?cap=0000"] {
+		// A query is refused at the endpoint, through the proxy, on either socket route.
+		for path in ["/trace/captp?cap=0000", "/publish?cap=0000"] {
 			let (mut refused_socket, _) = loop {
 				match tokio_tungstenite::connect_async(web.url(path)).await {
 					Ok(pair) => break pair,
@@ -491,6 +492,10 @@ async fn web_relays_the_directory_through_tcp_and_iroh() {
 		tokio::time::timeout(Duration::from_secs(20), async {
 			let mut options = Web::options(0);
 			options.insert("transport", transport.to_owned());
+			if transport == "iroh" {
+				// An iroh directory listens on no port.
+				options.remove("port");
+			}
 			let mut command = Web::command_with(options);
 			command.arg(option);
 			let mut web = Web::spawn(command);

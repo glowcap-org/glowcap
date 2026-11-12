@@ -140,9 +140,12 @@ async fn scenario() {
 	assert_eq!(archive.read_all(&Filter::default()).await.unwrap().len(), 1);
 	// Independent peers need independent Runtime identities; a second dial
 	// from the already-connected Host may be refused before accept yields.
-	let runtime2 = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let runtime2 = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
 	let (connected2, accepted2) =
 		tokio::try_join!(runtime2.connect(&locator, ConnectOptions::default()), server.accept()).unwrap();
 	let accepted2 = Rc::new(accepted2);
@@ -179,7 +182,7 @@ async fn scenario() {
 	assert!(archive.read(&Filter::default(), 0, 1).await.is_err());
 	malformed.set(false);
 	// Hold the first backend operation, then fill every admitted slot. Reads
-	// cannot overtake an earlier put, and pressure refuses before deferring. status-allow: event or source ordering
+	// cannot overtake an earlier put, and pressure refuses before deferring.
 	blocked.set(true);
 	let first = client.session().send(&reference, "put", &[wire::record_row(&record())]);
 	starts.recv().await.unwrap();
@@ -191,7 +194,7 @@ async fn scenario() {
 			&[wire::filter_row(&Filter::default()).unwrap(), 0.into(), 1.into()],
 		));
 	}
-	// A later synchronous call is an ordering barrier for earlier deliveries. status-allow: event or source ordering
+	// A later synchronous call is an ordering barrier for earlier deliveries.
 	assert!(client.session().send(&reference, "unknown", &[]).await.is_err());
 	assert_eq!(owner.usage().requests, REQUEST_LIMIT);
 	assert!(archive.read(&Filter::default(), 0, 1).await.is_err());

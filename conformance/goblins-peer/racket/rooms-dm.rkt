@@ -46,6 +46,7 @@
          dm-say
          dm-forget
          dm-notify
+         watch-members
          max-dm-inboxes)
 
 ;; How many direct-message inboxes this vat will hold. Each one is an actor and a
@@ -105,6 +106,39 @@
 ;; member's own register inbox reaches this directly.
 (define (dm-notify member event name registration-id [opening #f]) ($ member 'heard event name registration-id opening))
 
+;; Watch who the room has registered. `on-member` hears `(event name
+;; registration-id)` once as "registered" for each member already current when
+;; the watch began, then for every later notification. The publication watch is
+;; the one whose answer is `(rooms members omitted)`: the baseline `watch`
+;; answers rooms alone, so a member who registered before this vat watched would
+;; never be heard, and the room does not repeat earlier registrations. A
+;; malformed or truncated answer goes to `on-error` as text, with every row it
+;; could read already heard.
+(define (watch-members directory on-member on-error)
+  (define watcher
+    (spawn (lambda (_bcom)
+             (methods
+              [(notify event . rest)
+               (define name (if (pair? rest) (car rest) ""))
+               (define registration-id
+                 (if (and (pair? rest) (pair? (cdr rest)) (pair? (cddr rest)))
+                     (caddr rest)
+                     ""))
+               (on-member event name registration-id)]))))
+  (on (<- directory 'watchPublications watcher)
+      (lambda (snapshot)
+        (cond
+          [(not (and (list? snapshot) (= (length snapshot) 3) (list? (cadr snapshot))))
+           (on-error (format "the room's watch answer is not (rooms members omitted): ~v" snapshot))]
+          [else
+           (for ([row (in-list (cadr snapshot))])
+             (if (and (list? row) (= (length row) 2) (andmap string? row))
+                 (on-member "registered" (car row) (cadr row))
+                 (on-error (format "the room's watch answer carried an invalid member row: ~v" row))))
+           (unless (eqv? (caddr snapshot) 0)
+             (on-error (format "the room left ~a rows out of its watch answer" (caddr snapshot))))]))
+      #:catch on-error))
+
 ;; A name as the room keys it. The room matches nicks case-insensitively, so a
 ;; member's own tables have to as well or an inbox filed under one casing is
 ;; never found under another.
@@ -141,19 +175,6 @@
   ;; their connection, which is the only way to answer a peer that opened no
   ;; listener of its own.
   (define back-channels (make-hash))
-  ;; Lines waiting on an introduction the room refused as pending: the member has
-  ;; been asked for an inbox, and `notify("introducible", peer)` says it arrived.
-  (define waiting (make-hash))
-  ;; Peers the room called introducible while nothing was waiting on them.
-  ;;
-  ;; The wakeup can outrun the refusal it belongs to. One `introduce` makes the
-  ;; room do two things: ask the member for an inbox, and refuse us as pending.
-  ;; The member may offer before that refusal reaches us, so `introducible`
-  ;; arrives, finds an empty queue, and would be dropped, leaving the line parked
-  ;; with nothing left to wake it. Remembering the peer here lets the refusal ask
-  ;; again straight away instead of parking. `apps/rooms/lib/room/client.ts` keeps
-  ;; the same memo against the same race.
-  (define introducible-seen (make-hash))
   (define opening-sequence 0)
   (define (new-opening)
     (set! opening-sequence (add1 opening-sequence))
@@ -272,7 +293,6 @@
   ;; with the inbox that member offered for us, as a give; Goblins redeems it by
   ;; dialing the member directly, so the send below is already off-room.
   (define (introduce-then-say peer registration-id text opening)
-    (define key (cons registration-id opening))
     (on (<- directory 'introduce peer registration-id opening)
         (lambda (their-inbox)
           (cond
@@ -284,18 +304,6 @@
         (lambda (err)
           (cond
             [(not (current-registration? peer registration-id)) (report-retired peer)]
-            ;; First contact. The room has just asked the member for an inbox for
-            ;; us, and says so again when it arrives, so the line is held rather
-            ;; than lost. Unless it already said so: the wakeup can arrive before
-            ;; this refusal does, and there will not be a second one, so ask again
-            ;; now rather than park on a notice that has already been spent.
-            [(equal? (room-error-code err) "introduction-pending")
-             (cond
-               [(hash-ref introducible-seen key #f)
-                (hash-remove! introducible-seen key)
-                (introduce-then-say peer registration-id text opening)]
-               [else
-                (hash-update! waiting key (lambda (held) (cons text held)) '())])]
             [else (on-error (format "reach ~a" peer) err)]))))
 
   (define (say peer text)
@@ -319,21 +327,14 @@
       (hash-remove! registrations name-key))
     (hash-remove! inboxes registration-id)
     (hash-remove! lines registration-id)
-    (hash-remove! back-channels registration-id)
-    (for ([key (in-list (hash-keys waiting))] #:when (equal? (car key) registration-id))
-      (hash-remove! waiting key))
-    ;; The next holder of this name is somebody else, and must not inherit a
-    ;; notice the last one earned.
-    (for ([key (in-list (hash-keys introducible-seen))]
-          #:when (equal? (car key) registration-id))
-      (hash-remove! introducible-seen key)))
+    (hash-remove! back-channels registration-id))
 
   ;; One `notify` the room pushed, whichever inbox it arrived on.
   (define (heard event name registration-id [opening #f])
-    (when (member event '("registered" "unregistered" "mintInboxFor" "introducible"))
+    (when (member event '("registered" "unregistered" "mintInboxFor"))
       (unless (and (string? name) (registration-id? registration-id))
         (error 'rooms-dm "~a carried an invalid member registration" event)))
-    (when (member event '("mintInboxFor" "introducible"))
+    (when (equal? event "mintInboxFor")
       (unless (opening? opening)
         (error 'rooms-dm "~a carried an invalid direct opening" event)))
     (define name-key (peer-key name))
@@ -366,18 +367,6 @@
        (when (and prior (not (equal? prior registration-id))) (forget name prior))
        (hash-set! registrations name-key registration-id)
        (offer name registration-id opening)]
-      ;; A member we were told to wait for has offered an inbox. Whatever was
-      ;; typed while waiting goes now, in the order it was typed.
-      [(equal? event "introducible")
-       (when (equal? (hash-ref registrations name-key #f) registration-id)
-         (define key (cons registration-id opening))
-         (define held (reverse (hash-ref waiting key '())))
-         (hash-remove! waiting key)
-         ;; Nothing parked yet means the refusal this notice belongs to is still on status-allow: pending state or quoted runtime label
-         ;; its way, so the notice is remembered for it rather than dropped.
-         (if (null? held)
-             (hash-set! introducible-seen key #t)
-             (for ([text (in-list held)]) (introduce-then-say name registration-id text opening))))]
       [else (void)]))
 
   (define member-self

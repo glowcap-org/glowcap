@@ -20,26 +20,26 @@ const span = (
 
 /* ---------- peer (parent = world) ---------- */
 
-Deno.test("peer: both implicit → spans the world", () => {
+Deno.test("peer: both bounds implicit spans the world", () => {
 	const v = span(implicitBound(0), implicitBound(0));
 	const i = intrinsicOf(v, WORLD_INTRINSIC);
 	assertEquals(i, { start: 0, end: Number.POSITIVE_INFINITY });
 	assertEquals(effectiveOf(i, WORLD_EFFECTIVE), i);
 });
 
-Deno.test("peer: explicit start, implicit duration → start to ∞", () => {
+Deno.test("peer: an explicit start with implicit duration runs from the start to infinity", () => {
 	const v = span(explicitBound(2), implicitBound(0));
 	const i = intrinsicOf(v, WORLD_INTRINSIC);
 	assertEquals(i, { start: 2, end: Number.POSITIVE_INFINITY });
 });
 
-Deno.test("peer: implicit start, explicit duration → 0 + duration", () => {
+Deno.test("peer: an implicit start with explicit duration runs from 0 for the duration", () => {
 	const v = span(implicitBound(0), explicitBound(8));
 	const i = intrinsicOf(v, WORLD_INTRINSIC);
 	assertEquals(i, { start: 0, end: 8 });
 });
 
-Deno.test("peer: both explicit → as authored", () => {
+Deno.test("peer: both bounds explicit resolves as authored", () => {
 	const v = span(explicitBound(3), explicitBound(10));
 	const i = intrinsicOf(v, WORLD_INTRINSIC);
 	assertEquals(i, { start: 3, end: 13 });
@@ -49,19 +49,19 @@ Deno.test("peer: both explicit → as authored", () => {
 
 const peerOverlap = rangeOf(2, 12);
 
-Deno.test("session: both implicit → spans peer overlap", () => {
+Deno.test("session: both bounds implicit spans the peer overlap", () => {
 	const v = span(implicitBound(0), implicitBound(0));
 	const i = intrinsicOf(v, peerOverlap);
 	assertEquals(i, { start: 2, end: 12 });
 });
 
-Deno.test("session: explicit start inside overlap, implicit duration → start to overlap end", () => {
+Deno.test("session: an explicit start inside the overlap with implicit duration runs from the start to the overlap end", () => {
 	const v = span(explicitBound(5), implicitBound(0));
 	const i = intrinsicOf(v, peerOverlap);
 	assertEquals(i, { start: 5, end: 12 });
 });
 
-Deno.test("session: explicit start before overlap → effective clamps start", () => {
+Deno.test("session: an explicit start before the overlap makes the effective range clamp its start", () => {
 	const v = span(explicitBound(0), implicitBound(0));
 	const i = intrinsicOf(v, peerOverlap);
 	assertEquals(i, { start: 0, end: 12 });
@@ -69,7 +69,7 @@ Deno.test("session: explicit start before overlap → effective clamps start", (
 	assertEquals(effectiveOf(i, peerOverlap), { start: 2, end: 12 });
 });
 
-Deno.test("session: explicit duration past overlap end → effective clamps end", () => {
+Deno.test("session: an explicit duration past the overlap end makes the effective range clamp its end", () => {
 	const v = span(explicitBound(5), explicitBound(20));
 	const i = intrinsicOf(v, peerOverlap);
 	assertEquals(i, { start: 5, end: 25 });
@@ -80,14 +80,14 @@ Deno.test("session: explicit duration past overlap end → effective clamps end"
 
 const session = rangeOf(3, 10);
 
-Deno.test("message: implicit start, explicit duration → starts where session starts", () => {
+Deno.test("message: an implicit start with explicit duration starts where the session starts", () => {
 	const v = span(implicitBound(0), explicitBound(2));
 	const i = intrinsicOf(v, session);
 	assertEquals(i, { start: 3, end: 5 });
 	assertEquals(effectiveOf(i, session), { start: 3, end: 5 });
 });
 
-Deno.test("message: explicit start past session end → effective collapses to empty at end", () => {
+Deno.test("message: an explicit start past the session end makes the effective range collapse to empty at the end", () => {
 	const v = span(explicitBound(15), explicitBound(2));
 	const i = intrinsicOf(v, session);
 	assertEquals(i, { start: 15, end: 17 });
@@ -97,7 +97,7 @@ Deno.test("message: explicit start past session end → effective collapses to e
 	assertEquals(eff.start >= eff.end, true);
 });
 
-Deno.test("message: arrival past session end → effective end clamped, stored preserved", () => {
+Deno.test("message: an arrival past the session end clamps the effective end and preserves the stored value", () => {
 	const v = span(explicitBound(7), explicitBound(5));
 	const i = intrinsicOf(v, session);
 	assertEquals(i, { start: 7, end: 12 });
@@ -108,7 +108,7 @@ Deno.test("message: arrival past session end → effective end clamped, stored p
 
 /* ---------- empty parent context ---------- */
 
-Deno.test("any entity in an empty context → effective is empty", () => {
+Deno.test("any entity in an empty context has an empty effective range", () => {
 	const empty = rangeOf(5, 5);
 	const v = span(explicitBound(2), explicitBound(8));
 	const i = intrinsicOf(v, empty);

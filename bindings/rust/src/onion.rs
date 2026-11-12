@@ -264,6 +264,16 @@ pub struct Listener<'a> {
 	_nl: PhantomData<&'a ()>,
 }
 
+/// Interrupts a blocked [`Listener::accept`] from another thread. It borrows
+/// the listener, so the listener stays alive until every handle is gone.
+/// `shutdown` cannot fail.
+pub type ListenerShutdown<'l> = crate::shutdown::ShutdownHandle<'l, ffi::GlowcapOnionListener>;
+
+/// Interrupts a blocked frame read or write from another thread. It borrows
+/// the connection, so the connection stays alive until every handle is gone.
+/// `shutdown` returns the error the transport reports.
+pub type ConnectionShutdown<'c> = crate::shutdown::ShutdownHandle<'c, ffi::GlowcapOnionConn>;
+
 /// A blocking onion connection. The frame methods block and drop closes it.
 pub struct Connection<'a> {
 	raw: *mut ffi::GlowcapOnionConn,

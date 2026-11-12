@@ -281,10 +281,12 @@ pub const Host = struct {
     next_session_close_deadline_ms: ?i64 = null,
     /// Held while a top-level verb fires callbacks or pumps.
     callback_latch: host_admission.CallbackLatch = .{},
-    /// Owning thread, latched by public admission and released only at an
-    /// explicit quiescent handoff. This is runtime contract state in every
-    /// build: affinity mistakes are caller refusals, never debug-only panics or
-    /// unchecked release-mode data races.
+    /// Releases asked for inside a callback, run by that callback's verb tail.
+    deferred_releases: ?*host_admission.DeferredRelease = null,
+    /// Owning thread's token under `opts.thread_policy`, latched by public
+    /// admission and released only at an explicit quiescent handoff. This is
+    /// runtime contract state in every build: affinity mistakes are caller
+    /// refusals, never debug-only panics or unchecked release-mode data races.
     owner_tid: host_admission.OwnerThreadId = host_admission.initial_owner_thread_id,
 
     pub const InitError = host_configuration.InitError;
@@ -517,6 +519,7 @@ pub const Host = struct {
     /// Third-party handoff (`handoff.zig`): the node-service callbacks, the
     /// embedder's dial-ticket seam, and the give verbs.
     pub const pendingDial = handoff_mod.pendingDial;
+    pub const pendingDialIntroducer = handoff_mod.pendingDialIntroducer;
     pub const exporterDialed = handoff_mod.exporterDialed;
     pub const completeSelectedExporter = handoff_mod.completeSelectedExporter;
     pub const dialFailed = handoff_mod.dialFailed;
@@ -565,6 +568,8 @@ pub const Host = struct {
     const checkOwnerIfClaimed = host_admission.checkOwnerIfClaimed;
     const admitConfigurationMutation = host_admission.admitConfigurationMutation;
     pub const refuseReentry = host_admission.refuseReentry;
+    pub const DeferredRelease = host_admission.DeferredRelease;
+    pub const releaseAtTopLevel = host_admission.releaseAtTopLevel;
     pub const withinCallback = host_admission.withinCallback;
     pub const checkLive = host_admission.checkLive;
     pub const checkSession = host_admission.checkSession;

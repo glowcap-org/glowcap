@@ -17,15 +17,18 @@ import {
 	directoryUnreachable,
 	doorBlocked,
 	doorUnreachable,
+	type FailureNames,
 	type FailureView,
 	failureView,
+	LocalRefusal,
+	namedFailure,
 	refusalText,
 	relayUnreachable,
 	renderFailure,
 	transportBreak,
 } from "../../../../lib/text/failure.ts";
 import { localNetworkBlock } from "../../server_choice.ts";
-import { NO_SERVER, RoomsError, roomsErrorInMessage } from "../../../../lib/error_codes.ts";
+import { NO_SERVER, ROOM_EXISTS, RoomsError, roomsErrorIn } from "../../../../lib/error_codes.ts";
 import { dmAddress, joinAddress, roomAddress } from "../../route_address.ts";
 import {
 	activeRefusal,
@@ -136,7 +139,8 @@ export function createManagedController(
 		const view = failureView(error);
 		const host = servedHost();
 		if (host != null) {
-			if (view.code !== "unexpected") return renderFailure(view);
+			// A route that broke on the way is said with the server it broke at.
+			if (view.code !== "unexpected" && transportBreak(error) == null) return renderFailure(view);
 			return relayAway(projection.get().relay)
 				? relayUnreachable(host, view.detail)
 				: directoryUnreachable(host, view.detail);
@@ -162,16 +166,19 @@ export function createManagedController(
 		return door ?? renderFailure(view);
 	};
 	type Explain = (error: unknown, resume: Resume) => string | null;
+	// A direct line reaches for a member.
+	const DIRECT: FailureNames = new Map([["peer-unreachable", "member-unreachable"]]);
 	// What a direct line that did not open says, whoever asked for it. A name
 	// nobody holds is said with the name. An introduction that was redeemed
-	// and found no route, on a page with no Rooms server, has a route through
+	// and reached nobody, on a page with no Rooms server, has a route through
 	// a server as the other way to that person, so the page asks for one, with
 	// the conversation to come back to. With a server the Host already tried
 	// every route it was given, so the failure is said as it is.
 	const dmExplained = (peer: string): Explain => (error, resume) => {
-		const code = failureView(error).code;
-		if (code === "peer-offline") return notRegisteredForDirect(peer);
-		if (code !== "direct-no-route" || projection.get().server != null) return explained(error, resume);
+		const view = failureView(error);
+		if (view.code === "peer-offline") return notRegisteredForDirect(peer);
+		if (view.code !== "peer-unreachable") return explained(error, resume);
+		if (projection.get().server != null) return renderFailure(namedFailure(view, DIRECT));
 		store.askServer(projection, resume?.() ?? null, serverAskAfterDirect(peer));
 		return null;
 	};
@@ -260,7 +267,7 @@ export function createManagedController(
 				row.publication != null || row.access == null
 			) continue;
 			if (saved != null) {
-				throw new Error("This name matches several saved rooms. Select the conversation from the sidebar.");
+				throw new LocalRefusal("several-saved");
 			}
 			saved = row.id;
 		}
@@ -274,32 +281,48 @@ export function createManagedController(
 		// answers broken, so wait for the registration `reach` waits for.
 		if (original != null && original.nick !== "") await session.directoryRegistered(original, signal);
 		if (signal.aborted) return;
-		const reader = await session.workspace.directoryReader(id);
-		let matches: RoomInfo[];
-		try {
-			if (signal.aborted) return;
-			matches = await reader.namedRooms(name);
-		} finally {
-			reader.free();
+		const read = async () => {
+			const reader = await session.workspace.directoryReader(id);
+			let matches: RoomInfo[];
+			try {
+				if (signal.aborted) return null;
+				matches = await reader.namedRooms(name);
+			} finally {
+				reader.free();
+			}
+			if (signal.aborted) return null;
+			const snapshot = await session.refresh();
+			if (signal.aborted) return null;
+			const current = snapshot.intent.directories.find((row) => row.id === id);
+			if (original == null || current?.access !== original.access || current.source !== original.source) {
+				throw new LocalRefusal("directory-changed");
+			}
+			if (matches.length > 1) throw new LocalRefusal("name-ambiguous");
+			return { listed: matches[0], snapshot };
+		};
+		let found = await read();
+		if (found == null) return;
+		if (found.listed == null) {
+			try {
+				return await selected(await session.actions.createRoom(id, name, policy, opening));
+			} catch (error) {
+				// Another member opened the name between the read and the create.
+				// Somebody else's room is one to enter, not an error, as every
+				// Rooms client treats this race; the refused create committed nothing.
+				if (roomsErrorIn(error)?.code !== ROOM_EXISTS) throw error;
+			}
+			found = await read();
+			if (found == null) return;
+			// The room closed again before it could be entered.
+			if (found.listed == null) throw new LocalRefusal("room-not-listed");
 		}
-		if (signal.aborted) return;
-		const snapshot = await session.refresh();
-		if (signal.aborted) return;
-		const current = snapshot.intent.directories.find((row) => row.id === id);
-		if (original == null || current?.access !== original.access || current.source !== original.source) {
-			throw new Error("The selected directory authority changed. Review it before joining.");
-		}
-		if (matches.length > 1) throw new Error("This room name is ambiguous. Select an exact publication.");
-		const listed = matches[0];
-		if (listed == null) await selected(await session.actions.createRoom(id, name, policy, opening));
-		else {
-			const held = snapshot.intent.conversations.find((row) =>
-				row.kind === "room" && row.directory === id && row.publication === listed.id
-			);
-			if (held != null) return await selected(held.id);
-			if (listed.offers == null) throw new Error("This room needs an invitation.");
-			await selected(await session.actions.publicRoom(id, listed.name, listed.id, opening));
-		}
+		const { listed, snapshot } = found;
+		const held = snapshot.intent.conversations.find((row) =>
+			row.kind === "room" && row.directory === id && row.publication === listed.id
+		);
+		if (held != null) return await selected(held.id);
+		if (listed.offers == null) throw new LocalRefusal("needs-invitation");
+		await selected(await session.actions.publicRoom(id, listed.name, listed.id, opening));
 	}
 	async function namedRoom(id: DirId, name: string, policy: RoomPolicy, opening: ConversationOpening): Promise<void> {
 		const keys = joinRefusalKeys(id, name);
@@ -325,7 +348,7 @@ export function createManagedController(
 			// Rooms server has none of. The refusal carries the catalog's sentence
 			// for that as its detail, so the ask it raises leads with it.
 			if (address === "" && served() == null) throw new RoomsError(NO_SERVER, serverNeedHome);
-			throw new Error("This address does not name a directory");
+			throw new LocalRefusal("not-directory");
 		}
 		const name = nick.kind === "exact" ? nick.name : nick.base;
 		const allocation = nick.kind === "exact" ? "exact" : "automatic";
@@ -349,7 +372,7 @@ export function createManagedController(
 		if (name !== "" && !signal?.aborted) {
 			const selected = (await session.refresh()).intent.directories.find((row) => row.id === id);
 			if (signal?.aborted) return id;
-			if (selected == null) throw new Error("The original directory was removed");
+			if (selected == null) throw new LocalRefusal("directory-gone");
 			await session.directoryRegistered(selected, signal);
 		}
 		return id;
@@ -477,8 +500,8 @@ export function createManagedController(
 				if (said != null) rememberJoinRefusal(projection, id, destination.room, error);
 				return {
 					ok: false,
-					code: roomsErrorInMessage(error)?.code ?? null,
-					failure: roomsErrorInMessage(error) ?? undefined,
+					code: roomsErrorIn(error)?.code ?? null,
+					failure: roomsErrorIn(error) ?? undefined,
 					text: said ?? "",
 				};
 			});

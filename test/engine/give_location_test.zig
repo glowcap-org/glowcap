@@ -17,6 +17,32 @@ fn recordBytes(allocator: std.mem.Allocator, locator: model.PeerLocator) ![]u8 {
     return codec.signed.encodeLocatorRecord(allocator, locator);
 }
 
+test "give refuses an exporter location it cannot privacy-filter" {
+    const allocator = std.testing.allocator;
+    const raw = try recordBytes(allocator, .{
+        .transport = model.transport.onion,
+        .designator = &@as([56]u8, @splat('a')),
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer allocator.free(raw);
+    const trailing = try std.mem.concat(allocator, u8, &.{ raw, "f" });
+    defer allocator.free(trailing);
+    for ([_][]const u8{ "", raw[0 .. raw.len - 1], trailing }) |invalid| {
+        try std.testing.expectError(error.UnsupportedArgument, engine.handoff_gifter.exporterLocationForRecipient(allocator, invalid, .{}));
+        const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x21)));
+        try std.testing.expectError(error.UnsupportedArgument, engine.handoff_gifter.mintGive(
+            allocator,
+            secret,
+            &@as([model.handoff_gift_id_bytes]u8, @splat(0x22)),
+            &@as([32]u8, @splat(0x23)),
+            &@as([32]u8, @splat(0x24)),
+            invalid,
+            .{},
+            .{ .route_vocabulary = true, .session_location = invalid },
+        ));
+    }
+}
+
 test "a bare exporter location needs no stripping and allocates nothing" {
     const allocator = std.testing.allocator;
     const raw = try recordBytes(allocator, .{
@@ -306,4 +332,39 @@ test "route vocabulary recipients keep a baseline-compatible exporter override" 
     defer model.freeHandoffGive(allocator, give);
     try std.testing.expectEqualStrings(model.transport.tcp, give.exporter.transport);
     try std.testing.expectEqualStrings("127.0.0.1:9050", give.exporter.designator);
+}
+
+test "allocation failure while lowering a private route is returned, never the unstripped bytes" {
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x31))).publicKey().toDesignator();
+    const route_text = try std.fmt.allocPrint(std.testing.allocator, "ocapn://{s}.iroh", .{key[0..]});
+    defer std.testing.allocator.free(route_text);
+    const routes = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = route_text },
+    }};
+    const id_raw = try recordBytes(std.testing.allocator, .{
+        .transport = model.transport.id,
+        .designator = &key,
+        .hints = .{ .entries = &routes },
+    });
+    defer std.testing.allocator.free(id_raw);
+    const policy: engine.handoff_gifter.RecipientLocatorPolicy = .{ .session_transport = model.transport.iroh };
+
+    var fail_index: usize = 0;
+    while (true) : (fail_index += 1) {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
+        const lowered = engine.handoff_gifter.exporterLocationForRecipient(
+            failing.allocator(),
+            id_raw,
+            policy,
+        ) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            continue;
+        };
+        // Every successful run lowered: the via-hinted id locator never ships.
+        const owned = lowered orelse return error.TestUnexpectedResult;
+        defer failing.allocator().free(owned);
+        try std.testing.expect(!failing.has_induced_failure);
+        break;
+    }
 }

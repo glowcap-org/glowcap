@@ -29,6 +29,7 @@ import { Sidebar } from "./Sidebar.tsx";
 import { Topbar } from "./Topbar.tsx";
 import { SessionEffectNotice } from "../panes/SessionEffectNotice.tsx";
 import { ServerAsk } from "../panes/ServerAsk.tsx";
+import { SessionAwayNotice } from "../panes/SessionAwayNotice.tsx";
 import { SessionPausedNotice } from "../panes/SessionPausedNotice.tsx";
 import { Stream } from "../panes/Stream.tsx";
 import { Members } from "../panes/Members.tsx";
@@ -68,7 +69,7 @@ function shellLayerReducer(state: ShellLayerState, action: ShellLayerAction): Sh
 	return { ...state, [action.layer]: action.held };
 }
 
-// Shared empties, so a directory this tab does not hold yet draws as one with status-allow: pending state or quoted runtime label
+// Shared empties, so a directory this tab does not hold yet draws as one with
 // nothing in it rather than making every reader below handle null.
 const EMPTY_PEERS: ReadonlySet<string> = new Set();
 const EMPTY_ROOMS: LiveRooms = new Map();
@@ -81,7 +82,7 @@ function administeredBridgeFor(
 	gateway: IrcGatewayState | null,
 	publicationId: string | undefined,
 ): AdministeredBridge | null {
-	// An empty publication id is "no room yet" on a lease, not an identity, so it status-allow: pending state or quoted runtime label
+	// An empty publication id is "no room yet" on a lease, not an identity, so it
 	// must never match a room that also has none.
 	if (gateway == null || publicationId == null || publicationId === "") return null;
 	for (const connection of gateway.connections) {
@@ -323,12 +324,13 @@ export function App() {
 	// topbar's away rather than draw the same flourish twice on one screen.
 	if (conv === null && !ops.on) appClass.push("joining");
 
-	// The member column is the wide layout's preference, and a direct line has no
-	// roster to show at all. The phone always leaves the column expanded here and
-	// uses the sheet instead, which `members-open` above drives.
+	// The member column is the wide layout's preference, with a room open or
+	// none yet, and a direct line has no roster to show at all. The phone always
+	// leaves the column expanded here and uses the sheet instead, which
+	// `members-open` above drives.
 	const noMembers = ops.on || conv?.type === "dm" || conv?.type === "directory" ||
-		(conv?.type === "room" && !mobile && !state.rosterOpen);
-	// A direct line still being opened has no route yet, so only its own status-allow: pending state or quoted runtime label
+		(!mobile && !state.rosterOpen);
+	// A direct line still being opened has no route yet, so only its own
 	// composer waits; every other conversation stays open to write in.
 	const composerAvailability = permissions?.includes("observeWorkspace") !== true
 		// Paused is not read-only, so this does not say read-only. Nor does it
@@ -429,6 +431,7 @@ export function App() {
 					aboutDir={state.aboutDir !== null}
 				/>
 				<SessionPausedNotice />
+				<SessionAwayNotice />
 				<SessionEffectNotice />
 				<ServerAsk />
 				<div className={noMembers ? "content no-members" : "content"} id="content">

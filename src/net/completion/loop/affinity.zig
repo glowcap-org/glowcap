@@ -15,7 +15,7 @@ pub const initial_owner_thread_id = OwnerThread.initial;
 
 fn currentOwnerThreadId() OwnerThreadId {
     if (comptime !tracks_thread_affinity) return {};
-    return OwnerThread.token(@intCast(std.Thread.getCurrentId()));
+    return @import("net_thread_id").reader.token();
 }
 
 /// Latch the owning thread at `run` entry. Setup (`init`, `dial`, `attach`)

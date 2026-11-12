@@ -28,11 +28,11 @@ export const currentSessionHostedTag = "This browser is hosting";
 export const currentSessionAttachedTag = "Session link";
 export const currentSessionLocalTag = "This browser";
 export const currentSessionHostedHint =
-	"This page is hosting this session. Open it anywhere else with the link below. Closing or reloading this page ends sharing.";
+	"Open it anywhere else with the link below. Closing or reloading this page ends sharing.";
 export function currentSessionAttachedHint(accessSaid: string): string {
 	return `A session peer keeps this session, so you see the same rooms and settings wherever you open it. ${accessSaid}`;
 }
-export const currentSessionLocalHint = "This browser keeps this session. Its rooms and settings stay on this device.";
+export const currentSessionLocalHint = "Its rooms and settings stay on this device.";
 export const currentSessionExportOrReset = "Export or reset…";
 export const currentSessionExport = "Export a copy…";
 
@@ -41,7 +41,7 @@ export const sessionMovesTitle = "Where this browser works";
 export const sessionLeaveHostingSay =
 	"This browser stops hosting. Everyone attached to it loses the session. Rooms and settings stay saved here.";
 export const sessionLeaveSharedSay =
-	"This browser leaves the shared session. That session keeps running for everyone else attached to it. Names stay with it. Rooms here are for reading until you join under a name of your own, and coming back needs that link again.";
+	"This browser leaves the shared session, which keeps running for everyone else. Names stay with it. Rooms here are for reading until you join under a name of your own, and coming back needs that link again.";
 export const sessionLeaveLocalSay =
 	"This browser goes back to choosing a session. Its rooms, settings, and message archive stay saved here.";
 export const sessionLeaveKeep = "Stay";
@@ -56,8 +56,7 @@ export const sessionStartOver = "Start over";
 export const sessionReturnToSetupAsk = "Return to setup…";
 export const sessionAttachAnotherTitle = "Attach to another session";
 export const sessionAttachTitle = "Attach a session";
-export const sessionAttachHostingLead =
-	"This browser stops hosting. Everyone attached to it loses this session. Then this browser shows the session the link names.";
+export const sessionAttachHostingLead = "This browser shows the session the link names.";
 export const sessionAttachSharedLead =
 	"This browser moves to the session the link names, and shows what that session keeps.";
 export const sessionAttachLocalLead =
@@ -65,7 +64,7 @@ export const sessionAttachLocalLead =
 export const sessionAttachHostingHint =
 	"A link for another session ends hosting for everyone attached here. A link for this same session leaves hosting as it is.";
 export const sessionAttachSharedHint =
-	"A link to another session moves this browser there, and your current session keeps running for everyone else. A second link to the same session swaps which one this browser uses.";
+	"Your current session keeps running for everyone else. A second link to the same session swaps which one this browser uses.";
 export const sessionAttachLocalHint =
 	"An empty session takes this browser's rooms and settings with it. One that already keeps rooms and settings shows those instead.";
 export const sessionAttachCommit = "Attach this browser";
@@ -113,12 +112,17 @@ export const sessionDataClearLocalDone = "Emptied. This browser is on an empty s
 
 /** Message history. */
 export function historyKeptBy(label: string): string {
-	return `New room and direct messages are kept by ${label}. Turning this off stops new messages from being saved. It can't erase the session.`;
+	return `New room and direct messages are kept by ${label}.`;
 }
+/** Said beside the switch, to a reader who can use it. */
+export const historyKeptByOff = "Turning this off stops new messages from being saved. It can't erase the session.";
 export function historyPeerUnavailableSaid(label: string): string {
 	return `The selected ${label} is unavailable. New messages aren't silently copied into this browser.`;
 }
 export const historyTitle = "Message history";
+export const settingsSessionTab = "Session";
+export const sessionSettingsLocation = `Settings, under ${settingsSessionTab}`;
+export const historyReadAgain = "Read saved messages again";
 export const historyArchiveTitle = "Archive link";
 export const historyOwnedSession = "Keeps this session's message history.";
 export const historyUseSessionArchive = "Use session archive";
@@ -141,6 +145,7 @@ export const holdingsEntryLink = "Entry link";
 export const holdingsModerator = "Moderator";
 export const holdingsManager = "Manager";
 export const holdingsOpenRoomControls = "Open room controls";
+export const settingsHoldingsTab = "Holdings";
 export const holdingsOpsTitle = "Operations links";
 /** The session card's acts, one per line like "Where this browser works":
  * what the line is about, then the act. */

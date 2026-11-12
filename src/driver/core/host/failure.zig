@@ -37,10 +37,24 @@ pub const HostFailure = struct {
     }
 
     /// The category the Host names for `cause`, or null when the engine owns
-    /// it. `test/driver/core_host/failure_taxonomy_test.zig` holds every error
-    /// a public Host verb returns to one owner or the other.
+    /// it. The driver consults the same table before its own rows
+    /// (`driver.OperationFailure.classify`), so each name has one owner.
     pub fn named(cause: anyerror) ?Kind {
-        return switch (cause) {
+        inline for (named_rows) |row| {
+            inline for (row.causes) |named_cause| if (cause == named_cause) return row.kind;
+        }
+        return null;
+    }
+
+    pub const Row = struct { kind: Kind, causes: []const anyerror };
+
+    /// Every error the Host names, one row per category.
+    /// `test/driver/core_host/failure_taxonomy_test.zig` holds every error a
+    /// public Host verb returns to this table or the engine, and
+    /// `test/c_abi/driver_loop/failure_taxonomy_test.zig` holds each row to
+    /// one C code through the Host and driver archives.
+    pub const named_rows = [_]Row{
+        .{ .kind = .internal, .causes = &.{
             error.OutOfMemory,
             error.NoSpaceLeft,
             error.CapabilitySpaceExhausted,
@@ -48,8 +62,8 @@ pub const HostFailure = struct {
             error.RetainOverflow,
             error.EventServeOutOfMemory,
             error.PreparedSettlementConsumed,
-            => .internal,
-
+        } },
+        .{ .kind = .not_found, .causes = &.{
             error.CapabilityRouteUnavailable,
             error.NoSuchVow,
             error.NoSuchResolver,
@@ -60,96 +74,102 @@ pub const HostFailure = struct {
             error.UnknownIngress,
             error.UnknownPeer,
             error.RouteNotLowerable,
-            => .not_found,
-
-            error.InvalidArgument,
-            error.ReleaseExceedsRetains,
-            error.AlreadyForwarded,
-            error.ReenteredAdmission,
-            error.ForeignWork,
-            error.NoPendingWork,
-            error.ForeignPublicationLookup,
-            error.PublicationLookupInstalled,
-            error.NotSnapshottable,
-            error.UnsupportedDelivery,
-            error.OpaqueHandlerRefused,
-            error.ForeignHandlerRefused,
-            error.ReservedHintName,
-            error.UnknownCodec,
-            error.UnparseableId,
-            error.UnparseableExporterLocator,
-            error.UnsupportedId,
-            error.UnsupportedValue,
-            error.InvalidLimits,
-            error.Overflow,
-            error.ReplyCapacity,
-            error.OwningReplyRequired,
-            error.ValueTooDeep,
-            error.BufferTooSmall,
-            error.OutboundOverflow,
-            error.InvalidAddress,
-            error.NoPendingAction,
-            error.InvalidHostWorkQuantum,
-            error.InvalidSessionLimit,
-            error.ReservedDurableNamespace,
-            error.NotDurableName,
-            error.DurableNameCollision,
-            error.UnknownTransport,
-            error.TransportSemanticsConflict,
-            error.TransportAlreadyRegistered,
-            error.InvalidTransportName,
-            error.ReenteredHost,
-            error.WrongThread,
-            error.SettleInTurn,
-            error.SessionlessVow,
-            error.NotALocalVow,
-            error.PeerIdentityMismatch,
-            error.ForeignSession,
-            error.ForeignArgument,
-            error.ForeignTurn,
-            error.NoAnswer,
-            error.ImportKindConflict,
-            error.NoUnliftedImportRetain,
-            error.InvalidChannelKey,
-            error.ChannelKeyConflict,
-            error.UnheldIdentity,
-            error.MissingDirectAddressesHint,
-            error.MissingAdvertisedLocator,
-            error.SessionPairExists,
-            error.UncallableTarget,
-            error.NotPipelineable,
-            error.NoSuchActor,
-            error.AlreadyListening,
-            error.AlreadySettled,
-            error.NotLocal,
-            error.NotConnected,
-            error.AlreadyPublished,
-            error.NotNearCallable,
-            error.NearCallTooDeep,
-            error.NotOcapnUri,
-            error.MissingTransport,
-            error.EmptyComponent,
-            error.MalformedPath,
-            error.InvalidSwissNumber,
-            error.MalformedHint,
-            error.InvalidLocator,
-            error.MalformedPercentEncoding,
-            error.UnsupportedUriComponent,
-            error.InvalidTransportSymbol,
-            error.EmptyDesignator,
-            error.EmptyHintName,
-            error.InvalidFalseHints,
-            error.TooManyHints,
-            error.DuplicateHintName,
-            error.UnsupportedHintValue,
-            error.UriParseError,
-            error.InvalidHostPort,
-            error.DesignatorNotHostPort,
-            error.DesignatorNotPeerKey,
-            error.ReachabilityRequired,
-            error.SealedSessionBytesOnly,
-            => .invalid_argument,
-
+        } },
+        .{
+            .kind = .invalid_argument,
+            .causes = &.{
+                error.InvalidArgument,
+                error.ReleaseExceedsRetains,
+                error.AlreadyForwarded,
+                error.ReenteredAdmission,
+                error.ForeignWork,
+                error.NoPendingWork,
+                error.ForeignPublicationLookup,
+                error.PublicationLookupInstalled,
+                error.NotSnapshottable,
+                error.UnsupportedDelivery,
+                error.OpaqueHandlerRefused,
+                error.ForeignHandlerRefused,
+                error.ReservedHintName,
+                error.UnknownCodec,
+                error.UnparseableId,
+                error.UnparseableExporterLocator,
+                error.UnsupportedId,
+                error.UnsupportedValue,
+                error.InvalidLimits,
+                error.Overflow,
+                error.ReplyCapacity,
+                error.OwningReplyRequired,
+                error.ValueTooDeep,
+                error.BufferTooSmall,
+                error.OutboundOverflow,
+                error.InvalidAddress,
+                error.NoPendingAction,
+                error.InvalidHostWorkQuantum,
+                error.InvalidSessionLimit,
+                error.ReservedDurableNamespace,
+                error.NotDurableName,
+                error.DurableNameCollision,
+                error.UnknownTransport,
+                error.TransportSemanticsConflict,
+                error.TransportAlreadyRegistered,
+                error.InvalidTransportName,
+                error.ReenteredHost,
+                error.WrongThread,
+                error.SettleInTurn,
+                error.SessionlessVow,
+                error.NotALocalVow,
+                error.PeerIdentityMismatch,
+                error.ForeignSession,
+                error.ForeignArgument,
+                error.ForeignTurn,
+                error.NoAnswer,
+                error.ImportKindConflict,
+                error.NoUnliftedImportRetain,
+                error.InvalidChannelKey,
+                error.ChannelKeyConflict,
+                error.UnheldIdentity,
+                error.MissingDirectAddressesHint,
+                error.MissingAdvertisedLocator,
+                error.SessionPairExists,
+                error.UncallableTarget,
+                error.NotPipelineable,
+                error.NoSuchActor,
+                error.AlreadyListening,
+                error.AlreadySettled,
+                error.NotLocal,
+                error.NotConnected,
+                error.AlreadyPublished,
+                error.NotNearCallable,
+                error.NearCallTooDeep,
+                error.NotOcapnUri,
+                error.MissingTransport,
+                error.EmptyComponent,
+                error.MalformedPath,
+                error.InvalidSwissNumber,
+                error.MalformedHint,
+                error.InvalidLocator,
+                error.MalformedPercentEncoding,
+                error.UnsupportedUriComponent,
+                error.InvalidTransportSymbol,
+                error.EmptyDesignator,
+                error.EmptyHintName,
+                error.InvalidFalseHints,
+                error.TooManyHints,
+                error.DuplicateHintName,
+                error.UnsupportedHintValue,
+                error.UriParseError,
+                error.InvalidHostPort,
+                error.DesignatorNotHostPort,
+                error.DesignatorNotPeerKey,
+                error.ReachabilityRequired,
+                error.SealedSessionBytesOnly,
+                // A precondition the caller owns (release sessions and borrowed
+                // actions first, or configure before any send), not a wait.
+                error.HostNotQuiescent,
+            },
+        },
+        .{ .kind = .closed, .causes = &.{
             error.SessionCondemned,
             error.SessionClosing,
             error.HostClosing,
@@ -170,10 +190,9 @@ pub const HostFailure = struct {
             error.PeerGone,
             error.SessionNotOpen,
             error.VatReleased,
-            => .closed,
-
+        } },
+        .{ .kind = .would_block, .causes = &.{
             error.HandshakeIncomplete,
-            error.HostNotQuiescent,
             error.OutboundBackpressure,
             error.SessionOperationLimitReached,
             error.SessionLimitReached,
@@ -188,8 +207,8 @@ pub const HostFailure = struct {
             error.NotQuiescent,
             error.PublicationPending,
             error.ProxyRecipientCapExceeded,
-            => .would_block,
-
+        } },
+        .{ .kind = .session, .causes = &.{
             error.PartnerUnverified,
             error.PeerIdentityUnverified,
             error.HandshakeAlreadyApplied,
@@ -198,11 +217,18 @@ pub const HostFailure = struct {
             error.MalformedKey,
             error.MalformedSignature,
             error.InvalidSignature,
-            => .session,
+        } },
+        .{ .kind = .frame_too_large, .causes = &.{
+            error.FrameTooLarge,
+        } },
+    };
 
-            error.FrameTooLarge => .frame_too_large,
-
-            else => null,
+    comptime {
+        @setEvalBranchQuota(1_000_000);
+        var seen: []const anyerror = &.{};
+        for (named_rows) |row| for (row.causes) |cause| {
+            for (seen) |prior| if (prior == cause) @compileError("the Host failure table names " ++ @errorName(cause) ++ " twice");
+            seen = seen ++ &[_]anyerror{cause};
         };
     }
 };

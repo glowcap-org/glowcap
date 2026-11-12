@@ -29,7 +29,7 @@ const host_admission = @import("../host/admission.zig");
 /// listener slot from mint (`fire`). Settlement records the outcome and ends
 /// the pending session operation, but an embedder-owned handle remains live
 /// until explicit release. The row owns an answer or shares its producer's
-/// custody; the Session decides whether that answer is a wire question or a
+/// custody. The Session decides whether that answer is a wire question or a
 /// local listen record. `inner` receives the resolution as a bounded borrow.
 /// Without one, settlement queues an owned completion for the embedder.
 pub const VowRow = struct {
@@ -109,7 +109,7 @@ pub const VowRow = struct {
 pub const Completion = union(enum) {
     none,
     fulfilled: struct { value: value_mod.Value, storage: std.heap.ArenaAllocator.State },
-    failed: struct { failure: host_action.VowFailure, message: host_action.RetainedFailureMessage },
+    failed: struct { failure: host_action.VowFailure, message: host_action.RetainedFailureMessage, cause: engine.BreakCause },
 };
 
 /// Custody of an answer, independent of whether Session puts it on the wire.
@@ -119,7 +119,7 @@ pub const AnswerRelease = enum {
     shared,
 };
 
-/// How explicit release cancels a producer that has not settled yet. Fallible status-allow: pending state or quoted runtime label
+/// How explicit release cancels a producer that has not settled yet. Fallible
 /// ownership is restricted to rows without an answer release, so retry cannot
 /// follow an already-committed wire effect.
 pub const PendingCancel = union(enum) {
@@ -196,7 +196,7 @@ pub fn claimOwnedAnswer(row: *const VowRow, session: *HostSession) bool {
     return state.claimOutboundAnswerRelease(answer);
 }
 
-/// Host custody determines who releases; the Session determines whether the
+/// Host custody determines who releases. The Session determines whether the
 /// release crosses the wire. Staged sends retain their question identity.
 pub fn ownsWireAnswer(row: *const VowRow, session: *HostSession) bool {
     if (row.answer_release != .owned) return false;
@@ -327,6 +327,14 @@ pub fn settleObservedAnswer(self: *Host, row: *VowRow, session: *HostSession) vo
     }
 }
 
+/// The bootstrap fetch owns operation context. Origin and reason remain those
+/// of the producer, including partner-written refusals and local route failures.
+pub fn fetchOutcome(resolution: actors.Resolution) actors.Resolution {
+    var outcome = resolution;
+    if (outcome == .broken) outcome.broken.cause = outcome.broken.cause.withFetch();
+    return outcome;
+}
+
 /// Enroll a fetched far capability before dispatch so an immediate re-gift
 /// routes to its exporter. Already-routed references pass through unchanged.
 /// An unenrollable capability breaks rather than surfacing half-routable.
@@ -335,9 +343,9 @@ fn enrollFetched(self: *Host, peer_handle: engine.PeerHandle, resolution: actors
         resolution.fulfilled.reference == .routed) return resolution;
     if (resolution == .fulfilled) if (asFarRef(resolution.fulfilled)) |far| {
         const route = self.node.enrollForeign(peer_handle, far) catch |err| {
-            return .{ .broken = @errorName(err) };
+            return .{ .broken = .{ .detail = @errorName(err), .cause = (engine.BreakCause{}).withFetch() } };
         };
         return .{ .fulfilled = .{ .reference = route } };
     };
-    return resolution;
+    return fetchOutcome(resolution);
 }

@@ -21,12 +21,17 @@ export const outDirArg = (): string =>
  * loopback port `http`. A peer that never answers inside a minute fails the
  * capture with `what` named. */
 export async function awaitLocator(http: number, what: string): Promise<void> {
-	for (let i = 0; i < 1200; i++) {
+	const deadline = Date.now() + 60_000;
+	while (Date.now() < deadline) {
 		try {
-			const res = await fetch(`http://127.0.0.1:${http}/locator`);
-			if (res.status === 200 && (await res.text()).trim().length > 0) return;
+			// The minute bounds each attempt too, so a peer that accepts the
+			// connection and never answers cannot hold the capture past it.
+			const signal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+			const res = await fetch(`http://127.0.0.1:${http}/locator`, { signal });
+			const body = await res.text();
+			if (res.status === 200 && body.trim().length > 0) return;
 		} catch {
-			// not up yet status-allow: pending state or quoted runtime label
+			// not up yet
 		}
 		await new Promise((settle) => setTimeout(settle, 50));
 	}

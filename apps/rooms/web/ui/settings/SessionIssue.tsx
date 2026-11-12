@@ -3,7 +3,13 @@
 import { issueLead, managedAccessText as text } from "../../../lib/text/managed_access.ts";
 import { useState, useSyncExternalStore } from "react";
 import { useManagedSession } from "../session/managed/context.tsx";
-import { controlName, editableUnder, type HeldControl, OWN_CONTROL } from "../session/managed/access.ts";
+import {
+	controlName,
+	editableUnder,
+	type HeldControl,
+	OWN_CONTROL,
+	type PendingIssue,
+} from "../session/managed/access.ts";
 import type { RoomsPermission } from "../../../lib/session_content_data.ts";
 import { Button } from "../Button.tsx";
 import { Switch } from "../Switch.tsx";
@@ -13,7 +19,7 @@ import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
 import { PermissionFields, permissionRefusal } from "./PermissionFields.tsx";
 import { type CeilingAnswer, ceilingOf, CeilingQuestion, NO_CEILING } from "./CeilingQuestion.tsx";
-import { refusalText } from "../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
 import { Input } from "../Input.tsx";
 
@@ -56,7 +62,7 @@ export function SessionIssueModal(
 			ceilings.editCeiling.mode !== starting.editCeiling.mode ||
 			ceilings.issueCeiling.mode !== starting.issueCeiling.mode)),
 		discard: () => {
-			if (busy) throw new Error(text.issueBusy);
+			if (busy) throw new LocalRefusal("access-issuance-busy");
 			setLabel("");
 			setPermissions(["observeWorkspace"]);
 			setCeilings(starting);
@@ -94,7 +100,7 @@ export function SessionIssueModal(
 				});
 			}
 			const outcome = await management.submitIssue();
-			setReason(outcome.reason);
+			if (management.issue == null) setReason(outcome.reason);
 			if (outcome.phase === "committed" && outcome.control != null) {
 				await management.save(outcome.control);
 				setLink(await outcome.access!.publish());
@@ -241,12 +247,10 @@ export function SessionIssueModal(
 						</details>
 					</form>
 				)}
-			{issue?.phase === "uncertain" && <Said kind="warning">{text.missingIssue}</Said>}
-			{issue?.phase === "conflict" && <Said kind="warning">{text.conflictIssue}</Said>}
 			{issue == null && (delegable
 				? <p className="hint">{text.issuancePolicy}</p>
 				: <Said kind="warning">{text.noDelegation}</Said>)}
-			{reason && <Said kind="failure">{reason}</Said>}
+			<IssueReply failure={reason} issue={issue} />
 			{
 				/* Each act is its own element. Done finishes the issuance inside its click,
 			    and a reused element would become Create before the click's default
@@ -307,4 +311,15 @@ export function SessionIssueModal(
 			</div>
 		</Submodal>
 	);
+}
+
+/** A failure from the current gesture takes precedence over the held outcome. */
+export function IssueReply({ failure, issue }: {
+	failure: string;
+	issue: Pick<PendingIssue, "phase" | "reason"> | null;
+}) {
+	const explanation = failure || issue?.reason;
+	if (!explanation) return null;
+	const warning = failure === "" && (issue?.phase === "uncertain" || issue?.phase === "conflict");
+	return <Said kind={warning ? "warning" : "failure"}>{explanation}</Said>;
 }

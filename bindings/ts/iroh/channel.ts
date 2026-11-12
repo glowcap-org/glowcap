@@ -343,7 +343,7 @@ export class IrohChannel implements Channel {
 				chunks.push(this.#readBuf.slice(0, n));
 			}
 			if (chunks.length > 0) return join(chunks);
-			// Nothing buffered yet: park on this connection's readiness, not a status-allow: pending state or quoted runtime label
+			// Nothing buffered yet: park on this connection's readiness, not a
 			// wire read. A false here means it was released/closed under us.
 			if (!(await this.#loop.waitReadable(this.#conn))) return null;
 		}

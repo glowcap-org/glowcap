@@ -38,6 +38,10 @@ from ._sigs_gen import ocapn_sigs
 # ── Raw ctypes layer (private) ───────────────────────────────────────────────
 
 
+class _BreakCause(ctypes.Structure):
+    _fields_ = [("origin", ctypes.c_uint32), ("reason", ctypes.c_uint32), ("context", ctypes.c_uint32)]
+
+
 class _Reference(ctypes.Structure):
     _fields_ = [("id", ctypes.c_uint64)]
 
@@ -181,6 +185,7 @@ class _LastAbort(ctypes.Structure):
 
 # The layout gate for the shared mirrors this module declares, at the
 # declaration site (every other _ffi_* module pins its own the same way).
+pin_struct(_BreakCause, "GLOWCAP_BREAK_CAUSE")
 pin_struct(_Reference, "GLOWCAP_REFERENCE")
 pin_struct(_Argument, "GLOWCAP_ARGUMENT")
 pin_struct(_Frame, "GLOWCAP_FRAME")

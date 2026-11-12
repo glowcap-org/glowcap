@@ -29,6 +29,30 @@ const readable_loops = [_]Ban{.{
     .why = "a repeated Rooms operation names its continuation state or bound instead of using an unconditional C-style loop",
 }};
 
+pub const page_reloads = [_]Ban{.{
+    .where = .{ .tree = .{
+        .dir = "apps/rooms/web/ui",
+        .suffixes = &.{ ".ts", ".tsx" },
+        .exclude = &.{"apps/rooms/web/ui/page_base.ts"},
+    } },
+    .kind = .forbid,
+    .needles = &.{"location.reload("},
+    .check = "Rooms page reload",
+    .why = "a static host answers only the page's own file, so the page reloads through reloadPage in page_base.ts, which asks for an address its host answers",
+}};
+
+pub const proof_child_environment = [_]Ban{.{
+    .where = .{ .tree = .{
+        .dir = "apps/rooms/test",
+        .suffixes = &.{".ts"},
+        .exclude = &.{"apps/rooms/test/support/children.ts"},
+    } },
+    .kind = .forbid,
+    .needles = &.{"Deno.env.toObject()"},
+    .check = "Rooms proof child environment",
+    .why = "spawnOwned gives a child the shell's environment without its Rooms options, so a proof that passes the whole environment hands them back",
+}};
+
 pub const attached_session_authority = [_]Ban{
     .{
         .where = .{ .file = "apps/rooms/web/ui/session/managed/controller.ts" },
@@ -131,6 +155,8 @@ pub const rows =
     nullish_absence ++
     rooms_peer_minting ++
     neutral_alerts ++
+    page_reloads ++
+    proof_child_environment ++
     readable_loops ++
     attached_session_authority ++
     service_reporting ++

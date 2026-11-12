@@ -77,6 +77,10 @@ class Recorder:
 
         return Module
 
+    def written(self):
+        assert self.record is not None
+        return self.record
+
     def run(self, *argv, **environment):
         self.calls, self.record, self.out, self.noted = [], None, None, False
         clean = {key: value for key, value in os.environ.items() if key not in TIMEOUT_NAMES}
@@ -137,12 +141,15 @@ class InventoryTest(unittest.TestCase):
 
     def test_shipped_partitions_cover_every_layer_once(self):
         source = (ROOT / "test/all_test.zig").read_text()
-        declared = re.search(r"const Layer = enum \{([^}]+)\}", source)[1]
-        layers = [name.strip() for name in declared.split(",") if name.strip()]
-        selected_layers = []
+        declared = re.search(r"const Layer = enum \{([^}]+)\}", source)
+        self.assertIsNotNone(declared, "test/all_test.zig declares the layer enum")
+        assert declared is not None
+        layers = [name.strip() for name in declared[1].split(",") if name.strip()]
+        selected_layers: list[str] = []
         for kind, command in GROUPS.PHASES["shipped"]:
             selection = re.fullmatch(r"zig build test -Doptimize=ReleaseSafe -Dtest-layer=([a-z_,]+)", command)
             self.assertIsNotNone(selection, "ship-mode tests bound compiler memory by layer")
+            assert selection is not None
             selected_layers.extend(selection[1].split(","))
         self.assertCountEqual(selected_layers, layers)
 
@@ -157,9 +164,10 @@ class RunnerTest(unittest.TestCase):
                 self.assertEqual([argv for argv, _ in recorder.calls], [expected(command) for _, command in gates])
                 combined.extend(recorder.calls)
                 self.assertEqual(recorder.out, ROOT / "zig-out/evidence" / phase)
-                self.assertEqual(recorder.record["outcome"], "passed")
+                self.assertEqual(recorder.written()["outcome"], "passed")
                 self.assertEqual(
-                    [row["command"] for row in recorder.record["gates"]], [" ".join(argv) for argv, _ in recorder.calls]
+                    [row["command"] for row in recorder.written()["gates"]],
+                    [" ".join(argv) for argv, _ in recorder.calls],
                 )
                 self.assertFalse(recorder.noted)
         self.assertEqual(recorder.run("run"), 0)
@@ -265,8 +273,8 @@ class RunnerTest(unittest.TestCase):
                 self.assertEqual(recorder.run("run", "core"), status)
                 self.assertEqual(len(recorder.calls), len(GROUPS.PHASES["core"]), "every gate ran")
                 if not record_failure:
-                    rows = recorder.record["gates"]
-                    self.assertEqual(recorder.record["outcome"], "failed" if failures else "passed")
+                    rows = recorder.written()["gates"]
+                    self.assertEqual(recorder.written()["outcome"], "failed" if failures else "passed")
                     self.assertEqual(
                         [row["exit"] for row in rows],
                         [
@@ -283,8 +291,8 @@ class RunnerTest(unittest.TestCase):
         recorder = Recorder({"check-build": 124})
         self.assertEqual(recorder.run("run", "core"), 124)
         self.assertEqual(len(recorder.calls), 1, "every later gate needs the build")
-        self.assertEqual(recorder.record["outcome"], "failed")
-        self.assertEqual(len(recorder.record["gates"]), 1)
+        self.assertEqual(recorder.written()["outcome"], "failed")
+        self.assertEqual(len(recorder.written()["gates"]), 1)
         recorder = Recorder({"check-build": 124})
         self.assertEqual(recorder.run("run"), 124)
         self.assertEqual(recorder.calls[-1][0][-1], "check-build", "a full run stops there too")

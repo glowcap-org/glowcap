@@ -90,7 +90,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     );
 
     // Withdraw it. `resolveForWithdraw` moves the gifted cap out of the row via
-    // `applyWithdraw`, so the resolution fulfills with the deposited reference.
+    // `commitWithdraw`, so the resolution fulfills with the deposited reference.
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
     var prepared = switch (try engine.bootstrap.resolveForWithdraw(allocator, &peer.session_state, peer.giftRegistry(), gifter.resolver(), null, null, .{
@@ -350,8 +350,8 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
         const fail_allocator = failing.allocator();
         var peer = engine.Peer.init(fail_allocator);
         defer peer.deinit();
-        peer.session_state.installInboundAnswer(.from(7)) catch continue;
-        const projected = peer.session_state.allocateExport() catch continue;
+        peer.session_state.installInboundAnswer(.from(7)) catch |err| if (failing.has_induced_failure) continue else return err;
+        const projected = peer.session_state.allocateExport() catch |err| if (failing.has_induced_failure) continue else return err;
         var projection = TrackingProjection{ .position = projected };
         const seam: engine.bootstrap.gifts.LocalObjectProjection = .{
             .ctx = &projection,
@@ -367,7 +367,7 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
             null,
             gift_id_a[0..],
             0xfeed,
-        ) catch continue;
+        ) catch |err| if (failing.has_induced_failure) continue else return err;
         var gifter = GifterSessionFixture{
             .side = gifter_side,
             .session_name = gifter_session,
@@ -382,7 +382,7 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
             seam,
             .from(91),
             .{ .receive = view_handoff.receive, .answer = .fromWire(.from(7)) },
-        ) catch continue;
+        ) catch |err| if (failing.has_induced_failure) continue else return err;
         const prepared = switch (outcome) {
             .settled => |settled| settled,
             .awaiting_deposit => |admission| {

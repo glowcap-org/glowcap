@@ -1,5 +1,5 @@
-//! Parameter names parsed from a generated C header — the name source the
-//! binding generators share. Zig reflection strips parameter names; the
+//! Parameter names parsed from a generated C header, the name source the
+//! binding generators share. Zig reflection strips parameter names. The
 //! headers are generated from the same source and gate-held, so their names
 //! are canonical.
 

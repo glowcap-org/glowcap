@@ -1,4 +1,5 @@
 // Room access controls render Rust policy values. Their cycle is a UI choice.
+import { invariant } from "../../lib/invariant.ts";
 import { applicationModule } from "./application.ts";
 import { isRoomPolicy, type RoomPolicy, type RoomPreset } from "../../lib/room/policy.ts";
 export type { RoomPolicy, RoomPreset } from "../../lib/room/policy.ts";
@@ -8,7 +9,7 @@ export function policyForRoomPreset(preset: RoomPreset): RoomPolicy {
 	let policy = policies.get(preset);
 	if (policy === undefined) {
 		const raw: unknown = JSON.parse(applicationModule().roomPolicyForPreset(preset));
-		if (!isRoomPolicy(raw)) throw new Error("the Rooms application answered an invalid room policy");
+		invariant(isRoomPolicy(raw), "the Rooms application answered an invalid room policy");
 		policies.set(preset, policy = Object.freeze(raw));
 	}
 	return policy;

@@ -22,8 +22,8 @@ Once glowcap is installed and on your PATH:
 glowcap apps rooms serve
 ```
 
-Open the link it prints: the Rooms page at glowcap.org/rooms/app/, with your
-server filled in. The installation includes the prepared browser application
+Open the link it prints under **open the page**: the
+[Rooms page](https://glowcap.org/rooms/app/) with your server filled in. The installation includes the prepared browser application
 and its services, so startup needs no checkout or build tools.
 Use `glowcap apps rooms session` to participate in an existing deployment and
 `glowcap apps rooms team` to coordinate several such peers.
@@ -37,9 +37,11 @@ under `zig-out/product`. To run the web page from a checkout while you work on i
 zig build rooms-web
 ```
 
-That builds the services and the browser page and serves the page at
-`http://localhost:8080`. Open it, choose **Use this browser**, pick a room name and a nickname, then open the same address in a
-private window and join the same room as somebody else. Peers reach the
+That builds the services and the browser page, then serves the page at
+`http://localhost:8080` (`-Dport=<port>` moves it). Open the **web ui** address
+it prints, choose **Use this browser**,
+pick a room name and a nickname, then open the same address in a private window
+and join the same room as somebody else. Peers reach the
 server over [iroh](https://www.iroh.computer/)'s encrypted QUIC, so the build
 needs Zig, Cargo, and Deno.
 

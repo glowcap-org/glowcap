@@ -15,6 +15,7 @@ pub const GlowcapLoamEffectExecution = opaque {};
 /// is an ordinary return-code refusal and does not change this outcome.
 pub const GlowcapLoamEffectResult = extern struct {
     state: u32,
+    cause: shared.GlowcapBreakCause,
     result: i32,
     value: shared.GlowcapArgument,
     message: ?[*]const u8,

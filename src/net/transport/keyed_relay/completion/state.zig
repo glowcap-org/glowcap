@@ -105,7 +105,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             external_recv_ud: ?u64 = null,
             external_send_ud: ?u64 = null,
             external_send_len: i32 = 0,
-            /// Caller-owned tail not yet copied and masked into `ws_out`. status-allow: pending state or quoted runtime label
+            /// Caller-owned tail not yet copied and masked into `ws_out`.
             external_send_remainder: []const u8 = &.{},
             external_close_ud: ?u64 = null,
             pending: PendingOps = .{},
@@ -172,9 +172,8 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             close_retry_queued: bool = false,
         };
 
-        /// Secure-only state lives in a side table, not in `RelayConn`: the
-        /// 500k clear-connection target pays zero bytes per connection for a
-        /// feature it does not use.
+        /// Secure-only state lives in a side table, not in `RelayConn`, so a
+        /// clear connection spends no bytes on a feature it does not use.
         pub const TlsState = struct {
             id: ConnId,
             lifecycle: union(enum) {

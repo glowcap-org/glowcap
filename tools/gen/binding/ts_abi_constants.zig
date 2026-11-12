@@ -83,6 +83,10 @@ fn kr(comptime ts: []const u8, comptime decl: []const u8) Const {
     return mirrored(ts, decl, @field(cr, decl));
 }
 
+fn kt(comptime ts: []const u8, comptime decl: []const u8) Const {
+    return mirrored(ts, decl, @field(ct, decl));
+}
+
 fn ko(comptime ts: []const u8, comptime decl: []const u8) Const {
     return mirrored(ts, decl, @field(con, decl));
 }
@@ -102,6 +106,7 @@ pub const groups = [_]Group{
         .entries = &.{
             k("OK", "GLOWCAP_OK"),
             k("INVALID_ARGUMENT", "GLOWCAP_ERR_INVALID_ARGUMENT"),
+            k("SESSION", "GLOWCAP_ERR_SESSION"),
             k("CODEC", "GLOWCAP_ERR_CODEC"),
             k("INTERNAL", "GLOWCAP_ERR_INTERNAL"),
             k("WOULD_BLOCK", "GLOWCAP_ERR_WOULD_BLOCK"),
@@ -311,6 +316,15 @@ pub const groups = [_]Group{
         .entries = &.{
             kd("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", "GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT"),
             kd("DURABLE_PROVENANCE_UNAUTHENTICATED", "GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED"),
+        },
+    },
+    .{
+        .doc = "A `GlowcapTcpConfig.profiles` bit, or the set of every TCP profile (libglowcap_net_transport_tcp).",
+        .entries = &.{
+            kt("TCP_PROFILE_TCP", "GLOWCAP_TCP_PROFILE_TCP"),
+            kt("TCP_PROFILE_KEYED_TCP", "GLOWCAP_TCP_PROFILE_KEYED_TCP"),
+            kt("TCP_PROFILE_NOISE_TCP", "GLOWCAP_TCP_PROFILE_NOISE_TCP"),
+            kt("TCP_PROFILES_ALL", "GLOWCAP_TCP_PROFILES_ALL"),
         },
     },
     .{

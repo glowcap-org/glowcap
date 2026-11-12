@@ -41,6 +41,27 @@ glowcap_fetch_verified() {
     glowcap_verify_sha256 "${dest}" "${sha256}"
 }
 
+# Run a command that reaches a host no pin mirrors, trying again after a pause
+# that grows with the attempt. The last failure's status is the answer. The
+# command bounds itself and is safe to run again after it fails.
+glowcap_retry() {
+    local attempts="$1"
+    shift
+    local pause="${GLOWCAP_RETRY_PAUSE_SECONDS:-10}"
+    local attempt
+    local status=1
+    for ((attempt = 1; attempt <= attempts; attempt++)); do
+        "$@" && return 0
+        status=$?
+        if ((attempt < attempts)); then
+            echo "attempt ${attempt} of ${attempts} failed (exit ${status}): $*" >&2
+            sleep "$((attempt * pause))"
+        fi
+    done
+    echo "failed ${attempts} times (last exit ${status}): $*" >&2
+    return "${status}"
+}
+
 # Select a per-architecture value: x86_64 value first, then aarch64. The
 # mapping that calls this is the authority on which architectures its tool
 # supports, so an unsupported machine fails here, at the point of use.

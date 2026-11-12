@@ -60,6 +60,8 @@ typedef struct GlowcapLoamEffectExecutionBounds {
 typedef struct GlowcapLoamEffectResult {
     /* Zero pending, one ready, two unsent, three unknown. */
     uint32_t state;
+    /* Failure provenance, reason and context for unsent/unknown, and zero fields otherwise. */
+    GlowcapBreakCause cause;
     /* Failure return code for unsent/unknown; zero otherwise. */
     int32_t result;
     /* Ready value: spines borrow until next result query; leaves until execution release. Each query grants independent capability occurrences. */
@@ -289,16 +291,22 @@ typedef int32_t (*GlowcapLoamKvFn)(void *, uint32_t, const uint8_t *, size_t, co
 #define GLOWCAP_LOAM_METADATA_SIZE 142
 #define GLOWCAP_LOAM_MAX_KEY_BYTES 35
 #define GLOWCAP_LOAM_MAX_URI_BYTES 4096
-#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 17788118620971508245
+#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 9817585073626973139
 /* Construct a portable Store from exclusively claimed encoded metadata. Schema descriptors are copied. Inputs borrow for this call; out_store owns one release. No backend is opened. */
 int32_t glowcap_loam_store_new(const uint8_t *metadata, size_t metadata_len, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamStore **out_store);
 /* Construct a portable Store using the Context allocator for every Store and attachment allocation. The Context and its allocator callbacks outlive the Store and all its borrows. Metadata and schema rules match store_new. */
 int32_t glowcap_loam_store_new_in(GlowcapContext *context, const uint8_t *metadata, size_t metadata_len, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamStore **out_store);
-/* Release a standalone Store. Backend-owned Stores release through their backend owner. Busy leaves the handle alive while attachments, workers, transactions, or leases survive. */
+/* Release a standalone Store. Backend-owned Stores release through their backend owner. Busy leaves the handle alive while attachments, workers, transactions, or leases survive.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_loam_store_release(GlowcapLoamStore *raw);
 /* Attach copied content declarations to an existing Host and Store. Contexts borrow until successful attachment release. Callbacks run synchronously on the Host thread and cannot unwind or reenter driving verbs. Entropy fills fresh unpredictable bytes across restarts. */
 int32_t glowcap_loam_attach(GlowcapLoamStore *raw, GlowcapHost *host_handle, const GlowcapLoamContent *contents, size_t content_count, GlowcapLoamEntropyFn entropy, void *ctx, GlowcapLoamAttachment **out_attachment);
-/* Release a quiescent attachment. Busy preserves the attachment, its Host borrow, contexts, and outstanding work. Held Host capabilities remain releasable and reject later calls. */
+/* Release a quiescent attachment. Busy preserves the attachment, its Host borrow, contexts, and outstanding work. Held Host capabilities remain releasable and reject later calls.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_loam_attachment_release(GlowcapLoamAttachment *raw);
 /* Advance shared preparation and installation on the Host thread, outside callbacks. This performs no storage I/O. */
 int32_t glowcap_loam_advance(GlowcapLoamAttachment *raw, uint32_t *out_progress);
@@ -306,7 +314,10 @@ int32_t glowcap_loam_advance(GlowcapLoamAttachment *raw, uint32_t *out_progress)
 int32_t glowcap_loam_next_work(GlowcapLoamAttachment *raw, uint32_t recovery, GlowcapLoamWork **out_work);
 /* After joining the storage worker, install its result on the Host thread. out_completed reports whether the handle is completed, including refusal after consumption. A reentrant call or unfinished worker leaves it uncompleted and owned. Repeated completion is stale. Unknown writes retain their recovery barrier. */
 int32_t glowcap_loam_work_complete(GlowcapLoamWork *raw, uint32_t *out_completed);
-/* Release a completed work handle. Busy refuses an unretired worker. Null succeeds. Releasing a live worker is never cancellation. */
+/* Release a completed work handle. Busy refuses an unretired worker. Null succeeds. Releasing a live worker is never cancellation.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_loam_work_release(GlowcapLoamWork *raw);
 /* Copy a passable reply into the retained call arena during a callback. A second reply refuses. Capability disclosure is checked by the shared managed service before settlement. */
 int32_t glowcap_loam_call_reply(GlowcapLoamCall *call, const GlowcapArgument *value);
@@ -422,9 +433,15 @@ int32_t glowcap_loam_continuation_reservation_target(GlowcapLoamContinuationRese
 int32_t glowcap_loam_pending_continuation_take(GlowcapLoamPendingContinuation *pending, GlowcapLoamContinuation **out_continuation);
 /* Report 1 once the commit is confirmed absent and 0 while it is pending or confirmed. Read-only and valid during content callbacks, where take refuses. A taken observer refuses with WrongPhase. */
 int32_t glowcap_loam_pending_continuation_absent(GlowcapLoamPendingContinuation *pending, uint32_t *out_absent);
-/* Observer release, null-safe and valid during content callbacks. Does not cancel an uncertain storage outcome. Kernel confirmation retains its own custody until confirmed activation or absence; inert observer metadata and attachment borrow end only on final release. */
+/* Observer release, null-safe and valid during content callbacks. Does not cancel an uncertain storage outcome. Kernel confirmation retains its own custody until confirmed activation or absence; inert observer metadata and attachment borrow end only on final release.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_loam_pending_continuation_release(GlowcapLoamPendingContinuation *pending);
-/* Consuming release, null-safe and valid during content callbacks. Independent endpoints and admitted executions retain their own custody. */
+/* Consuming release, null-safe and valid during content callbacks. Independent endpoints and admitted executions retain their own custody.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_loam_continuation_release(GlowcapLoamContinuation *continuation);
 /* Create one independently owned public dispatch handle for the exact target. Each invocation rechecks original source intent and current target admission; public completion rechecks source after waits. Release its occurrence through Host ref_release. Refusal zeroes output. */
 int32_t glowcap_loam_continuation_project(GlowcapLoamContinuation *continuation, size_t index, GlowcapReference *out_reference);
@@ -434,7 +451,10 @@ int32_t glowcap_loam_continuation_project_reads_copying(GlowcapLoamContinuation 
 int32_t glowcap_loam_continuation_execute_copying(GlowcapLoamContinuation *continuation, size_t index, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, size_t reply_bytes, GlowcapLoamEffectExecution **out_execution);
 /* Top-level synchronous observation, no driving or redispatch. Ready preserves exact completed custody despite later source pause/revoke. Unsent proves no target admission; unknown requires application receipt recovery. Spines expire at next result query, leaves and failure text at execution release. Every successful ready query grants independent exact capability occurrences; release each through Host ref_release. Projection refusal zeroes output, rolls back new grants and preserves ready for retry without changing execution outcome. */
 int32_t glowcap_loam_effect_execution_result(GlowcapLoamEffectExecution *execution, GlowcapLoamEffectResult *out_result);
-/* Top-level consuming observer release, null-safe. WouldBlock during a content callback preserves the complete owner for a later boundary. Detaches observation without undoing an admitted effect. Result borrows expire; independently projected capability occurrences remain owned by their consumers. */
+/* Top-level consuming observer release, null-safe. WouldBlock during a content callback preserves the complete owner for a later boundary. Detaches observation without undoing an admitted effect. Result borrows expire; independently projected capability occurrences remain owned by their consumers.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_loam_effect_execution_release(GlowcapLoamEffectExecution *execution);
 /* Derive shared continuation custody, independent C observer metadata and source-call target decoding contributions. Pure scalar query; does not admit work. Host actors/registry and application executor buffers are separate. Refusal zeroes every output. */
 int32_t glowcap_loam_continuation_size_bound(const GlowcapLoamValueBounds *arguments, size_t verb_bytes, size_t targets, GlowcapLoamContinuationBounds *out_bounds);

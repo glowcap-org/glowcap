@@ -63,8 +63,11 @@ pub const default_loop_local_turn_budget: usize = 4096;
 /// The sans-io serve core: an `actors.Port` over one borrowed `engine.Peer`,
 /// with the serve loop and the byte-fed drive. The peer is caller-owned (stable
 /// address) and is borrowed here. It reads no
-/// socket: a caller feeds inbound frames with `feedBorrowed` and drains outbound
-/// with `takeOutbound`, owning its own loop (ADR-0022). The byte-fed `Host`
+/// socket: a caller applies inbound frames to the peer (`Peer.recvBorrowed`),
+/// drives their consequences with `driveFed`, and drains outbound with
+/// `takeOutbound`, owning its own loop (ADR-0022). `HostSession.feedBorrowedCommitted`
+/// is the Host's composition of the first two, and it keeps an applied frame
+/// from reading as unconsumed when the drive fails. The byte-fed `Host`
 /// holds one per session.
 pub const Served = struct {
     port: actors.Port,
@@ -98,8 +101,8 @@ pub const Served = struct {
     };
 
     /// Bind a sans-io serve core over `peer`. The caller owns the loop and
-    /// sockets, feeds inbound frames with `feedBorrowed`, and drains outbound
-    /// with `takeOutbound`. `deinit` frees only this Port. The caller owns the
+    /// sockets, applies inbound frames to the peer and drives them with
+    /// `driveFed`, and drains outbound with `takeOutbound`. `deinit` frees only this Port. The caller owns the
     /// Vat passed to the drive methods. This is the driving mode the C ABI's
     /// `libglowcap_host` and a browser ride.
     pub fn over(allocator: std.mem.Allocator, peer: *engine.Peer) Served {
@@ -134,16 +137,6 @@ pub const Served = struct {
     pub fn abortReason(self: *const Served) ?[]const u8 {
         if (self.partnerAbort()) |info| return info.message;
         return null;
-    }
-
-    /// Byte-fed inbound: apply one borrowed frame the caller pumped from its own
-    /// transport, dispatch every event it surfaces into the vat, run the local
-    /// turns it queues, then encode the resulting outbound so `takeOutbound`
-    /// drains it. Zero-copy and caller-driven: the frame is borrowed for the call
-    /// and nothing here reads a socket.
-    pub fn feedBorrowed(self: *Served, vat: *actors.Vat, frame: foundation.FrameView) !void {
-        try self.port.peer.recvBorrowed(frame);
-        return self.driveFed(vat);
     }
 
     /// Byte-fed drive with no inbound frame: dispatch queued events, run local
@@ -291,7 +284,7 @@ pub const Served = struct {
     /// The blocking serve loop: serve every event the peer surfaced, then drive
     /// queued local turns to quiescence (or to `local_turn_budget`, when one is
     /// configured). Transport-free: a socket `step` and a byte-fed
-    /// `feedBorrowed` both drive it, so they serve identically. A loop driver
+    /// `driveFed` both drive it, so they serve identically. A loop driver
     /// may instead call `serveEvent` per event and `drivePostBatch` with its
     /// budget directly, sharing the same per-event spine.
     pub fn drainEvents(self: *Served, vat: *actors.Vat) !void {
@@ -309,7 +302,7 @@ pub const Served = struct {
 
     /// Copy an inbound `op:abort`'s kind and bounded message into `last_abort`.
     /// A message longer than the buffer is truncated. A malformed abort view is
-    /// ignored, leaving any earlier retention in place. status-allow: event or source ordering
+    /// ignored, leaving any earlier retention in place.
     fn retainAbort(self: *Served, event: *const engine.Event) void {
         const body = event.view();
         const abort = switch (body.*) {
@@ -381,7 +374,7 @@ pub const Served = struct {
     }
 
     /// Register `name`, spawn through `spawner` once the name holds, and bind
-    /// the export. `spawner.spawn` runs at most once; when registration
+    /// the export. `spawner.spawn` runs at most once. When registration
     /// refuses first, `spawner.abandon` runs instead.
     fn publishSpawned(self: *Served, vat: *actors.Vat, name: []const u8, spawner: anytype) !Exported {
         const prior = self.port.peer.session_state.bootstrapLookup(name);

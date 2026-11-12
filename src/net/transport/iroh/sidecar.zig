@@ -30,7 +30,6 @@ pub extern fn glowcap_iroh_sidecar_conn_remote_node_id(conn: *const CConn, out_k
 pub extern fn glowcap_iroh_sidecar_conn_read(conn: *CConn, buf: [*]u8, len: usize) isize;
 pub extern fn glowcap_iroh_sidecar_conn_write(conn: *CConn, buf: [*]const u8, len: usize) isize;
 pub extern fn glowcap_iroh_sidecar_conn_flush(conn: *CConn) i32;
-pub extern fn glowcap_iroh_sidecar_conn_close(conn: *CConn) void;
 pub extern fn glowcap_iroh_sidecar_conn_free(conn: *CConn) void;
 pub extern fn glowcap_iroh_sidecar_endpoint_close(ep: *CEndpoint) void;
 pub extern fn glowcap_iroh_sidecar_endpoint_free(ep: *CEndpoint) i32;

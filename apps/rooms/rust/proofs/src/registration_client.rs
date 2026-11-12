@@ -22,7 +22,6 @@ pub fn run() {
 				let kind = match event.kind {
 					Kind::MintInboxFor => "mintInboxFor",
 					Kind::DirectRequested => "directRequested",
-					Kind::Introducible => "introducible",
 				};
 				assert_eq!(
 					json!({"kind":kind,"peer":event.peer.text(),"id":event.registration.as_str()}),
@@ -36,7 +35,7 @@ pub fn run() {
 	// The directory's real nickname ceiling bounds retained control notices
 	// too, including astral characters that occupy two UTF-16 units each.
 	for (peer, accepted) in [("😀".repeat(16), true), ("😀".repeat(16) + "x", false)] {
-		let values = json!(["introducible", peer, "11111111-1111-4111-8111-111111111111", "opening"]);
+		let values = json!(["mintInboxFor", peer, "11111111-1111-4111-8111-111111111111", "opening"]);
 		let args: Vec<_> = values.as_array().unwrap().iter().map(from_fixture).collect();
 		assert_eq!(registration::notice("notify", |i| args.get(i)).is_ok(), accepted);
 	}
@@ -64,14 +63,14 @@ pub fn run() {
 	custody.finish().unwrap();
 	assert_eq!(custody.begin(), Err(Error::Ended));
 	let event = || registration::Event {
-		kind: Kind::Introducible,
+		kind: Kind::MintInboxFor,
 		peer: rooms_application::fields::Text::new("bob".into()).unwrap(),
 		registration: Id::parse("11111111-1111-4111-8111-111111111111").unwrap(),
 		opening: Some(rooms_application::fields::Text::new("opening".into()).unwrap()),
 	};
 	let mut events = registration::Events::default();
 	events.push(event()).unwrap();
-	assert_eq!(events.pop().unwrap().unwrap().kind, Kind::Introducible);
+	assert_eq!(events.pop().unwrap().unwrap().kind, Kind::MintInboxFor);
 	assert!(events.pop().unwrap().is_none());
 	for _ in 0..registration::MAX_EVENTS {
 		events.push(event()).unwrap();

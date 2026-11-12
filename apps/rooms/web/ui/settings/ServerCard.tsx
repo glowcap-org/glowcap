@@ -51,6 +51,7 @@ import { namesDirectory } from "../application.ts";
 import { reloadNow } from "../boot.ts";
 import { CopyField } from "../Copy.tsx";
 import { Said } from "../Said.tsx";
+import { refusalText } from "../../../lib/text/failure.ts";
 import { chooseServer, probeServer, serverName, type ServerProbe } from "../server_choice.ts";
 import { useRoomsState } from "../hooks.ts";
 import { servedByRooms } from "../page_base.ts";
@@ -80,7 +81,8 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 	const server = useRoomsState((state) => state.server);
 	const directory = server?.directory ?? null;
 	const [changing, setChanging] = useState(false);
-	const [removing, setRemoving] = useState(false);
+	// Null until removal is asked. Then what the browser refused, empty until it does.
+	const [removeRefused, setRemoveRefused] = useState<string | null>(null);
 	const openModalFrom = useOpenModal();
 	const away = relayAway(relay);
 	// While the registration is closed, ask the server what Test would, so the
@@ -171,7 +173,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 							onClick={(event) => openModalFrom(event.currentTarget, () => setChanging(true))}
 						/>
 						{/* Only a server this browser chose can be removed. The one a page came from is the page's own. */}
-						{server.chosen && (removing
+						{server.chosen && (removeRefused != null
 							? (
 								<li className="entry">
 									<Confirm
@@ -181,12 +183,16 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 										commit={serverRemoveCommit}
 										keepId="serverRemoveKeep"
 										commitId="serverRemoveCommit"
-										onKeep={() => setRemoving(false)}
+										onKeep={() => setRemoveRefused(null)}
 										onCommit={() => {
-											chooseServer(null);
-											reloadNow();
+											const refused = chooseServer(null);
+											if (refused == null) reloadNow();
+											else setRemoveRefused(refusalText(refused));
 										}}
 									/>
+									{removeRefused !== "" && (
+										<Said id="serverRemoveRefused" kind="failure">{removeRefused}</Said>
+									)}
 								</li>
 							)
 							: (
@@ -194,7 +200,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 									name={serverRemoveName}
 									id="serverRemove"
 									act={serverRemoveAct}
-									onClick={() => setRemoving(true)}
+									onClick={() => setRemoveRefused("")}
 								/>
 							))}
 					</EntryActs>

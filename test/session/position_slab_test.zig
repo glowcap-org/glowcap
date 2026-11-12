@@ -69,7 +69,8 @@ test "growing to an explicit index threads the slots below it free" {
     var slab: Slab = .empty;
     defer slab.deinit(allocator);
 
-    try slab.installAt(allocator, 4, 40);
+    try slab.ensureIndex(allocator, 4);
+    slab.installAtAssumeCapacity(4, 40);
     try std.testing.expectEqual(@as(usize, 5), slab.capacityUsed());
     try std.testing.expectEqual(@as(usize, 1), slab.len());
     try std.testing.expect(slab.installable(2));
@@ -90,7 +91,7 @@ test "the iterator visits live rows in index order and nothing else" {
     for (0..5) |n| slab.install(try slab.reserve(allocator, n), n * 10);
     slab.remove(1);
     slab.remove(2);
-    _ = try slab.reserve(allocator, 9); // index 2, reserved and not yet live status-allow: pending state or quoted runtime label
+    _ = try slab.reserve(allocator, 9); // index 2, reserved and not yet live
 
     var it = slab.iterator();
     const first = it.next().?;

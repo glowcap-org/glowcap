@@ -27,6 +27,7 @@ function event(name: string, overrides: Partial<RoomsSessionLineEvent> = {}): Ro
 		from: "bo",
 		text: name,
 		at: 1,
+		replayed: false,
 		lineId: 1,
 		change: "said",
 		editable: false,

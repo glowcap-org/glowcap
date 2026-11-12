@@ -15,7 +15,7 @@ const [mode, host, portStr, nStr] = Deno.args;
 const port = Number(portStr);
 const N = Number(nStr ?? "0");
 const decoder = new TextDecoder();
-await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+await using runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 
 // V8 only exposes a manual collection under `--v8-flags=--expose-gc`, which the
 // orchestrator passes; calling it before each measured window gives Deno the
@@ -76,7 +76,7 @@ type HeldConnection = {
 };
 
 async function openHeldConnection(reuse?: Runtime): Promise<HeldConnection> {
-	const heldRuntime = reuse ?? await Runtime.open({ providers: [tcp.provider()] });
+	const heldRuntime = reuse ?? await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 	try {
 		const session = await heldRuntime.connect(tcp.locator(host, port));
 		const serving = session.serve();

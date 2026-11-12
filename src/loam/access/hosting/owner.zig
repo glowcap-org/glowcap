@@ -27,6 +27,9 @@ pub const Owner = struct {
     resource_field: bool = false,
 };
 
+/// The objects `stageOwner` proposed. An embedder that hosts an owner keeps
+/// these ids to bind the root content and hand out its use and control
+/// endpoints once the transaction commits.
 pub const Staged = struct {
     owner: loam.ObjectId,
     use: loam.ObjectId,

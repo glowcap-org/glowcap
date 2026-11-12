@@ -94,4 +94,4 @@
 (define-driver-loop glowcap_driver_session_serve (_fun _pointer _pointer -> _int32))
 (define-driver-loop glowcap_driver_session_release (_fun _pointer _pointer -> _int32))
 (define-driver-loop glowcap_driver_last_error (_fun _pointer _size -> _size))
-(define-driver-loop glowcap_driver_clear_last_error (_fun -> _void))
+(define-driver-loop glowcap_driver_last_error_cause (_fun (_or-null _GlowcapBreakCause-pointer) -> _void))

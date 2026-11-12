@@ -304,9 +304,11 @@ pub fn glowcap_host_vow_tell(
 /// its `op:gc-answers`. A non-OK return consumes nothing and is retryable.
 pub fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
-    inst.core.vowRelease(vow) catch |err| return errToCode(err);
-    return GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        const inst = instanceFrom(host) orelse break :result GLOWCAP_ERR_NULL_POINTER;
+        inst.core.vowRelease(vow) catch |err| break :result errToCode(err);
+        break :result GLOWCAP_OK;
+    });
 }
 
 /// A public Host vow as a capability (ADR-0068): one application retain in

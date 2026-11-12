@@ -13,18 +13,6 @@ function abortReason(signal: AbortSignal): unknown {
 	return signal.reason ?? new Error("the directory connection ended");
 }
 
-/** Bound the caller's wait for a CapTP redeem. CapTP cannot cancel an accepted
- * send, so an answer that arrives after the deadline is transferred to
- * `abandon` instead of becoming an unclaimed capability. */
-export async function claimRedeemWithin<T>(
-	redemption: Promise<T>,
-	what: string,
-	waitMs: number,
-	abandon: (late: T) => void,
-): Promise<T> {
-	return await claimWithin(redemption, what, waitMs, abandon);
-}
-
 /** Serialize route-sensitive handoff redemption without turning one stalled
  * directory into unbounded retained work. Redeems through one route may run
  * together. A different route waits FIFO until the active batch ends, because
@@ -58,6 +46,23 @@ export class RedeemRouteCoordinator<Route extends object> {
 		} finally {
 			this.#leave(route);
 		}
+	}
+
+	/** Queue admission has its own deadline. Claiming starts only after admission,
+	 * while the route remains held until the underlying redeem actually ends. */
+	async claim<T>(
+		route: Route,
+		signal: AbortSignal,
+		operation: () => Promise<T>,
+		options: { what: string; timeoutMs: number; abandon: (late: T) => void },
+	): Promise<T> {
+		const admitted = Promise.withResolvers<void>();
+		const redemption = this.run(route, signal, () => {
+			admitted.resolve();
+			return operation();
+		});
+		await Promise.race([admitted.promise, redemption.then(() => {})]);
+		return await claimWithin(redemption, options.what, options.timeoutMs, options.abandon);
 	}
 
 	#outstanding(): number {

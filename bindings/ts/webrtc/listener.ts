@@ -198,7 +198,7 @@ export class Listener implements AsyncIterable<Session>, AsyncDisposable {
 	}
 
 	/** Stop taking offers, end every accept still in flight, and close the
-	 * sessions nobody has taken yet. Waits for each to finish.  status-allow: pending state or quoted runtime label */
+	 * sessions nobody has taken yet. Waits for each to finish. */
 	close(): Promise<void> {
 		if (this.#closing != null) return this.#closing;
 		this.#closing = (async () => {

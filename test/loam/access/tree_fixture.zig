@@ -117,8 +117,8 @@ pub const Outcome = struct {
                 self.value = value.integer;
             },
             .broken => |text| {
-                self.reason_len = @min(text.len, self.reason_buf.len);
-                @memcpy(self.reason_buf[0..self.reason_len], text[0..self.reason_len]);
+                self.reason_len = @min(text.detail.len, self.reason_buf.len);
+                @memcpy(self.reason_buf[0..self.reason_len], text.detail[0..self.reason_len]);
             },
             .give => {},
         }

@@ -20,6 +20,7 @@
 //   deno run --allow-run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/demos/dm_back_demo.ts
 
 import process from "node:process";
+import * as tcp from "@glowcap/tcp";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@glowcap/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
 	// `register` can fetch his `dm` on the room session).
 	const bobHost = roomsHost();
 	const bob = await roomsListen("127.0.0.1", 0, bobHost);
-	const bobRuntime = await openRoomsRuntime({ host: bobHost });
+	const bobRuntime = await openRoomsRuntime({ host: bobHost, cleartext: [tcp.plain] });
 	const bobLocator = loopbackTcpDesignator(bob.port);
 	let bobAccepts = 0;
 	(async () => {
@@ -82,7 +83,7 @@ async function main(): Promise<void> {
 	// which redeems the introduction and hosts a reply inbox on that session.
 	const carolReplies: string[] = [];
 	const carolHost = roomsHost();
-	const carolRuntime = await openRoomsRuntime({ host: carolHost });
+	const carolRuntime = await openRoomsRuntime({ host: carolHost, cleartext: [tcp.plain] });
 	const carol = await Directory.connect(roomLocator, (locator) => dial(locator, carolRuntime));
 	await carol.register("carol", formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()));
 	const line = await DirectMessage.open(carol, "bob", {

@@ -1,5 +1,5 @@
 //! A retained operator view owns admitted page chunks. Rendering flattens the
-//! chunks without cloning rows. Failed admission leaves the old view intact. status-allow: replacement state identity
+//! chunks without cloning rows. Failed admission leaves the old view intact.
 use super::{Categories, Page, PageRows, Revision, Snapshot, rows::*};
 use crate::{
 	fields::{Nullable, Object, SafeInteger, footprint::HeapBytes},

@@ -104,7 +104,7 @@ fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8
         };
         const full = try std.fs.path.join(gpa, &.{ path, file });
         const text = try cwd.readFileAlloc(io, full, gpa, .limited(1 << 20));
-        const purpose = (if (kind == .hook) hookPurpose(text) else description(gpa, text)) orelse {
+        const purpose = (if (kind == .hook) hookPurpose(text) else try description(gpa, text)) orelse {
             std.debug.print("gen-agent-index: {s} says nothing about its purpose; give it a {s}\n", .{ full, if (kind == .hook) "first comment line" else "frontmatter `description`" });
             failed.* = true;
             continue;
@@ -120,7 +120,7 @@ fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8
 
 /// The frontmatter `description`: a plain or double-quoted scalar, or a
 /// folded block (`>-`) joined into one line.
-fn description(gpa: std.mem.Allocator, text: []const u8) ?[]const u8 {
+fn description(gpa: std.mem.Allocator, text: []const u8) !?[]const u8 {
     if (!std.mem.startsWith(u8, text, "---\n")) return null;
     const end = std.mem.indexOf(u8, text[3..], "\n---\n") orelse return null;
     var lines = std.mem.splitScalar(u8, text[4 .. 3 + end + 1], '\n');
@@ -132,8 +132,8 @@ fn description(gpa: std.mem.Allocator, text: []const u8) ?[]const u8 {
         var folded: std.ArrayList(u8) = .empty;
         while (lines.next()) |more| {
             if (!std.mem.startsWith(u8, more, "  ")) break;
-            if (folded.items.len > 0) folded.append(gpa, ' ') catch return null;
-            folded.appendSlice(gpa, std.mem.trim(u8, more, " ")) catch return null;
+            if (folded.items.len > 0) try folded.append(gpa, ' ');
+            try folded.appendSlice(gpa, std.mem.trim(u8, more, " "));
         }
         return if (folded.items.len > 0) folded.items else null;
     }
@@ -162,10 +162,10 @@ test "descriptions read plain, quoted and folded" {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const a = arena.allocator();
-    try std.testing.expectEqualStrings("Tests.", description(a, "---\ndescription: Tests.\n---\n").?);
-    try std.testing.expectEqualStrings("Quoted: yes.", description(a, "---\ndescription: \"Quoted: yes.\"\n---\n").?);
-    try std.testing.expectEqualStrings("Use when a. Then b.", description(a, "---\nname: x\ndescription: >-\n  Use when a.\n  Then b.\nother: y\n---\n").?);
-    try std.testing.expect(description(a, "# No frontmatter\n") == null);
+    try std.testing.expectEqualStrings("Tests.", (try description(a, "---\ndescription: Tests.\n---\n")).?);
+    try std.testing.expectEqualStrings("Quoted: yes.", (try description(a, "---\ndescription: \"Quoted: yes.\"\n---\n")).?);
+    try std.testing.expectEqualStrings("Use when a. Then b.", (try description(a, "---\nname: x\ndescription: >-\n  Use when a.\n  Then b.\nother: y\n---\n")).?);
+    try std.testing.expect((try description(a, "# No frontmatter\n")) == null);
     try std.testing.expectEqualStrings("Use when a.", firstSentence("Use when a. Then b."));
     try std.testing.expectEqualStrings("format a file.", hookPurpose("#!/bin/sh\n# glowcap: format a file.\n").?);
 }

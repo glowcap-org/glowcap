@@ -17,7 +17,7 @@ runDmHandoff({
 	dmText: "hi Bob, privately, from Carol, by node id over iroh discovery",
 	timeoutMs: 150_000,
 	bullets: [
-		"Carol's first introduce was refused pending; the room asked Bob for an inbox for her",
+		"Carol asked the room once, and the room asked Bob for an inbox for her",
 		"the room introduced Carol to Bob over iroh discovery (exporter by node id alone)",
 		"Bob accepted 1 iroh connection: Carol's direct dial by id; nobody dialed Carol",
 		"the DM arrived on the inbox Bob minted for Carol, so it named no sender",

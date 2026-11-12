@@ -63,7 +63,9 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	}
 	/// Uploads that went quiet past their idle window are reclaimed here.
 	pub fn advance(&mut self, now: u64) {
-		// A clock that did not move forward is nothing to act on.
+		// tolerant: a timer stamped behind an event this store already observed
+		// reclaims nothing now. Expired records keep their deadlines, so
+		// `next_upload_deadline` re-arms the timer and its delivery reclaims them.
 		let _ = self.files.advance(now);
 		let spent: alloc::vec::Vec<_> = self
 			.uploads

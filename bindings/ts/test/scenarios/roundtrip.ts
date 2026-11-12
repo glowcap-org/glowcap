@@ -263,7 +263,7 @@ export async function run(managed: Runtime): Promise<void> {
 		}
 		const hosted = host();
 		await using capnpRuntime = await Runtime.open({
-			providers: [tcp.provider()],
+			providers: [tcp.provider({ profiles: [tcp.plain] })],
 			codec: "capnp",
 		});
 

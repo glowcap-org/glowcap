@@ -13,8 +13,8 @@ pub const Capture = struct {
         if (resolution != .fulfilled) {
             self.failed = true;
             if (resolution == .broken) {
-                self.reason_len = @min(resolution.broken.len, self.reason_buf.len);
-                @memcpy(self.reason_buf[0..self.reason_len], resolution.broken[0..self.reason_len]);
+                self.reason_len = @min(resolution.broken.detail.len, self.reason_buf.len);
+                @memcpy(self.reason_buf[0..self.reason_len], resolution.broken.detail[0..self.reason_len]);
             }
             return;
         }

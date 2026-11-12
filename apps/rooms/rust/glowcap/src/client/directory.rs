@@ -19,7 +19,7 @@ pub mod watch;
 pub struct Directory<D> {
 	client: Client<D>,
 	reference: Ref,
-	introductions: introduction::Notifications,
+	introductions: introduction::Slots,
 	signaling: signaling::Registry,
 }
 pub struct ManagedRoom {

@@ -99,8 +99,8 @@ pub const Session = struct {
     /// dupes anything session-lived onto its own allocator before the verb
     /// returns. Reset at each verb's entry rather than freed at its exit, so a
     /// steady stream of calls pays no allocation after the first. A Session is
-    /// a per-partner application handle, not the 500k-tier `Peer`, so the
-    /// arena header here is not a footprint-budget withdrawal.
+    /// a per-partner application handle, not the per-connection `Peer`, so the
+    /// arena header here does not count against the footprint budget.
     verb_scratch: std.heap.ArenaAllocator,
 
     /// Backing the verb scratch keeps across resets.
@@ -312,7 +312,7 @@ pub const Session = struct {
     /// released.
     ///
     /// `HostError.HandshakeIncomplete` means the partner's half has not arrived
-    /// with a key yet. `HostError.PartnerUnverified` means this session does not status-allow: pending state or quoted runtime label
+    /// with a key yet. `HostError.PartnerUnverified` means this session does not
     /// verify its partner, so there is no proved identity to report.
     pub fn partnerIdentity(self: *Session) !driver_core.PartnerIdentity {
         self.enterCall();
@@ -475,7 +475,7 @@ pub const Session = struct {
             .broken => |reason| .{ .broken = reason },
             // `Session` redeems a give inside the wait it settles under;
             // one that still surfaces is a broken introduction, not a value.
-            .give => .{ .broken = "unredeemed handoff give" },
+            .give => .{ .broken = engine.Broken.unnamed("unredeemed handoff give") },
         };
     }
 

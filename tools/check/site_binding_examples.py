@@ -8,47 +8,21 @@ import ast
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "site" / "examples"
-PLANNED_MARKER = "PLANNED:"
-
-# Line-comment prefix per snippet extension present under site/examples/. A
-# planned snippet is excluded from the compile checks below, so it must be
-# comment-only: live-looking code no check can fail would mislead.
-COMMENT_PREFIXES = {".zig": "//", ".ts": "//", ".rust": "//", ".python": "#", ".racket": ";"}
+# Each language check runs under its build step's 30-second deadline, so the
+# compiler it starts stops first and the failure names that compiler.
+COMPILER_SECONDS = 25
 
 
 def example_files(suffix: str) -> list[Path]:
     files = sorted(SITE.glob(f"dial/*.{suffix}"))
     files += sorted(SITE.glob(f"listen/*.{suffix}"))
     files += sorted(SITE.glob(f"onion/*.{suffix}"))
-    return [path for path in files if PLANNED_MARKER not in path.read_text()]
-
-
-def check_planned_snippets_comment_only() -> None:
-    failures: list[str] = []
-    for path in sorted(SITE.rglob("*")):
-        prefix = COMMENT_PREFIXES.get(path.suffix)
-        if prefix is None or not path.is_file():
-            continue
-        text = path.read_text()
-        if PLANNED_MARKER not in text:
-            continue
-        for number, line in enumerate(text.splitlines(), start=1):
-            stripped = line.strip()
-            if stripped and not stripped.startswith(prefix):
-                failures.append(
-                    f"{path.relative_to(ROOT)}:{number}: live code in a"
-                    f" {PLANNED_MARKER} snippet escapes every compile check:"
-                    f" {stripped}"
-                )
-    if failures:
-        print("\n".join(failures), file=sys.stderr)
-        raise SystemExit(1)
+    return files
 
 
 def check_python() -> None:
@@ -85,6 +59,7 @@ def check_python() -> None:
             cwd=ROOT,
             env=environment,
             check=True,
+            timeout=COMPILER_SECONDS,
         )
 
 
@@ -116,7 +91,9 @@ def check_racket() -> None:
 """
         environment = os.environ.copy()
         environment["PLTCOLLECTS"] = str(work) + os.pathsep + environment.get("PLTCOLLECTS", "")
-        subprocess.run(["racket", "-e", compiler, *generated], cwd=work, env=environment, check=True)
+        subprocess.run(
+            ["racket", "-e", compiler, *generated], cwd=work, env=environment, check=True, timeout=COMPILER_SECONDS
+        )
 
 
 def check_rust() -> None:
@@ -161,6 +138,7 @@ glowcap = {{ package = "glowcap", path = "{binding.as_posix()}", features = ["as
             cwd=ROOT,
             env=environment,
             check=True,
+            timeout=COMPILER_SECONDS,
         )
 
 
@@ -168,13 +146,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("language", choices=("python", "racket", "rust"))
     language = parser.parse_args().language
-    check_planned_snippets_comment_only()
-    if language == "python":
-        check_python()
-    elif language == "rust":
-        check_rust()
-    else:
-        check_racket()
+    check = {"python": check_python, "rust": check_rust, "racket": check_racket}[language]
+    try:
+        check()
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit(
+            f"site-{language}-examples-check: {error.cmd[0]} gave no result in {error.timeout} s"
+        ) from None
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(f"site-{language}-examples-check: {error.cmd[0]} exited {error.returncode}") from None
 
 
 if __name__ == "__main__":

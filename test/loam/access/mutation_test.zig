@@ -193,3 +193,46 @@ test "loam mutation failure does not consume sequence and receipt windows refuse
     try std.testing.expectError(error.ReceiptExpired, full.lookup(1));
     try std.testing.expectError(error.InvalidRecord, (Window{ .next = 1, .count = 1 }).lookup(1));
 }
+
+/// Every edit names a revision the grant does not hold.
+fn unheldRevision(_: []const u8, _: []const h.driver.Value) !h.c.core.Revision {
+    return @fromBackingInt(std.math.maxInt(u64));
+}
+
+test "a loam control answers a reused operation id and an unheld revision as verdicts that change nothing" {
+    var fixture = try h.f.Fixture.init(h.a, h.limits);
+    defer fixture.deinit();
+    const data = try h.seed(&fixture.store, &fixture.backend);
+    var server: h.Hosted = undefined;
+    try server.init(&fixture.store, &fixture.backend, data);
+    defer server.deinit();
+    var paused: h.Answer = .{};
+    try server.mutate(server.control, 1, "pause", &.{}, &paused);
+    try server.drain(&fixture.backend);
+    try std.testing.expectEqual(@as(?bool, true), paused.changed);
+    const revision = fixture.store.metadata.revision;
+    // The same operation id with another intent is a verdict, not a break.
+    var reused: h.Answer = .{};
+    try server.mutate(server.control, 1, "resume", &.{}, &reused);
+    try server.drain(&fixture.backend);
+    try std.testing.expectEqual(@as(?h.Answer.Conflict, .operation), reused.conflict);
+    try std.testing.expect(!reused.broken);
+    var replay: h.Answer = .{};
+    try server.mutate(server.control, 1, "pause", &.{}, &replay);
+    try server.drain(&fixture.backend);
+    try std.testing.expectEqual(@as(?bool, true), replay.changed);
+    // An edit that names a revision the grant does not hold is the other one.
+    server.service.decode_control_revision = unheldRevision;
+    var unheld: h.Answer = .{};
+    try server.mutate(server.control, 2, "resume", &.{}, &unheld);
+    try server.drain(&fixture.backend);
+    try std.testing.expectEqual(@as(?h.Answer.Conflict, .revision), unheld.conflict);
+    try std.testing.expect(!unheld.broken);
+    try std.testing.expectEqual(revision, fixture.store.metadata.revision);
+    // The revision verdict did not take id 2: the same id carries the edit once it names no revision.
+    server.service.decode_control_revision = null;
+    var resumed: h.Answer = .{};
+    try server.mutate(server.control, 2, "resume", &.{}, &resumed);
+    try server.drain(&fixture.backend);
+    try std.testing.expectEqual(@as(?bool, true), resumed.changed);
+}

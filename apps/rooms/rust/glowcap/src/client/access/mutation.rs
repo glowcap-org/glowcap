@@ -1,6 +1,6 @@
 //! Prepared edits retain the exact control, sequence and expected revision.
 //! Submission never reads a newer revision or obtains another receipt identity.
-use super::{Caller, Control};
+use super::{Caller, Control, control_reply};
 use crate::client::{Deadline, Error};
 use glowcap::{Argument, Ref, loam::PolicyValue};
 
@@ -23,7 +23,8 @@ impl<D> Mutation<D> {
 }
 impl<D: Deadline> Mutation<D> {
 	pub async fn submit(&self) -> Result<(), Error> {
-		self.caller
+		let reply = self
+			.caller
 			.call(
 				&self.control,
 				"mutate",
@@ -31,7 +32,10 @@ impl<D: Deadline> Mutation<D> {
 				"the access control did not answer",
 			)
 			.await?;
-		Ok(())
+		match control_reply(reply)? {
+			Argument::Boolean(_) => Ok(()),
+			_ => Err(glowcap::loam::refusal("control mutation returned no admission result").into()),
+		}
 	}
 }
 impl<D: Deadline + Clone> Control<D> {

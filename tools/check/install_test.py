@@ -10,6 +10,7 @@ differently. Needs sh, curl, tar, and a checksum tool, as
 the installer does.
 """
 
+import functools
 import hashlib
 import io
 import json
@@ -47,7 +48,7 @@ def product_archive():
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
-    requests = []
+    requests: list[str] = []
 
     def log_message(self, *_):
         pass
@@ -58,6 +59,10 @@ class QuietHandler(SimpleHTTPRequestHandler):
 
 
 class Installer(unittest.TestCase):
+    temporary: tempfile.TemporaryDirectory[str]
+    server: ThreadingHTTPServer
+    base: str
+
     @classmethod
     def setUpClass(cls):
         cls.temporary = tempfile.TemporaryDirectory()
@@ -79,10 +84,7 @@ class Installer(unittest.TestCase):
         lacking.mkdir()
         other = "aarch64-linux" if TARGET != "aarch64-linux" else "x86_64-linux"
         (lacking / "SHA256SUMS").write_text(f"{'a' * 64}  glowcap-v0.9.2-{other}.tar.gz\n")
-        handler = type("Handler", (QuietHandler,), {"directory": str(mirror)})
-        handler.__init__ = lambda self, *args, **kwargs: QuietHandler.__init__(
-            self, *args, directory=str(mirror), **kwargs
-        )
+        handler = functools.partial(QuietHandler, directory=str(mirror))
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
         cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
@@ -179,6 +181,7 @@ class Installer(unittest.TestCase):
         # The site serves the installer whether or not a page links it.
         assets = re.search(r"\.static_assets = \[([^\]]*)\]", (ROOT / "site/zine.ziggy").read_text())
         self.assertIsNotNone(assets, "site/zine.ziggy names its static assets")
+        assert assets is not None
         self.assertIn('"install.sh"', [entry.strip() for entry in assets.group(1).split(",")])
 
 

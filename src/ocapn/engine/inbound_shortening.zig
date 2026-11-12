@@ -364,7 +364,7 @@ pub fn prepareIntroducedImportReleases(
 }
 
 /// Record the whole release, then publish the part the wire carries. The
-/// message is the queue's once pushed; otherwise it is freed here.
+/// message is the queue's once pushed. Otherwise it is freed here.
 pub fn commitPreparedImportRelease(self: *Peer, prepared: PreparedOutboundMessage) void {
     // Nothing stores a resolution between prepare and commit, so the wire
     // decision still matches the table.

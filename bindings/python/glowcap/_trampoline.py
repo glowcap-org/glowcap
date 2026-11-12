@@ -341,9 +341,32 @@ def _settle_reply(turn: int, result, out_reply) -> int:
 
 
 def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_reply) -> int:
-    # The shared trampoline body: decode the deliver, run the entry under the
-    # turn context, and settle the reply. Nothing may raise across the C frame,
-    # KeyboardInterrupt and CancelledError included.
+    # The shared trampoline body. Nothing may raise across the C frame,
+    # KeyboardInterrupt and CancelledError included: a failure that even the
+    # break cannot report (an exception whose text raises, a failed encode)
+    # returns ERR_INTERNAL, which the Host settles as a generic break.
+    try:
+        return _run_turn(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_reply)
+    except BaseException as error:
+        try:
+            return _turn_break(turn, _break_reason(error))
+        except BaseException:
+            # tolerant: the Host breaks the answer with its generic reason;
+            # only the behavior's own diagnostic text is lost.
+            return _abi.ERR_INTERNAL
+
+
+def _break_reason(error: BaseException) -> str:
+    try:
+        return str(error) or type(error).__name__
+    except BaseException:
+        # tolerant: an exception whose text raises still names its type.
+        return type(error).__name__
+
+
+def _run_turn(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_reply) -> int:
+    # Decode the deliver, run the entry under the turn context, and settle the
+    # reply; a behavior's failure breaks the answer with its own text.
     entry = _registry.get(ctx or 0)
     if entry is None:
         return _turn_break(turn, "no such hosted object")
@@ -359,7 +382,7 @@ def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_repl
             getattr(arriving, "gc").track_arguments(args)
         return _settle_reply(turn, _run_hosted(entry, verb, args, turn=turn), out_reply)
     except BaseException as error:
-        return _turn_break(turn, str(error) or type(error).__name__)
+        return _turn_break(turn, _break_reason(error))
     finally:
         if restore_deliver:
             _turn_state.active_deliver_owner = carrier

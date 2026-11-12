@@ -126,6 +126,7 @@ pub fn setLastError(prefix: []const u8, failure: driver.OperationFailure) void {
     } else {
         shared.setLastError("{s}: {s}", .{ prefix, failure.chain.primaryName() });
     }
+    shared.attachLastErrorCause(failure.namedCause());
 }
 
 pub fn note(target: *?driver.OperationFailure, later: driver.OperationFailure) void {

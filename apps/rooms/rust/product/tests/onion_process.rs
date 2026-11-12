@@ -169,9 +169,14 @@ async fn scenario() {
 
 async fn directory_over_forward(port: u16) {
 	use glowcap::{ConnectOptions, PendingWork, Runtime, RuntimeConfig};
-	let runtime = Runtime::open(RuntimeConfig::providers([glowcap::tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let runtime = Runtime::open(RuntimeConfig::providers([glowcap::tcp::provider(
+		glowcap::tcp::Config {
+			profiles: glowcap::tcp::Profiles::TCP,
+			..Default::default()
+		},
+	)]))
+	.await
+	.unwrap();
 	let session = runtime
 		.connect(&glowcap::tcp::locator("127.0.0.1", port), ConnectOptions::default())
 		.await

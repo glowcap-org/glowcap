@@ -12,18 +12,22 @@ mkdir -p apps/tasks/.data
 zig build tasks-server -- --data=apps/tasks/.data --port=9099
 ```
 
-It prints `TASKS-SERVER-LISTENING 9099 <name>`. The name is a secret: anyone
-who has it can open the board. Open the board with it:
+It prints `TASKS-SERVER-LISTENING 9099 <name> <locator>`. The locator is an
+`ocapn://` address that names the server's key, and the connection is
+encrypted with Noise. The name is a secret: anyone who has it can open the
+board. Open the board with both:
 
 ```sh
 deno run --allow-ffi --allow-read --allow-net \
-  apps/tasks/deno/board.ts 127.0.0.1 9099 <name>
+  apps/tasks/deno/board.ts '<locator>' <name>
 ```
 
 Use `add buy groceries`, `list`, `done 0`, or `quit`. A new board starts with a
 **To do** list and a **Done** list, and `done` moves a task from the first to
 the second. Stop the server, start it again on the same directory, and the
-same name opens the same board.
+same name opens the same board at the new locator it prints. `--transport=tcp`
+listens in the clear instead, for a peer such as a Goblins vat that speaks only
+plain TCP.
 
 ## The board's capabilities
 
@@ -44,8 +48,8 @@ Loam returns the recorded result without applying the change again.
 retry window.
 
 - `mutate(n, "add", text)` on a list adds a task to its end and replies with
-  the new task's capability. A board holds up to 16 lists, a list up to 256
-  tasks, and a task's text up to 4096 bytes. A value past a limit is refused
+  the new task's capability. A board holds up to <!-- value zig/interface.zig max_lists -->16<!-- /value --> lists, a list up to
+  <!-- value zig/interface.zig max_tasks -->256<!-- /value --> tasks, and a task's text up to <!-- value zig/interface.zig max_text_bytes plain -->4096<!-- /value --> bytes. A value past a limit is refused
   and nothing changes.
 - `mutate(n, "add-list", name)` on the board adds a list to its end and
   replies with the new list's capability. The server adds **To do** and
@@ -61,7 +65,7 @@ replies with a receiver and a canceller. The receiver's `poll(cursor)` says
 whether anything on the board changed since that cursor and hands back a new
 one, in the reply that
 [Loam observation](../../docs/loam/access-observation.md) describes. A board
-admits 32 watchers at once, and a watcher outlives the client that made it, so
+admits <!-- value ../../src/loam/access/records/observation_index_record.zig capacity -->32<!-- /value --> watchers at once, and a watcher outlives the client that made it, so
 a client calls `cancel()` on the canceller when it stops watching. The receiver
 has its own `durable-name()`, so a client that comes back after a restart
 fetches it by that name, polls with its last cursor, and learns that the board
@@ -127,7 +131,7 @@ The server lives under [`zig/`](zig/), beside the Zig client. The other
 directories hold the matching Deno, Python, Racket, and Rust clients, and
 [`demo.ts`](demo.ts) coordinates the cross-language run.
 
-`zig build tasks-app-test` runs the server over TCP with a temporary store. It
+`zig build tasks-app-test` runs the server over Noise TCP with a temporary store. It
 adds and moves tasks, checks that an oversized task is refused without a
 change, and reopens the store to check that everything is still there. It also
 checks that shares keep working after a restart and stop at revocation, and

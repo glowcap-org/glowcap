@@ -34,7 +34,10 @@ async fn dropped_deferred_reply_breaks_its_remote_answer_after_the_callback() {
 			.await
 			.unwrap();
 			let runtime = crate::Runtime::open(crate::RuntimeConfig::providers([crate::tcp::provider(
-				Default::default(),
+				crate::tcp::Config {
+					profiles: crate::tcp::Profiles::TCP,
+					..Default::default()
+				},
 			)]))
 			.await
 			.unwrap();
@@ -92,7 +95,10 @@ async fn dropping_a_resolver_after_its_session_closes_does_not_poison_host_progr
 			.await
 			.unwrap();
 			let runtime = crate::Runtime::open(crate::RuntimeConfig::providers([crate::tcp::provider(
-				Default::default(),
+				crate::tcp::Config {
+					profiles: crate::tcp::Profiles::TCP,
+					..Default::default()
+				},
 			)]))
 			.await
 			.unwrap();

@@ -2,6 +2,7 @@
 //! preserves that home. The receiving Host never substitutes its own route.
 use super::*;
 use rooms_glowcap::client::Deadline;
+use rooms_runtime::Error as RuntimeError;
 use std::future::IntoFuture;
 
 #[derive(Clone)]
@@ -17,7 +18,7 @@ impl PublicationHome {
 	/// handles share that charge. Parsing is temporary publication scratch. No
 	/// grant inventory, alternative authority map or route copy is retained.
 	pub(super) fn remote(driver: &Driver, uri: String) -> Result<Self> {
-		glowcap::parse_sturdyref(&uri, glowcap::CaptpVersion::V1_0).map_err(|e| e.to_string())?;
+		glowcap::parse_sturdyref(&uri, glowcap::CaptpVersion::V1_0).map_err(RuntimeError::from)?;
 		let bytes = size_of::<String>() + uri.capacity();
 		Ok(Self::Remote(driver.hold(uri, bytes)?))
 	}
@@ -25,7 +26,7 @@ impl PublicationHome {
 		match self {
 			Self::LocalOwner => Ok(None),
 			Self::Remote(uri) => {
-				let route = glowcap::parse_sturdyref(uri, glowcap::CaptpVersion::V1_0).map_err(|e| e.to_string())?;
+				let route = glowcap::parse_sturdyref(uri, glowcap::CaptpVersion::V1_0).map_err(RuntimeError::from)?;
 				let reply = environment
 					.platform
 					.within(
@@ -37,15 +38,17 @@ impl PublicationHome {
 							.into_future(),
 					)
 					.await
-					.ok_or("Original owner publication did not answer")?
-					.map_err(|e| e.to_string())?;
+					.ok_or_else(|| {
+						RuntimeError::from(rooms_glowcap::client::Error::Timeout("Original owner publication"))
+					})?
+					.map_err(RuntimeError::from)?;
 				let name = reply
 					.as_str()
 					.filter(|name| !name.is_empty() && name.len() <= 64)
-					.ok_or("Original owner returned no publication name")?;
+					.ok_or_else(|| RuntimeError::invalid("Original owner returned no publication name"))?;
 				glowcap::format_sturdyref(&route.locator, name.as_bytes(), glowcap::CaptpVersion::V1_0)
 					.map(Some)
-					.map_err(|e| e.to_string())
+					.map_err(RuntimeError::from)
 			}
 		}
 	}

@@ -6,8 +6,8 @@ Canonical home for agent-facing guidance in this Zig repository.
 skill's frontmatter `description` (a hook's first comment line), so a file's
 purpose has one home, and `source-check` fails when the index is stale.
 
-Each harness reads these files through its own overlay. Edit here, never
-through a symlink, because an in-place edit turns the link into a file:
+Each harness reads these files through its own overlay. Edit the canonical
+files ([agent-scaffolding](rules/agent-scaffolding.md)), never a symlink:
 
 - `.claude/rules` is one directory symlink to `.agents/rules`.
 - `.cursor/rules/<name>.mdc` is one symlink per rule because Cursor discovers

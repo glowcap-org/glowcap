@@ -342,10 +342,10 @@ pub export fn glowcap_webrtc_netlayer_drain_ready(
 /// Release the readiness endpoint after every peer created from it is released.
 pub export fn glowcap_webrtc_netlayer_release(netlayer: ?*GlowcapWebrtcNetlayer) i32 {
     c.lastErrorClear();
-    const payload = netlayerFromOpaque(netlayer) orelse return GLOWCAP_OK;
+    const payload = netlayerFromOpaque(netlayer) orelse return c.ReleaseResult.consumed(GLOWCAP_OK).raw();
     if (releaseNetlayer(payload)) |failure|
-        return c.failIo("webrtc netlayer release", failure);
-    return GLOWCAP_OK;
+        return c.ReleaseResult.consumed(c.failIo("webrtc netlayer release", failure)).raw();
+    return c.ReleaseResult.consumed(GLOWCAP_OK).raw();
 }
 
 /// Create a peer in one of the two signaling roles from `netlayer`.
@@ -443,15 +443,15 @@ pub export fn glowcap_webrtc_peer_close(peer: ?*GlowcapWebrtcPeer) void {
 /// that teardown outcome instead of hiding it in thread-local diagnostics.
 pub export fn glowcap_webrtc_peer_release(peer: ?*GlowcapWebrtcPeer) i32 {
     c.lastErrorClear();
-    const payload = payloadFromOpaque(peer) orelse return GLOWCAP_OK;
+    const payload = payloadFromOpaque(peer) orelse return c.ReleaseResult.consumed(GLOWCAP_OK).raw();
     if (!payload.provider_claimed) {
         // tolerant: the driver may already have retired its ownership edge, and
         // the caller's final handle release still owns this reference.
         _ = payload.netlayer.peers.remove(@backingInt(payload.peer.id()));
     }
     if (releasePeer(payload)) |failure|
-        return c.failIo("webrtc peer release", failure);
-    return GLOWCAP_OK;
+        return c.ReleaseResult.consumed(c.failIo("webrtc peer release", failure)).raw();
+    return c.ReleaseResult.consumed(GLOWCAP_OK).raw();
 }
 
 /// Fill the generic driver provider package. The driver claims a peer the

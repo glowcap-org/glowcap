@@ -1,7 +1,9 @@
 import deno from "@deno/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin, type ProxyOptions } from "vite";
 
@@ -15,6 +17,41 @@ const applicationWasm = fileURLToPath(
 const applicationGlue = fileURLToPath(
 	new URL("../../../zig-out/wasm/rooms/rooms_browser.js", import.meta.url),
 );
+
+const repository = fileURLToPath(new URL("../../../", import.meta.url));
+const lockedPackages = fileURLToPath(new URL("../node_modules", import.meta.url));
+
+/** The package directory an import from `importer` would reach before the
+ * locked one, if `exists` finds any.
+ *
+ * An import takes its package from the nearest `node_modules` above the file
+ * that imports it. The lock beside the app names every package the page
+ * takes, so a package directory left nearer the sources would supply others. */
+export function nearerPackages(importer: string, exists: (directory: string) => boolean): string | null {
+	if (!importer.startsWith(repository) || importer.includes("/node_modules/")) return null;
+	for (let above = dirname(importer); `${above}/`.startsWith(repository); above = dirname(above)) {
+		const packages = join(above, "node_modules");
+		if (packages === lockedPackages) return null;
+		if (exists(packages)) return packages;
+	}
+	return null;
+}
+
+/** Refuse an import that a stray package directory would answer, in a
+ * compiled bundle and under Fast Refresh alike. */
+function lockedPackagesOnly(): Plugin {
+	return {
+		name: "rooms-locked-packages",
+		enforce: "pre",
+		resolveId(_source, importer) {
+			const nearer = importer == null ? null : nearerPackages(importer, existsSync);
+			if (nearer != null) {
+				throw new Error(`${nearer} holds packages nearer the browser sources than the locked ones. Remove it.`);
+			}
+			return null;
+		},
+	};
+}
 
 export interface DevelopmentListen {
 	host: string;
@@ -145,7 +182,8 @@ function roomsDevelopment(): Plugin {
 					}
 					try {
 						const source = await readFile(page, "utf8");
-						const html = await server.transformIndexHtml(request.originalUrl ?? request.url ?? "/", source);
+						// page.html's base is /, including when a room route serves it.
+						const html = await server.transformIndexHtml("/", source);
 						response.statusCode = 200;
 						response.setHeader("Content-Type", "text/html; charset=utf-8");
 						response.end(html);
@@ -174,7 +212,13 @@ export default defineConfig(({ command }) => {
 		// Startup owns the Host and React root for one document lifetime. It
 		// cannot be replaced as a component: a refresh would open a second Host
 		// and leave the rendered controls holding the previous projection.
-		plugins: [externalApplicationWasm(), deno(), react({ exclude: /\/ui\/main\.tsx$/ }), roomsDevelopment()],
+		plugins: [
+			lockedPackagesOnly(),
+			externalApplicationWasm(),
+			deno(),
+			react({ exclude: /\/ui\/main\.tsx$/ }),
+			roomsDevelopment(),
+		],
 		build: {
 			// Mobile Safari on iOS 26 is the oldest supported JavaScript engine.
 			// Current Chrome and Firefox implement this floor or a newer one.

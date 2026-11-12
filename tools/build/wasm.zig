@@ -4,8 +4,8 @@
 //! which forces both export families in and adds the JS<->wasm linear-memory
 //! primitives. The module graph is the sans-io core (the `core = true` prefix)
 //! plus the two ocapn C ABI vocabulary rows. The I/O layers (`net`, `driver`)
-//! wasm lacks are excluded. ReleaseSmall keeps the download small and
-//! drops the runtime-safety-only `std.Thread.getCurrentId` owner assert.
+//! wasm lacks are excluded. ReleaseSmall keeps the download small. The
+//! freestanding Host carries no thread-id reader, so it checks no affinity.
 //!
 //! This file also registers its install step, the static Wasm archives, and the
 //! deno proofs of the module: `wasm-host`, `wasm-archives`, `wasm-host-test`,
@@ -38,7 +38,7 @@ fn wasmGraphMask() [layer_table.len]bool {
     @setEvalBranchQuota(20000);
     var reached: [layer_table.len]bool = @splat(false);
     for (layer_table[layerIndex("c_abi_wasm")].imports) |name| reached[layerIndex(name)] = true;
-    // Edges point only to earlier rows. One reverse traversal visits every status-allow: event or source ordering
+    // Edges point only to earlier rows. One reverse traversal visits every
     // reached dependency before advancing to its own prerequisites.
     var cursor = layer_table.len;
     while (cursor != 0) {
@@ -82,6 +82,7 @@ fn wasmModules(b: *std.Build, o: std.builtin.OptimizeMode) WasmModules {
     // `c_abi_host` and the `c_abi_wasm` root are graph=false; mint them at this
     // use site the way the transport archives are, wiring the wasm modules above.
     const host_imports = [_]modules.AbiImport{
+        .{ .name = "net_thread_id", .module = pick(sub, mods, "net_thread_id") },
         .{ .name = "foundation", .module = pick(sub, mods, "foundation") },
         .{ .name = "model", .module = pick(sub, mods, "model") },
         .{ .name = "engine", .module = pick(sub, mods, "engine") },

@@ -72,7 +72,7 @@ same Rooms features. You can switch later in Settings.
 The join card already points at your server. Type a room name such as
 `workshop`. If no room has that name, joining creates
 it. You can leave **Display name** empty: the grey suggestion is a name the
-server can give you right now, and joining with the field empty takes it.
+server can give you, and joining with the field empty takes it.
 
 [The join card, pointed at your server, with a room name typed. The display name can stay empty.]($image.siteAsset('rooms-join-dark.webp'))
 

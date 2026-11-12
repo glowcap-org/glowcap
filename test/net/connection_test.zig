@@ -492,3 +492,27 @@ test "a connection close barrier retains its exact transport chain" {
     try std.testing.expectEqual(@as(usize, 2), fixture.advances);
     try std.testing.expect(conn.takeFailure() == null);
 }
+
+test "a multiplexed wait refuses a connection with no descriptor before polling" {
+    const Fixture = struct {
+        fn close(_: *anyopaque) void {}
+        fn socket(_: *anyopaque) ?std.Io.net.Socket.Handle {
+            return null;
+        }
+    };
+    var fixture: u8 = 0;
+    var peer = handshake.stubPeer(std.testing.allocator);
+    defer peer.deinit();
+    var reader = std.Io.Reader.fixed("");
+    var storage: [1]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&storage);
+    var conn = net.Connection.init(undefined, &peer, &reader, &writer, .{
+        .ctx = &fixture,
+        .close_fn = Fixture.close,
+        .socket_handle_fn = Fixture.socket,
+    });
+    defer conn.deinit();
+    var pollfds: [1]std.posix.pollfd = undefined;
+    // A negative timeout would park forever if the row reached poll.
+    try std.testing.expectError(error.NotPollable, net.waitAnyReadable(&.{&conn}, &pollfds, -1, &.{}));
+}

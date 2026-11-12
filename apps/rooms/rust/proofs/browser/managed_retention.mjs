@@ -22,7 +22,10 @@ export async function managedRetention({ workspace, peer, observation, blob, bou
 		);
 		held.push(request);
 		let cursor = (await observation.poll()).cursor;
-		await request.submit();
+		const admitted = await request.submit();
+		if (["conflict", "refused", "uncertain"].includes(admitted.status)) {
+			throw new Error(`history retention admission: ${JSON.stringify(admitted)}`);
+		}
 		await bounded(
 			(async () => {
 				for (;;) {

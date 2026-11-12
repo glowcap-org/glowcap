@@ -34,6 +34,7 @@ pub fn main() !void {
 /// Whether `path` already holds exactly `bytes`. A missing or unreadable file
 /// is not up to date, so the write below still runs.
 fn upToDate(a: std.mem.Allocator, io: std.Io, path: []const u8, bytes: []const u8) !bool {
+    // tolerant: an unreadable file is rewritten, and that write reports its own failure.
     const on_disk = std.Io.Dir.cwd().readFileAlloc(io, path, a, .limited(1 << 20)) catch return false;
     defer a.free(on_disk);
     return std.mem.eql(u8, on_disk, bytes);

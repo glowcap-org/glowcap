@@ -11,7 +11,7 @@ fn coordinate() -> Coordinate {
 pub(super) fn read(value: &Argument) -> Result<Settlement> {
 	let reference = Ref::try_from(value).map_err(|_| loam::refusal("directory returned no direct inbox"))?;
 	let coordinate = coordinate();
-	let data = serde_json::to_string(&Direct::Ready {
+	let data = serde_json::to_string(&Direct {
 		inbox: coordinate.key.retag(),
 	})
 	.map_err(|_| loam::refusal("invalid direct result"))?;
@@ -29,40 +29,7 @@ pub(super) fn read(value: &Argument) -> Result<Settlement> {
 pub(super) fn matches(data: &str, fields: &[Coordinate]) -> Result<bool> {
 	let row: Direct = serde_json::from_str(data).map_err(|_| loam::refusal("invalid direct result"))?;
 	let expected = coordinate();
-	Ok(match row {
-		Direct::Pending => fields.is_empty(),
-		Direct::Ready { inbox } => {
-			fields == [expected]
-				&& inbox.slot() == expected.key.slot()
-				&& inbox.generation() == expected.key.generation()
-		}
-	})
-}
-
-/// Only this typed negative answer proves the directory delivered its request.
-/// It carries no inbox custody and permits no executor redispatch. Every other
-/// broken or disconnected call keeps its original uncertain receipt.
-pub(super) fn pending(error: &glowcap::Error) -> Option<Settlement> {
-	use rooms_application::failure::{Failure, FailureCode};
-	if error.kind() != glowcap::ErrorKind::Broken
-		|| error
-			.message()
-			.and_then(Failure::parse)
-			.is_none_or(|failure| failure.code != FailureCode::IntroductionPending)
-	{
-		return None;
-	}
-	Some(Settlement::data(DIRECT_PENDING.to_owned()))
-}
-/// `Direct::Pending` as serde renders it. The test below holds the two equal.
-const DIRECT_PENDING: &str = r#"{"status":"pending"}"#;
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn the_pending_constant_is_the_serialized_variant() {
-		assert_eq!(serde_json::to_string(&Direct::Pending).unwrap(), DIRECT_PENDING);
-	}
+	Ok(fields == [expected]
+		&& row.inbox.slot() == expected.key.slot()
+		&& row.inbox.generation() == expected.key.generation())
 }

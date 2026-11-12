@@ -3,8 +3,16 @@
 // binding copies borrowed names and attaches the first counted consequence,
 // but owns no transport or lifecycle policy.
 
-import { DRIVER_FAILURE_ABI_VERSION, INTERNAL, OK, WOULD_BLOCK } from "@glowcap/abi";
-import { GlowcapError, retainSecondaryFailure } from "../errors.ts";
+import {
+	DRIVER_FAILURE_ABI_VERSION,
+	INTERNAL,
+	OK,
+	releaseResultCode,
+	releaseResultConsumed,
+	WOULD_BLOCK,
+} from "@glowcap/abi";
+import { GlowcapError, retainSecondaryFailure, vowFailure } from "../errors.ts";
+import { readBreakCause } from "./break_cause.ts";
 import { type CarrierFailure, decodeCarrierFailure } from "../carrier_failure.ts";
 import { loopS } from "./ffi/driver.ts";
 import { ffi, NULL, type Ptr } from "./ffi/runtime.ts";
@@ -17,8 +25,17 @@ export function driverLastError(): string | null {
 	return readErrorSlot(loopS.glowcap_driver_last_error);
 }
 
+/** A failed `glowcap_driver_*` call as a typed error: the message and the typed cause both come from the driver
+ * archive's own per-thread slots, read before any later driver call clears them. */
 export function checkDriver(rc: number): void {
-	if (rc !== OK) throw new GlowcapError(rc, driverLastError() ?? undefined);
+	if (rc === OK) return;
+	const raw = new Uint8Array(L.BREAK_CAUSE_SIZE);
+	loopS.glowcap_driver_last_error_cause(raw);
+	throw vowFailure(
+		rc,
+		driverLastError() ?? `driver call failed (code ${rc})`,
+		readBreakCause(new DataView(raw.buffer)),
+	);
 }
 
 export interface DriverFailure {
@@ -148,4 +165,18 @@ export function closeDriverListener(handle: Ptr, listener: bigint): boolean {
 	if (outcome.code === WOULD_BLOCK) return false;
 	if (outcome.error !== null) throw outcome.error;
 	return true;
+}
+
+/** A release preserves both the ownership decision and the actual failure. */
+export interface DriverReleaseOutcome extends DriverCallOutcome {
+	readonly consumed: boolean;
+}
+
+export function driverRelease(operation: string, handle: Ptr): DriverReleaseOutcome {
+	let result = OK;
+	const outcome = driverCall(operation, (out) => {
+		result = loopS.glowcap_driver_release(handle, out);
+		return releaseResultCode(result);
+	});
+	return { ...outcome, consumed: releaseResultConsumed(result) };
 }

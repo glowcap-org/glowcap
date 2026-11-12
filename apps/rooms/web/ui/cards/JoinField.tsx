@@ -19,14 +19,17 @@ export function JoinField(
 }
 
 /** The mark at the start of a join field. Geometry and interaction are the icon
- * button family's. The contents are whatever that field is about. */
+ * button family's. The contents are whatever that field is about. The rail's
+ * panel is the same field at a row's scale, so it asks for the small step. */
 export function JoinPrefix({
 	label,
+	size = "normal",
 	className,
 	children,
 	...button
 }: {
 	label: string;
+	size?: "small" | "normal";
 	children: ReactNode;
 } & Omit<ComponentPropsWithRef<"button">, "aria-label" | "children" | "title" | "type">) {
 	const classes = classNames("icon-button", "join-prefix", className);
@@ -35,7 +38,7 @@ export function JoinPrefix({
 			{...button}
 			type="button"
 			className={classes}
-			data-size="normal"
+			data-size={size}
 			data-variant="ghost"
 			data-tone="neutral"
 			data-shape="rounded"

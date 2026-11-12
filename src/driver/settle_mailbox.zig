@@ -5,7 +5,7 @@
 //! owning thread is woken through the mailbox's socketpair. Under ADR-0035,
 //! `WouldBlock` is coalesced success because unread bytes already make the read
 //! half readable. Every other wake fault is retained and terminalizes the
-//! owner without abandoning rows admitted earlier. The owning thread drains status-allow: event or source ordering
+//! owner without abandoning rows admitted earlier. The owning thread drains
 //! the wake and applies every recorded settle through the ordinary top-level
 //! resolver verbs, so the Host's one-thread contract holds: the mailbox
 //! carries the call, never the authority.
@@ -30,7 +30,7 @@ const Io = std.Io;
 
 pub const Resolution = union(enum) {
     fulfilled: model.Argument,
-    broken: []const u8,
+    broken: driver_core.Broken,
 };
 
 pub const PostError = error{
@@ -148,8 +148,10 @@ pub const SettleMailbox = struct {
                     return PostError.ValueTooLarge,
             },
             .broken => |reason| .{
-                .broken = fba.allocator().dupe(u8, reason) catch
-                    return PostError.ValueTooLarge,
+                .broken = .{
+                    .detail = fba.allocator().dupe(u8, reason.detail) catch return PostError.ValueTooLarge,
+                    .cause = reason.cause,
+                },
             },
         };
         self.count += 1;

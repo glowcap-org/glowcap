@@ -19,9 +19,10 @@ test "access stored capabilities separate roles and enforce management ceilings"
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(wide, 1) })).?.grant;
     const use_id = try c.descriptor(&caps, backend, owner, grant, null, .rooted);
     const control_id = try c.descriptor(&caps, backend, owner, grant, .{ .pause = true, .resume_access = true, .policy_ceiling = narrow }, .rooted);
-    const wrong_role = c.control(&caps, backend, use_id);
-    if (wrong_role) |unexpected| unexpected.release() else |_| {}
-    try std.testing.expectError(error.WrongRole, wrong_role);
+    if (c.control(&caps, backend, use_id)) |unexpected| {
+        unexpected.release();
+        return error.TestUnexpectedResult;
+    } else |err| try std.testing.expectEqual(error.WrongRole, err);
     try std.testing.expectError(error.WrongRole, c.use(&caps, backend, control_id));
     const use = try c.use(&caps, backend, use_id);
     defer use.release();

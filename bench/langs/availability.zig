@@ -34,32 +34,37 @@ pub const Availability = union(enum) {
 
 pub fn available(ctx: *Ctx, kind: Kind) !Availability {
     switch (kind) {
-        .zig => return if (exists(ctx.io, ctx.zig_client)) .ready else .client_absent,
+        .zig => return if (try exists(ctx.io, ctx.zig_client)) .ready else .client_absent,
         .rust => {
             if ((try onPath(ctx.io, ctx.arena, ctx.environ, "cargo")) == null) return .runtime_absent;
             return if (try buildRust(ctx)) .ready else .build_failed;
         },
         .deno => {
             if ((try onPath(ctx.io, ctx.arena, ctx.environ, "deno")) == null) return .runtime_absent;
-            return if (exists(ctx.io, client_dir ++ "/deno_bench.ts")) .ready else .client_absent;
+            return if (try exists(ctx.io, client_dir ++ "/deno_bench.ts")) .ready else .client_absent;
         },
         .python => {
             if ((try onPath(ctx.io, ctx.arena, ctx.environ, "python3")) == null) return .runtime_absent;
-            return if (exists(ctx.io, client_dir ++ "/python_bench.py")) .ready else .client_absent;
+            return if (try exists(ctx.io, client_dir ++ "/python_bench.py")) .ready else .client_absent;
         },
         .racket => {
             if (ctx.racket_path == null) return .runtime_absent;
-            return if (exists(ctx.io, client_dir ++ "/racket_bench.rkt")) .ready else .client_absent;
+            return if (try exists(ctx.io, client_dir ++ "/racket_bench.rkt")) .ready else .client_absent;
         },
         .goblins => {
             if (ctx.racket_path == null or !(try goblinsPresent(ctx))) return .runtime_absent;
-            return if (exists(ctx.io, client_dir ++ "/goblins_bench.rkt")) .ready else .client_absent;
+            return if (try exists(ctx.io, client_dir ++ "/goblins_bench.rkt")) .ready else .client_absent;
         },
     }
 }
 
-pub fn exists(io: Io, path: []const u8) bool {
-    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
+/// Only a missing path is absence. Any other refusal is the run's error, so a
+/// row is never skipped as absent when it was unreadable.
+pub fn exists(io: Io, path: []const u8) !bool {
+    std.Io.Dir.cwd().access(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
     return true;
 }
 
@@ -71,7 +76,13 @@ pub fn onPath(io: Io, alloc: std.mem.Allocator, environ: ?*const std.process.Env
     var it = std.mem.tokenizeScalar(u8, path_var, ':');
     while (it.next()) |dir| {
         const candidate = try std.fmt.allocPrint(alloc, "{s}/{s}", .{ dir, name });
-        if (exists(io, candidate)) return candidate;
+        // A PATH entry this user cannot search is skipped, as exec's own
+        // search skips it.
+        const found = exists(io, candidate) catch |err| switch (err) {
+            error.AccessDenied => false,
+            else => return err,
+        };
+        if (found) return candidate;
     }
     return null;
 }
@@ -86,10 +97,13 @@ pub fn buildRust(ctx: *Ctx) !bool {
         .environ_map = ctx.environ,
         .stdout = .inherit,
         .stderr = .inherit,
-    }) catch return false;
-    const term = child.wait(ctx.io) catch return false;
+    }) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    const term = try child.wait(ctx.io);
     const ok = term == .exited and term.exited == 0;
-    return ok and exists(ctx.io, ctx.rust_bin);
+    return ok and try exists(ctx.io, ctx.rust_bin);
 }
 
 /// Probe whether the `goblins` collection is importable, so the reference row
@@ -101,8 +115,11 @@ pub fn goblinsPresent(ctx: *Ctx) !bool {
         .environ_map = ctx.environ,
         .stdout = .ignore,
         .stderr = .ignore,
-    }) catch return false;
-    const term = child.wait(ctx.io) catch return false;
+    }) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    const term = try child.wait(ctx.io);
     return term == .exited and term.exited == 0;
 }
 

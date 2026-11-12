@@ -131,18 +131,25 @@ fn dialUri(ctx: *Ctx, uri: []const u8) !*driver.Session {
 pub fn printSettled(ctx: *Ctx, settled: driver.Reply) !void {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(ctx.gpa);
+    var reason_buffer: [glowcap.driver.core.Broken.diagnostic_capacity]u8 = undefined;
     switch (ctx.json) {
         .json => switch (settled) {
             .fulfilled => |value| try appendValueJson(&out, ctx.gpa, value),
+            // The text is for a person. A script reads who established the
+            // break and why from `cause`, which no partner's text can set.
             .broken => |reason| {
                 try out.appendSlice(ctx.gpa, "{\"ok\":false,\"broken\":");
-                try argv.writeJsonString(&out, ctx.gpa, reason);
-                try out.appendSlice(ctx.gpa, "}\n");
+                try argv.writeJsonString(&out, ctx.gpa, reason.render(&reason_buffer));
+                try out.print(ctx.gpa, ",\"cause\":{{\"origin\":\"{t}\",\"reason\":\"{t}\"", .{ reason.cause.origin, reason.cause.reason });
+                inline for (@typeInfo(@TypeOf(reason.cause.context)).@"struct".field_names) |name| {
+                    try out.print(ctx.gpa, ",\"{s}\":{}", .{ name, @field(reason.cause.context, name) });
+                }
+                try out.appendSlice(ctx.gpa, "}}\n");
             },
         },
         .human => switch (settled) {
             .fulfilled => |value| try appendValueHuman(&out, ctx.gpa, value),
-            .broken => |reason| try out.print(ctx.gpa, "broken: {s}\n", .{reason}),
+            .broken => |reason| try out.print(ctx.gpa, "broken: {s}\n", .{reason.render(&reason_buffer)}),
         },
     }
     try ctx.writeResult(out.items);

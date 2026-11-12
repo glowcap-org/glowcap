@@ -93,7 +93,7 @@ import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { CopyField } from "../Copy.tsx";
 import { Field } from "../Field.tsx";
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Said } from "../Said.tsx";
@@ -220,7 +220,7 @@ export function RoomCapabilities(
 												setManagerPasted(event.currentTarget.value);
 												setManagerSaid("");
 											}}
-											{...identifierField}
+											{...addressField}
 											placeholder={sturdyrefPlaceholder}
 											aria-describedby={wiring.describedBy}
 											aria-invalid={wiring.invalid}
@@ -488,14 +488,13 @@ export function RoomCapabilities(
 								<Input
 									id={wiring.id}
 									name="steward"
-									type="text"
 									enterKeyHint="go"
 									value={pasted}
 									onChange={(event) => {
 										setPasted(event.target.value);
 										setTakeSaid("");
 									}}
-									{...identifierField}
+									{...addressField}
 									placeholder={sturdyrefPlaceholder}
 									aria-describedby={wiring.describedBy}
 									aria-invalid={wiring.invalid}

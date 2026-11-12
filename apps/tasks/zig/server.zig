@@ -1,17 +1,22 @@
 //! The Tasks server: one shared board, saved in Loam, served over OCapN.
 //!
-//! Run: `glowcap-tasks-server --data=DIR [--port=N]`. The directory holds the
-//! board's SQLite store and must exist. The server prints
-//! `TASKS-SERVER-LISTENING <port> <name>` on stdout, and a client fetches the board by
-//! that name. Stop it and start it again on the same directory, and the same
-//! name reaches the same board with every task still on it.
+//! Run: `glowcap-tasks-server --data=DIR [--port=N] [--transport=tcp]`. The
+//! directory holds the board's SQLite store and must exist. The server listens
+//! on encrypted Noise TCP and prints
+//! `TASKS-SERVER-LISTENING <port> <name> <locator>` on stdout. A client dials
+//! the locator and fetches the board by that name. Stop it and start it again
+//! on the same directory, and the same name reaches the same board with every
+//! task still on it, at the locator the new run prints.
+//!
+//! `--transport=tcp` listens in the clear instead, for a peer that speaks only
+//! plain TCP, such as a Goblins vat.
 const std = @import("std");
 const glowcap = @import("glowcap");
 /// The board's storage on Loam's default disk engine. The board test opens
 /// the same.
 pub const Storage = @import("storage.zig").Storage(@import("glowcap_loam_sqlite").Sqlite);
+const sealed = @import("demo_sealed");
 const driver = glowcap.driver;
-const tcp = glowcap.net.tcp;
 
 /// A client that connects and then says nothing holds a slot for ten seconds.
 pub const session_opts: driver.SessionOptions = .{ .frame_cap = 1 << 16, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } };
@@ -23,6 +28,7 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     var port: u16 = 0;
     var data: ?[:0]const u8 = null;
+    var cleartext = false;
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
     while (args.next()) |arg| {
@@ -30,28 +36,28 @@ pub fn main(init: std.process.Init) !void {
             port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch return usage("--port takes a number from 0 to 65535");
         } else if (std.mem.startsWith(u8, arg, "--data=")) {
             data = arg["--data=".len.. :0];
+        } else if (std.mem.eql(u8, arg, "--transport=tcp")) {
+            cleartext = true;
+        } else if (std.mem.eql(u8, arg, "--transport=noise-tcp")) {
+            cleartext = false;
         } else return usage("unknown argument");
     }
     const path = data orelse return usage("--data=DIR names the board's directory");
     if (path.len == 0) return usage("--data=DIR names the board's directory");
 
-    var bind_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bind = try std.fmt.bufPrint(&bind_buf, "127.0.0.1:{d}", .{port});
-    const server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, glowcap.ocapn.model.transport.tcp, .{ .designator = bind }, .ephemeral, session_opts);
+    const server = if (cleartext) try listenCleartext(allocator, io, port) else try sealed.listen(allocator, io, port, session_opts);
     defer server.deinit();
 
     var storage: Storage = undefined;
     try storage.open(allocator, io, server.runtime.core, path);
     defer storage.close() catch |err| std.debug.print("tasks-server: closing the store failed: {s}\n", .{@errorName(err)});
 
-    var bound_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bound: u16 = switch (try tcp.parseDesignator(try server.localDesignator(&bound_buf))) {
-        .ip4 => |address| address.port,
-        .ip6 => |address| address.port,
-    };
-    // The demo reads this line on stdout for the port and the board's name.
-    var line_buf: [128]u8 = undefined;
-    try std.Io.File.stdout().writeStreamingAll(io, try std.fmt.bufPrint(&line_buf, "TASKS-SERVER-LISTENING {d} {s}\n", .{ bound, storage.name.slice() }));
+    var locator_buf: [sealed.locator_buf_len]u8 = undefined;
+    const announced = try sealed.announce(server, &locator_buf);
+    // The demo reads this line on stdout for the port, the board's name, and
+    // the locator.
+    var line_buf: [128 + sealed.locator_buf_len]u8 = undefined;
+    try std.Io.File.stdout().writeStreamingAll(io, try std.fmt.bufPrint(&line_buf, "TASKS-SERVER-LISTENING {d} {s} {s}\n", .{ announced.port, storage.name.slice(), announced.locator }));
 
     try serve(server, &storage, null);
 }
@@ -86,6 +92,13 @@ pub fn serve(server: *driver.Server, storage: *Storage, stop: ?*const std.atomic
     }
 }
 
+/// Listen on loopback in the clear, for a peer that speaks only plain TCP.
+fn listenCleartext(allocator: std.mem.Allocator, io: std.Io, port: u16) !*driver.Server {
+    var bind_buf: [glowcap.net.tcp.designator_buf_len]u8 = undefined;
+    const bind = try std.fmt.bufPrint(&bind_buf, "127.0.0.1:{d}", .{port});
+    return driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, glowcap.ocapn.model.transport.tcp, .{ .designator = bind }, .ephemeral, session_opts);
+}
+
 fn admit(server: *driver.Server) ?*driver.Session {
     const session = server.accept() catch |err| {
         std.debug.print("tasks-server: a client failed to connect: {s}\n", .{@errorName(err)});
@@ -100,6 +113,6 @@ fn admit(server: *driver.Server) ?*driver.Session {
 }
 
 fn usage(reason: []const u8) error{InvalidArguments} {
-    std.debug.print("tasks-server: {s}\nusage: glowcap-tasks-server --data=DIR [--port=N]\n", .{reason});
+    std.debug.print("tasks-server: {s}\nusage: glowcap-tasks-server --data=DIR [--port=N] [--transport=tcp]\n", .{reason});
     return error.InvalidArguments;
 }

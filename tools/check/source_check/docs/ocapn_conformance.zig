@@ -304,7 +304,7 @@ fn parseRows(
             continue;
         }
         if (!std.mem.startsWith(u8, line, "|")) break;
-        const row = parseRow(arena, line) orelse {
+        const row = (try parseRow(arena, line)) orelse {
             try appendViolation(gpa, violations, "ocapn conformance: malformed manifest row `{s}`, expected six cells", .{line});
             continue;
         };
@@ -322,13 +322,13 @@ fn parseRows(
     return rows.items;
 }
 
-fn parseRow(arena: std.mem.Allocator, line: []const u8) ?Row {
+fn parseRow(arena: std.mem.Allocator, line: []const u8) !?Row {
     const inner = std.mem.trim(u8, line, "|");
     var cells = std.mem.splitScalar(u8, inner, '|');
     var parsed: [6][]const u8 = undefined;
     for (&parsed) |*cell| cell.* = std.mem.trim(u8, cells.next() orelse return null, " ");
     if (cells.next() != null) return null;
-    const name = stripMarkup(arena, parsed[0]) catch return null;
+    const name = try stripMarkup(arena, parsed[0]);
     if (name.len == 0) return null;
     return .{ .name = name, .profile = parsed[1], .state = parsed[2], .evidence = parsed[3], .decision = parsed[4], .fingerprint = parsed[5] };
 }

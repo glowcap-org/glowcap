@@ -9,6 +9,9 @@ import re
 from contextvars import ContextVar
 
 from glowcap import (
+    BreakCause,
+    BreakOrigin,
+    BreakReason,
     ErrorValue,
     FetchFailed,
     GlowcapError,
@@ -23,7 +26,7 @@ from glowcap import (
     format_locator_uri,
     tcp,
 )
-from glowcap._constants import ERR_INVALID_ARGUMENT
+from glowcap._constants import ERR_INVALID_ARGUMENT, ERR_SESSION
 
 from scenarios.conversation import _start_relay
 from scenarios.runtime import tcp_connect
@@ -204,6 +207,61 @@ async def _enliven_round_trips_then_caches() -> None:
         assert cold_greeting == Symbol("alive"), cold_greeting
         await cold.close()
         await asyncio.wait_for(cold_serve, timeout=5)
+    finally:
+        await server.close()
+
+
+async def _unproved_redeem_names_the_identity_reason() -> None:
+    """An accepted cleartext TCP session carries only the partner's signed
+    claim of where it lives, so a sturdyref naming that claim refuses
+    synchronously and the Host sends no fetch. The refusal names the same
+    constant the asynchronous break carries, so one predicate answers both."""
+    server = await tcp.listen("127.0.0.1", 0)
+    refused = asyncio.get_running_loop().create_future()
+    try:
+
+        async def serve_one() -> None:
+            async for session in server:
+                claimed = session.partner_identity().designator
+                address, port = claimed.rsplit(":", 1)
+                sturdyref = f"{format_locator_uri(tcp.locator(address, int(port)))}/s/Z3JlZXRlcg"
+                try:
+                    await session.enliven(sturdyref)
+                except GlowcapError as err:
+                    refused.set_result(err)
+                else:
+                    refused.set_exception(AssertionError("an unproved claim enlivened"))
+                await session.serve()
+                break
+
+        serve_task = asyncio.ensure_future(serve_one())
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
+        session.serve()
+        err = await asyncio.wait_for(refused, timeout=5)
+        assert err.code == ERR_SESSION, err
+        assert err.cause == BreakCause(BreakOrigin.LOCAL, BreakReason.IDENTITY_UNVERIFIED), err.cause
+        assert err.is_peer_identity_unverified(), err
+        for reason in (
+            "PeerIdentityUnverified",
+            "ExporterUnreachable",
+            "ExporterUnreachable: connection refused",
+            "unknown swissnum",
+        ):
+            partner = VowBroken(reason, BreakCause(BreakOrigin.PARTNER, BreakReason.APPLICATION))
+            assert partner.application_message() == reason
+            assert not partner.is_peer_identity_unverified()
+            assert not partner.is_exporter_unreachable()
+        unknown = VowBroken("original refusal", (999, 0, 0))
+        assert unknown.reason == "original refusal" and unknown.cause == BreakCause()
+        assert len(unknown.secondary) == 1 and unknown.secondary[0].message == "unknown failure metadata (999, 0, 0)"
+        assert VowBroken(
+            "", BreakCause(BreakOrigin.LOCAL, BreakReason.IDENTITY_UNVERIFIED)
+        ).is_peer_identity_unverified()
+        assert VowBroken(
+            "connection refused", BreakCause(BreakOrigin.LOCAL, BreakReason.PEER_UNREACHABLE)
+        ).is_exporter_unreachable()
+        await session.close()
+        await asyncio.wait_for(serve_task, timeout=5)
     finally:
         await server.close()
 

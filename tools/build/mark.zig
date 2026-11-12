@@ -32,6 +32,6 @@ pub fn register(b: *std.Build, browser_preflight: *std.Build.Step) void {
     });
     check.has_side_effects = true;
     check.step.dependOn(browser_preflight);
-    const check_step = b.step("gen-mark-check", "Verify the committed still mark still matches a fresh trace of the shader (fails if stale)");
+    const check_step = b.step("gen-mark-check", "Verify the committed still mark still matches a fresh trace of the shader (fails if stale, and refuses off the architecture that drew it)");
     check_step.dependOn(&check.step);
 }

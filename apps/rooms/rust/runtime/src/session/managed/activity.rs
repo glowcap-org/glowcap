@@ -5,7 +5,10 @@ mod origin;
 mod outgoing;
 mod projection;
 pub(super) mod reader;
+#[cfg(test)]
+mod tests;
 use super::{InboxOrigin, ReceivedLine};
+use crate::wall_clock::WallClock;
 use glowcap::{Ref, Result, loam};
 pub use origin::Origin;
 use rooms_application::{content::session::custody, room::attachment::Attachment};
@@ -29,6 +32,15 @@ pub struct Event<P: Tasks> {
 	pub incoming: Option<Incoming>,
 	pub line: Option<Rc<ReceivedLine<P>>>,
 	charge: Option<Charge>,
+}
+/// A journal event and when the journal reserved room for it, in Unix
+/// milliseconds. A reader that arrives later presents the event at the time
+/// it happened. An outgoing line reserves before it is sent and takes its
+/// place in the journal when the send settles, so its time is from before
+/// the send and can precede the time of an entry before it.
+pub struct Accepted<P: Tasks> {
+	pub at: u64,
+	pub event: Rc<Event<P>>,
 }
 pub enum Incoming {
 	Hand(custody::Role, Ref),
@@ -68,9 +80,12 @@ impl History {
 }
 pub struct ActivityDelivery<P: Tasks> {
 	pub cursor: u64,
+	/// Where the journal ended when this delivery was chosen. A reader that
+	/// began behind it knows which events were already there.
+	pub head: u64,
 	pub gap: bool,
 	pub unavailable: bool,
-	pub event: Option<Rc<Event<P>>>,
+	pub event: Option<Accepted<P>>,
 }
 struct Charge {
 	bytes: Rc<Cell<usize>>,
@@ -109,6 +124,7 @@ impl<P: Tasks> Event<P> {
 }
 struct Entry<P: Tasks> {
 	id: u64,
+	at: u64,
 	event: Rc<Event<P>>,
 	files: Vec<Ref>,
 }
@@ -116,6 +132,7 @@ pub(in crate::session::managed) struct PreparedEvent<P: Tasks> {
 	activity: Rc<Activity<P>>,
 	pub(in crate::session::managed) event: Rc<Event<P>>,
 	files: Vec<Ref>,
+	at: u64,
 }
 impl<P: Tasks> PreparedEvent<P> {
 	fn commit(self) {
@@ -137,6 +154,7 @@ impl<P: Tasks> PreparedEvent<P> {
 		}
 		entries.push_back(Entry {
 			id,
+			at: self.at,
 			event: self.event,
 			files: self.files,
 		});
@@ -148,6 +166,8 @@ impl<P: Tasks> PreparedEvent<P> {
 pub struct Activity<P: Tasks> {
 	host: glowcap::Host,
 	platform: P,
+	/// Wall time for an accepted event, read from this journal's platform.
+	clock: fn(&P) -> core::result::Result<u64, crate::wall_clock::Error>,
 	entries: RefCell<VecDeque<Entry<P>>>,
 	bytes: Rc<Cell<usize>>,
 	next: Cell<u64>,
@@ -161,10 +181,14 @@ pub struct Activity<P: Tasks> {
 	failure: RefCell<Option<glowcap::Error>>,
 }
 impl<P: Tasks> Activity<P> {
-	pub(super) fn new(host: glowcap::Host, platform: P) -> Self {
+	pub(super) fn new(host: glowcap::Host, platform: P) -> Self
+	where
+		P: WallClock,
+	{
 		Self {
 			host,
 			platform,
+			clock: P::unix_millis,
 			entries: Default::default(),
 			bytes: Rc::new(Cell::new(0)),
 			next: Cell::new(1),
@@ -184,6 +208,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 		if self.closed.get() {
 			return Err("Session activity has closed".into());
 		}
+		let at = (self.clock)(&self.platform).map_err(|error| error.to_string())?;
 		let bytes = event.bytes();
 		if bytes > MAX_BYTES {
 			return Err("Session event exceeds its byte budget".into());
@@ -215,6 +240,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			activity: self.clone(),
 			event,
 			files: Vec::new(),
+			at,
 		})
 	}
 	fn prepare(self: &Rc<Self>, event: Event<P>, evict: bool) -> core::result::Result<PreparedEvent<P>, String> {
@@ -227,7 +253,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 		Ok(())
 	}
 	/// The confirmed Loam lifetime fences presentation identities across reopen.
-	/// Binding is one-time even when no events have yet been accepted. status-allow: pending state or quoted runtime label
+	/// Binding is one-time even when no events have yet been accepted.
 	pub fn bind_incarnation(&self, marker: loam::LiveIncarnation) -> Result<()> {
 		if self.incarnation.get().is_some() {
 			return Err(loam::refusal("activity incarnation already bound"));

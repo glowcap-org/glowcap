@@ -11,7 +11,7 @@ test "loam actor held CapTP reference wakes repeatedly and publication retiremen
     var fixture: f.Fixture = undefined;
     try fixture.init(.{ .sleep_policy = .every_turn });
     defer fixture.deinit();
-    var client = host_support.init(std.testing.allocator, @splat(0x72), f.driver.Host.Options.withFrameCap(4096));
+    var client = host_support.init(std.testing.allocator, @splat(0x72), f.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     try fixture.data.store.begin();
     const publication = try f.hosting.publication.stage(fixture.attached, @splat(0x21), fixture.root);
@@ -71,7 +71,7 @@ test "loam actor restores a held local capability edge without waking the target
     try fixture.data.store.putCopying(record, 1);
     try records.commit(&fixture.data.store, &fixture.data.backend);
     fixture.data.store.evict();
-    var client = host_support.init(std.testing.allocator, @splat(0x73), f.driver.Host.Options.withFrameCap(4096));
+    var client = host_support.init(std.testing.allocator, @splat(0x73), f.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const swiss = try fixture.host.publishDurableCapability(@splat(0x22), fixture.root);
     const pair = try pair_support.openPair(&client, &fixture.host, "127.0.0.1:9713");
@@ -105,7 +105,7 @@ test "loam actor CapTP pipeline waits through a cold capability reply and durabl
     try fixture.data.store.putCopying(record, 1);
     try records.commit(&fixture.data.store, &fixture.data.backend);
     fixture.data.store.evict();
-    var client = host_support.init(std.testing.allocator, @splat(0x74), f.driver.Host.Options.withFrameCap(4096));
+    var client = host_support.init(std.testing.allocator, @splat(0x74), f.driver.Host.Options.init(.unchecked, 4096));
     defer client.deinit();
     const swiss = try fixture.host.publishDurableCapability(@splat(0x23), fixture.root);
     const pair = try pair_support.openPair(&client, &fixture.host, "127.0.0.1:9715");
@@ -132,7 +132,7 @@ test "loam actor released session cannot abandon a load or an admitted commit" {
         try fixture.init(.{});
         defer fixture.deinit();
         try fixture.attached.sleep(fixture.root);
-        var client = host_support.init(std.testing.allocator, @splat(0x75), f.driver.Host.Options.withFrameCap(4096));
+        var client = host_support.init(std.testing.allocator, @splat(0x75), f.driver.Host.Options.init(.unchecked, 4096));
         defer client.deinit();
         const swiss = try fixture.host.publishDurableCapability(@splat(0x24), fixture.root);
         const pair = try pair_support.openPair(&client, &fixture.host, "127.0.0.1:9716");

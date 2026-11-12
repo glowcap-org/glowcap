@@ -46,7 +46,7 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
     """
 
     def __init__(self, handle: int, host: int, context=None) -> None:
-        self._h = ctypes.c_void_p(handle)
+        self._handle = ctypes.c_void_p(handle)
         self._host = ctypes.c_void_p(host)
         self._aio: asyncio.AbstractEventLoop | None = None
         self._fd: int | None = None
@@ -59,7 +59,7 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
         self._listener_waiters: dict[int, asyncio.Future[None]] = {}
         self._closing_listeners: set[int] = set()
         self._listener_close_waiters: dict[int, asyncio.Future[None]] = {}
-        # Event-delivered or claimed handles not yet wrapped. The pair status-allow: pending state or quoted runtime label
+        # Event-delivered or claimed handles not yet wrapped. The pair
         # preserves both terminal state and its exact failure when
         # SESSION_CLOSED follows an OPENED/ACCEPTED event in the same drain.
         # With the wrapper Host's session registry, this is the whole set of
@@ -97,6 +97,14 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
             raise GlowcapError(_c.ERR_INVALID_ARGUMENT, str(error)) from error
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
+
+    @property
+    def _h(self) -> ctypes.c_void_p:
+        """The live FFI loop handle. A released loop refuses every verb with
+        ``ERR_CLOSED`` instead of handing freed memory to the driver."""
+        if self._released:
+            raise GlowcapError(_c.ERR_CLOSED, "the driver loop has been released")
+        return self._handle
 
     @classmethod
     def open(

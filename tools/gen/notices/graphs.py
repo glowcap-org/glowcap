@@ -81,7 +81,12 @@ def browser_packages(root, stage):
             sources[(package["name"], package["version"])] = package
     for package in bundled:
         name, version = package["name"], package["version"]
-        source = sources[(name, version)]
+        source = sources.get((name, version))
+        if source is None:
+            raise ValueError(
+                f"the browser bundle holds {name}@{version}, which apps/rooms/deno.lock does not resolve. "
+                "Remove the prepared bundle under zig-out/rooms-web and build it again"
+            )
         yield {
             "ecosystem": "npm",
             "name": name,

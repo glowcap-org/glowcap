@@ -1,7 +1,8 @@
 // History feedback and late replies follow the exact managed conversation.
 /// <reference lib="dom" />
 import "../support/match_media.ts";
-import { assertEquals } from "../assert.ts";
+import { failureView, LocalRefusal } from "../../lib/text/failure.ts";
+import { assert, assertEquals } from "../assert.ts";
 import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
 import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
@@ -120,7 +121,7 @@ for (const allowed of [[], ["history"], ["readArchive"], ["history", "readArchiv
 			const target = f.page.projection.get().archiveTarget;
 			assertEquals(
 				target.kind === "peer" ? target.status : null,
-				allowed.includes("readArchive") ? "connected" : "unavailable",
+				allowed.includes("readArchive") ? "connected" : "denied",
 			);
 			assertEquals(f.phase("room"), allowed.length === 0 ? "unasked" : "empty");
 			assertEquals(f.failures, []);
@@ -191,11 +192,29 @@ Deno.test("managed history reports loading and refusal per conversation, continu
 	try {
 		await tick();
 		assertEquals(f.phase("failed"), "loading");
-		blocked.reject(new Error("original archive refusal"));
+		const original = new Error("original archive refusal");
+		blocked.reject(original);
 		await tick();
 		assertEquals([f.phase("failed"), f.phase("empty")], ["unavailable", "empty"]);
 		assertEquals(f.failures.length, 1);
+		const reported = f.failures[0];
+		assertEquals(failureView(reported).code, "local-history-unavailable");
+		assert(failureView(reported).summary.includes("Message history"), "history failure names its recovery surface");
+		assert(
+			failureView(reported).detail.includes("original archive refusal"),
+			"history failure keeps the original diagnostic",
+		);
+		assert(
+			reported instanceof LocalRefusal && Array.isArray(reported.cause) && reported.cause[0] === original,
+			"history failure keeps the original errors",
+		);
+		// Session refresh republishes the same snapshot, not a history retry.
+		await f.session.refresh();
+		await tick();
+		assertEquals(calls, 1, "an unchanged snapshot must not retry a refused history read");
+		assertEquals(f.failures.length, 1, "an unchanged snapshot must not repeat the failure report");
 		fail = false;
+		// History refresh is the explicit read requested from Settings.
 		await f.history.refresh();
 		assertEquals([f.phase("failed"), calls], ["empty", 2]);
 	} finally {
@@ -255,7 +274,7 @@ for (const outcome of ["success", "refusal"] as const) {
 	});
 }
 
-Deno.test("managed history refuses a nonadvancing cursor and leaves explicit retry available", async () => {
+Deno.test("managed history refuses an empty continuation and leaves explicit retry available", async () => {
 	let malformed = true;
 	const f = await fixture(() => Promise.resolve(malformed ? { next: "0", more: true, records: [] } : empty));
 	f.add("cursor");
@@ -264,6 +283,13 @@ Deno.test("managed history refuses a nonadvancing cursor and leaves explicit ret
 	try {
 		await tick();
 		assertEquals(f.phase("cursor"), "unavailable");
+		const failure = f.failures[0];
+		assert(failure instanceof LocalRefusal && Array.isArray(failure.cause), "own archive retains its failure");
+		assertEquals(failureView(failure.cause[0]).code, "local-archive-invalid");
+		assert(
+			failureView(failure).detail.includes("empty continuation page"),
+			"aggregate keeps the actual empty continuation diagnostic",
+		);
 		assertEquals(f.failures.length, 1);
 		malformed = false;
 		await f.history.refresh();
@@ -303,7 +329,7 @@ Deno.test("managed archive status belongs to the session and requires a successf
 		f.current.intent.archive = null;
 		await f.session.refresh();
 		await f.history.refresh();
-		assertEquals(target(), { kind: "owned" });
+		assertEquals(target(), { kind: "owned", status: "connected", error: "" });
 	} finally {
 		await f.close();
 	}
@@ -440,3 +466,144 @@ Deno.test("managed history hydrates only changed exact conversations and archive
 	}
 	assertEquals(freed, 3);
 });
+
+Deno.test("history refresh after close refuses with the session action", async () => {
+	const f = fixture(() => Promise.resolve(empty));
+	await f.close();
+	const [result] = await Promise.allSettled([f.history.refresh()]);
+	assert(result.status === "rejected", "closed history cannot read");
+	assertEquals(failureView(result.reason).code, "local-session-closed");
+});
+
+Deno.test("a queued history selection is read after the previous selection fails", async () => {
+	const pending = Promise.withResolvers<ArchivePage>();
+	const reads: string[] = [];
+	let first = true;
+	let blocked = true;
+	const f = fixture(({ conversation }) => {
+		reads.push(conversation);
+		if (conversation === "failed" && first) {
+			first = false;
+			return Promise.reject(new Error("temporary archive failure"));
+		}
+		if (conversation === "blocked" && blocked) {
+			blocked = false;
+			return pending.promise;
+		}
+		return Promise.resolve(empty);
+	});
+	f.add("failed");
+	f.add("blocked");
+	await f.session.refresh();
+	f.history.start();
+	try {
+		await tick();
+		assertEquals(reads, ["failed", "blocked"]);
+		const changed = f.current.intent.conversations[1];
+		assert(changed.kind === "room", "the delayed conversation is a room");
+		changed.name = "changed selection";
+		f.add("queued");
+		await f.session.refresh();
+		pending.resolve(empty);
+		await tick();
+		assert(reads.includes("queued"), "a failed older read must drain the queued selection");
+		assertEquals(f.phase("queued"), "empty");
+		assertEquals(f.failures.length, 1, "the older failure remains reported");
+		const count = reads.length;
+		await f.session.refresh();
+		await tick();
+		assertEquals(reads.length, count, "unchanged snapshots still cannot restart a read");
+	} finally {
+		pending.resolve(empty);
+		await f.close();
+	}
+});
+
+Deno.test("Settings keeps saved-history retry available when recording is off", async () => {
+	const { createElement: h } = await import("react");
+	const { renderToStaticMarkup } = await import("react-dom/server");
+	const { fixture: controllerFixture } = await import("../support/managed_controller.ts");
+	const { RoomsSessionProvider } = await import("../../web/ui/controller/session.ts");
+	const { HistorySettings } = await import("../../web/ui/settings/History.tsx");
+	const { RoomsBrowserProvider } = await import("../../web/ui/controller/browser.ts");
+	const { createRoomsBrowserController } = await import("../../web/ui/controller/create_browser.ts");
+	const { ModalProvider } = await import("../../web/ui/modal.ts");
+	const f = controllerFixture();
+	const session = f.page.managedSession;
+	assert(session != null, "the fixture has a managed session");
+	const browser = createRoomsBrowserController(
+		f.page,
+		() => {},
+		() => "/",
+		() => Promise.resolve({ session, local: true }),
+	);
+	try {
+		const html = renderToStaticMarkup(h(
+			RoomsBrowserProvider,
+			{ value: browser },
+			h(
+				ModalProvider,
+				null,
+				h(
+					RoomsSessionProvider,
+					{ value: f.controller },
+					h(HistorySettings, {
+						canRead: true,
+						canConfigure: false,
+						keepHistory: false,
+						archiveTarget: { kind: "owned", status: "unavailable", error: "failed" },
+					}),
+				),
+			),
+		));
+		assert(!html.includes("keepHistoryToggle"), "read access cannot change recording policy");
+		const button = html.match(/<button[^>]*id="historyReadAgain"[^>]*>/)?.[0];
+		assert(button != null, "saved history has an explicit retry control");
+		assert(!button.includes("disabled"), "reading saved history must not require recording new messages");
+	} finally {
+		f.close();
+	}
+});
+
+for (let turns = 0; turns < 7; turns++) {
+	Deno.test(`history drains refresh at completion microtask ${turns}`, async () => {
+		const pending = Promise.withResolvers<ArchivePage>();
+		let reads = 0;
+		const f = fixture(() => ++reads === 1 ? pending.promise : Promise.resolve(empty));
+		f.add("room");
+		await f.session.refresh();
+		try {
+			const first = f.history.refresh();
+			await tick();
+			assertEquals(reads, 1);
+			pending.resolve(empty);
+			for (let turn = 0; turn < turns; turn++) await Promise.resolve();
+			const retry = f.history.refresh();
+			await Promise.all([first, retry]);
+			assertEquals(reads, 2, "every explicit retry must settle after its read");
+		} finally {
+			pending.resolve(empty);
+			await f.close();
+		}
+	});
+}
+
+for (const failedBeforeRemoval of [false, true]) {
+	Deno.test(`empty owned history settles after failure=${failedBeforeRemoval}`, async () => {
+		const f = fixture(() => Promise.reject(new Error("read failed")));
+		if (failedBeforeRemoval) f.add("removed");
+		await f.session.refresh();
+		try {
+			if (failedBeforeRemoval) {
+				await Promise.allSettled([f.history.refresh()]);
+				assertEquals(f.page.projection.get().archiveTarget.status, "unavailable");
+				f.current.intent.conversations = [];
+				await f.session.refresh();
+			}
+			await f.history.refresh();
+			assertEquals(f.page.projection.get().archiveTarget, { kind: "owned", status: "connected", error: "" });
+		} finally {
+			await f.close();
+		}
+	});
+}

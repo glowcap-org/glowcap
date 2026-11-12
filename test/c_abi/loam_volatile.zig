@@ -102,7 +102,7 @@ const Race = struct {
                     _ = self.found.fetchAdd(1, .monotonic);
                     _ = self.observed_revision.fetchMax(ticket.revision, .release);
                 },
-                // A record the commits have not reached yet. status-allow: pending state or quoted runtime label
+                // A record the commits have not reached yet.
                 .missing => {},
                 // A commit landed between reading the revision and the read.
                 .failed => |err| if (err != error.StaleCompletion) self.broken.store(true, .release),
@@ -117,7 +117,8 @@ test "Loam C in-memory engine serves reads while the Host thread commits" {
     const allocator = std.heap.smp_allocator;
     const store_id: loam.StoreId = @fromBackingInt(@intCast(9));
     var serialized = try n.Serialized.open(allocator, store_id, capacity);
-    defer serialized.close() catch {};
+    var closed = false;
+    errdefer if (!closed) serialized.close() catch {};
     const Batch = loam.Batch;
     const schemas = [_]loam.Schema{.{ .id = 7, .version = 1, .max_payload = 256, .max_edges = 8 }};
     const record_limits: @FieldType(Batch, "limits") = .{};
@@ -174,4 +175,34 @@ test "Loam C in-memory engine serves reads while the Host thread commits" {
         try std.testing.expect(result == .found);
         try std.testing.expectEqual(commits, result.found.metadata.revision);
     }
+    closed = true;
+    try serialized.close();
+}
+
+test "Loam C in-memory release consumes the handle when the engine close fails" {
+    const id: [16]u8 = @splat(4);
+    var backend: ?*n.GlowcapLoamVolatile = null;
+    var store: ?*c.GlowcapLoamStore = null;
+    try std.testing.expectEqual(shared.GLOWCAP_OK, open(&id, 1, &backend, &store));
+    const owner = try c.embedding.executor.Executor(n.Serialized).from(backend);
+    var still_owned = true;
+    defer if (still_owned) {
+        owner.store.attachments = 0;
+        std.debug.assert(n.glowcap_loam_volatile_release(backend) == 0);
+    };
+    // A busy Store refuses before release. A busy engine close fails after it.
+    // Both preserve WOULD_BLOCK, and ownership distinguishes their next action.
+    owner.store.attachments = 1;
+    const refused = shared.ReleaseResult.fromRaw(n.glowcap_loam_volatile_release(backend));
+    try std.testing.expectEqual(.retained, refused.ownership);
+    try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, refused.code());
+    owner.store.attachments = 0;
+    owner.engine.engine.admission = .{ .readers = 1 };
+    const released = shared.ReleaseResult.fromRaw(n.glowcap_loam_volatile_release(backend));
+    still_owned = false;
+    try std.testing.expectEqual(.consumed, released.ownership);
+    try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, released.code());
+    var text: [160]u8 = undefined;
+    const len = n.glowcap_loam_volatile_last_error(&text, text.len);
+    try std.testing.expect(std.mem.indexOf(u8, text[0..len], "Busy") != null);
 }

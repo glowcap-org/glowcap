@@ -43,7 +43,7 @@ pub const Prepared = struct {
         };
     }
 
-    /// Refuse a preparation the issuer no longer stands at. Runs before the status-allow: lifecycle transition
+    /// Refuse a preparation the issuer has moved past. Runs before the
     /// withdrawal is queued.
     pub fn check(self: Prepared) CheckError!void {
         try self.check_fn(self.issuer, self.count);

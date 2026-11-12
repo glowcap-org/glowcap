@@ -24,6 +24,20 @@ An owning Host, Runtime or Session closes under an explicit pending-work policy.
 
 Sending or receiving abort is terminal. The engine commits the outbound abort then closes. Failure while encoding a projected refusal still closes and preserves the original cause.
 
+The failed operation's owner supplies `BreakCause` separately from diagnostic text. Its origin identifies the provenance established for a named failure. Unclassified diagnostics keep unspecified origin even when written locally. Its reason records what that producer established. Fetch, restoration and withdrawal add operation context without replacing either fact. The foundation layer owns this vocabulary and the queries that binding generators project.
+
+Crossing a CapTP connection establishes only partner provenance with an application reason. An explicit local application refusal carries local provenance. Both expose application protocol text only without an enclosing operation context. A local publication miss has its own reason. Only partner fetch refusals use the protocol's unknown-publication text to identify a miss.
+
+The result family describes the operation's carrier. Cause can describe a different participant. A withdrawal through a live recipient session can break because the exporter closed. These facts remain separate.
+
+Fresh dial reports accept only `RouteFailure`: peer unreachable or transport unavailable. A missing transport is established by the transport registry. Diagnostic words and cleanup failures cannot change that result. The terminal route cause says transport unavailable only when every accepted attempt reports it.
+
+Binding generators derive the route-to-cause conversion and its exact inverse from `RouteFailure.cause()`. The inverse accepts only a fresh route cause, with no enclosing operation context. Route convenience queries accept fetch and withdrawal context but exclude restoration: the outer operation is a restoration failure, and its retained reason still describes the inner route failure.
+
+Loam retains independent application and restoration diagnostic candidates. The callback's returned error selects which candidate settlement publishes, including failures during result materialization. A missing restoration detail renders the label alone.
+
+C completions and the four bindings carry origin, reason and context without reconstructing them from text. Each C field is a 32-bit integer. Internal metadata is packed independently of this ABI. Human display and wire encoding render labels only at those boundaries. Retained diagnostics stay bounded, and operation context may label partner text.
+
 ## Alternatives and consequences
 
 An invisible reconnect facade would invent continuity. A graceful Boolean leaves both the work set and timeout undefined. Waiting for sessions to end naturally can wait forever. Reconnect inside a borrowed completion backend cannot reconstruct the provider that owns it.

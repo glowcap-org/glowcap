@@ -14,7 +14,7 @@ members = ["iroh", "webrtc", "sidecar-runtime"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
@@ -25,7 +25,7 @@ documentation = "https://glowcap.org"
 [workspace.dependencies]
 # dep tokio: The async runtime shared by the Rust iroh and WebRTC transports.
 tokio = { version = "=1.54.1", features = ["rt-multi-thread"] }
-glowcap-sidecar-runtime = { path = "sidecar-runtime", version = "=0.1.6" }
+glowcap-sidecar-runtime = { path = "sidecar-runtime", version = "=0.1.7" }
 
 [lib]
 name = "glowcap_sidecars"
@@ -37,8 +37,8 @@ iroh = ["dep:iroh-sidecar"]
 webrtc = ["dep:webrtc-sidecar"]
 
 [dependencies]
-iroh-sidecar = { package = "glowcap-iroh", path = "iroh", version = "=0.1.6", optional = true }
-webrtc-sidecar = { package = "glowcap-webrtc", path = "webrtc", version = "=0.1.6", optional = true }
+iroh-sidecar = { package = "glowcap-iroh", path = "iroh", version = "=0.1.7", optional = true }
+webrtc-sidecar = { package = "glowcap-webrtc", path = "webrtc", version = "=0.1.7", optional = true }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

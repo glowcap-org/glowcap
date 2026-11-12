@@ -129,7 +129,7 @@ pub const StepsRegistration = struct {
 };
 
 /// The iroh resident (`src/net/transport/iroh.zig`) over one layer graph:
-/// the host graph for every gate, the profiled graph for `profile-iroh`.
+/// the host graph for every gate, the profiled graph for `profile-transports`.
 fn residentModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mods: []*std.Build.Module) *std.Build.Module {
     const mod = b.createModule(.{ .root_source_file = b.path("src/net/transport/iroh.zig"), .target = target, .optimize = optimize });
     inline for (.{ "foundation", "model", "engine", "net" }) |layer| mod.addImport(layer, mods[layerIndex(layer)]);
@@ -218,8 +218,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     //                   Goblins vat over the iroh netlayer this repository wrote
     //                   for it, both directions. Needs racket + goblins as well
     //                   as cargo, as does goblins-handoff-iroh below.
-    //   bench-iroh: round-trip latency/throughput over real keyed QUIC vs a
-    //                   same-machine cleartext TCP baseline; reports numbers,
+    //   bench-transports: round-trip latency/throughput over cleartext TCP,
+    //                   Noise TCP, in-process, and real keyed QUIC; reports numbers,
     //                   gates none, and forwards `-- <args>`. `bench-site-report`
     //                   runs it to refresh the performance pages.
     const iroh_abi = registerAbi(.{
@@ -251,7 +251,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .{ .step_name = "iroh-redeem", .description = "Live three-party redeem over iroh: a recipient Session dials the exporter by node id inside the introducing call (needs cargo)", .exe_name = "glowcap-iroh-redeem", .root_source = "test/driver/transports/iroh_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a glowcap peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 }, .goblins = true },
         .{ .step_name = "goblins-handoff-iroh", .description = "Live encrypted handoff: Goblins gifts and exports, a glowcap Session redeems directly over iroh (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-handoff-iroh", .root_source = "interop/goblins_interop/handoff_iroh_driver.zig", .posture = .{ .deterministic = 30 }, .goblins = true },
-        .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "glowcap-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true, .posture = .benchmark },
+        .{ .step_name = "bench-transports", .description = "Measure OCapN round-trip latency/throughput over TCP, Noise TCP, in-process, and iroh (needs cargo)", .exe_name = "glowcap-transport-bench", .root_source = "bench/transport_bench.zig", .forwards_args = true, .posture = .benchmark },
     };
     for (iroh_drivers) |drv| {
         // Hermetic compile-only object (no sidecar), rides `check`.
@@ -279,18 +279,18 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         live_step.dependOn(&run.step);
     }
 
-    // bench-iroh under callgrind: the driver wire path over the profiled
+    // bench-transports under callgrind: the driver wire path over the profiled
     // graph, with the iroh resident built for the same baseline target so the
     // one executable links. Each timed loop is a phase named like its report
     // row, so `-- --transport=tcp --row=greet` attributes one row alone.
     const profiles = ctx.profiles;
     const profiled_resident = residentModule(b, profiles.target, profile_build.Profiles.optimize, profiles.mods);
-    const profiled_mod = b.createModule(profiles.moduleOptions(b, "bench/iroh_bench.zig"));
+    const profiled_mod = b.createModule(profiles.moduleOptions(b, "bench/transport_bench.zig"));
     profiled_mod.addImport("glowcap", profiles.module("glowcap"));
     profiled_mod.addImport("iroh", profiled_resident);
     linkIrohSidecar(b, profiled_mod, profiles.target, sidecar_archive);
-    const profiled = b.addExecutable(.{ .name = "glowcap-iroh-bench-profile", .root_module = profiled_mod });
-    b.step("profile-iroh", "Profile bench-iroh under callgrind: self cost per file and function for each marked phase, taking bench-iroh's filters after -- (needs cargo + valgrind)").dependOn(profile_build.addRun(b, profiles, profiled));
+    const profiled = b.addExecutable(.{ .name = "glowcap-transport-bench-profile", .root_module = profiled_mod });
+    b.step("profile-transports", "Profile bench-transports under callgrind: self cost per file and function for each marked phase, taking bench-transports' filters after -- (needs cargo + valgrind)").dependOn(profile_build.addRun(b, profiles, profiled));
 
     // ── ADR-0024 seam proof: the driver archive drives iroh through the C
     // multiplexed-transport table. Bespoke wiring rather than an `iroh_drivers` row,

@@ -109,23 +109,23 @@ fn liftSettled(
                     .near, .far, .routed => return identity.liftCapabilityTracked(self, session, reference),
                     // A chain ends at a promise only through a pending outcome.
                     .promise => unreachable,
-                    .sturdy => return settledRow(self, origin, .{ .broken = Row.Failure.init(uncallable_reason) }),
-                    .broken => |broken| return settledRow(self, origin, .{ .broken = Row.Failure.init(broken.message) }),
+                    .sturdy => return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.unnamed(uncallable_reason)) }),
+                    .broken => |broken| return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.partner(broken.message)) }),
                 },
                 else => {
                     var data = ownData(self, session, argument) catch |err| switch (err) {
                         error.OutOfMemory => return err,
                         // Data this Host cannot receive, such as a reference
                         // inside it that names no object, breaks the promise.
-                        else => |refusal| return settledRow(self, origin, .{ .broken = Row.Failure.init(@errorName(refusal)) }),
+                        else => |refusal| return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.unnamed(@errorName(refusal))) }),
                     };
                     errdefer releaseData(self, &data, null);
                     return settledRow(self, origin, .{ .fulfilled_data = data });
                 },
             },
-            .@"break" => |reason| return settledRow(self, origin, .{ .broken = Row.Failure.init(reason.message) }),
+            .@"break" => |reason| return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.partner(reason.message)) }),
         },
-        .terminal_break => |message| return settledRow(self, origin, .{ .broken = Row.Failure.init(message) }),
+        .terminal_break => |message| return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.unnamed(message)) }),
         .pending => |next| return liftTarget(self, session, next),
     }
 }
@@ -187,24 +187,24 @@ pub fn settle(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
                     .near, .far, .routed => {
                         const lifted = identity.liftCapabilityTracked(self, session, reference) catch |err| {
                             if (capability_promise.retriesLater(err)) return err;
-                            return capability_promise.breakPromise(self, id, @errorName(err));
+                            return capability_promise.breakPromise(self, id, engine.Broken.unnamed(@errorName(err)));
                         };
                         row.state = .{ .settling = lifted };
                         self.commitCapabilityLift(lifted);
                         return capability_promise.fulfillLifted(self, id, lifted);
                     },
                     .promise => unreachable,
-                    .sturdy => return capability_promise.breakPromise(self, id, uncallable_reason),
-                    .broken => |broken| return capability_promise.breakPromise(self, id, broken.message),
+                    .sturdy => return capability_promise.breakPromise(self, id, engine.Broken.unnamed(uncallable_reason)),
+                    .broken => |broken| return capability_promise.breakPromise(self, id, engine.Broken.partner(broken.message)),
                 },
                 else => return fulfillData(self, id, session, argument),
             },
-            .@"break" => |reason| return capability_promise.breakPromise(self, id, reason.message),
+            .@"break" => |reason| return capability_promise.breakPromise(self, id, engine.Broken.partner(reason.message)),
         },
-        .terminal_break => |message| return capability_promise.breakPromise(self, id, message),
+        .terminal_break => |message| return capability_promise.breakPromise(self, id, engine.Broken.unnamed(message)),
         .pending => |next| return moveSubscription(self, id, session, next) catch |err| {
             if (capability_promise.retriesLater(err)) return err;
-            return capability_promise.breakPromise(self, id, @errorName(err));
+            return capability_promise.breakPromise(self, id, engine.Broken.unnamed(@errorName(err)));
         },
     }
 }
@@ -227,7 +227,7 @@ fn moveSubscription(
     const row = self.capability_promises.getPtr(id) orelse unreachable;
     for (row.projections.items) |projection| {
         if (projection.peer_handle == session.peer_handle and std.meta.eql(projection.answer_target, next))
-            return capability_promise.breakPromise(self, id, engine.resolution_chain.cycle_message);
+            return capability_promise.breakPromise(self, id, engine.Broken.unnamed(engine.resolution_chain.cycle_message));
     }
     const answer = &row.origin.answer;
     try self.node.reservePromiseSettlement();
@@ -273,7 +273,7 @@ fn fulfillData(
 ) !host_pump.ActionOutcome {
     const data = ownData(self, session, argument) catch |err| {
         if (capability_promise.retriesLater(err)) return err;
-        return capability_promise.breakPromise(self, id, @errorName(err));
+        return capability_promise.breakPromise(self, id, engine.Broken.unnamed(@errorName(err)));
     };
     const row = self.capability_promises.getPtr(id) orelse unreachable;
     row.state = .{ .settling_data = data };
@@ -333,7 +333,7 @@ pub fn finishData(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcom
                 var owned = row.operations.items[row.operation_head];
                 row.operation_head += 1;
                 if (owned.result_vow) |vow_id| if (self.vows.contains(vow_id))
-                    self.fireVow(vow_id, .{ .broken = uncallable_reason });
+                    self.fireVow(vow_id, .{ .broken = engine.Broken.unnamed(uncallable_reason) });
                 if (owned.action == .tell) if (self.sessions.get(owned.source_peer)) |source|
                     self.finishSessionOperation(source);
                 owned.deinit();
@@ -353,7 +353,7 @@ pub fn finishData(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcom
                 var prepared = self.prepareValues(source, scratch.allocator(), &.{value}) catch |err| {
                     if (capability_promise.retriesLater(err)) return err;
                     row.operation_head += 1;
-                    if (self.vows.contains(vow_id)) self.fireVow(vow_id, .{ .broken = @errorName(err) });
+                    if (self.vows.contains(vow_id)) self.fireVow(vow_id, .{ .broken = engine.Broken.unnamed(@errorName(err)) });
                     continue;
                 };
                 defer prepared.deinit();
@@ -367,7 +367,7 @@ pub fn finishData(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcom
         projectData(self, owed.recipient, owed.projection, value) catch |err| {
             if (err == error.OutboundBackpressure) return .{ .parked_on = owed.projection.peer_handle };
             if (capability_promise.retriesLater(err)) return err;
-            capability_promise.breakProjection(self, owed.recipient, owed.projection, @errorName(err)) catch |break_err| {
+            capability_promise.breakProjection(self, owed.recipient, owed.projection, engine.Broken.unnamed(@errorName(err))) catch |break_err| {
                 if (break_err == error.OutboundBackpressure) return .{ .parked_on = owed.projection.peer_handle };
                 return break_err;
             };
@@ -417,7 +417,7 @@ pub fn listenSettled(self: *Host, id: capability.PromiseId, source: *HostSession
     const row = self.capability_promises.getPtr(id) orelse return error.UnknownCapability;
     const value = switch (row.state) {
         .breaking, .broken => |*failure| return settledObservation(self, id, source, .{
-            .broken = failure.message(),
+            .broken = failure.broken(),
         }),
         .fulfilled_data => |data| data.value,
         else => unreachable,

@@ -34,6 +34,7 @@ import { SectionTitle } from "./Section.tsx";
 import { actionRefusal } from "../error_text.ts";
 import {
 	peeringAsPlaceholder,
+	peeringFrom,
 	peeringPublish,
 	peeringPublishing,
 	peeringPublishingAction,
@@ -214,7 +215,7 @@ export function PeeringPane(
 												)}
 										</div>
 										<p className="entry-meta">
-											from {row.source}
+											{peeringFrom(row.source)}
 										</p>
 										{rowRefusals[String(row.id)] != null && (
 											<Said id={`peeringRowWhy-${row.id}`} kind="failure">

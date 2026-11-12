@@ -30,7 +30,8 @@
          "host/state.rkt"
          "vat.rkt"
          "session/state.rkt"
-         "session/outbound.rkt")
+         "session/outbound.rkt"
+         "callback.rkt")
 
 ;; `session/state.rkt` owns the `session` type; this module owns the shared
 ;; lock-drain choreography (`with-host-drain` / `drain-host!` / …), and action
@@ -162,7 +163,7 @@
       ;; re-entry into the FFI callback's scheduler turn.
       (loop (call-in-nested-thread (drain-effects-resume current))))))
 
-;; Merge two drain-effects records in FIFO order (earlier first). Used when a status-allow: event or source ordering
+;; Merge two drain-effects records in FIFO order (earlier first). Used when a
 ;; reader-held feed nests further locked drains under the same deferral box.
 (define (merge-drain-effects a b)
   (drain-effects
@@ -313,10 +314,13 @@
           (guard-retained 'session-serve c)
           (define input-was-closed? (input-already-closed? c))
           (define buf (pin-immobile got))
-          (define rc
-            (parameterize ([current-deliver-owner c])
-              (glowcap_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))
+          (define-values (callback-failure rc)
+            (call-latching-callbacks
+             (lambda ()
+               (parameterize ([current-deliver-owner c])
+                 (glowcap_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))))
           (host-drain-parked-releases! m)
+          (when callback-failure (raise callback-failure))
           (cond
             [(or (= rc OK) (and (= rc ERR-CLOSED) input-was-closed?))
              (values (drain-host-actions! m) 'done)]
@@ -339,10 +343,13 @@
         (lambda ()
           (guard-retained 'session-serve c)
           (define input-was-closed? (input-already-closed? c))
-          (define rc
-            (parameterize ([current-deliver-owner c])
-              (glowcap_host_session_resume_feed (session-ptr c))))
+          (define-values (callback-failure rc)
+            (call-latching-callbacks
+             (lambda ()
+               (parameterize ([current-deliver-owner c])
+                 (glowcap_host_session_resume_feed (session-ptr c))))))
           (host-drain-parked-releases! m)
+          (when callback-failure (raise callback-failure))
           (cond
             [(or (= rc OK) (and (= rc ERR-CLOSED) input-was-closed?))
              (values (drain-host-actions! m) 'done)]
@@ -388,9 +395,10 @@
 ;; never writes.
 (define (capture-feed-refusal c rc)
   (define msg (host-last-error))
+  (define cause (host-last-error-cause))
   (define abort #f)
   (define diagnostics '())
-  (with-handlers ([(lambda (_) #t)
+  (with-handlers ([raised-failure?
                    (lambda (error)
                      (set! diagnostics (cons error diagnostics)))])
     (set! abort (session-last-abort c)))
@@ -409,13 +417,13 @@
                       (reverse diagnostics))
                  "; "))))
   (define failure
-    (exn:fail:glowcap
-     (if abort
+    (make-glowcap-error rc (if abort
          (format "~a [~a~a: ~a]" detail (abort-info-domain abort)
                  (if (abort-info-kind abort) (format " ~a" (abort-info-kind abort)) "")
                  (abort-info-message abort))
          detail)
-     (current-continuation-marks) rc abort #f #f #f 0))
+      #:abort abort
+      #:cause cause))
   (record-session-wire-failure! c failure)
   failure)
 
@@ -433,7 +441,7 @@
     (set-box! (async-connection-closed? ac) #t)
     ;; The core classifies the terminal FAIL completions; this window only
     ;; preserves their drain order.
-    (with-handlers ([(lambda (_) #t)
+    (with-handlers ([raised-failure?
                      (lambda (error)
                        (record-session-wire-failure! c error)
                        (void))])
@@ -444,7 +452,7 @@
     ;; FFI session so the Host's strong session registry cannot retain one
     ;; dead row per disconnected partner.
     (close-session-transport! c)
-    (with-handlers ([(lambda (_) #t)
+    (with-handlers ([raised-failure?
                      (lambda (error)
                        (record-session-wire-failure! c error)
                        (void))])

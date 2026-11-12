@@ -65,6 +65,28 @@ class PlanTest(unittest.TestCase):
             (DEVELOPMENT, False),
         )
 
+    def test_a_change_plans_a_nightly_phase_only_for_its_owners(self):
+        def interop(event, paths):
+            # A pull request into dev selects groups by path, so each owner
+            # must also reach the interop group that holds the phase.
+            groups, _ = PLAN.plan(event, "refs/pull/7/merge", INTO_DEV, paths)
+            return next(group["phases"] for group in groups if group["name"] == "interop")
+
+        self.assertNotIn("goblins-matrix", interop("pull_request", ["src/ocapn/session.zig"]))
+        self.assertIn("goblins-live", interop("pull_request", ["src/ocapn/session.zig"]))
+        for owner in PLAN.NIGHTLY["goblins-matrix"]:
+            with self.subTest(owner=owner):
+                self.assertIn("goblins-matrix", interop("pull_request", [owner + ("x" if owner.endswith("/") else "")]))
+        self.assertIn("goblins-matrix", interop("pull_request", None), "unknown paths run everything")
+        for event in ("schedule", "workflow_dispatch"):
+            self.assertIn("goblins-matrix", interop(event, ["src/ocapn/session.zig"]))
+        # A push to dev is full validation, and still waits for no nightly phase.
+        pushed, full = PLAN.plan("push", "refs/heads/dev", {}, ["src/ocapn/session.zig"])
+        self.assertTrue(full)
+        self.assertNotIn("goblins-matrix", [phase for group in pushed for phase in group["phases"]])
+        for group in PLAN.GROUPS:
+            self.assertTrue(PLAN.phases(group, "push", []), "a group keeps a phase on every run")
+
     def test_diff_includes_deletions_and_both_sides_of_renames(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

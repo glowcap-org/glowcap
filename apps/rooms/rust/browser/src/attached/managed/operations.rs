@@ -4,6 +4,7 @@ use rooms_glowcap::client::{
 	Deadline,
 	workspace::{OperationsAcquisition, OperationsSelection},
 };
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 pub struct RoomsManagedOperationsAcquisition {
@@ -23,7 +24,7 @@ impl RoomsManagedOperationsAcquisition {
 		let acquisition = self.acquisition.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(0, move |_| async move {
-			let acquisition = acquisition.reprepare().await.map_err(|error| error.to_string())?;
+			let acquisition = acquisition.reprepare().await.map_err(RuntimeError::from)?;
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedOperationsAcquisition { driver, acquisition }.into())
@@ -48,15 +49,17 @@ impl RoomsManagedWorkspace {
 			let replacement = scalar(replacement, 8192)?;
 			let bytes = imports.len() + original.len() + replacement.len();
 			let imports: Vec<workspace::ImportRecipe> =
-				serde_json::from_str(&imports).map_err(|_| "Invalid operations imports")?;
+				serde_json::from_str(&imports).map_err(|_| RuntimeError::invalid("Invalid operations imports"))?;
 			if imports.len() > rooms_application::server::operations::BOOT_CAPABILITIES.len() {
-				return Err("Operations imports exceed the boot capability inventory".into());
+				return Err(RuntimeError::invalid(
+					"Operations imports exceed the boot capability inventory",
+				));
 			}
 			acquisition::validate_recipes(&imports)?;
-			let original: OperationsSelection =
-				serde_json::from_str(&original).map_err(|_| "Invalid original operations selection")?;
-			let replacement: OperationsSelection =
-				serde_json::from_str(&replacement).map_err(|_| "Invalid replacement operations selection")?;
+			let original: OperationsSelection = serde_json::from_str(&original)
+				.map_err(|_| RuntimeError::invalid("Invalid original operations selection"))?;
+			let replacement: OperationsSelection = serde_json::from_str(&replacement)
+				.map_err(|_| RuntimeError::invalid("Invalid replacement operations selection"))?;
 			Ok((imports, original, replacement, bytes))
 		})();
 		let (incoming, original, replacement, bytes) = match input {
@@ -74,23 +77,26 @@ impl RoomsManagedWorkspace {
 			for entry in incoming {
 				let capability = replacement
 					.capability_at(entry.coordinate)
-					.ok_or("Operations import is not in the replacement selection")?;
+					.ok_or_else(|| RuntimeError::invalid("Operations import is not in the replacement selection"))?;
 				let reference = environment
 					.platform
 					.within(
 						rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-						environment.runtime.host().enliven(&entry.uri),
+						environment.enliven(&entry.uri),
 					)
 					.await
-					.ok_or_else(|| "Operations acquisition did not answer".to_owned())
-					.and_then(|answer| answer.map_err(|error| error.to_string()));
+					.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("Operations acquisition")))
+					.and_then(std::convert::identity);
 				let reference = match reference {
 					Ok(reference) => reference,
-					Err(reason) => {
-						let advice = rooms_application::session::diagnosis::operations(capability, &reason);
+					Err(error) => {
+						let failure = crate::failure::project(&error);
+						let advice = failure
+							.code
+							.and_then(|code| rooms_application::session::diagnosis::operations(capability, code));
 						failures.get_or_insert_with(js_sys::Array::new).push(&json(
 							&serde_json::json!({
-								"capability": capability, "reason": reason, "advice": advice,
+								"capability": capability, "reason": error.to_string(), "advice": advice, "failure": failure.value(),
 							})
 							.to_string(),
 						)?);
@@ -111,7 +117,7 @@ impl RoomsManagedWorkspace {
 			let acquisition = workspace
 				.prepare_operations(imports, original, replacement)
 				.await
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedOperationsAcquisition { driver, acquisition }.into())

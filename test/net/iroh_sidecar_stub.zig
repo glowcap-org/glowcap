@@ -83,7 +83,6 @@ export fn glowcap_iroh_sidecar_conn_write(_: *anyopaque, _: [*]const u8, _: usiz
 export fn glowcap_iroh_sidecar_conn_flush(_: *anyopaque) callconv(.c) i32 {
     return 0;
 }
-export fn glowcap_iroh_sidecar_conn_close(_: *anyopaque) callconv(.c) void {}
 export fn glowcap_iroh_sidecar_conn_free(_: *anyopaque) callconv(.c) void {
     conn_free_count += 1;
 }

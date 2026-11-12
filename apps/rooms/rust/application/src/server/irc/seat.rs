@@ -293,7 +293,7 @@ mod tests {
 	use crate::bridge::Answers;
 
 	#[test]
-	fn every_invalid_line_is_the_line_it_replaced() {
+	fn every_invalid_variant_displays_its_operator_line() {
 		assert_eq!(
 			Invalid::CleartextLogin.to_string(),
 			"this bridge runs without TLS; a registered account needs an encrypted path"

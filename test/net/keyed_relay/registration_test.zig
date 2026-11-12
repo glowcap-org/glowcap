@@ -4,6 +4,7 @@
 //! listener retires the replacement leg it started.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const crypto = glowcap.foundation.crypto;
@@ -64,7 +65,8 @@ test "keyed-relay completion listener accepts a dialer through its registration"
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x72))).publicKey();
 
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &relay_server, allocator });
-    errdefer relay_future.cancel(io) catch {};
+    var relay_joined = false;
+    errdefer if (!relay_joined) wait.joinedUnwinding("relay", relay_future.cancel(io));
 
     var seed: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
     try io.randomSecure(&seed);
@@ -117,6 +119,7 @@ test "keyed-relay completion listener accepts a dialer through its registration"
     _ = try awaitOn(&backends, &dialer, 8);
     try listener.submitClose(9, accepted_fd);
     _ = try awaitOn(&backends, &listener, 9);
+    relay_joined = true;
     try relay_future.await(io);
 }
 
@@ -157,7 +160,8 @@ test "keyed-relay completion listener registers again after the relay drops it" 
 
     var done = std.atomic.Value(bool).init(false);
     var relay_future = try io.concurrent(dropThenExpectRegistration, .{ io, &relay_server, &done });
-    errdefer relay_future.cancel(io) catch {};
+    var relay_joined = false;
+    errdefer if (!relay_joined) wait.joinedUnwinding("relay", relay_future.cancel(io));
 
     var seed: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
     try io.randomSecure(&seed);
@@ -175,8 +179,10 @@ test "keyed-relay completion listener registers again after the relay drops it" 
         var out: [4]completion.Completion = undefined;
         try std.testing.expectEqual(@as(usize, 0), try listener.poll(&out, 10));
     }
-    try relay_future.await(io);
+    relay_joined = true;
+    const relay_served = relay_future.await(io);
     try listener.submitClose(1, listen_fd);
     const backends = [_]*Backend{&listener};
     try std.testing.expectEqual(@as(i32, 0), (try awaitOn(&backends, &listener, 1)).result);
+    try relay_served;
 }

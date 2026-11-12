@@ -10,8 +10,6 @@ import {
 	roomsLocator,
 	type RoomsRuntime,
 	roomsSturdyrefLocator,
-	WEBRTC_SIGNALING_DIRECTORY_HINT,
-	webrtcSignalingDirectoryHint,
 } from "../lib/locator.ts";
 import { assertEquals } from "./assert.ts";
 
@@ -50,18 +48,6 @@ Deno.test("Attach dials the WebRTC locator a tab-hosted session sturdyref names"
 	await dial(roomsAddress(roomsSturdyrefLocator(sturdyref)), runtime((locator) => dialed.push(locator)));
 	assertEquals(dialed[0]?.transport, TRANSPORT_WEBRTC);
 	assertEquals(dialed[0]?.designator, DESIGNATOR);
-});
-
-Deno.test("Attach preserves the signaling-directory hint a tab-hosted sturdyref carries", () => {
-	const directory = "ocapn://abcdefabcdef.iroh";
-	const advertised = formatLocatorUri({
-		transport: TRANSPORT_WEBRTC,
-		designator: DESIGNATOR,
-		hints: new Map([[WEBRTC_SIGNALING_DIRECTORY_HINT, directory]]),
-		hintWireForm: "map",
-	});
-	const sturdyref = formatRoomsSturdyref(roomsLocator(advertised), "session-grant");
-	assertEquals(webrtcSignalingDirectoryHint(roomsSturdyrefLocator(sturdyref)), directory);
 });
 
 Deno.test("Attach dials the noise-relay locator when that is the session door", async () => {

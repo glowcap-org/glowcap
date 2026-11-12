@@ -15,6 +15,7 @@ import { Icon } from "../icons.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
+import { JoinPrefix } from "../cards/JoinField.tsx";
 import { nextRoomPreset, type RoomPreset } from "../room_policy.ts";
 import { joinAccessLabel, roomAccessFixedLabel, roomNamePlaceholder } from "../../../lib/text/join.ts";
 import { railChange, railChangeDirectory, railIn } from "../../../lib/text/rail.ts";
@@ -56,8 +57,8 @@ export interface AddField {
 	 * twice, so a press or a caret landing over there is not "somewhere else",
 	 * and neither the blur nor the outside-click dismissal takes this panel away
 	 * for it. What does take it away is the pair ending: the panel closes when a
-	 * conversation opens, which is exactly when there is no longer a form for it status-allow: lifecycle transition
-	 * to be a view of. */
+	 * conversation opens, which is exactly when the form it is a view of goes
+	 * away. */
 	link?: {
 		/** The other form, as a selector. One place names it, so the panel that
 		 * submits it and the panel that stays open for it cannot come to
@@ -74,7 +75,7 @@ export interface AddField {
 		onRoomPreset: (preset: RoomPreset) => void;
 	};
 	/** Offered when this panel can also reach somewhere this tab does not hold
-	 * yet. Absent means the panel has no elsewhere: a direct line is opened from status-allow: pending state or quoted runtime label
+	 * yet. Absent means the panel has no elsewhere: a direct line is opened from
 	 * a roster, so there is no address to go and find. Absent too while `picks`
 	 * is present, because then the destination is changed here rather than by
 	 * stepping out to change it. */
@@ -90,7 +91,7 @@ export interface AddField {
 	 * advertising, or the people it says are reachable.
 	 *
 	 * Offered rather than enforced. Both fields name something that may not exist
-	 * yet, a room is made by opening it, so what is typed always wins and the status-allow: pending state or quoted runtime label
+	 * yet, a room is made by opening it, so what is typed always wins and the
 	 * list is a shortcut past typing a name in full, never a set to choose from.
 	 * Absent leaves the field exactly as it was. */
 	offers?: readonly string[];
@@ -135,7 +136,7 @@ export function AddButton({ id, label, open, canAdd, onOpen }: {
  * not a store fact, because nothing outside reads a half-typed name, and it is
  * not left in the DOM, because a value the element holds outlives the field
  * being closed, the conversation being switched, and the room being lost: the
- * page would then reopen a field still carrying a name from some earlier status-allow: event or source ordering
+ * page would then reopen a field still carrying a name from some earlier
  * intention. */
 export function NamePanel(
 	{
@@ -241,16 +242,37 @@ export function NamePanel(
 		toggle()?.focus();
 	};
 
+	const mark = roomPreset === "open" ? sigil : roomMarkGlyph(roomPreset, 13);
 	return (
 		<div id={id} ref={panel} className={showing ? "newroom show" : "newroom"} data-dir={where?.mark}>
 			{
-				/* The mark the thing being named will wear, so choosing private
-				   changes the name in front of the reader rather than only the
-				   control they pressed. */
+				/* The mark the thing being named will wear. Where the kind of room
+				   is a choice, the mark is the control that makes it, as it is on
+				   the join card: pressing it changes the name in front of the
+				   reader and what Enter is about to make. Focus is put back in the
+				   field afterwards, because a press that left it elsewhere would
+				   blur the field and put the panel away on the way to its own
+				   control. */
 			}
-			<span className="hash" aria-hidden="true">
-				{roomPreset === "open" ? sigil : roomMarkGlyph(roomPreset, 13)}
-			</span>
+			{canChooseAccess === true
+				? (
+					<JoinPrefix
+						className="newroom-private"
+						size="small"
+						label={link?.accessFixed === true
+							? roomAccessFixedLabel(roomPreset)
+							: joinAccessLabel(roomPreset, nextRoomPreset(roomPreset))}
+						disabled={link?.accessFixed === true}
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => {
+							setRoomPreset(nextRoomPreset(roomPreset));
+							field.current?.focus();
+						}}
+					>
+						{mark}
+					</JoinPrefix>
+				)
+				: <span className="hash" aria-hidden="true">{mark}</span>}
 			<input
 				id={id + "Input"}
 				ref={field}
@@ -265,7 +287,9 @@ export function NamePanel(
 					suggest.typed();
 				}}
 				{...identifierField}
+				onFocus={suggest.caret.onFocus}
 				onBlur={(e) => {
+					suggest.caret.onBlur();
 					// Linked, the caret leaving is not the panel's business at all.
 					// Its life belongs to the other form: it is put away when a
 					// conversation opens, or by a press outside both halves, and
@@ -342,28 +366,6 @@ export function NamePanel(
 					{suggest.list}
 				</MenuLayer>
 			)}
-			{canChooseAccess === true && (
-				// Inside the panel, beside the field, because it is part of naming
-				// this room rather than a setting somewhere: pressing it changes
-				// what Enter is about to make. Focus is put back in the field
-				// afterwards, because a press that left it elsewhere would blur the
-				// field and put the panel away on the way to its own control.
-				<IconButton
-					icon={roomPreset === "private" ? "lock" : roomPreset === "moderated" ? "observer" : "group"}
-					className="newroom-private"
-					label={link?.accessFixed === true
-						? roomAccessFixedLabel(roomPreset)
-						: joinAccessLabel(roomPreset, nextRoomPreset(roomPreset))}
-					size="small"
-					variant="ghost"
-					disabled={link?.accessFixed === true}
-					onMouseDown={(event) => event.preventDefault()}
-					onClick={() => {
-						setRoomPreset(nextRoomPreset(roomPreset));
-						field.current?.focus();
-					}}
-				/>
-			)}
 			{where !== undefined && (picks !== undefined || onElsewhere !== undefined) && (
 				// The same line a room's group carries over it, saying where the room
 				// being named will land rather than where rooms already named live. A
@@ -411,7 +413,7 @@ export function NamePanel(
 						// and unlinked forms before the card makes picks eligible again.
 						// The panel stays: the press is about to put a form on
 						// screen that this field becomes a second view of, and
-						// taking the field away at the moment it gains its status-allow: state at observation
+						// taking the field away at the moment it gains its
 						// other half is the opposite of what the press meant.
 						onElsewhere?.(value);
 					}}

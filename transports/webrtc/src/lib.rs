@@ -50,7 +50,11 @@ use webrtc::peer_connection::{
 	RTCPeerConnectionState, RTCSessionDescription,
 };
 
-use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier, teardown_status};
+use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier};
+
+#[path = "../../ffi_handles.rs"]
+mod ffi_handles;
+use ffi_handles::{borrowed, reclaimed};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
 type Readiness = glowcap_sidecar_runtime::Readiness<GlowcapWebrtcReadyEvent>;
@@ -77,32 +81,7 @@ const PEER_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1
 const OK: i32 = 0;
 const ERR: i32 = -1;
 
-/// Borrow a caller's handle for the length of one ABI call, answering `refused`
-/// both for a null pointer and for a panic, which may never cross the C frame.
-///
-/// This is the sidecar's one trust boundary. Every `glowcap_webrtc_*` entry
-/// point is handed a raw handle the C side got from the matching `*_new` and has
-/// not yet freed, and this is the single place that assumption becomes a Rust status-allow: pending state or quoted runtime label
-/// reference. Written once here, the argument for it is one thing to check
-/// rather than one per entry point, and each entry point is left saying what it
-/// does instead of restating who owns its pointer.
-///
-/// An out-parameter buffer is a separate assumption with its own guard, so it
-/// stays at the call site that checks its capacity.
-///
-/// # Safety
-/// `handle` is null, or points to a live value from the matching `*_new` that no
-/// other call is freeing for the duration of this one.
-unsafe fn borrowed<H, R: Copy>(handle: *const H, refused: R, body: impl FnOnce(&H) -> R) -> R {
-	// SAFETY: this function's `# Safety` contract makes `handle` null or a live value from the matching `*_new` that no
-	// other call is freeing; `as_ref` maps null to `None`, and the reference lasts only for `body`, inside this call.
-	catch_unwind(AssertUnwindSafe(|| match unsafe { handle.as_ref() } {
-		Some(handle) => body(handle),
-		None => refused,
-	}))
-	.unwrap_or(refused)
-}
-/// A non-blocking call that cannot make progress yet: no candidate has gathered, status-allow: pending state or quoted runtime label
+/// A non-blocking call that cannot make progress yet: no candidate has gathered,
 /// the channel is not open, or a bounded queue has no room. The resident re-arms
 /// and retries, distinct from a hard error.
 const WOULD_BLOCK: i32 = -2;
@@ -198,7 +177,7 @@ const INBOUND_BUFFER_BOUND: usize = constants_gen::DATA_CHANNEL_QUEUE_BYTES;
 
 /// The SCTP receive window bound passed to `webrtc` 0.20. It is separate from
 /// the C-facing staging bound above: the crate may hold bytes it has received
-/// but not yet yielded as `DataChannelEvent::OnMessage`. status-allow: pending state or quoted runtime label
+/// but not yet yielded as `DataChannelEvent::OnMessage`.
 const SCTP_RECEIVE_BUFFER_BOUND: usize = constants_gen::SCTP_RECEIVE_BUFFER_BYTES;
 
 /// Per-peer outbound byte bound. C-facing try-writes may stage up to this much
@@ -232,7 +211,7 @@ struct OpenGate {
 }
 
 struct Outbound {
-	/// Packets accepted from C try-writers but not yet handed to WebRTC. The C status-allow: pending state or quoted runtime label
+	/// Packets accepted from C try-writers but not yet handed to WebRTC. The C
 	/// ABI is synchronous, while `DataChannel::send` still awaits the crate's
 	/// async core lock, so this queue is the nonblocking boundary.
 	packets: VecDeque<BytesMut>,
@@ -464,49 +443,31 @@ pub struct GlowcapWebrtcPeer {
 	pc: Arc<dyn PeerConnection>,
 }
 
-/// Create one endpoint: the runtime and readiness namespace shared by all peers
-/// a resident multiplexes. Returns null if either resource cannot be created.
-///
-/// # Safety
-/// `config` must point to a readable configuration whose nested ICE-server
-/// arrays satisfy their documented pointer and length contracts.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
-	config: *const GlowcapWebrtcEndpointConfig,
-) -> *mut GlowcapWebrtcEndpoint {
-	catch_unwind(AssertUnwindSafe(|| {
-		if config.is_null() {
-			return std::ptr::null_mut();
-		}
-		// Safety: the caller supplies readable memory; `ice_servers_from_config`
-		// bounds every count and length before forming nested slices.
-		let cfg = unsafe { &*config };
-		// SAFETY: `cfg` is the reference formed above from the caller's configuration, so the whole tree it describes
-		// is lent for this call under this function's `# Safety` contract; the function returns owned `RTCIceServer`
-		// values, so nothing borrows it afterward.
-		let ice_servers = match unsafe { ice_servers_from_config(cfg) } {
-			Some(servers) => servers,
-			None => return std::ptr::null_mut(),
-		};
-		let readiness = match Readiness::new() {
-			Some(readiness) => readiness,
-			None => return std::ptr::null_mut(),
-		};
+impl GlowcapWebrtcEndpoint {
+	/// Build one endpoint from a caller's configuration: copy its ICE-server
+	/// views into owned records, then create the readiness channel and the
+	/// runtime every peer shares. `None` when any of the three is refused.
+	///
+	/// # Safety
+	/// The nested ICE-server arrays in `cfg` satisfy their documented pointer and
+	/// length contracts.
+	unsafe fn from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<Box<Self>> {
+		// SAFETY: this function's `# Safety` contract lends the whole tree `cfg` describes for this call.
+		// `ice_servers_from_config` returns owned `RTCIceServer` values, so nothing borrows it afterward.
+		let ice_servers = unsafe { ice_servers_from_config(cfg) }?;
+		let readiness = Readiness::new()?;
 		let workers = if cfg.worker_threads == 0 {
 			WORKER_THREADS
 		} else {
 			cfg.worker_threads as usize
 		};
-		let rt = match tokio::runtime::Builder::new_multi_thread()
+		let rt = tokio::runtime::Builder::new_multi_thread()
 			.worker_threads(workers)
 			.thread_name("glowcap-webrtc")
 			.enable_all()
 			.build()
-		{
-			Ok(rt) => rt,
-			Err(_) => return std::ptr::null_mut(),
-		};
-		Box::into_raw(Box::new(GlowcapWebrtcEndpoint {
+			.ok()?;
+		Some(Box::new(GlowcapWebrtcEndpoint {
 			inner: Arc::new(EndpointInner {
 				rt: RuntimeOwner::new(rt),
 				close_tasks: Arc::new(TaskBarrier::new()),
@@ -517,8 +478,30 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
 				include_loopback: cfg.include_loopback_candidates != 0,
 			}),
 		}))
+	}
+}
+
+/// Create one endpoint: the runtime and readiness namespace shared by all peers
+/// a resident multiplexes. Returns null for a null or refused configuration, or
+/// if either resource cannot be created.
+///
+/// # Safety
+/// `config` must be null or point to a readable configuration whose nested
+/// ICE-server arrays satisfy their documented pointer and length contracts.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
+	config: *const GlowcapWebrtcEndpointConfig,
+) -> *mut GlowcapWebrtcEndpoint {
+	catch_unwind(AssertUnwindSafe(|| {
+		// SAFETY: this function's `# Safety` contract makes `config` null or readable for the call, and `as_ref` maps
+		// null to `None`.
+		let cfg = unsafe { config.as_ref() }?;
+		// SAFETY: the same contract lends the nested ICE-server arrays `cfg` describes.
+		unsafe { GlowcapWebrtcEndpoint::from_config(cfg) }
 	}))
-	.unwrap_or(std::ptr::null_mut())
+	.ok()
+	.flatten()
+	.map_or(std::ptr::null_mut(), Box::into_raw)
 }
 
 /// Borrow the endpoint's readiness fd. It remains valid until endpoint free.
@@ -613,20 +596,17 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(
 /// still release every peer first so no readiness can outlive its owner.
 ///
 /// # Safety
-/// `endpoint` must be null or an owned endpoint handle not previously freed. status-allow: ownership and operation ordering
+/// `endpoint` must be null or an owned endpoint handle not previously freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_free(endpoint: *mut GlowcapWebrtcEndpoint) -> i32 {
-	if endpoint.is_null() {
-		return OK;
+	// SAFETY: the caller transfers the endpoint after releasing its peers.
+	unsafe {
+		reclaimed(endpoint, |endpoint| {
+			let close_result = endpoint.inner.close_tasks.wait();
+			drop(endpoint);
+			close_result
+		})
 	}
-	teardown_status(|| {
-		// SAFETY: an unfreed handle from `endpoint_new`, with null refused
-		// above, so this frame is its last owner.
-		let endpoint = unsafe { Box::from_raw(endpoint) };
-		let close_result = endpoint.inner.close_tasks.wait();
-		drop(endpoint);
-		close_result
-	})
 }
 
 #[cfg(test)]

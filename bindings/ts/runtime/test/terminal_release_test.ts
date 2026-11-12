@@ -1,11 +1,11 @@
-import { INTERNAL, INVALID_ARGUMENT, IO, OK } from "@glowcap/abi";
+import { INTERNAL, INVALID_ARGUMENT, IO, OK, releaseResultCode, releaseResultConsumed } from "@glowcap/abi";
 import { GlowcapError, secondaryFailures } from "../errors.ts";
-import type { DriverCallOutcome } from "../internal/driver_failure.ts";
+import type { DriverReleaseOutcome } from "../internal/driver_failure.ts";
 import { TerminalDriverRelease } from "../driver_loop/terminal_release.ts";
 import { assert } from "../../test/assert.ts";
 
-function outcome(code: number, error: GlowcapError | null): DriverCallOutcome {
-	return { code, failure: null, error };
+function outcome(code: number, error: GlowcapError | null): DriverReleaseOutcome {
+	return { code: releaseResultCode(code), consumed: releaseResultConsumed(code), failure: null, error };
 }
 
 Deno.test("an observed close refusal waits for the next safe boundary", () => {
@@ -53,7 +53,7 @@ Deno.test("terminal release preserves primary and later cleanup consequences", a
 		primary,
 		() => {
 			attempts++;
-			return attempts === 1 ? outcome(INVALID_ARGUMENT, refusal) : outcome(IO, consumedFailure);
+			return attempts === 1 ? outcome(INVALID_ARGUMENT, refusal) : outcome(-IO, consumedFailure);
 		},
 		() => Promise.reject(cleanup),
 		undefined,

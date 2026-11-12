@@ -1,4 +1,4 @@
-// The first answer from an Operations capability has not arrived yet. status-allow: pending state or quoted runtime label
+// The first answer from an Operations capability has not arrived yet.
 //
 // A held pane is already a real destination, so returning null while its
 // first fetch runs leaves the address looking broken. The shared sheen

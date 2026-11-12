@@ -8,6 +8,7 @@
 //! (`mod.zig`) owns the public C types these exports fill.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const foundation = @import("foundation");
 const shared = @import("c_abi_shared");
@@ -38,6 +39,12 @@ const GLOWCAP_OK = shared.GLOWCAP_OK;
 const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 const GLOWCAP_ERR_INTERNAL = shared.GLOWCAP_ERR_INTERNAL;
+
+/// The calling OS thread, which every C Host compares to refuse `WrongThread`
+/// (the core reads no threads). The freestanding wasm Host has no threads and
+/// explicitly chooses unchecked confinement.
+const thread_policy: Host.Options.ThreadPolicy =
+    if (builtin.os.tag == .freestanding) .unchecked else .{ .checked = @import("net_thread_id").reader };
 const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
@@ -91,7 +98,7 @@ pub fn hostNewIn(
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     };
     const inst = alloc.create(Instance) catch |err| return errToCode(err);
-    var opts = Host.Options.withFrameCap(frame_cap);
+    var opts = Host.Options.init(thread_policy, frame_cap);
     opts.verify_partner = verify_partner != 0;
     opts.codec = codec_id;
     opts.captp_version = version_id;
@@ -136,7 +143,7 @@ pub fn hostNewIn(
 /// `GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT` applies the Zig Host's finite default,
 /// `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` turns the cap off, and any other
 /// value is the cap. `release_on_drop` is the Host-wide setting a binding
-/// reads when it projects a far capability (ADR-0025); the Host stores it and
+/// reads when it projects a far capability (ADR-0025). The Host stores it and
 /// attaches no behavior. Released with `glowcap_host_release`.
 pub fn glowcap_host_new(
     seed: ?[*]const u8,
@@ -492,12 +499,16 @@ pub fn glowcap_host_dialed(
     return host_actions.dialed(host, ticket, route_index, raw, out_adopted);
 }
 
-/// Report a DIAL action's failure: every redeem waiting on the ticket breaks
-/// with `reason`, its FAIL completion queued inside this call. A stale or
-/// non-running attempt is a no-op success.
-pub fn glowcap_host_dial_failed(host: ?*GlowcapHost, ticket: u64, route_index: usize, reason: ?[*]const u8, reason_len: usize) callconv(.c) i32 {
+/// Report one DIAL attempt's failure. `failure` is a `GLOWCAP_ROUTE_FAILURE_*`
+/// constant, and any other value is refused. Only a route with no configured
+/// transport may report `TRANSPORT_UNAVAILABLE`. Strong identity routes keep
+/// their bounded race before ordered weak fallbacks begin, and the redeems
+/// waiting on the ticket break only after every eligible route fails. The
+/// terminal cause names unavailable transports only when every accepted
+/// failure did. A stale or non-running attempt is a no-op success.
+pub fn glowcap_host_dial_failed(host: ?*GlowcapHost, ticket: u64, route_index: usize, failure: u32, reason: ?[*]const u8, reason_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    return host_actions.dialFailed(host, ticket, route_index, reason, reason_len);
+    return host_actions.dialFailed(host, ticket, route_index, failure, reason, reason_len);
 }
 
 /// A CANCEL_DIAL action's physical operation has stopped and its executor
@@ -547,10 +558,12 @@ pub fn glowcap_host_ref_retain(host: ?*GlowcapHost, ref: ?*const shared.GlowcapR
 /// duplicate release. Single-thread affinity applies.
 pub fn glowcap_host_ref_release(host: ?*GlowcapHost, ref: ?*const shared.GlowcapReference, delta: u64) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const raw = ref orelse return GLOWCAP_ERR_NULL_POINTER;
-    inst.core.releaseCapability(inst.core.capabilityFromRaw(raw.id), delta) catch |err| return errToCode(err);
-    return GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        const inst = instanceFrom(host) orelse break :result GLOWCAP_ERR_NULL_POINTER;
+        const raw = ref orelse break :result GLOWCAP_ERR_NULL_POINTER;
+        inst.core.releaseCapability(inst.core.capabilityFromRaw(raw.id), delta) catch |err| break :result errToCode(err);
+        break :result GLOWCAP_OK;
+    });
 }
 
 /// Read the calling thread's last `glowcap_host_*` error into `out_buf`,
@@ -558,6 +571,12 @@ pub fn glowcap_host_ref_release(host: ?*GlowcapHost, ref: ?*const shared.Glowcap
 /// length. Returns the full message length, or 0 when none is set.
 pub fn glowcap_host_last_error(out_buf: ?[*]u8, cap: usize) callconv(.c) usize {
     return shared.lastErrorRead(out_buf, cap);
+}
+
+/// Copy the preceding Host operation's failure metadata without clearing it.
+/// A null output is a no-op. An operation with no named failure has zero fields.
+pub fn glowcap_host_last_error_cause(out_cause: ?*shared.GlowcapBreakCause) callconv(.c) void {
+    if (out_cause) |out| out.* = shared.GlowcapBreakCause.fromCore(shared.lastErrorCause());
 }
 
 /// Clear the calling thread's `glowcap_host_*` last-error slot.

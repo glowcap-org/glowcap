@@ -52,7 +52,9 @@ pub struct Server {
 pub struct ListenOptions {
 	pub advertised_host: Option<String>,
 	pub identity: ListenerIdentity,
-	pub config: crate::tcp::Config,
+	/// Socket options for every stream this listener admits. The listener's
+	/// provider registers exactly its own profile.
+	pub stream: crate::tcp::StreamOptions,
 }
 
 #[cfg(feature = "tcp")]
@@ -174,13 +176,15 @@ pub(crate) async fn listen(
 	bind_host: &str,
 	port: u16,
 	transport: &'static str,
+	profiles: crate::tcp::Profiles,
 	options: ListenOptions,
 ) -> Result<Server> {
 	let ListenOptions {
 		advertised_host,
 		identity,
-		config,
+		stream,
 	} = options;
+	let config = crate::tcp::Config { stream, profiles };
 	let bind = tokio::net::lookup_host((bind_host, port))
 		.await
 		.map_err(io_err)?
@@ -239,6 +243,7 @@ pub(crate) async fn listen(
 mod tests {
 	use super::*;
 	use crate::session::tests::support::connect;
+	use crate::tcp::Profiles;
 	use crate::{Argument, Host};
 	use std::time::Duration;
 	use tokio::sync::oneshot;
@@ -246,7 +251,7 @@ mod tests {
 
 	async fn listen(address: &str) -> Result<Server> {
 		let (host, port) = crate::designator_host_port(address)?;
-		super::listen(&host, port, TRANSPORT_TCP, ListenOptions::default()).await
+		super::listen(&host, port, TRANSPORT_TCP, Profiles::TCP, ListenOptions::default()).await
 	}
 
 	async fn listen_with_host(address: &str, host: Host) -> Result<Server> {
@@ -255,6 +260,7 @@ mod tests {
 			&bind_host,
 			port,
 			TRANSPORT_TCP,
+			Profiles::TCP,
 			ListenOptions {
 				identity: ListenerIdentity::Host(host),
 				..ListenOptions::default()
@@ -375,6 +381,7 @@ mod tests {
 					"0.0.0.0",
 					0,
 					TRANSPORT_TCP,
+					Profiles::TCP,
 					ListenOptions {
 						advertised_host: Some("127.0.0.1".into()),
 						..ListenOptions::default()
@@ -498,6 +505,7 @@ mod tests {
 						"127.0.0.1",
 						0,
 						TRANSPORT_KEYED_TCP,
+						Profiles::KEYED_TCP,
 						ListenOptions {
 							identity: ListenerIdentity::Host(host.clone()),
 							..ListenOptions::default()
@@ -509,6 +517,7 @@ mod tests {
 						"127.0.0.1",
 						0,
 						TRANSPORT_NOISE_TCP,
+						Profiles::NOISE_TCP,
 						ListenOptions {
 							identity: ListenerIdentity::Host(host.clone()),
 							..ListenOptions::default()

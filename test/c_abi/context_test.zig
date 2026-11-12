@@ -14,7 +14,7 @@ const tcp_config: ct.GlowcapTcpConfig = .{ .stream = .{
     .keepalive_idle_sec = 0,
     .keepalive_interval_sec = 0,
     .keepalive_count = 0,
-} };
+}, .profiles = ct.GLOWCAP_TCP_PROFILES_ALL };
 
 const CountingHost = @import("../support/c_abi_counting_alloc.zig").CountingHost;
 
@@ -41,7 +41,7 @@ test "TCP configuration rejects absent and partial keepalive defaults" {
         .keepalive_idle_sec = 30,
         .keepalive_interval_sec = 0,
         .keepalive_count = 3,
-    } };
+    }, .profiles = ct.GLOWCAP_TCP_PROFILES_ALL };
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, ct.glowcap_tcp_netlayer_new(&partial, &netlayer));
     try std.testing.expect(netlayer == null);
 }

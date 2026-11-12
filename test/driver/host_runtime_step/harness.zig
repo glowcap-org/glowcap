@@ -158,7 +158,7 @@ pub fn connectAndHold(
     );
     defer session.deinit();
     while (!stop.load(.acquire))
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(1), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(1), .real);
 }
 
 /// A sink that takes exactly the settled/failed completions and remembers

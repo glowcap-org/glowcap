@@ -33,7 +33,7 @@ import threading
 
 from ._abi_value import _DEFAULT_CODEC, _codec_id
 from ._constants import OK as _OK
-from ._constants import RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC
+from ._constants import RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC, release_result_code
 from ._errors import GlowcapError
 from ._ffi import FfiHandle, _ChildRetiringNetlayer, _FfiHandleOwner
 from ._ffi_inproc import _inproc_lib
@@ -69,7 +69,7 @@ def _release_conn(raw) -> None:
 
 
 def _release_listener(raw) -> None:
-    _check_inproc(_inproc_lib.glowcap_inproc_listener_release(raw, None, 0, None))
+    _check_inproc(release_result_code(_inproc_lib.glowcap_inproc_listener_release(raw, None, 0, None)))
 
 
 def _release_netlayer(raw) -> None:

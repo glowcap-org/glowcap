@@ -83,7 +83,8 @@ pub const Reply = struct {
                     .peer_handle = null,
                     .vow_id = self.id,
                     .failure = failure,
-                    .message = action.retainFailureMessage(host.allocator, reason),
+                    .message = action.retainFailureMessage(host.allocator, reason.detail),
+                    .cause = reason.cause,
                 } });
             },
             .give => unreachable,

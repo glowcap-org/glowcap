@@ -50,8 +50,7 @@ export const helpAbout: readonly { title: string; said: string; link?: HelpLink 
 	},
 	{
 		title: "The server",
-		said:
-			"There's a server hosting the rooms, like an IRC server. What you type in a room goes through it. You just don't have an account on it.",
+		said: "There's a server hosting the rooms, like an IRC server. What you type in a room goes through it.",
 	},
 	{
 		title: "Direct messages",

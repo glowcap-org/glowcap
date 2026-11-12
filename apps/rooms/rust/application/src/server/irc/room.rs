@@ -45,7 +45,7 @@ struct Member<R> {
 	kind: MembershipKind,
 }
 
-/// A post admitted but not yet delivered to IRC: the gateway delivers it status-allow: pending state or quoted runtime label
+/// A post admitted but not yet delivered to IRC: the gateway delivers it
 /// as the member, then commits the same authorship to Rooms.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Post {

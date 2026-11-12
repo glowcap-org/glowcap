@@ -144,12 +144,15 @@ pub fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
     };
     const greeter_pos = peer.session_state.bootstrapLookup(GREETER) orelse return false;
     if (target_id != greeter_pos.int()) return false;
+    // tolerant: an argument list that does not decode is not this handler's message.
     if ((deliver.args.len() catch return false) != 1) return false;
+    // tolerant: the same, for its one argument.
     const argument = deliver.args.at(0) catch return false;
     const argument_handoff = switch (argument) {
         .handoff => |value| value,
         else => return false,
     };
+    // tolerant: a handoff that does not decode is not this handler's message.
     const give = switch (argument_handoff.project() catch return false) {
         .give => |value| value,
         .receive => return false,
@@ -195,10 +198,13 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     const enlivener_pos = peer.session_state.bootstrapLookup(STURDYREF_ENLIVENER) orelse return false;
     if (target_id != enlivener_pos.int()) return false;
 
+    // tolerant: an argument list that does not decode is not this handler's message.
     if ((deliver.args.len() catch return false) != 1) return false;
+    // tolerant: the same, for its one argument.
     const argument = deliver.args.at(0) catch return false;
     const sturdy = switch (argument) {
         .reference => |reference| switch (reference) {
+            // tolerant: a sturdy ref that does not decode is not this handler's message.
             .sturdy => |value| value.project() catch return false,
             else => return false,
         },
@@ -281,7 +287,9 @@ fn recordLocatorAddr(shared: *Shared, locator: model.view.PeerLocator) !void {
 /// when the locator carries no host/port hints (a plain `tcp` locator's
 /// designator is already `host:port`).
 fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.view.PeerLocator) !?[]u8 {
+    // tolerant: hints that do not parse give no address, as documented above.
     const host_hint = locator.hints.findNamed("host") catch return null;
+    // tolerant: the same, for the port hint.
     const port_hint = locator.hints.findNamed("port") catch return null;
     const dial_host: ?[]const u8 = if (host_hint) |value|
         if (value == .string) value.string else null
@@ -294,6 +302,7 @@ fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.view.PeerLocat
     if (dial_host) |h| {
         if (dial_port) |p| {
             const port_num = std.fmt.parseInt(u16, p, 10) catch return null;
+            // tolerant: hints that do not parse give no address, as documented above.
             const addr = tcp.parseHostPort(h, port_num) catch return null;
             var buf: [tcp.designator_buf_len]u8 = undefined;
             return try allocator.dupe(u8, tcp.locatorFromAddress(&buf, addr).designator);

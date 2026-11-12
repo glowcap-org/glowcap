@@ -50,6 +50,7 @@ class Settle:
 class Fail:
     ticket: int
     result: int
+    cause: tuple[int, int, int]
     message: str
 
 
@@ -96,7 +97,7 @@ def decode(a) -> HostAction:
     if kind == HOST_ACTION_SETTLE:
         return Settle(ticket=a.ticket, value=_arg_from_c(a.value))
     if kind == HOST_ACTION_FAIL:
-        return Fail(ticket=a.ticket, result=a.result, message=_view(a.message, a.message_len))
+        return Fail(ticket=a.ticket, result=a.result, cause=(a.cause.origin, a.cause.reason, a.cause.context), message=_view(a.message, a.message_len))
     if kind == HOST_ACTION_CLOSE:
         return Close(session_ptr=a.session or 0, result=a.result)
     if kind == HOST_ACTION_RESUME:

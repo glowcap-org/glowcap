@@ -33,17 +33,17 @@ const ForeignForward = struct {
             .fulfilled => |value| reply: {
                 const home = session orelse {
                     source.failure_kind = .closed;
-                    break :reply .{ .broken = "session closed" };
+                    break :reply .{ .broken = engine.Broken.unnamed("session closed") };
                 };
                 source.prepareWire(home, value) catch |err|
-                    break :reply .{ .broken = @errorName(err) };
+                    break :reply .{ .broken = engine.Broken.unnamed(@errorName(err)) };
                 break :reply .{ .fulfilled = .{ .void = {} } };
             },
             .broken => |reason| failed: {
                 source.failure_kind = @import("../vows/completion.zig").classifyFailure(host, self.peer);
                 break :failed .{ .broken = reason };
             },
-            .give => .{ .broken = "UnsupportedValue" },
+            .give => .{ .broken = engine.Broken.unnamed("UnsupportedValue") },
         };
         self.transfer.complete(token);
     }
@@ -100,13 +100,13 @@ const WireForward = struct {
         defer pump.markDirty(host, self.source);
         switch (resolution) {
             .fulfilled => |value| self.fulfill(source.?, destination, value) catch |err|
-                self.breakAnswer(@errorName(err)),
+                self.breakAnswer(engine.Broken.unnamed(@errorName(err))),
             .broken => |reason| self.breakAnswer(reason),
-            .give => self.breakAnswer("UnsupportedValue"),
+            .give => self.breakAnswer(engine.Broken.unnamed("UnsupportedValue")),
         }
     }
 
-    fn breakAnswer(self: *WireForward, reason: []const u8) void {
+    fn breakAnswer(self: *WireForward, reason: engine.Broken) void {
         self.transfer.tryComplete(.{ .broken = reason }) catch |err| switch (err) {
             // The caller may release its answer while the sibling call runs.
             error.InvalidReference => {},

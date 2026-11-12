@@ -27,7 +27,8 @@
     (exn:fail:glowcap-carrier-failure error)
     (exn:fail:glowcap-secondary-code error)
     (exn:fail:glowcap-secondary-name error)
-    (exn:fail:glowcap-secondary-count error))))
+    (exn:fail:glowcap-secondary-count error)
+    (exn:fail:glowcap-cause error))))
 
 (struct driver-failure
   (primary-result primary-name secondary-result secondary-count secondary-name carrier-failure)
@@ -63,8 +64,7 @@
     (GlowcapDriverEvent-carrier-engine-code ev))))
 
 (define (driver-failure-exn who failure abort)
-  (exn:fail:glowcap
-   (string-append
+  (make-glowcap-error (driver-failure-primary-result failure) (string-append
     (format "~a failed" who)
     (if (string=? (driver-failure-primary-name failure) "")
         ""
@@ -74,15 +74,13 @@
                 (if (abort-info-kind abort) (format " ~a" (abort-info-kind abort)) "")
                 (abort-info-message abort))
         ""))
-   (current-continuation-marks)
-   (driver-failure-primary-result failure)
-   abort
-   (driver-failure-carrier-failure failure)
-   (and (positive? (driver-failure-secondary-count failure))
+      #:abort abort
+      #:carrier-failure (driver-failure-carrier-failure failure)
+      #:secondary-code (and (positive? (driver-failure-secondary-count failure))
         (driver-failure-secondary-result failure))
-   (and (positive? (driver-failure-secondary-count failure))
+      #:secondary-name (and (positive? (driver-failure-secondary-count failure))
         (driver-failure-secondary-name failure))
-   (driver-failure-secondary-count failure)))
+      #:secondary-count (driver-failure-secondary-count failure)))
 
 (define (fresh-driver-failure)
   (make-GlowcapDriverFailure
@@ -91,10 +89,11 @@
 
 ;; Call one provider/install or release barrier. The returned code remains the
 ;; ownership-commit authority; `failure` is #f only for a consistent success.
-(define (call/driver-failure who proc)
+(define (call/driver-failure who proc #:result-code [result-code values])
   (define raw (fresh-driver-failure))
-  (define code (proc raw))
-  (with-handlers ([exn:fail:glowcap? (lambda (error) (values code error))])
+  (define result (proc raw))
+  (define code (result-code result))
+  (with-handlers ([exn:fail:glowcap? (lambda (error) (values result error))])
     (define failure
       (driver-failure
        (GlowcapDriverFailure-primary-result raw)
@@ -115,28 +114,22 @@
     (cond
       [(= code OK)
        (if (equal? failure (driver-failure OK "" OK 0 "" #f))
-           (values code #f)
-           (values code
-                   (exn:fail:glowcap
-                    (format "~a returned success with failure data" who)
-                    (current-continuation-marks) ERR-INTERNAL #f #f #f #f 0)))]
+           (values result #f)
+           (values result
+                   (make-glowcap-error ERR-INTERNAL (format "~a returned success with failure data" who))))]
       [(or (not (= code (driver-failure-primary-result failure)))
            (string=? "" (driver-failure-primary-name failure)))
-       (values code
-               (exn:fail:glowcap
-                (format "~a returned an inconsistent failure record" who)
-                (current-continuation-marks) ERR-INTERNAL #f #f #f #f 0))]
+       (values result
+               (make-glowcap-error ERR-INTERNAL (format "~a returned an inconsistent failure record" who)))]
       [(or (and (zero? (driver-failure-secondary-count failure))
                 (or (not (= OK (driver-failure-secondary-result failure)))
                     (not (string=? "" (driver-failure-secondary-name failure)))))
            (and (positive? (driver-failure-secondary-count failure))
                 (or (= OK (driver-failure-secondary-result failure))
                     (string=? "" (driver-failure-secondary-name failure)))))
-       (values code
-               (exn:fail:glowcap
-                (format "~a returned an inconsistent secondary failure" who)
-                (current-continuation-marks) ERR-INTERNAL #f #f #f #f 0))]
-      [else (values code (driver-failure-exn who failure #f))])))
+       (values result
+               (make-glowcap-error ERR-INTERNAL (format "~a returned an inconsistent secondary failure" who)))]
+      [else (values result (driver-failure-exn who failure #f))])))
 
 (define (close-driver-listener! handle listener)
   (define-values (code failure)

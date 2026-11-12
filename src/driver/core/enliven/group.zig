@@ -39,7 +39,7 @@ const Group = struct {
         const host = self.host;
         std.debug.assert(host.enliven_groups.remove(self.key));
         self.pending = false;
-        var routed = resolution;
+        var routed = @import("../vows/settlement.zig").fetchOutcome(resolution);
         var retained: ?@import("../capability.zig").Ref = null;
         if (host.sessions.get(self.key.peer)) |session| {
             const peer = session.served.port.peer;
@@ -56,12 +56,12 @@ const Group = struct {
                 if (resolution.fulfilled == .reference) {
                     retained = host.liftCapability(session, resolution.fulfilled.reference) catch |err| blk: {
                         host.discardValueObservation(session, resolution.fulfilled);
-                        routed = .{ .broken = @errorName(err) };
+                        routed = .{ .broken = .{ .detail = @errorName(err), .cause = (engine.BreakCause{}).withFetch() } };
                         break :blk null;
                     };
                 } else {
                     host.discardValueObservation(session, resolution.fulfilled);
-                    routed = .{ .broken = "NotCapability" };
+                    routed = .{ .broken = .{ .detail = observation.not_capability.detail, .cause = observation.not_capability.cause.withFetch() } };
                 }
             }
         }

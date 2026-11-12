@@ -9,6 +9,7 @@ import { ActionFeedback, useActionCooldown } from "../ActionFeedback.tsx";
 import { joinRefusalKeys } from "../admission_feedback.ts";
 import { memo, useActionState, useEffect, useRef } from "react";
 import { avatarLabel } from "../../../lib/text/controls.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
 import { MAX_NICK, MAX_ROOM, nickRefusal } from "../limits.ts";
 import { directoryName, tooLong } from "../text.ts";
 import { MAKE_HOME_FIELD, MakeHomeChoice } from "./MakeHomeChoice.tsx";
@@ -318,7 +319,7 @@ export const JoinCard = memo(function JoinCard(
 			return null;
 		} catch (err) {
 			if (run.signal.aborted) return null;
-			const text = err instanceof Error ? err.message : String(err);
+			const text = refusalText(err);
 			return { field: failureField, text };
 		} finally {
 			if (halt.current === run) halt.current = null;
@@ -467,6 +468,7 @@ export const JoinCard = memo(function JoinCard(
 								maxLength={looksLikeRoomLink(room) ? undefined : MAX_ROOM}
 								value={room}
 								{...suggest.aria}
+								{...suggest.caret}
 								onChange={(e) => {
 									browser.editJoin({ room: e.target.value });
 									suggest.typed();
@@ -487,7 +489,7 @@ export const JoinCard = memo(function JoinCard(
 							/>
 						</JoinField>
 						{suggest.list !== null && (
-							<MenuLayer holder={roomWrap} layer={roomOffered} owner="joinForm" className="join-offers">
+							<MenuLayer holder={roomWrap} layer={roomOffered} owner="joinForm" className="field-offers">
 								{suggest.list}
 							</MenuLayer>
 						)}

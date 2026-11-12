@@ -3,6 +3,7 @@ const std = @import("std");
 const model = @import("model");
 const Turn = @import("turn.zig").Turn;
 const Error = @import("errors.zig").Error;
+const Broken = @import("foundation").break_cause.Broken;
 
 // Address identity distinguishes error namespaces of separately compiled
 // archives. Mutable storage prevents constant merging; its value is unused.
@@ -15,9 +16,22 @@ pub const HandlerFailure = struct {
     name: []const u8,
     domain: *const anyopaque,
     ordinal: u16,
+    /// Whether the behavior itself refused. False when the adapter hosting
+    /// it could not run the behavior or carry its reply.
+    own: bool,
 
-    pub fn fromError(err: anyerror) HandlerFailure {
-        return .{ .name = @errorName(err), .domain = &error_domain, .ordinal = @intFromError(err) };
+    /// The behavior's own refusal.
+    pub fn behavior(err: anyerror) HandlerFailure {
+        return .{ .name = @errorName(err), .domain = &error_domain, .ordinal = @intFromError(err), .own = true };
+    }
+    /// A failure of the adapter around a behavior, never the behavior's own.
+    pub fn adapter(err: anyerror) HandlerFailure {
+        return .{ .name = @errorName(err), .domain = &error_domain, .ordinal = @intFromError(err), .own = false };
+    }
+    /// The break this failure gives the call and every send its turn drops.
+    /// Only the behavior's own refusal carries the application cause.
+    pub fn broken(self: HandlerFailure) Broken {
+        return if (self.own) Broken.application(self.name) else Broken.unnamed(self.name);
     }
     pub fn localError(self: HandlerFailure) anyerror {
         const local_domain: *const anyopaque = &error_domain;
@@ -35,7 +49,7 @@ pub const HandlerResult = union(enum) {
     refused: HandlerFailure,
 
     pub fn fromResult(result: anyerror!model.Argument) HandlerResult {
-        return if (result) |value| .{ .returned = value } else |err| .{ .refused = HandlerFailure.fromError(err) };
+        return if (result) |value| .{ .returned = value } else |err| .{ .refused = HandlerFailure.behavior(err) };
     }
 };
 
@@ -44,7 +58,7 @@ pub const HandlerResult = union(enum) {
 /// The local arm clones them into the queue and the far arm encodes them
 /// onto the wire before the call returns.
 pub const Message = struct {
-    /// Null invokes positionally; every non-null slice, including empty,
+    /// Null invokes positionally. Every non-null slice, including empty,
     /// contributes a leading symbol to the wire argument list.
     verb: ?[]const u8 = null,
     args: []const model.Argument = &.{},
@@ -81,7 +95,7 @@ pub const Delivery = struct {
 
     /// Split a positional wire list using the actor convention: a leading
     /// symbol is the selector, including the empty symbol. OCapN itself has
-    /// no distinguished method slot; a first positional symbol is the same
+    /// no distinguished method slot. A first positional symbol is the same
     /// wire list as a method selector.
     pub fn fromArgs(args: model.view.Args) model.view.ProjectError!Delivery {
         if ((try args.len()) > 0) {
@@ -208,6 +222,7 @@ pub const Queued = union(enum) {
 /// (a vat holding a hosted actor is not snapshottable, `NotSnapshottable`).
 pub const HostedActor = struct {
     pub const Result = HandlerResult;
+    pub const Failure = HandlerFailure;
     /// The consumer's state, opaque to the vat, passed back to `handle`/`free`.
     ctx: *anyopaque,
     /// Invoked on each deliver. Returns the reply, borrowed for the turn, the
@@ -215,9 +230,9 @@ pub const HostedActor = struct {
     handle: *const fn (ctx: *anyopaque, turn: *Turn, msg: Delivery) Result,
     /// Optional adapter-local delivery. Ordinary model handlers never receive
     /// opaque payloads through their data-only contract.
-    /// Null means success. Refusal names immutable archive-owned failure text.
-    /// Produce the name where the handler's Zig error was caught.
-    handleOpaque: ?*const fn (ctx: *anyopaque, turn: *Turn, msg: OpaqueMessage) ?[]const u8 = null,
+    /// Null means success. A failure names immutable archive-owned text,
+    /// produced where the handler's Zig error was caught.
+    handleOpaque: ?*const fn (ctx: *anyopaque, turn: *Turn, msg: OpaqueMessage) ?HandlerFailure = null,
     /// Release `ctx` when the actor's box drops (vat `deinit`, or a failed
     /// spawn). Null when the consumer keeps ownership of `ctx`.
     free: ?*const fn (ctx: *anyopaque) void = null,

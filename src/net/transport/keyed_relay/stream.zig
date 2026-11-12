@@ -75,7 +75,7 @@ pub const RelayStream = struct {
     mask_rng: std.Random.DefaultCsprng,
 
     /// Pin a stream over a connected socket. The WebSocket upgrade has not run
-    /// yet. `upgrade` drives it. On error the caller still owns the carrier status-allow: pending state or quoted runtime label
+    /// yet. `upgrade` drives it. On error the caller still owns the carrier
     /// lease and `stream`. On success this value adopts both.
     pub fn create(
         allocator: std.mem.Allocator,
@@ -525,6 +525,7 @@ pub const RelayStream = struct {
         if (flushed < 0) return flushed;
         if (rs.source.writer.end != 0) return multiplexed_resident.would_block;
         const consumed = @min(bytes.len, max_staged_application_bytes);
+        // tolerant: writeFrame latched its cause on this stream for takeFailure, and -1 is the carrier's dead-channel return.
         rs.writeFrame(.binary, bytes[0..consumed]) catch return -1;
         const flushed_after_write = rs.tryFlushPending();
         // The caller prefix belongs to this stream once framed. A full
@@ -558,8 +559,8 @@ pub const RelayStream = struct {
         if (rs.read_closed) return true;
         const buffered = rs.source.reader.buffered();
         if (rs.remaining != 0) return buffered.len != 0;
-        // Partial headers and control payloads need a new carrier edge. A
-        // malformed header is ready for the reader to reject immediately.
+        // Partial headers and control payloads need a new carrier edge.
+        // tolerant: a malformed header is work, since the reader rejects it on its next read.
         const parsed = (parseHeaderBytes(buffered) catch return true) orelse return false;
         return buffered.len >= parsed.header_len + protocol.controlPayloadLen(parsed.frame);
     }
@@ -568,6 +569,7 @@ pub const RelayStream = struct {
     /// reactor. Application writes reserve enough buffer for this one control
     /// frame, so staging the close cannot flush or allocate.
     pub fn tryClose(rs: *RelayStream) CloseProgress {
+        // tolerant: writeFrame records its cause on the stream before returning.
         if (!rs.close_sent) rs.writeFrame(.close, &.{}) catch return .failed;
         const flushed = rs.tryFlushPending();
         if (flushed == multiplexed_resident.would_block) return .wait_write;

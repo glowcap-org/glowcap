@@ -128,18 +128,6 @@
 	font-size: var(--type-ui);
 }
 
-.link-preview-card.loading::before {
-	box-sizing: border-box;
-	flex: none;
-	width: 0.9em;
-	height: 0.9em;
-	border: 2px solid currentColor;
-	border-right-color: transparent;
-	border-radius: 50%;
-	content: "";
-	animation: control-busy-turn 0.75s linear infinite;
-}
-
 /* A preview that could not be fetched is not an emergency: the link the reader
    typed still works as written, and the card says so in the page's own ink,
    with the one act that can change the answer beside it. Nothing here is red. */

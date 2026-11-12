@@ -7,8 +7,10 @@
 //! The units pin the post-side refusals: a full mailbox, an oversized payload,
 //! and a capability in a plain-data settle, each loud.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
+const wait = @import("../support/wait.zig");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
@@ -36,7 +38,7 @@ test "settle mailbox rolls back a post whose wake fails" {
 
     try std.testing.expectError(
         error.WakeNudgeFailed,
-        mailbox.post(threaded.io(), 1, .{ .broken = "not admitted" }),
+        mailbox.post(threaded.io(), 1, .{ .broken = .{ .detail = "not admitted", .cause = BreakCause{} } }),
     );
     try std.testing.expectEqual(@as(usize, 0), mailbox.count);
 }
@@ -61,8 +63,8 @@ test "settle mailbox: full, oversized, and capability-bearing posts refuse loudl
         mb.post(io, 1, .{ .fulfilled = .{ .string = &big } }),
     );
     // One slot: the second unapplied post is backpressure, not growth.
-    try mb.post(io, 1, .{ .broken = "first" });
-    try std.testing.expectError(error.MailboxFull, mb.post(io, 2, .{ .broken = "second" }));
+    try mb.post(io, 1, .{ .broken = .{ .detail = "first", .cause = BreakCause{} } });
+    try std.testing.expectError(error.MailboxFull, mb.post(io, 2, .{ .broken = .{ .detail = "second", .cause = BreakCause{} } }));
 }
 
 // --- The shared deferring behavior and worker -------------------------------
@@ -97,13 +99,14 @@ fn worker(
             if (stop.load(.acquire)) return;
             id = out.load(.acquire);
             if (id != 0) break;
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+            // A raw thread has no Io task, so its sleep cannot be cancelled.
+            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch unreachable;
         }
         out.store(0, .release);
         if (round == 0) {
             mb.post(io, id, .{ .fulfilled = .{ .string = "computed off-thread" } }) catch unreachable;
         } else {
-            mb.post(io, id, .{ .broken = "worker gave up" }) catch unreachable;
+            mb.post(io, id, .{ .broken = .{ .detail = "worker gave up", .cause = BreakCause{} } }) catch unreachable;
         }
     }
 }
@@ -120,12 +123,14 @@ fn clientAsserts(client: *driver.Session, allocator: std.mem.Allocator) !void {
 
     const broken = try client.call(worker_ref, "work", &.{}, arena.allocator());
     try std.testing.expect(broken == .broken);
-    try std.testing.expect(std.mem.indexOf(u8, broken.broken, "worker gave up") != null);
+    try std.testing.expect(std.mem.indexOf(u8, broken.broken.detail, "worker gave up") != null);
 }
 
 // --- HostRuntime: the poll wait wakes on the mailbox fd -----------------
 
-fn hostRuntimeServe(server: *driver.Server, out: *std.atomic.Value(u64)) anyerror!void {
+/// Raising `stop` before a partner dials ends the task without an accept.
+fn hostRuntimeServe(server: *driver.Server, out: *std.atomic.Value(u64), stop: *const std.atomic.Value(bool)) anyerror!void {
+    if (!try wait.acceptableUnlessStopped(server, stop)) return;
     const session = try server.accept();
     defer session.deinit();
     _ = try session.publish("worker", DeferringOwned, .{ .out = out });
@@ -156,8 +161,19 @@ test "off-turn settle over HostRuntime: a worker thread's post wakes the poll wa
     var parked = std.atomic.Value(u64).init(0);
     var worker_stop = std.atomic.Value(bool).init(false);
     const worker_thread = try std.Thread.spawn(.{}, worker, .{ mb, &parked, &worker_stop });
+    var worker_joined = false;
+    errdefer if (!worker_joined) {
+        worker_stop.store(true, .release);
+        worker_thread.join();
+    };
 
-    var host_future = try io.concurrent(hostRuntimeServe, .{ server, &parked });
+    var host_stop = std.atomic.Value(bool).init(false);
+    var host_joined = false;
+    var host_future = try io.concurrent(hostRuntimeServe, .{ server, &parked, &host_stop });
+    errdefer if (!host_joined) {
+        host_stop.store(true, .release);
+        wait.joinedUnwinding("host", host_future.await(io));
+    };
 
     const client_result = blk: {
         var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -175,7 +191,11 @@ test "off-turn settle over HostRuntime: a worker thread's post wakes the poll wa
     };
 
     worker_stop.store(true, .release);
+    worker_joined = true;
     worker_thread.join();
+    // A host whose partner never dialed has no session to end by itself.
+    if (client_result) |_| {} else |_| host_stop.store(true, .release);
+    host_joined = true;
     const host_result = host_future.await(io);
     try client_result;
     try host_result;
@@ -189,12 +209,13 @@ fn hostRuntimeServeStepping(
     out: *std.atomic.Value(u64),
     done: *std.atomic.Value(bool),
 ) anyerror!void {
+    if (!try wait.acceptableUnlessStopped(server, done)) return;
     const session = try server.accept();
     defer session.deinit();
     _ = try session.publish("worker", DeferringOwned, .{ .out = out });
     try session.attend();
     while (!done.load(.acquire)) {
-        const progress = session.runtime.stepSession(session.hs, 25) catch break;
+        const progress = try session.runtime.stepSession(session.hs, 25);
         if (progress) |p| if (p == .closed) break;
     }
 }
@@ -202,14 +223,23 @@ fn hostRuntimeServeStepping(
 /// Post the settle and immediately consume the wake byte it wrote, so the
 /// owning thread's poll can never select the mailbox row. Applying has to
 /// come from the pump's own loop top or not at all.
-fn workerSwallowingItsWake(mb: *driver.SettleMailbox, out: *std.atomic.Value(u64)) void {
+fn workerSwallowingItsWake(
+    mb: *driver.SettleMailbox,
+    out: *std.atomic.Value(u64),
+    stop: *const std.atomic.Value(bool),
+) void {
     var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+    // A host that never parks a call leaves nothing to settle. The worker
+    // returns, and the test fails on the call that never completed.
+    const deadline = wait.deadlineAfter(io, wait.default_deadline_ms);
     var id: u64 = 0;
     while (id == 0) {
+        if (stop.load(.acquire) or wait.expired(io, deadline)) return;
         id = out.load(.acquire);
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+        // A raw thread has no Io task, so its sleep cannot be cancelled.
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch unreachable;
     }
     mb.post(io, id, .{ .fulfilled = .{ .string = "applied at the loop top" } }) catch unreachable;
     mb.drainWake() catch unreachable;
@@ -248,8 +278,19 @@ test "off-turn settle applies at the pump top, not only when the wake wins the p
     const mb = try server.runtime.settleMailbox();
     var parked = std.atomic.Value(u64).init(0);
     var done = std.atomic.Value(bool).init(false);
-    const worker_thread = try std.Thread.spawn(.{}, workerSwallowingItsWake, .{ mb, &parked });
+    var worker_stop = std.atomic.Value(bool).init(false);
+    const worker_thread = try std.Thread.spawn(.{}, workerSwallowingItsWake, .{ mb, &parked, &worker_stop });
+    var worker_joined = false;
+    errdefer if (!worker_joined) {
+        worker_stop.store(true, .release);
+        worker_thread.join();
+    };
+    var host_joined = false;
     var host_future = try io.concurrent(hostRuntimeServeStepping, .{ server, &parked, &done });
+    errdefer if (!host_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("host", host_future.await(io));
+    };
 
     const client_result = blk: {
         var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -270,8 +311,12 @@ test "off-turn settle applies at the pump top, not only when the wake wins the p
         break :blk {};
     };
 
+    // A worker whose call never parked has nothing to wait for once the client is done.
+    worker_stop.store(true, .release);
+    worker_joined = true;
     worker_thread.join();
     done.store(true, .release);
+    host_joined = true;
     const host_result = host_future.await(io);
     try client_result;
     try host_result;

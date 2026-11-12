@@ -332,6 +332,7 @@ test "loam continuation permits close with passive readers but refuses executor 
     const read = try fixture.host.callLocalCapability(std.testing.allocator, reader, "read", &.{}, 4096);
     _ = try fixture.host.vat.driveIngressBudgeted(.local, 64);
     try std.testing.expectEqualStrings("AttachmentClosed", read.result().failed.message);
+    try std.testing.expect(!read.result().failed.cause.isApplication());
     read.deinit();
     try std.testing.expectEqual(@as(usize, 0), calls);
     fixture.host.releaseCapabilityTerminal(reader, null);

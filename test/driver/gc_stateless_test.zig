@@ -289,7 +289,7 @@ test "stateless GC refuses a resolve for a question already released" {
     try peer.session_state.releaseOutboundAnswer(.from(5));
     try std.testing.expectError(error.GcUnderflow, driver.core.testing.emitStatelessAfter(&peer, &event));
 
-    // The position asked again is a different question, and the old resolve status-allow: replacement state identity
+    // The position asked again is a different question, and the old resolve
     // cannot release it.
     try peer.session_state.installOutboundAnswer(.from(5));
     try std.testing.expectError(error.GcUnderflow, driver.core.testing.emitStatelessAfter(&peer, &event));

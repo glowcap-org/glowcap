@@ -193,7 +193,7 @@ pub const Backend = union(Selection) {
         };
     }
 
-    /// A platform listener is bound when `openListener` returns; nothing
+    /// A platform listener is bound when `openListener` returns. Nothing
     /// pends.
     pub fn listenerPending(_: *const Backend, _: Fd) bool {
         return false;

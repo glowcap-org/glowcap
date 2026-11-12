@@ -23,8 +23,17 @@ pub fn executable(ctx: *Ctx, name: []const u8) ![]u8 {
     return path;
 }
 
-pub fn exists(ctx: *Ctx, path: []const u8) bool {
-    std.Io.Dir.cwd().access(ctx.io, path, .{}) catch return false;
+/// Whether an installed component is present. Only a missing path is
+/// absence: any other refusal is reported with its cause, because reinstalling
+/// does not fix a path this user cannot read.
+pub fn exists(ctx: *Ctx, path: []const u8) !bool {
+    std.Io.Dir.cwd().access(ctx.io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => {
+            log.err(ctx.io, "cannot read installed component {s}: {s}. Check that this user can read it", .{ path, @errorName(err) });
+            return err;
+        },
+    };
     return true;
 }
 

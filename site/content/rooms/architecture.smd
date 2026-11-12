@@ -57,19 +57,15 @@ has to be checked against the outside world. A process reads both before it
 says it is ready, so it never claims a clean start while a preceding write,
 registration, or announcement is still unknown.
 
-# Why Rust
+# Rust on the C ABI
 
-Rooms is a working chat application built from Rust on glowcap's C ABI. Zig
-could have done everything Rooms does directly, but Rust tests the C ABI and the
-WebAssembly build the way an outside user would.
-
-The [application boundary](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0045-managed-rooms-sessions.md)
+Rooms is built from Rust on glowcap's C ABI, so it uses the C ABI and the
+WebAssembly build the way an outside user would. The
+[application boundary](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0045-managed-rooms-sessions.md)
 keeps the application rules in a Rust crate built without the standard
-library, so it cannot touch files, sockets, or clocks. The services ship as binaries with no runtime
-to install.
-
-The cost is bundle size, build time, and a copy of each typed command where the
-page meets WebAssembly.
+library, so it cannot touch files, sockets, or clocks. The services ship as
+binaries with no runtime to install. The cost is bundle size, build time, and
+a copy of each typed command where the page meets WebAssembly.
 
 # How the code is divided
 

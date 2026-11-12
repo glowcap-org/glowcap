@@ -372,7 +372,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn every_invalid_line_is_the_line_it_replaced() {
+	fn every_invalid_variant_displays_its_operator_line() {
 		let lines = [
 			(Invalid::Shape("shape line".into()), "shape line"),
 			(Invalid::SnapshotSearch, "operatorSnapshot takes one optional search"),

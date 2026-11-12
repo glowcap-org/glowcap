@@ -43,9 +43,36 @@
 ;; A glowcap failure carries the flat GLOWCAP_ERR_* `code` that names the
 ;; failure family. A refused inbound frame adds an
 ;; `abort-info` naming the member (built by `abort-info<-c` below); `abort` is
-;; #f everywhere else.
+;; #f everywhere else. `cause` retains origin, reason and operation context; partner text
+;; cannot establish a local cause.
 (struct exn:fail:glowcap exn:fail
-  (code abort carrier-failure secondary-code secondary-name secondary-count))
+  (code abort carrier-failure secondary-code secondary-name secondary-count
+        cause))
+
+;; A broken vow. `reason` is the break reason the vow carried, exactly as the
+;; partner or the Host gave it.
+(struct exn:fail:glowcap:broken exn:fail:glowcap (reason))
+
+(define (make-glowcap-error code message
+                            #:cause [cause (break-cause 'unspecified 'unspecified 0)] #:abort [abort #f]
+                            #:carrier-failure [carrier #f]
+                            #:secondary-code [secondary-code #f]
+                            #:secondary-name [secondary-name #f]
+                            #:secondary-count [secondary-count 0]
+                            #:marks [marks (current-continuation-marks)])
+  (exn:fail:glowcap message marks code abort carrier
+                    secondary-code secondary-name secondary-count cause))
+
+(define (make-glowcap-broken code message reason
+                             #:cause [cause (break-cause 'unspecified 'unspecified 0)]
+                             #:marks [marks (current-continuation-marks)])
+  (exn:fail:glowcap:broken message marks code #f #f #f #f 0 cause reason))
+
+;; A connector cannot realize this route in its configuration, before opening
+;; a channel. Keep its diagnostic verbatim for the Host's route-failure report.
+(define (make-glowcap-transport-unavailable detail)
+  (make-glowcap-error ERR-INVALID-ARGUMENT detail
+                      #:cause (route-failure-cause 'transport-unavailable)))
 
 ;; Raise a typed glowcap failure for a non-OK `code`, reading the human-readable
 ;; cause through `read-error` (a thunk that returns the message string or #f).
@@ -54,14 +81,12 @@
 ;; spelling that reads `glowcap_last_error`. The transport seam
 ;; (`private/seam.rkt`) provides `check-with` so `glowcap-tcp.rkt` /
 ;; `glowcap-inproc.rkt` raise the same typed exn from their own diagnostics.
-(define (check-with code read-error)
+(define (check-with code read-error [read-cause (lambda () (break-cause 'unspecified 'unspecified 0))])
   (unless (= code OK)
-    (define msg (read-error))   ; capture immediately, before any later call clobbers it
-    (raise (exn:fail:glowcap
-            (if msg
-                (format "glowcap error ~a: ~a" code msg)
-                (format "glowcap error ~a" code))
-            (current-continuation-marks) code #f #f #f #f 0))))
+    ;; Capture both slots immediately, before any later call clobbers them.
+    (define msg (read-error))
+    (define cause (read-cause))
+    (raise (cause-failure code msg cause))))
 
 (define (check code) (check-with code last-error))
 
@@ -71,16 +96,35 @@
 ;; ocapn family's `last-error`.
 (define (host-last-error) (read-last-error glowcap_host_last_error))
 
-;; `check` for the glowcap_host_* family: same typed exn, read from the host
-;; archive's own last-error slot.
-(define (check/host code) (check-with code host-last-error))
+(define (host-last-error-cause)
+  (define raw (make-GlowcapBreakCause 0 0 0))
+  (glowcap_host_last_error_cause raw)
+  (define fields (break-cause-fields<-c raw))
+  (or (apply break-cause-from-fields fields) fields))
 
-;; Whether a final FFI release crossed its ownership boundary. The Host and
-;; driver release contracts share one pre-commit refusal: INVALID-ARGUMENT.
-;; Every other result is a teardown outcome and names an already-consumed
-;; handle, even when `check/host` or `check/driver` must still raise it.
-(define (release-consumed? code)
-  (not (= code ERR-INVALID-ARGUMENT)))
+(define (check/host code) (check-with code host-last-error host-last-error-cause))
+
+;; Predicates establish provenance before interpreting diagnostic text.
+(define (glowcap-application-message failure)
+  (and (exn:fail:glowcap:broken? failure)
+       (= (exn:fail:glowcap-code failure) ERR-BROKEN)
+       (break-cause-application? (exn:fail:glowcap-cause failure))
+       (exn:fail:glowcap:broken-reason failure)))
+
+(define (glowcap-publication-not-found? failure)
+  (and (exn:fail:glowcap:broken? failure)
+       (= (exn:fail:glowcap-code failure) ERR-BROKEN)
+       (break-cause-publication-not-found?
+        (exn:fail:glowcap-cause failure)
+        (exn:fail:glowcap:broken-reason failure))))
+
+(define (glowcap-peer-identity-unverified? failure)
+  (and (exn:fail:glowcap? failure)
+       (break-cause-peer-identity-unverified? (exn:fail:glowcap-cause failure))))
+
+(define (glowcap-exporter-unreachable? failure)
+  (and (exn:fail:glowcap? failure)
+       (break-cause-exporter-unreachable? (exn:fail:glowcap-cause failure))))
 
 ;; Preserve the first glowcap failure while attaching the first later cleanup
 ;; failure and its total count. Racket exceptions are immutable values, so the
@@ -88,18 +132,21 @@
 (define (retain-cleanup-failure primary cleanup)
   (cond
     [(and (exn:fail:glowcap? primary) (exn:fail:glowcap? cleanup))
-     (struct-copy exn:fail:glowcap primary
-                  [secondary-code
-                   (if (zero? (exn:fail:glowcap-secondary-count primary))
-                       (exn:fail:glowcap-code cleanup)
-                       (exn:fail:glowcap-secondary-code primary))]
-                  [secondary-name
-                   (if (zero? (exn:fail:glowcap-secondary-count primary))
-                       "GlowcapError"
-                       (exn:fail:glowcap-secondary-name primary))]
-                  [secondary-count
-                   (min #xffffffff
-                        (add1 (exn:fail:glowcap-secondary-count primary)))])]
+     (define first? (zero? (exn:fail:glowcap-secondary-count primary)))
+     (define code
+       (if first? (exn:fail:glowcap-code cleanup) (exn:fail:glowcap-secondary-code primary)))
+     (define name (if first? "GlowcapError" (exn:fail:glowcap-secondary-name primary)))
+     (define count (min #xffffffff (add1 (exn:fail:glowcap-secondary-count primary))))
+     ;; A copy keeps the primary's own type, so a broken vow stays one.
+     (if (exn:fail:glowcap:broken? primary)
+         (struct-copy exn:fail:glowcap:broken primary
+                      [secondary-code #:parent exn:fail:glowcap code]
+                      [secondary-name #:parent exn:fail:glowcap name]
+                      [secondary-count #:parent exn:fail:glowcap count])
+         (struct-copy exn:fail:glowcap primary
+                      [secondary-code code]
+                      [secondary-name name]
+                      [secondary-count count]))]
     [else primary]))
 
 ;; Raise the first lifecycle failure after cleanup has completed, attaching a
@@ -113,13 +160,19 @@
     [cleanup (raise cleanup)]
     [else (void)]))
 
+;; The handler predicate for a site that records, converts, or retains a
+;; raised failure. Racket may raise any value, so every one of them is a
+;; failure except a break: a break belongs to the thread's operator and escapes
+;; as itself rather than becoming a diagnostic or a secondary cause.
+(define (raised-failure? raised) (not (exn:break? raised)))
+
 ;; Run every rollback barrier in order, retain each observable consequence on
 ;; the unchanged construction failure, then raise it. A failed early cleanup
 ;; must not strand an owner that follows it in the transaction.
 (define (raise-after-cleanups primary cleanups)
   (define retained primary)
   (for ([cleanup (in-list cleanups)])
-    (with-handlers ([(lambda (_) #t)
+    (with-handlers ([raised-failure?
                      (lambda (later)
                        (set! retained (retain-cleanup-failure retained later)))])
       (cleanup)))
@@ -128,13 +181,42 @@
 ;; Project the core-issued FAIL result into the promise outcome vocabulary.
 ;; No wrapper state participates: an unknown result is an ABI contract break,
 ;; not evidence that the vow was merely broken.
-(define (vow-failure-outcome code reason)
+(define (failure-display code reason cause)
+  (define label (break-cause-label cause))
+  (define detail
+    (cond [(and label reason (not (equal? reason ""))) (format "~a: ~a" label reason)]
+          [label label]
+          [else reason]))
+  (if detail (format "glowcap error ~a: ~a" code detail) (format "glowcap error ~a" code)))
+
+;; An unknown ABI value cannot establish provenance. Keep the original failure
+;; and record the mismatch in its secondary diagnostics instead of throwing
+;; while the pump is trying to settle it.
+(define (cause-failure code reason cause)
+  (define known? (break-cause? cause))
+  (define provenance (if known? cause (break-cause 'unspecified 'unspecified 0)))
+  (define message (failure-display code reason provenance))
+  (define failure
+    (if (= code ERR-BROKEN)
+        (make-glowcap-broken code message reason #:cause provenance)
+        (make-glowcap-error code message #:cause provenance)))
   (cond
-    [(= code ERR-BROKEN) (cons 'broken reason)]
-    [(= code ERR-CLOSED) (cons 'closed reason)]
+    [known? failure]
+    [(exn:fail:glowcap:broken? failure)
+     (struct-copy exn:fail:glowcap:broken failure
+                  [secondary-code #:parent exn:fail:glowcap ERR-INTERNAL]
+                  [secondary-name #:parent exn:fail:glowcap (format "UnknownBreakCause(~a)" cause)]
+                  [secondary-count #:parent exn:fail:glowcap 1])]
     [else
-     (raise-glowcap 'host-action ERR-INTERNAL
-                    "core emitted invalid FAIL result ~a" code)]))
+     (struct-copy exn:fail:glowcap failure
+                  [secondary-code ERR-INTERNAL]
+                  [secondary-name (format "UnknownBreakCause(~a)" cause)]
+                  [secondary-count 1])]))
+
+(define (vow-failure-outcome code raw-cause reason)
+  (unless (or (= code ERR-BROKEN) (= code ERR-CLOSED))
+    (raise-glowcap 'host-action ERR-INTERNAL "core emitted invalid FAIL result ~a" code))
+  (cons 'failed (cause-failure code reason (or (apply break-cause-from-fields raw-cause) raw-cause))))
 
 ;; Project a filled `_GlowcapLastAbort` cstruct into an `abort-info`, copying
 ;; each process-static C view into a Racket string so the result outlives any
@@ -161,23 +243,39 @@
         (GlowcapLastAbort-secondary-error-name-len out))
    (GlowcapLastAbort-secondary-error-count out)))
 
-;; A typed application-level failure (a partner break, a fetch that did not
-;; yield a capability): same exn family, no abort detail.
+;; A typed application-level failure (a fetch that did not yield a
+;; capability, a closed connection): same exn family, no abort detail.
 (define (raise-glowcap who code fmt . args)
-  (raise (exn:fail:glowcap (format "~a: ~a" who (apply format fmt args))
-                           (current-continuation-marks) code #f #f #f #f 0)))
+  (raise (make-glowcap-error code (format "~a: ~a" who (apply format fmt args)))))
+
+;; The vow awaited for `subject` broke. The reason rides on the failure, so a
+;; caller compares the cause without reading the message.
+(define (raise-broken who subject reason)
+  (when (exn:fail:glowcap? reason) (raise reason))
+  (raise (make-glowcap-broken ERR-BROKEN (format "~a: ~a broke: ~a" who subject reason) reason)))
 
 (module+ test
   (require rackunit)
-  (check-false (release-consumed? ERR-INVALID-ARGUMENT))
-  (check-true (release-consumed? OK))
-  (check-true (release-consumed? ERR-IO))
+  (for ([route '(peer-unreachable transport-unavailable)])
+    (define cause (route-failure-cause route))
+    (check-equal? (route-failure-from-cause cause) route)
+    (for ([context (list break-context-fetch break-context-restoration break-context-withdrawal)])
+      (check-false (route-failure-from-cause (struct-copy break-cause cause [context context])))))
+  (check-false (route-failure-from-cause (break-cause 'partner 'application 0)))
+  (check-false (route-failure-from-cause (break-cause 'unspecified 'unspecified 0)))
+  (check-equal? (route-failure-from-cause
+                 (exn:fail:glowcap-cause (make-glowcap-transport-unavailable "no connector")))
+                'transport-unavailable)
+  (check-true (release-result-consumed? OK))
+  (for ([code (in-list (list ERR-INVALID-ARGUMENT ERR-IO ERR-INTERNAL WOULD-BLOCK))])
+    (check-false (release-result-consumed? code))
+    (check-true (release-result-consumed? (- code)))
+    (check-equal? (release-result-code code) code)
+    (check-equal? (release-result-code (- code)) code))
   (define primary
-    (exn:fail:glowcap "primary" (current-continuation-marks)
-                      ERR-INVALID-ARGUMENT #f #f #f #f 0))
+    (make-glowcap-error ERR-INVALID-ARGUMENT "primary"))
   (define cleanup
-    (exn:fail:glowcap "cleanup" (current-continuation-marks)
-                      ERR-IO #f #f #f #f 0))
+    (make-glowcap-error ERR-IO "cleanup"))
   (define retained (retain-cleanup-failure primary cleanup))
   (check-equal? (exn-message retained) "primary")
   (check-equal? (exn:fail:glowcap-code retained) ERR-INVALID-ARGUMENT)

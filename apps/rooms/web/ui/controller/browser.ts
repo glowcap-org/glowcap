@@ -1,6 +1,7 @@
 // Browser-owned presentation and session-establishment, independent of whether
 // the established session is local or attached.
 
+import { invariant } from "../../../lib/invariant.ts";
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { ServerInUse } from "../server_choice.ts";
 import type { RoomsControllerSelection } from "../../../lib/rooms_state.ts";
@@ -94,7 +95,7 @@ export const RoomsBrowserProvider = RoomsBrowserContext.Provider;
 export function useRoomsBrowser(): RoomsBrowserController {
 	const controller = useContext(RoomsBrowserContext);
 	if (controller == null) {
-		throw new Error("rooms: browser behavior was requested outside its provider");
+		invariant(false, "rooms: browser behavior was requested outside its provider");
 	}
 	return controller;
 }

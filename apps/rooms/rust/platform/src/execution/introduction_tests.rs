@@ -1,4 +1,4 @@
-//! Introduction retry policy and the direct exporter route over real CapTP.
+//! One-call introductions, cancellation, and direct exporter routes over real CapTP.
 use super::HostPlatform;
 use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, tcp};
 use rooms_application::directory::{introduction as policy, registration::Id};
@@ -19,16 +19,31 @@ const ID: &str = "11111111-1111-4111-8111-111111111111";
 #[derive(Clone, Default)]
 struct Platform {
 	expire_wait: Rc<Cell<bool>>,
+	elapsed: Rc<Cell<u64>>,
 }
 impl rooms_glowcap::client::Deadline for Platform {
 	fn monotonic_millis(&self) -> u64 {
-		0
+		self.elapsed.get()
 	}
 	async fn within<T>(&self, milliseconds: u64, work: impl Future<Output = T>) -> Option<T> {
-		if milliseconds == policy::WAIT_MS && self.expire_wait.replace(false) {
+		if self.expire_wait.replace(false) {
 			return None;
 		}
-		HostPlatform.within(milliseconds, work).await
+		let start = self.elapsed.get();
+		let mut work = std::pin::pin!(work);
+		HostPlatform
+			.within(
+				milliseconds,
+				poll_fn(|cx| {
+					if self.elapsed.get().saturating_sub(start) >= milliseconds {
+						Poll::Ready(None)
+					} else {
+						work.as_mut().poll(cx).map(Some)
+					}
+				}),
+			)
+			.await
+			.flatten()
 	}
 }
 impl Tasks for Platform {
@@ -41,12 +56,15 @@ fn serve(session: Rc<Session>) -> tokio::task::JoinHandle<glowcap::Result<()>> {
 	tokio::task::spawn_local(async move { session.serve().await })
 }
 async fn runtime() -> Runtime {
-	Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap()
+	Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap()
 }
 fn notice(id: &str) -> [Argument; 4] {
-	["introducible".into(), "bob".into(), id.into(), "opening".into()]
+	["mintInboxFor".into(), "bob".into(), id.into(), "opening".into()]
 }
 #[tokio::test]
 async fn introduction_waits_match_registration_and_remain_bounded() {
@@ -62,29 +80,23 @@ async fn waiting() {
 	let platform = Platform::default();
 	let client = Client::new(client.unwrap(), platform.clone());
 	let name = peer.spawn_owned(|_, _| Ok(Argument::Void)).unwrap();
-	let dm = peer
-		.spawn_owned(|verb, _| {
-			let verb = verb.ok_or("fixture requires a method")?;
-			assert_eq!(verb, "hello");
-			Ok("bob".into())
-		})
-		.unwrap();
+	let dm = peer.spawn_owned(|_, _| Ok("bob".into())).unwrap();
 	let answer = Rc::new(RefCell::new(Argument::Reference(dm.clone())));
 	let callback = Rc::new(RefCell::new(None::<glowcap::Ref>));
-	let refusals = Rc::new(Cell::new(0usize));
-	let early = Rc::new(Cell::new(false));
+	let hold = Rc::new(Cell::new(false));
 	let hard = Rc::new(Cell::new(false));
 	let queries = Rc::new(Cell::new(0));
+	let replies = Rc::new(RefCell::new(std::collections::VecDeque::new()));
 	let (tx, mut arrivals) = tokio::sync::mpsc::channel(512);
-	let (service, inbox, named, reply, refuse, notify, fail, queried) = (
+	let (service, inbox, named, reply, park, fail, queried, deferred) = (
 		peer.clone(),
 		callback.clone(),
 		name.clone(),
 		answer.clone(),
-		refusals.clone(),
-		early.clone(),
+		hold.clone(),
 		hard.clone(),
 		queries.clone(),
+		replies.clone(),
 	);
 	let root = peer
 		.publish("directory", move |verb, args| {
@@ -100,7 +112,6 @@ async fn waiting() {
 					Ok(Argument::List(vec![args[0].clone(), ID.into(), named.clone().into()]))
 				}
 				"memberRegistration" => {
-					assert_eq!(args[0].as_str(), Some("bob"));
 					queried.set(queried.get() + 1);
 					Ok(ID.into())
 				}
@@ -109,17 +120,12 @@ async fn waiting() {
 					assert_eq!(args[0].as_str(), Some("bob"));
 					assert_eq!(args[1].as_str(), Some(ID));
 					tx.try_send(()).unwrap();
-					if notify.replace(false) {
-						service
-							.tell(inbox.borrow().as_ref().unwrap(), "notify", &notice(ID))
-							.unwrap();
-					}
 					if fail.get() {
 						return Err("peer-offline: gone".into());
 					}
-					if refuse.get() > 0 {
-						refuse.set(refuse.get() - 1);
-						return Err("introduction-pending: not offered".into());
+					if park.get() {
+						deferred.borrow_mut().push_back(service.host().defer_turn().unwrap());
+						return Ok(Argument::Void);
 					}
 					Ok(reply.borrow().clone())
 				}
@@ -140,13 +146,39 @@ async fn waiting() {
 		Some("bob")
 	);
 	arrivals.recv().await.unwrap();
-	early.set(true);
-	refusals.set(1);
-	let introduced = directory.introduce_opening("bob", Some(&id), "opening").await.unwrap();
-	arrivals.recv().await.unwrap();
-	arrivals.recv().await.unwrap();
-	assert_eq!(queries.get(), 1);
+	hold.set(true);
+	let mut pending = Box::pin(directory.introduce_opening("bob", Some(&id), "opening"));
+	tokio::select! { r=arrivals.recv()=>r.unwrap(),_=&mut pending=>panic!("early introduction") };
+	// Requests to offer a reciprocal inbox do not settle this introduction.
+	// Neither unrelated nor exact notices cause the client to resubmit.
+	for registration in ["22222222-2222-4222-8222-222222222222", ID] {
+		peer.send(&target, "notify", &notice(registration)).await.unwrap();
+		tokio::select! { biased; _=&mut pending=>panic!("notice completed introduction"),_=tokio::task::yield_now()=>{} }
+		assert!(arrivals.try_recv().is_err());
+	}
+	// The call can spend almost the full server wait before redemption starts.
+	// Advance the injected deadline past an ordinary request while it is held.
+	platform
+		.elapsed
+		.set(policy::WAIT_MS - 1 + rooms_application::signaling::TIMEOUT_MS);
+	poll_fn(|cx| {
+		assert!(
+			pending.as_mut().poll(cx).is_pending(),
+			"the server wait consumed the redeem budget"
+		);
+		Poll::Ready(())
+	})
+	.await;
+	replies
+		.borrow_mut()
+		.pop_front()
+		.unwrap()
+		.fulfill_value(&dm.clone().into())
+		.unwrap();
+	let introduced = pending.await.unwrap();
 	assert_eq!(introduced.registration, id);
+	assert_eq!(queries.get(), 1);
+	hold.set(false);
 	hard.set(true);
 	assert!(matches!(
 		directory.introduce_opening("bob", Some(&id), "opening").await,
@@ -161,31 +193,13 @@ async fn waiting() {
 	));
 	arrivals.recv().await.unwrap();
 	*answer.borrow_mut() = dm.clone().into();
-
-	// An unrelated registration cannot wake this caller. Cancellation removes
-	// its wait; a later correct signal remains available to the next caller.
-	refusals.set(1);
-	let mut pending = Box::pin(directory.introduce_opening("bob", Some(&id), "opening"));
-	tokio::select! { r=arrivals.recv()=>r.unwrap(),_=&mut pending=>panic!("early introduction") };
-	peer.send(&target, "notify", &notice("22222222-2222-4222-8222-222222222222"))
-		.await
-		.unwrap();
-	tokio::select! { biased; _=&mut pending=>panic!("wrong registration woke the caller"),_=tokio::task::yield_now()=>{} }
-	drop(pending);
-	peer.send(&target, "notify", &notice(ID)).await.unwrap();
-	refusals.set(1);
-	directory.introduce_opening("bob", Some(&id), "opening").await.unwrap();
-	arrivals.recv().await.unwrap();
-	arrivals.recv().await.unwrap();
-
 	platform.expire_wait.set(true);
-	refusals.set(1);
 	assert!(matches!(
 		directory.introduce_opening("bob", Some(&id), "opening").await,
-		Err(Error::Introduction(policy::Error::Pending))
+		Err(Error::Timeout(_))
 	));
-	arrivals.recv().await.unwrap();
-	refusals.set(policy::MAX_OUTSTANDING);
+	assert!(arrivals.try_recv().is_err());
+	hold.set(true);
 	let mut work: Vec<_> = (0..policy::MAX_OUTSTANDING)
 		.map(|_| Box::pin(directory.introduce_opening("bob", Some(&id), "opening")))
 		.collect();
@@ -204,17 +218,16 @@ async fn waiting() {
 		arrivals.recv().await.unwrap();
 	}
 	drop(work);
-	refusals.set(0);
+	replies.borrow_mut().clear();
+	hold.set(false);
 	directory.introduce_opening("bob", Some(&id), "opening").await.unwrap();
 	arrivals.recv().await.unwrap();
-	refusals.set(1);
+	hold.set(true);
 	let mut waiting = Box::pin(directory.introduce_opening("bob", Some(&id), "opening"));
 	tokio::select! { r=arrivals.recv()=>r.unwrap(),_=&mut waiting=>panic!("early introduction") };
-	// The marker confirms the refusal crossed the wire before closing the
-	// client; the introduction itself is still waiting for its notification.
-	directory.member_registration("bob").await.unwrap();
 	client.session().close(PendingWork::Cancel).await.unwrap();
 	assert!(matches!(waiting.await, Err(Error::Introduction(policy::Error::Ended))));
+	replies.borrow_mut().clear();
 	drop((
 		plain,
 		introduced,
@@ -288,10 +301,15 @@ async fn handoff() {
 		}
 	});
 	let gifter = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();
-	let gifter_runtime =
-		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&gifter.host()))
-			.await
-			.unwrap();
+	let gifter_runtime = Runtime::open(
+		RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})])
+		.adopt_host(&gifter.host()),
+	)
+	.await
+	.unwrap();
 	let to_exporter = gifter_runtime
 		.connect(&exporter.locator().unwrap(), ConnectOptions::default())
 		.await

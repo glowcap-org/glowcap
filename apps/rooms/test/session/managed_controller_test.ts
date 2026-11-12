@@ -4,11 +4,12 @@
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, viewer } from "../support/managed_viewer.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
-import { type ManagedOperation, WorkspaceConflict } from "../../web/ui/session/managed/operation.ts";
+import { type ManagedOperation } from "../../web/ui/session/managed/operation.ts";
 import { ResultRecipe } from "../../web/ui/session/managed/result_recipe.ts";
 import type { ManagedHistory } from "../../web/ui/session/managed/history.ts";
 import type { RoomInfo } from "../../lib/directory_publications.ts";
 import { fixture } from "../support/managed_controller.ts";
+import { ROOM_EXISTS, RoomsError } from "../../lib/error_codes.ts";
 const { createRoomsBrowserController } = await import("../../web/ui/controller/create_browser.ts");
 const { createManagedController } = await import("../../web/ui/session/managed/controller.ts");
 const { presentationFiles } = await import("../../web/ui/session/managed/files.ts");
@@ -369,6 +370,35 @@ Deno.test("managed name join does not reuse a namesake from another publication 
 		f.close();
 	}
 });
+Deno.test("managed name join enters the room another member opened between its read and its create", async () => {
+	const listed: RoomInfo[] = [];
+	const f = fixture(listed, () => {}, () => {
+		listed.push({
+			id: "raced-publication",
+			name: "lobby",
+			kind: "local",
+			count: 2,
+			origin: "",
+			proof: "local",
+			offers: "participant",
+		});
+		return Promise.reject(new RoomsError(ROOM_EXISTS, 'room "lobby" already exists'));
+	});
+	try {
+		const result = await f.controller.join({ address: "", room: "lobby" }, { kind: "exact", name: "ada" });
+		assertEquals(result, { ok: true });
+		assertEquals(f.calls.slice(0, 2), [["directoryReader", f.id], ["freeReader"]]);
+		assertEquals(f.calls[2].slice(0, 3), ["createRoom", f.id, "lobby"]);
+		assertEquals(f.calls.slice(3), [
+			["directoryReader", f.id],
+			["freeReader"],
+			["publicRoom", f.id, "lobby", "raced-publication"],
+			["select", ["room"]],
+		]);
+	} finally {
+		f.close();
+	}
+});
 Deno.test("managed name join refuses an invitation-only publication without creating another room", async () => {
 	const f = fixture([{
 		id: "invite-only",
@@ -517,18 +547,24 @@ for (const replaced of [false, true]) {
 		const room = store.ensureRoom(f.page.projection, f.id, "garden", { persistId: selected.id });
 		let attempts = 0;
 		let completed = 0;
-		const session = viewer({ snapshot: () => Promise.resolve(f.current) });
+		const session = viewer({
+			snapshot: () => Promise.resolve(f.current),
+			prepareCommand: () =>
+				Promise.resolve({
+					submit: () => {
+						if (++attempts === 1) {
+							f.current.revision = "2";
+							f.current.intent.standing = "away";
+							if (replaced) selected.control = "another-manager";
+							return Promise.resolve({ status: "conflict" });
+						}
+						return Promise.resolve({ status: "pending" });
+					},
+					status: () => Promise.resolve("committed"),
+					free() {},
+				}),
+		});
 		await session.refresh();
-		session.command = (_name, _args, _operation, validate) => {
-			validate?.(f.current);
-			if (++attempts === 1) {
-				f.current.revision = "2";
-				f.current.intent.standing = "away";
-				if (replaced) selected.control = "another-manager";
-				return Promise.reject(new WorkspaceConflict());
-			}
-			return Promise.resolve({} as ManagedOperation);
-		};
 		session.completeResult = () => {
 			completed++;
 			return Promise.resolve();

@@ -49,49 +49,6 @@ export function newManagedRoomId(): string {
 }
 export const MAX_LINE = APPLICATION_DATA.MAX_LINE;
 
-/** Whether a subscribe that was refused for a held name may present a name
- * voucher, the proof that this reader already holds that name here.
- *
- * A voucher is single-use bytes, and presenting one is being that member on any
- * connection, so what matters is who receives it. Each clause below is one
- * reason the answer is no.
- *
- * `trusted` matters most. A room reached by name, or redeemed from a link, is
- * the directory's own: it came from the directory, or `enliven` refused a peer
- * mismatch. A room that arrived as a reference over a direct line is hosted by
- * whoever handed it over, which is outside the directory's trust domain, and
- * this app cannot tell such an object from a real room by looking. A voucher
- * goes only to a host inside that domain. A handed room that cannot recognize
- * the reader refuses their requested name and may suggest another. It never
- * changes their identity silently.
- *
- * The other clauses bound one attempt. Only the first try may present a
- * voucher, because a voucher the room did not accept will not be accepted
- * twice. Only one may be presented per attempt, and it goes only for the
- * reader's registered name, since a voucher proves that name and nothing else.
- *
- * This is client-side policy. The directory redeems a voucher only when it
- * arrives at one of its own rooms, so binding it tighter server-side would add
- * nothing: every genuine room already sits inside the one trust domain that
- * holds all the names. The decision with anything at stake is the one made
- * here, about whom to hand the bytes to. */
-export function mayPresentNameVoucher(at: {
-	/** Whether this room reference came by a path that proves it is the
-	 * directory's own, not one handed over from outside it. */
-	trusted: boolean;
-	/** Whether the refusal was the room saying the name is already held. */
-	nickTaken: boolean;
-	/** Which attempt this is. Only the first presents a voucher. */
-	attempt: number;
-	/** Whether this attempt already carried one. */
-	presented: boolean;
-	/** Whether the name asked for is the one this directory granted this
-	 * reader. A voucher proves that name and no other. */
-	ownName: boolean;
-}): boolean {
-	return at.trusted && at.nickTaken && at.attempt === 0 && !at.presented && at.ownName;
-}
-
 /** The names a line addresses a whole room by. Mentions understand every
  * spelling, completion proposes two of them, and granting reserves all of
  * them, so the words stay vocabulary and never become people. */
@@ -377,11 +334,11 @@ export const MAX_ROOM_ATTACHMENTS = APPLICATION_DATA.MAX_ROOM_ATTACHMENTS;
 export const MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES = APPLICATION_DATA.MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES;
 
 /** What one TypeScript process will retain for direct-message recipients that
- * have not fetched their files yet. Direct files have no room server to own status-allow: pending state or quoted runtime label
+ * have not fetched their files yet. Direct files have no room server to own
  * this budget, so the sender-side attachment module applies one process-wide
- * oldest-first ceiling. */
-export const MAX_DIRECT_ATTACHMENT_BYTES = 64 * 1024 * 1024;
-export const MAX_DIRECT_ATTACHMENTS = 128;
+ * oldest-first ceiling, the one Rust's sender custody holds. */
+export const MAX_DIRECT_ATTACHMENT_BYTES = APPLICATION_DATA.MAX_DIRECT_ATTACHMENT_BYTES;
+export const MAX_DIRECT_ATTACHMENTS = APPLICATION_DATA.MAX_DIRECT_ATTACHMENTS;
 
 /** How many files one message may carry, which is also how many uploads one
  * connection may stage into its next message. Published uploads may still be
@@ -417,7 +374,7 @@ export const UPLOAD_IDLE_MS = APPLICATION_DATA.UPLOAD_IDLE_MS;
 /** How long one chunk of a transfer may take before the side waiting on it
  * gives up.
  *
- * A read for bytes the room does not have yet waits instead of answering status-allow: pending state or quoted runtime label
+ * A read for bytes the room does not have yet waits instead of answering
  * short, so a parked read is ordinary and this deadline has to sit above the
  * longest legitimate one. `UPLOAD_IDLE_MS` makes that finite: a conforming room
  * settles every parked read within it, by finishing the upload or by dropping
@@ -432,7 +389,7 @@ export const UPLOAD_IDLE_MS = APPLICATION_DATA.UPLOAD_IDLE_MS;
  * covers the writing direction, where an answer that never comes would make
  * Stop a promise the composer cannot keep. A stop is checked between chunks,
  * so a chunk that never lands is never between. */
-export const TRANSFER_STALL_MS = 60_000;
+export const TRANSFER_STALL_MS = APPLICATION_DATA.TRANSFER_STALL_MS;
 
 /** How long a request to a room or directory may go unanswered.
  *
@@ -447,7 +404,7 @@ export const REQUEST_TIMEOUT_MS = APPLICATION_DATA.REQUEST_TIMEOUT_MS;
 
 /** How many reads one file will hold parked at once.
  *
- * A read that asks for bytes the room does not have yet waits instead of status-allow: pending state or quoted runtime label
+ * A read that asks for bytes the room does not have yet waits instead of
  * answering short, because a reader could not tell a short answer from the end
  * of a file. That wait is a live object per read, and a member chooses how many
  * reads to make. Without a ceiling, the one structure in this server that
@@ -509,24 +466,15 @@ export const MAX_SIGNAL_CANDIDATE = APPLICATION_DATA.MAX_SIGNAL_CANDIDATE;
  * to be held as a map key. */
 export const MAX_SIGNAL_ID = APPLICATION_DATA.MAX_SIGNAL_ID;
 
-/** Whether one relayed signaling message is one to act on.
- *
- * Both ends ask. The directory asks because it carries this between two members
- * and its size is the room's to bound, not a sender's to choose. A member asks
- * because a directory is whatever answered the address they typed, and what it
- * relays is only as bounded as that directory chose to be. The answers differ,
- * since the room refuses out loud and a member drops a message it cannot use,
- * but the rule is the same. */
-export function relayedSignalFits(kind: "description" | "candidate", id: string, payload: string): boolean {
-	if (id.length === 0 || !utf8Fits(id, MAX_SIGNAL_ID)) return false;
-	if (payload.length === 0) return false;
-	return utf8Fits(payload, kind === "description" ? MAX_SIGNAL_SDP : MAX_SIGNAL_CANDIDATE);
-}
-
 export function utf8Fits(text: string, maxBytes: number): boolean {
 	return utf8ByteLengthUpTo(text, maxBytes) <= maxBytes;
 }
 
+/** How long the directory holds an introduction for the member's inbox. */
+export const INTRODUCTION_WAIT_MS = APPLICATION_DATA.INTRODUCTION_WAIT_MS;
+/** What a client allows one introduction: the directory's wait, then
+ * redeeming the handoff it answers with. */
+export const INTRODUCTION_TIMEOUT_MS = APPLICATION_DATA.INTRODUCTION_TIMEOUT_MS;
 /** A directory exchange that has not been explicitly retired by its offerer
  * cannot retain routing capability state forever. */
 export const SIGNAL_EXCHANGE_TIMEOUT_MS = APPLICATION_DATA.SIGNAL_EXCHANGE_TIMEOUT_MS;

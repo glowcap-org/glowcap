@@ -126,11 +126,12 @@ Each checkout has one short name in its ignored `.devcontainer/.env`.
 [`bin/configure.sh`](bin/configure.sh) derives the name and Git common
 directory. The primary checkout uses `main`, so its container is
 `glowcap-dev-main`. A linked worktree uses the lowercase name of its
-directory, whatever its branch is called. Create and configure one with:
+directory, whatever its branch is called. A maintainer creates and configures
+one under the ignored `.local/worktrees/` with:
 
 ```sh
-git worktree add --lock .worktrees/tree1 -b failure-sweep
-cd .worktrees/tree1
+git worktree add --lock .local/worktrees/tree1 -b failure-sweep
+cd .local/worktrees/tree1
 bash .devcontainer/bin/configure.sh --port-offset 10000
 ```
 
@@ -228,7 +229,7 @@ cached, and the build lease and per-test deadline stay active. Compilation and
 linking are outside that deadline.
 
 A tool run through `docker exec` writes files as the container's user, so a
-`zig fmt` there leaves files the host session can no longer edit. Format from
+`zig fmt` there leaves files the host session cannot edit. Format from
 the front, or chown the touched paths back afterward.
 
 The front reads `GLOWCAP_DEV_WORKDIR` itself, on the host, to choose the
@@ -381,10 +382,14 @@ Each worktree keeps Zig's local cache and extracted packages in a Docker named
 volume, `glowcap-dev-<worktree>-zig-work`. That gives Zig the Docker daemon's
 filesystem semantics instead of the atomic-file behavior of a host bind, and
 worktrees do not share build objects.
+The shared global cache is keyed by the compiler pin so a compiler upgrade
+cannot reuse an archive written in another version’s format. Pin updates move
+the image and editor paths together. Rebuild and recreate the container to use
+the new path. Existing caches remain available to older worktrees.
 
 | Path | Owner | What |
 | --- | --- | --- |
-| `tool/zig` | `ZIG_GLOBAL_CACHE_DIR` | Zig compiler / global cache |
+| `tool/zig/<pinned-version>` | `ZIG_GLOBAL_CACHE_DIR` | Zig compiler / global cache, separate for each compiler version |
 | `tool/deno`, `npm`, `pip`, `bun`, `uv`, `zls` | those tools' cache vars | shared downloads |
 | `installed/<platform>/<tool>` | the managed-tool lifecycle | AI harness installs: one immutable directory per version plus a `current` selection, with a receipt. Shared by every worktree container |
 | `cargo/` | `CARGO_HOME` | registry, git, `cargo install` bins |
@@ -411,7 +416,7 @@ deletes them.
 | `CARGO_HOME` | `/usr/local/cargo` | `~/.cache/glowcap/cargo` host bind |
 | `RUSTUP_HOME` | `/usr/local/rustup` | unchanged |
 | `PLTUSERHOME` | `/opt/glowcap-racket-userhome` | unchanged |
-| `ZIG_GLOBAL_CACHE_DIR` | `/home/vscode/.cache/glowcap/tool/zig` | same path on the host bind |
+| `ZIG_GLOBAL_CACHE_DIR` | `/home/vscode/.cache/glowcap/tool/zig/<pinned-version>` | same path on the host bind |
 | `ZIG_LOCAL_CACHE_DIR` | unset (image build uses a checkout `.zig-cache`) | `zig-local` in the worktree's Docker volume |
 | `ZIG_LOCAL_PKG_DIR` | unset (image build uses a checkout `zig-pkg/`) | `zig-pkg` in the worktree's Docker volume |
 | `UV_CACHE_DIR` | unset | `tool/uv` on the host bind |
@@ -458,16 +463,36 @@ keeps its Rooms backend on an ephemeral container-loopback port, so the
 published web port is the only Rooms development address exposed to the host.
 Outside the container, it defaults to host loopback.
 
+A browser on the host names the page and its relay by the published port,
+which nothing inside the container listens on. Compose supplies that address
+as `GLOWCAP_ROOMS_DEV_HTTP_PUBLIC`, and `rooms-dev` passes it to the front as
+`--http-public`, so the front's links open from the host and its shared
+session reaches a browser member's relay route at the front itself. A relay
+locator that `rooms-dev` prints names the published port too, so it opens from
+the host and not from inside the container. Any other front started in the
+container takes `--http-public` on its own command line.
+
 [`apps/rooms/developing.md`](../apps/rooms/developing.md) uses canonical
 container ports, and a host-side client uses the matching `*_HOST_PORT` value.
-For the `tree1` example above, the live trace is `ws://127.0.0.1:20300/`.
+The container sets `GLOWCAP_ROOMS_HTTP_BIND=0.0.0.0` and
+`GLOWCAP_ROOMS_TRACE_BIND=0.0.0.0` so its published web and trace ports reach
+their listeners. Outside the container both listeners default to loopback.
+Recreate an existing container to load the settings, or pass
+`--http-bind=0.0.0.0` and `--trace-bind=0.0.0.0` when starting Rooms there.
+
+For the `tree1` example above, a viewer connects at
+`ws://127.0.0.1:20300/captp` and a producer at
+`ws://127.0.0.1:20300/publish`. Compose supplies these as
+`GLOWCAP_ROOMS_DEV_TRACE_CONNECT` and `GLOWCAP_ROOMS_DEV_TRACE_PUBLISH`.
+Only `rooms-dev` passes them to the server's advertised-route options, so its
+`ROOMS-TRACE-LISTENING` link works from the Docker host. Explicit
+`--trace-connect` and `--trace-publish` arguments take precedence.
+Both routes require the trace capability. Other server launches keep their
+in-container routes, and a page served by Rooms can use its web proxy.
 
 If a host port is taken, the container does not start. Inspect its owner before
-choosing a different offset. To change an existing assignment, edit the six
-`*_HOST_PORT` values together, keeping the checkout paths and egress network,
-then run `bash .devcontainer/bin/up.sh --rebuild` from a host shell. This
-disconnects sessions inside the devcontainer, and restarting alone does not
-change the published ports.
+choosing a different offset. [Docker networking](docs/networking.md) owns the
+procedure for moving an existing checkout's ports.
 
 ## Layout
 

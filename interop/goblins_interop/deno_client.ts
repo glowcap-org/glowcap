@@ -55,7 +55,7 @@ try {
 	// `connect` completes the keyed handshake; reaching here means Goblins accepted
 	// our signed start-session and we accepted its.
 	const locator = tcp.locator(HOST, PORT);
-	await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+	await using runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 	const session = await runtime.connect(locator);
 	console.log(
 		"deno-goblins-interop: session open, keyed start-session accepted by goblins",

@@ -218,7 +218,6 @@ impl Id {
 pub enum Kind {
 	MintInboxFor,
 	DirectRequested,
-	Introducible,
 }
 #[derive(Debug)]
 pub struct Event {
@@ -274,7 +273,6 @@ pub fn notice<A: ArgumentView>(verb: &str, at: impl Fn(usize) -> Option<A>) -> R
 		}
 		Some("mintInboxFor") => Kind::MintInboxFor,
 		Some(crate::protocol_data::DIRECT_REQUESTED) => Kind::DirectRequested,
-		Some("introducible") => Kind::Introducible,
 		_ => return Ok(None),
 	};
 	let Some(peer) = at(1) else { return Ok(None) };

@@ -26,17 +26,20 @@ pub(super) struct Channel {
 	pump: Option<JoinHandle<Result<(), String>>>,
 }
 impl Channel {
-	pub async fn join(directory: &Directory<HostPlatform>, output: Output, channel: &str) -> Result<Self, String> {
-		let name = clients::room_name(channel)?;
-		let reference = directory.enter(name).await.map_err(|e| e.to_string())?;
+	pub async fn join(
+		directory: &Directory<HostPlatform>,
+		output: Output,
+		channel: &str,
+	) -> Result<Self, super::failure::Refused> {
+		let name = clients::room_name(channel).map_err(String::from)?;
+		let reference = directory.enter(name).await?;
 		let (room, messages) = Room::subscribe(
 			directory.client().clone(),
 			reference,
 			&output.nick,
 			SubscribeOptions::default(),
 		)
-		.await
-		.map_err(|e| e.to_string())?;
+		.await?;
 		let view = Rc::new(RefCell::new(View::default()));
 		let (stop, stopping) = watch::channel(false);
 		let mut held = Self {
@@ -54,10 +57,7 @@ impl Channel {
 			)
 			.await
 		{
-			return Err(crate::cleanup::failed(
-				error,
-				held.room.leave().await.map_err(|e| e.to_string()),
-			));
+			return Err(crate::cleanup::failed(error, held.room.leave().await.map_err(|e| e.to_string())).into());
 		}
 		let channel = channel.to_owned();
 		held.pump = Some(tokio::task::spawn_local(async move {

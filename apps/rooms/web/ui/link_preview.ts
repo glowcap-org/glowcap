@@ -1,6 +1,8 @@
 // Browser effect state over the shared Rust Open Graph vocabulary.
+import { LocalRefusal } from "../../lib/text/failure.ts";
+import { invariant } from "../../lib/invariant.ts";
 import { openGraphMetadata, openGraphSelection, openGraphTargets } from "./application.ts";
-import { ROOMS_FAILURES } from "../../lib/failure_data.ts";
+import { ROOMS_FAILURES, type RoomsErrorCode, type RoomsFailureRetry } from "../../lib/failure_data.ts";
 import { linkPreviewShared } from "../../lib/text/link_preview.ts";
 
 export interface OpenGraphImage {
@@ -25,8 +27,12 @@ export interface PreviewFailure {
 	readonly code: string;
 	readonly summary: string;
 	readonly action?: string;
-	readonly retry: "never" | "after-request-change" | "after-state-change" | "after-request-or-state-change" | "soon";
+	readonly retry: RoomsFailureRetry;
 }
+
+const RETRIES: ReadonlySet<unknown> = new Set(Object.values(ROOMS_FAILURES).map((definition) => definition.retry));
+const isRetry = (value: unknown): value is RoomsFailureRetry => RETRIES.has(value);
+const isRoomsCode = (code: string): code is RoomsErrorCode => Object.hasOwn(ROOMS_FAILURES, code);
 
 export type DraftPreview =
 	| { readonly id: number; readonly url: string; readonly state: "offered"; readonly attempt: number }
@@ -51,30 +57,29 @@ interface Target {
 	readonly url: string;
 }
 
+/** The links in `text` worth a preview. Rust's Markdown reader answers; an
+ * answer of any other shape is a defect in the shared build, not an empty draft. */
 export function previewTargets(text: string): readonly Target[] {
-	try {
-		const value = JSON.parse(openGraphTargets(text));
-		return Array.isArray(value) &&
-				value.every((target) => target != null && typeof target === "object" && typeof target.url === "string")
-			? value as Target[]
-			: [];
-	} catch {
-		return [];
+	const value = JSON.parse(openGraphTargets(text));
+	if (
+		Array.isArray(value) &&
+		value.every((target) => target != null && typeof target === "object" && typeof target.url === "string")
+	) {
+		return value as Target[];
 	}
+	invariant(false, "the Rooms application answered malformed preview targets");
 }
 
 /** Admit a selected subset through the shared Rust authority before it can
  * cause reader-side network effects. This is the final boundary for archives
  * and peers whose outer tuple parser can prove shape but not Markdown meaning. */
 export function previewSelection(text: string, urls: readonly string[]): readonly string[] {
-	try {
-		const encoded = openGraphSelection(text, JSON.stringify(urls));
-		if (encoded == null) return [];
-		const value = JSON.parse(encoded);
-		return Array.isArray(value) && value.every((url) => typeof url === "string") ? value : [];
-	} catch {
-		return [];
-	}
+	// No answer is Rust refusing the subset, which admits nothing.
+	const encoded = openGraphSelection(text, JSON.stringify(urls));
+	if (encoded == null) return [];
+	const value = JSON.parse(encoded);
+	if (Array.isArray(value) && value.every((url) => typeof url === "string")) return value;
+	invariant(false, "the Rooms application answered a malformed preview selection");
 }
 
 /** Preserve intent and completed effects only while the same normalized target
@@ -106,24 +111,36 @@ export async function fetchPreview(
 		cache: "no-store",
 		headers: { accept: "application/json" },
 	});
-	const result = await response.json() as
-		| { readonly ok: true; readonly metadata: OpenGraphMetadata }
-		| { readonly ok: false; readonly failure: PreviewFailure };
-	if (result.ok) {
-		const metadata = validMetadata(result.metadata);
-		if (metadata != null && metadata.requestedUrl === url) return metadata;
-		throw new Error("the link preview service returned malformed metadata");
+	const httpFailure = response.ok ? null : { code: "link-preview-failed", ...ROOMS_FAILURES["link-preview-failed"] };
+	let result: unknown;
+	try {
+		result = await response.json();
+	} catch (cause) {
+		if (!(cause instanceof SyntaxError)) throw cause;
+		if (httpFailure != null) throw httpFailure;
+		throw new LocalRefusal("preview-unreadable", { cause });
 	}
-	throw result.failure;
+	if (result != null && typeof result === "object" && !Array.isArray(result) && "ok" in result) {
+		if (response.ok && result.ok === true && "metadata" in result) {
+			const metadata = validMetadata(result.metadata);
+			if (metadata != null && metadata.requestedUrl === url) return metadata;
+		} else if (result.ok === false && "failure" in result) {
+			const failure = result.failure;
+			if (
+				failure != null && typeof failure === "object" && !Array.isArray(failure) &&
+				"code" in failure && typeof failure.code === "string" &&
+				"summary" in failure && typeof failure.summary === "string"
+			) throw failure;
+		}
+	}
+	if (httpFailure != null) throw httpFailure;
+	throw new LocalRefusal("preview-unreadable");
 }
 
+/** The service's metadata as Rust admits it, or null when Rust refuses it. */
 function validMetadata(value: unknown): OpenGraphMetadata | null {
-	try {
-		const encoded = openGraphMetadata(JSON.stringify(value));
-		return encoded == null ? null : JSON.parse(encoded) as OpenGraphMetadata;
-	} catch {
-		return null;
-	}
+	const encoded = openGraphMetadata(JSON.stringify(value));
+	return encoded == null ? null : JSON.parse(encoded) as OpenGraphMetadata;
 }
 
 export function previewHost(url: string): string {
@@ -134,23 +151,24 @@ export function previewHost(url: string): string {
 	}
 }
 
+/** The failure a preview fetch settled with, in the shared failure vocabulary.
+ * A retry outside that vocabulary is not advice: the code's own definition
+ * answers when the code is a Rooms code, and an unknown code offers no retry. */
 export function previewFailure(error: unknown): PreviewFailure {
-	if (
-		error != null && typeof error === "object" &&
-		typeof (error as Partial<PreviewFailure>).code === "string" &&
-		typeof (error as Partial<PreviewFailure>).summary === "string"
-	) {
-		const failure = error as Partial<PreviewFailure>;
-		return {
-			code: failure.code!,
-			summary: failure.summary!,
-			...(typeof failure.action === "string" ? { action: failure.action } : {}),
-			retry: failure.retry === "never" || failure.retry === "after-request-change" ||
-					failure.retry === "after-state-change" || failure.retry === "after-request-or-state-change" ||
-					failure.retry === "soon"
-				? failure.retry
-				: "soon",
-		};
+	if (error instanceof LocalRefusal) return { code: error.code, summary: error.message, retry: error.retry };
+	if (error != null && typeof error === "object" && !Array.isArray(error)) {
+		const code = "code" in error ? error.code : null;
+		const summary = "summary" in error ? error.summary : null;
+		const action = "action" in error ? error.action : null;
+		const retry = "retry" in error ? error.retry : null;
+		if (typeof code === "string" && typeof summary === "string") {
+			return {
+				code,
+				summary,
+				...(typeof action === "string" ? { action } : {}),
+				retry: isRetry(retry) ? retry : isRoomsCode(code) ? ROOMS_FAILURES[code].retry : "never",
+			};
+		}
 	}
 	const fallback = ROOMS_FAILURES["link-preview-failed"];
 	return {

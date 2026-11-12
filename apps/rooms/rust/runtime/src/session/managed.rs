@@ -104,7 +104,7 @@ impl<P: Tasks + Deadline + Clone + 'static> State<P> {
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Scalar wake notifications contain no authority. Consumers recheck their
 	/// original source. All use the existing two parked shared observations.
-	pub fn changes(&self) -> Result<SessionChanges> {
+	pub fn changes(&self) -> core::result::Result<SessionChanges, crate::Error> {
 		self.state.changes.subscribe(&self.state)
 	}
 	/// Install startup policy before serving collaborators. Running accounting
@@ -130,7 +130,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// codec limits. Oversized target replies stay unresolved. They never justify
 	/// another target call. EffectExecution::result_size_bound accounts for this
 	/// allowance's shared and C projection ownership.
-	pub fn new(host: Host, platform: P, reply_bytes: NonZeroUsize) -> Self {
+	pub fn new(host: Host, platform: P, reply_bytes: NonZeroUsize) -> Self
+	where
+		P: crate::wall_clock::WallClock,
+	{
 		let writer = Rc::new(executor::Writer::new(host.clone()));
 		let inboxes = Rc::new(inbox::Budget::new(Rc::downgrade(&writer)));
 		Self {
@@ -168,7 +171,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Install the embedding's failure owner before starting effects or callbacks.
 	/// The reporter borrows terminal evidence and must not retain this session.
 	/// Reporting cannot settle a receipt or authorize retry.
-	pub fn on_trouble(&self, report: impl Fn(&str, &glowcap::Error) + 'static) -> Result<()> {
+	pub fn on_trouble(&self, report: impl Fn(&str, &crate::Error) + 'static) -> Result<()> {
 		let mut reporter = self.state.writer.trouble.borrow_mut();
 		if reporter.is_some()
 			|| !self.state.jobs.borrow().is_empty()
@@ -273,7 +276,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	}
 	/// Wait for actual workers, retaining private results if settlement refuses.
 	/// Failure leaves the owner open for recovery. Callers must not close storage.
-	pub async fn close(&self) -> Result<()> {
+	pub async fn close(&self) -> core::result::Result<(), crate::Error> {
 		self.state.closing.set(true);
 		let drained = async {
 			loop {
@@ -321,7 +324,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			|| self.state.workspace_observers.active() != 0
 			|| self.state.discovery_observers.active() != 0
 		{
-			return Err(glowcap::loam::refusal(
+			return Err(crate::Error::busy(
 				"close session callback owners before closing their attachment",
 			));
 		}
@@ -338,7 +341,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				return Ok(());
 			}
 			if let Some(error) = self.state.jobs.borrow().values().find_map(|job| job.failure.clone()) {
-				return Err(error);
+				return Err(error.into());
 			}
 			changed.await;
 		}

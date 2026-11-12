@@ -186,6 +186,7 @@ fn untrusted_retry_details_cannot_select_an_unbounded_wait() {
 	assert_eq!(
 		Failure::parse(&reason).unwrap().retry_advice(),
 		Some(RetryAdvice {
+			owner: None,
 			class: Class::Join,
 			retry_ms: 1000
 		})

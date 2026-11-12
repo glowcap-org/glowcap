@@ -29,8 +29,7 @@ const registry = @import("registry.zig");
 const Spec = registry.Spec;
 
 /// Union of every registered codec's decode/encode error set, plus
-/// `UnknownCodec`. The engine folds this into its `DecodeError` alongside the
-/// lazy-projection `model.view.ProjectError`.
+/// `UnknownCodec`.
 pub const Error = registry.Error;
 pub const EncodeError = registry.EncodeError;
 

@@ -146,7 +146,7 @@ pub const Projection = struct {
     /// positions and may release one and reuse the number, so the position
     /// alone does not say the row is still the question this projection was
     /// asked. Resolving a projection against a reused position would answer
-    /// the partner's *new* question with the old one's value, and the status-allow: replacement state identity
+    /// the partner's *new* question with the old one's value, and the
     /// application's real reply to it would then be refused as a second
     /// resolve and tear the session down. A stamp that does not match
     /// means the question is gone, and the projection is dropped.
@@ -224,7 +224,7 @@ pub const AnswerPayload = struct {
     /// trees behind the fixed answer-row cap.
     resolution_charge: usize = 0,
     /// The stored resolution's hold on the far imports it names, chaining
-    /// the retains a forwarded reply introduced; final payload release
+    /// the retains a forwarded reply introduced. Final payload release
     /// queues its settlement. Replaced with the resolution.
     held_imports: ?*@import("../import_release_outbox.zig").Batch = null,
     /// V1.0's independently accepted resolver callback. The map remains the
@@ -311,7 +311,7 @@ pub const AnswerCell = struct {
     has_settling_target: bool = false,
     /// The local export whose settlement callback is this answer: on an
     /// outbound row, the resolver the partner delivers to when it settles
-    /// the answer (ADR-0006, ADR-0003); on a local promise's virtual inbound
+    /// the answer (ADR-0006, ADR-0003). On a local promise's virtual inbound
     /// row, the projection export that names it. The export's own row says
     /// what the export is for (`ExportRow.purpose`), and this is how the
     /// answer side finds it without a reverse row (ADR-0038).

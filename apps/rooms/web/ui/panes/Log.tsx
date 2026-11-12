@@ -26,6 +26,7 @@ import {
 	conversationJoiningRoom,
 	conversationLiveDirect,
 	conversationLoadingEarlier,
+	conversationModeratedRoom,
 	conversationPendingDirect,
 	conversationPrivateRoom,
 	conversationPublicRoom,
@@ -53,7 +54,9 @@ function introBody(conv: Conv, dirs: ReadonlyMap<DirId, DirView>): string {
 			return roomJoiningNow(conv, dirs) ? conversationJoiningRoom : conversationRoomDirectoryAway;
 		}
 		const beginning = conversationBeginning((conv.earlierHistory ?? "none") as EarlierHistory);
-		return beginning + (conv.held ? conversationPrivateRoom : conversationPublicRoom);
+		if (conv.held) return beginning + conversationPrivateRoom;
+		return beginning +
+			(roomPreset(conv.policy) === "moderated" ? conversationModeratedRoom : conversationPublicRoom);
 	}
 	if (conv.line === "closed") return conversationClosedDirect(conv.id);
 	return conv.line === "live" ? conversationLiveDirect : conversationPendingDirect;

@@ -4,7 +4,6 @@ const std = @import("std");
 const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 const skills = @import("skills.zig");
-const deadlines = @import("deadlines.zig");
 
 const appendViolation = violation_log.appendViolation;
 const expectFileContains = text_match.expectFileContains;
@@ -152,56 +151,4 @@ pub fn checkSingleJsonEscaper(
             try appendViolation(gpa, violations, "cli/{s}: defines `writeJsonString`, and so does another file under cli/. Keep one and alias it, so a fix to escaping reaches every caller.", .{path});
         }
     }
-}
-
-test "initializedPositive accepts only a bounded budget that closes its own initializer" {
-    // Literal budgets and the shared defaults are both bounded.
-    try std.testing.expect(deadlines.initializedPositive("", ".{ .handshake = .{ .ms = 10_000 } }", "handshake"));
-    try std.testing.expect(deadlines.initializedPositive("", ".{\n    .settle = .{ .ms = 5000 },\n}", "settle"));
-    try std.testing.expect(deadlines.initializedPositive("", ".{ .handshake = driver.default_handshake_budget }", "handshake"));
-    try std.testing.expect(deadlines.initializedPositive("", ".{ .settle = glowcap.driver.default_settle_budget }", "settle"));
-
-    // The unbounded spelling, and the expired zero, however spelled.
-    try std.testing.expect(!deadlines.initializedPositive("", ".{ .handshake = .unbounded }", "handshake"));
-    try std.testing.expect(!deadlines.initializedPositive("", ".{ .handshake = .{ .ms = 0 } }", "handshake"));
-    try std.testing.expect(!deadlines.initializedPositive("", ".{ .handshake = .{ .ms = 0_000 } }", "handshake"));
-    try std.testing.expect(!deadlines.initializedPositive("", ".{}", "handshake"));
-
-    // A positive-looking first token that is not the value. Reading the digits
-    // and stopping is how a check convinces itself an unbounded wait is bounded.
-    try std.testing.expect(!deadlines.initializedPositive("", ".{ .handshake = .{ .ms = 10_000 - 10_000 } }", "handshake"));
-    try std.testing.expect(!deadlines.initializedPositive("", ".{ .handshake = .{ .ms = 10 * factor } }", "handshake"));
-
-    // A different field whose name merely ends in this one.
-    try std.testing.expect(!deadlines.initializedPositive("", ".{ .my_handshake = .{ .ms = 10_000 } }", "handshake"));
-    try std.testing.expect(!deadlines.initializedPositive("", ".{ .handshake_hint = .{ .ms = 10_000 } }", "handshake"));
-}
-
-test "buffer-explicit session options require both bounded waits" {
-    const file =
-        "const handshake_budget = driver.default_handshake_budget;\n" ++
-        "const settle_budget = driver.default_settle_budget;";
-    const bounded = "a, b, .{ .handshake = handshake_budget, .settle = settle_budget }";
-    try std.testing.expect(deadlines.initializedPositive(file, bounded, "handshake"));
-    try std.testing.expect(deadlines.initializedPositive(file, bounded, "settle"));
-    const unbounded = "a, b, .{ .handshake = .unbounded, .settle = .{ .ms = 10 } }";
-    try std.testing.expect(!deadlines.initializedPositive(file, unbounded, "handshake"));
-}
-
-test "blankComments erases comments without mistaking a locator for one" {
-    var src = "a // gone\n.handshake = .{ .ms = 1 },".*;
-    deadlines.blankComments(&src);
-    try std.testing.expect(std.mem.indexOf(u8, &src, "gone") == null);
-    try std.testing.expect(deadlines.initializedPositive(&src, &src, "handshake"));
-
-    // The `//` inside a string is not a comment: treating it as one would blank
-    // the rest of the argument list, and the budget in it would read as absent.
-    var uri = "\"tcp://host\", .{ .handshake = .{ .ms = 9 } }".*;
-    deadlines.blankComments(&uri);
-    try std.testing.expect(deadlines.initializedPositive(&uri, &uri, "handshake"));
-
-    // And a budget that only appears in a comment is not a budget.
-    var commented = "// .handshake = .{ .ms = 9 }\n.{}".*;
-    deadlines.blankComments(&commented);
-    try std.testing.expect(!deadlines.initializedPositive(&commented, &commented, "handshake"));
 }

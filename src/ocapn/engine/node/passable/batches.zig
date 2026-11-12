@@ -122,7 +122,7 @@ pub fn provisionalClosed(self: *Node, peer_handle: PeerHandle, outcome: node_ser
 
 /// A retracted provisional window removed the row of a send `batch` is still
 /// staging (ADR-0058). Failing it cancels its gift tickets and leases and
-/// breaks its answer. No gift has been deposited yet: the embedder does not status-allow: pending state or quoted runtime label
+/// breaks its answer. No gift has been deposited yet: the embedder does not
 /// pump while the turn that made the send runs.
 pub fn stagedWithdrawn(self: *Node, peer_handle: PeerHandle, batch: passable.BatchId) void {
     const row = self.inline_passable_batches.rows.get(batch) orelse return;
@@ -229,8 +229,8 @@ pub fn fail(self: *Node, batch_id: passable.BatchId, err: anyerror) void {
     var batch = takeForTerminal(self, batch_id) orelse return;
     if (self.peer(batch.recipient_peer)) |recipient| {
         // A row that was holding later carriers back releases them. The
-        // flush spends one of the completion seats this batch no longer status-allow: lifecycle transition
-        // needs. A retracted window removes the row before failing it.
+        // flush spends one of the completion seats this batch does not
+        // need. A retracted window removes the row before failing it.
         if (recipient.removeStagedRow(batch_id) == .unblocked)
             actions.pushReserved(self, .{ .flush = batch.recipient_peer });
         if (batch.failure_escrow != null) {
@@ -247,7 +247,7 @@ pub fn fail(self: *Node, batch_id: passable.BatchId, err: anyerror) void {
                     .answer = answer,
                 } },
             },
-            .reason = .{ .static = @errorName(err) },
+            .reason = Node.FailureReason.borrowed(.{}, @errorName(err)),
         } });
     }
     queueLeaseReleases(self, &batch);

@@ -15,7 +15,7 @@
 //! graph they read is complete, and each document is a configure input, so an
 //! edit to it reruns the configure phase that reads it.
 //! Optioned invocations delegate only these documentation steps to an option-free
-//! build. Product gates keep their configured graph; the inventory has one
+//! build. Product gates keep their configured graph. The inventory has one
 //! reference graph rather than changing membership with its caller's options.
 const std = @import("std");
 const commands = @import("commands.zig");

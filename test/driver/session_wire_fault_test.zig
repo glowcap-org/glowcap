@@ -41,8 +41,8 @@ const BreakCapture = struct {
         switch (resolution) {
             .broken => |reason| {
                 self.broke = true;
-                const n = @min(reason.len, self.reason.len);
-                @memcpy(self.reason[0..n], reason[0..n]);
+                const n = @min(reason.detail.len, self.reason.len);
+                @memcpy(self.reason[0..n], reason.detail[0..n]);
                 self.reason_len = n;
             },
             else => {},
@@ -117,7 +117,7 @@ fn callIntoScriptedInbound(scenario: Scripted) !void {
         .broken => |reason| {
             const reply = try outcome;
             try std.testing.expect(reply == .broken);
-            try std.testing.expectEqualStrings(reason, reply.broken);
+            try std.testing.expectEqualStrings(reason, reply.broken.detail);
         },
         .err => |expected| try std.testing.expectError(expected, outcome),
     }

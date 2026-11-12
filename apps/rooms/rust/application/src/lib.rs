@@ -13,6 +13,7 @@ pub mod failure;
 pub mod fields;
 pub mod files;
 pub mod grants;
+pub mod host;
 pub mod ice;
 pub mod markdown;
 pub mod open_graph;
@@ -21,6 +22,7 @@ pub mod room;
 pub mod server;
 pub mod session;
 pub mod text;
+pub mod web_build;
 pub mod web_channel;
 pub mod web_relay;
 

@@ -166,7 +166,9 @@ def prove(directory, work):
     with tarfile.open(archive) as package:
         for stem in ("host", "ocapn", "loam"):
             library = f"libglowcap_{stem}.a"
-            assert (cached / library).read_bytes() == package.extractfile(f"lib/{library}").read(), library
+            member = package.extractfile(f"lib/{library}")
+            assert member is not None, f"archive holds no lib/{library}"
+            assert (cached / library).read_bytes() == member.read(), library
     wasm = target / RUST_TARGET / "debug/glowcap_wasm_libraries_consumer.wasm"
     run(
         "deno",

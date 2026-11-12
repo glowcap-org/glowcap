@@ -263,24 +263,28 @@
 .bubble {
 	position: relative;
 }
-/* And the bubble's hover reaches out to where its mark will be. A reader coming
-   at the mark from the margin (which is where it is, and so where they aim)
-   was hovering nothing until they crossed into the message itself, and the mark
-   they were aiming at only existed once they had stopped needing to aim. The
-   strip is transparent and sits over the empty column beside the message. A
-   pseudo-element hovers as part of the element that owns it, so the reach
-   belongs to the bubble rather than to a second hover target. */
-.bubble::before {
+/* A line's hover is the whole row at its height, so a pointer anywhere beside
+   a message summons its mark, from either edge of the log. Two transparent
+   strips reach out from the bubble, one each way. A pseudo-element hovers as
+   part of the element that owns it, so the reach belongs to the bubble and
+   nothing covers its words. The strips are wider than any row, and the row
+   cuts them at its own edges. Only the log's rows carry marks, so only they
+   reach and cut. */
+#log .row {
+	overflow-x: clip;
+}
+#log .row .bubble::before,
+#log .row .bubble::after {
 	content: "";
 	position: absolute;
 	top: 0;
 	bottom: 0;
-	right: 100%;
-	width: var(--reach);
-	--reach: 44px;
+	width: 100vw;
 }
-.row.them .bubble::before {
-	right: auto;
+#log .row .bubble::before {
+	right: 100%;
+}
+#log .row .bubble::after {
 	left: 100%;
 }
 /* The mark sits outside the bubble, so the space between them belongs to this

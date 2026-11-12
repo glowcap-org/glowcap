@@ -22,7 +22,7 @@ from ._socket_address import address_designator
 if TYPE_CHECKING:
     from ._listener import ListenerOwner
     from ._loop import DriverLoop
-    from .tcp import Config
+    from .tcp import StreamOptions, _Profile
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 _IDENTITY_PROFILES = {_abi.TRANSPORT_KEYED_TCP, _abi.TRANSPORT_NOISE_TCP}
@@ -82,16 +82,18 @@ class Server(DriverServer):
         return port
 
 
-async def _listen_tcp_profile(
-    transport: str,
+async def listen_profile(
+    profile: _Profile,
     bind_host: str,
     port: int,
     seed: bytes | None,
     codec: str | None,
     advertised_host: str | None,
     host: Host | None,
-    config: Config | None,
+    stream: StreamOptions | None,
 ) -> Server:
+    """Bind a driver-owned listener through a provider that registers only ``profile``."""
+    transport = profile._transport
     who = f"listen_{transport.replace('-', '_')}"
     if seed is not None and len(seed) != 32:
         raise GlowcapError(_ERR_INVALID_ARGUMENT, f"{who}: seed must be 32 bytes")
@@ -105,9 +107,11 @@ async def _listen_tcp_profile(
     loop = prepared.loop
     listener = None
     try:
-        from .tcp import Config, provider
+        # The provider's module imports this one, so the provider is read
+        # here, when a listener opens.
+        from .tcp import Config, StreamOptions, provider
 
-        await provider(config or Config()).install(loop)
+        await provider(Config(stream=stream or StreamOptions(), profiles=(profile,))).install(loop)
         listener = loop.listen(transport, f"{bind_host}:{port}")
         loop.start()
         await loop.wait_listener(listener)
@@ -116,48 +120,3 @@ async def _listen_tcp_profile(
     except BaseException as error:
         _rollback_listener_construction(error, loop, listener, prepared.owns_loop)
         raise
-
-
-async def listen(
-    bind_host: str,
-    port: int = 0,
-    *,
-    host: Host | None = None,
-    codec: str | None = None,
-    advertised_host: str | None = None,
-    config: Config | None = None,
-) -> Server:
-    """Bind a driver-owned TCP listener, optionally adopting ``host``."""
-    return await _listen_tcp_profile(_abi.TRANSPORT_TCP, bind_host, port, None, codec, advertised_host, host, config)
-
-
-async def listen_keyed(
-    bind_host: str,
-    port: int = 0,
-    *,
-    seed: bytes | None = None,
-    codec: str | None = None,
-    advertised_host: str | None = None,
-    host: Host | None = None,
-    config: Config | None = None,
-) -> Server:
-    """Bind a driver-owned keyed-TCP listener, optionally adopting ``host``."""
-    return await _listen_tcp_profile(
-        _abi.TRANSPORT_KEYED_TCP, bind_host, port, seed, codec, advertised_host, host, config
-    )
-
-
-async def listen_noise(
-    bind_host: str,
-    port: int = 0,
-    *,
-    seed: bytes | None = None,
-    codec: str | None = None,
-    advertised_host: str | None = None,
-    host: Host | None = None,
-    config: Config | None = None,
-) -> Server:
-    """Bind a driver-owned noise-TCP listener, optionally adopting ``host``."""
-    return await _listen_tcp_profile(
-        _abi.TRANSPORT_NOISE_TCP, bind_host, port, seed, codec, advertised_host, host, config
-    )

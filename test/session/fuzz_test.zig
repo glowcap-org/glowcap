@@ -72,7 +72,12 @@ fn routeOne(_: void, smith: *std.testing.Smith) anyerror!void {
             defer bundle.deinit(gpa);
             std.debug.print("admission refused a locator the dialer parsed\n", .{});
             return error.AdmissionParserSplit;
-        } else |_| return;
+        } else |err| {
+            // Both refused, which is agreement. Running out of memory under
+            // the testing allocator is not a refusal.
+            if (err == error.OutOfMemory) return err;
+            return;
+        }
     };
 
     // Admitted. The owned parser must agree, and everything it allocates on the

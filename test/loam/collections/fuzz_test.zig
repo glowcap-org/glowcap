@@ -101,7 +101,7 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
             // Write. Both sides take it, or neither does.
             op_put, 1 => {
                 const value = smith.value(u32);
-                const next = live.put(key, value) catch continue;
+                const next = try live.put(key, value);
                 if (live_owned) live.deinit();
                 live = next;
                 live_owned = true;
@@ -110,7 +110,7 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
             // Erase. Removing a key that is not there is a legitimate no-op on
             // both sides.
             op_erase => {
-                const next = live.remove(key) catch continue;
+                const next = try live.remove(key);
                 if (live_owned) live.deinit();
                 live = next;
                 live_owned = true;
@@ -122,7 +122,7 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
             op_keep => {
                 if (!live_owned) continue; // already kept; one owner only
                 const slot = smith.valueRangeAtMost(u8, 0, kept_versions - 1);
-                const snapshot = snapshotReference(gpa, &reference) catch continue;
+                const snapshot = try snapshotReference(gpa, &reference);
                 if (kept[slot]) |*old| {
                     var m = old.map;
                     m.deinit();
@@ -159,7 +159,7 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
 test "fuzz: the persistent map answers like a plain one, and old versions keep their contents" {
     // Write, keep the version, write again: the shape where a later write has to
-    // share structure with an earlier version rather than own what it touches. status-allow: event or source ordering
+    // share structure with an earlier version rather than own what it touches.
     // Built rather than hand-counted, because the first version of this seed
     // stopped after the keep and never reached the sharing at all.
     // Each row is that step's draws in the order the loop makes them, and this

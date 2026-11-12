@@ -218,6 +218,67 @@ test "a CLI string holds to the punctuation rule and shell syntax does not" {
     try std.testing.expectEqual(@as(usize, 2), violations.items.len);
 }
 
+/// Zig doc comments are what a reader of the API sees, so `///` and `//!`
+/// lines hold to the reader punctuation rule and the vague-label list. A code
+/// span may wrap across lines, so the backtick count carries through a run of
+/// doc lines.
+pub fn banDocCommentFlaws(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    contents: []const u8,
+) !void {
+    var in_span = false;
+    var line_no: usize = 0;
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    while (lines.next()) |raw| {
+        line_no += 1;
+        const t = std.mem.trim(u8, raw, " \t\r");
+        const doc = (std.mem.startsWith(u8, t, "///") and !std.mem.startsWith(u8, t, "////")) or
+            std.mem.startsWith(u8, t, "//!");
+        if (!doc) {
+            in_span = false;
+            continue;
+        }
+        var text = t[3..];
+        // A span opened on a line above is code up to its closing backtick.
+        if (in_span) {
+            const close = std.mem.indexOfScalar(u8, text, '`') orelse continue;
+            text = text[close + 1 ..];
+            in_span = false;
+        }
+        if (std.mem.count(u8, text, "`") % 2 == 1) {
+            in_span = true;
+            text = text[0..std.mem.lastIndexOfScalar(u8, text, '`').?];
+        }
+        switch (proseFlaw(text, .{ .insiders = false })) {
+            .none => {},
+            .mark => |mark| try appendViolation(gpa, violations, "{s}:{d}: {s} in a doc comment (doc-voice); split the sentence or use a comma, colon, or parentheses", .{ path, line_no, mark }),
+            .label => |label| try appendViolation(gpa, violations, "{s}:{d}: \"{s}\" in a doc comment says nothing about the software (project values); name the language, owner, mechanism, or environment", .{ path, line_no, label }),
+            .insider => unreachable,
+        }
+    }
+}
+
+test "a doc comment holds to the reader punctuation rule outside code" {
+    const gpa = std.testing.allocator;
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |v| gpa.free(v);
+        violations.deinit(gpa);
+    }
+    try banDocCommentFlaws(gpa, &violations, "a.zig", "/// Call `f(); g();` first.\n/// A span that wraps `a;\n/// b;` then ends.\n//// banner; aside\n// note; aside\nconst x = 1;\n");
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+    try banDocCommentFlaws(gpa, &violations, "a.zig", "const x = 1;\n//! One thing; another.\n");
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "a.zig:2: a semicolon") != null);
+    try banDocCommentFlaws(gpa, &violations, "a.zig", "/// A native binding \u{2014} here.\n");
+    try std.testing.expectEqual(@as(usize, 2), violations.items.len);
+    // A span left open by a non-doc line does not hide the next comment.
+    try banDocCommentFlaws(gpa, &violations, "a.zig", "/// Open `span\nconst x = 1;\n/// Then; this.\n");
+    try std.testing.expectEqual(@as(usize, 3), violations.items.len);
+}
+
 pub const ProseFlaw = union(enum) {
     none,
     /// The punctuation, named for the message.

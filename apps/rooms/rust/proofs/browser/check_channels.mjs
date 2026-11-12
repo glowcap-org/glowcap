@@ -65,10 +65,10 @@ export async function checkChannels(
 	environment.GLOWCAP_ROOMS_ICE_SERVERS = "";
 	const child = new Deno.Command(Deno.env.get("GLOWCAP_ROOMS_WEB_TEST_BIN") ?? local("zig-out/libexec/rooms-web"), {
 		args: [
+			// The HTTP port, then the listener options this transport reads.
 			"0",
-			"0",
+			...(transport === "iroh" ? ["--reachability=direct"] : ["0"]),
 			`--transport=${transport}`,
-			"--reachability=direct",
 			"--no-browser-assets",
 			`--server=${Deno.env.get("GLOWCAP_ROOMS_SERVER_TEST_BIN") ?? local("zig-out/libexec/rooms-server")}`,
 			...(managed === "rooms" || (managed === null && transport === "tcp") ? ["--history"] : []),

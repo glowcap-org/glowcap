@@ -298,6 +298,15 @@ export async function run(
 			// tell it from, so the tab reaches one: a room named in the rail, then
 			// sent to the other server from the panel's own destination line.
 			await finger.click("#newRoomBtn");
+			// The panel is a row being named, under a finger as under a pointer.
+			const typed = await finger.evaluate(() => {
+				const name = document.querySelector("#roomList li .rname")?.getBoundingClientRect().left;
+				const field = document.getElementById("newRoomInput")?.getBoundingClientRect().left;
+				return name == null || field == null ? null : field - name;
+			});
+			if (typed == null || Math.abs(typed) > 0.5) {
+				fail(`under a finger the name being typed starts ${typed}px from where a row's name starts`);
+			}
 			await finger.fill("#newRoomInput", "faraway");
 			await finger.focus("#newRoomElsewhere");
 			await finger.press("#newRoomElsewhere", "Enter");

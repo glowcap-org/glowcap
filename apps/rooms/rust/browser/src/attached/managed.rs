@@ -1,5 +1,6 @@
 //! Production Loam workspace on the existing continuously driven browser Host.
 //! IndexedDB owns authority. JavaScript receives separate use/control handles.
+use rooms_runtime::Error as RuntimeError;
 mod acquisition;
 mod activity;
 mod admission;
@@ -46,10 +47,10 @@ pub(super) struct Prepared {
 }
 impl Prepared {
 	pub async fn open(tab: &str, platform: Platform) -> Result<Self> {
-		let database = Database::open().await.map_err(|e| e.to_string())?;
+		let database = Database::open().await.map_err(RuntimeError::from)?;
 		let startup = session::Prepared::open(database.clone(), tab, platform)
 			.await
-			.map_err(|e| e.to_string())?;
+			.map_err(RuntimeError::from)?;
 		Ok(Self { startup, database })
 	}
 	pub fn seed(&self) -> [u8; 32] {
@@ -72,10 +73,10 @@ impl Owner {
 		prepared: Prepared,
 		admission: rooms_application::admission::Settings,
 	) -> Result<Self> {
-		let limits = production_limits().map_err(|e| e.to_string())?;
+		let limits = production_limits().map_err(RuntimeError::from)?;
 		let backend = crate::storage::PageArchive::open(environment.platform.clone())
 			.await
-			.map_err(|e| e.to_string())?;
+			.map_err(RuntimeError::from)?;
 		let source = backend.source().clone();
 		let (archive, worker) = rooms_runtime::archive::session::SessionArchive::new(
 			environment.platform.clone(),
@@ -93,44 +94,35 @@ impl Owner {
 				custody::MAX_CUSTODY_FIELDS as u32,
 				admission,
 				move |operation, error| {
-					trouble.report("Session activity", &format!("{operation}: {error}"));
+					trouble.report(operation, &error.clone());
 				},
 			)
-			.await
-			.map_err(|e| e.to_string())?;
+			.await?;
 		let configured = opened.record_to(archive.clone(), source);
 		if let Err(error) = configured {
 			let closed = opened.close().await;
-			return Err(match closed {
-				Ok(()) => error.to_string(),
-				Err(cleanup) => format!("{error}; startup cleanup: {cleanup}"),
-			});
+			return Err(rooms_runtime::cleanup::failed(error, closed));
 		}
 		let trouble = environment.trouble.clone();
 		let inputs = opened
 			.workspace()
+			.map_err(RuntimeError::from)
 			.and_then(|workspace| opened.session().changes().map(|changes| (workspace, changes)));
 		let (workspace, changes) = match inputs {
 			Ok(inputs) => inputs,
 			Err(error) => {
-				return Err(rooms_runtime::cleanup::failed(
-					error.to_string(),
-					opened.close().await.map_err(|error| error.to_string()),
-				));
+				return Err(rooms_runtime::cleanup::failed(error, opened.close().await));
 			}
 		};
 		let trace = std::rc::Rc::new(rooms_runtime::trace::Trace::start(
 			environment.platform.clone(),
 			workspace,
 			changes,
-			std::rc::Rc::new(move |reason| trouble.report("Trace publisher", reason)),
+			std::rc::Rc::new(move |reason| trouble.report("Trace publisher", &RuntimeError::platform_message(reason))),
 		));
 		if let Err(error) = opened.session().configure_trace(trace.clone()) {
-			let cleanup = cleanup::combine(
-				trace.close().await.map_err(|error| error.to_string()),
-				opened.close().await.map_err(|error| error.to_string()),
-			);
-			return Err(rooms_runtime::cleanup::failed(error.to_string(), cleanup));
+			let cleanup = cleanup::combine(trace.close().await, opened.close().await);
+			return Err(rooms_runtime::cleanup::failed(error.into(), cleanup));
 		}
 		let archive_worker = tokio::task::spawn_local(worker.run());
 		Ok(Self {
@@ -145,18 +137,18 @@ impl Owner {
 		})
 	}
 	pub async fn close(&self) -> Result<()> {
-		self.trace.close().await.map_err(|error| error.to_string())?;
+		self.trace.close().await?;
 		self.stop_signaling().await?;
 		if !self.opened_closed.get() {
 			let mut opened = self.opened.lock().await;
-			opened.session().resume_pending().map_err(|e| e.to_string())?;
-			opened.close().await.map_err(|e| e.to_string())?;
+			opened.session().resume_pending().map_err(RuntimeError::from)?;
+			opened.close().await?;
 			self.opened_closed.set(true);
 		}
-		self.archive.close().await.map_err(|e| e.to_string())?;
+		self.archive.close().await?;
 		let mut worker = self.archive_worker.lock().await;
 		if let Some(worker) = worker.as_mut() {
-			worker.await.map_err(|e| e.to_string())?;
+			worker.await.map_err(RuntimeError::platform)?;
 		}
 		worker.take();
 		match self.relay.lock().await.as_mut() {
@@ -186,14 +178,14 @@ impl Owner {
 					.into_future(),
 			)
 			.await
-			.ok_or("Access publication did not answer")?
-			.map_err(|e| e.to_string())?;
+			.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("Access publication")))?
+			.map_err(RuntimeError::from)?;
 		let name = name
 			.as_str()
 			.filter(|name| !name.is_empty() && name.len() <= 64)
-			.ok_or("Access returned no durable publication name")?;
+			.ok_or_else(|| RuntimeError::invalid("Access returned no durable publication name"))?;
 		let locator = self.relay_locator(environment).await?;
-		glowcap::format_sturdyref(&locator, name.as_bytes(), glowcap::CaptpVersion::V1_0).map_err(|e| e.to_string())
+		glowcap::format_sturdyref(&locator, name.as_bytes(), glowcap::CaptpVersion::V1_0).map_err(RuntimeError::from)
 	}
 	/// The locator this browser is reached at through its chosen relay. The
 	/// relay starts once and keeps registering in the background, so a relay
@@ -206,7 +198,7 @@ impl Owner {
 				.as_ref()
 				.ok_or_else(crate::transport::no_server)?
 				.relay_route(environment.runtime.host())
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			*relay = Some(super::relay::Relay::start(
 				environment.runtime.host(),
 				environment.platform.clone(),
@@ -215,7 +207,9 @@ impl Owner {
 				environment.incoming.admission(),
 			)?);
 		}
-		let relay = relay.as_ref().ok_or("The publication route was not prepared")?;
+		let relay = relay
+			.as_ref()
+			.ok_or_else(|| RuntimeError::invalid("The publication route was not prepared"))?;
 		Ok(relay.locator().clone())
 	}
 }
@@ -223,29 +217,30 @@ fn owner(environment: &Environment) -> Result<&Owner> {
 	environment
 		.managed
 		.as_ref()
-		.ok_or_else(|| "This application has no managed workspace".into())
+		.ok_or_else(|| RuntimeError::invalid("This application has no managed workspace"))
 }
 fn json(text: &str) -> Result<JsValue> {
-	js_sys::JSON::parse(text).map_err(|_| "Invalid Rooms projection".into())
+	js_sys::JSON::parse(text).map_err(|_| RuntimeError::invalid("Invalid Rooms projection"))
 }
 fn revision(text: &str) -> Result<u64> {
-	text.parse().map_err(|_| "Invalid access revision".into())
+	text.parse()
+		.map_err(|_| RuntimeError::invalid("Invalid access revision"))
 }
 fn key<K>(platform: &mut Platform) -> Result<custody::FieldKey<K>> {
 	use rooms_runtime::entropy::Entropy;
 	let mut bytes = [0; 16];
-	platform.fill(&mut bytes).map_err(|e| e.to_string())?;
+	platform.fill(&mut bytes).map_err(RuntimeError::platform)?;
 	let (slot, generation) = bytes.split_at(8);
 	let slot = slot
 		.try_into()
 		.ok()
 		.and_then(|slot| NonZeroU64::new(u64::from_be_bytes(slot)))
-		.ok_or("Empty custody identity")?;
+		.ok_or_else(|| RuntimeError::invalid("Empty custody identity"))?;
 	let generation = generation
 		.try_into()
 		.ok()
 		.and_then(|generation| NonZeroU64::new(u64::from_be_bytes(generation)))
-		.ok_or("Empty custody generation")?;
+		.ok_or_else(|| RuntimeError::invalid("Empty custody generation"))?;
 	Ok(custody::FieldKey::new(slot, generation))
 }
 
@@ -272,10 +267,10 @@ impl RoomsManagedApplication {
 			.as_deref()
 			.map(crate::transport::WebFront::new)
 			.transpose()
-			.map_err(|e| js_error(&e.to_string()))?;
+			.map_err(|e| js_error(&RuntimeError::invalid_by(e)))?;
 		let tab = scalar(tab, 64).map_err(|e| js_error(&e))?;
 		if tab.is_empty() || !tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
-			return Err(js_error("Invalid Rooms tab identity"));
+			return Err(js_error(&RuntimeError::invalid("Invalid Rooms tab identity")));
 		}
 		Ok(Self {
 			driver: Driver::start_managed(Startup { tab, admission, front }, trouble),
@@ -289,7 +284,7 @@ impl RoomsManagedApplication {
 				.lock()
 				.await
 				.workspace()
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let workspace = driver.hold(workspace, size_of::<Workspace<Platform>>())?;
 			Ok(RoomsManagedWorkspace {
 				driver,
@@ -307,7 +302,7 @@ impl RoomsManagedApplication {
 				.lock()
 				.await
 				.management()
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			Ok(RoomsManagedControl::new(driver, control, PublicationHome::LocalOwner)?.into())
 		})
 	}
@@ -327,11 +322,10 @@ impl RoomsManagedApplication {
 				.platform
 				.within(
 					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					host.enliven(&uri),
+					environment.enliven(&uri),
 				)
 				.await
-				.ok_or("Workspace connection timed out")?
-				.map_err(|e| e.to_string())?;
+				.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("Workspace connection")))??;
 			let home = PublicationHome::remote(&driver, uri)?;
 			let workspace = Workspace::local(host.clone(), environment.platform.clone(), reference);
 			let workspace = driver.hold(workspace, size_of::<Workspace<Platform>>())?;
@@ -357,11 +351,10 @@ impl RoomsManagedApplication {
 				.platform
 				.within(
 					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					host.enliven(&uri),
+					environment.enliven(&uri),
 				)
 				.await
-				.ok_or("Control connection timed out")?
-				.map_err(|e| e.to_string())?;
+				.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("Control connection")))??;
 			let home = PublicationHome::remote(&driver, uri)?;
 			RoomsManagedControl::new(
 				driver,
@@ -383,10 +376,10 @@ impl RoomsManagedApplication {
 			let opened = owner(&environment)?.opened.lock().await;
 			let snapshot = opened
 				.workspace()
-				.map_err(|e| e.to_string())?
+				.map_err(RuntimeError::from)?
 				.snapshot()
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let selected = snapshot
 				.intent
 				.accesses
@@ -394,7 +387,7 @@ impl RoomsManagedApplication {
 				.iter()
 				.find(|row| row.id.text().as_str() == Some(&id))
 				.and_then(|row| row.access)
-				.ok_or("No held workspace access for this row")?;
+				.ok_or_else(|| RuntimeError::invalid("No held workspace access for this row"))?;
 			let fields = [custody::Coordinate::new(custody::Role::SessionAccess, selected)];
 			let mut held = environment
 				.platform
@@ -404,10 +397,12 @@ impl RoomsManagedApplication {
 				)
 				.await
 				.ok_or_else(|| {
-					rooms_application::failure::FailureCode::SessionRestorationFailed
-						.line("Saved workspace connection timed out")
+					RuntimeError::coded(
+						rooms_application::failure::FailureCode::SessionRestorationFailed,
+						"Saved workspace connection timed out",
+					)
 				})?
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let (reference, uri) = held.remove(0);
 			let home = PublicationHome::restored(&driver, uri)?;
 			let workspace = Workspace::local(
@@ -438,10 +433,10 @@ impl RoomsManagedApplication {
 			let opened = owner(&environment)?.opened.lock().await;
 			let snapshot = opened
 				.workspace()
-				.map_err(|e| e.to_string())?
+				.map_err(RuntimeError::from)?
 				.snapshot()
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let selected = snapshot
 				.intent
 				.accesses
@@ -449,7 +444,7 @@ impl RoomsManagedApplication {
 				.iter()
 				.find(|row| row.id.text().as_str() == Some(&id))
 				.and_then(|row| row.control)
-				.ok_or("No held management control for this row")?;
+				.ok_or_else(|| RuntimeError::invalid("No held management control for this row"))?;
 			let fields = [custody::Coordinate::new(custody::Role::SessionControl, selected)];
 			let mut held = environment
 				.platform
@@ -459,10 +454,12 @@ impl RoomsManagedApplication {
 				)
 				.await
 				.ok_or_else(|| {
-					rooms_application::failure::FailureCode::SessionRestorationFailed
-						.line("Saved management connection timed out")
+					RuntimeError::coded(
+						rooms_application::failure::FailureCode::SessionRestorationFailed,
+						"Saved management connection timed out",
+					)
 				})?
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let (reference, uri) = held.remove(0);
 			let home = PublicationHome::restored(&driver, uri)?;
 			let control = Control::local(
@@ -476,7 +473,7 @@ impl RoomsManagedApplication {
 	pub fn publish(&self) -> js_sys::Promise {
 		self.driver.submit(0, move |environment| async move {
 			let owner = owner(&environment)?;
-			let reference = owner.opened.lock().await.access().map_err(|e| e.to_string())?.clone();
+			let reference = owner.opened.lock().await.access().map_err(RuntimeError::from)?.clone();
 			let link = owner.publish(&environment, &reference).await?;
 			Ok(link.into())
 		})
@@ -487,7 +484,7 @@ impl RoomsManagedApplication {
 	pub fn publish_management(&self) -> js_sys::Promise {
 		self.driver.submit(0, move |environment| async move {
 			let owner = owner(&environment)?;
-			let reference = owner.opened.lock().await.control().map_err(|e| e.to_string())?.clone();
+			let reference = owner.opened.lock().await.control().map_err(RuntimeError::from)?.clone();
 			let link = owner.publish(&environment, &reference).await?;
 			Ok(link.into())
 		})
@@ -515,7 +512,7 @@ impl RoomsManagedWorkspace {
 	pub fn snapshot(&self) -> js_sys::Promise {
 		let workspace = self.workspace.clone();
 		self.driver.submit(0, move |_| async move {
-			let addressed = workspace.addressed_snapshot().await.map_err(|e| e.to_string())?;
+			let addressed = workspace.addressed_snapshot().await.map_err(RuntimeError::from)?;
 			let snapshot = addressed.snapshot();
 			json(
 				&serde_json::json!({
@@ -549,7 +546,7 @@ impl RoomsManagedWorkspace {
 			let command = workspace
 				.prepare_command(&operation, base, &name, &arguments)
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = command.retained_bytes();
 			let command = driver.hold(command, bytes)?;
 			Ok(RoomsManagedCommand { driver, command }.into())
@@ -564,15 +561,13 @@ pub struct RoomsManagedCommand {
 }
 #[wasm_bindgen]
 impl RoomsManagedCommand {
+	/// Resolves `{ status, reason? }` (`outcome::command`). A refusal the session
+	/// made before any receipt existed reads `refused`, so the page frees the
+	/// request instead of holding it for a decision.
 	pub fn submit(&self) -> js_sys::Promise {
 		let command = self.command.clone();
-		self.driver.submit(0, move |_| async move {
-			command
-				.submit()
-				.await
-				.map(|value| format!("{value:?}").to_lowercase().into())
-				.map_err(|e| e.to_string())
-		})
+		self.driver
+			.submit(0, move |_| async move { outcome::command(command.submit().await) })
 	}
 	pub fn status(&self) -> js_sys::Promise {
 		let command = self.command.clone();
@@ -581,7 +576,7 @@ impl RoomsManagedCommand {
 				.status()
 				.await
 				.map(|value| format!("{value:?}").to_lowercase().into())
-				.map_err(|e| e.to_string())
+				.map_err(RuntimeError::from)
 		})
 	}
 	pub fn result(&self) -> js_sys::Promise {
@@ -593,14 +588,19 @@ impl RoomsManagedCommand {
 fn committed_data(result: &Argument) -> Result<JsValue> {
 	match result {
 		Argument::String(status) if matches!(status.as_str(), "unknown" | "pending" | "unsent") => {
-			Err(format!("The original operation is {status}. Its receipt remains held."))
+			let reason = format!("The original operation is {status}. Its receipt remains held.");
+			Err(match status.as_str() {
+				"unknown" => RuntimeError::uncertain(reason),
+				"pending" => RuntimeError::busy(reason),
+				_ => RuntimeError::stale(reason),
+			})
 		}
 		Argument::String(data) => json(data),
 		Argument::List(values) => match values.as_slice() {
 			[Argument::String(data), Argument::List(_)] => json(data),
-			_ => Err("The operation has no committed data yet".into()),
+			_ => Err(RuntimeError::busy("The operation has no committed data yet")),
 		},
-		_ => Err("The operation has no committed data yet".into()),
+		_ => Err(RuntimeError::busy("The operation has no committed data yet")),
 	}
 }
 #[wasm_bindgen]
@@ -611,8 +611,8 @@ impl RoomsManagedCommand {
 			command
 				.receive()
 				.await
-				.map(|status| format!("{status:?}").to_lowercase().into())
-				.map_err(|e| e.to_string())
+				.map(|status| status.wire().into())
+				.map_err(RuntimeError::from)
 		})
 	}
 }

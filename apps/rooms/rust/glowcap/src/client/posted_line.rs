@@ -3,30 +3,50 @@
 use super::{Client, Deadline, Error, Reply};
 use glowcap::{Argument, Ref};
 
+/// A reply failed validation before its line authority could be adopted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplyError {
+	Shape,
+	Identity,
+	Authority,
+	MissingIdentity,
+}
+impl core::fmt::Display for ReplyError {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.write_str(match self {
+			Self::Shape => "invalid posted line reply",
+			Self::Identity => "invalid posted line identity",
+			Self::Authority => "invalid posted line authority",
+			Self::MissingIdentity => "room post omitted its line identity",
+		})
+	}
+}
+impl std::error::Error for ReplyError {}
+
 /// Room posts return their authoritative line identity with the capability.
 /// Direct inboxes return a capability. Their sender owns its local line ID.
 /// This borrows the reply and never duplicates capability custody.
-pub fn reply(value: &Argument) -> glowcap::Result<(Option<&Ref>, Option<rooms_application::room::message::LineId>)> {
+pub fn reply(value: &Argument) -> Result<(Option<&Ref>, Option<rooms_application::room::message::LineId>), ReplyError> {
 	match value {
 		Argument::Void => Ok((None, None)),
 		Argument::Reference(reference) => Ok((Some(reference), None)),
 		Argument::List(parts) => {
 			let [id, authority] = parts.as_slice() else {
-				return Err(glowcap::loam::refusal("invalid posted line reply"));
+				return Err(ReplyError::Shape);
 			};
 			let id = id
 				.as_i64()
 				.and_then(|id| u64::try_from(id).ok())
 				.and_then(rooms_application::room::message::LineId::new)
-				.ok_or_else(|| glowcap::loam::refusal("invalid posted line identity"))?;
+				.ok_or(ReplyError::Identity)?;
 			let authority = match authority {
 				Argument::Reference(reference) => Some(reference),
 				Argument::Void => None,
-				_ => return Err(glowcap::loam::refusal("invalid posted line authority")),
+				_ => return Err(ReplyError::Authority),
 			};
 			Ok((authority, Some(id)))
 		}
-		_ => Err(glowcap::loam::refusal("invalid posted line reply")),
+		_ => Err(ReplyError::Shape),
 	}
 }
 
@@ -105,7 +125,7 @@ impl<D> PostedLine<D> {
 	}
 	pub(super) fn from_room_reply(client: Client<D>, reply: Reply) -> Result<Option<Self>, Error> {
 		if matches!(reply.0, Argument::Reference(_)) {
-			return Err(glowcap::loam::refusal("room post omitted its line identity").into());
+			return Err(ReplyError::MissingIdentity.into());
 		}
 		self::reply(&reply.0)?;
 		Ok(Self::from_reply(client, reply))

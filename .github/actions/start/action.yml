@@ -1,5 +1,5 @@
 name: Start the CI devcontainer
-description: Start the prepared toolchain image after the workflow frees disk and stages any unpublished image archive.
+description: Start an image another job prepared, after the workflow frees disk and stages any unpublished image archive.
 inputs:
   image:
     description: The image output of the devcontainer-image workflow.
@@ -7,14 +7,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install the pinned Dev Containers CLI
-      shell: bash
-      run: . .devcontainer/pins.sh && npm install -g "@devcontainers/cli@$DEVCONTAINER_CLI_VERSION"
-    - name: Authenticate to the image registry
-      env:
-        GH_TOKEN: ${{ github.token }}
-      shell: bash
-      run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+    - uses: ./.github/actions/devcontainer-cli
     - name: Start the prepared devcontainer
       env:
         IMAGE: ${{ inputs.image }}

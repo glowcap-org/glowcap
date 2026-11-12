@@ -44,7 +44,7 @@ test "access retained batch owns paths including full generation width and unwin
         if (owned.decodeOwned(a, try f.loam.core.RecordView.decode(encoded, f.limits.records, &f.schemas))) {
             owned.deinit(a);
             return error.AcceptedTruncation;
-        } else |_| {}
+        } else |err| try std.testing.expectEqual(error.MalformedFrame, err);
     }
 }
 

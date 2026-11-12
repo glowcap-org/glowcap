@@ -36,14 +36,18 @@ async fn explicit_retry_does_not_restart_ready_pending_or_retiring_workers() {
 							signals.ready.send_replace(Some(Ok(())));
 						}
 						"failed" => {
-							signals.ready.send_replace(Some(Err(glowcap::loam::refusal(
-								"rate-limited: retry-after-ms=60000; scope=join",
+							signals.ready.send_replace(Some(Err(Error::admission(
+								rooms_application::admission::Refusal::Throttled {
+									class: rooms_application::admission::Class::Join,
+									retry_ms: 60000,
+								},
+								None,
 							))));
 						}
 						"retiring" => {
 							signals
 								.finished
-								.send_replace(Some(Err(glowcap::loam::refusal("cleanup pending"))));
+								.send_replace(Some(Err(Error::uncertain("cleanup pending"))));
 						}
 						_ => {}
 					}

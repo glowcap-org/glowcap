@@ -91,6 +91,15 @@ pub enum Family {
 }
 
 impl Family {
+	/// The listener options this family reads beside `transport`.
+	pub fn reads(self) -> &'static [&'static str] {
+		match self {
+			Self::Tcp(_) => &["bind", "port", "announce-host"],
+			Self::Iroh => &["reachability"],
+			Self::Relay(_) => &["relay", "relay-public"],
+			Self::Onion => &["port", "onion-socks", "onion-control", "onion-forward"],
+		}
+	}
 	pub fn of(profile: Profile) -> Self {
 		match profile {
 			Profile::Tcp => Self::Tcp(TcpProfile::Plain),
@@ -115,6 +124,22 @@ impl Family {
 	}
 }
 
+/// What a launcher reads from a peer's announce line to reach the listener at
+/// `location`: a bare port for plain TCP on its own address, `host:port` when
+/// the operator announced a host, and the complete locator for every other
+/// profile, whose designator is a key.
+pub fn announce_token(location: &str, announced_host: bool) -> String {
+	match glowcap::parse_locator(location) {
+		Ok(locator) if locator.transport == glowcap::TRANSPORT_TCP && !announced_host => locator
+			.designator
+			.rsplit_once(':')
+			.map(|(_, port)| port.to_owned())
+			.unwrap_or(locator.designator),
+		Ok(locator) if locator.transport == glowcap::TRANSPORT_TCP => locator.designator,
+		_ => location.to_owned(),
+	}
+}
+
 impl Transport {
 	/// Read the transport from named options. `named` answers an option from
 	/// the argument list, and an absent one is read from the environment at
@@ -125,7 +150,10 @@ impl Transport {
 	/// `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL`. `peer` names the
 	/// program in a refusal. TCP defaults to `127.0.0.1:0`. A wildcard bind
 	/// needs an announced host, because the listener's own address is not one
-	/// anybody can dial. A relay profile needs the relay it registers at.
+	/// anybody can dial. A relay profile needs the relay it registers at. An
+	/// argument the chosen transport does not read is refused. The
+	/// environment is not held to that, because a deployment shares it
+	/// across peers on different transports.
 	pub fn parse(
 		named: impl Fn(&str) -> Option<String>,
 		env: impl Fn(&str) -> Option<String>,
@@ -147,7 +175,17 @@ impl Transport {
 				listeners::TRANSPORTS.map(Profile::name).join(", ")
 			)
 		})?;
-		match Family::of(profile) {
+		let family = Family::of(profile);
+		if let Some(option) = Self::OPTIONS
+			.iter()
+			.find(|option| **option != "transport" && !family.reads().contains(option) && named(option).is_some())
+		{
+			return Err(format!(
+				"{peer} --{option} does not apply to the {} transport",
+				profile.name()
+			));
+		}
+		match family {
 			Family::Iroh => Ok(Self::Iroh(
 				match value("reachability").as_deref().unwrap_or("discovery") {
 					"discovery" => iroh::Reachability::Discovery,
@@ -158,11 +196,9 @@ impl Transport {
 			Family::Tcp(profile) => {
 				let bind = value("bind").unwrap_or_else(|| "127.0.0.1".into());
 				let announce = value("announce-host");
-				let port = value("port")
-					.unwrap_or_else(|| "0".into())
-					.parse::<u16>()
-					.map_err(|_| format!("{peer} TCP port must be an integer from 0 through 65535"))?;
-				if (bind == "0.0.0.0" || bind == "::" || bind == "[::]") && announce.is_none() {
+				let port = rooms_application::host::port(&value("port").unwrap_or_else(|| "0".into()))
+					.ok_or_else(|| format!("{peer} TCP port must be an integer from 0 through 65535"))?;
+				if rooms_application::host::wildcard(&bind) && announce.is_none() {
 					return Err(format!("{peer} wildcard bind needs --announce-host=<dialable-host>"));
 				}
 				Ok(Self::Tcp {
@@ -201,6 +237,10 @@ impl Transport {
 		"onion-control",
 		"onion-forward",
 	];
+	/// Whether the operator named the host peers dial this TCP listener at.
+	pub fn announces_host(&self) -> bool {
+		matches!(self, Self::Tcp { announce: Some(_), .. })
+	}
 	/// The seat-table row this listener stands in.
 	pub fn profile(&self) -> Profile {
 		match self {
@@ -234,6 +274,26 @@ pub fn announced(locator: &Locator) -> Result<String, TransportError> {
 		return Ok(locator.designator.clone());
 	}
 	Ok(glowcap::format_locator_uri(locator)?)
+}
+
+/// The TCP profiles a Rooms peer registers. `noise-tcp` is always among
+/// them. A cleartext profile joins only when the operator named its
+/// transport, by listening on it, by supplying a locator on it, or through a
+/// dial flag, so a handoff alone never opens a cleartext dial.
+pub fn tcp_config<'a>(named: impl IntoIterator<Item = &'a str>) -> glowcap::tcp::Config {
+	use glowcap::tcp::Profiles;
+	let mut profiles = Profiles::NOISE_TCP;
+	for transport in named {
+		profiles = match transport {
+			glowcap::TRANSPORT_TCP => profiles.with(Profiles::TCP),
+			glowcap::TRANSPORT_KEYED_TCP => profiles.with(Profiles::KEYED_TCP),
+			_ => profiles,
+		};
+	}
+	glowcap::tcp::Config {
+		profiles,
+		..Default::default()
+	}
 }
 
 pub fn iroh_config(reachability: iroh::Reachability) -> iroh::Config {
@@ -389,9 +449,145 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn a_cleartext_tcp_profile_is_registered_only_when_named() {
+		use glowcap::tcp::Profiles;
+		assert_eq!(tcp_config([]).profiles, Profiles::NOISE_TCP);
+		assert_eq!(
+			tcp_config([glowcap::TRANSPORT_NOISE_TCP, glowcap::TRANSPORT_IROH]).profiles,
+			Profiles::NOISE_TCP
+		);
+		assert_eq!(
+			tcp_config([glowcap::TRANSPORT_TCP]).profiles,
+			Profiles::NOISE_TCP.with(Profiles::TCP)
+		);
+		assert_eq!(
+			tcp_config([glowcap::TRANSPORT_KEYED_TCP]).profiles,
+			Profiles::NOISE_TCP.with(Profiles::KEYED_TCP)
+		);
+	}
+
+	#[tokio::test]
+	async fn a_tcp_listener_dials_sealed_tcp_and_only_the_cleartext_it_listens_on() {
+		rooms_testing::local_set::run_within(std::time::Duration::from_secs(10), async {
+			use glowcap::{BreakCause, BreakReason, ConnectOptions, Host, PendingWork, Runtime, RuntimeConfig};
+			let host = Host::from_seed([61; 32]).unwrap();
+			let transport = Transport::Tcp {
+				profile: TcpProfile::Plain,
+				bind: "127.0.0.1".into(),
+				port: 0,
+				announce: None,
+			};
+			let (listener, _) = Listener::open(&transport, &host, &mut onion::KeyFile(None))
+				.await
+				.unwrap();
+			// This runtime brings no provider, so it dials what the listener registered.
+			let runtime = Runtime::open(RuntimeConfig::providers(Vec::new()).adopt_host(&host))
+				.await
+				.unwrap();
+
+			let sealed = tcp::noise::listen("127.0.0.1", 0, Default::default()).await.unwrap();
+			let sealed_at = sealed.locator().unwrap();
+			let (dialed, accepted) =
+				tokio::join!(runtime.connect(&sealed_at, ConnectOptions::default()), sealed.accept());
+			dialed.unwrap();
+			accepted.unwrap();
+
+			let plain = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();
+			let plain_at = plain.locator().unwrap();
+			let (dialed, accepted) =
+				tokio::join!(runtime.connect(&plain_at, ConnectOptions::default()), plain.accept());
+			dialed.unwrap();
+			accepted.unwrap();
+
+			// The operator named plain `tcp` alone, so `keyed-tcp` stays undialed.
+			let other = Host::from_seed([62; 32]).unwrap();
+			let options = tcp::ListenOptions {
+				identity: tcp::ListenerIdentity::Host(other.clone()),
+				..Default::default()
+			};
+			let keyed = tcp::keyed::listen("127.0.0.1", 0, options).await.unwrap();
+			let Err(refused) = runtime
+				.connect(&keyed.locator().unwrap(), ConnectOptions::default())
+				.await
+			else {
+				panic!("a peer dialed a cleartext transport its operator did not name");
+			};
+			assert_eq!(refused.cause(), BreakCause::local(BreakReason::TransportUnavailable));
+			assert_eq!(
+				rooms_glowcap::client::binding_failure(&refused).map(|failure| failure.code),
+				Some(rooms_application::failure::FailureCode::TransportNotDialed)
+			);
+
+			keyed.close().await.unwrap();
+			plain.close().await.unwrap();
+			sealed.close().await.unwrap();
+			listener.close().await.unwrap();
+			other.close(PendingWork::Cancel).await.unwrap();
+			host.close(PendingWork::Cancel).await.unwrap();
+		})
+		.await;
+	}
+
+	#[test]
 	fn every_seat_row_round_trips_through_its_family() {
 		for profile in listeners::TRANSPORTS {
 			assert_eq!(Family::of(profile).seat(), profile);
 		}
+	}
+
+	/// An option that would do nothing is refused where the operator typed
+	/// it. The environment is shared across peers, so it is only ignored.
+	#[test]
+	fn an_argument_the_transport_does_not_read_is_refused() {
+		let parse = |named: &[(&str, &str)], env: &[(&str, &str)]| {
+			let find = |pairs: &[(&str, &str)], key: &str| {
+				pairs
+					.iter()
+					.find(|(name, _)| *name == key)
+					.map(|(_, value)| (*value).to_owned())
+			};
+			Transport::parse(
+				|key| find(named, key),
+				|key| find(env, key),
+				|key| format!("PEER_{key}"),
+				"peer",
+			)
+			.map(|transport| transport.profile())
+		};
+		assert_eq!(
+			parse(&[("port", "7000")], &[]).unwrap_err(),
+			"peer --port does not apply to the iroh transport"
+		);
+		assert_eq!(
+			parse(&[("transport", "noise-tcp"), ("reachability", "direct")], &[]).unwrap_err(),
+			"peer --reachability does not apply to the noise-tcp transport"
+		);
+		assert_eq!(
+			parse(&[("transport", "tcp"), ("relay", "wss://relay.example/relay")], &[]).unwrap_err(),
+			"peer --relay does not apply to the tcp transport"
+		);
+		assert_eq!(parse(&[], &[("PEER_port", "7000")]), Ok(Profile::Iroh));
+		assert_eq!(
+			parse(
+				&[("transport", "tcp"), ("port", "7000")],
+				&[("PEER_reachability", "direct")]
+			),
+			Ok(Profile::Tcp)
+		);
+		assert_eq!(
+			parse(&[("transport", "tcp"), ("port", "+7000")], &[]).unwrap_err(),
+			"peer TCP port must be an integer from 0 through 65535"
+		);
+		// Every option is read by some family, and no family reads another.
+		let mut read: Vec<&str> = listeners::TRANSPORTS
+			.iter()
+			.flat_map(|profile| Family::of(*profile).reads().iter().copied())
+			.chain(["transport"])
+			.collect();
+		read.sort_unstable();
+		read.dedup();
+		let mut offered = Transport::OPTIONS.to_vec();
+		offered.sort_unstable();
+		assert_eq!(read, offered);
 	}
 }

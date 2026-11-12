@@ -57,10 +57,7 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 	};
 	let transport = config.transport.describe();
 	let keeps = config.history;
-	// The announce token is what the harness and the web front read: a bare
-	// port for a loopback TCP room, `host:port` for an announced one, and the
-	// complete locator for every other transport.
-	let announced_host = matches!(&config.transport, server::Transport::Tcp { announce: Some(_), .. });
+	let announced_host = config.transport.announces_host();
 	let stop = async move {
 		tokio::select! { _ = interrupt.recv() => (), _ = terminate.recv() => () }
 	};
@@ -71,15 +68,7 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 		|ready: &Ready| -> Result<(), Error> {
 			started.set(true);
 			let location = ready.location.as_str();
-			let token = match glowcap::parse_locator(location) {
-				Ok(locator) if locator.transport == glowcap::TRANSPORT_TCP && !announced_host => locator
-					.designator
-					.rsplit_once(':')
-					.map(|(_, port)| port.to_owned())
-					.unwrap_or(locator.designator),
-				Ok(locator) if locator.transport == glowcap::TRANSPORT_TCP => locator.designator,
-				_ => location.to_owned(),
-			};
+			let token = rooms_platform::serving::announce_token(location, announced_host);
 			// The announce line stays first and alone on stdout: its readers
 			// wait for it. The human block rides behind it on stderr.
 			if structured {

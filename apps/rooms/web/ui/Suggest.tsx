@@ -8,13 +8,14 @@
 // emoji inside a message.
 //
 // This is that second pattern for a field whose whole value is the name: the
-// rail's two panels, and the join card's room. It draws in the composer's own
+// rail's two panels, the join card's room, and the archive card's member. It
+// draws in the composer's own
 // completion clothes, because a reader who has finished a name in the message
 // field has already learned this list, and one thing that looks the same in two
 // places is cheaper than two that look nearly alike.
 //
 // What it is not is a set to choose from. Every field using it names something
-// that may not exist yet, a room is made by opening it, so what is typed status-allow: pending state or quoted runtime label
+// that may not exist yet, a room is made by opening it, so what is typed
 // always wins, nothing is picked until the reader walks to it, and Enter with
 // nothing picked still submits the words in the field.
 
@@ -37,6 +38,9 @@ export interface Suggest {
 		"aria-controls"?: string;
 		"aria-activedescendant"?: string;
 	};
+	/** Spread onto the input too. The list finishes what is being typed, so it
+	 * stands only while the field has the caret. */
+	caret: { onFocus: () => void; onBlur: () => void };
 	/** Give this the keydown first. True means the list answered the key and the
 	 * field should not: the arrows walk it, and Enter and Escape mean something
 	 * different while a row is picked. */
@@ -48,9 +52,8 @@ export interface Suggest {
 	/** The list itself, or null when there is nothing to offer. Render it inside
 	 * whatever decides the field has focus, since a list rendered outside can put
 	 * its own field away on the way to being pressed. That ancestor is also what
-	 * places it: the list wears `suggest-pop` and each field's own stylesheet
-	 * hangs it off the box it belongs to, so a new caller cannot forget to say
-	 * where it goes. It has already said, by rendering it somewhere. */
+	 * places it: the list wears `suggest-pop`, and the `field-offers` or
+	 * `rail-offers` layer it is rendered in hangs it off the box it belongs to. */
 	list: ReactNode;
 }
 
@@ -72,6 +75,7 @@ export function useSuggest(
 	},
 ): Suggest {
 	const [picked, setPicked] = useState(-1);
+	const [caret, setCaret] = useState(false);
 	const said = value.trim().toLowerCase();
 	// A name already typed in full offers nothing: this is a way past typing, and
 	// once there is nothing left to save it is only something in the way. An
@@ -79,7 +83,8 @@ export function useSuggest(
 	// so there is nothing to finish, and a list standing open on arrival would
 	// cover the field under it before the reader had said anything at all.
 	// Reading what a directory carries is the rail's job, and the rail lists it.
-	const matches = (said === "" ? [] : offers ?? [])
+	// A field without the caret has nobody typing in it, so it finishes nothing.
+	const matches = (said === "" || !caret ? [] : offers ?? [])
 		.map((name) => ({ name, at: rank(name, said) }))
 		.filter(({ name, at }) => at !== Infinity && name.toLowerCase() !== said)
 		.sort((a, b) => a.at - b.at || a.name.localeCompare(b.name))
@@ -111,6 +116,7 @@ export function useSuggest(
 				...(listing && pick >= 0 ? { "aria-activedescendant": `${id}Offer-${pick}` } : {}),
 			}
 			: {},
+		caret: { onFocus: () => setCaret(true), onBlur: () => setCaret(false) },
 		typed: () => setPicked(-1),
 		keyDown: (event) => {
 			if (!listing) return false;

@@ -1,5 +1,5 @@
 //! Shared wire management journey on native LMDB and browser IndexedDB.
-use super::{Argument, ControlPowers, Policy, Ref, Scope, Session};
+use super::{Argument, ControlConflict, ControlPowers, Policy, Ref, Scope, Session};
 
 async fn revision(session: &Session, control: &Ref) -> u64 {
 	super::management::revision(session, control).await
@@ -79,15 +79,17 @@ pub async fn exercise(session: &Session, control: &Ref, policy: &Policy) -> Stri
 		session.send(&administration, "mutate", &label).await.is_ok(),
 		"exact replay precedes stale revision admission"
 	);
-	assert!(
-		session
-			.send(
-				&administration,
-				"mutate",
-				&ControlPowers::label_arguments(2, old_revision, "renamed terminal")
-			)
-			.await
-			.is_err(),
+	let conflict = session
+		.send(
+			&administration,
+			"mutate",
+			&ControlPowers::label_arguments(2, old_revision, "renamed terminal"),
+		)
+		.await
+		.unwrap();
+	assert_eq!(
+		ControlConflict::read(&conflict).unwrap(),
+		Some(ControlConflict::Revision),
 		"no-op labels still check expected revision"
 	);
 	assert!(

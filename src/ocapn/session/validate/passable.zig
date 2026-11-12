@@ -308,7 +308,7 @@ fn validateSturdyReference(self: *Session, sturdy: anytype) ReferenceError(@Type
 
 /// The error set a reference validator returns for one reference shape. A
 /// borrowed view may fail to project its lazy sturdyref, so it carries
-/// `ProjectError`; an owned reference is already parsed and never does, and
+/// `ProjectError`. An owned reference is already parsed and never does, and
 /// its callers keep the plain session error set.
 pub fn ReferenceError(comptime T: type) type {
     return if (T == model.view.Reference or T == model.view.LazySturdyRef)

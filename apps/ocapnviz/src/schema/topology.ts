@@ -62,7 +62,7 @@ export const KNOWN_PROFILES = [GOBLINS_PROFILE, GLOWCAP_PROFILE] as const;
  * implementation, the viewer has not been told which, and it is not
  * a final answer, because a peer's implementation is a temporal property like
  * its name: `PEER_TRAJECTORY.profile` is a keyframe track, so a peer drawn
- * unknown and later spoken for changes at the moment the viewer learns, status-allow: state at observation
+ * unknown and later spoken for changes at the moment the viewer learns,
  * without rewriting what it knew before. */
 export const UNNAMED_PROFILE = "other";
 

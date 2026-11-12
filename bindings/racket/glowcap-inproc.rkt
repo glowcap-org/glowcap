@@ -113,7 +113,7 @@
            ([exn?
              (lambda (e)
                (define cleanup
-                 (with-handlers ([exn? values])
+                 (with-handlers ([exn:fail? values])
                    (check/inproc (glowcap_inproc_listener_release h))
                    #f))
                (raise (if cleanup (retain-cleanup-failure e cleanup) e)))])

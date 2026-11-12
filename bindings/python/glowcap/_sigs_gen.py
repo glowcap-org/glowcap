@@ -43,15 +43,11 @@ def ocapn_sigs(_Allocator, _ManagedFrame, _LocatorHintView, _LocatorView, _Failu
         "glowcap_locator_record_encode": ([ctypes.POINTER(_LocatorView), ctypes.POINTER(P), size_p], i32),
         "glowcap_locator_record_bytes_release": ([P, size], None),
         "glowcap_uri_parse_peer": ([P, size, ctypes.POINTER(P)], i32),
-        "glowcap_uri_parse_peer_in": ([P, P, size, ctypes.POINTER(P)], i32),
         "glowcap_uri_parse_sturdyref": ([u32, P, size, ctypes.POINTER(P)], i32),
-        "glowcap_uri_parse_sturdyref_in": ([P, u32, P, size, ctypes.POINTER(P)], i32),
         "glowcap_uri_format_peer": ([P, size, P, size, P, P, P, P, size, P, size, size_p], i32),
         "glowcap_uri_format_sturdyref": ([u32, P, size, P, size, P, size, P, P, P, P, size, P, size, size_p], i32),
         "glowcap_locator_new": ([P, size, P, size, u32, ctypes.POINTER(P)], i32),
-        "glowcap_locator_new_in": ([P, P, size, P, size, u32, ctypes.POINTER(P)], i32),
         "glowcap_locator_clone": ([ctypes.POINTER(_LocatorView), ctypes.POINTER(P)], i32),
-        "glowcap_locator_clone_in": ([P, ctypes.POINTER(_LocatorView), ctypes.POINTER(P)], i32),
         "glowcap_locator_borrow_view": ([P, ctypes.POINTER(P)], i32),
         "glowcap_sturdyref_borrow_locator": ([P, ctypes.POINTER(P)], i32),
         "glowcap_sturdyref_swissnum": ([P, ctypes.POINTER(P), size_p], i32),
@@ -72,6 +68,7 @@ def ocapn_sigs(_Allocator, _ManagedFrame, _LocatorHintView, _LocatorView, _Failu
 
 
 def driver_sigs(
+    _BreakCause,
     _Argument,
     _Reference,
     _ManagedFrame,
@@ -127,7 +124,7 @@ def driver_sigs(
         "glowcap_host_session_take_outbound": ([P, ctypes.POINTER(_ManagedFrame), P, size, size_p], i32),
         "glowcap_host_pump_drain": ([P, ctypes.POINTER(_HostPumpHooks), u32_p, u32_p], i32),
         "glowcap_host_dialed": ([P, u64, size, P, P], i32),
-        "glowcap_host_dial_failed": ([P, u64, size, P, size], i32),
+        "glowcap_host_dial_failed": ([P, u64, size, u32, P, size], i32),
         "glowcap_host_dial_cancelled": ([P, u64, size], i32),
         "glowcap_host_provide_gift_id": ([P, u64, P, size], i32),
         "glowcap_host_gift_id_failed": ([P, u64], i32),
@@ -178,6 +175,7 @@ def driver_sigs(
         "glowcap_host_session_partner_identity": ([P, ctypes.POINTER(_PartnerIdentity)], i32),
         "glowcap_host_session_bind_verified_channel_key": ([P, P, size], i32),
         "glowcap_host_last_error": ([P, size], size),
+        "glowcap_host_last_error_cause": ([ctypes.POINTER(_BreakCause)], None),
     }
 
 
@@ -190,6 +188,7 @@ def loop_sigs(
     _Reference,
     _TransportOperationOptions,
     _TransportProvider,
+    _BreakCause,
 ):
     """``libglowcap_driver`` loop-family signatures, in the inventory's order."""
     P = ctypes.c_void_p
@@ -231,7 +230,7 @@ def loop_sigs(
         "glowcap_driver_session_serve": ([P, P], i32),
         "glowcap_driver_session_release": ([P, P], i32),
         "glowcap_driver_last_error": ([P, size], size),
-        "glowcap_driver_clear_last_error": ([], None),
+        "glowcap_driver_last_error_cause": ([ctypes.POINTER(_BreakCause)], None),
     }
 
 
@@ -403,7 +402,6 @@ def relay_sigs(_RelayConfig, _TransportProvider):
     return {
         "glowcap_relay_archive_fingerprint": ([], u64),
         "glowcap_relay_last_error": ([P, size], size),
-        "glowcap_relay_clear_last_error": ([], None),
         "glowcap_relay_runtime_new": ([ctypes.POINTER(_RelayConfig), ctypes.POINTER(P)], i32),
         "glowcap_relay_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
         "glowcap_relay_runtime_release": ([P, P, size, size_p], i32),

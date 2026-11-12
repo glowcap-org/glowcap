@@ -148,8 +148,7 @@ pub fn run(ctx: *Ctx) !u8 {
             } else if (ctx.activeSession()) |s| {
                 try captp_q.advanceSession(s, &store, await_queue.frame_ms);
             } else {
-                // tolerant: an interrupted frame sleep only redraws sooner.
-                std.Io.sleep(ctx.io, std.Io.Duration.fromMilliseconds(await_queue.frame_ms), .real) catch {};
+                try std.Io.sleep(ctx.io, std.Io.Duration.fromMilliseconds(await_queue.frame_ms), .real);
             }
         } else if (flash_frames > 0) {
             if (try loop.tryEvent()) |ev| {

@@ -36,7 +36,7 @@ export const OVERVIEW_HEIGHT = 26;
 
 /** Default host `title` when the pointer is not on the all-rows eyeball. */
 const OVERVIEW_HOST_TITLE =
-	"Overview — drag rectangle to pan · drag edges to zoom · click outside to recenter · wheel = zoom · Shift+wheel = pan";
+	"Overview: drag the rectangle to pan and drag its edges to zoom. Click outside it to recenter. The wheel zooms, and Shift with the wheel pans.";
 
 export type OverviewProps = {
 	view: TimelineView;

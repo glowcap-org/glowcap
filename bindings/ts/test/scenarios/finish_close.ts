@@ -20,7 +20,7 @@ export async function runFinishClosePolicy(): Promise<void> {
 	for (const profile of ["interop", "glowcap"] as const) {
 		await using serverHost = new Host(undefined, { profile });
 		await using server = await tcp.listen("127.0.0.1", 0, { host: serverHost });
-		await using runtime = await Runtime.open({ profile, providers: [tcp.provider()] });
+		await using runtime = await Runtime.open({ profile, providers: [tcp.provider({ profiles: [tcp.plain] })] });
 		let entered!: () => void;
 		const callEntered = new Promise<void>((resolve) => entered = resolve);
 		let releaseAnswer!: (value: null) => void;
@@ -170,7 +170,7 @@ export async function runFinishClosePolicy(): Promise<void> {
 	// and report the same typed outcome.
 	{
 		const listener = await listenTcp("127.0.0.1", 0);
-		const runtime = await Runtime.open({ providers: [tcp.provider()] });
+		const runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 		const silent = listener.accept();
 		const negotiating = runtime.connect(tcp.locator("127.0.0.1", listener.port)).catch(() => null);
 		let timedOut: GlowcapError | null = null;

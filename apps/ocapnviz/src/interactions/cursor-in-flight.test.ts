@@ -166,7 +166,7 @@ Deno.test("Space released mid-marquee: the cursor returns to the marquee", () =>
 Deno.test("a pan offered is grab; a pan running is grabbing", () => {
 	const held = press(NO_HELD_GESTURES, " ");
 	// Offered: the key is down and the pointer is over the stage, but no press
-	// has resolved to anything yet. status-allow: pending state or quoted runtime label
+	// has resolved to anything yet.
 	const hovering = run(IDLE, [moveTo(0)]);
 	assertEquals(cursor(hovering, { held }), "grab");
 	// Running: the press resolved, and the FSM holds the pan from here.

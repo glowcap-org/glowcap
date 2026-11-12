@@ -134,7 +134,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// from the stash, hint-satisfied recv/send, drained dials), drained before blocking.
         ready: completion.ReadyQueue = .{},
         /// Queue seats owned by admitted iroh operations that have not completed
-        /// yet. Capacity is not a reservation: two pending operations both status-allow: pending state or quoted runtime label
+        /// yet. Capacity is not a reservation: two pending operations both
         /// calling ensureUnusedCapacity(1) can claim the same last slot. This
         /// count makes admission cumulative and lets completion stay infallible
         /// after sidecar bytes or an event have been consumed.
@@ -260,8 +260,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return listen_fd;
         }
 
-        /// The accept endpoint is enabled when `openListener` returns;
-        /// nothing pends.
+        /// The accept endpoint is enabled when `openListener` returns.
+        /// Nothing pends.
         pub fn listenerPending(self: *const Self, _: Fd) bool {
             _ = self;
             return false;

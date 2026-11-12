@@ -1,6 +1,7 @@
 //! Handed authority stays opaque. A retained candidate saves its actual target
 //! and initiating endpoint through one ordinary workspace acquisition.
 use super::*;
+use rooms_runtime::Error as RuntimeError;
 use std::{cell::RefCell, rc::Rc};
 
 struct Incoming {
@@ -54,13 +55,13 @@ impl RoomsManagedIncoming {
 		let input = (|| {
 			let candidate = super::super::acquisition::candidate(expected, releases, intent)?;
 			let destination = custody::Coordinate::decode(&scalar(destination, 256)?)
-				.map_err(|_| "Invalid incoming custody coordinate")?;
+				.map_err(|_| RuntimeError::invalid("Invalid incoming custody coordinate"))?;
 			let source = source
 				.map(|raw| -> Result<custody::Coordinate> {
 					let source = custody::Coordinate::decode(&scalar(raw, 256)?)
-						.map_err(|_| "Invalid incoming source coordinate")?;
+						.map_err(|_| RuntimeError::invalid("Invalid incoming source coordinate"))?;
 					if source.role != custody::Role::SessionAccess {
-						return Err("Incoming source must select session access".into());
+						return Err(RuntimeError::invalid("Incoming source must select session access"));
 					}
 					Ok(source)
 				})
@@ -79,15 +80,17 @@ impl RoomsManagedIncoming {
 					.borrow()
 					.as_ref()
 					.map(|incoming| (incoming.source.clone(), incoming.role, incoming.token.clone()))
-					.ok_or("Incoming capability custody has been released")?;
+					.ok_or_else(|| RuntimeError::closed("Incoming capability custody has been released"))?;
 				if destination.role != incoming.1 {
-					return Err("Incoming capability cannot change its admitted role".into());
+					return Err(RuntimeError::invalid(
+						"Incoming capability cannot change its admitted role",
+					));
 				}
 				let acquisition = incoming
 					.0
 					.prepare_activity_acquisition(&incoming.2, destination, source, expected, &releases, &intent)
 					.await
-					.map_err(|e| e.to_string())?;
+					.map_err(RuntimeError::from)?;
 				let bytes = acquisition.retained_bytes();
 				let acquisition = driver.hold(acquisition, bytes)?;
 				Ok(RoomsManagedAcquisition { driver, acquisition }.into())

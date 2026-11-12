@@ -1,4 +1,4 @@
-//! Integrated retention through the same native owner and Store boundaries.
+//! Integrated retention through the same LMDB owner and Store boundaries.
 const std = @import("std");
 const h = @import("hosting_fixture.zig");
 const f = h.f;

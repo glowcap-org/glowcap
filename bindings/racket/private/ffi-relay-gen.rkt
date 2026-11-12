@@ -22,7 +22,6 @@
 
 (define-glowcap-relay glowcap_relay_archive_fingerprint (_fun -> _uint64))
 (define-glowcap-relay glowcap_relay_last_error (_fun _pointer _size -> _size))
-(define-glowcap-relay glowcap_relay_clear_last_error (_fun -> _void))
 (define-glowcap-relay glowcap_relay_runtime_new*
   (_fun (_or-null _GlowcapRelayConfig-pointer) _pointer -> _int32)
   #:c-id glowcap_relay_runtime_new)

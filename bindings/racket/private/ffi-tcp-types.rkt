@@ -22,7 +22,8 @@
   #:malloc-mode 'atomic-interior)
 
 (define-cstruct _GlowcapTcpConfig
-  ([stream _GlowcapTcpStreamOptions])
+  ([stream _GlowcapTcpStreamOptions]
+   [profiles _uint32])
   #:malloc-mode 'atomic-interior)
 
 (define-cstruct _GlowcapTcpOperationOptions

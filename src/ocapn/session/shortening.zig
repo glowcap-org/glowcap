@@ -10,7 +10,7 @@
 //! application aimed at the source promise leaves naming the shortened one.
 //! That is the local half of the end-to-end reference FIFO order OCapN PR 281
 //! asks to survive shortening: every edge in this forest names an import on
-//! *this* session, so both the earlier and the later deliver leave on one wire status-allow: event or source ordering
+//! *this* session, so both the earlier and the later deliver leave on one wire
 //! in send order. An edge that named another session would put the two messages
 //! on two wires and lose that. Nothing here can build one.
 
@@ -272,18 +272,30 @@ pub fn expandGcExportReleases(
     allocator: std.mem.Allocator,
     gc_export: *model.GcExport,
 ) !usize {
-    return expandGcExportReleasesOwned(self, allocator, gc_export, false);
+    const expanded = try closure(self, allocator, gc_export.*, false) orelse return 0;
+    const added = expanded.positions.len - gc_export.positions.len;
+    allocator.free(gc_export.positions);
+    allocator.free(gc_export.deltas);
+    gc_export.* = expanded;
+    return added;
 }
 
-pub fn expandSessionGcExportReleases(self: *Session, allocator: std.mem.Allocator, gc_export: *model.GcExport) !usize {
-    return expandGcExportReleasesOwned(self, allocator, gc_export, true);
+/// The session's own release of import retains it holds (a drained
+/// `ImportReleaseOutbox` batch), extended by the same closure. `gc_export` is
+/// borrowed, so the batch keeps its arrays for a retry. Returns the extended
+/// release on `allocator`, owned by the caller, or null with nothing allocated
+/// when no stable shortening edge trails it.
+pub fn expandSessionGcExportReleases(self: *Session, allocator: std.mem.Allocator, gc_export: model.GcExport) !?model.GcExport {
+    return closure(self, allocator, gc_export, true);
 }
 
-fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_export: *model.GcExport, session_owned: bool) !usize {
-    try session.validateGcExport(gc_export.*);
+/// `gc_export` with the closure's entries trailing it, in fresh storage on
+/// `allocator`, or null when the closure adds nothing. The input is only read.
+fn closure(self: *Session, allocator: std.mem.Allocator, gc_export: model.GcExport, session_owned: bool) !?model.GcExport {
+    try session.validateGcExport(gc_export);
     // `recordSend` owns every bound on the caller's entries, so an ordinary
     // release returns here with nothing allocated.
-    if (!namesRetainedShorteningSource(self, gc_export.positions)) return 0;
+    if (!namesRetainedShorteningSource(self, gc_export.positions)) return null;
 
     var states: ReleaseStates = .keyed(self.wire_hash_multiplier);
     defer states.deinit(allocator);
@@ -335,11 +347,11 @@ fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_
             try queue.append(allocator, target);
     }
 
-    if (extra.items.len == 0) return 0;
+    if (extra.items.len == 0) return null;
 
-    // The queue owns both slices until encode. Replacement is the one durable
-    // allocation the synthesized wire release requires; all maps/lists above
-    // are turn scratch and die before this function returns.
+    // The queue owns both slices until encode. The extension is the one
+    // durable allocation the synthesized wire release requires. All maps and
+    // lists above are turn scratch and die before this function returns.
     const expanded_len = gc_export.positions.len + extra.items.len;
     const positions = try allocator.alloc(u64, expanded_len);
     errdefer allocator.free(positions);
@@ -352,10 +364,7 @@ fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_
         delta.* = 1;
     }
 
-    allocator.free(gc_export.positions);
-    allocator.free(gc_export.deltas);
-    gc_export.* = .{ .positions = positions, .deltas = deltas };
-    return extra.items.len;
+    return .{ .positions = positions, .deltas = deltas };
 }
 
 /// The stable edge out of `source` whose retain the session owns: the only

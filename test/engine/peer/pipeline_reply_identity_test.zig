@@ -27,10 +27,6 @@ fn discardEvents(peer: *engine.Peer) void {
     }
 }
 
-fn pump(peer: *engine.Peer) !void {
-    while (try peer.step() == .progress) {}
-}
-
 fn expectOriginalCallback(peer: *engine.Peer, broken: bool) !void {
     var callbacks: usize = 0;
     while (peer.takeOutbound()) |value| {
@@ -99,7 +95,7 @@ test "queued replies survive their own answer GC and reuse for local delivery an
                         .{ .@"break" = .{ .message = "source broke" } }
                     else
                         .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(9) } } });
-                    try pump(&peer);
+                    try peer_fixture.pump(&peer);
                     if (!broken) {
                         var replay = peer.pollEvent() orelse return error.MissingQueuedCall;
                         defer replay.deinit();
@@ -107,7 +103,7 @@ test "queued replies survive their own answer GC and reuse for local delivery an
                         const reply = replay.deliverAnswerTarget() orelse return error.MissingOriginalReplyTarget;
                         try std.testing.expectEqualDeep(original, reply);
                         try peer.sendAnswerTargetResolutionCopying(reply, .{ .fulfill = .{ .bytes = "old result" } });
-                        try pump(&peer);
+                        try peer_fixture.pump(&peer);
                     }
                     try expectOriginalCallback(&peer, broken);
                     if (reuse) {
@@ -156,7 +152,7 @@ test "releasing an unsubscribed baseline queued reply does not abort its later d
                     .{ .@"break" = .{ .message = "source broke" } }
                 else
                     .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(9) } } });
-                try pump(&peer);
+                try peer_fixture.pump(&peer);
                 var forwarded: usize = 0;
                 while (peer.takeOutbound()) |value| {
                     var frame = value;

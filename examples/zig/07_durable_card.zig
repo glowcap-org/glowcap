@@ -113,7 +113,7 @@ fn newHost(allocator: std.mem.Allocator, io: std.Io) !driver.Host {
     try io.randomSecure(&durable_seed);
     var session_root: [32]u8 = undefined;
     try io.randomSecure(&session_root);
-    return driver.Host.init(allocator, durable_seed, session_root, driver.Host.Options.withFrameCap(4096));
+    return driver.Host.init(allocator, durable_seed, session_root, driver.Host.Options.init(glowcap.driver.checked_threads, 4096));
 }
 
 /// Commit the staged transaction. The backend does the write, Loam decides

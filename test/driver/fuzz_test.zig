@@ -6,7 +6,7 @@
 //! and it is the only owner of the leftover tail between reads, so it carries
 //! state across calls that a single-frame decoder never has.
 //!
-//! Two things make this worth more than feeding a cold session.
+//! Two choices separate this fuzzer from one that feeds a cold session.
 //!
 //! The read boundaries are the fuzzer's to choose. The same bytes cut in a
 //! different place take a different path through the tail coalescing, and a
@@ -25,8 +25,7 @@
 //! whatever the application was in the middle of. Each mutation runs under a
 //! fresh `DebugAllocator`, whose teardown fails the mutation on a leak.
 //!
-//! And every table the session declares a bound for stays inside it. That is
-//! the property worth the most: a partner's goal is to make the process hold
+//! And every table the session declares a bound for stays inside it. A partner's goal is to make the process hold
 //! memory it should not, and a table growing past its declared cap does exactly
 //! that without ever crashing. A "no crash" fuzzer would run past it forever.
 //!
@@ -140,11 +139,13 @@ const max_sealed_unit_bytes = glowcap.foundation.noise.record_header_bytes + glo
 /// frame, or the sealed channel's own records.
 const Wire = enum { stream, sealed };
 
-fn drainHost(host: *Host, session: *HostSession) void {
-    while (host.takeAction() catch null) |action| {
+/// Take every queued action and outbound frame. A refused take ends the drain
+/// only after the run's induced allocation failure, and fails the run before it.
+fn drainHost(budget: *const Budget, host: *Host, session: *HostSession) !void {
+    while (host.takeAction() catch |err| return budget.endsAfterInducedFailure(err)) |action| {
         host.freeAction(action);
     }
-    while (session.takeOutbound() catch null) |frame_in| {
+    while (session.takeOutbound() catch |err| return budget.endsAfterInducedFailure(err)) |frame_in| {
         var frame = frame_in;
         frame.deinit();
     }
@@ -169,8 +170,8 @@ fn drainHost(host: *Host, session: *HostSession) void {
 /// session's protocol state is not what closes. A feed out of memory before
 /// any record opened is the third outcome: it refuses with nothing committed,
 /// so the channel is still open and the bytes are still the caller's.
-fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, from: *HostSession, wire: Wire) !void {
-    var frame = (from.takeOutbound() catch null) orelse return;
+fn feedDamaged(smith: *std.testing.Smith, budget: *const Budget, host: *Host, session: *HostSession, from: *HostSession, wire: Wire) !void {
+    var frame = (from.takeOutbound() catch |err| return budget.endsAfterInducedFailure(err)) orelse return;
     defer frame.deinit();
 
     const bytes = frame.bytes();
@@ -194,13 +195,14 @@ fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, fr
             const prefix = glowcap.foundation.stream_framing.renderPrefix(&prefix_buf, bytes.len);
             @memcpy(stream_bytes[0..prefix.len], prefix);
             @memcpy(stream_bytes[prefix.len..][0..bytes.len], damaged[0..bytes.len]);
-            host.feedBytes(session, stream_bytes[0 .. prefix.len + bytes.len]) catch {};
+            host.feedBytes(session, stream_bytes[0 .. prefix.len + bytes.len]) catch |err| try budget.refusalEndsIt(err);
         },
         .sealed => host.feedBytes(session, damaged[0..bytes.len]) catch |err| {
+            try budget.refusalEndsIt(err);
             out_of_memory = err == error.OutOfMemory;
         },
     }
-    drainHost(host, session);
+    try drainHost(budget, host, session);
     try checkSession(session);
     if (wire == .sealed and changed) {
         const channel = session.sealed.?;
@@ -214,22 +216,22 @@ fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, fr
 /// Feed `input` to `session` in `chunk` sized pieces, draining after each, the
 /// way an embedder's read loop does. A chunk of zero means the whole buffer at
 /// once.
-fn feedChunked(host: *Host, session: *HostSession, input: []const u8, chunk: usize) !void {
+fn feedChunked(budget: *const Budget, host: *Host, session: *HostSession, input: []const u8, chunk: usize) !void {
     if (chunk == 0) {
-        host.feedBytes(session, input) catch {};
-        drainHost(host, session);
+        host.feedBytes(session, input) catch |err| try budget.refusalEndsIt(err);
+        try drainHost(budget, host, session);
         try checkSession(session);
         return;
     }
     var at: usize = 0;
     while (at < input.len) {
         const end = @min(at + chunk, input.len);
-        host.feedBytes(session, input[at..end]) catch {
+        host.feedBytes(session, input[at..end]) catch |err| {
             // A refusal condemns the session; there is nothing more to feed.
-            drainHost(host, session);
-            return;
+            try budget.refusalEndsIt(err);
+            return drainHost(budget, host, session);
         };
-        drainHost(host, session);
+        try drainHost(budget, host, session);
         // After every read, not only at the end: a table that overflows and is
         // then trimmed back would slip past an end-of-program check, and the
         // window where it was over the cap is the window a peer holds the
@@ -252,7 +254,7 @@ fn hostFeedOne(_: void, smith: *std.testing.Smith) anyerror!void {
     var budget = Budget.drawWith(smith, session_span, backing.allocator());
     const gpa = budget.allocator();
 
-    const result = hostFeedOneWithAllocator(smith, input, chunk, gpa);
+    const result = hostFeedOneWithAllocator(smith, input, chunk, &budget, gpa);
     if (backing.deinit() == .leak) return error.FuzzAllocatorLeak;
     return result;
 }
@@ -261,17 +263,20 @@ fn hostFeedOneWithAllocator(
     smith: *std.testing.Smith,
     input: []const u8,
     chunk: usize,
+    budget: *const Budget,
     gpa: std.mem.Allocator,
 ) !void {
+    // Setup that fails before the induced allocation failure is a defect in
+    // the harness or the host, never a pass.
 
     // Accepted but still negotiating: the handshake regime, where almost
     // everything is refused.
     {
-        var host = test_host.init(gpa, @as([32]u8, @splat(0x11)), .{ .limits = bounds.tight });
+        var host = test_host.init(gpa, @as([32]u8, @splat(0x11)), .{ .thread_policy = .unchecked, .limits = bounds.tight });
         defer host.deinit();
-        const session = host_pair.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9000", &.{}) catch return;
-        drainHost(&host, session);
-        try feedChunked(&host, session, input, chunk);
+        const session = host_pair.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9000", &.{}) catch |err| return budget.endsAfterInducedFailure(err);
+        try drainHost(budget, &host, session);
+        try feedChunked(budget, &host, session, input, chunk);
     }
 
     // Open, with an application on it. This is the regime with vows, an action
@@ -282,17 +287,17 @@ fn hostFeedOneWithAllocator(
         // hello and its signature check. Down here they arrive after the
         // handshake, so the two verifications are unreachable from the input,
         // and they were most of what each iteration spent its time on.
-        var dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .limits = bounds.tight, .verify_partner = false });
+        var dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .thread_policy = .unchecked, .limits = bounds.tight, .verify_partner = false });
         defer dialer.deinit();
-        var acceptor = test_host.init(gpa, @as([32]u8, @splat(0x33)), .{ .limits = bounds.tight, .verify_partner = false });
+        var acceptor = test_host.init(gpa, @as([32]u8, @splat(0x33)), .{ .thread_policy = .unchecked, .limits = bounds.tight, .verify_partner = false });
         defer acceptor.deinit();
-        const pair = host_pair.openPair(&dialer, &acceptor, "127.0.0.1:9001") catch return;
+        const pair = host_pair.openPair(&dialer, &acceptor, "127.0.0.1:9001") catch |err| return budget.endsAfterInducedFailure(err);
 
-        _ = pair.b.served.publish(&pair.b.host.vat, "counter", Counter, .{}) catch return;
-        const fetched = dialer.fetch(pair.a, "counter") catch return;
+        _ = pair.b.served.publish(&pair.b.host.vat, "counter", Counter, .{}) catch |err| return budget.endsAfterInducedFailure(err);
+        const fetched = dialer.fetch(pair.a, "counter") catch |err| return budget.endsAfterInducedFailure(err);
         var captured = promise_capture.CapturedRef{};
-        dialer.vowOn(fetched, .{ .ctx = &captured, .func = promise_capture.CapturedRef.record }) catch return;
-        host_pair.pumpToQuiescence(&.{pair}) catch return;
+        dialer.vowOn(fetched, .{ .ctx = &captured, .func = promise_capture.CapturedRef.record }) catch |err| return budget.endsAfterInducedFailure(err);
+        host_pair.pumpToQuiescence(&.{pair}) catch |err| return budget.endsAfterInducedFailure(err);
 
         // Leave a call in flight: sent, not pumped. The vow is
         // unsettled when the untrusted bytes arrive, so the settle path and the
@@ -300,16 +305,16 @@ fn hostFeedOneWithAllocator(
         // tidy one. Its frame is also what `feedDamaged` breaks, and that
         // frame carries a delivery as far as the published capability.
         if (captured.ref) |cap| {
-            _ = dialer.send(pair.a, cap, .{ .verb = "hit", .args = &.{} }) catch {};
+            _ = dialer.send(pair.a, cap, .{ .verb = "hit", .args = &.{} }) catch |err| return budget.endsAfterInducedFailure(err);
         }
-        drainHost(&acceptor, pair.b);
+        try drainHost(budget, &acceptor, pair.b);
 
         if (smith.valueRangeAtMost(u8, 0, 1) == 1) {
-            try feedDamaged(smith, &acceptor, pair.b, pair.a, .stream);
+            try feedDamaged(smith, budget, &acceptor, pair.b, pair.a, .stream);
         } else {
-            try feedChunked(&acceptor, pair.b, input, chunk);
+            try feedChunked(budget, &acceptor, pair.b, input, chunk);
         }
-        drainHost(&dialer, pair.a);
+        try drainHost(budget, &dialer, pair.a);
     }
 
     // The same open application over a sealed channel, which is the wire a
@@ -318,29 +323,29 @@ fn hostFeedOneWithAllocator(
     // and what is under test is the host's handling of a channel that refuses
     // in the middle of an application.
     {
-        var dialer = sealed_pair.sealedHost(gpa, @splat(0x44), 0x45, .{ .limits = bounds.tight });
+        var dialer = sealed_pair.sealedHost(gpa, @splat(0x44), 0x45, .{ .thread_policy = .unchecked, .limits = bounds.tight });
         defer dialer.deinit();
-        var acceptor = sealed_pair.sealedHost(gpa, @splat(0x55), 0x56, .{ .limits = bounds.tight });
+        var acceptor = sealed_pair.sealedHost(gpa, @splat(0x55), 0x56, .{ .thread_policy = .unchecked, .limits = bounds.tight });
         defer acceptor.deinit();
-        const pair = sealed_pair.openSealedPair(gpa, &dialer, @splat(0x44), &acceptor, @splat(0x55), null, null) catch return;
+        const pair = sealed_pair.openSealedPair(gpa, &dialer, @splat(0x44), &acceptor, @splat(0x55), null, null) catch |err| return budget.endsAfterInducedFailure(err);
 
-        _ = pair.b.served.publish(&pair.b.host.vat, "counter", Counter, .{}) catch return;
-        const fetched = dialer.fetch(pair.a, "counter") catch return;
+        _ = pair.b.served.publish(&pair.b.host.vat, "counter", Counter, .{}) catch |err| return budget.endsAfterInducedFailure(err);
+        const fetched = dialer.fetch(pair.a, "counter") catch |err| return budget.endsAfterInducedFailure(err);
         var captured = promise_capture.CapturedRef{};
-        dialer.vowOn(fetched, .{ .ctx = &captured, .func = promise_capture.CapturedRef.record }) catch return;
-        sealed_pair.pumpSealedPair(gpa, pair, null, null) catch return;
+        dialer.vowOn(fetched, .{ .ctx = &captured, .func = promise_capture.CapturedRef.record }) catch |err| return budget.endsAfterInducedFailure(err);
+        sealed_pair.pumpSealedPair(gpa, pair, null, null) catch |err| return budget.endsAfterInducedFailure(err);
 
         if (captured.ref) |cap| {
-            _ = dialer.send(pair.a, cap, .{ .verb = "hit", .args = &.{} }) catch {};
+            _ = dialer.send(pair.a, cap, .{ .verb = "hit", .args = &.{} }) catch |err| return budget.endsAfterInducedFailure(err);
         }
-        drainHost(&acceptor, pair.b);
+        try drainHost(budget, &acceptor, pair.b);
 
         if (smith.valueRangeAtMost(u8, 0, 1) == 1) {
-            try feedDamaged(smith, &acceptor, pair.b, pair.a, .sealed);
+            try feedDamaged(smith, budget, &acceptor, pair.b, pair.a, .sealed);
         } else {
-            try feedChunked(&acceptor, pair.b, input, chunk);
+            try feedChunked(budget, &acceptor, pair.b, input, chunk);
         }
-        drainHost(&dialer, pair.a);
+        try drainHost(budget, &dialer, pair.a);
     }
 }
 
@@ -350,9 +355,9 @@ test "fuzz: arbitrary read boundaries never crash or leak a working host session
     // The application has to really be running, otherwise this target quietly
     // becomes the cold-start one and nothing says so.
     {
-        var dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .limits = bounds.tight });
+        var dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .thread_policy = .unchecked, .limits = bounds.tight });
         defer dialer.deinit();
-        var acceptor = test_host.init(gpa, @as([32]u8, @splat(0x33)), .{ .limits = bounds.tight });
+        var acceptor = test_host.init(gpa, @as([32]u8, @splat(0x33)), .{ .thread_policy = .unchecked, .limits = bounds.tight });
         defer acceptor.deinit();
         const pair = try host_pair.openPair(&dialer, &acceptor, "127.0.0.1:9001");
         _ = try pair.b.served.publish(&pair.b.host.vat, "counter", Counter, .{});
@@ -372,8 +377,10 @@ test "fuzz: arbitrary read boundaries never crash or leak a working host session
             var f = f_in;
             f.deinit();
         }
-        drainHost(&dialer, pair.a);
-        drainHost(&acceptor, pair.b);
+        // No failure is induced here, so any refused take fails the check.
+        const unfailing: Budget = .{ .failing = .init(gpa, .{}) };
+        try drainHost(&unfailing, &dialer, pair.a);
+        try drainHost(&unfailing, &acceptor, pair.b);
     }
 
     // Every shape in the corpus, not a hand-picked few: a shape the search
@@ -409,7 +416,7 @@ const handoff_seeds = [_][]const u8{
     // of the certificate intact, then the verbatim receive.
     handoffSeed(&.{ &.{ handoff.act_forge, 1, 7, 1, 0, 1, 0, 1 }, &.{ handoff.act_forge, 2, 3, 0x80, 40, 1, 0, 1 }, &.{ handoff.act_honest, 1, 0, 1, 0, 1, 0, 1 } }),
     // A byte of the envelope's syntax, which tears the session down, then
-    // the verbatim receive the exporter can no longer take. status-allow: lifecycle transition
+    // the verbatim receive the exporter can no longer take.
     handoffSeed(&.{ &.{ handoff.act_damaged, 1, 120, 1, 0, 1, 0, 1 }, &.{ handoff.act_honest, 1, 0, 1, 0, 1, 0, 1 } }),
 };
 
@@ -451,13 +458,8 @@ fn handoffOneWithAllocator(smith: *std.testing.Smith, budget: *Budget, gpa: std.
     // hold, unless the allocation failure this run asked for has happened:
     // a host under pressure keeps its work queued rather than failing the
     // verb, so from then on the frames and effects a property reads may
-    // simply not have happened yet. status-allow: pending state or quoted runtime label
-    const trio = handoff.Trio.init(gpa) catch |err| return afterInducedFailure(budget, err);
+    // simply not have happened yet.
+    const trio = handoff.Trio.init(gpa) catch |err| return budget.endsAfterInducedFailure(err);
     defer trio.deinit();
-    handoff.run(smith, trio) catch |err| return afterInducedFailure(budget, err);
-}
-
-fn afterInducedFailure(budget: *Budget, err: anyerror) anyerror!void {
-    if (budget.failed()) return;
-    return err;
+    handoff.run(smith, trio) catch |err| return budget.endsAfterInducedFailure(err);
 }

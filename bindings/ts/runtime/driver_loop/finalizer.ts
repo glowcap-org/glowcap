@@ -1,10 +1,8 @@
-import { loopS } from "../internal/ffi/driver.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { recordCallerlessFailure } from "../context.ts";
 import { type HostFinalizerState, retireHostFinalizerState } from "../host/finalizer.ts";
-import { releaseConsumed } from "../lifecycle.ts";
 import { traceDetachHost, traceDrainHost } from "../trace.ts";
-import { driverCall } from "../internal/driver_failure.ts";
+import { driverRelease } from "../internal/driver_failure.ts";
 import { deferFinalizerRetry, type FinalizerRetry } from "../finalizer_retry.ts";
 
 export interface DriverLoopFinalizerState {
@@ -18,13 +16,10 @@ function releaseDriverLoopFinalizerState(state: DriverLoopFinalizerState): void 
 	if (state.handle === NULL) return;
 	const hostRaw = state.host.raw;
 	traceDrainHost(hostRaw);
-	const outcome = driverCall(
-		"driver-loop.finalizer.release",
-		(out) => loopS.glowcap_driver_release(state.handle, out),
-	);
+	const outcome = driverRelease("driver-loop.finalizer.release", state.handle);
 	const rc = outcome.code;
 	if (outcome.error !== null) {
-		const consumed = releaseConsumed(rc);
+		const consumed = outcome.consumed;
 		if (!state.releaseFailureReported) {
 			state.releaseFailureReported = true;
 			recordCallerlessFailure(state.host.context, {

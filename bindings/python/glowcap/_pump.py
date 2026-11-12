@@ -28,7 +28,7 @@ from ._errors import (
     PartnerAbort,
     _abort_domain_label,
     _check_host,
-    _host_last_error,
+    _host_error,
     _retain_cleanup_failure,
 )
 from ._ffi_host import _host
@@ -213,7 +213,7 @@ async def _raise_feed_refusal(session, rc: int) -> None:
     # CLOSE/FAIL queued with it) leave through the same spine as a steady
     # FLUSH: not a private take_outbound path. The serve loop reports the
     # transport closed next, so the abort must be written first.
-    refusal = GlowcapError(rc, _host_last_error())
+    refusal = _host_error(rc, placeholder=False)
     # The feed already failed. Publish its cause before diagnostic lookup or
     # abort delivery can fail and retire the Session on another task.
     session.record_wire_failure(refusal)
@@ -319,7 +319,7 @@ async def flush_outbound(session) -> bool:
     except BaseException as error:
         # `take_outbound` transferred the frame and a failed/cancelled
         # write may have put only a prefix on the stream. The session is
-        # no longer retryable; release it so every far vow settles closed. status-allow: lifecycle transition
+        # no longer retryable; release it so every far vow settles closed.
         session.record_outbound_failure(error)
         session.close_transport()
         raise

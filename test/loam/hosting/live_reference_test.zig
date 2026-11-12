@@ -67,7 +67,9 @@ const Fixture = struct {
     fn init(self: *Fixture) !void {
         self.data.backend = try f.loam.Volatile.init(a, records.id, 1024 * 1024);
         self.data.store = try f.loam.core.Store.init(a, try self.data.backend.open(), &schemas, records.limits);
-        self.host = support.init(a, @splat(0x71), .{});
+        self.host = support.init(a, @splat(0x71), .{
+            .thread_policy = .unchecked,
+        });
         self.scope = try f.hosting.LiveScope.init(a, &self.host, &self.data.store, 2);
         try self.data.store.begin();
         self.marker = try self.scope.stageStart(null);
@@ -206,7 +208,7 @@ test "loam live reference indexed lookup refreshes after cold preparation and pr
     stale.revision += 1;
     try std.testing.expectError(error.ReferenceUnprepared, set.restored(stale, 0));
     try std.testing.expectError(error.ReferenceUnprepared, set.restored(view, 1));
-    // The explicit live save wins over the earlier restored recipe, and its status-allow: event or source ordering
+    // The explicit live save wins over the earlier restored recipe, and its
     // borrowed proof remains the same across subsequent lookup and advance.
     const saved = (try set.captured(fixture.target)).saved;
     try std.testing.expectEqual(saved, (try set.captured(fixture.target)).saved);
@@ -285,7 +287,9 @@ test "loam live dependent declaration reserves both authorities and rolls back c
 }
 
 test "loam live dependent exporter observes only exact committed remote custody" {
-    var remote = support.init(a, @splat(0x73), .{});
+    var remote = support.init(a, @splat(0x73), .{
+        .thread_policy = .unchecked,
+    });
     defer remote.deinit();
     var fixture: Fixture = undefined;
     try fixture.init();
@@ -410,7 +414,9 @@ test "loam live reference restart in an open Store refuses old fields without su
     fixture.host.releaseCapabilityTerminal(fixture.target, null);
     fixture.host.deinit();
     const incarnation = fixture.data.store.metadata.incarnation;
-    fixture.host = support.init(a, @splat(0x72), .{});
+    fixture.host = support.init(a, @splat(0x72), .{
+        .thread_policy = .unchecked,
+    });
     fixture.scope = try f.hosting.LiveScope.init(a, &fixture.host, &fixture.data.store, 2);
     try std.testing.expectError(error.LiveScopeNotStarted, f.hosting.Attachment.create(a, &fixture.host, &fixture.data.store, &behaviors, .{ .live_scope = &fixture.scope }));
     const lease = try records.load(&fixture.data.store, &fixture.data.backend, fixture.marker);

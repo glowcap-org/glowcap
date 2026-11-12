@@ -1,0 +1,13 @@
+name: Prepare the Dev Containers CLI
+description: Install the pinned Dev Containers CLI and sign in to the image registry, for the image and start actions.
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned Dev Containers CLI
+      shell: bash
+      run: . .devcontainer/pins.sh && npm install -g "@devcontainers/cli@$DEVCONTAINER_CLI_VERSION"
+    - name: Authenticate to the image registry
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin

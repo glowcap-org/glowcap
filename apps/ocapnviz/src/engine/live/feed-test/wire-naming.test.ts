@@ -8,7 +8,7 @@ import { wireName } from "./fixtures.ts";
 
 Deno.test("withdrawing a claim reveals the name underneath", () => {
 	// A member leaving a room keeps its connection to the room server, so the
-	// session stays; what changed is that the room no longer knows the status-allow: lifecycle transition
+	// session stays; what changed is that the room no longer knows the
 	// connection by a nickname. Withdrawing the claim has to show that, and
 	// freezing the last nick anyone said would not.
 	//
@@ -227,7 +227,7 @@ Deno.test("the same direct session in the other order needs no redraw", () => {
 Deno.test("a name claimed before an end attaches comes with it", () => {
 	// The accepting end annotates the connection with the nick it knows the
 	// dialer by, and it does so while that end is still loose. There is no peer
-	// yet for the nick to sit on. The claim is about whoever turns out to be status-allow: pending state or quoted runtime label
+	// yet for the nick to sit on. The claim is about whoever turns out to be
 	// there, so it waits on the end and transfers when the end attaches.
 	// Dropping it would leave the conversation nameless for no reason.
 	const convert = makeBaseEventConverter();

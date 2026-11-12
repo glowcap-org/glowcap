@@ -266,7 +266,17 @@ pub(super) async fn run() {
 				let old_revision = revision(&child_management).await;
 				child_management.set_label(1, old_revision, "renamed").await.unwrap();
 				child_management.set_label(1, old_revision, "renamed").await.unwrap();
-				assert!(child_management.set_label(2, old_revision, "stale").await.is_err());
+				// Both fences answer as the management verdict the client types,
+				// and neither takes the operation id it refused.
+				use glowcap::loam::ControlConflict;
+				use rooms_glowcap::client::Error::ControlConflict as Conflict;
+				let reused = child_management.set_label(1, old_revision, "another").await;
+				assert!(
+					matches!(reused, Err(Conflict(ControlConflict::Operation))),
+					"{reused:?}"
+				);
+				let stale = child_management.set_label(2, old_revision, "stale").await;
+				assert!(matches!(stale, Err(Conflict(ControlConflict::Revision))), "{stale:?}");
 				assert!(child_management.inventory(Some(cursor), 1).await.is_err());
 				child_management
 					.set_policy(2, revision(&child_management).await, empty)
@@ -365,7 +375,12 @@ pub(super) async fn run() {
 				pause.submit().await.unwrap();
 				let paused_revision = revision(&child_management).await;
 				assert!(
-					child_management.pause(pause_revision).await.is_err(),
+					matches!(
+						child_management.pause(pause_revision).await,
+						Err(rooms_glowcap::client::Error::ControlConflict(
+							glowcap::loam::ControlConflict::Revision
+						))
+					),
 					"fresh revision calls cannot recover a lost acknowledgment"
 				);
 				pause.submit().await.unwrap();

@@ -25,7 +25,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //   4. The room works again, a line sent afterwards reaches the room and comes
 //      back, so what reconnected is a live capability and not a hopeful button.
 //   5. The directory is repopulated, because a new session replays what it knows
-//      and the page has thrown the earlier answers away. status-allow: event or source ordering
+//      and the page has thrown the earlier answers away.
 //   6. The restart in steps 1 to 5 was on the same build and reloaded
 //      nothing, and a reload on a private room's address keeps the reader in
 //      it.
@@ -67,11 +67,12 @@ import { reapOwned } from "../support/children.ts";
 import { makeRoom, openRailRoom, roomLink } from "../support/private_room_page.ts";
 import { roomLocator } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
+import { UI_BUILD } from "../../lib/application_data.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 const web = spawnWeb({
-	args: ["--transport=iroh", "0", "0"],
+	args: ["--transport=iroh", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
@@ -307,7 +308,7 @@ try {
 		fail(`a room whose directory came back is still saying it is away: ${JSON.stringify(rail)}`);
 	});
 
-	// The directory answers the new session too: the page cleared what the old status-allow: replacement state identity
+	// The directory answers the new session too: the page cleared what the old
 	// one told it, so a room in this list is one the new session reported.
 	// The room echo and the directory watcher update are separate eventual
 	// messages. Neither orders the other, so observe the promised state rather
@@ -319,7 +320,7 @@ try {
 	).catch(() => fail("the room list stayed empty after reconnecting, so the directory never replayed"));
 
 	// The private conversation came back by its sturdyref, not by its label.
-	// Press its rail row and send over the recovered membership. The old line is status-allow: replacement state identity
+	// Press its rail row and send over the recovered membership. The old line is
 	// still page history and the new echo proves the live capability returned.
 	await openRailRoom(tab, "retained", true);
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
@@ -354,10 +355,15 @@ try {
 
 	// ── A server on another build takes the page with it ─────────────────
 	// `/ui-version` now names another build, as a server restarted from a new
-	// bundle would, and the page reloads into it once the restart drops it.
+	// bundle would, and the page reloads into it once the restart drops it. The
+	// page reads only an answer shaped as a build name, so the later build is
+	// one: a digest the page's own stamp does not carry.
+	const stamped = await tab.evaluate(() => document.documentElement.dataset.uiBuild ?? "");
+	const [zeros, ones] = ["0", "1"].map((digit) => `${UI_BUILD.sourcePrefix}${digit.repeat(UI_BUILD.digestLength)}`);
+	const laterBuild = stamped === zeros ? ones : zeros;
 	await tab.route(
 		"**/ui-version",
-		(route) => route.fulfill({ status: 200, contentType: "text/plain", body: "a-later-build\n" }),
+		(route) => route.fulfill({ status: 200, contentType: "text/plain", body: `${laterBuild}\n` }),
 	);
 	const reloaded = tab.waitForEvent("load", { timeout: 60_000 });
 	await killRoomServer();
@@ -369,7 +375,7 @@ try {
 	// is the build the tab remembers across the reload, which only a browser
 	// can prove survives it.
 	const remembered = await tab.evaluate(() => sessionStorage.getItem("rooms:reloaded-for-build"));
-	if (remembered !== "a-later-build") {
+	if (remembered !== laterBuild) {
 		fail(`the tab remembered ${JSON.stringify(remembered)}, so a server that contradicts itself could loop it`);
 	}
 

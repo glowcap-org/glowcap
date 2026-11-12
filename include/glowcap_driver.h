@@ -176,13 +176,22 @@ int32_t glowcap_driver_lifecycle_state(GlowcapDriverLoop *loop, uint32_t *out_st
 int32_t glowcap_driver_step_wait_ms(GlowcapDriverLoop *loop, int32_t *out_wait_ms);
 /* Release listeners, wires, events, provider adapters, and the moved Host.
    out_failure must identify the current version/layout before the call. NULL loop is
-   a no-op. Invalid output or reentry refuses before consumption; every other
-   result consumes the handle and returns the exact teardown chain in out_failure. */
+   a no-op. Invalid output, reentry, or live storage attachments refuse before
+   consumption. Once teardown begins, the result consumes the handle and
+   out_failure carries the exact teardown chain.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_driver_release(GlowcapDriverLoop *loop, GlowcapDriverFailure *out_failure);
 /* Install one validated provider package. out_failure must identify the current
    version/layout and receives the exact primary and rollback chain. The driver
    acquires its lease through provider.retain, copies profiles and tables,
    and calls provider.release after every listener, connection, and callback retires.
+   A profile that an installed package serves under an equal configuration stays
+   with that package, and only the unserved profiles are installed. Any other
+   overlap is refused and installs nothing. The added profiles run on
+   residents the package brings, so each readiness descriptor must be one no
+   installed resident uses.
    provider.retain runs inside the driver, so a driver verb it calls is refused as
    reentry with GLOWCAP_ERR_INVALID_ARGUMENT. */
 int32_t glowcap_driver_add_provider(GlowcapDriverLoop *loop, const GlowcapTransportProvider *provider, GlowcapDriverFailure *out_failure);
@@ -265,10 +274,15 @@ int32_t glowcap_driver_session_lifecycle_state(GlowcapDriverLoop *loop, GlowcapH
    this call returns; binding runtimes must install their Host delivery context
    first. Idempotent. */
 int32_t glowcap_driver_session_serve(GlowcapDriverLoop *loop, GlowcapHostSession *session);
-/* Release one loop-owned session and its wire. */
+/* Release one loop-owned session and its wire.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_driver_session_release(GlowcapDriverLoop *loop, GlowcapHostSession *session);
 /* Query or copy this archive's thread-local error message. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t glowcap_driver_last_error(uint8_t *out_buf, size_t cap);
+/* Copy the preceding driver operation's typed local cause without clearing it. A null output is a no-op. Zero fields mean no named cause. Like the message, the cause is per-thread and belongs to the last glowcap_driver_* call on this thread: a failing call that names a cause sets it, and the next driver call clears it on entry, so read it straight after the failure. A dial of a transport with no registered provider sets the local transport-unavailable cause. Diagnostic text never establishes provenance. */
+void glowcap_driver_last_error_cause(GlowcapBreakCause *out_cause);
 /* Clear this archive's thread-local error message. */
 void glowcap_driver_clear_last_error(void);
 

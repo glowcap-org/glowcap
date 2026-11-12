@@ -438,6 +438,7 @@ def child_output(binary, scratch):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        assert child.stdout is not None and child.stderr is not None
         output = [bytearray(), bytearray()]
         try:
             with selectors.DefaultSelector() as selector:
@@ -447,7 +448,7 @@ def child_output(binary, scratch):
                 marker = f"{phase}-stderr".encode()
                 while marker not in output[1] and time.monotonic() < expires:
                     for key, _ in selector.select(max(0, expires - time.monotonic())):
-                        chunk = os.read(key.fileobj.fileno(), 16384)
+                        chunk = os.read(key.fd, 16384)
                         if chunk:
                             output[key.data].extend(chunk)
                         else:

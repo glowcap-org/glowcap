@@ -1,12 +1,8 @@
-// Protocol limits are generated from Rust. These local choices govern display.
+// Protocol limits are generated from Rust. The display choices the page shares
+// with the Deno client live in `lib/limits.ts`, beside their reasons.
 import { applicationModule } from "./application.ts";
 export * from "./application_data.ts";
-
-export const MAX_SCROLLBACK = 2000;
-export const AUTO_IMAGE_BYTES = 2 * 1024 * 1024;
-export const PLAIN_AWAY = "away";
-export const TYPING_IDLE_MS = 4_000;
-export const TYPING_CLEAR_MS = TYPING_IDLE_MS + 2_000;
+export { AUTO_IMAGE_BYTES, MAX_SCROLLBACK, PLAIN_AWAY, TYPING_CLEAR_MS, TYPING_IDLE_MS } from "../../lib/limits.ts";
 
 export function nickRefusal(nick: string): string | null {
 	return applicationModule().nicknameRefusal(nick) ?? null;

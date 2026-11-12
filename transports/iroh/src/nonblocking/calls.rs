@@ -16,20 +16,8 @@ use super::*;
 /// `ep` must be null or a live endpoint handle. Null is refused.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_readiness_fd(ep: *const GlowcapIrohEndpoint) -> i32 {
-	if ep.is_null() {
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure.
-		let ep = unsafe { &*ep };
-		match endpoint_readiness(ep) {
-			Some(r) => r.reader.as_raw_fd(),
-			None => -1,
-		}
-	}));
-	result.unwrap_or(-1)
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(ep, -1, |ep| endpoint_readiness(ep).map_or(-1, |r| r.reader.as_raw_fd())) }
 }
 
 /// Drain pending readiness records into the caller's buffer. `out` points at
@@ -47,33 +35,26 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_drain_ready(
 	out: *mut GlowcapIrohReadyEvent,
 	out_cap: usize,
 ) -> isize {
-	if ep.is_null() {
-		return -1;
-	}
-	if out.is_null() || out_cap == 0 {
-		return 0;
-	}
-	if out_cap
-		.checked_mul(std::mem::size_of::<GlowcapIrohReadyEvent>())
-		.and_then(|bytes| isize::try_from(bytes).ok())
-		.is_none()
-	{
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure.
-		let ep = unsafe { &*ep };
-		let r = match ep.readiness.get() {
-			Some(r) => r,
-			None => return 0,
+	let drain = |ep: &GlowcapIrohEndpoint| {
+		if out.is_null() || out_cap == 0 {
+			return 0;
+		}
+		if out_cap
+			.checked_mul(std::mem::size_of::<GlowcapIrohReadyEvent>())
+			.and_then(|bytes| isize::try_from(bytes).ok())
+			.is_none()
+		{
+			return -1;
+		}
+		let Some(r) = ep.readiness.get() else {
+			return 0;
 		};
 		// SAFETY: upheld by the caller after the pointer and capacity checks.
 		let dest = unsafe { std::slice::from_raw_parts_mut(out, out_cap) };
 		isize::try_from(r.drain(dest)).unwrap_or(-1)
-	}));
-	result.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(ep, -1, drain) }
 }
 
 /// Start the non-blocking acceptor for this endpoint: incoming connections are
@@ -85,14 +66,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_drain_ready(
 /// `ep` must be null or a live endpoint handle. Null is refused.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *mut GlowcapIrohEndpoint) -> i32 {
-	if ep.is_null() {
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure.
-		let ep = unsafe { &*ep };
+	let start = |ep: &GlowcapIrohEndpoint| {
 		if ep.accept.get().is_some() {
 			return 0;
 		}
@@ -108,8 +82,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep
 		}
 		ep.rt.spawn(nb_acceptor(ep.ep.clone(), ep.connect_timeout, acc));
 		0
-	}));
-	result.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(ep, -1, start) }
 }
 
 /// Start a fresh admission generation, or seal admission and drop the bounded
@@ -119,14 +94,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep
 /// `ep` must be null or a live endpoint handle. Null is refused.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_admission(ep: *mut GlowcapIrohEndpoint, enabled: u8) -> i32 {
-	if ep.is_null() {
-		return -1;
-	}
-	catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure.
-		let ep = unsafe { &*ep };
+	let admission = |ep: &GlowcapIrohEndpoint| {
 		let Some(acc) = ep.accept.get() else {
 			return -1;
 		};
@@ -135,8 +103,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_admission(ep: *mut Glowca
 		let discarded = acc.queue.lock().unwrap().set_enabled(enabled != 0);
 		drop(discarded);
 		0
-	}))
-	.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(ep, -1, admission) }
 }
 
 /// Claim one connection the acceptor has pulled off the wire, or null when none
@@ -152,22 +121,12 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_admission(ep: *mut Glowca
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_try_accept(
 	ep: *mut GlowcapIrohEndpoint,
 ) -> *mut GlowcapIrohConn {
-	if ep.is_null() {
-		return std::ptr::null_mut();
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure.
-		let ep = unsafe { &*ep };
-		let acc = ep.accept.get()?;
-		let raw = acc.queue.lock().unwrap().pop()?;
+	let claim = |ep: &GlowcapIrohEndpoint| {
+		let raw = ep.accept.get()?.queue.lock().unwrap().pop()?;
 		make_conn(ep, raw)
-	}));
-	match result {
-		Ok(Some(handle)) => handle,
-		_ => std::ptr::null_mut(),
-	}
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(ep, None, claim) }.unwrap_or(std::ptr::null_mut())
 }
 
 /// Move a connection onto the endpoint's readiness surface: the reader and
@@ -185,19 +144,14 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_set_nonblocking(
 	ep: *mut GlowcapIrohEndpoint,
 	conn: *mut GlowcapIrohConn,
 ) -> i32 {
-	if ep.is_null() || conn.is_null() {
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure, and the spawned reader and writer tasks take the cloned `ep.ep` and moved streams,
-		// not this reference.
-		let ep = unsafe { &*ep };
-		// SAFETY: `conn` is non-null (checked above) and, per this function's `# Safety` contract, a live connection
-		// handle from `make_conn` minted by `ep` that the caller does not free during the call; the shared borrow ends
-		// with this closure.
-		let conn_ref = unsafe { &*conn };
+	// The spawned reader and writer tasks take the cloned runtime handle and the
+	// moved streams, never either borrowed handle.
+	let transition = |ep: &GlowcapIrohEndpoint| {
+		// SAFETY: this function's `# Safety` contract makes `conn` null or a live connection handle `ep` minted that
+		// the caller does not free during the call. `as_ref` maps null to `None`, and the borrow ends with this closure.
+		let Some(conn_ref) = (unsafe { conn.as_ref() }) else {
+			return -1;
+		};
 		let _transition = conn_ref.nonblocking_transition.lock().unwrap();
 		if conn_ref.nb.get().is_some() {
 			return 0;
@@ -236,8 +190,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_set_nonblocking(
 		// bytes to send.
 		readiness.signal(conn_ref.id, EV_WRITABLE);
 		0
-	}));
-	result.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(ep, -1, transition) }
 }
 
 /// Stable readiness identity for a connection. It is unique for the endpoint's
@@ -247,20 +202,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_set_nonblocking(
 /// `conn` must be null or a live connection handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_id(conn: *const GlowcapIrohConn) -> usize {
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		if conn.is_null() {
-			return 0;
-		}
-		// SAFETY: `conn` is non-null (checked above) and, per this function's `# Safety` contract, a live
-		// connection handle from `make_conn`; this reads one `usize` field through a shared borrow.
-		unsafe { (*conn).id }
-	}));
-	result.unwrap_or(0)
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(conn, 0, |conn| conn.id) }
 }
 
 /// Non-blocking read: copy up to `len` buffered inbound bytes into `buf`. Returns
 /// the byte count (> 0), 0 at clean end of stream, -1 on error, or
-/// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no bytes are buffered yet. Draining the status-allow: pending state or quoted runtime label
+/// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no bytes are buffered yet. Draining the
 /// buffer frees room for the reader task to resume. The connection must have been
 /// moved to the readiness surface with `conn_set_nonblocking`. Borrows the handle.
 ///
@@ -273,20 +221,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_read(
 	buf: *mut u8,
 	len: usize,
 ) -> isize {
-	if conn.is_null() {
-		return -1;
-	}
-	if len == 0 {
-		return 0;
-	}
-	if buf.is_null() {
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `conn` is non-null (checked above) and, per this function's `# Safety` contract, a live connection
-		// handle from `make_conn` that the caller does not free during the call; the shared borrow ends with this
-		// closure.
-		let conn = unsafe { &*conn };
+	let read = |conn: &GlowcapIrohConn| {
+		if len == 0 {
+			return 0;
+		}
+		if buf.is_null() {
+			return -1;
+		}
 		let nb = match conn.nb.get() {
 			Some(nb) => nb,
 			None => return -1,
@@ -337,8 +278,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_read(
 			return -1;
 		}
 		WOULD_BLOCK
-	}));
-	result.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(conn, -1, read) }
 }
 
 /// Non-blocking write: copy the prefix that fits into the bounded outbound
@@ -357,20 +299,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_write(
 	buf: *const u8,
 	len: usize,
 ) -> isize {
-	if conn.is_null() {
-		return -1;
-	}
-	if len == 0 {
-		return 0;
-	}
-	if buf.is_null() || isize::try_from(len).is_err() {
-		return -1;
-	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		// SAFETY: `conn` is non-null (checked above) and, per this function's `# Safety` contract, a live connection
-		// handle from `make_conn` that the caller does not free during the call; the shared borrow ends with this
-		// closure.
-		let conn = unsafe { &*conn };
+	let write = |conn: &GlowcapIrohConn| {
+		if len == 0 {
+			return 0;
+		}
+		if buf.is_null() || isize::try_from(len).is_err() {
+			return -1;
+		}
 		let nb = match conn.nb.get() {
 			Some(nb) => nb,
 			None => return -1,
@@ -385,6 +320,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_write(
 			nb.write_work.notify_one();
 		}
 		accepted
-	}));
-	result.unwrap_or(-1)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(conn, -1, write) }
 }

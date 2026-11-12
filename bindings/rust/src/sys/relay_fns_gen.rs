@@ -20,7 +20,6 @@ use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime};
 unsafe extern "C" {
 	pub fn glowcap_relay_archive_fingerprint() -> u64;
 	pub fn glowcap_relay_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn glowcap_relay_clear_last_error();
 	pub fn glowcap_relay_runtime_new(
 		config: *const GlowcapRelayConfig,
 		out_runtime: *mut *mut GlowcapRelayRuntime,

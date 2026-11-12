@@ -55,7 +55,7 @@ pub const Fixture = struct {
         errdefer self.data.backend.deinit();
         self.data.store = try loam.core.Store.init(allocator, try self.data.backend.open(), &schemas, records.limits);
         errdefer self.data.store.deinit() catch unreachable;
-        self.host = host_support.init(allocator, @splat(0x71), driver.Host.Options.withFrameCap(4096));
+        self.host = host_support.init(allocator, @splat(0x71), driver.Host.Options.init(.unchecked, 4096));
         errdefer self.host.deinit();
         try self.data.store.begin();
         errdefer if (self.data.store.phase == .staging or self.data.store.phase == .prepared) self.data.store.abort() catch unreachable;

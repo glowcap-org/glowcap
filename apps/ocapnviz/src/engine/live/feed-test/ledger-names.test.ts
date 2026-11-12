@@ -321,7 +321,7 @@ Deno.test("session-meta folds into the partner's label, identity untouched", () 
 	const updated = expectKind(out[0], "peer-updated");
 	assertEquals(updated.peerId, "127.0.0.1:0");
 	assertEquals(updated.label, "carol");
-	// A session the converter has not seen open: nothing to name yet. status-allow: pending state or quoted runtime label
+	// A session the converter has not seen open: nothing to name yet.
 	assertEquals(
 		convert({
 			v: 1,

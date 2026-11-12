@@ -56,28 +56,32 @@ pub fn shuttleAll(pairs: []const Pair) !bool {
     return moved;
 }
 
-/// Pump shuttles until the whole network is quiescent, bounded so a
-/// ping-pong bug fails loud instead of spinning forever. At rest every pair
-/// whose wire is live both ways is held to `scenarios.agreement`: each import a
-/// mention its partner made, each question an answer its partner owes, and
-/// each settled answer drained.
-pub fn pumpToQuiescence(pairs: []const Pair) !void {
-    var rounds: usize = 0;
-    while (rounds < 64) : (rounds += 1) {
-        if (!try shuttleAll(pairs)) {
-            // Closed pairs have no live wire relation. Every open pair must
-            // be checked; queued Host work is not quiescence.
-            for (pairs) |pair| {
-                if (pair.a.wireLive() and pair.b.wireLive()) try expectAgreement(pair);
-            }
-            return;
-        }
+/// Shuttle until a round moves nothing, bounded at 64 rounds so a ping-pong
+/// bug fails loud as `PumpDidNotQuiesce` instead of spinning forever. It
+/// judges nothing at rest, so a caller that reads a pair mid-conversation
+/// (a vow still undrained) uses this, and every other caller uses
+/// `pumpToQuiescence`.
+pub fn shuttleUntilQuiet(pairs: []const Pair) !void {
+    for (0..64) |_| {
+        if (!try shuttleAll(pairs)) return;
     }
     return error.PumpDidNotQuiesce;
 }
 
+/// `shuttleUntilQuiet`, then every pair whose wire is live both ways is held
+/// to `scenarios.agreement`: each import a mention its partner made, each
+/// question an answer its partner owes, and each settled answer drained.
+/// Closed pairs have no live wire relation, and queued Host work is not
+/// quiescence.
+pub fn pumpToQuiescence(pairs: []const Pair) !void {
+    try shuttleUntilQuiet(pairs);
+    for (pairs) |pair| {
+        if (pair.a.wireLive() and pair.b.wireLive()) try expectAgreement(pair);
+    }
+}
+
 /// Require a live pair at rest and hold it to `scenarios.agreement`. A send
-/// waiting on a Host action drain fails as `PairNotAtRest`; callers must
+/// waiting on a Host action drain fails as `PairNotAtRest`. Callers must
 /// drain that action before claiming the pair reached quiescence.
 pub fn expectAgreement(pair: Pair) !void {
     if (!pair.a.wireLive() or !pair.b.wireLive()) return error.PairNotOpen;

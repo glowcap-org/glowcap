@@ -17,6 +17,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import github_release as RELEASE
 import release_notes as NOTES
 from workflows import ROOT, jobs, run, step
 
@@ -229,6 +230,7 @@ class ReleaseNotes(unittest.TestCase):
             script = directory / "ci/release_notes.py"
             script.parent.mkdir()
             shutil.copyfile(SCRIPT, script)
+            shutil.copyfile(SCRIPT.with_name("release_version.py"), script.with_name("release_version.py"))
             changelog = directory / "CHANGELOG.md"
             changelog.write_text(CHANGELOG)
             release = directory / "release.json"
@@ -254,12 +256,12 @@ class ReleaseNotes(unittest.TestCase):
             self.assertIn("<!-- glowcap-release-run: 123 -->", output.read_text())
             output.unlink()
             changelog.write_text(CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n- Pending.\n"))
-            for arguments in (
+            for pending in (
                 ("--changelog", version),
                 ("--facts", str(release), "--image-digest", IMAGE_DIGEST, "--output", str(output)),
             ):
-                with self.subTest(arguments=arguments):
-                    result = run(*arguments)
+                with self.subTest(arguments=pending):
+                    result = run(*pending)
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertIn("still lists Unreleased changes", result.stderr)
                     self.assertEqual(result.stdout, "")
@@ -282,6 +284,9 @@ class ReleaseNotes(unittest.TestCase):
             names.index("Render the release page and download every provenance bundle"),
             names.index("Fill the draft release, then make it public"),
         )
-        publish = run(release, "Fill the draft release, then make it public")
-        self.assertIn("--notes-file artifacts/release-notes.md", publish)
-        self.assertNotIn('--notes "', publish)
+        self.assertEqual(
+            run(release, "Fill the draft release, then make it public"),
+            'python3 ci/github_release.py publish-draft "$RELEASE_TAG"',
+        )
+        # The draft and the public release both read the rendered page.
+        self.assertEqual(str(RELEASE.NOTES), "artifacts/release-notes.md")

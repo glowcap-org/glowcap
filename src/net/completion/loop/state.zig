@@ -63,7 +63,7 @@ pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 /// backend-dependent width.
 ///
 /// It exists to stop a field being *added* unnoticed, not to invite shaving
-/// bytes off it. At 500k connections the whole slot overhead is a small share
+/// bytes off it. At a large connection count the whole slot overhead is a small share
 /// of the steady outbound queues the same connections carry
 /// (`steady_outbound_bytes` each), and the two list headers and the spill
 /// header are most of it, so the whole available saving is noise against
@@ -123,7 +123,7 @@ pub fn Types(comptime Backend: type) type {
             /// packed into this number. `waiting_is_drain` records which one
             /// the stamp was taken for, so a connection that was already
             /// waiting when its state changed starts the new clock instead of
-            /// inheriting the old one's elapsed time. `.open` with a parked read status-allow: replacement state identity
+            /// inheriting the old one's elapsed time. `.open` with a parked read
             /// is a slow reader, bounded by `Options.park_kill_ms`. A
             /// `.draining` connection is waiting for its terminal bytes to be
             /// read, bounded by `Options.drain_kill_ms`. Condemnation
@@ -174,7 +174,7 @@ pub fn Types(comptime Backend: type) type {
             /// submit as the next write.
             back: std.ArrayList(u8) = .empty,
             write_in_flight: bool = false,
-            /// Per-connection recv/send/close operations the backend has not yet status-allow: pending state or quoted runtime label
+            /// Per-connection recv/send/close operations the backend has not yet
             /// reported complete. Teardown waits for this to reach zero, so the
             /// slot is never reused and `front` is never freed while a
             /// completion-based backend could still write into it. That prevents

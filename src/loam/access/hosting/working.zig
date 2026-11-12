@@ -62,6 +62,7 @@ pub fn invocationAllocationBound(declared: InvocationBounds) !hosting.references
 
 const Inspection = @import("inspection.zig").Inspection;
 const Request = @import("request.zig").Request;
+const Conflict = @import("control_request.zig").Conflict;
 
 /// One inline registration snapshot in the existing bounded call arena: no
 /// allocation or payload copy. Admission, references and invocation must use
@@ -102,6 +103,7 @@ pub const State = struct {
     requirement: ?core.Policy.Requirement = null,
     changed: bool = false,
     control_prepared: bool = false,
+    conflict: ?Conflict = null,
     retry: service.RetryMode = .read_only,
     effects_declared: bool = false,
     resource_effect: ?service.ResourceEffect = null,
@@ -454,7 +456,11 @@ pub const State = struct {
     /// so unrelated graph fields and new Saves cannot gate its result.
     fn advanceMutation(self: *State) !Phase {
         const mutation = self.mutation orelse return .proceed;
-        switch (try mutation.advance()) {
+        switch (mutation.advance() catch |err| {
+            if (err != error.OperationConflict or self.request != .control) return err;
+            self.conflict = .operation;
+            return .ready;
+        }) {
             .waiting => return .{ .step = .waiting },
             .read => |read| return self.park(read, .mutation),
             .ready => {},
@@ -465,7 +471,14 @@ pub const State = struct {
 
     fn prepareControl(self: *State) !Phase {
         if (self.request != .control or self.control_prepared) return .proceed;
-        self.changed = try loam.reload(self.request.control.prepare(self.operation.?, self.config, self.arena, self.verb, self.args)) orelse return .restart;
+        const prepared = try loam.reload(self.request.control.prepare(self.operation.?, self.config, self.arena, self.verb, self.args)) orelse return .restart;
+        switch (prepared) {
+            .changed => |changed| self.changed = changed,
+            .conflict => {
+                self.conflict = .revision;
+                return .ready;
+            },
+        }
         self.control_prepared = true;
         return .proceed;
     }
@@ -489,7 +502,7 @@ pub const State = struct {
         };
     }
 
-    /// A request machine's step as a phase outcome; `.more` restarts the pass.
+    /// A request machine's step as a phase outcome. `.more` restarts the pass.
     fn machinePhase(self: *State, step: anytype, owner: PendingOwner) Phase {
         return switch (step) {
             .more => .restart,

@@ -23,7 +23,7 @@ fn apply(host: *Host, operation: Operation, candidate: model.PeerLocator) !void 
 }
 fn measure(operation: Operation, carried: []const model.HintEntry) !void {
     var traffic = std.testing.FailingAllocator.init(std.heap.smp_allocator, .{});
-    var options: Host.Options = .{};
+    var options: Host.Options = .{ .thread_policy = .unchecked };
     options.captp_version = .next;
     options.codec = .capnp;
     // Fixed independent seeds suffice: this benchmark never serves a session.

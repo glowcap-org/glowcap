@@ -34,7 +34,9 @@
 #roomList li .rwhere,
 #dmList li .rwhere {
 	grid-area: 2 / 1;
-	margin: 0 var(--mark-inset) 0 var(--row-pad);
+	/* A box in the row, so it stands at the mark's inset from each edge of the
+	   row it reaches, as the marks on the line above it do. */
+	margin: 0 var(--mark-inset);
 	padding-block: 2px;
 }
 @media (hover: none) {
@@ -45,13 +47,13 @@
 }
 #roomList li:has(.rwhere),
 #dmList li:has(.rwhere) {
-	padding-bottom: 6px;
+	padding-bottom: var(--mark-inset);
 }
 
 /* Status text has no button chrome. Align it with the conversation name. */
 #roomList li .rwhere-status,
 #dmList li .rwhere-status {
-	margin-inline-start: calc(var(--row-pad) + var(--mark-col) + var(--mark-gap));
+	margin-inline-start: calc(var(--mark-inset) + var(--mark-col) + var(--mark-gap));
 	font-size: var(--type-fine);
 	color: var(--ink-soft);
 }

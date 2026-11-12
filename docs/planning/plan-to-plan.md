@@ -78,7 +78,7 @@ Up to three agents can work at once, one per worktree (`tree1`, `tree2`,
 `tree3`). Each active plan ends with a **Parallel work** section that lets
 them split it without stepping on each other. That section:
 
-- splits the steps into at most three lanes, and says which lanes start now
+- splits the steps into at most three lanes, and says which lanes start first
   and which wait for a step in another lane to land in `dev`
 - names what each lane owns, the directories and files it edits, so two lanes
   never edit the same file at once

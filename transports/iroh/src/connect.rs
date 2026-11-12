@@ -11,7 +11,7 @@ pub(crate) struct AcceptState {
 	pub(crate) queue: Mutex<super::admission::Queue<AcceptedRaw>>,
 }
 
-/// One accepted connection the acceptor task produced but the loop has not yet status-allow: pending state or quoted runtime label
+/// One accepted connection the acceptor task produced but the loop has not yet
 /// claimed: the QUIC connection and its first bidirectional stream, carried by
 /// value (every part is `Send`) so the task never holds a raw handle pointer.
 pub(crate) struct AcceptedRaw {
@@ -78,9 +78,9 @@ impl DialText {
 			// Safety: the contract requires `out_cap` writable bytes at `out`.
 			unsafe { std::ptr::copy_nonoverlapping(self.bytes.as_ptr(), out, copied) };
 		}
-		if !out_len.is_null() {
-			// Safety: the contract requires a writable `usize` when non-null.
-			unsafe { *out_len = copied };
+		// SAFETY: the contract makes `out_len` null or one writable `usize`, and `as_mut` maps null to `None`.
+		if let Some(slot) = unsafe { out_len.as_mut() } {
+			*slot = copied;
 		}
 	}
 }
@@ -142,9 +142,11 @@ impl From<i32> for DialFailure {
 fn report_text(failure: Option<&DialFailure>, out_text: *mut u8, out_text_cap: usize, out_text_len: *mut usize) {
 	if let Some(text) = failure.and_then(|failure| failure.text.as_deref()) {
 		text.copy_to(out_text, out_text_cap, out_text_len);
-	} else if !out_text_len.is_null() {
-		// Safety: the contract requires a writable `usize` when non-null.
-		unsafe { *out_text_len = 0 };
+		return;
+	}
+	// SAFETY: the contract makes `out_text_len` null or one writable `usize`, and `as_mut` maps null to `None`.
+	if let Some(slot) = unsafe { out_text_len.as_mut() } {
+		*slot = 0;
 	}
 }
 
@@ -369,8 +371,9 @@ pub(crate) fn endpoint_dials(ep: &GlowcapIrohEndpoint) -> Option<&Arc<DialState>
 /// text is handed to the caller's buffer directly. Nothing is retained.
 ///
 /// # Safety
-/// `ep` must be a live endpoint handle. Target pointers must address their
-/// declared readable lengths, and non-null output pointers must be writable.
+/// `ep` must be null or a live endpoint handle. Target pointers must address
+/// their declared readable lengths, and non-null output pointers must be
+/// writable. A null `ep` is refused as invalid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 	ep: *mut GlowcapIrohEndpoint,
@@ -384,13 +387,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 	out_text_len: *mut usize,
 ) -> *mut GlowcapIrohConn {
 	let result = catch_unwind(AssertUnwindSafe(|| -> Result<*mut GlowcapIrohConn, DialFailure> {
-		if ep.is_null() {
-			return Err(DIAL_INVALID.into());
-		}
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure.
-		let ep = unsafe { &*ep };
+		// SAFETY: this function's `# Safety` contract makes `ep` null or a live endpoint handle the caller does not free
+		// during the call. `as_ref` maps null to `None`, and the borrow ends with this closure.
+		let ep = unsafe { ep.as_ref() }.ok_or(DIAL_INVALID)?;
 		// SAFETY: the `# Safety` contract has the caller keep `node_id` and `addr_hints` readable for their declared
 		// lengths through the call, which is what `parse_target` requires; it returns an owned `EndpointAddr`, so
 		// nothing borrows those bytes afterward.
@@ -403,10 +402,10 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 		Ok(Err(failure)) => (std::ptr::null_mut(), Some(failure)),
 		Err(_) => (std::ptr::null_mut(), Some(DialFailure::code_only(DIAL_LOST))),
 	};
-	if !out_code.is_null() {
-		// SAFETY: `out_code` is non-null (checked on the line above) and the `# Safety` contract requires every
-		// non-null output pointer to be writable for one `i32`.
-		unsafe { *out_code = failure.as_ref().map_or(DIAL_OK, |failure| failure.code) };
+	// SAFETY: the `# Safety` contract requires every non-null output pointer to be writable, and `as_mut` maps null to
+	// `None`.
+	if let Some(slot) = unsafe { out_code.as_mut() } {
+		*slot = failure.as_ref().map_or(DIAL_OK, |failure| failure.code);
 	}
 	report_text(failure.as_ref(), out_text, out_text_cap, out_text_len);
 	handle
@@ -417,8 +416,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 /// bounded request table returns `DIAL_BUSY` without minting an event when full.
 ///
 /// # Safety
-/// `ep` must be a live endpoint handle. Target pointers must address their
-/// declared readable lengths.
+/// `ep` must be null or a live endpoint handle. Target pointers must address
+/// their declared readable lengths. A null `ep` is refused as invalid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 	ep: *mut GlowcapIrohEndpoint,
@@ -429,13 +428,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 	addr_hints_len: usize,
 ) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| -> Result<(), i32> {
-		if ep.is_null() || request_id == 0 {
+		// SAFETY: this function's `# Safety` contract makes `ep` null or a live endpoint handle the caller does not free
+		// during the call. `as_ref` maps null to `None`, the borrow ends with this closure, and the spawned task clones
+		// `ep.ep` rather than keeping the reference.
+		let ep = unsafe { ep.as_ref() }.ok_or(DIAL_INVALID)?;
+		if request_id == 0 {
 			return Err(DIAL_INVALID);
 		}
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure, and the spawned task clones `ep.ep` rather than keeping the reference.
-		let ep = unsafe { &*ep };
 		// SAFETY: as `glowcap_iroh_sidecar_connect_blocking` above, for `node_id` and `addr_hints`; the parsed
 		// `EndpointAddr` is owned, so the spawned dial task holds none of the caller's bytes.
 		let addr = unsafe { parse_target(node_id, node_id_len, addr_hints, addr_hints_len) }?;
@@ -486,8 +485,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 /// caller's buffer. A pending request returns DIAL_PENDING and leaves its row.
 ///
 /// # Safety
-/// `ep` must be a live endpoint handle, `out_conn` must be writable, and
-/// non-null text outputs must address their declared capacities.
+/// `ep` must be null or a live endpoint handle, `out_conn` must be null or
+/// writable, and non-null text outputs must address their declared capacities.
+/// A null `ep` or `out_conn` is refused as invalid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 	ep: *mut GlowcapIrohEndpoint,
@@ -498,16 +498,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 	out_text_len: *mut usize,
 ) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| -> Result<(), DialFailure> {
-		if ep.is_null() || out_conn.is_null() {
-			return Err(DIAL_INVALID.into());
-		}
-		// SAFETY: `out_conn` is non-null (checked above) and the `# Safety` contract requires it writable for one
-		// `*mut GlowcapIrohConn`; this clears it so a failed call leaves null.
-		unsafe { *out_conn = std::ptr::null_mut() };
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure.
-		let ep = unsafe { &*ep };
+		// SAFETY: this function's `# Safety` contract makes `ep` null or a live endpoint handle the caller does not free
+		// during the call. `as_ref` maps null to `None`, and the borrow ends with this closure.
+		let ep = unsafe { ep.as_ref() }.ok_or(DIAL_INVALID)?;
+		// SAFETY: the `# Safety` contract makes `out_conn` null or writable for one `*mut GlowcapIrohConn`, and `as_mut`
+		// maps null to `None`. Clearing it first leaves null behind a failed call.
+		let out_conn = unsafe { out_conn.as_mut() }.ok_or(DIAL_INVALID)?;
+		*out_conn = std::ptr::null_mut();
 		let Some(dials) = ep.dials.get() else {
 			return Err(DIAL_INVALID.into());
 		};
@@ -522,10 +519,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 				None => return Err(DIAL_INVALID.into()),
 			}
 		};
-		let conn = make_conn(ep, terminal?).ok_or(DialFailure::code_only(DIAL_LOST))?;
-		// SAFETY: as the clearing write above, `out_conn` is non-null and writable; `conn` is the owned handle
-		// `make_conn` just boxed, and this write transfers it to the caller.
-		unsafe { *out_conn = conn };
+		// The owned handle `make_conn` just boxed passes to the caller here.
+		*out_conn = make_conn(ep, terminal?).ok_or(DialFailure::code_only(DIAL_LOST))?;
 		Ok(())
 	}));
 	let failure = match result {
@@ -548,15 +543,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_cancel_connect(
 	request_id: usize,
 ) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
-		if ep.is_null() || request_id == 0 {
+		// SAFETY: this function's `# Safety` contract makes `ep` null or a live endpoint handle the caller does not free
+		// during the call. `as_ref` maps null to `None`, and the borrow ends with this closure.
+		let Some(ep) = (unsafe { ep.as_ref() }) else {
 			return DIAL_INVALID;
-		}
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure.
-		let ep = unsafe { &*ep };
+		};
 		match ep.dials.get() {
-			Some(dials) if dials.cancel(request_id) => DIAL_OK,
+			Some(dials) if request_id != 0 && dials.cancel(request_id) => DIAL_OK,
 			_ => DIAL_INVALID,
 		}
 	}));
@@ -591,25 +584,26 @@ async fn accept_one(ep: &GlowcapIrohEndpoint) -> Option<AcceptedRaw> {
 /// queue.
 ///
 /// # Safety
-/// `ep` must be a live endpoint handle and `out_code` must be writable. Null
-/// pointers are refused defensively.
+/// `ep` must be null or a live endpoint handle, and `out_code` must be null or
+/// writable. Null pointers are refused.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_accept_timeout(
 	ep: *mut GlowcapIrohEndpoint,
 	timeout_ms: i32,
 	out_code: *mut i32,
 ) -> *mut GlowcapIrohConn {
-	if out_code.is_null() {
+	// SAFETY: this function's `# Safety` contract makes `out_code` null or writable for one `i32`, and `as_mut` maps
+	// null to `None`.
+	let Some(out_code) = (unsafe { out_code.as_mut() }) else {
 		return std::ptr::null_mut();
-	}
+	};
 	let result = catch_unwind(AssertUnwindSafe(|| -> Result<usize, i32> {
-		if ep.is_null() || timeout_ms < 0 {
+		// SAFETY: this function's `# Safety` contract makes `ep` null or a live endpoint handle the caller does not free
+		// during the call. `as_ref` maps null to `None`, and the borrow ends with this closure, after its `block_on`.
+		let ep = unsafe { ep.as_ref() }.ok_or(DIAL_INVALID)?;
+		if timeout_ms < 0 {
 			return Err(DIAL_INVALID);
 		}
-		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
-		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
-		// ends with this closure, and its `block_on` returns before then.
-		let ep = unsafe { &*ep };
 		ep.rt.block_on(async {
 			match tokio::time::timeout(
 				std::time::Duration::from_millis(u64::try_from(timeout_ms).map_err(|_| DIAL_INVALID)?),
@@ -628,10 +622,6 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_accept_timeout(
 		Ok(Err(code)) => (std::ptr::null_mut(), code),
 		Err(_) => (std::ptr::null_mut(), DIAL_LOST),
 	};
-	// SAFETY: `out_code` is non-null (the function returns early otherwise) and the `# Safety` contract requires it
-	// writable for one `i32`.
-	unsafe {
-		*out_code = code;
-	}
+	*out_code = code;
 	handle
 }

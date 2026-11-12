@@ -1,5 +1,6 @@
 //! Public Rooms vocabulary. No shell passthrough: every option participates in
 //! the same parser, help, and shell completion as the rest of glowcap.
+const std = @import("std");
 const types = @import("../../cmd/types.zig");
 const run = @import("mod.zig").run;
 const Flag = types.Flag;
@@ -13,10 +14,13 @@ fn many(comptime name: []const u8, comptime help: []const u8) Flag {
     return flag;
 }
 /// The same flags for another peer the command runs, under `prefix`, each
-/// help led by `subject`.
+/// help led by `subject`. A help that named a sibling flag would point the
+/// prefixed copy at the unprefixed flag, so a help holding `--` is refused.
 fn prefixed(comptime prefix: []const u8, comptime subject: []const u8, comptime flags: []const Flag) [flags.len]Flag {
     var out: [flags.len]Flag = undefined;
+    @setEvalBranchQuota(100_000);
     for (flags, 0..) |flag, index| {
+        if (std.mem.indexOf(u8, flag.help, "--") != null) @compileError("the help of --" ++ flag.long ++ " holds `--`, and a prefixed flag's help may name no flag");
         out[index] = flag;
         out[index].long = prefix ++ flag.long;
         out[index].help = subject ++ flag.help;
@@ -36,7 +40,7 @@ pub const transport = [_]Flag{
     value("relay-public", "That relay as peers dial it, behind a port forward or proxy (or GLOWCAP_ROOMS_RELAY_PUBLIC_URL)"),
     value("onion-socks", "Running Tor SOCKS endpoint"),
     value("onion-control", "Running Tor control endpoint"),
-    value("onion-forward", "Absolute Unix forwarding socket, requires --port=0"),
+    value("onion-forward", "Absolute Unix forwarding socket, used with the listener port left at 0"),
 };
 pub const admission = [_]Flag{
     value("admission-scale", "Scale default work allowances (1..100, default 1)"),
@@ -49,9 +53,10 @@ const directory = transport ++ admission ++ [_]Flag{
     state,
     .{ .long = "history", .help = "Retain listed-room history" },
     value("capabilities", "Operator capabilities to mint: all, or names from " ++ boot.names ++ ", separated by commas (or GLOWCAP_ROOMS_CAPABILITIES)"),
+    value("trace-bind", "Trace listener interface (default 127.0.0.1, or GLOWCAP_ROOMS_TRACE_BIND)"),
     value("trace-port", "Trace port (default 9300, 0 chooses an ephemeral port)"),
-    value("trace-connect", "Advertised trace CapTP WebSocket URL through a proxy"),
-    value("trace-publish", "Advertised trace producer WebSocket URL through a proxy"),
+    value("trace-connect", "Advertised trace CapTP WebSocket URL through a proxy (wss:// off loopback)"),
+    value("trace-publish", "Advertised trace producer WebSocket URL through a proxy (wss:// off loopback)"),
 };
 const serve = directory ++ [_]Flag{
     value("http-admission-scale", "Scale HTTP work allowances (1..100)"),
@@ -65,16 +70,16 @@ const serve = directory ++ [_]Flag{
     value("browser-admission-rows", "Browser-local accounting row cap (1..65536)"),
     value("browser-admission-aggregate-scale", "Browser-local session allowance multiplier (1..100)"),
     value("session-state", "Also serve a shared session from this directory and print its use and management links"),
-} ++ prefixed("session-", "Shared session: ", &transport) ++ [_]Flag{
+} ++ prefixed("session-", "Shared session: ", &@import("session_commands.zig").serve_options) ++ [_]Flag{
     value("allow-origin", "Rooms pages served elsewhere that may use this server, as origins or page addresses separated by commas (default: https://glowcap.org/rooms/app/, the page the website publishes, and an empty value allows none, or GLOWCAP_RELAY_ALLOW_ORIGINS). A page address also prints a link that opens it with this server, and with --session-state one that opens it ready to attach"),
-    value("http-bind", "HTTP listener address (default 127.0.0.1, so a public address is never chosen for you)"),
-    value("http-port", "HTTP listener port (default 8080)"),
+    value("http-bind", "HTTP listener address (default 127.0.0.1, or GLOWCAP_ROOMS_HTTP_BIND)"),
+    value("http-port", "HTTP listener port (default 8080, or GLOWCAP_ROOMS_HTTP_PORT)"),
     value("http-public", "The address browsers reach this server at, named by every link it prints (default http://localhost:<port>/, or GLOWCAP_ROOMS_HTTP_PUBLIC)"),
     value("assets", "Serve these prepared browser assets instead of the installed ones (never compiles source)"),
 };
 const status = [_]Flag{value("url", "Rooms HTTP base URL (default http://127.0.0.1:8080)")};
 const irc = [_]types.Command{
-    .{ .name = "bridge", .short_help = "Expose an IRC channel as a Rooms directory (read-only by default)", .flags = &.{
+    .{ .name = "bridge", .short_help = "Expose an IRC channel as a Rooms directory (read-only by default)", .flags = &(transport ++ [_]Flag{
         value("network", "IRC network label (default libera)"),
         value("channel", "IRC channel (default #ocapn)"),
         value("irc-host", "IRC server (default irc.libera.chat)"),
@@ -84,21 +89,19 @@ const irc = [_]types.Command{
         value("tls", "true (default) or false (two-way requires TLS)"),
         value("mode", "read-only (default) or two-way"),
         value("sasl-account", "SASL account (the password comes only from GLOWCAP_ROOMS_IRC_SASL_PASSWORD)"),
-        value("bind", "Rooms TCP listener address (default 127.0.0.1)"),
-        value("announce-host", "Advertised Rooms TCP host"),
-        value("port", "Rooms TCP port (default 0)"),
-    }, .run = run("rooms-irc-bridge", .service) },
+    }), .run = run("rooms-irc-bridge", .service) },
     .{ .name = "serve", .short_help = "Let ordinary IRC clients participate in Rooms", .flags = &.{
-        value("directory", "Rooms locator or TCP address (default 127.0.0.1:9099)"),
+        value("directory", "The address the Rooms server printed (required)"),
         value("bind", "IRC listener address (default 127.0.0.1)"),
         value("port", "IRC listener port (default 6667)"),
         value("server-name", "IRC server name (default rooms.local)"),
         value("tls-cert", "TLS certificate, required with --tls-key for a public bind"),
         value("tls-key", "TLS private key file"),
-        value("dm-transport", "noise (default), tcp (loopback only), or iroh"),
+        value("dm-transport", "noise-tcp (default), iroh, or tcp (cleartext, loopback only)"),
         value("dm-bind", "Direct-message listener address"),
         value("dm-announce-host", "Advertised direct-message host"),
         value("dm-port", "Direct-message listener port (default 0)"),
+        value("dial-transports", "Also dial members on these: noise-tcp, iroh, and the cleartext keyed-tcp and tcp"),
     }, .run = run("rooms-irc-server", .service) },
 };
 pub const commands = [_]types.Command{

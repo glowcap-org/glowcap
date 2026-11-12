@@ -1,9 +1,8 @@
 import { GlowcapError, retainSecondaryFailure } from "../errors.ts";
 import { deferFinalizerRetry, type FinalizerRetry } from "../finalizer_retry.ts";
-import type { DriverCallOutcome } from "../internal/driver_failure.ts";
-import { releaseConsumed } from "../lifecycle.ts";
+import type { DriverReleaseOutcome } from "../internal/driver_failure.ts";
 
-type ReleaseAttempt = () => DriverCallOutcome;
+type ReleaseAttempt = () => DriverReleaseOutcome;
 type ReleaseCommit = () => void | Promise<void>;
 type RetryScheduler = (retry: FinalizerRetry) => void;
 
@@ -23,7 +22,7 @@ export class TerminalDriverRelease {
 		failure: GlowcapError,
 		attempt: ReleaseAttempt,
 		commit: ReleaseCommit,
-		initialOutcome?: DriverCallOutcome,
+		initialOutcome?: DriverReleaseOutcome,
 		schedule: RetryScheduler = deferFinalizerRetry,
 	) {
 		this.failure = failure;
@@ -51,8 +50,8 @@ export class TerminalDriverRelease {
 		retainSecondaryFailure(this.failure, refusal);
 	}
 
-	#accept(outcome: DriverCallOutcome): void {
-		const consumed = releaseConsumed(outcome.code);
+	#accept(outcome: DriverReleaseOutcome): void {
+		const consumed = outcome.consumed;
 		if (!consumed) {
 			if (outcome.error !== null) this.#retainRefusal(outcome.error);
 			this.#schedule(this.#retry);

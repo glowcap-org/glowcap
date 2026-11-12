@@ -20,6 +20,7 @@ pub fn splitLine(gpa: std.mem.Allocator, line: []const u8) ![]const []const u8 {
 }
 
 fn stdinIsTty(ctx: *Ctx) bool {
+    // tolerant: a stdin whose terminal status cannot be read runs line-buffered, which works on any stream.
     return std.Io.File.stdin().isTty(ctx.io) catch false;
 }
 

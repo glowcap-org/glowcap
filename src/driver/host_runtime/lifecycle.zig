@@ -45,7 +45,7 @@ pub const ActiveListener = struct {
     terminal_failure: ?OperationFailure = null,
 };
 
-/// A complete locator prepared by the driver but not yet published. status-allow: pending state or quoted runtime label
+/// A complete locator prepared by the driver but not yet published.
 pub const PreparedListenerLocator = struct {
     value: model.PeerLocator,
 

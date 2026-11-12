@@ -14,7 +14,7 @@ export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR}"
 mkdir -p "${UV_TOOL_DIR}" "${UV_PYTHON_INSTALL_DIR}"
 # The Python tools the image owns, each a pinned uv tool on the pinned
 # Python: Serena for the coding agents, ruff for `python-check`, and mypy
-# for the binding type check.
+# for every Python type check.
 uv tool install -p "${PYTHON_VERSION}" "serena-agent==${SERENA_AGENT_VERSION}"
 uv tool install -p "${PYTHON_VERSION}" "ruff==${RUFF_VERSION}"
 uv tool install -p "${PYTHON_VERSION}" "mypy==${MYPY_VERSION}"

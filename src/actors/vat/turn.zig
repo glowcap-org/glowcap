@@ -65,6 +65,9 @@ pub const Turn = struct {
     /// Set by `forward`: this turn handed its answer off to a forwarded send's
     /// vow, so `serve` must not resolve it from the handler's return value.
     forwarded: bool = false,
+    /// The break `breakWith` gave this turn's call. A turn that then fails
+    /// drops its sends with the same break.
+    broke: ?engine.Broken = null,
     /// Index into `Vat.moved_replies` where this turn's `moveOut` transfers
     /// began (set on the turn's first move, null when nothing was moved). The
     /// vat already holds the bytes. This field only lets `callLocal` recognize
@@ -89,7 +92,7 @@ pub const Turn = struct {
     };
 
     /// Allocate custody for a borrowed reply. A top-level wire serve releases
-    /// it after consuming the reply; near calls keep it until the next outermost
+    /// it after consuming the reply. Near calls keep it until the next outermost
     /// turn or Vat teardown. Nested calls share their outer reply's window.
     /// One arena node holds both the resource and its cleanup link. The release
     /// callback consumes custody without opening turns or registering resources.
@@ -189,8 +192,8 @@ pub const Turn = struct {
     }
 
     /// Move an owned byte field out of the actor's state into the reply: hand
-    /// the bytes to the vat, clear the field so the actor's `deinit` no longer status-allow: lifecycle transition
-    /// frees them, and return them as a `bytes` argument. A transfer, not a
+    /// the bytes to the vat, clear the field so the actor's `deinit` does not
+    /// free them, and return them as a `bytes` argument. A transfer, not a
     /// borrow, the vat frees the bytes when its next outermost turn begins,
     /// the same lifetime a borrowed reply has, so handing off a large buffer
     /// is O(1) where copying it onto the turn arena is O(len), and the reply
@@ -263,7 +266,7 @@ pub const Turn = struct {
     /// partner pipelining on the proxy's answer queues on this side until the
     /// forwarded send settles (ADR-0016). Keeps `anyerror`: the
     /// local arm re-enters the near-call handler boundary.
-    /// Reserve the listener table a not-yet-committed send from this turn status-allow: pending state or quoted runtime label
+    /// Reserve the listener table a not-yet-committed send from this turn
     /// will use: the Port's for a Port-caused turn, else the vat's local
     /// table, where only a local vow can be observed.
     pub fn reserveListener(self: *Turn, location: VowLocation) Error!ListenerReservation {
@@ -375,15 +378,17 @@ pub const Turn = struct {
         switch (self.origin) {
             .served => |answer| {
                 if (self.forwarded) return;
-                try serve.resolveBreak(self.source.port, answer, message);
+                // Copy before the break leaves, so a refused copy sends nothing.
+                const broke = engine.Broken.application(try self.arena.dupe(u8, message));
+                try serve.resolveBreak(self.source.port, answer, engine.Broken.unnamed(message));
+                self.broke = broke;
                 self.forwarded = true;
             },
             .eventual => |eventual| {
                 if (self.forwarded) return;
-                eventual.outcome.* = if (eventual.answer != null)
-                    .{ .broken = try self.arena.dupe(u8, message) }
-                else
-                    .discarded;
+                const broken = engine.Broken.application(try self.arena.dupe(u8, message));
+                eventual.outcome.* = if (eventual.answer != null) .{ .broken = broken } else .discarded;
+                self.broke = broken;
                 self.forwarded = true;
             },
             .local => return error.NotLocal,

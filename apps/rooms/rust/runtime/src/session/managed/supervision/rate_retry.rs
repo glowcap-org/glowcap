@@ -57,6 +57,7 @@ mod tests {
 	#[test]
 	fn automatic_window_is_finite_and_distinct_workers_spread_attempts() {
 		let advice = RetryAdvice {
+			owner: None,
 			class: Class::Join,
 			retry_ms: 1000,
 		};

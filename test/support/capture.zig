@@ -34,15 +34,23 @@ fn CapturedText(comptime arm: enum { bytes, string }) type {
         buf: [128]u8 = undefined,
         len: usize = 0,
         broken: bool = false,
+        fired: bool = false,
+        cause: @import("glowcap").ocapn.engine.BreakCause = .{},
 
         pub fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.fired = true;
             const payload = switch (resolution) {
                 .fulfilled => |value| switch (arm) {
                     .bytes => if (value == .bytes) value.bytes else return,
                     .string => if (value == .string) value.string else return,
                 },
-                .broken, .give => {
+                .broken => |reason| blk: {
+                    self.broken = true;
+                    self.cause = reason.cause;
+                    break :blk reason.detail;
+                },
+                .give => {
                     self.broken = true;
                     return;
                 },
@@ -62,6 +70,7 @@ fn CapturedText(comptime arm: enum { bytes, string }) type {
 pub const CapturedRef = struct {
     ref: ?model.Reference = null,
     broken: bool = false,
+    cause: @import("glowcap").ocapn.engine.BreakCause = .{},
     reason_buf: [128]u8 = undefined,
     reason_len: usize = 0,
 
@@ -74,8 +83,9 @@ pub const CapturedRef = struct {
             },
             .broken => |reason| {
                 self.broken = true;
-                self.reason_len = @min(reason.len, self.reason_buf.len);
-                @memcpy(self.reason_buf[0..self.reason_len], reason[0..self.reason_len]);
+                self.cause = reason.cause;
+                self.reason_len = @min(reason.detail.len, self.reason_buf.len);
+                @memcpy(self.reason_buf[0..self.reason_len], reason.detail[0..self.reason_len]);
             },
             .give => self.broken = true,
         }

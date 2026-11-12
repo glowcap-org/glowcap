@@ -13,7 +13,7 @@
 // one question among them rather than the shape of the whole control.
 //
 // Adding another question means adding a line to `railCriteria`, and a field to
-// `RailRow` when the question asks about something the row does not carry yet. status-allow: pending state or quoted runtime label
+// `RailRow` when the question asks about something the row does not carry yet.
 // The control draws whatever this list holds, the answers are held one field
 // per kind of answer rather than one per question, and `criterionShows` is the
 // only place a single question is decided.
@@ -258,7 +258,7 @@ export function dmRow(conv: DmConv, unread: Unread): RailRow {
 	return { dir: conv.dir, name: conv.id, access: null, unread: unreadAnswer(unread) };
 }
 
-/** A room somebody handed this tab and it has not answered yet. Private, since status-allow: pending state or quoted runtime label
+/** A room somebody handed this tab and it has not answered yet. Private, since
  * a reference is the only way into it. */
 export function inviteRow(invite: Invitation): RailRow {
 	return { dir: invite.dir, name: invite.label, access: "private", unread: null };

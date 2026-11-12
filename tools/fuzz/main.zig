@@ -58,9 +58,13 @@ const coverage_dir = "v";
 fn localCacheDir(init: std.process.Init) []const u8 {
     return init.environ_map.get("ZIG_LOCAL_CACHE_DIR") orelse ".zig-cache";
 }
-/// Every fuzz target lives in a file with this name, one directory under
-/// `test/`. `zig build source-check` holds that, so scanning those files finds
-/// every target there is.
+/// The fuzz artifact's root. Its `@import` lines name every file compiled into
+/// the binary the fuzzer runs, so it is also the list of files to read targets
+/// from. `zig build source-check` walks all of `test/` and holds every file that
+/// calls `std.testing.fuzz` to an import here, so this list is complete.
+const fuzz_root = "test/fuzz_check.zig";
+/// The name every target file carries, which separates target imports from any
+/// shared helper the root might also import.
 const target_file = "fuzz_test.zig";
 /// The prefix every fuzz target's test name carries. It is also what gets
 /// handed to `-Dtest-filter`, so it has to be distinctive enough to select one
@@ -106,8 +110,8 @@ pub fn main(init: std.process.Init) !void {
             \\found no fuzz targets to run.
             \\
             \\A target is a `test "fuzz: …"` block in a file named `fuzz_test.zig`
-            \\one directory under `test/`. If you just moved one, move it back or
-            \\teach this program where it went.
+            \\that `test/fuzz_check.zig` imports. `zig build source-check` names
+            \\any target file the root does not import.
             \\
         , .{});
         std.process.exit(1);
@@ -127,11 +131,11 @@ pub fn main(init: std.process.Init) !void {
     for (selected, 1..) |target, n| {
         std.debug.print("[{d}/{d}] {s}\n", .{ n, selected.len, target.name });
 
-        // tolerant: a crash file left behind by an earlier target would be status-allow: event or source ordering
+        // tolerant: a crash file left behind by an earlier target would be
         // read as this one's finding, so clear it before every run; usually
         // there is nothing to delete.
         cache_dir.deleteFile(io, crash_artifact) catch {};
-        const runs_before = totalRuns(io, cache_dir);
+        const runs_before = try totalRuns(io, cache_dir);
 
         const filter = try std.fmt.allocPrint(arena, "-Dtest-filter={s}", .{target.name});
         var child = try std.process.spawn(io, .{
@@ -154,13 +158,13 @@ pub fn main(init: std.process.Init) !void {
             },
         }
 
-        if (fileExists(io, cache_dir, crash_artifact)) {
+        if (try fileExists(io, cache_dir, crash_artifact)) {
             const cached = try std.fs.path.join(arena, &.{ localCacheDir(init), crash_artifact });
             reportFinding(target, keepFinding(io, cwd, cache_dir) orelse cached);
             std.process.exit(1);
         }
 
-        const runs_after = totalRuns(io, cache_dir);
+        const runs_after = try totalRuns(io, cache_dir);
         // A coverage file this program cannot read as a header is not a zero to
         // be summed past: the number it was asked for would be meaningless, and
         // a meaningless number that happens to have grown would report a search
@@ -203,22 +207,29 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("\nno findings across {d} targets.\n", .{targets.len});
 }
 
-/// Every fuzz target in the tree, found by reading the test names out of the
-/// source rather than from a list somebody has to remember to update.
+/// Every fuzz target in the artifact, found by reading the test names out of
+/// each target file the fuzz root imports. A listed file that cannot be read,
+/// or that holds no target, stops the sweep, because either one means a target
+/// the artifact compiles would go unsearched.
 fn findTargets(io: std.Io, cwd: std.Io.Dir, gpa: std.mem.Allocator) ![]const Target {
     var found: std.ArrayList(Target) = .empty;
 
-    var test_dir = try cwd.openDir(io, "test", .{ .iterate = true });
-    defer test_dir.close(io);
-
-    var entries = test_dir.iterate();
-    while (try entries.next(io)) |entry| {
-        if (entry.kind != .directory) continue;
-        const path = try std.fmt.allocPrint(gpa, "test/{s}/{s}", .{ entry.name, target_file });
-        // tolerant: a test tree without this file hosts no fuzz targets;
-        // the fuzz-wiring check owns reporting an unreadable one.
-        const source = cwd.readFileAlloc(io, path, gpa, .limited(1 << 22)) catch continue;
+    const root_source = try cwd.readFileAlloc(io, fuzz_root, gpa, .limited(1 << 20));
+    const root_dir = std.fs.path.dirname(fuzz_root).?;
+    var imports = importedPaths(root_source);
+    while (imports.next()) |relative| {
+        if (!std.mem.eql(u8, std.fs.path.basename(relative), target_file)) continue;
+        const path = try std.fs.path.join(gpa, &.{ root_dir, relative });
+        const source = cwd.readFileAlloc(io, path, gpa, .limited(1 << 22)) catch |err| {
+            std.debug.print("{s} imports {s}, which cannot be read ({s}).\n", .{ fuzz_root, path, @errorName(err) });
+            std.process.exit(1);
+        };
+        const before = found.items.len;
         try collectTargets(source, path, &found, gpa);
+        if (found.items.len == before) {
+            std.debug.print("{s} imports {s}, which holds no `test \"{s}…\"` target.\n", .{ fuzz_root, path, target_prefix });
+            std.process.exit(1);
+        }
     }
 
     // Stable order, so a run reads the same way twice and a failure is easy to
@@ -229,6 +240,24 @@ fn findTargets(io: std.Io, cwd: std.Io.Dir, gpa: std.mem.Allocator) ![]const Tar
 
 fn lessByName(_: void, a: Target, b: Target) bool {
     return std.mem.order(u8, a.name, b.name) == .lt;
+}
+
+/// The path of every `@import("…")` in `source`, in order of appearance.
+const ImportedPaths = struct {
+    rest: []const u8,
+
+    fn next(self: *ImportedPaths) ?[]const u8 {
+        const opener = "@import(\"";
+        const at = std.mem.indexOf(u8, self.rest, opener) orelse return null;
+        const after = self.rest[at + opener.len ..];
+        const close = std.mem.indexOfScalar(u8, after, '"') orelse return null;
+        self.rest = after[close..];
+        return after[0..close];
+    }
+};
+
+fn importedPaths(source: []const u8) ImportedPaths {
+    return .{ .rest = source };
 }
 
 fn collectTargets(source: []const u8, file: []const u8, out: *std.ArrayList(Target), gpa: std.mem.Allocator) !void {
@@ -261,8 +290,13 @@ fn parseShardArg(arg: []const u8) ?Shard {
     return Shard.parse(arg[prefix.len..]);
 }
 
-fn fileExists(io: std.Io, cwd: std.Io.Dir, path: []const u8) bool {
-    cwd.access(io, path, .{}) catch return false;
+/// Only a missing path is absence: a crash file this run cannot see must not
+/// read as a clean search.
+fn fileExists(io: std.Io, cwd: std.Io.Dir, path: []const u8) !bool {
+    cwd.access(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
     return true;
 }
 
@@ -291,12 +325,16 @@ const Runs = struct {
 /// header implies, and a file that fails that check is counted here rather than
 /// summed as a zero, so a layout change fails the sweep with its own reason
 /// instead of looking like a target that searched nothing.
-fn totalRuns(io: std.Io, cwd: std.Io.Dir) Runs {
-    var dir = cwd.openDir(io, coverage_dir, .{ .iterate = true }) catch return .{};
+fn totalRuns(io: std.Io, cwd: std.Io.Dir) !Runs {
+    // A missing coverage directory means the search has not run.
+    var dir = cwd.openDir(io, coverage_dir, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return .{},
+        else => return err,
+    };
     defer dir.close(io);
     var tally: Runs = .{};
     var it = dir.iterate();
-    while (it.next(io) catch return tally) |entry| {
+    while (try it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         tally.files += 1;
         if (readRunCount(io, dir, entry.name)) |n| {
@@ -316,9 +354,11 @@ fn readRunCount(io: std.Io, dir: std.Io.Dir, name: []const u8) ?u64 {
     // slot instead of reading a wrong counter.
     var buf: [@sizeOf(Header)]u8 align(@alignOf(Header)) = undefined;
 
+    // tolerant: a file that cannot be read as a header is counted unreadable, which fails the sweep loudly.
     var file = dir.openFile(io, name, .{}) catch return null;
     defer file.close(io);
     var reader = file.reader(io, &.{});
+    // tolerant: a file that cannot be read as a header is counted unreadable, which fails the sweep loudly.
     reader.interface.readSliceAll(&buf) catch return null;
 
     const header: *align(@alignOf(usize)) const Header = @ptrCast(@alignCast(&buf));
@@ -326,6 +366,7 @@ fn readRunCount(io: std.Io, dir: std.Io.Dir, name: []const u8) ?u64 {
     // moved under us and this number would be meaningless.
     const expected = @sizeOf(Header) +
         @sizeOf(usize) * (Header.seenElemsLen(header.pcs_len) + header.pcs_len);
+    // tolerant: a file that cannot be read as a header is counted unreadable, which fails the sweep loudly.
     const stat = file.stat(io) catch return null;
     if (stat.size != expected) return null;
     return header.n_runs;
@@ -334,7 +375,9 @@ fn readRunCount(io: std.Io, dir: std.Io.Dir, name: []const u8) ?u64 {
 /// Copy the crash input to `finding_path`. A copy that fails leaves the input
 /// in the cache, and the report names that path instead.
 fn keepFinding(io: std.Io, cwd: std.Io.Dir, cache_dir: std.Io.Dir) ?[]const u8 {
+    // tolerant: a copy that fails leaves the input in the cache, and the report names that path.
     cwd.createDirPath(io, std.fs.path.dirname(finding_path).?) catch return null;
+    // tolerant: the same fallback, so the report names the cached input.
     std.Io.Dir.copyFile(cache_dir, crash_artifact, cwd, finding_path, io, .{}) catch return null;
     return finding_path;
 }

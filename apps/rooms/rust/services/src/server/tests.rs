@@ -7,7 +7,9 @@ use rooms_testing::scratch::Scratch;
 mod admission;
 mod admission_pressure;
 mod config;
+mod direct_opening;
 mod operations;
+mod queue_seats;
 mod receipt_cost;
 mod registered_route;
 mod rooms;
@@ -52,17 +54,7 @@ async fn start_with_admission(
 	let notices = Rc::new(RefCell::new(Vec::new()));
 	let collected = notices.clone();
 	let task = tokio::task::spawn_local(run(
-		Config {
-			admission,
-			state: Some(state),
-			transport,
-			listen: Vec::new(),
-			history: true,
-			asked,
-			trace_port: 0,
-			trace_publish: None,
-			trace_connect: None,
-		},
+		config(state, transport, asked, admission),
 		async {
 			let _ = stopped.await;
 		},
@@ -91,6 +83,26 @@ async fn start_with_admission(
 	}
 }
 
+fn config(
+	state: PathBuf,
+	transport: Transport,
+	asked: Asked,
+	admission: rooms_application::admission::Settings,
+) -> Config {
+	Config {
+		admission,
+		state: Some(state),
+		transport,
+		listen: Vec::new(),
+		history: true,
+		asked,
+		trace_bind: std::net::Ipv4Addr::LOCALHOST.into(),
+		trace_port: 0,
+		trace_publish: None,
+		trace_connect: None,
+	}
+}
+
 fn tcp() -> Transport {
 	Transport::Tcp {
 		profile: rooms_platform::serving::TcpProfile::Plain,
@@ -101,9 +113,12 @@ fn tcp() -> Transport {
 }
 
 async fn runtime() -> Runtime {
-	Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap()
+	Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::ALL,
+		..Default::default()
+	})]))
+	.await
+	.unwrap()
 }
 
 /// A member that can be introduced to: it listens, so the directory's gift
@@ -118,10 +133,15 @@ struct Member {
 impl Member {
 	async fn listen() -> Self {
 		let listener = Rc::new(tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap());
-		let runtime =
-			Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&listener.host()))
-				.await
-				.unwrap();
+		let runtime = Runtime::open(
+			RuntimeConfig::providers([tcp::provider(tcp::Config {
+				profiles: tcp::Profiles::TCP,
+				..Default::default()
+			})])
+			.adopt_host(&listener.host()),
+		)
+		.await
+		.unwrap();
 		let (stop_accepting, mut stopping) = tokio::sync::oneshot::channel();
 		let accepting = {
 			let listener = listener.clone();
@@ -548,17 +568,12 @@ async fn restart() {
 		// A second process is refused custody while this one holds it.
 		assert!(matches!(
 			Peer::open(
-				Config {
-					admission: rooms_application::admission::Settings::defaults(8192, 1),
-					state: Some(temp.to_path_buf()),
-					transport: tcp(),
-					listen: Vec::new(),
-					history: false,
-					asked: Default::default(),
-					trace_port: 0,
-					trace_publish: None,
-					trace_connect: None,
-				},
+				config(
+					temp.to_path_buf(),
+					tcp(),
+					Default::default(),
+					rooms_application::admission::Settings::defaults(8192, 1),
+				),
 				Rc::new(|_| {})
 			)
 			.await,

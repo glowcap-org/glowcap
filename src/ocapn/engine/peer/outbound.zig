@@ -178,7 +178,7 @@ pub fn canObserveAnswer(self: *Peer, answer: session.OutboundAnswerTarget) bool 
 }
 
 /// Whether this exact answer is a wire question. A staged send owns its
-/// reserved question before Session installs the row; a listen record never
+/// reserved question before Session installs the row. A listen record never
 /// does, even though both can be observed through the same answer API.
 pub fn isWireAnswer(self: *Peer, answer: session.OutboundAnswerTarget) bool {
     if (self.session_state.outbound_answers.live(answer)) |_| {
@@ -264,7 +264,7 @@ pub fn withdrawQueuedListen(self: *Peer, listener: model.ExportPosition) void {
     unreachable;
 }
 
-/// Whether the next carrier is still being staged, so nothing can be sent yet. status-allow: pending state or quoted runtime label
+/// Whether the next carrier is still being staged, so nothing can be sent yet.
 pub fn blockedOnStaging(self: *const Peer) bool {
     const head = self.pending_send.peek() orelse return false;
     return head.item == .staged;

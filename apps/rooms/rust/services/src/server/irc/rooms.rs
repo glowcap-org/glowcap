@@ -38,56 +38,77 @@ pub(super) fn gated_entrance(
 ) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
 		let verb = verb.ok_or("direct invocation is not supported")?;
-		if !publication.active.get() || shared.borrow().irc.stopping {
-			return Err(retired());
-		}
 		if admission
 			.as_ref()
 			.is_some_and(|admission| !admission.borrow().is_open())
 		{
 			return Err("this room invitation entrance has ended".into());
 		}
-		if verb != SUBSCRIBE && super::super::operations::carries_capability(args) {
-			return Err(format!("IRC room {verb} does not take capabilities"));
+		let (connection, session) = {
+			let mut state = shared.borrow_mut();
+			let caller = super::super::rooms::caller(&mut state)?;
+			state.ingress(caller.0)?;
+			caller
+		};
+		let result = call(&shared, &publication, kind, connection, &session, verb, args)?;
+		if verb == SUBSCRIBE
+			&& let Some(admission) = &admission
+		{
+			admission.borrow_mut().admit()?;
 		}
-		if verb == SUBSCRIBE {
-			let result = subscribe(&shared, &publication, kind, args)?;
-			if let Some(admission) = &admission {
-				admission.borrow_mut().admit()?;
-			}
-			return Ok(result);
-		}
-		if !args.is_empty() {
-			return Err(format!("{verb} takes no arguments"));
-		}
-		let mut state = shared.borrow_mut();
-		let (caller, _) = super::super::rooms::caller(&mut state)?;
-		state.ingress(caller)?;
-		state.admit_work(caller, rooms_application::admission::Class::Read, 1)?;
-		let core = state.irc.core.borrow();
-		let bridge = core.bridge(&publication.key).ok_or_else(retired)?;
-		match verb {
-			CALLED => Ok(bridge.room.name().into()),
-			PRIVATE => Ok("listed".into()),
-			POLICY => Ok(Argument::List(vec!["listed".into(), "open".into(), "open".into()])),
-			LINK => state
-				.link(publication.swiss.borrow().as_deref().ok_or_else(retired)?)
-				.map(Argument::from),
-			_ => Err(format!("IRC room has no method {verb}")),
-		}
+		Ok(result)
+	}
+}
+/// One call on a bridged channel's entrance, from a caller whose arrival is
+/// already charged. The entrance's own reference charges it, and so does the
+/// directory verb that names the channel.
+pub(in crate::server) fn call(
+	shared: &Shared,
+	publication: &Rc<Publication>,
+	kind: MembershipKind,
+	connection: u64,
+	session: &glowcap::Session,
+	verb: &str,
+	args: &[Argument],
+) -> Result<Argument, String> {
+	if !publication.active.get() || shared.borrow().irc.stopping {
+		return Err(retired());
+	}
+	if verb == SUBSCRIBE {
+		return subscribe(shared, publication, kind, connection, session, args);
+	}
+	if super::super::operations::carries_capability(args) {
+		return Err(format!("IRC room {verb} does not take capabilities"));
+	}
+	if !args.is_empty() {
+		return Err(format!("{verb} takes no arguments"));
+	}
+	let mut state = shared.borrow_mut();
+	state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
+	let core = state.irc.core.borrow();
+	let bridge = core.bridge(&publication.key).ok_or_else(retired)?;
+	match verb {
+		CALLED => Ok(bridge.room.name().into()),
+		PRIVATE => Ok("listed".into()),
+		POLICY => Ok(Argument::List(vec!["listed".into(), "open".into(), "open".into()])),
+		LINK => state
+			.link(publication.swiss.borrow().as_deref().ok_or_else(retired)?)
+			.map(Argument::from),
+		_ => Err(format!("IRC room has no method {verb}")),
 	}
 }
 fn subscribe(
 	shared: &Shared,
 	publication: &Rc<Publication>,
 	kind: MembershipKind,
+	connection: u64,
+	session: &glowcap::Session,
 	args: &[Argument],
 ) -> Result<Argument, String> {
 	let [Argument::String(nick), Argument::Reference(inbox)] = args else {
 		return Err("subscribe needs one name and inbox capability".into());
 	};
 	let mut state = shared.borrow_mut();
-	let (connection, session) = super::super::rooms::caller(&mut state)?;
 	state
 		.irc
 		.core
@@ -97,7 +118,6 @@ fn subscribe(
 		.room
 		.admit_reader(connection, nick)
 		.map_err(|e| e.reason())?;
-	state.ingress(connection)?;
 	state.admit_join(connection, &publication.id)?;
 	state.irc.next_member = state
 		.irc

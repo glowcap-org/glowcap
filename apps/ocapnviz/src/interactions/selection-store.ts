@@ -50,7 +50,7 @@ export type SelectionAction =
 	| { kind: "set-selection"; entities: ReadonlySet<EntityRefKey> }
 	| { kind: "add-to-selection"; entities: ReadonlySet<EntityRefKey> }
 	| { kind: "remove-from-selection"; entities: ReadonlySet<EntityRefKey> }
-	// Drop whatever the document no longer holds. Undo and redo move status-allow: lifecycle transition
+	// Drop whatever the document no longer holds. Undo and redo move
 	// ids under the selection, a rename taken back leaves it pointing
 	// at a name nothing answers to, and this is how it catches up.
 	// `undoWithSelection` / `redoWithSelection` in `builder/selection-history.ts`
@@ -179,7 +179,7 @@ export function selectionReducer(
 
 // ─────────────────────── Helpers ──────────────────────────────────────
 
-/** Last item of an iterable (or null when empty). Used to pick the status-allow: purpose clause
+/** Last item of an iterable (or null when empty). It picks the
  *  anchor after a `set-selection` or `add-to-selection`: whoever
  *  was added last becomes the new range-extension pivot. */
 function lastOrNull(
@@ -190,7 +190,7 @@ function lastOrNull(
 	return last ? parseEntityKey(last) : null;
 }
 
-/** First item of an iterable (or null when empty). Used to re-seat status-allow: purpose clause
+/** First item of an iterable (or null when empty). It re-seats
  *  the anchor when the previous anchor was removed from the
  *  selection, pick any surviving member so range-extend still has
  *  a pivot. */
@@ -204,7 +204,7 @@ function firstOrNull(
 /** Whether the document still declares this entity.
  *
  *  Exported because two things need it and it must be one answer: the reducer's
- *  `reconcile-with-doc`, which drops a selection the document no longer holds, and status-allow: lifecycle transition
+ *  `reconcile-with-doc`, which drops a selection the document no longer holds, and
  *  the Inspector, which will not draw a panel for an entity the buffer in front of
  *  the reader has never heard of (`ui/Sidebar.tsx`).
  *

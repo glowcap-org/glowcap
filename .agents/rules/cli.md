@@ -22,15 +22,13 @@ by the boundary that changed:
   instead of piping to `tail`/`grep`: a pipe reports the last command's status,
   a green log can echo `failed command:` stderr, and color codes hide errors
   from a plain `grep error`.
-- Run the narrowest step that covers the changed boundary. Lease time and
-  tokens are the budget, so a combined gate for a one-file change is waste.
+- During implementation, run the narrowest check for the changed boundary.
 - `-Dtest-filter=<name>` takes one literal substring and skips analysis: code
   reached only by unmatched tests is never compiled, so a filtered green says
   nothing about their callers. No matching tests is no evidence.
 - `-Dtest-layer=<layer>[,<layer>]` compiles only those layers' tests, so a
   changed signature needs every layer that implements it.
-- Run the bare suite once before the final gate, then combine compatible final
-  gates in one invocation.
+- Run bare suites once at plan integration, then combine compatible final gates.
 - Take options from the owning phase in `ci/groups.py`; gates with different
   optimization modes need separate invocations.
 - Before running, name the changed boundary and the prior evidence it
@@ -58,40 +56,29 @@ The committed `.devcontainer/` is the environment of record.
   Rebuild it and never hand-install.
 - A browser-preparation failure names its own remedy. Rebuild only when the
   pin's libraries are newer than the image's.
-- The four AI harnesses are managed tools, not image content. Update them with
-  `.devcontainer/bin/tools.sh`, never by hand. A harness pin bump needs the
-  cold-seed smoke run, not a rebuild.
-- Playwright's browsers follow the same shape: the shared browser prerequisite
-  prepares the checkout's pinned requirement through `tools.sh ensure
-  playwright`, and browser steps run under `tools.sh exec playwright --`, which
-  supplies the resolved browser directory. Never set `PLAYWRIGHT_BROWSERS_PATH`
-  by hand.
+- Update the AI harnesses and Playwright's browsers through
+  `.devcontainer/bin/tools.sh`, never by hand, and never set
+  `PLAYWRIGHT_BROWSERS_PATH`.
 - Zig's cache lives in the per-worktree `glowcap-dev-<worktree>-zig-work`
   volume. `zig-out/` stays at the worktree root.
 
 ## Generated State
 
-Never committed. `source-check` holds each against `.gitignore` and the index:
-
-- `.zig-cache/`
-- `zig-out/`
-- `zig-pkg/`
-- `.serena/cache/`
-- `.serena/logs/`
-- `.serena/memories/`
-- `bindings/rust/target/`
-- `bindings/rust/Cargo.lock`
-- `site/assets/rooms/` (the exported Rooms page)
+Never committed: build output, caches, and exports. The table in
+`tools/check/source_check/project_shape/registries.zig` owns the list and holds
+each entry against `.gitignore` and the index.
 
 Committed FFI tiers and headers are generated, and their first lines name the
 `gen-*` step that writes them. A C signature change edits the Zig export, its
 `symbols.zig` row, and the header prose in both the doc comment and
-`tools/gen/header/*.zig`, then runs that archive's `gen-*` step. Every archive
-fingerprint reflects the shared layouts, so a change under `src/c_abi/shared`
-also stales the binding constants, the Rust layouts, and every header that
-embeds a fingerprint. Run all the `gen-*-check` steps that
-`docs/build-steps.md` lists in one invocation, then regenerate each one that
-fails.
+`tools/gen/header/*.zig`. Signatures and shared layouts affect native and wasm32
+fingerprints.
+
+Run the `gen-*-check` steps in `docs/build-steps.md` and regenerate stale outputs.
+`gen-rust-wasm-layouts` also refreshes the binding layout inventory. Use idle
+test waits to check active development commands (`rooms-dev`, `site-rooms-page`)
+and fix straightforward breakage. Keep the requested work primary; these
+checks are opportunistic.
 
 ## Git Posture
 
@@ -128,8 +115,3 @@ commit for another agent's handoff includes integration into local `dev`.
   It refuses a decision record id the rebased tree
   holds twice, because another tree may have taken the number you took:
   renumber yours and retry.
-
-Live CapTP from a session uses the product fronts: the
-[glowcap-cli](../skills/glowcap-cli/SKILL.md),
-[glowcap-mcp](../skills/glowcap-mcp/SKILL.md), and
-[rooms-peer](../skills/rooms-peer/SKILL.md) skills.

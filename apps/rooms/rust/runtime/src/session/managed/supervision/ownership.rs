@@ -1,6 +1,7 @@
 //! The session owns actual tasks. Views only request retry or retirement.
 //! Startup permits cap retained candidates independently of live callbacks.
-use glowcap::{Result, loam};
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use rooms_glowcap::client::Tasks;
 use std::{
 	cell::{Cell, RefCell},
@@ -58,7 +59,7 @@ impl<P: Tasks> Budget<P> {
 		if shared {
 			return Ok(());
 		}
-		session.close(glowcap::PendingWork::Cancel).await
+		session.close(glowcap::PendingWork::Cancel).await.map_err(Error::from)
 	}
 	pub(in crate::session::managed) fn active(&self) -> usize {
 		self.tasks.borrow().len() + self.starting.get()
@@ -86,9 +87,9 @@ impl<P: Tasks> Budget<P> {
 		let mut tasks = self.tasks.borrow_mut();
 		let worker = tasks
 			.get_mut(id)
-			.ok_or_else(|| loam::refusal("spawned worker is not retained"))?;
+			.ok_or_else(|| Error::closed("spawned worker is not retained"))?;
 		if worker.target.replace(target).is_some() {
-			return Err(loam::refusal("spawned worker already has a target"));
+			return Err(Error::busy("spawned worker already has a target"));
 		}
 		Ok(())
 	}
@@ -109,14 +110,14 @@ impl<P: Tasks> Budget<P> {
 		let mut tasks = self.tasks.borrow_mut();
 		let selected = tasks
 			.get_mut(worker)
-			.ok_or_else(|| loam::refusal("startup owner is not retained"))?;
+			.ok_or_else(|| Error::closed("startup owner is not retained"))?;
 		selected.admission.clear();
 		selected.admission.push_str(admission);
 		Ok(())
 	}
 	pub(in crate::session::managed) async fn close_all(&self) -> Result<()> {
 		if self.starting.get() != 0 {
-			return Err(loam::refusal("session activity startup is still pending"));
+			return Err(Error::busy("session activity startup is still pending"));
 		}
 		loop {
 			let next = self.tasks.borrow().values().next().map(|worker| {
@@ -180,10 +181,10 @@ pub(in crate::session::managed) struct Permit<P: Tasks>(Weak<Budget<P>>);
 impl<P: Tasks> Permit<P> {
 	pub(in crate::session::managed) fn reserve(budget: &Rc<Budget<P>>) -> Result<Self> {
 		if budget.tasks.borrow().len() + budget.starting.get() >= MAX_RETAINED {
-			return Err(loam::refusal("Retained membership capacity is exhausted"));
+			return Err(Error::exhausted("Retained membership capacity is exhausted"));
 		}
 		if budget.starting.get() == MAX_STARTING {
-			return Err(loam::refusal("Membership startup capacity is exhausted"));
+			return Err(Error::busy("Membership startup capacity is exhausted"));
 		}
 		budget.starting.set(budget.starting.get() + 1);
 		Ok(Self(Rc::downgrade(budget)))

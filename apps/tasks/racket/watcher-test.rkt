@@ -53,7 +53,7 @@ ADAPTER
 
 (define (get name) (dynamic-require adapted name))
 (define args (current-command-line-arguments))
-(define b ((get 'board-join) "127.0.0.1" (string->number (vector-ref args 0)) (vector-ref args 1)))
+(define b ((get 'board-join) (vector-ref args 0) (vector-ref args 1)))
 (dynamic-wind
  void
  (lambda ()

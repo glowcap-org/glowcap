@@ -189,6 +189,7 @@ test "loam passive read facade survives physical close only as unavailable routi
     _ = try fixture.host.vat.driveIngressBudgeted(.local, 64);
     try std.testing.expect(read.result() == .failed);
     try std.testing.expectEqualStrings("AttachmentClosed", read.result().failed.message);
+    try std.testing.expect(!read.result().failed.cause.isApplication());
     try std.testing.expectEqual(@as(usize, 0), calls);
 }
 
@@ -291,7 +292,7 @@ test "loam read scope mediates foreign recursive results and preserves identity 
     var admission: Admission = .{};
     const behaviors = [_]f.hosting.Behavior{.{ .schema = 7, .invoke = Admission.invoke, .context = &admission }};
     fixture.attached.behaviors = &behaviors;
-    var exporter = host_support.init(std.testing.allocator, @splat(0x73), f.driver.Host.Options.withFrameCap(4096));
+    var exporter = host_support.init(std.testing.allocator, @splat(0x73), f.driver.Host.Options.init(.unchecked, 4096));
     defer exporter.deinit();
     defer fixture.drain() catch unreachable;
     var target: f.driver.Capability = undefined;

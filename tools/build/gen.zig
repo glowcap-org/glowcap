@@ -1,5 +1,5 @@
 //! Generated headers and binding mirrors. Each row runs the same verify/emit
-//! harness; `*-check` steps ride `check`, and the bare steps rewrite committed
+//! harness. The `*-check` steps ride `check`, and the bare steps rewrite committed
 //! mirrors.
 
 const std = @import("std");
@@ -33,7 +33,7 @@ pub fn irohAbiModule(
     return iroh_build.abiModule(b, t, o, host_mods[layerIndex("model")], host_mods[layerIndex("net")], host_mods[layerIndex("c_abi_shared")], resident);
 }
 
-/// The webrtc C ABI module over `host_mods`; the body lives with the WebRTC
+/// The webrtc C ABI module over `host_mods`. The body lives with the WebRTC
 /// family in `tools/build/webrtc.zig` (ADR-0035, mirroring
 /// `irohAbiModule`), and this adapter only resolves the layer instances.
 pub fn webrtcAbiModule(
@@ -52,7 +52,7 @@ const HeaderGen = struct {
     write_step_name: []const u8,
     write_desc: []const u8,
     generator: []const u8,
-    /// The Zig module the generator reflects, when it reflects one; a
+    /// The Zig module the generator reflects, when it reflects one. A
     /// generator whose table is its own authority names none.
     reflects: ?AbiImport = null,
     /// Extra reflected archives for multi-archive binding mirrors.
@@ -67,6 +67,7 @@ pub const Support = struct {
     webrtc_sidecar_stub: *std.Build.Module,
     output: *std.Build.Module,
     reflect: *std.Build.Module,
+    c_abi_shared: *std.Build.Module,
     iroh_policy: *std.Build.Module,
     frame_stream: *std.Build.Module,
     binding_policy: *std.Build.Module,
@@ -94,6 +95,7 @@ pub fn createSupport(
     frame_stream.addImport("engine", host_mods[layerIndex("engine")]);
 
     return .{
+        .c_abi_shared = host_mods[layerIndex("c_abi_shared")],
         .iroh_sidecar_stub = bb.createModule(.{
             .root_source_file = bb.path("tools/gen/stub/iroh_sidecar.zig"),
             .target = tgt,
@@ -150,6 +152,7 @@ fn addHeaderGen(
     gen_mod.addImport("webrtc_sidecar_stub", support.webrtc_sidecar_stub);
     gen_mod.addImport("output", support.output);
     gen_mod.addImport("reflect", support.reflect);
+    gen_mod.addImport("c_abi_shared", support.c_abi_shared);
     gen_mod.addImport("binding_policy", support.binding_policy);
     if (hg.omissions) |path| {
         gen_mod.addAnonymousImport("binding_omissions", .{

@@ -13,7 +13,8 @@
 ;; The bound functions and their out-cell wrappers are generated from the
 ;; archive's annotated symbol inventory (`ffi-inproc-gen.rkt`, `zig build
 ;; gen-binding-racket-ffi`); this module owns the prose and re-provides them.
-(require ffi/unsafe
+(require "constants.rkt"
+         ffi/unsafe
          "ffi-shared.rkt"
          "ffi-inproc-gen.rkt")
 (provide (except-out (all-from-out "ffi-inproc-gen.rkt")
@@ -48,4 +49,4 @@
   (call/without-diagnostic glowcap_inproc_conn_write_frame* conn frame))
 
 (define (glowcap_inproc_listener_release listener)
-  (call/without-diagnostic glowcap_inproc_listener_release* listener))
+  (release-result-code (call/without-diagnostic glowcap_inproc_listener_release* listener)))

@@ -53,7 +53,7 @@ test "core host: relayed promise settlement projects a complete nested capabilit
 
 fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.codec = codec_id;
     var relay = test_host.init(allocator, @as([32]u8, @splat(0x81)), options);
     defer relay.deinit();
@@ -184,7 +184,7 @@ const PipelineListener = struct {
 
 test "core host: a projected promise forwards queued call tell and late call while its listener gets a handoff" {
     for ([_]model.CodecId{ .syrup, .capnp }) |codec_id| {
-        for ([_]Host.Options{ Host.Options.withFrameCap(frame_cap), harness.nextRouteOptions() }) |base| {
+        for ([_]Host.Options{ Host.Options.init(.unchecked, frame_cap), harness.nextRouteOptions() }) |base| {
             var options = base;
             options.codec = codec_id;
             try runPipeline(options);

@@ -9,11 +9,13 @@
 //!
 //! Think of `free*` as the main line. Owned messages move into the outbound queue
 //! and the pipelining tables, and each one is freed exactly once on the way out.
-//! `clone*` is the single exception we call out by name: the boundary copy in
-//! `Peer.sendBorrowed`, for the kinds the queue keeps when a caller lends
-//! borrowed or static data. Everything internal goes through `Peer.send` and
+//! A settlement's resolution moves into the answer store instead
+//! (`engine.Outbound` owns that rule). `cloneMessage` has two engine callers,
+//! each a named memory-ledger cost: the boundary copy in `Peer.sendBorrowed`,
+//! for the kinds the queue keeps when a caller lends borrowed or static data,
+//! and the deposit-gift tree `handoff_gifter.prepareDepositGiftInBatch`
+//! builds from borrowed parts. Everything else goes through `Peer.send` and
 //! never clones.
-//! You'll also meet these as `model.cloneMessage` and `model.freeMessage`.
 
 const std = @import("std");
 const model = @import("mod.zig");

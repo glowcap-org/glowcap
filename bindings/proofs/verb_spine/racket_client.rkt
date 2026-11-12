@@ -66,7 +66,10 @@
 (define peer-uri (vector-ref argv (- (vector-length argv) 2)))
 (define dead-uri (vector-ref argv (- (vector-length argv) 1)))
 
-(define runtime (open-runtime #:providers (list (tcp-provider))))
+;; The runtime dials both profiles the scenes below listen on.
+(define runtime
+  (open-runtime
+   #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP TCP-PROFILE-KEYED-TCP))))))
 
 ;; ── dial-ok ──────────────────────────────────────────────────────────────────
 (define session (runtime-connect runtime (parse-locator peer-uri)))

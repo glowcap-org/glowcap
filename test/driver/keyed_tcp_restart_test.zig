@@ -196,8 +196,7 @@ test "keyed-tcp negative: a listener claiming a different key than the dialed de
         driver.connect(allocator, io, .{ .symbols = &.{.keyed_tcp} }, locator, .ephemeral, dial_opts),
     );
 
-    const host_result = host_future.await(io);
-    try host_result;
+    try host_future.await(io);
 }
 
 test "keyed-tcp restart: the same seed on a fresh port is reachable through the recorded designator with only the hint updated" {

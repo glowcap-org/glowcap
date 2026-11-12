@@ -19,8 +19,10 @@ excludes, such as a generated file, is left alone.
 
 [`format-edited-file.sh`](format-edited-file.sh) formats the file named by a
 Cursor `afterFileEdit` or Claude `PostToolUse` event. An unfinished edit may
-fail to format. The hook reports formatter errors and exits zero so the next
-edit can proceed, so the owning format check remains the gate.
+fail to format. The edit has already happened, so the hook reports the
+formatter's message in the caller's non-blocking failure code: 2 for Claude,
+which shows it to the model, and 1 for Cursor, whose 2 means deny. The owning
+format check remains the gate.
 
 ## Before a commit
 
@@ -40,9 +42,9 @@ The hook refuses the commit in two cases:
 
 When a formatter is not on `PATH`, the hook runs the same library through the
 devcontainer front, `.devcontainer/bin/run.sh`. If the front fails because no
-container is running, the hook refuses and names the escape: `git commit
---no-verify` skips the hook for that commit, and the format checks still gate
-the change.
+container is running, the hook refuses and names the escape. Running
+`git commit --no-verify` skips the hook for that commit, and the format checks
+still gate the change.
 
 ## Checks
 

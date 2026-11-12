@@ -10,7 +10,7 @@ import { dispatch, gctx, snap } from "./harness.ts";
 
 // ─────────────────────── Basic transitions (§ 5.3) ───────────────────
 
-Deno.test("idle + pointer-down → pressed; no effects", () => {
+Deno.test("idle plus pointer-down moves to pressed with no effects", () => {
 	const r = pointerReducer(IDLE_MACHINE, {
 		kind: "pointer-down",
 		surface: "stage-peer",
@@ -21,7 +21,7 @@ Deno.test("idle + pointer-down → pressed; no effects", () => {
 	assertEquals(r.effects, []);
 });
 
-Deno.test("pressed + small move → still pressed", () => {
+Deno.test("pressed plus a small move stays pressed", () => {
 	const { state } = dispatch(IDLE_MACHINE, [{
 		kind: "pointer-down",
 		surface: "stage-peer",
@@ -53,7 +53,7 @@ Deno.test("pressed + small move → still pressed", () => {
  * delivered in thirty moves. The invariant is that last equality, what a gesture
  * does must not depend on how the browser chose to batch it.
  */
-Deno.test("pressed + big move → dragging; starts and moves", () => {
+Deno.test("pressed plus a big move starts dragging and emits start and move", () => {
 	const { state } = dispatch(IDLE_MACHINE, [{
 		kind: "pointer-down",
 		surface: "stage-peer",
@@ -120,7 +120,7 @@ Deno.test("one big move leaves the same trail as several small ones", () => {
 	assertEquals([a.at.clientX, a.at.clientY], [b.at.clientX, b.at.clientY]);
 });
 
-Deno.test("pressed + pointer-up → idle; emits click", () => {
+Deno.test("pressed plus pointer-up goes idle and emits click", () => {
 	const { state } = dispatch(IDLE_MACHINE, [{
 		kind: "pointer-down",
 		surface: "stage-peer",
@@ -137,7 +137,7 @@ Deno.test("pressed + pointer-up → idle; emits click", () => {
 	assertEquals(r.effects[0]!.kind, "click");
 });
 
-Deno.test("dragging + pointer-up → idle; emits drag-end", () => {
+Deno.test("dragging plus pointer-up goes idle and emits drag-end", () => {
 	const { state } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",

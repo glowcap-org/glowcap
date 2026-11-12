@@ -2,7 +2,7 @@
 it, add a task, mark it done, print both lists, and exit 0 once the task shows
 up under "Done" and the watcher saw the board change.
 
-    python3 client.py 127.0.0.1 9099 <board-name> py-grace "buy groceries"
+    python3 client.py <locator> <board-name> py-grace "buy groceries"
 """
 
 from __future__ import annotations
@@ -14,12 +14,12 @@ from task_client import TaskBoard
 
 
 async def main() -> None:
-    if len(sys.argv) < 6:
-        print("usage: client.py <host> <port> <board-name> <nick> <task-text>", file=sys.stderr)
+    if len(sys.argv) < 5:
+        print("usage: client.py <locator> <board-name> <nick> <task-text>", file=sys.stderr)
         sys.exit(2)
 
-    host, port_str, name, nick, task_text = sys.argv[1:6]
-    board = await TaskBoard.join(host, int(port_str), name)
+    locator, name, nick, task_text = sys.argv[1:5]
+    board = await TaskBoard.join(locator, name)
     text = f"[{nick}] {task_text}"
 
     watcher = await board.watch()

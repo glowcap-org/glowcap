@@ -10,6 +10,8 @@
 export const OK = 0;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_INVALID_ARGUMENT`. */
 export const INVALID_ARGUMENT = -2;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_SESSION`. */
+export const SESSION = -3;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_CODEC`. */
 export const CODEC = -4;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_INTERNAL`. */
@@ -220,6 +222,14 @@ export const HINTS_BOOLEAN_FALSE = 1;
 export const DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT = 0;
 /** A `GlowcapPartnerIdentity.provenance` value: how the partner's advertised durable identity was authenticated (ADR-0028). Mirrors `GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED`. */
 export const DURABLE_PROVENANCE_UNAUTHENTICATED = 1;
+/** A `GlowcapTcpConfig.profiles` bit, or the set of every TCP profile (libglowcap_net_transport_tcp). Mirrors `GLOWCAP_TCP_PROFILE_TCP`. */
+export const TCP_PROFILE_TCP = 1;
+/** A `GlowcapTcpConfig.profiles` bit, or the set of every TCP profile (libglowcap_net_transport_tcp). Mirrors `GLOWCAP_TCP_PROFILE_KEYED_TCP`. */
+export const TCP_PROFILE_KEYED_TCP = 2;
+/** A `GlowcapTcpConfig.profiles` bit, or the set of every TCP profile (libglowcap_net_transport_tcp). Mirrors `GLOWCAP_TCP_PROFILE_NOISE_TCP`. */
+export const TCP_PROFILE_NOISE_TCP = 4;
+/** A `GlowcapTcpConfig.profiles` bit, or the set of every TCP profile (libglowcap_net_transport_tcp). Mirrors `GLOWCAP_TCP_PROFILES_ALL`. */
+export const TCP_PROFILES_ALL = 7;
 /** An onion transport control-port authentication mode, an onion service id length, or a service key capacity (libglowcap_net_transport_onion). Mirrors `GLOWCAP_ONION_AUTH_NONE`. */
 export const ONION_AUTH_NONE = 0;
 /** An onion transport control-port authentication mode, an onion service id length, or a service key capacity (libglowcap_net_transport_onion). Mirrors `GLOWCAP_ONION_AUTH_COOKIE`. */
@@ -405,29 +415,31 @@ export const ABORT_DOMAIN_SESSION = 1;
 /** A `GlowcapLastAbort.domain` value: which layer classified the failure. Mirrors `GLOWCAP_ABORT_DOMAIN_FOREIGN`. */
 export const ABORT_DOMAIN_FOREIGN = 2;
 /** The C contract fingerprint of `libglowcap_ocapn`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const OCAPN_ARCHIVE_FINGERPRINT = 2768581910033367227n;
+export const OCAPN_ARCHIVE_FINGERPRINT = 7281719028025087839n;
 /** The C contract fingerprint of `libglowcap_host`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const HOST_ARCHIVE_FINGERPRINT = 18420649870484573527n;
+export const HOST_ARCHIVE_FINGERPRINT = 1330235606562017225n;
 /** The C contract fingerprint of `libglowcap_driver`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const DRIVER_ARCHIVE_FINGERPRINT = 13392317104972679078n;
+export const DRIVER_ARCHIVE_FINGERPRINT = 8181358032544748319n;
 /** The C contract fingerprint of `libglowcap_net_transport_tcp`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const TCP_ARCHIVE_FINGERPRINT = 18296072444112190878n;
+export const TCP_ARCHIVE_FINGERPRINT = 12181794617345777596n;
 /** The C contract fingerprint of `libglowcap_net_transport_inproc`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const INPROC_ARCHIVE_FINGERPRINT = 3251188408900727712n;
+export const INPROC_ARCHIVE_FINGERPRINT = 14345323006945864940n;
 /** The C contract fingerprint of `libglowcap_net_transport_onion`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const ONION_ARCHIVE_FINGERPRINT = 2204576816375562792n;
+export const ONION_ARCHIVE_FINGERPRINT = 18055016265786041278n;
 /** The C contract fingerprint of `libglowcap_net_transport_iroh`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const IROH_ARCHIVE_FINGERPRINT = 12982945291599634263n;
+export const IROH_ARCHIVE_FINGERPRINT = 14708323916831460391n;
 /** The C contract fingerprint of `libglowcap_net_transport_relay`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const RELAY_ARCHIVE_FINGERPRINT = 4625578368752429389n;
+export const RELAY_ARCHIVE_FINGERPRINT = 1433636707851327703n;
 /** The C contract fingerprint of `libglowcap_net_transport_webrtc`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const WEBRTC_ARCHIVE_FINGERPRINT = 14905543536894465005n;
+export const WEBRTC_ARCHIVE_FINGERPRINT = 6378322623444944714n;
 /** Locator hint name carrying dial addresses for a transport whose designator is a key. */
 export const HINT_DIRECT_ADDRESSES = "direct-addresses";
 /** Locator hint name carrying a pipe-separated list of complete peer URIs to try after this locator. The value is routing advice, and the exporter's locator stays the signed authority for a redeem. */
 export const HINT_ALT_LOCATORS = "alt-locators";
 /** Locator hint name carrying the `id` transport's route bundle. */
 export const HINT_VIA = "via";
+/** Exact partner fetch-refusal text for an unknown publication; use the generated publication-not-found predicate. */
+export const UNKNOWN_SWISSNUM_MESSAGE = "unknown swissnum";
 /** The transport symbol of `tcp` locators, whose designator is a dial address. */
 export const TRANSPORT_TCP = "tcp";
 /** The transport symbol of `onion` locators, whose designator is a dial address. */
@@ -461,13 +473,14 @@ export const TRANSPORT_ID = "id";
  * every target, and only the offset numbers are target-specific.
  */
 export const WASM_LAYOUT_STRUCTS = [
+	{ prefix: "BREAK_CAUSE", ffiMirror: true, fields: ["ORIGIN", "REASON", "CONTEXT"] },
 	{ prefix: "MANAGED_FRAME", ffiMirror: true, fields: ["BYTES", "LEN", "SHAPE", "RELEASE", "PRIVATE_WORDS"] },
 	{ prefix: "REF", ffiMirror: true, fields: ["ID"] },
 	{ prefix: "ARG", ffiMirror: true, fields: ["KIND", "BOOLEAN", "INTEGER", "FLOAT64", "BYTES", "BYTES_LEN", "REFERENCE", "ITEMS", "ITEMS_LEN"] },
 	{ prefix: "FRAME", ffiMirror: true, fields: ["BYTES", "LEN", "SHAPE"] },
 	{ prefix: "LAST_ABORT", ffiMirror: true, fields: ["DOMAIN", "HAS_KIND", "KIND_NAME", "KIND_NAME_LEN", "MESSAGE", "MESSAGE_LEN", "ERROR_NAME", "ERROR_NAME_LEN", "ABORT_DELIVERY_ERROR_NAME", "ABORT_DELIVERY_ERROR_NAME_LEN", "SECONDARY_ERROR_NAME", "SECONDARY_ERROR_NAME_LEN", "SECONDARY_ERROR_COUNT"] },
 	{ prefix: "ALLOCATOR", ffiMirror: true, fields: ["ALLOC", "FREE", "USER_DATA"] },
-	{ prefix: "HOST_ACTION", ffiMirror: true, fields: ["KIND", "TICKET", "ROUTE_INDEX", "SESSION", "VALUE", "MESSAGE", "MESSAGE_LEN", "RESULT"] },
+	{ prefix: "HOST_ACTION", ffiMirror: true, fields: ["KIND", "TICKET", "ROUTE_INDEX", "SESSION", "VALUE", "MESSAGE", "MESSAGE_LEN", "RESULT", "CAUSE"] },
 	{ prefix: "HOST_PUMP_HOOKS", ffiMirror: true, fields: ["CTX", "FLUSH", "CLOSE", "NEED_GIFT_ID", "COMPLETE", "DIAL"] },
 	{ prefix: "DIAL_PLAN", ffiMirror: false, fields: ["SHAPE", "HOST", "HOST_LEN", "PORT", "ADDRESSES", "ADDRESSES_LEN", "REACH_KIND", "REACH_VALUE"] },
 	{ prefix: "PARTNER_IDENTITY", ffiMirror: true, fields: ["SESSION_KEY", "SESSION_KEY_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "LOCATOR_RECORD", "LOCATOR_RECORD_LEN", "PROVENANCE"] },
@@ -504,3 +517,131 @@ export const FFI_ONLY_LAYOUT_PREFIXES = [
 	"WEBRTC_ICE_SERVER",
 	"WEBRTC_SIGNALING",
 ] as const;
+
+export function routeFailureCause(value: RouteFailure): BreakCause {
+    switch (value) {
+        case RouteFailure.PeerUnreachable: return new BreakCause(BreakOrigin.Local, BreakReason.PeerUnreachable, 0);
+        case RouteFailure.TransportUnavailable: return new BreakCause(BreakOrigin.Local, BreakReason.TransportUnavailable, 0);
+    }
+}
+export function routeFailureFromCause(cause: BreakCause): RouteFailure | null {
+    if (cause.origin === BreakOrigin.Local && cause.reason === BreakReason.PeerUnreachable && cause.context === 0) return RouteFailure.PeerUnreachable;
+    if (cause.origin === BreakOrigin.Local && cause.reason === BreakReason.TransportUnavailable && cause.context === 0) return RouteFailure.TransportUnavailable;
+    return null;
+}
+
+export enum BreakOrigin {
+	Unspecified = 0,
+	Local = 1,
+	Partner = 2,
+}
+function readBreakOrigin(raw: number): BreakOrigin | null {
+	switch (raw) {
+		case 0: return BreakOrigin.Unspecified;
+		case 1: return BreakOrigin.Local;
+		case 2: return BreakOrigin.Partner;
+		default: return null;
+	}
+}
+
+export enum BreakReason {
+	Unspecified = 0,
+	Application = 1,
+	IdentityUnverified = 2,
+	PeerUnreachable = 3,
+	Closed = 4,
+	Refused = 5,
+	TransportUnavailable = 6,
+	PublicationAbsent = 7,
+}
+function readBreakReason(raw: number): BreakReason | null {
+	switch (raw) {
+		case 0: return BreakReason.Unspecified;
+		case 1: return BreakReason.Application;
+		case 2: return BreakReason.IdentityUnverified;
+		case 3: return BreakReason.PeerUnreachable;
+		case 4: return BreakReason.Closed;
+		case 5: return BreakReason.Refused;
+		case 6: return BreakReason.TransportUnavailable;
+		case 7: return BreakReason.PublicationAbsent;
+		default: return null;
+	}
+}
+
+export enum RouteFailure {
+	PeerUnreachable = 0,
+	TransportUnavailable = 1,
+}
+
+export enum BreakContext {
+	Fetch = 1,
+	Restoration = 2,
+	Withdrawal = 4,
+}
+export interface RawBreakCause { origin: number; reason: number; context: number }
+export class BreakCause implements RawBreakCause {
+    constructor(
+        readonly origin: BreakOrigin = BreakOrigin.Unspecified,
+        readonly reason: BreakReason = BreakReason.Unspecified,
+        readonly context: number = 0,
+    ) {}
+    static local(reason: BreakReason): BreakCause { return new BreakCause(BreakOrigin.Local, reason); }
+    static partner(): BreakCause { return new BreakCause(BreakOrigin.Partner, BreakReason.Application); }
+    static fromRaw(raw: RawBreakCause): BreakCause | null {
+        const origin = readBreakOrigin(raw.origin);
+        const reason = readBreakReason(raw.reason);
+        if (origin === null || reason === null || !Number.isInteger(raw.context) || raw.context < 0 || raw.context > 7) return null;
+        switch (origin) {
+            case BreakOrigin.Unspecified:
+                if (reason === BreakReason.Unspecified) return new BreakCause(origin, reason, raw.context);
+                return null;
+            case BreakOrigin.Local:
+                if (reason === BreakReason.Unspecified || reason === BreakReason.Application || reason === BreakReason.IdentityUnverified || reason === BreakReason.PeerUnreachable || reason === BreakReason.Closed || reason === BreakReason.Refused || reason === BreakReason.TransportUnavailable || reason === BreakReason.PublicationAbsent) return new BreakCause(origin, reason, raw.context);
+                return null;
+            case BreakOrigin.Partner:
+                if (reason === BreakReason.Application) return new BreakCause(origin, reason, raw.context);
+                return null;
+        }
+    }
+    isApplication(): boolean {
+        return this.origin === BreakOrigin.Local && this.reason === BreakReason.Application && this.context === 0 || this.origin === BreakOrigin.Partner && this.reason === BreakReason.Application && this.context === 0;
+    }
+
+    isPublicationRefusal(): boolean {
+        return this.origin === BreakOrigin.Partner && this.reason === BreakReason.Application && this.context === 1;
+    }
+
+    isPublicationAbsent(): boolean {
+        return this.origin === BreakOrigin.Local && this.reason === BreakReason.PublicationAbsent && this.context === 1;
+    }
+
+    isPeerIdentityUnverified(): boolean {
+        return this.origin === BreakOrigin.Local && this.reason === BreakReason.IdentityUnverified && (this.context & 2) === 0;
+    }
+
+    isExporterUnreachable(): boolean {
+        return this.origin === BreakOrigin.Local && (this.reason === BreakReason.PeerUnreachable || this.reason === BreakReason.TransportUnavailable) && (this.context & 2) === 0;
+    }
+
+    isPublicationNotFound(message: string): boolean {
+        return this.isPublicationAbsent() || (this.isPublicationRefusal() && message === UNKNOWN_SWISSNUM_MESSAGE);
+    }
+    label(): string | null {
+        if (this.context & BreakContext.Restoration) return "RestorationFailed";
+        if (this.context & BreakContext.Withdrawal) return "handoff redeem failed";
+        if (this.origin !== BreakOrigin.Local) return null;
+        switch (this.reason) {
+            case BreakReason.IdentityUnverified: return "PeerIdentityUnverified";
+            case BreakReason.PeerUnreachable: return "ExporterUnreachable";
+            case BreakReason.TransportUnavailable: return "ExporterUnreachable";
+            default: return null;
+        }
+    }
+}
+
+export function releaseResultCode(result: number): number {
+    return result > 0 ? -result : result;
+}
+export function releaseResultConsumed(result: number): boolean {
+    return result >= 0;
+}

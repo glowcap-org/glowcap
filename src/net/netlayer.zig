@@ -20,15 +20,12 @@
 //! `driver.HostRuntime` does not dispatch on this vtable (ADR-0018). It
 //! realizes every first-party stream symbol through the completion adapters
 //! composed in `stream_resident.zig` and selects them by `driver.Transports`,
-//! so no product path dials or listens through `Netlayer`. The vtable stays
-//! as this layer's internal composition seam, for three reasons. `test/net`
-//! proves each stream resident through one dial and listen shape instead of
-//! a transport-specific one. The residents' typed verbs behind it carry the
-//! C provider archives under `c_abi/net_transport`. The listener vocabulary
-//! below (`ListenConfig`, `ListenResult`, `ListenFailure`,
-//! `DesignatorScheme`) is shared with the runtime's own listeners. Deleting
-//! the vtable would make every resident's proof bespoke and open no product
-//! path.
+//! so no product path dials or listens through `Netlayer`. The vtable is this
+//! layer's internal composition seam. `test/net` proves each stream resident
+//! through one dial and listen shape, and the residents' typed verbs behind it
+//! carry the C provider archives under `c_abi/net_transport`. The listener
+//! vocabulary below (`ListenConfig`, `ListenResult`, `ListenFailure`,
+//! `DesignatorScheme`) is shared with the runtime's own listeners.
 //!
 //! Dispatch is a runtime vtable, not a comptime parameter, because the transport
 //! symbol is a runtime value parsed from a URI or read off an inbound
@@ -51,32 +48,35 @@ const model = @import("model");
 const engine = @import("engine");
 const connection = @import("connection.zig");
 const failure_contract = @import("netlayer/failure.zig");
-const support = @import("netlayer_support.zig");
+const operation_input = @import("netlayer/operation.zig");
+const pinned_stream = @import("netlayer/pinned_stream.zig");
+const listener_shell = @import("netlayer/listener_shell.zig");
+const locator_support = @import("netlayer/locator.zig");
 
 pub const Connection = connection.Connection;
 
 /// Caller-owned read/write buffers handed to a dial/accept.
-pub const Buffers = support.Buffers;
+pub const Buffers = operation_input.Buffers;
 
 /// Borrowed provider configuration. The selected provider owns validation.
-pub const OperationOptions = support.OperationOptions;
+pub const OperationOptions = operation_input.OperationOptions;
 
 /// Where a dial came from: the introducing session's designator for a handoff.
-pub const DialOrigin = support.DialOrigin;
+pub const DialOrigin = operation_input.DialOrigin;
 
 /// Pinned shim reader/writer storage for userspace byte transports.
-pub const PinnedStream = support.PinnedStream;
+pub const PinnedStream = pinned_stream.PinnedStream;
 
 /// Pinned storage for a raw socket connection that carries its own std
 /// reader and writer (`tcp`, `onion`).
-pub const PinnedRawStream = support.PinnedRawStream;
+pub const PinnedRawStream = pinned_stream.PinnedRawStream;
 
 /// The contract listener vtable and its accessor stubs, emitted once from a
 /// resident's typed listener verbs.
-pub const ListenerShell = support.ListenerShell;
+pub const ListenerShell = listener_shell.ListenerShell;
 
 /// Borrowed listener bind configuration.
-pub const ListenConfig = support.ListenConfig;
+pub const ListenConfig = operation_input.ListenConfig;
 
 /// What a transport's locator designator *is*, declared on the vtable so the
 /// driver dispatches identity behavior without naming transports. `address`
@@ -90,24 +90,24 @@ pub const ListenConfig = support.ListenConfig;
 /// claim the same key. An address route is independent of the current channel
 /// (ADR-0028). This is target matching, not authentication. Each connection's
 /// `session_pubkey` is a separate identity.
-pub const DesignatorScheme = support.DesignatorScheme;
+pub const DesignatorScheme = locator_support.DesignatorScheme;
 
 /// The locator hint carrying a partner's comma-separated direct socket
 /// addresses, the transport-neutral dial-address channel a `key`-scheme
 /// designator needs, since the designator does not say where to dial.
 /// The iroh resident re-exports this name. Keyed TCP requires the hint on every
 /// dial (TCP has no discovery).
-pub const hint_direct_addresses = support.hint_direct_addresses;
+pub const hint_direct_addresses = locator_support.hint_direct_addresses;
 
 /// The locator's `hint_direct_addresses` string hint, or null when the hint is
 /// missing or carries a non-string value.
-pub const directAddrHint = support.directAddrHint;
+pub const directAddrHint = locator_support.directAddrHint;
 
 /// Size-query/copy contract shared by listener restoration-state callbacks. The return
 /// value is always the complete byte count. `out` is written only when it can
 /// hold the whole value. An empty buffer therefore asks for the exact size
 /// without allocating or accepting a truncated locator component.
-pub const writeListenerRestorationState = support.writeListenerRestorationState;
+pub const writeListenerRestorationState = listener_shell.writeListenerRestorationState;
 
 pub const RestorationStateError = failure_contract.RestorationStateError;
 pub const DialError = failure_contract.DialError;
@@ -359,9 +359,6 @@ pub const Listener = struct {
     pub fn designatorScheme(self: Listener) DesignatorScheme {
         return self.vtable.designator_scheme;
     }
-    pub fn sealedChannel(self: Listener) bool {
-        return self.vtable.sealed_channel;
-    }
     pub fn accept(self: Listener, peer: *engine.Peer, bufs: Buffers) AcceptError!Connection {
         return switch (self.acceptOutcome(peer, bufs)) {
             .accepted => |conn| conn,
@@ -429,7 +426,7 @@ pub const Listener = struct {
 };
 
 /// Canonicalize a locator for a listener with immutable transport identity.
-pub const canonicalizeFixedLocator = support.canonicalizeFixedLocator;
+pub const canonicalizeFixedLocator = locator_support.canonicalizeFixedLocator;
 
 /// One transport, behind a runtime vtable, a netlayer, reached as
 /// `net.netlayer.Netlayer`. `dial` turns a locator into a live `Connection`.
@@ -475,18 +472,6 @@ pub const Netlayer = struct {
     }
     pub fn transportProfile(self: Netlayer) model.transport.Metadata {
         return self.vtable.profile;
-    }
-    pub fn supportsDial(self: Netlayer) bool {
-        return self.vtable.dial != null;
-    }
-    pub fn supportsBlockingDial(self: Netlayer) bool {
-        return if (self.vtable.dial) |operation| operation == .blocking else false;
-    }
-    pub fn supportsStagedDial(self: Netlayer) bool {
-        return if (self.vtable.dial) |operation| operation == .staged else false;
-    }
-    pub fn supportsListen(self: Netlayer) bool {
-        return self.vtable.listen != null;
     }
     pub fn dial(
         self: Netlayer,
@@ -534,10 +519,25 @@ pub const Netlayer = struct {
     }
 };
 
-/// Shared context recovery for a resident with an `io` field.
-pub const ResidentContext = support.ResidentContext;
+/// Shared context recovery for a resident whose optional `std.Io` lives in an
+/// `io` field.
+pub fn ResidentContext(comptime R: type) type {
+    return struct {
+        pub inline fn of(ctx: *anyopaque) *R {
+            return @ptrCast(@alignCast(ctx));
+        }
 
-/// Find the resident for `transport`, failing closed with null when absent.
+        pub fn io(ctx: *anyopaque) ?std.Io {
+            return of(ctx).io;
+        }
+    };
+}
+
+/// Find the resident for `transport` by a linear scan of the small resident
+/// set, failing closed with null when absent.
 pub fn resolve(netlayers: []const Netlayer, transport: []const u8) ?Netlayer {
-    return support.resolve(Netlayer, netlayers, transport);
+    for (netlayers) |item| {
+        if (std.mem.eql(u8, item.transportName(), transport)) return item;
+    }
+    return null;
 }

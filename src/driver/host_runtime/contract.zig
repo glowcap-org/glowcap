@@ -13,7 +13,7 @@ const Budget = driver_core.Budget;
 const DialPolicy = dial_retry.DialPolicy;
 const DialOutcomeObserver = dial_retry.DialOutcomeObserver;
 const Error = driver_core.Error;
-const default_frame_cap = (driver_core.Host.Options{}).limits.max_frame_bytes;
+const default_frame_cap = (@FieldType(driver_core.Host.Options, "limits"){}).max_frame_bytes;
 
 /// Canonicalize a provider's portable locator claim at the driver authority
 /// that composes transport realization with Host semantics. Extensions retain
@@ -59,7 +59,7 @@ pub const Options = struct {
     /// whose resident copies rather than lends its received bytes.
     wire_buffer_bytes: usize = default_wire_buffer_bytes,
     /// Shared bound for transport connects and CapTP handshakes that
-    /// have been admitted but have not yet opened. status-allow: pending state or quoted runtime label
+    /// have been admitted but have not yet opened.
     max_pending_opens: usize = default_max_pending_opens,
     /// The share of `max_pending_opens` that redeem dials a partner's
     /// handoffs induce may hold, so gives naming silent exporters

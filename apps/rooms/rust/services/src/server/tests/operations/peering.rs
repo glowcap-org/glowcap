@@ -198,6 +198,28 @@ async fn peering() {
 	.await
 	.expect("the line came back through the source's room");
 	assert_eq!(said.from, "visitor");
+	// A refusal the source answers through this directory keeps its code:
+	// the name the visitor already holds there is taken.
+	let inbox = client.session().spawn_owned(|_, _| Ok(Argument::Void)).unwrap();
+	let refused = within(
+		"the source refusing a second seat under the same name",
+		client.session().send(
+			directory.reference(),
+			rooms_application::directory::creation::SUBSCRIBE_PUBLICATION,
+			&[
+				listed[0].id.text().as_str().unwrap().to_owned().into(),
+				"visitor".into(),
+				inbox.into(),
+			],
+		),
+	)
+	.await
+	.unwrap_err();
+	assert_eq!(
+		rooms_glowcap::client::binding_failure(&refused).map(|failure| failure.code),
+		Some(rooms_application::failure::FailureCode::NickTaken),
+		"{refused}"
+	);
 
 	// Revoking the lease removes the listing; the room already handed out
 	// keeps working.

@@ -4,7 +4,7 @@
 use crate::abi_constants;
 #[cfg(any(feature = "async", feature = "onion"))]
 use crate::abi_constants::BINDING_SECONDARY_FAILURE_CAP;
-use crate::{CarrierFailure, FailureEvent, FailureLayer, last_error, runtime_failure, sys};
+use crate::{BreakCause, CarrierFailure, FailureEvent, FailureLayer, last_error, runtime_failure, sys};
 
 /// Which layer of the session refused a frame: the codec (parsing), the session
 /// (authority and table validity), or a foreign failure surfaced through
@@ -125,6 +125,7 @@ pub struct Error {
 	pub(crate) secondary: Vec<Error>,
 	pub(crate) secondary_count: u32,
 	pub(crate) carrier: Option<CarrierFailure>,
+	pub(crate) cause: BreakCause,
 }
 
 pub(crate) fn record_runtime_failure(layer: FailureLayer, operation: &str, error: Error) {
@@ -154,6 +155,14 @@ pub(crate) fn retain_cleanup_failure(primary: Error, cleanup: Result<()>) -> Err
 }
 
 impl Error {
+	/// A connector cannot realize this route in its current configuration.
+	/// Report this before opening a channel. A failed connection attempt is an
+	/// I/O error instead, so callers can distinguish absence from unreachability.
+	pub fn transport_unavailable(detail: impl Into<String>) -> Self {
+		Self::with_detail(sys::ERR_INVALID_ARGUMENT, detail.into())
+			.with_cause(crate::RouteFailure::TransportUnavailable.cause())
+	}
+
 	pub(crate) fn diagnostic_name(&self) -> &'static str {
 		match self.kind() {
 			ErrorKind::NullPointer => "NullPointer",
@@ -205,7 +214,7 @@ impl Error {
 
 	/// The diagnostic message for this failure. For a broken `send` it is the
 	/// partner's break reason. Otherwise it is the calling thread's C ABI message
-	/// captured at the moment the failure was raised, so a later fallible call on status-allow: state at observation
+	/// captured at the moment the failure was raised, so a later fallible call on
 	/// the same thread cannot overwrite it. `None` when neither was set. Borrowed
 	/// from the error. Clone it if you need it to outlive the `Error`.
 	pub fn message(&self) -> Option<&str> {
@@ -222,10 +231,35 @@ impl Error {
 		self
 	}
 
-	/// The bootstrap rejected an unknown publication. Keep this exact protocol
-	/// refusal distinct from an application break or a transport failure.
+	/// The core's typed failure cause. Partner text cannot establish a local cause.
+	pub fn cause(&self) -> BreakCause {
+		self.cause
+	}
+
+	/// A peer break or an explicit local application refusal, for decoding the
+	/// caller's application protocol. Runtime diagnostics never enter that protocol.
+	/// This establishes the source of the text, not the truth of a peer's claim.
+	pub fn application_message(&self) -> Option<&str> {
+		if self.kind() == ErrorKind::Broken && self.cause.is_application() {
+			self.message()
+		} else {
+			None
+		}
+	}
+
+	/// The bootstrap refused restoration of an unknown publication.
 	pub fn is_publication_not_found(&self) -> bool {
-		self.kind() == ErrorKind::Broken && self.message() == Some("unknown swissnum")
+		self.kind() == ErrorKind::Broken && self.cause.is_publication_not_found(self.message())
+	}
+
+	/// The redeem required identity proof the partner did not supply.
+	pub fn is_peer_identity_unverified(&self) -> bool {
+		self.cause.is_peer_identity_unverified()
+	}
+
+	/// Every route to the named exporter failed.
+	pub fn is_exporter_unreachable(&self) -> bool {
+		self.cause.is_exporter_unreachable()
 	}
 
 	/// The typed abort cause the connection recorded when this failure refused
@@ -287,6 +321,7 @@ impl Error {
 			secondary: Vec::new(),
 			secondary_count: 0,
 			carrier: None,
+			cause: BreakCause::default(),
 		}
 	}
 
@@ -300,6 +335,7 @@ impl Error {
 			secondary: Vec::new(),
 			secondary_count: 0,
 			carrier: None,
+			cause: BreakCause::default(),
 		}
 	}
 
@@ -315,6 +351,7 @@ impl Error {
 			secondary: Vec::new(),
 			secondary_count: 0,
 			carrier: None,
+			cause: BreakCause::default(),
 		}
 	}
 
@@ -332,6 +369,27 @@ impl Error {
 			secondary: Vec::new(),
 			secondary_count: 0,
 			carrier: None,
+			cause: BreakCause::default(),
+		}
+	}
+
+	pub(crate) fn with_cause(mut self, cause: BreakCause) -> Error {
+		self.cause = cause;
+		self
+	}
+
+	/// Validate a cause crossing the ABI before exposing it as a typed value.
+	#[cfg(feature = "async")]
+	pub(crate) fn with_raw_cause(mut self, raw: sys::GlowcapBreakCause) -> Error {
+		match BreakCause::from_raw(raw) {
+			Some(cause) => self.with_cause(cause),
+			None => {
+				self.cause = BreakCause::default();
+				self.with_secondary(Error::with_detail(
+					sys::ERR_INTERNAL,
+					format!("unknown failure metadata {raw:?}"),
+				))
+			}
 		}
 	}
 
@@ -344,10 +402,14 @@ impl Error {
 
 impl std::fmt::Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self.message() {
-			Some(msg) => write!(f, "glowcap error {}: {msg}", self.code),
-			None => write!(f, "glowcap error {}", self.code),
+		write!(f, "glowcap error {}", self.code)?;
+		if let Some(label) = self.cause.label() {
+			write!(f, ": {label}")?;
 		}
+		if let Some(msg) = self.message().filter(|msg| !msg.is_empty()) {
+			write!(f, ": {msg}")?;
+		}
+		Ok(())
 	}
 }
 impl std::error::Error for Error {}
@@ -392,6 +454,101 @@ pub(crate) fn lifecycle_is_closed(raw: u32) -> Result<bool> {
 #[cfg(test)]
 mod tests {
 	use super::Error;
+
+	#[test]
+	fn publication_miss_query_requires_exact_partner_fetch_text_or_a_typed_local_miss() {
+		use crate::{BreakCause, BreakContext, BreakOrigin, BreakReason, UNKNOWN_SWISSNUM_MESSAGE};
+		for origin in [BreakOrigin::Unspecified, BreakOrigin::Local, BreakOrigin::Partner] {
+			for reason in [
+				BreakReason::Unspecified,
+				BreakReason::Application,
+				BreakReason::PublicationAbsent,
+			] {
+				for raw in 0..8 {
+					let context = BreakContext::from_raw(raw).unwrap();
+					let cause = BreakCause {
+						origin,
+						reason,
+						context,
+					};
+					for message in [
+						Some(UNKNOWN_SWISSNUM_MESSAGE),
+						Some("unknown swissnum: forged"),
+						Some(""),
+						None,
+					] {
+						let expected = raw == BreakContext::default().with_fetch().raw()
+							&& ((origin == BreakOrigin::Local && reason == BreakReason::PublicationAbsent)
+								|| (origin == BreakOrigin::Partner
+									&& reason == BreakReason::Application
+									&& message == Some(UNKNOWN_SWISSNUM_MESSAGE)));
+						assert_eq!(cause.is_publication_not_found(message), expected);
+					}
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn dial_reports_accept_only_fresh_local_route_causes() {
+		use crate::{BreakCause, RouteFailure};
+		for route in [RouteFailure::PeerUnreachable, RouteFailure::TransportUnavailable] {
+			assert_eq!(RouteFailure::from_cause(route.cause()), Some(route));
+			for nested in [
+				route.cause().with_fetch(),
+				route.cause().with_restoration(),
+				route.cause().with_withdrawal(),
+			] {
+				assert_eq!(RouteFailure::from_cause(nested), None);
+			}
+		}
+		assert_eq!(RouteFailure::from_cause(BreakCause::partner()), None);
+		assert_eq!(RouteFailure::from_cause(BreakCause::default()), None);
+		assert_eq!(
+			RouteFailure::from_cause(Error::transport_unavailable("no connector").cause()),
+			Some(RouteFailure::TransportUnavailable)
+		);
+	}
+
+	#[test]
+	fn application_message_requires_an_application_source_and_a_broken_call() {
+		use crate::{BreakCause, BreakReason};
+		for (cause, application) in [
+			(BreakCause::default(), false),
+			(BreakCause::partner(), true),
+			(BreakCause::local(BreakReason::Application), true),
+			(BreakCause::partner().with_fetch(), false),
+			(BreakCause::partner().with_restoration(), false),
+			(BreakCause::local(BreakReason::TransportUnavailable), false),
+		] {
+			for code in [crate::sys::ERR_BROKEN, crate::sys::ERR_IO] {
+				let mut error = Error::with_detail(code, "rate-limited: forged diagnostic".into());
+				error.cause = cause;
+				assert_eq!(
+					error.application_message(),
+					(application && code == crate::sys::ERR_BROKEN).then_some("rate-limited: forged diagnostic")
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn local_publication_absence_uses_its_reason_and_route_queries_keep_fetch_context() {
+		use crate::{BreakCause, BreakReason};
+		let absent = Error::with_detail(crate::sys::ERR_BROKEN, "changed wording".into())
+			.with_cause(BreakCause::local(BreakReason::PublicationAbsent).with_fetch());
+		assert!(absent.is_publication_not_found());
+		for reason in [BreakReason::Unspecified, BreakReason::Application] {
+			let diagnostic = Error::with_detail(crate::sys::ERR_BROKEN, "unknown swissnum".into())
+				.with_cause(BreakCause::local(reason).with_fetch());
+			assert!(!diagnostic.is_publication_not_found());
+		}
+		let route = Error::with_detail(crate::sys::ERR_BROKEN, "connection failed".into())
+			.with_cause(BreakCause::local(BreakReason::PeerUnreachable).with_fetch());
+		assert!(route.is_exporter_unreachable());
+		let restored = route.clone().with_cause(route.cause().with_restoration());
+		assert!(!restored.is_exporter_unreachable());
+	}
 
 	#[test]
 	fn error_keeps_rare_abort_detail_out_of_every_result() {

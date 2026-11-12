@@ -279,7 +279,7 @@ impl IrohLoop {
 		for sender in dials {
 			// A failed send means the dial future was cancelled. Its FFI
 			// request was cancelled above or reached its sole terminal event, and
-			// this map no longer owns a connection handle. status-allow: lifecycle transition
+			// this map no longer owns a connection handle.
 			drop(sender.send(Err(Error::from_code(sys::ERR_CLOSED))));
 		}
 		for w in wakers {

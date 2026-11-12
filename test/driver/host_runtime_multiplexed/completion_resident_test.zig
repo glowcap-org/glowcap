@@ -5,6 +5,7 @@
 //! no wire holds a read buffer.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -54,13 +55,18 @@ test "completion-backed residents accept, dial, call, and redeem a give over TCP
     const gifter_locator = try model.clonePeerLocator(allocator, try gifter.advertisedLocator());
     defer model.freePeerLocator(allocator, gifter_locator);
 
+    var exporter_joined = false;
     var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
-    var gifter_future = try io.concurrent(gifterServe, .{ gifter, exporter_designator, &done });
-    defer {
+    errdefer if (!exporter_joined) {
         done.store(true, .release);
-        gifter_future.await(io) catch {};
-        exporter_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("exporter", exporter_future.await(io));
+    };
+    var gifter_joined = false;
+    var gifter_future = try io.concurrent(gifterServe, .{ gifter, exporter_designator, &done });
+    errdefer if (!gifter_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("gifter", gifter_future.await(io));
+    };
 
     // The recipient has no stream netlayer: every dial goes through the
     // completion resident or fails with `UnknownTransport`.
@@ -80,7 +86,7 @@ test "completion-backed residents accept, dial, call, and redeem a give over TCP
 
     const introducer = try view.fetch("introducer");
     const introduced = try view.call(introducer, "introduce", &.{}, arena);
-    if (introduced == .broken) std.debug.print("introduce broke: {s}\n", .{introduced.broken});
+    if (introduced == .broken) std.debug.print("introduce broke: {s}\n", .{introduced.broken.detail});
     try std.testing.expect(introduced == .fulfilled);
     try std.testing.expect(introduced.fulfilled == .capability);
     // The redeem dial the give provoked went through the resident too.
@@ -92,4 +98,13 @@ test "completion-backed residents accept, dial, call, and redeem a give over TCP
     const greeted = try view.call(introduced.fulfilled.capability, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    gifter_joined = true;
+    exporter_joined = true;
+    const gifter_future_result = gifter_future.await(io);
+    const exporter_future_result = exporter_future.await(io);
+    try gifter_future_result;
+    try exporter_future_result;
 }

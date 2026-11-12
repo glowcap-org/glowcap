@@ -8,6 +8,7 @@
 import "../support/match_media.ts";
 import { assertEquals } from "../assert.ts";
 import type { ArchiveLine } from "../../lib/archive/protocol.ts";
+import { archivedBytesUnavailable } from "../../lib/text/attached.ts";
 
 Object.defineProperty(globalThis, "localStorage", {
 	configurable: true,
@@ -138,7 +139,7 @@ Deno.test("shared archive rereads refresh file metadata without recording or bor
 			height: 1,
 			archiveDigest: "b".repeat(64),
 			lost: true,
-			error: "These archived file bytes aren't available in this view.",
+			error: archivedBytesUnavailable,
 		});
 		reconcileSharedArchive(page, conv.key, [replacement], "alice");
 		assertEquals(drawn() === changed, true, "an unchanged shared read does not redraw");

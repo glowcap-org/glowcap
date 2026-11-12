@@ -1,6 +1,6 @@
 //! Durable and mutable swiss namespaces stay disjoint: mutable binds refuse
 //! the reserved prefix, a removed durable name misses, and a restarted Host
-//! does not retarget the old sturdyref. status-allow: replacement state identity
+//! does not retarget the old sturdyref.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -53,9 +53,9 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     // produces only names inside it, removal reclaims the row, and a fresh
     // Host (the restart) misses, no tombstone anywhere.
     const allocator = std.testing.allocator;
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x6b)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x6b)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -96,7 +96,7 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
         server.publishDurable(@as([16]u8, @splat(0xab)), Tagged, .{ .row = &usurper_row }),
     );
 
-    // Removal reclaims the row: a fresh fetch of the old sturdyref misses, status-allow: replacement state identity
+    // Removal reclaims the row: a fresh fetch of the old sturdyref misses,
     // and a fresh mint does not reuse the removed bytes.
     try server.removeDurable(minted.slice());
     var missed = CapturedRef{};
@@ -106,12 +106,12 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     const reminted = try server.publishDurable(@as([16]u8, @splat(0xcd)), Tagged, .{ .row = &kept_row });
     try std.testing.expect(!std.mem.eql(u8, reminted.slice(), minted.slice()));
 
-    // The restart: a fresh Host with an empty durable registry. The old status-allow: replacement state identity
+    // The restart: a fresh Host with an empty durable registry. The old
     // sturdyref misses rather than retargets, and a mutable alias still
     // cannot squat the durable bytes.
-    var restarted = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
+    var restarted = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.init(.unchecked, frame_cap));
     defer restarted.deinit();
-    var client2 = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.withFrameCap(frame_cap));
+    var client2 = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.init(.unchecked, frame_cap));
     defer client2.deinit();
     try std.testing.expectError(
         error.ReservedDurableNamespace,

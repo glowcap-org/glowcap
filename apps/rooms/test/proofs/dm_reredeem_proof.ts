@@ -17,6 +17,7 @@
 //   deno run --allow-run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/test/dm_reredeem_test.ts
 
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 import { recordingReplyDm } from "../../lib/dm_reply.ts";
 import { inboxPublisher } from "../../lib/dm_inbox.ts";
 import { reapOwned } from "../support/children.ts";
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
 
 	const bobHost = roomsHost();
 	const bob = await roomsListen("127.0.0.1", 0, bobHost);
-	const bobRuntime = await openRoomsRuntime({ host: bobHost });
+	const bobRuntime = await openRoomsRuntime({ host: bobHost, cleartext: [tcp.plain] });
 	const bobLocator = loopbackTcpDesignator(bob.port);
 	let bobAccepts = 0;
 	(async () => {
@@ -62,7 +63,7 @@ async function main(): Promise<void> {
 	// Carol never listens. She registers to claim a name, then redeems an
 	// introduction to Bob twice.
 	const carolHost = roomsHost();
-	const carolRuntime = await openRoomsRuntime({ host: carolHost });
+	const carolRuntime = await openRoomsRuntime({ host: carolHost, cleartext: [tcp.plain] });
 	const carol = await Directory.connect(roomLocator, (locator) => dial(locator, carolRuntime));
 	await carol.register("carol", formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()));
 	const first = await carol.introduceVia("bob");

@@ -1,4 +1,4 @@
-//! Generates Rust constants consumed by the native WebRTC sidecar.
+//! Generates Rust constants consumed by the Rust WebRTC sidecar.
 
 const std = @import("std");
 

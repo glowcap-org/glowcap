@@ -264,7 +264,7 @@ export function zoomAround(
 }
 
 /** Pan the window by `deltaMs`. Positive = right (later). Negative
- * = left (earlier). Bounded by `panMaxT` on the right (`Infinity` status-allow: event or source ordering
+ * = left (earlier). Bounded by `panMaxT` on the right (`Infinity`
  * lets Live mode pan into "future" empty space. Finite values
  * cap pan at the doc end). Width preserved. */
 export function pan(

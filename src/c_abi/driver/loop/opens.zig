@@ -26,6 +26,11 @@ const openFailedEvent = events.openFailedEvent;
 // ── Transport providers ─────────────────────────────────────────────────────
 
 /// Install a provider package atomically through the generic provider registry.
+/// A profile that an installed package serves under an equal configuration
+/// stays with that package, and only the unserved profiles are installed. Any
+/// other overlap is refused and installs nothing. The added profiles run on
+/// residents the package brings, so each readiness descriptor must be one no
+/// installed resident uses.
 /// `provider.retain` runs inside the driver bracket, so a driver verb it calls
 /// is refused as re-entry.
 pub export fn glowcap_driver_add_provider(

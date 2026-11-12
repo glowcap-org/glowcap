@@ -11,10 +11,13 @@ const result = @import("result.zig");
 
 threadlocal var buffer: [256]u8 = undefined;
 threadlocal var length: usize = 0;
+/// The local cause supplied by the archive owning the failed operation.
+threadlocal var cause_code: foundation.break_cause.BreakCause = .{};
 
 const truncated_suffix = "... [truncated]";
 
 pub fn set(comptime fmt: []const u8, args: anytype) void {
+    cause_code = .{};
     // A fixed writer reports exactly how many bytes it wrote, including on
     // overflow. Publishing its whole backing buffer would expose an
     // uninitialized tail after a partner-supplied designator overflows it.
@@ -27,6 +30,12 @@ pub fn set(comptime fmt: []const u8, args: anytype) void {
         return;
     };
     length = writer.end;
+}
+
+/// Record the operation owner's cause alongside its diagnostic.
+pub fn setCause(value: foundation.break_cause.BreakCause, comptime fmt: []const u8, args: anytype) void {
+    set(fmt, args);
+    cause_code = value;
 }
 
 /// Retain the textual projection of the same bounded failure-chain fact used
@@ -65,8 +74,32 @@ pub fn read(out_buf: ?[*]u8, cap: usize) usize {
     return length;
 }
 
+/// Read the calling thread's typed cause. Zero makes no provenance claim.
+pub fn readCause() foundation.break_cause.BreakCause {
+    return cause_code;
+}
+
+/// Local failures with a public cause beyond the route outcomes that
+/// `break_cause.namedRouteFailure` owns. Partner text never enters it.
+const caused_refusals = .{
+    .{ .err = error.PeerIdentityUnverified, .cause = foundation.break_cause.BreakCause.local(.identity_unverified) },
+};
+
+/// The public cause of a local refusal, or none when the error names no row.
+pub fn causeFor(err: anyerror) foundation.break_cause.BreakCause {
+    if (foundation.break_cause.namedRouteFailure(err)) |route| return route.cause();
+    inline for (caused_refusals) |row| if (err == row.err) return row.cause;
+    return .{};
+}
+
+/// Attach `value` to the diagnostic the last call recorded.
+pub fn attachCause(value: foundation.break_cause.BreakCause) void {
+    cause_code = value;
+}
+
 pub fn clear() void {
     length = 0;
+    cause_code = .{};
 }
 
 pub fn captureCall(

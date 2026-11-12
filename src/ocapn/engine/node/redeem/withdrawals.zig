@@ -10,11 +10,13 @@ const gift_recipe = @import("../handoffs/gifts/recipe.zig");
 const redeem = @import("../redeem.zig");
 const peer_routes = @import("../peers/routes.zig");
 
+const Broken = @import("foundation").break_cause.Broken;
+const BreakCause = @import("foundation").break_cause.BreakCause;
 const Node = node_mod.Node;
 const Internal = node_mod.Internal;
 const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 
-const exporter_closed_reason = "handoff redeem failed: exporter connection closed";
+const exporter_closed_reason = "exporter connection closed";
 
 pub const Key = struct {
     peer_handle: PeerHandle,
@@ -77,13 +79,13 @@ fn destroyRouteAdvice(self: *Node, candidate: *RouteAdvice) void {
 
 /// Queue a terminal failure carrying an owned copy of `reason`, and the
 /// retirement of `retire` under the same reservation.
-pub fn queueFailure(self: *Node, dest: redeem.Destination, reason: []const u8, retire: ?PeerHandle) !void {
-    const owned = try self.allocator.dupe(u8, reason);
+pub fn queueFailure(self: *Node, dest: redeem.Destination, reason: Broken, retire: ?PeerHandle) !void {
+    const owned = try self.allocator.dupe(u8, reason.bounded().detail);
     errdefer self.allocator.free(owned);
     try actions.reserve(self, if (retire != null) 2 else 1);
     actions.pushReserved(self, .{ .fail = .{
         .dest = redeem.failureDestination(dest),
-        .reason = .{ .owned = owned },
+        .reason = Node.FailureReason.owned(reason.cause, owned),
     } });
     if (retire) |peer_handle| actions.pushReserved(self, .{ .retire_exporter = peer_handle });
 }
@@ -99,7 +101,7 @@ pub fn begin(
     route_advice: ?*RouteAdvice,
 ) !void {
     const slot = self.peers.getPtr(exporter_peer) orelse
-        return queueFailure(self, dest, "handoff redeem failed: exporter session is gone", null);
+        return queueFailure(self, dest, .{ .detail = "exporter session is gone", .cause = BreakCause.local(.closed).withWithdrawal() }, null);
     const session = slot.peer;
     try self.redeems.withdrawals.rows.ensureUnusedCapacity(self.allocator, 1);
     // One immediate flush plus this pending redeem's eventual close failure.
@@ -107,7 +109,7 @@ pub fn begin(
     // Sign with the introducing session: the give named that identity as its
     // recipient_key. The exporter session supplies its own side/session names.
     var recipient_secret = Internal.sessionSecret(self, redeem.recipientPeer(dest)) orelse
-        return queueFailure(self, dest, "handoff redeem failed: introducing session is gone", null);
+        return queueFailure(self, dest, .{ .detail = "introducing session is gone", .cause = (BreakCause{}).withWithdrawal() }, null);
     defer std.crypto.secureZero(u8, std.mem.asBytes(&recipient_secret));
     const withdraw_answer = try session.allocateAnswer();
     session.sendWithdrawGift(
@@ -118,8 +120,7 @@ pub fn begin(
         // The send refused before the partner saw the position.
         session.session_state.abandonOutboundAnswer(withdraw_answer.position);
         if (err == error.OutOfMemory) return error.OutOfMemory;
-        var buf: [256]u8 = undefined;
-        return queueFailure(self, dest, redeem.failureMessage(&buf, @errorName(err)), null);
+        return queueFailure(self, dest, .{ .detail = @errorName(err), .cause = (BreakCause{}).withWithdrawal() }, null);
     };
     self.redeems.withdrawals.rows.putAssumeCapacity(
         .{ .peer_handle = exporter_peer, .answer = withdraw_answer.position.int() },
@@ -167,13 +168,12 @@ pub fn claim(self: *Node, peer_handle: PeerHandle, answer: session_mod.OutboundA
             slot.provisional_exporter = false;
         },
         .broken => |reason| {
-            var buf: [256]u8 = undefined;
-            try queueFailure(self, pending.dest, redeem.failureMessage(&buf, reason), retire);
+            try queueFailure(self, pending.dest, .{ .detail = reason, .cause = BreakCause.partner().withWithdrawal() }, retire);
         },
         .not_capability => try queueFailure(
             self,
             pending.dest,
-            "withdraw-gift did not resolve to a capability",
+            .{ .detail = "withdraw-gift did not resolve to a capability", .cause = BreakCause.local(.refused).withWithdrawal() },
             retire,
         ),
     }
@@ -192,7 +192,7 @@ pub fn failForPeer(self: *Node, peer_handle: PeerHandle) void {
         const pending = entry.value_ptr.*;
         actions.pushReserved(self, .{ .fail = .{
             .dest = redeem.failureDestination(pending.dest),
-            .reason = .{ .static = exporter_closed_reason },
+            .reason = Node.FailureReason.borrowed(BreakCause.local(.closed).withWithdrawal(), exporter_closed_reason),
         } });
         releaseRouteAdvice(self, pending.route_advice);
         // Queue the infallible consequence first, then tombstone the iterator's

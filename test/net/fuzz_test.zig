@@ -104,7 +104,13 @@ fn readOne(_: void, smith: *std.testing.Smith) anyerror!void {
         // otherwise spend the whole budget in one input.
         var frames: usize = 0;
         while (frames < 64) : (frames += 1) {
-            var frame = net.readFrameFrom(reader, gpa, codec_id, frame_cap, &spill) catch break;
+            var frame = net.readFrameFrom(reader, gpa, codec_id, frame_cap, &spill) catch |err| {
+                // A refusal or the end of the stream ends the read. Running
+                // out of memory does not: the testing allocator fails only
+                // when the reader asked past the cap that bounds it.
+                if (err == error.OutOfMemory) return err;
+                break;
+            };
             frame.deinit();
 
             // A drained spill has freed its storage, not merely emptied it.
@@ -179,9 +185,9 @@ test "fuzz: arbitrary stream bytes never crash or leak a blocking frame read" {
 // stamp implies queued outbound, which implies a write in flight, so the run is
 // not quiescent and the branch is never entered.
 //
-// `max_conns`, `read_buffers`, and the high-water mark stay fixed. And under
-// `zig build test` this target runs no loop at all, its corpus is empty, so
-// the one empty input returns early. Every count above is `zig build fuzz`.
+// `max_conns`, `read_buffers`, and the high-water mark stay fixed. Under
+// `zig build test` this target replays only its regression schedules. Every
+// count above is `zig build fuzz`.
 
 const completion = net.completion;
 const engine = glowcap.ocapn.engine;
@@ -191,7 +197,12 @@ const engine = glowcap.ocapn.engine;
 /// frame-shaped `regression_seeds` above because the two targets read their
 /// input differently: a saved schedule means nothing to a frame reader, and a
 /// saved frame means nothing to the loop.
-const schedule_regression_seeds = [_][]const u8{};
+const schedule_regression_seeds = [_][]const u8{
+    // An accept completes with an unclassified failure, which `run` returns
+    // as a persistent listener refusal. The run ends there, and its
+    // accounting must still be exact.
+    @embedFile("fuzz_regressions/schedule_regression_seeds-persistent-accept-refusal.bin"),
+};
 
 const lifecycle_drive = @import("fuzz/lifecycle_drive.zig");
 const stream_plan = @import("fuzz/stream_plan.zig");
@@ -281,7 +292,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 //
 // Under `zig build test` the search does not run: the corpus is the regression
 // seeds alone, so the ratification is what the ordinary suite gets from this
-// target. It is not a small part: a corpus frame the codec no longer accepts status-allow: lifecycle transition
+// target. It is not a small part: a corpus frame the codec no longer accepts
 // whole fails it outright, with no fuzzer involved.
 
 /// Streams the fuzzer found here, replayed by the ordinary suite so a bug it

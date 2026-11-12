@@ -169,9 +169,9 @@ impl<T> Executor for ArchiveExecutor<T> {
 		unsafe { (self.archive.recover)(self.raw) }
 	}
 	fn release(&self) -> i32 {
-		// SAFETY: `self.raw` is the owner from the archive's open; the callers release it once on success, never
-		// concurrently with a `work_run` the retirement guard has not joined, and a refusal such as Busy leaves it
-		// alive for a retry. The call takes no other pointer.
+		// SAFETY: `self.raw` is the owner from the archive's open; the callers stop using it once a release returns
+		// a consumed release result, never call it concurrently with a `work_run` the retirement guard has not
+		// joined, and retry only another refusal, such as Busy, which leaves it alive. The call takes no other pointer.
 		unsafe { (self.archive.release)(self.raw) }
 	}
 	fn last_error(&self, buf: &mut [u8]) -> usize {

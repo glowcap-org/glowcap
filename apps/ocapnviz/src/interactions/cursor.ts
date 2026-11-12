@@ -260,7 +260,7 @@ function restingCursor(tool: BuilderTool): CSSCursor | null {
 	}
 }
 
-/** Cursor for a verb resolved at a HOVER hit (no press yet), what the next status-allow: pending state or quoted runtime label
+/** Cursor for a verb resolved at a HOVER hit (no press yet), what the next
  *  click on this surface would do. */
 function cursorForResolvedHover(
 	verb: ResolvedGesture,

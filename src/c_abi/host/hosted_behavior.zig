@@ -34,9 +34,15 @@ pub const HostedBehavior = struct {
     /// The vat calls this on each deliver. It marshals the message into C,
     /// invokes the consumer's callback with the turn, and materializes its
     /// reply into `turn.arena`. The consumer lends its reply storage across
-    /// callback return; the copied reply then borrows the whole turn.
+    /// callback return. The copied reply then borrows the whole turn.
     pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) actors.HostedActor.Result {
-        return actors.HostedActor.Result.fromResult(handleOwned(erased, turn, msg));
+        return .{ .returned = handleOwned(erased, turn, msg) catch |err| return .{ .refused = failure(err) } };
+    }
+
+    /// Only the callback's own refusal is the behavior's. Any other error
+    /// is this bridge failing to carry arguments in or the reply out.
+    fn failure(err: anyerror) actors.HostedActor.Failure {
+        return if (err == error.ForeignBehaviorBroke) .behavior(err) else .adapter(err);
     }
 
     fn handleOwned(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) anyerror!model.Argument {
@@ -65,8 +71,8 @@ pub const HostedBehavior = struct {
     /// The same foreign callback receives owning values on a trusted local
     /// turn. It has no session, and its reply is copied directly into the
     /// bounded owning result before the actor's frame can retire.
-    pub fn handleOpaque(erased: *anyopaque, turn: *actors.Turn, msg: actors.OpaqueMessage) ?[]const u8 {
-        handleOpaqueOwned(erased, turn, msg) catch |err| return @errorName(err);
+    pub fn handleOpaque(erased: *anyopaque, turn: *actors.Turn, msg: actors.OpaqueMessage) ?actors.HostedActor.Failure {
+        handleOpaqueOwned(erased, turn, msg) catch |err| return failure(err);
         return null;
     }
 

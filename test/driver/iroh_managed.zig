@@ -31,7 +31,7 @@ fn host(io: std.Io, allocator: std.mem.Allocator, endpoint: *iroh.Resident, secr
     defer model.freePeerLocator(allocator, original);
     var invalid = original;
     invalid.transport = model.transport.tcp;
-    if (server.setAdvertisedLocator(invalid)) |_| return error.InvalidAdvertisementAccepted else |_| {}
+    try std.testing.expectError(error.InvalidAddress, server.setAdvertisedLocator(invalid));
     if (!std.mem.eql(u8, (try server.advertisedLocator()).transport, original.transport)) return error.AdvertisementChanged;
     ready.store(1, .release);
     if (!try server.waitAcceptable(5000)) return error.AcceptTimedOut;

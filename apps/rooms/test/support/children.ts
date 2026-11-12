@@ -47,20 +47,30 @@ const INTERRUPTED_EXIT_CODE = 130;
 const owned = new Set<Deno.ChildProcess>();
 let doorsOpen = false;
 
-/** Environment a rooms child runs with.
+/** Whether a name is a Rooms option a front reads from its environment. The
+ * paths the build hands a proof (`*_BIN`) and the switches a person sets to
+ * choose what a proof runs (`GLOWCAP_ROOMS_TEST_*`) are not options. */
+function roomsOption(name: string): boolean {
+	return name.startsWith("GLOWCAP_ROOMS_") && !name.endsWith("_BIN") && !name.startsWith("GLOWCAP_ROOMS_TEST_");
+}
+
+/** Environment a rooms child runs with: the surrounding one without its Rooms
+ * options, then what the proof names.
  *
- * Deno overlays `options.env` onto the parent (`clearEnv` defaults false), so
- * deleting a key from a copied map does not hide it. The pane that launches
- * `check` sets `GLOWCAP_ROOMS_STATE` for a live server. In-tree proofs must
- * not inherit that directory. A caller that names the variable in
- * `options.env` is asking for a specific directory and keeps it.
+ * A front reads its options from flags and from `GLOWCAP_ROOMS_*`, and the
+ * shell a proof runs in has some set for a live server: the devcontainer
+ * names where its fronts bind and what address a browser reaches them at, and
+ * the pane that launches `check` names a state directory. A child that
+ * inherited them would be proving that shell's configuration, so a proof
+ * passes or fails by where it ran. Each proof gives its child every option it
+ * means, in `args` or in `options.env`.
  *
  * Every child process links or opens glowcap's shared libraries, so the install
  * prefix is named for all of them here, once, unless the build or the caller
  * already said where they are. */
-function childEnv(extra?: Record<string, string>): Record<string, string> {
+export function childEnv(ambient: Record<string, string>, extra?: Record<string, string>): Record<string, string> {
 	const env: Record<string, string> = {
-		...Deno.env.toObject(),
+		...Object.fromEntries(Object.entries(ambient).filter(([name]) => !roomsOption(name))),
 		...extra,
 		// A hand-run proof gets the same IRC safety boundary as a build-owned
 		// test: the host dialer rejects public hosts before DNS.
@@ -68,7 +78,6 @@ function childEnv(extra?: Record<string, string>): Record<string, string> {
 	};
 	env.LD_LIBRARY_PATH ??= LIB_DIR;
 	env.GLOWCAP_LIB_DIR ??= LIB_DIR;
-	if (extra?.GLOWCAP_ROOMS_STATE === undefined) delete env.GLOWCAP_ROOMS_STATE;
 	return env;
 }
 
@@ -87,7 +96,7 @@ export function spawnOwned(command: string, options: Deno.CommandOptions = {}): 
 	const proc = new Deno.Command("setsid", {
 		...rest,
 		args: [command, ...args],
-		env: childEnv(extra),
+		env: childEnv(Deno.env.toObject(), extra),
 		clearEnv: true,
 	}).spawn();
 	owned.add(proc);
@@ -137,7 +146,7 @@ function signalTree(proc: Deno.ChildProcess, signal: Deno.Signal): void {
 	try {
 		proc.kill(signal);
 	} catch {
-		// Already exited, and not yet awaited. status-allow: pending state or quoted runtime label
+		// Already exited, and not yet awaited.
 	}
 }
 

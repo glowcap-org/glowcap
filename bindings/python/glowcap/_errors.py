@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from . import _constants as _abi
 from ._ffi_host import _host
-from ._ffi_ocapn import _lib, _read_last_error
+from ._ffi_ocapn import _BreakCause, _lib, _read_last_error
 
 if TYPE_CHECKING:
     from ._carrier_failure import CarrierFailure
@@ -82,14 +82,25 @@ class GlowcapError(Exception):
 
     For a failed FFI call, the per-thread error message is captured at raise
     time (the message is thread-local and may be overwritten by a later call)
-    and shown by ``str(err)``. When the failure was a refused inbound frame,
-    ``abort`` carries the typed :class:`AbortDetail` naming which layer refused
-    and why.
+    and shown by ``str(err)``. ``cause`` records the core's typed diagnosis;
+    partner text cannot establish a local cause. When the
+    failure was a refused inbound frame, ``abort`` carries the typed
+    :class:`AbortDetail` naming which layer refused and why.
     """
 
-    def __init__(self, code: int, message: str | None = None, abort: AbortDetail | None = None):
-        if message:
-            super().__init__(f"glowcap error {code}: {message}")
+    def __init__(
+        self,
+        code: int,
+        message: str | None = None,
+        abort: AbortDetail | None = None,
+        cause: _abi.BreakCause | tuple[int, int, int] = _abi.BreakCause(),
+    ):
+        decoded = cause if isinstance(cause, _abi.BreakCause) else _abi.BreakCause.from_fields(*cause)
+        self.cause = decoded if decoded is not None else _abi.BreakCause()
+        label = self.cause.label()
+        display = f"{label}: {message}" if label and message else label or message
+        if display:
+            super().__init__(f"glowcap error {code}: {display}")
         else:
             super().__init__(f"glowcap error {code}")
         self.code = code
@@ -98,6 +109,29 @@ class GlowcapError(Exception):
         self.carrier_failure: CarrierFailure | None = None
         self.secondary: tuple[BaseException, ...] = ()
         self.secondary_count = 0
+        if decoded is None:
+            _retain_cleanup_failure(self, GlowcapError(_abi.ERR_INTERNAL, f"unknown failure metadata {cause}"))
+
+    @staticmethod
+    def transport_unavailable(detail: str) -> GlowcapError:
+        """A connector cannot realize this route in its configuration, before opening a channel."""
+        return GlowcapError(_abi.ERR_INVALID_ARGUMENT, detail, cause=_abi.RouteFailure.TRANSPORT_UNAVAILABLE.cause())
+
+    def application_message(self) -> str | None:
+        """Application protocol text, excluding runtime diagnostics and operation wrappers."""
+        return self.message if self.code == _abi.ERR_BROKEN and self.cause.is_application() else None
+
+    def is_publication_not_found(self) -> bool:
+        """A typed local miss or the partner's exact bootstrap fetch refusal."""
+        return self.code == _abi.ERR_BROKEN and self.cause.is_publication_not_found(self.message)
+
+    def is_peer_identity_unverified(self) -> bool:
+        """The redeem required identity proof the partner did not supply."""
+        return self.cause.is_peer_identity_unverified()
+
+    def is_exporter_unreachable(self) -> bool:
+        """Every route to the named exporter failed."""
+        return self.cause.is_exporter_unreachable()
 
 
 _FAILURE_CHAIN_CAP = _abi.BINDING_SECONDARY_FAILURE_CAP
@@ -183,10 +217,22 @@ def _host_last_error() -> str | None:
     return _read_last_error(_host.glowcap_host_last_error)
 
 
-def _host_error(code: int) -> GlowcapError:
-    """A failed ``glowcap_host_*`` call as a typed error, its diagnostic read
-    from the driver archive's own slot."""
-    return GlowcapError(code, _host_last_error() or f"host call failed (code {code})")
+def _host_failure_cause() -> tuple[int, int, int]:
+    """The calling thread's typed Host cause, captured before the next verb."""
+    raw = _BreakCause()
+    _host.glowcap_host_last_error_cause(ctypes.byref(raw))
+    return raw.origin, raw.reason, raw.context
+
+
+def _host_error(code: int, *, placeholder: bool = True) -> GlowcapError:
+    """A failed ``glowcap_host_*`` call as a typed error, its diagnostic and
+    typed cause read from the driver archive's own slots. An empty message
+    slot reads as a placeholder naming the code unless ``placeholder`` is
+    false."""
+    message = _host_last_error()
+    if message is None and placeholder:
+        message = f"host call failed (code {code})"
+    return GlowcapError(code, message, cause=_host_failure_cause())
 
 
 def _check_host(code: int) -> None:
@@ -203,14 +249,14 @@ class VowBroken(GlowcapError):
     as the other bindings' break errors, so ``except GlowcapError`` with a
     ``code`` check classifies a break exactly like a C ABI failure."""
 
-    def __init__(self, reason: str):
-        super().__init__(_abi.ERR_BROKEN, reason)
+    def __init__(self, reason: str, cause: _abi.BreakCause | tuple[int, int, int] = _abi.BreakCause()):
+        super().__init__(_abi.ERR_BROKEN, reason, cause=cause)
         self.reason = reason
 
 
-def _vow_failure(code: int, reason: str) -> GlowcapError:
+def _vow_failure(code: int, reason: str, cause: tuple[int, int, int]) -> GlowcapError:
     """Project a core-issued vow failure code into the typed hierarchy."""
-    return VowBroken(reason) if code == _abi.ERR_BROKEN else GlowcapError(code, reason)
+    return VowBroken(reason, cause) if code == _abi.ERR_BROKEN else GlowcapError(code, reason, cause=cause)
 
 
 class FetchFailed(GlowcapError):

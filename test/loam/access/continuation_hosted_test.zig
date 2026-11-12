@@ -1,4 +1,5 @@
 //! Receipt confirmation transfers effect custody outside the callback lifetime.
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const h = @import("hosting_fixture.zig");
 const Continuation = h.loam.hosting.Continuation;
@@ -130,7 +131,7 @@ test "loam continuation refuses protected wire completion after source loss with
     var host: h.Hosted = undefined;
     try host.initOptions(&store, &backend, data, .{ .sleep_policy = .every_turn });
     defer host.deinit();
-    var exporter = h.host_support.init(h.a, @splat(0x65), h.driver.Host.Options.withFrameCap(4096));
+    var exporter = h.host_support.init(h.a, @splat(0x65), h.driver.Host.Options.init(.unchecked, 4096));
     defer exporter.deinit();
     var target_state: WaitingTarget.State = .{};
     const actor = try exporter.vat.spawn(h.driver.Hosting(WaitingWireTarget), .{ .inner = .{ .state = &target_state } });
@@ -231,7 +232,7 @@ fn privateFailure(mode: FailureCase) !void {
     var host: h.Hosted = undefined;
     try host.initOptions(&store, &backend, data, .{ .sleep_policy = .every_turn, .forward_reply_bytes = if (mode == .projection) 1 else 4096 });
     defer host.deinit();
-    var exporter = h.host_support.init(h.a, @splat(0x66), h.driver.Host.Options.withFrameCap(4096));
+    var exporter = h.host_support.init(h.a, @splat(0x66), h.driver.Host.Options.init(.unchecked, 4096));
     defer exporter.deinit();
     var target_state: WaitingTarget.State = .{};
     const actor = try exporter.vat.spawn(h.driver.Hosting(WaitingWireTarget), .{ .inner = .{ .state = &target_state } });
@@ -306,7 +307,7 @@ fn privateFailure(mode: FailureCase) !void {
             var arena = std.heap.ArenaAllocator.init(h.a);
             defer arena.deinit();
             try exporter.resolverFulfillValue(target_state.resolver.?, .{ .list = &.{ .{ .integer = 91 }, .{ .capability = local }, .{ .capability = local } } }, arena.allocator());
-        } else try exporter.resolverBreak(target_state.resolver.?, "TargetRefused");
+        } else try exporter.resolverBreak(target_state.resolver.?, .{ .detail = "TargetRefused", .cause = BreakCause{} });
         try pairs.pumpToQuiescence(&.{pair});
         // Retire the home only after the inner owning result is ready, before
         // Loam can project it into the outer observer's independent custody.

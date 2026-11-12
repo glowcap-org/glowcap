@@ -27,9 +27,9 @@
 ;; - Full Spritely netlayer: no graceful shutdown, no reconnect-on-loss, minimal
 ;;   error reporting. A connection's handle is released when the endpoint is,
 ;;   which for a driver process is at exit. Good enough for an interop bracket.
-;; - A second CapTP. The adapter binds the hello's advertised endpoint to the
-;;   QUIC identity before Goblins sees it. Goblins owns signature verification
-;;   and protocol state. Accepted records pass through unchanged.
+;; - A second CapTP. The adapter holds a hello's iroh claim to the QUIC
+;;   identity before Goblins sees it. Goblins owns signature verification and
+;;   protocol state. Accepted records pass through unchanged.
 
 (require goblins
          goblins/actor-lib/methods
@@ -76,11 +76,36 @@
     [(bytes? value) (bytes->string/utf-8 value)]
     [else ""]))
 
-;; Goblins indexes sessions by the hello's claimed locator and does not check
-;; that locator against its netlayer. An iroh endpoint may advertise new routing
-;; hints, but it may never install another endpoint's durable name in that map.
-;; Refusal closes only this channel and returns EOF to Goblins' ordinary close
-;; path. The claimed hello never reaches either telemetry or protocol dispatch.
+;; What a connection proves about the durable name a partner's hello claims.
+;; `verified-remote` is the endpoint id QUIC authenticated for the far end of
+;; this channel, in either direction, or #f when nothing proved one. A claim
+;; naming that id is the transport's own word. Any other claim is unproven,
+;; including the claim of a peer whose bytes a relay carries under the relay's
+;; own key, because the channel's far end and the CapTP partner are then
+;; different nodes.
+(define ((transport-proof-provenance verified-remote) claimed)
+  (if (and verified-remote (equal? claimed verified-remote))
+      provenance-authenticated-transport
+      provenance-unauthenticated))
+
+;; Which hellos reach Goblins. Goblins files each session under the hello's
+;; claimed locator and does not check that locator against its netlayer.
+;;
+;; - An iroh claim names an iroh durable identity, so it must name the endpoint
+;;   QUIC authenticated. It may advertise new routing hints. A claim naming any
+;;   other endpoint closes only this channel and returns EOF to Goblins'
+;;   ordinary close path, and that hello never reaches telemetry or dispatch.
+;; - A claim on another transport is a route this channel cannot prove, such as
+;;   a browser's locator arriving through a byte relay. It reaches Goblins and
+;;   is traced with the provenance above. Goblins then files the session under
+;;   that unproven name, as it does for every session over its tcp netlayer.
+;; - A hello whose location is not a node is refused.
+(define (admitted-claim? location verified-remote)
+  (and (ocapn-node? location)
+       (or (not (eq? (ocapn-node-transport location) 'iroh))
+           (and verified-remote
+                (equal? (ocapn-node-designator location) verified-remote)))))
+
 (define (identity-bound-message-procs read-message write-message
                                       verified-remote close!
                                       our-designator session-trace)
@@ -91,10 +116,7 @@
     (cond
       [(and fields (eq? (vector-ref fields 0) 'struct:op:start-session))
        (define location (and (= (vector-length fields) 5) (vector-ref fields 3)))
-       (if (and verified-remote
-                (ocapn-node? location)
-                (eq? (ocapn-node-transport location) 'iroh)
-                (equal? (ocapn-node-designator location) verified-remote))
+       (if (admitted-claim? location verified-remote)
            msg
            (begin (set! refused? #t) (close!) eof))]
       [else msg]))
@@ -102,7 +124,7 @@
       (traced-message-procs read-bound write-message session-trace
                             #:transport "iroh"
                             #:our-designator our-designator
-                            #:provenance (lambda (_claimed) provenance-authenticated-transport))
+                            #:provenance (transport-proof-provenance verified-remote))
       (values read-bound write-message)))
 
 ;; Goblins reads and writes CapTP through Racket ports, while the transport under
@@ -285,14 +307,14 @@
            racket/async-channel
            (submod goblins/ocapn/structs-urls marshall))
 
-  ;; A self-signed hello cannot borrow another endpoint's identity. Test the
-  ;; exact wrapper installed on both accepted and dialed channels, including
+  ;; A self-signed hello cannot borrow another iroh endpoint's identity. Test
+  ;; the exact wrapper installed on both accepted and dialed channels, including
   ;; the no-telemetry path, which must enforce the same identity check.
   (struct op:start-session (version key location signature) #:transparent)
   (for* ([traced? '(#f #t)]
          [case (list (cons "attacker" (ocapn-node 'iroh "victim" #f))
-                     (cons "attacker" (ocapn-node 'tcp "attacker" #f))
-                     (cons #f (ocapn-node 'iroh "victim" #f)))])
+                     (cons #f (ocapn-node 'iroh "victim" #f))
+                     (cons "attacker" 'not-a-node))])
     (define claimed (cdr case))
     (define closed 0)
     (define events '())
@@ -320,6 +342,29 @@
        (lambda (_) hello) void "victim"
        (lambda () (error 'identity-test "closed an authenticated endpoint")) "ours" #f))
     (check-eq? (read-bound '()) hello "routing hints do not change endpoint identity"))
+
+  ;; An admitted hello reaches Goblins and is traced with what the channel
+  ;; proved about its claim. A relay dials with its own key, so a browser's
+  ;; locator carried through it is admitted and unproven, while an iroh claim
+  ;; naming the authenticated endpoint is the transport's own word.
+  (for ([case (list (list "relay" (ocapn-node 'webrtc "browser" #f) provenance-unauthenticated)
+                    (list "relay" (ocapn-node 'tcp "127.0.0.1:9000" #f) provenance-unauthenticated)
+                    (list #f (ocapn-node 'tcp "127.0.0.1:9000" #f) provenance-unauthenticated)
+                    (list "peer" (ocapn-node 'iroh "peer" #f) provenance-authenticated-transport))])
+    (match-define (list verified claimed want) case)
+    (define hello (op:start-session "1.0" '(public-key theirs) claimed 'signature))
+    (define opens '())
+    (define-values (read-bound write-bound)
+      (identity-bound-message-procs
+       (lambda (_) hello) (lambda (_msg _marshallers) (void)) verified
+       (lambda () (error 'identity-test "closed an admitted hello")) "ours"
+       (lambda (event _handle info)
+         (when (eq? event 'open) (set! opens (cons info opens))))))
+    (write-bound (op:start-session "1.0" '(public-key ours)
+                                   (ocapn-node 'iroh "ours" #f) 'signature) '())
+    (check-eq? (read-bound '()) hello "an admitted hello reaches Goblins unchanged")
+    (check-equal? (map (lambda (info) (hash-ref info 'durable-provenance)) opens) (list want)
+                  (format "~a over a channel proving ~a" claimed verified)))
 
   ;; The dial hint is read off whatever shape a node arrived in. A locator
   ;; decoded from the wire carries the draft's mapping, a discovery-posture

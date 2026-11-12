@@ -220,24 +220,6 @@ test "near and far ref constructors set the wire-tag kind discriminant" {
     try std.testing.expectEqual(model.RefKind.promise, model.FarRef.promise(2).kind);
 }
 
-test "protocol model arms map one-to-one onto Zig Message tags" {
-    const oracle = @import("../oracle/protocol_oracle.zig");
-
-    // Truth derives from the `model.Message` union itself, not from a second
-    // hand list: a new union arm fails here until `message_kinds` carries its
-    // row, and a kinds row fails until the oracle registry carries its arm,
-    // so new protocol vocabulary cannot land without oracle pressure.
-    const fields = @typeInfo(model.Message).@"union".field_names;
-    try std.testing.expectEqual(fields.len, model.message_kinds.len);
-    try std.testing.expectEqual(fields.len, oracle.message_arms.len);
-    inline for (fields, 0..) |field_name, i| {
-        if (comptime (i < model.message_kinds.len and i < oracle.message_arms.len)) {
-            try std.testing.expectEqualStrings(field_name, model.message_kinds[i].tag_name);
-            try std.testing.expectEqualStrings(model.message_kinds[i].model_name, oracle.message_arms[i].name);
-        }
-    }
-}
-
 test "route bundle parses primary locators and route-list hints through one owner" {
     const allocator = std.testing.allocator;
     try std.testing.expectEqual(model.transport.DialShape.route_bundle, model.transport.Known.id.metadata().dial_shape);

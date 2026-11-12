@@ -34,13 +34,15 @@ pub const Answer = struct {
     failed: bool = false,
     reason: [64]u8 = undefined,
     reason_len: usize = 0,
+    cause: driver.BreakCause = .{},
     pub fn receive(ctx: ?*anyopaque, result: actors.Resolution) void {
         const self: *Answer = @ptrCast(@alignCast(ctx.?));
         switch (result) {
             .fulfilled => |value| self.value = value.integer,
             .broken => |reason| {
-                self.reason_len = @min(reason.len, self.reason.len);
-                @memcpy(self.reason[0..self.reason_len], reason[0..self.reason_len]);
+                self.cause = reason.cause;
+                self.reason_len = @min(reason.detail.len, self.reason.len);
+                @memcpy(self.reason[0..self.reason_len], reason.detail[0..self.reason_len]);
                 self.failed = true;
             },
             .give => self.failed = true,
@@ -48,7 +50,7 @@ pub const Answer = struct {
     }
     pub fn require(self: Answer) !i64 {
         if (self.failed) {
-            std.debug.print("loam benchmark call failed: {s}\n", .{self.reason[0..self.reason_len]});
+            std.debug.print("loam benchmark call failed: {f}\n", .{driver.Broken{ .detail = self.reason[0..self.reason_len], .cause = self.cause }});
             return error.CallFailed;
         }
         return self.value orelse error.NoAnswer;
@@ -131,7 +133,7 @@ pub const Workload = struct {
         };
         errdefer self.store.deinit() catch unreachable;
         // Deterministic identity is confined to this local, socket-free bench.
-        self.host = try driver.Host.init(allocator, @splat(0x81), @splat(0x82), driver.Host.Options.withFrameCap(4096));
+        self.host = try driver.Host.init(allocator, @splat(0x81), @splat(0x82), driver.Host.Options.init(.unchecked, 4096));
         errdefer self.host.deinit();
         self.caps = try allocator.alloc(driver.Capability, count);
         errdefer allocator.free(self.caps);

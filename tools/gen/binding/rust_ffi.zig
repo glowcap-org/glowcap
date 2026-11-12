@@ -68,8 +68,8 @@ const Special = struct {
 
 /// The Rust FFI spelling of one parameter type. Byte pointers spell
 /// `c_uchar`, `u32` spells `c_uint`, `anyopaque` spells `c_void` (the
-/// `core::ffi` aliases the hand blocks use); struct and opaque pointers spell
-/// their `#[repr(C)]` mirror's name; a nested optional pointer (`?*?*X`) is
+/// `core::ffi` aliases the hand blocks use). Struct and opaque pointers spell
+/// their `#[repr(C)]` mirror's name. A nested optional pointer (`?*?*X`) is
 /// an out-slot, `*mut *mut X`. `specials` maps named function-pointer aliases
 /// to their Rust `pub type` twins.
 fn rustParamType(comptime T: type, comptime specials: []const Special) []const u8 {
@@ -110,6 +110,7 @@ fn rustParamType(comptime T: type, comptime specials: []const Special) []const u
 fn rustReturnType(comptime T: type) []const u8 {
     return switch (T) {
         i32 => "c_int",
+        u32 => "c_uint",
         u64 => "u64",
         usize => "usize",
         void => "",
@@ -267,7 +268,7 @@ fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
         "};\n" ++
         \\use super::host::{GlowcapCloseOptions, GlowcapHost, GlowcapHostSession};
         \\use super::ocapn::GlowcapLocatorView;
-        \\use crate::sys::{GlowcapReference, GlowcapTransportProvider};
+        \\use crate::sys::{GlowcapBreakCause, GlowcapReference, GlowcapTransportProvider};
         \\
     , &.{});
 }
@@ -301,7 +302,9 @@ fn generateHost(gpa: std.mem.Allocator) ![]u8 {
         "\tGlowcapHostSession, GlowcapHostTurn, GlowcapPartnerIdentity, GlowcapSessionLimitOptions, GlowcapTraceCallback,\n" ++
         "};\n" ++
         "use super::ocapn::{GlowcapLocatorHintView, GlowcapLocatorView};\n" ++
-        "use crate::sys::{GlowcapArgument, GlowcapContext, GlowcapLastAbort, GlowcapManagedFrame, GlowcapReference};\n", &.{
+        "use crate::sys::{\n" ++
+        "\tGlowcapArgument, GlowcapBreakCause, GlowcapContext, GlowcapLastAbort, GlowcapManagedFrame, GlowcapReference,\n" ++
+        "};\n", &.{
         .{ .T = cd.GlowcapHostBehavior, .spelling = "GlowcapHostBehavior" },
         .{ .T = cd.GlowcapTraceCallback, .spelling = "GlowcapTraceCallback" },
         .{ .T = cd.GlowcapHostCtxFree, .spelling = "GlowcapHostCtxFree" },
@@ -335,7 +338,7 @@ const tcp = Transport{
     \\use core::ffi::{c_int, c_uchar, c_uint};
     \\
     \\use super::tcp::{GlowcapTcpConfig, GlowcapTcpConn, GlowcapTcpListener, GlowcapTcpNetlayer, GlowcapTcpStreamOptions};
-    \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
+    \\use crate::sys::{GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
     \\
     ,
 };
@@ -347,7 +350,7 @@ const inproc = Transport{
     \\use core::ffi::{c_int, c_uchar, c_uint};
     \\
     \\use super::inproc::{GlowcapInprocConn, GlowcapInprocListener, GlowcapInprocNetlayer};
-    \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame};
+    \\use crate::sys::{GlowcapFrame, GlowcapManagedFrame};
     \\
     ,
 };
@@ -360,7 +363,7 @@ const onion = Transport{
     \\
     \\use super::onion::{GlowcapOnionConfig, GlowcapOnionConn};
     \\use super::onion::{GlowcapOnionListener, GlowcapOnionNetlayer};
-    \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
+    \\use crate::sys::{GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
     \\
     ,
 };

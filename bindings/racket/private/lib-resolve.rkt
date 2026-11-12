@@ -14,7 +14,50 @@
          racket/string
          racket/system)
 (provide open-glowcap-archive
-         require-archive-fingerprint!)
+         require-archive-fingerprint!
+         install-resolution-note-sink!)
+
+;; The resolver prints only the notice that it is downloading. A soft failure
+;; or the bare-name fallback becomes a resolution note: an archive that then
+;; fails to load names the notes in its error, and once the package has loaded,
+;; `take-runtime-failures!` returns them as `library-resolution` events. Notes
+;; wait here, capped, until the failure journal installs its sink.
+(define note-cap 16)
+(define notes-gate (make-semaphore 1))
+(define pending-notes '()) ; newest first
+(define note-sink #f)
+;; Each open also keeps the notes its own resolution makes, so a load that
+;; then fails names them whether or not the journal's sink took them.
+(define notes-per-open 8)
+(define open-notes (make-parameter #f)) ; a box of newest-first notes, or #f
+
+(define (note! msg)
+  (define collecting (open-notes))
+  (when (and collecting (< (length (unbox collecting)) notes-per-open))
+    (set-box! collecting (cons msg (unbox collecting))))
+  (define sink
+    (call-with-semaphore
+     notes-gate
+     (lambda ()
+       (or note-sink
+           (begin
+             (when (< (length pending-notes) note-cap)
+               (set! pending-notes (cons msg pending-notes)))
+             #f)))))
+  (when sink (sink msg)))
+
+(define (install-resolution-note-sink! sink)
+  (define backlog
+    (call-with-semaphore
+     notes-gate
+     (lambda ()
+       (begin0 (reverse pending-notes)
+               (set! pending-notes '())
+               (set! note-sink sink)))))
+  (for-each sink backlog))
+
+(define (pending-resolution-notes)
+  (call-with-semaphore notes-gate (lambda () (reverse pending-notes))))
 
 (define (require-archive-fingerprint! who read expected)
   (define actual (read))
@@ -29,7 +72,25 @@
    (lambda () (require-archive-fingerprint! 'test (lambda () #x1234) #x1234)))
   (check-exn
    #rx"callable surface does not match.*rebuild the FFI libraries"
-   (lambda () (require-archive-fingerprint! 'test (lambda () #x5678) #x1234))))
+   (lambda () (require-archive-fingerprint! 'test (lambda () #x5678) #x1234)))
+  ;; A soft failure is retained, never printed, and reaches the sink once
+  ;; one is installed.
+  (define printed (open-output-string))
+  (define seen '())
+  (parameterize ([current-error-port printed])
+    (putenv "GLOWCAP_STRICT" "")
+    (soft-fail! "first")
+    (check-equal? (pending-resolution-notes) '("first (soft-fail)"))
+    (install-resolution-note-sink! (lambda (note) (set! seen (cons note seen))))
+    (soft-fail! "second"))
+  (check-equal? (get-output-string printed) "")
+  (check-equal? (reverse seen) '("first (soft-fail)" "second (soft-fail)"))
+  (check-equal? (pending-resolution-notes) '())
+  ;; With the sink installed, a load that fails still names the notes its
+  ;; own resolution made.
+  (check-exn
+   #rx"library resolution: loading bare [^ ]*glowcap_notes_probe via the OS search path"
+   (lambda () (open-glowcap-archive "glowcap_notes_probe"))))
 
 ;; Package-local contract (ADR-0023). Ships with the binding; not the monorepo.
 (define-runtime-path resolve-contract "c-abi-resolve.json")
@@ -45,7 +106,7 @@
     [(env-truthy? "GLOWCAP_STRICT")
      (error 'glowcap msg)]
     [else
-     (eprintf "glowcap: ~a (soft-fail)\n" msg)
+     (note! (format "~a (soft-fail)" msg))
      #f]))
 
 ;; Hygiene/security failures always fail closed (never gated on STRICT).
@@ -466,6 +527,11 @@
 ;; name. On Windows the shared archive is `{stem}.dll` (no `lib` prefix); refuse
 ;; bare DLL names (search-order plant risk), matching Python/TS.
 (define (open-glowcap-archive stem #:fail [fail #f])
+  (define notes (box '()))
+  (parameterize ([open-notes notes])
+    (open-resolved-archive stem notes fail)))
+
+(define (open-resolved-archive stem notes fail)
   (define (try spec) (ffi-lib spec #:fail (lambda () #f)))
   (define name
     (case (system-type)
@@ -483,10 +549,13 @@
                 "could not resolve an absolute path for ~a; set GLOWCAP_LIB_DIR or populate the abi-versioned cache (Windows refuses bare DLL names to avoid search-order plants)"
                 name)]
         [else
-         (eprintf "glowcap: warning: loading bare ~a via the OS search path\n" name)
+         (note! (format "loading bare ~a via the OS search path" name))
          (ffi-lib name #:fail
                   (or fail
                       (lambda ()
                         (error 'glowcap
-                               "could not load ~a from GLOWCAP_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path"
-                               name))))])))
+                               "could not load ~a from GLOWCAP_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path~a"
+                               name
+                               (apply string-append
+                                      (for/list ([note (in-list (reverse (unbox notes)))])
+                                        (format "\n  library resolution: ~a" note)))))))])))

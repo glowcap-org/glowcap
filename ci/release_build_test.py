@@ -2,18 +2,20 @@
 
 Reads release.yml for what each job needs, which events select it, and which job
 holds the attestation permissions. A tag push runs every job. A manual dispatch
-rehearses the builds and image proofs and publishes nothing. The shell steps that
-verify the archive checksums and select the macOS SDK run against stub tools and
-fixture archives. This does not reach GitHub runners, registries, or the signing
+rehearses the builds and image proofs and publishes nothing. The image context
+step verifies the archive checksums against fixture archives, and the shell step
+that selects the macOS SDK and the browser steps run against stub tools. This does not reach GitHub runners, registries, or the signing
 service. The Zig and Rust packaging checks below it run the real recipes.
 """
 
+import contextlib
 import hashlib
 import io
 import json
 import os
 import struct
 import subprocess
+import sys
 import tarfile
 import tempfile
 import textwrap
@@ -21,7 +23,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from workflows import ROOT, jobs, load, run, selected, step, text, workflow
+import release_build as BUILD
+from workflows import ROOT, jobs, load, on_path, run, selected, step, stub, text, workflow
 
 PACKAGE = load("tools/check/zig_package.py")
 WORKFLOW = ".github/workflows/release.yml"
@@ -71,8 +74,7 @@ class ReleaseBuild(unittest.TestCase):
 
     def test_images_take_the_archives_of_their_own_run_and_check_them_before_extracting(self):
         images = RELEASE["images"]
-        script = run(images, "Extract the verified Linux product")
-        self.assertLess(script.index("sha256sum --check SHA256SUMS"), script.index("tar --extract"))
+        self.assertEqual(run(images, "Extract the verified Linux product"), "python3 ci/release_image.py context")
         [download] = [
             found for found in images["steps"] if found.get("uses", "").startswith("actions/download-artifact@")
         ]
@@ -98,7 +100,7 @@ class ReleaseBuild(unittest.TestCase):
                 ).hexdigest()
                 (directory / "SHA256SUMS").write_text(f"{recorded}  {name}\n")
                 result = subprocess.run(
-                    ["bash", "-e", "-o", "pipefail", "-c", script],
+                    [sys.executable, str(ROOT / "ci/release_image.py"), "context"],
                     cwd=root,
                     env=dict(os.environ, VERSION="0.1.0", ARCHIVE_ARCH="x86_64"),
                     capture_output=True,
@@ -136,8 +138,11 @@ class ReleaseBuild(unittest.TestCase):
         self.assertNotIn("continue-on-error", packaging)
 
     def test_sidecar_inspection_uses_the_producing_rust_toolchain(self):
-        for script in (text(".devcontainer/image/rust.sh"), run(RELEASE["archives"], "Install the pinned Rust")):
-            self.assertRegex(script, r"rustup component add [^\n]*\bllvm-tools\b")
+        self.assertRegex(text(".devcontainer/image/rust.sh"), r"rustup component add [^\n]*\bllvm-tools\b")
+        [rust] = [found for found in RELEASE["archives"]["steps"] if found.get("uses") == "./.github/actions/rust"]
+        self.assertIn("llvm-tools", rust["with"]["components"].split())
+        added = workflow(".github/actions/rust/action.yml")["runs"]["steps"][1]["run"]
+        self.assertIn('rustup component add "${components[@]}"', added)
         with tempfile.TemporaryDirectory(prefix="Rust toolchain ") as temporary:
             host = Path(temporary) / "lib/rustlib/host"
             tool = host / "bin/llvm-nm"
@@ -178,34 +183,6 @@ class ReleaseBuild(unittest.TestCase):
 
     def test_archives_fetch_through_the_shared_front(self):
         self.assertEqual(run(RELEASE["archives"], "Fetch pinned Zig dependencies"), "python3 ci/gates.py fetch")
-
-    def test_release_version_stays_pre_one(self):
-        script = run(RELEASE["contract"], "Read the product version")
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            (directory / "bindings").mkdir()
-            output = directory / "output"
-            environment = dict(os.environ, GITHUB_OUTPUT=str(output))
-            for version, accepted in [
-                ("0.1.0", True),
-                ("0.2.3", True),
-                ("1.0.0", False),
-                ("1.0.0-alpha.1", False),
-                ("10.0.0", False),
-                ("garbage", False),
-            ]:
-                with self.subTest(version=version):
-                    (directory / "bindings/c-abi-resolve.json").write_text(json.dumps({"abi_version": version}))
-                    output.write_text("")
-                    result = subprocess.run(
-                        ["bash", "-e", "-o", "pipefail", "-c", script],
-                        cwd=directory,
-                        env=environment,
-                        capture_output=True,
-                        text=True,
-                    )
-                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
-                    self.assertEqual(output.read_text(), f"value={version}\n" if accepted else "")
 
     def test_macos_shared_archive_records_its_abi_major(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -296,46 +273,47 @@ class ReleaseBuild(unittest.TestCase):
             self.assertIn(str(sdk / "System/Library/Frameworks/Foundation.framework"), result.stderr)
             self.assertNotIn("searched paths: none", result.stderr)
 
-    def test_archive_build_selects_the_sdk_only_on_macos(self):
-        script = run(RELEASE["archives"], "Build the release archives")
+    def test_archive_build_selects_the_sdk_only_for_a_macos_target(self):
+        self.assertEqual(
+            run(RELEASE["archives"], "Build the release archives"),
+            'python3 ci/release_build.py archives "$RELEASE_TARGET"',
+        )
+        self.assertEqual(RELEASE["archives"]["env"]["RELEASE_TARGET"], "${{ matrix.target }}")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             log = directory / "arguments.json"
             sdk = directory / "SDK with spaces"
-            for name, source in {
-                "zig": "#!/usr/bin/env python3\nimport json,os,sys\n"
-                'open(os.environ["ARGUMENT_LOG"], "w").write(json.dumps('
-                '[sys.argv[1:], os.environ.get("SDKROOT")]))\n',
-                "xcrun": '#!/bin/bash\n[[ "$*" == "--sdk macosx --show-sdk-path" ]] || exit 2\n'
+            stub(
+                directory,
+                "zig",
+                "#!/usr/bin/env python3\nimport json,os,sys\n"
+                'open(os.environ["ARGUMENT_LOG"], "w").write(json.dumps([sys.argv[1:], os.environ.get("SDKROOT")]))\n',
+            )
+            stub(
+                directory,
+                "xcrun",
+                '#!/bin/bash\n[[ "$*" == "--sdk macosx --show-sdk-path" ]] || exit 2\n'
                 '[[ "$SDK_FAIL" == 0 ]] || exit 1\nprintf "%s\\n" "$SDK_PATH"\n',
-            }.items():
-                path = directory / name
-                path.write_text(source)
-                path.chmod(0o755)
-            for runner, failed in [("Linux", False), ("macOS", False), ("macOS", True)]:
-                with self.subTest(runner=runner, sdk_failed=failed):
+            )
+            for target, failed in [
+                ("aarch64-linux-gnu.2.39", False),
+                ("aarch64-macos.15.0", False),
+                ("x86_64-macos.15.0", True),
+            ]:
+                with self.subTest(target=target, sdk_failed=failed):
                     log.unlink(missing_ok=True)
-                    target = "aarch64-macos.15.0" if runner == "macOS" else "aarch64-linux-gnu.2.39"
-                    env = dict(
-                        os.environ,
-                        PATH=str(directory) + os.pathsep + os.environ["PATH"],
-                        RUNNER_OS=runner,
-                        RELEASE_TARGET=target,
-                        SDK_FAIL=str(int(failed)),
-                        SDK_PATH=str(sdk),
-                        ARGUMENT_LOG=str(log),
+                    environment = on_path(
+                        directory, SDK_FAIL=str(int(failed)), SDK_PATH=str(sdk), ARGUMENT_LOG=str(log)
                     )
-                    env.pop("SDKROOT", None)
-                    result = subprocess.run(
-                        ["bash", "-e", "-o", "pipefail", "-c", script],
-                        cwd=directory,
-                        env=env,
-                        capture_output=True,
-                        text=True,
-                    )
-                    self.assertEqual(result.returncode == 0, not failed, result.stderr)
+                    environment.pop("SDKROOT", None)
+                    with (
+                        mock.patch.dict(os.environ, environment, clear=True),
+                        contextlib.redirect_stderr(io.StringIO()),
+                    ):
+                        status = BUILD.main(["archives", target])
+                    self.assertEqual(status == 0, not failed)
                     if failed:
-                        self.assertFalse(log.exists())
+                        self.assertFalse(log.exists(), "no build runs without its SDK")
                         continue
                     expected = [
                         "build",
@@ -345,4 +323,47 @@ class ReleaseBuild(unittest.TestCase):
                         "-Dcpu=baseline",
                         "-Dtarget=" + target,
                     ]
-                    self.assertEqual(json.loads(log.read_text()), [expected, str(sdk) if runner == "macOS" else None])
+                    self.assertEqual(json.loads(log.read_text()), [expected, str(sdk) if "macos" in target else None])
+
+    def test_the_browser_steps_take_their_versions_from_their_owners(self):
+        archives = RELEASE["archives"]
+        self.assertEqual(
+            run(archives, "Install the matching browser compiler"), "python3 ci/release_build.py browser-compiler"
+        )
+        bundle = step(archives, "Build and verify the browser bundle and WebAssembly libraries")
+        self.assertEqual(bundle["run"], "python3 ci/release_build.py browser-bundle")
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            log = directory / "calls"
+            for name in ("rustup", "cargo", "npx", "zig"):
+                stub(directory, name, f'#!/bin/bash\nprintf "%s\\n" "{name} $*" >> "$CALL_LOG"\n')
+            with mock.patch.dict(os.environ, on_path(directory, CALL_LOG=str(log)), clear=True):
+                self.assertEqual(BUILD.main(["browser-compiler"]), 0)
+                self.assertEqual(BUILD.main(["browser-bundle"]), 0)
+            wasm_bindgen = subprocess.run(
+                [sys.executable, ".devcontainer/image/rooms-toolchain-version.py"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(
+                log.read_text().splitlines(),
+                [
+                    "rustup target add wasm32-unknown-unknown",
+                    f"cargo install wasm-bindgen-cli --version {wasm_bindgen} --locked",
+                    f"npx --yes playwright@{BUILD.pin('PLAYWRIGHT_VERSION')} install --with-deps chromium",
+                    "zig build portable-package-test",
+                ],
+            )
+
+    def test_a_failed_command_fails_with_its_status(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            stub(temporary, "rustup", "#!/bin/bash\nexit 3\n")
+            stderr = io.StringIO()
+            with mock.patch.dict(os.environ, on_path(temporary), clear=True), contextlib.redirect_stderr(stderr):
+                self.assertEqual(BUILD.main(["browser-compiler"]), 3)
+            self.assertIn("release-build: rustup exited 3", stderr.getvalue())
+        with self.assertRaisesRegex(ValueError, "declares no GLOWCAP_NO_SUCH_PIN"):
+            BUILD.pin("GLOWCAP_NO_SUCH_PIN")

@@ -254,7 +254,7 @@ export function applyEvent(
 		case "ocapn.session-closed": {
 			const session = nonEmptyStringFromWire(ev.session);
 			if (session == null) return;
-			// A closed session is no longer one its producer is watching, so status-allow: lifecycle transition
+			// A closed session is not one its producer is watching, so
 			// it leaves the producer's set here. Without this the set only
 			// ever grew, and a producer that opens and closes conversations
 			// all day carried every one it had ever reported until it left.

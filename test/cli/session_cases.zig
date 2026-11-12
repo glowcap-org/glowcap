@@ -39,6 +39,30 @@ test "writeResult appends to sink buffer" {
     try std.testing.expectEqualStrings("hello-captp\n", capture.items);
 }
 
+test "a broken reply's JSON carries the cause its text cannot establish" {
+    const gpa = std.testing.allocator;
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
+    defer c.deinit();
+
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
+    c.sink = .{ .buffer = &capture };
+    const Broken = glowcap.foundation.break_cause.Broken;
+    const BreakCause = glowcap.foundation.break_cause.BreakCause;
+    // A partner can write any text, a runtime label included. Its cause still
+    // says a partner wrote it.
+    try cli.ocapn.printSettled(&c, .{ .broken = Broken.partner("ExporterUnreachable: x") });
+    try cli.ocapn.printSettled(&c, .{ .broken = .{ .detail = "x", .cause = BreakCause.local(.peer_unreachable).withFetch() } });
+    try std.testing.expectEqualStrings(
+        "{\"ok\":false,\"broken\":\"ExporterUnreachable: x\",\"cause\":{\"origin\":\"partner\",\"reason\":\"application\",\"fetch\":false,\"restoration\":false,\"withdrawal\":false}}\n" ++
+            "{\"ok\":false,\"broken\":\"ExporterUnreachable: x\",\"cause\":{\"origin\":\"local\",\"reason\":\"peer_unreachable\",\"fetch\":true,\"restoration\":false,\"withdrawal\":false}}\n",
+        capture.items,
+    );
+}
+
 test "an unavailable CapTP transport is named before identity creation" {
     const gpa = std.testing.allocator;
     var runtime: Runtime = undefined;
@@ -230,13 +254,14 @@ test "state-dir lock is exclusive" {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-lock-test-{d}", .{std.os.linux.getpid()});
+    // tolerant: a missing directory, or a stale one a prior run left, is all that is lost, and the lock assertions below would reveal a leftover.
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    // tolerant: a leftover directory in /tmp is all that is lost, and the next run clears it first.
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
 
     var first = try cli.state_lock.tryAcquire(io, dir);
     defer first.deinit();
     try std.testing.expectError(error.Busy, cli.state_lock.tryAcquire(io, dir));
-    try std.testing.expectEqual(cli.exit_codes.busy, cli.state_lock.mapError(error.Busy));
 }
 
 test "stateDirOfIdentity strips the identity leaf" {
@@ -264,9 +289,13 @@ test "loose identity seeds do not share a /tmp state lock" {
 
     const a_path = "/tmp/glowcap-cli-seed-a.lock-test.seed";
     const b_path = "/tmp/glowcap-cli-seed-b.lock-test.seed";
+    // tolerant: a leftover seed file in /tmp is all that is lost, and the next run opens the same name fresh.
     defer std.Io.Dir.cwd().deleteFile(io, a_path) catch {};
+    // tolerant: a leftover seed file in /tmp is all that is lost, and the next run opens the same name fresh.
     defer std.Io.Dir.cwd().deleteFile(io, b_path) catch {};
+    // tolerant: a leftover lock file in /tmp is all that is lost, and a lock file holds no state between runs.
     defer std.Io.Dir.cwd().deleteFile(io, "/tmp/glowcap-cli-seed-a.lock-test.seed.lock") catch {};
+    // tolerant: a leftover lock file in /tmp is all that is lost, and a lock file holds no state between runs.
     defer std.Io.Dir.cwd().deleteFile(io, "/tmp/glowcap-cli-seed-b.lock-test.seed.lock") catch {};
 
     var first = try cli.state_lock.tryAcquireForIdentity(io, a_path);
@@ -285,7 +314,9 @@ test "info succeeds under state-dir lock with preset identity path" {
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-info-{d}", .{std.os.linux.getpid()});
+    // tolerant: a missing directory, or a stale one a prior run left, is all that is lost, and createDirPath below starts from what remains.
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    // tolerant: a leftover directory in /tmp is all that is lost, and the next run clears it first.
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
@@ -333,9 +364,11 @@ test "an unwritable state directory is refused as an identity problem, not a dia
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-ro-{d}", .{std.os.linux.getpid()});
+    // tolerant: a missing directory, or a stale one a prior run left, is all that is lost, and the read-only assertions below would reveal a leftover.
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     defer {
         _ = std.os.linux.chmod(@ptrCast(dir.ptr), 0o700);
+        // tolerant: a leftover directory in /tmp is all that is lost, and the next run clears it first.
         std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     }
     try std.Io.Dir.cwd().createDirPath(io, dir);
@@ -380,7 +413,7 @@ test "listen --rendezvous reaches the background front, not just argv" {
     defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
-    // A relay URL that parses but has nobody behind it yet: the listener status-allow: pending state or quoted runtime label
+    // A relay URL that parses but has nobody behind it yet: the listener
     // registers once the relay answers, retrying on its own timer, and its
     // locator names the relay route rather than falling back to TCP.
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };

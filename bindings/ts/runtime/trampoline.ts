@@ -496,7 +496,7 @@ export interface HostingHandle {
 	readonly hosted: Map<bigint, bigint>;
 	registerBehavior(entry: BehaviorEntry): bigint;
 	unregisterBehavior(id: bigint): void;
-	/** Host identity used to select turn-time spawn on whichever Port arrived.  status-allow: purpose clause */
+	/** Host identity used to select turn-time spawn on whichever Port arrived. */
 	readonly hostOwner: object;
 }
 

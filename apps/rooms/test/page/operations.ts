@@ -48,7 +48,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	traceLocator.hints.set("captp-websocket", `ws://127.0.0.1:${tracePort}/captp`);
 	const traceSwiss = formatRoomsSturdyref(traceLocator, (await Deno.readTextFile(`${statePath}/trace`)).trim());
 
-	// Nothing held yet: Settings opens without an Operations control. status-allow: pending state or quoted runtime label
+	// Nothing held yet: Settings opens without an Operations control.
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
 	if (await tab.$("#opsBtn") !== null) {

@@ -4,15 +4,16 @@ use super::*;
 use crate::{abort::Abort, attached::file_display};
 use rooms_application::archive::{Access, Filter, Record};
 use rooms_glowcap::client::archive::{Archive, Blob};
+use rooms_runtime::Error as RuntimeError;
 
 fn coordinate(raw: js_sys::JsString) -> Result<custody::Coordinate> {
 	let raw = scalar(raw, 256)?;
-	custody::Coordinate::decode(&raw).map_err(|_| "Invalid reader custody coordinate".into())
+	custody::Coordinate::decode(&raw).map_err(|_| RuntimeError::invalid("Invalid reader custody coordinate"))
 }
 fn filter(raw: js_sys::JsString) -> Result<Filter> {
 	let raw = scalar(raw, 16384)?;
-	let filter: Filter = serde_json::from_str(&raw).map_err(|_| "Invalid archive filter")?;
-	filter.validate().map_err(|e| e.to_string())?;
+	let filter: Filter = serde_json::from_str(&raw).map_err(|_| RuntimeError::invalid("Invalid archive filter"))?;
+	filter.validate().map_err(RuntimeError::archive)?;
 	Ok(filter)
 }
 #[wasm_bindgen]
@@ -21,9 +22,9 @@ impl RoomsManagedWorkspace {
 	pub fn issued_archive_shares(&self) -> js_sys::Promise {
 		let workspace = self.workspace.clone();
 		self.driver.submit(0, move |_| async move {
-			let shares = workspace.issued_archive_shares().await.map_err(|error| error.to_string())?;
+			let shares = workspace.issued_archive_shares().await.map_err(RuntimeError::from)?;
 			let rows: Vec<_> = shares.iter().map(|row| serde_json::json!({ "id": row.share.id(), "label": row.share.label(), "filter": row.share.filter(), "sturdyref": row.sturdyref })).collect();
-			json(&serde_json::to_string(&rows).map_err(|_| "Invalid issued archive shares")?)
+			json(&serde_json::to_string(&rows).map_err(|_| RuntimeError::invalid("Invalid issued archive shares"))?)
 		})
 	}
 	#[wasm_bindgen(js_name = deviceHistory)]
@@ -31,7 +32,7 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(0, move |_| async move {
-			let archive = workspace.device_history(files).await.map_err(|e| e.to_string())?;
+			let archive = workspace.device_history(files).await.map_err(RuntimeError::from)?;
 			RoomsManagedArchive::new(driver, archive).map(Into::into)
 		})
 	}
@@ -40,7 +41,7 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(0, move |_| async move {
-			let archive = workspace.selected_archive(files).await.map_err(|e| e.to_string())?;
+			let archive = workspace.selected_archive(files).await.map_err(RuntimeError::from)?;
 			RoomsManagedArchive::new(driver, archive).map(Into::into)
 		})
 	}
@@ -52,8 +53,8 @@ impl RoomsManagedWorkspace {
 		};
 		let workspace = self.workspace.clone();
 		self.driver.submit(256, move |_| async move {
-			match workspace.bridge_form(seat).await.map_err(|e| e.to_string())? {
-				Some(form) => json(&form.encode().map_err(|e| e.to_string())?),
+			match workspace.bridge_form(seat).await.map_err(RuntimeError::from)? {
+				Some(form) => json(&form.encode().map_err(RuntimeError::invalid_by)?),
 				None => Ok(JsValue::NULL),
 			}
 		})
@@ -66,7 +67,7 @@ impl RoomsManagedWorkspace {
 		};
 		let workspace = self.workspace.clone();
 		self.driver.submit(256, move |_| async move {
-			let lines = workspace.history(seat).await.map_err(|e| e.to_string())?;
+			let lines = workspace.history(seat).await.map_err(RuntimeError::from)?;
 			let output = js_sys::Array::new();
 			for line in lines {
 				output.push(&json(&serde_json::json!({"from": line.from, "text": line.text, "at": line.at, "previewUrls": line.previews.urls()}).to_string())?);
@@ -86,7 +87,7 @@ impl RoomsManagedWorkspace {
 			let reference = workspace
 				.archive_reader(selected, files)
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let archive = Archive::local(
 				environment.runtime.host().clone(),
 				environment.platform.clone(),
@@ -113,7 +114,7 @@ impl RoomsManagedArchive {
 		let archive = self.archive.clone();
 		let device = device.archive.clone();
 		self.driver.submit(16384, move |_| async move {
-			let records = archive.read_together(&device, &filter).await.map_err(|e| e.to_string())?;
+			let records = archive.read_together(&device, &filter).await.map_err(RuntimeError::from)?;
 			json(&serde_json::json!({"records":records.iter().map(|row| serde_json::json!({"record":row.record,"keeper":row.keeper})).collect::<Vec<_>>()}).to_string())
 		})
 	}
@@ -127,13 +128,14 @@ impl RoomsManagedArchive {
 	) -> js_sys::Promise {
 		let input = (|| {
 			let raw = scalar(record, 65536)?;
-			let record: Record = serde_json::from_str(&raw).map_err(|_| "Invalid archive record")?;
+			let record: Record =
+				serde_json::from_str(&raw).map_err(|_| RuntimeError::invalid("Invalid archive record"))?;
 			let description = rooms_application::archive::blobs::files(&record)
-				.map_err(|e| e.to_string())?
+				.map_err(RuntimeError::archive)?
 				.get(index as usize)
-				.ok_or("Missing archive attachment")?
+				.ok_or_else(|| RuntimeError::invalid("Missing archive attachment"))?
 				.live_description()
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::archive)?;
 			Ok((raw.len(), record, description, Abort::new(signal)?))
 		})();
 		let (bytes, record, description, mut abort) = match input {
@@ -148,7 +150,7 @@ impl RoomsManagedArchive {
 					let blob = archive
 						.attachment(&record, index as usize)
 						.await
-						.map_err(|e| e.to_string())?;
+						.map_err(RuntimeError::from)?;
 					file_display::materialize(
 						&environment,
 						BlobReader(blob),
@@ -159,7 +161,7 @@ impl RoomsManagedArchive {
 					.await
 				};
 				tokio::select! { biased;
-					() = abort.cancelled() => Err("Rooms archived-file view was cancelled".into()),
+					() = abort.cancelled() => Err(RuntimeError::closed("Rooms archived-file view was cancelled")),
 					result = work => result,
 				}
 			},
@@ -176,7 +178,7 @@ impl RoomsManagedArchive {
 struct BlobReader(Blob<Platform>);
 impl file_display::Reader for BlobReader {
 	async fn read(&mut self, offset: u64, maximum: usize) -> Result<Vec<u8>> {
-		self.0.read(offset, maximum).await.map_err(|e| e.to_string())
+		self.0.read(offset, maximum).await.map_err(RuntimeError::from)
 	}
 }
 #[wasm_bindgen]
@@ -189,7 +191,7 @@ impl RoomsManagedArchive {
 		};
 		let archive = self.archive.clone();
 		self.driver.submit(16384, move |_| async move {
-			let page = archive.read(&filter, after, limit as usize).await.map_err(|e| e.to_string())?;
+			let page = archive.read(&filter, after, limit as usize).await.map_err(RuntimeError::from)?;
 			json(&serde_json::json!({"next": page.next.to_string(), "more": page.more, "records": page.records.iter().map(|entry| serde_json::json!({"revision": entry.revision.to_string(), "record": entry.record})).collect::<Vec<_>>()}).to_string())
 		})
 	}
@@ -201,7 +203,10 @@ impl RoomsManagedArchive {
 		let archive = self.archive.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(16384, move |_| async move {
-			let archive = archive.narrow(&filter, Access::Read).await.map_err(|e| e.to_string())?;
+			let archive = archive
+				.narrow(&filter, Access::Read)
+				.await
+				.map_err(RuntimeError::from)?;
 			Self::new(driver, archive).map(Into::into)
 		})
 	}
@@ -212,7 +217,7 @@ impl RoomsManagedArchive {
 		};
 		let record: Record = match serde_json::from_str(&raw) {
 			Ok(record) => record,
-			Err(_) => return rejected("Invalid archive record".into()),
+			Err(_) => return rejected(RuntimeError::invalid("Invalid archive record")),
 		};
 		let archive = self.archive.clone();
 		let driver = self.driver.clone();
@@ -220,7 +225,7 @@ impl RoomsManagedArchive {
 			let blob = archive
 				.attachment(&record, index as usize)
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			RoomsManagedBlob::new(driver, blob).map(Into::into)
 		})
 	}
@@ -232,7 +237,7 @@ impl RoomsManagedArchive {
 		let archive = self.archive.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(digest.len(), move |_| async move {
-			let blob = archive.blob(&digest).await.map_err(|e| e.to_string())?;
+			let blob = archive.blob(&digest).await.map_err(RuntimeError::from)?;
 			RoomsManagedBlob::new(driver, blob).map(Into::into)
 		})
 	}
@@ -258,11 +263,11 @@ impl RoomsManagedBlob {
 			Err(error) => return rejected(error),
 		};
 		if maximum == 0 || maximum as usize > rooms_application::files::CHUNK_BYTES {
-			return rejected("File reads require a bounded nonzero chunk".into());
+			return rejected(RuntimeError::invalid("File reads require a bounded nonzero chunk"));
 		}
 		let blob = self.blob.clone();
 		self.driver.submit(maximum as usize, move |_| async move {
-			let bytes = blob.read(offset, maximum as usize).await.map_err(|e| e.to_string())?;
+			let bytes = blob.read(offset, maximum as usize).await.map_err(RuntimeError::from)?;
 			Ok(js_sys::Uint8Array::from(bytes.as_slice()).into())
 		})
 	}

@@ -71,9 +71,9 @@ const PressureActionExec = struct {
 test "core host: inbound OOM leaves a borrowed hello retryable" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x31)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x31)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
-    var peer = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x32)), Host.Options.withFrameCap(frame_cap));
+    var peer = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x32)), Host.Options.init(.unchecked, frame_cap));
     defer peer.deinit();
 
     const accepted = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7091", &.{});
@@ -100,14 +100,15 @@ test "core host: inbound OOM leaves a borrowed hello retryable" {
 
 test "core host: a finite quantum resumes round-robin work behind a sibling" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x33)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x33)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var host = test_host.init(allocator, @as([32]u8, @splat(0x34)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .host_work_quantum = 1,
     });
     defer host.deinit();
-    var other = test_host.init(allocator, @as([32]u8, @splat(0x35)), Host.Options.withFrameCap(frame_cap));
+    var other = test_host.init(allocator, @as([32]u8, @splat(0x35)), Host.Options.init(.unchecked, frame_cap));
     defer other.deinit();
 
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -138,9 +139,10 @@ test "core host: a finite quantum resumes round-robin work behind a sibling" {
 
 test "core host: staged outbound pressure refuses before the shared high-water is exceeded" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x36)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x36)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var host = test_host.init(allocator, @as([32]u8, @splat(0x37)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .outbound_high_water_bytes = 1024,
     });
@@ -183,9 +185,9 @@ test "core host: staged outbound pressure refuses before the shared high-water i
 
 test "core host: committed relayed listeners resume after outbound pressure" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -256,9 +258,9 @@ test "core host: committed relayed listeners resume after outbound pressure" {
 
 test "core host: unbounded feed condemns an event consumed before serve OOM" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -302,9 +304,10 @@ test "core host: unbounded feed condemns an event consumed before serve OOM" {
 
 test "core host: feedBytes retains only the unapplied suffix after mid-chunk pressure" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x38)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x38)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var host = test_host.init(allocator, @as([32]u8, @splat(0x39)), .{
+        .thread_policy = .unchecked,
         .limits = .{ .max_frame_bytes = frame_cap },
         .outbound_high_water_bytes = 1024,
     });
@@ -488,11 +491,11 @@ const PendingDeferral = struct {
 
 test "core host: a node action parked on one recipient's pressure leaves sibling actions live" {
     const allocator = std.testing.allocator;
-    var first = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
+    var first = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.init(.unchecked, frame_cap));
     defer first.deinit();
-    var second = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.withFrameCap(frame_cap));
+    var second = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.init(.unchecked, frame_cap));
     defer second.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x3e)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x3e)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -513,11 +516,11 @@ test "core host: a node action parked on one recipient's pressure leaves sibling
     try server.node.actions.queue.reserve(allocator, 2);
     server.node.actions.queue.pushReserved(.{ .fail = .{
         .dest = .{ .served_answer = .{ .recipient_peer = pressured.b.peer_handle, .answer = pressured_target } },
-        .reason = .{ .static = "exporter gone" },
+        .reason = @import("glowcap").ocapn.engine.Node.FailureReason.borrowed(.{}, "exporter gone"),
     } });
     server.node.actions.queue.pushReserved(.{ .fail = .{
         .dest = .{ .served_answer = .{ .recipient_peer = sibling.b.peer_handle, .answer = sibling_target } },
-        .reason = .{ .static = "exporter gone" },
+        .reason = @import("glowcap").ocapn.engine.Node.FailureReason.borrowed(.{}, "exporter gone"),
     } });
     var rounds: usize = 0;
     while (rounds < 16 and !sibling_call.broken) : (rounds += 1) {
@@ -542,9 +545,9 @@ test "core host: a node action parked on one recipient's pressure leaves sibling
 
 test "core host: releasing a pressured recipient returns its parked actions to the queue" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x3f)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3f)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x40)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x40)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -559,7 +562,7 @@ test "core host: releasing a pressured recipient returns its parked actions to t
     try server.node.actions.queue.reserve(allocator, 1);
     server.node.actions.queue.pushReserved(.{ .fail = .{
         .dest = .{ .served_answer = .{ .recipient_peer = pair.b.peer_handle, .answer = target } },
-        .reason = .{ .owned = try allocator.dupe(u8, "exporter gone") },
+        .reason = @import("glowcap").ocapn.engine.Node.FailureReason.owned(.{}, try allocator.dupe(u8, "exporter gone")),
     } });
     _ = drainActions(allocator, &.{&server}, &dials) catch |err| switch (err) {
         error.OutboundBackpressure => {},
@@ -582,9 +585,9 @@ test "core host: refused node action parking retains its payload and frees provi
     for (0..16) |fail_offset| {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         const allocator = failing.allocator();
-        var client = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x41)), Host.Options.withFrameCap(frame_cap));
+        var client = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x41)), Host.Options.init(.unchecked, frame_cap));
         defer client.deinit();
-        var server = test_host.init(allocator, @as([32]u8, @splat(0x42)), Host.Options.withFrameCap(frame_cap));
+        var server = test_host.init(allocator, @as([32]u8, @splat(0x42)), Host.Options.init(.unchecked, frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(ParkedDial) = .empty;
         defer dials.deinit(allocator);
@@ -598,7 +601,7 @@ test "core host: refused node action parking retains its payload and frees provi
         const reason = try allocator.dupe(u8, "parking must retain this failure");
         server.node.actions.queue.pushReserved(.{ .fail = .{
             .dest = .{ .served_answer = .{ .recipient_peer = pair.b.peer_handle, .answer = target } },
-            .reason = .{ .owned = reason },
+            .reason = @import("glowcap").ocapn.engine.Node.FailureReason.owned(.{}, reason),
         } });
         // Exhaust the physical queue seats so parking must reserve its return
         // seat after allocating the recipient row and its first list backing.
@@ -619,7 +622,7 @@ test "core host: refused node action parking retains its payload and frees provi
             try std.testing.expectEqual(@as(usize, 0), server.parked_node_actions.count());
             try std.testing.expectEqual(@as(usize, 0), server.node.actions.parked_reservations);
             try std.testing.expectEqual(queued, queue.liveLen());
-            try std.testing.expectEqual(reason.ptr, server.node.peekAction().?.fail.reason.owned.ptr);
+            try std.testing.expectEqual(reason.ptr, server.node.peekAction().?.fail.reason.text.ptr);
             _ = try server.nextAction();
         }
         try std.testing.expectEqual(@as(usize, 1), server.parked_node_actions.count());

@@ -60,7 +60,7 @@ const PollEvents = @FieldType(std.posix.pollfd, "events");
 
 /// One unit of forward progress reported by `pumpOver` / `Connection.pump`.
 pub const Progress = union(enum) {
-    /// A read happened but no whole frame is available yet (need more bytes). status-allow: pending state or quoted runtime label
+    /// A read happened but no whole frame is available yet (need more bytes).
     idle,
     /// One inbound frame of `received` bytes was framed, validated, applied,
     /// and dropped from the buffer.
@@ -361,19 +361,35 @@ pub const Connection = struct {
 /// that must not starve each other rotates the slice it passes between waits:
 /// a partner that keeps its socket readable holds a fixed low index forever.
 ///
-/// Every connection must have a pollable fd. The caller refused fd-less
-/// transports at open, because a blocking multiplex cannot wait on a stream
-/// that reports no readiness, and `pollfds` is caller-owned scratch at least
-/// `conns.len + extra_fds.len` long, so the wait itself allocates nothing. A
-/// negative `timeout_ms` waits forever (the OS poll convention). The caller's
-/// budget arithmetic keeps an expired deadline from reaching here.
+/// A connection whose transport reports no descriptor refuses the whole wait
+/// with `NotPollable` before anything polls, because a blocking multiplex
+/// cannot wait on a stream that reports no readiness. `pollfds` is
+/// caller-owned scratch at least `conns.len + extra_fds.len` long, so the wait
+/// itself allocates nothing. A negative `timeout_ms` waits forever (the OS
+/// poll convention). The caller's budget arithmetic keeps an expired deadline
+/// from reaching here.
 pub fn waitAnyReadable(
     conns: []const *Connection,
     pollfds: []std.posix.pollfd,
     timeout_ms: i32,
     extra_fds: []const std.posix.fd_t,
-) error{ConnectionLost}!?usize {
+) WaitAnyError!?usize {
     return waitAny(conns, &.{}, pollfds, timeout_ms, extra_fds, &.{}, 0);
+}
+
+pub const WaitAnyError = error{ ConnectionLost, NotPollable };
+
+/// `waitAnyReadable` over caller-owned descriptors alone, for an owner that
+/// multiplexes no `Connection`. Every row has a descriptor, so nothing here
+/// can refuse as `NotPollable`.
+pub fn waitAnyDescriptor(
+    pollfds: []std.posix.pollfd,
+    timeout_ms: i32,
+    fds: []const std.posix.fd_t,
+) error{ConnectionLost}!?usize {
+    std.debug.assert(pollfds.len >= fds.len);
+    fillDescriptorRows(pollfds, 0, fds, &.{});
+    return pollRows(pollfds[0..fds.len], 0, 0, timeout_ms);
 }
 
 /// Wait for caller-selected read/write interest on each connection and extra
@@ -392,7 +408,7 @@ pub fn waitAny(
     extra_fds: []const std.posix.fd_t,
     extra_interests: []const WaitInterest,
     start: usize,
-) error{ConnectionLost}!?usize {
+) WaitAnyError!?usize {
     std.debug.assert(conn_interests.len == 0 or conn_interests.len == conns.len);
     std.debug.assert(extra_interests.len == 0 or extra_interests.len == extra_fds.len);
     std.debug.assert(conns.len == 0 or start < conns.len);
@@ -403,7 +419,7 @@ pub fn waitAny(
         const conn = conns[i];
         const interest = if (conn_interests.len == 0) WaitInterest.read else conn_interests[i];
         if (interest == .read and conn.hasBufferedRaw()) return i;
-        const handle = conn.socketHandle() orelse unreachable;
+        const handle = conn.socketHandle() orelse return error.NotPollable;
         pollfds[i] = .{
             .fd = handle,
             .events = interest.events(),
@@ -413,20 +429,35 @@ pub fn waitAny(
     // The caller's out-of-band descriptors, multiplexed-resident readiness and
     // the settle-mailbox wake (ADR-0014), poll as trailing rows and report
     // as `conns.len + i`, indexes no connection occupies.
-    for (extra_fds, 0..) |fd, i| {
-        const interest = if (extra_interests.len == 0) WaitInterest.read else extra_interests[i];
-        pollfds[conns.len + i] = .{
+    fillDescriptorRows(pollfds, conns.len, extra_fds, extra_interests);
+    return pollRows(pollfds[0..rows], conns.len, start, timeout_ms);
+}
+
+fn fillDescriptorRows(
+    pollfds: []std.posix.pollfd,
+    first: usize,
+    fds: []const std.posix.fd_t,
+    interests: []const WaitInterest,
+) void {
+    for (fds, 0..) |fd, i| {
+        const interest = if (interests.len == 0) WaitInterest.read else interests[i];
+        pollfds[first + i] = .{
             .fd = fd,
             .events = interest.events(),
             .revents = 0,
         };
     }
-    if (rows == 0) return null;
-    const ready = poll.wait(pollfds[0..rows], timeout_ms) catch return error.ConnectionLost;
+}
+
+/// Poll the filled rows and report the first ready one, scanning the first
+/// `conns` rows from `start` with wraparound and the rest in order.
+fn pollRows(rows: []std.posix.pollfd, conns: usize, start: usize, timeout_ms: i32) error{ConnectionLost}!?usize {
+    if (rows.len == 0) return null;
+    const ready = poll.wait(rows, timeout_ms) catch return error.ConnectionLost;
     if (ready == 0) return null;
-    for (0..rows) |k| {
-        const i = if (k < conns.len) (start + k) % conns.len else k;
-        const fd = pollfds[i];
+    for (0..rows.len) |k| {
+        const i = if (k < conns) (start + k) % conns else k;
+        const fd = rows[i];
         if (fd.revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
         if (fd.revents & (std.posix.POLL.IN | std.posix.POLL.OUT | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0) return i;
     }
@@ -444,9 +475,9 @@ pub fn waitAny(
 ///      handshake `op:start-session`, responses from a prior apply, or a
 ///      projected abort all leave this way.
 ///   2. If the spill (when active) or the buffer holds a whole frame, frame +
-///      validate + apply it (one parse) and drop its bytes; report `received`.
+///      validate + apply it (one parse) and drop its bytes. Report `received`.
 ///   3. Otherwise read more, distinguishing graceful EOF (`closed`) from
-///      mid-frame EOF (`TruncatedFrame`); a read buffer full of one frame's
+///      mid-frame EOF (`TruncatedFrame`). A read buffer full of one frame's
 ///      prefix moves into the spill and keeps reading, bounded by
 ///      `max_frame_bytes` (the codec's cap-during-scan plus the defensive
 ///      mirror below).

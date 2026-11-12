@@ -41,9 +41,12 @@ async fn listen(seed: [u8; 32]) -> Result<tcp::Server, String> {
 /// concurrently with `accept` so the listener unblocks. The oneshot orders
 /// publish ahead of fetch.
 async fn call_greeter(partner: &Locator, published: oneshot::Receiver<()>) -> Result<(), String> {
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| e.to_string())?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::KEYED_TCP,
+		..Default::default()
+	})]))
+	.await
+	.map_err(|e| e.to_string())?;
 	let session = runtime
 		.connect(partner, ConnectOptions::default())
 		.await
@@ -96,9 +99,12 @@ async fn scene_squatter() -> Result<(), String> {
 		})
 	};
 	let partner = tcp::keyed::locator(&designator, "127.0.0.1", squatter.port().map_err(|e| e.to_string())?);
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| e.to_string())?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::KEYED_TCP,
+		..Default::default()
+	})]))
+	.await
+	.map_err(|e| e.to_string())?;
 	match runtime.connect(&partner, ConnectOptions::default()).await {
 		Ok(_session) => return Err("squatter dial should have been refused".into()),
 		Err(e) => println!("rust-keyed-tcp-restart: squatter refused ({e})"),

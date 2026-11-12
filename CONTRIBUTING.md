@@ -181,11 +181,11 @@ These expectations apply regardless of the tools used.
 
 If you used AI assistance, briefly describe what it did and how you verified
 the result in the pull request.
-[PROVENANCE.md](PROVENANCE.md) describes the project's own use of assistants
+[How glowcap is built](PROVENANCE.md) describes the project's own use of assistants
 and the upstream policies that restrict assisted work. Participation follows
 the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-Repository instructions for coding agents live in [AGENTS.md](AGENTS.md).
+Instructions for coding agents live in [AGENTS.md](AGENTS.md).
 
 ## Continuous integration
 
@@ -199,7 +199,8 @@ process proofs, infrastructure checks, and macOS tests, and a pull request
 into `dev` adds the groups its changed paths reach. A missed deadline fails
 the check without a retry. Diagnose the stopped attempt before rerunning it,
 because a later pass does not explain the failure. Reproduce a phase locally
-with `glowcap-dev python3 ci/gates.py run <phase>`, or CI's process checks
+with `.agents/skills/work/bin/glowcap-dev python3 ci/gates.py run <phase>`
+(the devcontainer front), or CI's process checks
 alone:
 
 ```sh

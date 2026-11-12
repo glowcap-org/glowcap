@@ -84,7 +84,9 @@ async def warm(conn: Session, root, n: int, unit=run_unit) -> None:
 
 
 async def open_held_connection(host: str, port: int, reuse: Runtime | None = None):
-    runtime = reuse if reuse is not None else await Runtime.open(providers=[tcp.provider()])
+    runtime = (
+        reuse if reuse is not None else await Runtime.open(providers=[tcp.provider(tcp.Config(profiles=(tcp.plain,)))])
+    )
     try:
         session = await runtime.connect(tcp.locator(host, port))
         await session.fetch("root")
@@ -291,7 +293,7 @@ async def main() -> None:
     mode, host, port_str = sys.argv[1], sys.argv[2], sys.argv[3]
     port = int(port_str)
     n = int(sys.argv[4]) if len(sys.argv) > 4 else 0
-    async with Runtime.open(providers=[tcp.provider()]) as runtime:
+    async with Runtime.open(providers=[tcp.provider(tcp.Config(profiles=(tcp.plain,)))]) as runtime:
         if mode == "latency":
             await run_latency(runtime, host, port, n)
         elif mode == "throughput":

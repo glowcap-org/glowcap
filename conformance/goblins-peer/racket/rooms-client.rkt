@@ -33,6 +33,7 @@
          "tcp-netlayer.rkt"
          "iroh-netlayer.rkt"
          (only-in "../../../bindings/racket/glowcap-iroh.rkt" IROH-REACH-DIRECT)
+         (only-in "../../../apps/_demo/rooms_codes.rkt" NO-SUCH-ROOM ROOM-EXISTS)
          net/uri-codec
          net/url
          racket/list
@@ -191,7 +192,7 @@
        (and (exact-nonnegative-integer? n) (< n 65536) n))]
     [else
      (error 'rooms-client
-            "expected a local port number, got ~v (the trace endpoint is the GLOWCAP_ROOMS_TRACE_URL environment variable, not an argument)"
+            "expected a local port number, got ~v (the trace endpoint is the GLOWCAP_ROOMS_TRACE_URL and GLOWCAP_ROOMS_TRACE_CAP environment variables, not an argument)"
             raw)]))
 
 ;; The netlayer that reaches `node`, spawned. Which one it is comes from the
@@ -244,7 +245,7 @@
   (values (<- mycapn 'enliven (ocapn-sturdyref node directory-swiss))
           (node->locator ($ netlayer 'our-location))))
 
-;; Enter `name`, opening it when there is no such room yet. Another peer may status-allow: pending state or quoted runtime label
+;; Enter `name`, opening it when there is no such room yet. Another peer may
 ;; open the room after our failed enter, so an open collision retries enter.
 ;; Both verbs answer with a live reference to that room; `on-error` hears the
 ;; reason when none of the three attempts works.
@@ -258,38 +259,21 @@
                 on-room
                 #:catch
                 (lambda (open-err)
-                  (if (equal? (room-error-code open-err) "room-exists")
+                  (if (equal? (room-error-code open-err) ROOM-EXISTS)
                       (on (<- directory 'enter name) on-room #:catch on-error)
                       (on-error open-err))))
             (on-error err)))))
 
 (define (no-such-room-error? err)
-  (equal? (room-error-code err) "no-such-room"))
+  (equal? (room-error-code err) NO-SUCH-ROOM))
 
-;; The failures a rooms peer branches on, as the room server spells them
-;; (`apps/rooms/lib/errors.ts`). A broken OCapN promise carries a string reason,
-;; so the code rides at the front of it and a peer reads the code rather than the
-;; prose, which is free to change.
-(define room-error-codes
-  '("nick-taken"
-    "no-such-room"
-    "room-exists"
-    "peer-offline"
-    "introduction-pending"
-    "not-registered"
-    "nick-too-long"
-    "not-your-locator"))
-
-;; The code a broken send carries, or #f when the failure is an anonymous one
-;; nobody branches on. Goblins hands a `#:catch` handler whatever broke the
-;; promise, and the binding on the way may have said something of its own first,
-;; so the code is looked for across the colon-separated segments rather than only
-;; at the front.
+;; A Rooms code occupies the first segment of the reason. Goblins passes
+;; either the raw reason or an exception wrapping it. Code-shaped detail has
+;; no bearing on the outcome, and unknown head codes select no client branch.
 (define (room-error-code err)
   (define text (if (exn? err) (exn-message err) (format "~a" err)))
-  (for/first ([part (in-list (string-split text ": "))]
-              #:when (member part room-error-codes))
-    part))
+  (define head (regexp-match #px"^([a-z]+(?:-[a-z]+)*)(?:: |$)" text))
+  (and head (cadr head)))
 
 ;; Spawn the inbox a room calls back on. The room sends `notify(from, text)` for
 ;; every line anyone posts, and a system line may carry structured presence after
@@ -413,13 +397,11 @@
   (check-exn #rx"local port number" (lambda () (local-port-argument "70000")))
   (check-exn #rx"local port number" (lambda () (local-port-argument "ws://127.0.0.1:9300/")))
 
-  ;; A refusal a peer acts on is read by its code. The room writes the code at
-  ;; the front, and a binding may prefix a line of its own, so both spellings
-  ;; have to reach the same answer.
-  (check-equal? (room-error-code "introduction-pending: \"bob\" has been asked")
-                "introduction-pending")
-  (check-equal? (room-error-code "glowcap error -14: peer-offline: no member named \"bob\"")
-                "peer-offline")
+  ;; Diagnostic wrappers and nested codes cannot impersonate a Rooms refusal.
+  (check-equal? (room-error-code "introduction-timed-out: \"bob\" did not respond")
+                "introduction-timed-out")
+  (check-false (room-error-code "glowcap error -14: peer-offline: nested reason"))
+  (check-false (no-such-room-error? "transport: no-such-room: nested reason"))
   (check-equal? (room-error-code (make-exn:fail "not-registered: register first"
                                                 (current-continuation-marks)))
                 "not-registered")

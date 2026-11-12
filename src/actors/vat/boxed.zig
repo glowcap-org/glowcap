@@ -50,7 +50,7 @@ pub const StateBox = struct {
     /// same in every archive one build emits.
     kind: Kind,
     handle: *const fn (state: *anyopaque, turn: *Turn, msg: Delivery) HostedActor.Result,
-    handleOpaque: ?*const fn (state: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 = null,
+    handleOpaque: ?*const fn (state: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?HandlerFailure = null,
     /// Free the whole `Boxed` block this box heads, running the state's
     /// `deinit` first. The box and its state are one allocation, so there is
     /// no separate state free.
@@ -102,7 +102,7 @@ const HostedBlock = struct {
         return self.actor.handle(self.actor.ctx, turn, msg);
     }
 
-    fn handleOpaque(state: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 {
+    fn handleOpaque(state: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?HandlerFailure {
         const self: *HostedBlock = @ptrCast(@alignCast(state));
         return self.actor.handleOpaque.?(self.actor.ctx, turn, msg);
     }
@@ -177,8 +177,8 @@ fn Glue(comptime Behavior: type) type {
         /// may share its state with no copy-on-write), so it is dispatched
         /// through a `*const` receiver: the ordinary `self.field = x` then
         /// fails to compile instead of silently writing through the pointer
-        /// a live snapshot shares. This enforces shallow immutability only;
-        /// a persistent actor still must not mutate through an interior
+        /// a live snapshot shares. This enforces shallow immutability only.
+        /// A persistent actor still must not mutate through an interior
         /// pointer it owns, which `*const self` cannot reach.
         const Receiver = if (behaviorIsPersistent(Behavior)) *const Behavior else *Behavior;
 
@@ -188,13 +188,15 @@ fn Glue(comptime Behavior: type) type {
             if (comptime @TypeOf(result) == HostedActor.Result) return result;
             if (comptime @typeInfo(@TypeOf(result)) == .error_union) {
                 if (comptime @typeInfo(@TypeOf(result)).error_union.payload == HostedActor.Result)
-                    return result catch |err| .{ .refused = HandlerFailure.fromError(err) };
+                    return result catch |err| .{ .refused = HandlerFailure.behavior(err) };
             }
             return HostedActor.Result.fromResult(result);
         }
-        fn handleOpaque(erased: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 {
+        fn handleOpaque(erased: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?HandlerFailure {
             const behavior: Receiver = @ptrCast(@alignCast(erased));
-            behavior.handleOpaque(turn, msg) catch |err| return @errorName(err);
+            const result = behavior.handleOpaque(turn, msg);
+            if (comptime @TypeOf(result) == ?HandlerFailure) return result;
+            result catch |err| return HandlerFailure.behavior(err);
             return null;
         }
         fn drop(box: *StateBox, allocator: std.mem.Allocator) void {
@@ -326,20 +328,20 @@ pub fn stageBecome(self: *Vat, turn: *Turn, comptime Behavior: type, next: Behav
     // be taken here where a failure is still the caller's to see.
     //
     // One slot is not enough. Every frame open right now can hold a staged
-    // become, and none of them has installed yet, so they all see the same list status-allow: pending state or quoted runtime label
+    // become, and none of them has installed yet, so they all see the same list
     // length: reserving one slot per stage reserves one slot in total, and the
     // unwind then appends once per frame. An actor installs at most once per
     // run and every install is preceded by a stage in some open frame, so the
     // number of appends still to come is bounded by the open frame count.
     try frame.reserveRetirementCapacity(self, 0, self.turn_depth);
-    // Last become in a turn wins: release any value staged earlier this turn. status-allow: event or source ordering
+    // Last become in a turn wins: release any value staged earlier this turn.
     if (turn.pending_become) |prev| releaseBox(self.allocator, prev);
     turn.pending_become = box;
 }
 
 /// Promote a successful frame's staged become onto the actor's `Cell`, to be
 /// installed when the actor's outermost running frame unwinds. Last write
-/// wins across the frames of one reentrant run: an earlier promoted box that status-allow: event or source ordering
+/// wins across the frames of one reentrant run: an earlier promoted box that
 /// never installed is released here.
 pub fn promoteBecome(self: *Vat, id: u64, box: *StateBox) void {
     // The running frame keeps the actor row alive.

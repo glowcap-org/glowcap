@@ -6,6 +6,7 @@ use rooms_application::{
 	session::operations::mutation::Kind,
 };
 use rooms_glowcap::client::workspace::OperationsReader;
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
@@ -17,17 +18,17 @@ impl RoomsManagedWorkspace {
 				&workspace
 					.peering_snapshot()
 					.await
-					.map_err(|error| error.to_string())?
+					.map_err(RuntimeError::from)?
 					.encode()
-					.map_err(|error| error.to_string())?,
+					.map_err(RuntimeError::operator)?,
 			)
 		})
 	}
 	#[wasm_bindgen(js_name = traceSnapshot)]
 	pub fn trace_snapshot(&self, selected: js_sys::JsString) -> js_sys::Promise {
-		let selected = match scalar(selected, 256)
-			.and_then(|raw| custody::Coordinate::decode(&raw).map_err(|_| "Invalid trace coordinate".into()))
-		{
+		let selected = match scalar(selected, 256).and_then(|raw| {
+			custody::Coordinate::decode(&raw).map_err(|_| RuntimeError::invalid("Invalid trace coordinate"))
+		}) {
 			Ok(selected) => selected,
 			Err(error) => return rejected(error),
 		};
@@ -37,17 +38,17 @@ impl RoomsManagedWorkspace {
 				&workspace
 					.trace_snapshot(selected)
 					.await
-					.map_err(|error| error.to_string())?
+					.map_err(RuntimeError::from)?
 					.encode()
-					.map_err(|error| error.to_string())?,
+					.map_err(RuntimeError::operator)?,
 			)
 		})
 	}
 	#[wasm_bindgen(js_name = roomManagementIdentity)]
 	pub fn room_management_identity(&self, selected: js_sys::JsString) -> js_sys::Promise {
-		let selected = match scalar(selected, 256)
-			.and_then(|raw| custody::Coordinate::decode(&raw).map_err(|_| "Invalid room seat coordinate".into()))
-		{
+		let selected = match scalar(selected, 256).and_then(|raw| {
+			custody::Coordinate::decode(&raw).map_err(|_| RuntimeError::invalid("Invalid room seat coordinate"))
+		}) {
 			Ok(selected) => selected,
 			Err(error) => return rejected(error),
 		};
@@ -57,14 +58,14 @@ impl RoomsManagedWorkspace {
 				.room_management_identity(selected)
 				.await
 				.map(Into::into)
-				.map_err(|error| error.to_string())
+				.map_err(RuntimeError::from)
 		})
 	}
 	#[wasm_bindgen(js_name = exportConfiguration)]
 	pub fn export_configuration(&self) -> js_sys::Promise {
 		let workspace = self.workspace.clone();
 		self.driver.submit(0, move |_| async move {
-			let (snapshot, coordinates) = workspace.export_configuration().await.map_err(|e| e.to_string())?;
+			let (snapshot, coordinates) = workspace.export_configuration().await.map_err(RuntimeError::from)?;
 			json(&serde_json::json!({ "revision": snapshot.revision.to_string(), "intent": snapshot.intent, "coordinates": coordinates }).to_string())
 		})
 	}
@@ -93,12 +94,12 @@ impl RoomsManagedWorkspace {
 	#[wasm_bindgen(js_name = operationsReader)]
 	pub fn operations_reader(&self, selected: js_sys::JsString, kind: Option<js_sys::JsString>) -> js_sys::Promise {
 		let input = (|| {
-			let selected =
-				custody::Coordinate::decode(&scalar(selected, 256)?).map_err(|_| "Invalid operations coordinate")?;
+			let selected = custody::Coordinate::decode(&scalar(selected, 256)?)
+				.map_err(|_| RuntimeError::invalid("Invalid operations coordinate"))?;
 			let kind: Option<Kind> = kind
 				.map(|raw| -> Result<Kind> {
 					serde_json::from_value(serde_json::Value::String(scalar(raw, 64)?))
-						.map_err(|_| "Invalid operations interface".into())
+						.map_err(|_| RuntimeError::invalid("Invalid operations interface"))
 				})
 				.transpose()?;
 			Ok((selected, kind))
@@ -113,7 +114,7 @@ impl RoomsManagedWorkspace {
 			let reader = workspace
 				.operations_reader(selected, kind)
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let reader = driver.hold(reader, size_of::<OperationsReader<Platform>>())?;
 			Ok(RoomsManagedOperationsReader { driver, reader }.into())
 		})
@@ -133,9 +134,9 @@ impl RoomsManagedOperationsReader {
 				&reader
 					.snapshot()
 					.await
-					.map_err(|e| e.to_string())?
+					.map_err(RuntimeError::from)?
 					.encode()
-					.map_err(|e| e.to_string())?,
+					.map_err(RuntimeError::operator)?,
 			)
 		})
 	}
@@ -151,8 +152,8 @@ impl RoomsManagedOperationsReader {
 			let snapshot = reader
 				.operator_snapshot(&query, kind)
 				.await
-				.map_err(|e| e.to_string())?;
-			json(&serde_json::to_string(&snapshot).map_err(|e| e.to_string())?)
+				.map_err(RuntimeError::from)?;
+			json(&serde_json::to_string(&snapshot).map_err(RuntimeError::invalid_by)?)
 		})
 	}
 	#[wasm_bindgen(js_name = operatorPage)]
@@ -165,7 +166,8 @@ impl RoomsManagedOperationsReader {
 	) -> js_sys::Promise {
 		let input = (|| {
 			Ok((
-				Category::parse(&scalar(category, 32)?).ok_or("Invalid operator category")?,
+				Category::parse(&scalar(category, 32)?)
+					.ok_or_else(|| RuntimeError::invalid("Invalid operator category"))?,
 				revision(&scalar(cursor, 20)?)?,
 				scalar(query, 128)?,
 				reference_kind(kind)?,
@@ -180,7 +182,7 @@ impl RoomsManagedOperationsReader {
 			let page = reader
 				.operator_page(category, cursor, &query, kind)
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let rows = match page.rows {
 				PageRows::Stewardships(rows) => serde_json::to_value(rows),
 				PageRows::Links(rows) => serde_json::to_value(rows),
@@ -190,7 +192,7 @@ impl RoomsManagedOperationsReader {
 				PageRows::References(rows) => serde_json::to_value(rows),
 				PageRows::Trouble(rows) => serde_json::to_value(rows),
 			}
-			.map_err(|e| e.to_string())?;
+			.map_err(RuntimeError::invalid_by)?;
 			json(
 				&serde_json::json!({"revision":page.revision,"next":page.next,"total":page.total,"rows":rows})
 					.to_string(),
@@ -199,8 +201,10 @@ impl RoomsManagedOperationsReader {
 	}
 }
 fn reference_kind(raw: Option<js_sys::JsString>) -> Result<Option<ReferenceKind>> {
-	raw.map(|raw| ReferenceKind::parse(&scalar(raw, 32)?).ok_or_else(|| "Invalid reference kind".into()))
-		.transpose()
+	raw.map(|raw| {
+		ReferenceKind::parse(&scalar(raw, 32)?).ok_or_else(|| RuntimeError::invalid("Invalid reference kind"))
+	})
+	.transpose()
 }
 
 /// One coordinate in and one text or null out, the shape of a workspace read
@@ -214,18 +218,19 @@ fn optional_text<W, E>(
 ) -> js_sys::Promise
 where
 	W: std::future::Future<Output = core::result::Result<Option<String>, E>> + 'static,
-	E: std::fmt::Display,
+	RuntimeError: From<E>,
 {
-	let selected =
-		match scalar(selected, 256).and_then(|raw| custody::Coordinate::decode(&raw).map_err(|_| invalid.into())) {
-			Ok(selected) => selected,
-			Err(error) => return rejected(error),
-		};
+	let selected = match scalar(selected, 256)
+		.and_then(|raw| custody::Coordinate::decode(&raw).map_err(|_| RuntimeError::invalid(invalid)))
+	{
+		Ok(selected) => selected,
+		Err(error) => return rejected(error),
+	};
 	let workspace = workspace.clone();
 	driver.submit(256, move |_| async move {
 		Ok(read(workspace, selected)
 			.await
-			.map_err(|e| e.to_string())?
+			.map_err(RuntimeError::from)?
 			.map_or(JsValue::NULL, Into::into))
 	})
 }

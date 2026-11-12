@@ -17,7 +17,6 @@ const Tab = struct {
     file: []const u8,
     fence: []const u8,
     part: ExamplePart = .full,
-    planned: bool = false,
 };
 
 const ExamplePart = enum { full, setup, common };
@@ -35,7 +34,6 @@ const Example = struct {
 
 const Surface = struct {
     supported: bool = false,
-    planned: bool = false,
     example: ?Example = null,
 };
 
@@ -46,9 +44,8 @@ const Cell = struct {
     listen: Surface = .{},
 };
 
-// This is the only support and snippet inventory. Supported examples are
-// checked product claims; planned examples render only on transport pages and
-// carry an explicit planned marker until the managed public surface lands.
+// This is the only support and snippet inventory. Every example is a checked
+// product claim.
 const matrix = [_]Cell{
     .{ .binding = .zig, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/tcp.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/tcp.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .keyed_tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-tcp.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/keyed-tcp.zig", .fence = "zig" } } },
@@ -147,10 +144,8 @@ comptime {
         }
         if (matches != 1) @compileError("site example matrix contains a duplicate cell");
         for ([_]Surface{ cell.dial, cell.listen }) |surface| {
-            if (surface.supported and surface.planned)
-                @compileError("a site-example surface cannot be both supported and planned");
-            if ((surface.supported or surface.planned) != (surface.example != null))
-                @compileError("a supported or planned site-example surface must have its example");
+            if (surface.supported != (surface.example != null))
+                @compileError("a supported site-example surface must have its example");
         }
     }
     for (known) |transport| {
@@ -285,23 +280,15 @@ fn renderTransportGroup(
     defer group.deinit(gpa);
 
     if (slotHasExamples(group_slot)) try group.appendSlice(gpa, "> []($block.attrs('code-tabs'))\n");
-    // Supported tabs first so a transport's lead is a working surface, not a
-    // planned stub. `std.enums.values` follows declaration order (Zig, then
-    // TypeScript), which put WebRTC's planned Zig tab in front of TypeScript.
-    inline for (.{ false, true }) |want_planned| {
-        for (std.enums.values(Binding)) |binding| {
-            const cell = findCell(binding, transport) orelse continue;
-            const surface = surfaceFor(cell, slot.direction);
-            if (surface.planned != want_planned) continue;
-            if (surface.example) |example| {
-                try renderTab(gpa, io, &group, .{
-                    .label = bindingLabel(binding),
-                    .file = example.file,
-                    .fence = example.fence,
-                    .part = .setup,
-                    .planned = surface.planned,
-                });
-            }
+    for (std.enums.values(Binding)) |binding| {
+        const cell = findCell(binding, transport) orelse continue;
+        if (surfaceFor(cell, slot.direction).example) |example| {
+            try renderTab(gpa, io, &group, .{
+                .label = bindingLabel(binding),
+                .file = example.file,
+                .fence = example.fence,
+                .part = .setup,
+            });
         }
     }
     trimTrailingNewline(&group);
@@ -401,8 +388,7 @@ fn renderTab(
     defer gpa.free(source);
     const body = try examplePart(source, tab.part);
 
-    const suffix: []const u8 = if (tab.planned) " (planned)" else "";
-    const label_line = try std.fmt.allocPrint(gpa, "> **{s}{s}**\n", .{ tab.label, suffix });
+    const label_line = try std.fmt.allocPrint(gpa, "> **{s}**\n", .{tab.label});
     defer gpa.free(label_line);
     try out.appendSlice(gpa, label_line);
 

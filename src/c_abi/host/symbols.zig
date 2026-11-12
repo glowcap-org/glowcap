@@ -255,6 +255,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "glowcap_host_session_partner_identity", .out_params = &.{1} },
     .{ .name = "glowcap_host_session_bind_verified_channel_key", .out_params = &.{} },
     .{ .name = "glowcap_host_last_error", .out_params = &.{0} },
+    .{ .name = "glowcap_host_last_error_cause", .out_params = &.{0} },
     .{
         .name = "glowcap_host_clear_last_error",
     },

@@ -69,7 +69,7 @@ def cleanup_run(*args):
 
 def container_name(role):
     # The proof only ever removes names it minted. Randomness also prevents a
-    # stale container from an interrupted earlier run becoming our cleanup status-allow: event or source ordering
+    # stale container from an interrupted earlier run becoming our cleanup
     # target when process IDs are reused.
     return f"glowcap-image-{role}-{secrets.token_hex(12)}"
 
@@ -139,7 +139,7 @@ def inspect_tar(rootfs):
     assert manifest_member is not None, "image has no product installation manifest"
     assert not manifest_member.mode & 0o111, "product installation manifest is executable"
     manifest = rootfs.extractfile(manifest_member).read().decode()
-    expected = {manifest_name: None}
+    expected: dict[str, tuple[str, bool] | None] = {manifest_name: None}
     previous = ""
     for line in manifest.splitlines():
         fields = line.split(" ", 2)
@@ -153,7 +153,8 @@ def inspect_tar(rootfs):
         assert path > previous and path != manifest_name, path
         expected[path] = (digest, mode == "x")
         previous = path
-    assert "bin/glowcap" in expected and expected["bin/glowcap"][1], "product manifest has no executable bin/glowcap"
+    glowcap_entry = expected.get("bin/glowcap")
+    assert glowcap_entry is not None and glowcap_entry[1], "product manifest has no executable bin/glowcap"
 
     assert set(runtime) == set(expected), (
         "image /runtime differs from the verified product manifest",
@@ -248,7 +249,6 @@ def check_web_and_directory(deadline, image):
             "--http-bind=0.0.0.0",
             "--http-port=8080",
             "--transport=tcp",
-            "--reachability=direct",
             "--state=/state",
         )
         assert started.stdout.strip(), "Docker did not return a browser container ID"

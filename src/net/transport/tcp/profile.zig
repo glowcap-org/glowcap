@@ -11,6 +11,7 @@
 //! semantics live in `driver_core`. Nothing here differs by them.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const foundation = @import("foundation");
 const model = @import("model");
@@ -20,6 +21,7 @@ const netlayer = @import("../../netlayer.zig");
 const stream = @import("stream.zig");
 const addressing = @import("addressing.zig");
 const profile_listener = @import("listener.zig");
+const accept_gate = @import("../../accept_gate.zig");
 
 const Netlayer = netlayer.Netlayer;
 const Buffers = netlayer.Buffers;
@@ -128,8 +130,20 @@ pub fn Profile(comptime transport: model.transport.Known) type {
             return .{ .ready = ListenerShell.listener(box) };
         }
 
+        /// Test-only reach into a listener this profile bound. Empty in
+        /// production builds.
+        pub const white_box = if (builtin.is_test) struct {
+            /// The accept gate behind `listener`, so a test can close while a
+            /// wait holds its lease. `listener` must come from this profile.
+            pub fn acceptGate(listener: netlayer.Listener) *accept_gate.Gate {
+                std.debug.assert(listener.vtable == &ListenerShell.vtable);
+                const box: *ListenerBox = @ptrCast(@alignCast(listener.ctx));
+                return &box.listener.socket.gate;
+            }
+        } else struct {};
+
         /// A heap-pinned profile listener, freed by the contract listener's
-        /// `close`.
+        /// `close`. A contract listener's `ctx` points at it.
         const ListenerBox = struct {
             listener: profile_listener.Listener,
             stream_options: stream.StreamOptions,

@@ -37,7 +37,7 @@ pub const rail_max_w: u16 = 36;
 pub const prompt_comfort_h: u16 = 4;
 pub const prompt_min_h: u16 = 3;
 
-/// Compute a robust layout for any winsize. Never panics. Clamps to fit.
+/// Layout for a terminal of any size. A zero dimension counts as one.
 /// `guide` reserves the stage strip for the optional CapTP walkthrough.
 pub fn compute(cols: u16, rows: u16, menu_open: bool, menu_n: usize, guide: bool) Geom {
     const c = @max(cols, @as(u16, 1));

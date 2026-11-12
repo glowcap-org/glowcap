@@ -146,19 +146,23 @@ pub fn glowcap_loam_pending_continuation_absent(raw: ?*c.GlowcapLoamPendingConti
 }
 pub fn glowcap_loam_pending_continuation_release(raw: ?*c.GlowcapLoamPendingContinuation) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (raw == null) return shared.GLOWCAP_OK;
-    const self = control(raw) catch |err| return refusal.code(err);
-    if (self.phase == .active) return refusal.code(error.WrongPhase);
-    self.release();
-    return shared.GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        if (raw == null) break :result shared.GLOWCAP_OK;
+        const self = control(raw) catch |err| break :result refusal.code(err);
+        if (self.phase == .active) break :result refusal.code(error.WrongPhase);
+        self.release();
+        break :result shared.GLOWCAP_OK;
+    });
 }
 pub fn glowcap_loam_continuation_release(raw: ?*c.GlowcapLoamContinuation) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (raw == null) return shared.GLOWCAP_OK;
-    const self = control(raw) catch |err| return refusal.code(err);
-    _ = self.active() catch |err| return refusal.code(err);
-    self.release();
-    return shared.GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        if (raw == null) break :result shared.GLOWCAP_OK;
+        const self = control(raw) catch |err| break :result refusal.code(err);
+        _ = self.active() catch |err| break :result refusal.code(err);
+        self.release();
+        break :result shared.GLOWCAP_OK;
+    });
 }
 pub fn glowcap_loam_continuation_project(raw: ?*c.GlowcapLoamContinuation, index: usize, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();

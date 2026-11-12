@@ -32,7 +32,7 @@ pub fn sturdyref(profile: model.CaptpVersion, value: model.SturdyRef, out: ?[*]u
 }
 
 /// The output-buffer protocol every formatter shares. A null `out` with zero
-/// capacity asks for the length; otherwise `write` fills `out[0..cap]` and
+/// capacity asks for the length. Otherwise `write` fills `out[0..cap]` and
 /// reports whether it fit.
 fn bounded(comptime measure: anytype, comptime write: anytype, args: anytype, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
     const l = out_len orelse return GLOWCAP_ERR_NULL_POINTER;

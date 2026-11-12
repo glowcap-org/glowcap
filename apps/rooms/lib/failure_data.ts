@@ -28,6 +28,34 @@ export const ADMISSION_OWNERS = [
 	"direct-inbox",
 	"http",
 ] as const;
+export const ADMISSION_SCOPE_LABELS = {
+	"connection": "Opening connections",
+	"join": "Joining rooms",
+	"room-join": "Joining this room",
+	"message": "Sending messages",
+	"message-bytes": "Message size",
+	"transient": "Presence updates",
+	"room-transient": "Presence updates in this room",
+	"introduction": "Starting conversations",
+	"recipient": "Receiving conversation requests",
+	"create": "Creating rooms",
+	"read": "Reading data",
+	"upload": "Uploading files",
+	"signal": "Connecting browsers",
+	"ingress": "Incoming requests",
+	"http-start": "Opening web requests",
+	"transfer": "Transferring files",
+	"preview": "Link previews",
+	"registration": "Registering a name",
+	"rendezvous": "Reaching a member",
+	"cleanup": "Closing work",
+} as const;
+export const ADMISSION_OWNER_LABELS = {
+	"directory": "at the directory",
+	"session": "in this session",
+	"direct-inbox": "at the recipient",
+	"http": "at the web server",
+} as const;
 export const RATE_LIMITED = "rate-limited";
 export const ADMISSION_BUSY = "admission-busy";
 export const NO_SERVER = "no-server";
@@ -43,7 +71,11 @@ export const TOO_MANY_PEERED_ROOMS = "too-many-peered-rooms";
 export const ROOM_LINKS_FULL = "room-links-full";
 export const NOT_STEWARD = "not-steward";
 export const PEER_OFFLINE = "peer-offline";
-export const INTRODUCTION_PENDING = "introduction-pending";
+export const MEMBER_UNREACHABLE = "member-unreachable";
+export const PEER_UNREACHABLE = "peer-unreachable";
+export const TRANSPORT_NOT_DIALED = "transport-not-dialed";
+export const INTRODUCTION_REFUSED = "introduction-refused";
+export const INTRODUCTION_TIMED_OUT = "introduction-timed-out";
 export const DIRECT_NOT_ACCEPTED = "direct-not-accepted";
 export const DELIVERY_UNCERTAIN = "delivery-uncertain";
 export const NOT_REGISTERED = "not-registered";
@@ -63,14 +95,9 @@ export const LISTENER_TRANSPORT_HELD = "listener-transport-held";
 export const NO_SUCH_LISTENER = "no-such-listener";
 export const NO_ROOM_MANAGERS = "no-room-managers";
 export const SESSION_UNREACHABLE = "session-unreachable";
-export const SESSION_HANDSHAKE_INCOMPLETE = "session-handshake-incomplete";
 export const SESSION_CAPABILITY_GONE = "session-capability-gone";
 export const SESSION_RESTORATION_FAILED = "session-restoration-failed";
 export const SAVED_TRANSPORT_UNAVAILABLE = "saved-transport-unavailable";
-export const SESSION_SIGNALING_HOST_OFFLINE = "session-signaling-host-offline";
-export const SESSION_SIGNALING_UNAVAILABLE = "session-signaling-unavailable";
-export const SESSION_WEBRTC_NO_ROUTE = "session-webrtc-no-route";
-export const DIRECT_NO_ROUTE = "direct-no-route";
 export const SESSION_PEER_UNVERIFIED = "session-peer-unverified";
 export const LINK_PREVIEW_INVALID_URL = "link-preview-invalid-url";
 export const LINK_PREVIEW_ADDRESS_BLOCKED = "link-preview-address-blocked";
@@ -175,11 +202,35 @@ export const ROOMS_FAILURES = {
 		summary: "Nobody is here under that name right now.",
 		action: null,
 	},
-	"introduction-pending": {
+	"member-unreachable": {
 		subject: "member",
-		retry: "soon",
-		summary: "They aren't set up to receive this yet.",
-		action: "Rooms has asked them. Try again in a moment.",
+		retry: "after-state-change",
+		summary: "Rooms couldn't reach that member.",
+		action: "Try again once they're online.",
+	},
+	"peer-unreachable": {
+		subject: "peer",
+		retry: "after-state-change",
+		summary: "Rooms couldn't reach the other side.",
+		action: "Try again once it's back online.",
+	},
+	"transport-not-dialed": {
+		subject: "address",
+		retry: "after-state-change",
+		summary: "That address uses a transport this session doesn't dial.",
+		action: "Start this session with that transport, or ask for an address on one it has.",
+	},
+	"introduction-refused": {
+		subject: "member",
+		retry: "after-state-change",
+		summary: "That member's side turned the conversation down.",
+		action: null,
+	},
+	"introduction-timed-out": {
+		subject: "member",
+		retry: "after-state-change",
+		summary: "That member didn't answer in time.",
+		action: "Try again once they are ready to receive messages.",
 	},
 	"direct-not-accepted": {
 		subject: "direct-conversation",
@@ -295,12 +346,6 @@ export const ROOMS_FAILURES = {
 		summary: "Rooms couldn't reach the session this link opens.",
 		action: "Check that the device or server keeping it is still running, then try again.",
 	},
-	"session-handshake-incomplete": {
-		subject: "session-peer",
-		retry: "after-state-change",
-		summary: "Rooms reached the session, but it didn't finish connecting.",
-		action: "Check that it is running a compatible version of Rooms, then try again.",
-	},
 	"session-capability-gone": {
 		subject: "session-capability",
 		retry: "after-request-change",
@@ -318,31 +363,6 @@ export const ROOMS_FAILURES = {
 		retry: "after-state-change",
 		summary: "The saved address uses a transport this session can't reach.",
 		action: "Enter its current address again, or start the session with a transport that reaches it.",
-	},
-	"session-signaling-host-offline": {
-		subject: "hosting-tab",
-		retry: "after-state-change",
-		summary: "The hosting tab isn't answering on the directory this link names.",
-		action: "On that tab, share the session and leave it open. Reloading it ends sharing.",
-	},
-	"session-signaling-unavailable": {
-		subject: "signaling-directory",
-		retry: "after-state-change",
-		summary: "This browser couldn't connect through the directory the link names.",
-		action: "Try again once that directory is reachable from here.",
-	},
-	"session-webrtc-no-route": {
-		subject: "webrtc-route",
-		retry: "after-request-or-state-change",
-		summary: "The two browsers found each other, but couldn't open a connection between them.",
-		action:
-			"If the networks allow no direct connection, configure TURN or select Relay and share a new link. A link already issued keeps its original route.",
-	},
-	"direct-no-route": {
-		subject: "webrtc-route",
-		retry: "after-state-change",
-		summary: "No direct route opened from this browser.",
-		action: "A Rooms server gives this browser another route.",
 	},
 	"session-peer-unverified": {
 		subject: "session-peer",

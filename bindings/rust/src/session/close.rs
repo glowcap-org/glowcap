@@ -294,6 +294,8 @@ fn request_close_on_owner(shared: &Rc<SessionShared>, pending: PendingWork) -> R
 	// A close request or escalation is close-relevant activity: a driver
 	// parked on a now-superseded wait must re-check progress.
 	shared.host.note_close_activity();
-	shared.host.schedule_kick()?;
+	// The close request committed, so a refused progress kick is latched for
+	// Host close rather than reported as a refused close.
+	shared.host.schedule_kick_or_record();
 	Ok(())
 }

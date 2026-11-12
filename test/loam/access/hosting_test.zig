@@ -334,7 +334,7 @@ test "loam managed hosting keeps reference custody separate from reply authority
     try std.testing.expectEqual(@as(u16, 2), view.edge_count);
     var current_edges = view.edges();
     try std.testing.expect(current_edges.next().?.target.eql(target));
-    // Later custody must preserve earlier declarations; declaring custody status-allow: event or source ordering
+    // Later custody must preserve earlier declarations; declaring custody
     // later must promote only that capability into the allowed reply suffix.
     call.requireDisclosedReply();
     const exact = host.application.smuggle.?;
@@ -458,4 +458,86 @@ test "loam managed hosting retries harmless commits with bounded preparation mem
     try host.drain(&backend);
     try std.testing.expectEqual(@as(?i64, 0), answer.number);
     try std.testing.expectEqual(@as(u64, 1), host.attached.stats.invocations);
+}
+
+const SavedReplacement = struct { replaced: bool, refusals: usize, refusals_holding: usize };
+
+/// One `replace-reference-saved` call under a `call_bytes` allowance. A write
+/// it reaches is refused, so the store stays as seeded for the next run.
+fn replaceFromSave(store: *h.loam.core.Store, backend: anytype, data: h.Data, call_bytes: usize) !SavedReplacement {
+    var host: h.Hosted = undefined;
+    try host.initOptions(store, backend, data, .{ .sleep_policy = .every_turn, .call_bytes = call_bytes });
+    defer host.deinit();
+    const save = try h.loam.hosting.references.beginSave(host.attached, a, host.use, null);
+    defer save.deinit();
+    host.application.saved = save;
+    host.application.saved_target = host.use;
+    host.application.host = &host.host;
+    var answer: h.Answer = .{};
+    try host.mutate(host.use, 1, "replace-reference-saved", &.{}, &answer);
+    for (0..256) |_| {
+        _ = try host.host.vat.driveIngressBudgeted(.local, 64);
+        try host.attached.advance();
+        if (try host.reads(backend)) |batch| try host.attached.completeWrite(batch.ticket, .{ .unchanged = error.InjectedWriteFailure });
+        if (!host.attached.hasPendingWork()) break;
+    } else return error.DidNotQuiesce;
+    return .{
+        .replaced = host.application.saved_replaced,
+        .refusals = host.application.refusals,
+        .refusals_holding = host.application.refusals_holding,
+    };
+}
+
+test "loam managed hosting replaces a field from a finished save and refuses without holding its capability" {
+    var backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
+    defer backend.deinit();
+    var store = try h.loam.core.Store.init(a, try backend.open(), &h.schemas, h.limits);
+    defer store.deinit() catch unreachable;
+    const data = try h.seed(&store, &backend);
+
+    // The smallest call allowance whose replacement returns, and the smallest
+    // whose call reaches the replacement at all. Every allowance between them
+    // runs out inside the replacement, and each refusal must leave the saved
+    // capability's retain count as it found it.
+    var fits: usize = 64 * 1024;
+    try std.testing.expect((try replaceFromSave(&store, &backend, data, fits)).replaced);
+    var short: usize = 1024;
+    while (fits - short > 1) {
+        const middle = short + (fits - short) / 2;
+        if ((try replaceFromSave(&store, &backend, data, middle)).replaced) fits = middle else short = middle;
+    }
+    var reaches = fits;
+    var before: usize = 1024;
+    while (reaches - before > 1) {
+        const middle = before + (reaches - before) / 2;
+        const run = try replaceFromSave(&store, &backend, data, middle);
+        if (run.replaced or run.refusals > 0) reaches = middle else before = middle;
+    }
+    try std.testing.expect(reaches < fits);
+    for (reaches..fits) |call_bytes| {
+        const run = try replaceFromSave(&store, &backend, data, call_bytes);
+        try std.testing.expect(!run.replaced);
+        try std.testing.expect(run.refusals > 0);
+        try std.testing.expectEqual(@as(usize, 0), run.refusals_holding);
+    }
+
+    // With room, the copied save commits in place of field 0.
+    var host: h.Hosted = undefined;
+    try host.init(&store, &backend, data);
+    defer host.deinit();
+    const save = try h.loam.hosting.references.beginSave(host.attached, a, host.use, null);
+    defer save.deinit();
+    host.application.saved = save;
+    host.application.saved_target = host.use;
+    host.application.host = &host.host;
+    var replaced: h.Answer = .{};
+    try host.mutate(host.use, 1, "replace-reference-saved", &.{}, &replaced);
+    try host.drain(&backend);
+    try std.testing.expectEqual(@as(?bool, true), replaced.changed);
+    const lease = try h.c.load(&store, &backend, data.content);
+    defer store.release(lease) catch unreachable;
+    const view = try store.currentView(lease);
+    var edges = view.edges();
+    try std.testing.expect(edges.next().?.target.eql(data.use));
+    try std.testing.expect(edges.next().?.strength == .weak);
 }

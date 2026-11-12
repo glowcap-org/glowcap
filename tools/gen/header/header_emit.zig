@@ -17,6 +17,7 @@
 //! emitter fails loudly at the header it breaks.
 
 const std = @import("std");
+const ReleaseResult = @import("c_abi_shared").ReleaseResult;
 
 /// Shared freshness rule for every archive-local diagnostic reader. Keeping
 /// this sentence here prevents one header from promising sticky diagnostics
@@ -113,7 +114,7 @@ pub fn Emit(comptime Spec: type) type {
         }
 
         /// A pointer-to-self field must spell `const struct Name *` in C: the
-        /// typedef is not complete yet at that point. status-allow: pending state or quoted runtime label
+        /// typedef is not complete yet at that point.
         fn selfRef(comptime Owner: type, comptime FieldT: type, comptime name: []const u8) []const u8 {
             if (@typeInfo(FieldT) == .optional) {
                 const child = @typeInfo(FieldT).optional.child;
@@ -160,7 +161,8 @@ pub fn Emit(comptime Spec: type) type {
         /// sign-compare warning on the signed side. A negative code expands
         /// parenthesized, `(-1)` not `-1`, so `x-GLOWCAP_ERR_IO` written without
         /// spaces cannot lex as a decrement. A name in `Spec.const_docs` gets its
-        /// one curated comment line first.
+        /// one curated comment line first. A string constant expands as one C
+        /// string literal, so its text may hold no quote or backslash.
         pub fn emitConst(b: *Buf, gpa: std.mem.Allocator, comptime name: []const u8) !void {
             if (@hasDecl(Spec, "const_docs")) {
                 inline for (Spec.const_docs) |entry| {
@@ -170,6 +172,12 @@ pub fn Emit(comptime Spec: type) type {
                 }
             }
             const value = comptime if (@hasDecl(Spec, "constant")) Spec.constant(name) else @field(c, name);
+            if (comptime @typeInfo(@TypeOf(value)) == .pointer) {
+                const text: []const u8 = value;
+                comptime if (std.mem.indexOfAny(u8, text, "\"\\") != null)
+                    @compileError(name ++ " holds a quote or backslash, which a C string literal would need escaped");
+                return line(b, gpa, "#define {s} \"{s}\"", .{ name, text });
+            }
             const negative = comptime blk: {
                 const T = @TypeOf(value);
                 if (@typeInfo(T) != .int) break :blk false;
@@ -184,7 +192,7 @@ pub fn Emit(comptime Spec: type) type {
         }
 
         /// Emit a struct typedef, fields reflected from the real type. `docs`
-        /// gives an optional `/* ... */` line per field (field order; "" to skip).
+        /// gives an optional `/* ... */` line per field (in field order, with "" to skip).
         pub fn emitStruct(
             b: *Buf,
             gpa: std.mem.Allocator,
@@ -293,7 +301,11 @@ pub fn Emit(comptime Spec: type) type {
             }
             const info = @typeInfo(@TypeOf(@field(c, fn_name))).@"fn";
             if (info.param_types.len != param_names.len) @compileError("param name count mismatch for " ++ fn_name);
-            try emitDoc(b, gpa, doc);
+            const release_doc = if (comptime ReleaseResult.isFunction(fn_name, @TypeOf(@field(c, fn_name))))
+                "\nRelease result: negative retains ownership, zero consumes successfully, and\npositive consumes with a failure. Use glowcap_release_result_consumed and\nglowcap_release_result_code before retrying or reporting the failure."
+            else
+                "";
+            try emitDoc(b, gpa, doc ++ release_doc);
 
             try b.print(gpa, "{s} {s}(", .{ comptime cType(info.return_type.?), fn_name });
             // A zero-parameter C prototype must spell `(void)`: a bare `()` is a

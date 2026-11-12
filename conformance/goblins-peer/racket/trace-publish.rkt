@@ -2,9 +2,12 @@
 ;; trace-publish.rkt: publish this vat's own protocol activity to a live
 ;; timeline endpoint.
 ;;
-;; A timeline endpoint takes records from several peers at once. Viewers connect
-;; to `/` and receive records; producers connect to `/publish` and send them, one
-;; JSON record per frame, and are sent none back. This vat is a producer, so the
+;; A timeline endpoint takes records from several peers at once. Viewers open a
+;; CapTP byte channel at `/captp` and fetch the trace object with its swiss
+;; number. Producers connect to `/publish`, send that swiss number as their first
+;; message, then send records, one JSON record per frame, and are sent none
+;; back. No route takes a query, so the capability never rides a URL. This vat is
+;; a producer, so the
 ;; sessions it holds appear beside every other peer's. Where two peers both
 ;; report one session, the endpoint forwards both views and a viewer folds them
 ;; into one edge, because each end names the session by the same OCapN Session
@@ -32,8 +35,17 @@
 ;; vanished from. The worker therefore syncs on the connection itself, not on
 ;; `ws-conn-closed?`, which a socket nobody reads can never flip.
 ;;
-;; Nothing is published unless an endpoint is configured. `GLOWCAP_ROOMS_TRACE_URL` names
-;; one; with the variable unset the vat holds no socket and emits no record.
+;; Nothing is published unless an endpoint is configured. Two variables name one,
+;; both from the server's trace link:
+;;
+;; - `GLOWCAP_ROOMS_TRACE_URL` is the producer route, the link's `trace-publish`
+;;   hint, used exactly as given. A URL with a query is refused.
+;; - `GLOWCAP_ROOMS_TRACE_CAP` is the link's swiss number, sent as the first
+;;   message on every connection, well inside the endpoint's handshake deadline.
+;;
+;; With the URL unset the vat holds no socket and emits no record. A URL set
+;; without its capability is refused, so a vat never dials a socket the endpoint
+;; would turn away.
 
 (require json
          net/rfc6455
@@ -42,19 +54,21 @@
          racket/list
          racket/string)
 
-(provide publish-url
+(provide (struct-out trace-endpoint)
          trace-endpoint-from-env
          trace-endpoint-variable
+         trace-capability-variable
          make-trace-publisher
          trace-publisher-sink
          stop-trace-publisher)
 
-;; The path a producer connects to. Viewers use `/`; naming the split once is
-;; what keeps a producer and the endpoint from drifting apart.
-(define publish-path "publish")
-
-;; The environment variable that names the endpoint.
+;; The environment variables that name the producer route and its capability.
 (define trace-endpoint-variable "GLOWCAP_ROOMS_TRACE_URL")
+(define trace-capability-variable "GLOWCAP_ROOMS_TRACE_CAP")
+
+;; Where a producer publishes: the exact route and the swiss number it presents
+;; there.
+(struct trace-endpoint (url capability) #:transparent)
 
 ;; What this producer answers when a record asks what it runs. A constant and
 ;; not an argument: the vat behind this publisher is a Goblins vat, and letting
@@ -85,42 +99,61 @@
 (define (stop-trace-publisher pub)
   ((trace-publisher-stop pub)))
 
-;; Turn a viewer URL into the producer URL for the same endpoint. Either
-;; spelling is accepted, so a caller can pass whatever URL it was configured
-;; with.
-(define (publish-url url-string)
-  (define parsed (string->url url-string))
-  (define segments (url-path parsed))
-  (define last-segment
-    (if (null? segments) "" (path/param-path (last segments))))
-  (if (equal? last-segment publish-path)
-      (url->string parsed)
-      (url->string
-       (struct-copy url parsed
-                    [path-absolute? #t]
-                    [path (list (path/param publish-path '()))]))))
-
-;; The endpoint this vat publishes to, or #f when none is configured.
-(define (trace-endpoint-from-env)
-  (define raw (getenv trace-endpoint-variable))
+;; A configured variable's value, or #f when it is unset or blank.
+(define (configured name)
+  (define raw (getenv name))
   (and raw
        (let ([trimmed (string-trim raw)])
          (and (positive? (string-length trimmed)) trimmed))))
 
-;; Start publishing to the endpoint at `url`.
+;; The endpoint this vat publishes to, or #f when no URL is configured. A URL
+;; without its capability is refused here, before anything starts.
+(define (trace-endpoint-from-env)
+  (define url (configured trace-endpoint-variable))
+  (define capability (configured trace-capability-variable))
+  (cond
+    [(not url) #f]
+    [(not capability)
+     (error 'trace-publish "~a is set, so ~a must name the trace link's swiss number"
+            trace-endpoint-variable trace-capability-variable)]
+    [else (trace-endpoint url capability)]))
+
+;; Start publishing to `endpoint`, a `trace-endpoint`.
 ;;
 ;; `self-label` is what this vat would like its own endpoint CALLED on screen, a
 ;; display name beside the identity rather than instead of it: the record's `a`
 ;; stays the designator a partner names this vat by, which is the only name two
 ;; producers can agree on. `on-error` hears a socket that could not be opened or
 ;; written, so a caller may log it; the publisher itself carries on either way.
-(define (make-trace-publisher url
+;; The scheme, host, port, and path of `written`, for a message that must not
+;; repeat its query.
+(define (route-without-query written)
+  (define u (string->url written))
+  (format "~a://~a~a~a"
+          (or (url-scheme u) "")
+          (or (url-host u) "")
+          (if (url-port u) (format ":~a" (url-port u)) "")
+          (string-join (for/list ([p (in-list (url-path u))])
+                         (format "/~a" (path/param-path p)))
+                       "")))
+
+(define (make-trace-publisher endpoint
                               #:self-label [self-label #f]
                               #:on-error [on-error void])
-  (define target (publish-url url))
+  (define written (trace-endpoint-url endpoint))
+  ;; The endpoint refuses any route with a query. Refused here, before a socket
+  ;; exists, and never stripped, because a query is most likely a capability
+  ;; that has already been written somewhere it should not be. Read off the
+  ;; text as written, so an empty query counts too. The refusal names the
+  ;; route without its query, so the capability it may hold is not repeated.
+  (when (regexp-match? #rx"[?]" written)
+    (error 'trace-publish "the trace URL ~a carries a query. Pass the producer route alone, and its capability in ~a"
+           (route-without-query written) trace-capability-variable))
+  (define target (string->url written))
+  (define capability (trace-endpoint-capability endpoint))
   (define channel (make-async-channel))
   (define worker
-    (thread (lambda () (publisher-loop target channel self-label on-error))))
+    (thread (lambda () (publisher-loop target capability channel self-label on-error))))
   (trace-publisher
    ;; The sink a netlayer calls, from whichever thread observed the fact. It
    ;; only ever puts on the channel, so the worker owns every piece of state
@@ -176,7 +209,7 @@
 ;; The worker. Everything the publisher remembers lives on this one thread, and
 ;; the only way in is the channel, so the netlayer threads that report facts
 ;; never touch it.
-(define (publisher-loop target channel self-label on-error)
+(define (publisher-loop target capability channel self-label on-error)
   (define started (current-inexact-monotonic-milliseconds))
   ;; The sessions this vat is holding, by the netlayer's handle for each: the id
   ;; it was announced under, and the record announcing it. This is the state a
@@ -239,7 +272,10 @@
 
   (define (connect!)
     (with-handlers ([exn:fail? (lambda (e) (on-error e) (set! connection #f))])
-      (set! connection (ws-connect (string->url target)))
+      (set! connection (ws-connect target))
+      ;; The endpoint reads a producer's capability from its first message and
+      ;; parses nothing it sends before that.
+      (ws-send! connection capability)
       (for ([handle (in-list (reverse open-order))])
         (define row (hash-ref open-sessions handle #f))
         (when row (send-record! (cdr row))))
@@ -318,10 +354,28 @@
           (ws-serve handler #:port candidate)))
       (if stop (values stop candidate) (attempt (sub1 tries)))))
 
-  ;; Either spelling of the endpoint reaches the producer path.
-  (check-equal? (publish-url "ws://127.0.0.1:9300/") "ws://127.0.0.1:9300/publish")
-  (check-equal? (publish-url "ws://127.0.0.1:9300") "ws://127.0.0.1:9300/publish")
-  (check-equal? (publish-url "ws://127.0.0.1:9300/publish") "ws://127.0.0.1:9300/publish")
+  ;; The environment names a route and its capability together, or nothing.
+  (define (endpoint-from url capability)
+    (parameterize ([current-environment-variables (make-environment-variables)])
+      (when url (putenv trace-endpoint-variable url))
+      (when capability (putenv trace-capability-variable capability))
+      (trace-endpoint-from-env)))
+  (check-false (endpoint-from #f #f))
+  (check-false (endpoint-from #f "cd"))
+  (check-equal? (endpoint-from " ws://127.0.0.1:9300/publish " "cd")
+                (trace-endpoint "ws://127.0.0.1:9300/publish" "cd"))
+  (check-exn #rx"GLOWCAP_ROOMS_TRACE_CAP must name"
+             (lambda () (endpoint-from "ws://127.0.0.1:9300/publish" #f)))
+  ;; A query is refused whole, even an empty one, before any socket exists.
+  (for ([written (in-list '("ws://127.0.0.1:9300/publish?cap=cd" "ws://127.0.0.1:9300/publish?"))])
+    (check-exn #rx"carries a query"
+               (lambda () (make-trace-publisher (trace-endpoint written "cd")))))
+  ;; The refusal names the route and never the query it refused.
+  (define refusal
+    (with-handlers ([exn:fail? exn-message])
+      (make-trace-publisher (trace-endpoint "ws://127.0.0.1:9300/publish?cap=secret-swiss" "cd"))))
+  (check-regexp-match #rx"ws://127[.]0[.]0[.]1:9300/publish carries a query" refusal)
+  (check-false (regexp-match? #rx"secret-swiss" refusal))
 
   ;; The two records a session's life produces, in the schema an endpoint
   ;; accepts. Both name the same session; only the open carries identity.
@@ -369,9 +423,12 @@
   ;; open session a second time, and one that does not never returns.
   (let ()
     (define arrivals (make-async-channel))
+    (define presented (make-async-channel))
     (define hung-up? (box #f))
     (define (endpoint conn _state)
       (define first? (not (unbox hung-up?)))
+      ;; Every connection opens with the capability, before any record.
+      (async-channel-put presented (ws-recv conn #:payload-type 'text))
       (let loop ()
         (define line (ws-recv conn #:payload-type 'text))
         (unless (eof-object? line)
@@ -380,10 +437,12 @@
             [first? (set-box! hung-up? #t) (ws-close! conn)]
             [else (loop)]))))
     (define-values (stop-endpoint port) (serve-on-a-free-port endpoint))
-    (define pub (make-trace-publisher (format "ws://127.0.0.1:~a/" port)))
+    (define pub
+      (make-trace-publisher (trace-endpoint (format "ws://127.0.0.1:~a/publish" port) "cd")))
     ((trace-publisher-sink pub) 'open 'handle-1 info)
 
     (define (next-open what)
+      (check-equal? (sync/timeout 20.0 presented) "cd" "a connection did not open with the capability")
       (define line (sync/timeout 20.0 arrivals))
       (check-true (string? line) what)
       (when (string? line)

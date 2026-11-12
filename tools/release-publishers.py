@@ -41,11 +41,9 @@ import argparse
 import getpass
 import json
 import re
-import runpy
 import subprocess
 import sys
 import tomllib
-import types
 import urllib.error
 import urllib.request
 import webbrowser
@@ -62,8 +60,11 @@ FIRST_PUBLISH_VARIABLE = "CARGO_REGISTRY_TOKEN"
 
 # The publisher publish.yml runs owns the catalog's names: the package, its
 # public entry, the release archive URL, and the two secrets of the racket
-# environment. It lives in ci/, which `import` does not reach from here.
-catalog = types.SimpleNamespace(**runpy.run_path(str(ROOT / "ci/racket_catalog.py")))
+# environment. It lives in ci/ and imports its siblings there, so that
+# directory joins the import path.
+sys.path.insert(0, str(ROOT / "ci"))
+import racket_catalog as catalog  # noqa: E402
+
 RACKET_SECRETS = (catalog.EMAIL, catalog.PASSWORD)
 STAGES = ("github", "jsr", "pypi", "crates-io", "racket")
 COMPLETE, WAITING, INCOMPLETE, CANNOT = "complete", "waiting", "incomplete", "cannot verify"

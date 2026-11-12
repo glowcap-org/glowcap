@@ -228,7 +228,7 @@ Deno.test("temporalArcAmount: triple has middle at zero", () => {
 	assertEquals(temporalArcAmount(2, 3), MAX_TEMPORAL_ARC);
 });
 
-Deno.test("temporalArcAmount: adaptive — 10-member bundle still fills [-MAX, +MAX]", () => {
+Deno.test("temporalArcAmount: adaptive, so a 10-member bundle still fills [-MAX, +MAX]", () => {
 	assertAlmostEquals(temporalArcAmount(0, 10), -MAX_TEMPORAL_ARC, 1e-9);
 	assertAlmostEquals(temporalArcAmount(9, 10), MAX_TEMPORAL_ARC, 1e-9);
 });
@@ -250,7 +250,7 @@ Deno.test("computeMessageTimeBundles: two truly-simultaneous messages bundle tog
 	assertEquals(bundles.get("m-b")?.size, 2);
 });
 
-Deno.test("computeMessageTimeBundles: time-overlap WITHOUT exact match → singletons", () => {
+Deno.test("computeMessageTimeBundles: time overlap WITHOUT an exact match yields singletons", () => {
 	// m-a: [0, 1000], m-b: [500, 1500] overlap, but the natural
 	// sentT stagger already separates them. No arc.
 	const bundles = computeMessageTimeBundles([
@@ -261,7 +261,7 @@ Deno.test("computeMessageTimeBundles: time-overlap WITHOUT exact match → singl
 	assertEquals(bundles.get("m-b"), { index: 0, size: 1 });
 });
 
-Deno.test("computeMessageTimeBundles: same sentT but different arrivalT → singletons", () => {
+Deno.test("computeMessageTimeBundles: the same sentT but different arrivalT yields singletons", () => {
 	// Same departure, different flight time → already differentiated.
 	const bundles = computeMessageTimeBundles([
 		msg("m-a", "s-1", 0, 1000),
@@ -271,7 +271,7 @@ Deno.test("computeMessageTimeBundles: same sentT but different arrivalT → sing
 	assertEquals(bundles.get("m-b"), { index: 0, size: 1 });
 });
 
-Deno.test("computeMessageTimeBundles: same arrivalT but different sentT → singletons", () => {
+Deno.test("computeMessageTimeBundles: the same arrivalT but different sentT yields singletons", () => {
 	// Different departure → already differentiated.
 	const bundles = computeMessageTimeBundles([
 		msg("m-a", "s-1", 0, 1000),

@@ -8,16 +8,23 @@
 #   .cursor/hooks.json    (afterFileEdit), input is .file_path
 #   .claude/settings.json (PostToolUse, Edit|Write|MultiEdit), input is .tool_input.file_path
 #
-# Failure posture: exit 0 even on formatter error so a half-saved file does not
-# block the next edit. `zig build check` is the gate.
+# Failure posture: the edit has already happened, so no exit blocks it. A
+# formatter failure, often an unfinished edit, prints its message and exits 2
+# for Claude, the code that shows stderr to the model, and 1 for Cursor, whose
+# 2 means deny and whose other failures proceed. The owning format check stays
+# the gate.
 
 set -uo pipefail
 
 if ! command -v jq >/dev/null 2>&1; then
-  exit 0
+  echo "format-edited-file: jq is not on PATH, so the edited file is not formatted" >&2
+  exit 1
 fi
 
-file_path="$(jq -r '.file_path // .tool_input.file_path // empty')"
+payload="$(cat)"
+file_path="$(jq -r '.file_path // .tool_input.file_path // empty' <<<"$payload")"
+failure=1
+[[ "$(jq -r 'has("tool_input")' <<<"$payload")" == true ]] && failure=2
 
 [[ -z "$file_path" ]] && exit 0
 [[ ! -f "$file_path" ]] && exit 0
@@ -28,6 +35,5 @@ source "${hook_dir}/lib/format.sh"
 
 # The caller's directory decides where ruff runs, so start from the file's own.
 file_dir="$(cd "$(dirname "$file_path")" && pwd -P)"
-cd "$file_dir" || exit 0
-glowcap_format_files "${file_dir}/$(basename "$file_path")" || true
-exit 0
+cd "$file_dir" || exit "$failure"
+glowcap_format_files "${file_dir}/$(basename "$file_path")" || exit "$failure"

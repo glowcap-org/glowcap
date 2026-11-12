@@ -42,7 +42,7 @@ fn ack() -> [Argument; 3] {
 	["registered".into(), "alice".into(), ID.into()]
 }
 fn event() -> [Argument; 4] {
-	["introducible".into(), "bob".into(), ID.into(), "opening".into()]
+	["mintInboxFor".into(), "bob".into(), ID.into(), "opening".into()]
 }
 #[tokio::test]
 async fn registration_binds_identity_to_custody_and_retains_cancelled_observation() {
@@ -62,9 +62,12 @@ async fn scenario() {
 	)
 	.await
 	.unwrap();
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
 	let locator = server.locator().unwrap();
 	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
 	let accepted = Rc::new(accepted.unwrap());
@@ -173,7 +176,7 @@ async fn scenario() {
 	let first_target = notify.borrow().clone().unwrap();
 	accepted.send(&first_target, "notify", &event()).await.unwrap();
 	let e = registration.next().await.unwrap().unwrap();
-	assert_eq!(e.kind, Kind::Introducible);
+	assert_eq!(e.kind, Kind::MintInboxFor);
 	assert_eq!(e.peer.text().as_str(), Some("bob"));
 	assert_eq!(e.registration.as_str(), ID);
 	assert!(
@@ -181,7 +184,7 @@ async fn scenario() {
 			.send(
 				&first_target,
 				"notify",
-				&["introducible".into(), "bob".into(), "bad".into()]
+				&["mintInboxFor".into(), "bob".into(), "bad".into()]
 			)
 			.await
 			.is_err()

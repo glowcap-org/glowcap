@@ -227,7 +227,7 @@ pub const Backend = struct {
 
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
-    /// A platform listener is bound when `openListener` returns; nothing
+    /// A platform listener is bound when `openListener` returns. Nothing
     /// pends.
     pub fn listenerPending(_: *const Backend, _: Fd) bool {
         return false;

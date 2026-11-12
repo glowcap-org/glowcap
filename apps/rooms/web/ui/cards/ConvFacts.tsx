@@ -30,6 +30,7 @@ import {
 	factLineNotOpen,
 	factLineOpen,
 	factMembersHere,
+	factModeratedRoom,
 	factPath,
 	factPeopleHere,
 	factPrivateRoom,
@@ -47,9 +48,12 @@ import { subjectCopyLink } from "../../../lib/text/controls.ts";
 import { Button } from "../Button.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
+import { roomPreset } from "../room_policy.ts";
+import type { RoomPolicy } from "../../../lib/room/policy.ts";
 
-function roomKind(held: boolean): string {
-	return held ? factPrivateRoom : factPublicRoom;
+function roomKind(held: boolean, policy: RoomPolicy): string {
+	if (held) return factPrivateRoom;
+	return roomPreset(policy) === "moderated" ? factModeratedRoom : factPublicRoom;
 }
 
 function lineSaid(line: "introducing" | "live" | "closed"): string {
@@ -90,7 +94,7 @@ export function ConvFacts(
 				<dt>{factThisIs}</dt>
 				<dd>
 					{conv.type === "room"
-						? roomKind(conv.held)
+						? roomKind(conv.held, conv.policy)
 						: conv.type === "dm"
 						? factDirectMessage
 						: factDirectory}

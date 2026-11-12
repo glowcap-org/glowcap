@@ -37,7 +37,7 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 					.change_share(rooms_application::archive::shares::Command::Revoke(share.id().into()))
 					.await
 					.map(|_| ());
-				Err(error.retain_result(revoked))
+				Err(crate::cleanup::failed(error, revoked))
 			}
 		}
 	}

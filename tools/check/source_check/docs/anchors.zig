@@ -29,7 +29,7 @@ pub fn has(contents: []const u8, fragment: []const u8) bool {
         const text = headingText(trimmed) orelse continue;
         const s = slug(text, &buf);
         if (std.mem.eql(u8, s, fragment)) return true;
-        // A later twin of an earlier heading: GitHub appends `-<n>`. status-allow: event or source ordering
+        // A later twin of an earlier heading: GitHub appends `-<n>`.
         if (std.mem.startsWith(u8, fragment, s) and fragment.len > s.len + 1 and fragment[s.len] == '-') {
             // tolerant: a non-numeric suffix names no twin of this heading, and the scan moves on to the next heading.
             if (std.fmt.parseInt(usize, fragment[s.len + 1 ..], 10)) |_| return true else |_| {}
@@ -103,7 +103,7 @@ test "a fragment names a heading the way GitHub slugs it" {
     try std.testing.expect(has(doc, "the-host-api-in-short"));
     try std.testing.expect(has(doc, "errors-climb-to-the-tier-that-can-act"));
     try std.testing.expect(has(doc, "notes-1"));
-    try std.testing.expect(has(doc, "see-adr-0115"));
+    try std.testing.expect(has(doc, "see-adr-0031"));
     try std.testing.expect(has(doc, "kept-anchor"));
     try std.testing.expect(!has(doc, "fenced"));
     try std.testing.expect(!has(doc, "not-a-heading"));

@@ -5,7 +5,7 @@
 // judges every socket: its admission mark and its typed refusal must both
 // arrive through the carried leg unchanged.
 
-import { TRACE_REFUSED_CLOSE_CODE, traceCapUrl } from "../../lib/trace_publish.ts";
+import { TRACE_REFUSED_CLOSE_CODE } from "../../lib/application_data.ts";
 import { assert } from "../assert.ts";
 import { ROOT, WEB } from "../support/paths.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
@@ -21,26 +21,31 @@ async function readSwiss(stateDir: string): Promise<string> {
 			const swiss = (await Deno.readTextFile(`${stateDir}/trace`)).trim();
 			if (swiss !== "") return swiss;
 		} catch {
-			// Not written yet. status-allow: pending state or quoted runtime label
+			// The server has not written it.
 		}
 		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
 	throw new Error("the room server never persisted its trace swiss");
 }
 
-/** Open `url` and settle with what the far side did first: the first text
- * frame, or the close it answered instead. */
-function firstAnswer(url: string): Promise<{ kind: "message"; text: string } | { kind: "close"; code: number }> {
-	return new Promise((resolve, reject) => {
+/** Open `url`, presenting `swiss` as the first message when there is one
+ * (the only place the endpoint reads a producer's capability), and settle with
+ * what the far side did first: the first text frame, or the close it answered
+ * instead. A refusal can close the socket before the presented swiss is
+ * written, which fails that send; the close that follows still carries the
+ * far side's code, so the answer is read from it rather than from the error. */
+function firstAnswer(
+	url: string,
+	swiss: string | null = null,
+): Promise<{ kind: "message"; text: string } | { kind: "close"; code: number }> {
+	return new Promise((resolve) => {
 		const socket = new WebSocket(url);
+		if (swiss != null) socket.addEventListener("open", () => socket.send(swiss), { once: true });
 		socket.addEventListener("message", (event) => {
 			resolve({ kind: "message", text: String(event.data) });
 			socket.close();
 		}, { once: true });
 		socket.addEventListener("close", (event) => resolve({ kind: "close", code: event.code }), { once: true });
-		socket.addEventListener("error", () => reject(new Error("the socket failed before answering")), {
-			once: true,
-		});
 	});
 }
 
@@ -53,7 +58,6 @@ roomsTest("the page origin carries trace sockets, admission and refusal alike", 
 		args: ["--transport=tcp", String(httpPort), "0"],
 		cwd: ROOT,
 		env: {
-			...Deno.env.toObject(),
 			GLOWCAP_ROOMS_STATE: stateDir,
 			GLOWCAP_ROOMS_CAPABILITIES: "trace",
 			GLOWCAP_ROOMS_TRACE_PORT: "0",
@@ -69,7 +73,7 @@ roomsTest("the page origin carries trace sockets, admission and refusal alike", 
 		// A wrong capability's typed refusal crosses the carried leg intact,
 		// so the browser can erase a dead secret.
 		const refused = await within(
-			firstAnswer(traceCapUrl(`ws://127.0.0.1:${httpPort}/publish`, "cd".repeat(32))),
+			firstAnswer(`ws://127.0.0.1:${httpPort}/publish`, "cd".repeat(32)),
 			"the carried refusal",
 			15_000,
 		);
@@ -80,7 +84,7 @@ roomsTest("the page origin carries trace sockets, admission and refusal alike", 
 
 		// The right capability hears the endpoint's own admission mark.
 		const admitted = await within(
-			firstAnswer(traceCapUrl(`ws://127.0.0.1:${httpPort}/publish`, swiss)),
+			firstAnswer(`ws://127.0.0.1:${httpPort}/publish`, swiss),
 			"the carried admission",
 			15_000,
 		);
@@ -88,15 +92,16 @@ roomsTest("the page origin carries trace sockets, admission and refusal alike", 
 			admitted.kind === "message" && admitted.text.includes("trace.publish-ready"),
 			`expected the admission mark through the origin: ${JSON.stringify(admitted)}`,
 		);
-		// The viewer path is the same door at `/trace`.
-		const viewer = await within(
-			firstAnswer(traceCapUrl(`ws://127.0.0.1:${httpPort}/trace`, "cd".repeat(32))),
-			"the carried viewer refusal",
+		// A capability in the URL is refused outright, even the right one, so no
+		// route admits a secret that a proxy log or browser history kept.
+		const queried = await within(
+			firstAnswer(`ws://127.0.0.1:${httpPort}/publish?cap=${swiss}`, swiss),
+			"the carried query refusal",
 			15_000,
 		);
 		assert(
-			viewer.kind === "close" && viewer.code === TRACE_REFUSED_CLOSE_CODE,
-			`expected the viewer leg's refusal through the origin: ${JSON.stringify(viewer)}`,
+			queried.kind === "close" && queried.code === TRACE_REFUSED_CLOSE_CODE,
+			`expected a query to be refused through the origin: ${JSON.stringify(queried)}`,
 		);
 		const response = await fetch(`http://127.0.0.1:${httpPort}/trace/locator`);
 		assert(response.ok, "the current trace locator is discoverable without its capability");

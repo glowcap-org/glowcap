@@ -1,7 +1,7 @@
 //! `infrastructure-check` and `timeout-runner-test`: the executable behaviour
 //! of the devcontainer, worktrees, agent hooks, every Python program under
 //! `ci/` and `tools/`, the content-stable library install, and the CI deadline
-//! wrapper. Static path and pin parity stay in `source-check`; these steps
+//! wrapper. Static path and pin parity stay in `source-check`. These steps
 //! clone repositories, rewrite temporary Git histories, and wait on real
 //! deadlines, so a focused source edit never pays for them.
 

@@ -3,7 +3,7 @@ const std = @import("std");
 const arch_check = @import("../check/arch_check.zig");
 
 /// Materialize one module per table row, in order, resolving each row's edges
-/// against the earlier rows. Every module is position-independent so each status-allow: event or source ordering
+/// against the earlier rows. Every module is position-independent so each
 /// static archive (`libglowcap_ocapn.a`, the transport archives) links cleanly
 /// into a PIE consumer (the Rust binding's tests link a static archive into a
 /// position-independent test binary,

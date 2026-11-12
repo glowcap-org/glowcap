@@ -35,7 +35,10 @@ async fn scenario(use_iroh: bool) {
 	let provider = if use_iroh {
 		iroh::provider(iroh::Config::new(iroh::Reachability::Direct))
 	} else {
-		tcp::provider(Default::default())
+		tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})
 	};
 	let runtime = Runtime::open(RuntimeConfig::providers([provider])).await.unwrap();
 	let mut previous_swiss = None;

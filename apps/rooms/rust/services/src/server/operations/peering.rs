@@ -23,7 +23,7 @@ const READY: &str = rooms_application::protocol_data::PUBLICATION_READY;
 const DESCRIBE: &str = rooms_application::protocol_data::PUBLICATION_DESCRIBE;
 const REVOKE: &str = rooms_application::protocol_data::REVOKE;
 
-/// What a lease's `ready` waits on: nothing yet, live, or why not. status-allow: pending state or quoted runtime label
+/// What a lease's `ready` waits on: nothing yet, live, or why not.
 pub(crate) type Outcome = Option<Result<(), String>>;
 
 pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
@@ -76,7 +76,7 @@ fn publish(shared: &Shared, session: &Session, name: &str, room: Ref) -> Result<
 		Ok(seat) => seat,
 		Err(_) => {
 			forget(&mut state, &entry_id);
-			return Err(answer::busy());
+			return Err(answer::work_busy());
 		}
 	};
 	let resolving = match session.borrowed().listen(&room).into_admitted() {
@@ -122,7 +122,7 @@ fn publish(shared: &Shared, session: &Session, name: &str, room: Ref) -> Result<
 		};
 		drop(room);
 		if let Some(ready) = state.peering_ready.get(&waiting) {
-			// Stored whether or not a lease is waiting yet: a `ready` asked status-allow: pending state or quoted runtime label
+			// Stored whether or not a lease is waiting yet: a `ready` asked
 			// after the room resolved reads it back.
 			ready.send_replace(Some(outcome));
 		}
@@ -166,6 +166,7 @@ fn lease(shared: Shared, id: String) -> impl FnMut(Option<&str>, &[Argument]) ->
 				let mut outcome = ready.subscribe();
 				answer::later(
 					&state,
+					state.reserve()?,
 					rooms_application::protocol_data::PUBLICATION_READY,
 					async move {
 						loop {
@@ -194,7 +195,7 @@ fn lease(shared: Shared, id: String) -> impl FnMut(Option<&str>, &[Argument]) ->
 /// let go. A pending one tells its lease why it never became ready.
 pub(crate) fn forget(state: &mut State, id: &str) {
 	if let Some(ready) = state.peering_ready.remove(id) {
-		// tolerant: a lease no longer waiting hears nothing. status-allow: lifecycle transition
+		// tolerant: a lease no longer waiting hears nothing.
 		ready.send_replace(Some(Err("room publication was revoked before it became ready".into())));
 	}
 	let Some((entry, event)) = state.foreign.forget(id) else {

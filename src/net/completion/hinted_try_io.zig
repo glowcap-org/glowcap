@@ -47,11 +47,11 @@ pub const TryWrite = union(enum) {
 ///
 ///   * `Entry`, the connection row, with a `pending: HintedPending` field.
 ///   * `tryRead(entry, buf) TryRead` and `tryWrite(entry, bytes) TryWrite`,
-///     the sidecar verbs;
+///     the sidecar verbs.
 ///   * `closeOnFailure(entry) void`, run once when a failure latches.
 ///   * `borrowToken(index) u32`, the token a lent pool buffer carries.
 ///   * `reserveSeats(backend, count) !void` and `publish(backend, completion)
-///     void`, the ready queue's admission and its infallible append;
+///     void`, the ready queue's admission and its infallible append.
 ///   * `holds_admission_seat`, whether an admitted read or write keeps its
 ///     seat until it completes (iroh) or reserves one per publication
 ///     (WebRTC). It decides how many seats a cancellation must add.

@@ -25,6 +25,11 @@ pub fn endpoint(raw: &str) -> Result<url::Url, &'static str> {
 	}
 	Ok(parsed)
 }
+/// A `ws` endpoint a peer would reach over a network. The channel carries no
+/// encryption of its own, so only `wss` or a loopback host keeps it private.
+pub fn cleartext_off_loopback(endpoint: &url::Url) -> bool {
+	endpoint.scheme() == "ws" && !endpoint.host_str().is_some_and(crate::host::loopback)
+}
 
 #[cfg(test)]
 mod tests {
@@ -42,6 +47,27 @@ mod tests {
 			"ws://example.test/cap\ttp",
 		] {
 			assert!(endpoint(invalid).is_err(), "{invalid}");
+		}
+	}
+	#[test]
+	fn only_a_ws_endpoint_off_loopback_is_cleartext_on_a_network() {
+		for private in [
+			"wss://example.test/captp",
+			"ws://127.0.0.1:9300/captp",
+			"ws://127.0.0.2/captp",
+			"ws://[::1]:9300/captp",
+			"ws://LOCALHOST:9300/captp",
+		] {
+			assert!(!cleartext_off_loopback(&endpoint(private).unwrap()), "{private}");
+		}
+		for exposed in [
+			"ws://example.test/captp",
+			"ws://10.0.0.5:9300/captp",
+			"ws://0.0.0.0:9300/captp",
+			"ws://[2001:db8::1]/captp",
+			"ws://localhost.example.test/captp",
+		] {
+			assert!(cleartext_off_loopback(&endpoint(exposed).unwrap()), "{exposed}");
 		}
 	}
 }

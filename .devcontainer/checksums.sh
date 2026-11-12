@@ -6,7 +6,7 @@
 # then aarch64. Zig keys on OS-arch instead, and Racket returns a
 # tarball-and-hash pair, so each keeps its own case.
 
-# Keyed on OS-arch, not arch alone: the release workflow installs the same
+# Keyed on OS-arch, not arch alone: CI installs the same
 # pinned Zig on macOS runners through image/zig.sh, so the macOS tarballs
 # are pinned here beside the Linux ones.
 zig_sha256() {

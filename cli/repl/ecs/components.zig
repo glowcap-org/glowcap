@@ -5,7 +5,7 @@ const layout = @import("../layout.zig");
 /// Hit geometry in mouse/screen space (same type as layout helpers).
 pub const Rect = layout.ScreenRect;
 
-/// Dense component store keyed by entity index (generation checked by World).
+/// Dense component store keyed by entity index (World never frees entities).
 pub fn Store(comptime T: type, comptime cap: u16) type {
     return struct {
         const Self = @This();

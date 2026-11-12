@@ -14,6 +14,7 @@
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import type { EntityKind } from "./refs.ts";
 import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef } from "./edges.ts";
+import { entityMapOf } from "./entity-maps.ts";
 import { DOC_INDEX_EDGES, type DocIndexEdge } from "./doc-index.ts";
 
 /** `doc.entities` keys parallel to the three entity kinds. */
@@ -44,12 +45,9 @@ export function findEventRefs(
 		const edges = EVENT_EDGES[event.kind];
 		for (const edge of edges) {
 			if (edge.target !== targetKind) continue;
-			const value = readEdgeRef(
-				event as unknown as Record<string, unknown>,
-				edge,
-			);
+			const value = readEdgeRef(event, edge);
 			if (value === targetId) {
-				out.push({ event, field: edge.field as string });
+				out.push({ event, field: String(edge.field) });
 			}
 		}
 	}
@@ -75,19 +73,16 @@ export function findEntityRefs(
 		const edges = ENTITY_EDGES[entityKind];
 		const targetEdges = edges.filter((e) => e.target === targetKind);
 		if (targetEdges.length === 0) continue;
-		const map = doc.entities?.[ENTITIES_KEY[entityKind]];
+		const map = entityMapOf(doc, entityKind);
 		if (!map) continue;
 		for (const [id, def] of Object.entries(map)) {
 			for (const edge of targetEdges) {
-				const value = readEdgeRef(
-					def as unknown as Record<string, unknown>,
-					edge,
-				);
+				const value = readEdgeRef(def, edge);
 				if (value === targetId) {
 					out.push({
 						entityKind,
 						entityId: id,
-						field: edge.field as string,
+						field: String(edge.field),
 					});
 				}
 			}
@@ -129,7 +124,7 @@ export function findDocIndexRefs(
  *
  * Class-1 (observation events in doc.recording.sources) is
  * excluded: observations are an immutable append-only
- * history that cascade operations never mutate. A rekey leaves the old status-allow: replacement state identity
+ * history that cascade operations never mutate. A rekey leaves the old
  * id in observation payloads and that is correct, the observation
  * faithfully records what the simulator saw at that moment. */
 export function assertNoRefsTo(
@@ -142,7 +137,7 @@ export function assertNoRefsTo(
 	const idx = findDocIndexRefs(doc, kind, id);
 	if (ent.length === 0 && idx.length === 0) return;
 	throw new Error(
-		`${label}: unregistered ref site for ${kind} "${id}" — ` +
+		`${label}: unregistered ref site for ${kind} "${id}": ` +
 			`entities=${ent.length} docIndexes=${idx.length}. ` +
 			`Indicates a missing entry in ENTITY_EDGES / DOC_INDEX_EDGES.`,
 	);

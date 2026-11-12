@@ -1,10 +1,10 @@
 // Construct the browser-owned controller: presentation, navigation, and which
 // session this tab answers to.
 
-import { refusalText } from "../../../lib/text/failure.ts";
+import { type LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import * as store from "../store.ts";
 import * as net from "../page_navigation.ts";
-import { tabIdentity } from "../session/managed/open.ts";
+import { keptTabIdentity, tabIdentity } from "../session/managed/open.ts";
 import { attachedSessionFailureText } from "../session/attached_failure.ts";
 import type { openManagedSession } from "../session/managed/open.ts";
 import type { RoomsPageContext } from "../page.ts";
@@ -15,6 +15,7 @@ import { requestBrowserDataDeletion } from "./browser_data.ts";
 import { pagePath } from "../page_base.ts";
 import { addressAt } from "../route_address.ts";
 import { serverInUse } from "../server_choice.ts";
+import { localArea } from "../page_storage.ts";
 
 export function createRoomsBrowserController(
 	page: RoomsPageContext,
@@ -33,15 +34,25 @@ export function createRoomsBrowserController(
 		return page.managedSession ?? (await openLocalWorkspace()).session;
 	};
 	// A move commits when its selection lands. A failure before that point is
-	// the move's own and the page stays; after it, the page leaves.
+	// the move's own and the page stays. After it, the page leaves. The tab's
+	// choice is the one step the browser can refuse, so it is recorded first
+	// and put back when the selection does not land.
 	const moveTo = async (uri: string | null, chosen: boolean, toFront: boolean): Promise<string> => {
 		coverForReload();
 		let session: ManagedRoomsSession;
 		try {
 			session = await managed();
-			await session.selectWorkspace(uri);
-			if (chosen) localStorage.setItem(chosenKey(), "yes");
-			else localStorage.removeItem(chosenKey());
+			const was = workspaceChosen();
+			const refused = recordWorkspaceChoice(chosen);
+			if (refused != null) throw refused;
+			try {
+				await session.selectWorkspace(uri);
+			} catch (error) {
+				// tolerant: the browser kept this key a moment ago, and a refusal
+				// here leaves only which screen the next load opens on.
+				recordWorkspaceChoice(was);
+				throw error;
+			}
 		} catch (error) {
 			uncoverReload();
 			return attachedSessionFailureText(error, serverInUse(), uri);
@@ -156,15 +167,32 @@ export function createRoomsBrowserController(
 			}
 		},
 		deleteBrowserData: () => {
-			try {
-				requestBrowserDataDeletion();
-			} catch (error) {
-				return Promise.resolve(attachedSessionFailureText(error, serverInUse()));
-			}
+			const refused = requestBrowserDataDeletion();
+			if (refused != null) return Promise.resolve(refusalText(refused));
 			coverForReload();
 			finishCoveredReload(true);
 			return Promise.resolve("");
 		},
 	};
 }
-export const chosenKey = () => `rooms.workspace-choice.${tabIdentity()}`;
+const choiceKey = (tab: string) => `rooms.workspace-choice.${tab}`;
+
+/** Whether this tab chose a session, so startup opens it rather than session
+ * setup. False on a fresh tab, and wherever the browser refuses to say. */
+export function workspaceChosen(): boolean {
+	const tab = keptTabIdentity();
+	return tab != null && localArea.read(choiceKey(tab)) === "yes";
+}
+
+/** Record whether this tab chose a session. Null once kept, and otherwise the
+ * browser's refusal. */
+function recordWorkspaceChoice(chosen: boolean): LocalRefusal | null {
+	return chosen ? localArea.write(choiceKey(tabIdentity()), "yes") : forgetWorkspaceChoice();
+}
+
+/** Forget this tab's session choice, so the next load shows setup. Null once
+ * forgotten or when there was none, and otherwise the browser's refusal. */
+export function forgetWorkspaceChoice(): LocalRefusal | null {
+	const tab = keptTabIdentity();
+	return tab == null ? null : localArea.remove(choiceKey(tab));
+}

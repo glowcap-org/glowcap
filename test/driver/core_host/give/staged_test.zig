@@ -37,7 +37,7 @@ const Owner = enum { observed, released, cancelled };
 
 fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !void {
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.captp_version = profile;
     var exporter = test_host.init(allocator, @as([32]u8, @splat(0x31)), options);
     defer exporter.deinit();
@@ -63,7 +63,8 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
     const widget = try gifter.liftCapability(g_to_e.a, try widget_wire.require());
     const sink = try gifter.liftCapability(g_to_r.a, try sink_wire.require());
     const recipient_answers = g_to_r.a.served.port.peer.session_state.outbound_answers.len();
-    defer gifter.releaseCapability(sink, 1) catch {};
+    var sink_released = false;
+    errdefer if (!sink_released) gifter.releaseCapability(sink, 1) catch {};
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const nested = [_]driver.core.Value{.{ .tagged = .{
@@ -188,4 +189,6 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
         recipient_answers,
         g_to_r.a.served.port.peer.session_state.outbound_answers.len(),
     );
+    sink_released = true;
+    try gifter.releaseCapability(sink, 1);
 }

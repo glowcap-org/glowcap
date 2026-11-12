@@ -1,5 +1,6 @@
 // A pasted room link is one retained workspace transaction, including nickname
 // selection and first directory acquisition. Refusal exposes no partial intent.
+import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { OPEN_ROOM_POLICY, PRIVATE_ROOM_POLICY } from "../../lib/room/policy.ts";
@@ -9,13 +10,13 @@ import type { WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
 import { ManagedActions } from "../../web/ui/session/managed/actions.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import { initializeApplication } from "../support/application.ts";
-import { ReadinessNotices } from "../../web/ui/session/managed/readiness.ts";
 
 await initializeApplication();
 
-Deno.test("direct retries keep one opening and ignore sibling readiness", async () => {
+Deno.test("a direct opening makes one call and waits for its inbox or failure", async () => {
 	for (const closing of [false, true]) {
-		const notices = new ReadinessNotices();
+		const submitted = deferred<void>();
+		const answer = Promise.withResolvers<{ inbox: string }>();
 		const current = snapshot();
 		current.intent.directories.push({
 			id: "directory",
@@ -29,7 +30,6 @@ Deno.test("direct retries keep one opening and ignore sibling readiness", async 
 			standing: null,
 		});
 		const openings: string[] = [];
-		let readiness: Parameters<ManagedRoomsSession["waitNotice"]>[0] | undefined;
 		const session = {
 			execute: async (
 				_id: string,
@@ -45,29 +45,10 @@ Deno.test("direct retries keep one opening and ignore sibling readiness", async 
 				directoryReader: () =>
 					Promise.resolve({ memberRegistration: () => Promise.resolve("peer"), free() {} }),
 			},
-			waitNotice: (predicate: typeof readiness) => {
-				readiness = predicate;
-				assert(predicate != null, "an introduction needs a readiness predicate");
-				return notices.wait(predicate);
-			},
 			command: (_name: string, args: string[]) => {
 				openings.push(args[3]);
-				return Promise.resolve({
-					id: "conversation",
-					result: () =>
-						Promise.resolve(
-							openings.length === 1 ? { status: "pending" } : { status: "ready", inbox: "inbox" },
-						),
-				});
-			},
-			finish() {
-				if (closing) notices.close();
-				else {
-					notices.notify({
-						target: { kind: "directory", id: "directory" },
-						notice: { kind: "introducible", registration: "peer", opening: openings[0] },
-					});
-				}
+				submitted.resolve();
+				return Promise.resolve({ id: "conversation", result: () => answer.promise });
 			},
 			completeResult: () => {
 				current.intent.conversations.push({
@@ -89,27 +70,18 @@ Deno.test("direct retries keep one opening and ignore sibling readiness", async 
 				return Promise.resolve();
 			},
 		} as unknown as ManagedRoomsSession;
-		const [result] = await Promise.allSettled([new ManagedActions(session).direct("directory", "bob", false)]);
-		notices.close();
-		if (closing) {
-			assertEquals(result.status, "rejected");
-			assertEquals(openings.length, 1, "closing must not dispatch another introduction");
-			assertEquals(current.intent.conversations.length, 0);
-			continue;
-		}
-		assertEquals(result.status, "fulfilled");
-		assertEquals(openings.length, 2);
-		assertEquals(openings[0], openings[1]);
+		const work = new ManagedActions(session).direct("directory", "bob", false);
+		const completion = Promise.allSettled([work]);
+		await submitted.promise;
+		assertEquals(openings.length, 1);
+		assertEquals(current.intent.conversations.length, 0);
+		if (closing) answer.reject(new Error("directory connection closed"));
+		else answer.resolve({ inbox: "inbox" });
+		const [result] = await completion;
+		assertEquals(result.status, closing ? "rejected" : "fulfilled");
+		assertEquals(openings.length, 1, "no completion path dispatches another introduction");
+		assertEquals(current.intent.conversations.length, closing ? 0 : 1);
 		assert(openings[0].length > 0, "one opening identity was minted");
-		const notice = { kind: "introducible" as const, registration: "peer", opening: "sibling" };
-		const event: Parameters<NonNullable<typeof readiness>>[0] = {
-			target: { kind: "directory", id: "directory" },
-			notice,
-		};
-		assert(readiness != null, "readiness was installed before introduction");
-		assertEquals(readiness(event), false);
-		notice.opening = openings[0];
-		assertEquals(readiness(event), true);
 	}
 });
 
@@ -168,7 +140,6 @@ Deno.test("named direct contact reuses only the exact current registration", asy
 						free: () => calls.push("free"),
 					}),
 			},
-			waitNotice: () => ({ ready: Promise.resolve(), cancel: () => calls.push("cancel") }),
 			command: (
 				name: string,
 				args: string[],
@@ -183,7 +154,7 @@ Deno.test("named direct contact reuses only the exact current registration", asy
 				calls.push("introduce");
 				return Promise.resolve({
 					id: "new-conversation",
-					result: () => Promise.resolve({ status: "ready", inbox: "actual-result" }),
+					result: () => Promise.resolve({ inbox: "actual-result" }),
 				});
 			},
 			completeResult: () => {
@@ -212,9 +183,9 @@ Deno.test("named direct contact reuses only the exact current registration", asy
 			await direct.then(() => {
 				throw new Error("replaced registration was reused");
 			}, (error) => {
-				assertEquals(error.message, "The initiating registration changed while selecting the peer");
+				assertEquals(error.message, LOCAL_REFUSALS["registration-changed"].summary);
 			});
-			assertEquals(calls, change === "lookup" ? ["lookup", "free"] : ["lookup", "free", "cancel"]);
+			assertEquals(calls, ["lookup", "free"]);
 			continue;
 		}
 		assertEquals(
@@ -223,7 +194,7 @@ Deno.test("named direct contact reuses only the exact current registration", asy
 		);
 		assertEquals(
 			calls,
-			change === "none" ? ["lookup", "free"] : ["lookup", "free", "introduce", "acquire", "cancel"],
+			change === "none" ? ["lookup", "free"] : ["lookup", "free", "introduce", "acquire"],
 		);
 	}
 });

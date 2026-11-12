@@ -38,7 +38,6 @@ test "Node action facade preserves its supported function shapes" {
     try std.testing.expect(@TypeOf(Node.peekAction) == fn (*const Node) ?Node.Action);
     try std.testing.expect(@TypeOf(Node.consumePeekedAction) == fn (*Node) error{NoPendingAction}!void);
     try std.testing.expect(@TypeOf(Node.nextAction) == fn (*Node) ?Node.Action);
-    try std.testing.expect(@TypeOf(Node.FailureReason.bytes) == fn (Node.FailureReason) []const u8);
 }
 
 const harness = @import("harness.zig");
@@ -70,7 +69,7 @@ test "Node action drain retires each owned failure payload exactly once" {
 
     node.actions.queue.pushReserved(.{ .fail = .{
         .dest = dest,
-        .reason = .{ .owned = try allocator.dupe(u8, "consume") },
+        .reason = Node.FailureReason.owned(.{}, try allocator.dupe(u8, "consume")),
     } });
     try std.testing.expect(node.peekAction() != null);
     try node.consumePeekedAction();
@@ -79,7 +78,7 @@ test "Node action drain retires each owned failure payload exactly once" {
     try node.actions.queue.reserve(allocator, 1);
     node.actions.queue.pushReserved(.{ .fail = .{
         .dest = dest,
-        .reason = .{ .owned = try allocator.dupe(u8, "borrow") },
+        .reason = Node.FailureReason.owned(.{}, try allocator.dupe(u8, "borrow")),
     } });
     try std.testing.expect(node.nextAction() != null);
     try std.testing.expect(live.liveBytes() > baseline);
@@ -89,7 +88,7 @@ test "Node action drain retires each owned failure payload exactly once" {
     try node.actions.queue.reserve(allocator, 1);
     node.actions.queue.pushReserved(.{ .fail = .{
         .dest = dest,
-        .reason = .{ .owned = try allocator.dupe(u8, "teardown") },
+        .reason = Node.FailureReason.owned(.{}, try allocator.dupe(u8, "teardown")),
     } });
     node.deinit();
     try std.testing.expectEqual(@as(usize, 0), live.liveBytes());

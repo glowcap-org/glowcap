@@ -34,6 +34,7 @@ import * as firstRail from "../page/first_rail.ts";
 import * as details from "../page/details.ts";
 import * as rails from "../page/rails.ts";
 import * as completion from "../page/completion.ts";
+import * as fieldOffers from "../page/field_offers.ts";
 import * as files from "../page/files.ts";
 import * as layout from "../page/layout.ts";
 import * as foreign from "../page/foreign.ts";
@@ -83,7 +84,9 @@ const foreignRoom = spawnOwned(SERVER, {
 });
 
 const front = spawnWeb({
-	args: ["--transport=tcp", "0", String(homeRoomPort)],
+	// The secure-origin proof opens this front at a network address, so it
+	// listens beyond loopback.
+	args: ["--transport=tcp", "--http-bind=0.0.0.0", "0", String(homeRoomPort)],
 	cwd: ROOT,
 	env: {
 		GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${foreignRoomPort},127.0.0.1:${hangPort}`,
@@ -187,6 +190,7 @@ try {
 	await phase("first rail", () => firstRail.run(tab));
 	await phase("details", () => details.run(tab));
 	const second = await phase("rails", () => rails.run(tab, activeBrowser, httpPort));
+	await phase("field offers", () => fieldOffers.run(tab));
 	await phase("completion", () => completion.run(tab, second));
 	const descendersIntact = await phase("files", () => files.run(tab, second));
 	await phase("layout", () => layout.run(tab, second, descendersIntact));

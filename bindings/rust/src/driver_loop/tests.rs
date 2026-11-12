@@ -101,7 +101,11 @@ async fn a_silent_loop_dial_reaches_its_ffi_handshake_deadline() {
 			let port = listener.local_addr().unwrap().port();
 
 			let lp = LoopShared::open(50, sys::DRIVER_DEFAULT_SETTLE_MS).unwrap();
-			let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+			let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config {
+				profiles: crate::tcp::Profiles::TCP,
+				..Default::default()
+			})
+			.unwrap();
 			lp.add_provider(netlayer.transport_provider().unwrap()).unwrap();
 			let locator_uri = crate::uri::format_peer_locator("tcp", &format!("127.0.0.1:{port}"), "").unwrap();
 			let locator = crate::uri::parse_locator(&locator_uri).unwrap();
@@ -135,7 +139,11 @@ fn refused_background_step_is_terminal_and_observable() {
 #[test]
 fn dropped_listener_setup_retires_a_committed_ready_listener() {
 	let lp = LoopShared::open(sys::DRIVER_DEFAULT_HANDSHAKE_MS, sys::DRIVER_DEFAULT_SETTLE_MS).unwrap();
-	let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+	let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config {
+		profiles: crate::tcp::Profiles::TCP,
+		..Default::default()
+	})
+	.unwrap();
 	lp.add_provider(netlayer.transport_provider().unwrap()).unwrap();
 
 	let listener = lp.driver.listen("tcp", "127.0.0.1:0").unwrap();
@@ -177,7 +185,11 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 			},
 		)
 		.unwrap();
-		let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+		let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config {
+			profiles: crate::tcp::Profiles::TCP,
+			..Default::default()
+		})
+		.unwrap();
 		lp.add_provider(netlayer.transport_provider().unwrap()).unwrap();
 		let listener = lp.listen("tcp", "127.0.0.1:0").unwrap();
 		wait_listener_ready(&lp, listener);
@@ -202,7 +214,11 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 		},
 	)
 	.unwrap();
-	let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+	let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config {
+		profiles: crate::tcp::Profiles::TCP,
+		..Default::default()
+	})
+	.unwrap();
 	lp.add_provider(netlayer.transport_provider().unwrap()).unwrap();
 	let locator_uri = crate::uri::format_peer_locator("tcp", &designator, "").unwrap();
 	let locator = crate::uri::parse_locator(&locator_uri).unwrap();
@@ -250,22 +266,16 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 	server.join().unwrap();
 }
 
-/// The exporter-claim seam on the loop-backed wrapper (`HostShared::exporter_session`'s
-/// loop arm): A's wrapper claims its own dialed session's handle before installing
-/// its one shell, and a repeat resolves to that shell rather than installing
-/// another. A live session owned by a different runtime refuses the claim,
-/// propagates the refusal, and installs nothing. The pointer stays live
-/// throughout: the claim's belonging check reads the session's fields, so the
-/// test uses a real foreign session, never a fabricated pointer.
+/// A TCP driver loop on its own thread that serves every session it accepts
+/// until `stop` is set. Returns its designator.
 #[cfg(feature = "tcp")]
-#[tokio::test]
-async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
+fn serve_tcp_on_a_thread(seed_byte: u8) -> (String, Arc<AtomicBool>, std::thread::JoinHandle<()>) {
 	let stop = Arc::new(AtomicBool::new(false));
 	let (designator_tx, designator_rx) = mpsc::channel::<String>();
 	let stop_thread = Arc::clone(&stop);
 	let server = std::thread::spawn(move || {
 		let lp = DriverLoop::open(
-			&seed(0x71),
+			&seed(seed_byte),
 			DriverLoopOptions {
 				wire_buffer_bytes: 1024,
 				max_pending_opens: 8,
@@ -273,7 +283,11 @@ async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
 			},
 		)
 		.unwrap();
-		let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+		let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config {
+			profiles: crate::tcp::Profiles::TCP,
+			..Default::default()
+		})
+		.unwrap();
 		lp.add_provider(netlayer.transport_provider().unwrap()).unwrap();
 		let listener = lp.listen("tcp", "127.0.0.1:0").unwrap();
 		wait_listener_ready(&lp, listener);
@@ -288,7 +302,20 @@ async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
 			}
 		}
 	});
-	let designator = designator_rx.recv().unwrap();
+	(designator_rx.recv().unwrap(), stop, server)
+}
+
+/// The exporter-claim seam on the loop-backed wrapper (`HostShared::exporter_session`'s
+/// loop arm): A's wrapper claims its own dialed session's handle before installing
+/// its one shell, and a repeat resolves to that shell rather than installing
+/// another. A live session owned by a different runtime refuses the claim,
+/// propagates the refusal, and installs nothing. The pointer stays live
+/// throughout: the claim's belonging check reads the session's fields, so the
+/// test uses a real foreign session, never a fabricated pointer.
+#[cfg(feature = "tcp")]
+#[tokio::test]
+async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
+	let (designator, stop, server) = serve_tcp_on_a_thread(0x71);
 
 	let local = tokio::task::LocalSet::new();
 	local
@@ -298,7 +325,11 @@ async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
 
 			// The loop-backed wrapper whose seam this proves.
 			let lp_a = LoopShared::open(sys::DRIVER_DEFAULT_HANDSHAKE_MS, sys::DRIVER_DEFAULT_SETTLE_MS).unwrap();
-			let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+			let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config {
+				profiles: crate::tcp::Profiles::TCP,
+				..Default::default()
+			})
+			.unwrap();
 			lp_a.add_provider(netlayer.transport_provider().unwrap()).unwrap();
 			let host = crate::host::Host::from_shared(lp_a.wrapper_host().unwrap());
 			let shared = host.shared();
@@ -312,7 +343,11 @@ async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
 				},
 			)
 			.unwrap();
-			let netlayer_b = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+			let netlayer_b = crate::tcp::Netlayer::new(crate::tcp::Config {
+				profiles: crate::tcp::Profiles::TCP,
+				..Default::default()
+			})
+			.unwrap();
 			lp_b.add_provider(netlayer_b.transport_provider().unwrap()).unwrap();
 
 			let dial_locator = locator.clone();
@@ -377,52 +412,54 @@ async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
 		.await;
 }
 
-/// Loop-tier FINISH (ADR-0030), mirroring the byte-fed Host timeout
-/// scenario in `host.rs`: a dial still negotiating against a silent TCP
-/// partner is admitted pending work, so a finite grace expires and the
-/// loop close barrier reports its timeout. The expiry takes effect only
-/// inside a step, so this is the proof of the close driver's deadline
-/// timer: parked on loop activity alone it would never step again.
+/// A dialer cancelled after the loop delivered its opened handle, but before
+/// it was polled again, gives the handle back: the loop releases the session
+/// instead of leaving it open with no owner.
 #[cfg(feature = "tcp")]
 #[tokio::test]
-async fn a_finite_finish_close_times_out_over_a_negotiating_loop_dial() {
+async fn a_dial_dropped_after_its_handle_arrives_releases_the_session() {
+	let (designator, stop, server) = serve_tcp_on_a_thread(0x73);
 	let local = tokio::task::LocalSet::new();
 	local
 		.run_until(async {
-			// Bound but never accepted from: the kernel backlog completes
-			// the TCP connect, and the CapTP handshake never answers.
-			let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-			let port = listener.local_addr().unwrap().port();
-
+			let locator_uri = crate::uri::format_peer_locator("tcp", &designator, "").unwrap();
+			let locator = crate::uri::parse_locator(&locator_uri).unwrap();
 			let lp = LoopShared::open(sys::DRIVER_DEFAULT_HANDSHAKE_MS, sys::DRIVER_DEFAULT_SETTLE_MS).unwrap();
-			let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+			let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config {
+				profiles: crate::tcp::Profiles::TCP,
+				..Default::default()
+			})
+			.unwrap();
 			lp.add_provider(netlayer.transport_provider().unwrap()).unwrap();
 			let host = crate::host::Host::from_shared(lp.wrapper_host().unwrap());
 
-			let locator_uri = crate::uri::format_peer_locator("tcp", &format!("127.0.0.1:{port}"), "").unwrap();
-			let locator = crate::uri::parse_locator(&locator_uri).unwrap();
-			let dial = {
-				let lp = Rc::clone(&lp);
-				tokio::task::spawn_local(async move { lp.dial_locator(&locator, None).await })
-			};
-			for _ in 0..1_000 {
-				if !lp.pending_dials.borrow().is_empty() {
+			let mut dial = Box::pin(lp.dial_locator(&locator, None));
+			let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+			assert!(dial.as_mut().poll(&mut context).is_pending(), "the dial is admitted");
+			for _ in 0..4_000 {
+				if lp.pending_dials.borrow().is_empty() {
 					break;
 				}
 				tokio::task::yield_now().await;
 			}
-			assert!(!lp.pending_dials.borrow().is_empty(), "the dial was never admitted");
+			assert!(lp.pending_dials.borrow().is_empty(), "the dial never completed");
+			assert_eq!(
+				lp.unclaimed_sessions.borrow().len(),
+				1,
+				"the opened handle waits in the dialer's channel"
+			);
+			drop(dial);
+			assert!(
+				lp.unclaimed_sessions.borrow().is_empty(),
+				"the dropped dialer's session is released"
+			);
 
-			let error = host
-				.close(crate::PendingWork::Finish {
-					grace: Some(std::time::Duration::from_millis(20)),
-				})
-				.await
-				.expect_err("a negotiating dial keeps the finite finish from settling in time");
-			assert_eq!(error.kind(), crate::ErrorKind::TimedOut);
-			assert!(dial.await.unwrap().is_err(), "close failed the admitted dial");
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+			lp.close();
 		})
 		.await;
+	stop.store(true, Ordering::Release);
+	server.join().unwrap();
 }
 
 /// The live parity proof (`zig build rust-iroh-driver-provider`): the

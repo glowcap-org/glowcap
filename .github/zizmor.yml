@@ -2,8 +2,8 @@
 # workflows job) and locally with `uvx zizmor .`. It is the one authority for
 # action pinning, credential persistence, template injection, release cache
 # poisoning, and the Dependabot cooldown, so no test in ci/ repeats them. A
-# finding is fixed in the workflow. The exceptions below are the two designs
-# the audit cannot read, each with the reason it is safe.
+# finding is fixed in the workflow. The exceptions below are the designs the
+# audit cannot read, each with the reason it is safe.
 rules:
   unpinned-uses:
     config:

@@ -110,7 +110,8 @@ pub const Node = struct {
     /// A node constant rather than a `SessionLimits` field: the proxy row is
     /// node-owned, so a per-session field would spend a word on every one of
     /// the connections the footprint budget counts to hold a number only the
-    /// node ever reads.
+    /// node ever reads. A named test seam: admission reads the bound from
+    /// `proxy_topology`, and Node tests fill a proxy to it through this alias.
     pub const max_proxy_recipients = proxy_topology.max_recipients;
 
     allocator: std.mem.Allocator,
@@ -141,7 +142,7 @@ pub const Node = struct {
     /// Host supplies the private export and its FIFO retirement consumer.
     /// Without it, handoff publication alone cannot forward local pipelines.
     pipeline_projection: ?PipelineProjection = null,
-    /// Optional Host-owned directory used to authenticate a signed give before status-allow: purpose clause
+    /// Optional Host-owned directory that authenticates a signed give before
     /// its out-of-order deposit exists. Node-wide, so it costs no bytes per
     /// registered Peer.
     gifter_session_resolver: ?engine.bootstrap.gifts.GifterSessionResolver = null,
@@ -329,7 +330,7 @@ pub const Node = struct {
     pub const advertisedLocator = locator_catalog.advertisedLocator;
     pub const acceptableLocator = locator_catalog.acceptableLocator;
 
-    /// Install the local-object seam used to retain exact gifts across Ports. status-allow: purpose clause
+    /// Install the local-object seam used to retain exact gifts across Ports.
     /// A standalone sans-io Node leaves this unset and keeps protocol
     /// references verbatim.
     pub fn setLocalObjectProjection(self: *Node, projection: engine.bootstrap.gifts.LocalObjectProjection) void {
@@ -504,6 +505,7 @@ pub const Node = struct {
         return (try id_route.validateLocator(locator)) orelse error.UnparseableId;
     }
     pub const beginDialEffect = redeem_dials.beginEffect;
+    pub const dialEffectBeginnable = redeem_dials.effectBeginnable;
     pub const rollbackDialEffect = redeem_dials.rollbackEffect;
     pub const requestDialCancellations = redeem_dials.requestCancellations;
     pub const pendingDialCount = redeem_dials.count;
@@ -578,7 +580,9 @@ pub const Node = struct {
     /// positions borrowed from some other session. This is the low-level peer
     /// face of the Host projection above. Every recipient materializes and
     /// stages independently. `resolution` remains one owner until all
-    /// projections have adopted or broken, then is freed exactly once.
+    /// projections have adopted or broken, then is freed exactly once. A named
+    /// test seam: the Host reaches it through its own projection, and Node
+    /// tests drive fan-out through this alias without a Host.
     pub const consumeProjectedProxyListenerFire = proxy_settlement.consumeProjectedListenerFire;
 
     pub const interceptFulfilledRoute = gift_origination.interceptFulfilledRoute;

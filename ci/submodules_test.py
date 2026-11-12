@@ -53,7 +53,7 @@ class SubmodulesTest(unittest.TestCase):
         second = self.clone("second")
         shutil.copytree(first / ".git/modules", second / ".git/modules")
         shutil.rmtree(self.upstream)
-        slept = []
+        slept: list[int] = []
         SUBMODULES.checkout(second, sleep=slept.append)
         self.assertEqual((second / "dep/pinned.txt").read_text(), "one\n")
         self.assertEqual(slept, [], "a warm cache needs no second attempt")
@@ -62,7 +62,7 @@ class SubmodulesTest(unittest.TestCase):
     def test_an_unreachable_host_is_retried_then_reported(self):
         root = self.clone("cold")
         shutil.rmtree(self.upstream)
-        slept = []
+        slept: list[int] = []
         with self.assertRaisesRegex(SystemExit, "could not be fetched"):
             SUBMODULES.checkout(root, waits=(1, 2), sleep=slept.append)
         self.assertEqual(slept, [1, 2])

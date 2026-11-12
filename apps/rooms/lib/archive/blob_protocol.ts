@@ -19,12 +19,13 @@ import {
 } from "./blobs.ts";
 import type { ArchiveBackend, ArchiveLine, ArchiveRecord } from "./protocol.ts";
 import { BLOB_CHUNK } from "../limits.ts";
+import { MAX_ARCHIVE_BLOB_READS_PER_SESSION } from "./limits.ts";
 
 export const ARCHIVE_PUT_FILES = "putFiles";
 export const ARCHIVE_ATTACHMENT = "attachment";
 export const ARCHIVE_BLOB = "blob";
 export const ARCHIVE_BLOB_UNHANDLED = Symbol("archive blob verb not handled");
-export const MAX_ARCHIVE_BLOB_READS_PER_SESSION = 512;
+export { MAX_ARCHIVE_BLOB_READS_PER_SESSION };
 
 const blobReadsMinted = new WeakMap<Session, number>();
 

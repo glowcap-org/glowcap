@@ -1,7 +1,10 @@
 ---
 type: living
 description: The known limits that can change a deployment or API choice.
-sources: []
+sources:
+  - resource: /src/
+  - resource: /bindings/
+  - resource: /apps/rooms/
 ---
 
 # Known limitations
@@ -54,7 +57,7 @@ binding ([invocation contract](../bindings/README.md#invocation-shape)).
 
 - **Bun cannot host the driver loop.** Its synchronous FFI would park JavaScript.
   Use Deno for those APIs pending the
-  [runtime decision](roadmap.md#waiting-on-you).
+  [runtime decision](roadmap.md#waiting-on-the-maintainer).
 - **A Vat runs one turn at a time.** A blocking handler stalls its Host.
   Defer its answer and settle on the owning thread. Only plain data crosses
   worker threads ([actor execution](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)).

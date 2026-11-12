@@ -6,10 +6,13 @@
 extern "C" {
 #endif
 typedef struct GlowcapLoamSqlite GlowcapLoamSqlite;
-#define GLOWCAP_LOAM_SQLITE_ARCHIVE_FINGERPRINT 10871360411021302560
+#define GLOWCAP_LOAM_SQLITE_ARCHIVE_FINGERPRINT 3424316984420779946
 /* Open exclusive SQLite custody of a store directory and reserve a fresh incarnation. create=0 requires an existing Store and refuses a missing one as NOT_FOUND, create=1 requires absence, and create=2 atomically initializes absence or opens the exact persisted identity. capacity_bytes is the most the database file may grow to, at least 1 MiB. A file that is not a Loam store, a mismatched identity, and corrupt metadata always refuse, and an open whose durable outcome is unknown returns IO. The storage owner owns the returned borrowed Store; limits and schemas are copied. */
 int32_t glowcap_loam_sqlite_open(const uint8_t *path, size_t path_len, const uint8_t *store_id, uint32_t create, size_t capacity_bytes, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamSqlite **out_storage, GlowcapLoamStore **out_store);
-/* Release a quiescent storage owner and its Store, then close the database. Busy leaves both alive. Attachments and storage workers must finish first. */
+/* Release a quiescent storage owner and its Store, then close the database. A busy Store refuses before teardown and leaves both alive. Attachments and storage workers must finish first. Once the Store is released the handle is consumed. A failing engine close still frees it and preserves the engine's failure code in the release result. Never retry a consumed result.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_loam_sqlite_release(GlowcapLoamSqlite *raw);
 /* Execute one storage effect on the storage executor without touching Host state. Join before portable work_complete or work_release. Repeated execution, foreign Store work, and completed work refuse. Operational results remain on the work handle. */
 int32_t glowcap_loam_sqlite_work_run(GlowcapLoamSqlite *raw, GlowcapLoamWork *work_handle);

@@ -191,7 +191,7 @@ test "closing a promise home breaks only the mixed projection's answer" {
     const failure = node.nextAction().?.fail;
     try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
     try std.testing.expectEqual(answer, failure.dest.answer.answer);
-    try std.testing.expectEqualStrings("RouteNotLowerable", failure.reason.bytes());
+    try std.testing.expectEqualStrings("RouteNotLowerable", failure.reason.text);
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
@@ -242,7 +242,7 @@ test "inline gift entropy failure breaks only the answered message" {
     const failure = node.nextAction().?.fail;
     try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
     try std.testing.expectEqual(answer, failure.dest.answer.answer);
-    try std.testing.expectEqualStrings("GiftIdUnavailable", failure.reason.bytes());
+    try std.testing.expectEqualStrings("GiftIdUnavailable", failure.reason.text);
     try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
@@ -392,7 +392,7 @@ test "inline gift recipient refusal publishes no prepared deposit" {
     const failure = node.nextAction().?.fail;
     try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
     try std.testing.expectEqual(answer, failure.dest.answer.answer);
-    try std.testing.expectEqualStrings("OutboundBackpressure", failure.reason.bytes());
+    try std.testing.expectEqualStrings("OutboundBackpressure", failure.reason.text);
     try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     try std.testing.expect(node.nextAction() == null);
@@ -429,7 +429,7 @@ test "origination fails closed when the gift's home connection is gone" {
         model.AnswerName.fromWire(.from(61)),
         action.fail.dest.served_answer.answer.name,
     );
-    try std.testing.expectEqualStrings("RouteNotLowerable", action.fail.reason.bytes());
+    try std.testing.expectEqualStrings("RouteNotLowerable", action.fail.reason.text);
 }
 
 test "recipient admission failure publishes no orphan deposit" {
@@ -501,7 +501,7 @@ test "gift-id entropy failure settles the claimed handoff instead of stranding i
     );
     try std.testing.expectEqualStrings(
         "GiftIdUnavailable",
-        failed.fail.reason.bytes(),
+        failed.fail.reason.text,
     );
 
     // Completion reports are idempotent across racing teardown/retry.

@@ -77,14 +77,11 @@ pub const MultiplexedAdapter = struct {
 };
 
 /// Wrap a freshly accepted or dialed raw loop handle. The caller closes the
-/// raw handle when allocation or stable-id validation fails.
-pub fn registerConn(nl: *NetlayerPayload, raw: *anyopaque) ?*ConnPayload {
-    const payload = nl.allocator.create(ConnPayload) catch return null;
+/// raw handle when allocation fails or the sidecar names no stable id.
+pub fn registerConn(nl: *NetlayerPayload, raw: *anyopaque) error{ OutOfMemory, IrohSidecarContract }!*ConnPayload {
     const conn_id = nl.resident.loopConnId(raw);
-    if (conn_id == 0) {
-        nl.allocator.destroy(payload);
-        return null;
-    }
+    if (conn_id == 0) return error.IrohSidecarContract;
+    const payload = try nl.allocator.create(ConnPayload);
     payload.* = .{
         .allocator = nl.allocator,
         .conn_id = conn_id,

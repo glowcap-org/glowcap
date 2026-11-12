@@ -7,6 +7,7 @@
 mod abort;
 mod attached;
 mod entry;
+mod failure;
 mod forms;
 mod history;
 mod js_text;

@@ -80,11 +80,6 @@
 	font-size: var(--type-ui);
 	line-height: 1.45;
 }
-/* The bubble's own hover strip reaches into the margin for a mark this
-   example does not have. */
-.help-writing td.help-example::before {
-	content: none;
-}
 /* A phone has no room for two columns, so a pair stacks: source, then what it
    becomes. The column heads go with the columns. */
 @media (max-width: 430px) {

@@ -22,9 +22,9 @@ import http.server
 import json
 import os
 import platform
-import runpy
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import textwrap
@@ -35,7 +35,10 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-verify_binding_files = runpy.run_path(str(ROOT / "ci/github_release.py"))["verify_binding_files"]
+sys.path.insert(0, str(ROOT / "ci"))
+from github_release import verify_binding_files  # noqa: E402
+from racket_catalog import package_source  # noqa: E402
+
 INSTALL_ATTEMPTS = 12
 INSTALL_RETRY_SECONDS = 20
 RUST_FEATURES = ["async", "loam", "iroh", "webrtc", "relay", "onion"]
@@ -61,12 +64,17 @@ def verify_license(archive):
     expected = (ROOT / "LICENSE-APACHE").read_bytes()
     is_zip = zipfile.is_zipfile(archive)
     with zipfile.ZipFile(archive) if is_zip else tarfile.open(archive) as package:
-        names = package.namelist() if is_zip else package.getnames()
+        names = package.namelist() if isinstance(package, zipfile.ZipFile) else package.getnames()
         verify_binding_files(names)
         matches = [name for name in names if name.endswith("/LICENSE-APACHE") or name == "LICENSE-APACHE"]
         assert len(matches) == 1, f"{archive}: package needs exactly one Apache license"
         (name,) = matches
-        actual = package.read(name) if is_zip else package.extractfile(name).read()
+        if isinstance(package, zipfile.ZipFile):
+            actual = package.read(name)
+        else:
+            member = package.extractfile(name)
+            assert member is not None, f"{archive}: {name} is not a regular file"
+            actual = member.read()
     assert actual == expected, f"{archive}: package must contain the project Apache license"
 
 
@@ -230,7 +238,7 @@ def racket_package(work, env, registry):
         run("racket", "-e", expression, cwd=work, env=env)
         downloaded_lib_dir(work)
         return
-    source = runpy.run_path(str(ROOT / "ci/racket_catalog.py"))["package_source"]("owner/project", "v1.2.3")
+    source = package_source("owner/project", "v1.2.3")
     # The catalog downloads only the binding archive. Checking out the whole
     # repository fails Racket's strict link policy on contributor-tool symlinks.
     expression = f"""(require pkg/name)

@@ -28,12 +28,12 @@ zig build rooms-dm-reredeem                         # sendRedeeming resolves the
 zig build demo-rooms-dm-iroh                        # Rooms DM-by-introduction over iroh: a room introduces two members who then DM directly over encrypted QUIC, room out of the path (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery              # Opt-in: rooms DM-by-introduction over iroh by node id ALONE through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)
 zig build demo-tasks                                # Run the cross-language tasks board demo (needs deno; joins python3/racket/cargo clients when present)
-zig build tasks-server                              # Serve a Tasks board over TCP; pass -- --data=DIR [--port=N]
-zig build tasks-mutation-check                      # Prove Tasks mutation ordering and watcher startup cleanup over TCP (needs deno + python3 + racket); part of runtime-check
-zig build tasks-app-test                            # Run the task board server over TCP, across a restart of its SQLite store; part of check
+zig build tasks-server                              # Serve a Tasks board over Noise TCP; pass -- --data=DIR [--port=N]
+zig build tasks-mutation-check                      # Prove Tasks mutation ordering and watcher startup cleanup over Noise TCP (needs deno + python3 + racket); part of runtime-check
+zig build tasks-app-test                            # Run the task board server over Noise TCP, across a restart of its SQLite store; part of check
 zig build tools-app-test                            # Pin the tools showcase's attenuation and revocation (needs deno); part of runtime-check
 zig build demo-tools                                # Run the cross-language tools demo: delegation, attenuation, and revocation (needs deno; joins python3/racket/cargo agents when present)
-zig build accountability                            # Run the accountability application on glowcap's own runtime over real TCP
+zig build accountability                            # Run the accountability application on glowcap's own runtime over Noise TCP
 zig build accountability-three-party-test           # Run three-Host TCP handoff attribution; part of check
 zig build accountability-blake3-test                # Pin the accountability app's Blake3 against known vectors (needs deno and python3); part of runtime-check
 zig build demo-accountability                       # Run the cross-language accountability demo: Zig host + Deno/Python callers (needs deno)
@@ -78,8 +78,8 @@ zig build rooms-server                              # Run the Rooms server: the 
 zig build rooms-web-build                           # Build and install the Rooms HTTP front and browser application (needs cargo + wasm-bindgen); part of rooms-archive-test, rooms-dev, rooms-web, rooms-web-prepare, rooms-web-relay-peer
 zig build rooms-web-prepare                         # Build the Rooms server and write its browser assets as one prepared generation at zig-out/rooms-web/current, which the Rooms server binary's `--prepared` serves and `--export-static` exports (needs cargo + deno + wasm-bindgen); part of glowcap-install, rooms-server-test, rooms-web-admission, rooms-web-archive, rooms-web-boot-theme, rooms-web-dm, rooms-web-dm-deno, rooms-web-dm-fallback, rooms-web-dm-fastest, rooms-web-dm-foreign, rooms-web-dm-noise, rooms-web-dm-reopen, rooms-web-dm-retarget, rooms-web-dm-session-webrtc, rooms-web-dm-tabs, rooms-web-dm-trace, rooms-web-dm-webrtc, rooms-web-hosted-session, rooms-web-link-preview, rooms-web-manager, rooms-web-operations-refresh, rooms-web-page, rooms-web-private, rooms-web-reconnect, rooms-web-relay-door, rooms-web-responsiveness, rooms-web-routes, rooms-web-shared-session, rooms-web-test, rooms-web-tor-test, rooms-web-trace-lifecycle, site-captures-directories, site-captures-rooms, site-rooms-page
 zig build rooms-web-test                            # Prove the installed web front's HTTP, relay admission and startup/shutdown custody (needs cargo + deno + python3); part of runtime-check
-zig build rooms-web-tor-test                        # Opt-in: prove the web front owns a private Tor and preserves its directory service key, with networking disabled (needs cargo + deno + python3 + tor)
-zig build rooms-web                                 # Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=<transport>` picks the announced room transport from the seven the server accepts, default iroh. Server flags follow `--`: `--capabilities=all` or a comma-separated list of the names in `apps/rooms/operating.md` mints the operator capabilities. `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN
+zig build rooms-web-tor-test                        # Prove the web front owns a private Tor and preserves its directory service key, with networking disabled (needs cargo + deno + python3 + tor)
+zig build rooms-web                                 # Serve the rooms browser UI for public rooms and direct messages by introduction. Open the printed URL. This needs cargo and deno, while onion also needs tor. `-Dtransport=<transport>` picks the announced room transport from the seven the server accepts, default iroh. Server flags follow `--`: `--capabilities=all` or a comma-separated list of the names in `apps/rooms/operating.md` mints the operator capabilities.
 zig build rooms-dev                                 # Serve Rooms with every operator capability minted and state under .local/.state/rooms; `-Dhot-reload=false` uses compiled-generation serving, and `-Dtransport` works as on rooms-web (needs cargo + deno)
 ```
 
@@ -140,7 +140,7 @@ zig build bench-snapshot              # Measure vat snapshot/restore: O(objects)
 zig build bench-loam                  # Measure Loam residency, wakeups, edits, collection interference, and the Tasks app on either disk engine
 zig build bench-loam -Doptimize=ReleaseFast # LMDB-backed conversation graph, sleepy actors, edits, collection, and cold reads at scale, and the Tasks app on each disk engine (`-- --tasks-only --engine=lmdb|sqlite` picks one); -- --smoke under check
 zig build relay-scaling               # Measure the reference relay's per-connection footprint, prove it holds thousands of connections at once, and extrapolate to a host's descriptor and RAM ceiling, the relay-tier sibling of bench-peer-scaling (needs deno)
-zig build bench-iroh                  # Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)
+zig build bench-transports            # Measure OCapN round-trip latency/throughput over TCP, Noise TCP, in-process, and iroh (needs cargo)
 zig build bench-interface             # Compare raw and generated Rust calls over the same TCP workflow (needs cargo)
 zig build bench-interface-builds      # Compare fresh raw and generated Rust client compilation with warm dependencies (needs cargo + python3)
 zig build bench-interface-diagnostics # Measure paired Rust interface allocation traffic and wire messages separately from latency (needs cargo)
@@ -165,7 +165,7 @@ beside the callgrind parts, and `bench/README.md` says how to read it.
 zig build profile-loam             # Profile bench-loam under callgrind: self cost per file and function for each marked phase, taking bench-loam's filters after -- (needs valgrind)
 zig build profile-outbound         # Profile bench-outbound under callgrind: self cost per file and function for each marked phase (needs valgrind)
 zig build profile-dispatch-scaling # Profile bench-dispatch-scaling under callgrind: self cost per file and function for each marked phase (needs valgrind)
-zig build profile-iroh             # Profile bench-iroh under callgrind: self cost per file and function for each marked phase, taking bench-iroh's filters after -- (needs cargo + valgrind)
+zig build profile-transports       # Profile bench-transports under callgrind: self cost per file and function for each marked phase, taking bench-transports' filters after -- (needs cargo + valgrind)
 zig build profile-report-test      # Unit-test the callgrind part reader behind the profile-* reports; part of check
 zig build bench-ab-test            # Unit-test the row reader behind bench-ab; part of check
 ```

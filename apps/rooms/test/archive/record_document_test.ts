@@ -18,6 +18,7 @@ const fixture = JSON.parse(
 ) as { documents: Record<string, unknown>[] };
 const documents = fixture.documents;
 const lines = documents.filter((document) => document.kind === "line");
+const standings = documents.filter((document) => document.kind === "standing");
 
 /** The same document whatever order its keys were written in. */
 function canonical(value: unknown): unknown {
@@ -62,6 +63,18 @@ Deno.test("a document with a field the runtime would refuse is refused here too"
 	const { previewUrls: _previewUrls, ...rest } = lines[0];
 	assertEquals(refusal({ ...rest, previews: [] }), "an archive line document carries an unknown field: previews");
 	assertEquals(refusal({ ...lines[0], at: "soon" }), "archive time must be a non-negative safe integer");
+});
+
+Deno.test("a value that is not a record document is refused, not read through", () => {
+	for (const raw of [null, 7, "line", [], ["line"], {}, { kind: "note" }]) {
+		assertEquals(refusal(raw), "archive record kind is unknown");
+	}
+	assertEquals(refusal({ ...lines[0], mine: "yes" }), "an archive line needs its local direction");
+	assertEquals(refusal({ ...standings[0], nick: 5 }).startsWith("archive nickname"), true);
+	assertEquals(
+		refusal({ ...lines[0], attachments: [{ name: "a.png", extra: 1 }] }),
+		"an archive attachment document carries an unknown field: extra",
+	);
 });
 
 Deno.test("a document missing its lists reads as the runtime reads it, with both empty", () => {

@@ -344,7 +344,9 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
         silent.listen(1)
         silent.setblocking(False)
         port = silent.getsockname()[1]
-        runtime = await Runtime.open(providers=[tcp.provider()], handshake_timeout_ms=10_000)
+        runtime = await Runtime.open(
+            providers=[tcp.provider(tcp.Config(profiles=(tcp.plain,)))], handshake_timeout_ms=10_000
+        )
         negotiating = asyncio.create_task(runtime.connect(tcp.locator("127.0.0.1", port)))
         driver_loop = runtime._loop
         assert driver_loop is not None, "a provider Runtime did not open on the loop tier"
@@ -374,7 +376,7 @@ async def _silent_loop_dial_reaches_ffi_handshake_deadline() -> None:
     listener.setblocking(False)
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
-    runtime = await Runtime.open(providers=[tcp.provider()], handshake_timeout_ms=50)
+    runtime = await Runtime.open(providers=[tcp.provider(tcp.Config(profiles=(tcp.plain,)))], handshake_timeout_ms=50)
     accepted: socket.socket | None = None
     try:
         port = listener.getsockname()[1]

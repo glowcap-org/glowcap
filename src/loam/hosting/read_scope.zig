@@ -225,6 +225,7 @@ pub const Scope = struct {
     const Endpoint = struct {
         scope: *Scope,
         index: usize,
+        pub const refuses = calls.endpointRefuses;
         pub fn handle(self: *Endpoint, turn: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
             const arg_values = try args.values();
             defer turn.releaseValues(arg_values);

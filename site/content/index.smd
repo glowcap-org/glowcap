@@ -1,6 +1,6 @@
 ---
 .title = "Capability networking and durable state in Zig",
-.description = "OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library, Apache-2.0, 0.1.6 alpha.",
+.description = "OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library, Apache-2.0, 0.1.7 alpha.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "index.shtml",
 .draft = false,
@@ -73,7 +73,7 @@ defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 switch (settled) {
     .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
-    .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+    .broken => |reason| std.debug.print("the greeter refused: {f}\n", .{reason}),
 }
 ```
 

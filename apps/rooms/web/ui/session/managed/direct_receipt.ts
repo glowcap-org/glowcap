@@ -1,24 +1,20 @@
-// The Rust results::Direct enum owns the introduction receipt's two variants.
-export type DirectReceipt =
-	| { status: "pending" }
-	| { status: "ready"; inbox: string };
+// The Rust results::Direct owns the acquired inbox receipt.
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
+export interface DirectReceipt {
+	inbox: string;
+}
 
-/** Validate the variant before moving custody. Return the original receipt
- * without allocating a projection or requiring fields from another variant. */
+function isDirectReceipt(raw: unknown): raw is DirectReceipt {
+	return raw != null && typeof raw === "object" && !Array.isArray(raw) &&
+		"inbox" in raw && typeof raw.inbox === "string";
+}
+
+/** Validate the inbox before moving custody. */
 export function readDirectReceipt(raw: unknown): DirectReceipt {
-	if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
-		throw new Error("The direct introduction receipt is not an object");
+	if (!isDirectReceipt(raw)) {
+		throw new LocalRefusal("retained-result-unreadable", {
+			cause: "the direct introduction receipt has no inbox key",
+		});
 	}
-	const result = raw as { status?: unknown; inbox?: unknown };
-	switch (result.status) {
-		case "pending":
-			return raw as DirectReceipt;
-		case "ready":
-			if (typeof result.inbox !== "string") {
-				throw new Error("The direct introduction receipt has no ready inbox key");
-			}
-			return raw as DirectReceipt;
-		default:
-			throw new Error("The direct introduction receipt's status is unknown");
-	}
+	return raw;
 }

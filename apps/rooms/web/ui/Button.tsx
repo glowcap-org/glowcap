@@ -36,8 +36,8 @@ import { ControlProgress, useProgress } from "./presentation.ts";
 // commitment at a card's foot. A caller places the button (in an actions
 // row, beside a field, across the card's width with `block`) and never
 // restates its padding, radius, or weight, because a padding named per card is
-// a copy, and copies of a look drift until two of the same control no longer status-allow: lifecycle transition
-// look the same.
+// a copy, and copies of a look drift until two of the same control look
+// different.
 
 import type { ComponentPropsWithRef } from "react";
 
@@ -59,7 +59,7 @@ export type ButtonProps = ComponentPropsWithRef<"button"> & {
 	 * says so to a reader who cannot see a cursor is the button's own label, so
 	 * this stays a styling fact and does not touch ARIA. The one attribute that
 	 * sounds right, `aria-busy`, means something else: a subtree being rewritten,
-	 * whose updates are not worth announcing yet.  status-allow: pending state or quoted runtime label */
+	 * whose updates are not worth announcing yet. */
 	busy?: boolean;
 	busyLabel?: React.ReactNode;
 	busyDelay?: number;

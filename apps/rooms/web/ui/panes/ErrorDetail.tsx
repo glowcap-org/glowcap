@@ -14,6 +14,7 @@ import { useRoomsBrowser } from "../controller/browser.ts";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { ModalHead } from "../ModalHead.tsx";
 import { CopyButton } from "../Copy.tsx";
+import { copyNamed } from "../../../lib/text/controls.ts";
 import { ModalCard } from "../ModalCard.tsx";
 
 export const ErrorDetail = memo(function ErrorDetail(
@@ -51,7 +52,7 @@ function ErrorDialog(
 						title={title}
 						closeId="errorClose"
 						closeRef={close}
-						actions={<CopyButton text={text} label={"Copy " + title} size="small" variant="ghost" />}
+						actions={<CopyButton text={text} label={copyNamed(title)} size="small" variant="ghost" />}
 						onClose={() => browser.closeError()}
 					/>
 					<pre id="errorBody" className="error-body">{text}</pre>

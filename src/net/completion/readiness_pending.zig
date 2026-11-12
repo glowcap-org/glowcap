@@ -1,6 +1,6 @@
 //! What a registered descriptor waits to do, for the readiness backends
 //! (epoll, kqueue) that turn a readiness edge into one completion. io_uring
-//! tracks this in the kernel; these backends track it here, one row per fd.
+//! tracks this in the kernel. These backends track it here, one row per fd.
 
 const completion = @import("loop.zig");
 
@@ -28,7 +28,7 @@ pub const Pending = struct {
     /// row. The completion loop counts ops in flight and defers a
     /// connection's teardown until each one retires, so every submitted op
     /// must yield a completion. io_uring posts a cancellation for a recv or
-    /// send still pending when its fd closes; a readiness backend drops the
+    /// send still pending when its fd closes. A readiness backend drops the
     /// fd from its kernel set and must synthesize them, or a close while a
     /// recv is armed strands the connection slot forever. Appends at most
     /// `max_cancellations`, which the caller reserved before touching state.

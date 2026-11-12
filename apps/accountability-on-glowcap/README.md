@@ -44,6 +44,7 @@ zig build demo-accountability
 
 This starts a fresh Zig host for a Deno caller and, when
 [PyNaCl](https://pynacl.readthedocs.io/) is installed, a Python caller. Each
+caller dials the locator its host prints, over encrypted Noise TCP. Each
 language builds the same kind of identity and key history. The Zig host
 re-derives the caller's AID, accepts a current-key request, and refuses both a
 bad signature (`UnattestedCaller`) and a retired key (`UnboundCaller`).

@@ -167,7 +167,7 @@ const ScriptBackend = struct {
         return null;
     }
 
-    /// A scripted listener binds at `openListener`; nothing pends here. The
+    /// A scripted listener binds at `openListener`. Nothing pends here. The
     /// onion adapter's own publish conversation reports through its row.
     pub fn listenerPending(_: *const ScriptBackend, _: Fd) bool {
         return false;
@@ -363,6 +363,25 @@ test "onion completion accepts every legal SOCKS bound-address tail" {
         defer backend.deinit();
         const fd = try openDial(&backend, 200 + i);
         try closeDial(&backend, fd, 210 + i);
+    }
+}
+
+test "onion completion fails a dial with the SOCKS refusal that ended it" {
+    const refusals = [_]struct { chunks: []const []const u8, cause: anyerror }{
+        // A greeting that selects another method, one that runs long, and Tor's "host unreachable" for an unfetched descriptor.
+        .{ .chunks = &.{&[_]u8{ 0x05, 0xff }}, .cause = error.ProtocolViolation },
+        .{ .chunks = &.{&[_]u8{ 0x05, 0x00, 0x05 }}, .cause = error.ProtocolViolation },
+        .{ .chunks = &.{ &[_]u8{ 0x05, 0x00 }, &[_]u8{ 0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0 } }, .cause = error.ConnectRefused },
+    };
+    for (refusals, 0..) |refusal, i| {
+        var backend = initBackend(std.testing.allocator, refusal.chunks);
+        defer backend.deinit();
+        const fd = try backend.startDial(220 + i, target());
+        const connected = try waitFor(&backend, 220 + i);
+        try std.testing.expectEqual(@as(i32, -1), connected.result);
+        try std.testing.expectEqual(refusal.cause, connected.failure.?);
+        try std.testing.expectEqual(.connect, connected.borrowed.carrierPhase().?);
+        try closeDial(&backend, fd, 230 + i);
     }
 }
 

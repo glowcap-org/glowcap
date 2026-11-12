@@ -10,6 +10,17 @@ function terminate(child: Deno.ChildProcess): void {
 	}
 }
 
+async function retireFixture(fixture: BackendFixture): Promise<void> {
+	if (await waitForFile(fixture.retired)) return;
+	const pid = Number(await Deno.readTextFile(`${fixture.retired}.pid`));
+	try {
+		Deno.kill(pid, "SIGTERM");
+	} catch (error) {
+		if (!(error instanceof Deno.errors.NotFound)) throw error;
+	}
+	await waitForFile(fixture.retired);
+}
+
 async function waitForFile(path: string): Promise<boolean> {
 	const deadline = Date.now() + 5_000;
 	while (Date.now() < deadline) {
@@ -56,6 +67,7 @@ async function createBackendFixture(): Promise<BackendFixture> {
 const retired = ${JSON.stringify(retired)};
 const argumentLog = ${JSON.stringify(argumentLog)};
 await Deno.writeTextFile(argumentLog, Deno.args.join("\\n") + "\\n");
+await Deno.writeTextFile(retired + ".pid", String(Deno.pid));
 const stopping = new AbortController();
 Deno.addSignalListener("SIGTERM", async () => {
 	await Deno.writeTextFile(retired + ".starting", "retiring\\n");
@@ -67,9 +79,10 @@ const server = Deno.serve({
 	hostname: "127.0.0.1",
 	port: 0,
 	signal: stopping.signal,
-	onListen: ({ port }) => console.log(
-		\`rooms: serving\\n\\n  web ui           http://localhost:\${port}\\n\\nrooms: ready\`,
-	),
+	onListen: ({ port }) => {
+		const reached = Deno.args.find((arg) => arg.startsWith("--http-public="))?.slice("--http-public=".length).replace(/\\/$/, "");
+		console.log(\`ROOMS-WEB-LISTENING \${port}\\nrooms: serving\\n\\n  web ui           \${reached}\\n\\nrooms: ready\`);
+	},
 }, (request) => {
 	const url = new URL(request.url);
 	if (url.pathname === "/locator") return new Response("ocapn://development.fixture\\n");
@@ -85,8 +98,13 @@ await server.finished;
 	return { root, executable, retired, argumentLog };
 }
 
-function developmentCommand(fixture: BackendFixture, port: number): Deno.Command {
+function developmentCommand(fixture: BackendFixture, port: number, env: Record<string, string> = {}): Deno.Command {
 	const repository = new URL("../../../", import.meta.url);
+	// Each scene names every Rooms variable its front reads. One the caller's
+	// shell or container exports would otherwise decide what the scene proves.
+	const ambient = Object.fromEntries(
+		Object.entries(Deno.env.toObject()).filter(([name]) => !name.startsWith("GLOWCAP_ROOMS_")),
+	);
 	return new Deno.Command(Deno.execPath(), {
 		args: [
 			"run",
@@ -97,7 +115,8 @@ function developmentCommand(fixture: BackendFixture, port: number): Deno.Command
 			String(port),
 		],
 		cwd: fixture.root,
-		env: { GLOWCAP_ROOMS_DEV_HOST: "127.0.0.1" },
+		clearEnv: true,
+		env: { ...ambient, GLOWCAP_ROOMS_DEV_HOST: "127.0.0.1", ...env },
 		stdin: "null",
 		stdout: "piped",
 		stderr: "piped",
@@ -107,7 +126,10 @@ function developmentCommand(fixture: BackendFixture, port: number): Deno.Command
 Deno.test("rooms-dev serves source modules and finishes retirement across repeated signals", async () => {
 	const fixture = await createBackendFixture();
 	const port = nonEphemeralPort();
-	const child = developmentCommand(fixture, port).spawn();
+	const child = developmentCommand(fixture, port, {
+		GLOWCAP_ROOMS_DEV_TRACE_CONNECT: "wss://trace.example/captp",
+		GLOWCAP_ROOMS_DEV_TRACE_PUBLISH: "wss://trace.example/publish",
+	}).spawn();
 	const stdout = new Response(child.stdout).text();
 	const stderr = new Response(child.stderr).text();
 	try {
@@ -122,6 +144,9 @@ Deno.test("rooms-dev serves source modules and finishes retirement across repeat
 		const script = await fetch(`http://127.0.0.1:${port}/page.js`);
 		assertEquals(script.status, 200);
 		assert((await script.text()).includes("main.tsx"), "Vite did not serve the shared page entry");
+		const ground = await fetch(`http://127.0.0.1:${port}/ground.js`);
+		assertEquals(ground.status, 200);
+		await ground.text();
 		const main = await fetch(`http://127.0.0.1:${port}/main.tsx`);
 		assertEquals(main.status, 200);
 		const startup = await main.text();
@@ -192,13 +217,26 @@ Deno.test("rooms-dev serves source modules and finishes retirement across repeat
 		}
 		await Deno.remove(fixture.root, { recursive: true });
 		assertEquals(result.code, 0, `rooms-dev failed:\n${output}\n${errors}`);
+		assert(
+			!`${output}\n${errors}`.includes("Pre-transform error"),
+			`nested page assets failed Vite's warm-up:\n${output}\n${errors}`,
+		);
 		assert(retiring, "the repeated signal must arrive during backend retirement");
-		assert(output.includes("web server"), "rooms-dev did not label its internal listener");
-		assert(!output.includes("web ui"), "rooms-dev exposed the internal listener as the browser address");
+		assert(
+			/(^|\n)rooms-dev: web server http:\/\/127\.0\.0\.1:\d+ \(internal\)\n/.test(output),
+			"rooms-dev did not label its internal listener",
+		);
+		assert(!output.includes("ROOMS-WEB-LISTENING"), "rooms-dev announced the internal listener as its own");
+		assert(
+			output.includes(`  web ui           http://localhost:${port}\n`),
+			"the backend was not told the address browsers reach this front at",
+		);
 		assert(
 			launchArguments.includes("--no-browser-assets\n"),
 			"rooms-dev loaded an unused production asset generation",
 		);
+		assert(launchArguments.includes("--trace-connect=wss://trace.example/captp\n"));
+		assert(launchArguments.includes("--trace-publish=wss://trace.example/publish\n"));
 		assert(!launchArguments.includes("--prepared\n"), "rooms-dev launched the production publisher");
 		assert(backendRetired, "rooms-dev did not retire its web server");
 	}
@@ -231,4 +269,46 @@ Deno.test("rooms-dev retires its web server when Vite cannot take the public por
 		occupied.close();
 		await Deno.remove(fixture.root, { recursive: true });
 	}
+});
+
+Deno.test("rooms-dev retires its backend when the status output closes", async () => {
+	const fixture = await createBackendFixture();
+	// Close the operating-system descriptor while the backend stays alive.
+	// Deno's stdout resource wrapper does not close the inherited descriptor.
+	await Deno.writeTextFile(
+		fixture.executable,
+		`#!/usr/bin/env python3
+import os, signal, sys
+from pathlib import Path
+retired = Path(${JSON.stringify(fixture.retired)})
+Path(str(retired) + ".pid").write_text(str(os.getpid()))
+def retire(_signal, _frame):
+    retired.write_text("retired\\n")
+    sys.exit(0)
+signal.signal(signal.SIGTERM, retire)
+os.close(1)
+while True:
+    signal.pause()
+`,
+	);
+	const child = developmentCommand(fixture, nonEphemeralPort()).spawn();
+	const stdout = new Response(child.stdout).text();
+	const stderr = new Response(child.stderr).text();
+	const timer = setTimeout(() => terminate(child), 5_000);
+	try {
+		const result = await child.status;
+		clearTimeout(timer);
+		assertEquals(result.code, 1);
+		assert(await waitForFile(fixture.retired), "the output failure must retire the backend before exit");
+	} finally {
+		clearTimeout(timer);
+		// The red run demonstrates an abandoned backend. Retire exactly that
+		// fixture if the front failed to do so, before removing its files.
+		await retireFixture(fixture);
+		await stdout;
+		await stderr;
+		await Deno.remove(fixture.root, { recursive: true });
+	}
+	const errors = await stderr;
+	assert(errors.includes("rooms-web closed its startup and status output"), errors);
 });

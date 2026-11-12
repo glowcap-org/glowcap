@@ -6,14 +6,14 @@
 // A refusal here does the three jobs `failure.ts` names: what happened, what
 // to do next, and the exact cause when one arrived.
 
-export const conversationNoLongerOpen = "That conversation is no longer open.";
+export const conversationNoLongerOpen = "That conversation is no longer open. Pick another from the sidebar.";
 export const alreadyInRoom = "You're already in this room.";
 
-export const archivedBytesUnavailable = "These archived file bytes aren't available in this view.";
+export const archivedBytesUnavailable = "This archived file isn't available in this view.";
 export const earlierConnectionBytesUnavailable =
 	"This file belonged to an earlier connection and is no longer available.";
 
-/** Which archive is holding the earlier messages a conversation shows.  status-allow: event or source ordering */
+/** Which archive is holding the earlier messages a conversation shows. */
 export const keeperPeerAndDevice = "Messages above come from the archive peer and are saved on this device";
 export const keeperPeerAndSession = "Messages above come from the archive peer and were saved in this session";
 export const keeperPeer = "Messages above come from the archive peer";
@@ -35,7 +35,7 @@ export function ignoredButYou(name: string): string {
 
 /** Files on a line. */
 export function tooManyFiles(max: number): string {
-	return `This message already carries ${max} files, which is as many as one can.`;
+	return `This message already carries ${max} files, the most it can.`;
 }
 export function filesLeftOut(max: number, over: number): string {
 	return `A message may carry at most ${max} files, so ${

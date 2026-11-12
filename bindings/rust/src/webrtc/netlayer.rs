@@ -224,7 +224,7 @@ impl State {
 
 	// The library produced the answer for an accept and hands it out through
 	// the authority before `provide_offer` returns, so a refusal fails that
-	// call. The exchange is not in the table yet: the table learns it from status-allow: pending state or quoted runtime label
+	// call. The exchange is not in the table yet: the table learns it from
 	// `provide_offer`'s own return.
 	fn send_answer(&self, exchange: u64, designator: &str, sdp: &str) -> i32 {
 		let target = Target {
@@ -570,9 +570,11 @@ fn view(text: &str) -> ffi::GlowcapWebrtcStringView {
 impl Drop for Netlayer {
 	fn drop(&mut self) {
 		self.state.close();
-		// SAFETY: `self.raw` is the handle `glowcap_webrtc_netlayer_new` returned. `Drop` runs once, the state no longer status-allow: lifecycle transition
-		// provides through it, and the driver loop that held its package has already released.
-		if let Err(error) = check_webrtc(unsafe { ffi::glowcap_webrtc_netlayer_release(self.raw) }) {
+		// SAFETY: `self.raw` is the handle `glowcap_webrtc_netlayer_new` returned. `Drop` runs once, the closed state provides nothing
+		// through it, and the driver loop that held its package has already released.
+		if let Err(error) = check_webrtc(crate::sys::release_result_code(unsafe {
+			ffi::glowcap_webrtc_netlayer_release(self.raw)
+		})) {
 			record("webrtc-netlayer-drop-release", error);
 		}
 	}

@@ -258,11 +258,16 @@ fn input_already_closed(shared: &SessionShared) -> Result<bool> {
 /// same spine as a steady FLUSH: not a private output-drain path.
 async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 	let message = host_last_error();
+	let mut cause = crate::sys::GlowcapBreakCause::default();
+	// SAFETY: writes the live local descriptor from this thread's slot.
+	unsafe { ffi::glowcap_host_last_error_cause(&mut cause) };
 	let (abort, abort_failure) = match last_abort(shared) {
 		Ok(abort) => (abort, None),
 		Err(error) => (None, Some(error)),
 	};
-	let mut primary = Error::with_transport_detail(rc, message).with_abort(abort);
+	let mut primary = Error::with_transport_detail(rc, message)
+		.with_raw_cause(cause)
+		.with_abort(abort);
 	if let Some(error) = abort_failure {
 		primary = primary.with_secondary(error);
 	}
@@ -472,7 +477,7 @@ impl FrameGuard {
 impl Drop for FrameGuard {
 	fn drop(&mut self) {
 		// SAFETY: `self.0` is the managed frame `take_packet` filled, released exactly once here and only after the
-		// borrowed bytes are no longer used; the release is a no-op on a repeat. status-allow: lifecycle transition
+		// borrowed bytes are no longer used; the release is a no-op on a repeat.
 		unsafe { sys::glowcap_managed_frame_release(&mut self.0) };
 	}
 }

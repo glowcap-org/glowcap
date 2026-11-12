@@ -56,7 +56,7 @@ pub fn checkRoomsProofChildren(
     // deleted `children.ts` reads as a tree that simply stopped spawning, and
     // the check reports success over an unowned harness.
     const owner_path = proof_dir ++ "/" ++ spawn_owner_rel;
-    if (!(text_match.fileContains(io, gpa, root, owner_path, spawn_needle) catch false)) {
+    if (!(try text_match.fileContains(io, gpa, root, owner_path, spawn_needle))) {
         try appendViolation(
             gpa,
             violations,
@@ -68,7 +68,7 @@ pub fn checkRoomsProofChildren(
     // Deno overlays `env` onto the parent unless `clearEnv` is set, so a copied
     // map with `GLOWCAP_ROOMS_STATE` deleted still hands the pane's live directory
     // to a hermetic child. The owner is the one place that can hide it.
-    if (!(text_match.fileContains(io, gpa, root, owner_path, "clearEnv: true") catch false)) {
+    if (!(try text_match.fileContains(io, gpa, root, owner_path, "clearEnv: true"))) {
         try appendViolation(
             gpa,
             violations,
@@ -79,7 +79,7 @@ pub fn checkRoomsProofChildren(
     for (owned_helpers) |helper| {
         const helper_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ proof_dir, helper.owner_rel });
         defer gpa.free(helper_path);
-        if (!(text_match.fileContains(io, gpa, root, helper_path, helper.needle) catch false)) {
+        if (!(try text_match.fileContains(io, gpa, root, helper_path, helper.needle))) {
             try appendViolation(gpa, violations, "{s}: the one owner of `{s}` no longer declares it", .{ helper_path, helper.needle });
         }
     }
@@ -162,7 +162,7 @@ fn walk(
 
     var it = dir.iterate();
     while (true) {
-        const entry = (it.next(io) catch break) orelse break;
+        const entry = (try it.next(io)) orelse break;
         const child_rel = if (rel.len == 0)
             try gpa.dupe(u8, entry.name)
         else

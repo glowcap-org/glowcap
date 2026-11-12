@@ -133,7 +133,7 @@ class _Handlers:
         self._host.settle_vow(a.ticket, True, a.value)
 
     async def fail(self, a: Fail) -> None:
-        self._host.settle_vow(a.ticket, False, _vow_failure(a.result, a.message))
+        self._host.settle_vow(a.ticket, False, _vow_failure(a.result, a.message, a.cause))
 
     async def resume(self, a: Resume) -> None:
         # The shared C pump reports this as `yielded` before dispatch; keep

@@ -17,7 +17,7 @@
 //!
 //! A transport that is not a blocking `std.Io` stream, such as a callback or
 //! datagram API, drives the peer directly: `frame_stream.drainWholeFrames` for
-//! enveloped byte chunks, `engine.Peer.recvPacket` for a transport that keeps
+//! enveloped byte chunks, `frame_stream.applyPacket` for a transport that keeps
 //! message boundaries, and `takeOutbound` for what to write. That is also how
 //! a language binding runs a Host session over its own async sockets through
 //! the byte-fed C Host ABI.
@@ -44,10 +44,12 @@ pub const Progress = connection.Progress;
 pub const pumpOver = connection.pumpOver;
 pub const waitAnyReadable = connection.waitAnyReadable;
 pub const waitAny = connection.waitAny;
+pub const waitAnyDescriptor = connection.waitAnyDescriptor;
+pub const WaitAnyError = connection.WaitAnyError;
 pub const classifyApplyError = connection.classifyApplyError;
 
 pub const FrameStream = frame_stream.FrameStream;
-/// Where stream bytes wait when they have arrived but do not yet make a whole status-allow: pending state or quoted runtime label
+/// Where stream bytes wait when they have arrived but do not yet make a whole
 /// frame. Shared with the byte-fed host tier as `foundation.Spill`. At this tier
 /// it is the bounded overflow behind a read buffer (ADR-0012).
 pub const Spill = frame_stream.Spill;
@@ -61,6 +63,8 @@ pub const readFrameFrom = frame_stream.readFrameFrom;
 /// envelope in a chunk to a peer and park the partial tail in the spill.
 pub const drainWholeFrames = frame_stream.drainWholeFrames;
 pub const DrainVerdict = frame_stream.DrainVerdict;
+/// The packet door for a transport that keeps message boundaries.
+pub const applyPacket = frame_stream.applyPacket;
 /// One envelope off a borrowed prefix, for a caller that keeps its own buffer.
 pub const recvOuterPrefix = frame_stream.recvOuterPrefix;
 pub const RecvStream = frame_stream.RecvStream;
@@ -304,8 +308,10 @@ pub const OnionDialResolver = if (@import("builtin").os.tag == .linux or @import
 else
     struct {};
 
-/// The ready-to-use Zig onion completion loop. Tor conversations stay in
-/// `OnionBackend`. `completion.Loop` remains transport-blind.
+/// The ready-to-use Zig onion completion loop. An embedder that dials or
+/// listens on `onion` locators without the driver drives this loop. Tor
+/// conversations stay in `OnionBackend`. `completion.Loop` remains
+/// transport-blind.
 pub const OnionLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
     completion.Loop(OnionBackend, OnionDialResolver)
 else

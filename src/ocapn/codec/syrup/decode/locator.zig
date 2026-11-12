@@ -121,6 +121,7 @@ const HintNameSet = struct {
     len: usize = 0,
 
     fn insert(self: *HintNameSet, name: []const u8) bool {
+        // tolerant: an invalid hint name is this predicate's no.
         model.validateHintName(name) catch return false;
         if (self.len == self.items.len) return false;
         for (self.items[0..self.len]) |seen| {

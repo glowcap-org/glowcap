@@ -62,7 +62,7 @@
 (define (retire-session-wire-failure! c)
   (set-box! (session-transport-lost? c) #t)
   (set-box! (session-closing-state c) #t)
-  (with-handlers ([(lambda (_) #t)
+  (with-handlers ([raised-failure?
                    (lambda (error)
                      (record-session-wire-failure! c error)
                      (void))])
@@ -187,11 +187,9 @@
 
 (define (session-close-code-error result)
   (and (not (= result OK))
-       (exn:fail:glowcap
-        (if (= result ERR-TIMEOUT)
+       (make-glowcap-error result (if (= result ERR-TIMEOUT)
             "session-close!: finish close exhausted its grace period"
-            (format "session-close!: session close failed with glowcap error ~a" result))
-        (current-continuation-marks) result #f #f #f #f 0)))
+            (format "session-close!: session close failed with glowcap error ~a" result)))))
 
 (define (raise-session-terminal-failure! c)
   (raise-session-wire-failure! c)
@@ -212,7 +210,7 @@
   (set-box! (session-close-result c) (or close-error result))
   (when close-error (record-session-wire-failure! c close-error))
   (close-session-transport! c)
-  (with-handlers ([(lambda (_) #t)
+  (with-handlers ([raised-failure?
                    (lambda (error)
                      (record-session-wire-failure! c error)
                      (void))])
@@ -338,7 +336,7 @@
 ;; The exporter is resolved from the reply's own route rather than from
 ;; whichever dial this host finished most recently. So it stays exact with
 ;; several introductions in flight at once, and a reply whose exporter an
-;; earlier redeem already dialed resolves to that live session with no second status-allow: event or source ordering
+;; earlier redeem already dialed resolves to that live session with no second
 ;; session opened.
 (define (session-send-redeeming c target verb . args)
   (guard-open 'session-send-redeeming c)
@@ -496,7 +494,7 @@
                             "~a did not resolve to a capability: ~a" subject val))
            val]
           [else
-           (raise-glowcap who ERR-BROKEN "~a broke: ~a" subject (cdr s))])))
+           (raise-broken who subject (cdr s))])))
     (lambda () (release-vow-from-host! m v))))
 
 ;; Enliven a complete sturdyref against the host: select a live session this

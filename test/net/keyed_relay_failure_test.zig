@@ -1,6 +1,7 @@
 //! Exact relay stream failures at the Zig owner boundary.
 
 const std = @import("std");
+const wait = @import("../support/wait.zig");
 const glowcap = @import("glowcap");
 const ws_relay = @import("../support/ws_relay.zig");
 
@@ -27,7 +28,8 @@ test "relay stream failure is exact and claim-once" {
     var server = try listen_address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
     var server_future = try io.concurrent(serveMaskedFrame, .{ io, &server });
-    defer _ = server_future.cancel(io) catch {};
+    var server_future_joined = false;
+    errdefer if (!server_future_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -52,5 +54,6 @@ test "relay stream failure is exact and claim-once" {
     const failure = connection.takeFailure().?;
     try std.testing.expectEqualStrings("ProtocolViolation", failure.primaryName());
     try std.testing.expect(connection.takeFailure() == null);
+    server_future_joined = true;
     try server_future.await(io);
 }

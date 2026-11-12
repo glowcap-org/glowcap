@@ -19,7 +19,7 @@ import { type ServerChoosing, SessionServer } from "./SessionServer.tsx";
 import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Field } from "../Field.tsx";
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import { Icon, Wordmark } from "../icons.tsx";
 import { Said } from "../Said.tsx";
 import { ErrorDetail } from "./ErrorDetail.tsx";
@@ -227,7 +227,7 @@ export function SessionSetup(
 									<Input
 										id={wiring.id}
 										value={capability}
-										{...identifierField}
+										{...addressField}
 										disabled={busy != null}
 										aria-describedby={wiring.describedBy}
 										aria-invalid={wiring.invalid}

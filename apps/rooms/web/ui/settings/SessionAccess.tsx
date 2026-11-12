@@ -15,13 +15,13 @@ import {
 import { permissionSummary } from "./PermissionFields.tsx";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
 import { AccessStatusTag } from "./AccessStatusTag.tsx";
 import { SessionGrantEditModal } from "./SessionGrantEdit.tsx";
 import { SessionIssueModal } from "./SessionIssue.tsx";
-import { refusalText } from "../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { useOpenModal } from "../modal.ts";
@@ -186,7 +186,7 @@ function HoldControlModal({ open, onClose }: { open: boolean; onClose(): void })
 	useChangeGroup(group, {
 		dirty: uri !== "",
 		discard: () => {
-			if (busy) throw new Error("Wait for the control to finish being held.");
+			if (busy) throw new LocalRefusal("settings-access-holding");
 			setUri("");
 			setWhy("");
 		},
@@ -228,8 +228,7 @@ function HoldControlModal({ open, onClose }: { open: boolean; onClose(): void })
 					{(wiring) => (
 						<Input
 							id={wiring.id}
-							type="text"
-							{...identifierField}
+							{...addressField}
 							value={uri}
 							disabled={busy}
 							placeholder={sturdyrefPlaceholder}

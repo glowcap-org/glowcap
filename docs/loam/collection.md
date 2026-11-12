@@ -16,13 +16,15 @@ fit in memory. See the [Loam guide](../loam.md) for the rest of the store.
 
 ## Running a cycle
 
-Call `store.prepareCollection(work_limit)` to prepare one bounded batch, then
-commit it like any other write: `beginWrite`, the backend's commit, and
-`completeWrite`. Read `store.metadata.collection.phase` and keep going in later
-batches until it is `idle`. The [C and Rust
-guide](c-and-rust.md#driving-storage-from-c) names the verbs that run the same
-batch from an archive. An unknown outcome uses the same [recovery
-steps](store.md#when-a-writes-outcome-is-unknown) as a content write.
+1. Call `store.prepareCollection(work_limit)` to prepare one bounded batch.
+2. Commit it like any other write: `beginWrite`, the backend's commit, and
+   `completeWrite`.
+3. Read `store.metadata.collection.phase` and repeat in later batches until it
+   is `idle`.
+
+The [C and Rust guide](c-and-rust.md#driving-storage-from-c) names the verbs
+that run the same batch from an archive. An unknown outcome uses the same
+[recovery steps](store.md#when-a-writes-outcome-is-unknown) as a content write.
 
 ```mermaid
 flowchart LR
@@ -91,7 +93,7 @@ takes effect.
 - A retention made during the final phase needs no marking, because deletion
   is already over.
 - A cycle that follows a finished one starts with the roots. After an
-  interrupted one, it first clears the old tracing rows in separate batches. <!-- status-allow: runtime state or operation ordering -->
+  interrupted one, it first clears the old tracing rows in separate batches.
 
 [ADR-0050](../decisions/adr/ADR-0050-transactional-reclamation.md)
 records these rules, and the

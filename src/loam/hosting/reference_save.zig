@@ -33,8 +33,9 @@ pub const Save = opaque {
     }
     /// Why the proof's restoration failed, borrowed from this save. Only a
     /// save whose result failed as `RestorationFailed` has one.
-    pub fn restorationCause(self: *Save) []const u8 {
-        return state(self).enliven.?.result().failed.message;
+    pub fn restorationCause(self: *Save) driver.Broken {
+        const failure = state(self).enliven.?.result().failed;
+        return .{ .detail = failure.message, .cause = failure.cause };
     }
     pub fn deinit(self: *Save) void {
         state(self).deinit();
@@ -53,6 +54,7 @@ const State = struct {
     bytes: ?[]u8 = null,
     enliven: ?*driver.Host.Enliven = null,
     state: union(enum) { pending, ready, failed: anyerror },
+    release_node: driver.Host.DeferredRelease = .{ .run = runRelease },
 
     const Result = Save.Result;
 
@@ -77,8 +79,14 @@ const State = struct {
         };
     }
 
+    /// Inside a Host callback this runs when the callback's verb tail does,
+    /// and the save keeps its attachment busy until then.
     pub fn deinit(self: *State) void {
-        self.owner.host.refuseReentry() catch unreachable;
+        self.owner.host.releaseAtTopLevel(&self.release_node);
+    }
+
+    fn runRelease(node: *driver.Host.DeferredRelease) void {
+        const self: *State = @alignCast(@fieldParentPtr("release_node", node));
         if (self.enliven) |enliven| enliven.deinit();
         self.owner.host.releaseCapabilityTerminal(self.capability, null);
         if (self.bytes) |bytes| self.allocator.free(bytes);

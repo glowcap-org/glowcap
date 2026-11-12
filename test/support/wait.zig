@@ -8,7 +8,8 @@
 
 const std = @import("std");
 
-pub const Error = error{WaitTimedOut};
+/// A wait fails past its deadline or when the task running it is cancelled.
+pub const Error = error{WaitTimedOut} || std.Io.Cancelable;
 
 /// Generous default for multi-thread driver tests: slow CI stays quiet. A
 /// real hang fails within low tens of seconds with a located error.
@@ -29,7 +30,7 @@ fn until(
     const deadline = deadlineAfter(io, deadline_ms);
     while (!pred(ctx)) {
         if (expired(io, deadline)) return error.WaitTimedOut;
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real);
     }
 }
 
@@ -40,6 +41,28 @@ pub fn untilFlag(io: std.Io, deadline_ms: u64, flag: *const std.atomic.Value(boo
             return f.load(.acquire);
         }
     }.pred);
+}
+
+/// Wait until an accept or readiness wait holds `gate`'s operation lease. A
+/// close from then on reaches that wait instead of racing its entry. `gate`
+/// is a listener's accept gate, which the net module keeps private.
+pub fn untilLeaseHeld(io: std.Io, gate: anytype) Error!void {
+    const deadline = deadlineAfter(io, default_deadline_ms);
+    while (!gate.leaseHeld(io)) {
+        if (expired(io, deadline)) return error.WaitTimedOut;
+        std.Thread.yield() catch {};
+    }
+}
+
+/// Wait for `server` to have an accept ready, or for `stop` to be raised.
+/// A bare `accept` parks in the runtime's wait where neither a stop flag nor
+/// a task cancel reaches it, so a test that fails before any partner dials
+/// could never join its serving task. True means an accept is ready.
+pub fn acceptableUnlessStopped(server: anytype, stop: *const std.atomic.Value(bool)) !bool {
+    while (!stop.load(.acquire)) {
+        if (try server.waitAcceptable(20)) return true;
+    }
+    return false;
 }
 
 /// Wall-clock deadline for a pump loop that already blocks briefly on I/O:
@@ -53,4 +76,19 @@ pub fn deadlineAfter(io: std.Io, deadline_ms: u64) std.Io.Clock.Timestamp {
 
 pub fn expired(io: std.Io, deadline: std.Io.Clock.Timestamp) bool {
     return std.Io.Clock.Timestamp.now(io, .real).compare(.gte, deadline);
+}
+
+/// Print how a task ended when it failed while the test unwinds. The test
+/// reports its own first error, and this line names the task's, which is
+/// often the cause. A task that ended by the cancel the unwind asked for
+/// prints nothing.
+pub fn joinedUnwinding(comptime task: []const u8, result: anytype) void {
+    switch (@typeInfo(@TypeOf(result))) {
+        .error_union => _ = result catch |err| {
+            if (err == error.Canceled) return;
+            std.debug.print("unwinding: the {s} task ended with {s}\n", .{ task, @errorName(err) });
+        },
+        .void => {},
+        else => @compileError("joinedUnwinding takes a task result, found " ++ @typeName(@TypeOf(result))),
+    }
 }

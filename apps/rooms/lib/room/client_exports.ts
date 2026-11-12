@@ -25,6 +25,7 @@ export {
 	giveStewardship,
 	type OperatorCategory,
 	type OperatorLinkRow,
+	type OperatorPage,
 	operatorPage,
 	type OperatorReferenceKind,
 	type OperatorReferenceRow,

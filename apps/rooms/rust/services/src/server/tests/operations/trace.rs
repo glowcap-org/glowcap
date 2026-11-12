@@ -59,9 +59,10 @@ impl Viewer {
 		use rooms_platform::websocket::WsBytes;
 		use tokio_tungstenite::connect_async;
 		let parsed = glowcap::parse_sturdyref(sturdyref, glowcap::CaptpVersion::V1_0).unwrap();
-		let swiss = String::from_utf8(parsed.swissnum).unwrap();
 		let port = glowcap::designator_host_port(&parsed.locator.designator).unwrap().1;
-		let url = format!("ws://127.0.0.1:{port}/?cap={swiss}");
+		// The byte channel. The swiss travels only in CapTP, when the trace
+		// object is fetched.
+		let url = format!("ws://127.0.0.1:{port}/captp");
 		let (sturdyref, locator) = (sturdyref.to_owned(), parsed.locator);
 		let heard = Arc::new(Mutex::new(Vec::<String>::new()));
 		let (stop, stopped) = std::sync::mpsc::channel::<()>();
@@ -198,16 +199,22 @@ async fn trace() {
 		assert!(answer.starts_with("HTTP/1.1 400"), "{answer}");
 		assert!(answer.contains("OCapN byte channel at /captp"), "{answer}");
 		assert!(
-			answer.contains("/ and /publish require the trace capability as ?cap=<swiss>"),
+			answer.contains("send the trace capability as their first message"),
 			"{answer}"
 		);
 	}
-	// A socket without the capability is refused before anything is parsed,
-	// with the wrong swiss as with none.
-	for query in ["", "?cap=0000"] {
-		let (mut refused, _) = connect_async(format!("ws://127.0.0.1:{port}/publish{query}"))
-			.await
-			.unwrap();
+	// A producer without the capability is refused before anything else it
+	// says is parsed. So is any route with a query, even with the right swiss,
+	// and the root route that once took one.
+	for (route, first) in [
+		("/publish".to_owned(), "0000"),
+		(format!("/publish?cap={swiss}"), swiss.as_str()),
+		(format!("/captp?cap={swiss}"), swiss.as_str()),
+		("/".to_owned(), swiss.as_str()),
+	] {
+		let (mut refused, _) = connect_async(format!("ws://127.0.0.1:{port}{route}")).await.unwrap();
+		// tolerant: a refused route may close before reading this.
+		let _ = refused.send(Message::Text(first.into())).await;
 		match refused.next().await {
 			Some(Ok(Message::Close(Some(frame)))) => {
 				assert_eq!(u16::from(frame.code), 4403);
@@ -232,9 +239,8 @@ async fn trace() {
 
 	// A producer hears the admission mark and nothing else; what it says
 	// reaches the viewer scoped apart from the room's own trace.
-	let (mut producer, _) = connect_async(format!("ws://127.0.0.1:{port}/publish?cap={swiss}"))
-		.await
-		.unwrap();
+	let (mut producer, _) = connect_async(format!("ws://127.0.0.1:{port}/publish")).await.unwrap();
+	producer.send(Message::Text(swiss.clone().into())).await.unwrap();
 	let mark = producer.next().await.unwrap().unwrap();
 	assert!(mark.to_text().unwrap().contains("trace.publish-ready"), "{mark:?}");
 	producer
@@ -306,12 +312,13 @@ async fn long_timeline() {
 	let endpoint = endpoint(&temp).await;
 	let viewer = Viewer::subscribe(&endpoint.sturdyref).await;
 	viewer.heard("trace.replay-end", Duration::from_secs(5)).await;
-	let (mut producer, _) = connect_async(format!(
-		"ws://127.0.0.1:{}/publish?cap={}",
-		endpoint.port, endpoint.swiss
-	))
-	.await
-	.unwrap();
+	let (mut producer, _) = connect_async(format!("ws://127.0.0.1:{}/publish", endpoint.port))
+		.await
+		.unwrap();
+	producer
+		.send(Message::Text(endpoint.swiss.clone().into()))
+		.await
+		.unwrap();
 	producer.next().await.unwrap().unwrap();
 	// A burst, then a pause with the viewer silent, then one more.
 	for id in 0..400 {

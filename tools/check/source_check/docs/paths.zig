@@ -4,6 +4,7 @@
 const std = @import("std");
 
 pub fn fileExists(io: std.Io, root: std.Io.Dir, path: []const u8) bool {
+    // tolerant: any target that cannot be reached is reported as a broken link, which fails the check.
     root.access(io, path, .{}) catch return false;
     return true;
 }

@@ -1,13 +1,6 @@
 // IRC parsing and encoding share one bounded grammar for framing, tags, prefixes, commands, and case mapping.
 import { assertEquals } from "../assert.ts";
-import {
-	encodeIrc,
-	encodeIrcMessage,
-	ircFold,
-	nickFromPrefix,
-	parseIrcLine,
-	readIrcLines,
-} from "../../irc/protocol.ts";
+import { encodeIrc, encodeIrcMessage, parseIrcLine, readIrcLines } from "../../irc/protocol.ts";
 
 Deno.test("IRC grammar keeps tags, prefix, command, and trailing text distinct", () => {
 	const message = parseIrcLine("@time=now;draft/example=hello\\sworld :alice!u@example PRIVMSG #ocapn :hello there");
@@ -15,7 +8,6 @@ Deno.test("IRC grammar keeps tags, prefix, command, and trailing text distinct",
 	assertEquals(message.prefix, "alice!u@example");
 	assertEquals(message.command, "PRIVMSG");
 	assertEquals(message.params, ["#ocapn", "hello there"]);
-	assertEquals(nickFromPrefix(message.prefix), "alice");
 });
 
 Deno.test("IRC encoder refuses line injection and protocol-sized overflow", () => {
@@ -107,8 +99,4 @@ Deno.test("IRC reader fails closed on a line that is not valid UTF-8", async () 
 		refused = true;
 	}
 	assertEquals(refused, true, "a non-UTF-8 IRC line reached the bridge");
-});
-
-Deno.test("IRC casemapping follows RFC 1459 rather than JavaScript lowercase alone", () => {
-	assertEquals(ircFold("Nick[\\^"), ircFold("nICK{|~"));
 });

@@ -48,9 +48,9 @@ const TraceLog = harness.TraceLog;
 
 test "core host: a crossed-hellos loser refuses every verb condemned; release still works" {
     const allocator = std.testing.allocator;
-    var a = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.withFrameCap(frame_cap));
+    var a = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.init(.unchecked, frame_cap));
     defer a.deinit();
-    var b = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
+    var b = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.init(.unchecked, frame_cap));
     defer b.deinit();
 
     // Both sides dial the same partner designator: a's outbound dial is
@@ -92,7 +92,7 @@ test "core host: a crossed-hellos loser refuses every verb condemned; release st
 
 test "core host: a second dial to the same partner refuses SessionPairExists" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     const designator = "127.0.0.1:7011";
@@ -111,7 +111,7 @@ test "core host: a second dial to the same partner refuses SessionPairExists" {
 
 test "core host: transport loss unindexes a retained session before reconnect" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     const designator = "127.0.0.1:7013";
@@ -129,14 +129,14 @@ test "core host: transport loss unindexes a retained session before reconnect" {
 test "core host: partial handshake keeps dial authority until terminal closure" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x59)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x59)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     const designator = "127.0.0.1:7031";
     try host.ensureAdvertisedLocator("tcp");
     const dialed = try host.openDialedLocator(tcpLocator(designator));
 
     // A stream may deliver only part of the length prefix before the hello.
-    // Negotiation still owns the dial, even though no session is open yet. status-allow: pending state or quoted runtime label
+    // Negotiation still owns the dial, even though no session is open yet.
     failing.fail_index = failing.alloc_index;
     try std.testing.expectError(error.OutOfMemory, host.feedBytes(dialed, "1"));
     try std.testing.expect(host.dialedSessionFor("tcp", designator) == dialed);
@@ -155,7 +155,7 @@ test "core host: partial handshake keeps dial authority until terminal closure" 
 
 test "core host: equal designators on different transports remain distinct dials" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     _ = try host.defineTransport(.{ .symbol = "test-alt", .designator_scheme = .address });
 
@@ -181,9 +181,9 @@ test "core host: equal designators on different transports remain distinct dials
 
 test "core host: accepted tcp session's declared designator does not squat dial availability" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x3e)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x3e)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -210,9 +210,9 @@ test "core host: keyed dial to a verified partner session key refuses SessionPai
     var uri_buf: [96]u8 = undefined;
     const uri = try std.fmt.bufPrint(&uri_buf, "ocapn://{s}.iroh", .{designator[0..]});
 
-    var dialer = test_host.init(allocator, @as([32]u8, @splat(0x52)), Host.Options.withFrameCap(frame_cap));
+    var dialer = test_host.init(allocator, @as([32]u8, @splat(0x52)), Host.Options.init(.unchecked, frame_cap));
     defer dialer.deinit();
-    var acceptor = test_host.init(allocator, partner_seed, Host.Options.withFrameCap(frame_cap));
+    var acceptor = test_host.init(allocator, partner_seed, Host.Options.init(.unchecked, frame_cap));
     defer acceptor.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -239,9 +239,9 @@ test "core host: keyed dial to a verified partner session key refuses SessionPai
 
 test "core host: dual accept settlement condemns the second session to the same partner key" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x3f)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x3f)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
-    var peer = test_host.init(allocator, @as([32]u8, @splat(0x40)), Host.Options.withFrameCap(frame_cap));
+    var peer = test_host.init(allocator, @as([32]u8, @splat(0x40)), Host.Options.init(.unchecked, frame_cap));
     defer peer.deinit();
 
     const first = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7015", &.{});
@@ -265,9 +265,9 @@ test "core host: dual accept settlement condemns the second session to the same 
 
 test "core host: partner-side index empties after enroll, learn, condemn, and release" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
-    var peer = test_host.init(allocator, @as([32]u8, @splat(0x54)), Host.Options.withFrameCap(frame_cap));
+    var peer = test_host.init(allocator, @as([32]u8, @splat(0x54)), Host.Options.init(.unchecked, frame_cap));
     defer peer.deinit();
 
     const first = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7020", &.{});
@@ -297,7 +297,7 @@ test "core host: a burst of accepts before any start-session indexes every partn
     // `putAssumeCapacity` once the burst passed the map's usable capacity.
     const allocator = std.testing.allocator;
     const n = 8; // past AutoHashMap's minimal usable capacity
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x60)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x60)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     var peers: [n]Host = undefined;
@@ -310,7 +310,7 @@ test "core host: a burst of accepts before any start-session indexes every partn
     // Mint every accepted session (and its dialing partner) first: the whole
     // burst is un-indexed before one start-session is fed.
     for (0..n) |i| {
-        peers[i] = test_host.init(allocator, @as([32]u8, @splat(@as(u8, @intCast(0x61 + i)))), Host.Options.withFrameCap(frame_cap));
+        peers[i] = test_host.init(allocator, @as([32]u8, @splat(@as(u8, @intCast(0x61 + i)))), Host.Options.init(.unchecked, frame_cap));
         peers_inited += 1;
         var buf: [24]u8 = undefined;
         const designator = try std.fmt.bufPrint(&buf, "127.0.0.1:{d}", .{7100 + i});
@@ -354,8 +354,8 @@ test "session identity: crossed-hello ordering is per session over one advertise
     // both racing attempts and cannot order anything; only the session ids
     // can. Both ends must still converge on the same survivor.
     const allocator = std.testing.allocator;
-    const a_opts = Host.Options.withFrameCap(frame_cap);
-    const b_opts = Host.Options.withFrameCap(frame_cap);
+    const a_opts = Host.Options.init(.unchecked, frame_cap);
+    const b_opts = Host.Options.init(.unchecked, frame_cap);
     var a = test_host.init(allocator, @as([32]u8, @splat(0x01)), a_opts);
     defer a.deinit();
     var b = test_host.init(allocator, @as([32]u8, @splat(0xff)), b_opts);
@@ -414,8 +414,8 @@ test "session identity: crossed-hello ordering is per session over one advertise
 
 test "core host: crossed hellos match the advertised route across different channel transports" {
     const allocator = std.testing.allocator;
-    const a_opts = Host.Options.withFrameCap(frame_cap);
-    const b_opts = Host.Options.withFrameCap(frame_cap);
+    const a_opts = Host.Options.init(.unchecked, frame_cap);
+    const b_opts = Host.Options.init(.unchecked, frame_cap);
     var a = test_host.init(allocator, @as([32]u8, @splat(0x11)), a_opts);
     defer a.deinit();
     var b = test_host.init(allocator, @as([32]u8, @splat(0xee)), b_opts);
@@ -479,7 +479,7 @@ test "durable publication: a sturdyref issued before a restart still names a liv
     // Before the restart: publish, and keep the sturdyref a caller was handed.
     var issued: [engine.durable_swiss_len]u8 = undefined;
     {
-        var host = test_host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
+        var host = test_host.init(allocator, seed, Host.Options.init(.unchecked, frame_cap));
         defer host.deinit();
         const swiss = try host.publishDurable(entropy, Widget, .{});
         issued = swiss.bytes;
@@ -487,7 +487,7 @@ test "durable publication: a sturdyref issued before a restart still names a liv
 
     // The restart: a new process, the same durable identity, the same stored
     // entropy, a new actor behind the name.
-    var host = test_host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, seed, Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     const rebound = try host.publishDurable(entropy, Widget, .{});
 
@@ -496,7 +496,7 @@ test "durable publication: a sturdyref issued before a restart still names a liv
 
     // And it is a live publication on this host, not merely an equal string:
     // a partner session fetching that swiss reaches the actor.
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x7e)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x7e)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

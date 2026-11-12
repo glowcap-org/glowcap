@@ -176,6 +176,8 @@ typedef void (*GlowcapTraceCallback)(void *ctx, const GlowcapTraceEvent *event);
 #define GLOWCAP_HOST_ACTION_RESUME 6
 /* GlowcapHostAction.kind: interrupt and join the external dial named by ticket, then report glowcap_host_dial_cancelled. */
 #define GLOWCAP_HOST_ACTION_CANCEL_DIAL 7
+/* Exact partner fetch-refusal text for an unknown publication. Match only with partner origin, application reason, and fetch context. Local misses carry publication_absent. */
+#define GLOWCAP_UNKNOWN_SWISSNUM_MESSAGE "unknown swissnum"
 /* glowcap_host_close pending policy: seal admission, cancel admitted work, and begin terminal session shutdown. */
 #define GLOWCAP_PENDING_CANCEL 0
 /* glowcap_host_close pending policy: seal admission and keep driving admitted work before terminal session shutdown. */
@@ -271,6 +273,8 @@ typedef struct GlowcapHostAction {
     size_t message_len;
     /* CLOSE: GLOWCAP_OK or GLOWCAP_ERR_TIMEOUT. FAIL: GLOWCAP_ERR_BROKEN or GLOWCAP_ERR_CLOSED; zero otherwise. */
     int32_t result;
+    /* FAIL: failure provenance, reason and operation context. Zero fields otherwise. */
+    GlowcapBreakCause cause;
 } GlowcapHostAction;
 
 /* One shared arm callback for GlowcapHostPumpHooks (flush, close,
@@ -384,7 +388,10 @@ int32_t glowcap_host_lifecycle_state(GlowcapHost *host, uint32_t *out_state);
    may transfer exclusive ownership to a finalizer thread after every Host call has
    returned; no live Host verb gains cross-thread permission. Refusal from inside a
    callback sets last error and leaves the handle live. A teardown failure also sets
-   last error but consumes the handle after completing the ownership sweep. */
+   last error but consumes the handle after completing the ownership sweep.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_host_release(GlowcapHost *host);
 /* Derive the canonical key designator (exactly 64 lowercase hex digits) from a
    32-byte Ed25519 durable identity seed, the public half of the first half of
@@ -567,7 +574,10 @@ int32_t glowcap_host_session_lifecycle_state(GlowcapHostSession *session, uint32
    completions queue inside this call), the node retires it (stranded
    withdraws fail closed, so SIBLING sessions' vows may break here too), and
    the shell is freed. NULL is a no-op; refused (last error set, the session
-   kept) from inside a callback. */
+   kept) from inside a callback.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_host_session_release(GlowcapHostSession *session);
 /* Nonzero once the keyed handshake has completed and the session is open. */
 int32_t glowcap_host_session_is_open(GlowcapHostSession *session);
@@ -662,10 +672,13 @@ int32_t glowcap_host_pump_drain(GlowcapHost *host, const GlowcapHostPumpHooks *h
    not running; the executor must close and release an unadopted session. A non-OK
    return consumes neither attempt nor session. */
 int32_t glowcap_host_dialed(GlowcapHost *host, uint64_t ticket, size_t route_index, GlowcapHostSession *session, uint8_t *out_adopted);
-/* Report one DIAL attempt's failure. Strong identity routes maintain their bounded
-   race before ordered weak fallbacks begin; waiters break only after every eligible
-   route fails. A stale or non-running attempt is a no-op success. */
-int32_t glowcap_host_dial_failed(GlowcapHost *host, uint64_t ticket, size_t route_index, const uint8_t *reason, size_t reason_len);
+/* Report one DIAL attempt's failure. failure must be a GLOWCAP_ROUTE_FAILURE_* constant. Unknown values are refused.
+   Only a route with no configured transport may use TRANSPORT_UNAVAILABLE. Strong identity
+   routes maintain their bounded race before ordered weak fallbacks begin; waiters
+   break only after every eligible route fails. The terminal cause names unavailable
+   transports only when every accepted failure did. A stale or non-running attempt
+   is a no-op success. */
+int32_t glowcap_host_dial_failed(GlowcapHost *host, uint64_t ticket, size_t route_index, uint32_t failure, const uint8_t *reason, size_t reason_len);
 /* Acknowledge that a CANCEL_DIAL attempt's physical operation has stopped and its
    executor state can be released. Host close remains pending until this report. */
 int32_t glowcap_host_dial_cancelled(GlowcapHost *host, uint64_t ticket, size_t route_index);
@@ -819,7 +832,10 @@ int32_t glowcap_host_vow_tell(GlowcapHost *host, uint64_t vow, const uint8_t *ve
    answer only drops its Host observer. A row already retired with its session is
    a wire-free success. Any other non-OK return consumes nothing and is retryable.
    Single-thread affinity applies: finalizers park the id for the owning runtime
-   loop rather than calling this directly. */
+   loop rather than calling this directly.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_host_vow_release(GlowcapHost *host, uint64_t vow);
 /* A public Host vow as a capability (ADR-0068): one application retain lands in
    *out_reference, released with glowcap_host_ref_release. Passed as a send
@@ -954,7 +970,10 @@ int32_t glowcap_host_ref_retain(GlowcapHost *host, const GlowcapReference *ref, 
    identity is refused. A non-OK return commits no release, so the same (ref, delta)
    may be retried. OK consumes the release; any later pump cleanup failure becomes
    typed session close and must not invite a duplicate release. Single-thread
-   affinity applies: never call this from a finalizer thread. */
+   affinity applies: never call this from a finalizer thread.
+   Release result: negative retains ownership, zero consumes successfully, and
+   positive consumes with a failure. Use glowcap_release_result_consumed and
+   glowcap_release_result_code before retrying or reporting the failure. */
 int32_t glowcap_host_ref_release(GlowcapHost *host, const GlowcapReference *ref, uint64_t delta);
 /* Write to *out_ref the opaque Host-scoped capability currently published under
    name, or return GLOWCAP_ERR_NOT_FOUND when the Host has no such alias. The actor
@@ -1059,6 +1078,8 @@ int32_t glowcap_host_session_bind_verified_channel_key(GlowcapHostSession *sessi
    Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap
    0 queries the length. Returns the full message length, or 0 when none is set. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t glowcap_host_last_error(uint8_t *out_buf, size_t cap);
+/* Copy the preceding Host operation's failure metadata without clearing it. A null output is a no-op. Zero fields mean no named failure. Diagnostic text never establishes provenance. */
+void glowcap_host_last_error_cause(GlowcapBreakCause *out_cause);
 /* Clear the calling thread's glowcap_host_* last-error slot. */
 void glowcap_host_clear_last_error(void);
 

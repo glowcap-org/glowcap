@@ -1,8 +1,10 @@
 //! Workspace rows select membership workers. They never reconstruct authority.
 //! The embedding calls reconcile on admitted workspace changes and closes this
 //! aggregate before closing the session. No timer or second grant ledger exists.
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use super::{Membership, Session};
-use glowcap::{Argument, Result};
+use glowcap::Argument;
 use rooms_application::content::session::{custody, workspace};
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::collections::BTreeMap;
@@ -91,15 +93,15 @@ impl MembershipKinds {
 #[derive(Default)]
 pub struct MembershipReport {
 	pub ready: usize,
-	pub failures: Vec<(MembershipTarget, glowcap::Error)>,
+	pub failures: Vec<(MembershipTarget, crate::Error)>,
 }
-/// A coded refusal names a condition that clears only with a change (the row,
-/// the session's transports, an explicit retry), so a registry holds it and
-/// reports it standing. An uncoded failure is the network's, and the recovery
-/// timer reattempts it.
-pub(super) fn stands(failure: &glowcap::Error) -> bool {
-	rooms_application::failure::Failure::parse(&failure.to_string())
-		.is_some_and(|coded| !matches!(coded.code.definition().retry, rooms_application::failure::Retry::Soon))
+/// A failure stands when its catalog code names a change to wait for (the
+/// row, the session's transports, an explicit retry) or when only a different
+/// request can succeed. A registry holds it and reports it standing. The
+/// recovery timer reattempts every other failure, and one whose cause clears
+/// with time.
+pub(super) fn stands(failure: &crate::Error) -> bool {
+	failure.standing_retry().is_some()
 }
 /// One nickname copy per directory, bounded by 32 UTF-16 units and the directory
 /// capacity. It outlives the borrowed snapshot so user edits can retire a worker.
@@ -175,7 +177,7 @@ struct Entry<P: Tasks> {
 	worker: Worker<P>,
 }
 enum Worker<P: Tasks> {
-	Refused(glowcap::Error),
+	Refused(crate::Error),
 	Running(Membership<P>),
 }
 
@@ -215,7 +217,7 @@ impl Desired<'_> {
 			Self::Directory(row) => Origin::directory(row),
 			Self::Room(row, directory) => Origin::room(row, directory),
 		}
-		.ok_or_else(|| glowcap::loam::refusal("membership row has no bounded origin"))
+		.ok_or_else(|| Error::invalid("membership row has no bounded origin"))
 	}
 	fn matches(&self, origin: &Origin) -> bool {
 		match (self, origin) {
@@ -366,10 +368,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 			let Some(target) = obsolete else { break };
 			let Some(entry) = self.entries.get_mut(&target) else {
 				// The failure keeps the target out of the next selection above.
-				report.failures.push((
-					target,
-					glowcap::loam::refusal("membership left the registry before retirement"),
-				));
+				report
+					.failures
+					.push((target, Error::closed("membership left the registry before retirement")));
 				continue;
 			};
 			if let Worker::Running(membership) = &mut entry.worker
@@ -468,7 +469,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 		let Some(entry) = self.entries.get(target) else {
 			report.failures.push((
 				target.clone(),
-				glowcap::loam::refusal("membership left the registry before readiness"),
+				Error::closed("membership left the registry before readiness"),
 			));
 			return;
 		};
@@ -481,11 +482,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 		};
 		if let Some(Err(error)) = membership.status() {
 			// A standing refusal waits for an explicit retry or a changed row,
-			// and a throttled start keeps the delay its advice named. Any other
-			// failure is the network's, and this wake reattempts it.
-			let throttled = rooms_application::failure::Failure::parse(&error.to_string())
-				.and_then(|failure| failure.retry_advice())
-				.is_some();
+			// and a throttled start keeps the delay its advice named. This
+			// wake reattempts any other failure.
+			let throttled = error.admission_retry().is_some();
 			if !stands(&error) && !throttled {
 				membership.retry();
 			}
@@ -513,13 +512,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 			let Worker::Running(membership) = &mut entry.worker else {
 				continue;
 			};
-			if let Err(error) = membership.close().await {
-				let error = error.with_context(&format!("closing {target:?} membership"));
-				result = match result {
-					Ok(()) => Err(error),
-					Err(first) => Err(first.with_cleanup(Err(error))),
-				};
-			}
+			let closed = membership.close().await;
+			crate::cleanup::retain(
+				&mut result,
+				closed.map_err(|error| error.with_context(format!("closing {target:?} membership"))),
+			);
 		}
 		self.entries
 			.retain(|_, entry| matches!(&entry.worker, Worker::Running(membership) if membership.is_active()));

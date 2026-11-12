@@ -5,7 +5,7 @@
 // is all this module does, and the only interesting part is when.
 //
 // The bundle starting to run is the wrong moment. It is a moment the reader
-// cannot tell apart from arrival, and yet nothing they came for is there yet: status-allow: pending state or quoted runtime label
+// cannot tell apart from arrival, and yet nothing they came for is there yet:
 // the peer opens in the browser, dials the room server, and only then is there a
 // list of live rooms to browse or a room to enter. Handing over there would
 // swap one wait for another and present it as the page.
@@ -22,7 +22,7 @@ import * as store from "./store.ts";
 import { stopBootAsides } from "./boot_note.ts";
 import type { MarkLive } from "../../../../ui/mark/live.ts";
 import type { PageProjection } from "./store/projection.ts";
-import { pageBase, pagePath } from "./page_base.ts";
+import { pageBase, pagePath, reloadPage } from "./page_base.ts";
 import { bootReload } from "../../lib/text/session.ts";
 
 /** The two states this module puts the document in. `running` closes the window
@@ -112,7 +112,7 @@ function standAtFront(): void {
  * next parse opens session choice rather than Operations. */
 export function finishCoveredReload(toFront = false): void {
 	if (toFront) standAtFront();
-	location.reload();
+	reloadPage();
 }
 
 /** Unload a covered page whose move has already committed. The selection or
@@ -149,10 +149,11 @@ export function uncoverReload(): void {
  * up. `import()` rejects rather than firing `window.onerror`, so page.html's
  * watcher would never hear it and the splash would sit forever. The page ran,
  * so it says why, with one act: `backToSetup` forgets the session this tab
- * chose and shows setup, because a reload would retry the same remembered
- * choice. On a tab that has chosen none, `backToSetup` is null and the one act
- * left is to reload. */
-export function pageDidNotOpen(reason: string, backToSetup: (() => void) | null): void {
+ * chose, and the reload then shows setup, because a reload alone would retry
+ * the same remembered choice. It answers the refusal to show when the choice
+ * could not be forgotten. On a tab that has chosen none, `backToSetup` is null
+ * and the one act left is to reload. */
+export function pageDidNotOpen(reason: string, backToSetup: (() => string | null) | null): void {
 	console.error("rooms: the page did not finish opening:", reason);
 	const root = bootRoot();
 	if (root == null) return;
@@ -164,7 +165,18 @@ export function pageDidNotOpen(reason: string, backToSetup: (() => void) | null)
 	const act = failed?.querySelector(".boot-setup");
 	if (act != null) {
 		if (backToSetup == null) act.textContent = bootReload;
-		act.addEventListener("click", backToSetup ?? (() => location.reload()), { once: true });
+		act.addEventListener("click", () => {
+			const refused = backToSetup?.() ?? null;
+			if (refused == null) {
+				reloadPage();
+				return;
+			}
+			// The choice is still kept, so the screen says why and the one act
+			// left is to reload once the browser lets it go.
+			if (why != null) why.textContent = refused;
+			act.textContent = bootReload;
+			act.addEventListener("click", reloadPage, { once: true });
+		}, { once: true });
 	}
 	root.dataset.boot = "failed";
 }

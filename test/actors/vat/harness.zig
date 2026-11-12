@@ -9,7 +9,7 @@ const Message = actors.Message;
 const Delivery = actors.Delivery;
 
 /// A counter whose `self` *is* its state, `increment`/`add` mutate it in place,
-/// the Zig-native "become".
+/// the Zig form of "become".
 pub const Counter = struct {
     n: i64,
 

@@ -94,10 +94,10 @@ engineTest("Engine.seekTo rebuilds world at the requested time", () => {
 	const e = new Engine(doc);
 	e.seekTo(1100);
 	assertEquals(e.clock.t, 1100);
-	// The message-sent event at t=1000 has fired and not yet been status-allow: pending state or quoted runtime label
+	// The message-sent event at t=1000 has fired and not yet been
 	// delivered (delivery at t=1500), so a message-in-flight exists.
 	assertEquals([...e.queries.messagesInFlight].length, 1);
-	// The state-change at t=2000 hasn't fired yet; session is still open. status-allow: pending state or quoted runtime label
+	// The state-change at t=2000 hasn't fired yet; session is still open.
 	const sessions = [...e.queries.sessions];
 	assertEquals(sessions[0]?.session.state, "open");
 });
@@ -322,7 +322,7 @@ engineTest(
 		assertEquals(
 			[...e.queries.messagesInFlight].length,
 			1,
-			"message-in-flight should re-render after play-at-end → restart",
+			"message-in-flight should re-render after play-at-end restarts",
 		);
 	},
 );

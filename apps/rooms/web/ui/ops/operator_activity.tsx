@@ -1,3 +1,4 @@
+import { invariant } from "../../../lib/invariant.ts";
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from "react";
 
 interface OperatorActivity {
@@ -30,6 +31,6 @@ export function OperatorActivityProvider({ children }: { children: ReactNode }) 
 
 export function useOperatorActivity(): OperatorActivity {
 	const activity = useContext(OperatorActivityContext);
-	if (activity === null) throw new Error("operator activity was requested outside its pane");
+	invariant(activity != null, "operator activity was requested outside its pane");
 	return activity;
 }

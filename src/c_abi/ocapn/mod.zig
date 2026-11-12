@@ -25,6 +25,7 @@
 pub const std_options = @import("c_abi_shared").library_options;
 
 const abi = @import("c_abi_shared");
+pub const ReleaseResult = abi.ReleaseResult;
 
 const context = @import("context.zig");
 const frame = @import("frame.zig");
@@ -35,7 +36,7 @@ const uri_record = @import("uri/record.zig");
 /// (see `glowcap_ocapn.h`). The shared library's soname tracks `major`.
 pub const GLOWCAP_VERSION_MAJOR: u32 = 0;
 pub const GLOWCAP_VERSION_MINOR: u32 = 1;
-pub const GLOWCAP_VERSION_PATCH: u32 = 6;
+pub const GLOWCAP_VERSION_PATCH: u32 = 7;
 
 /// The annotated symbol inventory (crossing semantics per export) the
 /// binding FFI-table generators reflect from. See `symbols.zig`.
@@ -129,6 +130,9 @@ pub const GlowcapFreeFn = abi.GlowcapFreeFn;
 pub const GlowcapAllocator = abi.GlowcapAllocator;
 pub const GlowcapContext = abi.GlowcapContext;
 pub const GlowcapFailureEvent = abi.GlowcapFailureEvent;
+pub const BreakCause = abi.BreakCause;
+pub const RouteFailure = abi.RouteFailure;
+pub const GlowcapBreakCause = abi.GlowcapBreakCause;
 pub const GlowcapFailureReport = abi.GlowcapFailureReport;
 pub const GLOWCAP_FAILURE_EVENT_ABI_VERSION = abi.GLOWCAP_FAILURE_EVENT_ABI_VERSION;
 pub const GLOWCAP_FAILURE_LAYER_CORE = abi.GLOWCAP_FAILURE_LAYER_CORE;

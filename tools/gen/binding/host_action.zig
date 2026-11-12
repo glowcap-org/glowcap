@@ -120,6 +120,8 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.appendSlice(gpa,
         \\} from "@glowcap/abi";
+        \\import type { RawBreakCause } from "@glowcap/abi";
+        \\import { readBreakCause } from "./break_cause.ts";
         \\import type { Ptr } from "./ffi/runtime.ts";
         \\import { readBytes } from "./seam.ts";
         \\import { readArg } from "../abi_value.ts";
@@ -280,7 +282,7 @@ fn emitTsUnionMember(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm, 
         },
         .fail => {
             try out.append(gpa, '\t');
-            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; ticket: bigint; result: number; message: string }}", .{arm.name});
+            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; ticket: bigint; result: number; cause: RawBreakCause; message: string }}", .{arm.name});
             try out.appendSlice(gpa, if (last) ";\n" else "\n");
         },
     }
@@ -308,6 +310,7 @@ fn emitTsDecodeCase(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !
             try tline(out, gpa, 4, "kind,");
             try tline(out, gpa, 4, "ticket,");
             try tline(out, gpa, 4, "result: dv.getInt32(L.HOST_ACTION_RESULT_OFF, true),");
+            try tline(out, gpa, 4, "cause: readBreakCause(dv, L.HOST_ACTION_CAUSE_OFF),");
             try tline(out, gpa, 4, "message: view(L.HOST_ACTION_MESSAGE_OFF, L.HOST_ACTION_MESSAGE_LEN_OFF),");
             try tline(out, gpa, 3, "};");
         },

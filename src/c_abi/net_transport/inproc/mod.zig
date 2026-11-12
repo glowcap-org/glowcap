@@ -196,8 +196,8 @@ fn inprocConnect(
     const codec_id = c.framingOptionsFromC(codec, max_frame_bytes, "inproc connect") catch
         return GLOWCAP_ERR_INVALID_ARGUMENT;
 
-    const payload = beginConn(nl.allocator, max_frame_bytes) orelse
-        return c.failInternal("inproc connect", error.OutOfMemory);
+    const payload = beginConn(nl.allocator, max_frame_bytes) catch |err|
+        return c.failInternal("inproc connect", err);
     payload.stream = nl.network.connectFrameStream(designator_ptr[0..designator_len], codec_id, max_frame_bytes, payload.read_buf, payload.write_buf) catch |err| {
         abortConn(payload);
         return dialErrorToCode(err);
@@ -230,7 +230,7 @@ pub export fn glowcap_inproc_connect(
 }
 
 /// Bind an in-process listener on `designator`. Returns an owned listener handle.
-/// An empty designator is `GLOWCAP_ERR_INVALID_ARGUMENT`; one already bound is
+/// An empty designator is `GLOWCAP_ERR_INVALID_ARGUMENT`. One already bound is
 /// `GLOWCAP_ERR_IO`, the shared code for a bind another listener holds.
 pub export fn glowcap_inproc_listen(
     netlayer: ?*GlowcapInprocNetlayer,
@@ -288,8 +288,8 @@ fn inprocAccept(
     const codec_id = c.framingOptionsFromC(codec, max_frame_bytes, "inproc accept") catch
         return GLOWCAP_ERR_INVALID_ARGUMENT;
 
-    const payload = beginConn(lpayload.allocator, max_frame_bytes) orelse
-        return c.failInternal("inproc accept", error.OutOfMemory);
+    const payload = beginConn(lpayload.allocator, max_frame_bytes) catch |err|
+        return c.failInternal("inproc accept", err);
     payload.stream = lpayload.listener.acceptFrameStream(lpayload.allocator, codec_id, max_frame_bytes, payload.read_buf, payload.write_buf) catch |err| {
         abortConn(payload);
         return acceptErrorToCode(err);
@@ -414,14 +414,14 @@ pub export fn glowcap_inproc_listener_release(
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return GLOWCAP_ERR_NULL_POINTER;
+        return c.ReleaseResult.retained(GLOWCAP_ERR_NULL_POINTER).raw();
     }
-    return c.captureCallError(
+    return c.ReleaseResult.consumed(c.captureCallError(
         inprocListenerRelease(listener),
         out_error,
         error_cap,
         out_error_len,
-    );
+    )).raw();
 }
 
 fn dialErrorToCode(err: net.netlayer.DialError) i32 {

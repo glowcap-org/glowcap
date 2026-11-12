@@ -1,7 +1,7 @@
 // Refusal stays beside the action that caused it. A cooldown schedules no work:
 // expiry only enables another explicit gesture. Each page owns its bounded map.
-import { RoomsError, roomsErrorInMessage } from "../../lib/error_codes.ts";
-import { refusalText } from "../../lib/text/failure.ts";
+import { RoomsError, roomsErrorIn } from "../../lib/error_codes.ts";
+import { refusalBesideCountdown, refusalText } from "../../lib/text/failure.ts";
 import type { PageProjection } from "./store/projection.ts";
 
 /** Refusals one page keeps, oldest dropped first. */
@@ -19,7 +19,7 @@ export function remaining(refusal: ActionRefusal | undefined, now = performance.
 }
 
 export function admissionRefusal(error: unknown): RoomsError | null {
-	const typed = roomsErrorInMessage(error);
+	const typed = roomsErrorIn(error);
 	return typed != null && ["rate-limited", "admission-busy", "request-too-large"].includes(typed.code) ? typed : null;
 }
 
@@ -38,7 +38,7 @@ export function rememberRefusal(
 	const next = new Map(before);
 	if (!next.has(action) && next.size >= MAX_ACTION_REFUSALS) next.delete(next.keys().next().value!);
 	next.set(action, {
-		text: refusalText(error),
+		text: delay == null ? refusalText(error) : refusalBesideCountdown(error),
 		failure: typed,
 		target,
 		until: delay == null ? null : performance.now() + delay,
@@ -63,7 +63,7 @@ export function rememberJoinRefusal(
 	room: string,
 	error: unknown,
 ): boolean {
-	const typed = roomsErrorInMessage(error);
+	const typed = roomsErrorIn(error);
 	const keys = joinRefusalKeys(directory, room);
 	return rememberRefusal(projection, typed?.retryScope === "room-join" ? keys[1] : keys[0], error, {
 		directory,

@@ -114,6 +114,12 @@ impl fmt::Display for Failure {
 	}
 }
 
+impl std::error::Error for Failure {
+	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+		Some(&self.error)
+	}
+}
+
 /// The binding's signaling authority over directory exchanges. Build it with
 /// [`DirectorySignaling::new`] and hand it to the WebRTC provider.
 ///

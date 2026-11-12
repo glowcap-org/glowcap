@@ -101,21 +101,23 @@ pub export fn glowcap_driver_session_release(
     session: ?*ch.GlowcapHostSession,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    // As with listener close, terminal failure must not disable teardown. A
-    // callback or active step must refuse before releaseWire drops the wire.
-    if (reentrancyCode(inst, "session_release")) |code| return code;
-    const hs = ch.embedding.sessionFrom(session) orelse return GLOWCAP_ERR_NULL_POINTER;
-    inst.runtime.releaseWire(hs) catch |err| return errToCode(err);
-    return GLOWCAP_OK;
+    return shared.ReleaseResult.refusingBeforeCommit(result: {
+        const inst = instanceFrom(raw) orelse break :result GLOWCAP_ERR_NULL_POINTER;
+        // As with listener close, terminal failure must not disable teardown. A
+        // callback or active step must refuse before releaseWire drops the wire.
+        if (reentrancyCode(inst, "session_release")) |code| break :result code;
+        const hs = ch.embedding.sessionFrom(session) orelse break :result GLOWCAP_ERR_NULL_POINTER;
+        inst.runtime.releaseWire(hs) catch |err| break :result errToCode(err);
+        break :result GLOWCAP_OK;
+    });
 }
 
 /// Begin delivering `session`'s inbound application frames: the embedder has
 /// finished its post-open setup (its publishes and spawns), so a partner's
-/// pipelined first frames can no longer outrun the objects they name. A status-allow: lifecycle transition
+/// pipelined first frames cannot outrun the objects they name. A
 /// session surfaced by an OPENED or ACCEPTED event holds its inbound until
 /// this call (handshake frames are never held), and bytes that arrived early
-/// wait unread (a stream socket's kernel buffer; a resident link's bounded
+/// wait unread (a stream socket's kernel buffer. A resident link's bounded
 /// parking) and replay in order. Idempotent. A session already delivering
 /// is a no-op. Replaying resident bytes may invoke a `GlowcapHostBehavior`
 /// synchronously before this call returns. A binding must install its Host

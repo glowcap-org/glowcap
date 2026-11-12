@@ -1,4 +1,4 @@
-//! Generates Rust constants consumed by the native iroh sidecar.
+//! Generates Rust constants consumed by the Rust iroh sidecar.
 
 const std = @import("std");
 

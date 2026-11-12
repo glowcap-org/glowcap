@@ -180,10 +180,12 @@ pub const Stream = struct {
     /// plaintext prefix consumed from the public writer. Ciphertext may remain
     /// internally pending for the next writable edge.
     pub fn tryFlush(self: *Stream) isize {
+        // tolerant: the drain latched its cause on the transform for takeFailure, and -1 is the carrier's dead-channel return.
         const drained = self.tryDrainCipher() catch return -1;
         if (drained == .would_block) return -2;
         const writer = &self.writer.interface;
         if (writer.end == 0) return 0;
+        // tolerant: the transform latched the engine's cause for takeFailure, and -1 is the carrier's dead-channel return.
         const transition = self.drive(.transmit, writer.buffer[0..writer.end], &.{}) catch return -1;
         const consumed = transition.transfer.plaintext_consumed;
         if (consumed != 0) {
@@ -191,6 +193,7 @@ pub const Stream = struct {
             std.mem.copyForwards(u8, writer.buffer[0..remaining], writer.buffer[consumed..writer.end]);
             writer.end = remaining;
         }
+        // tolerant: the drain latched its cause on the transform for takeFailure, and -1 is the carrier's dead-channel return.
         _ = self.tryDrainCipher() catch return -1;
         if (consumed != 0) return @intCast(consumed);
         return -2;

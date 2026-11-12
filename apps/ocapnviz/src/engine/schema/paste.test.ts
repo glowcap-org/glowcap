@@ -145,7 +145,7 @@ Deno.test("paste: collision suffixes through -copy, -copy-2, ...", () => {
 	assert(r.value.doc.entities?.peers?.["alice-copy"]);
 });
 
-Deno.test("paste: external ref missing in target → validation error", () => {
+Deno.test("paste: an external ref missing in the target produces a validation error", () => {
 	const source = twoPeerOneSession();
 	// Select s1 only; alice/bob become external.
 	const payload = extractClipboardPayload(source, {

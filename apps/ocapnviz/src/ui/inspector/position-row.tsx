@@ -127,7 +127,7 @@ export function PositionRow(
 									type="button"
 									className="ocv-btn is-icon"
 									onClick={onClear}
-									title={`Unpin — return this ${noun} to automatic placement`}
+									title={`Unpin to return this ${noun} to automatic placement`}
 									aria-label="Unpin position"
 									style={endRowIconButtonStyle}
 								>
@@ -139,8 +139,8 @@ export function PositionRow(
 					: (
 						<>
 							<code style={positionValueStyle}>
-								{at ? `${formatCoord(at.x)}, ${formatCoord(at.y)}` : "—"}{" "}
-								{pinned ? "· pinned" : "· auto"}
+								{at ? `${formatCoord(at.x)}, ${formatCoord(at.y)}` : "none"}{" "}
+								{pinned ? "(pinned)" : "(auto)"}
 							</code>
 							{!pinned && editing && onPinHere && at && (
 								<button

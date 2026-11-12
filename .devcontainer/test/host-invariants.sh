@@ -9,6 +9,9 @@ source "${dir}/lib/launcher.sh"
 # shellcheck source=../lib/playwright.sh
 source "${dir}/lib/playwright.sh"
 
+bash "${dir}/test/zig-cache-version.sh"
+bash "${dir}/test/fetch-retry.sh"
+
 # These tests build checkouts of their own and configure them. Run inside a
 # devcontainer, the surrounding checkout's identity is exported into this
 # process, and `validate_effective_env` is right to refuse a fixture whose

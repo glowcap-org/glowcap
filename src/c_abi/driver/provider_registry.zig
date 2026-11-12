@@ -32,6 +32,10 @@ const PreparedPackage = struct {
     same_configuration: shared.transport_provider.GlowcapTransportProviderSameConfigurationFn,
     release: shared.transport_provider.GlowcapTransportReleaseFn,
 
+    fn runtimeOwner(self: *PreparedPackage) driver.HostRuntime.ProviderOwner {
+        return .{ .ctx = self, .same_configuration = sameConfiguration, .release = releaseOwner };
+    }
+
     fn sameConfiguration(installed_raw: *anyopaque, candidate_raw: *anyopaque) anyerror!bool {
         const installed: *PreparedPackage = @ptrCast(@alignCast(installed_raw));
         const candidate: *PreparedPackage = @ptrCast(@alignCast(candidate_raw));
@@ -69,7 +73,7 @@ const PreparedEntry = struct {
     adapter: Adapter,
     /// The provider table's address is multiplexed runtime identity within one
     /// package preparation. Only multiplexed entries may share it. The table is
-    /// validated and copied once, then every profile points at that adapter.
+    /// copied once, then every profile points at that adapter.
     implementation: *const anyopaque,
 
     fn registration(self: PreparedEntry) driver.HostRuntime.ProviderRegistration {
@@ -109,10 +113,18 @@ pub const Registry = struct {
         const decoded_profiles = self.owner.allocator.alloc(model.transport.Metadata, entries.len) catch
             return .fromError(error.OutOfMemory);
         defer self.owner.allocator.free(decoded_profiles);
-        for (entries, decoded_profiles) |entry, *profile| {
+        // An entry is well formed or not on its own, whatever is installed,
+        // and a malformed one is refused before the package's lease is taken.
+        for (entries, decoded_profiles, 0..) |entry, *profile, i| {
             const profile_table = entry.profile orelse
                 return refusePackage("driver: provider entry has no transport profile");
             profile.* = validation.transportProfile(profile_table) catch |err| return errorOutcome(err);
+            for (decoded_profiles[0..i]) |prior| {
+                if (std.mem.eql(u8, prior.symbol, profile.symbol))
+                    return refusePackage("driver: provider package names one transport twice");
+            }
+            validateEntry(entry, entries[0..i]) catch |err|
+                return if (err == error.InvalidProviderPackage) .fromError(err) else errorOutcome(err);
         }
 
         var retain_report = shared.transport_provider.emptyProviderFailure();
@@ -157,10 +169,26 @@ pub const Registry = struct {
         decoded_profiles: []const model.transport.Metadata,
         lease_consumed: *bool,
     ) ProviderInstallOutcome {
-        const prepared_entries = self.owner.allocator.alloc(PreparedEntry, entries.len) catch
+        // Compose before building anything: a stream adapter owns an I/O
+        // backend, so only the profiles this package will serve get one.
+        const unserved = self.owner.allocator.alloc(bool, entries.len) catch
+            return .fromError(error.OutOfMemory);
+        defer self.owner.allocator.free(unserved);
+        var candidate: PreparedPackage = .{
+            .owner = &self.owner,
+            .adapters = &.{},
+            .lease_ctx = package.lease_ctx,
+            .same_configuration = package.same_configuration.?,
+            .release = package.release.?,
+        };
+        const count = self.owner.runtime.unservedProfiles(decoded_profiles, candidate.runtimeOwner(), unserved) catch |err|
+            return errorOutcome(err);
+        if (count == 0) return .{};
+
+        const prepared_entries = self.owner.allocator.alloc(PreparedEntry, count) catch
             return .fromError(error.OutOfMemory);
         defer self.owner.allocator.free(prepared_entries);
-        const owned_adapters = self.owner.allocator.alloc(Adapter, entries.len) catch
+        const owned_adapters = self.owner.allocator.alloc(Adapter, count) catch
             return .fromError(error.OutOfMemory);
         defer self.owner.allocator.free(owned_adapters);
         var prepared: usize = 0;
@@ -170,9 +198,10 @@ pub const Registry = struct {
             if (adapter.deinit(&self.owner)) |cleanup| self.owner.runtime.reportUnhandledFailure(cleanup);
         };
 
-        for (entries, prepared_entries, decoded_profiles) |entry, *prepared_entry, profile| {
-            const implementation = entry.implementation orelse
-                return refusePackage("driver: provider entry has no implementation table");
+        for (entries, decoded_profiles, unserved) |entry, profile, wanted| {
+            if (!wanted) continue;
+            const implementation = entry.implementation.?;
+            const prepared_entry = &prepared_entries[prepared];
             const adapter = self.prepareAdapter(
                 entry,
                 profile,
@@ -180,7 +209,7 @@ pub const Registry = struct {
                 prepared_entries[0..prepared],
                 owned_adapters,
                 &owned,
-            ) catch |err| return if (err == error.InvalidProviderPackage) .fromError(err) else errorOutcome(err);
+            ) catch |err| return errorOutcome(err);
             prepared_entry.* = .{
                 .profile = profile,
                 .adapter = adapter,
@@ -189,12 +218,9 @@ pub const Registry = struct {
             prepared += 1;
         }
 
-        const registrations = self.owner.allocator.alloc(driver.HostRuntime.ProviderRegistration, entries.len) catch
+        const registrations = self.owner.allocator.alloc(driver.HostRuntime.ProviderRegistration, count) catch
             return .fromError(error.OutOfMemory);
         defer self.owner.allocator.free(registrations);
-        const resident_indices = self.owner.allocator.alloc(usize, entries.len) catch
-            return .fromError(error.OutOfMemory);
-        defer self.owner.allocator.free(resident_indices);
         for (prepared_entries, registrations) |entry, *registration| {
             registration.* = entry.registration();
         }
@@ -205,44 +231,27 @@ pub const Registry = struct {
         defer if (adapter_owners_live) self.owner.allocator.free(adapter_owners);
         const prepared_package = self.owner.allocator.create(PreparedPackage) catch
             return .fromError(error.OutOfMemory);
-        prepared_package.* = .{
-            .owner = &self.owner,
-            .adapters = adapter_owners,
-            .lease_ctx = package.lease_ctx,
-            .same_configuration = package.same_configuration.?,
-            .release = package.release.?,
-        };
+        candidate.adapters = adapter_owners;
+        prepared_package.* = candidate;
         adapter_owners_live = false;
         published = true;
         lease_consumed.* = true;
-        const installed = self.owner.runtime.addProviderPackage(.{
+        self.owner.runtime.addProviderPackage(.{
             .registrations = registrations,
-            .owner = .{
-                .ctx = prepared_package,
-                .same_configuration = PreparedPackage.sameConfiguration,
-                .release = PreparedPackage.releaseOwner,
-            },
-        }, resident_indices) catch |err| {
-            if (err == error.ProviderConfigurationConflict)
-                shared.setLastError("driver: transport profiles are already owned by another provider configuration", .{});
+            .owner = prepared_package.runtimeOwner(),
+        }) catch |err| {
             var failure = driver.OperationFailure.fromError(err);
             if (PreparedPackage.releaseOwner(prepared_package)) |cleanup| failure.noteFailure(cleanup);
             failure_output.setLastError("driver provider registration", failure);
             return .{ .result = driver_error.code(failure.kind()), .failure = failure };
         };
-        if (!installed) {
-            if (PreparedPackage.releaseOwner(prepared_package)) |failure| {
-                failure_output.setLastError("driver provider release", failure);
-                return .{ .result = driver_error.code(failure.kind()), .failure = failure };
-            }
-        }
         return .{};
     }
 
-    /// Validate one entry's implementation table against the entries already
-    /// prepared and build its adapter. A stream profile owns its own table;
-    /// multiplexed profiles that name one table share one adapter, which is
-    /// prepared on first sight and appended to `owned_adapters`.
+    /// Build the adapter of one validated entry. A stream profile owns its
+    /// own adapter. Multiplexed profiles that name one table share one
+    /// adapter, which is prepared on first sight and appended to
+    /// `owned_adapters`.
     fn prepareAdapter(
         self: *Registry,
         entry: shared.GlowcapTransportProviderEntry,
@@ -252,47 +261,61 @@ pub const Registry = struct {
         owned_adapters: []Adapter,
         owned: *usize,
     ) !Adapter {
-        const stream = entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM;
+        if (entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM) {
+            const table = try validation.implementationTable(shared.GlowcapStreamTransport, implementation, "stream");
+            const adapter = try stream_adapter.prepare(&self.owner, profile, table);
+            owned_adapters[owned.*] = .{ .stream = adapter };
+            owned.* += 1;
+            return .{ .stream = adapter };
+        }
         for (prior_entries) |prior| {
-            if (prior.implementation != implementation) continue;
-            const same_model = switch (prior.adapter) {
-                .stream => stream,
-                .multiplexed => entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED,
-            };
-            if (!same_model) {
-                shared.setLastError("driver: one implementation table cannot use two execution models", .{});
-                return error.InvalidProviderPackage;
-            }
-            if (stream) {
-                shared.setLastError("driver: each stream profile requires its own implementation table", .{});
-                return error.InvalidProviderPackage;
-            }
+            if (prior.implementation == implementation) return prior.adapter;
         }
-        switch (entry.execution_model) {
-            shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM => {
-                const table = try validation.implementationTable(shared.GlowcapStreamTransport, implementation, "stream");
-                const adapter = try stream_adapter.prepare(&self.owner, profile, table);
-                owned_adapters[owned.*] = .{ .stream = adapter };
-                owned.* += 1;
-                return .{ .stream = adapter };
-            },
-            shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED => {
-                for (prior_entries) |prior| {
-                    if (prior.implementation == implementation) return prior.adapter;
-                }
-                const table = try validation.implementationTable(shared.GlowcapMultiplexedTransport, implementation, "multiplexed");
-                const adapter = try multiplexed_adapter.prepare(&self.owner, table);
-                owned_adapters[owned.*] = .{ .multiplexed = adapter };
-                owned.* += 1;
-                return .{ .multiplexed = adapter };
-            },
-            else => {
-                shared.setLastError("driver: provider entry has an unknown execution model", .{});
-                return error.InvalidProviderPackage;
-            },
-        }
+        const table = try validation.implementationTable(shared.GlowcapMultiplexedTransport, implementation, "multiplexed");
+        const adapter = try multiplexed_adapter.prepare(&self.owner, table);
+        owned_adapters[owned.*] = .{ .multiplexed = adapter };
+        owned.* += 1;
+        return .{ .multiplexed = adapter };
     }
 };
+
+/// Check one entry's execution model and implementation table, alone and
+/// against the entries before it. A stream profile owns its own table, and
+/// one table uses one execution model. Nothing is built.
+fn validateEntry(
+    entry: shared.GlowcapTransportProviderEntry,
+    prior_entries: []const shared.GlowcapTransportProviderEntry,
+) !void {
+    const exec = shared.transport_provider;
+    const implementation = entry.implementation orelse {
+        shared.setLastError("driver: provider entry has no implementation table", .{});
+        return error.InvalidProviderPackage;
+    };
+    const stream = switch (entry.execution_model) {
+        exec.GLOWCAP_TRANSPORT_EXEC_STREAM => true,
+        exec.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED => false,
+        else => {
+            shared.setLastError("driver: provider entry has an unknown execution model", .{});
+            return error.InvalidProviderPackage;
+        },
+    };
+    for (prior_entries) |prior| {
+        if (prior.implementation != entry.implementation) continue;
+        if (prior.execution_model != entry.execution_model) {
+            shared.setLastError("driver: one implementation table cannot use two execution models", .{});
+            return error.InvalidProviderPackage;
+        }
+        if (stream) {
+            shared.setLastError("driver: each stream profile requires its own implementation table", .{});
+            return error.InvalidProviderPackage;
+        }
+    }
+    if (stream) {
+        try stream_adapter.validate(try validation.implementationTable(shared.GlowcapStreamTransport, implementation, "stream"));
+    } else {
+        _ = try multiplexed_adapter.validate(try validation.implementationTable(shared.GlowcapMultiplexedTransport, implementation, "multiplexed"));
+    }
+}
 
 fn refusePackage(comptime message: []const u8) ProviderInstallOutcome {
     shared.setLastError(message, .{});

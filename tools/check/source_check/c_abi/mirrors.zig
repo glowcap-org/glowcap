@@ -29,18 +29,18 @@ const jsonStringEquals = json_files.jsonStringEquals;
 ///
 /// Second: an entry point that can set the error slot must be able to report
 /// that it did. The rule is the body, not the name. Thirty `void` exports are
-/// genuinely infallible releases and must stay `void`; two others refused from
+/// genuinely infallible releases and must stay `void`. Two others refused from
 /// inside a callback, freed nothing, wrote the per-thread diagnostic, and
-/// returned `void` anyway — so an embedder that dropped the handle leaked a
+/// returned `void` anyway, so an embedder that dropped the handle leaked a
 /// whole host and the only signal was a slot nobody was told to read. The
 /// generated header even documented a code they could not return. "Writes the
 /// error slot" is exactly the line between the two groups, and it is greppable.
 ///
 /// Third: an `export fn` returns codes, not errors, so an `errdefer` in its
-/// body never fires — the cleanup it promises silently leaks on every failure
+/// body never fires, so the cleanup it promises silently leaks on every failure
 /// path, and the code compiles green. The driver archive shipped five such
 /// bodies in one sitting before a cold read caught them. The fallible half
-/// belongs in an error-returning helper with real `errdefer`s; the export maps
+/// belongs in an error-returning helper with real `errdefer`s. The export maps
 /// the error to a code at the boundary.
 pub fn checkAbiReturnShape(
     io: std.Io,
@@ -110,7 +110,7 @@ pub fn checkAbiReturnShape(
 /// The layout-pin family: `tools/gen/binding/ffi_layouts.zig` reflects every C
 /// ABI struct's size, offsets, and widths off the real Zig type, and each
 /// binding checks its own hand-written mirror against those numbers at load
-/// time — Rust in a `const` assert block, Python in `glowcap._pin.pin_struct`,
+/// time: Rust in a `const` assert block, Python in `glowcap._pin.pin_struct`,
 /// Racket in `pin-layout!`. A mirror that never calls its language's pin is
 /// simply not checked, and no load-time pin can report its own absence.
 ///
@@ -120,7 +120,7 @@ pub fn checkAbiReturnShape(
 /// stopped sending. It sat below its module's pin call and no gate could see
 /// it. This check reads the canonical per-archive `contract_layouts`
 /// manifests directly. Their `archive_contract.layout` rows are projected
-/// into bindings; `cOnlyLayout` rows remain fingerprinted without reopening a
+/// into bindings. `cOnlyLayout` rows remain fingerprinted without reopening a
 /// retired binding surface. For every projected struct a binding declares a
 /// mirror of, this requires the pin in the same file.
 pub fn checkBindingStructPins(
@@ -171,11 +171,11 @@ pub fn checkBindingStructPins(
 
     const Language = struct {
         dir: []const u8,
-        /// A hand-written mirror module; the `*_gen` siblings are generated.
+        /// A hand-written mirror module. The `*_gen` siblings are generated.
         prefix: []const u8,
         suffix: []const u8,
         generated_marker: []const u8,
-        /// Python declares `_TraceEvent`, dropping the ABI's `Glowcap` prefix;
+        /// Python declares `_TraceEvent`, dropping the ABI's `Glowcap` prefix.
         /// Racket and Rust keep the full name.
         drops_glowcap_prefix: bool,
         declaration_before: []const u8,
@@ -293,14 +293,14 @@ fn mirrorTokenPresent(
 /// wire words, and the two that documented the field documented opposite
 /// contracts for it: the Rust doc promised the wire spelling beside code that
 /// emitted the tag, while the TypeScript doc argued for the tag on the grounds
-/// that nothing downstream would have to translate — while the viewer
+/// that nothing downstream would have to translate, while the viewer
 /// downstream translated. Nothing could see the disagreement, because no gate
 /// read more than one of the four at a time.
 ///
 /// This reads the arms of `wireString` and requires every trace module to
 /// carry each one, and to carry none of the enum tags in quotes. It is parity
 /// against the authority rather than a pinned pair, so adding a version stays
-/// a one-line edit in the model — it just cannot be only that.
+/// a one-line edit in the model. It just cannot be only that.
 ///
 /// The codec word rides the same authority and the same file, with one half of
 /// the rule dropped: the enum tags `capnp` and `syrup` *are* the words a trace
@@ -311,7 +311,7 @@ fn mirrorTokenPresent(
 /// from, and a codec has no wire word at all.
 ///
 /// The rest of the trace record is deliberately not held here. Its remaining
-/// shared facts have no single authority to derive from — the four `ocapn.*`
+/// shared facts have no single authority to derive from. The four `ocapn.*`
 /// kind strings are not a mechanical reading of the three `GLOWCAP_TRACE_*`
 /// constants and include one no constant names, and the payload cap is a
 /// per-embedder argument to `glowcap_host_set_trace_queue` rather than one

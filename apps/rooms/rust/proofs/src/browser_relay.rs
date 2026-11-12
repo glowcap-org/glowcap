@@ -60,7 +60,11 @@ pub async fn rooms_browser_relay_contract(
 			let runtime = transport::open::<Platform, _>(
 				&caller,
 				Some(super::page_server()),
-				|_, _| Err("relay fixture has no signaling directory".into()),
+				|_, _| {
+					Err(rooms_runtime::Error::invalid(
+						"relay fixture has no signaling directory",
+					))
+				},
 				ice.clone(),
 			)
 			.await

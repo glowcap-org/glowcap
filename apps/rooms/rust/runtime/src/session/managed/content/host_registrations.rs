@@ -82,7 +82,7 @@ pub(super) fn invoke(call: &mut loam::Call<'_>, input: loam::Invocation<'_>, roo
 	}
 	// Foreign listings belong to the publishing connection. Keep no selected
 	// lease after its Host ends, and retain any room authority still selected
-	// by another conversation or operation. Moving the old list adds no copy. status-allow: replacement state identity
+	// by another conversation or operation. Moving the old list adds no copy.
 	let publications = core::mem::take(&mut record.intent.peering);
 	changed |= !publications.is_empty();
 	for row in publications.as_slice() {

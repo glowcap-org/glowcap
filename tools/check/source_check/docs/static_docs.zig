@@ -1,5 +1,5 @@
-//! Holds each doc to its kind (`kinds.zig`): a static doc uses no status
-//! words, and no committed doc links a temporary local one.
+//! Holds each doc to its kind (`kinds.zig`): a static doc uses none of the
+//! history phrases, and no committed doc links a temporary local one.
 
 const std = @import("std");
 const source_tree = @import("../source_tree.zig");
@@ -9,21 +9,17 @@ const corpus = @import("corpus.zig");
 
 const appendViolation = violation_log.appendViolation;
 
-/// Words that date a sentence to the moment it was written.
-const status_words = [_][]const u8{
-    "yet",
-    "used to",
-    "no longer",
-    "previously",
-    "earlier",
+/// Phrases that date a sentence to the day it was written, wherever they
+/// appear. A word that also names running state or order ("no longer",
+/// "earlier", "the old", "yet", "used to", "currently", "today") reads true
+/// in a present contract, so the list leaves it to review.
+const history_phrases = [_][]const u8{
     "formerly",
-    "legacy",
-    "the old",
-    "today",
-    "currently",
     "for now",
-    "at the moment",
-    "still required",
+    "not yet implemented",
+    "not implemented yet",
+    "not yet supported",
+    "not supported yet",
 };
 
 pub fn check(
@@ -68,20 +64,50 @@ fn checkText(
     }
 }
 
+/// Hold one line of a static doc, or one first-party source comment, to the
+/// history phrases and the dated-contract form.
 pub fn checkNarration(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), path: []const u8, line_no: usize, line: []const u8) !void {
-    if (hasAllow(line)) return;
     if (datedAsOf(line)) try appendViolation(gpa, violations, "{s}:{d}: dates a static contract with As of Month YYYY; move run dates to living records", .{ path, line_no });
-    for (status_words) |word| {
-        if (findWord(line, word) != null) try appendViolation(gpa, violations, "{s}:{d}: says `{s}`; state the present contract or give an inline status-allow reason for temporal semantics", .{ path, line_no, word });
+    for (history_phrases) |phrase| {
+        if (findWord(line, phrase) != null) try appendViolation(gpa, violations, "{s}:{d}: says `{s}`; state the present contract", .{ path, line_no, phrase });
     }
 }
 
-/// An explicit reason exempts temporal ordering and quoted rule vocabulary.
-fn hasAllow(line: []const u8) bool {
-    const marker = "status-allow:";
-    const start = std.mem.indexOf(u8, line, marker) orelse return false;
-    return std.mem.trim(u8, line[start + marker.len ..], " \t->").len > 0;
+fn count(line: []const u8) !usize {
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |item| std.testing.allocator.free(item);
+        violations.deinit(std.testing.allocator);
+    }
+    try checkNarration(std.testing.allocator, &violations, "a.md", 1, line);
+    return violations.items.len;
 }
+
+test "running order passes and a phrase that dates the sentence is refused" {
+    for ([_][]const u8{
+        "// a frame not yet consumed waits in the tail",
+        "// an earlier frame of the same run",
+        "// release the old slot after the swap",
+        "// an edited event no longer hashes to its name",
+        "// the seed used to derive the designator",
+        "// release a block previously returned by alloc",
+        "// the state at the moment the answer settled",
+        "// a signature is still required after rotation",
+        "// the room currently selected keeps its draft",
+        "// group lines under the Today heading",
+        "The build adds no legacy bundle.",
+    }) |line| try std.testing.expectEqual(@as(usize, 0), try count(line));
+    for ([_][]const u8{
+        "// formerly a separate archive",
+        "The Host prints nothing for now.",
+        "// onion listeners are not yet implemented",
+        "// onion listeners are not implemented yet",
+        "// keyed relay is not yet supported",
+        "// keyed relay is not supported yet",
+        "As of October 2026, it works.",
+    }) |line| try std.testing.expectEqual(@as(usize, 1), try count(line));
+}
+
 fn datedAsOf(line: []const u8) bool {
     const start = findWord(line, "as of") orelse return false;
     var words = std.mem.tokenizeAny(u8, line[start + "as of".len ..], " \t");
@@ -96,11 +122,9 @@ fn datedAsOf(line: []const u8) bool {
     return false;
 }
 
-test "dated narration and reasoned inline allows" {
+test "a run date is told from an ordering phrase" {
     try std.testing.expect(datedAsOf("As of October 2026, it works."));
     try std.testing.expect(!datedAsOf("as of the last event"));
-    try std.testing.expect(!hasAllow("// status-allow: "));
-    try std.testing.expect(hasAllow("// earlier event // status-allow: event ordering"));
 }
 
 fn isAny(_: []const u8) bool {

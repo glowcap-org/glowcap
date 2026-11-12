@@ -4,7 +4,8 @@ use super::super::{
 	DirectoryWatch, MembershipEvent, MembershipReceiver, MembershipReport, MembershipTarget, Session,
 	coordination::stands,
 };
-use glowcap::Result;
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use rooms_application::content::session::workspace::{self, Intent};
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
@@ -16,7 +17,7 @@ enum Entry<P: Tasks> {
 	/// recovery wake.
 	Failed {
 		selected: workspace::DiscoverySelection,
-		failure: glowcap::Error,
+		failure: Error,
 	},
 	Watching(Watching<P>),
 }
@@ -25,7 +26,7 @@ struct Watching<P: Tasks> {
 	watch: DirectoryWatch<P>,
 	receive: Rc<RefCell<MembershipReceiver>>,
 	snapshot_delivered: bool,
-	failure: Option<glowcap::Error>,
+	failure: Option<Error>,
 	snapshot: Option<rooms_application::directory::Snapshot>,
 }
 pub(super) struct Discoveries<P: Tasks>(BTreeMap<String, Entry<P>>);
@@ -41,7 +42,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 				Entry::Failed { failure, .. } => failure.clone(),
 				Entry::Watching(watching) => match watching.watch.status() {
 					Some(Err(error)) => error,
-					_ if !watching.watch.is_active() => glowcap::loam::refusal("Directory discovery connection ended"),
+					_ if !watching.watch.is_active() => Error::closed("Directory discovery connection ended"),
 					Some(Ok(())) if watching.snapshot_delivered => {
 						report.ready += 1;
 						continue;
@@ -101,7 +102,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 			match self.0.get_mut(&id) {
 				None => report.failures.push((
 					MembershipTarget::Discovery(id),
-					glowcap::loam::refusal("directory discovery observer is not retained"),
+					Error::closed("directory discovery observer is not retained"),
 				)),
 				Some(Entry::Failed { .. }) => {
 					self.0.remove(&id);
@@ -157,16 +158,15 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 					continue;
 				}
 				None => {
-					report.failures.push((
-						target,
-						glowcap::loam::refusal("directory discovery observer is not retained"),
-					));
+					report
+						.failures
+						.push((target, Error::closed("directory discovery observer is not retained")));
 					continue;
 				}
 			};
 			if let Some(failure) = &entry.failure {
 				let closed = entry.watch.close().await;
-				let failure = failure.clone().with_cleanup(closed.clone());
+				let failure = crate::cleanup::failed(failure.clone(), closed.clone());
 				if closed.is_ok() {
 					self.0.remove(id);
 				}
@@ -176,10 +176,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 			if !entry.watch.is_active() {
 				// Retirement is permanent for this exact selection. A later
 				// reconciliation cannot silently recreate a revoked observer.
-				report.failures.push((
-					target,
-					glowcap::loam::refusal("directory discovery selection has retired"),
-				));
+				report
+					.failures
+					.push((target, Error::closed("directory discovery selection has retired")));
 				continue;
 			}
 			if entry.snapshot_delivered {
@@ -203,18 +202,18 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 					.workspace()
 					.check_discovery(&entry.selected)
 					.await
-					.map_err(|error| glowcap::loam::refusal(error.to_string()))?;
+					.map_err(Error::from)?;
 				(entry.receive.borrow_mut())(MembershipEvent::DirectorySnapshot {
 					snapshot: entry
 						.snapshot
 						.as_ref()
-						.ok_or_else(|| glowcap::loam::refusal("directory snapshot is not held"))?,
+						.ok_or_else(|| Error::closed("directory snapshot is not held"))?,
 					origin: entry.watch.origin(),
 				})
-				.map_err(glowcap::loam::refusal)?;
+				.map_err(Error::platform_message)?;
 				entry.watch.accept_snapshot();
 				entry.snapshot.take();
-				Ok::<_, glowcap::Error>(())
+				Ok::<_, Error>(())
 			}
 			.await;
 			match delivered {
@@ -228,7 +227,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 					if closed.is_ok() {
 						self.0.remove(id);
 					}
-					report.failures.push((target, failure.with_cleanup(closed)));
+					report.failures.push((target, crate::cleanup::failed(failure, closed)));
 				}
 			}
 		}
@@ -238,12 +237,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 		let mut result = Ok(());
 		for entry in self.0.values_mut() {
 			let Entry::Watching(watching) = entry else { continue };
-			if let Err(error) = watching.watch.close().await {
-				result = match result {
-					Ok(()) => Err(error),
-					Err(first) => Err(first.with_cleanup(Err(error))),
-				};
-			}
+			crate::cleanup::retain(&mut result, watching.watch.close().await);
 		}
 		self.0
 			.retain(|_, entry| matches!(entry, Entry::Watching(watching) if watching.watch.is_active()));

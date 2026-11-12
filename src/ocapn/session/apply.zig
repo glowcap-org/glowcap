@@ -143,7 +143,7 @@ fn acceptableLocationRawBytes(ss: anytype) ?[]const u8 {
 }
 
 /// When `child` is a subslice of `parent`, return the matching span inside
-/// `owned` (same length, same relative offset). Used to keep status-allow: purpose clause
+/// `owned` (same length, same relative offset). It keeps
 /// `partner_designator` as a view into the one owned location-record buffer.
 fn relocateSubslice(owned: []u8, parent: []const u8, child: []const u8) ?[]const u8 {
     if (child.len == 0 or child.len > parent.len) return null;
@@ -321,7 +321,7 @@ fn commitSentResolution(
     const prepared_store = try resolution_store.prepareResolutionStore(self, store_plan, resolution);
     // Establish every fulfilled local export now.
     if (resolution == .fulfill) {
-        sent_exports.recordMentions(self, inventory, &resolution.fulfill, has_v1_callback) catch unreachable;
+        sent_exports.recordMentionsAssumeCapacity(self, inventory, &resolution.fulfill, has_v1_callback);
     }
     // Transfer ownership only after every fallible preparation. No export
     // retain can survive without the stored resolution it describes.

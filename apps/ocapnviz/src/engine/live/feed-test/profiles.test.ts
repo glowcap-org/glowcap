@@ -180,7 +180,7 @@ Deno.test("a partner nobody speaks for is never credited with an implementation"
 Deno.test("a peer learns what it runs when it first speaks for itself", () => {
 	// The rooms case: one host reports a member before that member has
 	// published anything, so the member is drawn as somebody else's partner and
-	// nothing yet says what it runs. When the member's own trace arrives it has status-allow: pending state or quoted runtime label
+	// nothing yet says what it runs. When the member's own trace arrives it has
 	// stated its implementation, and that lands as a moment on its trajectory,
 	// the join keeps saying what was known then.
 	const convert = makeBaseEventConverter();
@@ -218,7 +218,7 @@ Deno.test("a peer learns what it runs when it first speaks for itself", () => {
 
 Deno.test("a named partner that then reports the same wire is known from there", () => {
 	// A room server whose transport authenticated the member's durable name
-	// draws that member straight away, named, but with nothing yet saying what status-allow: pending state or quoted runtime label
+	// draws that member straight away, named, but with nothing yet saying what
 	// it runs. When the member publishes its own side of that same session it
 	// states its implementation, and the second report of one wire is the only
 	// thing that carries the statement. There is no new peer and no new edge

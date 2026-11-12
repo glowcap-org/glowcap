@@ -1,4 +1,4 @@
-//! Native scoped observation keeps the volatile contract across cold reopen.
+//! LMDB scoped observation keeps the volatile contract across cold reopen.
 const std = @import("std");
 const h = @import("../access/hosting_fixture.zig");
 const cases = @import("../access/observation_cases.zig");

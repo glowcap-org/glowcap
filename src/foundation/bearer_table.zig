@@ -12,11 +12,11 @@
 //! Its equality runs in constant time over the stored key
 //! (`std.crypto.timing_safe`). The ordinary table compares byte by byte and
 //! stops at the first difference, so the time a lookup takes says how long a
-//! prefix of a guess was right; here a near miss costs what a far miss costs.
+//! prefix of a guess was right. Here a near miss costs what a far miss costs.
 //! Lengths are compared first and plainly, because a durable name's length is
 //! fixed and public. A probe still stops at an empty slot and compares only a
 //! stored key whose fingerprint matches, so timing can tell which bucket and
-//! fingerprint a stored key has; under the keyed hash that says nothing about
+//! fingerprint a stored key has. Under the keyed hash that says nothing about
 //! the key's bytes.
 
 const std = @import("std");

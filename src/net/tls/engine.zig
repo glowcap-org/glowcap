@@ -183,7 +183,7 @@ pub const Client = struct {
     }
 
     /// Admit newly received bytes after an exact retained ciphertext tail.
-    /// The old tail must remain the prefix at the same stable address. status-allow: replacement state identity
+    /// The old tail must remain the prefix at the same stable address.
     pub fn extendCiphertext(
         self: *Client,
         phase: Phase,

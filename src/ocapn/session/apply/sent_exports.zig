@@ -103,7 +103,7 @@ const Mentions = struct {
 pub fn releaseExports(self: *Session, exports: []const model.ExportPosition) void {
     for (exports) |position| {
         std.debug.assert(self.exports.count(position) >= 2);
-        self.exports.decrement(position, 1) catch unreachable;
+        self.exports.decrementHeld(position, 1);
     }
 }
 
@@ -119,7 +119,7 @@ fn releaseRef(self: *Session, reference: model.Reference) void {
     switch (reference) {
         .near => |near| if (near.export_position.int() != bootstrap_position) {
             std.debug.assert(self.exports.count(near.export_position) >= 2);
-            self.exports.decrement(near.export_position, 1) catch unreachable;
+            self.exports.decrementHeld(near.export_position, 1);
         },
         else => {},
     }
@@ -142,16 +142,28 @@ pub fn retainRef(self: *Session, reference: model.Reference) !void {
 }
 
 fn establishRef(self: *Session, near: model.NearRef) !void {
+    try ensureEstablishCapacity(self, near.export_position);
+    establishRefAssumeCapacity(self, near);
+}
+
+/// Validate a position `establishRef` may first install, and grow the table
+/// through it, so `establishRefAssumeCapacity` cannot fail.
+fn ensureEstablishCapacity(self: *Session, position: model.ExportPosition) !void {
+    if (position.int() == bootstrap_position or self.exports.contains(position)) return;
+    try self.validateExportPositionForMarshal(position);
+    try self.exports.ensureRegisterCapacity(self.allocator, position);
+}
+
+fn establishRefAssumeCapacity(self: *Session, near: model.NearRef) void {
     if (near.export_position.int() == bootstrap_position or self.exports.contains(near.export_position)) return;
     // A resolution may establish an export before next puts it on the wire.
     // Establish the local baseline separately from wire-delta accounting so a
     // later listener callback can retain exactly its own mention.
-    try self.validateExportPositionForMarshal(near.export_position);
     const cell: session.slot.Slot = switch (near.kind) {
         .object => .{ .local_value = near.export_position.int() },
         .promise => .{ .local_unresolved = near.export_position.int() },
     };
-    try self.exports.registerCell(self.allocator, near.export_position, cell);
+    self.exports.registerCellAssumeCapacity(near.export_position, cell);
 }
 
 /// Record every `near` export the inventory's references name: a wire mention
@@ -177,20 +189,42 @@ pub fn recordMentions(
     };
 }
 
-/// Preallocate the export-table rows a stored resolution can first establish
-/// when listener fires are committed. Counting mentions rather than distinct
-/// positions may overreserve, but leaves later commits allocation-free.
+/// `recordMentions` after `ensureResolutionCapacity` covered the same
+/// inventory: every first-established position is validated and its row
+/// is reserved, so no step can fail.
+pub fn recordMentionsAssumeCapacity(
+    self: *Session,
+    inventory: session.Inventory,
+    root: ?*const model.Argument,
+    wire_mention: bool,
+) void {
+    for (inventory.slots) |slot| switch (slot.read(root).*) {
+        .reference => |reference| switch (reference) {
+            .near => |near| {
+                establishRefAssumeCapacity(self, near);
+                if (wire_mention and near.export_position.int() != bootstrap_position)
+                    self.exports.retain(near.export_position);
+            },
+            else => {},
+        },
+        .set, .handoff => {},
+        else => unreachable,
+    };
+}
+
+/// Validate every export a stored resolution can first establish and grow
+/// the table through each, so `recordMentionsAssumeCapacity` over the same
+/// inventory is allocation-free. A position past the frontier needs the
+/// table grown through it, which a count of spare rows does not cover.
 pub fn ensureResolutionCapacity(
     self: *Session,
     resolution: model.Resolution,
     inventory: session.Inventory,
 ) !void {
     const root: ?*const model.Argument = if (resolution == .fulfill) &resolution.fulfill else null;
-    var mentions: usize = 0;
     for (inventory.slots) |slot| switch (slot.read(root).*) {
-        .reference => |reference| mentions += @intFromBool(reference == .near and
-            reference.near.export_position.int() != bootstrap_position),
+        .reference => |reference| if (reference == .near)
+            try ensureEstablishCapacity(self, reference.near.export_position),
         else => {},
     };
-    try self.exports.ensureUnusedCapacity(self.allocator, mentions);
 }

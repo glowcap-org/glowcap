@@ -16,7 +16,7 @@ use std::{
 	rc::{Rc, Weak},
 };
 use tokio::sync::Mutex;
-type ExecutionReporter = dyn Fn(&str, &glowcap::Error);
+type ExecutionReporter = dyn Fn(&str, &crate::Error);
 
 mod seat;
 mod writer;
@@ -29,7 +29,7 @@ pub(super) struct Job<P: Tasks> {
 	pub task: Option<P::Task>,
 	work: Rc<Mutex<Option<Work<P>>>>,
 	/// The installed observation while it waits on commit, so a retry under
-	/// the same id can see a confirmed absence the worker has not yet woken to. status-allow: pending state or quoted runtime label
+	/// the same id can see a confirmed absence the worker has not yet woken to.
 	confirming: Weak<PendingContinuation>,
 	pub failure: Option<glowcap::Error>,
 	pub batch_released: Option<Rc<Cell<bool>>>,
@@ -315,19 +315,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 									pending: None,
 								}
 							}
-							EffectResult::Unknown(error) => match Prepared::negative(work.reply, &error) {
-								Some(outcome) => Phase::Settling { outcome, pending: None },
-								None => {
-									if let Some(retirement) = &work.retirement {
-										retirement.unknown(error.clone());
-									}
-									writer.report(id, &error);
-									Phase::Settling {
-										outcome: Settlement::unknown(&error),
-										pending: None,
-									}
+							EffectResult::Unknown(error) => {
+								if let Some(retirement) = &work.retirement {
+									retirement.unknown(error.clone());
 								}
-							},
+								writer.report(id, &error);
+								Phase::Settling {
+									outcome: Settlement::unknown(&error),
+									pending: None,
+								}
+							}
 							EffectResult::Pending => unreachable!("completed observation is terminal"),
 						}
 					}

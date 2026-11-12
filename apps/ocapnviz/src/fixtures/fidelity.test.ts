@@ -81,7 +81,7 @@ Deno.test("every shipped recording names the netlayer each session runs over", (
 		for (const ev of opensOf(doc)) {
 			assert(
 				ev.transport !== undefined,
-				`${doc.id}/${ev.sessionId}: no transport — one session runs over one netlayer, and a trace always knows which`,
+				`${doc.id}/${ev.sessionId}: no transport. One session runs over one netlayer, and a trace always knows which`,
 			);
 			assert(
 				designatorShapes.has(ev.transport),
@@ -209,7 +209,7 @@ Deno.test("between them the recordings show every attribution the schema declare
 	// declare never reached a document.
 	//
 	// Both places a word can be said count. An end is attributed either at the
-	// session's birth or at the moment something backed its claim, and one of status-allow: state at observation
+	// session's birth or at the moment something backed its claim, and one of
 	// the words is only ever said the second way: a handoff is verified partway
 	// through a session that opened with a loose end, which is the whole shape
 	// it describes.

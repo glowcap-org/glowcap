@@ -15,6 +15,7 @@
 // the tree while Help has the top layer, so the opener that opened Settings
 // is still the one Escape returns to.
 
+import { invariant } from "../../lib/invariant.ts";
 import {
 	createContext,
 	createElement,
@@ -44,7 +45,7 @@ const ModalContext = createContext<ModalCoordinator | null>(null);
 
 function useModalCoordinator(): ModalCoordinator {
 	const coordinator = useContext(ModalContext);
-	if (coordinator === null) throw new Error("a Rooms modal was rendered outside its provider");
+	invariant(coordinator != null, "a Rooms modal was rendered outside its provider");
 	return coordinator;
 }
 

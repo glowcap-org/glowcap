@@ -71,7 +71,7 @@ test "close-slot: terminal drain ignores a late completion from the already-arme
     try std.testing.expect(conn.read == .armed);
 
     // A bridge-style close projects its final abort while that recv remains
-    // armed. Hold the abort send, then let a valid deliver complete the old status-allow: replacement state identity
+    // armed. Hold the abort send, then let a valid deliver complete the old
     // recv. The terminal lifecycle must recycle/drop it, not apply it and
     // queue a reply behind the abort.
     try conn.peer.sendBorrowed(.{ .abort = .{
@@ -139,7 +139,7 @@ test "close-slot: the deadline count tracks only connections actually waiting" {
     // the options alone they would run every poll, because `drain_kill_ms` is
     // finite by default. This pins the count itself; the guard reading it is
     // one line, and the cost it avoids is `max_conns` cold reads per poll at
-    // the 500k destination.
+    // a large connection count.
     try std.testing.expectError(error.ScriptParked, loop.run(.{ .after_closed = 1 }));
     try std.testing.expect(loop.conns[0].state == .open);
     // The count is the assertion. `nextDeadlineMs` returns null on a zero

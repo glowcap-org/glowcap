@@ -23,7 +23,7 @@ import { Icon } from "./icons.tsx";
 import { IconButton, type IconButtonProps } from "./IconButton.tsx";
 import { writeClipboard } from "./clipboard.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
-import { copyRefused } from "../../lib/text/page.ts";
+import { refusalText } from "../../lib/text/failure.ts";
 
 /** How long the reply stands. Long enough to read after the eye comes back to
  * the control, short enough that the control is offering again by the time a
@@ -53,8 +53,8 @@ export function useCopy(text: string | null) {
 			: document.body;
 		try {
 			await writeClipboard(text, root);
-		} catch {
-			browser.toast("failure", copyRefused);
+		} catch (error) {
+			browser.toast("failure", refusalText(error));
 			return;
 		}
 		clearTimeout(back.current);
@@ -74,7 +74,7 @@ function Said({ copied }: { copied: boolean }) {
 export type CopyButtonProps =
 	& Omit<IconButtonProps, "icon" | "label" | "onClick">
 	& {
-		/** What lands on the clipboard, or null while it is not known yet.  status-allow: pending state or quoted runtime label */
+		/** What lands on the clipboard, or null while it is not known yet. */
 		text: string | null;
 		/** What this copies, named for a reader who cannot see the icon. */
 		label: string;
@@ -100,7 +100,7 @@ export function CopyButton({ text, label, disabled, ...button }: CopyButtonProps
 
 export type CopyFieldProps = {
 	/** What the field shows and what lands on the clipboard, or null while it is
-	 * not known yet. A locator this window has not settled on has nothing to status-allow: pending state or quoted runtime label
+	 * not known yet. A locator this window has not settled on has nothing to
 	 * copy, and the field says so by being unpressable rather than by copying
 	 * the placeholder. */
 	text: string | null;

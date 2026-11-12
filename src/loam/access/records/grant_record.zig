@@ -64,7 +64,7 @@ pub const GrantRecord = struct {
     }
 
     /// At most two exact-sized selection allocations. No input bytes survive
-    /// the call; scalar/subtree scopes decode without allocation.
+    /// the call. Scalar and subtree scopes decode without allocation.
     pub fn decodeOwned(self: *GrantRecord, allocator: std.mem.Allocator, bytes: []const u8) DecodeError!void {
         if (bytes.len > max_encoded_bytes) return error.RecordTooLarge;
         return self.decodeRecord(allocator, bytes) catch |err| switch (err) {

@@ -199,24 +199,47 @@ fn bridgeDirectionObserved(
 ) !void {
     const payload_buf = try allocator.alloc(u8, max_frame_payload);
     defer allocator.free(payload_buf);
+    // tolerant: the peer may have gone away before the close frame, and the bridge is ending either way.
+    defer writeServerFrame(dst, .close, &.{}) catch {};
     while (true) {
-        const frame = readClientFrame(src, payload_buf) catch break;
+        const frame = readClientFrame(src, payload_buf) catch |err| {
+            try endsBridge(err);
+            break;
+        };
         switch (frame.opcode) {
             .binary, .continuation => {
                 if (probe) |p| {
                     if (std.mem.indexOf(u8, frame.payload, p.needle) != null)
                         p.found.store(true, .release);
                 }
-                writeServerFrame(dst, .binary, frame.payload) catch break;
-                writeServerFrame(dst, .ping, "hb") catch break;
+                writeServerFrame(dst, .binary, frame.payload) catch |err| {
+                    try endsBridge(err);
+                    break;
+                };
+                writeServerFrame(dst, .ping, "hb") catch |err| {
+                    try endsBridge(err);
+                    break;
+                };
             },
-            .ping => writeServerFrame(src, .pong, frame.payload) catch break,
+            .ping => writeServerFrame(src, .pong, frame.payload) catch |err| {
+                try endsBridge(err);
+                break;
+            },
             .pong => {},
             .close => break,
             else => break,
         }
     }
-    writeServerFrame(dst, .close, &.{}) catch {};
+}
+
+/// A leg closing by close frame, end of stream, or reset ends a bridge
+/// direction, which is its contract. Any other error is a defect in what the
+/// legs carried and reaches the test.
+fn endsBridge(err: anyerror) !void {
+    switch (err) {
+        error.EndOfStream, error.ReadFailed, error.WriteFailed => {},
+        else => return err,
+    }
 }
 
 /// Accept one registration leg and one rendezvous leg, assert they name the
@@ -272,6 +295,8 @@ pub fn bridgeOneRendezvousObserved(
     } else null else null;
     var to_reg = try io.concurrent(bridgeDirectionObserved, .{ &dial, &reg, allocator, internal_probe });
     var to_dial = try io.concurrent(bridgeDirectionObserved, .{ &reg, &dial, allocator, internal_probe });
-    to_reg.await(io) catch {};
-    to_dial.await(io) catch {};
+    const to_reg_result = to_reg.await(io);
+    const to_dial_result = to_dial.await(io);
+    try to_reg_result;
+    try to_dial_result;
 }

@@ -25,7 +25,7 @@ export type BaseTimelineEvent = {
 	 * epoch: its `seq` resets (so the seq dedup window resets with
 	 * it) and its session ids may collide with the dead process's.
 	 * The converter closes every entity of the previous epoch when
-	 * the epoch changes. The old process's topology is gone. status-allow: replacement state identity
+	 * the epoch changes. The old process's topology is gone.
 	 * Absent on producers without replay/restart concerns. */
 	epoch?: unknown;
 	/** `trace.producer-left` only: the departed producer's scope. Endpoint-authored,
@@ -148,4 +148,33 @@ export function nonEmptyStringFromWire(value: unknown): string | undefined {
  *  values are absence. */
 export function numberFromWire(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** Whether `value` is a JSON object whose typed optional fields hold the
+ *  types `BaseTimelineEvent` declares. Every other field is `unknown`, which
+ *  the field readers above prove one at a time. */
+function isWireRecord(value: unknown): value is BaseTimelineEvent {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	if ("replay" in value && typeof value.replay !== "boolean") return false;
+	if ("outbound" in value && typeof value.outbound !== "boolean") return false;
+	if ("summary" in value && !isObject(value.summary)) return false;
+	if ("meta" in value && !isObject(value.meta)) return false;
+	return true;
+}
+
+function isObject(value: unknown): value is object {
+	return typeof value === "object" && value != null && !Array.isArray(value);
+}
+
+/** One trace-feed line as a record. Throws when the line is not JSON or not
+ *  a record: the feed is a trust boundary, so the converter never sees a
+ *  value whose declared shape was only assumed. */
+export function parseWireRecord(line: string): BaseTimelineEvent {
+	const parsed: unknown = JSON.parse(line);
+	if (!isWireRecord(parsed)) {
+		throw new Error("trace record is not a JSON object with boolean replay/outbound and object summary");
+	}
+	return parsed;
 }

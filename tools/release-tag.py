@@ -27,6 +27,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "ci"))
+import release_version  # noqa: E402
+
 LOCAL_TIMEOUT = 30
 NETWORK_TIMEOUT = 60
 GH_TIMEOUT = 30
@@ -166,7 +169,7 @@ def main(argv):
     try:
         if len(argv) != 1:
             raise Refusal("usage: tools/release-tag.py <version>")
-        if not re.fullmatch(r"0\.[0-9]+\.[0-9]+", argv[0]):
+        if not release_version.accepted(argv[0]):
             raise Refusal(f"{argv[0]} is not a prerelease version such as 0.1.2")
         release(argv[0])
     except Refusal as refusal:

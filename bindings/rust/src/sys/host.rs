@@ -21,7 +21,7 @@ use super::layouts_gen::*;
 // The trace record's digest is a fixed-width array, so its width is the
 // reflected constant rather than a number retyped here.
 use crate::abi_constants::TRACE_DIGEST_BYTES;
-use crate::sys::{GlowcapArgument, GlowcapReference};
+use crate::sys::{GlowcapArgument, GlowcapBreakCause, GlowcapReference};
 
 /// A byte-fed multi-session CapTP host: one identity, one routing and
 /// redeem authority, many sessions (`glowcap_host.h`).
@@ -142,6 +142,8 @@ pub struct GlowcapHostAction {
 	pub message_len: usize,
 	/// CLOSE: `OK` or `TIMEOUT`. FAIL: `BROKEN` or `CLOSED`.
 	pub result: c_int,
+	/// FAIL: typed provenance; zero for other kinds.
+	pub cause: GlowcapBreakCause,
 }
 
 // Pin the hand-mirrored layout on LP64 (the linux x86_64/aarch64 targets the
@@ -162,6 +164,7 @@ const _: () = {
 	assert!(offset_of!(GlowcapHostAction, message) == GLOWCAP_HOST_ACTION_MESSAGE_OFF);
 	assert!(offset_of!(GlowcapHostAction, message_len) == GLOWCAP_HOST_ACTION_MESSAGE_LEN_OFF);
 	assert!(offset_of!(GlowcapHostAction, result) == GLOWCAP_HOST_ACTION_RESULT_OFF);
+	assert!(offset_of!(GlowcapHostAction, cause) == GLOWCAP_HOST_ACTION_CAUSE_OFF);
 };
 
 /// One shared arm callback for `GlowcapHostPumpHooks` (flush, close,

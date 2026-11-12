@@ -13,6 +13,8 @@
 ;; cstruct's `fpointer` slots the same way.
 
 (provide
+  GLOWCAP-BREAK-CAUSE-SIZE
+  GLOWCAP-BREAK-CAUSE-LAYOUT
   GLOWCAP-REFERENCE-SIZE
   GLOWCAP-REFERENCE-LAYOUT
   GLOWCAP-ARGUMENT-SIZE
@@ -81,6 +83,8 @@
   GLOWCAP-ONION-CONFIG-LAYOUT
 )
 
+(define GLOWCAP-BREAK-CAUSE-SIZE 12)
+(define GLOWCAP-BREAK-CAUSE-LAYOUT '(uint32 uint32 uint32))
 (define GLOWCAP-REFERENCE-SIZE 8)
 (define GLOWCAP-REFERENCE-LAYOUT '(uint64))
 (define GLOWCAP-ARGUMENT-SIZE 64)
@@ -107,8 +111,8 @@
 (define GLOWCAP-TRANSPORT-OPERATION-OPTIONS-LAYOUT '(pointer uint64))
 (define GLOWCAP-TRANSPORT-PROVIDER-SIZE 64)
 (define GLOWCAP-TRANSPORT-PROVIDER-LAYOUT '(uint32 uint64 pointer uint64 pointer pointer pointer pointer))
-(define GLOWCAP-HOST-ACTION-SIZE 120)
-(define GLOWCAP-HOST-ACTION-LAYOUT '(uint32 uint64 uint64 pointer (uint32 uint32 int64 double pointer uint64 (uint64) pointer uint64) pointer uint64 int32))
+(define GLOWCAP-HOST-ACTION-SIZE 128)
+(define GLOWCAP-HOST-ACTION-LAYOUT '(uint32 uint64 uint64 pointer (uint32 uint32 int64 double pointer uint64 (uint64) pointer uint64) pointer uint64 int32 (uint32 uint32 uint32)))
 (define GLOWCAP-HOST-PUMP-HOOKS-SIZE 48)
 (define GLOWCAP-HOST-PUMP-HOOKS-LAYOUT '(pointer pointer pointer pointer pointer pointer))
 (define GLOWCAP-SESSION-LIMIT-OPTIONS-SIZE 56)
@@ -121,12 +125,12 @@
 (define GLOWCAP-DRIVER-OPTIONS-LAYOUT '(uint32 uint64 uint64 uint64 uint32 uint32 uint32 uint64))
 (define GLOWCAP-DRIVER-FAILURE-SIZE 80)
 (define GLOWCAP-DRIVER-FAILURE-LAYOUT '(uint32 uint64 int32 int32 uint32 uint32 uint32 uint32 uint32 int32 pointer uint64 pointer uint64))
-(define GLOWCAP-DRIVER-EVENT-SIZE 216)
-(define GLOWCAP-DRIVER-EVENT-LAYOUT '(uint32 int32 int32 uint32 uint32 uint32 uint32 uint32 int32 uint64 uint64 pointer (uint32 uint64 uint64 pointer (uint32 uint32 int64 double pointer uint64 (uint64) pointer uint64) pointer uint64 int32) pointer uint64 pointer uint64))
+(define GLOWCAP-DRIVER-EVENT-SIZE 224)
+(define GLOWCAP-DRIVER-EVENT-LAYOUT '(uint32 int32 int32 uint32 uint32 uint32 uint32 uint32 int32 uint64 uint64 pointer (uint32 uint64 uint64 pointer (uint32 uint32 int64 double pointer uint64 (uint64) pointer uint64) pointer uint64 int32 (uint32 uint32 uint32)) pointer uint64 pointer uint64))
 (define GLOWCAP-TCP-STREAM-OPTIONS-SIZE 12)
 (define GLOWCAP-TCP-STREAM-OPTIONS-LAYOUT '(uint32 uint32 uint32))
-(define GLOWCAP-TCP-CONFIG-SIZE 12)
-(define GLOWCAP-TCP-CONFIG-LAYOUT '((uint32 uint32 uint32)))
+(define GLOWCAP-TCP-CONFIG-SIZE 16)
+(define GLOWCAP-TCP-CONFIG-LAYOUT '((uint32 uint32 uint32) uint32))
 (define GLOWCAP-TCP-OPERATION-OPTIONS-SIZE 12)
 (define GLOWCAP-TCP-OPERATION-OPTIONS-LAYOUT '((uint32 uint32 uint32)))
 (define GLOWCAP-IROH-READY-EVENT-SIZE 16)

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class DriverLoopState(Protocol):
-    _h: ctypes.c_void_p
+    _handle: ctypes.c_void_p
     _host: ctypes.c_void_p
     _aio: asyncio.AbstractEventLoop | None
     _fd: int | None
@@ -102,6 +102,8 @@ class DriverLoopState(Protocol):
     def _adopt_host_finalizer_state(self, state: Any) -> None: ...
     def _install_provider(self, prepare: Any) -> None: ...
     def _retain_until_teardown(self, value: object) -> None: ...
+    @property
+    def _h(self) -> ctypes.c_void_p: ...
     def _has_transport(self, transport: str | bytes) -> bool: ...
 
 

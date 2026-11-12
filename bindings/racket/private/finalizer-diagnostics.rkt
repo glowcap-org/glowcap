@@ -3,7 +3,8 @@
 ;; lifecycle owner has already been collected.
 
 (require "constants.rkt"
-         "errors.rkt")
+         "errors.rkt"
+         (only-in "lib-resolve.rkt" install-resolution-note-sink!))
 
 (provide (struct-out failure-event)
          record-runtime-failure!
@@ -104,11 +105,18 @@
      (set! count (add1 count)))))
 
 (define (run-ffi-finalizer! operation release #:layer [layer 'binding])
-  (with-handlers ([(lambda (_) #t)
+  (with-handlers ([raised-failure?
                    (lambda (error)
                      (record-runtime-failure! layer operation error)
                      (void))])
     (release)))
+
+;; The resolver ran before this journal existed; its notes arrive now and any
+;; later archive's notes follow directly.
+(install-resolution-note-sink!
+ (lambda (note)
+   (record-runtime-failure! 'binding "library-resolution"
+                            (exn:fail note (current-continuation-marks)))))
 
 (define (take-runtime-failures!)
   (call-with-semaphore

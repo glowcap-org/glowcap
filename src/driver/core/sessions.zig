@@ -161,7 +161,7 @@ fn openDialedCommitted(
 /// Ensure an accepted session will have an acceptable location without
 /// displacing deployment policy. Resolves what this accept would sign
 /// (`dial_plan.planAccept`), completes it, and retains it, selecting it only
-/// when nothing is selected yet. An explicitly set advertised locator (a status-allow: pending state or quoted runtime label
+/// when nothing is selected yet. An explicitly set advertised locator (a
 /// rendezvous route carrying its relay hint, a published address) is the
 /// deployment's claim of reachability. An accept that overwrote it with the
 /// listener-derived fallback would strip the hints a handoff recipient needs
@@ -544,7 +544,7 @@ pub fn enroll(self: *Host, session: *HostSession) void {
 
 /// Retire one admitted session-open operation after either handshake success
 /// or terminal teardown. The shell remains a live resource after success, but
-/// it is no longer pending work for Host finish. status-allow: lifecycle transition
+/// it is no longer pending work for Host finish.
 pub fn finishSessionOpen(self: *Host, session: *HostSession) void {
     if (!session.control.open_pending) return;
     session.control.open_pending = false;

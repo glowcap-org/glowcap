@@ -149,6 +149,10 @@
   HOST-ARCHIVE-FINGERPRINT
   DRIVER-ARCHIVE-FINGERPRINT
   TCP-ARCHIVE-FINGERPRINT
+  TCP-PROFILE-TCP
+  TCP-PROFILE-KEYED-TCP
+  TCP-PROFILE-NOISE-TCP
+  TCP-PROFILES-ALL
   INPROC-ARCHIVE-FINGERPRINT
   ONION-ARCHIVE-FINGERPRINT
   ONION-AUTH-NONE
@@ -208,9 +212,10 @@
   BINDING-BROWSER-CHANNEL-CLOSE-TIMEOUT-MS
   BINDING-WEBSOCKET-INBOUND-HIGH-WATER-BYTES
   ABI-RETURN-CODES
-  HINT-ALT-LOCATORS
   HINT-DIRECT-ADDRESSES
+  HINT-ALT-LOCATORS
   HINT-VIA
+  UNKNOWN-SWISSNUM-MESSAGE
   TRANSPORT-TCP
   TRANSPORT-ONION
   TRANSPORT-KEYED-TCP
@@ -364,24 +369,28 @@
 (define HINT-INTEGER 4)
 (define HINTS-MAP 0)
 (define HINTS-BOOLEAN-FALSE 1)
-(define OCAPN-ARCHIVE-FINGERPRINT 2768581910033367227)
-(define HOST-ARCHIVE-FINGERPRINT 18420649870484573527)
-(define DRIVER-ARCHIVE-FINGERPRINT 13392317104972679078)
-(define TCP-ARCHIVE-FINGERPRINT 18296072444112190878)
-(define INPROC-ARCHIVE-FINGERPRINT 3251188408900727712)
-(define ONION-ARCHIVE-FINGERPRINT 2204576816375562792)
+(define OCAPN-ARCHIVE-FINGERPRINT 7281719028025087839)
+(define HOST-ARCHIVE-FINGERPRINT 1330235606562017225)
+(define DRIVER-ARCHIVE-FINGERPRINT 8181358032544748319)
+(define TCP-ARCHIVE-FINGERPRINT 12181794617345777596)
+(define TCP-PROFILE-TCP 1)
+(define TCP-PROFILE-KEYED-TCP 2)
+(define TCP-PROFILE-NOISE-TCP 4)
+(define TCP-PROFILES-ALL 7)
+(define INPROC-ARCHIVE-FINGERPRINT 14345323006945864940)
+(define ONION-ARCHIVE-FINGERPRINT 18055016265786041278)
 (define ONION-AUTH-NONE 0)
 (define ONION-AUTH-COOKIE 1)
 (define ONION-AUTH-PASSWORD 2)
 (define ONION-SERVICE-ID-LEN 56)
 (define ONION-SERVICE-KEY-CAP 256)
-(define IROH-ARCHIVE-FINGERPRINT 12982945291599634263)
-(define RELAY-ARCHIVE-FINGERPRINT 4625578368752429389)
+(define IROH-ARCHIVE-FINGERPRINT 14708323916831460391)
+(define RELAY-ARCHIVE-FINGERPRINT 1433636707851327703)
 (define RELAY-CONFIG-ABI-VERSION 1)
 (define RELAY-TRUST-SYSTEM 0)
 (define RELAY-TRUST-COPIED-PEM 1)
 (define RELAY-MAX-RENDEZVOUS-RELAY-HINT-BYTES 4096)
-(define WEBRTC-ARCHIVE-FINGERPRINT 14905543536894465005)
+(define WEBRTC-ARCHIVE-FINGERPRINT 6378322623444944714)
 (define IROH-REACH-DIRECT 0)
 (define IROH-REACH-DISCOVERY 1)
 (define IROH-REACH-DISCOVERY-NO-RELAY 2)
@@ -448,6 +457,7 @@
 (define HINT-DIRECT-ADDRESSES "direct-addresses")
 (define HINT-ALT-LOCATORS "alt-locators")
 (define HINT-VIA "via")
+(define UNKNOWN-SWISSNUM-MESSAGE "unknown swissnum")
 (define TRANSPORT-TCP "tcp")
 (define TRANSPORT-ONION "onion")
 (define TRANSPORT-KEYED-TCP "keyed-tcp")
@@ -458,3 +468,130 @@
 (define TRANSPORT-NOISE-TCP "noise-tcp")
 (define TRANSPORT-NOISE-RELAY "noise-relay")
 (define TRANSPORT-ID "id")
+
+(provide route-failure-cause route-failure-from-cause)
+(define (route-failure-cause value)
+  (case value
+    [(peer-unreachable) (break-cause 'local 'peer-unreachable 0)]
+    [(transport-unavailable) (break-cause 'local 'transport-unavailable 0)]
+    [else #f]))
+(define (route-failure-from-cause cause)
+  (for/first ([value '(peer-unreachable transport-unavailable)]
+              #:when (equal? cause (route-failure-cause value)))
+    value))
+
+(provide break-origin-from-code break-origin-code)
+(define (break-origin-from-code code)
+  (case code
+    [(0) 'unspecified]
+    [(1) 'local]
+    [(2) 'partner]
+    [else #f]))
+(define (break-origin-code value)
+  (case value
+    [(unspecified) 0]
+    [(local) 1]
+    [(partner) 2]
+    [else #f]))
+
+(provide break-reason-from-code break-reason-code)
+(define (break-reason-from-code code)
+  (case code
+    [(0) 'unspecified]
+    [(1) 'application]
+    [(2) 'identity-unverified]
+    [(3) 'peer-unreachable]
+    [(4) 'closed]
+    [(5) 'refused]
+    [(6) 'transport-unavailable]
+    [(7) 'publication-absent]
+    [else #f]))
+(define (break-reason-code value)
+  (case value
+    [(unspecified) 0]
+    [(application) 1]
+    [(identity-unverified) 2]
+    [(peer-unreachable) 3]
+    [(closed) 4]
+    [(refused) 5]
+    [(transport-unavailable) 6]
+    [(publication-absent) 7]
+    [else #f]))
+
+(provide break-route-failure-from-code break-route-failure-code)
+(define (break-route-failure-from-code code)
+  (case code
+    [(0) 'peer-unreachable]
+    [(1) 'transport-unavailable]
+    [else #f]))
+(define (break-route-failure-code value)
+  (case value
+    [(peer-unreachable) 0]
+    [(transport-unavailable) 1]
+    [else #f]))
+(provide break-context-fetch)
+(define break-context-fetch 1)
+(provide break-context-restoration)
+(define break-context-restoration 2)
+(provide break-context-withdrawal)
+(define break-context-withdrawal 4)
+(provide (struct-out break-cause) break-cause-from-fields break-cause-label)
+(struct break-cause (origin reason context) #:transparent)
+(define (break-cause-from-fields origin reason context)
+  (define source (break-origin-from-code origin))
+  (define why (break-reason-from-code reason))
+  (and source why (exact-nonnegative-integer? context)
+       (<= context 7)
+       (member (cons source why) '(
+         (unspecified . unspecified)
+         (local . unspecified)
+         (local . application)
+         (local . identity-unverified)
+         (local . peer-unreachable)
+         (local . closed)
+         (local . refused)
+         (local . transport-unavailable)
+         (local . publication-absent)
+         (partner . application)
+       ))
+       (break-cause source why context)))
+(provide break-cause-application?)
+(define (break-cause-application? value)
+  (and (break-cause? value) (or (and (eq? (break-cause-origin value) 'local) (or (eq? (break-cause-reason value) 'application)) (= (break-cause-context value) 0)) (and (eq? (break-cause-origin value) 'partner) (or (eq? (break-cause-reason value) 'application)) (= (break-cause-context value) 0)))))
+
+(provide break-cause-publication-refusal?)
+(define (break-cause-publication-refusal? value)
+  (and (break-cause? value) (or (and (eq? (break-cause-origin value) 'partner) (or (eq? (break-cause-reason value) 'application)) (= (break-cause-context value) 1)))))
+
+(provide break-cause-publication-absent?)
+(define (break-cause-publication-absent? value)
+  (and (break-cause? value) (or (and (eq? (break-cause-origin value) 'local) (or (eq? (break-cause-reason value) 'publication-absent)) (= (break-cause-context value) 1)))))
+
+(provide break-cause-peer-identity-unverified?)
+(define (break-cause-peer-identity-unverified? value)
+  (and (break-cause? value) (or (and (eq? (break-cause-origin value) 'local) (or (eq? (break-cause-reason value) 'identity-unverified)) (= (bitwise-and (break-cause-context value) 2) 0)))))
+
+(provide break-cause-exporter-unreachable?)
+(define (break-cause-exporter-unreachable? value)
+  (and (break-cause? value) (or (and (eq? (break-cause-origin value) 'local) (or (eq? (break-cause-reason value) 'peer-unreachable) (eq? (break-cause-reason value) 'transport-unavailable)) (= (bitwise-and (break-cause-context value) 2) 0)))))
+
+(provide break-cause-publication-not-found?)
+(define (break-cause-publication-not-found? value message)
+  (or (break-cause-publication-absent? value) (and (break-cause-publication-refusal? value) (equal? message UNKNOWN-SWISSNUM-MESSAGE))))
+(define (break-cause-label value)
+  (cond
+    [(not (break-cause? value)) #f]
+    [(not (zero? (bitwise-and (break-cause-context value) break-context-restoration))) "RestorationFailed"]
+    [(not (zero? (bitwise-and (break-cause-context value) break-context-withdrawal))) "handoff redeem failed"]
+    [(not (eq? (break-cause-origin value) 'local)) #f]
+    [else (case (break-cause-reason value)
+      [(identity-unverified) "PeerIdentityUnverified"]
+      [(peer-unreachable) "ExporterUnreachable"]
+      [(transport-unavailable) "ExporterUnreachable"]
+      [else #f])]))
+
+(provide release-result-code release-result-consumed?)
+(define (release-result-code result)
+  (if (positive? result) (- result) result))
+(define (release-result-consumed? result)
+  (>= result 0))

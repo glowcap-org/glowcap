@@ -1,7 +1,7 @@
 //! The Host's values as borrowed views (ADR-0064). A `Value` tree an
 //! application hands the Host becomes a `model.view.Args` sequence backed
 //! by the values where they lie. The engine certifies and the codec
-//! encodes those views; no owned argument tree is built to be thrown
+//! encodes those views. No owned argument tree is built to be thrown
 //! away. A capability has no projection: it is the Host's opaque identity,
 //! and only lowering under a session turns it into a wire reference, so a
 //! tree that carries one takes the owned path (`carriesCapability`).
@@ -76,6 +76,7 @@ pub fn carriesCapability(values: []const Value) bool {
             return error.CapabilityFound;
         }
     };
+    // tolerant: the walk fails only on a found capability or a tree too deep to copy, and both answer true.
     for (values) |*value| value.forEachCapability({}, Probe.visit) catch return true;
     return false;
 }

@@ -424,7 +424,7 @@ export class Session {
 	 * the reply. `await` it for the value (a `Ref` if the partner returned a
 	 * capability; rejects with `VowBroken` on a partner break).
 	 *
-	 * `target` is a capability `Ref` *or* a `RemotePromise` from an earlier status-allow: event or source ordering
+	 * `target` is a capability `Ref` *or* a `RemotePromise` from an earlier
 	 * send: passing the latter pipelines (ADR-0003). The call is addressed at
 	 * the answer that send will resolve, so a dependent chain costs one round
 	 * trip instead of one per link. `args` may contain `Ref`s. A `Ref` this
@@ -555,7 +555,7 @@ export class Session {
 	 * `authenticated-transport` records channel proof of that identity.
 	 *
 	 * It throws while the partner's `op:start-session` has not arrived with a
-	 * key yet, and it throws on a session opened without a verified hello status-allow: pending state or quoted runtime label
+	 * key yet, and it throws on a session opened without a verified hello
 	 * signature. This verification does not change an unauthenticated locator
 	 * claim into durable identity proof.
 	 *

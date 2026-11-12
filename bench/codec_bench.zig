@@ -38,7 +38,7 @@ fn benchMessage() model.Message {
     } };
 }
 
-/// The `report` call the round-trip benches send (`bench/iroh_bench.zig`): a
+/// The `report` call the round-trip benches send (`bench/transport_bench.zig`): a
 /// source name, eight tags, sixty-four integer readings, and a timestamp.
 /// Its cost is per value, so it shows what the decoder pays for each element
 /// of a list rather than for the frame.

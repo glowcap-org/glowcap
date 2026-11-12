@@ -17,6 +17,53 @@ export async function run(
 	// keeps receiving, and its own history is still there on the way back.
 	await tab.setViewportSize({ width: 1280, height: 800 });
 	await tab.click("#newRoomBtn");
+	// The panel's mark is the control that chooses the kind of room, leading the
+	// name as it does on the join card. The panel is a row being named, so its
+	// mark and name stand where a joined row's do, and every box in either stands
+	// at one inset from each edge it reaches.
+	const panel = await tab.evaluate(() => {
+		const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect() ?? null;
+		const [panel, mark, name, line, row, sigil, joined, leave] = [
+			"#newRoom",
+			"#newRoom .newroom-private",
+			"#newRoomInput",
+			"#newRoomElsewhere",
+			"#roomList li",
+			"#roomList li .hash",
+			"#roomList li .rname",
+			"#roomList li .room-leave",
+		].map(box);
+		if (
+			panel == null || mark == null || name == null || line == null || row == null || sigil == null ||
+			joined == null || leave == null
+		) return null;
+		return {
+			leads: mark.right <= name.left,
+			controls: document.querySelectorAll("#newRoom .icon-button").length,
+			columns: [mark.left - sigil.left, name.left - joined.left],
+			insets: [
+				mark.left - panel.left,
+				mark.top - panel.top,
+				line.left - panel.left,
+				panel.right - line.right,
+				panel.bottom - line.bottom,
+				sigil.left - row.left,
+				row.right - leave.right,
+			],
+		};
+	});
+	if (panel == null) fail("the rail's panel or its first row is missing a mark, a name, or its directory line");
+	if (!panel.leads || panel.controls !== 1) {
+		fail(`the rail's panel does not lead its name with its one access control: ${JSON.stringify(panel)}`);
+	}
+	if (panel.columns.some((apart) => Math.abs(apart) > 0.5)) {
+		fail(`the rail's panel and its rows keep different mark and name columns: ${panel.columns}`);
+	}
+	if (new Set(panel.insets.map((inset) => Math.round(inset * 2) / 2)).size !== 1) {
+		fail(
+			`the rail insets its boxes unevenly (panel mark left and top, its line left, right and bottom, a row's mark and leave): ${panel.insets}`,
+		);
+	}
 	await tab.fill("#newRoomInput", "annex");
 	await tab.press("#newRoomInput", "Enter");
 	await tab.waitForFunction(
@@ -215,15 +262,16 @@ export async function run(
 			}, said.first);
 			if (boxes === null) fail("a message drew no mark to open its menu");
 			else {
+				const markShown = () =>
+					tab.evaluate((text) => {
+						const found = [...document.querySelectorAll(".bubble")]
+							.find((candidate) => (candidate.textContent ?? "").includes(text));
+						const mark = found?.querySelector(".line-acts");
+						return mark == null ? false : getComputedStyle(mark).display !== "none";
+					}, said.first);
 				// Halfway across the space between them.
 				await tab.mouse.move(Math.round((boxes.bubbleLeft + boxes.markRight) / 2), boxes.y);
-				const stillThere = await tab.evaluate((text) => {
-					const found = [...document.querySelectorAll(".bubble")]
-						.find((candidate) => (candidate.textContent ?? "").includes(text));
-					const mark = found?.querySelector(".line-acts");
-					return mark === null || mark === undefined ? false : getComputedStyle(mark).display !== "none";
-				}, said.first);
-				if (!stillThere) fail("the mark that opens a message's menu vanishes on the way to it");
+				if (!await markShown()) fail("the mark that opens a message's menu vanishes on the way to it");
 
 				// And it meets a pointer that never touches the message at all. The
 				// mark is out in the margin, so that is where a hand aims, and
@@ -231,13 +279,7 @@ export async function run(
 				// summons the mark is the message it sits beside.
 				await tab.mouse.move(10, 10);
 				await tab.mouse.move(Math.round(boxes.bubbleLeft - 20), boxes.y);
-				const met = await tab.evaluate((text) => {
-					const found = [...document.querySelectorAll(".bubble")]
-						.find((candidate) => (candidate.textContent ?? "").includes(text));
-					const mark = found?.querySelector(".line-acts");
-					return mark == null ? false : getComputedStyle(mark).display !== "none";
-				}, said.first);
-				if (!met) {
+				if (!await markShown()) {
 					const current = await tab.evaluate(({ text, x, y }) => ({
 						point: document.elementFromPoint(x, y)?.outerHTML,
 						bubbles: [...document.querySelectorAll(".bubble")].filter((node) =>
@@ -250,6 +292,22 @@ export async function run(
 							JSON.stringify({ boxes, current })
 						}`,
 					);
+				}
+
+				// The whole row at the line's height summons the mark, out to either
+				// edge of the log, so a hand does not have to find the message first.
+				const edges = await tab.evaluate((text) => {
+					const row = [...document.querySelectorAll(".bubble")]
+						.find((candidate) => (candidate.textContent ?? "").includes(text))
+						?.closest(".row")?.getBoundingClientRect();
+					return row == null ? [] : [Math.round(row.left) + 4, Math.round(row.right) - 4];
+				}, said.first);
+				if (edges.length === 0) fail("a message sits in no row");
+				for (const x of edges) {
+					await tab.mouse.move(10, 10);
+					if (await markShown()) fail("a message's mark stays up with the pointer off its row");
+					await tab.mouse.move(x, boxes.y);
+					if (!await markShown()) fail(`a pointer on a message's row at x=${x} does not summon its mark`);
 				}
 			}
 		}

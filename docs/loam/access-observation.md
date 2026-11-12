@@ -22,7 +22,7 @@ Call `mutate(sequence, "observe")` on a managed use or control endpoint to
 watch its grant. The result holds two items: a receiver and a separate
 canceler.
 
-- Registering shares the endpoint's eight mutation receipts
+- Registering shares the endpoint's mutation receipts
   ([retrying mutations](access.md#retrying-mutations)). Resending the request
   returns the same receiver and canceler instead of creating another.
 - Set `Service.entropy.fill` before registering.
@@ -79,7 +79,7 @@ cursor.
   ask for a fresh snapshot without a cursor.
 - If the history you could see has expired, the reply says to start over and
   includes the current snapshot.
-- A paused or revoked use, or a control you can no longer use, sees only its <!-- status-allow: runtime state or operation ordering -->
+- A paused or revoked use, or a control you can no longer use, sees only its
   status. Policy or content edits while paused do not move the cursor.
 - Every reply checks current permissions, as ordinary calls do.
 
@@ -117,20 +117,20 @@ limits, and limits too small to work are refused.
 
 The largest-fanout test (`access observation maximum parked fanout` in
 [observation_hosted_test.zig](../../test/loam/access/observation_hosted_test.zig))
-keeps 32 receivers waiting with a cold cache, using:
+keeps <!-- value ../../src/loam/access/records/observation_index_record.zig capacity -->32<!-- /value --> receivers waiting with a cold cache. The
+test sizes each limit from that receiver capacity:
 
-- eight bindings per call
-- 296 leases and 80 cache slots
-- a 5 MiB cache budget and 168 retention slots
-- 4 MiB of incoming-call memory
-- a 128 KiB outgoing buffer limit and one 4 KiB reply per receiver
+- binding slots for every waiting call
+- leases, cache slots, and retention slots for cold edits and delivery
+- incoming-call memory that admits every receiver's attachment arena
+- an outgoing buffer limit that holds one maximum-sized reply per receiver
 
 ## From Zig
 
 Zig code uses the opaque `storage.ObservationRegistration`,
 `storage.Observation`, and `storage.ObservationCancellation` operations.
 
-- Registration borrows a source `Operation` that has not been prepared yet, <!-- status-allow: runtime state or operation ordering -->
+- Registration borrows a source `Operation` that has not been prepared yet,
   takes a target for use (or null for control) and a key your program
   supplies, and writes into the caller's Store transaction. Run the source's
   missing reads before you retry creating it, then run the registration's

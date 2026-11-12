@@ -89,7 +89,7 @@ test "core host: pending id enliven reuses an authenticated via session" {
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
     try std.testing.expectEqual(@as(usize, 1), dials.items[0].route_index);
 
-    try client.dialFailed(ticket, 0, "primary unreachable");
+    try client.dialFailed(ticket, 0, .peer_unreachable, "primary unreachable");
     try std.testing.expect(try client.exporterDialed(ticket, 1, dialed));
 
     var settled = false;
@@ -123,7 +123,7 @@ test "core host: id enliven reuses an authenticated baseline session but not a f
     const server_seed = @as([32]u8, @splat(0x72));
     var client = test_host.init(allocator, client_seed, nextRouteOptions());
     defer client.deinit();
-    var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, server_seed, Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -142,7 +142,7 @@ test "core host: id enliven reuses an authenticated baseline session but not a f
     try client.bindVerifiedChannelKey(dialed, &server_key);
     const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, dialed.captpVersion());
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, dialed.settledProfile().?.captp_version);
 
     const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{server_key[0..]});
     defer allocator.free(route);
@@ -180,7 +180,7 @@ test "core host: failed select-or-dial admission publishes no Node dial" {
     for (0..32) |fail_index| {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         failing.fail_index = fail_index;
-        var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x73)), Host.Options.withFrameCap(frame_cap));
+        var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x73)), Host.Options.init(.unchecked, frame_cap));
         defer host.deinit();
 
         const result = host.enlivenSelectOrDial(harness.tcpSturdyref("127.0.0.1:7820", "widget"));
@@ -199,7 +199,7 @@ test "core host: failed select-or-dial admission publishes no Node dial" {
 
 test "core host: id sturdyrefs require opt-in before select-or-dial" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x11))).publicKey().toDesignator();
@@ -272,7 +272,7 @@ test "core host: id sturdyrefs validate but never dial weak fallback paths" {
     try std.testing.expect(first == .dial);
     try std.testing.expectEqualStrings(model.transport.iroh, host.pendingDial(first.dial.ticket, 0).?.locator.transport);
 
-    try host.dialFailed(first.dial.ticket, 0, "identity route unavailable");
+    try host.dialFailed(first.dial.ticket, 0, .peer_unreachable, "identity route unavailable");
     const failed = (try host.nextAction()).?;
     try std.testing.expect(failed == .failed);
     try std.testing.expectEqual(vow_id, failed.failed.vow_id);

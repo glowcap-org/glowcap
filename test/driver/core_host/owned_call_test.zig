@@ -42,8 +42,8 @@ const RetainingActor = struct {
 };
 
 test "core host: aggregate destruction retires remote authority before actor destructors" {
-    var client = support.init(a, @splat(0x57), driver.Host.Options.withFrameCap(h.frame_cap));
-    var server = support.init(a, @splat(0x58), driver.Host.Options.withFrameCap(h.frame_cap));
+    var client = support.init(a, @splat(0x57), driver.Host.Options.init(.unchecked, h.frame_cap));
+    var server = support.init(a, @splat(0x58), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -56,11 +56,41 @@ test "core host: aggregate destruction retires remote authority before actor des
     try std.testing.expect(released);
 }
 
+/// Releases its owned call from inside the listener the Host's destruction
+/// fires, where the release can only queue.
+const ReleasingListener = struct {
+    call: ?*driver.Host.Call,
+    fn fire(ctx: ?*anyopaque, _: glowcap.actors.Resolution) void {
+        const self: *ReleasingListener = @ptrCast(@alignCast(ctx.?));
+        const call = self.call orelse return;
+        self.call = null;
+        call.deinit();
+    }
+};
+
+test "core host: aggregate destruction runs a release a broken listener queued" {
+    var client = support.init(a, @splat(0x5b), driver.Host.Options.init(.unchecked, h.frame_cap));
+    var server = support.init(a, @splat(0x5c), driver.Host.Options.init(.unchecked, h.frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(h.ParkedDial) = .empty;
+    defer dials.deinit(a);
+    const pair = try h.openPair(a, &client, &server, "127.0.0.1:7919", &dials);
+    try pair.a.served.port.peer.importObject(7);
+    const remote = try client.liftCapability(pair.a, .{ .far = glowcap.ocapn.model.FarRef.object(7) });
+    var listener = ReleasingListener{ .call = try client.callCapability(a, pair.a, remote, "echo", &.{}, 64) };
+    const vow = try client.send(pair.a, .{ .far = glowcap.ocapn.model.FarRef.object(7) }, .{ .verb = "echo", .args = &.{} });
+    try client.vowOn(vow, .{ .ctx = &listener, .func = ReleasingListener.fire });
+    // The testing allocator reports the call's state as leaked when the
+    // queued release never runs.
+    client.deinit();
+    try std.testing.expectEqual(@as(?*driver.Host.Call, null), listener.call);
+}
+
 test "core host: retired actor remote release waits for the outer Vat boundary" {
     for ([_]bool{ true, false }) |eventual| {
-        var client = support.init(a, @splat(0x67), driver.Host.Options.withFrameCap(h.frame_cap));
+        var client = support.init(a, @splat(0x67), driver.Host.Options.init(.unchecked, h.frame_cap));
         defer client.deinit();
-        var server = support.init(a, @splat(0x68), driver.Host.Options.withFrameCap(h.frame_cap));
+        var server = support.init(a, @splat(0x68), driver.Host.Options.init(.unchecked, h.frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(h.ParkedDial) = .empty;
         defer dials.deinit(a);
@@ -103,9 +133,9 @@ test "core host: retired actor remote release waits for the outer Vat boundary" 
 }
 
 test "core host: owned call retains nested remote capabilities beside public completion" {
-    var client = support.init(a, @splat(0x51), driver.Host.Options.withFrameCap(h.frame_cap));
+    var client = support.init(a, @splat(0x51), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = support.init(a, @splat(0x52), driver.Host.Options.withFrameCap(h.frame_cap));
+    var server = support.init(a, @splat(0x52), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -128,9 +158,7 @@ test "core host: owned call retains nested remote capabilities beside public com
     defer owned.deinit();
     try std.testing.expect(owned.result() == .pending);
     try client.flushSession(pair.a);
-    for (0..64) |_| {
-        if (!try h.shuttleAll(&.{pair})) break;
-    } else return error.PumpDidNotQuiesce;
+    try h.shuttleUntilQuiet(&.{pair});
     try std.testing.expect(owned.result() == .ready);
     try std.testing.expectEqual(server_live, server.capabilities.liveCount());
     const result = owned.result().ready.list;
@@ -150,9 +178,9 @@ test "core host: owned call retains nested remote capabilities beside public com
 
 test "core host: owned call local routing, bounded projection, break and closed session" {
     for (0..4) |mode| {
-        var client = support.init(a, @splat(0x53), driver.Host.Options.withFrameCap(h.frame_cap));
+        var client = support.init(a, @splat(0x53), driver.Host.Options.init(.unchecked, h.frame_cap));
         defer client.deinit();
-        var server = support.init(a, @splat(0x54), driver.Host.Options.withFrameCap(h.frame_cap));
+        var server = support.init(a, @splat(0x54), driver.Host.Options.init(.unchecked, h.frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(h.ParkedDial) = .empty;
         defer dials.deinit(a);
@@ -173,9 +201,9 @@ test "core host: owned call local routing, bounded projection, break and closed 
 
 test "core host: owned call cancellation requires no allocation and no callback survives" {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var client = support.init(failing.allocator(), @splat(0x55), driver.Host.Options.withFrameCap(h.frame_cap));
+    var client = support.init(failing.allocator(), @splat(0x55), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = support.init(a, @splat(0x56), driver.Host.Options.withFrameCap(h.frame_cap));
+    var server = support.init(a, @splat(0x56), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -201,9 +229,9 @@ test "core host: owned call admission unwinds every refused allocation" {
 fn refusedAdmission(allocator: std.mem.Allocator) !void {
     // Enumerate this operation's object, reply and lowering storage. The
     // established Host/session allocator is covered by delivery admission tests.
-    var client = support.init(a, @splat(0x59), driver.Host.Options.withFrameCap(h.frame_cap));
+    var client = support.init(a, @splat(0x59), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = support.init(a, @splat(0x5a), driver.Host.Options.withFrameCap(h.frame_cap));
+    var server = support.init(a, @splat(0x5a), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -263,9 +291,9 @@ const ForwardingListener = struct {
 };
 
 test "core host: deferred local listener can publish its returned occurrence" {
-    var client = support.init(a, @splat(0x5b), driver.Host.Options.withFrameCap(h.frame_cap));
+    var client = support.init(a, @splat(0x5b), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = support.init(a, @splat(0x5c), driver.Host.Options.withFrameCap(h.frame_cap));
+    var server = support.init(a, @splat(0x5c), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -372,7 +400,7 @@ test "core host: owned call reservation replay preserves refusal retry settlemen
 
 fn replayReservation(profile: glowcap.ocapn.model.CaptpVersion, codec: glowcap.ocapn.model.CodecId, close_first: bool, offset: usize) !bool {
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var options = driver.Host.Options.withFrameCap(h.frame_cap);
+    var options = driver.Host.Options.init(.unchecked, h.frame_cap);
     options.captp_version = profile;
     options.codec = codec;
     options.features = glowcap.ocapn.model.FeatureSet.full().forCaptpVersion(profile);
@@ -436,9 +464,9 @@ fn replayReservation(profile: glowcap.ocapn.model.CaptpVersion, codec: glowcap.o
 }
 
 test "core host: selector refusal releases nested observations on local and wire calls" {
-    var client = support.init(a, @splat(0x75), driver.Host.Options.withFrameCap(h.frame_cap));
+    var client = support.init(a, @splat(0x75), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();
-    var server = support.init(a, @splat(0x76), driver.Host.Options.withFrameCap(h.frame_cap));
+    var server = support.init(a, @splat(0x76), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer dials.deinit(a);
@@ -470,4 +498,59 @@ test "core host: selector refusal releases nested observations on local and wire
         }
     }
     try std.testing.expectEqual(@as(usize, 3), calls);
+}
+
+/// Releases an owned call and an enlivenment from inside a settle callback, as
+/// an embedder done with both would.
+const DroppingListener = struct {
+    host: *driver.Host,
+    call: *driver.Host.Call,
+    enliven: *driver.Host.Enliven,
+    ran: bool = false,
+    queued: bool = false,
+
+    fn fire(context: ?*anyopaque, _: glowcap.actors.Resolution) void {
+        const self: *DroppingListener = @ptrCast(@alignCast(context.?));
+        self.ran = true;
+        self.call.deinit();
+        self.enliven.deinit();
+        self.queued = self.host.deferred_releases != null;
+    }
+};
+
+test "core host: an operation released inside a callback retires at that callback's verb tail" {
+    var client = support.init(a, @splat(0x5d), driver.Host.Options.init(.unchecked, h.frame_cap));
+    defer client.deinit();
+    var server = support.init(a, @splat(0x5e), driver.Host.Options.init(.unchecked, h.frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(h.ParkedDial) = .empty;
+    defer dials.deinit(a);
+    const pair = try h.openPair(a, &client, &server, "127.0.0.1:7917", &dials);
+    var calls: usize = 0;
+    const remote = try server.sessionPublish(pair.b, "echo", driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
+    defer server.releaseCapabilityTerminal(remote, null);
+    const target = try client.spawn(pair.a, driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
+    defer client.releaseCapabilityTerminal(target, null);
+
+    var resolver: u64 = 0;
+    const worker = try client.spawn(pair.a, Deferring, .{ .host = &client, .session = pair.a, .resolver = &resolver });
+    defer client.releaseCapabilityTerminal(worker, null);
+    const answer = try client.sendCapability(pair.a, worker, .{ .verb = "work", .args = &.{} });
+
+    const owned = try client.callCapability(a, pair.a, target, "echo", &.{.{ .integer = 7 }}, 64);
+    const enliven = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7917", "echo"));
+    var listener: DroppingListener = .{ .host = &client, .call = owned, .enliven = enliven };
+    try client.vowOn(answer, .{ .ctx = &listener, .func = DroppingListener.fire });
+    // The fulfil settles `answer` and fires the listener inside its own verb.
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    try client.resolverFulfillValue(resolver, .{ .boolean = true }, arena.allocator());
+    try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+
+    try std.testing.expect(listener.ran);
+    // Inside the callback both releases waited for the verb tail, and that
+    // tail ran them before the pump returned, not Host teardown.
+    try std.testing.expect(listener.queued);
+    try std.testing.expect(client.deferred_releases == null);
+    try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
 }

@@ -102,6 +102,7 @@ fn hasHint(hints: anytype, name: []const u8) Error!bool {
 
 fn hintString(hints: anytype, name: []const u8) ?[]const u8 {
     if (comptime @hasDecl(@TypeOf(hints), "findNamed")) {
+        // tolerant: a malformed hint set carries no usable route hint.
         const value = hints.findNamed(name) catch return null;
         return switch (value orelse return null) {
             .string => |text| text,
@@ -141,7 +142,9 @@ fn validateCarrier(transport: []const u8, designator: []const u8, expected: cryp
 /// owner and cannot drift from what `writePeer` produces.
 pub fn demandedPartnerKey(bundle: model.RouteBundle) ?crypto.PeerKey {
     if (bundle.source != .id) return null;
+    // tolerant: an unparseable route bundle carries no route.
     var list = model.route_bundle.RouteListIterator.init(bundle.identity) catch return null;
+    // tolerant: a route that does not parse carries no identity.
     const route = (list.next() catch return null) orelse return null;
     if (!std.mem.eql(u8, route.transport_encoded, model.transport.id)) return null;
     return crypto.PeerKey.fromDesignator(route.designator_encoded);

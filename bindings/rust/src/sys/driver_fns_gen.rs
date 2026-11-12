@@ -20,7 +20,7 @@ use super::driver::{
 };
 use super::host::{GlowcapCloseOptions, GlowcapHost, GlowcapHostSession};
 use super::ocapn::GlowcapLocatorView;
-use crate::sys::{GlowcapReference, GlowcapTransportProvider};
+use crate::sys::{GlowcapBreakCause, GlowcapReference, GlowcapTransportProvider};
 
 unsafe extern "C" {
 	pub fn glowcap_driver_archive_fingerprint() -> u64;
@@ -118,5 +118,5 @@ unsafe extern "C" {
 	pub fn glowcap_driver_session_serve(loop_: *mut GlowcapDriverLoop, session: *mut GlowcapHostSession) -> c_int;
 	pub fn glowcap_driver_session_release(loop_: *mut GlowcapDriverLoop, session: *mut GlowcapHostSession) -> c_int;
 	pub fn glowcap_driver_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn glowcap_driver_clear_last_error();
+	pub fn glowcap_driver_last_error_cause(out_cause: *mut GlowcapBreakCause);
 }

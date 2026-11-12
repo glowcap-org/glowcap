@@ -128,7 +128,7 @@ engineTest("onError unsubscribe stops further deliveries", () => {
 });
 
 engineTest(
-	"onError listeners are isolated — one throwing listener doesn't starve others",
+	"onError listeners are isolated: one throwing listener doesn't starve others",
 	() => {
 		const e = new Engine(emptyAuthoredDoc());
 		let goodCalls = 0;

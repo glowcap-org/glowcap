@@ -104,13 +104,13 @@ application's bounded command queue. Managed access owns no work queue.
 
 The Loam transaction takes the storage result when it succeeds. A write whose
 outcome is unknown, such as one whose confirmation was lost, stops the owner
-until recovery. A write known to have changed nothing keeps the earlier <!-- status-allow: runtime state or operation ordering -->
+until recovery. A write known to have changed nothing keeps the earlier
 committed state. Canceling cannot release a store while it
 is still writing.
 
 The store commits content, tree, and grant changes that must happen together
 as one recoverable unit. Several managed changes can join that unit. Each
-one checks against the owner state the earlier ones left in the transaction, <!-- status-allow: runtime state or operation ordering -->
+one checks against the owner state the earlier ones left in the transaction,
 and all of them merge into one update to the owner's header. A change
 prepared against an older revision is refused, and the caller aborts with
 nothing written. Two unrelated stores cannot do this, so an application uses
@@ -127,7 +127,7 @@ Work that must wait on something first, such as receiving a file's bytes, is
 written first. The protected change is then checked against current
 permissions. A queued notification is also checked when it is delivered.
 Revoking a grant does not take back bytes already delivered or undo an
-earlier committed change. <!-- status-allow: runtime state or operation ordering -->
+earlier committed change.
 
 Receipts, the saved results of completed requests, make sharing and policy
 changes safe to retry without creating extra access

@@ -12,6 +12,7 @@
          "scenarios/host-actors.rkt"
          "scenarios/promises.rkt"
          "scenarios/listeners.rkt"
+         "scenarios/released-owners.rkt"
          "scenarios/proxies.rkt"
          "scenarios/lifecycle.rkt"
          "scenarios/close-input.rkt"

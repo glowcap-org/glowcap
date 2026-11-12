@@ -10,9 +10,9 @@ const model = glowcap.ocapn.model;
 const a = std.testing.allocator;
 
 test "core host: an inline give refuses an exhausted promise id space without effect" {
-    var host = support.init(a, @splat(0xc1), Host.Options.withFrameCap(h.frame_cap));
+    var host = support.init(a, @splat(0xc1), Host.Options.init(.unchecked, h.frame_cap));
     defer host.deinit();
-    var partner = support.init(a, @splat(0xc2), Host.Options.withFrameCap(h.frame_cap));
+    var partner = support.init(a, @splat(0xc2), Host.Options.init(.unchecked, h.frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
     defer h.deinitParked(a, &dials);

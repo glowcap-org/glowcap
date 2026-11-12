@@ -13,6 +13,8 @@ mod continuations;
 mod engines;
 #[cfg(feature = "tcp")]
 mod held;
+#[cfg(not(target_arch = "wasm32"))]
+mod release;
 #[cfg(feature = "tcp")]
 mod restore;
 #[cfg(feature = "tcp")]
@@ -458,7 +460,10 @@ async fn connect(
 	.await
 	.unwrap();
 	let runtime = crate::Runtime::open(crate::RuntimeConfig::providers([crate::tcp::provider(
-		Default::default(),
+		crate::tcp::Config {
+			profiles: crate::tcp::Profiles::TCP,
+			..Default::default()
+		},
 	)]))
 	.await
 	.unwrap();

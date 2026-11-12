@@ -377,9 +377,9 @@ export class SessionState implements PumpHandle, WriterOwner, MintAwaitHandle, P
 				this.#serving.catch(() => {}),
 			]);
 			// A simultaneous peer EOF can let the serve pump physically retire
-			// the wrapper before a previously popped CLOSE action publishes its status-allow: ownership and operation ordering
+			// the wrapper before an already popped CLOSE action publishes its
 			// result. Release is authoritative terminal success for cleanup; do
-			// not wait forever on an action that can no longer name this session. status-allow: lifecycle transition
+			// not wait forever on an action that can no longer name this session.
 			if (this.#released) {
 				this.finishClose(OK);
 				await this.#joinCloseBarrier(closePromise);

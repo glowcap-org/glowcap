@@ -69,7 +69,7 @@ fn fetchMissingOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
     const reply = try session.fetchSettled("nobody-published-this-either", arena_state.allocator());
     switch (reply) {
         .fulfilled => return error.UnexpectedFulfillment,
-        .broken => |reason| try std.testing.expectEqualStrings("unknown swissnum", reason),
+        .broken => |reason| try std.testing.expectEqualStrings("unknown swissnum", reason.detail),
     }
 }
 

@@ -50,6 +50,7 @@ pub const RetainedFailureMessage = union(enum) {
 };
 
 pub fn retainFailureMessage(allocator: std.mem.Allocator, message: []const u8) RetainedFailureMessage {
+    // tolerant: without heap the failure keeps its static fallback text; its cause still travels.
     const owned = allocator.dupe(u8, message) catch return .fallback;
     return .{ .owned = owned };
 }
@@ -67,12 +68,12 @@ pub fn retainFailureMessage(allocator: std.mem.Allocator, message: []const u8) R
 pub const HostAction = union(enum) {
     /// Dial the exporter named by this attempt's active pending-dial view with
     /// this host's identity, then report `exporterDialed(ticket, route_index,
-    /// conn)`, or `dialFailed(ticket, route_index, reason)` if the path
+    /// conn)`, or `dialFailed(ticket, route_index, failure, detail)` if the path
     /// refuses. A failed path may produce another DIAL for the same ticket. The
     /// Host/Node owns ranking and fallback while the embedder executes only
     /// exact attempts.
     dial: struct { ticket: engine.Node.PendingId, route_index: usize },
-    /// Stop one previously delivered `dial` effect. The executor interrupts status-allow: ownership and operation ordering
+    /// Stop one `dial` effect already delivered. The executor interrupts
     /// and joins its physical operation, then calls `Host.dialCancelled`.
     cancel_dial: struct { ticket: engine.Node.PendingId, route_index: usize },
     /// Outbound transport packets may be ready on this session: drain
@@ -113,6 +114,7 @@ pub const HostAction = union(enum) {
         vow_id: u64,
         failure: VowFailure,
         message: RetainedFailureMessage,
+        cause: engine.BreakCause,
     },
     /// The finite Host scheduler yielded with internal work remaining and no
     /// ordinary action available to wake the next drain. A reactor-backed
@@ -167,12 +169,9 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
     if (self.retry_last_action) {
         self.retry_last_action = false;
         const action = self.last_action orelse unreachable;
-        if (action == .need_gift_id and !self.node.hasPendingGift(action.need_gift_id.ticket)) {
-            self.last_action = null;
-            return nextAction(self);
-        }
-        if (action == .dial and !self.node.beginDialEffect(action.dial.ticket, action.dial.route_index)) return null;
-        return action;
+        if (beginRetried(self, action)) return action;
+        self.last_action = null;
+        return nextAction(self);
     }
     try resumeWorkForActionDrain(self);
     if (self.last_action) |last| {
@@ -212,16 +211,38 @@ pub fn peekAction(self: *Host) HostError!?HostAction {
     try self.refuseReentry();
     if (self.retry_last_action) {
         const action = self.last_action orelse unreachable;
-        if (action != .need_gift_id or self.node.hasPendingGift(action.need_gift_id.ticket)) return action;
+        if (actionLive(self, action)) return action;
         self.retry_last_action = false;
         self.last_action = null;
     }
     try resumeWorkForActionDrain(self);
     while (self.actions.peek()) |action| {
-        if (action != .need_gift_id or self.node.hasPendingGift(action.need_gift_id.ticket)) return action;
+        if (actionLive(self, action)) return action;
         _ = self.actions.pop(self.allocator) orelse unreachable;
     }
     return null;
+}
+
+/// Whether a queued action still has work behind it. A gift request whose
+/// handoff settled and a dial whose pending row cannot begin are dead. Peek
+/// drops them by this predicate, and `takeAction` and `popAction` skip the
+/// same rows, so a peeked action is the one taken.
+fn actionLive(self: *const Host, action: HostAction) bool {
+    return switch (action) {
+        .need_gift_id => |need| self.node.hasPendingGift(need.ticket),
+        .dial => |dial| self.node.dialEffectBeginnable(dial.ticket, dial.route_index),
+        else => true,
+    };
+}
+
+/// Begin a retried borrowed action, or report it dead like `actionLive`. A
+/// dead one carries no payload, so both pops drop it and take the next row.
+fn beginRetried(self: *Host, action: HostAction) bool {
+    return switch (action) {
+        .need_gift_id => |need| self.node.hasPendingGift(need.ticket),
+        .dial => |dial| self.node.beginDialEffect(dial.ticket, dial.route_index),
+        else => true,
+    };
 }
 
 /// Pop the next embedder action, owned: the caller adopts the payload and frees
@@ -235,10 +256,8 @@ pub fn takeAction(self: *Host) HostError!?HostAction {
         self.retry_last_action = false;
         const action = self.last_action orelse unreachable;
         self.last_action = null;
-        if (action == .need_gift_id and !self.node.hasPendingGift(action.need_gift_id.ticket))
-            return takeAction(self);
-        if (action == .dial and !self.node.beginDialEffect(action.dial.ticket, action.dial.route_index)) return null;
-        return action;
+        if (beginRetried(self, action)) return action;
+        return takeAction(self);
     }
     try resumeWorkForActionDrain(self);
     return popAction(self);
@@ -336,7 +355,7 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
 /// both irreversible once a frame or a close verdict exists. A caller
 /// naming `extra` is saying what it is adding on top: the action it is
 /// about to push, the vow or parked enliven it is about to mint, or the
-/// session whose two notifications do not exist yet. status-allow: pending state or quoted runtime label
+/// session whose two notifications do not exist yet.
 ///
 /// Reserving ahead is what lets those pushes be infallible later. A
 /// settled vow with no completion is unrepresentable, so the capacity has

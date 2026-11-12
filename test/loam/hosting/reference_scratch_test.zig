@@ -102,7 +102,7 @@ test "loam many maximum URI saves share one scratch window through pending readi
         var fixture: f.Fixture = undefined;
         try fixture.init(.{ .max_reference_saves = 32 });
         defer fixture.deinit();
-        var remote = @import("../../support/core_host.zig").init(a, @splat(0x73), f.driver.Host.Options.withFrameCap(wire.frame_cap));
+        var remote = @import("../../support/core_host.zig").init(a, @splat(0x73), f.driver.Host.Options.init(.unchecked, wire.frame_cap));
         defer remote.deinit();
         _ = try remote.publish("field", wire.Widget, .{});
         const pair = try pair_support.openPair(&fixture.host, &remote, "127.0.0.1:7931");
@@ -157,11 +157,11 @@ test "loam cold foreign recipes retire URI scratch before readiness and each nex
     limits.max_changes = 33;
     var store = try f.loam.core.Store.init(a, try backend.open(), &schemas, limits);
     defer store.deinit() catch unreachable;
-    var host = @import("../../support/core_host.zig").init(a, @splat(0x75), f.driver.Host.Options.withFrameCap(wire.frame_cap));
+    var host = @import("../../support/core_host.zig").init(a, @splat(0x75), f.driver.Host.Options.init(.unchecked, wire.frame_cap));
     defer host.deinit();
     const attached = try f.hosting.Attachment.create(a, &host, &store, &f.behaviors, .{});
     defer attached.destroy() catch unreachable;
-    var remote = @import("../../support/core_host.zig").init(a, @splat(0x76), f.driver.Host.Options.withFrameCap(wire.frame_cap));
+    var remote = @import("../../support/core_host.zig").init(a, @splat(0x76), f.driver.Host.Options.init(.unchecked, wire.frame_cap));
     defer remote.deinit();
     _ = try remote.publish("field", wire.Widget, .{});
     const pair = try pair_support.openPair(&host, &remote, "127.0.0.1:7932");

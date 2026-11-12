@@ -4,7 +4,7 @@ import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { RoomsWorkspaceController } from "../../controller/session.ts";
 import { type Coordinate, fieldKey, type WorkspaceIntent } from "./model.ts";
-import { refusalText } from "../../../../lib/text/failure.ts";
+import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { coverForReload, finishCommittedMove, uncoverReload } from "../../boot.ts";
 import { writeSearch } from "../../prefs.ts";
 import { viewPreferences } from "../../view_preferences.ts";
@@ -18,7 +18,7 @@ type Configuration = Pick<
 	| "clearRoomsState"
 	| "setKeepHistory"
 	| "takeArchivePeer"
-	| "retryArchivePeer"
+	| "retryHistory"
 	| "useOwnedArchive"
 >;
 export function managedWorkspaceActions(
@@ -59,16 +59,14 @@ export function managedWorkspaceActions(
 				for (const coordinate of exported.coordinates) {
 					const uri: string | null = await session.workspace.custodyRecipe(JSON.stringify(coordinate));
 					if (uri == null) {
-						throw new Error(
-							`The selected ${coordinate.role} has no durable recipe. A complete capability export is unavailable.`,
-						);
+						throw new LocalRefusal("export-incomplete", {
+							cause: `no durable recipe for the selected ${coordinate.role}`,
+						});
 					}
 					imports.push({ coordinate, uri });
 				}
 				if ((await session.refresh()).revision !== exported.revision) {
-					throw new Error(
-						"The configuration changed during export. Review its current selections before exporting again.",
-					);
+					throw new LocalRefusal("export-changed");
 				}
 				return JSON.stringify(
 					{
@@ -83,7 +81,7 @@ export function managedWorkspaceActions(
 				);
 			}
 			const intent = session.current?.intent;
-			if (intent == null) throw new Error("The workspace is not available");
+			if (intent == null) throw new LocalRefusal("workspace-unavailable");
 			return JSON.stringify(
 				{
 					version: 1,
@@ -106,21 +104,31 @@ export function managedWorkspaceActions(
 		},
 		importRoomsState: (raw) =>
 			outcome(async () => {
-				const data: unknown = JSON.parse(raw);
+				let data: unknown;
+				try {
+					data = JSON.parse(raw);
+				} catch (cause) {
+					if (!(cause instanceof SyntaxError)) throw cause;
+					throw new LocalRefusal("not-export", { cause });
+				}
 				if (
 					data == null || typeof data !== "object" || !("version" in data) || data.version !== 1 ||
 					!("kind" in data)
-				) throw new Error("Invalid workspace export");
+				) throw new LocalRefusal("not-export");
 				const { view, ...configuration } = data as Record<string, unknown>;
 				const preferences = view == null ? null : parseRoomsViewState(view);
 				const encoded = JSON.stringify(configuration);
 				if (data.kind === "rooms-configuration") {
 					await session.actions.importState(encoded);
 				} else {
-					if (data.kind !== "rooms-presentation") throw new Error("Unknown workspace export kind");
+					if (data.kind !== "rooms-presentation") {
+						throw new LocalRefusal("not-export");
+					}
 					await session.actions.importState(encoded, true);
 				}
-				if (preferences != null) page.projection.set(preferences);
+				if (preferences != null) {
+					page.projection.set(preferences);
+				}
 			}),
 		clearRoomsState: () => outcome(() => session.actions.clear()),
 		setKeepHistory: async (keep) => {
@@ -137,7 +145,7 @@ export function managedWorkspaceActions(
 					uri,
 				}]);
 			}),
-		retryArchivePeer: () => outcome(retryHistory),
+		retryHistory: () => outcome(retryHistory),
 		useOwnedArchive: async () => {
 			const snapshot = await session.candidate();
 			snapshot.intent.archive = null;

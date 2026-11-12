@@ -30,8 +30,9 @@ Build options:
   Demos default to an ephemeral port, and each interop step to the fixed port it
   documents. `goblins-handoff` runs two listeners and takes N and N+1.
 - `-Dattach=true` joins an already-running server instead of spawning one. It
-  works on demo steps that also take `-Dport`. `demo-accountability` rejects
-  it, because each caller needs a fresh host.
+  works on demo steps that also take `-Dport`. The
+  [demo convention](../apps/README.md#how-the-cross-language-demos-run) lists the
+  exceptions.
 
 [Developing Rooms](../apps/rooms/developing.md#build-steps) describes its transport
 and hot-reload options. [Operating Rooms](../apps/rooms/operating.md) lists the
@@ -78,7 +79,7 @@ zig build oracle-check                      # Run the protocol oracle: message-a
 zig build fmt                               # Format Zig sources in place (zig fmt)
 zig build build                             # Build and install the glowcap C ABI archives; part of bench-capnp, bench-goblins, bench-interface, bench-interface-builds, bench-interface-diagnostics, bench-langs, bench-site-report, bindings-package-check, bun-test, check-build, demo-accountability, demo-rooms, demo-rooms-dm, demo-rooms-dm-back, demo-rooms-dm-iroh, demo-rooms-dm-iroh-discovery, demo-rooms-dm-reply, demo-rooms-iroh, demo-rooms-onion, demo-tasks, demo-tools, deno-gifter-handoff, deno-goblins-gift, deno-goblins-handoff, deno-goblins-interop, deno-goblins-listen, deno-iroh-handoff, deno-iroh-loop, deno-iroh-reachability, deno-iroh-redeem-posture, deno-keyed-relay-rendezvous, deno-keyed-tcp-restart, deno-noise-relay-listen, deno-relay-backpressure-test, deno-relay-idle-test, deno-relay-iroh-test, deno-relay-test, deno-test, deno-verb-spine, deno-webrtc-driver-provider, deno-wss-relay, glowcap-install, goblins-glowcap-pair-gift, goblins-handoff-iroh, goblins-iroh, goblins-relay, goblins-rooms, goblins-rooms-dm, goblins-rooms-dm-iroh, goblins-rooms-irc-bridge, goblins-rooms-iroh, goblins-rooms-matrix-iroh, goblins-rooms-peering, interface-authoring-check, interface-authoring-lint, interface-bench-lint, interface-conversation-check, interface-goblins-check, interface-test, iroh-abi-test, iroh-sidecar-test, loam-rust-test, ocapnviz-check, ocapnviz-live-browser, ocapnviz-test, profile-interface, python-goblins-gift, python-goblins-handoff, python-goblins-interop, python-goblins-listen, python-iroh-driver-provider, python-iroh-handoff, python-iroh-loop, python-iroh-reachability, python-iroh-redeem-posture, python-keyed-relay-rendezvous, python-keyed-tcp-restart, python-noise-relay-listen, python-relay-backpressure-test, python-relay-idle-test, python-relay-iroh-test, python-relay-test, python-test, python-verb-spine, python-webrtc-driver-provider, python-wss-relay, racket-goblins-gift, racket-goblins-handoff, racket-goblins-interop, racket-goblins-listen, racket-iroh-handoff, racket-iroh-loop, racket-iroh-reachability, racket-iroh-redeem-posture, racket-keyed-relay-rendezvous, racket-keyed-tcp-restart, racket-noise-relay-listen, racket-relay-backpressure-test, racket-relay-idle-test, racket-relay-iroh-test, racket-relay-test, racket-test, racket-verb-spine, racket-webrtc-driver-provider, racket-wss-relay, rooms-dev, rooms-dm-reredeem, rooms-session, rooms-terminal-client-test, rooms-web, rooms-web-relay-peer, rust-binding-lint, rust-goblins-gift, rust-goblins-handoff, rust-goblins-interop, rust-goblins-listen, rust-iroh-driver-provider, rust-iroh-handoff, rust-iroh-loop, rust-iroh-reachability, rust-iroh-redeem-posture, rust-keyed-relay-rendezvous, rust-keyed-tcp-restart, rust-noise-relay-listen, rust-relay-backpressure-test, rust-relay-idle-test, rust-relay-iroh-test, rust-relay-test, rust-verb-spine, rust-webrtc-driver-provider, rust-wss-relay, sidecar-runtime-test, site-rust-examples-check, tasks-mutation-check, web-peer-test, webrtc-sidecar-test, zig-keyed-relay-register, zig-keyed-relay-rendezvous
 zig build fmt-check                         # Check Zig formatting without writing (zig fmt --check); part of source-check
-zig build python-check                      # Check the formatting and lint of every first-party Python file with the pinned ruff; part of check-build, source-check
+zig build python-check                      # Check the formatting and lint of every first-party Python file with the pinned ruff, and type the CI programs and build tools with the pinned mypy; part of check-build, source-check
 zig build python-fmt                        # Format every first-party Python file in place with the pinned ruff
 zig build cli-test                          # Run the in-tree glowcap CLI registry and session/capture tests; part of check
 zig build glowcap                           # Run the glowcap CapTP CLI; pass `-- <command> ...` (ocapn, repl, mcp, apps rooms session, and so on)
@@ -222,7 +223,7 @@ zig build gen-build-steps               # Rewrite every bare `zig build` row in 
 zig build gen-build-steps-check         # Verify every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md carries its step's description and containing steps, and every step has a row (fails if stale); part of source-check
 zig build site-zig-examples-check       # Compile the authoritative Zig transport site examples; part of check
 zig build site-ts-examples-check        # Type-check the authoritative TypeScript transport site examples; part of check-build
-zig build site-python-examples-check    # Type-check the authoritative Python transport site examples (needs python3 + uv); part of bindings
+zig build site-python-examples-check    # Type-check the authoritative Python transport site examples (needs python3 + mypy); part of bindings
 zig build site-rust-examples-check      # Type-check the authoritative Rust transport site examples (needs python3 + cargo); part of bindings
 zig build site-racket-examples-check    # Compile the authoritative Racket transport site examples (needs python3 + racket); part of bindings
 zig build gen-binding-constants         # Regenerate binding ABI constants from src/c_abi (every reflected archive)
@@ -277,7 +278,7 @@ files to one geometry, so a hand edit to any of them fails in-tree.
 
 ```sh
 zig build gen-mark       # Re-trace the still mark from the shader and rewrite the unlit and lit artwork under site/assets/ with their rasters, plus the mark's generated blocks in ui/ (needs deno + the image-baked browser)
-zig build gen-mark-check # Verify the committed still mark still matches a fresh trace of the shader (fails if stale)
+zig build gen-mark-check # Verify the committed still mark still matches a fresh trace of the shader (fails if stale, and refuses off the architecture that drew it)
 ```
 
 ## C ABI consumers
@@ -340,13 +341,13 @@ zig build goblins-handoff-iroh      # Live encrypted handoff: Goblins gifts and 
 zig build goblins-rooms-peering     # Live Goblins through Rooms Peering: enter a glowcap foreign listing over v1.0/Syrup, revoke discovery, and keep using the handed room (needs deno + racket + goblins)
 zig build goblins-iroh              # Live Goblins over iroh: a real Goblins vat and a glowcap peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)
 zig build goblins-rooms             # Live Goblins in the rooms chat: a real Goblins vat and a glowcap peer hold one room, each on the profile its own session settled (needs deno + racket + goblins)
-zig build goblins-rooms-irc         # Run both live Goblins compositions for the shipped IRC bridge and IRC server (needs deno + racket + goblins)
-zig build goblins-rooms-irc-bridge  # Live Goblins through the IRC bridge: fixture IRC and a real vat exchange room lines both ways (needs deno + racket + goblins); part of goblins-rooms-irc, goblins-rooms-irc-server
-zig build goblins-rooms-irc-server  # Live Goblins through the IRC server: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs deno + racket + goblins)
+zig build goblins-rooms-irc         # Run both live Goblins compositions for the shipped IRC bridge and IRC server (needs cargo + deno + racket + goblins)
+zig build goblins-rooms-irc-bridge  # Live Goblins through the IRC bridge: fixture IRC and a real vat exchange room lines both ways (needs cargo + deno + racket + goblins); part of goblins-rooms-irc-server
+zig build goblins-rooms-irc-server  # Live Goblins through the IRC server: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs cargo + deno + racket + goblins); part of goblins-rooms-irc
 zig build goblins-rooms-iroh        # Live Goblins in the rooms chat over iroh's encrypted QUIC: the accepting side records the endpoint id QUIC authenticated (needs cargo + deno + racket + goblins)
 zig build goblins-rooms-dm          # Live Goblins direct message, both directions: a browser tab redeems a room introduction and reaches a real Goblins vat off-room over cleartext TCP, the vat answers over that same connection, and the vat starts a direct message of its own by redeeming a give that names a Rooms session process member as its exporter (needs deno + racket + goblins + a Playwright Chromium)
 zig build goblins-rooms-dm-iroh     # Live Goblins direct messages both ways over encrypted iroh QUIC: the browser redeems the vat's introduction, then the vat redeems a session process member's, with authenticated endpoint testimony (needs cargo + deno + racket + goblins + a Playwright Chromium)
-zig build goblins-rooms-matrix-iroh # Heavy four-peer rooms matrix: pin the cross-receiver handoff-count behavior upstream watch records, then exercise mixed and homogeneous rooms, every DM pair, close/reopen, and peer restart over iroh
+zig build goblins-rooms-matrix-iroh # Heavy four-peer rooms matrix: exercise mixed and homogeneous rooms, every DM pair, close/reopen, and peer restart over iroh, then pin the cross-receiver handoff-count behavior upstream watch records
 zig build goblins-relay             # Live Goblins through the byte-transparent relay: a browser peer holds a keyed OCapN session with a real Goblins vat through the Deno reference relay (needs deno + racket + goblins)
 zig build bindings-goblins-interop  # Live keyed conversation vs a real Goblins vat through Deno, Python, Rust, and Racket bindings (needs racket + goblins + the runtimes)
 zig build deno-goblins-interop      # Live keyed OCapN conversation: Deno binding vs a real Goblins vat (needs deno + racket + goblins); part of bindings-goblins-interop

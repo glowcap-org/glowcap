@@ -62,6 +62,9 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 				autocapitalize: el.autocapitalize,
 				spellcheck: el.spellcheck,
 				translate: el.translate,
+				type: el.type,
+				managers: ["data-1p-ignore", "data-lpignore", "data-bwignore", "data-form-type"]
+					.filter((name) => !el.hasAttribute(name)),
 			};
 		};
 		return { address: of("joinAddressField"), room: of("room"), nick: of("nick") };
@@ -73,6 +76,30 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		}
 		if (keys.spellcheck) fail(`#${id} still spellchecks an identifier`);
 		if (keys.translate) fail(`#${id} is still offered to page translation`);
+	}
+	// An address is nothing a password manager fills or keeps.
+	const address = identifierKeys.address;
+	if (address?.type !== "text") fail(`the address field is a ${address?.type} field, which a browser offers to fill`);
+	if (address.managers.length > 0) {
+		fail(`the address field does not tell password managers to leave it: ${address.managers}`);
+	}
+	// The member column stands beside the join card, so its button is there to
+	// put it away, and counts nothing while there is no room to count.
+	const beside = () =>
+		tab.evaluate(() => ({
+			column: (document.getElementById("memberPane")?.getBoundingClientRect().width ?? 0) > 0,
+			button: document.getElementById("membersToggle")?.textContent ?? null,
+		}));
+	const stood = await beside();
+	await tab.click("#membersToggle").catch(() => fail("the join card's member column has no button to hide it"));
+	const away = await beside();
+	await tab.click("#membersToggle");
+	if (!stood.column || stood.button !== "" || away.column || !(await beside()).column) {
+		fail(
+			`the members button beside the join card did not hide and show its column, uncounted: ${
+				JSON.stringify({ stood, away })
+			}`,
+		);
 	}
 
 	// The screen is the peer's to end, not the bundle's: it stays up until the
@@ -385,10 +412,15 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 			button: button.dataset.busy === "true" && parseFloat(buttonMark.width) > 0,
 			icon: icon.dataset.busy === "true" && parseFloat(iconMark.width) > 0,
 			iconHidden: getComputedStyle(icon.querySelector("svg")!).visibility === "hidden",
+			rings: [buttonMark, iconMark].flatMap((mark) => [parseFloat(mark.width), parseFloat(mark.height)]),
 		};
 	});
 	if (waits === null || !waits.button || !waits.icon || !waits.iconHidden) {
 		fail(`a busy control did not replace its idle mark with visible progress: ${JSON.stringify(waits)}`);
+	}
+	// A ring of a fractional size turns about a point beside its drawn centre.
+	if (!waits.rings.every((side) => Number.isInteger(side))) {
+		fail(`a progress ring is not whole pixels across, so it wobbles as it turns: ${JSON.stringify(waits.rings)}`);
 	}
 	// The segmented row is drawn nowhere else, so the catalog is the only place it
 	// can be held to anything. What it owes a reader is that it says so. A gallery

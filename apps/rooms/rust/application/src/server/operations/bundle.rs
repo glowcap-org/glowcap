@@ -45,7 +45,7 @@ impl core::fmt::Display for Invalid {
 				if *exactly { "exactly" } else { "at most" }
 			),
 			Self::NothingPasted => f.write_str("Paste the ROOMS-* capability lines printed by the server."),
-			Self::UnknownCapability => f.write_str("Unknown operations capability."),
+			Self::UnknownCapability => f.write_str("The capability set names an unknown operations capability."),
 			Self::Repeated { token } => write!(f, "The capability set repeats {token}."),
 			Self::UriLimit => f.write_str("A capability URI exceeds its text limit."),
 			Self::UriShape => f.write_str("Enter the complete capability URI printed by the server."),
@@ -153,7 +153,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn every_invalid_line_is_the_line_it_replaced() {
+	fn every_invalid_variant_displays_its_operator_line() {
 		let lines = [
 			(Invalid::BundleLimit, "The capability set exceeds its text limit."),
 			(Invalid::NoLabel, "The capability set contains a line with no label."),
@@ -179,7 +179,10 @@ mod tests {
 				Invalid::NothingPasted,
 				"Paste the ROOMS-* capability lines printed by the server.",
 			),
-			(Invalid::UnknownCapability, "Unknown operations capability."),
+			(
+				Invalid::UnknownCapability,
+				"The capability set names an unknown operations capability.",
+			),
 			(Invalid::Repeated { token: "X" }, "The capability set repeats X."),
 			(Invalid::UriLimit, "A capability URI exceeds its text limit."),
 			(

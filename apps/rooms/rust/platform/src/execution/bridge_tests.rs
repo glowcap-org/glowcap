@@ -1,5 +1,5 @@
 //! Membership bridge calls use shared form admission and keep each room's
-//! declaration separate, including while an earlier observation is cancelled. status-allow: event or source ordering
+//! declaration separate, including while an earlier observation is cancelled.
 use crate::loopback::{Loopback, keyed_loopback};
 use glowcap::{Argument, PendingWork};
 use rooms_application::bridge::{self, Answers};

@@ -120,7 +120,7 @@ pub fn ScriptedContract(comptime Self: type) type {
             return port;
         }
 
-        /// A scripted listener binds at `openListener`; nothing pends here; a
+        /// A scripted listener binds at `openListener`. Nothing pends here. A
         /// wrapped adapter's pending setup reports through the adapter itself.
         pub fn listenerPending(_: *Self, _: Fd) bool {
             return false;

@@ -32,8 +32,14 @@ pub const Capabilities = struct {
         return .{ .allocator = allocator, .store = store, .limits = limits, .index = index };
     }
 
-    pub fn deinit(self: *Capabilities) !void {
+    /// Refuse with nothing changed while a reference, operation, or
+    /// observation still borrows this owner.
+    pub fn refuseDeinit(self: *const Capabilities) error{Busy}!void {
         if (self.references != 0 or self.operations != 0 or self.observations != 0) return error.Busy;
+    }
+
+    pub fn deinit(self: *Capabilities) !void {
+        try self.refuseDeinit();
         self.index.deinit();
         self.allocator.destroy(self.index);
         self.* = undefined;

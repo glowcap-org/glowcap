@@ -72,7 +72,7 @@
     (raise-invalid "rendezvous-relay must contain visible ASCII URI bytes"))
   (validate-percent-encoding value)
   (define parsed
-    (with-handlers ([(lambda (_) #t)
+    (with-handlers ([raised-failure?
                      (lambda (_) (raise-invalid
                                   "rendezvous-relay must be an absolute WebSocket URL"))])
       (string->url value)))
@@ -149,7 +149,7 @@
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (define cleanup
-                       (with-handlers ([(lambda (_) #t) values])
+                       (with-handlers ([raised-failure? values])
                          (check-with (glowcap_relay_runtime_release raw)
                                      (lambda () (read-last-error glowcap_relay_last_error)))
                          #f))

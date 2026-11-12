@@ -196,7 +196,7 @@ engineTest(
 			"carol",
 		);
 
-		// And the capture keeps the earlier name: a replay of this status-allow: event or source ordering
+		// And the capture keeps the earlier name: a replay of this
 		// recording shows the locator until the nick arrives.
 		engine.seekTo(joinedT);
 		assertEquals(

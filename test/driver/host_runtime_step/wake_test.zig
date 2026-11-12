@@ -4,6 +4,7 @@
 //! `wakeReadiness` raises the descriptor from another thread.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -123,13 +124,20 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
+    var stop = std.atomic.Value(bool).init(false);
     var accept_future = try io.concurrent(struct {
-        fn run(s: *driver.Server) !void {
+        fn run(s: *driver.Server, stopped: *const std.atomic.Value(bool)) !void {
+            if (!try wait.acceptableUnlessStopped(s, stopped)) return;
             var session = try s.accept();
             defer session.deinit();
             try session.serve();
         }
-    }.run, .{server});
+    }.run, .{ server, &stop });
+    var accept_joined = false;
+    errdefer if (!accept_joined) {
+        stop.store(true, .release);
+        wait.joinedUnwinding("accept", accept_future.await(io));
+    };
 
     // The client is built stepped: its descriptor is read below, never armed.
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -141,10 +149,8 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
         .ephemeral,
         harness.steppedQuiet(),
     );
-    defer {
-        client.deinit();
-        accept_future.await(io) catch {};
-    }
+    var client_open = true;
+    errdefer if (client_open) client.deinit();
 
     // Drain any connect-time wake so a leftover cannot fake the proof.
     _ = try client.runtime.stepAny(0);
@@ -167,6 +173,12 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
     const ready = try std.posix.poll(&fds, 0);
     try std.testing.expectEqual(@as(usize, 1), ready);
     try std.testing.expect((fds[0].revents & std.posix.POLL.IN) != 0);
+
+    // The accept loop ends when the client leaves, and a failure fails the test.
+    client_open = false;
+    accept_joined = true;
+    client.deinit();
+    try accept_future.await(io);
 }
 
 test "wakeReadiness raises the descriptor from another thread, and a sessionless step parks instead of refusing" {

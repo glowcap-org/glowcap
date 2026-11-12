@@ -37,6 +37,6 @@ cleanup() {
 }
 trap cleanup INT TERM HUP EXIT
 
-deno run -A npm:vite </dev/null &
+deno task dev </dev/null &
 child=$!
 wait "$child"

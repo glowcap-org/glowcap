@@ -38,7 +38,7 @@ const HeldDial = struct {
         defer stream.close(self.daemon.io);
         self.accepted.store(true, .release);
         while (!self.stop.load(.acquire))
-            std.Io.sleep(self.daemon.io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+            try std.Io.sleep(self.daemon.io, std.Io.Duration.fromMilliseconds(2), .real);
     }
 };
 
@@ -104,6 +104,8 @@ test "c-abi onion connect: handshake to open + bootstrap fetch round-trip" {
     defer releaseOnionNetlayer(netlayer_ptr);
 
     var server = try io.concurrent(serveDialedPeer, .{ daemon, allocator });
+    var server_joined = false;
+    errdefer if (!server_joined) wait.joinedUnwinding("far peer", server.cancel(io));
 
     var conn: ?*co.GlowcapOnionConn = null;
     try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_connect(
@@ -141,6 +143,7 @@ test "c-abi onion connect: handshake to open + bootstrap fetch round-trip" {
         ),
     );
     try std.testing.expectEqual(@as(usize, 0), release_diagnostic_len);
+    server_joined = true;
     const server_result = server.await(io);
 
     try client_result;
@@ -165,10 +168,13 @@ test "c-abi onion connection shutdown wakes a Zig read before release" {
         .accepted = &accepted,
         .stop = &stop,
     }});
-    defer {
+    var serving_joined = false;
+    // The far peer may still be parked in `acceptDial`, which only a cancel
+    // reaches before the deferred daemon stop runs.
+    errdefer if (!serving_joined) {
         stop.store(true, .release);
-        _ = held.await(io) catch {};
-    }
+        wait.joinedUnwinding("serving", held.cancel(io));
+    };
 
     var conn: ?*co.GlowcapOnionConn = null;
     try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_connect(
@@ -186,12 +192,24 @@ test "c-abi onion connection shutdown wakes a Zig read before release" {
 
     var parked = ParkedOnionRead{ .conn = conn.? };
     var read = try io.concurrent(ParkedOnionRead.run, .{&parked});
+    var read_joined = false;
+    // The read is parked in a C call that only a connection shutdown wakes.
+    errdefer if (!read_joined) {
+        _ = co.glowcap_onion_conn_shutdown(conn.?); // best-effort: a refused shutdown leaves the read parked, and the test is already failing
+        wait.joinedUnwinding("read", read.await(io));
+    };
     try wait.untilFlag(io, 5_000, &parked.started);
 
     try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_conn_shutdown(conn.?));
     read.await(io);
+    read_joined = true;
     try std.testing.expect(parked.result != c.GLOWCAP_OK);
     try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_conn_release(conn.?, null, 0, null));
+
+    // A daemon-side endpoint that failed fails the test, whatever the client saw.
+    stop.store(true, .release);
+    serving_joined = true;
+    try held.await(io);
 }
 
 test "c-abi onion accept: a forwarded circuit carries a session" {
@@ -239,7 +257,8 @@ test "c-abi onion accept: a forwarded circuit carries a session" {
     const target = daemon.lastForwardTarget();
     try std.testing.expect(std.mem.startsWith(u8, target, "127.0.0.1:"));
     var client = try io.concurrent(dialForwardTarget, .{ io, allocator, target });
-    defer client.cancel(io) catch {}; // best-effort: join on a server failure; await reports success-path faults
+    var client_joined = false;
+    errdefer if (!client_joined) wait.joinedUnwinding("client", client.cancel(io));
 
     var args: Loopback.ServerArgs = .{
         .listener = listener_ptr,
@@ -247,8 +266,8 @@ test "c-abi onion accept: a forwarded circuit carries a session" {
         .start_session = startSession(service_id),
     };
     try Loopback.serveOnce(&args);
-    const client_result = client.await(io);
-    try client_result;
+    client_joined = true;
+    try client.await(io);
 }
 
 /// Dial the listener's forward target and run the client half of the round trip.

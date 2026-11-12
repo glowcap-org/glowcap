@@ -57,6 +57,7 @@ fn tsParamClass(comptime T: type) []const u8 {
 fn tsResultClass(comptime T: type) []const u8 {
     return switch (T) {
         i32 => "I",
+        u32 => "\"u32\"",
         u64 => "U64",
         void => "V",
         usize => "U",

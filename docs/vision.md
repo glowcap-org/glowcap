@@ -121,8 +121,8 @@ Interoperability means:
 - [What ships](shipped.md) lists what is implemented.
 - [Known limitations](boundaries.md) lists constraints that affect users.
 - [Stability](stability.md) says which checks back each claim.
-- [Milestones to 1.0](milestones.md) records milestone standings and measured
-  budgets.
+- [Milestones to 1.0](milestones.md) says what each milestone needs and where
+  its evidence lives.
 - [The roadmap](roadmap.md) lists the remaining work in order.
 - [Architecture](architecture.md) explains the boundaries that protect this
   goal.

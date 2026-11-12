@@ -113,7 +113,7 @@ pub const Trio = struct {
         self.withdrawn = false;
         self.attacked = false;
         self.withdraw = &.{};
-        const options = Host.Options.withFrameCap(harness.frame_cap);
+        const options = Host.Options.init(.unchecked, harness.frame_cap);
         self.exporter = test_host.init(gpa, @as([32]u8, @splat(0x0e)), options);
         errdefer self.exporter.deinit();
         self.gifter = test_host.init(gpa, @as([32]u8, @splat(0x06)), options);

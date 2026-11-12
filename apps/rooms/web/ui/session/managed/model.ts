@@ -1,5 +1,6 @@
 // Coordinates describe separately held fields. They are never bearer links.
 import * as z from "zod/mini";
+import { ARCHIVE_SHARE_KINDS } from "../../../../lib/archive/handover.ts";
 import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
 import type { DirectoryMember, RoomEvent, RoomInfo } from "../../../../lib/directory_publications.ts";
 import type { Presence } from "../../../../lib/room/presence.ts";
@@ -195,7 +196,7 @@ export const ActivityNoticeSchema = z.discriminatedUnion("kind", [
 		transport: z.optional(z.nullable(z.string())),
 	}),
 	z.object({
-		kind: z.enum(["mintInboxFor", "directRequested", "introducible"]),
+		kind: z.enum(["mintInboxFor", "directRequested"]),
 		peer: z.optional(z.string()),
 		registration: z.optional(z.string()),
 		opening: z.optional(z.nullable(z.string())),
@@ -219,7 +220,7 @@ export const ActivityNoticeSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.enum(["handArchive", "offerArchive"]),
 		directory: z.optional(z.string()),
-		scope: z.optional(z.string()),
+		scope: z.enum(ARCHIVE_SHARE_KINDS),
 		conversation: z.optional(z.nullable(z.string())),
 	}),
 	z.object({
@@ -250,6 +251,8 @@ export function activityNotice(raw: unknown): ActivityNotice | null {
 }
 
 export interface ActivityEvent<Notice = ActivityNotice | null> {
+	/** When the session accepted this event, in Unix milliseconds. */
+	at: number;
 	target: { kind: "discovery" | "directory" | "room" | "direct" | "archive"; id: string };
 	notice: Notice;
 	files?: import("../../../../../../zig-out/wasm/rooms/rooms_browser.js").RoomsManagedFile[];
@@ -259,5 +262,10 @@ export interface ActivityEvent<Notice = ActivityNotice | null> {
 export interface ActivityPage<Notice = ActivityNotice | null> {
 	cursor: string;
 	gap?: boolean;
+	/** The event at this cursor is not this reader's to see. */
+	unavailable?: boolean;
 	event?: ActivityEvent<Notice>;
 }
+/** One read of the journal: a page, and the cursor the journal ended at when
+ * it was read. */
+export type ActivityRead<Notice = ActivityNotice | null> = ActivityPage<Notice> & { head: string };

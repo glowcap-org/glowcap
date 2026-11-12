@@ -5,6 +5,7 @@ import { useId } from "react";
 import { allowedPermissions, managedAccessText as text } from "../../../lib/text/managed_access.ts";
 import type { RoomsPermission } from "../../../lib/session_content_data.ts";
 import { PermissionFields, permissionSummary } from "./PermissionFields.tsx";
+import { Choice, Choices } from "../Choices.tsx";
 
 export type CeilingMode = "none" | "within" | "all" | "custom";
 export interface CeilingAnswer {
@@ -52,25 +53,21 @@ export function CeilingQuestion({ label, noneSaid, answer, permissions, availabl
 	return (
 		<div className="question">
 			<p className="group-label" id={labelId}>{label}</p>
-			<div className="choices" role="radiogroup" aria-labelledby={labelId}>
+			<Choices labelledBy={labelId}>
 				{answers.map((row) => (
 					<div className="choice-row" key={row.mode}>
-						<label className="choice">
-							<input
-								type="radio"
-								name={labelId}
-								checked={answer.mode === row.mode}
-								disabled={row.mode === "none" ? disabled : closed}
-								onChange={() => onChange({ ...answer, mode: row.mode })}
-							/>
-							<span>
-								<strong>{row.name}</strong>
-								{row.said}
-								{(row.mode === "within" || row.mode === "all") && available != null && (
-									<em className="choice-aside">{allows(row.mode)}</em>
-								)}
-							</span>
-						</label>
+						<Choice
+							name={labelId}
+							checked={answer.mode === row.mode}
+							disabled={row.mode === "none" ? disabled : closed}
+							onChange={() => onChange({ ...answer, mode: row.mode })}
+						>
+							<strong>{row.name}</strong>
+							{row.said}
+							{(row.mode === "within" || row.mode === "all") && available != null && (
+								<em className="choice-aside">{allows(row.mode)}</em>
+							)}
+						</Choice>
 						{row.mode === "custom" && answer.mode === "custom" && (
 							<div className="ceiling-picker">
 								<PermissionFields
@@ -83,7 +80,7 @@ export function CeilingQuestion({ label, noneSaid, answer, permissions, availabl
 						)}
 					</div>
 				))}
-			</div>
+			</Choices>
 		</div>
 	);
 }

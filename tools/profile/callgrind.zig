@@ -60,7 +60,7 @@ pub fn headerValue(bytes: []const u8, key: []const u8) ?[]const u8 {
 }
 
 /// Read one dump. `fi=` and `fe=` move the file in effect to an inlined
-/// source without changing the function; `cfl=` and `cfi=` name the callee's
+/// source without changing the function. `cfl=` and `cfi=` name the callee's
 /// file for the next `cfn=`.
 pub fn parsePart(gpa: std.mem.Allocator, bytes: []const u8) !Part {
     var part: Part = .{ .arena = std.heap.ArenaAllocator.init(gpa) };

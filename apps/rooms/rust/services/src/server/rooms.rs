@@ -25,8 +25,10 @@ use rooms_glowcap::Value;
 use std::{cell::Cell, rc::Rc};
 mod public_membership;
 mod publication_link;
+mod selection;
 pub(super) use public_membership::subscribe_publication;
 pub(super) use publication_link::link_publication;
+use selection::{By, Selected};
 
 /// The key a durable name's room lives under.
 pub(super) fn durable_key(name: &str) -> RoomKey {
@@ -78,63 +80,77 @@ pub(super) fn entrance(
 ) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
 		let verb = verb.ok_or("direct invocation is not supported")?;
-		if verb != SUBSCRIBE && args.iter().any(|arg| Value(arg).contains_capability()) {
-			return Err(format!("room {verb} does not take capability arguments"));
-		}
 		let mut state = shared.borrow_mut();
 		let (connection, session) = caller(&mut state)?;
 		state.ingress(connection)?;
-		if !state.rooms.gate_open(connection, &entrance, &state.authority) {
-			let detail = match entrance.gate {
-				Gate::Link { .. } => "this room link was revoked",
-				_ => "this room entrance is no longer offered",
-			};
-			return Err(FailureCode::NoSuchRoom.line(format_args!("{detail}")));
+		call(&shared, &mut state, connection, &session, &entrance, verb, args)
+	}
+}
+/// One call on a room entrance, from a caller whose arrival is already
+/// charged. The entrance's own reference charges it, and so does the
+/// directory verb that names the room.
+fn call(
+	shared: &Shared,
+	state: &mut State,
+	connection: u64,
+	session: &glowcap::Session,
+	entrance: &Entrance,
+	verb: &str,
+	args: &[Argument],
+) -> Result<Argument, String> {
+	if verb != SUBSCRIBE && args.iter().any(|arg| Value(arg).contains_capability()) {
+		return Err(format!("room {verb} does not take capability arguments"));
+	}
+	if !state.rooms.gate_open(connection, entrance, &state.authority) {
+		let detail = match entrance.gate {
+			Gate::Link { .. } => "this room link was revoked",
+			_ => "this room entrance is no longer offered",
+		};
+		return Err(FailureCode::NoSuchRoom.line(format_args!("{detail}")));
+	}
+	if verb != SUBSCRIBE {
+		state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
+	}
+	match verb {
+		SUBSCRIBE => subscribe(shared, state, connection, session, entrance, args),
+		CALLED => {
+			if !args.is_empty() {
+				return Err("called takes no arguments".into());
+			}
+			Ok(state.rooms.called(entrance, &state.authority).into())
 		}
-		if verb != SUBSCRIBE {
-			state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
+		PRIVATE => {
+			if !args.is_empty() {
+				return Err("private takes no arguments".into());
+			}
+			let listed = state.rooms.policy(entrance, &state.authority).is_listed();
+			Ok(if listed { "listed" } else { "private" }.into())
 		}
-		match verb {
-			SUBSCRIBE => subscribe(&shared, &mut state, connection, &session, &entrance, args),
-			CALLED => {
-				if !args.is_empty() {
-					return Err("called takes no arguments".into());
-				}
-				Ok(state.rooms.called(&entrance, &state.authority).into())
+		POLICY => {
+			if !args.is_empty() {
+				return Err("roomPolicy takes no arguments".into());
 			}
-			PRIVATE => {
-				if !args.is_empty() {
-					return Err("private takes no arguments".into());
-				}
-				let listed = state.rooms.policy(&entrance, &state.authority).is_listed();
-				Ok(if listed { "listed" } else { "private" }.into())
-			}
-			POLICY => {
-				if !args.is_empty() {
-					return Err("roomPolicy takes no arguments".into());
-				}
-				let modes = state.rooms.policy(&entrance, &state.authority).modes();
-				Ok(Argument::List(modes.iter().map(|mode| (*mode).into()).collect()))
-			}
-			MANAGED_IDENTITY => {
-				if !args.is_empty() {
-					return Err("managedRoomIdentity takes no arguments".into());
-				}
-				let durable = durable_name(&state, &entrance);
-				Ok(managed_identity(&state, &durable))
-			}
-			LINK => {
-				if !args.is_empty() {
-					return Err("link takes no arguments".into());
-				}
-				let durable = durable_name(&state, &entrance);
-				state
-					.current_room_link(&durable)
-					.map(Argument::String)
-					.ok_or_else(|| "this room has no link; a room manager must create one".into())
-			}
-			_ => Err(format!("room has no method {verb}")),
+			let modes = state.rooms.policy(entrance, &state.authority).modes();
+			Ok(Argument::List(modes.iter().map(|mode| (*mode).into()).collect()))
 		}
+		MANAGED_IDENTITY => {
+			if !args.is_empty() {
+				return Err("managedRoomIdentity takes no arguments".into());
+			}
+			let durable = durable_name(state, entrance);
+			Ok(managed_identity(state, &durable))
+		}
+		LINK => {
+			if !args.is_empty() {
+				return Err("link takes no arguments".into());
+			}
+			let durable = durable_name(state, entrance);
+			state
+				.current_room_link(&durable)
+				.map(Argument::String)
+				.ok_or_else(|| "this room has no link; a room manager must create one".into())
+		}
+		_ => Err(format!("room has no method {verb}")),
 	}
 }
 
@@ -257,6 +273,16 @@ fn subscribe(
 	]))
 }
 
+/// A room's durable link is written by the authority writer and answered
+/// later, so the verb charges itself once it has its seat there. The charge
+/// comes before any answer, a refusal included, so the seat is taken whether
+/// or not the writer is used.
+fn link_seat(state: &mut State, connection: u64) -> Result<authority::Seat, String> {
+	let seat = state.authority_writer.reserve()?;
+	state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
+	Ok(seat)
+}
+
 /// `open`, `openManaged`, `enter`, `enterPublication`, `link`, and
 /// `openPrivateLink` on the directory root.
 pub(super) fn directory_verb(
@@ -358,57 +384,26 @@ pub(super) fn directory_verb(
 				}
 				.into());
 			};
-			let irc = {
-				let core = state.irc.core.borrow();
-				let bridge = if verb == creation::ENTER {
-					core.by_room_name(name)
-				} else {
-					core.by_publication(name)
-				};
-				bridge
-					.and_then(|(key, _)| state.irc.publications.get(key))
-					.filter(|publication| publication.active.get())
-					.cloned()
-			};
-			if let Some(publication) = irc {
-				let session = state
-					.session(connection)
-					.ok_or("a room is reachable only over a session")?;
-				return session
-					.spawn_owned(super::irc::rooms::entrance(
-						shared.clone(),
-						publication,
-						rooms_application::room::policy::MembershipKind::Participant,
-					))
-					.map(Argument::Reference)
-					.map_err(|e| e.to_string());
-			}
-			// A foreign room is handed straight through: the capability its
-			// source published, never a proxy through this process.
-			let foreign = if verb == creation::ENTER {
-				state.foreign.by_name(name)
+			let by = if verb == creation::ENTER {
+				By::Name(name)
 			} else {
-				state.foreign.by_id(name).filter(|entry| entry.is_live())
+				By::Publication(name)
 			};
-			if let Some(room) = foreign.and_then(|entry| entry.room.clone()) {
-				return Ok(Argument::Reference(room));
+			let session = || selection::session(&state, connection);
+			match selection::select(&state, by)? {
+				Selected::Foreign(room) => return Ok(Argument::Reference(room)),
+				Selected::Irc(publication) => session()?.spawn_owned(super::irc::rooms::entrance(
+					shared.clone(),
+					publication,
+					rooms_application::room::policy::MembershipKind::Participant,
+				)),
+				Selected::Local(found) => session()?.spawn_owned(entrance(shared.clone(), found)),
 			}
-			let found = if verb == creation::ENTER {
-				state.rooms.enter(name, &state.authority)
-			} else {
-				state.rooms.enter_publication(name, &state.authority)
-			}
-			.map_err(refusal)?;
-			let session = state
-				.session(connection)
-				.ok_or("a room is reachable only over a session")?;
-			Ok(Argument::Reference(
-				session
-					.spawn_owned(entrance(shared.clone(), found))
-					.map_err(|e| e.to_string())?,
-			))
+			.map(Argument::Reference)
+			.map_err(|e| e.to_string())
 		}
 		creation::LINK => {
+			let seat = link_seat(&mut state, connection)?;
 			let (Some(name), 1) = (text(0), args.len()) else {
 				return Err(format!(
 					"link needs one room name of at most {} characters",
@@ -444,16 +439,17 @@ pub(super) fn directory_verb(
 				.durable_name(&key)
 				.map(String::from)
 				.unwrap_or_else(|| name.into());
-			authority::link(&state, durable)
+			authority::link(seat, durable)
 		}
 		creation::PRIVATE_LINK => {
+			let seat = link_seat(&mut state, connection)?;
 			let (Some(key), 1) = (text(0), args.len()) else {
 				return Err("openPrivateLink needs one opaque private room key".into());
 			};
 			if !RecoveryKey::accepts(key) {
 				return Err("openPrivateLink needs one opaque private room key".into());
 			}
-			authority::link(&state, key.into())
+			authority::link(seat, key.into())
 		}
 		_ => Err(format!("directory has no method {verb}")),
 	}

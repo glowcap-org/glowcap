@@ -132,7 +132,7 @@ pub fn showOutput(run: *std.Build.Step.Run) void {
 }
 
 /// Assert a test's child output before quiet-success can hide it. Zig captures
-/// checked stdout itself; the command still runs on every gate invocation.
+/// checked stdout itself. The command still runs on every gate invocation.
 pub fn expectStdOutMatch(run: *std.Build.Step.Run, expected: []const u8) void {
     showOutput(run);
     run.expectStdOutMatch(expected);

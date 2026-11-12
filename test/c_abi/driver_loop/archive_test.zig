@@ -4,6 +4,7 @@
 //! authenticated noise-relay session.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
@@ -84,7 +85,7 @@ test "the TCP archive installs its complete profile package atomically" {
         .keepalive_idle_sec = 30,
         .keepalive_interval_sec = 10,
         .keepalive_count = 3,
-    } };
+    }, .profiles = ctcp.GLOWCAP_TCP_PROFILES_ALL };
     var conflicting_tcp: ?*ctcp.GlowcapTcpNetlayer = null;
     try expectOk(ctcp.glowcap_tcp_netlayer_new(&conflicting_config, &conflicting_tcp));
     defer ctcp.glowcap_tcp_netlayer_release(conflicting_tcp);
@@ -343,7 +344,8 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
     var phase = std.atomic.Value(RelayPhase).init(.registration);
     var progress_rounds = std.atomic.Value(usize).init(0);
     var progress = try io.concurrent(reportRelayStall, .{ io, &phase, &progress_rounds });
-    defer progress.cancel(io) catch {};
+    var progress_stopped = false;
+    errdefer if (!progress_stopped) wait.joinedUnwinding("progress", progress.cancel(io));
     const relay_addr: std.Io.net.IpAddress = .{ .ip4 = std.Io.net.Ip4Address.loopback(0) };
     var relay_server = try std.Io.net.IpAddress.listen(&relay_addr, io, .{ .reuse_address = true });
     defer relay_server.deinit(io);
@@ -353,7 +355,8 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
     var register_url_buf: [64]u8 = undefined;
     const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
     var relay = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &relay_server, allocator });
-    defer _ = relay.cancel(io) catch {};
+    var relay_joined = false;
+    errdefer if (!relay_joined) wait.joinedUnwinding("relay", relay.cancel(io));
 
     {
         const owned_server = try newLoop(0x5a);
@@ -477,5 +480,10 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
         phase.store(.runtime_cleanup, .release);
     }
     phase.store(.bridge_join, .release);
+    relay_joined = true;
     try relay.await(io);
+
+    // The reporter loops until cancelled, so cancelling ends it with `Canceled`.
+    progress_stopped = true;
+    try std.testing.expectError(error.Canceled, progress.cancel(io));
 }

@@ -1,4 +1,6 @@
 // Recompose only refused workspace deltas around the original committed receipt.
+import { failureView, LocalRefusal } from "../../lib/text/failure.ts";
+import { recoveryLetGoAsk } from "../../lib/text/recovery.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { ManagedOperation, ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
@@ -36,6 +38,12 @@ for (
 				"a committed receipt must retain acquisition recovery",
 			);
 			assertEquals(outcome.reason.result, receipt);
+			assert(outcome.reason.cause instanceof LocalRefusal, "persisted input is a catalog refusal");
+			assertEquals(outcome.reason.cause.code, "local-retained-result-unreadable");
+			assert(
+				failureView(outcome.reason).summary.includes(recoveryLetGoAsk),
+				"persisted invalid input needs a way out",
+			);
 			assertEquals(operation.acquired, false);
 		} finally {
 			await operation.close();
@@ -140,13 +148,12 @@ Deno.test("canonical bridge intent completes without acquiring conversation cust
 	}
 });
 
-Deno.test("direct receipt validation preserves the original variant without copying", () => {
-	for (const receipt of [{ status: "pending" }, { status: "ready", inbox: "returned-route" }]) {
-		assert(readDirectReceipt(receipt) === receipt, "validation must borrow the original receipt");
-	}
+Deno.test("direct receipt validation borrows the acquired inbox receipt", () => {
+	const receipt = { inbox: "returned-route" };
+	assert(readDirectReceipt(receipt) === receipt, "validation must borrow the original receipt");
 });
 
-for (const receipt of [{ status: "ready" }, { status: "ready", inbox: 1 }, { status: "unknown" }]) {
+for (const receipt of [{}, { inbox: 1 }, { status: "pending" }]) {
 	Deno.test(`malformed direct receipt retains recovery before custody moves: ${JSON.stringify(receipt)}`, async () => {
 		const operation = new ManagedOperation("direct", {
 			result: () => Promise.resolve(receipt),
@@ -261,7 +268,7 @@ for (const change of ["unrelated", "registration"] as const) {
 		});
 		let preparations = 0;
 		const operation = new ManagedOperation("direct", {
-			result: () => Promise.resolve({ status: "ready", inbox: "result" }),
+			result: () => Promise.resolve({ inbox: "result" }),
 			adopted: () => Promise.resolve(false),
 			originalIntent: () => ["direct", 1, "startDirect", ["directory", "bob", "peer-registration", "opening"]],
 			prepareResultAcquisition: (...args: string[]) => {
@@ -305,29 +312,6 @@ for (const change of ["unrelated", "registration"] as const) {
 		}
 	});
 }
-
-// A pending introduction is a known protocol answer (`{"status":"pending"}`,
-// no inbox). It completes with the raw receipt and installs no custody.
-Deno.test("pending direct result completes without custody acquisition", async () => {
-	const current = snapshot();
-	const result = { status: "pending" };
-	const operation = new ManagedOperation("direct", {
-		result: () => Promise.resolve(result),
-		adopted: () => Promise.resolve(false),
-		originalIntent: () => ["direct", 1, "startDirect", ["directory", "bob", "peer-registration", "opening"]],
-		prepareResultAcquisition: () => {
-			throw new Error("a pending introduction installs no custody");
-		},
-		free() {},
-	} as unknown as RoomsManagedCommand);
-	const session = viewer({ snapshot: () => Promise.resolve(current) });
-	try {
-		assertEquals(await completeResult(session, operation), result);
-	} finally {
-		await operation.close();
-		await session.close();
-	}
-});
 
 for (const first of ["conflict", "uncertain", "replaced"]) {
 	Deno.test(`committed room result ${first} keeps its original receipt and selections`, async () => {
@@ -435,7 +419,7 @@ Deno.test("viewer result completion and recovery share adoption and release the 
 	const request = {
 		submit: () => {
 			commands++;
-			return Promise.resolve("pending");
+			return Promise.resolve({ status: "pending" });
 		},
 		status: () => Promise.resolve("committed"),
 		result: () => Promise.resolve({ room: "original-room", control: "original-control" }),

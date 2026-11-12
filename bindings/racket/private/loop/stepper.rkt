@@ -26,7 +26,8 @@
          "../action.rkt"
          "../promise.rkt"
          (combine-in "../session.rkt" "../session/state.rkt")
-         "../transport.rkt")
+         "../transport.rkt"
+         "../callback.rkt")
 
 (lazy-require
  ["../gc.rkt"
@@ -43,6 +44,7 @@
          check/driver
          loop-running?
          loop-ffi-live?
+         call-with-live-loop
          loop-drain!
          pop-events!
          dispatch-events!
@@ -61,7 +63,15 @@
 ;; The driver archive's own thread-local last-error slot, symbol-disjoint from
 ;; the `glowcap_host_*` family's even though one library carries both.
 (define (driver-last-error) (read-last-error glowcap_driver_last_error))
-(define (check/driver code) (check-with code driver-last-error))
+
+;; The driver archive's typed cause for the call that just failed.
+(define (driver-last-error-cause)
+  (define raw (make-GlowcapBreakCause 0 0 0))
+  (glowcap_driver_last_error_cause raw)
+  (define fields (break-cause-fields<-c raw))
+  (or (apply break-cause-from-fields fields) fields))
+
+(define (check/driver code) (check-with code driver-last-error driver-last-error-cause))
 
 ;; ── The loop ─────────────────────────────────────────────────────────────────
 
@@ -72,7 +82,7 @@
 ;; target (views die at the next pop, so decode copies out immediately);
 ;; `dials` maps an admitted operation's id to its waiter; `listeners` owns the
 ;; setup event and accepted-session queue for each listener; `closed-ptrs` records a
-;; SESSION_CLOSED handle no wrapper had claimed yet, retaining its exact failure status-allow: pending state or quoted runtime label
+;; SESSION_CLOSED handle no wrapper had claimed yet, retaining its exact failure
 ;; so a later wrap starts closed instead of parking on a dead wire; `state` is binding lifetime only:
 ;; open, retiring while the FFI driver owns the session barrier, stopping
 ;; while teardown joins the park thread, or released after the handle is freed.
@@ -113,8 +123,23 @@
 (define (loop-ffi-live? lp)
   (not (eq? (unbox (driver-loop-state lp)) 'released)))
 
+;; Run `proc` on the loop's FFI handle under the Host lock, the lock the
+;; release worker holds while it frees the loop. Liveness is read inside that
+;; lock, so a release on another thread either finishes first and this call
+;; refuses with ERR-CLOSED, or waits until `proc` returns. Every FFI call on a
+;; loop-owned handle from a thread other than the joined park thread goes
+;; through here.
+(define (call-with-live-loop lp who proc)
+  (define (refuse) (raise-glowcap who ERR-CLOSED "the driver loop has been released"))
+  (call-with-host*
+   (driver-loop-host lp)
+   refuse
+   (lambda ()
+     (unless (loop-ffi-live? lp) (refuse))
+     (proc (driver-loop-handle lp)))))
+
 (define (run-loop-failure-effect! m effect)
-  (with-handlers ([(lambda (_) #t)
+  (with-handlers ([raised-failure?
                    (lambda (error)
                      (record-host-runtime-failure! m error)
                      (void))])
@@ -189,19 +214,23 @@
 ;; stay behind the archive ABI.
 (define (driver-loop-add-provider! lp package)
   (define-values (code failure)
-    (call/driver-failure
-     'driver-add-provider
-     (lambda (out)
-       (glowcap_driver_add_provider (driver-loop-handle lp) package out))))
+    (call-with-live-loop
+     lp 'driver-add-provider
+     (lambda (handle)
+       (call/driver-failure
+        'driver-add-provider
+        (lambda (out) (glowcap_driver_add_provider handle package out))))))
   (when failure (raise failure))
   (void))
 
 (define (driver-loop-has-transport? lp transport)
   (define name (string->bytes/utf-8 transport))
   (define present (make-bytes 1 0))
-  (check/driver
-   (glowcap_driver_has_transport
-    (driver-loop-handle lp) name (bytes-length name) present))
+  (call-with-live-loop
+   lp 'driver-has-transport
+   (lambda (handle)
+     (check/driver
+      (glowcap_driver_has_transport handle name (bytes-length name) present))))
   (not (zero? (bytes-ref present 0))))
 
 ;; ── Parking and stepping ─────────────────────────────────────────────────────
@@ -210,7 +239,8 @@
 ;; loop steps whenever FFI work is ready, with no verb in flight.
 (define (driver-loop-start! lp)
   (unless (driver-loop-fd lp)
-    (define-values (rc fd) (glowcap_driver_readiness_fd (driver-loop-handle lp)))
+    (define-values (rc fd)
+      (call-with-live-loop lp 'driver-loop-start glowcap_driver_readiness_fd))
     (check/driver rc)
     (set-driver-loop-fd! lp fd)
     (set-driver-loop-park-thread! lp (thread (lambda () (park-run lp))))))
@@ -266,14 +296,22 @@
        ;; its session mid-turn parked the C free), so the step never runs a
        ;; wire the binding has already condemned.
        (host-drain-parked-releases! m)
+       (define callback-failure #f)
        (define events
          (parameterize ([current-deliver-owner (driver-loop-host lp)])
            (let step-loop ([acc '()])
              ;; The step is the deliver: behaviors fire inside it, and the
              ;; trampoline latches their turns to this loop's wrapper host
-             ;; through the carrier.
-             (define rc (glowcap_driver_step (driver-loop-handle lp) 0))
+             ;; through the carrier. A callback failure ends the drain once the
+             ;; step has finished and its events are dispatched.
+             (define-values (latched rc)
+               (call-latching-callbacks
+                (lambda () (glowcap_driver_step (driver-loop-handle lp) 0))))
              (cond
+               [latched
+                (set! callback-failure latched)
+                (host-drain-parked-releases! m)
+                (reverse (pop-events-onto! lp acc))]
                [(= rc WOULD-BLOCK) (reverse acc)]
                [else
                 (check/driver rc)
@@ -281,7 +319,8 @@
                 ;; this step. Retire it before another wire turn can run.
                 (host-drain-parked-releases! m)
                 (step-loop (pop-events-onto! lp acc))]))))
-       (dispatch-events! m lp events))]))
+       (begin0 (dispatch-events! m lp events)
+         (when callback-failure (raise callback-failure))))]))
 
 ;; These records give every event field a name at the binding boundary. In
 ;; particular, operation ids and listener ids are different namespaces even
@@ -393,7 +432,7 @@
          ;; snapshot it before the retirement fire invalidates the handle.
          (define abort
            (and c (= result ERR-SESSION)
-                (with-handlers ([(lambda (_) #t) (lambda (_error) #f)])
+                (with-handlers ([raised-failure? (lambda (_error) #f)])
                   (session-last-abort c))))
          (define failure
            (and (not (= result OK))
@@ -412,14 +451,14 @@
             (pending-writes-clear! (session-pending-writes c))
             (cons (lambda ()
                     (close-session-transport! c)
-                    (with-handlers ([(lambda (_) #t)
+                    (with-handlers ([raised-failure?
                                      (lambda (error)
                                        (record-session-wire-failure! c error)
                                        (void))])
                       (abandon-session! c)))
                   fires)]
            [else
-            ;; No wrapper claimed this handle yet (queued on the accept status-allow: pending state or quoted runtime label
+            ;; No wrapper claimed this handle yet (queued on the accept
             ;; channel, or a loop-internal redeem leg). It stays valid until
             ;; released, so record the closure and let a later wrap start
             ;; closed; the loop's release frees stragglers.
@@ -443,7 +482,7 @@
     (lambda (act)
       (settle-vow! m
                    (cadr act)
-                   (vow-failure-outcome (caddr act) (cadddr act))))
+                   (vow-failure-outcome (caddr act) (cadddr act) (list-ref act 4))))
     ;; The loop executes transport-shaped actions inside its steps and
     ;; forwards only completions, so every other kind here is a contract
     ;; break worth failing loud on.
@@ -480,11 +519,7 @@
      (raise-argument-error who "transport-operation-options?" options)]))
 
 (define (listener-closed-exn who)
-  (exn:fail:glowcap
-   (format "~a: listener closed during setup" who)
-   (current-continuation-marks)
-   ERR-CLOSED
-   #f #f #f #f 0))
+  (make-glowcap-error ERR-CLOSED (format "~a: listener closed during setup" who)))
 
 (define (settle-listener! listener outcome terminal-state)
   (when (box-cas-strong! (loop-listener-state listener) 'pending terminal-state)
@@ -542,6 +577,8 @@
 
 (define (loop-claim-reference-exporter lp reference)
   (define-values (rc ptr)
-    (glowcap_driver_claim_reference_exporter (driver-loop-handle lp) reference))
+    (call-with-live-loop
+     lp 'claim-reference-exporter
+     (lambda (handle) (glowcap_driver_claim_reference_exporter handle reference))))
   (check/driver rc)
   ptr)

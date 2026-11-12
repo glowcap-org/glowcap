@@ -61,8 +61,10 @@ its own prints its `ROOMS-*` link lines either way. Under `rooms-web` the
 JSON record carries them and `rooms-web` prints them in its own block.
 
 Options use `--name=value` and can also come from `GLOWCAP_ROOMS_*`
-environment variables. Unknown or repeated options are refused.
-`--transport=<transport>` chooses the announced listener from the same seven
+environment variables. Unknown or repeated options are refused, and so is a
+listener option the chosen transport does not read, such as `--port` with
+iroh.
+`--transport=<transport>` chooses the announced listener from the transports
 the Listeners page offers: `tcp`, `keyed-tcp`, `noise-tcp`, `iroh`,
 `keyed-relay`, `noise-relay`, or `onion`.
 
@@ -215,6 +217,11 @@ deployment uses a private tmpfs.
 - The use link authorizes using the session and the management link authorizes
   managing it. Protect both, and share narrower grants through the access
   editor.
+- `--dial-transports=<list>` names the transports the session dials beside
+  the one it listens on: `noise-tcp`, `iroh`, `onion`, `webrtc`, and the
+  cleartext `tcp` and `keyed-tcp`. Any TCP name adds `noise-tcp`. The session
+  dials a cleartext transport only when it listens there or the list names
+  it, so an address a room hands over never opens a cleartext dial by itself.
 
 In the browser, **Attach** (on the first screen, or under **Settings**, **Session**)
 opens the shared session. It does not copy the browser's previous
@@ -413,18 +420,30 @@ and the page has no switch of its own.
 
 ## Watching the room live
 
-The `trace` capability serves the live timeline endpoint on loopback at `--trace-port`
+The `trace` capability serves the live timeline endpoint at `--trace-bind`
+(default `127.0.0.1`) and `--trace-port`
 (default <!-- value rust/services/src/server/config.rs TRACE_PORT plain -->9300<!-- /value -->, or `0` for any free port).
-Under Docker that is the container's own loopback and is never published, so `deployment trace` is the route.
+The deployed stack keeps this listener private and uses `deployment trace`.
 It prints `ROOMS-TRACE-LISTENING` followed by its trace link. The locator advertises separate
 `captp-websocket` and `trace-publish` endpoints.
 
-- `/captp` opens a CapTP byte channel. Fetching the trace object still
-  requires its swiss number.
-- The `/` viewer and `/publish` telemetry routes additionally require
-  `?cap=<swiss>`.
+The devcontainer sets `--trace-bind` through `GLOWCAP_ROOMS_TRACE_BIND` to
+accept Docker forwarding, with the published host port restricted to loopback.
+For `rooms-dev`, it also supplies `GLOWCAP_ROOMS_DEV_TRACE_CONNECT` and
+`GLOWCAP_ROOMS_DEV_TRACE_PUBLISH`. These become advertised-route flags for
+that launch alone. Other servers keep their in-container routes.
+
+- `/captp` opens a CapTP byte channel for a viewer. Fetching the trace
+  object requires its swiss number.
+- `/publish` takes telemetry from a producer whose first message is the swiss
+  number.
+- A route with a query is refused, so no address carries the secret.
 - `--trace-connect=<ws-url>` and `--trace-publish=<ws-url>` advertise exact
   routes through a deployment proxy, including its path prefixes.
+- The listener speaks cleartext WebSocket, and the server refuses to
+  advertise a `ws://` route off loopback. A specific `--trace-bind` address
+  other peers reach needs a TLS proxy and both of its `wss://` routes named.
+  A wildcard `--trace-bind` advertises loopback routes.
 
 For a deployed stack, follow the protocol feed directly:
 

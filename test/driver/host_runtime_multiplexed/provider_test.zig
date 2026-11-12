@@ -40,7 +40,7 @@ test "HostRuntime preserves configured and adopted feature vocabulary" {
     try std.testing.expectEqual(features, runtime.opts.features);
     try std.testing.expectEqual(features, runtime.core.opts.features);
 
-    var core_options = driver_core.Host.Options{};
+    var core_options = driver_core.Host.Options{ .thread_policy = .unchecked };
     core_options.captp_version = .next;
     core_options.features = features;
     var core = test_host.init(allocator, @as([32]u8, @splat(0x51)), core_options);
@@ -68,8 +68,9 @@ test "HostRuntime refuses duplicate provider authority" {
         .resident = first.multiplexedResident(),
     };
     var indices: [2]usize = undefined;
+    // A batch names each profile once, as a package does.
     try std.testing.expectError(
-        error.TransportAlreadyRegistered,
+        error.InvalidProviderPackage,
         runtime.addProviders(&.{ registration, registration }, &indices),
     );
     try runtime.addProviders(&.{registration}, indices[0..1]);
@@ -78,6 +79,29 @@ test "HostRuntime refuses duplicate provider authority" {
     try std.testing.expectError(error.TransportAlreadyRegistered, runtime.addResident(
         model.transport.Known.tcp.metadata(),
         second.multiplexedResident(),
+    ));
+    // No package owns that resident, so a package cannot compose with it.
+    const Owner = struct {
+        fn same(_: *anyopaque, _: *anyopaque) anyerror!bool {
+            return true;
+        }
+        fn release(_: *anyopaque) ?driver.OperationFailure {
+            return null;
+        }
+    };
+    var unserved: [2]bool = undefined;
+    try std.testing.expectError(error.TransportAlreadyRegistered, runtime.unservedProfiles(
+        &.{model.transport.Known.tcp.metadata()},
+        .{ .ctx = &second, .same_configuration = Owner.same, .release = Owner.release },
+        unserved[0..1],
+    ));
+    // A package names each profile once, whether or not anything serves it.
+    const noise = model.transport.Known.noise_tcp.metadata();
+    const doubled = [_]model.transport.Metadata{ noise, noise };
+    try std.testing.expectError(error.InvalidProviderPackage, runtime.unservedProfiles(
+        &doubled,
+        .{ .ctx = &second, .same_configuration = Owner.same, .release = Owner.release },
+        &unserved,
     ));
 }
 

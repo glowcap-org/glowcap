@@ -14,7 +14,7 @@ const publishAndOpenAccepted = harness.publishAndOpenAccepted;
 
 test "host refuses a session past max_sessions and admits one after a release" {
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.max_sessions = 2;
     var host = test_host.init(allocator, @as([32]u8, @splat(0x71)), options);
     defer host.deinit();
@@ -31,7 +31,7 @@ test "host refuses a session past max_sessions and admits one after a release" {
 
 test "the session-limit setter moves the cap and refuses zero" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x72)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x72)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
     try std.testing.expectError(error.InvalidSessionLimit, host.setSessionLimits(null, null, null, null, 0));
     try host.setSessionLimits(null, null, null, null, 1);
@@ -41,7 +41,7 @@ test "the session-limit setter moves the cap and refuses zero" {
 
 test "a null cap leaves the session count unbounded and a zero cap is refused at construction" {
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.max_sessions = 0;
     try std.testing.expectError(error.InvalidSessionLimit, Host.init(allocator, @splat(0x73), @splat(0x74), options));
 

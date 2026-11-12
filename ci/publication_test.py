@@ -56,7 +56,7 @@ if int(os.environ['EVIDENCE_STATUS']):
     print('Actions API unavailable', file=sys.stderr)
     sys.exit(int(os.environ['EVIDENCE_STATUS']))
 if any('/git/ref/heads/main' in argument for argument in sys.argv):
-    print(os.environ['EVIDENCE_CURRENT'])
+    print(json.dumps({'object': {'sha': os.environ['EVIDENCE_CURRENT']}}))
     sys.exit(0)
 if any('/compare/' in argument for argument in sys.argv):
     print(json.dumps({'status': os.environ['EVIDENCE_RELATION']}))
@@ -116,7 +116,7 @@ else:
                 self.assertEqual(refused.returncode, 1, refused.stderr)
                 self.assertIn("is not on main", refused.stderr)
                 self.assertEqual(len(self.api_calls), 1)
-        for key, value in [
+        for key, override in [
             ("head_sha", "b" * 40),
             ("head_branch", "main"),
             ("head_branch", "feature"),
@@ -127,7 +127,7 @@ else:
             ("html_url", ""),
         ]:
             with self.subTest(field=key):
-                refused, _ = self.evidence([dict(RUN, **{key: value})])
+                refused, _ = self.evidence([dict(RUN, **{key: override})])
                 self.assertEqual(refused.returncode, 1, refused.stderr)
                 self.assertEqual(refused.stdout, "")
         empty, _ = self.evidence([])
@@ -157,15 +157,16 @@ else:
                 job_records=[{"name": "scheduled-fuzz", "status": "completed", "conclusion": "success"}],
             )
             self.assertEqual(refused.returncode, 1, refused.stderr)
-        for records in (
+        unready_sets: list[list[object]] = [
             [
                 {"name": "dev-gates", "status": "completed", "conclusion": "success"},
                 {"name": "macos-runtime", "status": "completed", "conclusion": "success"},
             ],
             [],
             [None, {"name": {}}, {"name": "gates", "status": "in_progress", "conclusion": "success"}],
-        ):
-            refused, _ = self.evidence([run], job_records=records)
+        ]
+        for unready in unready_sets:
+            refused, _ = self.evidence([run], job_records=unready)
             self.assertEqual(refused.returncode, 1, refused.stderr)
         self.assertEqual(self.evidence([dict(run, head_branch="dev")])[0].returncode, 0)
         refused, _ = self.evidence([dict(run, event="schedule")])
@@ -205,17 +206,24 @@ else:
     def test_workflow_steps_enforce_publication_evidence(self):
         for path, job, name in [
             ("pages", "build", "Verify the exact commit passed check"),
+            ("pages", "deploy", "Refuse a stale Pages artifact"),
             ("release", "contract", "Require this commit's successful check workflow"),
         ]:
             command = run(jobs(f".github/workflows/{path}.yml")[job], name)
-            with self.subTest(workflow=path):
+            with self.subTest(workflow=path, job=job):
                 accepted, _ = self.evidence([RUN], command=command)
                 self.assertEqual(accepted.returncode, 0, accepted.stderr)
                 refused, _ = self.evidence([RUN], command=command, relation="diverged")
                 self.assertNotEqual(refused.returncode, 0, refused.stderr)
+                stale, _ = self.evidence([RUN], command=command, current="b" * 40)
+                self.assertEqual(
+                    stale.returncode != 0,
+                    path == "pages",
+                    "only Pages requires main's tip; a release tag may name an older main commit",
+                )
                 if path == "pages":
-                    stale, _ = self.evidence([RUN], command=command, current="b" * 40)
-                    self.assertNotEqual(stale.returncode, 0)
+                    self.assertIn("main moved", stale.stderr)
+                    self.assertFalse(any("/runs" in a for c in self.api_calls for a in c), "a stale tip stops first")
 
     def test_publication_cannot_skip_its_evidence(self):
         release = jobs(".github/workflows/release.yml")

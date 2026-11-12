@@ -8,6 +8,7 @@
 // capability then reads as a step up rather than a second page listing the
 // same rooms.
 
+import { invariant } from "../../../lib/invariant.ts";
 import { type OpsHeld } from "./capabilities.ts";
 import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "../application_data.ts";
 import {
@@ -57,7 +58,7 @@ export function paneOf(segment: string): OpsPaneFace | null {
  * them there have to name the same path, and a segment renamed in the table
  * above should not leave a sentence pointing at nothing. Nobody holding a pane's
  * capability is required. An address arrived at cold draws the card that asks
- * for it, so the link remains useful to a reader who does not hold it yet.  status-allow: pending state or quoted runtime label */
+ * for it, so the link remains useful to a reader who does not hold it yet. */
 export function opsAddress(pane: OpsPaneFace): string {
 	return `/ops/${pane.path}`;
 }
@@ -65,7 +66,7 @@ export function opsAddress(pane: OpsPaneFace): string {
 /** The pane that draws a capability, for a landing that remembers one. */
 export function paneForCap(cap: OperationsCapability): OpsPaneFace {
 	for (const pane of OPS_PANES) if (pane.caps.includes(cap)) return pane;
-	throw new Error(`no operations pane draws ${cap}`);
+	invariant(false, `no operations pane draws ${cap}`);
 }
 
 /** Every capability of this pane this tab holds, in the pane's own order. */

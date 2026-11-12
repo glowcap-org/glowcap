@@ -246,7 +246,7 @@ test "completion loop: listener shutdown drains a canceled accept after close co
 }
 
 /// Encode `peer`'s queued sends and append their bare frame bytes to `sink`.
-/// This is the intrinsic message-framed path used to prepare a peer directly. status-allow: purpose clause
+/// This is the intrinsic message-framed path used to prepare a peer directly.
 const OneBadPartnerBackend = struct {
     const shared = fixtures.ScriptedContract(@This());
     pub const Fd = shared.Fd;

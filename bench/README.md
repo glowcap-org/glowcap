@@ -31,7 +31,9 @@ The base is extracted once under `zig-out/scratch/ab/<rev>` and reused.
 
 ## Profiles
 
-A `profile-<bench>` step runs the bench under callgrind and writes
+A `profile-<bench>` step runs the bench under callgrind. Steps exist for
+`bench-loam`, `bench-outbound`, `bench-dispatch-scaling`, `bench-transports`, and the
+paired interface bench (`profile-interface`), and each writes
 `zig-out/bench-reports/<bench>-profile.md`: for each phase the bench marks,
 the self cost per source file and per function, ranked, and the callers of the
 leaf functions at the top. Read it this way:
@@ -81,9 +83,9 @@ or to separate cores to include cross-core wake latency. A busy-poll pair
 needs a core per runtime. Record the pinning beside each result, and compare
 mean primitive costs with product medians only when that distinction is explicit.
 
-`profile-roundtrip` attributes each side's work under callgrind. Compare the
-server separately from the caller, and keep raw profiles with the report.
-Grouping instructions by concern requires the same run for every row.
+`profile-transports` attributes a round trip's work under callgrind, one marked
+phase per row. Keep the raw profiles with the report, and group instructions
+by concern from the same run for every row.
 
 ## Against Cap'n Proto
 
@@ -95,7 +97,7 @@ and [schema](capnp/echo.capnp) define the comparison:
 - `report(source, tags, samples, at)` reads an application batch and answers
   its count and sum.
 
-The glowcap comparison uses `bench-iroh --transport=tcp` with both Syrup
+The glowcap comparison uses `bench-transports --transport=tcp` with both Syrup
 and Cap'n Proto codecs. A growth sweep uses `--row=report --readings=N` and
 an explicit `--frame-cap` large enough for both encodings. The frame limit
 also bounds the logical value tree before encoding.
@@ -126,6 +128,11 @@ the failure before rerunning, rather than selecting a successful retry.
 increasing connection counts. The server and load generator are separate
 processes. Each server shard is a `HostRuntime` serving TCP through a
 completion resident ([ADR-0018](../docs/decisions/adr/ADR-0018-one-host-io-runtime.md)).
+
+Its Host checks OS thread affinity on admitted verbs, matching service ownership.
+The live measurements include that check. Single-thread core-only Loam fixtures
+explicitly use unchecked confinement and measure a different path.
+
 Every client signs its session and fetches a published capability before
 the barrier opens. All sessions stay open while RSS is sampled.
 

@@ -114,13 +114,13 @@ pub export fn glowcap_onion_netlayer_release(
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len))
-        return c.GLOWCAP_ERR_NULL_POINTER;
-    return c.captureCallError(
+        return c.ReleaseResult.retained(c.GLOWCAP_ERR_NULL_POINTER).raw();
+    return c.ReleaseResult.consumed(c.captureCallError(
         releaseNetlayer(netlayer),
         out_error,
         error_cap,
         out_error_len,
-    );
+    )).raw();
 }
 
 // The facade exports the symbols. The framed owner supplies their

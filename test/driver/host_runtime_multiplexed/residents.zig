@@ -6,6 +6,7 @@
 //! epoll-shaped suites. `test/all_test.zig` gates the imports.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 const support_actors = @import("../../support/actors.zig");
 
@@ -46,6 +47,7 @@ pub const Introducer = struct {
 /// the gift retained the exact Host-Vat actor reached through the first Port
 /// and projects that actor here, so a swiss-name lookup would fail the proof.
 pub fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+    if (!try wait.acceptableUnlessStopped(server, done)) return;
     var first = try server.accept();
     defer first.deinit();
     _ = try first.publish("treasure", Treasure, .{});
@@ -82,6 +84,7 @@ pub fn gifterServe(
     defer treasure_view.deinit();
     const treasure = try treasure_view.fetch("treasure");
 
+    if (!try wait.acceptableUnlessStopped(gifter, done)) return;
     const view = try gifter.accept();
     defer view.deinit();
     _ = try view.publish("introducer", Introducer, .{ .treasure = treasure });

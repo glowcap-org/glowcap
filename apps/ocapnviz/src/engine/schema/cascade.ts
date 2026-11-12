@@ -20,15 +20,13 @@
  * See `docs/schema-driven-transactions.md`.
  */
 
-import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineDocument } from "../timeline.ts";
+import type { TimelineDocument } from "../timeline.ts";
 import { collisionError, type EngineResult, err, ok } from "../errors.ts";
 import type { EntityKind } from "./refs.ts";
-import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, writeEdgeRef } from "./edges.ts";
+import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, withEdgeRef } from "./edges.ts";
 import { DOC_INDEX_EDGES, docIndexesForTarget } from "./doc-index.ts";
-import { assertNoRefsTo, ENTITIES_KEY, findEntityRefs } from "./walk.ts";
-
-type EntityDef = PeerDefinition | SessionDefinition | MessageDefinition;
-type EntityMap = Record<string, EntityDef>;
+import { assertNoRefsTo, findEntityRefs } from "./walk.ts";
+import { editEntityMap, entityMapOf } from "./entity-maps.ts";
 
 /** Strip a single entity from `doc.entities` and clean up empty maps so
  * `entities` becomes `undefined` when nothing is left. Pure. */
@@ -37,24 +35,12 @@ function removeEntity(
 	kind: EntityKind,
 	id: string,
 ): TimelineDocument {
-	const entitiesKey = ENTITIES_KEY[kind];
-	const map = doc.entities?.[entitiesKey] as EntityMap | undefined;
-	if (!map || !Object.prototype.hasOwnProperty.call(map, id)) return doc;
-	const nextMap: EntityMap = { ...map };
-	delete nextMap[id];
-	const nextEntities: Record<string, EntityMap | undefined> = {
-		...(doc.entities ?? {}),
-	};
-	if (Object.keys(nextMap).length > 0) {
-		nextEntities[entitiesKey] = nextMap;
-	} else {
-		delete nextEntities[entitiesKey];
-	}
-	const hasAny = Object.values(nextEntities).some((v) => v !== undefined);
-	return {
-		...doc,
-		entities: hasAny ? (nextEntities as TimelineDocument["entities"]) : undefined,
-	};
+	return editEntityMap(doc, kind, (map) => {
+		if (!Object.prototype.hasOwnProperty.call(map, id)) return map;
+		const nextMap = { ...map };
+		delete nextMap[id];
+		return nextMap;
+	});
 }
 
 /** Whether one observation belongs to the entity being deleted,
@@ -63,7 +49,7 @@ function removeEntity(
  *  are not matched here. The cascade queue visits those entities
  *  and each purges its own. */
 function observationBelongsTo(
-	ev: { kind: string } & Record<string, unknown>,
+	ev: { readonly kind: string } & Readonly<Record<string, unknown>>,
 	kind: EntityKind,
 	id: string,
 ): boolean {
@@ -92,7 +78,7 @@ function observationBelongsTo(
  *  carry (a session's endpoints, a message's endpoints and
  *  session). The observation log is the authored document, and the
  *  projection synthesizes a definition for any id a creation
- *  observation mentions: an observation left on the old id would status-allow: replacement state identity
+ *  observation mentions: an observation left on the old id would
  *  resurrect a ghost there, while the renamed entity, matching no
  *  observations, would lose its derived timing.
  *
@@ -113,19 +99,15 @@ function rewriteObservationIds(
 	const sources = recording.sources.map((src) => {
 		let srcDirty = false;
 		const next = src.observations.map((ev) => {
-			let out: Record<string, unknown> | null = null;
+			let out = ev;
 			for (const edge of EVENT_EDGES[ev.kind]) {
 				if (edge.target !== kind) continue;
-				const row = (out ?? ev) as unknown as Record<string, unknown>;
-				if (readEdgeRef(row, edge) !== oldId) continue;
-				if (!out) {
-					out = { ...(ev as unknown as Record<string, unknown>) };
-				}
-				writeEdgeRef(out, edge, newId);
+				if (readEdgeRef(out, edge) !== oldId) continue;
+				out = withEdgeRef(out, edge, newId);
 			}
-			if (!out) return ev;
+			if (out === ev) return ev;
 			srcDirty = true;
-			return out as unknown as typeof ev;
+			return out;
 		});
 		if (!srcDirty) return src;
 		touched = true;
@@ -147,12 +129,7 @@ function removeObservations(
 	let touched = false;
 	const sources = recording.sources.map((src) => {
 		const kept = src.observations.filter(
-			(ev) =>
-				!observationBelongsTo(
-					ev as { kind: string } & Record<string, unknown>,
-					kind,
-					id,
-				),
+			(ev) => !observationBelongsTo(ev, kind, id),
 		);
 		if (kept.length === src.observations.length) return src;
 		touched = true;
@@ -240,8 +217,7 @@ export function cascadeRewrite(
 ): EngineResult<TimelineDocument> {
 	if (oldId === newId) return ok(doc);
 
-	const entitiesKey = ENTITIES_KEY[kind];
-	const map = doc.entities?.[entitiesKey] as EntityMap | undefined;
+	const map = entityMapOf(doc, kind);
 	if (map && Object.prototype.hasOwnProperty.call(map, newId)) {
 		return err(collisionError(kind, newId));
 	}
@@ -250,17 +226,14 @@ export function cascadeRewrite(
 
 	// 1. Move the entity definition under the new key, if it has one.
 	if (map && Object.prototype.hasOwnProperty.call(map, oldId)) {
-		const def = map[oldId]!;
-		const nextMap: EntityMap = { ...map };
-		delete nextMap[oldId];
-		nextMap[newId] = def;
-		result = {
-			...result,
-			entities: {
-				...result.entities,
-				[entitiesKey]: nextMap,
-			} as TimelineDocument["entities"],
-		};
+		result = editEntityMap(result, kind, (m) => {
+			const def = m[oldId];
+			if (def === undefined) return m;
+			const nextMap = { ...m };
+			delete nextMap[oldId];
+			nextMap[newId] = def;
+			return nextMap;
+		});
 	}
 
 	// 2. Rewrite entity refs across all three entity kinds.
@@ -269,43 +242,20 @@ export function cascadeRewrite(
 			(e) => e.target === kind,
 		);
 		if (targetEdges.length === 0) continue;
-		const entityKey = ENTITIES_KEY[entityKind];
-		const entityMap = result.entities?.[entityKey] as EntityMap | undefined;
-		if (!entityMap) continue;
-
-		let mapDirty = false;
-		const nextMap: EntityMap = { ...entityMap };
-		for (const [defId, def] of Object.entries(entityMap)) {
-			let defDirty = false;
-			let nextDef: Record<string, unknown> | null = null;
-			for (const edge of targetEdges) {
-				const value = readEdgeRef(
-					def as unknown as Record<string, unknown>,
-					edge,
-				);
-				if (value !== oldId) continue;
-				if (!nextDef) {
-					nextDef = {
-						...(def as unknown as Record<string, unknown>),
-					};
+		result = editEntityMap(result, entityKind, (entityMap) => {
+			let nextMap: typeof entityMap | null = null;
+			for (const [defId, def] of Object.entries(entityMap)) {
+				let nextDef = def;
+				for (const edge of targetEdges) {
+					if (readEdgeRef(nextDef, edge) !== oldId) continue;
+					nextDef = withEdgeRef(nextDef, edge, newId);
 				}
-				writeEdgeRef(nextDef, edge, newId);
-				defDirty = true;
+				if (nextDef === def) continue;
+				nextMap ??= { ...entityMap };
+				nextMap[defId] = nextDef;
 			}
-			if (defDirty) {
-				nextMap[defId] = nextDef as unknown as EntityDef;
-				mapDirty = true;
-			}
-		}
-		if (mapDirty) {
-			result = {
-				...result,
-				entities: {
-					...result.entities,
-					[entityKey]: nextMap,
-				} as TimelineDocument["entities"],
-			};
-		}
+			return nextMap ?? entityMap;
+		});
 	}
 
 	// 3. Rewrite doc-indexes.
@@ -318,7 +268,7 @@ export function cascadeRewrite(
 	}
 
 	// 4. Rewrite the observations, so the projection derives for the
-	//    new id instead of resurrecting the old one. status-allow: replacement state identity
+	//    new id instead of resurrecting the old one.
 	result = rewriteObservationIds(result, kind, oldId, newId);
 
 	assertNoRefsTo("cascadeRewrite", result, kind, oldId);

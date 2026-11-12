@@ -1,8 +1,9 @@
+// Slash commands select exact conversation fields. Command names confer no
+// authority and never cause recovery through a stronger entrance.
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import { conversationById } from "./conversation_lookup.ts";
 import { editLine } from "./edit.ts";
 import type { Conv } from "../../conversation.ts";
-// Slash commands select exact conversation fields. Command names confer no
-// authority and never cause recovery through a stronger entrance.
 import { withdrawLine } from "./withdraw.ts";
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
@@ -37,7 +38,7 @@ import { JOIN_DEFAULT_NICK, roomLinkDestination } from "../../joining.ts";
 import { alreadyInRoom } from "../../../../lib/text/attached.ts";
 import { thatLinkDidNotOpen } from "../../../../lib/text/commands.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
-import { roomsErrorInMessage } from "../../../../lib/error_codes.ts";
+import { roomsErrorIn } from "../../../../lib/error_codes.ts";
 
 /** Run work that opens a direct line to `who`. The directory answers a name
  * nobody registered with its peer-offline code. That is the reader's typo,
@@ -47,7 +48,7 @@ async function unlessUnregistered(who: string, work: () => Promise<void>): Promi
 	try {
 		await work();
 	} catch (error) {
-		if (roomsErrorInMessage(error)?.code === "peer-offline") return notRegisteredForDirect(who);
+		if (roomsErrorIn(error)?.code === "peer-offline") return notRegisteredForDirect(who);
 		throw error;
 	}
 	return null;
@@ -110,7 +111,7 @@ export function managedCommandPowers(
 		joinLink: async (link, name) => {
 			try {
 				const destination = roomLinkDestination(link, name);
-				if (destination == null) throw new Error("that is not a room entry link");
+				if (destination == null) throw new LocalRefusal("not-room-entry");
 				const held = await enteredBy(link);
 				if (held != null) {
 					await select(held);
@@ -133,7 +134,7 @@ export function managedCommandPowers(
 					await opening.select(room);
 				});
 			} catch (error) {
-				return thatLinkDidNotOpen(refusalText(error));
+				return error instanceof LocalRefusal ? refusalText(error) : thatLinkDidNotOpen(refusalText(error));
 			}
 			return null;
 		},

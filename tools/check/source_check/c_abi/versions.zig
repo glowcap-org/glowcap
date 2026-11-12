@@ -157,8 +157,8 @@ fn checkStatedReleaseVersions(
 }
 
 /// Provider tables reserve version negotiation without pretending unsupported
-/// prerelease layouts remain contracts. Every replacement stays at version 1;
-/// this check is relaxed only when glowcap intentionally supports an older
+/// prerelease layouts remain contracts. Every replacement stays at version 1.
+/// This check is relaxed only when glowcap intentionally supports an older
 /// released table beside a new one.
 pub fn checkPrereleaseProviderAbiVersions(
     io: std.Io,

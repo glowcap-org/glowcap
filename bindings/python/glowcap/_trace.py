@@ -144,13 +144,12 @@ def _on_ffi_event(ctx: int, event_ptr) -> None:
     sink = _sink
     if sink is None:
         return
-    ev = event_ptr.contents
     cookie = ctx or 0
     owner = _owner_of(cookie)
     if owner is None:
         return
     try:
-        _decode_ffi_event(sink, owner, cookie, ev)
+        _decode_ffi_event(sink, owner, cookie, event_ptr.contents)
     except BaseException as error:
         # This is a callerless binding/ABI projection failure, distinct from a
         # sink that rejected a valid event. Nothing may unwind through ctypes.

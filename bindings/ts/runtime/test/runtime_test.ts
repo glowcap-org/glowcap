@@ -1,8 +1,20 @@
 import * as tcp from "../../tcp/mod.ts";
-import { INVALID_ARGUMENT, IO, LIFECYCLE_ACTIVE, LIFECYCLE_CLOSED, OK } from "@glowcap/abi";
+import {
+	BreakOrigin,
+	BreakReason,
+	INVALID_ARGUMENT,
+	IO,
+	LIFECYCLE_ACTIVE,
+	LIFECYCLE_CLOSED,
+	OK,
+	releaseResultCode,
+	releaseResultConsumed,
+	RouteFailure,
+	routeFailureFromCause,
+} from "@glowcap/abi";
 import { Connector } from "../transport.ts";
 import { Host } from "../host.ts";
-import { type CloseOptions, encodeCloseOptions, lifecycleClosed, releaseConsumed } from "../lifecycle.ts";
+import { type CloseOptions, encodeCloseOptions, lifecycleClosed } from "../lifecycle.ts";
 import { Runtime } from "../runtime.ts";
 import { Context, recordCallerlessFailure, takeRuntimeFailures } from "../context.ts";
 import { GlowcapError } from "../errors.ts";
@@ -17,10 +29,15 @@ function fakeSession(id: number): Session {
 	return { id } as unknown as Session;
 }
 
-Deno.test("final release status names the ownership boundary", () => {
-	assert(!releaseConsumed(INVALID_ARGUMENT), "INVALID_ARGUMENT must remain retryable");
-	assert(releaseConsumed(OK), "successful release must consume ownership");
-	assert(releaseConsumed(IO), "teardown failure must consume ownership");
+Deno.test("release ownership is independent of error class", () => {
+	assert(releaseResultConsumed(OK), "success consumes ownership");
+	assert(Object.is(releaseResultCode(OK), 0), "success must retain positive zero");
+	for (const code of [INVALID_ARGUMENT, IO]) {
+		assert(!releaseResultConsumed(code), "negative results retain ownership");
+		assert(releaseResultConsumed(-code), "positive results consume ownership");
+		assert(releaseResultCode(code) === code, "refusal changed its code");
+		assert(releaseResultCode(-code) === code, "consumed failure changed its code");
+	}
 });
 
 Deno.test("FFI lifecycle decoding rejects unknown states", () => {
@@ -268,6 +285,25 @@ Deno.test("an invalid Runtime close leaves admission open", async () => {
 	await runtime.close();
 });
 
+Deno.test("a byte-fed Runtime without the connector reports the typed cause", async () => {
+	const runtime = await Runtime.open({
+		connectors: [new Connector(["test"], () => Promise.resolve(fakeSession(1)))],
+	});
+	let refused: unknown = null;
+	try {
+		await runtime.connect(parseLocator("ocapn://127.0.0.1%3A1.tcp"));
+	} catch (error) {
+		refused = error;
+	}
+	assert(refused instanceof GlowcapError, "a transport no connector serves was not refused");
+	assert(refused.code === INVALID_ARGUMENT, "the refusal changed its code");
+	assert(
+		routeFailureFromCause(refused.breakCause) === RouteFailure.TransportUnavailable,
+		"the refusal lost its transport-unavailable cause",
+	);
+	await runtime.close();
+});
+
 Deno.test("finite close grace preserves the C field representation", () => {
 	encodeCloseOptions({ pending: "finish", graceMs: 0xffff_ffff });
 	let failed = false;
@@ -297,7 +333,27 @@ Deno.test("a failed provider setup leaves an adopted Host retryable", async () =
 	assert(failed, "provider setup failure was swallowed");
 	assert(host.driverLoop != null, "failed setup detached the adopted loop");
 
-	const retry = await Runtime.open({ adoptHost: host, providers: [tcp.provider()] });
+	const retry = await Runtime.open({ adoptHost: host, providers: [tcp.provider({ profiles: [tcp.plain] })] });
 	assert(host.driverLoop != null, "provider retry replaced the adopted Host");
 	await retry.close();
+});
+
+Deno.test("Host enliven retains missing connector provenance through its DIAL action", async () => {
+	const host = new Host();
+	try {
+		const [outcome] = await Promise.allSettled([host.enliven("ocapn://127.0.0.1%3A1.tcp/s/c3Zj")]);
+		assert(
+			outcome.status === "rejected" && outcome.reason instanceof GlowcapError,
+			"missing connector did not settle",
+		);
+		assert(
+			outcome.reason.breakCause.origin === BreakOrigin.Local &&
+				outcome.reason.breakCause.reason === BreakReason.TransportUnavailable,
+			"missing connector lost its cause",
+		);
+		assert(outcome.reason.isExporterUnreachable(), "unsupported route is still unreachable");
+		assert(outcome.reason.message.split("ExporterUnreachable").length === 2, "route label rendered more than once");
+	} finally {
+		await host.close();
+	}
 });

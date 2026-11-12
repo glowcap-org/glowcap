@@ -1,6 +1,7 @@
 //! Explicit Host-vow release and session-teardown retirement.
 
 const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 
 const actors = @import("actors");
 
@@ -209,7 +210,7 @@ pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) v
             const entry = self.resolver_index.get(resolver_id) orelse unreachable;
             const row = self.vows.get(entry.vow_id) orelse unreachable;
             std.debug.assert(row.forwardedPeer() == peer_handle);
-            self.vat.breakVow(entry.vat_resolver, reason) catch |err| switch (err) {
+            self.vat.breakVow(entry.vat_resolver, Broken.unnamed(reason)) catch |err| switch (err) {
                 // The reason could not be copied into the settle arena. The
                 // vow still breaks, under a reason that needs no allocation.
                 error.OutOfMemory => self.vat.breakVowTerminal(entry.vat_resolver, "session released"),
@@ -245,7 +246,7 @@ pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) v
                 // exact listener and answer before returning the completion
                 // box, even when that producer's session stays open.
                 retireUnwatched(self, row, producer);
-                listener.func(listener.ctx, .{ .broken = reason });
+                listener.func(listener.ctx, .{ .broken = Broken.unnamed(reason) });
                 continue;
             }
             settlement.cancelObserverRelease(row, session);

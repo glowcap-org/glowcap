@@ -9,7 +9,7 @@ import { coordinate } from "./managed/model.ts";
 export type RoomBearerKind = "link" | "manager" | "steward";
 
 /** The bearer string behind one of a room's authority tokens, or null while
- * the session holds none or has no snapshot yet.  status-allow: pending state or quoted runtime label */
+ * the session holds none or has no snapshot yet. */
 export async function roomBearer(
 	session: ManagedRoomsSession,
 	conv: RoomConv,

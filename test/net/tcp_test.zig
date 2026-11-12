@@ -14,6 +14,7 @@ const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const tcp = glowcap.net.tcp;
 const fetch_pump = @import("../support/fetch_pump.zig");
+const wait = @import("../support/wait.zig");
 const handshake = @import("../support/handshake.zig");
 
 const ip = std.Io.net;
@@ -196,6 +197,7 @@ fn readUntilEof(io: std.Io, address: ip.IpAddress) !void {
     var byte: [1]u8 = undefined;
     var reader = stream.reader(io, &byte);
     var sink: [1]u8 = undefined;
+    // tolerant: a reset in place of EOF still means the far side closed, which is all this wait needs.
     _ = reader.interface.readSliceShort(&sink) catch {};
 }
 
@@ -207,7 +209,7 @@ test "tcp listener close wakes and joins a blocked accept" {
 
     var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     var accept = try io.concurrent(acceptUntilListenerClose, .{ &listener, allocator });
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try wait.untilLeaseHeld(io, &listener.profile.socket.gate);
     listener.deinit();
     try accept.await(io);
 }

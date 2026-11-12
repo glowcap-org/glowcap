@@ -267,7 +267,7 @@ fn shuttles_a_frame_over_a_dialed_circuit() {
 	});
 
 	let netlayer = Netlayer::new(&Config::dial_only(&socks)).unwrap();
-	let mut conn = netlayer.connect(SERVICE_ID, Codec::Syrup, 4096).unwrap();
+	let conn = netlayer.connect(SERVICE_ID, Codec::Syrup, 4096).unwrap();
 	conn.write_frame(PAYLOAD).unwrap();
 
 	assert_eq!(far.join().unwrap(), framed);
@@ -327,7 +327,7 @@ fn each_auth_form_reaches_the_daemon_as_itself() {
 }
 
 // The readiness descriptor is the point of the whole surface: it must be a real,
-// pollable socket that reports "nothing yet" before a partner arrives and status-allow: pending state or quoted runtime label
+// pollable socket that reports "nothing yet" before a partner arrives and
 // "readable" after one does. A test that only asserted the number was non-negative
 // would pass on a descriptor pointing at anything at all.
 #[test]

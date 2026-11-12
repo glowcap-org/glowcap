@@ -17,7 +17,7 @@ Deno.test("session-closed retires the partner but keeps the reporting host", () 
 
 Deno.test("a peer with two live sessions survives one closing", () => {
 	// Reconnect overlap: the same identity opens a second session
-	// before the first one's close lands. The old close must not status-allow: replacement state identity
+	// before the first one's close lands. The old close must not
 	// retire the peer while the new session still references it.
 	const convert = makeBaseEventConverter();
 	openSession(convert, "s1", "bob", 0);

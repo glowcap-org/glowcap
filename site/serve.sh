@@ -1,39 +1,26 @@
 #!/usr/bin/env bash
-# Server-lifecycle launcher for `zig build site-serve`.
+# Runs the site's development server for `zig build site-serve` and tears it
+# down with the step.
 #
-# Why this exists: the root build's `site-serve` step shells out to an inner
-# `zig build … site-serve` from `site/`, which in turn launches Zine's
-# development server as a long-running grandchild. `zig build` does not
-# reap that subtree when it is interrupted, so the Zine server is easily left
-# orphaned: reparented to init, still bound to its port and serving stale
-# content. We have repeatedly seen such orphans outlive the session.
+# The root step runs an inner `zig build site-serve` from `site/`, which starts
+# Zine's development server as a long-running grandchild. This launcher runs
+# that inner build in its own process group and stops the whole group (TERM,
+# then KILL after a short grace) when either of two things happens:
+#   1. this launcher receives INT, TERM, or HUP, as on Ctrl-C or a closed
+#      terminal, or
+#   2. an ancestor build process exits without signaling it, as when the build
+#      is killed by pid, which a background watcher notices.
 #
-# This launcher makes the teardown explicit. It runs the inner build in its own
-# process group and reaps that whole group, TERM, then KILL after a short
-# grace, on two triggers:
-#   1. a stop signal delivered to this launcher (INT/TERM/HUP), the terminal
-#      Ctrl-C / close case, where the signal reaches every member of the
-#      foreground process group, this launcher included; and
-#   2. the disappearance of an ancestor build process, the "kill the build by
-#      pid" / IDE-kill-terminal case, where the signal never reaches this
-#      launcher, detected by a background watcher.
-# It is the lifecycle detail of an existing step, not a new user command, the
-# public `zig build site-serve` is unchanged.
+# It also keeps the generated example tabs current. Zine reloads when
+# `site/content` changes, but the CapTP snippets under `site/examples/` reach
+# the pages only through `gen-site-examples`, so a background poll reruns it
+# when a snippet or the assembler changes. Expensive steps such as
+# `bench-site-report` stay opt-in.
 #
-# It also keeps generated site example tabs fresh. Zine watches `site/content`
-# and reloads when those pages change; CapTP transport snippets live under
-# `site/examples/` and only land in the pages after `gen-site-examples`. A
-# background poll regenerates when snippets (or the assembler) change, so the
-# preview does not stay stale until someone remembers the gen step. Expensive
-# steps such as `bench-site-report` stay opt-in.
-#
-# Residual limit: SIGKILL is untrappable, a SIGKILL of this launcher (or of an
-# ancestor in a way that never lets the watcher run) cannot be intercepted, and
-# the isolated inner group may briefly outlive it. Likewise, a bare single-pid
-# SIGINT to a `zig build site-serve` that was started as a *background* job is
-# masked by the shell's job-control SIGINT handling (async jobs inherit SIGINT
-# ignored) and so never reaches this subtree; an interactive terminal, Ctrl-C,
-# or any foreground signal, is unaffected and tears down cleanly.
+# Limits: SIGKILL cannot be trapped, so after a SIGKILL of this launcher the
+# inner group may briefly outlive it. A single-pid SIGINT to a `site-serve`
+# started as a background job never arrives, because the shell starts
+# background jobs with SIGINT ignored. A foreground Ctrl-C tears down cleanly.
 #
 # Usage: serve.sh <zig-exe> <build-args…>
 #   e.g. serve.sh /usr/local/bin/zig --cache-dir <cache> \

@@ -194,16 +194,19 @@ pub fn Machine(
                     // it, then closes. The drain, its cap mirror, and the
                     // tail-to-spill copy are shared with the iroh loop in
                     // `frame_stream.drainWholeFrames`, so the two cannot drift.
-                    break :stream switch (frame_stream.drainWholeFrames(&c.peer, &c.spill, incoming, self.allocator)) {
-                        .ok => .proceed,
-                        .fail => .fail,
-                        .close => .close,
-                    };
+                    break :stream verdictOf(frame_stream.drainWholeFrames(&c.peer, &c.spill, incoming, self.allocator));
                 },
-                .message => {
-                    c.peer.recvPacket(incoming) catch return .fail;
-                    return .proceed;
-                },
+                .message => verdictOf(frame_stream.applyPacket(&c.peer, incoming)),
+            };
+        }
+
+        /// A refused drain or packet has closed the session with its cause
+        /// recorded. `.fail` flushes any abort it queued before closing.
+        fn verdictOf(drain: frame_stream.DrainVerdict) RecvVerdict {
+            return switch (drain) {
+                .ok => .proceed,
+                .fail => .fail,
+                .close => .close,
             };
         }
 
@@ -257,7 +260,7 @@ pub fn Machine(
                 // action for the session it is serving). That is terminal:
                 // the abort is already queued, so serving further events
                 // would mint replies behind it, and the drive and read-arm
-                // below no longer apply. Unpolled events die with the peer. status-allow: lifecycle transition
+                // below no longer apply. Unpolled events die with the peer.
                 if (c.state != .open) return;
             }
 
@@ -512,9 +515,9 @@ pub fn Machine(
             // high-water bytes for the connection's lifetime. Steady-sized
             // capacity is retained so ordinary reply traffic never reallocates.
             frame_stream.reclaimBurst(&c.front, self.allocator, state.steady_outbound_bytes);
-            // A drained connection never pins burst capacity: this is the
-            // 500k-footprint invariant a slow-drain episode must not break. This
-            // pins the bound loudly in every safe build, on every drain.
+            // A drained connection never pins burst capacity, so a slow-drain
+            // episode cannot grow the footprint budget. This asserts the bound
+            // in every safe build, on every drain.
             std.debug.assert(c.front.capacity <= state.steady_outbound_bytes);
             c.front_off = 0;
             c.write_in_flight = false;
@@ -580,7 +583,7 @@ pub fn Machine(
 
         /// Re-arm connections parked solely by `fan_in_throttle` once no true
         /// ADR-0017 sink remains over the high-water mark. A seat that is still
-        /// sink-parked (`pendingOut` over the mark) or no longer open is left status-allow: lifecycle transition
+        /// sink-parked (`pendingOut` over the mark) or closed is left
         /// alone, on the list, untouched.
         ///
         /// The walk follows the live list and splices in place. Detaching the
@@ -599,7 +602,7 @@ pub fn Machine(
                 const c = &self.conns[slot];
                 // It left the list under us, a hook re-entered through the
                 // previous iteration's close and reached this slot. Its link
-                // word is no longer a parked-list link: `teardown` hands it to status-allow: lifecycle transition
+                // word is no longer a parked-list link: `teardown` hands it to
                 // the free list, and a re-adopting `dial` zeroes it, which
                 // walks into slot 0 and, if slot 0 is an ordinary open
                 // connection whose own link is still zero, never leaves. So do

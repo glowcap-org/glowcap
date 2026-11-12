@@ -363,15 +363,15 @@ fn enterOrOpen(session: *driver.Session, allocator: std.mem.Allocator, directory
 
     switch (try session.call(directory, proto.enter, &.{name_arg}, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
-        .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.no_such_room)) {
-            std.debug.print("rooms-client: enter \"{s}\" broke: {s}\n", .{ room_name, reason });
+        .broken => |reason| if (!demo_rooms.hasErrorCode(reason, demo_rooms.no_such_room)) {
+            std.debug.print("rooms-client: enter \"{s}\" broke: {f}\n", .{ room_name, reason });
             return error.EnterFailed;
         },
     }
     switch (try session.call(directory, proto.open, &.{name_arg}, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
-        .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.room_exists)) {
-            std.debug.print("rooms-client: open \"{s}\" broke: {s}\n", .{ room_name, reason });
+        .broken => |reason| if (!demo_rooms.hasErrorCode(reason, demo_rooms.room_exists)) {
+            std.debug.print("rooms-client: open \"{s}\" broke: {f}\n", .{ room_name, reason });
             return error.OpenFailed;
         },
     }
@@ -392,7 +392,7 @@ fn postLine(session: *driver.Session, allocator: std.mem.Allocator, seat: driver
     switch (try session.call(seat, proto.post, &.{.{ .string = line }}, arena.allocator())) {
         .fulfilled => {},
         .broken => |reason| {
-            std.debug.print("rooms-client: post broke: {s}\n", .{reason});
+            std.debug.print("rooms-client: post broke: {f}\n", .{reason});
             return error.PostFailed;
         },
     }
@@ -412,12 +412,12 @@ fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, s
         const scratch = arena.allocator();
         switch (try session.call(directory, proto.list_publications, &.{}, scratch)) {
             .fulfilled => |arg| try printRooms(nick, arg),
-            .broken => |reason| std.debug.print("[{s}] list broke: {s}\n", .{ nick, reason }),
+            .broken => |reason| std.debug.print("[{s}] list broke: {f}\n", .{ nick, reason }),
         }
         const watcher = try session.spawn(Watcher, .{ .nick = nick });
         switch (try session.call(directory, proto.watch_publications, &.{.{ .capability = watcher }}, scratch)) {
             .fulfilled => |arg| if (!wire.validWatchSnapshot(arg)) return error.InvalidWatchSnapshot,
-            .broken => |reason| std.debug.print("[{s}] watch broke: {s}\n", .{ nick, reason }),
+            .broken => |reason| std.debug.print("[{s}] watch broke: {f}\n", .{ nick, reason }),
         }
     }
 
@@ -434,7 +434,7 @@ fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, s
         switch (try session.call(room, proto.subscribe, &subscribe_args, arena.allocator())) {
             .fulfilled => |arg| break :blk try membershipSeatFromArg(arg),
             .broken => |reason| {
-                std.debug.print("rooms-client: subscribe broke: {s}\n", .{reason});
+                std.debug.print("rooms-client: subscribe broke: {f}\n", .{reason});
                 return error.SubscribeFailed;
             },
         }
@@ -559,4 +559,15 @@ test "presence follows the generated tails and the effect each declares" {
 
 fn fail(message: []const u8) error{Usage} {
     return demo_usage.usage("usage: glowcap-rooms-client <locator> <room> <nick> <line> [roster]\n  (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)", message);
+}
+
+test "Rooms error codes require application provenance without operation context" {
+    const Broken = glowcap.driver.core.Broken;
+    const Cause = glowcap.driver.core.BreakCause;
+    const text = "no-such-room: missing";
+    try std.testing.expect(demo_rooms.hasErrorCode(Broken.partner(text), demo_rooms.no_such_room));
+    try std.testing.expect(demo_rooms.hasErrorCode(.{ .detail = text, .cause = Cause.local(.application) }, demo_rooms.no_such_room));
+    try std.testing.expect(!demo_rooms.hasErrorCode(Broken.unnamed(text), demo_rooms.no_such_room));
+    try std.testing.expect(!demo_rooms.hasErrorCode(.{ .detail = text, .cause = Cause.partner().withFetch() }, demo_rooms.no_such_room));
+    try std.testing.expect(!demo_rooms.hasErrorCode(Broken.partner("no-such-roomish: missing"), demo_rooms.no_such_room));
 }

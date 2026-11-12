@@ -14,7 +14,7 @@ pub const Client = struct {
     pub fn init(self: *Client, server: *h.Hosted) !void {
         server.service.decode_derive = decode;
         server.service.entropy = .{ .context = &self.entropy_counter, .fill = entropy };
-        self.host = h.host_support.init(h.a, @splat(0x63), h.driver.Host.Options.withFrameCap(4096));
+        self.host = h.host_support.init(h.a, @splat(0x63), h.driver.Host.Options.init(.unchecked, 4096));
         self.pair = try pairs.openPair(&self.host, &server.host, "127.0.0.1:9731");
         const swiss = try server.host.publishDurableCapability(@splat(0x53), server.use);
         var capture: captures.CapturedRef = .{};

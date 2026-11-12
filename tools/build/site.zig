@@ -95,18 +95,8 @@ pub fn register(ctx: Context) Registered {
     // example cannot drift from the API it presents. The checked set is
     // discovered from `site/examples/` itself rather than kept as a second
     // list beside the generator's matrix, so a snippet the matrix gains
-    // cannot ship unchecked. A `PLANNED:` marker excludes a snippet exactly
-    // as `tools/check/site_binding_examples.py` excludes it, and that checker
-    // holds planned snippets to comment-only bodies. The iroh and WebRTC Zig
-    // tabs are compiled beside their resident modules, and the relay Zig tabs
-    // beside the relay TLS module, because those modules stay outside the
-    // default glowcap graph.
-    // Walk the snippet dirs from the build root, not process cwd. `zig build`
-    // from a subdirectory still loads this `build.zig`, and `Dir.cwd()` would
-    // miss `site/examples/` and panic before any step ran. Later compile
-    // steps already take `b.path(snippet_path)`, which is build-root-relative.
-    const snippets_io = b.graph.io;
-    const snippets_root = b.root.root_dir.handle;
+    // cannot ship unchecked. `listing.sortedFiles` walks from the build root,
+    // so `zig build` from a subdirectory finds the same snippets.
     var site_zig_snippets: std.ArrayList([]const u8) = .empty;
     var site_ts_snippets: std.ArrayList([]const u8) = .empty;
     for ([_][]const u8{
@@ -122,14 +112,14 @@ pub fn register(ctx: Context) Registered {
         for (listing.sortedFiles(b, dir_path)) |name| {
             const is_zig = std.mem.endsWith(u8, name, ".zig");
             if (!is_zig and !std.mem.endsWith(u8, name, ".ts")) continue;
+            // These Zig tabs import a module outside the default glowcap
+            // graph, so they compile beside it instead: iroh.zig in
+            // tools/build/iroh.zig, webrtc.zig in tools/build/webrtc.zig, and
+            // each *-relay.zig in tools/build/relay_tls.zig.
             if (is_zig and (std.mem.eql(u8, name, "iroh.zig") or
                 std.mem.eql(u8, name, "webrtc.zig") or
                 std.mem.endsWith(u8, name, "-relay.zig"))) continue;
             const path = b.fmt("{s}/{s}", .{ dir_path, name });
-            b.dependOnFileContents(b.path(path));
-            const body = snippets_root.readFileAlloc(snippets_io, path, b.allocator, .limited(1 << 20)) catch |err|
-                std.debug.panic("site snippet {s}: {s}", .{ path, @errorName(err) });
-            if (std.mem.indexOf(u8, body, "PLANNED:") != null) continue;
             const list = if (is_zig) &site_zig_snippets else &site_ts_snippets;
             list.append(b.allocator, path) catch @panic("OOM");
         }
@@ -151,7 +141,7 @@ pub fn register(ctx: Context) Registered {
     site_ts_examples_check.dependOn(&site_ts_check.step);
     check_step.dependOn(site_ts_examples_check);
 
-    const site_python_examples_check = b.step("site-python-examples-check", "Type-check the authoritative Python transport site examples (needs python3 + uv)");
+    const site_python_examples_check = b.step("site-python-examples-check", "Type-check the authoritative Python transport site examples (needs python3 + mypy)");
     const site_python_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "python" });
     site_python_examples_check.dependOn(&site_python_check.step);
 

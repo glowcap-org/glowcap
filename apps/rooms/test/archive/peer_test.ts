@@ -3,15 +3,16 @@
 // sturdyref, and a v1/Syrup client must redeem it after the process restarts.
 
 import { parseSturdyRef } from "@glowcap/runtime";
+import { ALL_ARCHIVE_RECORDS, type ArchiveLine } from "../../lib/archive/protocol.ts";
 import {
-	ALL_ARCHIVE_RECORDS,
-	type ArchiveLine,
+	issueArchiveShare,
+	listArchiveShares,
 	putArchive,
 	putArchiveWithAttachments,
 	readArchive,
 	readArchiveAttachment,
-} from "../../lib/archive/protocol.ts";
-import { issueArchiveShare, listArchiveShares, revokeArchiveShare } from "../support/archive/client.ts";
+	revokeArchiveShare,
+} from "../support/archive/client.ts";
 import { fetchBlob } from "../../lib/attachment.ts";
 import { roomsAddress, roomsHost } from "../../lib/locator.ts";
 import { stopOwned } from "../support/children.ts";

@@ -203,7 +203,7 @@ test "a refused settlement copy breaks its waiter and leaves the next turn live"
     try std.testing.expectError(error.OutOfMemory, vat.drive());
     try std.testing.expectEqual(@as(usize, 1), calls);
     try std.testing.expectEqual(@as(usize, 1), first_outcome.calls);
-    try std.testing.expectEqualStrings("OutOfMemory", first_outcome.value.?.broken);
+    try std.testing.expectEqualStrings("OutOfMemory", first_outcome.value.?.broken.detail);
     try std.testing.expectEqual(@as(usize, 0), second_outcome.calls);
 
     failing.fail_index = std.math.maxInt(usize);

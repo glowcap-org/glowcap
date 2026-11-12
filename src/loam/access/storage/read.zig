@@ -40,7 +40,7 @@ pub const Binding = struct {
     /// The resource reply decoded from this binding's committed row, kept for
     /// the Read's lifetime because policy walks ask for the same ancestors
     /// many times per operation, and seeded from the owner index when an
-    /// earlier Read decoded the same leaf at this revision. A row this status-allow: event or source ordering
+    /// earlier Read decoded the same leaf at this revision. A row this
     /// transaction stages is read fresh.
     resource: ?core.ResourceView.Reply.Value = null,
 };
@@ -48,8 +48,8 @@ pub const Step = union(enum) { ready, read: loam.Read, waiting };
 
 /// One Read's inline state: the 16 KiB grant selection scratch, one decoded
 /// grant row under 1 KiB, the owner header with its policy, and the history
-/// record. Every managed operation embeds one, so a larger Read is a
-/// withdrawal from the operation's footprint. Raise it with the bytes named.
+/// record. Every managed operation embeds one, so a larger Read
+/// raises the operation's footprint. Raise the budget with the bytes named.
 pub const read_budget_bytes = 21 * 1024;
 comptime {
     if (@sizeOf(Read) > read_budget_bytes) @compileError(std.fmt.comptimePrint(

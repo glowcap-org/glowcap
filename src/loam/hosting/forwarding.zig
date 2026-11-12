@@ -17,7 +17,7 @@ pub const Forwarding = struct {
         self.call = try work.call(arena, target, verb, args, reply_bytes, via);
     }
 
-    pub fn poll(self: *Forwarding) Result {
+    pub fn poll(self: *const Forwarding) Result {
         const call = self.call orelse return .pending;
         return call.result();
     }

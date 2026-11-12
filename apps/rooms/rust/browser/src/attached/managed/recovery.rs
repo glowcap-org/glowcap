@@ -2,16 +2,25 @@
 //! Descriptive rows cannot select a sibling grant or recreate a lost executor.
 use super::*;
 use rooms_glowcap::client::workspace::RecoveredEffect;
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
 	pub fn effects(&self) -> js_sys::Promise {
 		let workspace = self.workspace.clone();
 		self.driver.submit(0, move |_| async move {
-			let rows = workspace.effects().await.map_err(|error| error.to_string())?;
-			json(&serde_json::to_string(&rows.into_iter().map(|row| {
-				serde_json::json!({"operation": row.operation, "status": format!("{:?}", row.status).to_lowercase(), "resumable": row.resumable})
-			}).collect::<Vec<_>>()).map_err(|_| "Invalid receipt inventory")?)
+			let rows = workspace.effects().await.map_err(RuntimeError::from)?;
+			json(
+				&serde_json::to_string(
+					&rows
+						.into_iter()
+						.map(
+							|row| serde_json::json!({"operation": row.operation, "status": row.status.wire(), "resumable": row.resumable}),
+						)
+						.collect::<Vec<_>>(),
+				)
+				.map_err(|_| RuntimeError::invalid("Invalid receipt inventory"))?,
+			)
 		})
 	}
 	#[wasm_bindgen(js_name = recoverEffect)]
@@ -23,10 +32,7 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(operation.len(), move |_| async move {
-			let effect = workspace
-				.recover_effect(&operation)
-				.await
-				.map_err(|error| error.to_string())?;
+			let effect = workspace.recover_effect(&operation).await.map_err(RuntimeError::from)?;
 			let Some(effect) = effect else {
 				return Ok(JsValue::UNDEFINED);
 			};
@@ -46,16 +52,12 @@ impl RoomsManagedRecoveredEffect {
 	pub fn adopted(&self) -> js_sys::Promise {
 		let effect = self.effect.clone();
 		self.driver.submit(0, move |_| async move {
-			effect
-				.adopted()
-				.await
-				.map(Into::into)
-				.map_err(|error| error.to_string())
+			effect.adopted().await.map(Into::into).map_err(RuntimeError::from)
 		})
 	}
 	#[wasm_bindgen(js_name = originalIntent)]
-	pub fn original_intent(&self) -> Result<JsValue> {
-		json(self.effect.canonical())
+	pub fn original_intent(&self) -> core::result::Result<JsValue, JsValue> {
+		json(self.effect.canonical()).map_err(|error| js_error(&error))
 	}
 	pub fn status(&self) -> js_sys::Promise {
 		let effect = self.effect.clone();
@@ -63,8 +65,8 @@ impl RoomsManagedRecoveredEffect {
 			effect
 				.status()
 				.await
-				.map(|status| format!("{status:?}").to_lowercase().into())
-				.map_err(|error| error.to_string())
+				.map(|status| status.wire().into())
+				.map_err(RuntimeError::from)
 		})
 	}
 	pub fn result(&self) -> js_sys::Promise {
@@ -78,8 +80,8 @@ impl RoomsManagedRecoveredEffect {
 			effect
 				.receive()
 				.await
-				.map(|status| format!("{status:?}").to_lowercase().into())
-				.map_err(|e| e.to_string())
+				.map(|status| status.wire().into())
+				.map_err(RuntimeError::from)
 		})
 	}
 	#[wasm_bindgen(js_name = prepareResultAcquisition)]
@@ -127,8 +129,8 @@ impl RoomsManagedRecoveredEffect {
 			effect
 				.resume()
 				.await
-				.map(|status| format!("{status:?}").to_lowercase().into())
-				.map_err(|error| error.to_string())
+				.map(|status| status.wire().into())
+				.map_err(RuntimeError::from)
 		})
 	}
 	/// Give up on this receipt for good. See `RecoveredEffect::release`.
@@ -139,7 +141,7 @@ impl RoomsManagedRecoveredEffect {
 				.release()
 				.await
 				.map(|()| JsValue::UNDEFINED)
-				.map_err(|error| error.to_string())
+				.map_err(RuntimeError::from)
 		})
 	}
 }
@@ -148,15 +150,11 @@ impl RoomsManagedCommand {
 	pub fn adopted(&self) -> js_sys::Promise {
 		let command = self.command.clone();
 		self.driver.submit(0, move |_| async move {
-			command
-				.adopted()
-				.await
-				.map(Into::into)
-				.map_err(|error| error.to_string())
+			command.adopted().await.map(Into::into).map_err(RuntimeError::from)
 		})
 	}
 	#[wasm_bindgen(js_name = originalIntent)]
-	pub fn original_intent(&self) -> Result<JsValue> {
-		json(self.command.canonical())
+	pub fn original_intent(&self) -> core::result::Result<JsValue, JsValue> {
+		json(self.command.canonical()).map_err(|error| js_error(&error))
 	}
 }

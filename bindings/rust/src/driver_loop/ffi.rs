@@ -94,7 +94,8 @@ crate::error_slot::error_slot!(
 	fn check;
 	/// The calling thread's last `glowcap_driver_*` error message.
 	fn driver_last_error;
-	ffi::glowcap_driver_last_error
+	ffi::glowcap_driver_last_error,
+	cause: ffi::glowcap_driver_last_error_cause
 );
 
 impl DriverLoop {
@@ -137,8 +138,8 @@ impl DriverLoop {
 				// SAFETY: `host` is the handle `glowcap_host_new_in` just wrote and this function still owns, because
 				// `take_host` failed and left Host ownership unchanged; it is released exactly once here.
 				let cleanup_rc = unsafe { ffi_host::glowcap_host_release(host) };
-				let cleanup = crate::host::check_host(cleanup_rc);
-				if !crate::lifecycle::release_consumed(cleanup_rc) {
+				let cleanup = crate::host::check_host(crate::sys::release_result_code(cleanup_rc));
+				if !crate::sys::release_result_consumed(cleanup_rc) {
 					core::mem::forget(context);
 				}
 				Err(crate::retain_cleanup_failure(primary, cleanup))

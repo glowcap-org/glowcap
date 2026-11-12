@@ -125,7 +125,7 @@ const resident_vtable: Netlayer.VTable = .{
 };
 
 /// The pinned stream a dialed or accepted onion connection runs over: the
-/// shared raw-connection shell, argued at `netlayer_support.PinnedRawStream`.
+/// shared raw-connection shell, argued at `netlayer.PinnedRawStream`.
 const OnionStream = netlayer.PinnedRawStream(RawStream);
 
 fn residentDial(

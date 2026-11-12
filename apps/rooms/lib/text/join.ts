@@ -14,7 +14,7 @@ export const joinLeadPlain =
 
 /** The lead when a link decided the destination. The reader did not choose
  * this room, so the card says what it shows before asking for anything. */
-export const joinLeadLink = "This link opens one particular room. The name below is just what you'll see it as here.";
+export const joinLeadLink = "This link opens one room. The name below is only what you'll call it here.";
 
 export function joinLeadNamedRoom(room: string, where: string): string {
 	return `This address opens #${room} in ${where}.`;
@@ -78,7 +78,7 @@ export const joinTitleJoin = "Join a room";
 export const joinLeadPaused = "Your session link is paused, so there's nothing here to browse or join.";
 export const joinLeadReadOnly = "Your session link lets you browse the shared rooms but not join one.";
 export function joinAccessFixedLabel(standing: string, room: string): string {
-	return `Room access: ${standing}. The room called ${room} already exists, and its manager sets this.`;
+	return `Room access: ${standing}. ${room} already exists, and its manager sets this.`;
 }
 export function joinAccessLabel(standing: string, next: string): string {
 	return `Room access: ${standing}. Change to ${next}.`;
@@ -113,11 +113,11 @@ export function joinPrivateRoomTaken(name: string): string {
 }
 export const joinInstead = " instead.";
 
-/** What the join card calls the room field from its resolved access. Open is
- * the ordinary room and needs no qualifier. Private and moderated name
- * themselves, whether the reader chose them or an existing room fixed them. */
+/** What the join card calls the room field from its resolved access. Each
+ * kind names itself, whether the reader chose it or an existing room fixed it,
+ * so the label always says which of the three the mark beside it stands at. */
 export function roomFieldLabel(kind: RoomPreset): string {
-	return kind === "private" ? "Private room" : kind === "moderated" ? "Moderated room" : "Room";
+	return kind === "private" ? "Private room" : kind === "moderated" ? "Moderated room" : "Open room";
 }
 /** The sidebar has no persistent field label beside its compact input, so its
  * placeholder names all three access choices. */

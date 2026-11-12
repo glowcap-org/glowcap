@@ -14,10 +14,8 @@ use std::fmt;
 pub(super) enum AdmissionRefusal {
 	/// The room generation the work attaches to has ended.
 	GenerationEnded,
-	/// The introduction's target no longer carries the name it was offered. status-allow: lifecycle transition
+	/// The introduction's target no longer carries the name it was offered.
 	TargetRenamed,
-	/// The calling connection never completed registration.
-	RequiresRegistration,
 }
 
 impl fmt::Display for AdmissionRefusal {
@@ -25,7 +23,6 @@ impl fmt::Display for AdmissionRefusal {
 		match self {
 			Self::GenerationEnded => f.write_str("room generation has ended"),
 			Self::TargetRenamed => f.write_str("introduction target no longer has that name"),
-			Self::RequiresRegistration => f.write_str("introduction requires registration"),
 		}
 	}
 }
@@ -239,28 +236,28 @@ impl Admission {
 }
 
 impl State {
-	pub fn admit_introduction(
-		&mut self,
+	/// Who an introduction is from and to, checked before anything is
+	/// reserved or charged. A caller with no name hears that, whatever became
+	/// of its target. The answer is the target's connection.
+	pub fn introduction_parties(
+		&self,
 		connection: u64,
 		nick: &str,
-		id: &str,
-		opening: Option<&str>,
-	) -> Result<(), String> {
-		let id = rooms_application::directory::registration::Id::parse(id).map_err(|e| e.to_string())?;
-		let target = self.policy.registration_connection(&id).map_err(|r| r.reason())?;
-		if self.policy.member_registration(nick).ok().as_ref() != Some(&id) {
+		id: &rooms_application::directory::registration::Id,
+	) -> Result<u64, String> {
+		use rooms_application::{failure::FailureCode, server::Refusal};
+		if self.policy.registered_nick(connection).is_none() {
+			return Err(Refusal::coded(FailureCode::NotRegistered, "an introduction needs a registered name").reason());
+		}
+		let target = self.policy.registration_connection(id).map_err(|r| r.reason())?;
+		if self.policy.member_registration(nick).ok().as_ref() != Some(id) {
 			return Err(AdmissionRefusal::TargetRenamed.into());
 		}
-		if self.policy.registered_nick(connection).is_none() {
-			return Err(AdmissionRefusal::RequiresRegistration.into());
-		}
+		Ok(target)
+	}
+	/// Spend one introduction from the caller toward the target's connection.
+	pub fn charge_introduction(&mut self, connection: u64, target: u64) -> Result<(), String> {
 		let (sender, _, _) = self.admission_context(connection)?;
-		// Consumption of a settled offer is a read, not a second opening.
-		// Pending attempts still spend requester and recipient safety allowance
-		// before any mint notification or deferred work can be queued.
-		if opening.is_some_and(|opening| self.policy.introduction_ready(connection, nick, id.as_str(), opening)) {
-			return self.admission.operation(sender, Class::Read, 1, self.now());
-		}
 		let (recipient, _, _) = self.admission_context(target)?;
 		self.admission.introduction(sender, recipient, self.now())
 	}

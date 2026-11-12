@@ -15,6 +15,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("binding_packages", ROOT / "tools/check/binding_packages.py")
+assert spec is not None and spec.loader is not None, "the script loads as a module"
 PACKAGES = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(PACKAGES)
 

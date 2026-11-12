@@ -85,32 +85,34 @@
            (hash HINT-DIRECT-ADDRESSES advertised-direct))))
     (loop-listener-advertise! lp listener locator-uri)))
 
-(define (listen-tcp-profile who transport bind-host port seed codec captp-version
-                            features advertised-host time-travel? shared-host config options)
+(define (listen-tcp-profile who transport profile bind-host port seed codec captp-version
+                            features advertised-host time-travel? shared-host stream options)
   (listen-loop-profile who transport (format "~a:~a" bind-host port)
                        #:identity? (identity-profile? transport)
                        #:seed seed #:codec codec #:captp-version captp-version
                        #:features features #:options options
                        #:host shared-host #:time-travel? time-travel?
-                       #:install (lambda (lp) (driver-loop-add-tcp! lp config))
+                       #:install (lambda (lp) (driver-loop-add-tcp!
+                                      lp (make-tcp-config #:stream stream #:profiles (list profile))))
                        #:after-ready (advertise-bound-address! who transport advertised-host)))
 
 ;; Every keyword below is honored exactly or refused. `#:codec`,
 ;; `#:captp-version`, and `#:features` default to the supplied Host's profile,
 ;; else the generated default; a value that differs from a supplied Host's is
-;; refused. `#:options` is the TCP operation options value (`make-tcp-options`)
-;; for this one listen.
+;; refused. `#:stream` is the listener's stream options (`make-tcp-stream-options`),
+;; and `#:options` is the TCP operation options value (`make-tcp-options`) for
+;; this one listen. The listener's provider registers exactly its own profile.
 (define (listen bind-host [port 0] #:codec [codec #f]
                 #:captp-version [captp-version #f]
                 #:features [features #f]
                 #:advertised-host [advertised-host #f]
                 #:time-travel? [time-travel? #f]
                 #:host [shared-host #f]
-                #:config [config (make-tcp-config)]
+                #:stream [stream (make-tcp-stream-options)]
                 #:options [options #f])
-  (listen-tcp-profile 'listen TRANSPORT-TCP bind-host port #f codec
+  (listen-tcp-profile 'listen TRANSPORT-TCP TCP-PROFILE-TCP bind-host port #f codec
                       captp-version features advertised-host time-travel?
-                      shared-host config options))
+                      shared-host stream options))
 
 (define (listen-keyed-tcp bind-host [port 0] #:seed [seed #f] #:codec [codec #f]
                           #:captp-version [captp-version #f]
@@ -118,11 +120,11 @@
                           #:advertised-host [advertised-host #f]
                           #:time-travel? [time-travel? #f]
                           #:host [shared-host #f]
-                          #:config [config (make-tcp-config)]
+                          #:stream [stream (make-tcp-stream-options)]
                           #:options [options #f])
-  (listen-tcp-profile 'listen-keyed-tcp TRANSPORT-KEYED-TCP bind-host port seed codec
+  (listen-tcp-profile 'listen-keyed-tcp TRANSPORT-KEYED-TCP TCP-PROFILE-KEYED-TCP bind-host port seed codec
                       captp-version features advertised-host time-travel?
-                      shared-host config options))
+                      shared-host stream options))
 
 (define (listen-noise-tcp bind-host [port 0] #:seed [seed #f] #:codec [codec #f]
                           #:captp-version [captp-version #f]
@@ -130,11 +132,11 @@
                           #:advertised-host [advertised-host #f]
                           #:time-travel? [time-travel? #f]
                           #:host [shared-host #f]
-                          #:config [config (make-tcp-config)]
+                          #:stream [stream (make-tcp-stream-options)]
                           #:options [options #f])
-  (listen-tcp-profile 'listen-noise-tcp TRANSPORT-NOISE-TCP bind-host port seed codec
+  (listen-tcp-profile 'listen-noise-tcp TRANSPORT-NOISE-TCP TCP-PROFILE-NOISE-TCP bind-host port seed codec
                       captp-version features advertised-host time-travel?
-                      shared-host config options))
+                      shared-host stream options))
 
 (define (server-port s)
   (define-values (_host port)

@@ -63,6 +63,12 @@ async fn main() -> glowcap::Result<()> {
 }
 ```
 
+A provider registers `noise-tcp` alone. Plain `tcp` and `keyed-tcp` send cleartext with no
+peer proof, so each is an explicit opt-in:
+`tcp::Config { profiles: tcp::Profiles::TCP.with(tcp::Profiles::KEYED_TCP), ..Default::default() }`.
+A runtime without a locator's profile refuses the dial with `ErrorKind::InvalidArgument` and the
+transport-unavailable cause, so branch on the cause.
+
 ### Run the greeter server
 
 Create `src/bin/server.rs` with the program below, using the same Cargo
@@ -338,7 +344,7 @@ same verified cache as the desktop SDK. No Zig toolchain is needed.
 
 ```toml
 [dependencies]
-glowcap = { version = "0.1.6", default-features = false, features = ["browser"] }
+glowcap = { version = "0.1.7", default-features = false, features = ["browser"] }
 ```
 
 Install the Rust target with `rustup target add wasm32-unknown-unknown`, then
@@ -373,10 +379,10 @@ peer's address and key, and can carry proof that the channel was verified.
 After a channel is transferred to the Host, the Host owns closing it:
 
 - Session release, `closed()`, and the first `serve()` observation wait for
-  the channel to finish closing, even if an earlier close observer is cancelled. <!-- status-allow: runtime state or operation ordering -->
+  the channel to finish closing, even if an earlier close observer is cancelled.
 - If closing the channel fails, Session and Host shutdown observers both
   receive the error. Unrelated sessions keep running.
-- `serve()` reports a previously retained outbound failure instead of clean <!-- status-allow: runtime state or operation ordering -->
+- `serve()` reports a previously retained outbound failure instead of clean
   EOF.
 - A refused channel or handshake closes the transferred channel before
   returning its error. Cancelling an unfinished handshake abandons its

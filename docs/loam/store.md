@@ -38,7 +38,7 @@ holding the directory are distinct failures. No error falls back to volatile
 storage or resets an existing store.
 
 A program that saves its store identity before it first opens the store can
-use `.bootstrap = identity`. It creates the store if it is missing, opens it
+use `.mode = .bootstrap`. It creates the store if it is missing, opens it
 if it exists, keeps existing records, and refuses damaged or mismatched
 metadata. Switch to `.open` once your program knows the store holds its
 application root, so a missing store is reported instead of quietly replaced
@@ -71,8 +71,13 @@ exceeds it. A read begun past it outside the worker is refused as
 
 ## Changing records
 
-A transaction runs `begin`, then `allocateId` for each new record, then
-`putCopying` or `remove` for each change, then `prepare` and `beginWrite`.
+A transaction runs these steps in order:
+
+1. `begin`.
+2. `allocateId` for each new record.
+3. `putCopying` or `remove` for each change.
+4. `prepare`, then `beginWrite`.
+
 When the change builds a cycle, allocate every new ID before writing any
 record, so each record can name the others.
 
@@ -108,7 +113,7 @@ again.
 
 Keep the Store and engine open until recovery succeeds. Closing and reopening
 the engine starts a new Store, as a process restart does, and the new Store
-cannot recover the old one's write. <!-- status-allow: runtime state or operation ordering -->
+cannot recover the old one's write.
 
 A timeout or an abandoned caller does not prove the write aborted, so neither
 one lets the Store take new work. The [storage tests](../../test/loam/engines/storage_test.zig)

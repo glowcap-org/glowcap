@@ -201,7 +201,7 @@ function NarrowRow(
  *  narrowing row instead.
  *
  *  The control reads as the shared value when they agree and as
- *  "— mixed —" when they do not, and picking any concrete option
+ *  "Mixed values" when they do not, and picking any concrete option
  *  broadcasts to every one of them inside a single edit transaction.
  *
  *  What it reads is what the next write would set. The single-entity
@@ -331,7 +331,7 @@ function SharedFields(
 }
 
 /** The value every entry carries, or null when they disagree (or
- *  there are none). Null is what drives the "— mixed —" sentinel. */
+ *  there are none). Null is what drives the "Mixed values" sentinel. */
 function sharedOrNull<T>(values: readonly T[]): T | null {
 	if (values.length === 0) return null;
 	const first = values[0]!;
@@ -389,7 +389,7 @@ function ShiftGroup(
 										color: c.textSubtle,
 									}}
 								>
-									—
+									none
 								</span>
 							)
 					}

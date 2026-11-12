@@ -8,8 +8,8 @@ const std = @import("std");
 const fifo = @import("../fifo.zig");
 
 /// Capacity retained after a queue drains. Larger burst backing is released.
-/// At 500k connections, pinning even a few extra KiB per queue costs GiB, so a
-/// burst cannot become the peer's permanent footprint. Capacity at or below
+/// Pinning even a few extra KiB per queue costs GiB across many connections,
+/// so a burst cannot become the peer's permanent footprint. Capacity at or below
 /// this bound remains allocation-free across steady turns. Freeing a larger
 /// burst costs one growth allocation only at the start of the next burst.
 /// Allocation and footprint budget tests pin both sides of that contract.

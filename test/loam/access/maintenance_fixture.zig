@@ -1,4 +1,4 @@
-//! Shared bounded native maintenance driver.
+//! Shared bounded LMDB maintenance driver.
 const h = @import("hosting_fixture.zig");
 const f = h.f;
 const storage = h.c.storage;

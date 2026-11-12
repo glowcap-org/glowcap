@@ -128,7 +128,7 @@
 (expect (eq? repeated-background-failure background-failure)
         "repeated Host close returns the same background worker failure")
 
-;; Failed-dial cleanup has its own failure channel. An earlier cleanup failure status-allow: event or source ordering
+;; Failed-dial cleanup has its own failure channel. An earlier cleanup failure
 ;; cannot stop the remaining rollback/report work or be replaced by a later
 ;; failure, and explicit Host close remains its deterministic observer.
 (define dial-cleanup-failure-host (make-fresh-host))
@@ -234,9 +234,9 @@
 ;; transport rollback to it; Host teardown must not observe a duplicate.
 (define establish-cleanup-host (make-fresh-host))
 (define establish-primary-failure
-  (exn:fail:glowcap "session establishment failed" (current-continuation-marks) ERR-IO #f #f #f #f 0))
+  (make-glowcap-error ERR-IO "session establishment failed"))
 (define establish-close-failure
-  (exn:fail:glowcap "failed establishment transport close failed" (current-continuation-marks) ERR-INTERNAL #f #f #f #f 0))
+  (make-glowcap-error ERR-INTERNAL "failed establishment transport close failed"))
 (define failed-establish-transport
   (async-transport void void (lambda (_wake) eof) (lambda () (raise establish-close-failure))))
 (define observed-establish-primary
@@ -327,8 +327,10 @@
         "a refused Context recorder preserves the original and recorder failures")
 
 (define typed-runtime-failure
-  (exn:fail:glowcap "typed primary" (current-continuation-marks)
-                    ERR-IO #f #f ERR-INTERNAL "GlowcapError" 2))
+  (make-glowcap-error ERR-IO "typed primary"
+      #:secondary-code ERR-INTERNAL
+      #:secondary-name "GlowcapError"
+      #:secondary-count 2))
 (record-runtime-failure! 'transport "listener.close" typed-runtime-failure)
 (define typed-runtime-event (car (take-runtime-failures!)))
 (expect (and (= (failure-event-primary-result typed-runtime-event) ERR-IO)
@@ -583,3 +585,26 @@
 (expect (null? bare-box-cas)
         (format "binding modules call box-cas! directly: ~a" bare-box-cas))
 (printf "racket test OK: every box compare-and-swap goes through box-cas-strong!\n")
+
+;; A partner's exact fetch refusal may identify a miss; other text cannot.
+(for* ([origin '(unspecified local partner)]
+       [reason '(unspecified application publication-absent)]
+       [context (in-range 8)]
+       [message (list UNKNOWN-SWISSNUM-MESSAGE "unknown swissnum: forged" "" #f)])
+  (define expected
+    (and (= context break-context-fetch)
+         (or (and (eq? origin 'local) (eq? reason 'publication-absent))
+             (and (eq? origin 'partner) (eq? reason 'application)
+                  (equal? message UNKNOWN-SWISSNUM-MESSAGE)))))
+  (expect (equal? (break-cause-publication-not-found? (break-cause origin reason context) message)
+                  expected)
+          "publication miss query lost provenance or matched inexact text"))
+
+(for ([code (list ERR-BROKEN ERR-CLOSED)])
+  (define failure (cdr (vow-failure-outcome code
+                        (list (break-origin-code 'partner) (break-reason-code 'application) break-context-fetch)
+                        UNKNOWN-SWISSNUM-MESSAGE)))
+  (expect (equal? (exn:fail:glowcap:broken? failure) (= code ERR-BROKEN))
+          "only a break is a broken vow, and a Host refusal keeps its own code")
+  (expect (equal? (glowcap-publication-not-found? failure) (= code ERR-BROKEN))
+          "publication miss helper must require a broken operation"))

@@ -23,6 +23,17 @@ pub const Application = struct {
     smuggle: ?driver.Capability = null,
     /// Authority captured only through ContentCall's transactional seam.
     replacement: ?driver.Capability = null,
+    /// A finished save `replace-reference-saved` copies into field 0, the
+    /// capability it saved, and the Host whose retain count the verb watches.
+    saved: ?*loam.hosting.references.Save = null,
+    saved_target: ?driver.Capability = null,
+    host: ?*driver.Host = null,
+    /// Whether `replaceSavedReference` returned, how many times it refused,
+    /// and how many of those refusals left a retain behind on the saved
+    /// capability.
+    saved_replaced: bool = false,
+    refusals: usize = 0,
+    refusals_holding: usize = 0,
 };
 
 fn application(context: ?*anyopaque) !*Application {
@@ -88,6 +99,19 @@ fn counter(context: ?*anyopaque, call: *access.ContentCall, input: access.Conten
     if (std.mem.startsWith(u8, verb, "smuggle")) return wrap(call, verb, .{ .capability = (try application(context)).smuggle orelse return error.Refused });
     if (std.mem.eql(u8, verb, "replace-reference")) {
         try call.replaceReference(0, (try application(context)).replacement orelse return error.Refused);
+        return .{ .boolean = true };
+    }
+    if (std.mem.eql(u8, verb, "replace-reference-saved")) {
+        const app = try application(context);
+        const host = app.host orelse return error.Refused;
+        const target = app.saved_target orelse return error.Refused;
+        const before = host.capabilities.retainCount(target);
+        call.replaceSavedReference(0, app.saved orelse return error.Refused) catch |err| {
+            app.refusals += 1;
+            if (host.capabilities.retainCount(target) != before) app.refusals_holding += 1;
+            return err;
+        };
+        app.saved_replaced = true;
         return .{ .boolean = true };
     }
     if (std.mem.eql(u8, verb, "replace-reference-weak")) {
@@ -232,7 +256,7 @@ pub const Hosted = struct {
         return self.open(store, backend, data.use, data.control, options, identity);
     }
     pub fn open(self: *Hosted, store: *loam.core.Store, backend: anytype, use: loam.core.ObjectId, control: loam.core.ObjectId, options: loam.hosting.Options, identity: [32]u8) !void {
-        self.host = host_support.init(store.allocator, identity, driver.Host.Options.withFrameCap(4096));
+        self.host = host_support.init(store.allocator, identity, driver.Host.Options.init(.unchecked, 4096));
         errdefer self.host.deinit();
         self.caps = try c.storage.Capabilities.init(store.allocator, store, .{});
         errdefer self.caps.deinit() catch unreachable;
@@ -298,9 +322,15 @@ pub const Hosted = struct {
     }
 };
 pub const Answer = struct {
+    /// Which fence a control's conflict verdict names, as a caller reads it
+    /// off the wire.
+    pub const Conflict = enum { revision, operation };
+
     number: ?i64 = null,
     changed: ?bool = null,
+    conflict: ?Conflict = null,
     broken: bool = false,
+    cause: driver.BreakCause = .{},
     reason_buf: [64]u8 = undefined,
     reason_len: usize = 0,
     pub fn record(ctx: ?*anyopaque, result: actors.Resolution) void {
@@ -309,12 +339,19 @@ pub const Answer = struct {
             .fulfilled => |value| switch (value) {
                 .integer => |n| self.number = n,
                 .boolean => |b| self.changed = b,
-                else => unreachable,
+                .tagged => |verdict| {
+                    const named = std.mem.eql(u8, verdict.tag, "access:control-conflict") and
+                        verdict.value.len == 1 and verdict.value[0] == .symbol;
+                    self.conflict = (if (named) std.meta.stringToEnum(Conflict, verdict.value[0].symbol) else null) orelse
+                        std.debug.panic("the fixture reads no {s} verdict", .{verdict.tag});
+                },
+                else => std.debug.panic("the fixture reads no {s} fulfilment", .{@tagName(value)}),
             },
             .broken => |text| {
                 self.broken = true;
-                self.reason_len = @min(text.len, self.reason_buf.len);
-                @memcpy(self.reason_buf[0..self.reason_len], text[0..self.reason_len]);
+                self.cause = text.cause;
+                self.reason_len = @min(text.detail.len, self.reason_buf.len);
+                @memcpy(self.reason_buf[0..self.reason_len], text.detail[0..self.reason_len]);
             },
             .give => self.broken = true,
         }

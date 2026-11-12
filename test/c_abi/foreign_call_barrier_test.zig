@@ -43,7 +43,7 @@ test "connection release waits for admitted foreign operations" {
     const io = threaded.io();
     var shutdown_called: std.Io.Semaphore = .{ .permits = 0 };
     var deinitialized: std.atomic.Value(bool) = .init(false);
-    const payload = lifecycle.begin(std.testing.allocator, 1).?;
+    const payload = try lifecycle.begin(std.testing.allocator, 1);
     payload.stream = .{
         .io = io,
         .shutdown_called = &shutdown_called,
@@ -95,7 +95,7 @@ test "connection shutdown propagates its exact cause once" {
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
     var shutdown_calls: usize = 0;
-    const payload = lifecycle.begin(std.testing.allocator, 1).?;
+    const payload = try lifecycle.begin(std.testing.allocator, 1);
     payload.stream = .{ .io = threaded.io(), .shutdown_calls = &shutdown_calls };
 
     try std.testing.expectError(error.InterruptRefused, lifecycle.shutdown(payload));
@@ -130,7 +130,7 @@ test "connection release returns its shutdown cause after cleanup" {
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
     var deinitialized = false;
-    const payload = lifecycle.begin(std.testing.allocator, 1).?;
+    const payload = try lifecycle.begin(std.testing.allocator, 1);
     payload.stream = .{ .io = threaded.io(), .deinitialized = &deinitialized };
 
     try std.testing.expectError(error.InterruptRefused, lifecycle.destroy(payload));

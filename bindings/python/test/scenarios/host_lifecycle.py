@@ -168,7 +168,7 @@ def run() -> None:
             pass
 
     consumed_state = _host_module._HostFinalizerState(ctypes.c_void_p(2), {}, [], {}, FinalizerRecorder(), 73)
-    _host_module._host.glowcap_host_release = lambda _raw: ERR_IO
+    _host_module._host.glowcap_host_release = lambda _raw: -ERR_IO
     try:
         _host_module._release_finalizer_state(consumed_state, checked=False)
         assert consumed_state.raw is None, "a consumed Host release retained a dangling pointer"

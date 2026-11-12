@@ -26,7 +26,7 @@ for (const target of [room, direct]) {
 				f.apply();
 				assertEquals(store.activeConv(f.page.projection)?.key, view.key);
 				// Choosing the same room again is a new gesture, even while its
-				// earlier selection receipt still waits for acknowledgment. status-allow: event or source ordering
+				// earlier selection receipt still waits for acknowledgment.
 				f.navigation.choice = { id: row.id, operation: "next-choice" };
 				f.projection.apply();
 				assertEquals(f.selected().persistId, row.id);
@@ -49,10 +49,11 @@ for (const retirement of ["notice", "snapshot", "replacement"] as const) {
 				cursor: text,
 				gap: false,
 				event: {
+					at: 0,
 					target: { kind: "room", id: row.id },
 					notice: { kind: "line", from: "bo", text, marker: { id: 1, change } },
 				},
-			});
+			}, false);
 		try {
 			line("old generation");
 			const key = f.selected().key;
@@ -63,8 +64,8 @@ for (const retirement of ["notice", "snapshot", "replacement"] as const) {
 				f.projection.activity({
 					cursor: "ended",
 					gap: false,
-					event: { target: { kind: "room", id: row.id }, notice: { kind: "ended" } },
-				});
+					event: { at: 0, target: { kind: "room", id: row.id }, notice: { kind: "ended" } },
+				}, false);
 			} else if (retirement === "snapshot") {
 				delete row.seat;
 				f.apply();
@@ -237,10 +238,11 @@ Deno.test("room traffic cannot enable the composer before the accepted seat, and
 		f.projection.activity({
 			cursor: "early",
 			event: {
+				at: 0,
 				target: { kind: "room", id: row.id },
 				notice: { kind: "line", from: "bo", text: "already here" },
 			},
-		});
+		}, false);
 		assertEquals(
 			(f.selected() as import("../../../web/ui/conversation.ts").RoomConv).membership === "joined",
 			false,
@@ -252,10 +254,11 @@ Deno.test("room traffic cannot enable the composer before the accepted seat, and
 		f.projection.activity({
 			cursor: "ended",
 			event: {
+				at: 0,
 				target: { kind: "room", id: row.id },
 				notice: { kind: "ended" },
 			},
-		});
+		}, false);
 		f.apply();
 		assertEquals((f.selected() as import("../../../web/ui/conversation.ts").RoomConv).membership, "unavailable");
 		row.inbox = "replacement-inbox";
@@ -289,10 +292,11 @@ Deno.test("a replacement callback waits for its own seat without discarding reta
 			cursor: "early-line",
 			gap: false,
 			event: {
+				at: 0,
 				target: { kind: "room", id: row.id },
 				notice: { kind: "line", from: "bo", text: "before seat adoption" },
 			},
-		});
+		}, false);
 		assertEquals(membership(), "unavailable");
 		row.seat = "replacement-seat";
 		f.apply();
@@ -314,10 +318,11 @@ Deno.test("an ended room membership empties its roster and says why", () => {
 		f.projection.activity({
 			cursor: "closed",
 			event: {
+				at: 0,
 				target: { kind: "room", id: row.id },
 				notice: { kind: "ended", reason: "room-retired: An operator removed this room." },
 			},
-		});
+		}, false);
 		const ended = f.selected();
 		assert(ended.type === "room", "room remains selected");
 		assertEquals(ended.membership, "unavailable");

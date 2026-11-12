@@ -213,7 +213,7 @@ try {
 	// field it holds has to answer it. A returning reader arrives with a
 	// directory they used before, and the link says nothing about it out loud;
 	// it only names a room here, which can mean this directory and nothing
-	// else. Silence there would let the earlier address stand, so a link to a status-allow: event or source ordering
+	// else. Silence there would let the earlier address stand, so a link to a
 	// room on this page would offer to join it somewhere the link never mentioned.
 	//
 	// The same tab then asks for the card with nothing named, which is where
@@ -393,6 +393,12 @@ try {
 	if (await tab.inputValue("#nick") !== "") {
 		fail("a successful join left its exact nickname override prefilled for the next room");
 	}
+	// The placeholder promises the grant of the directory the empty field aims
+	// at, and promises the guest offer while that directory is unreached. The
+	// boot screen comes down before the reloaded page reconnects, so the promise
+	// is read once the foot says the directory is connected.
+	await tab.waitForSelector("#dot.connected", { timeout: 30_000 })
+		.catch(() => fail("the reloaded page never reconnected to its directory"));
 	const promisedNick = await tab.getAttribute("#nick", "placeholder");
 	if (promisedNick !== "bob-2") {
 		fail(`the empty nickname field promised ${JSON.stringify(promisedNick)}, not the granted name`);

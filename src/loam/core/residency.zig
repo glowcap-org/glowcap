@@ -5,7 +5,7 @@
 //! older pinned snapshot of the same record hangs off the first by `chain`,
 //! so a hit costs one hash probe however many slots the store was given and
 //! a commit, which only moves revisions, touches no key. The slot inventory
-//! stays the authority for what is resident; the index changes only where
+//! stays the authority for what is resident. The index changes only where
 //! slot contents do, in `place` and `discard`.
 const std = @import("std");
 const identity_hash = @import("foundation").identity_hash;
@@ -59,7 +59,7 @@ const Slot = struct {
             // This exact immutable portrait, including historical edges, has
             // reported its collector obligations for the current local cycle.
             collection_reported: bool = false,
-            /// Landed by read-ahead and not yet pinned. While its snapshot is status-allow: pending state or quoted runtime label
+            /// Landed by read-ahead and not yet pinned. While its snapshot is
             /// current it counts against the read-ahead window, so read-ahead
             /// cannot outrun its consumer and evict what it loaded before
             /// demand arrives. A stale one is ordinary free room.
@@ -102,7 +102,7 @@ pub const Cache = struct {
     allocator: std.mem.Allocator,
     slots: []Slot,
     pins: []Pin,
-    /// The newest-placed slot holding each record; its `chain` reaches any
+    /// The newest-placed slot holding each record. Its `chain` reaches any
     /// older snapshot still resident. Sized to the slot count at `init`, so
     /// no later operation allocates for it.
     index: identity_hash.ArrayMap(records.ObjectId, u32),
@@ -201,6 +201,7 @@ pub const Cache = struct {
         }
         const index = victim orelse return false;
         const slot = &self.slots[index];
+        // tolerant: the u64 use counter's overflow refuses this install before any slot changes.
         const used = self.sequence() catch return false;
         self.discard(slot);
         while (self.allocated_bytes > self.budget - bytes.len) {

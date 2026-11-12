@@ -12,13 +12,15 @@
  * only the capability transport around that authority.
  */
 
+import type { LiveConnectionState } from "./status.ts";
 import type { TimelineEvent } from "../timeline.ts";
 import type { EngineError } from "../errors.ts";
 import type { BrowserRuntime, GlowcapWebModule } from "./glowcap-web-api.ts";
 import { makeBaseEventConverter } from "./feed.ts";
-import { type BaseTimelineEvent, numberFromWire } from "./record.ts";
+import { numberFromWire, parseWireRecord } from "./record.ts";
 
-const RECONNECT_MIN_MS = 500;
+/** The first reconnect waits this long, doubling to `RECONNECT_MAX_MS`. */
+export const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
 export const MAX_TRACE_RECORD_BYTES = 1 << 20;
 
@@ -27,7 +29,7 @@ function retirementError(cause: unknown): EngineError {
 		code: "internal",
 		title: "Live connection did not close cleanly",
 		detail: cause instanceof Error ? cause.message : String(cause),
-		recovery: "The feed is disconnected. Reconnect from Live if you still need it.",
+		recovery: "Reload the viewer before reconnecting from Live.",
 		cause,
 	};
 }
@@ -44,47 +46,50 @@ export type LivePeer = {
 export type LivePeerFactory = (
 	sturdyref: string,
 	onRecord: (line: string) => void,
+	signal: AbortSignal,
 ) => Promise<LivePeer>;
+
+class PeerSetupRetirementError extends AggregateError {
+	constructor(primary: unknown, readonly retirement: unknown) {
+		super([primary, retirement], retirement instanceof Error ? retirement.message : String(retirement), {
+			cause: primary,
+		});
+	}
+}
+
+class BrowserRuntimeStartupError extends Error {
+	constructor(cause: unknown) {
+		super(cause instanceof Error ? cause.message : String(cause), { cause });
+	}
+}
 
 let browserRuntimePromise: Promise<BrowserRuntime> | null = null;
 
-/** The capability the trace endpoint requires of the socket itself, presented
- * as the `cap` query parameter (the rooms endpoint's admission contract). The
- * sturdyref's swissnum IS that capability, so the viewer presents what it
- * already holds and the operator pastes nothing extra. Module state because
- * the runtime, and so its `wsUrl` mapping, is created once for the page,
- * while each dial's capability comes from the sturdyref being dialed. */
-let vizSocketCap = "";
-
 function wasmUrl(): string {
-	const configured = (globalThis as { __OCV_GLOWCAP_WASM_URL?: string })
-		.__OCV_GLOWCAP_WASM_URL;
-	return configured ?? "/glowcap_host.wasm";
+	const configured = globalThis.__OCV_GLOWCAP_WASM_URL;
+	return typeof configured === "string" ? configured : "/glowcap_host.wasm";
 }
 
 async function browserRuntime(): Promise<BrowserRuntime> {
 	if (browserRuntimePromise !== null) return await browserRuntimePromise;
 	browserRuntimePromise = (async () => {
-		const override = (globalThis as {
-			__OCV_GLOWCAP_WEB_LOADER?: () => Promise<GlowcapWebModule>;
-		}).__OCV_GLOWCAP_WEB_LOADER;
-		const web = override === undefined ? await import("virtual:glowcap-web") : await override();
+		const override = globalThis.__OCV_GLOWCAP_WEB_LOADER;
+		const web: GlowcapWebModule = typeof override === "function"
+			? await override()
+			: await import("virtual:glowcap-web");
 		// `init` is identity-sensitive. Keep this one options object
 		// for the page, so remounting Live mode does not attempt a second runtime.
 		return await web.init({
 			wasm: fetch(wasmUrl()),
-			wsUrl: (host, port) =>
-				vizSocketCap === ""
-					? `ws://${host}:${port}/`
-					: `ws://${host}:${port}/?cap=${encodeURIComponent(vizSocketCap)}`,
+			// The byte channel: fetching the trace object in CapTP presents the
+			// swiss, so the URL carries none.
+			wsUrl: (host, port) => `ws://${host}:${port}/captp`,
 		});
-	})();
-	try {
-		return await browserRuntimePromise;
-	} catch (error) {
+	})().catch((error) => {
 		browserRuntimePromise = null;
-		throw error;
-	}
+		throw new BrowserRuntimeStartupError(error);
+	});
+	return await browserRuntimePromise;
 }
 
 /** The production browser peer. The socket is created by `@glowcap/runtime` from
@@ -93,11 +98,12 @@ async function browserRuntime(): Promise<BrowserRuntime> {
 export const browserPeerFactory: LivePeerFactory = async (
 	sturdyref,
 	onRecord,
+	signal,
 ) => {
 	const runtime = await browserRuntime();
-	const { locator, swissnum } = runtime.parseSturdyRef(sturdyref, "v1_0");
-	vizSocketCap = new TextDecoder().decode(swissnum);
-	const session = await runtime.connect(locator);
+	signal.throwIfAborted();
+	const { locator } = runtime.parseSturdyRef(sturdyref, "v1_0");
+	const session = await runtime.connect(locator, { signal });
 	const closed = session.serve();
 	// One retirement per session, with one owner for its outcome. A retirement
 	// started while the pump is live (by the inbox, or by the feed) is adopted
@@ -132,7 +138,11 @@ export const browserPeerFactory: LivePeerFactory = async (
 		}
 		return retirement;
 	};
-	try {
+	let cancelSetup!: () => void;
+	const cancelled = new Promise<never>((_, reject) => {
+		cancelSetup = () => reject(signal.reason);
+	});
+	const construct = async (): Promise<LivePeer> => {
 		const inbox = session.spawn((verb, args) => {
 			if (
 				verb !== "record" || args.length !== 1 ||
@@ -149,7 +159,9 @@ export const browserPeerFactory: LivePeerFactory = async (
 			return null;
 		});
 		const trace = await session.enliven(sturdyref);
+		signal.throwIfAborted();
 		await session.send(trace, "subscribe", [inbox]);
+		signal.throwIfAborted();
 		return {
 			closed: gone,
 			close: () => {
@@ -157,13 +169,25 @@ export const browserPeerFactory: LivePeerFactory = async (
 				return pumpEnded ? started : gone;
 			},
 		};
+	};
+	try {
+		signal.addEventListener("abort", cancelSetup, { once: true });
+		signal.throwIfAborted();
+		return await Promise.race([construct(), cancelled]);
 	} catch (error) {
-		// tolerant: the failure that brought construction down is the one
-		// thrown; a close that then fails too is retirement of a session the
-		// caller never received, and its cause would only shadow the first.
-		await retire().catch(() => {});
-		await closed.catch(() => {});
-		throw error;
+		let failure = signal.aborted ? signal.reason : error;
+		try {
+			await retire();
+			// tolerant: a pump that ends in a fault is the session ending,
+			// which the setup failure already reports. Only a refused close
+			// is a failed retirement.
+			await closed.catch(() => {});
+		} catch (retirement) {
+			failure = new PeerSetupRetirementError(failure, retirement);
+		}
+		throw failure;
+	} finally {
+		signal.removeEventListener("abort", cancelSetup);
 	}
 };
 
@@ -174,12 +198,12 @@ export class LiveFeed {
 	#convert = makeBaseEventConverter();
 	#subscribers = new Set<(ev: TimelineEvent) => void>();
 	#errorSubscribers = new Set<(error: EngineError) => void>();
-	/** Who hears whether this feed is connected, or null when nobody
+	/** Who hears this feed's connection state, or null when nobody
 	 * owns it any more. A feed that has been disconnected clears the
 	 * slot, because `ws.onclose` fires asynchronously AFTER `close()`
 	 * returns: a slot left pointing at the last owner is how a
-	 * replaced feed writes `false` over its successor's `true`. */
-	#onConnectionChange: ((connected: boolean) => void) | null = null;
+	 * replaced feed writes `connecting` over its successor's `connected`. */
+	#onConnectionChange: ((state: LiveConnectionState) => void) | null = null;
 	/** Highest live-tail producer `seq` applied. A reconnect's snapshot still
 	 * passes through at old sequence numbers so it can reconcile current state.
 	 * Ordinary live records at or below this are dropped. Scoped to the
@@ -191,10 +215,11 @@ export class LiveFeed {
 	/** True after `disconnect()`. A deliberate close never
 	 * reconnects. A dropped connection does, with capped backoff. */
 	#closedByUser = false;
-	#reconnectTimer: number | null = null;
+	#reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	#reconnectDelayMs = RECONNECT_MIN_MS;
 	#generation = 0;
-	#connecting = false;
+	#dial: AbortController | null = null;
+	#requiresReload = false;
 
 	constructor(
 		sturdyref: string,
@@ -205,7 +230,7 @@ export class LiveFeed {
 	}
 
 	connect(): void {
-		if (this.#peer !== null || this.#connecting) return;
+		if (this.#peer !== null || this.#dial !== null || this.#requiresReload) return;
 		this.#closedByUser = false;
 		if (
 			!this.#sturdyref.startsWith("ocapn://") ||
@@ -220,39 +245,65 @@ export class LiveFeed {
 			return;
 		}
 		const generation = ++this.#generation;
-		this.#connecting = true;
+		const dial = new AbortController();
+		this.#dial = dial;
 		void this.#factory(
 			this.#sturdyref,
 			(line) => this.#receive(generation, line),
+			dial.signal,
 		).then(
 			(peer) => {
-				this.#connecting = false;
+				if (this.#dial === dial) this.#dial = null;
 				if (generation !== this.#generation || this.#closedByUser) {
 					this.#observeRetirement(peer.close());
 					return;
 				}
 				this.#peer = peer;
 				this.#reconnectDelayMs = RECONNECT_MIN_MS;
-				this.#onConnectionChange?.(true);
+				this.#onConnectionChange?.("connected");
 				void peer.closed.then(
 					() => this.#peerClosed(generation),
 					(cause) => this.#peerClosed(generation, cause),
 				);
 			},
 			(cause) => {
-				this.#connecting = false;
+				if (this.#dial === dial) this.#dial = null;
+				const cleanup = cause instanceof PeerSetupRetirementError ? cause : null;
 				if (generation !== this.#generation || this.#closedByUser) {
+					if (cleanup !== null) this.#emitError(retirementError(cleanup.retirement));
 					return;
 				}
-				this.#onConnectionChange?.(false);
+				const primary = cleanup === null ? cause : cleanup.cause;
+				if (cleanup !== null) this.#requiresReload = true;
+				this.#onConnectionChange?.(
+					cleanup !== null || primary instanceof BrowserRuntimeStartupError ? "stopped" : "connecting",
+				);
+				// The application modal keeps the latest error. Report cleanup
+				// separately, then keep both details visible with the primary.
+				if (cleanup !== null) this.#emitError(retirementError(cleanup.retirement));
+				const detail = primary instanceof Error ? primary.message : String(primary);
+				const cleanupDetail = cleanup === null ? "" : `\n\nCleanup failed: ${cleanup.message}`;
+				const recovery = cleanup === null
+					? "Check the sturdyref and the rooms server, then wait for reconnect."
+					: "Automatic reconnect stopped because session cleanup failed. Reload the viewer before reconnecting.";
+				if (primary instanceof BrowserRuntimeStartupError) {
+					this.#emitError({
+						code: "internal",
+						title: "Live runtime could not start",
+						detail: detail + cleanupDetail,
+						recovery: "Reload the viewer. If startup still fails, check its browser assets.",
+						cause: primary.cause,
+					});
+					return;
+				}
 				this.#emitError({
 					code: "internal",
 					title: "Live capability unreachable",
-					detail: cause instanceof Error ? cause.message : String(cause),
-					recovery: "Check the sturdyref and the rooms server, then wait for reconnect.",
-					cause,
+					detail: detail + cleanupDetail,
+					recovery,
+					cause: primary,
 				});
-				this.#scheduleReconnect();
+				if (cleanup === null) this.#scheduleReconnect();
 			},
 		);
 	}
@@ -265,7 +316,7 @@ export class LiveFeed {
 			return;
 		}
 		try {
-			const raw = JSON.parse(line) as BaseTimelineEvent;
+			const raw = parseWireRecord(line);
 			const epoch = numberFromWire(raw.epoch);
 			if (epoch != null && epoch !== this.#epoch) {
 				this.#epoch = epoch;
@@ -301,8 +352,7 @@ export class LiveFeed {
 	#peerClosed(generation: number, cause?: unknown): void {
 		if (generation !== this.#generation || this.#closedByUser) return;
 		this.#peer = null;
-		this.#connecting = false;
-		this.#onConnectionChange?.(false);
+		this.#onConnectionChange?.("connecting");
 		if (cause !== undefined) {
 			this.#emitError({
 				code: "internal",
@@ -320,7 +370,7 @@ export class LiveFeed {
 		this.#reconnectTimer = setTimeout(() => {
 			this.#reconnectTimer = null;
 			this.connect();
-		}, this.#reconnectDelayMs) as unknown as number;
+		}, this.#reconnectDelayMs);
 		this.#reconnectDelayMs = Math.min(
 			this.#reconnectDelayMs * 2,
 			RECONNECT_MAX_MS,
@@ -335,6 +385,8 @@ export class LiveFeed {
 	disconnect(): void {
 		this.#closedByUser = true;
 		this.#generation += 1;
+		this.#dial?.abort();
+		this.#dial = null;
 		this.#onConnectionChange = null;
 		if (this.#reconnectTimer !== null) {
 			clearTimeout(this.#reconnectTimer);
@@ -344,7 +396,6 @@ export class LiveFeed {
 			this.#observeRetirement(this.#peer.close());
 			this.#peer = null;
 		}
-		this.#connecting = false;
 	}
 
 	/** A retirement has no caller to answer to: `disconnect()` returns before
@@ -363,18 +414,18 @@ export class LiveFeed {
 	}
 
 	/**
-	 * Hear whether this feed is connected. Returns an unsubscribe, the
+	 * Hear this feed's connection state. Returns an unsubscribe, the
 	 * way `subscribe` does, and for the same reason one level
 	 * up: the owner that registered has to be able to stop being the
 	 * owner. A slot with no way out is what let a torn-down feed's late
-	 * `onclose` write `false` into a live component's state after its
-	 * replacement had already reported `true`.
+	 * `onclose` write `connecting` into a live component's state after its
+	 * replacement had already reported `connected`.
 	 *
 	 * One slot, not a set: the connection is one fact about one socket
 	 * and the app shows it in one place. Registering a second callback
 	 * replaces the first.
 	 */
-	onConnectionChange(cb: (connected: boolean) => void): () => void {
+	onConnectionChange(cb: (state: LiveConnectionState) => void): () => void {
 		this.#onConnectionChange = cb;
 		return () => {
 			if (this.#onConnectionChange === cb) {

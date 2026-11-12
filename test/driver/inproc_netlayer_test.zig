@@ -17,6 +17,7 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
+const wait = @import("../support/wait.zig");
 
 const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
@@ -145,14 +146,33 @@ test "inproc netlayer: closing the listener wakes a parked accept cleanly" {
 
     const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = "close-me" });
 
-    // Park an accept on its own fiber, give it time to reach the wait, then
-    // close the listener out from under it. The woken accepter must observe
-    // the close and return before the listener frees its mutex and pending
-    // list, the waiter accounting in the close path is what makes that safe.
+    // Park an accept on its own fiber, wait until it has released the lock to
+    // wait, then close the listener out from under it. The woken accepter must
+    // observe the close and return before the listener frees its mutex and
+    // pending list, the waiter accounting in the close path is what makes
+    // that safe.
     var accept_future = try io.concurrent(acceptUntilClosed, .{ listener, allocator });
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try untilOperationParked(io, listener);
     netlayer_test.close(listener);
     try accept_future.await(io);
+}
+
+/// Wait until one accept or readiness operation is in flight on `listener`
+/// and has released the listener lock to wait. Each operation counts itself
+/// under the lock and holds it until its wait releases it, so a count seen
+/// under the lock is a parked operation. A close from here on wakes it rather
+/// than racing its entry.
+fn untilOperationParked(io: std.Io, listener: net.netlayer.Listener) !void {
+    const state: *inproc.InprocListener = @ptrCast(@alignCast(listener.ctx));
+    const deadline = wait.deadlineAfter(io, wait.default_deadline_ms);
+    while (true) {
+        state.mutex.lockUncancelable(io);
+        const operations = state.operations;
+        state.mutex.unlock(io);
+        if (operations != 0) return;
+        if (wait.expired(io, deadline)) return error.WaitTimedOut;
+        std.Thread.yield() catch {};
+    }
 }
 
 fn waitFiniteUntilClosed(listener: net.netlayer.Listener) anyerror!void {
@@ -170,7 +190,7 @@ test "inproc netlayer: close joins a finite readiness wait before freeing storag
 
     const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = "finite-close" });
     var waiter = try io.concurrent(waitFiniteUntilClosed, .{listener});
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try untilOperationParked(io, listener);
     netlayer_test.close(listener);
     try waiter.await(io);
 }
@@ -195,7 +215,7 @@ test "inproc netlayer: unbounded waitAcceptable parks until a dial arrives" {
 
     var outcome = std.atomic.Value(u8).init(0);
     var waiter = try io.concurrent(waitAcceptableForever, .{ listener, &outcome });
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real);
     try std.testing.expectEqual(@as(u8, 0), outcome.load(.acquire));
 
     var peer = engine.Peer.initNegotiating(allocator);
@@ -315,7 +335,7 @@ test "inproc listener close drains an in-flight arrival notification" {
 
     var close_returned = std.atomic.Value(bool).init(false);
     var close = try io.concurrent(closeRawListener, .{ listener, &close_returned });
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real);
     try std.testing.expect(!close_returned.load(.acquire));
 
     release.store(true, .release);

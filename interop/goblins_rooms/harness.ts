@@ -21,7 +21,7 @@
 //      member subscribes names which member that session carries.
 //   4. The vat reports its own end of that session to the same stream, and the
 //      two ends name the session identically. The vat is pointed at the
-//      endpoint with `GLOWCAP_ROOMS_TRACE_URL`, so the wire it holds is described twice,
+//      endpoint with `GLOWCAP_ROOMS_TRACE_URL` and `GLOWCAP_ROOMS_TRACE_CAP`, so the wire it holds is described twice,
 //      once from each side. A viewer draws one edge per OCapN Session ID, and
 //      neither end is ever told that name, each derives it from the two
 //      session keys the handshake exchanged. So this is where glowcap's
@@ -34,7 +34,7 @@
 import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
 import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
 import { CAPTP_VERSION_WIRE, type TraceEvent } from "@glowcap/runtime";
-import { connectTraceViewer, tracePublishUrlOf } from "../../apps/rooms/test/trace/viewer.ts";
+import { connectTraceViewer, vatTraceEnv } from "../../apps/rooms/test/trace/viewer.ts";
 import { fail } from "../../apps/rooms/test/support/fail.ts";
 
 /** `--iroh` runs the same room over encrypted QUIC instead of cleartext TCP.
@@ -248,10 +248,10 @@ try {
 	trace = await watchTrace(traceRef);
 	// The vat is a producer rather than a viewer, and the two halves of this
 	// endpoint are reached differently: a viewer enlivens the capability above,
-	// while a producer opens a socket and writes records to it. So the vat is
-	// told where the endpoint listens, which the endpoint itself names in the
-	// sturdyref it announced.
-	const publishUrl = tracePublishUrlOf(traceRef);
+	// while a producer opens a socket, presents the swiss number as its first
+	// message, and writes records to it. So the vat is told the producer route
+	// and the swiss number, both read from the sturdyref the endpoint announced.
+	const vatTrace = vatTraceEnv(traceRef);
 
 	// Both members enter the same room and each waits to hear the other. The
 	// glowcap client posts once its whole roster is present, and the Goblins
@@ -297,7 +297,7 @@ try {
 				GLOWCAP_NICK,
 			],
 			ROOT,
-			{ env: { GLOWCAP_ROOMS_TRACE_URL: publishUrl }, echo: GOBLINS_NICK },
+			{ env: vatTrace, echo: GOBLINS_NICK },
 		),
 	]);
 
@@ -332,7 +332,7 @@ try {
 	expectTransport(goblinsServerView, `${GOBLINS_NICK} at the room`);
 	expectTransport(glowcapServerView, `${GLOWCAP_NICK} at the room`);
 
-	// The vat is a PRODUCER here, not only a member: `GLOWCAP_ROOMS_TRACE_URL` above points
+	// The vat is a PRODUCER here, not only a member: `vatTraceEnv` above points
 	// it at the same endpoint the server publishes to, so the wire it holds is
 	// reported from both of its ends. What has to hold is that the two reports
 	// name one wire and not two, a viewer draws one edge per OCapN Session ID,

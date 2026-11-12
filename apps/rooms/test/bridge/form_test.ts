@@ -8,7 +8,6 @@ import {
 	BridgeFieldSchema,
 	type BridgeForm,
 	bridgeFormFields,
-	bridgeFormHasSecret,
 	BridgeFormSchema,
 	bridgeFormSecretIds,
 	bridgeFormSubmission,
@@ -233,8 +232,6 @@ Deno.test("a form's fields read as one list, revealed ones included", () => {
 		"account",
 		"password",
 	]);
-	assertEquals(bridgeFormHasSecret(declared), true, "a password behind a toggle is still a password");
-	assertEquals(bridgeFormHasSecret(z.parse(BridgeFormSchema, form())), false);
 });
 
 Deno.test("bridge refresh updates untouched defaults without revoking edits or retaining removed secrets", async () => {

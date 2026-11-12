@@ -38,7 +38,7 @@ pub fn emit(io: std.Io, root: *const Command, shell: Shell) !void {
     try emitWith(&em, root, shell);
 }
 
-/// Hermetic: emit into an owned slice (tests; avoids Zig test `--listen=-` stdout).
+/// Emit into an owned slice, so a test does not write to stdout, which the Zig test runner uses for `--listen=-`.
 pub fn emitAlloc(gpa: std.mem.Allocator, root: *const Command, shell: Shell) ![]u8 {
     var list: std.ArrayList(u8) = .empty;
     errdefer list.deinit(gpa);

@@ -15,9 +15,8 @@ zig build rooms-irc-bridge -- \
 The command builds and runs the `rooms-irc-bridge` executable.
 `zig build rooms-irc-bridge-build` installs it without starting a service.
 By default it follows Libera's `#ocapn` over TLS and offers a `libera/#ocapn`
-room on a CapTP listener bound to the loopback address. The command prints the
-listener port and the room name. Join them with any Rooms client. IRC members
-appear as `irc/<nick>`.
+room on an iroh listener. The command prints the room's address and name. Join
+them with any Rooms client. IRC members appear as `irc/<nick>`.
 
 ### Identifying the bot
 
@@ -104,21 +103,24 @@ at one every <!-- value ../rust/services/src/irc/feed.rs INTERVAL seconds -->1.2
 - Bridge moderation removes Rooms memberships and carries no IRC operator
   privilege.
 
-Options after `--` choose another network, channel, nick, IRC endpoint, or
-Rooms port. They are `--network`, `--channel`, `--irc-host`, `--irc-port`,
-`--irc-nick`, `--irc-realname`, `--mode`, and `--sasl-account`, plus `--bind`,
-`--announce-host`, `--port`, and `--tls`. Use `--tls=false` only against a
-private, read-only test server.
+Options after `--` choose another network, channel, nick, or IRC endpoint.
+They are `--network`, `--channel`, `--irc-host`, `--irc-port`, `--irc-nick`,
+`--irc-realname`, `--mode`, `--sasl-account`, and `--tls`. Use `--tls=false`
+only against a private, read-only test server.
+
+`--transport` with the Rooms server's listener options chooses another
+listener for the room. Each also reads its `GLOWCAP_ROOMS_IRC_BRIDGE_`
+environment variable, such as `GLOWCAP_ROOMS_IRC_BRIDGE_TRANSPORT`.
 
 ## The IRC server: an IRC client on Rooms
 
 ```sh
-zig build rooms-irc-server -- --directory=127.0.0.1:9099
+zig build rooms-irc-server -- --directory=ROOMS_LOCATOR
 ```
 
-`--directory` takes the room server's locator in either form it prints: a
-TCP `host:port`, or the `ocapn://…iroh` locator an iroh server announces on
-its `ROOMS-SERVER-LISTENING` line and serves at the web server's `/locator`.
+`--directory` takes the room server's locator as the server prints it on
+its `ROOMS-SERVER-LISTENING` line and serves at the web server's `/locator`:
+an `ocapn://` locator, or a `host:port` for a server on plain TCP.
 A bare iroh node id is resolved through discovery, the way the server
 published it. A locator that carries direct addresses is dialed as written,
 with no relay and no lookup.
@@ -160,9 +162,15 @@ zig build rooms-irc-server -- \
 
 `--dm-transport=iroh` advertises an encrypted, endpoint-authenticated iroh
 locator instead. That is the setup to deploy when a Goblins vat should be able
-to dial in with no earlier contact, through this repository's Goblins iroh netlayer. <!-- status-allow: runtime state or operation ordering -->
+to dial in with no earlier contact, through this repository's Goblins iroh netlayer.
 `--dm-transport=tcp` is for local Goblins conformance testing, and it can only
 bind to loopback.
+
+The server dials members over `noise-tcp`, and over the transports its
+directory and its direct-message listener use. `--dial-transports` adds
+others, for example `--dial-transports=iroh` beside a TCP directory. A member
+whose address is on cleartext `tcp` or `keyed-tcp` is dialed only when one of
+the three names that transport.
 
 ## Bounds
 

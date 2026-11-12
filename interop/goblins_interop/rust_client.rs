@@ -61,7 +61,11 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 	// `connect` completes the keyed handshake; reaching here means Goblins
 	// accepted our signed start-session and we accepted its.
 	let locator = tcp::locator(HOST, port);
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())])).await?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await?;
 	let session = runtime.connect(&locator, ConnectOptions::default()).await?;
 	println!("rust-goblins-interop: session open, keyed start-session accepted by goblins");
 

@@ -4,6 +4,7 @@
 //! runs, sends to the promise and listens on it before the answer exists, the
 //! same question passed twice is one capability, and the session keeps
 //! serving through every settlement: data, a reference, and a break.
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
@@ -135,7 +136,7 @@ const Fixture = struct {
         Greeter.resolver = 0;
         Target.ran = 0;
         const gpa = std.testing.allocator;
-        self.dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .verify_partner = false });
+        self.dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .thread_policy = .unchecked, .verify_partner = false });
         self.acceptor = test_host.init(gpa, @as([32]u8, @splat(0x33)), acceptor_options);
         self.pair = try host_pair.openPair(&self.dialer, &self.acceptor, "127.0.0.1:9001");
         _ = try self.pair.b.served.publish(&self.acceptor.vat, "reader", driver.core.Hosting(Reader), .{ .inner = .{} });
@@ -198,7 +199,7 @@ const Fixture = struct {
 
 test "a pending answer passed as an argument reaches the actor and settles with the data" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
     defer f.deinit();
 
     try f.ask(7);
@@ -245,7 +246,7 @@ test "a pending answer passed as an argument reaches the actor and settles with 
 
 test "a lifted answer that settles with a reference shortens to that capability" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
     defer f.deinit();
     const target = try f.acceptor.spawn(f.pair.b, driver.core.Hosting(Target), .{ .inner = .{} });
     defer f.acceptor.releaseCapabilityTerminal(target, null);
@@ -289,7 +290,7 @@ fn dataNaming(entries: *[2]driver.Value.StructEntry, target: driver.Capability) 
 
 test "a settled answer holds the partner object it names until the answer is released" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
     defer f.deinit();
     const target = try fetchPartnerTarget(&f);
 
@@ -330,7 +331,7 @@ test "a settled answer holds the partner object it names until the answer is rel
 test "a lifted stored import survives either order of answer and Host capability release" {
     for ([_]bool{ false, true }) |answer_first| {
         var f: Fixture = undefined;
-        try f.init(.{ .verify_partner = false });
+        try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
         defer f.deinit();
         const original = try fetchPartnerTarget(&f);
         const far = f.acceptor.capabilities.resolve(original).?.remote.far;
@@ -379,7 +380,7 @@ test "a lifted stored import survives either order of answer and Host capability
 
 test "a lifted answer that breaks breaks what was queued on it" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
     defer f.deinit();
 
     try f.ask(7);
@@ -389,7 +390,7 @@ test "a lifted answer that breaks breaks what was queued on it" {
     var listened: capture.CapturedRef = .{};
     try f.acceptor.vowOn(Reader.listen_vow, .{ .ctx = &listened, .func = capture.CapturedRef.record });
 
-    try f.acceptor.resolverBreak(Greeter.resolver, "no greeting");
+    try f.acceptor.resolverBreak(Greeter.resolver, .{ .detail = "no greeting", .cause = BreakCause{} });
     try f.pump();
     try std.testing.expect(sent.broken);
     try std.testing.expectEqualStrings("no greeting", listened.reason_buf[0..listened.reason_len]);
@@ -398,7 +399,7 @@ test "a lifted answer that breaks breaks what was queued on it" {
 
 test "a lifted answer survives the partner releasing the question before it settles" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
     defer f.deinit();
 
     try f.ask(7);
@@ -418,7 +419,7 @@ test "a lifted answer survives the partner releasing the question before it sett
 
 test "lifted answers past the session's bound fail the one call and keep the session" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false, .limits = .{ .max_lifted_answers = 1 } });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false, .limits = .{ .max_lifted_answers = 1 } });
     defer f.deinit();
 
     try f.ask(7);
@@ -442,7 +443,7 @@ test "lifted answers past the session's bound fail the one call and keep the ses
 
 test "closing the session breaks its lifted answers" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
     defer f.deinit();
 
     try f.ask(7);
@@ -457,7 +458,7 @@ test "closing the session breaks its lifted answers" {
 
 test "an answer that resolves to another lifted answer follows it to the data" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
     defer f.deinit();
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -513,7 +514,7 @@ test "an answer that resolves to another lifted answer follows it to the data" {
 
 test "an answer that resolves to its own lifted promise breaks as a cycle" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false });
     defer f.deinit();
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -539,7 +540,7 @@ test "an answer that resolves to its own lifted promise breaks as a cycle" {
 
 test "a call refused after lifting an answer leaves no lifted answer behind" {
     var f: Fixture = undefined;
-    try f.init(.{ .verify_partner = false, .limits = .{ .max_lifted_answers = 1 } });
+    try f.init(.{ .thread_policy = .unchecked, .verify_partner = false, .limits = .{ .max_lifted_answers = 1 } });
     defer f.deinit();
 
     try f.ask(7);

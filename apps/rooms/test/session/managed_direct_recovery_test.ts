@@ -4,6 +4,8 @@ import { snapshot, viewer } from "../support/managed_viewer.ts";
 import { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
 import { ManagedActions } from "../../web/ui/session/managed/actions.ts";
+import { cannotSendRegistrationEnded } from "../../lib/text/conversation.ts";
+import { LocalRefusal } from "../../lib/text/failure.ts";
 import type { DirectIntent } from "../../web/ui/session/managed/model.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
@@ -51,7 +53,7 @@ for (const change of ["none", "draft", "source", "removed", "peer"] as const) {
 		}
 		let preparations = 0;
 		const operation = new ManagedOperation("reconnect", {
-			result: () => Promise.resolve({ status: "ready", inbox: "new-route" }),
+			result: () => Promise.resolve({ inbox: "new-route" }),
 			adopted: () => Promise.resolve(false),
 			originalIntent:
 				() => ["reconnect", 1, "startDirect", ["directory", "bob", "peer-registration", "new-opening"]],
@@ -132,7 +134,8 @@ Deno.test("direct reconnect refuses a reused name before introduction", async ()
 	]);
 	assertEquals(outcome.status, "rejected");
 	if (outcome.status === "rejected") {
-		assert(outcome.reason.message.includes("different registration"), "identity refusal is explicit");
+		assert(outcome.reason instanceof LocalRefusal, "a reused name is a refusal the page words");
+		assertEquals(outcome.reason.message, cannotSendRegistrationEnded);
 	}
 	assertEquals([freed, introduced], [1, 0]);
 });
@@ -156,12 +159,11 @@ Deno.test("direct action returns the adopted conversation identity after reconne
 			directoryReader: () =>
 				Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
 		},
-		waitNotice: () => ({ ready: Promise.resolve(), cancel() {} }),
 		command: (_name: string, args: string[]) => {
 			opening = args[3];
 			return Promise.resolve({
 				id: "receipt",
-				result: () => Promise.resolve({ status: "ready", inbox: "route" }),
+				result: () => Promise.resolve({ inbox: "route" }),
 			});
 		},
 		completeResult: () => {

@@ -8,7 +8,7 @@
 ;; that task. A watcher reports whether anything on the board changed since its
 ;; last look, and `watcher-stop` frees the board's observation context.
 ;;
-;;   (define b (board-join "127.0.0.1" 9099 board-name))
+;;   (define b (board-join locator board-name))
 ;;   (define w (board-watch b))
 ;;   (define t (board-add b "buy groceries"))
 ;;   (board-done b t)
@@ -40,10 +40,13 @@
 ;; original exceptions and the startup continuation marks until its caller drops it.
 (struct exn:fail:watcher-start exn:fail (primary cleanup) #:transparent)
 
-;; Join the board: connect, fetch it by name, and take its first two lists.
-(define (board-join host port name)
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
-  (define c (runtime-connect runtime (tcp-locator host port)))
+;; Join the board: dial the server's printed locator, fetch the board by name,
+;; and take its first two lists.
+(define (board-join locator name)
+  (define runtime (open-runtime
+                  #:providers
+                  (list (tcp-provider))))
+  (define c (runtime-connect runtime (parse-locator locator)))
   (define the-board (session-fetch c name))
   (board runtime c the-board
          (session-send c the-board 'list 0)

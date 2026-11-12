@@ -199,9 +199,9 @@ export const stateChipBase = {
 
 /** Lifecycle status of an entity at the current playhead.
  *  "active":     entity is on-stage right now (in the ECS)
- *  "before":     entity exists in the doc but hasn't started yet status-allow: pending state or quoted runtime label
- *                 (peer not yet joined / session not yet opened / status-allow: pending state or quoted runtime label
- *                 message not yet sent) status-allow: pending state or quoted runtime label
+ *  "before":     entity exists in the doc but hasn't started yet
+ *                 (peer not yet joined / session not yet opened /
+ *                 message not yet sent)
  *  "after":      entity has ended (peer left / session closed /
  *                 message delivered)
  *  "off-stage":  defensive: in the doc with no clear start/end
@@ -213,8 +213,8 @@ export type LifecycleStatus = "active" | "before" | "after" | "off-stage";
  *  lifecycle relative to the playhead. Selection itself is valid
  *  whenever the entity exists in the doc. This chip is what
  *  surfaces "exists but not on stage right now". `entity` colors
- *  the label with kind-specific vocabulary ("not yet joined" status-allow: pending state or quoted runtime label
- *  for peers, "not yet open" for sessions, etc.) so the chip status-allow: pending state or quoted runtime label
+ *  the label with kind-specific vocabulary ("not yet joined"
+ *  for peers, "not yet open" for sessions, etc.) so the chip
  *  reads naturally for each kind without callers post-processing
  *  a generic string. */
 export function LifecycleChip(

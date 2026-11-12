@@ -183,7 +183,7 @@ pub fn waitForTerminalSignal(self: *HostRuntime, timeout_ms: i32) !void {
         return;
     }
     try self.poll_scratch.resize(self.allocator, self.extra_fd_scratch.items.len);
-    _ = try net.waitAnyReadable(&.{}, self.poll_scratch.items, timeout, self.extra_fd_scratch.items);
+    _ = try net.waitAnyDescriptor(self.poll_scratch.items, timeout, self.extra_fd_scratch.items);
 }
 
 pub fn terminalCleanupPending(self: *HostRuntime) bool {
@@ -242,10 +242,19 @@ pub fn readyResident(self: *HostRuntime, start: usize) ?usize {
     return null;
 }
 
+/// The least time one spin round takes: reaping every resident through its
+/// vtable and issuing a spin hint costs more than a nanosecond on any target.
+const spin_round_floor_ns: i64 = 1;
+
 /// Spin for the runtime's busy-poll window, or for `timeout_ms` when that
 /// is shorter: reap every resident without a submit and return the first
 /// that holds a record, starting the round at `start`. The time spent comes
-/// off `timeout_ms`, so the park that follows keeps the caller's bound.
+/// off `timeout_ms`, so the park that follows keeps the caller's bound. The
+/// window reads the runtime's `std.Io` clock, the one its deadlines read.
+/// An injected clock may stand still while the thread spins, so the window
+/// also caps the rounds at one per `spin_round_floor_ns`. A moving clock
+/// always ends the spin first, and a still one ends it after at most
+/// `max_busy_poll_ns` rounds.
 pub fn spinForRecords(self: *HostRuntime, start: usize, timeout_ms: *i32) ?usize {
     const residents = self.residents.items.len;
     // Spin for a short window checking for work before asking the kernel to
@@ -254,12 +263,13 @@ pub fn spinForRecords(self: *HostRuntime, start: usize, timeout_ms: *i32) ?usize
     // is opt-in and keeps a core busy, so it pays off only for quick replies.
     var window_ns: i64 = @intCast(@min(self.opts.busy_poll_ns, std.math.maxInt(i64)));
     if (timeout_ms.* >= 0) window_ns = @min(window_ns, @as(i64, timeout_ms.*) * std.time.ns_per_ms);
-    const started = net.clock.nowMonotonicNs();
+    const started = net.clock.nowNs(self.io);
     defer if (timeout_ms.* > 0) {
-        const spent_ms = @divFloor(net.clock.nowMonotonicNs() - started, std.time.ns_per_ms);
+        const spent_ms = @divFloor(net.clock.nowNs(self.io) - started, std.time.ns_per_ms);
         timeout_ms.* -= @intCast(@min(spent_ms, timeout_ms.*));
     };
-    while (net.clock.nowMonotonicNs() - started < window_ns) {
+    var rounds_left = @divFloor(window_ns, spin_round_floor_ns);
+    while (rounds_left > 0 and net.clock.nowNs(self.io) - started < window_ns) : (rounds_left -= 1) {
         for (0..residents) |k| {
             const index = (start + k) % residents;
             const resident = self.residents.items[index].resident;

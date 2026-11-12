@@ -124,6 +124,12 @@ class NoticeTests(unittest.TestCase):
         with patch.object(graphs, "command", return_value=json.dumps({"npmPackages": packages})):
             result = list(graphs.browser_packages(self.root, self.root))
         self.assertEqual([p["name"] for p in result], ["runtime"])
+        (assets / "bundled-packages.json").write_text(json.dumps([{"name": "runtime", "version": "0"}]))
+        with (
+            patch.object(graphs, "command", return_value=json.dumps({"npmPackages": packages})),
+            self.assertRaisesRegex(ValueError, "holds runtime@0, which apps/rooms/deno.lock does not resolve"),
+        ):
+            list(graphs.browser_packages(self.root, self.root))
         (assets / "bundled-packages.json").write_text("[]")
         with self.assertRaisesRegex(ValueError, "no dependency inventory"):
             list(graphs.browser_packages(self.root, self.root))

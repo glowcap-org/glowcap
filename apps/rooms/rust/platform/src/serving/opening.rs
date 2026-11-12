@@ -1,7 +1,7 @@
 //! A peer becomes reachable only after its listener's restoration state is
 //! safe. Failed startup closes the acquired listener before returning.
 use super::{Listener, TcpProfile, Transport, TransportError, iroh_config, onion::KeyStore, relay};
-use glowcap::{Host, ListenerIdentity, Locator, iroh, tcp};
+use glowcap::{Host, ListenerIdentity, Locator, Runtime, RuntimeConfig, iroh, tcp};
 use rooms_application::server::operations::listeners::Refusal;
 use std::fmt;
 
@@ -85,6 +85,15 @@ impl Listener {
 				port,
 				announce,
 			} => {
+				// A TCP peer follows a handoff to a member on `noise-tcp`
+				// whatever it listens on.
+				let named = match profile {
+					TcpProfile::Plain => glowcap::TRANSPORT_TCP,
+					TcpProfile::Keyed => glowcap::TRANSPORT_KEYED_TCP,
+					TcpProfile::Noise => glowcap::TRANSPORT_NOISE_TCP,
+				};
+				Runtime::open(RuntimeConfig::providers([tcp::provider(super::tcp_config([named]))]).adopt_host(host))
+					.await?;
 				let options = tcp::ListenOptions {
 					identity: ListenerIdentity::Host(host.clone()),
 					advertised_host: announce.clone(),

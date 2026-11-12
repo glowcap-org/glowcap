@@ -4,7 +4,7 @@
     "bad-attachment",
     "blob-expired",
     "direct-not-accepted",
-    "introduction-pending",
+    "introduction-timed-out",
     "listener-serving",
     "listener-transport-held",
     "listener-unsupported",
@@ -52,10 +52,7 @@
     },
     {
       "reason": "glowcap error -14: attachment-refused: detail",
-      "parsed": {
-        "code": "attachment-refused",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "bad-attachment",
@@ -80,10 +77,7 @@
     },
     {
       "reason": "glowcap error -14: bad-attachment: detail",
-      "parsed": {
-        "code": "bad-attachment",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "blob-expired",
@@ -108,10 +102,7 @@
     },
     {
       "reason": "glowcap error -14: blob-expired: detail",
-      "parsed": {
-        "code": "blob-expired",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "direct-not-accepted",
@@ -136,38 +127,32 @@
     },
     {
       "reason": "glowcap error -14: direct-not-accepted: detail",
-      "parsed": {
-        "code": "direct-not-accepted",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
-      "reason": "introduction-pending",
+      "reason": "introduction-timed-out",
       "parsed": {
-        "code": "introduction-pending",
+        "code": "introduction-timed-out",
         "detail": ""
       }
     },
     {
-      "reason": "introduction-pending: ",
+      "reason": "introduction-timed-out: ",
       "parsed": {
-        "code": "introduction-pending",
+        "code": "introduction-timed-out",
         "detail": ""
       }
     },
     {
-      "reason": "introduction-pending: first: second",
+      "reason": "introduction-timed-out: first: second",
       "parsed": {
-        "code": "introduction-pending",
+        "code": "introduction-timed-out",
         "detail": "first: second"
       }
     },
     {
-      "reason": "glowcap error -14: introduction-pending: detail",
-      "parsed": {
-        "code": "introduction-pending",
-        "detail": "detail"
-      }
+      "reason": "glowcap error -14: introduction-timed-out: detail",
+      "parsed": null
     },
     {
       "reason": "listener-serving",
@@ -192,10 +177,7 @@
     },
     {
       "reason": "glowcap error -14: listener-serving: detail",
-      "parsed": {
-        "code": "listener-serving",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "listener-transport-held",
@@ -220,10 +202,7 @@
     },
     {
       "reason": "glowcap error -14: listener-transport-held: detail",
-      "parsed": {
-        "code": "listener-transport-held",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "listener-unsupported",
@@ -248,10 +227,7 @@
     },
     {
       "reason": "glowcap error -14: listener-unsupported: detail",
-      "parsed": {
-        "code": "listener-unsupported",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "nick-taken",
@@ -276,10 +252,7 @@
     },
     {
       "reason": "glowcap error -14: nick-taken: detail",
-      "parsed": {
-        "code": "nick-taken",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "nick-too-long",
@@ -304,10 +277,7 @@
     },
     {
       "reason": "glowcap error -14: nick-too-long: detail",
-      "parsed": {
-        "code": "nick-too-long",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "no-room-managers",
@@ -332,10 +302,7 @@
     },
     {
       "reason": "glowcap error -14: no-room-managers: detail",
-      "parsed": {
-        "code": "no-room-managers",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "no-such-listener",
@@ -360,10 +327,7 @@
     },
     {
       "reason": "glowcap error -14: no-such-listener: detail",
-      "parsed": {
-        "code": "no-such-listener",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "no-such-room",
@@ -388,10 +352,7 @@
     },
     {
       "reason": "glowcap error -14: no-such-room: detail",
-      "parsed": {
-        "code": "no-such-room",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "not-registered",
@@ -416,10 +377,7 @@
     },
     {
       "reason": "glowcap error -14: not-registered: detail",
-      "parsed": {
-        "code": "not-registered",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "not-room-member",
@@ -444,10 +402,7 @@
     },
     {
       "reason": "glowcap error -14: not-room-member: detail",
-      "parsed": {
-        "code": "not-room-member",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "not-steward",
@@ -472,10 +427,7 @@
     },
     {
       "reason": "glowcap error -14: not-steward: detail",
-      "parsed": {
-        "code": "not-steward",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "not-your-locator",
@@ -500,10 +452,7 @@
     },
     {
       "reason": "glowcap error -14: not-your-locator: detail",
-      "parsed": {
-        "code": "not-your-locator",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "peer-offline",
@@ -528,10 +477,7 @@
     },
     {
       "reason": "glowcap error -14: peer-offline: detail",
-      "parsed": {
-        "code": "peer-offline",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "read-only-membership",
@@ -556,10 +502,7 @@
     },
     {
       "reason": "glowcap error -14: read-only-membership: detail",
-      "parsed": {
-        "code": "read-only-membership",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "room-exists",
@@ -584,10 +527,7 @@
     },
     {
       "reason": "glowcap error -14: room-exists: detail",
-      "parsed": {
-        "code": "room-exists",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "room-full",
@@ -612,10 +552,7 @@
     },
     {
       "reason": "glowcap error -14: room-full: detail",
-      "parsed": {
-        "code": "room-full",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "room-links-full",
@@ -640,10 +577,7 @@
     },
     {
       "reason": "glowcap error -14: room-links-full: detail",
-      "parsed": {
-        "code": "room-links-full",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "room-retired",
@@ -668,10 +602,7 @@
     },
     {
       "reason": "glowcap error -14: room-retired: detail",
-      "parsed": {
-        "code": "room-retired",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "room-too-long",
@@ -696,10 +627,7 @@
     },
     {
       "reason": "glowcap error -14: room-too-long: detail",
-      "parsed": {
-        "code": "room-too-long",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "too-many-peered-rooms",
@@ -724,10 +652,7 @@
     },
     {
       "reason": "glowcap error -14: too-many-peered-rooms: detail",
-      "parsed": {
-        "code": "too-many-peered-rooms",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "too-many-rooms",
@@ -752,10 +677,7 @@
     },
     {
       "reason": "glowcap error -14: too-many-rooms: detail",
-      "parsed": {
-        "code": "too-many-rooms",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "upload-incomplete",
@@ -780,10 +702,7 @@
     },
     {
       "reason": "glowcap error -14: upload-incomplete: detail",
-      "parsed": {
-        "code": "upload-incomplete",
-        "detail": "detail"
-      }
+      "parsed": null
     },
     {
       "reason": "unknown: detail",

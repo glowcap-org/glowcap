@@ -1,3 +1,4 @@
+import type { LiveConnectionState } from "../engine/live/status.ts";
 /**
  * Where the buffer comes from, and how to swap it.
  *
@@ -51,7 +52,7 @@ export function SourcePicker(
 		source,
 		engine,
 		liveSturdyref,
-		liveConnected,
+		liveConnection,
 		liveObserved,
 		liveRecording = false,
 		onScenarioChange,
@@ -69,7 +70,7 @@ export function SourcePicker(
 		 * lands, not on the next unrelated re-render. */
 		engine: Engine;
 		liveSturdyref: string;
-		liveConnected: boolean;
+		liveConnection: LiveConnectionState;
 		/** At least one record has arrived on this dial. */
 		liveObserved: boolean;
 		/** Whether a live capture is running. A capture lives in the
@@ -109,7 +110,7 @@ export function SourcePicker(
 				<Field label="Status">
 					<ConnectionBadge
 						sturdyref={liveSturdyref}
-						connected={liveConnected}
+						connection={liveConnection}
 						observed={liveObserved}
 					/>
 				</Field>
@@ -224,8 +225,8 @@ function LiveSturdyrefField(
 			value={shown}
 			readOnly={recording}
 			title={recording
-				? "Stop the recording before changing where the feed dials — " +
-					"re-dialing starts a new capture."
+				? "Stop the recording before changing where the feed dials. " +
+					"Re-dialing starts a new capture."
 				: undefined}
 			onFocus={() => {
 				setDraft(sturdyref);
@@ -252,7 +253,7 @@ function LiveSturdyrefField(
 }
 
 /**
- * Whether the feed is connected, as the app's badge.
+ * The feed's connection state, as the app's badge.
  *
  * A badge because it is a state rather than a value, which is the same reading
  * `OriginRow` gives "edited" and the Inspector gives a session's lifecycle. It was
@@ -267,14 +268,14 @@ function LiveSturdyrefField(
  */
 function ConnectionBadge({
 	sturdyref,
-	connected,
+	connection,
 	observed,
 }: {
 	sturdyref: string;
-	connected: boolean;
+	connection: LiveConnectionState;
 	observed: boolean;
 }) {
-	const status = liveFeedStatus({ sturdyref, connected, observed });
+	const status = liveFeedStatus({ sturdyref, connection, observed });
 	const copy = badgeCopy[status];
 	return (
 		<span style={badgeStyle[status]} title={copy.title}>
@@ -288,13 +289,17 @@ const badgeCopy: Record<LiveFeedStatus, { label: string; title: string }> = {
 		label: "idle",
 		title: "Paste a sturdyref to dial the live feed",
 	},
+	stopped: {
+		label: "stopped",
+		title: "The live connection stopped. Reload the viewer before reconnecting.",
+	},
 	connecting: {
 		label: "connecting…",
-		title: "Dialing the live feed — nothing arrives until it connects",
+		title: "Dialing the live feed. Nothing arrives until it connects.",
 	},
 	waiting: {
 		label: "waiting…",
-		title: "The live feed is connected — nothing has arrived yet",
+		title: "The live feed is connected. Nothing has arrived yet.",
 	},
 	connected: {
 		label: "connected",
@@ -322,6 +327,7 @@ const idleBadge = {
 
 const badgeStyle: Record<LiveFeedStatus, React.CSSProperties> = {
 	idle: idleBadge,
+	stopped: idleBadge,
 	connecting: connectingBadge,
 	waiting: connectingBadge,
 	connected: connectedBadge,

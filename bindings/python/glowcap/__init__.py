@@ -14,7 +14,7 @@ dial with its ``connect`` method, accept through a transport module's
 :class:`Ref`:
 
     async with Runtime.open(providers=[tcp.provider()]) as runtime:
-        async with await runtime.connect(tcp.locator("127.0.0.1", 9099)) as session:
+        async with await runtime.connect(tcp.noise.locator(designator, "127.0.0.1", 9099)) as session:
             greeter = await session.fetch("greeter")
             reply = await session.send(greeter, "greet", ["world"])
 
@@ -78,6 +78,9 @@ from ._constants import (
     TRANSPORT_ONION,
     TRANSPORT_TCP,
     TRANSPORT_WEBRTC,
+    BreakCause,
+    BreakOrigin,
+    BreakReason,
     DurableProvenance,
 )
 from ._context import Context
@@ -117,6 +120,9 @@ __all__ = [
     "CarrierFailure",
     "CarrierPhase",
     # Exceptions
+    "BreakCause",
+    "BreakOrigin",
+    "BreakReason",
     "GlowcapError",
     "VowBroken",
     "FetchFailed",

@@ -23,23 +23,26 @@ const pumpToQuiescence = harness.pumpToQuiescence;
 
 test "core host: pending completion must match the selected physical route" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x5f)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x5f)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     try host.setAdvertisedLocator(tcpLocator("127.0.0.1:7599"));
     const staged = try host.node.stageDial("ocapn://127.0.0.1%3A7600.tcp");
     const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7601"));
-    defer host.releaseSession(session) catch {};
+    var session_released = false;
+    errdefer if (!session_released) host.releaseSession(session) catch {};
     try std.testing.expectError(
         driver.core.HostError.PeerIdentityMismatch,
         host.exporterDialed(staged.pending, 0, session),
     );
     try std.testing.expect(host.pendingDial(staged.pending, 0) != null);
+    session_released = true;
+    try host.releaseSession(session);
 }
 
 test "core host: id pending dial requires authenticated channel identity before caching exporter" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x60)), Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x60)), Host.Options.init(.unchecked, frame_cap));
     defer host.deinit();
 
     try host.setAdvertisedLocator(tcpLocator("127.0.0.1:7600"));
@@ -58,12 +61,15 @@ test "core host: id pending dial requires authenticated channel identity before 
     try std.testing.expect(view.demanded_partner_key != null);
 
     const session = try host.openDialedLocator(view.locator);
-    defer host.releaseSession(session) catch {};
+    var session_released = false;
+    errdefer if (!session_released) host.releaseSession(session) catch {};
     try std.testing.expectError(
         driver.core.HostError.PeerIdentityUnverified,
         host.exporterDialed(ticket, 0, session),
     );
     try std.testing.expect(host.pendingDial(ticket, 0) != null);
+    session_released = true;
+    try host.releaseSession(session);
 }
 
 test "core host: public dial completion refuses an authenticated accepted session" {
@@ -80,14 +86,16 @@ test "core host: public dial completion refuses an authenticated accepted sessio
     const client_key = keyedDesignator(client_seed);
     const remote_key = keyedDesignator(remote_seed);
     const accepted = try publishAndOpenAccepted(&client, model.transport.iroh, &client_key, &.{});
-    defer client.releaseSession(accepted) catch {};
+    var accepted_released = false;
+    errdefer if (!accepted_released) client.releaseSession(accepted) catch {};
     try remote.ensureAdvertisedLocator(model.transport.iroh);
     const dialed = try remote.openDialedLocator(.{
         .transport = model.transport.iroh,
         .designator = &client_key,
         .hints = model.Hints.emptyFalse(),
     });
-    defer remote.releaseSession(dialed) catch {};
+    var dialed_released = false;
+    errdefer if (!dialed_released) remote.releaseSession(dialed) catch {};
     try client.bindVerifiedChannelKey(accepted, &remote_key);
     try remote.bindVerifiedChannelKey(dialed, &client_key);
     const pair = Pair{ .ah = &remote, .a = dialed, .bh = &client, .b = accepted };
@@ -107,6 +115,10 @@ test "core host: public dial completion refuses an authenticated accepted sessio
         client.exporterDialed(staged.pending, 0, accepted),
     );
     try std.testing.expect(client.pendingDial(staged.pending, 0) != null);
+    accepted_released = true;
+    try client.releaseSession(accepted);
+    dialed_released = true;
+    try remote.releaseSession(dialed);
 }
 
 test "core host: weak id fallback dials only its own concrete identity" {
@@ -134,7 +146,7 @@ test "core host: weak id fallback dials only its own concrete identity" {
     const staged = try client.node.stageDial(locator);
     const ticket = staged.pending;
     _ = try client.nextAction();
-    try client.dialFailed(ticket, 0, "identity route unavailable");
+    try client.dialFailed(ticket, 0, .peer_unreachable, "identity route unavailable");
     _ = try client.nextAction();
     const weak = client.pendingDial(ticket, 1) orelse return error.MissingPendingDial;
     try std.testing.expectEqualStrings(model.transport.keyed_tcp, weak.locator.transport);
@@ -156,7 +168,7 @@ test "core host: baseline introducing sessions cannot redeem id vocabulary out o
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, @as([32]u8, @splat(0x72)), nextRouteOptions());
     defer client.deinit();
-    var introducer = test_host.init(allocator, @as([32]u8, @splat(0x73)), Host.Options.withFrameCap(frame_cap));
+    var introducer = test_host.init(allocator, @as([32]u8, @splat(0x73)), Host.Options.init(.unchecked, frame_cap));
     defer introducer.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

@@ -1,7 +1,8 @@
-import { conversationById } from "./conversation_lookup.ts";
-import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 // One reader owns the selected archive. File sources retain that exact reader.
 // Changing selection never retargets an already displayed record.
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
+import { conversationById } from "./conversation_lookup.ts";
+import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 import type { RoomsManagedArchive } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { directHistoryId } from "../../application.ts";
 import type { RoomsPageContext } from "../../page.ts";
@@ -112,13 +113,12 @@ export class ManagedHistory {
 		]);
 	}
 	#target(snapshot: WorkspaceSnapshot, status: "connecting" | "connected" | "unavailable", error = ""): void {
-		if (snapshot.intent.archive != null && !this.#session.permits("readArchive")) {
-			status = "unavailable";
-			error = managedText.archiveReadPermission;
-		}
+		const label = managedText.archivePeer;
 		const target: ArchiveTargetView = snapshot.intent.archive == null
-			? { kind: "owned" }
-			: { kind: "peer", status, label: managedText.archivePeer, error };
+			? { kind: "owned", status, error }
+			: this.#session.permits("readArchive")
+			? { kind: "peer", status, label, error }
+			: { kind: "peer", status: "denied", label, error: managedText.archiveReadPermission };
 		setArchiveTarget(this.#page.projection, target);
 	}
 	#changed(): void {
@@ -132,23 +132,36 @@ export class ManagedHistory {
 		return this.#schedule();
 	}
 	#schedule(): Promise<void> {
-		if (this.#closed) return Promise.reject(new Error("This history reader is closed"));
+		if (this.#closed) return Promise.reject(new LocalRefusal("session-closed"));
 		this.#topology = this.#identity();
 		this.#dirty = true;
 		if (this.#running != null) return this.#running;
-		this.#running = this.#read().catch((error) => {
-			this.#topology = "";
-			this.#report(managedText.workspaceHistory, error);
-			throw error;
-		}).finally(() => {
-			this.#running = null;
-		});
+		this.#running = this.#drain();
 		// Observation and gap callbacks report failures here. Explicit retry
 		// callers receive that same failure and can keep their recovery control.
 		void this.#running.catch(() => {
 			// best-effort: the history reporter and explicit retry caller already own this failure.
 		});
 		return this.#running;
+	}
+	async #drain(): Promise<void> {
+		try {
+			while (!this.#closed) {
+				try {
+					await this.#read();
+					if (!this.#dirty) return;
+				} catch (error) {
+					this.#report(managedText.workspaceHistory, error);
+					// A newer selection or explicit refresh owns another attempt.
+					// An unchanged failed snapshot stays settled until one arrives.
+					if (!this.#dirty) throw error;
+				}
+			}
+		} finally {
+			// Release the worker before its promise settles so a new request
+			// either joins pending work or starts a worker of its own.
+			this.#running = null;
+		}
 	}
 	async #read(): Promise<void> {
 		while (this.#dirty && !this.#closed) {
@@ -280,14 +293,20 @@ export class ManagedHistory {
 								records.length > MAX_ARCHIVE_RECORDS ||
 								(page.more && records.length === MAX_ARCHIVE_RECORDS)
 							) {
-								throw new Error("The archive exceeded its declared record bound");
+								throw new LocalRefusal("archive-invalid", {
+									cause: "the archive exceeded its declared record bound",
+								});
 							}
 							if (!page.more) break;
 							if (page.records.length === 0) {
-								throw new Error("The archive returned an empty continuation page");
+								throw new LocalRefusal("archive-invalid", {
+									cause: "the archive returned an empty continuation page",
+								});
 							}
 							if (BigInt(page.next) <= BigInt(after)) {
-								throw new Error("The archive cursor did not advance");
+								throw new LocalRefusal("archive-invalid", {
+									cause: "the archive cursor did not advance",
+								});
 							}
 							after = page.next;
 						}
@@ -321,7 +340,7 @@ export class ManagedHistory {
 				}
 			}
 			if (failures.length !== 0) {
-				throw new AggregateError(failures, "Workspace conversation history is unavailable");
+				throw new LocalRefusal("history-unavailable", { cause: failures });
 			}
 			const current = this.#session.current;
 			if (
@@ -331,7 +350,7 @@ export class ManagedHistory {
 				this.#dirty = !this.#closed;
 				continue;
 			}
-			if (this.#unavailable !== snapshot.intent.archive || verified) {
+			if (snapshot.intent.archive == null || this.#unavailable !== snapshot.intent.archive || verified) {
 				this.#unavailable = null;
 				this.#target(snapshot, "connected");
 			}

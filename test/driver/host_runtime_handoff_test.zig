@@ -23,6 +23,7 @@
 //! merely that nothing crashed.
 
 const std = @import("std");
+const wait = @import("../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -113,6 +114,7 @@ fn gifterServe(
     defer treasure_view.deinit();
     const treasure = try treasure_view.fetch("treasure");
 
+    if (!try wait.acceptableUnlessStopped(gifter, done)) return;
     const view = try gifter.accept();
     defer view.deinit();
     _ = try view.publish("introducer", Introducer, .{ .treasure = treasure });
@@ -136,6 +138,7 @@ fn serverSideRedeem(
     done: *std.atomic.Value(bool),
 ) anyerror!void {
     defer done.store(true, .release);
+    if (!try wait.acceptableUnlessStopped(server, done)) return;
     const accepted = try server.accept();
     defer accepted.deinit();
 
@@ -147,7 +150,7 @@ fn serverSideRedeem(
     // `driver.listen`, not by hand, dials and redeems inside the call.
     const introducer = try accepted.fetch("introducer");
     const introduced = try accepted.call(introducer, "introduce", &.{}, arena_state.allocator());
-    if (introduced == .broken) std.debug.print("server-side redeem broke: {s}\n", .{introduced.broken});
+    if (introduced == .broken) std.debug.print("server-side redeem broke: {s}\n", .{introduced.broken.detail});
     try std.testing.expect(introduced == .fulfilled);
     try std.testing.expect(introduced.fulfilled == .capability);
 
@@ -155,6 +158,30 @@ fn serverSideRedeem(
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
     _ = exporter_designator;
+}
+
+test "HostRuntime reads thread ids, so a claimed Host refuses another thread" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), .{}, .ephemeral, .{
+        .handshake = .{ .ms = 1 },
+        .settle = .{ .ms = 1 },
+    });
+    defer runtime.deinit();
+    try runtime.core.claimOwner();
+
+    // Without the runtime's reader every thread reads as unknown, so the
+    // foreign mutation would pass and change the owner's configuration.
+    const Foreign = struct {
+        fn run(core: *driver.core.Host, refused: *bool) void {
+            refused.* = if (core.setReleaseOnDrop(true)) |_| false else |err| err == error.WrongThread;
+        }
+    };
+    var refused = false;
+    const thread = try std.Thread.spawn(.{}, Foreign.run, .{ runtime.core, &refused });
+    thread.join();
+    try std.testing.expect(refused);
 }
 
 test "front door handoff: a give settles live inside call, and the redeemed capability answers (ADR-0018)" {
@@ -180,13 +207,18 @@ test "front door handoff: a give settles live inside call, and the redeemed capa
     const gifter_locator = try model.clonePeerLocator(allocator, try gifter.advertisedLocator());
     defer model.freePeerLocator(allocator, gifter_locator);
 
+    var exporter_joined = false;
     var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
-    var gifter_future = try io.concurrent(gifterServe, .{ gifter, model.transport.tcp, exporter_designator, "", &done });
-    defer {
+    errdefer if (!exporter_joined) {
         done.store(true, .release);
-        gifter_future.await(io) catch {};
-        exporter_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("exporter", exporter_future.await(io));
+    };
+    var gifter_joined = false;
+    var gifter_future = try io.concurrent(gifterServe, .{ gifter, model.transport.tcp, exporter_designator, "", &done });
+    errdefer if (!gifter_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("gifter", gifter_future.await(io));
+    };
 
     // The recipient: an ordinary one-call connect to the gifter. The call's
     // reply is a give; the settle wait answers the redeem dial to the
@@ -204,7 +236,7 @@ test "front door handoff: a give settles live inside call, and the redeemed capa
 
     const introducer = try recipient.fetch("introducer");
     const introduced = try recipient.call(introducer, "introduce", &.{}, arena);
-    if (introduced == .broken) std.debug.print("introduce broke: {s}\n", .{introduced.broken});
+    if (introduced == .broken) std.debug.print("introduce broke: {s}\n", .{introduced.broken.detail});
     try std.testing.expect(introduced == .fulfilled);
     try std.testing.expect(introduced.fulfilled == .capability);
     const redeemed = introduced.fulfilled.capability;
@@ -214,6 +246,15 @@ test "front door handoff: a give settles live inside call, and the redeemed capa
     const greeted = try recipient.call(redeemed, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    gifter_joined = true;
+    exporter_joined = true;
+    const gifter_served = gifter_future.await(io);
+    const exporter_served = exporter_future.await(io);
+    try gifter_served;
+    try exporter_served;
 }
 
 test "front door handoff over keyed-tcp: the give's hint survives the redeem dial (ADR-0018)" {
@@ -250,13 +291,18 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     const gifter_locator = try model.clonePeerLocator(allocator, try gifter.advertisedLocator());
     defer model.freePeerLocator(allocator, gifter_locator);
 
+    var exporter_joined = false;
     var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
-    var gifter_future = try io.concurrent(gifterServe, .{ gifter, model.transport.keyed_tcp, exporter_designator, exporter_hint, &done });
-    defer {
+    errdefer if (!exporter_joined) {
         done.store(true, .release);
-        gifter_future.await(io) catch {};
-        exporter_future.await(io) catch {};
-    }
+        wait.joinedUnwinding("exporter", exporter_future.await(io));
+    };
+    var gifter_joined = false;
+    var gifter_future = try io.concurrent(gifterServe, .{ gifter, model.transport.keyed_tcp, exporter_designator, exporter_hint, &done });
+    errdefer if (!gifter_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("gifter", gifter_future.await(io));
+    };
 
     const recipient = try driver.connect(allocator, io, .{ .symbols = &.{ .tcp, .keyed_tcp } }, .{
         .transport = model.transport.tcp,
@@ -271,7 +317,7 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
 
     const introducer = try recipient.fetch("introducer");
     const introduced = try recipient.call(introducer, "introduce", &.{}, arena);
-    if (introduced == .broken) std.debug.print("keyed introduce broke: {s}\n", .{introduced.broken});
+    if (introduced == .broken) std.debug.print("keyed introduce broke: {s}\n", .{introduced.broken.detail});
     try std.testing.expect(introduced == .fulfilled);
     try std.testing.expect(introduced.fulfilled == .capability);
     const redeemed = introduced.fulfilled.capability;
@@ -279,6 +325,15 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     const greeted = try recipient.call(redeemed, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
+
+    // A serving loop that failed fails the test, whatever the client saw.
+    done.store(true, .release);
+    gifter_joined = true;
+    exporter_joined = true;
+    const gifter_served = gifter_future.await(io);
+    const exporter_served = exporter_future.await(io);
+    try gifter_served;
+    try exporter_served;
 }
 
 test "driver Server can replace listener-derived reachability with deployment routing" {
@@ -351,24 +406,29 @@ test "front door handoff: a listening server redeems too, so both halves match e
     const redeemer_designator = try allocator.dupe(u8, try redeemer.localDesignator(&redeemer_addr_buf));
     defer allocator.free(redeemer_designator);
 
+    var exporter_joined = false;
     var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
+    errdefer if (!exporter_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("exporter", exporter_future.await(io));
+    };
+    var redeem_joined = false;
     var redeem_future = try io.concurrent(serverSideRedeem, .{ allocator, redeemer, exporter_designator, &done });
-    var joined = false;
-    defer {
-        if (!joined) {
-            done.store(true, .release);
-            redeem_future.await(io) catch {};
-            exporter_future.await(io) catch {};
-        }
-    }
+    errdefer if (!redeem_joined) {
+        done.store(true, .release);
+        wait.joinedUnwinding("redeem", redeem_future.await(io));
+    };
 
     // The gifter dials both peers, so the party under test is the accepting
     // half, and publishes the introducer on the session it dialed to it.
     try dialingGifter(allocator, io, transports, exporter_designator, redeemer_designator, &done);
-    try redeem_future.await(io);
+    redeem_joined = true;
+    const redeem_served = redeem_future.await(io);
     done.store(true, .release);
-    try exporter_future.await(io);
-    joined = true;
+    exporter_joined = true;
+    const exporter_served = exporter_future.await(io);
+    try redeem_served;
+    try exporter_served;
 }
 
 /// A gifter that *dials* both parties: it fetches the treasure from the

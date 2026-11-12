@@ -63,7 +63,7 @@ fn client(io: std.Io, allocator: std.mem.Allocator, peer_key: []const u8, addres
     switch (settled) {
         .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
         .broken => |reason| {
-            std.debug.print("the greeter refused: {s}\n", .{reason});
+            std.debug.print("the greeter refused: {f}\n", .{reason});
             return error.GreeterRefused;
         },
     }

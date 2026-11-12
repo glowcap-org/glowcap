@@ -1,5 +1,6 @@
 // Known absence permits re-preparation only while the original selection holds.
 // Uncertain admission stays with the viewer's retained request.
+import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import { ManagedOperation, WorkspaceConflict } from "./operation.ts";
 import { MAX_CONFLICT_REPREPARATIONS } from "./acquisition.ts";
@@ -56,7 +57,7 @@ export async function admitCommand(
 		// Equal words are independent effects, including after an uncertain send.
 		if (pending.id !== operation) continue;
 		if (!matchesRetainedCommand(pending.request.originalIntent(), name, args)) {
-			throw new Error("The retained gesture has different command contents. Recover its original receipt.");
+			throw new LocalRefusal("change-replay-required");
 		}
 		return session.resume(operation);
 	}
@@ -66,7 +67,7 @@ export async function admitCommand(
 	let original: WorkspaceSnapshot | undefined = session.current ?? undefined;
 	let acceptedIntentJson: string | null = original == null ? null : JSON.stringify(original.intent);
 
-	for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
+	for (let attempt = 0;; attempt++) {
 		try {
 			return await session.perform(operation, async () => {
 				// Read the authority at admission; observation is presentation.
@@ -80,7 +81,7 @@ export async function admitCommand(
 						acceptedIntentJson,
 						currentIntentJson,
 					)
-				) throw new Error("The original command selection changed. Review it before submitting again.");
+				) throw new LocalRefusal("command-selection-changed");
 				if (original == null) {
 					original = snapshot;
 					acceptedIntentJson = currentIntentJson;
@@ -104,5 +105,4 @@ export async function admitCommand(
 			if (!canRetry) throw error;
 		}
 	}
-	throw new Error("Command admission exceeded conflict re-preparation attempts.");
 }

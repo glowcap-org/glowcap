@@ -139,7 +139,7 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     var waited: usize = 0;
     while (host.background_listener.?.stop_reason.load(.acquire) == null) : (waited += 1) {
         if (waited > 200) return error.ListenerNeverRecordedItsStop;
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(10), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(10), .real);
     }
     const reason = host.background_listener.?.stop_reason.load(.acquire).?;
     try std.testing.expectEqualStrings("served its one partner", std.mem.span(reason));
@@ -259,6 +259,7 @@ fn waitListenLocator(host: *Ctx, host_future: anytype, io: std.Io) ![]const u8 {
         if (host.publishedLocator()) |loc| return loc;
         if (spins > 50_000) {
             cli.signals.requestStop();
+            // tolerant: the host's own error is replaced by the timeout error returned next, which names the failure.
             _ = host_future.await(io) catch {};
             return error.ListenLocatorTimeout;
         }
@@ -436,6 +437,120 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
     // died above must have taken its listener with it, not left one aimed at
     // the freed Active.
     _ = client.closeSession(.cancel);
+}
+
+fn errorLines(store: *const cli.repl_blocks.Store, text: []const u8) usize {
+    var count: usize = 0;
+    for (store.items.items) |block| {
+        if (block.kind == .error_line and std.mem.eql(u8, block.body, text)) count += 1;
+    }
+    return count;
+}
+
+fn lastErrorLine(store: *const cli.repl_blocks.Store) ?[]const u8 {
+    var last: ?[]const u8 = null;
+    for (store.items.items) |block| {
+        if (block.kind == .error_line) last = block.body;
+    }
+    return last;
+}
+
+/// Starts a fetch and returns with its wait still live. Starting a line polls
+/// the socket once, and a reply that lands in that poll settles the line
+/// before the test can act on it. Such a line is printed and another started.
+fn enqueueLiveFetch(
+    queue: *cli.repl_await_queue.Queue,
+    ctx: *Ctx,
+    store: *cli.repl_blocks.Store,
+    progress: *cli.repl_teach.Progress,
+    complete_state: *cli.repl_complete.State,
+) !void {
+    var tries: usize = 0;
+    while (tries < 100) : (tries += 1) {
+        try queue.enqueue(ctx, "fetch greeter", store, progress);
+        if (queue.waiting()) return;
+        try drainCaptpQueue(queue, ctx, store, progress, complete_state);
+    }
+    return error.EveryFetchSettledAtOnce;
+}
+
+test "await queue names a cancel or a timeout only for the wait it ended itself" {
+    const gpa = std.testing.allocator;
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
+
+    cli.signals.resetForTest();
+    defer cli.signals.resetForTest();
+
+    var host = makeCtx(io, gpa, &runtime.environ, 75);
+    defer host.deinit();
+    var host_capture: std.ArrayList(u8) = .empty;
+    defer host_capture.deinit(gpa);
+    host.sink = .{ .buffer = &host_capture };
+
+    var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer listen_parsed.deinit();
+    try listen_parsed.setBool("once", true);
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
+
+    var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
+    var host_future = try io.concurrent(runListen, .{&listen_args});
+    const uri = try waitListenLocator(&host, &host_future, io);
+
+    var client = makeCtx(io, gpa, &runtime.environ, 76);
+    defer client.deinit();
+    client.front = .repl;
+    var client_capture: std.ArrayList(u8) = .empty;
+    defer client_capture.deinit(gpa);
+    client.sink = .{ .buffer = &client_capture };
+
+    client.session = try cli.ocapn.dialUriWithOpts(&client, uri, .{
+        .handshake = .{ .ms = 2_000 },
+        .settle = .{ .ms = 2_000 },
+    });
+
+    var store = cli.repl_blocks.Store.init(gpa);
+    defer store.deinit();
+    var progress = cli.repl_teach.Progress{ .has_session = true };
+    var complete_state = cli.repl_complete.State.init(gpa);
+    defer complete_state.deinit();
+    var queue = cli.repl_await_queue.Queue.init(gpa);
+    defer queue.deinit();
+
+    try enqueueLiveFetch(&queue, &client, &store, &progress, &complete_state);
+    _ = try queue.cancelActive(&client, &store, &progress, &complete_state);
+    try drainCaptpQueue(&queue, &client, &store, &progress, &complete_state);
+    try std.testing.expectEqual(@as(usize, 1), errorLines(&store, "! cancelled"));
+    try std.testing.expectEqualStrings("! cancelled", lastErrorLine(&store).?);
+
+    // A break the queue did not ask for is shown with its own reason, even
+    // when that reason reads like the queue's.
+    try enqueueLiveFetch(&queue, &client, &store, &progress, &complete_state);
+    client.activeSession().?.breakFarVows("cancelled");
+    try drainCaptpQueue(&queue, &client, &store, &progress, &complete_state);
+    try std.testing.expectEqual(@as(usize, 1), errorLines(&store, "! cancelled"));
+    try std.testing.expectEqualStrings("broken: cancelled", lastErrorLine(&store).?);
+
+    // The wait's deadline is its start plus its timeout, so a start moved
+    // back by the timeout is a wait whose time has run out.
+    try enqueueLiveFetch(&queue, &client, &store, &progress, &complete_state);
+    queue.active.?.started_ms -= queue.active.?.timeout_ms;
+    try drainCaptpQueue(&queue, &client, &store, &progress, &complete_state);
+    try std.testing.expectEqual(@as(usize, 1), errorLines(&store, "! WaitTimedOut"));
+    try std.testing.expectEqualStrings("! WaitTimedOut", lastErrorLine(&store).?);
+
+    try enqueueLiveFetch(&queue, &client, &store, &progress, &complete_state);
+    client.activeSession().?.breakFarVows("wait timed out");
+    try drainCaptpQueue(&queue, &client, &store, &progress, &complete_state);
+    try std.testing.expectEqual(@as(usize, 1), errorLines(&store, "! WaitTimedOut"));
+    try std.testing.expectEqualStrings("broken: wait timed out", lastErrorLine(&store).?);
+
+    _ = client.closeSession(.cancel);
+    cli.signals.requestStop();
+    try std.testing.expectEqual(cli.exit_codes.ok, try host_future.await(io));
 }
 
 test "await queue finishes a dropped socket as connection failure" {

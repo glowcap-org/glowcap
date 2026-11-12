@@ -163,7 +163,7 @@ pub fn checkRoomsTextVoice(
 
     var inspected: usize = 0;
     var entries = dir.iterate();
-    while (entries.next(io) catch null) |entry| {
+    while (try entries.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".ts")) continue;
         const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ text_dir, entry.name });
         defer gpa.free(path);

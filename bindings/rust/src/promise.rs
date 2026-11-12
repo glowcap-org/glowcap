@@ -263,7 +263,7 @@ impl CmdTarget {
 }
 
 /// What `send` and `tell` accept as a target: a capability [`crate::Ref`], or a
-/// [`RemotePromise`] from an earlier send to pipeline against. Borrowed in both status-allow: event or source ordering
+/// [`RemotePromise`] from an earlier send to pipeline against. Borrowed in both
 /// cases so an unawaited `RemotePromise` can still be awaited later.
 pub trait AsSendTarget {
 	#[doc(hidden)]

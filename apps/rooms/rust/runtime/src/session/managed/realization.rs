@@ -1,7 +1,8 @@
 //! Live realization uses the exact source that acquired a row. The private
 //! owner restores that source only. Public admission selects every target.
 use super::Session;
-use glowcap::{Result, loam};
+use crate::Error;
+type Result<T> = core::result::Result<T, Error>;
 use rooms_application::{
 	content::session::{custody, results, workspace},
 	fields::Text,
@@ -72,18 +73,15 @@ pub struct MembershipDestinations {
 	pub subject: Option<custody::FieldKey<custody::RoomSubject>>,
 	pub files: Option<custody::FieldKey<custody::RoomFiles>>,
 }
-fn refuse(message: &str) -> glowcap::Error {
-	loam::refusal(message)
-}
 fn encoded<T: serde::Serialize>(value: &T) -> Result<String> {
-	serde_json::to_string(value).map_err(|_| refuse("invalid worker field selection"))
+	serde_json::to_string(value).map_err(|_| Error::invalid("invalid worker field selection"))
 }
 fn result<T: serde::de::DeserializeOwned>(value: &glowcap::Argument) -> Result<T> {
 	let Some([data, glowcap::Argument::List(_)]) = value.as_list() else {
-		return Err(refuse("worker effect has no committed result"));
+		return Err(Error::uncertain("worker effect has no committed result"));
 	};
-	serde_json::from_str(data.as_str().ok_or_else(|| refuse("invalid worker result"))?)
-		.map_err(|_| refuse("invalid worker result"))
+	serde_json::from_str(data.as_str().ok_or_else(|| Error::invalid("invalid worker result"))?)
+		.map_err(|_| Error::invalid("invalid worker result"))
 }
 impl Selection {
 	fn id(&self) -> &workspace::Id {
@@ -154,7 +152,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		mut receive: impl FnMut(&[glowcap::Argument]) -> core::result::Result<(), String> + 'static,
 	) -> Result<super::Inbox<P>> {
 		if matches!(selected, workspace::InboxSelection::Direct { .. }) {
-			return Err(refuse("direct callbacks require the direct inbox receiver"));
+			return Err(Error::invalid("direct callbacks require the direct inbox receiver"));
 		}
 		self.open_inbox(selected, move |_, args, _, _| {
 			receive(args).map(|()| glowcap::Argument::Void)
@@ -175,7 +173,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		+ 'static,
 	) -> Result<super::Inbox<P>> {
 		if !matches!(selected, workspace::InboxSelection::Direct { .. }) {
-			return Err(refuse("direct inbox requires an exact direct selection"));
+			return Err(Error::invalid("direct inbox requires an exact direct selection"));
 		}
 		self.open_inbox(selected, move |verb, args, delivering, _| {
 			receive(verb, args, delivering)
@@ -194,7 +192,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		+ 'static,
 	) -> Result<super::Inbox<P>> {
 		if self.state.closing.get() {
-			return Err(refuse("session is closing"));
+			return Err(Error::closed("session is closing"));
 		}
 		let mut held = self
 			.restore_custody(&[custody::Coordinate::new(
@@ -203,7 +201,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			)])
 			.await?;
 		if self.state.closing.get() {
-			return Err(refuse("session is closing"));
+			return Err(Error::closed("session is closing"));
 		}
 		super::inbox::open(
 			&self.state.writer.host,
@@ -217,6 +215,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			self.state.inboxes.clone(),
 			receive,
 		)
+		.map_err(Error::from)
 	}
 	pub async fn directory_source(&self, row: &workspace::Directory) -> Result<Source<P>> {
 		self.realization_source(Selection::Directory {
@@ -228,19 +227,19 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			allocation: row.nick_allocation,
 			source: row
 				.source
-				.ok_or_else(|| refuse("directory has no initiating session source"))?,
+				.ok_or_else(|| Error::stale("directory has no initiating session source"))?,
 		})
 		.await
 	}
 	pub async fn room_source(&self, row: &workspace::Room, intent: &workspace::Intent) -> Result<Source<P>> {
 		if !row.requests_membership() || !row.has_entrance() {
-			return Err(refuse("room has no held entrance"));
+			return Err(Error::stale("room has no held entrance"));
 		}
 		self.realization_source(Selection::Room {
 			id: row.id.clone(),
 			directory: row.directory.clone(),
 			nickname: workspace::RoomNickname::select(intent, &row.directory)
-				.ok_or_else(|| refuse("room has no directory nickname"))?,
+				.ok_or_else(|| Error::stale("room has no directory nickname"))?,
 			access: row.access,
 			accepted: row.accepted,
 			public_entry: row.public_entry.clone(),
@@ -251,13 +250,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			inbox: row.inbox,
 			source: row
 				.source
-				.ok_or_else(|| refuse("room has no initiating session source"))?,
+				.ok_or_else(|| Error::stale("room has no initiating session source"))?,
 		})
 		.await
 	}
 	async fn realization_source(&self, selection: Selection) -> Result<Source<P>> {
 		if self.state.closing.get() {
-			return Err(refuse("session is closing"));
+			return Err(Error::closed("session is closing"));
 		}
 		let mut held = self
 			.restore_custody(&[custody::Coordinate::new(
@@ -276,7 +275,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			.idempotent_through(&source, "resource-key", &[])
 			.await?;
 		if actual != expected {
-			return Err(refuse("worker source belongs to another session"));
+			return Err(Error::refused("worker source belongs to another session"));
 		}
 		Ok(Source {
 			workspace: Workspace::local(self.state.writer.host.clone(), self.state.platform.clone(), source),
@@ -324,7 +323,7 @@ impl<P: Deadline + Clone> Source<P> {
 					.as_mut_slice()
 					.iter_mut()
 					.find(|row| row.id == *id)
-					.ok_or_else(|| refuse("directory was retired"))?;
+					.ok_or_else(|| Error::closed("directory was retired"))?;
 				let retired = row
 					.inbox
 					.replace(*next)
@@ -349,7 +348,7 @@ impl<P: Deadline + Clone> Source<P> {
 						workspace::Conversation::Room(row) if row.id == *id => Some(row),
 						_ => None,
 					})
-					.ok_or_else(|| refuse("room was retired"))?;
+					.ok_or_else(|| Error::closed("room was retired"))?;
 				let retired = row
 					.inbox
 					.replace(*next)
@@ -357,10 +356,10 @@ impl<P: Deadline + Clone> Source<P> {
 				*prior = Some(*next);
 				retired
 			}
-			_ => return Err(refuse("inbox belongs to another worker target")),
+			_ => return Err(Error::refused("inbox belongs to another worker target")),
 		};
 		if !selected.matches(&snapshot.intent) {
-			return Err(refuse("inbox belongs to another initiating source or entrance"));
+			return Err(Error::refused("inbox belongs to another initiating source or entrance"));
 		}
 		let retired = retired.filter(|old| !snapshot.intent.coordinates().any(|field| field == *old));
 		let request = self
@@ -375,7 +374,7 @@ impl<P: Deadline + Clone> Source<P> {
 				retired.as_slice(),
 				&snapshot.intent,
 			)
-			.map_err(|e| refuse(&e.to_string()))?;
+			.map_err(Error::from)?;
 		Ok((
 			request,
 			Self {
@@ -385,15 +384,15 @@ impl<P: Deadline + Clone> Source<P> {
 		))
 	}
 	async fn snapshot(&self) -> Result<Snapshot> {
-		let snapshot = self.workspace.snapshot().await.map_err(|e| refuse(&e.to_string()))?;
+		let snapshot = self.workspace.snapshot().await.map_err(Error::from)?;
 		if !self.selection.matches(&snapshot.intent) {
-			return Err(refuse("worker target or initiating source changed"));
+			return Err(Error::stale("worker target or initiating source changed"));
 		}
 		Ok(snapshot)
 	}
 	pub async fn directory_reader(&self) -> Result<rooms_glowcap::client::workspace::DirectoryReader<P>> {
 		if !matches!(self.selection, Selection::Directory { .. }) {
-			return Err(refuse("directory discovery requires a directory source"));
+			return Err(Error::invalid("directory discovery requires a directory source"));
 		}
 		self.snapshot().await?;
 		self.workspace
@@ -402,10 +401,10 @@ impl<P: Deadline + Clone> Source<P> {
 					.id()
 					.text()
 					.as_str()
-					.ok_or_else(|| refuse("invalid directory ID"))?,
+					.ok_or_else(|| Error::invalid("invalid directory ID"))?,
 			)
 			.await
-			.map_err(|error| refuse(&error.to_string()))
+			.map_err(Error::from)
 	}
 	pub async fn register(
 		&self,
@@ -414,7 +413,7 @@ impl<P: Deadline + Clone> Source<P> {
 		inbox: custody::FieldKey<custody::DirectoryInbox>,
 	) -> Result<Operation<P>> {
 		if !matches!(self.selection, Selection::Directory { inbox: Some(selected), .. } if selected == inbox) {
-			return Err(refuse("registration requires the directory's installed inbox"));
+			return Err(Error::invalid("registration requires the directory's installed inbox"));
 		}
 		let snapshot = self.snapshot().await?;
 		let row = snapshot
@@ -423,7 +422,7 @@ impl<P: Deadline + Clone> Source<P> {
 			.as_slice()
 			.iter()
 			.find(|row| row.id == *self.selection.id())
-			.ok_or_else(|| refuse("directory was retired"))?;
+			.ok_or_else(|| Error::closed("directory was retired"))?;
 		let command = self
 			.workspace
 			.prepare_command(
@@ -435,12 +434,12 @@ impl<P: Deadline + Clone> Source<P> {
 						.id()
 						.text()
 						.as_str()
-						.ok_or_else(|| refuse("invalid directory ID"))?
+						.ok_or_else(|| Error::invalid("invalid directory ID"))?
 						.into(),
 					row.nick
 						.text()
 						.as_str()
-						.ok_or_else(|| refuse("invalid directory nickname"))?
+						.ok_or_else(|| Error::invalid("invalid directory nickname"))?
 						.into(),
 					locator.into(),
 					row.nick_allocation.wire().into(),
@@ -448,7 +447,7 @@ impl<P: Deadline + Clone> Source<P> {
 				],
 			)
 			.await
-			.map_err(|e| refuse(&e.to_string()))?;
+			.map_err(Error::from)?;
 		Ok(Operation {
 			command,
 			selection: self.selection.clone(),
@@ -460,7 +459,7 @@ impl<P: Deadline + Clone> Source<P> {
 		inbox: custody::FieldKey<custody::RoomInbox>,
 	) -> Result<Operation<P>> {
 		if !matches!(self.selection, Selection::Room { inbox: Some(selected), .. } if selected == inbox) {
-			return Err(refuse("subscription requires the room's installed inbox"));
+			return Err(Error::invalid("subscription requires the room's installed inbox"));
 		}
 		let snapshot = self.snapshot().await?;
 		let nick = self.room_nick()?;
@@ -475,14 +474,14 @@ impl<P: Deadline + Clone> Source<P> {
 						.id()
 						.text()
 						.as_str()
-						.ok_or_else(|| refuse("invalid room ID"))?
+						.ok_or_else(|| Error::invalid("invalid room ID"))?
 						.into(),
 					nick.into(),
 					encoded(&inbox)?,
 				],
 			)
 			.await
-			.map_err(|e| refuse(&e.to_string()))?;
+			.map_err(Error::from)?;
 		Ok(Operation {
 			command,
 			selection: self.selection.clone(),
@@ -490,23 +489,23 @@ impl<P: Deadline + Clone> Source<P> {
 	}
 	fn room_nick(&self) -> Result<&str> {
 		let Selection::Room { nickname, .. } = &self.selection else {
-			return Err(refuse("room nickname requires a room selection"));
+			return Err(Error::invalid("room nickname requires a room selection"));
 		};
 		// snapshot already checked this immutable identity against current intent.
 		nickname
 			.text()
 			.text()
 			.as_str()
-			.ok_or_else(|| refuse("room has no directory nickname"))
+			.ok_or_else(|| Error::stale("room has no directory nickname"))
 	}
 	fn original_arguments(&self, command: &Operation<P>, expected: &str) -> Result<Vec<String>> {
 		if command.selection != self.selection || command.source() != self.workspace.reference() {
-			return Err(refuse("worker result belongs to another initiating source"));
+			return Err(Error::refused("worker result belongs to another initiating source"));
 		}
 		let (_, _, name, arguments): (String, u64, String, Vec<String>) =
-			serde_json::from_str(command.canonical()).map_err(|_| refuse("invalid worker command"))?;
+			serde_json::from_str(command.canonical()).map_err(|_| Error::invalid("invalid worker command"))?;
 		if name != expected || arguments.first().map(String::as_str) != self.selection.id().text().as_str() {
-			return Err(refuse("worker result belongs to another target or operation"));
+			return Err(Error::refused("worker result belongs to another target or operation"));
 		}
 		Ok(arguments)
 	}
@@ -519,10 +518,10 @@ impl<P: Deadline + Clone> Source<P> {
 		destination: custody::FieldKey<custody::DirectoryName>,
 	) -> Result<ResultAcquisition<P>> {
 		let Selection::Directory { id, .. } = &self.selection else {
-			return Err(refuse("registration acquisition requires a directory worker"));
+			return Err(Error::invalid("registration acquisition requires a directory worker"));
 		};
 		let original = self.original_arguments(command, "joinDirectory")?;
-		let acquired: results::Registration = result(&command.result().await.map_err(|e| refuse(&e.to_string()))?)?;
+		let acquired: results::Registration = result(&command.result().await.map_err(Error::from)?)?;
 		let mut snapshot = self.snapshot().await?;
 		let row = snapshot
 			.intent
@@ -530,11 +529,11 @@ impl<P: Deadline + Clone> Source<P> {
 			.as_mut_slice()
 			.iter_mut()
 			.find(|row| row.id == *id)
-			.ok_or_else(|| refuse("directory was retired"))?;
+			.ok_or_else(|| Error::closed("directory was retired"))?;
 		if original.get(1).map(String::as_str) != row.nick.text().as_str()
 			|| original.get(3).map(String::as_str) != Some(row.nick_allocation.wire())
 		{
-			return Err(refuse("directory nickname intent changed during registration"));
+			return Err(Error::stale("directory nickname intent changed during registration"));
 		}
 		let releases = row
 			.name
@@ -542,17 +541,19 @@ impl<P: Deadline + Clone> Source<P> {
 			.map(|key| custody::Coordinate::new(custody::Role::DirectoryName, key));
 		row.name = Some(destination);
 		row.assigned_nick =
-			Some(Text::new(acquired.nick.text().clone()).ok_or_else(|| refuse("invalid granted nickname"))?);
+			Some(Text::new(acquired.nick.text().clone()).ok_or_else(|| Error::invalid("invalid granted nickname"))?);
 		let releases = releases.filter(|old| !snapshot.intent.coordinates().any(|field| field == *old));
-		command.prepare_result_acquisition(
-			snapshot.revision,
-			&[ResultImport {
-				result: custody::Coordinate::new(custody::Role::DirectoryName, acquired.name),
-				destination: custody::Coordinate::new(custody::Role::DirectoryName, destination),
-			}],
-			releases.as_slice(),
-			&snapshot.intent,
-		)
+		command
+			.prepare_result_acquisition(
+				snapshot.revision,
+				&[ResultImport {
+					result: custody::Coordinate::new(custody::Role::DirectoryName, acquired.name),
+					destination: custody::Coordinate::new(custody::Role::DirectoryName, destination),
+				}],
+				releases.as_slice(),
+				&snapshot.intent,
+			)
+			.map_err(Error::from)
 	}
 	pub async fn acquire_membership(
 		&self,
@@ -560,18 +561,20 @@ impl<P: Deadline + Clone> Source<P> {
 		destination: MembershipDestinations,
 	) -> Result<ResultAcquisition<P>> {
 		let Selection::Room { id, .. } = &self.selection else {
-			return Err(refuse("membership acquisition requires a room worker"));
+			return Err(Error::invalid("membership acquisition requires a room worker"));
 		};
 		let original = self.original_arguments(command, "joinRoom")?;
-		let acquired: results::Membership = result(&command.result().await.map_err(|e| refuse(&e.to_string()))?)?;
+		let acquired: results::Membership = result(&command.result().await.map_err(Error::from)?)?;
 		if acquired.subject.is_some() != destination.subject.is_some()
 			|| acquired.files.is_some() != destination.files.is_some()
 		{
-			return Err(refuse("membership destinations do not match the committed facets"));
+			return Err(Error::invalid(
+				"membership destinations do not match the committed facets",
+			));
 		}
 		let mut snapshot = self.snapshot().await?;
 		if original.get(1).map(String::as_str) != Some(self.room_nick()?) {
-			return Err(refuse("room nickname intent changed during subscription"));
+			return Err(Error::stale("room nickname intent changed during subscription"));
 		}
 		let row = snapshot
 			.intent
@@ -582,7 +585,7 @@ impl<P: Deadline + Clone> Source<P> {
 				workspace::Conversation::Room(row) if row.id == *id => Some(row),
 				_ => None,
 			})
-			.ok_or_else(|| refuse("room was retired"))?;
+			.ok_or_else(|| Error::closed("room was retired"))?;
 		let selected = [
 			(
 				Some(custody::Coordinate::new(custody::Role::RoomSeat, acquired.seat)),
@@ -628,6 +631,8 @@ impl<P: Deadline + Clone> Source<P> {
 		row.subject = destination.subject;
 		row.files = destination.files;
 		releases.retain(|old| !snapshot.intent.coordinates().any(|field| field == *old));
-		command.prepare_result_acquisition(snapshot.revision, &imports, &releases, &snapshot.intent)
+		command
+			.prepare_result_acquisition(snapshot.revision, &imports, &releases, &snapshot.intent)
+			.map_err(Error::from)
 	}
 }

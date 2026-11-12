@@ -74,7 +74,7 @@ fn expectFulfilled(reply: driver.Reply) !driver.Value {
     return switch (reply) {
         .fulfilled => |value| value,
         .broken => |reason| {
-            std.debug.print("goblins-handoff-iroh: call broke: {s}\n", .{reason});
+            std.debug.print("goblins-handoff-iroh: call broke: {f}\n", .{reason});
             return error.CallBroke;
         },
     };

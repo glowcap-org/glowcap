@@ -14,8 +14,8 @@ This note describes the checks behind the
 
 ## Two-peer scenario
 
-`zig build accountability` runs two glowcap peers over a real loopback TCP
-socket:
+`zig build accountability` runs two glowcap peers over encrypted Noise TCP on
+loopback:
 
 1. The host and caller each create a KERI-shaped AID from an inception event.
 2. The caller rotates its key. The inception event had already committed to the
@@ -64,7 +64,8 @@ cross-session state.
 ## Cross-language scenario
 
 `zig build demo-accountability` starts a new `accountability-host` process for
-each caller. Deno and Python independently:
+each caller and hands the caller the locator the host prints. Deno and Python
+independently:
 
 1. create an AID
 2. rotate once

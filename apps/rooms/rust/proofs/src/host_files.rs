@@ -137,12 +137,18 @@ async fn scenario() {
 	)
 	.await
 	.unwrap();
-	let runtime_a = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
-	let runtime_b = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
+	let runtime_a = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
+	let runtime_b = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+		profiles: tcp::Profiles::TCP,
+		..Default::default()
+	})]))
+	.await
+	.unwrap();
 	let (a, accepted_a) = pair(&server, &runtime_a).await;
 	let (b, accepted_b) = pair(&server, &runtime_b).await;
 	let offered_blob = accepted_a.published_ref("blob-a").unwrap().unwrap();

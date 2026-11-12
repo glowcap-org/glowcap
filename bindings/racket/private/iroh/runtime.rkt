@@ -272,7 +272,7 @@
      (semaphore-post (iroh-loop-accept-sema lp))]
     [(set? events IROH-EV-CONNECT)
      (define result
-       (with-handlers ([exn? (lambda (e) (cons 'error e))])
+       (with-handlers ([exn:fail? (lambda (e) (cons 'error e))])
          (cons 'ok (iroh-netlayer-finish-connect (iroh-loop-netlayer lp) subject))))
      (define w (hash-ref (iroh-loop-dials lp) subject #f))
      (hash-remove! (iroh-loop-dials lp) subject)

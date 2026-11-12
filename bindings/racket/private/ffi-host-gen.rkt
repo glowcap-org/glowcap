@@ -148,7 +148,7 @@
              (lambda (out0 out1)
                (glowcap_host_pump_drain* host hooks out0 out1))))
 (define-host glowcap_host_dialed (_fun _pointer _uint64 _size _pointer _pointer -> _int32))
-(define-host glowcap_host_dial_failed (_fun _pointer _uint64 _size _pointer _size -> _int32))
+(define-host glowcap_host_dial_failed (_fun _pointer _uint64 _size _uint32 _pointer _size -> _int32))
 (define-host glowcap_host_dial_cancelled (_fun _pointer _uint64 _size -> _int32))
 (define-host glowcap_host_provide_gift_id (_fun _pointer _uint64 _pointer _size -> _int32))
 (define-host glowcap_host_gift_id_failed (_fun _pointer _uint64 -> _int32))
@@ -295,3 +295,4 @@
   (_fun _pointer (_or-null _GlowcapPartnerIdentity-pointer) -> _int32))
 (define-host glowcap_host_session_bind_verified_channel_key (_fun _pointer _pointer _size -> _int32))
 (define-host glowcap_host_last_error (_fun _pointer _size -> _size))
+(define-host glowcap_host_last_error_cause (_fun (_or-null _GlowcapBreakCause-pointer) -> _void))

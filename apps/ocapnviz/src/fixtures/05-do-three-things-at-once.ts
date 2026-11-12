@@ -136,7 +136,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
 			from: "127.0.0.1:9501",
 			to: "127.0.0.1:9502",
 			arrivalT: 1550,
-			label: "op:deliver promise(user)→getCalendar→eventsToday",
+			label: "op:deliver promise(user), getCalendar, eventsToday",
 		},
 		{
 			id: "anchor-d",

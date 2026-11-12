@@ -1,5 +1,4 @@
-import * as tcp from "@glowcap/tcp";
-// Deno caller for the accountability-on-glowcap cross-seam demo.
+// Deno caller for the accountability-on-glowcap cross-language demo.
 //
 // Connects to a running Zig host, builds a KERI-anchored identity with a real
 // key event log (`identity.ts`), rotates it once, then invokes the Affordance
@@ -13,11 +12,14 @@ import * as tcp from "@glowcap/tcp";
 //     will not bind to the claimed AID.
 //
 // Usage:
-//   deno run --allow-ffi --allow-read --allow-net caller.ts <port>
+//   deno run --allow-ffi --allow-read --allow-net caller.ts <locator>
+//
+// The locator is the `ocapn://` URI the host printed.
 //
 // Or driven by the demo.ts orchestrator, which starts the Zig host first.
 
-import { type Argument, Runtime } from "@glowcap/runtime";
+import { type Argument, parseLocator, Runtime } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 import { b64url, Identity } from "./identity.ts";
 
 function fail(msg: string): never {
@@ -26,18 +28,19 @@ function fail(msg: string): never {
 }
 
 async function main(): Promise<void> {
-	const port = Number(Deno.args[0]);
-	if (!port) {
-		console.error("usage: caller.ts <port>");
+	const locator = Deno.args[0];
+	if (locator == null || locator.length === 0) {
+		console.error("usage: caller.ts <locator>");
 		Deno.exit(2);
 	}
 
 	console.log("accountability-on-glowcap deno caller");
-	console.log(`  connecting to 127.0.0.1:${port}…`);
+	console.log(`  connecting to ${locator}…`);
 
-	// `connect` completes the keyed op:start-session handshake before returning.
+	// `connect` completes the Noise handshake, which proves the host holds the
+	// key the locator names, before returning.
 	await using runtime = await Runtime.open({ providers: [tcp.provider()] });
-	const session = await runtime.connect(tcp.locator("127.0.0.1", port));
+	const session = await runtime.connect(parseLocator(locator));
 	// `fetch`/`send` drive the inbound loop themselves, no separate serve() call.
 	const affordance = await session.fetch("affordance");
 

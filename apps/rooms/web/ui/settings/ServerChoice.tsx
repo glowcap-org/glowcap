@@ -23,11 +23,12 @@ import {
 import { reloadNow } from "../boot.ts";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
-import { identifierField } from "../field.ts";
+import { addressField } from "../field.ts";
 import { Input } from "../Input.tsx";
 import { chooseServer, chosenServer, probeServer, serverBase, type ServerProbe } from "../server_choice.ts";
 import { namesDirectory } from "../application.ts";
 import { Said } from "../Said.tsx";
+import { refusalText } from "../../../lib/text/failure.ts";
 import { pageBase, servedByRooms } from "../page_base.ts";
 
 /** `framed` is the dialog's own well around the form, and focus on the field
@@ -83,7 +84,11 @@ export function ServerChoice(
 					return;
 				}
 				if (!changed) return;
-				chooseServer(read.base);
+				const refused = chooseServer(read.base);
+				if (refused != null) {
+					setWhy(refusalText(refused));
+					return;
+				}
 				onSaved();
 			}}
 		>
@@ -97,9 +102,7 @@ export function ServerChoice(
 					{(wiring) => (
 						<Input
 							id={wiring.id}
-							type="text"
-							inputMode="url"
-							{...identifierField}
+							{...addressField}
 							value={typed}
 							aria-describedby={wiring.describedBy}
 							aria-invalid={wiring.invalid}

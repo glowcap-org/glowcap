@@ -14,7 +14,7 @@
  *   - Replay-from-    operator gesture: blow away all behavior,
  *     recording      re-project everything from the observation
  *                     stream.
- *   - Doc load:       backfill span on any entity that doesn't yet status-allow: pending state or quoted runtime label
+ *   - Doc load:       backfill span on any entity that doesn't yet
  *                     carry one (e.g. fixtures whose entities are
  *                     declared without a timing block).
  *

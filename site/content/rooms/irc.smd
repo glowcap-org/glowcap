@@ -24,8 +24,8 @@ The bridge will not start without `--irc-realname`, which names the bot and a
 nick on Libera.Chat, the IRC network it joins, that answers for it. It follows
 `#ocapn` there over TLS and
 offers it as a room
-called `libera/#ocapn` on your machine. The command prints the port and the
-room name, and any Rooms client can join. People on the IRC side appear as
+called `libera/#ocapn`. The command prints the room's address and
+name, and any Rooms client can join. People on the IRC side appear as
 `irc/<nick>`, so you can always see where a line came from.
 
 The bridge only reads until a registered nick opts in to two-way mode with
@@ -44,10 +44,10 @@ A browser tab asks again after a reload.
 # Join Rooms from an IRC client
 
 ```sh
-zig build rooms-irc-server -- --directory=127.0.0.1:9099
+zig build rooms-irc-server -- --directory=ROOMS_LOCATOR
 ```
 
-This needs a directory already listening on TCP port 9099. Point your IRC client at `127.0.0.1:6667`, pick a nickname, and join a
+`ROOMS_LOCATOR` is the address your Rooms server printed when it started. Point your IRC client at `127.0.0.1:6667`, pick a nickname, and join a
 channel named after a room. Channel messages, private messages, `NAMES`,
 `LIST`, `PART`, `PING`, `TOPIC`, and `WHOIS` all work. `JOIN` enters a room
 that exists on the server, and if there is none, you see the server's

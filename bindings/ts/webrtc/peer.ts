@@ -43,13 +43,17 @@ interface PendingRemoteCandidate extends IceCandidateSnapshot {
 }
 
 function snapshotCandidate(value: unknown): IceCandidateSnapshot {
-	if (value == null || typeof value !== "object") {
+	if (value == null || typeof value !== "object" || Array.isArray(value)) {
 		throw new TypeError("webrtc: ICE candidate must be an object");
 	}
 	const snapshot: RTCIceCandidateInit = {};
 	let textBytes = 0;
-	for (const field of ["candidate", "sdpMid", "usernameFragment"] as const) {
-		const text: unknown = Reflect.get(value, field);
+	const fields: readonly ["candidate" | "sdpMid" | "usernameFragment", unknown][] = [
+		["candidate", "candidate" in value ? value.candidate : null],
+		["sdpMid", "sdpMid" in value ? value.sdpMid : null],
+		["usernameFragment", "usernameFragment" in value ? value.usernameFragment : null],
+	];
+	for (const [field, text] of fields) {
 		if (text == null) continue;
 		if (typeof text !== "string") {
 			throw new TypeError(`webrtc: ICE candidate ${field} must be a string or null`);
@@ -60,7 +64,7 @@ function snapshotCandidate(value: unknown): IceCandidateSnapshot {
 		}
 		snapshot[field] = text;
 	}
-	const line: unknown = Reflect.get(value, "sdpMLineIndex");
+	const line = "sdpMLineIndex" in value ? value.sdpMLineIndex : null;
 	if (line != null) {
 		if (typeof line !== "number" || !Number.isInteger(line) || line < 0 || line > 0xffff) {
 			throw new TypeError(
@@ -161,7 +165,10 @@ export class RtcPeer {
 			return;
 		}
 		this.#dc = dc;
-		this.#channel = rtcChannel(dc);
+		// The session owns this peer through its channel: closing the channel
+		// closes the RTCPeerConnection, or its ICE agent and DTLS transport
+		// would outlive the session.
+		this.#channel = rtcChannel(dc, () => this.close());
 		if (dc.readyState === "open") this.#markOpen();
 		else dc.addEventListener("open", () => this.#markOpen(), { once: true });
 		dc.addEventListener(

@@ -122,13 +122,13 @@ async function readAnnouncement(
 	throw new Error(miss);
 }
 
-/** Read a listening port (or similar token) announced on stderr. */
-export async function readPort(
+/** Read an announcement on stderr, such as a listening port and locator. */
+export async function readStderrAnnouncement(
 	proc: Deno.ChildProcess,
 	pattern: RegExp,
 	miss: string,
-): Promise<number> {
-	return Number((await readAnnouncement(proc.stderr.getReader(), pattern, miss))[1]);
+): Promise<RegExpMatchArray> {
+	return await readAnnouncement(proc.stderr.getReader(), pattern, miss);
 }
 
 export function rejectAttach(
@@ -223,7 +223,7 @@ export async function stopSpawnedServer(
 
 /** One cross-language client: a name for the divider, the command to run, and
  * the argv to build once the server's announcement is read. `announced` holds
- * the announcement's captures after the port. */
+ * the announcement's captures after the port, such as the server's locator. */
 export interface Participant {
 	name: string;
 	cmd: string;
@@ -235,7 +235,7 @@ export interface Participant {
  * are the same orchestration spine with different nouns; it lives here so the
  * run loop — and the pass/fail accounting — has exactly one owner. */
 export interface CrossLangDemo {
-	/** The demo's name, used to prefix its log lines (e.g. "tasks").  status-allow: purpose clause */
+	/** The demo's name, used to prefix its log lines (e.g. "tasks"). */
 	label: string;
 	/** What the server is called in prose (e.g. "server", "coordinator"). */
 	serverNoun: string;
@@ -246,6 +246,10 @@ export interface CrossLangDemo {
 	/** Matches the server's announcement on stdout. The first capture is the
 	 * port, and any later captures reach each client's argv. */
 	listenPattern: RegExp;
+	/** For `--attach`: the captures after the port that the server already
+	 * listening on `port` announced, read from where it recorded them. A demo
+	 * without this refuses `--attach`. */
+	attached?: (port: number) => Promise<string[]>;
 	/** Runs after the server stops, to remove what it left behind. */
 	cleanup?: () => Promise<void>;
 	/** Reported if the server never announces its port. */
@@ -256,6 +260,12 @@ export interface CrossLangDemo {
 	okLine: (langs: string) => string;
 	/** The failure line, printed when any client exits non-zero. */
 	failLine: string;
+}
+
+/** The captures an attached server announced, from the demo's record of them. */
+async function attachedCaptures(demo: CrossLangDemo, port: number): Promise<string[]> {
+	if (demo.attached == null) throw new Error(`${demo.label} demo cannot attach to a running ${demo.serverNoun}`);
+	return await demo.attached(port);
 }
 
 /** Run a cross-language demo to completion and exit the process: spawn the
@@ -284,6 +294,7 @@ export async function runCrossLangDemo(
 			? await readAnnouncement(server.stdout.getReader(), demo.listenPattern, demo.listenMiss)
 			: null;
 		const port = announced ? Number(announced[1]) : pinPort;
+		const captures = announced ? announced.slice(2) : await attachedCaptures(demo, port);
 		console.log(
 			`${demo.label} demo: ${demo.serverNoun} on 127.0.0.1:${port}; running ${participants.length} ${demo.clientNoun}(s) (${
 				participants.map((p) => p.name).join(", ")
@@ -291,7 +302,7 @@ export async function runCrossLangDemo(
 		);
 
 		for (const p of participants) {
-			const r = await runChild(p.cmd, p.argv(port, announced ? announced.slice(2) : []), root);
+			const r = await runChild(p.cmd, p.argv(port, captures), root);
 			console.log(`──────── ${p.name} (exit ${r.code}) ────────`);
 			console.log(r.out.trimEnd());
 			console.log("");

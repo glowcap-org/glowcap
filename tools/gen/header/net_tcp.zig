@@ -53,8 +53,8 @@ const emitted_fn_names = [_][]const u8{
 
 // The reflection machinery is shared with the other header generators; this
 // `Spec` binds it to `libglowcap_net_transport_tcp`. The archive has no
-// function-pointer typedefs and emits no `#define`s, so `Spec` supplies only
-// the module and the prototype table.
+// function-pointer typedefs, so `Spec` supplies only the module and the
+// prototype table. The profile `#define`s print from the same module.
 const Spec = struct {
     pub const c = @import("c_abi_net_transport_tcp");
     pub const emitted_fns: []const []const u8 = &emitted_fn_names;
@@ -108,9 +108,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
 
     try emitDoc(&b, gpa,
         \\Orientation: the low-level endpoint API is blocking, cleartext TCP for
-        \\a byte-fed GlowcapHost. The same archive also owns the complete
-        \\TCP provider package: tcp, keyed-tcp, and noise-tcp. Read a frame with
-        \\glowcap_tcp_conn_read_frame, feed its bytes to the Host, and
+        \\a byte-fed GlowcapHost. The same archive also owns the
+        \\TCP provider package: tcp, keyed-tcp, and noise-tcp, chosen at creation.
+        \\Read a frame with glowcap_tcp_conn_read_frame, feed its bytes to the Host, and
         \\write Host output with glowcap_tcp_conn_write_frame. The netlayer owns
         \\the I/O backend; create
         \\it, make connections/listeners from it, then release it after every
@@ -139,27 +139,39 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\  uint32_t keepalive_interval_sec;
         \\  uint32_t keepalive_count;
         \\} GlowcapTcpStreamOptions;
-        \\/* Defaults inherited by connections from this netlayer. */
+        \\/* Defaults inherited by connections from this netlayer, and the profiles
+        \\   the provider registers. `profiles` is a nonempty set of
+        \\   GLOWCAP_TCP_PROFILE_* bits and zero is refused. The raw endpoint verbs
+        \\   glowcap_tcp_connect and glowcap_tcp_listen are plain tcp and independent
+        \\   of the set. */
         \\typedef struct GlowcapTcpConfig {
         \\  GlowcapTcpStreamOptions stream;
+        \\  uint32_t profiles;
         \\} GlowcapTcpConfig;
         \\/* Per-operation override carried through GlowcapTransportOperationOptions. */
         \\typedef struct GlowcapTcpOperationOptions {
         \\  GlowcapTcpStreamOptions stream;
         \\} GlowcapTcpOperationOptions;
         \\
+        \\/* The `profiles` bits. tcp and keyed-tcp are cleartext with no peer proof.
+        \\   noise-tcp seals the session and proves the peer's key. */
+        \\
     );
+    try b.print(gpa, "#define GLOWCAP_TCP_PROFILE_TCP {d}u\n", .{c.GLOWCAP_TCP_PROFILE_TCP});
+    try b.print(gpa, "#define GLOWCAP_TCP_PROFILE_KEYED_TCP {d}u\n", .{c.GLOWCAP_TCP_PROFILE_KEYED_TCP});
+    try b.print(gpa, "#define GLOWCAP_TCP_PROFILE_NOISE_TCP {d}u\n", .{c.GLOWCAP_TCP_PROFILE_NOISE_TCP});
+    try b.print(gpa, "#define GLOWCAP_TCP_PROFILES_ALL {d}u\n\n", .{c.GLOWCAP_TCP_PROFILES_ALL});
 
     try emitFn(&b, gpa, "glowcap_tcp_archive_fingerprint", &.{}, "Return the exact callable-surface fingerprint of this archive. A dynamic loader must compare it with the binding-generated GLOWCAP_TCP_ARCHIVE_FINGERPRINT before calling any other glowcap_tcp_* function.");
-    try emitFn(&b, gpa, "glowcap_tcp_netlayer_new", &.{ "config", "out_netlayer" }, "Create the netlayer handle that owns the blocking I/O backend, allocating\nthrough the library allocator. `config` is required and supplies inherited\nstream defaults. Release with glowcap_tcp_netlayer_release after releasing\nevery endpoint made from it.");
+    try emitFn(&b, gpa, "glowcap_tcp_netlayer_new", &.{ "config", "out_netlayer" }, "Create the netlayer handle that owns the blocking I/O backend, allocating\nthrough the library allocator. `config` is required and supplies inherited\nstream defaults and the nonempty profile set the provider registers. Release with glowcap_tcp_netlayer_release after releasing\nevery endpoint made from it.");
     try emitFn(&b, gpa, "glowcap_tcp_netlayer_new_in", &.{ "context", "config", "out_netlayer" }, "Create a netlayer whose backend and per-connection buffers allocate through\n`context`, with the same required configuration.");
-    try emitFn(&b, gpa, "glowcap_tcp_transport_provider", &.{ "netlayer", "out_provider" }, "Fill out_provider with this runtime's complete TCP package: tcp, keyed-tcp,\nand noise-tcp. Install it once with glowcap_driver_add_provider. The driver\nacquires the provider lease through retain and releases it after all transport\nuse retires; release the TCP runtime only after the driver is released.");
+    try emitFn(&b, gpa, "glowcap_tcp_transport_provider", &.{ "netlayer", "out_provider" }, "Fill out_provider with this runtime's TCP package: the profiles its config\nnamed among tcp, keyed-tcp, and noise-tcp. Install it once with glowcap_driver_add_provider. The driver\nacquires the provider lease through retain and releases it after all transport\nuse retires; release the TCP runtime only after the driver is released.");
     try emitFn(&b, gpa, "glowcap_tcp_netlayer_shutdown", &.{"netlayer"}, "Seal connect admission and request cancellation of a connect already in\nprogress, without freeing netlayer. Call this before joining a foreign thread\ninside glowcap_tcp_connect. Idempotent.");
     try emitFn(&b, gpa, "glowcap_tcp_netlayer_release", &.{"netlayer"}, "Release the netlayer and its I/O backend after every connection and listener\nmade from it is released. First stop new calls, invoke shutdown, and join the\nembedding's operation leases; release must not race call initiation.");
     const optional_diagnostic_doc = "out_error/out_error_len optionally capture this call's diagnostic before an\noff-thread runtime regains control: omit all three diagnostic arguments, or\nprovide out_error_len. It receives the full length; out_error receives at most\nerror_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.";
 
-    try emitFn(&b, gpa, "glowcap_tcp_connect", &.{ "netlayer", "host", "host_len", "port", "options", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, "Connect to host:port and return an owned connection framing on `codec`,\nrefusing inbound frames over max_frame_bytes. `options == NULL` inherits the\nnetlayer's stream defaults; a nonnull zeroed value disables keepalive for this\nconnection. Blocking; `host` is borrowed. GLOWCAP_ERR_INVALID_ARGUMENT for a\nbad option, codec, frame cap, or address; GLOWCAP_ERR_TIMEOUT when the connect\ntimeout elapses; GLOWCAP_ERR_IO when the dial fails otherwise. Release with\nglowcap_tcp_conn_release.\n\n" ++ optional_diagnostic_doc);
-    try emitFn(&b, gpa, "glowcap_tcp_listen", &.{ "netlayer", "host", "host_len", "port", "out_listener" }, "Bind and listen on host:port (port 0 picks an OS-chosen port; read it back\nwith glowcap_tcp_listener_port). Release with glowcap_tcp_listener_release.");
+    try emitFn(&b, gpa, "glowcap_tcp_connect", &.{ "netlayer", "host", "host_len", "port", "options", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, "Connect to host:port and return an owned connection framing on `codec`,\nrefusing inbound frames over max_frame_bytes. `options == NULL` inherits the\nnetlayer's stream defaults; a nonnull zeroed value disables keepalive for this\nconnection. Blocking; `host` is borrowed. GLOWCAP_ERR_INVALID_ARGUMENT for a bad option, codec, frame cap, or address; GLOWCAP_ERR_TIMEOUT when the connect\ntimeout elapses; GLOWCAP_ERR_IO when the dial fails otherwise. Release with\nglowcap_tcp_conn_release.\n\n" ++ optional_diagnostic_doc);
+    try emitFn(&b, gpa, "glowcap_tcp_listen", &.{ "netlayer", "host", "host_len", "port", "out_listener" }, "Bind and listen on plain tcp at host:port (port 0 picks an OS-chosen port; read\nit back with glowcap_tcp_listener_port). Release with glowcap_tcp_listener_release.");
     try emitFn(&b, gpa, "glowcap_tcp_listener_port", &.{ "listener", "out_port" }, "The OS-resolved local port of a listener (useful after binding to port 0).");
     try emitFn(&b, gpa, "glowcap_tcp_listener_readiness_fd", &.{ "listener", "out_fd" }, "Return the borrowed listening descriptor. Park an external reactor on it and\ncall glowcap_tcp_accept after it is readable. Readiness is advisory: serialize\naccept consumers when the reactor must not park. The listener owns the fd; do\nnot close it or use it after glowcap_tcp_listener_release.");
     try emitFn(&b, gpa, "glowcap_tcp_accept", &.{ "listener", "options", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, "Block until a client connects, returning an owned connection framing on\n`codec`. `options` has the same inherit-or-override contract as\nglowcap_tcp_connect.\n\n" ++ optional_diagnostic_doc);

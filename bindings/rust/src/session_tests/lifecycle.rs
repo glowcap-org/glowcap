@@ -569,8 +569,11 @@ async fn a_silent_partner_times_the_dial_out_rather_than_parking_it() {
 
 			let error = connect_with_runtime_options(
 				&crate::tcp::locator(&addr.ip().to_string(), addr.port()),
-				RuntimeConfig::providers([crate::tcp::provider(Default::default())])
-					.with_handshake_timeout(std::time::Duration::from_millis(100)),
+				RuntimeConfig::providers([crate::tcp::provider(tcp::Config {
+					profiles: tcp::Profiles::TCP,
+					..Default::default()
+				})])
+				.with_handshake_timeout(std::time::Duration::from_millis(100)),
 			)
 			.await
 			.err()

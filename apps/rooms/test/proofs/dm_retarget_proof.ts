@@ -6,12 +6,12 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //   zoe is introduced to ada and they talk
 //   ada leaves, so the room has the name "ada" back
 //   somebody else joins and is granted the name "ada"
-//   the old conversation becomes read-only status-allow: replacement state identity
+//   the old conversation becomes read-only
 //   zoe explicitly opens a new conversation to the replacement registration
 //
 // The last line must not redeem a fresh introduction by name and reach the new
 // holder, with the same thread, title, and history, a different human, and no
-// marker anywhere. The old registration makes the composer unavailable, status-allow: replacement state identity
+// marker anywhere. The old registration makes the composer unavailable,
 // while an explicit new conversation receives a separate registration ID.
 //
 // Needs deno, the wasm module (`zig build wasm-host`), the installed archives,
@@ -98,7 +98,7 @@ try {
 	const other = await join("ada");
 	await zoe.page.waitForTimeout(2_000);
 
-	// The old conversation remains readable but cannot send to a different status-allow: replacement state identity
+	// The old conversation remains readable but cannot send to a different
 	// registration merely because it has the same display name.
 	await zoe.page.click("#dmList li .dm-open");
 	const closedComposer = await zoe.page.evaluate(() => ({
@@ -118,7 +118,7 @@ try {
 	// Next the case the keying itself protects: zoe starts a
 	// conversation with the person who holds the name. That is a different
 	// conversation with a different person, and the closed one keeps its history.
-	// Keyed on the nickname, the new one would land on top of the old and the status-allow: replacement state identity
+	// Keyed on the nickname, the new one would land on top of the old and the
 	// history would be gone.
 	await zoe.page.click("#newDmBtn");
 	await zoe.page.fill("#newDmInput", "ada");
@@ -130,7 +130,7 @@ try {
 	).catch(() =>
 		fail(
 			"starting a conversation with the new holder of the name did not open a second " +
-				"conversation — it landed on the closed one, which is the nickname keying again",
+				"conversation. It landed on the closed one, which is the nickname keying again",
 		)
 	);
 	const replacementLine = "message for the replacement ada";

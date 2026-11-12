@@ -4,6 +4,8 @@ description: How Rooms refuses repeated work with per-peer, per-grant, and per-d
 sources:
   - resource: /apps/rooms/rust/application/src/admission.rs
   - resource: /apps/rooms/rust/application/src/
+  - resource: /apps/rooms/rust/services/src/web/admission.rs
+  - resource: /apps/rooms/rust/runtime/src/session/managed/admission.rs
 ---
 
 # Rooms work admission
@@ -81,7 +83,7 @@ services:
   directory:
     environment:
       GLOWCAP_ROOMS_ADMISSION_RATES: message=20/80,room-join=5/10
-      GLOWCAP_ROOMS_HTTP_ADMISSION_ROWS: "2048"
+      GLOWCAP_ROOMS_HTTP_ADMISSION_ROWS: "4096"
       GLOWCAP_ROOMS_BROWSER_ADMISSION_RATES: message=20/80
   session:
     environment:

@@ -210,7 +210,7 @@ export type KeyDownResult = {
  * second.
  *
  * `bindings` is the shortcut table's host callbacks, or `null` when
- * no view has attached them yet. A press then resolves gestures and status-allow: pending state or quoted runtime label
+ * no view has attached them yet. A press then resolves gestures and
  * runs no command.
  */
 export function resolveKeyDown(

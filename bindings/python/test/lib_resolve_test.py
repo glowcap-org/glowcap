@@ -91,5 +91,42 @@ class ReleaseChecksumTest(unittest.TestCase):
                 RESOLVE._verify_sha256("", "archive.tar.gz", archive)
 
 
+class ResolutionNoteTest(unittest.TestCase):
+    def test_soft_failure_is_retained_not_printed(self):
+        notes = []
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, {"GLOWCAP_STRICT": ""}), mock.patch("sys.stderr", stderr):
+            RESOLVE._soft_fail("first")
+            RESOLVE._install_note_sink(notes.append)
+            RESOLVE._soft_fail("second")
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(notes, ["first (soft-fail)", "second (soft-fail)"])
+        self.assertEqual(RESOLVE._pending_notes, [])
+
+    def test_resolution_keeps_its_notes_beside_its_path_after_the_sink(self):
+        # The journal's sink takes every note, and a load that fails later
+        # still finds the notes its own resolution made.
+        with (
+            mock.patch.object(RESOLVE, "_note_sink", lambda _note: None),
+            mock.patch.object(RESOLVE, "_lib_dir", return_value=None),
+            mock.patch.object(RESOLVE.sys, "platform", "linux"),
+        ):
+            bare = RESOLVE._lib_path("glowcap_notes_probe")
+        self.assertEqual(RESOLVE._resolution_notes(bare), (f"loading bare {bare} via the OS search path",))
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                mock.patch.object(RESOLVE, "_note_sink", lambda _note: None),
+                mock.patch.object(RESOLVE, "_lib_dir", return_value=Path(directory)),
+            ):
+                placed = RESOLVE._lib_path("glowcap_notes_probe")
+            self.assertEqual(RESOLVE._resolution_notes(placed), ())
+        self.assertEqual(RESOLVE._resolution_notes(bare), (f"loading bare {bare} via the OS search path",))
+
+    def test_strict_soft_failure_raises(self):
+        with mock.patch.dict(os.environ, {"GLOWCAP_STRICT": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "^refused$"):
+                RESOLVE._soft_fail("refused")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -201,7 +201,7 @@ engineTest(
 		);
 		assert(
 			e.version > versionBefore,
-			"mid-gesture retime woke nobody — timeline paint stays frozen",
+			"mid-gesture retime woke nobody, so timeline paint stays frozen",
 		);
 		assertEquals(recomputes, 0, "layout must stay deferred inside the txn");
 		e.endTransaction();
@@ -306,7 +306,7 @@ engineTest(
 		// event is later in the timeline. The eternal-entities pass
 		// must not register them at t=0 just because they exist in
 		// the entities map. They have an explicit creation event
-		// that hasn't fired yet. status-allow: pending state or quoted runtime label
+		// that hasn't fired yet.
 		const futureSessionDoc = TimelineDocument.parse({
 			id: "test",
 			duration: 5000,
@@ -339,7 +339,7 @@ engineTest(
 		});
 		const e = new Engine(futureSessionDoc);
 		// Entities populated by the transform, but the session
-		// shouldn't be in the world yet at t=0. status-allow: pending state or quoted runtime label
+		// shouldn't be in the world yet at t=0.
 		assertEquals(
 			e.doc.entities?.sessions?.["future-session"] !== undefined,
 			true,
@@ -486,7 +486,7 @@ engineTest(
 		// start at t=300 (before b joins) must be rejected.
 		e.dispatch({ kind: "set-session-start", sessionId: "s_new", t: 300 });
 		// s_new still has no explicit start (rejected). Either no
-		// timing yet OR timing exists with implicit start. status-allow: pending state or quoted runtime label
+		// timing yet OR timing exists with implicit start.
 		const afterReject = e.doc.entities?.sessions?.s_new?.timing?.start;
 		if (afterReject !== undefined) {
 			assertEquals(afterReject.explicit, false);

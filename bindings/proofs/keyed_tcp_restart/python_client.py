@@ -41,7 +41,7 @@ async def serve_once(server) -> None:
 
 
 async def call_greeter(partner: Locator, expected: str) -> None:
-    async with Runtime.open(providers=[tcp.provider()]) as runtime:
+    async with Runtime.open(providers=[tcp.provider(tcp.Config(profiles=(tcp.keyed,)))]) as runtime:
         session = await runtime.connect(partner)
         try:
             # Keyed TCP carries a key-shaped designator. The verified session hello

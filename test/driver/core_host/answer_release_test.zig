@@ -46,7 +46,7 @@ fn expectFrame(session: *driver.core.HostSession, kind: Kind) !?usize {
 
 test "core host: answer releases ride the next message or leave at the park" {
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.captp_version = .next;
     options.features = model.FeatureSet.full().forCaptpVersion(.next);
     var client = test_host.init(allocator, @as([32]u8, @splat(0x61)), options);

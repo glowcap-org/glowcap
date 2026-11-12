@@ -46,9 +46,7 @@ export const ocapnS = lazySymbols(() => libPath("glowcap_ocapn"), {
 	// reaches them without any transport archive. The one grammar every binding
 	// shares.
 	glowcap_uri_parse_peer: { parameters: [B, U, B], result: I, outBuffers: [2] },
-	glowcap_uri_parse_peer_in: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	glowcap_uri_parse_sturdyref: { parameters: ["u32", B, U, B], result: I, outBuffers: [3] },
-	glowcap_uri_parse_sturdyref_in: { parameters: [P, "u32", B, U, B], result: I, outBuffers: [4] },
 	glowcap_uri_format_peer: { parameters: [B, U, B, U, B, B, B, B, U, B, U, B], result: I, outBuffers: [9, 11] },
 	glowcap_uri_format_sturdyref: {
 		parameters: ["u32", B, U, B, U, B, U, B, B, B, B, U, B, U, B],
@@ -56,9 +54,7 @@ export const ocapnS = lazySymbols(() => libPath("glowcap_ocapn"), {
 		outBuffers: [12, 14],
 	},
 	glowcap_locator_new: { parameters: [B, U, B, U, "u32", B], result: I, outBuffers: [5] },
-	glowcap_locator_new_in: { parameters: [P, B, U, B, U, "u32", B], result: I, outBuffers: [6] },
 	glowcap_locator_clone: { parameters: [B, B], result: I, outBuffers: [1] },
-	glowcap_locator_clone_in: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	glowcap_locator_borrow_view: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_sturdyref_borrow_locator: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_sturdyref_swissnum: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },

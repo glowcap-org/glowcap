@@ -70,7 +70,6 @@ conformance/accountability-on-goblins/racket/tests/.data/
 # Vite runs through Deno for Rooms. The package directory is a reproducible
 # cache. The frozen lock beside the app remains the dependency authority.
 apps/rooms/node_modules/
-apps/rooms/web/node_modules/
 apps/rooms/web/vite.config.ts.timestamp-*.mjs
 
 # local scratch: reference clones, throwaway experiments, MCP CapTP state (never committed)

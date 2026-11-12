@@ -1,5 +1,6 @@
 // Apply a Rust-interpreted command through session and browser gesture ports.
 // Text formatting reads projections. It cannot manufacture live authority.
+import { invariant } from "../../../lib/invariant.ts";
 import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
 import type { Conv } from "../conversation.ts";
@@ -62,7 +63,7 @@ export function runCommand(name: string, rest: string, powers: CommandPowers, co
 	);
 	const parsed = z.safeParse(CommandPlanSchema, raw);
 	if (!parsed.success) {
-		throw new Error(`the Rooms application answered an invalid command plan:\n${z.prettifyError(parsed.error)}`);
+		invariant(false, `the Rooms application answered an invalid command plan:\n${z.prettifyError(parsed.error)}`);
 	}
 	return applyCommandPlan(parsed.data, powers, conv);
 }
@@ -191,7 +192,7 @@ export function applyCommandPlan(
 		case "kick":
 			return committed(powers.kick(text));
 		default:
-			throw new Error(`Unknown Rust command gesture: ${plan.op}`);
+			invariant(false, `unknown Rust command gesture: ${plan.op}`);
 	}
 	return { kind: "done" };
 }
@@ -201,7 +202,7 @@ function pending(result: Promise<CommandOutcome>): Extract<CommandOutcome, { kin
 		kind: "done",
 		completion: result.then((outcome) => {
 			if (outcome.kind === "refused") throw new CommandRefused(outcome.why);
-			if (outcome.kind !== "done") throw new Error("A command effect unexpectedly produced a message");
+			invariant(outcome.kind === "done", "a command effect unexpectedly produced a message");
 			return outcome.completion;
 		}),
 	};

@@ -30,7 +30,7 @@ Process-local budgets admit work at effect boundaries. Restart resets short-live
 
 ## Alternatives and consequences
 
-Separate browser and process policies would drift. Binding-owned grant ledgers would duplicate shared authority. Serializing raw runtime handles cannot restore authority after restart. A larger retry window supplies no identity proof.
+Separate browser and process policies would drift. Binding-owned grant ledgers would duplicate shared authority. Serializing raw runtime handles cannot restore authority after restart. A larger retry window supplies no identity proof. Managed state inside the protocol engine or on every actor would tie unrelated users to resource policy and lifecycles. A managed Host or driver would duplicate how work runs, durable names, pending work, and shutdown. A Zig-only compile-time model could not take other languages' types through a runtime ABI. A permission mask loses scope relations, constraints, content facts, and status dependencies.
 
 The shared typed failure vocabulary preserves policy, storage, capability, runtime and cleanup causes until a product boundary renders them. A failed direct route need not stop sibling conversations.
 

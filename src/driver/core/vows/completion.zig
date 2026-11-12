@@ -29,13 +29,13 @@ pub fn queueVowCompletion(self: *Host, peer_handle: engine.PeerHandle, vow_id: u
     switch (resolution) {
         .fulfilled => |value| {
             const session = self.sessions.get(peer_handle) orelse {
-                queueFailure(self, peer_handle, vow_id, .closed, host_action.retainFailureMessage(self.allocator, "resolution session closed"));
+                queueFailure(self, peer_handle, vow_id, .closed, host_action.retainFailureMessage(self.allocator, "resolution session closed"), .{});
                 return;
             };
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             const owned = lift.ownValue(self, session, arena.allocator(), value) catch |err| {
                 arena.deinit();
-                queueFailure(self, peer_handle, vow_id, .broken, retainError(self, err));
+                queueFailure(self, peer_handle, vow_id, .broken, retainError(self, err), .{});
                 return;
             };
             self.actions.pushReserved(.{ .settled = .{
@@ -45,8 +45,8 @@ pub fn queueVowCompletion(self: *Host, peer_handle: engine.PeerHandle, vow_id: u
                 .storage = arena.state,
             } });
         },
-        .broken => |message| queueFailure(self, peer_handle, vow_id, classifyFailure(self, peer_handle), host_action.retainFailureMessage(self.allocator, message)),
-        .give => queueFailure(self, peer_handle, vow_id, .broken, host_action.retainFailureMessage(self.allocator, give_reason)),
+        .broken => |message| queueFailure(self, peer_handle, vow_id, classifyFailure(self, peer_handle), host_action.retainFailureMessage(self.allocator, message.detail), message.cause),
+        .give => queueFailure(self, peer_handle, vow_id, .broken, host_action.retainFailureMessage(self.allocator, give_reason), .{}),
     }
 }
 
@@ -80,7 +80,7 @@ pub fn holdDrained(self: *Host, action: host_action.HostAction, custody: Custody
     std.debug.assert(row.settled and row.completion == .none);
     row.completion = switch (action) {
         .settled => |settled| .{ .fulfilled = .{ .value = settled.value, .storage = settled.storage } },
-        .failed => |failed| .{ .failed = .{ .failure = failed.failure, .message = failed.message } },
+        .failed => |failed| .{ .failed = .{ .failure = failed.failure, .message = failed.message, .cause = failed.cause } },
         else => unreachable,
     };
     row.held_retains = action == .settled and custody == .row;
@@ -135,7 +135,7 @@ pub fn takeHeld(self: *Host, vow_id: u64, arena: std.mem.Allocator) !Held {
     errdefer promise_values.rollbackRetains(self, retained.items);
     const reply: value_mod.Reply = switch (row.completion) {
         .none => return .queued,
-        .failed => |failed| .{ .broken = try arena.dupe(u8, failed.message.bytes()) },
+        .failed => |failed| .{ .broken = .{ .detail = try arena.dupe(u8, failed.message.bytes()), .cause = failed.cause } },
         .fulfilled => |fulfilled| if (row.held_retains)
             .{ .fulfilled = (try promise_values.cloneValues(self, arena, &.{fulfilled.value}, &retained))[0] }
         else
@@ -156,7 +156,7 @@ pub fn classifyFailure(self: *const Host, peer_handle: engine.PeerHandle) host_a
 /// leaves existing observations untouched. Successful actions own their retain.
 pub fn queueCachedCompletion(self: *Host, session: *host_mod.HostSession, id: u64, reference: model.Reference) void {
     const ref = self.liftCapability(session, reference) catch |err| {
-        queueFailure(self, session.peer_handle, id, .broken, retainError(self, err));
+        queueFailure(self, session.peer_handle, id, .broken, retainError(self, err), .{});
         return;
     };
     self.actions.pushReserved(.{ .settled = .{
@@ -166,12 +166,13 @@ pub fn queueCachedCompletion(self: *Host, session: *host_mod.HostSession, id: u6
     } });
 }
 
-fn queueFailure(self: *Host, peer: engine.PeerHandle, id: u64, failure: host_action.VowFailure, message: host_action.RetainedFailureMessage) void {
+fn queueFailure(self: *Host, peer: engine.PeerHandle, id: u64, failure: host_action.VowFailure, message: host_action.RetainedFailureMessage, cause: engine.BreakCause) void {
     self.actions.pushReserved(.{ .failed = .{
         .peer_handle = peer,
         .vow_id = id,
         .failure = failure,
         .message = message,
+        .cause = cause,
     } });
 }
 

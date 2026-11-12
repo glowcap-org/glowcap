@@ -33,28 +33,33 @@ pub mod wire;
 mod demo_run;
 #[path = "../../../_demo/rooms_cli.rs"]
 mod rooms_cli;
+#[path = "../../../_demo/rooms_codes.rs"]
+mod rooms_codes;
 
 use std::collections::HashSet;
 
 use protocol_gen::{Effect, SESSION_DEADLINE_MS};
-use room::{Directory, Room};
-use rooms_cli::{NO_SUCH_ROOM, ROOM_EXISTS, error_code};
+use room::{Directory, Room, VerbFailure};
+use rooms_cli::error_code;
+use rooms_codes::{NO_SUCH_ROOM, ROOM_EXISTS};
 use wire::RoomInfo;
 
 /// The whole-roster deadline every sibling client holds, in seconds.
 const SESSION_DEADLINE_S: u64 = SESSION_DEADLINE_MS / 1000;
 
-/// Enter `name`, opening the room if it does not exist yet. status-allow: pending state or quoted runtime label
+/// Enter `name`, opening the room if it does not exist yet.
 async fn enter_or_open(dir: &Directory, name: &str) -> Result<glowcap::Ref, String> {
 	match dir.enter(name).await {
 		Ok(room) => return Ok(room),
-		Err(reason) if error_code(&reason) == NO_SUCH_ROOM => {}
-		Err(reason) => return Err(reason),
+		Err(VerbFailure::Call(err)) if error_code(&err) == NO_SUCH_ROOM => {}
+		Err(failure) => return Err(failure.to_string()),
 	}
 	match dir.open(name).await {
 		Ok(room) => Ok(room),
-		Err(reason) if error_code(&reason) == ROOM_EXISTS => dir.enter(name).await,
-		Err(reason) => Err(reason),
+		Err(VerbFailure::Call(err)) if error_code(&err) == ROOM_EXISTS => {
+			dir.enter(name).await.map_err(|failure| failure.to_string())
+		}
+		Err(failure) => Err(failure.to_string()),
 	}
 }
 

@@ -62,13 +62,13 @@ pub const Options = struct {
 ///
 ///   * `resolve(locator) !Backend.ConnectTarget`, the dial resolver.
 ///   * `listenTarget(backend, transport, config) !Backend.ListenTarget`,
-///     refusing a designator the backend cannot serve exactly;
+///     refusing a designator the backend cannot serve exactly.
 ///   * `localLocator(backend, fd, transport, identity, allocator)
 ///     !model.PeerLocator`, the dialable locator of an open listener, owned
-///     by `allocator`;
+///     by `allocator`.
 ///   * `canonicalizeLocator(backend, fd, transport, identity, allocator,
 ///     candidate) !model.PeerLocator`, the validated form of a locator the
-///     listener on `fd` may advertise instead, owned by `allocator`;
+///     listener on `fd` may advertise instead, owned by `allocator`.
 ///   * optionally, `restorationState(backend, fd, out)
 ///     netlayer.ListenerRestorationOutcome`, the opaque state that restores
 ///     the listener on `fd`. A policy without it restores nothing.
@@ -162,7 +162,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             /// An accept the kernel refused for a reason that will not clear
             /// on its own (descriptor quota, memory). The listener stays
             /// unarmed until `finishAccept` hands the failure to the runtime,
-            /// which owns the verdict; re-arming here would spin against the
+            /// which owns the verdict. Re-arming here would spin against the
             /// same refusal while the backlog holds an arrival.
             accept_failure: ?anyerror = null,
             /// A backend listener still finishing its setup reports here.
@@ -172,14 +172,14 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         allocator: std.mem.Allocator,
         backend: Backend,
         options: Options,
-        /// Records reaped from the kernel and not yet handed to the runtime. status-allow: pending state or quoted runtime label
+        /// Records reaped from the kernel and not yet handed to the runtime.
         /// `ready_pending` reports them, because no descriptor does.
         records: std.ArrayListUnmanaged(ReadyEvent) = .empty,
         /// Connections whose flushed batch starts at the next `beforeWait`.
-        /// Bounded by the connections with staged bytes; capacity is kept.
+        /// Bounded by the connections with staged bytes. Capacity is kept.
         send_queue: std.ArrayListUnmanaged(usize) = .empty,
         /// Connections whose receive re-arms at the `beforeWait` that
-        /// precedes a park. Bounded by the open connections; capacity is kept.
+        /// precedes a park. Bounded by the open connections. Capacity is kept.
         recv_queue: std.ArrayListUnmanaged(usize) = .empty,
         /// Descriptors whose readiness wakes the park, armed as it begins.
         watches: std.ArrayListUnmanaged(completions.Watch) = .empty,
@@ -407,9 +407,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 return resident_mod.would_block;
             }
             if (conn.back.capacity == 0) conn.back = self.spare_sends.pop() orelse .empty;
-            conn.back.appendSlice(self.allocator, bytes[0..take]) catch {
-                conn.owes_writable = true;
-                return resident_mod.would_block;
+            // Staging that cannot grow fails the connection with its cause:
+            // a would-block here owes an `ev_writable` that only a send
+            // completion records, so an idle connection would stall.
+            conn.back.appendSlice(self.allocator, bytes[0..take]) catch |err| {
+                conn.write_failure = err;
+                return -1;
             };
             // The batch starts at `flushWrites` and leaves at `beforeWait`.
             return @intCast(take);
@@ -425,9 +428,9 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 return resident_mod.would_block;
             }
             if (conn.back.capacity == 0) conn.back = self.spare_sends.pop() orelse .empty;
-            conn.back.appendSlice(self.allocator, bytes) catch {
-                conn.owes_writable = true;
-                return resident_mod.would_block;
+            conn.back.appendSlice(self.allocator, bytes) catch |err| {
+                conn.write_failure = err;
+                return -1;
             };
             return @intCast(bytes.len);
         }

@@ -9,6 +9,7 @@ const driver = @import("driver_core");
 const service = @import("service.zig");
 const vocabulary = @import("vocabulary.zig");
 const Step = @import("step.zig").Step;
+const Conflict = @import("control_request.zig").Conflict;
 
 /// Which read a parked sharing step resumes from when the Store delivers it.
 const PendingOwner = enum { store, child, control };
@@ -28,6 +29,7 @@ pub const Sharing = struct {
     sequence: u64,
     request: core.GrantLedger.Issue,
     expected: ?core.Revision = null,
+    conflict: ?Conflict = null,
     intent: []const u8,
     source: ?*storage.Operation = null,
     planned: bool = false,
@@ -97,6 +99,7 @@ pub const Sharing = struct {
 
     pub fn advance(self: *Sharing, source: *storage.Operation) !Step {
         self.source = source;
+        if (self.conflict != null) return .ready;
         if (self.expected != null) try loam.reload(source.requireManagement()) orelse return .more;
         if (!self.admitted) {
             _ = try self.parent.derivations.lookup(self.sequence);
@@ -111,7 +114,12 @@ pub const Sharing = struct {
         if (self.sequence == self.parent.derivations.next) {
             if (!self.planned) {
                 const planned = if (self.expected) |revision| source.prepareIssueCopying(self.request, self.powers.?, revision) else if (self.powers) |powers| source.prepareManagedDeriveCopying(self.request, powers) else source.prepareDeriveCopying(self.request);
-                try loam.reload(planned) orelse return .more;
+                const prepared = loam.reload(planned) catch |err| {
+                    if (err != error.RevisionConflict or self.expected == null) return err;
+                    self.conflict = .revision;
+                    return .ready;
+                };
+                if (prepared == null) return .more;
                 self.planned = true;
                 return .more; // Drain the prepared append through source.advance.
             }
@@ -119,13 +127,13 @@ pub const Sharing = struct {
         }
         if (try self.acquire(&self.leases[Slot.receipt], (try self.parent.derivations.lookup(self.sequence)).?)) |step| return step;
         const receipt = try records.DerivationRecord.decode(try self.store().currentView(self.leases[Slot.receipt].?));
-        if (!std.mem.eql(u8, receipt.intent, self.intent)) return error.OperationConflict;
+        if (!std.mem.eql(u8, receipt.intent, self.intent)) return self.rejectIntent();
         if (try self.acquire(&self.leases[Slot.endpoint], receipt.endpoint)) |step| return step;
         const child_record = try liveEndpoint(try self.store().currentView(self.leases[Slot.endpoint].?));
         const content = child_record.content orelse return error.InvalidRecord;
         // The issued endpoint records which node the sequence shared, so the
         // same request through another dependent facet is a changed intent.
-        if (!content.resource.eql(self.bound.resource) or !content.object.eql(self.bound.object)) return error.OperationConflict;
+        if (!content.resource.eql(self.bound.resource) or !content.object.eql(self.bound.object)) return self.rejectIntent();
         if (child_record.publication == null or !child_record.publication.?.eql(receipt.publication)) return error.InvalidRecord;
         if (try self.acquire(&self.leases[Slot.publication], receipt.publication)) |step| return step;
         const publication = try self.store().currentView(self.leases[Slot.publication].?);
@@ -218,7 +226,14 @@ pub const Sharing = struct {
         for (self.leases) |lease| if (lease) |held| self.store().release(held) catch unreachable;
     }
 
+    fn rejectIntent(self: *Sharing) !Step {
+        if (self.expected == null) return error.OperationConflict;
+        self.conflict = .operation;
+        return .ready;
+    }
+
     pub fn invoke(self: *Sharing) driver.Value {
+        if (self.conflict) |conflict| return conflict.reply();
         if (self.sequence == self.parent.derivations.next) self.call.transaction = .{ .context = self, .stage = stage };
         self.call.result = reply;
         self.call.confirmation = .{ .context = self, .apply = confirm };
@@ -241,7 +256,7 @@ pub const Sharing = struct {
         };
     }
 
-    /// Fill a held lease slot once; a filled slot needs no store call.
+    /// Fill a held lease slot once. A filled slot needs no store call.
     fn acquire(self: *Sharing, slot: *?loam.Lease, id: loam.ObjectId) !?Step {
         if (slot.* != null) return null;
         switch (try self.acquireRow(id)) {

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from groups import GROUP_NAMES, GROUPS
+from groups import GROUP_NAMES, GROUPS, NIGHTLY
 
 
 def select(event_name, ref, event, paths):
@@ -53,6 +53,31 @@ def select(event_name, ref, event, paths):
     return ordered, False
 
 
+def phases(group, event_name, paths):
+    """The group's phases this run needs.
+
+    A nightly phase runs at night, on request, when the changed paths are
+    unknown, and when one of them belongs to the phase's owners."""
+    if event_name in ("schedule", "workflow_dispatch") or paths is None:
+        return list(group.phases)
+    return [
+        phase
+        for phase in group.phases
+        if phase not in NIGHTLY or any(path.startswith(NIGHTLY[phase]) for path in paths)
+    ]
+
+
+def plan(event_name, ref, event, paths):
+    """Return the selected groups as check.yml's matrix rows, and whether validation is full."""
+    selected, full = select(event_name, ref, event, paths)
+    groups = [
+        {"name": group.name, "phases": phases(group, event_name, paths), "shards": list(range(1, group.shards + 1))}
+        for group in GROUPS
+        if group.name in selected
+    ]
+    return groups, full
+
+
 def changed_paths(event, cwd):
     # A follow-up cancels the prior PR run, so it must cover the whole PR.
     if "pull_request" in event:
@@ -79,14 +104,7 @@ def changed_paths(event, cwd):
 def main():
     root = Path(__file__).resolve().parents[1]
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-    selected, full = select(
-        os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"], event, changed_paths(event, root)
-    )
-    groups = [
-        {"name": group.name, "phases": list(group.phases), "shards": list(range(1, group.shards + 1))}
-        for group in GROUPS
-        if group.name in selected
-    ]
+    groups, full = plan(os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"], event, changed_paths(event, root))
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"groups={json.dumps(groups)}\nfull={str(full).lower()}\n")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:

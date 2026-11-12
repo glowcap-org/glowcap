@@ -62,7 +62,7 @@ export const roomKeepLink = "Keep link";
 export const roomKeepCapability = "Keep link";
 export const roomDiscardCapability = "Discard link";
 export const roomReleaseName = "Release registered name";
-export const roomRevokeAuthority = "Revoke room authority";
+export const roomRevokeAuthority = "Revoke room link";
 export const roomRevokeModerator = "Revoke moderator link";
 export const roomModerationTitle = "Room moderation";
 export const roomUnbridgeSay = "Unbridge this room? Every connection closes and the room leaves this server.";
@@ -83,8 +83,7 @@ export const roomManagerRecoverHint =
 export const roomManagerRecover = "Recover manager link";
 export const roomManagerSourceOwned =
 	"This room's source owns its management link. This directory's operator can't create it.";
-export const roomManagerHeldHint =
-	`${managerLinkPower} Anyone you share it with runs the room too. This server's operator can recover a lost copy.`;
+export const roomManagerHeldHint = `${managerLinkPower} This server's operator can recover a lost copy.`;
 export const roomManagerDiscarded = "This session discarded its room manager link.";
 export function roomNameReleaseLabel(room: string): string {
 	return `Release the registered name #${room}`;
@@ -95,8 +94,7 @@ export function roomNameReleased(room: string): string {
 export const roomManagerDiscardAsk = "Discard manager…";
 export const roomNameReleaseAsk = "Release registered name…";
 export const roomLinkTitle = "Room link";
-export const roomLinkCreateHint =
-	`Create a link for this room. ${roomLinkPower} It keeps working across server restarts until it is revoked.`;
+export const roomLinkCreateHint = `${roomLinkPower} It keeps working across server restarts until it is revoked.`;
 export const roomLinkSaveHint = "Save the IRC bridge's room link to return to this exact publication.";
 export const roomLinkNoneHint = "You don't hold this room's link. A room manager can create one and hand it to you.";
 export const roomLinkHandedHint =

@@ -154,7 +154,7 @@ try {
 	// Written before any peer selection, this line is the device store's account
 	// of the conversation the peer is about to start recording too. The direct
 	// button waits for Bob's registration rather than navigating away from a
-	// members list that has not drawn him yet. The conversation stays open status-allow: pending state or quoted runtime label
+	// members list that has not drawn him yet. The conversation stays open
 	// across the selection change, so both writes share one generation.
 	const firstDm = alice.tab.locator('#members li:has-text("archive-bob") button.dm-btn');
 	await firstDm.waitFor({ state: "visible", timeout: 90_000 });

@@ -59,7 +59,7 @@
     [else
      (define-values (host port) (designator-host-port locator))
      (define runtime
-       (open-runtime #:providers (list (tcp-provider))
+       (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP TCP-PROFILE-NOISE-TCP))))
                      #:profile 'glowcap))
      (values runtime (runtime-connect runtime (tcp-locator host port)))]))
 
@@ -447,7 +447,24 @@
   (in-producer (lambda () (room-next a-room)) eof))
 
 (module+ test
-  (require rackunit)
+  (require rackunit
+           (only-in "../../../_demo/rooms_cli.rkt" error-code NO-SUCH-ROOM)
+           (only-in "../../../../bindings/racket/private/errors.rkt" make-glowcap-error make-glowcap-broken)
+           (only-in "../../../../bindings/racket/private/constants.rkt" ERR-BROKEN ERR-IO break-cause))
+
+  (test-case "the room code is the head of an application refusal's raw reason"
+    (define (broken reason [cause (break-cause 'partner 'application 0)])
+      (make-glowcap-broken ERR-BROKEN "a different display" reason #:cause cause))
+    (check-equal? (error-code (broken "no-such-room: no room named lobby")) NO-SUCH-ROOM)
+    (for ([reason '("dir-enter: enter broke: no-such-room: lobby"
+                   "glowcap error -12: no-such-room: lobby"
+                   "ExporterUnreachable: no-such-room: lobby")])
+      (check-equal? (error-code (broken reason)) (car (regexp-split #rx": " reason))))
+    (check-equal? (error-code (broken "no-such-room")) "")
+    (check-equal? (error-code (broken "no-such-room: lobby" (break-cause 'local 'peer-unreachable 0))) "")
+    (check-equal? (error-code (broken "no-such-room: lobby" (break-cause 'unspecified 'unspecified 0))) "")
+    (check-equal? (error-code (make-glowcap-error ERR-IO "enter broke: no-such-room: x")) "")
+    (check-equal? (error-code (exn:fail "enter broke: no-such-room: x" (current-continuation-marks))) ""))
 
   (test-case "unread lines stop at the named ceiling"
     (define mb (make-mailbox))

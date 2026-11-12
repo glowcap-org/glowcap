@@ -397,6 +397,25 @@ test "bans: WebRTC listener failures cannot fall back to console-only reporting"
     });
 }
 
+test "bans: a Rooms page reloads, and a proof spawns, through the one owner" {
+    var t = try TestRun.init();
+    defer t.deinit();
+    const io = std.testing.io;
+    try t.tmp.dir.createDirPath(io, "apps/rooms/web/ui/settings");
+    try t.tmp.dir.createDirPath(io, "apps/rooms/test/support");
+    for ([_][2][]const u8{
+        .{ "apps/rooms/web/ui/page_base.ts", "export const reloadPage = () => location.reload();\n" },
+        .{ "apps/rooms/web/ui/settings/ServerCard.tsx", "location.reload();\n" },
+        .{ "apps/rooms/test/support/children.ts", "const env = { ...Deno.env.toObject() };\n" },
+        .{ "apps/rooms/test/page_proof.ts", "spawn({ env: Deno.env.toObject() });\n" },
+    }) |file| try t.tmp.dir.writeFile(io, .{ .sub_path = file[0], .data = file[1] });
+    try t.run(&(rooms.page_reloads ++ rooms.proof_child_environment));
+    try t.expectMessages(&.{
+        "apps/rooms/web/ui/settings/ServerCard.tsx: contains `location.reload(` — " ++ rooms.page_reloads[0].why,
+        "apps/rooms/test/page_proof.ts: contains `Deno.env.toObject()` — " ++ rooms.proof_child_environment[0].why,
+    });
+}
+
 test "bans: Rooms runtime cannot restore the text catch-all" {
     var t = try TestRun.init();
     defer t.deinit();

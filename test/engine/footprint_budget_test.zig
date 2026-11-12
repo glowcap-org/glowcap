@@ -1,7 +1,6 @@
 //! Per-session memory footprint budget: the runtime half.
 //!
-//! The 500k-connection destination is a budget every struct on the session path
-//! answers to. Its inline half is held by the compiler: `engine.Peer` carries a
+//! Every struct on the session path answers to a per-connection footprint budget. Its inline half is held by the compiler: `engine.Peer` carries a
 //! `comptime` ceiling on `@sizeOf(Peer)`. This test holds the other half, the
 //! heap a session grows once it has actually carried traffic, because that cost
 //! is runtime, not `comptime`.
@@ -19,11 +18,12 @@
 //! sessions. That is the core's obligation. It is not the whole per-connection
 //! cost. The outbound queue dominates it (`steady_outbound_bytes`, 16 KiB per
 //! buffer across the front/back pair), and the live socket measurement is
-//! `zig build bench-peer-scaling`'s. The core must never be what makes 500k
-//! impossible, and this gate proves it does not drift there silently.
+//! `zig build bench-peer-scaling`'s. The core must never be what makes half a
+//! million connections impossible, and this gate proves it does not drift there
+//! silently.
 //!
-//! `zig build bench-peer-scaling` reports the live measured numbers and the 500k
-//! extrapolation for idle, warmed, and active sessions. This test is the gate the
+//! `zig build bench-peer-scaling` reports the live measured numbers and the
+//! 500_000-connection extrapolation for idle, warmed, and active sessions. This test is the gate the
 //! report's warmed number must keep passing.
 
 const std = @import("std");
@@ -104,7 +104,7 @@ test "a burst-drained session releases its burst queue capacity back under the w
     // life: the engine queues retain steady capacity on drain-reset but *free*
     // anything above their steady bound (`peer.queue.steady_retain_bytes`), so a
     // peer that has weathered a burst settles back to warmed size. Kilobytes
-    // pinned per queue would be gigabytes at the 500k destination.
+    // pinned per queue would be gigabytes across half a million connections.
     const backing = std.testing.allocator;
     var tracker = LiveBytesAllocator{ .backing = backing };
     const tracked = tracker.allocator();

@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 SCRIPT = ROOT / "tools/gen/site_normalize.py"
 SPEC = importlib.util.spec_from_file_location("site_normalize", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None, "the script loads as a module"
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 HEAD = r"<table><thead><tr>\1</tr></thead><tbody>"

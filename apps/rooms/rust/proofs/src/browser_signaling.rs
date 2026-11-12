@@ -68,7 +68,10 @@ async fn runtime_dial(url: &str, location: &str, handoff: bool) {
 	let route = selected.clone();
 	let observed = attempts.clone();
 	let select = move |_: &glowcap::Locator, origin: &glowcap::DialOrigin| {
-		let directory = route.borrow().clone().ok_or("no selected directory")?;
+		let directory = route
+			.borrow()
+			.clone()
+			.ok_or_else(|| rooms_runtime::Error::invalid("no selected directory"))?;
 		match origin {
 			glowcap::DialOrigin::Explicit => assert!(!handoff),
 			glowcap::DialOrigin::Pending { introducer } => {

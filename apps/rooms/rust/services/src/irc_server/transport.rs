@@ -39,6 +39,14 @@ pub(super) async fn open(config: &Config, host: &Host) -> Result<(Listener, Loca
 	// a direct-message listener beside a discovery-published directory is
 	// published the same way, and one beside a hinted directory stays direct.
 	let reachability = config.directory_reachability();
+	let mut providers = vec![tcp::provider(config.tcp())];
+	// An iroh listener brings its own provider below.
+	if config.iroh().is_some() && !matches!(config.dm, DirectListener::Iroh) {
+		providers.push(iroh::provider(serving::iroh_config(reachability)));
+	}
+	let runtime = Runtime::open(RuntimeConfig::providers(providers).adopt_host(host))
+		.await
+		.map_err(|e| e.to_string())?;
 	let (listener, locator) = match &config.dm {
 		DirectListener::Iroh => {
 			Listener::open(&Transport::Iroh(reachability), host, &mut serving::onion::KeyFile(None))
@@ -74,20 +82,7 @@ pub(super) async fn open(config: &Config, host: &Host) -> Result<(Listener, Loca
 			(Listener::Tcp(server), locator)
 		}
 	};
-	let mut providers = Vec::new();
-	if matches!(config.dm, DirectListener::Iroh) {
-		providers.push(tcp::provider(Default::default()));
-	}
-	if config.directory.transport == glowcap::TRANSPORT_IROH && !matches!(config.dm, DirectListener::Iroh) {
-		providers.push(iroh::provider(serving::iroh_config(reachability)));
-	}
-	match Runtime::open(RuntimeConfig::providers(providers).adopt_host(host)).await {
-		Ok(runtime) => Ok((listener, locator, Rc::new(runtime))),
-		Err(error) => Err(crate::cleanup::failed(
-			error.to_string(),
-			listener.close().await.map_err(|e| e.to_string()),
-		)),
-	}
+	Ok((listener, locator, Rc::new(runtime)))
 }
 
 fn material(path: &std::path::Path) -> Result<Vec<u8>, String> {

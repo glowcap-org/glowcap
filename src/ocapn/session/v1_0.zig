@@ -1,6 +1,6 @@
 //! V1.0 resolver-callback translation, the session-owned half.
 //!
-//! OCapN V1.0 has no native `op:resolve`: a caller advertises a resolver
+//! OCapN V1.0 has no `op:resolve` of its own: a caller advertises a resolver
 //! capability in a deliver's `resolve_me_desc`, and the answer is later settled
 //! by an inbound deliver *to that resolver* rather than by a resolve message.
 //! glowcap's engine speaks one resolve-shaped semantics internally (ADR-0006),
@@ -54,7 +54,7 @@ pub const PreparedInboundResolver = struct {
 };
 
 /// Whether this session's negotiated CapTP version is OCapN V1.0, which has no
-/// native `op:resolve` and therefore needs resolver-callback translation.
+/// `op:resolve` of its own and therefore needs resolver-callback translation.
 pub fn needsV1_0Translation(self: *const Session) bool {
     return self.captp_version == .v1_0;
 }

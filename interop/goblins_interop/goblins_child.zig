@@ -463,14 +463,15 @@ pub fn followChildVerdict(
 /// this read, so a line that never comes must end the wait rather than
 /// park the driver forever. `scratch` accumulates everything read, so a line
 /// that arrives split across reads is still found whole, and null is also the
-/// answer once it fills.
+/// answer once it fills. A poll or read failure is returned, never read as a
+/// missing line.
 pub fn awaitChildStdoutLine(
     io: std.Io,
     child: *std.process.Child,
     needle: []const u8,
     scratch: []u8,
     budget_ms: i32,
-) ?[]const u8 {
+) !?[]const u8 {
     const out = child.stdout orelse return null;
     const fd = out.handle;
     const deadline = net.clock.nowMs(io) + budget_ms;
@@ -480,9 +481,9 @@ pub fn awaitChildStdoutLine(
         const remaining = deadline - net.clock.nowMs(io);
         if (remaining <= 0) return null;
         var pfd = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
-        const ready = std.posix.poll(&pfd, @intCast(@min(remaining, std.math.maxInt(i32)))) catch return null;
+        const ready = try std.posix.poll(&pfd, @intCast(@min(remaining, std.math.maxInt(i32))));
         if (ready == 0) return null;
-        const n = std.posix.read(fd, scratch[seen..]) catch return null;
+        const n = try std.posix.read(fd, scratch[seen..]);
         if (n == 0) return null; // the child ended its stdout
         seen += n;
     }

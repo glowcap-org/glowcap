@@ -330,6 +330,7 @@ test "libglowcap_host: a failed dial breaks the redeeming vow with the reason" {
         recipient,
         dials.items[0].ticket,
         dials.items[0].route_index,
+        @backingInt(c.RouteFailure.peer_unreachable),
         "exporter unreachable",
         20,
     ));
@@ -500,6 +501,7 @@ test "libglowcap_host: a select-or-dial enliven breaks when the embedder cannot 
         client,
         dials.items[0].ticket,
         dials.items[0].route_index,
+        @backingInt(c.RouteFailure.peer_unreachable),
         reason,
         reason.len,
     ));
@@ -542,6 +544,7 @@ test "libglowcap_host: id route bundles expose a bounded strong-route race" {
         client,
         dials.items[0].ticket,
         dials.items[0].route_index,
+        @backingInt(c.RouteFailure.peer_unreachable),
         "iroh unavailable",
         "iroh unavailable".len,
     ));
@@ -550,6 +553,7 @@ test "libglowcap_host: id route bundles expose a bounded strong-route race" {
         client,
         dials.items[1].ticket,
         dials.items[1].route_index,
+        @backingInt(c.RouteFailure.peer_unreachable),
         "noise relay unavailable",
         "noise relay unavailable".len,
     ));

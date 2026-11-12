@@ -1,7 +1,9 @@
 ---
 type: living
 description: Open OCapN and Goblins questions that glowcap cannot settle alone.
-sources: []
+sources:
+  - resource: /src/ocapn/
+  - resource: /conformance/ocapn-findings/
 ---
 
 # Waiting on upstream
@@ -50,7 +52,7 @@ model arm, codec round trips, and a live Goblins check.
 
 ## Locator hints type
 
-The draft describes hints as a mapping. The pinned Goblins constructor contract
+The draft describes hints as a mapping. The pinned Racket Goblins constructor contract
 accepts only false or a string. The wire unmarshaller builds nodes through the
 raw constructor, so a mapping-shaped hints field does decode in practice.
 `zig build goblins-gift-hints` observes this live and keeps it pinned with
@@ -59,8 +61,8 @@ extension point.
 
 ## Handoff withdrawal lookup
 
-Goblins resolves a give's session by the full node value including hints, while
-its own node equality ignores hints. glowcap embeds the peer-owned
+Racket Goblins at the pinned revision resolves a give's session by the full
+node value including hints, while its own node equality ignores hints. glowcap embeds the peer-owned
 acceptable-location claim verbatim. That selected route may differ from the
 transport carrying the session. Onion uses the stable hint-less locator. An
 iroh direct-address refresh applies to subsequent sessions and gifts. This is

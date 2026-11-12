@@ -96,7 +96,7 @@ comptime {
 
 /// The V1.0 inbound resolver link: which resolver import the partner gave us
 /// for each of its inbound answers. V1.0's alone, because only V1.0
-/// advertises a resolver in an answered `op:deliver`; next follows every
+/// advertises a resolver in an answered `op:deliver`. Next follows every
 /// answered operation with `op:listen` instead.
 ///
 /// It is not folded onto the answer rows: the inbound resolver is installed

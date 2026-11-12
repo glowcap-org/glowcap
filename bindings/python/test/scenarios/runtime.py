@@ -8,8 +8,9 @@ import asyncio
 from contextvars import ContextVar
 
 import glowcap._loop as _loop_module
-from glowcap import GlowcapError, Host, Locator, PendingWork, Runtime, tcp
+from glowcap import BreakCause, BreakOrigin, BreakReason, GlowcapError, Host, Locator, PendingWork, Runtime, tcp
 from glowcap._constants import (
+    BREAK_CONTEXT_FETCH,
     ERR_CLOSED,
     ERR_INTERNAL,
     ERR_INVALID_ARGUMENT,
@@ -43,6 +44,10 @@ def run_managed(awaitable):
     return asyncio.run(scoped())
 
 
+# The profile each test locator's transport needs.
+_PROFILE_FOR_TRANSPORT = {TRANSPORT_TCP: tcp.plain, TRANSPORT_KEYED_TCP: tcp.keyed, TRANSPORT_NOISE_TCP: tcp.noise}
+
+
 async def tcp_connect(partner, **kwargs):
     """Open one managed TCP runtime for this scenario."""
     host = kwargs.pop("host", None)
@@ -50,7 +55,7 @@ async def tcp_connect(partner, **kwargs):
     codec = kwargs.pop("codec", "syrup" if host is None else None)
     timeout = kwargs.pop("handshake_timeout_ms", None)
     runtime = await Runtime.open(
-        providers=[tcp.provider()],
+        providers=[tcp.provider(tcp.Config(profiles=(_PROFILE_FOR_TRANSPORT[partner.transport],)))],
         adopt_host=host,
         codec=codec,
         handshake_timeout_ms=timeout if timeout is not None else 10_000,
@@ -176,7 +181,7 @@ async def _driver_completion_preserves_failure_category() -> None:
             None,
             primary_name="closed by owner",
             settled_ok=False,
-            decoded=Fail(9, _constants.ERR_CLOSED, "closed by owner"),
+            decoded=Fail(9, _constants.ERR_CLOSED, (0, 0, 0), "closed by owner"),
         )
     )
     try:
@@ -201,7 +206,7 @@ async def _runtime_open_is_transactional() -> None:
         nonlocal release_calls
         release_calls += 1
         assert original_host_release(raw) == 0
-        return ERR_IO
+        return -ERR_IO
 
     _loop_module._driver.glowcap_driver_take_host = refuse_take_host
     _loop_module._host.glowcap_host_release = release_then_report_failure
@@ -524,3 +529,20 @@ async def _runtime_frame_cap_zero_is_refused() -> None:
         assert error.code == ERR_INVALID_ARGUMENT, error
     else:
         raise AssertionError("close hid the failed open")
+
+
+async def _missing_connector_retains_cause() -> None:
+    host = Host()
+    try:
+        try:
+            await host.enliven("ocapn://127.0.0.1%3A1.tcp/s/c3Zj")
+        except GlowcapError as error:
+            assert error.cause == BreakCause(
+                BreakOrigin.LOCAL, BreakReason.TRANSPORT_UNAVAILABLE, BREAK_CONTEXT_FETCH
+            ), error
+            assert error.is_exporter_unreachable(), error
+            assert str(error).count("ExporterUnreachable") == 1, error
+        else:
+            raise AssertionError("missing connector did not break the enliven")
+    finally:
+        await host.close()

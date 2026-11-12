@@ -180,8 +180,8 @@ and stream costs.
     bring-up ends.
   - These queues are signaling control state, not session bytes, but remain
     peer-influenced when the signaling capability crosses a network.
-- **Pinned stream wrapper**: `netlayer_support.PinnedRawStream` for a raw
-  socket connection (`tcp`, `onion`) and `netlayer_support.PinnedStream` for a
+- **Pinned stream wrapper**: `netlayer.PinnedRawStream` for a raw
+  socket connection (`tcp`, `onion`) and `netlayer.PinnedStream` for a
   shim-sourced one (`inproc`, `IrohStream`) (ADR-0019, ADR-0021).
   `std.Io.Reader`'s vtable recovers its concrete reader from `&interface` by
   field offset, so the reader and writer need a stable address outside the

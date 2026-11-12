@@ -98,14 +98,18 @@ export type OperatorReferenceRow = z.infer<typeof OperatorReferenceRowSchema>;
 export type OperatorRoomKind = OperatorRoomRow["kind"];
 export type OperatorTroubleRow = z.infer<typeof OperatorTroubleRowSchema>;
 
-export type OperatorPageRows =
-	| StewardshipRow[]
-	| OperatorLinkRow[]
-	| OperatorRegistrationRow[]
-	| OperatorSessionRow[]
-	| OperatorRoomRow[]
-	| OperatorReferenceRow[]
-	| OperatorTroubleRow[];
+/** The rows each category's page carries. */
+export interface OperatorRowsByCategory {
+	stewardships: StewardshipRow[];
+	links: OperatorLinkRow[];
+	registrations: OperatorRegistrationRow[];
+	sessions: OperatorSessionRow[];
+	rooms: OperatorRoomRow[];
+	references: OperatorReferenceRow[];
+	trouble: OperatorTroubleRow[];
+}
+
+export type OperatorPageRows = OperatorRowsByCategory[OperatorCategory];
 
 interface OperatorPageBase {
 	revision: bigint;
@@ -115,14 +119,13 @@ interface OperatorPageBase {
 	total: number;
 }
 
-export type OperatorPage =
-	| (OperatorPageBase & { category: "stewardships"; rows: StewardshipRow[] })
-	| (OperatorPageBase & { category: "links"; rows: OperatorLinkRow[] })
-	| (OperatorPageBase & { category: "registrations"; rows: OperatorRegistrationRow[] })
-	| (OperatorPageBase & { category: "sessions"; rows: OperatorSessionRow[] })
-	| (OperatorPageBase & { category: "rooms"; rows: OperatorRoomRow[] })
-	| (OperatorPageBase & { category: "references"; rows: OperatorReferenceRow[] })
-	| (OperatorPageBase & { category: "trouble"; rows: OperatorTroubleRow[] });
+/** One category's page. */
+export type OperatorPageOf<C extends OperatorCategory> = OperatorPageBase & {
+	category: C;
+	rows: OperatorRowsByCategory[C];
+};
+
+export type OperatorPage = { [C in OperatorCategory]: OperatorPageOf<C> }[OperatorCategory];
 
 /** Admit one stewardship tuple, the row shape `giveSteward` also answers. */
 export function parseRow(raw: unknown): StewardshipRow | null {
@@ -160,6 +163,30 @@ function parseRows(raw: unknown): StewardshipRow[] {
 	return rows;
 }
 
+/** `entry` as strings, or null when any of it is not one. */
+function strings(entry: readonly unknown[]): string[] | null {
+	const out: string[] = [];
+	for (const value of entry) {
+		if (typeof value !== "string") return null;
+		out.push(value);
+	}
+	return out;
+}
+
+/** Every row of a bounded page, or a refusal naming the page. */
+function pageRows<T>(raw: unknown, parse: (entry: unknown) => T | null, what: string): T[] {
+	if (!Array.isArray(raw) || raw.length > MAX_OPERATOR_PAGE) {
+		throw new Error("the Rooms operator answered an invalid category page");
+	}
+	const rows: T[] = [];
+	for (const entry of raw) {
+		const row = parse(entry);
+		if (row == null) throw new Error(`the Rooms operator answered an invalid ${what} page`);
+		rows.push(row);
+	}
+	return rows;
+}
+
 /** Rows of `width` strings closed by one boolean, the caller-connection mark. */
 function markedRows<T>(
 	raw: unknown,
@@ -171,14 +198,12 @@ function markedRows<T>(
 		throw new Error("the Rooms operator answered an invalid inventory");
 	}
 	return raw.map((entry) => {
-		if (
-			!Array.isArray(entry) || entry.length !== width + 1 ||
-			entry.slice(0, width).some((value) => typeof value !== "string") ||
-			typeof entry[width] !== "boolean"
-		) {
+		const row = Array.isArray(entry) && entry.length === width + 1 ? strings(entry.slice(0, width)) : null;
+		const you = Array.isArray(entry) ? entry[width] : undefined;
+		if (row == null || typeof you !== "boolean") {
 			throw new Error("the Rooms operator answered an invalid inventory row");
 		}
-		const parsed = z.safeParse(schema, make(entry.slice(0, width) as string[], entry[width]));
+		const parsed = z.safeParse(schema, make(row, you));
 		if (!parsed.success) throw new Error("the Rooms operator answered an out-of-bounds inventory row");
 		return parsed.data;
 	});
@@ -194,108 +219,76 @@ function stringRows<T>(
 		throw new Error("the Rooms operator answered an invalid inventory");
 	}
 	return raw.map((entry) => {
-		if (!Array.isArray(entry) || entry.length !== width || entry.some((value) => typeof value !== "string")) {
-			throw new Error("the Rooms operator answered an invalid inventory row");
-		}
-		const parsed = z.safeParse(schema, make(entry as string[]));
+		const row = Array.isArray(entry) && entry.length === width ? strings(entry) : null;
+		if (row == null) throw new Error("the Rooms operator answered an invalid inventory row");
+		const parsed = z.safeParse(schema, make(row));
 		if (!parsed.success) throw new Error("the Rooms operator answered an out-of-bounds inventory row");
 		return parsed.data;
 	});
 }
 
-function parseCategoryRows(category: OperatorCategory, raw: unknown): OperatorPageRows {
-	if (category === "stewardships") return parseRows(raw);
-	if (category === "links") {
-		return stringRows(raw, 3, ([name, label, visibility]) => {
-			if (visibility !== "listed" && visibility !== "private") throw new Error("invalid room-link visibility");
-			return { name, label, visibility };
-		}, OperatorLinkRowSchema);
-	}
-	if (category === "registrations") {
-		return markedRows(
-			raw,
-			2,
-			([nick, sessionId], you) => ({ nick, sessionId, you }),
-			OperatorRegistrationRowSchema,
-		);
-	}
-	if (category === "sessions") {
-		return markedRows(
-			raw,
-			3,
-			([id, transport, nick], you) => ({ id, transport, nick, you }),
-			OperatorSessionRowSchema,
-		);
-	}
-	if (!Array.isArray(raw) || raw.length > MAX_OPERATOR_PAGE) {
-		throw new Error("the Rooms operator answered an invalid category page");
-	}
-	if (category === "rooms") {
-		const rows = raw.map(parseOperatorRoom);
-		if (rows.some((row) => row == null)) throw new Error("the Rooms operator answered an invalid room page");
-		return rows as OperatorRoomRow[];
-	}
-	if (category === "references") {
-		const rows = raw.map((entry) => {
-			if (!Array.isArray(entry) || entry.length !== 6 || entry.some((value) => typeof value !== "string")) {
-				return null;
-			}
-			const [id, kind, owner, room, member, detail] = entry;
-			const parsed = z.safeParse(OperatorReferenceRowSchema, { id, kind, owner, room, member, detail });
-			return parsed.success ? parsed.data : null;
-		});
-		if (rows.some((row) => row === null)) throw new Error("the Rooms operator answered an invalid reference page");
-		return rows as OperatorReferenceRow[];
-	}
-	const rows = raw.map(parseOperatorTrouble);
-	if (rows.some((row) => row == null)) throw new Error("the Rooms operator answered an invalid trouble page");
-	return rows as OperatorTroubleRow[];
+function parseReference(entry: unknown): OperatorReferenceRow | null {
+	const row = Array.isArray(entry) && entry.length === 6 ? strings(entry) : null;
+	if (row == null) return null;
+	const [id, kind, owner, room, member, detail] = row;
+	const parsed = z.safeParse(OperatorReferenceRowSchema, { id, kind, owner, room, member, detail });
+	return parsed.success ? parsed.data : null;
 }
 
-export function parseOperatorPageAnswer(category: OperatorCategory, raw: unknown): OperatorPage {
+/** Each category's row parser, keyed so a category's rows keep its type. */
+const ROW_PARSERS: { readonly [C in OperatorCategory]: (raw: unknown) => OperatorRowsByCategory[C] } = {
+	stewardships: parseRows,
+	links: (raw) =>
+		stringRows(raw, 3, ([name, label, visibility]) => {
+			if (visibility !== "listed" && visibility !== "private") throw new Error("invalid room-link visibility");
+			return { name, label, visibility };
+		}, OperatorLinkRowSchema),
+	registrations: (raw) =>
+		markedRows(raw, 2, ([nick, sessionId], you) => ({ nick, sessionId, you }), OperatorRegistrationRowSchema),
+	sessions: (raw) =>
+		markedRows(raw, 3, ([id, transport, nick], you) => ({ id, transport, nick, you }), OperatorSessionRowSchema),
+	rooms: (raw) => pageRows(raw, parseOperatorRoom, "room"),
+	references: (raw) => pageRows(raw, parseReference, "reference"),
+	trouble: (raw) => pageRows(raw, parseOperatorTrouble, "trouble"),
+};
+
+/** Admit one category's page answer, `[revision, next, rows, total]`. */
+export function parseOperatorPageAnswer<C extends OperatorCategory>(category: C, raw: unknown): OperatorPageOf<C> {
 	if (
 		!Array.isArray(raw) || raw.length !== 4 || typeof raw[0] !== "bigint" || raw[0] < 0n ||
 		(raw[1] !== null && (typeof raw[1] !== "bigint" || raw[1] < 0n || raw[1] > BigInt(Number.MAX_SAFE_INTEGER))) ||
 		typeof raw[3] !== "bigint" || raw[3] < 0n || raw[3] > BigInt(Number.MAX_SAFE_INTEGER)
 	) throw new Error("the Rooms operator answered an invalid snapshot page");
-	const revision = raw[0];
 	const next = raw[1] == null ? null : Number(raw[1]);
-	const total = Number(raw[3]);
-	const rows = parseCategoryRows(category, raw[2]);
-	if (category === "stewardships") return { category, revision, next, total, rows: rows as StewardshipRow[] };
-	if (category === "links") return { category, revision, next, total, rows: rows as OperatorLinkRow[] };
-	if (category === "registrations") {
-		return { category, revision, next, total, rows: rows as OperatorRegistrationRow[] };
-	}
-	if (category === "sessions") return { category, revision, next, total, rows: rows as OperatorSessionRow[] };
-	if (category === "rooms") return { category, revision, next, total, rows: rows as OperatorRoomRow[] };
-	if (category === "references") return { category, revision, next, total, rows: rows as OperatorReferenceRow[] };
-	return { category, revision, next, total, rows: rows as OperatorTroubleRow[] };
+	return { category, revision: raw[0], next, total: Number(raw[3]), rows: ROW_PARSERS[category](raw[2]) };
 }
 
 /** Encode a validated operator page back into its passable tuple. Durable
  * session facets use this instead of defining a second inventory schema. */
 export function operatorPageAnswer(page: OperatorPage): Argument {
-	const rows: Argument[] = page.rows.map((raw) => {
-		if (page.category === "stewardships") {
-			const row = raw as StewardshipRow;
-			return [row.name, row.label, row.visibility, BigInt(row.generation), row.steward, row.manager, row.bridged];
-		}
-		if (page.category === "links") {
-			const row = raw as OperatorLinkRow;
-			return [row.name, row.label, row.visibility];
-		}
-		if (page.category === "registrations") {
-			const row = raw as OperatorRegistrationRow;
-			return [row.nick, row.sessionId, row.you];
-		}
-		if (page.category === "sessions") {
-			const row = raw as OperatorSessionRow;
-			return [row.id, row.transport, row.nick, row.you];
-		}
-		if (page.category === "rooms") {
-			const row = raw as OperatorRoomRow;
-			return [
+	return [page.revision, page.next == null ? null : BigInt(page.next), rowsAnswer(page), BigInt(page.total)];
+}
+
+function rowsAnswer(page: OperatorPage): Argument[] {
+	switch (page.category) {
+		case "stewardships":
+			return page.rows.map((row) => [
+				row.name,
+				row.label,
+				row.visibility,
+				BigInt(row.generation),
+				row.steward,
+				row.manager,
+				row.bridged,
+			]);
+		case "links":
+			return page.rows.map((row) => [row.name, row.label, row.visibility]);
+		case "registrations":
+			return page.rows.map((row) => [row.nick, row.sessionId, row.you]);
+		case "sessions":
+			return page.rows.map((row) => [row.id, row.transport, row.nick, row.you]);
+		case "rooms":
+			return page.rows.map((row) => [
 				row.id,
 				row.kind,
 				row.name,
@@ -304,16 +297,12 @@ export function operatorPageAnswer(page: OperatorPage): Argument {
 				row.retainedCapabilities == null ? null : BigInt(row.retainedCapabilities),
 				row.members.map((member) => [member.nick, member.sessionId, member.state]),
 				row.membersMore,
-			];
-		}
-		if (page.category === "references") {
-			const row = raw as OperatorReferenceRow;
-			return [row.id, row.kind, row.owner, row.room, row.member, row.detail];
-		}
-		const row = raw as OperatorTroubleRow;
-		return [row.source, row.reason, BigInt(row.count)];
-	});
-	return [page.revision, page.next == null ? null : BigInt(page.next), rows, BigInt(page.total)];
+			]);
+		case "references":
+			return page.rows.map((row) => [row.id, row.kind, row.owner, row.room, row.member, row.detail]);
+		case "trouble":
+			return page.rows.map((row) => [row.source, row.reason, BigInt(row.count)]);
+	}
 }
 
 function parseOperatorRoom(raw: unknown): OperatorRoomRow | null {
@@ -328,14 +317,13 @@ function parseOperatorRoom(raw: unknown): OperatorRoomRow | null {
 			(typeof retained !== "bigint" || retained < 0n || retained > BigInt(Number.MAX_SAFE_INTEGER))) ||
 		!Array.isArray(rawMembers) || rawMembers.length > MAX_OPERATOR_PAGE || typeof membersMore !== "boolean"
 	) return null;
-	const members = rawMembers.map((member) => {
-		if (
-			!Array.isArray(member) || member.length !== 3 ||
-			typeof member[0] !== "string" || typeof member[1] !== "string" || typeof member[2] !== "string"
-		) return null;
-		return { nick: member[0], sessionId: member[1], state: member[2] };
-	});
-	if (members.some((member) => member === null)) return null;
+	const members: { nick: string; sessionId: string; state: string }[] = [];
+	for (const member of rawMembers) {
+		const fields = Array.isArray(member) && member.length === 3 ? strings(member) : null;
+		if (fields == null) return null;
+		const [nick, sessionId, state] = fields;
+		members.push({ nick, sessionId, state });
+	}
 	const parsed = z.safeParse(OperatorRoomRowSchema, {
 		id,
 		kind,
@@ -343,7 +331,7 @@ function parseOperatorRoom(raw: unknown): OperatorRoomRow | null {
 		origin,
 		proof,
 		retainedCapabilities: retained === null ? null : Number(retained),
-		members: members as { nick: string; sessionId: string; state: string }[],
+		members,
 		membersMore,
 	});
 	return parsed.success ? parsed.data : null;

@@ -125,7 +125,7 @@ test "Host copy measurement and capability visits give integer runs list depth" 
 
 test "served Host reply lends containers without turn storage and near reply keeps lowering" {
     const allocator = std.testing.allocator;
-    var host = @import("../support/core_host.zig").init(allocator, @splat(0x6a), .withFrameCap(4096));
+    var host = @import("../support/core_host.zig").init(allocator, @splat(0x6a), .init(.unchecked, 4096));
     defer host.deinit();
     const session = try @import("../support/host_pair.zig").publishAndOpenAccepted(&host, "tcp", "127.0.0.1:8080", "");
     var vat = glowcap.actors.Vat.init(allocator);
@@ -145,8 +145,24 @@ test "served Host reply lends containers without turn storage and near reply kee
         }
     };
     var adapter: core.Hosting(Handler) = .{ .inner = .{} };
-    const reply = try adapter.handle(&turn, .{ .verb = "get", .reference_slots = 0 });
+    const reply = adapter.handle(&turn, .{ .verb = "get", .reference_slots = 0 });
     try std.testing.expectEqual(@as(i64, 42), (try reply.viewed.@"struct".at(0)).value.integer);
+    // The adapter could not lower the reply. That failure is its own, so the
+    // call breaks with no cause.
     turn.origin = .local;
-    try std.testing.expectError(error.OutOfMemory, adapter.handle(&turn, .{ .verb = "get", .reference_slots = 0 }));
+    const unlowered = adapter.handle(&turn, .{ .verb = "get", .reference_slots = 0 }).refused;
+    try std.testing.expectEqualStrings("OutOfMemory", unlowered.name);
+    try std.testing.expect(!unlowered.own);
+    try std.testing.expect(!unlowered.broken().cause.isApplication());
+
+    // The behavior's returned error is its refusal.
+    const Refuser = struct {
+        pub fn handle(_: *@This(), _: *core.HostTurn, _: ?[]const u8, _: core.Args) !Value {
+            return error.Revoked;
+        }
+    };
+    var refusing: core.Hosting(Refuser) = .{ .inner = .{} };
+    const refused = refusing.handle(&turn, .{ .verb = "get", .reference_slots = 0 }).refused;
+    try std.testing.expectEqualStrings("Revoked", refused.name);
+    try std.testing.expect(refused.broken().cause.isApplication());
 }

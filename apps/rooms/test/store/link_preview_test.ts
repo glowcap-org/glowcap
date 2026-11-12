@@ -11,7 +11,8 @@ import { initializeApplication } from "../support/application.ts";
 await initializeApplication();
 const store = await import("../../web/ui/store.ts");
 const { dirId } = await import("../../web/ui/directory.ts");
-const { previewSelection } = await import("../../web/ui/link_preview.ts");
+const { previewFailure, previewSelection, previewTargets } = await import("../../web/ui/link_preview.ts");
+const { ROOMS_FAILURES } = await import("../../lib/failure_data.ts");
 
 function setup(name: string, service: string | null = "http://rooms.example/") {
 	const projection = new store.PageProjection();
@@ -128,4 +129,108 @@ Deno.test("reader effects admit only the selected Markdown subset", () => {
 		previewSelection(text, ["https://example.com/a#fragment"]).length === 0,
 		"a non-canonical selected spelling bypassed shared URL identity",
 	);
+});
+
+Deno.test("malformed drafts and selections admit nothing they do not show", () => {
+	assert(previewTargets("").length === 0, "an empty draft offered a preview");
+	assert(
+		previewTargets("no links at all, just ocapn://x and http:/broken").length === 0,
+		"a non-link offered a preview",
+	);
+	assert(
+		previewTargets("`https://example.com/code` and <https://example.com/a>").every((target) =>
+			target.url !== "https://example.com/code"
+		),
+		"a link inside inline code offered a preview",
+	);
+	const text = "see https://example.com/a";
+	assert(previewSelection(text, []).length === 0, "an empty selection admitted a link");
+	assert(previewSelection(text, ["not a url"]).length === 0, "a non-URL selection admitted a fetch");
+	assert(
+		previewSelection(text, ["https://example.com/a", "https://example.com/a"]).length <= 1,
+		"a repeated selection admitted the same fetch twice",
+	);
+});
+
+Deno.test("a preview failure keeps the shared retry vocabulary", () => {
+	const known = previewFailure({ code: "link-preview-failed", summary: "s", retry: "whenever" });
+	assert(
+		known.retry === ROOMS_FAILURES["link-preview-failed"].retry,
+		"an unrecognized retry on a Rooms code did not fall back to that code's definition",
+	);
+	const unknown = previewFailure({ code: "from-somewhere-else", summary: "s", retry: 7 });
+	assert(unknown.retry === "never", "an unknown code with an unrecognized retry was offered a retry");
+	const kept = previewFailure({ code: "from-somewhere-else", summary: "s", retry: "after-state-change" });
+	assert(kept.retry === "after-state-change", "a valid retry was not kept");
+	const shapeless = previewFailure(new Error("boom"));
+	assert(shapeless.code === "link-preview-failed", "a failure with no code and summary was not the fallback");
+	const array = Object.assign([], { code: "array-code", summary: "not a failure object", retry: "soon" });
+	assert(previewFailure(array).code === "link-preview-failed", "an array was admitted as a failure object");
+});
+
+Deno.test("malformed preview replies give a catalog refusal without granting retry advice", async () => {
+	const { fetchPreview } = await import("../../web/ui/link_preview.ts");
+	const { failureView } = await import("../../lib/text/failure.ts");
+	const original = globalThis.fetch;
+	try {
+		for (const reply of [null, [], { ok: true, metadata: {} }, { ok: false }]) {
+			globalThis.fetch = () => Promise.resolve(Response.json(reply));
+			let failure: unknown;
+			try {
+				await fetchPreview("https://rooms.example/", "https://example.com/", new AbortController().signal);
+			} catch (error) {
+				failure = error;
+			}
+			assert(failureView(failure).code === "local-preview-unreadable", "malformed response escaped its catalog");
+			assert(failureView(failure).retry === "never", "malformed response gained automatic retry advice");
+			assert(
+				previewFailure(failure).code === "local-preview-unreadable",
+				"preview card lost the catalog refusal",
+			);
+			assert(
+				previewFailure(failure).summary.includes("without a preview"),
+				"preview card lost its recovery instruction",
+			);
+		}
+	} finally {
+		globalThis.fetch = original;
+	}
+});
+
+Deno.test("a proxy HTTP failure keeps preview retry even when its body is HTML", async () => {
+	const { fetchPreview } = await import("../../web/ui/link_preview.ts");
+	const saved = globalThis.fetch;
+	globalThis.fetch = () => Promise.resolve(new Response("<html>Bad gateway</html>", { status: 502 }));
+	try {
+		const [result] = await Promise.allSettled([
+			fetchPreview("https://rooms.example/", "https://example.com/", new AbortController().signal),
+		]);
+		assert(result.status === "rejected", "HTTP failure must refuse the preview");
+		const failure = previewFailure(result.reason);
+		assert(failure.code === "link-preview-failed" && failure.retry === "soon", "the server failure needs Retry");
+	} finally {
+		globalThis.fetch = saved;
+	}
+});
+
+Deno.test("a non-2xx typed preview refusal keeps the service's retry policy", async () => {
+	const { fetchPreview } = await import("../../web/ui/link_preview.ts");
+	const saved = globalThis.fetch;
+	globalThis.fetch = () =>
+		Promise.resolve(
+			Response.json({
+				ok: false,
+				failure: { code: "link-preview-forbidden", summary: "Refused address", retry: "never" },
+			}, { status: 403 }),
+		);
+	try {
+		const [result] = await Promise.allSettled([
+			fetchPreview("https://rooms.example/", "https://example.com/", new AbortController().signal),
+		]);
+		assert(result.status === "rejected", "service refusal must stay a refusal");
+		assert(previewFailure(result.reason).retry === "never", "HTTP fallback must not replace structured advice");
+		assert(previewFailure(result.reason).code === "link-preview-forbidden", "the service owns the code");
+	} finally {
+		globalThis.fetch = saved;
+	}
 });

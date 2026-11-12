@@ -1,6 +1,7 @@
 //! Bounded application work on one continuously polled local executor. The
 //! stop signal bypasses admission. Dropping a JS observation retains its job.
 use super::{Environment, Result, TroubleReporter, cleanup, js_error, rejected};
+use rooms_runtime::Error as RuntimeError;
 use std::{
 	cell::{Cell, RefCell},
 	future::Future,
@@ -89,7 +90,7 @@ impl Driver {
 
 	pub fn require_open(&self) -> Result<()> {
 		if self.0.budget.stopped.get() {
-			Err("Rooms application is closed".into())
+			Err(RuntimeError::closed("Rooms application is closed"))
 		} else {
 			Ok(())
 		}
@@ -184,7 +185,7 @@ impl Driver {
 		wasm_bindgen_futures::future_to_promise(async move {
 			answer
 				.await
-				.map_err(|_| js_error("Rooms application closed before answering"))?
+				.map_err(|_| js_error(&RuntimeError::closed("Rooms application closed before answering")))?
 				.map_err(|error| js_error(&error))
 		})
 	}
@@ -195,10 +196,10 @@ impl Driver {
 	{
 		let budget = &self.0.budget;
 		if budget.stopped.get() {
-			return Err("Rooms application is closed".into());
+			return Err(RuntimeError::closed("Rooms application is closed"));
 		}
 		if budget.tasks.get() >= MAX_TASKS || bytes > MAX_BYTES.saturating_sub(budget.bytes.get()) {
-			return Err("Rooms application work capacity is exhausted".into());
+			return Err(RuntimeError::busy("Rooms application work capacity is exhausted"));
 		}
 		budget.tasks.set(budget.tasks.get() + 1);
 		budget.bytes.set(budget.bytes.get() + bytes);
@@ -211,10 +212,10 @@ impl Driver {
 			reply,
 			permit,
 		};
-		self.0
-			.jobs
-			.try_send(job)
-			.map_err(|_| "Rooms application stopped accepting work".into())
+		self.0.jobs.try_send(job).map_err(|error| match error {
+			mpsc::error::TrySendError::Full(_) => RuntimeError::busy("Rooms application work queue is full"),
+			mpsc::error::TrySendError::Closed(_) => RuntimeError::closed("Rooms application stopped accepting work"),
+		})
 	}
 	pub fn stop(&self) {
 		self.with_local(|| {
@@ -296,7 +297,7 @@ async fn run(
 			completed = tasks.join_next(), if !tasks.is_empty() => {
 				match completed {
 					Some(Err(error)) => {
-						failure = Err(format!("Rooms application task failed: {error}"));
+						failure = Err(RuntimeError::platform(error));
 						break;
 					},
 					Some(Ok(Err(error))) => report(&error),
@@ -306,7 +307,7 @@ async fn run(
 			completed = serving.join_next(), if !serving.is_empty() => {
 				match completed {
 					Some(Err(error)) => {
-						failure = Err(format!("Rooms serving task failed: {error}"));
+						failure = Err(RuntimeError::platform(error));
 						break;
 					},
 					Some(Ok(Err(error))) => report(&error),
@@ -323,7 +324,7 @@ async fn run(
 					let unobserved = match reply {
 						Some(reply) => {
 							// Retirement cannot replace an operation's actual failure.
-							let outcome = if permit.budget.stopped.get() && outcome.is_ok() { Err("Rooms application closed while the request was pending".into()) } else { outcome };
+							let outcome = if permit.budget.stopped.get() && outcome.is_ok() { Err(RuntimeError::closed("Rooms application closed while the request was pending")) } else { outcome };
 							match reply.send(outcome) {
 								Err(Err(error)) => Err(error),
 								_ => Ok(()),
@@ -364,7 +365,7 @@ async fn run(
 // While running, failures without a Promise observer have this diagnostic
 // owner. During shutdown, drain transfers them to the close barrier instead.
 // Reporting immediately avoids an unbounded history of completed task errors.
-pub(super) fn report(error: &str) {
+pub(super) fn report(error: &RuntimeError) {
 	web_sys::console::error_1(&format!("Rooms unobserved operation failed: {error}").into());
 }
 
@@ -373,7 +374,7 @@ async fn drain(tasks: &mut JoinSet<Result<()>>) -> Result<()> {
 	while let Some(outcome) = tasks.join_next().await {
 		match outcome {
 			Ok(outcome) => cleanup::retain(&mut result, outcome),
-			Err(error) if !error.is_cancelled() => cleanup::retain(&mut result, Err(error.to_string())),
+			Err(error) if !error.is_cancelled() => cleanup::retain(&mut result, Err(RuntimeError::platform(error))),
 			Err(_) => {}
 		}
 	}

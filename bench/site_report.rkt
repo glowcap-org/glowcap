@@ -73,7 +73,7 @@
                                out #:match-select values)])
     (list (list-ref m 1) (n (list-ref m 2)) (n (list-ref m 3)))))
 
-;; iroh round-trip (bench/iroh_bench.zig): one `roundtrip` line per row,
+;; iroh round-trip (bench/transport_bench.zig): one `roundtrip` line per row,
 ;; carrying `codec=` and `call=` after the transport. The key is the
 ;; transport, then `+codec` for a codec other than the default Syrup, then
 ;; `:call` for a call other than `greet`: `tcp`, `tcp+capnp`, `tcp:report`,
@@ -581,11 +581,11 @@
   (define peer (parse-peer (run "zig build bench-peer-scaling -Doptimize=ReleaseFast 2>&1")))
   (define live (parse-live (run "python3 tools/run-with-timeout.py --kill-after 5s --heartbeat 30s 10m unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up; exec zig build bench-peer-scaling -Doptimize=ReleaseFast -- --live --live-max=500000' 2>&1")))
   (define opens (parse-iroh (string-append
-    (run "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=session-open 2>&1")
-    (run "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=noise-tcp --row=session-open 2>&1"))))
+    (run "zig build bench-transports -Doptimize=ReleaseFast -- --transport=tcp --row=session-open 2>&1")
+    (run "zig build bench-transports -Doptimize=ReleaseFast -- --transport=noise-tcp --row=session-open 2>&1"))))
   (define snap-p (parse-snapshot (run "zig build bench-snapshot -Doptimize=ReleaseFast 2>&1")))
   (define snap-g (parse-goblins-snapshot (run "racket bench/goblins/snapshot.rkt 2>&1")))
-  (define iroh (parse-iroh (run "zig build bench-iroh -Doptimize=ReleaseFast 2>&1")))
+  (define iroh (parse-iroh (run "zig build bench-transports -Doptimize=ReleaseFast 2>&1")))
   (define loam (parse-loam (run "zig build bench-loam -Doptimize=ReleaseFast -- --ordinary-only 2>&1")))
   (define cores (fast-cores))
   (define capnp
@@ -593,10 +593,10 @@
       (for/list ([pin (list (format "~a,~a" a a) (format "~a,~a" a b))])
         (parse-iroh (string-append
                      (run (format "zig build bench-capnp -Doptimize=ReleaseFast -- --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=greet --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=report --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=greet --codec=capnp --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=report --codec=capnp --pin=~a 2>&1" pin)))))))
+                     (run (format "zig build bench-transports -Doptimize=ReleaseFast -- --transport=tcp --row=greet --pin=~a 2>&1" pin))
+                     (run (format "zig build bench-transports -Doptimize=ReleaseFast -- --transport=tcp --row=report --pin=~a 2>&1" pin))
+                     (run (format "zig build bench-transports -Doptimize=ReleaseFast -- --transport=tcp --row=greet --codec=capnp --pin=~a 2>&1" pin))
+                     (run (format "zig build bench-transports -Doptimize=ReleaseFast -- --transport=tcp --row=report --codec=capnp --pin=~a 2>&1" pin)))))))
   (run (format "zig build bench-langs -Doptimize=ReleaseFast -- --pin=~a,~a 2>&1" (car cores) (cadr cores)))
   (define langs (parse-langs-md (latest-langs-md)))
   (printf "rendering + splicing into ~a and ~a...\n" PERF COMPARED) (flush-output)

@@ -182,8 +182,17 @@ impl<D: Deadline> Control<D> {
 		Ref::try_from(&reply).map_err(|_| glowcap::loam::refusal("control attenuation returned no capability").into())
 	}
 	async fn call(&self, verb: &'static str, args: &[Argument]) -> Result<Argument, Error> {
-		self.caller
+		let reply = self
+			.caller
 			.call(&self.reference, verb, args, "the access control did not answer")
-			.await
+			.await?;
+		control_reply(reply)
 	}
+}
+
+fn control_reply(reply: Argument) -> Result<Argument, Error> {
+	if let Some(conflict) = glowcap::loam::ControlConflict::read(&reply)? {
+		return Err(Error::ControlConflict(conflict));
+	}
+	Ok(reply)
 }

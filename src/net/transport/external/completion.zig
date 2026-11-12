@@ -301,7 +301,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.beginClose(fd, entry);
         }
 
-        /// Release a handle the loop no longer waits on. status-allow: lifecycle transition
+        /// Release a handle the loop no longer waits on.
         pub fn closeFd(self: *Self, fd: Fd) void {
             if (!Namespace.ownsFd(fd)) return self.platform.closeFd(fd);
             if (fd == listen_fd) return Listening.release(self);

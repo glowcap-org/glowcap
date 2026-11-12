@@ -87,6 +87,10 @@ pub fn drawSessionSecret(io: std.Io) Error!crypto.SecretKey {
     return crypto.SecretKey.fromSeed(seed);
 }
 
+/// Check Host affinity against OS threads. HostRuntime uses this policy.
+/// Direct core embedders can choose it without constructing a reader.
+pub const checked_threads: core.Host.Options.ThreadPolicy = .{ .checked = @import("net_thread_id").reader };
+
 const session = @import("session.zig");
 /// The owning Zig runtime (ADR-0018): transport I/O and a blocking,
 /// poll-multiplexed pump around one byte-fed Host. `connect`/`listen` build one
@@ -130,6 +134,8 @@ const dial_retry = @import("dial_retry.zig");
 pub const DialPolicy = dial_retry.DialPolicy;
 pub const DialOutcome = dial_retry.DialOutcome;
 pub const DialOutcomeObserver = dial_retry.DialOutcomeObserver;
+/// Whether an embedder running its own dial loop should retry this fault or
+/// surface it. `HostRuntime`'s own dial retry asks the same question.
 pub const isTransientDialError = dial_retry.isTransient;
 pub const discovery_retry_ms = driver_core.discovery_retry_ms;
 pub const discovery_max_attempts = driver_core.discovery_max_attempts;

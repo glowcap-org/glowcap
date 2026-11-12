@@ -35,7 +35,7 @@
 //! What this cannot see is a named type that is an integer alias in disguise.
 //! `bare_handle_types` lists the ones in this tree by hand for that reason, so
 //! a new alias is a name to add there rather than something the check resolves
-//! on its own. An entry may also answer "not closed", and two do; that is a
+//! on its own. An entry may also answer "not closed", and two do. That is a
 //! recorded boundary, not a pass.
 
 const std = @import("std");

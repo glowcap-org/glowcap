@@ -75,7 +75,7 @@ export function dismissToast(projection: PageProjection, id: number): void {
 }
 /** What is ready to send in a conversation, or an empty draft.
  *
- * Every reader of a draft goes through here, so "no row yet" and "a row that has status-allow: pending state or quoted runtime label
+ * Every reader of a draft goes through here, so "no row yet" and "a row that has
  * been emptied" are one answer rather than two the callers each have to handle. */
 export function draftFor(projection: PageProjection, key: string | null): Draft {
 	return (key === null ? undefined : projection.get().drafts.get(key)) ?? NO_DRAFT;
@@ -528,7 +528,7 @@ export function stepViewer(projection: PageProjection, direction: ViewerDirectio
 	let previous: AttachmentView | null = null;
 	let found = false;
 	for (const item of history) {
-		// A withdrawn line's bubble no longer shows its pictures, so the arrows status-allow: lifecycle transition
+		// A withdrawn line's bubble hides its pictures, so the arrows
 		// must not step onto them either: the walk and the log describe one
 		// conversation.
 		if (item.kind !== "chat" || item.attachments === undefined || item.withdrawn === true) continue;

@@ -172,9 +172,10 @@ pub const ContentCall = opaque {
         const value = state(self);
         if (value.graph != null) return error.NotReferenceField;
         try requireStrongEdge(value.view, index);
+        try value.edits.ensureUnusedCapacity(value.call.arena(), 1);
         try value.refuseDuplicate(index);
         const replacement = try hosting.references.copySaved(value.call, saved);
-        try value.edits.append(value.call.arena(), .{ .index = index, .replacement = replacement });
+        value.edits.appendAssumeCapacity(.{ .index = index, .replacement = replacement });
     }
 
     /// Remove one declared strong reference field transactionally. Edit

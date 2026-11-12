@@ -77,13 +77,6 @@ fn tryAcquirePath(io: Io, path: []const u8) !Guard {
     return .{ .io = io, .file = file };
 }
 
-pub fn mapError(err: anyerror) u8 {
-    return switch (err) {
-        error.Busy => exit_codes.busy,
-        else => exit_codes.internal,
-    };
-}
-
 /// Refuse a failed state-lock acquire, saying what went wrong.
 ///
 /// Another glowcap holding the lock is the expected case and reads as such.

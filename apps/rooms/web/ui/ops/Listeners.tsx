@@ -17,6 +17,7 @@
 
 import { useState } from "react";
 import {
+	listenerAbout,
 	listenerBringUp,
 	listenerCopyLocator,
 	listenersLead,
@@ -174,7 +175,7 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 									<>
 										{" "}
 										<a href={row.reference} target="_blank" rel="noreferrer">
-											about {row.referenceName}
+											{listenerAbout(row.referenceName)}
 										</a>
 									</>
 								)}

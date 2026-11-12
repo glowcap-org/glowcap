@@ -30,7 +30,7 @@ async fn start() -> Result<(), String> {
 			tokio::select! {_=interrupt.recv()=>(), _=terminate.recv()=>()}
 		},
 		|ready| {
-			announce::announce(&format!("ROOMS-IRC-BRIDGE-LISTENING {} {}", ready.port, ready.room));
+			announce::announce(&format!("ROOMS-IRC-BRIDGE-LISTENING {} {}", ready.token, ready.room));
 		},
 	)
 	.await

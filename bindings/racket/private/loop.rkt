@@ -27,7 +27,7 @@
    (make-GlowcapHostAction
     0 0 0 #f
     (make-GlowcapArgument 0 0 0 0.0 #f 0 (make-GlowcapReference 0) #f 0)
-    #f 0 0)
+    #f 0 0 (make-GlowcapBreakCause 0 0 0))
    #f 0 #f 0))
 
 ;; FFI adoption is the one ownership transaction. Every Racket owner is
@@ -68,7 +68,7 @@
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (define cleanup
-                       (with-handlers ([(lambda (_) #t) values])
+                       (with-handlers ([raised-failure? values])
                          (cond
                            [adopted? (driver-loop-abort! lp)]
                            [(not supplied-host) (host-close! m)])

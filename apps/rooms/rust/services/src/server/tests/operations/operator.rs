@@ -210,6 +210,13 @@ async fn operator() {
 			.await
 			.contains("no-such-room")
 	);
+	let overlong = "x".repeat(rooms_application::server::document::MAX_DURABLE_ROOM + 1);
+	assert!(
+		refused(&session, &op, "giveSteward", &[Argument::String(overlong)])
+			.await
+			.contains("room-too-long"),
+		"a name past the limit is refused as too long, never as a missing room"
+	);
 	let management_identity = member_session
 		.send(room.reference(), "managedRoomIdentity", &[])
 		.await

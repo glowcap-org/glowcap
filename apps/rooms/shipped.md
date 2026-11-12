@@ -33,6 +33,10 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
     workspace refuses to expire it.
   - An ended route displays **Closed** and keeps its draft and history. Current room rosters remove departed
     members independently of their directory registration and direct conversations.
+- *Direct openings.* One directory call waits for the exact registration's inbox, and the client allows
+  that wait plus redemption. Waiting for a signaling route has its own bound, and the directory bounds how
+  many calls wait. The [session guide](../../docs/rooms/session.md) holds each bound.
+  The managed command is admitted once and retains one receipt through acquisition and recovery.
 - *Work admission.* Configurable process-local budgets cover peer work, validated shared grant ancestry,
   receiving direct callbacks and expensive HTTP starts. Refusals preserve drafts and exact effect outcomes.
   Reconnects retain debt, and cleanup has its own allowance and its own incoming-call storage.
@@ -102,8 +106,8 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   anything, saying which door failed when one did, and the act picks up once the server is saved. Typing a held
   directory's address through another of its doors re-routes the directory through that door, and it keeps its
   home mark, nickname, and registration.
-- *Declared listeners.* `rooms-server` and `rooms-web` announce any of the seven listener transports with
-  `--transport=<transport>`, and take `--listen=<transport>[,<name>=<value>...]` once per transport beside it.
+- *Declared listeners.* `rooms-server` and `rooms-web` announce any listener transport
+  [Operating Rooms](operating.md) lists with `--transport=<transport>`, and take `--listen=<transport>[,<name>=<value>...]` once per transport beside it.
   Every declared door is open before the server is ready, and `/locator` then names the directory by its key
   with the doors listed, sealed routes first. A relay door registers at this
   server's own relay unless `GLOWCAP_ROOMS_RELAY_URL` or the `relay` option names another.

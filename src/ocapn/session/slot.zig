@@ -115,7 +115,9 @@ pub fn fulfill(slot: Slot) TransitionError!Slot {
     };
 }
 
-/// Unresolved becomes broken. Mint and position preserved.
+/// Unresolved becomes broken. Mint and position preserved. A named test seam:
+/// the answer store breaks a pending row without it, and the slot tests pin
+/// that the store's transition matches this one.
 pub fn breakSlot(slot: Slot) TransitionError!Slot {
     return switch (slot) {
         .local_unresolved => |p| .{ .broken = .{ .mint = .local, .position = p } },

@@ -26,7 +26,7 @@ const min_body_lines: usize = 12;
 const shingle_len: usize = 6;
 const min_overlap_percent: usize = 90;
 /// A shingle this many bodies share says nothing about any pair of them and
-/// is left out of candidate selection; the exact overlap still counts it.
+/// is left out of candidate selection. The exact overlap still counts it.
 const max_shingle_owners: usize = 128;
 /// A body with at least this share of initializer rows is a table.
 const table_row_percent: usize = 60;
@@ -230,7 +230,7 @@ fn isPairedOp(pair: []const u8) bool {
 }
 
 /// Name every pair of bodies at or above the overlap bar. Candidates come from
-/// an index of shingle to owners; the exact overlap of their full sets decides.
+/// an index of shingle to owners. The exact overlap of their full sets decides.
 fn reportDuplicates(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), bodies: []const Body) !void {
     var owners: std.AutoHashMap(u64, std.ArrayList(u32)) = .init(gpa);
     defer {

@@ -34,7 +34,11 @@ fn archive_peer_executable_custody_restart_and_signals() {
 	);
 	assert!(help.wait().success());
 	let mut invalid = Process::new(
-		command().arg("--port=bad").stderr(Stdio::null()).spawn().unwrap(),
+		command()
+			.args(["--transport=tcp", "--port=bad"])
+			.stderr(Stdio::null())
+			.spawn()
+			.unwrap(),
 		"archive",
 	);
 	assert!(!invalid.wait().success());

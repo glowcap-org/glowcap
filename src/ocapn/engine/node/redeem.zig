@@ -5,8 +5,6 @@
 //! exporter-answer rows. Their one-way transition is a successful dial
 //! beginning one tracked withdrawal per waiter.
 
-const std = @import("std");
-
 const node_actions = @import("actions.zig");
 const node_mod = @import("../node.zig");
 const dials = @import("redeem/dials.zig");
@@ -33,12 +31,6 @@ pub fn recipientPeer(dest: Destination) PeerHandle {
 /// Project a redeem settlement target into the action-owned failure shape.
 /// This is cross-file vocabulary only. `Node.FailureDestination` remains the
 /// supported action type.
-/// Format a redeem failure's reason for its waiters: the transport detail
-/// when it fits `buf`, the bare failure otherwise.
-pub fn failureMessage(buf: *[256]u8, reason: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "handoff redeem failed: {s}", .{reason}) catch "handoff redeem failed";
-}
-
 pub fn failureDestination(dest: Destination) Node.FailureDestination {
     return switch (dest) {
         .answer => |answer| .{ .answer = answer },

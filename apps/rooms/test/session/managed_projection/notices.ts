@@ -13,21 +13,25 @@ for (const conversation of [room, direct]) {
 			const f = fixture(row);
 			try {
 				f.current.intent.keepHistory = history != null;
-				f.projection.activity(new ActivityDelivery({
-					cursor: "1",
-					event: {
-						target: { kind: row.kind, id: row.id },
-						notice: {
-							kind: "line",
-							from: "bo",
-							text: "live message",
-							marker: { id: 1, change: "said" },
-							metadata: null,
-							previewUrls: [],
-							history,
+				f.projection.activity(
+					new ActivityDelivery({
+						cursor: "1",
+						event: {
+							at: 0,
+							target: { kind: row.kind, id: row.id },
+							notice: {
+								kind: "line",
+								from: "bo",
+								text: "live message",
+								marker: { id: 1, change: "said" },
+								metadata: null,
+								previewUrls: [],
+								history,
+							},
 						},
-					},
-				}).take());
+					}, false).take(),
+					false,
+				);
 				const lines = store.historyOf(f.page.projection, f.selected().key).filter((item) =>
 					item.kind === "chat"
 				);
@@ -55,10 +59,13 @@ for (const change of ["edited", "refiled", "withdrawn"] as const) {
 			history,
 		};
 		const apply = (notice: unknown) =>
-			f.projection.activity(new ActivityDelivery({
-				cursor: "1",
-				event: { target: { kind: "direct", id: row.id }, notice },
-			}).take());
+			f.projection.activity(
+				new ActivityDelivery({
+					cursor: "1",
+					event: { at: 0, target: { kind: "direct", id: row.id }, notice },
+				}, false).take(),
+				false,
+			);
 		try {
 			apply(notice);
 			const update = {
@@ -101,10 +108,13 @@ Deno.test("managed discovery applies the Rust snapshot's omitted count", () => {
 		const parsed = activityNotice(notice);
 		assert(parsed?.kind === "discoverySnapshot", "a Rust discovery snapshot must be admitted");
 		assertEquals(parsed.snapshot, notice.snapshot);
-		f.projection.activity(new ActivityDelivery({
-			cursor: "1",
-			event: { target: { kind: "discovery", id: "directory" }, notice },
-		}).take());
+		f.projection.activity(
+			new ActivityDelivery({
+				cursor: "1",
+				event: { at: 0, target: { kind: "discovery", id: "directory" }, notice },
+			}, false).take(),
+			false,
+		);
 		const directory = f.page.projection.get().dirs.get(dirId("directory"))!;
 		assertEquals([...directory.liveRooms.values()], [entry]);
 		assertEquals([...directory.dmablePeers.values()], [peer]);
@@ -119,7 +129,6 @@ for (
 		{ kind: "occupancy", listed: true, claimable: null },
 		{ kind: "mintInboxFor", peer: "bo", registration: "registration", opening: null },
 		{ kind: "directRequested", peer: "bo", registration: "registration", opening: null },
-		{ kind: "introducible", peer: "bo", registration: "registration", opening: null },
 	]
 ) {
 	Deno.test(`managed ${notice.kind} accepts Rust's absent optional value`, () => {
@@ -132,7 +141,9 @@ for (
 		{ kind: "line", history: { source: "recorder", generation: "membership", id: 1 } },
 		{ kind: "line", metadata: { operation: 1 } },
 		{ kind: "occupancy", listed: true, claimable: "yes" },
-		{ kind: "introducible", opening: 1 },
+		{ kind: "mintInboxFor", opening: 1 },
+		{ kind: "handArchive", directory: "example", scope: "everything", conversation: null },
+		{ kind: "offerArchive", directory: "example", conversation: null },
 		{ kind: "discoverySnapshot", snapshot: { rooms: [], peers: [], omitted: "2" } },
 	]
 ) {
@@ -156,10 +167,11 @@ Deno.test("a restored room has not heard its policy until its directory answers"
 			cursor: "1",
 			gap: false,
 			event: {
+				at: 0,
 				target: { kind: "room", id: row.id },
 				notice: { kind: "occupancy", listed: false, claimable: true },
 			},
-		});
+		}, false);
 		const answered = f.selected();
 		assert(answered.type === "room", "room projection");
 		assertEquals(answered.policyHeard, true);

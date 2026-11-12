@@ -3,6 +3,7 @@
 //! session, a behavior defers onto a resolver vow and re-enters top-level,
 //! and the action-queue ceiling covers everything at once.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
@@ -49,11 +50,11 @@ const TraceLog = harness.TraceLog;
 
 test "wire-shaped callback: a foreign-session reply breaks one vow, not the session" {
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.init(.unchecked, frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.init(.unchecked, frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.init(.unchecked, frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -102,9 +103,9 @@ test "wire-shaped callback: a foreign-session reply breaks one vow, not the sess
 
 test "listen: a host vow settles on the partner's notification, and is spent once" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -163,9 +164,9 @@ test "listen: a host vow settles on the partner's notification, and is spent onc
 
 test "listen: an unsettled listen vow breaks when its session goes" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -211,9 +212,9 @@ const Deferring = struct {
 
 test "core host: a behavior defers onto a resolver vow and the settle re-enters top-level (ADR-0014)" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x2a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x2b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x2b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -238,7 +239,7 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
     );
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
 
-    // The behavior returned and every wire quiesced, yet the answer is still status-allow: pending state or quoted runtime label
+    // The behavior returned and every wire quiesced, yet the answer is still
     // open: the deferral holds it for the resolver.
     try std.testing.expect(minted_resolver != 0);
     try std.testing.expect(reply.len == 0 and !reply.broken);
@@ -279,17 +280,17 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
     try retireClosingSession(&server, pair.b);
 
     // One attempt: the resolver and its hidden vow row are consumed.
-    try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(minted_resolver, "late"));
+    try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(minted_resolver, .{ .detail = "late", .cause = BreakCause{} }));
     // An id never minted is a different refusal from a consumed authority.
     for ([_]u64{ 0, server.resolver_ids.next, std.math.maxInt(u64) }) |id| {
-        try std.testing.expectError(error.NoSuchResolver, server.resolverBreak(id, "unminted"));
+        try std.testing.expectError(error.NoSuchResolver, server.resolverBreak(id, .{ .detail = "unminted", .cause = BreakCause{} }));
         try std.testing.expectError(error.NoSuchResolver, server.resolverFulfill(id, .{ .void = {} }));
     }
 }
 
 test "core host: baseline Syrup traces an unresolved projected tell before settlement" {
     const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
+    var options = Host.Options.init(.unchecked, frame_cap);
     options.features = model.FeatureSet.full();
     var client = test_host.init(allocator, @as([32]u8, @splat(0x5c)), options);
     defer client.deinit();
@@ -343,9 +344,9 @@ test "core host: baseline Syrup traces an unresolved projected tell before settl
 
 test "core session release cancels a deferred answer before freeing its Port" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x2c)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2c)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x2d)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x2d)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -371,7 +372,7 @@ test "core session release cancels a deferred answer before freeing its Port" {
     try std.testing.expectEqual(@as(usize, 0), server.pending_operations);
     try std.testing.expectEqual(@as(usize, 0), server.resolver_index.count());
     try std.testing.expectEqual(@as(usize, 0), server.vows.count());
-    try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(resolver_id, "late"));
+    try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(resolver_id, .{ .detail = "late", .cause = BreakCause{} }));
     try client.releaseSession(pair.a);
 }
 
@@ -394,9 +395,9 @@ test "core host: local and foreign deferrals publish no Host or Vat authority" {
     };
 
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x42)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x42)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x43)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x43)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -449,9 +450,9 @@ test "core host: a served tell cannot mint resolver authority" {
     };
 
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x44)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x44)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x45)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x45)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -486,9 +487,9 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
     // the queue. Every settle must still land, because each was reserved
     // before its promise existed.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);
@@ -507,7 +508,7 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
     // own session owes without disturbing what the parked pair already hold.
     var fetched = CapturedRef{};
     try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
-    var third = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.withFrameCap(frame_cap));
+    var third = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.init(.unchecked, frame_cap));
     defer third.deinit();
     const spare = try publishAndOpenAccepted(&third, "tcp", "127.0.0.1:7844", &.{});
     const spare_dialed = try client.openDialedLocator(tcpLocator("127.0.0.1:7844"));
@@ -524,7 +525,7 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
     dials.clearRetainingCapacity();
     // Fail both dials: the break is the same queued completion a success
     // would take, and it needs the same reserved slot.
-    for (tickets) |ticket| try client.dialFailed(ticket, 0, "unreachable in this scenario");
+    for (tickets) |ticket| try client.dialFailed(ticket, 0, .peer_unreachable, "unreachable in this scenario");
 
     var settled_ids: [2]bool = .{ false, false };
     while (try client.nextAction()) |action| {
@@ -551,11 +552,11 @@ test "owning-thread resolver values project capabilities for wire and local call
 
 fn resolverCapability(local: bool) !void {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x91)), Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x91)), Host.Options.init(.unchecked, frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x92)), Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x92)), Host.Options.init(.unchecked, frame_cap));
     defer server.deinit();
-    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x93)), Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x93)), Host.Options.init(.unchecked, frame_cap));
     defer exporter.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer harness.deinitParked(allocator, &dials);

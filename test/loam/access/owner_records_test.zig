@@ -52,7 +52,7 @@ test "access owner refuses the prerelease vocabulary encoding without a dependen
     @memcpy(old[position..], payload[position + 2 ..]);
     const encoded = try encode(records.profile.owner, old, &.{});
     defer a.free(encoded);
-    if (records.OwnerRecord.decode(try view(encoded))) |_| return error.AcceptedOldOwner else |_| {}
+    try std.testing.expectError(error.MalformedFrame, records.OwnerRecord.decode(try view(encoded)));
 }
 
 test "access owner descriptor preserves stable keys and bound operators after encoding" {
@@ -77,7 +77,7 @@ test "access owner descriptor preserves stable keys and bound operators after en
     for (0..payload.len) |length| {
         const truncated = try encode(records.profile.owner, payload[0..length], &.{});
         defer a.free(truncated);
-        if (records.OwnerRecord.decode(try view(truncated))) |_| return error.AcceptedTruncation else |_| {}
+        try std.testing.expectError(error.MalformedFrame, records.OwnerRecord.decode(try view(truncated)));
     }
 }
 
@@ -111,6 +111,6 @@ test "access directory bitmap ranks all digits and rejects edge count and streng
     for (0..payload.len) |length| {
         const truncated = try encode(records.profile.directory, payload[0..length], &decoded.targets);
         defer a.free(truncated);
-        if (Page.decode(try view(truncated))) |_| return error.AcceptedTruncation else |_| {}
+        try std.testing.expectError(error.MalformedFrame, Page.decode(try view(truncated)));
     }
 }

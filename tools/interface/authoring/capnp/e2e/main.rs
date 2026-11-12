@@ -1,4 +1,4 @@
-//! One frontend integration call; shared runtime qualification is not repeated.
+//! One frontend integration call. Shared runtime qualification is not repeated.
 #[path = "../../../../../test/interface/rust/pair.rs"]
 mod pair;
 pub mod generated {

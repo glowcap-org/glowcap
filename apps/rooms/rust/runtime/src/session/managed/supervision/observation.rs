@@ -8,7 +8,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			.inbox
 			.close()
 			.await
-			.map_err(|error| error.with_context("closing membership inbox"));
+			.map_err(|error| Error::from(error).with_context("closing membership inbox"));
 		let retired = async {
 			if let Some(submission) = self.submission.as_mut() {
 				// Observe the actual local admission before releasing its registry
@@ -29,22 +29,22 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					let budget = self
 						.budget
 						.upgrade()
-						.ok_or_else(|| loam::refusal("membership registry closed"))?;
+						.ok_or_else(|| Error::closed("membership registry closed"))?;
 					self.platform
 						.within(20_000, budget.close_direct_connection(retirement))
 						.await
-						.ok_or_else(|| loam::refusal("direct connection retirement remains pending"))??;
+						.ok_or_else(|| Error::uncertain("direct connection retirement remains pending"))??;
 				}
 				self.platform
 					.within(20_000, retirement.close())
 					.await
-					.ok_or_else(|| loam::refusal("membership retirement remains pending during close"))??;
+					.ok_or_else(|| Error::uncertain("membership retirement remains pending during close"))??;
 				self.retirement.take();
 			}
 			Ok(())
 		}
 		.await
-		.map_err(|error: glowcap::Error| error.with_context("retiring upstream membership"));
+		.map_err(|error: Error| error.with_context("retiring upstream membership"));
 		// Directory retirement can obsolete a room's nickname selection before
 		// its own end observer runs. Cleanup still owns the exact acquired lease.
 		// Refusal by its original source cannot skip private endpoint retirement.
@@ -57,7 +57,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		} else {
 			Ok(())
 		};
-		merge(closed, merge(retired, expired))
+		crate::cleanup::combine(closed, crate::cleanup::combine(retired, expired))
 	}
 	pub(super) async fn changed(&mut self) -> Result<bool> {
 		loop {
@@ -73,7 +73,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			let result = match result {
 				Ok(()) => {
 					let _inspection = self.changes.inspect().await;
-					self.workspace.describe_access().await.map_err(error)
+					self.workspace.describe_access().await.map_err(Error::from)
 				}
 				Err(error) => Err(error),
 			};
@@ -99,7 +99,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			biased;
 			_ = self.stopping.changed() => Ok(false),
 			result = self.retrying.changed() => {
-				result.map_err(|_| loam::refusal("Membership retry owner closed"))?;
+				result.map_err(|_| Error::closed("Membership retry owner closed"))?;
 				self.changes.retry();
 				Ok(true)
 			},
@@ -125,7 +125,7 @@ async fn closing<P: Deadline, T>(
 		if let Some(result) = platform.within(20_000, pending.as_mut()).await {
 			return result;
 		}
-		finished.send_replace(Some(Err(loam::refusal(message))));
+		finished.send_replace(Some(Err(Error::uncertain(message.to_owned()))));
 		tokio::select! {
 			result = pending.as_mut() => return result,
 			_ = stopping.changed() => {},

@@ -19,13 +19,13 @@ function ev(over: Partial<WheelInput>): WheelInput {
 
 // ─────────────────────── linear policy (Timeline) ─────────────────────
 
-Deno.test("linear: |deltaX| > |deltaY| → horizontal pan with dx=deltaX", () => {
+Deno.test("linear: when |deltaX| > |deltaY|, the wheel pans horizontally with dx=deltaX", () => {
 	const r = wheelToEffect(ev({ deltaX: 50, deltaY: 10 }), TL, "linear");
 	assertEquals(r.kind, "pan-step");
 	if (r.kind === "pan-step") assertEquals(r.delta, { dx: 50, dy: 0 });
 });
 
-Deno.test("linear: shift + deltaY → horizontal pan with dx=deltaY", () => {
+Deno.test("linear: shift plus deltaY pans horizontally with dx=deltaY", () => {
 	const r = wheelToEffect(
 		ev({ deltaY: 30, shiftKey: true }),
 		TL,
@@ -34,7 +34,7 @@ Deno.test("linear: shift + deltaY → horizontal pan with dx=deltaY", () => {
 	if (r.kind === "pan-step") assertEquals(r.delta.dx, 30);
 });
 
-Deno.test("linear: vertical deltaY (no shift) → zoom around cursor", () => {
+Deno.test("linear: a vertical deltaY without shift zooms around the cursor", () => {
 	const r = wheelToEffect(ev({ deltaY: -100 }), TL, "linear");
 	assertEquals(r.kind, "zoom-step");
 	if (r.kind === "zoom-step") {
@@ -43,12 +43,12 @@ Deno.test("linear: vertical deltaY (no shift) → zoom around cursor", () => {
 	}
 });
 
-Deno.test("linear: positive deltaY → factor < 1 (zoom out)", () => {
+Deno.test("linear: a positive deltaY gives a factor below 1 (zoom out)", () => {
 	const r = wheelToEffect(ev({ deltaY: 100 }), TL, "linear");
 	if (r.kind === "zoom-step") assert(r.factor < 1);
 });
 
-Deno.test("linear: zero deltas → near-identity zoom (factor≈1)", () => {
+Deno.test("linear: zero deltas give a near-identity zoom (factor about 1)", () => {
 	const r = wheelToEffect(ev({}), TL, "linear");
 	if (r.kind === "zoom-step") assertAlmostEquals(r.factor, 1, 1e-6);
 });
@@ -60,7 +60,7 @@ Deno.test("linear: zero deltas → near-identity zoom (factor≈1)", () => {
 // the predictable contract for a workspace canvas where the user's
 // "what is the wheel for?" expectation should be one answer.
 
-Deno.test("spatial: vertical wheel → zoom around cursor", () => {
+Deno.test("spatial: a vertical wheel zooms around the cursor", () => {
 	const r = wheelToEffect(ev({ deltaY: -100 }), STAGE, "spatial");
 	assertEquals(r.kind, "zoom-step");
 	if (r.kind === "zoom-step") {
@@ -69,12 +69,12 @@ Deno.test("spatial: vertical wheel → zoom around cursor", () => {
 	}
 });
 
-Deno.test("spatial: positive deltaY → factor < 1 (zoom out)", () => {
+Deno.test("spatial: a positive deltaY gives a factor below 1 (zoom out)", () => {
 	const r = wheelToEffect(ev({ deltaY: 100 }), STAGE, "spatial");
 	if (r.kind === "zoom-step") assert(r.factor < 1);
 });
 
-Deno.test("spatial: trackpad with incidental deltaX → STILL zoom (deltaX ignored)", () => {
+Deno.test("spatial: a trackpad with incidental deltaX STILL zooms (deltaX is ignored)", () => {
 	// Trackpad gestures often carry small unintended horizontal
 	// components. Spatial ignores them entirely to avoid surprise.
 	const r = wheelToEffect(
@@ -86,13 +86,13 @@ Deno.test("spatial: trackpad with incidental deltaX → STILL zoom (deltaX ignor
 	if (r.kind === "zoom-step") assert(r.factor < 1); // positive deltaY = zoom out
 });
 
-Deno.test("spatial: pure horizontal swipe (deltaY=0) → near-identity zoom (no-op)", () => {
+Deno.test("spatial: a pure horizontal swipe (deltaY=0) gives a near-identity zoom (a no-op)", () => {
 	const r = wheelToEffect(ev({ deltaX: 40, deltaY: 0 }), STAGE, "spatial");
 	// No deltaY → zoomDelta = 0 → factor = 1 → no-op
 	if (r.kind === "zoom-step") assertAlmostEquals(r.factor, 1, 1e-6);
 });
 
-Deno.test("spatial: shift + vertical → fast zoom (not pan)", () => {
+Deno.test("spatial: shift plus vertical zooms fast and does not pan", () => {
 	const slow = wheelToEffect(ev({ deltaY: -10 }), STAGE, "spatial");
 	const fast = wheelToEffect(
 		ev({ deltaY: -10, shiftKey: true }),
@@ -110,14 +110,14 @@ Deno.test("spatial: shift + vertical → fast zoom (not pan)", () => {
 	}
 });
 
-Deno.test("spatial: zero deltas → near-identity zoom (no-op)", () => {
+Deno.test("spatial: zero deltas give a near-identity zoom (a no-op)", () => {
 	const r = wheelToEffect(ev({}), STAGE, "spatial");
 	if (r.kind === "zoom-step") assertAlmostEquals(r.factor, 1, 1e-6);
 });
 
 // ─────────────────────── Cross-policy contrast ────────────────────────
 
-Deno.test("contrast: trackpad swipe — spatial zooms, linear pans horizontal", () => {
+Deno.test("contrast: for a trackpad swipe, spatial zooms and linear pans horizontally", () => {
 	const input = ev({ deltaX: 50, deltaY: 5 });
 	const spatial = wheelToEffect(input, STAGE, "spatial");
 	const linear = wheelToEffect(input, TL, "linear");

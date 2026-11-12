@@ -16,7 +16,8 @@
 ;; park (they do not free the place's green threads: this one-call surface
 ;; is driven single-threaded). Netlayer shutdown cancels a connect owned by a
 ;; different FFI thread before parent release joins it.
-(require ffi/unsafe
+(require "constants.rkt"
+         ffi/unsafe
          "ffi-shared.rkt"
          "ffi-tcp-gen.rkt")
 (provide (except-out (all-from-out "ffi-tcp-gen.rkt")
@@ -51,4 +52,4 @@
   (call/without-diagnostic glowcap_tcp_conn_write_frame* conn frame))
 
 (define (glowcap_tcp_conn_release conn)
-  (call/without-diagnostic glowcap_tcp_conn_release* conn))
+  (release-result-code (call/without-diagnostic glowcap_tcp_conn_release* conn)))

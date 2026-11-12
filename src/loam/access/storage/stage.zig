@@ -127,7 +127,7 @@ fn appendResourceRecord(append: *Append, kind: core.KindId, parent: ?core.Resour
 
 /// Stages a prepared grant and its ancestry in the shared retained batch.
 /// Issuance needs a prepared append path. Plans and this function are trusted
-/// owner operations; use/control authority is admitted before calling them.
+/// owner operations. Use and control authority is admitted before calling them.
 pub const StagedGrant = struct { change: core.GrantPlan.Change, object: loam.ObjectId };
 
 pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !StagedGrant {

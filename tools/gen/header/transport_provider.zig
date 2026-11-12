@@ -299,7 +299,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitStruct(&b, gpa, cp.GlowcapTransportProvider, "GlowcapTransportProvider", &.{
         "GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION.",                  "sizeof(GlowcapTransportProvider).",
         "Borrowed entries; tables are copied during registration.", "Nonzero entry count.",
-        "Package-owned lease context.",                             "Compare complete effective configuration.",
+        "Package-owned lease context.",                             "Compare effective configuration apart from the profile set.",
         "Acquire one registration lease.",                          "Release the registration lease after all callbacks retire.",
     });
 

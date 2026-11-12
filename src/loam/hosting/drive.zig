@@ -76,7 +76,6 @@ fn advanceOperations(owner: *h.Attachment) !bool {
             .pending => continue,
             .failed => |failed| {
                 op.failure = error.ForwardedCallFailed;
-                op.failure_reason = failed.message;
                 op.failure_kind = failed.kind;
                 op.forwarded_failure = true;
                 op.phase = .failed;
@@ -98,7 +97,6 @@ fn advanceOperations(owner: *h.Attachment) !bool {
         if (op.phase == .disclosing and disclose(owner, op, index) == .next_operation) continue;
         if (op.phase == .settling and op.completion != .receipt and op.forwarded.call != null) retainPublicResult(op) catch |err| {
             op.failure = err;
-            op.failure_reason = null;
             op.phase = .failed;
         };
         if (op.phase == .materializing and op.call.?.replacement == null and op.call.?.transaction == null and
@@ -153,7 +151,6 @@ fn disclose(owner: *h.Attachment, op: *calls.Operation, index: usize) Flow {
     if (owner.store.phase != .idle) return .next_operation;
     const ready = prepareCurrent(owner, op, index) catch |err| {
         op.failure = err;
-        op.failure_reason = callReason(op, err);
         op.forwarded_failure = false;
         op.failure_kind = .broken;
         op.disclosure = .none;
@@ -167,7 +164,7 @@ fn disclose(owner: *h.Attachment, op: *calls.Operation, index: usize) Flow {
 }
 
 /// Prepare a waiting operation and send its invocation through the owning
-/// ingress once no earlier operation on the same entry still holds it. status-allow: event or source ordering
+/// ingress once no earlier operation on the same entry still holds it.
 fn schedule(owner: *h.Attachment, op: *calls.Operation, index: usize) !void {
     for (owner.operations) |*other| {
         // Forwarded calls hold immutable intent/result custody, not the
@@ -177,7 +174,6 @@ fn schedule(owner: *h.Attachment, op: *calls.Operation, index: usize) !void {
     }
     const ready = prepareCurrent(owner, op, index) catch |err| {
         op.failure = err;
-        op.failure_reason = callReason(op, err);
         op.phase = .failed;
         return;
     };
@@ -205,18 +201,6 @@ fn schedule(owner: *h.Attachment, op: *calls.Operation, index: usize) !void {
     }
 }
 
-/// The text a failed call publishes in place of its error's name: the
-/// application's own refusal, or the cause a foreign restoration reported.
-/// Both live in the call's working arena, which settlement outlives.
-fn callReason(op: *const calls.Operation, err: anyerror) ?[]const u8 {
-    const call = if (op.call) |*held| held else return null;
-    return switch (err) {
-        error.ApplicationRefused => call.refusal,
-        error.RestorationFailed => call.restoration_failure,
-        else => null,
-    };
-}
-
 fn prepare(owner: *h.Attachment, op: *calls.Operation) !void {
     if (op.call != null) return;
     const view = try owner.store.view(op.lease.?);
@@ -227,8 +211,13 @@ fn prepare(owner: *h.Attachment, op: *calls.Operation) !void {
 
 /// No outstanding read may borrow working storage. Terminal results occupy
 /// input custody when they must survive a fresh admission preparation.
+/// The preparation's Save and Enliven operations, with the release nodes
+/// inside them, live in the working arena this resets. Outside a Host
+/// callback their releases run at once and queue nothing, and every drive
+/// entry starts at that top level (`Attachment.topLevel`).
 fn retirePreparation(owner: *h.Attachment, op: *calls.Operation) void {
     std.debug.assert(!op.pending_read);
+    std.debug.assert(!owner.host.withinCallback());
     if (op.call) |*call| {
         call.release();
         if (call.preparation) |working| working.deinit();
@@ -241,7 +230,6 @@ fn retirePreparation(owner: *h.Attachment, op: *calls.Operation) void {
 
 pub fn reset(owner: *h.Attachment, op: *calls.Operation) void {
     op.forwarded.deinit();
-    op.failure_reason = null;
     retirePreparation(owner, op);
 }
 
@@ -308,7 +296,6 @@ pub const Runner = struct {
         }
         invoke(self.owner, index) catch |err| {
             op.failure = err;
-            op.failure_reason = callReason(op, err);
             op.phase = .failed;
         };
         return .{ .void = {} };
@@ -398,6 +385,24 @@ fn retainPublicResult(op: *calls.Operation) !void {
     try retainResult(op, reply);
 }
 
+// Select the diagnostic at settlement, after every callback phase has returned.
+// Candidates borrow the retained Call; forwarded failures borrow their own Call.
+fn failure(op: *const calls.Operation) driver.Broken {
+    if (op.failure == error.ApplicationRefused) return .{
+        .detail = if (op.call) |*call| call.refusal orelse @errorName(op.failure) else @errorName(op.failure),
+        .cause = driver.BreakCause.local(.application),
+    };
+    if (op.failure == error.RestorationFailed) {
+        if (op.call) |*call| if (call.restoration_failure) |broken| return broken;
+        return .{ .detail = "", .cause = (driver.BreakCause{}).withRestoration() };
+    }
+    if (op.forwarded_failure and op.failure == error.ForwardedCallFailed and op.forwarded.call != null) {
+        const failed = op.forwarded.poll().failed;
+        return .{ .detail = failed.message, .cause = failed.cause };
+    }
+    return driver.Broken.unnamed(@errorName(op.failure));
+}
+
 fn settle(owner: *h.Attachment, op: *calls.Operation) !void {
     const failed = op.phase == .failed;
     if (!failed and !op.confirmed) {
@@ -410,7 +415,7 @@ fn settle(owner: *h.Attachment, op: *calls.Operation) !void {
     switch (op.resolver) {
         .none => {},
         .local => |resolver| {
-            if (failed) try owner.host.vat.breakVow(resolver, op.failure_reason orelse @errorName(op.failure)) else {
+            if (failed) try owner.host.vat.breakVow(resolver, failure(op)) else {
                 // Conversion may be retried after allocation refusal. This is
                 // preparation only; it does not rerun the actor or its write.
                 var arena = std.heap.ArenaAllocator.init(owner.allocator);
@@ -428,11 +433,10 @@ fn settle(owner: *h.Attachment, op: *calls.Operation) !void {
                 // or restore a retired capability home. Keep its owner until
                 // rejection succeeds; temporary heap refusal retries rejection.
                 op.failure = err;
-                op.failure_reason = null;
                 op.failure_kind = .broken;
                 op.phase = .failed;
             };
-            if (op.phase == .failed) owner.host.resolverReject(resolver, op.failure_kind, op.failure_reason orelse @errorName(op.failure)) catch |err| switch (err) {
+            if (op.phase == .failed) owner.host.resolverReject(resolver, op.failure_kind, failure(op)) catch |err| switch (err) {
                 error.AlreadySettled => {},
                 else => return err,
             };
@@ -440,7 +444,13 @@ fn settle(owner: *h.Attachment, op: *calls.Operation) !void {
     }
     reset(owner, op);
     if (owner.options.sleep_policy == .every_turn) {
-        if (owner.store.evictObject(op.entry.id) catch false) owner.stats.sleeps += 1;
+        // tolerant: a pinned or loading object (Busy) stays resident, and
+        // ordinary cache eviction reclaims it later, so only this sleep is
+        // lost. ForeignObject cannot arise, since the entry is this owner's.
+        const slept = owner.store.evictObject(op.entry.id) catch |err| switch (err) {
+            error.Busy, error.ForeignObject => false,
+        };
+        if (slept) owner.stats.sleeps += 1;
     }
     owner.host.vat.releaseActor(op.entry.actor.?.local);
     if (op.dependent_target) |target| owner.host.releaseCapabilityTerminal(target, null);

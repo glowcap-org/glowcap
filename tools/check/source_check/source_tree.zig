@@ -6,6 +6,7 @@ const std = @import("std");
 const violation_log = @import("violation_log.zig");
 
 /// Concatenate every file in `dir_path` whose name `keep` accepts, sorted.
+/// Null when the directory is missing. Any other failure is returned.
 pub fn concatDirFiles(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -18,11 +19,14 @@ pub fn concatDirFiles(
         for (names.items) |n| gpa.free(n);
         names.deinit(gpa);
     }
-    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch return null;
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
     defer dir.close(io);
     var it = dir.iterate();
     while (true) {
-        const entry = (it.next(io) catch return null) orelse break;
+        const entry = (try it.next(io)) orelse break;
         if (entry.kind == .directory) continue;
         if (!keep(entry.name)) continue;
         const owned_name = try gpa.dupe(u8, entry.name);
@@ -40,10 +44,7 @@ pub fn concatDirFiles(
     for (names.items) |name| {
         const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, name });
         defer gpa.free(path);
-        const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
-            buf.deinit(gpa);
-            return null;
-        };
+        const body = try root.readFileAlloc(io, path, gpa, .limited(1 << 20));
         defer gpa.free(body);
         try buf.appendSlice(gpa, body);
         try buf.append(gpa, '\n');
@@ -322,10 +323,16 @@ pub fn readSourceSubject(
     path: []const u8,
 ) !?[]u8 {
     if (!std.mem.endsWith(u8, path, "/")) {
-        return root.readFileAlloc(io, path, gpa, .limited(source_read_limit)) catch null;
+        return root.readFileAlloc(io, path, gpa, .limited(source_read_limit)) catch |err| switch (err) {
+            error.FileNotFound => null,
+            else => err,
+        };
     }
     const dir_path = path[0 .. path.len - 1];
-    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch return null;
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
     defer dir.close(io);
     var walker = try dir.walk(gpa);
     defer walker.deinit();
@@ -333,10 +340,7 @@ pub fn readSourceSubject(
     errdefer out.deinit(gpa);
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        const body = dir.readFileAlloc(io, entry.path, gpa, .limited(source_read_limit)) catch {
-            out.deinit(gpa);
-            return null;
-        };
+        const body = try dir.readFileAlloc(io, entry.path, gpa, .limited(source_read_limit));
         defer gpa.free(body);
         try out.appendSlice(gpa, body);
         try out.append(gpa, '\n');

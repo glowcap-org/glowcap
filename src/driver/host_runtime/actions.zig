@@ -134,7 +134,7 @@ const Exec = struct {
 
     pub fn dial(self: Exec, d: @FieldType(driver_core.HostAction, "dial")) !void {
         if (self.effect_mode == .cleanup_only) {
-            try self.runtime.core.dialFailed(d.ticket, d.route_index, "transport provider failed");
+            try self.runtime.core.dialFailed(d.ticket, d.route_index, .peer_unreachable, "transport provider failed");
             return;
         }
         try answerDial(self.runtime, d.ticket, d.route_index);
@@ -175,7 +175,8 @@ fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: us
         .ticket = ticket,
         .route_index = route_index,
     } }, .pending_dial) catch |err| {
-        try self.core.dialFailed(ticket, route_index, @errorName(err));
+        const failure = self.operationFailure(err);
+        try self.core.dialFailed(ticket, route_index, failure.routeFailure(), failure.chain.primaryName());
         return;
     };
 }

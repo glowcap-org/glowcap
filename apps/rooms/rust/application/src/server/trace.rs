@@ -33,7 +33,7 @@ pub const CHANNEL_PATH: &str = "/captp";
 /// Credentials come only from the separately held publication token.
 pub use crate::web_channel::endpoint as producer_endpoint;
 /// What a non-upgrade request is told.
-pub const NOT_A_SOCKET: &str = "rooms trace: connect an OCapN byte channel at /captp; / and /publish require the trace capability as ?cap=<swiss>\n";
+pub const NOT_A_SOCKET: &str = "rooms trace: viewers connect an OCapN byte channel at /captp, and producers connect /publish and send the trace capability as their first message\n";
 
 /// One producer's scope, assigned at admission and never claimed.
 pub type Scope = String;
@@ -66,9 +66,9 @@ pub struct Endpoint {
 /// refusal.
 pub fn constant_time_equals(a: &str, b: &str) -> bool {
 	let (a, b) = (a.as_bytes(), b.as_bytes());
-	let mut diff = (a.len() ^ b.len()) as u8;
+	let mut diff = a.len() ^ b.len();
 	for at in 0..a.len().max(b.len()) {
-		diff |= a.get(at).copied().unwrap_or(0) ^ b.get(at).copied().unwrap_or(0);
+		diff |= usize::from(a.get(at).copied().unwrap_or(0) ^ b.get(at).copied().unwrap_or(0));
 	}
 	diff == 0
 }

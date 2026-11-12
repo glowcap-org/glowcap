@@ -115,6 +115,10 @@ async fn run(scenario: Scenario) {
 					let (args, _) = requests::command(&host, &root, "second", case.name, &case.args).await;
 					let error = mutate(&host, &root, "command", &args).await.unwrap_err();
 					assert!(error.to_string().contains("rate-limited"), "{error}");
+					let refusal = rooms_glowcap::client::binding_admission_refusal(&error)
+						.expect("local Loam admission must retain its application provenance");
+					let advice = refusal.retry_advice().expect("throttle carries cooldown");
+					assert_eq!(advice.owner, Some(rooms_application::admission::Owner::Session));
 					assert_eq!(calls.get(), 1, "refused gesture must not dispatch");
 				}
 				Scenario::OrdinaryCost => {

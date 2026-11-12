@@ -1,6 +1,7 @@
 //! Public bridge intent and private answers enter the existing command owner.
 use super::*;
 use rooms_application::{bridge::Answers, content::session::bridge::Request};
+use rooms_runtime::Error as RuntimeError;
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
@@ -17,7 +18,7 @@ impl RoomsManagedWorkspace {
 			let acquisition = workspace
 				.prepare_forget_bridge(base, &room)
 				.await
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = acquisition.retained_bytes();
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedAcquisition { driver, acquisition }.into())
@@ -29,8 +30,8 @@ impl RoomsManagedWorkspace {
 			let intent = scalar(intent, 262144)?;
 			let secrets = scalar(secrets, rooms_application::bridge::MAX_JSON)?;
 			let bytes = intent.len() + secrets.len();
-			let intent = Request::read(&intent).map_err(|_| "Invalid bridge intent")?;
-			let secrets = Answers::decode(&secrets).map_err(|error| error.to_string())?;
+			let intent = Request::read(&intent).map_err(|_| RuntimeError::invalid("Invalid bridge intent"))?;
+			let secrets = Answers::decode(&secrets).map_err(RuntimeError::invalid_by)?;
 			Ok((intent, secrets, bytes))
 		})();
 		let (intent, secrets, bytes) = match input {
@@ -42,7 +43,7 @@ impl RoomsManagedWorkspace {
 		self.driver.submit(bytes, move |_| async move {
 			let command = workspace
 				.prepare_bridge(&intent, &secrets)
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = command.retained_bytes();
 			let command = driver.hold(command, bytes)?;
 			Ok(RoomsManagedCommand { driver, command }.into())
@@ -71,7 +72,7 @@ impl RoomsManagedWorkspace {
 			let command = workspace
 				.prepare_bridge_reapplication(&operation, base, &room)
 				.await
-				.map_err(|error| error.to_string())?;
+				.map_err(RuntimeError::from)?;
 			let bytes = command.retained_bytes();
 			let command = driver.hold(command, bytes)?;
 			Ok(RoomsManagedCommand { driver, command }.into())

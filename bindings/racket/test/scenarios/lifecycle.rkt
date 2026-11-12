@@ -236,7 +236,7 @@
    (lambda ()
      (with-handlers ([(lambda (_) #t) void])
        (session-serve (accept rb-server))))))
-(define rb-runtime (open-runtime #:providers (list (tcp-provider))))
+(define rb-runtime (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))))
 (define rb-session
   (runtime-connect rb-runtime
                    (tcp-locator "127.0.0.1" (server-port rb-server))))
@@ -263,7 +263,7 @@
   (let-values ([(_host port _peer-host _peer-port)
                 (tcp-addresses lg-listener #t)])
     port))
-(define lg-runtime (open-runtime #:providers (list (tcp-provider))))
+(define lg-runtime (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))))
 (define lg-dial-result (make-channel))
 (define lg-dial-thread
   (thread
@@ -303,7 +303,7 @@
                 (tcp-addresses hd-listener #t)])
     port))
 (define hd-runtime
-  (open-runtime #:providers (list (tcp-provider))
+  (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))
                 #:handshake-timeout-ms 50))
 (define hd-result (make-channel))
 (define hd-thread

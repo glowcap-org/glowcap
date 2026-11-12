@@ -80,7 +80,7 @@ test "relayed gift-id failure spends no allocation after the home fire" {
     try std.testing.expectEqualStrings("relayed promise could not be settled", settled.@"break".message);
 
     // The admission-time scheduler reservation becomes a recipient flush even
-    // though no carrier could be allocated yet. Once pressure clears, `step` status-allow: pending state or quoted runtime label
+    // though no carrier could be allocated yet. Once pressure clears, `step`
     // retries the stored settlement and emits the listener fire exactly once.
     try std.testing.expectEqual(recipient, node.nextAction().?.flush);
     failing.fail_index = std.math.maxInt(usize);
@@ -143,4 +143,7 @@ test "a projected relayed value breaks from admission escrow under allocation fa
     const settled = projection_support.resolution(&node.peer(recipient).?.session_state, .from(import_pos)).?;
     try std.testing.expect(settled.* == .@"break");
     try std.testing.expectEqualStrings("relayed promise could not be settled", settled.@"break".message);
+    // The recipient's session is still open, so it carries no abort cause.
+    try std.testing.expect(node.peer(recipient).?.lastAbort() == null);
+    try std.testing.expect(!node.peer(recipient).?.sessionIsClosed());
 }

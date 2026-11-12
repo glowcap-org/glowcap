@@ -18,7 +18,7 @@ test "parses the conformance peer URI: designator, transport, and hints" {
         allocator,
         "ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port=22055",
     );
-    defer uri.freePeer(allocator, locator);
+    defer model.freePeerLocator(allocator, locator);
 
     // The transport is the suffix after the LAST dot; the base64 `+` in the
     // designator survives raw (no `+`-means-space form).
@@ -34,7 +34,7 @@ test "parses the conformance peer URI: designator, transport, and hints" {
 test "parses a hintless peer URI as hints-absent" {
     const allocator = std.testing.allocator;
     const locator = try uri.parsePeer(allocator, "ocapn://abcd.onion");
-    defer uri.freePeer(allocator, locator);
+    defer model.freePeerLocator(allocator, locator);
 
     try std.testing.expectEqualStrings("onion", locator.transport);
     try std.testing.expectEqualStrings("abcd", locator.designator);
@@ -46,7 +46,7 @@ test "parses a hintless peer URI as hints-absent" {
 test "a designator may itself contain dots; only the last dot splits the transport" {
     const allocator = std.testing.allocator;
     const locator = try uri.parsePeer(allocator, "ocapn://a.b.c.tcp");
-    defer uri.freePeer(allocator, locator);
+    defer model.freePeerLocator(allocator, locator);
 
     try std.testing.expectEqualStrings("tcp", locator.transport);
     try std.testing.expectEqualStrings("a.b.c", locator.designator);
@@ -72,7 +72,7 @@ test "percent escapes decode, and a structural slash round-trips through %2F" {
     const allocator = std.testing.allocator;
     // A designator carrying a `/` must arrive escaped, or it would split the path.
     const locator = try uri.parsePeer(allocator, "ocapn://ab%2Fcd.tcp");
-    defer uri.freePeer(allocator, locator);
+    defer model.freePeerLocator(allocator, locator);
     try std.testing.expectEqualStrings("ab/cd", locator.designator);
 
     const emitted = try uri.writePeer(allocator, locator);
@@ -84,7 +84,7 @@ test "writePeer round-trips a hinted locator through parsePeer" {
     const allocator = std.testing.allocator;
     const original = "ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port=22055";
     const locator = try uri.parsePeer(allocator, original);
-    defer uri.freePeer(allocator, locator);
+    defer model.freePeerLocator(allocator, locator);
 
     const emitted = try uri.writePeer(allocator, locator);
     defer allocator.free(emitted);
@@ -106,7 +106,7 @@ test "writePeer round-trips an encoded OCapN authority beyond the DNS hostname l
     try std.testing.expect(emitted.len > std.Io.net.HostName.max_len);
 
     const reparsed = try uri.parsePeer(allocator, emitted);
-    defer uri.freePeer(allocator, reparsed);
+    defer model.freePeerLocator(allocator, reparsed);
     try std.testing.expectEqualStrings(original.transport, reparsed.transport);
     try std.testing.expectEqualSlices(u8, original.designator, reparsed.designator);
 }
@@ -190,7 +190,7 @@ test "a query value containing & and = is escaped so it cannot be misparsed" {
     try std.testing.expectEqualStrings("ocapn://abcd.tcp?k=a%26b%3Dc", emitted);
 
     const reparsed = try uri.parsePeer(allocator, emitted);
-    defer uri.freePeer(allocator, reparsed);
+    defer model.freePeerLocator(allocator, reparsed);
     try std.testing.expectEqualStrings("a&b=c", reparsed.hints.entries[0].value.string);
 }
 
@@ -214,7 +214,7 @@ test "an escaped dot is data, never the transport delimiter" {
     // An escaped dot inside the designator survives as data; only the literal
     // dot splits the transport.
     const locator = try uri.parsePeer(allocator, "ocapn://a%2Eb.tcp");
-    defer uri.freePeer(allocator, locator);
+    defer model.freePeerLocator(allocator, locator);
     try std.testing.expectEqualStrings("a.b", locator.designator);
     try std.testing.expectEqualStrings("tcp", locator.transport);
 }

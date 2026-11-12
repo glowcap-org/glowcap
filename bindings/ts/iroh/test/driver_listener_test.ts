@@ -36,7 +36,7 @@ Deno.test("closing iroh admission leaves a sibling TCP listener live", async () 
 	const host = new Host(seed);
 	const tcpServer = await tcp.listen("127.0.0.1", 0, { host });
 	const iroh = await listen({ reachability: Reachability.Direct }, { host });
-	const runtime = await Runtime.open({ providers: [tcp.provider()] });
+	const runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain] })] });
 	let client: Session | null = null;
 	let accepted: Session | null = null;
 	try {

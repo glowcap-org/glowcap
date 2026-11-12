@@ -2,6 +2,9 @@
 # and binding policy. Do not edit.
 # `zig build gen-binding-constants-check` keeps this fresh.
 
+from dataclasses import dataclass
+from enum import IntEnum
+
 OK = 0
 WOULD_BLOCK = -6
 ERR_NULL_POINTER = -1
@@ -143,24 +146,28 @@ HINT_BOOLEAN = 3
 HINT_INTEGER = 4
 HINTS_MAP = 0
 HINTS_BOOLEAN_FALSE = 1
-OCAPN_ARCHIVE_FINGERPRINT = 2768581910033367227
-HOST_ARCHIVE_FINGERPRINT = 18420649870484573527
-DRIVER_ARCHIVE_FINGERPRINT = 13392317104972679078
-TCP_ARCHIVE_FINGERPRINT = 18296072444112190878
-INPROC_ARCHIVE_FINGERPRINT = 3251188408900727712
-ONION_ARCHIVE_FINGERPRINT = 2204576816375562792
+OCAPN_ARCHIVE_FINGERPRINT = 7281719028025087839
+HOST_ARCHIVE_FINGERPRINT = 1330235606562017225
+DRIVER_ARCHIVE_FINGERPRINT = 8181358032544748319
+TCP_ARCHIVE_FINGERPRINT = 12181794617345777596
+TCP_PROFILE_TCP = 1
+TCP_PROFILE_KEYED_TCP = 2
+TCP_PROFILE_NOISE_TCP = 4
+TCP_PROFILES_ALL = 7
+INPROC_ARCHIVE_FINGERPRINT = 14345323006945864940
+ONION_ARCHIVE_FINGERPRINT = 18055016265786041278
 ONION_AUTH_NONE = 0
 ONION_AUTH_COOKIE = 1
 ONION_AUTH_PASSWORD = 2
 ONION_SERVICE_ID_LEN = 56
 ONION_SERVICE_KEY_CAP = 256
-IROH_ARCHIVE_FINGERPRINT = 12982945291599634263
-RELAY_ARCHIVE_FINGERPRINT = 4625578368752429389
+IROH_ARCHIVE_FINGERPRINT = 14708323916831460391
+RELAY_ARCHIVE_FINGERPRINT = 1433636707851327703
 RELAY_CONFIG_ABI_VERSION = 1
 RELAY_TRUST_SYSTEM = 0
 RELAY_TRUST_COPIED_PEM = 1
 RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES = 4096
-WEBRTC_ARCHIVE_FINGERPRINT = 14905543536894465005
+WEBRTC_ARCHIVE_FINGERPRINT = 6378322623444944714
 IROH_REACH_DIRECT = 0
 IROH_REACH_DISCOVERY = 1
 IROH_REACH_DISCOVERY_NO_RELAY = 2
@@ -208,6 +215,7 @@ BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES = 1048576
 HINT_DIRECT_ADDRESSES = "direct-addresses"
 HINT_ALT_LOCATORS = "alt-locators"
 HINT_VIA = "via"
+UNKNOWN_SWISSNUM_MESSAGE = "unknown swissnum"
 TRANSPORT_TCP = "tcp"
 TRANSPORT_ONION = "onion"
 TRANSPORT_KEYED_TCP = "keyed-tcp"
@@ -218,3 +226,111 @@ TRANSPORT_WEBRTC = "webrtc"
 TRANSPORT_NOISE_TCP = "noise-tcp"
 TRANSPORT_NOISE_RELAY = "noise-relay"
 TRANSPORT_ID = "id"
+
+class BreakOrigin(IntEnum):
+    UNSPECIFIED = 0
+    LOCAL = 1
+    PARTNER = 2
+
+class BreakReason(IntEnum):
+    UNSPECIFIED = 0
+    APPLICATION = 1
+    IDENTITY_UNVERIFIED = 2
+    PEER_UNREACHABLE = 3
+    CLOSED = 4
+    REFUSED = 5
+    TRANSPORT_UNAVAILABLE = 6
+    PUBLICATION_ABSENT = 7
+
+class RouteFailure(IntEnum):
+    PEER_UNREACHABLE = 0
+    TRANSPORT_UNAVAILABLE = 1
+
+    def cause(self) -> "BreakCause":
+        if self == self.PEER_UNREACHABLE:
+            return BreakCause(BreakOrigin.LOCAL, BreakReason.PEER_UNREACHABLE, 0)
+        if self == self.TRANSPORT_UNAVAILABLE:
+            return BreakCause(BreakOrigin.LOCAL, BreakReason.TRANSPORT_UNAVAILABLE, 0)
+        raise ValueError(self)
+
+    @classmethod
+    def from_cause(cls, cause: "BreakCause") -> "RouteFailure | None":
+        if (cause.origin == BreakOrigin.LOCAL and cause.reason == BreakReason.PEER_UNREACHABLE and cause.context == 0):
+            return cls.PEER_UNREACHABLE
+        if (cause.origin == BreakOrigin.LOCAL and cause.reason == BreakReason.TRANSPORT_UNAVAILABLE and cause.context == 0):
+            return cls.TRANSPORT_UNAVAILABLE
+        return None
+
+BREAK_CONTEXT_FETCH = 1
+
+BREAK_CONTEXT_RESTORATION = 2
+
+BREAK_CONTEXT_WITHDRAWAL = 4
+
+@dataclass(frozen=True, slots=True)
+class BreakCause:
+    origin: BreakOrigin = BreakOrigin.UNSPECIFIED
+    reason: BreakReason = BreakReason.UNSPECIFIED
+    context: int = 0
+
+    @classmethod
+    def from_fields(cls, origin: int, reason: int, context: int) -> "BreakCause | None":
+        try:
+            source = BreakOrigin(origin)
+            why = BreakReason(reason)
+        except ValueError:
+            return None
+        if context < 0 or context & ~7:
+            return None
+        if (source, why) not in (
+            (BreakOrigin.UNSPECIFIED, BreakReason.UNSPECIFIED),
+            (BreakOrigin.LOCAL, BreakReason.UNSPECIFIED),
+            (BreakOrigin.LOCAL, BreakReason.APPLICATION),
+            (BreakOrigin.LOCAL, BreakReason.IDENTITY_UNVERIFIED),
+            (BreakOrigin.LOCAL, BreakReason.PEER_UNREACHABLE),
+            (BreakOrigin.LOCAL, BreakReason.CLOSED),
+            (BreakOrigin.LOCAL, BreakReason.REFUSED),
+            (BreakOrigin.LOCAL, BreakReason.TRANSPORT_UNAVAILABLE),
+            (BreakOrigin.LOCAL, BreakReason.PUBLICATION_ABSENT),
+            (BreakOrigin.PARTNER, BreakReason.APPLICATION),
+        ):
+            return None
+        return cls(source, why, context)
+
+    def is_application(self) -> bool:
+        return self.origin == BreakOrigin.LOCAL and self.reason == BreakReason.APPLICATION and self.context == 0 or self.origin == BreakOrigin.PARTNER and self.reason == BreakReason.APPLICATION and self.context == 0
+
+    def is_publication_refusal(self) -> bool:
+        return self.origin == BreakOrigin.PARTNER and self.reason == BreakReason.APPLICATION and self.context == 1
+
+    def is_publication_absent(self) -> bool:
+        return self.origin == BreakOrigin.LOCAL and self.reason == BreakReason.PUBLICATION_ABSENT and self.context == 1
+
+    def is_peer_identity_unverified(self) -> bool:
+        return self.origin == BreakOrigin.LOCAL and self.reason == BreakReason.IDENTITY_UNVERIFIED and (self.context & 2) == 0
+
+    def is_exporter_unreachable(self) -> bool:
+        return self.origin == BreakOrigin.LOCAL and (self.reason == BreakReason.PEER_UNREACHABLE or self.reason == BreakReason.TRANSPORT_UNAVAILABLE) and (self.context & 2) == 0
+
+    def is_publication_not_found(self, message: str | None) -> bool:
+        return self.is_publication_absent() or (self.is_publication_refusal() and message == UNKNOWN_SWISSNUM_MESSAGE)
+    def label(self) -> str | None:
+        if self.context & BREAK_CONTEXT_RESTORATION:
+            return "RestorationFailed"
+        if self.context & BREAK_CONTEXT_WITHDRAWAL:
+            return "handoff redeem failed"
+        if self.origin != BreakOrigin.LOCAL:
+            return None
+        return {
+            BreakReason.IDENTITY_UNVERIFIED: "PeerIdentityUnverified",
+            BreakReason.PEER_UNREACHABLE: "ExporterUnreachable",
+            BreakReason.TRANSPORT_UNAVAILABLE: "ExporterUnreachable",
+        }.get(self.reason)
+
+
+def release_result_code(result: int) -> int:
+    return -result if result > 0 else result
+
+
+def release_result_consumed(result: int) -> bool:
+    return result >= 0

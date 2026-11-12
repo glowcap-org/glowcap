@@ -97,7 +97,7 @@
        (session-serve hsession)
        (channel-put lc-ch 'served)))))
 
-(define lc-runtime (open-runtime #:providers (list (tcp-provider))))
+(define lc-runtime (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))))
 (define lc-session (runtime-connect lc-runtime (tcp-locator "127.0.0.1" (server-port lc-server))))
 (semaphore-wait lc-ready)
 

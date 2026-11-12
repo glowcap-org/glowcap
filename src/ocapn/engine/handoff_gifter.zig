@@ -47,11 +47,11 @@ pub const ExporterLocatorPolicy = struct {
 /// hello is hinted only toward a known-glowcap partner (ADR-0042), an unknown
 /// receiver is always answered bare, and the pinned Goblins dial arm cannot
 /// dial a hinted onion locator at all, so profile hints shed there too.
-/// Bytes this walker cannot read still ship verbatim: both sources (our own
-/// record encode, the partner's codec-validated hello) are already validated,
-/// so the arm is unreachable rather than a policy. The decode-and-re-encode
-/// is paid only when a give needs lowering or stripping. The caller owns
-/// non-null bytes.
+/// A malformed or incomplete locator is refused because its privacy policy
+/// cannot be checked. Allocation failure is returned, never answered with
+/// the unstripped bytes. The
+/// decode-and-re-encode is paid only when a give needs lowering or stripping.
+/// The caller owns non-null bytes.
 pub fn exporterLocationForRecipient(
     allocator: std.mem.Allocator,
     raw: []const u8,
@@ -59,8 +59,12 @@ pub fn exporterLocationForRecipient(
 ) !?[]u8 {
     if (recipient.route_vocabulary) return null;
     var cursor: usize = 0;
-    const locator = codec.signed.readLocatorOwned(allocator, raw, &cursor) catch return null;
+    const locator = codec.signed.readLocatorOwned(allocator, raw, &cursor) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.UnsupportedArgument,
+    };
     defer model.freePeerLocator(allocator, locator);
+    if (cursor != raw.len) return error.UnsupportedArgument;
     if (try compatibleRoute(allocator, locator, recipient)) |route| {
         defer model.freePeerLocator(allocator, route);
         return try codec.signed.encodeLocatorRecord(allocator, route);
@@ -283,6 +287,13 @@ pub const PreparedDepositGift = struct {
     }
 };
 
+/// Build, lower, validate, and encode one `deposit-gift` to the exporter
+/// without committing it. The deliver tree is the one named copy here: it is
+/// cloned from the borrowed gift id and reference because lowering and
+/// shortening rewrite its reference slot in place, the token outlives the
+/// call while the Node coordinator prepares the recipient, and commit records
+/// exports from the same tree. One clone per handoff deposit, freed at commit
+/// or abandonment. Building the tree by hand would allocate the same parts.
 pub fn prepareDepositGiftInBatch(
     peer: *Peer,
     batch: *Peer.PendingBatch,

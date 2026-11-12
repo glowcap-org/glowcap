@@ -69,8 +69,8 @@ impl LoopHandle {
 		// by `empty()` with the current version and layout. Consumption is decided from `code` below, and the handle
 		// is returned to the caller only when the driver refused.
 		let code = unsafe { ffi::glowcap_driver_release(self.as_ptr(), &mut failure) };
-		let result = decode(code, failure, "driver release");
-		if crate::lifecycle::release_consumed(code) {
+		let result = decode(sys::release_result_code(code), failure, "driver release");
+		if crate::sys::release_result_consumed(code) {
 			return Released::Consumed(result);
 		}
 		let error = match result {

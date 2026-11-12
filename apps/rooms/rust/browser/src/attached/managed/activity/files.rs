@@ -2,6 +2,7 @@
 use super::*;
 use crate::{abort::Abort, attached::file_display};
 use rooms_glowcap::client::{Deadline, workspace::Workspace};
+use rooms_runtime::Error as RuntimeError;
 use std::{
 	cell::{OnceCell, RefCell},
 	rc::Rc,
@@ -75,31 +76,37 @@ async fn read(environment: &Environment, custody: &Custody, offset: u64, maximum
 		.borrow()
 		.as_ref()
 		.cloned()
-		.ok_or("File custody has been released")?;
+		.ok_or_else(|| RuntimeError::closed("File custody has been released"))?;
 	let length = rooms_application::files::transfer::read_length(
 		file.description["size"]
 			.as_u64()
 			.and_then(|size| usize::try_from(size).ok())
-			.ok_or("Invalid file size")?,
+			.ok_or_else(|| RuntimeError::invalid("Invalid file size"))?,
 		offset,
 		maximum,
 	)
-	.map_err(|e| e.to_string())?;
+	.map_err(RuntimeError::invalid_by)?;
 	if file.reader.get().is_none() {
-		let selection = file.selection.as_ref().ok_or("File has no source")?;
+		let selection = file
+			.selection
+			.as_ref()
+			.ok_or_else(|| RuntimeError::invalid("File has no source"))?;
 		let reader = selection
 			.workspace
 			.activity_file(&selection.token, selection.index)
 			.await
-			.map_err(|e| e.to_string())?;
+			.map_err(RuntimeError::from)?;
 		// Concurrent opens may acquire the same exact occurrence. The first
 		// reader keeps it; a later redundant facade drops without replacing it.
 		let _ = file.reader.set(reader);
 	}
 	if custody.borrow().is_none() {
-		return Err("File custody was released during its acquisition".into());
+		return Err(RuntimeError::closed("File custody was released during its acquisition"));
 	}
-	let reader = file.reader.get().ok_or("File reader was not acquired")?;
+	let reader = file
+		.reader
+		.get()
+		.ok_or_else(|| RuntimeError::invalid("File reader was not acquired"))?;
 	let reply = environment
 		.platform
 		.within(
@@ -111,14 +118,14 @@ async fn read(environment: &Environment, custody: &Custody, offset: u64, maximum
 			)),
 		)
 		.await
-		.ok_or("File read did not answer")?
-		.map_err(|e| e.to_string())?;
+		.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("File read")))?
+		.map_err(RuntimeError::from)?;
 	if custody.borrow().is_none() {
-		return Err("File custody was released during its read".into());
+		return Err(RuntimeError::closed("File custody was released during its read"));
 	}
 	match reply {
 		Argument::Bytes(bytes) if bytes.len() <= length => Ok(bytes),
-		_ => Err("File returned an invalid chunk".into()),
+		_ => Err(RuntimeError::invalid("File returned an invalid chunk")),
 	}
 }
 #[wasm_bindgen]
@@ -135,18 +142,20 @@ impl RoomsManagedFile {
 					.borrow()
 					.as_ref()
 					.cloned()
-					.ok_or("File custody has been released")?;
+					.ok_or_else(|| RuntimeError::closed("File custody has been released"))?;
 				let size = file.description["size"]
 					.as_u64()
 					.and_then(|size| usize::try_from(size).ok())
-					.ok_or("Invalid file size")?;
-				let mime = file.description["mime"].as_str().ok_or("Invalid file MIME type")?;
+					.ok_or_else(|| RuntimeError::invalid("Invalid file size"))?;
+				let mime = file.description["mime"]
+					.as_str()
+					.ok_or_else(|| RuntimeError::invalid("Invalid file MIME type"))?;
 				let reader = Reader {
 					custody,
 					environment: environment.clone(),
 				};
 				tokio::select! { biased;
-					() = abort.cancelled() => Err("Rooms file view was cancelled".into()),
+					() = abort.cancelled() => Err(RuntimeError::closed("Rooms file view was cancelled")),
 					result = file_display::materialize(&environment, reader, size, mime, progress) => result,
 				}
 			})
@@ -161,7 +170,7 @@ impl RoomsManagedFile {
 						.borrow()
 						.as_ref()
 						.cloned()
-						.ok_or("File custody has been released")?;
+						.ok_or_else(|| RuntimeError::closed("File custody has been released"))?;
 					json(&file.description.to_string())
 				})
 				.map_err(|error| js_error(&error))
@@ -176,10 +185,10 @@ impl RoomsManagedFile {
 			Err(error) => return rejected(error),
 		};
 		if rooms_application::fields::SafeInteger::<false>::new(offset).is_none() {
-			return rejected("File offset exceeds its exact integer range".into());
+			return rejected(RuntimeError::invalid("File offset exceeds its exact integer range"));
 		}
 		if maximum == 0 || maximum as usize > rooms_application::files::CHUNK_BYTES {
-			return rejected("File reads require a bounded nonzero chunk".into());
+			return rejected(RuntimeError::invalid("File reads require a bounded nonzero chunk"));
 		}
 		let custody = self.file.clone();
 		self.driver.submit(maximum as usize, move |environment| async move {

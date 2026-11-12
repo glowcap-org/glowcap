@@ -1,6 +1,6 @@
 .{
     .name = .glowcap,
-    .version = "0.1.6",
+    .version = "0.1.7",
     .dependencies = .{
         // Lazy on purpose: libvaxis backs the CapTP lab REPL in the product
         // CLI and nothing in the `glowcap` library module. A consumer that
@@ -43,6 +43,7 @@
         "transports/Cargo.toml",
         "transports/Cargo.lock",
         "transports/sidecars.rs",
+        "transports/ffi_handles.rs",
         // README links its checked Quick Start example.
         "examples",
         "LICENSE-THIRD-PARTY",

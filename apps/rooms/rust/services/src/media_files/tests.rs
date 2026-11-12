@@ -31,9 +31,12 @@ async fn incoming_materialization_is_shared_by_archive_and_views_through_expirat
 }
 async fn scenario() {
 	let runtime = Rc::new(
-		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-			.await
-			.unwrap(),
+		Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config {
+			profiles: tcp::Profiles::TCP,
+			..Default::default()
+		})]))
+		.await
+		.unwrap(),
 	);
 	let server = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();
 	let locator = server.locator().unwrap();

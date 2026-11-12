@@ -94,14 +94,6 @@ fn walk(directory: &Path, logical: &str, rows: &mut Vec<(String, PathBuf)>) -> R
 	}
 	Ok(())
 }
-pub(super) fn revision(value: &str) -> bool {
-	let digest = if let Some(digest) = value.strip_prefix("source-") {
-		digest
-	} else {
-		value.strip_suffix("-dirty").unwrap_or(value)
-	};
-	digest.len() == 12 && digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
 
 #[cfg(test)]
 mod tests {

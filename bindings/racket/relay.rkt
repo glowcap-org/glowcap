@@ -250,7 +250,7 @@
      (ws-close! conn #:status 1008 #:reason "relay requires ?to=host:port or ?locator=<uri>")]
     [else
      (define ch
-       (with-handlers ([(lambda (_) #t)
+       (with-handlers ([exn:fail?
                         (lambda (e)
                           (eprintf "relay: dial failed: ~a\n" (exn-message e))
                           (ws-close! conn #:status 1011 #:reason "relay dial failed")

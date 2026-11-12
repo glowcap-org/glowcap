@@ -5,6 +5,7 @@
 //! the parked state and its staging invariants.
 
 const std = @import("std");
+const Broken = @import("foundation").break_cause.Broken;
 
 const model = @import("model");
 const actors = @import("actors");
@@ -87,7 +88,7 @@ pub const PendingSend = struct {
     }
 
     fn fireBroken(self: *PendingSend, reason: []const u8) void {
-        self.fire(.{ .broken = reason });
+        self.fire(.{ .broken = Broken.unnamed(reason) });
     }
 
     fn fire(self: *PendingSend, resolution: actors.Resolution) void {

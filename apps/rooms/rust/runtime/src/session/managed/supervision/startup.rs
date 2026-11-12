@@ -33,7 +33,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				Err(rooms_glowcap::client::Error::WorkspaceConflict) => {
 					conflicts += 1;
 					if conflicts == 4 {
-						return Err(loam::refusal("Membership installation repeatedly conflicted"));
+						return Err(Error::stale("Membership installation repeatedly conflicted"));
 					}
 					// Only proved absence permits a new candidate. Recheck the
 					// original source and selection, retaining the same callback.
@@ -51,7 +51,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					{
 						break;
 					}
-					if !self.failed(super::error(error)).await? {
+					if !self.failed(Error::from(error)).await? {
 						return Ok(());
 					}
 				}
@@ -98,7 +98,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				let result = tokio::select! {
 					biased;
 					_ = self.stopping.changed() => return Ok(()),
-					result = self.submission.as_mut().ok_or_else(|| loam::refusal("Membership admission observation is not owned"))?.within(
+					result = self.submission.as_mut().ok_or_else(|| Error::closed("Membership admission observation is not owned"))?.within(
 						&self.platform,
 						rooms_application::room::authority::REQUEST_TIMEOUT_MS,
 					) => result,
@@ -110,7 +110,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					}
 					Some(Err(failure)) => {
 						self.submission.take();
-						if !self.failed(error(failure)).await? {
+						if !self.failed(Error::from(failure)).await? {
 							return Ok(());
 						}
 						self.submission = Some(command.start_submission());
@@ -119,7 +119,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 						// Retry lends the same receiver. A deadline gives no evidence
 						// that a remote admission failed or that redispatch is safe.
 						if !self
-							.failed(loam::refusal("Membership admission remains pending"))
+							.failed(Error::uncertain("Membership admission remains pending"))
 							.await?
 						{
 							return Ok(());
@@ -134,13 +134,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				conflicts += 1;
 				attempt += 1;
 				if conflicts == 4 {
-					return Err(loam::refusal("Membership admission repeatedly conflicted"));
+					return Err(Error::stale("Membership admission repeatedly conflicted"));
 				}
 				admission = format!("{operation}:{attempt}");
 				continue;
 			}
 			loop {
-				let Some(status) = self.stage(|| async { command.status().await.map_err(error) }).await? else {
+				let Some(status) = self
+					.stage(|| async { command.status().await.map_err(Error::from) })
+					.await?
+				else {
 					return Ok(());
 				};
 				match status {
@@ -152,10 +155,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 							.result()
 							.await
 							.err()
-							.map(error)
-							.unwrap_or_else(|| loam::refusal("Membership was not sent"));
-						let advice = rooms_application::failure::Failure::parse(&failure.to_string())
-							.and_then(|failure| failure.retry_advice());
+							.map(Error::from)
+							.unwrap_or_else(|| Error::uncertain("Membership was not sent"));
+						let advice = failure.admission_retry();
 						self.ready.send_replace(Some(Err(failure)));
 						if let Some(advice) = advice {
 							if !self.retry_after(advice).await? {
@@ -176,7 +178,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					}
 					_ => {
 						if !self
-							.failed(loam::refusal(
+							.failed(Error::uncertain(
 								"Membership requires explicit resolution of its original receipt",
 							))
 							.await?
@@ -196,15 +198,15 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 							Target::Direct => unreachable!("direct readiness returns no new authority"),
 							Target::Directory { name, .. } => source.acquire_registration(&command, *name).await,
 							Target::Room { seat, subject, files } => {
-								let reply = command.result().await.map_err(error)?;
+								let reply = command.result().await.map_err(Error::from)?;
 								let Some([data, Argument::List(_)]) = reply.as_list() else {
-									return Err(loam::refusal("Membership has no committed result"));
+									return Err(Error::uncertain("Membership has no committed result"));
 								};
 								let membership: results::Membership = serde_json::from_str(
 									data.as_str()
-										.ok_or_else(|| loam::refusal("Invalid membership result"))?,
+										.ok_or_else(|| Error::invalid("Invalid membership result"))?,
 								)
-								.map_err(|_| loam::refusal("Invalid membership result"))?;
+								.map_err(|_| Error::invalid("Invalid membership result"))?;
 								source
 									.acquire_membership(
 										&command,
@@ -233,12 +235,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 						Err(rooms_glowcap::client::Error::WorkspaceConflict) => {
 							conflicts += 1;
 							if conflicts == 4 {
-								return Err(loam::refusal("Membership result acquisition repeatedly conflicted"));
+								return Err(Error::stale("Membership result acquisition repeatedly conflicted"));
 							}
 							continue 'acquire;
 						}
 						Err(error) => {
-							if !self.failed(super::error(error)).await? {
+							if !self.failed(Error::from(error)).await? {
 								return Ok(());
 							}
 						}

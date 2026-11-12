@@ -20,7 +20,7 @@ Deno.test("pointer-move updates hover regardless of fsm state", () => {
 	assertEquals(r.state.hover.surface, "stage-peer");
 });
 
-Deno.test("pointer-move with null hit → hover cleared", () => {
+Deno.test("a pointer-move with a null hit clears the hover", () => {
 	const { state } = dispatch(IDLE_MACHINE, [{
 		kind: "pointer-move",
 		snapshot: snap(),

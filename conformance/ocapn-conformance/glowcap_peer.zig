@@ -314,12 +314,15 @@ fn tryPromiseResolve(conf: *ConfCtx, event: *engine.Event) !bool {
         else => return false,
     };
     const answer_target = conf.resolver_map.get(target_id) orelse return false;
+    // tolerant: an argument list that does not decode is not this handler's message.
     const arg_count = deliver.args.len() catch return false;
     if (arg_count < 2) return false;
+    // tolerant: an argument list that does not decode is not this handler's message.
     const verb = switch (deliver.args.at(0) catch return false) {
         .symbol => |sym| sym,
         else => return false,
     };
+    // tolerant: an argument list that does not decode is not this handler's message.
     const value = deliver.args.at(1) catch return false;
     const resolution: model.Resolution = if (std.mem.eql(u8, verb, "fulfill"))
         .{ .fulfill = try value.toOwned(allocator) }
@@ -376,7 +379,7 @@ pub fn main(init: std.process.Init) !void {
     try io.randomSecure(&session_root);
 
     var host = try Host.init(allocator, seed, session_root, blk: {
-        var o = Host.Options.withFrameCap(frame_cap);
+        var o = Host.Options.init(driver.checked_threads, frame_cap);
         o.local_turn_budget = 64;
         if (next_profile) {
             o.captp_version = .next;

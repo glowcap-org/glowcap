@@ -32,6 +32,7 @@
  */
 
 import { Engine } from "../engine.ts";
+import type { LiveConnectionState } from "./status.ts";
 import type { EngineError } from "../errors.ts";
 import { LiveFeed, type LivePeerFactory } from "./connection.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
@@ -92,19 +93,21 @@ export function makeLiveAppender(opts: {
 
 /** What dialing a feed takes, and what it hands back.
  *
- *  Both reports are optional and both are released by `dispose`, so a feed
- *  the caller no longer owns can never write into it.  status-allow: lifecycle transition */
+ * Connection reports stop at `dispose`. The error callback is the application
+ * sink and remains attached while pending setup and retirement finish, so their
+ * failures outlive the view that initiated them. */
 export type FeedDial = {
 	/** The complete OCapN sturdyref announced by the trace endpoint. */
 	sturdyref: string;
 	/** Test seam for the browser peer. Production uses the wasm-backed peer. */
 	peerFactory?: LivePeerFactory;
-	/** Called after CapTP subscription completes, with `true`. On close, with `false`. */
-	onConnectionChange?: (connected: boolean) => void;
+	/** Setup/reconnect progress, an open subscription, or a terminal failure requiring reload. */
+	onConnectionChange?: (state: LiveConnectionState) => void;
 	/** Called when the feed cannot dial or enliven the trace capability. Taken
 	 *  here rather than subscribed by the caller because that
 	 *  failure happens inside the dial, so a subscriber attached afterwards
-	 *  would never hear it. */
+	 *  would never hear it. This application sink also receives cleanup failures
+	 *  after disposal; it must not write into a disposed view. */
 	onError?: (error: EngineError) => void;
 };
 
@@ -124,13 +127,12 @@ export function dialLiveFeed(opts: FeedDial): {
 } {
 	const feed = new LiveFeed(opts.sturdyref, opts.peerFactory);
 	const unsubConnection = opts.onConnectionChange ? feed.onConnectionChange(opts.onConnectionChange) : () => {};
-	const unsubError = opts.onError ? feed.onError(opts.onError) : () => {};
+	if (opts.onError) feed.onError(opts.onError);
 	feed.connect();
 	return {
 		feed,
 		dispose: () => {
 			unsubConnection();
-			unsubError();
 			feed.disconnect();
 		},
 	};

@@ -213,6 +213,60 @@
 (host-close! sibling-host)
 (printf "racket test OK: TCP profiles share one server and Host surface\n")
 
+;; The default provider registers `noise-tcp` alone, so a plain tcp locator is
+;; refused before anything is dialed, with the transport-unavailable cause,
+;; while a noise-tcp locator connects. A plain-only provider reverses both.
+(define (expect-transport-unavailable refusal what)
+  (expect (and refusal
+               (= (exn:fail:glowcap-code refusal) ERR-INVALID-ARGUMENT)
+               (equal? (exn:fail:glowcap-cause refusal)
+                       (route-failure-cause 'transport-unavailable)))
+          (format "~a, got ~e" what refusal)))
+(define (refusal-of thunk)
+  (with-handlers ([exn:fail:glowcap? values])
+    (thunk)
+    #f))
+(define noise-only-provider (tcp-provider))
+(define plain-only-provider
+  (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))
+(define noise-only-plain (listen "127.0.0.1" 0))
+(define noise-only-sealed (listen-noise-tcp "127.0.0.1" 0))
+(expect-transport-unavailable
+ (refusal-of (lambda ()
+               (open-test-session (server-locator noise-only-plain)
+                                  #:provider noise-only-provider)))
+ "a noise-only runtime should refuse a plain tcp locator")
+(expect-transport-unavailable
+ (refusal-of (lambda ()
+               (open-test-session (server-locator noise-only-sealed)
+                                  #:provider plain-only-provider)))
+ "a plain-only runtime should refuse a noise-tcp locator")
+(define noise-only-client
+  (open-test-session (server-locator noise-only-sealed)
+                     #:provider noise-only-provider))
+(define noise-only-accepted (accept noise-only-sealed))
+(define plain-only-client
+  (open-test-session (server-locator noise-only-plain)
+                     #:provider plain-only-provider))
+(define plain-only-accepted (accept noise-only-plain))
+(session-close! noise-only-accepted)
+(session-close! noise-only-client)
+(session-close! plain-only-accepted)
+(session-close! plain-only-client)
+(server-close! noise-only-sealed)
+(server-close! noise-only-plain)
+(printf "racket test OK: a noise-only runtime and a plain-only runtime each refuse the other's locator\n")
+
+;; The C library is the one authority on a profile set: an empty list surfaces
+;; as INVALID-ARGUMENT when the provider installs.
+(let ([refusal (refusal-of (lambda ()
+                             (open-runtime
+                              #:providers (list (tcp-provider
+                                                 (make-tcp-config #:profiles '()))))))])
+  (expect (and refusal (= (exn:fail:glowcap-code refusal) ERR-INVALID-ARGUMENT))
+          (format "an empty profile list should be refused, got ~e" refusal)))
+(printf "racket test OK: an empty TCP profile list is refused when the provider installs\n")
+
 ;; The iroh provider follows the same seam: the supplied Host is adopted before
 ;; the resident is installed, and the generic driver owns listener close.
 (define supplied-iroh-host (make-host (make-bytes 32 19)))

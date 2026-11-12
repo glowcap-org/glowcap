@@ -3,6 +3,7 @@ use super::*;
 use glowcap::loam::{ControlPowers, IssuePolicy, PolicyValue};
 use rooms_application::content::{permissions::Permission, session as content};
 use rooms_glowcap::client::access::{Issuance, Mutation};
+use rooms_runtime::Error as RuntimeError;
 use serde::Deserialize;
 
 /// Management powers are independent choices. Missing powers remain absent.
@@ -21,7 +22,8 @@ struct Powers {
 impl Powers {
 	fn read(raw: js_sys::JsString) -> Result<ControlPowers> {
 		let raw = scalar(raw, 8192)?;
-		let powers: Self = serde_json::from_str(&raw).map_err(|_| "Invalid management powers")?;
+		let powers: Self =
+			serde_json::from_str(&raw).map_err(|_| RuntimeError::invalid("Invalid management powers"))?;
 		Ok(ControlPowers {
 			inspect: powers.inspect,
 			pause: powers.pause,
@@ -36,7 +38,8 @@ impl Powers {
 
 fn policy(raw: js_sys::JsString) -> Result<PolicyValue> {
 	let raw = scalar(raw, 4096)?;
-	let values: Vec<Permission> = serde_json::from_str(&raw).map_err(|_| "Invalid permission selection")?;
+	let values: Vec<Permission> =
+		serde_json::from_str(&raw).map_err(|_| RuntimeError::invalid("Invalid permission selection"))?;
 	policy_values(&values)
 }
 #[derive(Deserialize)]
@@ -47,11 +50,12 @@ struct IssuePermissions {
 }
 fn issue_policy(raw: js_sys::JsString) -> Result<IssuePolicy> {
 	let raw = scalar(raw, 8192)?;
-	let values: IssuePermissions = serde_json::from_str(&raw).map_err(|_| "Invalid issuance permissions")?;
+	let values: IssuePermissions =
+		serde_json::from_str(&raw).map_err(|_| RuntimeError::invalid("Invalid issuance permissions"))?;
 	Ok(policy_values(&values.configured)?.with_ceiling(policy_values(&values.ceiling)?))
 }
 fn policy_values(values: &[Permission]) -> Result<PolicyValue> {
-	rooms_application::content::permissions::validate(values, content::SUPPORTED).map_err(|e| e.to_string())?;
+	rooms_application::content::permissions::validate(values, content::SUPPORTED).map_err(RuntimeError::invalid_by)?;
 	rooms_glowcap::policy::descriptor()
 		.and_then(|policy| {
 			policy.value_for_kind(
@@ -60,7 +64,7 @@ fn policy_values(values: &[Permission]) -> Result<PolicyValue> {
 				&[],
 			)
 		})
-		.map_err(|e| e.to_string())
+		.map_err(RuntimeError::from)
 }
 #[wasm_bindgen]
 pub struct RoomsManagedControl {
@@ -87,14 +91,14 @@ impl RoomsManagedControl {
 	pub fn describe(&self) -> js_sys::Promise {
 		let control = self.control.clone();
 		self.driver.submit(0, move |_| async move {
-			let description = control.describe().await.map_err(|e| e.to_string())?;
+			let description = control.describe().await.map_err(RuntimeError::from)?;
 			json(&projection::control(description.view()).to_string())
 		})
 	}
 	pub fn inspect(&self) -> js_sys::Promise {
 		let control = self.control.clone();
 		self.driver.submit(0, move |_| async move {
-			let target = control.inspect().await.map_err(|e| e.to_string())?;
+			let target = control.inspect().await.map_err(RuntimeError::from)?;
 			json(&projection::grant(target.view()).to_string())
 		})
 	}
@@ -104,7 +108,7 @@ impl RoomsManagedControl {
 	pub fn inspect_effective(&self) -> js_sys::Promise {
 		let control = self.control.clone();
 		self.driver.submit(0, move |_| async move {
-			let target = control.inspect_fixed_access().await.map_err(|e| e.to_string())?;
+			let target = control.inspect_fixed_access().await.map_err(RuntimeError::from)?;
 			json(&projection::use_access(target.view()).to_string())
 		})
 	}
@@ -114,7 +118,7 @@ impl RoomsManagedControl {
 		let cursor = match cursor
 			.map(|cursor| {
 				if cursor.length() != 49 {
-					return Err("Invalid inventory cursor".into());
+					return Err(RuntimeError::invalid("Invalid inventory cursor"));
 				}
 				let mut bytes = [0; 49];
 				cursor.copy_to(&mut bytes);
@@ -131,7 +135,7 @@ impl RoomsManagedControl {
 				let page = control
 					.inventory(cursor.as_ref().map(|bytes| bytes.as_slice()), 32)
 					.await
-					.map_err(|e| e.to_string())?;
+					.map_err(RuntimeError::from)?;
 				let view = page.view();
 				let output = json(
 					&serde_json::json!({"rows": view.rows().map(projection::grant).collect::<Vec<_>>()}).to_string(),
@@ -140,7 +144,7 @@ impl RoomsManagedControl {
 					.cursor
 					.map_or(JsValue::NULL, |cursor| js_sys::Uint8Array::from(cursor).into());
 				js_sys::Reflect::set(&output, &"cursor".into(), &cursor)
-					.map_err(|_| "Inventory cursor projection failed")?;
+					.map_err(|_| RuntimeError::invalid("Inventory cursor projection failed"))?;
 				Ok(output)
 			})
 	}
@@ -170,7 +174,7 @@ impl RoomsManagedControl {
 		let driver = self.driver.clone();
 		let home = self.home.clone();
 		self.driver.submit(label.len(), move |_| async move {
-			let sequence = control.derivation_sequence().await.map_err(|e| e.to_string())?;
+			let sequence = control.derivation_sequence().await.map_err(RuntimeError::from)?;
 			let request = Issuance::new(policy, sequence, expected, depth, powers, &label, paused);
 			let bytes = request.retained_bytes();
 			let request = driver.hold(request, bytes)?;
@@ -213,7 +217,7 @@ impl RoomsManagedControl {
 		let driver = self.driver.clone();
 		let home = self.home.clone();
 		self.driver.submit(0, move |_| async move {
-			let sequence = control.mutation_sequence().await.map_err(|e| e.to_string())?;
+			let sequence = control.mutation_sequence().await.map_err(RuntimeError::from)?;
 			let request = driver.hold(
 				Attenuation {
 					control,
@@ -256,7 +260,7 @@ impl RoomsManagedControl {
 				Edit::Lifecycle("revoke") => control.prepare_revoke(expected).await,
 				Edit::Lifecycle(_) => unreachable!(),
 			}
-			.map_err(|e| e.to_string())?;
+			.map_err(RuntimeError::from)?;
 			let bytes = request.retained_bytes();
 			let request = driver.hold(request, bytes)?;
 			Ok(RoomsManagedEdit { driver, request }.into())
@@ -279,16 +283,10 @@ pub struct RoomsManagedIssuance {
 }
 #[wasm_bindgen]
 impl RoomsManagedIssuance {
-	pub fn submit(&self) -> js_sys::Promise {
-		self.submission(false)
-	}
+	/// `committed` carries the issued `access` workspace and its `control`.
+	/// Every other outcome reads as `submitOutcome` does for any request.
 	#[wasm_bindgen(js_name = submitOutcome)]
 	pub fn submit_outcome(&self) -> js_sys::Promise {
-		self.submission(true)
-	}
-}
-impl RoomsManagedIssuance {
-	fn submission(&self, outcome: bool) -> js_sys::Promise {
 		let control = self.control.clone();
 		let request = self.request.clone();
 		let driver = self.driver.clone();
@@ -296,13 +294,7 @@ impl RoomsManagedIssuance {
 		self.driver.submit(0, move |environment| async move {
 			let issued = match control.issue(&request).await {
 				Ok(issued) => issued,
-				Err(error) => {
-					return if outcome {
-						super::outcome::failed(error)
-					} else {
-						Err(error.to_string())
-					};
-				}
+				Err(error) => return super::outcome::failed(error),
 			};
 			let host = environment.runtime.host().clone();
 			let workspace = Workspace::local(host.clone(), environment.platform.clone(), issued.access);
@@ -317,21 +309,17 @@ impl RoomsManagedIssuance {
 				Control::local(host, environment.platform.clone(), issued.control),
 				home,
 			)?;
-			if outcome {
-				let output = json(r#"{"status":"committed"}"#)?;
-				super::super::view::set(&output, "access", workspace.into())?;
-				super::super::view::set(&output, "control", control.into())?;
-				Ok(output)
-			} else {
-				Ok(js_sys::Array::of2(&workspace.into(), &control.into()).into())
-			}
+			let output = json(r#"{"status":"committed"}"#)?;
+			super::super::view::set(&output, "access", workspace.into())?;
+			super::super::view::set(&output, "control", control.into())?;
+			Ok(output)
 		})
 	}
 }
 #[wasm_bindgen]
 pub struct RoomsManagedEdit {
-	pub(super) driver: Driver,
-	pub(super) request: Held<Mutation<Platform>>,
+	driver: Driver,
+	request: Held<Mutation<Platform>>,
 }
 enum Edit {
 	Policy(PolicyValue),
@@ -340,11 +328,13 @@ enum Edit {
 }
 #[wasm_bindgen]
 impl RoomsManagedEdit {
-	pub fn submit(&self) -> js_sys::Promise {
+	/// Failure keeps this exact request. An uncertain reply never authorizes a
+	/// new sequence. Revision and sequence conflicts refuse before mutation.
+	#[wasm_bindgen(js_name = submitOutcome)]
+	pub fn submit_outcome(&self) -> js_sys::Promise {
 		let request = self.request.clone();
 		self.driver.submit(0, move |_| async move {
-			request.submit().await.map_err(|e| e.to_string())?;
-			Ok(JsValue::UNDEFINED)
+			super::outcome::acquisition(request.submit().await)
 		})
 	}
 }
@@ -369,7 +359,7 @@ impl RoomsManagedAttenuation {
 				.control
 				.attenuate(request.sequence, request.powers)
 				.await
-				.map_err(|e| e.to_string())?;
+				.map_err(RuntimeError::from)?;
 			RoomsManagedControl::new(
 				driver,
 				Control::local(

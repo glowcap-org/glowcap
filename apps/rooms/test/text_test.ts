@@ -105,9 +105,9 @@ Deno.test("a direct message's path is the open line's transport", () => {
 });
 
 Deno.test("direct messages on a directory that is not live use the same connection words", () => {
-	assertEquals(directoryDmBlocked("connecting"), "Not while this directory is connecting…");
-	assertEquals(directoryDmBlocked("reconnecting"), "Not while this directory is reconnecting…");
-	assertEquals(directoryDmBlocked("disconnected"), "Not while this directory is not connected");
+	assertEquals(directoryDmBlocked("connecting"), "Unavailable: this directory is connecting…");
+	assertEquals(directoryDmBlocked("reconnecting"), "Unavailable: this directory is reconnecting…");
+	assertEquals(directoryDmBlocked("disconnected"), "Unavailable: this directory is not connected");
 	assertEquals(directoryDmBlocked("connected"), "");
 });
 

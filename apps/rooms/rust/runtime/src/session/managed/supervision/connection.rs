@@ -34,7 +34,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			return Ok(false);
 		};
 		let root = Workspace::local(self.writer.host.clone(), self.platform.clone(), self.writer.root()?);
-		let snapshot = root.owner_snapshot(&self.writer.root()?).await.map_err(error)?;
+		let snapshot = root.owner_snapshot(&self.writer.root()?).await.map_err(Error::from)?;
 		Ok(!snapshot
 			.intent
 			.conversations
@@ -50,7 +50,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				.workspace
 				.owner_snapshot(&self.writer.root()?)
 				.await
-				.map_err(error)?;
+				.map_err(Error::from)?;
 			let mut changed = false;
 			match lease {
 				Lease::Direct(inbox) => {
@@ -108,7 +108,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					Err(failure) => {
 						// Keep this exact candidate through uncertainty. Only proved
 						// conflict permits preparation against a newer revision.
-						self.finished.send_replace(Some(Err(error(failure))));
+						self.finished.send_replace(Some(Err(Error::from(failure))));
 						tokio::select! {
 							_ = self.stopping.changed() => {},
 							_ = self.retrying.changed() => {},

@@ -1,7 +1,8 @@
-//! The blocking face's park over a multiplexed resident (ADR-0060,
-//! ADR-0060): a record a resident holds without a descriptor wake is
-//! serviced before the park, a busy-poll window services a record that lands
-//! during the spin, and the window never outlasts the step's own budget.
+//! The blocking face's park over a multiplexed resident (ADR-0060): a record
+//! a resident holds without a descriptor wake is serviced before the park, a
+//! busy-poll window services a record that lands during the spin, and the
+//! window never outlasts the step's own budget, even on a clock that stands
+//! still.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -91,6 +92,43 @@ test "a busy-poll window is bounded by the step's own budget" {
     try std.testing.expectEqual(@as(?net.Progress, null), try runtime.stepAny(20));
     try std.testing.expect(net.clock.nowMonotonicMs() - started < 1_000);
     try std.testing.expect(resident.reap_calls > 0);
+}
+
+test "a busy-poll window ends on a clock that never moves" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+
+    var spinning = opts;
+    spinning.busy_poll_ns = driver.HostRuntime.max_busy_poll_ns;
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, .{}, .ephemeral, spinning);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+
+    // An injected clock that advances only when something sleeps reads the
+    // same instant for the whole spin. The window must still end.
+    const Frozen = struct {
+        fn now(_: ?*anyopaque, _: std.Io.Clock) std.Io.Timestamp {
+            return .{ .nanoseconds = 0 };
+        }
+    };
+    var frozen_vtable = io.vtable.*;
+    frozen_vtable.now = Frozen.now;
+    runtime.io.vtable = &frozen_vtable;
+    defer runtime.io.vtable = io.vtable;
+
+    // The step's own budget is shorter than the window, so it bounds the
+    // spin at one round per nanosecond of it. The spin is the only reap on
+    // this path, so a clock that never moves spends every round.
+    const budget_ms = 1;
+    try std.testing.expectEqual(@as(?net.Progress, null), try runtime.stepAny(budget_ms));
+    try std.testing.expectEqual(@as(usize, budget_ms * std.time.ns_per_ms), resident.reap_calls);
 }
 
 test "a busy-poll window past the runtime's maximum is refused at adoption" {

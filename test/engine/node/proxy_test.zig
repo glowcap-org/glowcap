@@ -3,6 +3,7 @@
 //! settlement relays into third-party import promises, and nested foreign
 //! arguments publish as one transaction.
 
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -41,12 +42,12 @@ test "inline handoff redemption preserves its Host promise destination" {
 
     const dial = node.nextAction().?;
     try std.testing.expect(dial == .dial);
-    try std.testing.expectEqual(Node.DialFailure.exhausted, try node.dialFailed(dial.dial.pending, 0, "refused"));
+    try std.testing.expectEqual(Node.DialFailure{ .exhausted = BreakCause.local(.peer_unreachable) }, try node.dialFailed(dial.dial.pending, 0, .peer_unreachable, "refused"));
     const failed = node.nextAction().?;
     try std.testing.expect(failed == .fail);
     try std.testing.expectEqual(recipient, failed.fail.dest.deferred.recipient_peer);
     try std.testing.expectEqual(@as(u64, 73), failed.fail.dest.deferred.id);
-    try std.testing.expect(std.mem.indexOf(u8, failed.fail.reason.bytes(), "refused") != null);
+    try std.testing.expect(std.mem.indexOf(u8, failed.fail.reason.text, "refused") != null);
 }
 
 test "a redeemed route routes to its exporter with the real reference swapped in" {

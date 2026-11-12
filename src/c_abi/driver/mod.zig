@@ -33,6 +33,10 @@ const loop_sessions = @import("loop/sessions.zig");
 pub const symbols = @import("symbols.zig");
 /// Foreign stream tables as completion-loop providers (ADR-0018).
 pub const stream_completion = @import("provider_registry/stream_completion.zig");
+pub const white_box = if (@import("builtin").is_test) struct {
+    pub const provider_failure = @import("provider_failure.zig");
+    pub const error_projection = @import("error.zig");
+} else struct {};
 
 pub const contract_layouts = [_]shared.archive_contract.Layout{
     shared.archive_contract.layout("GLOWCAP_DRIVER_OPTIONS", GlowcapDriverOptions),
@@ -341,6 +345,7 @@ pub const glowcap_driver_session_lifecycle_state = loop_sessions.glowcap_driver_
 pub const glowcap_driver_session_serve = loop_sessions.glowcap_driver_session_serve;
 pub const glowcap_driver_session_release = loop_sessions.glowcap_driver_session_release;
 pub const glowcap_driver_last_error = loop.glowcap_driver_last_error;
+pub const glowcap_driver_last_error_cause = loop.glowcap_driver_last_error_cause;
 pub const glowcap_driver_clear_last_error = loop.glowcap_driver_clear_last_error;
 
 comptime {

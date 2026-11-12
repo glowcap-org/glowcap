@@ -315,11 +315,11 @@
                                   (set-box! (vat-next v) (add1 id))
                                   (local-vow v id))))
   ;; A listener is `(value broken?)`: `broken?` is #f on fulfill (value is the
-  ;; payload) and #t on break (value is the message). It runs the right handler,
+  ;; payload) and #t on break (value is the typed exception). It runs the right handler,
   ;; the finally, and (when chaining) settles the returned vow.
   (define (listener value broken?)
     (define outcome
-      (with-handlers ([converts-to-broken? (lambda (e) (cons 'broken (exn->message e)))])
+      (with-handlers ([converts-to-broken? (lambda (e) (cons 'broken e))])
         (cond
           [broken? (if on-broken (cons 'ok (on-broken value)) (cons 'broken value))]
           [else (if on-fulfilled (cons 'ok (on-fulfilled value)) (cons 'ok value))])))
@@ -329,7 +329,10 @@
           (settle-local v (local-vow-id chained) (cdr outcome) #f)
           (settle-local v (local-vow-id chained) (cdr outcome) #t))))
   (cond
-    [(local-vow? a-vow) (hash-set! (vat-listeners v) (local-vow-id a-vow) listener)]
+    ;; Every listener on one vow fires, in registration order, as in Goblins.
+    [(local-vow? a-vow)
+     (hash-update! (vat-listeners v) (local-vow-id a-vow)
+                   (lambda (earlier) (cons listener earlier)) '())]
     [else ((far-ops-on (vat-far-ops 'on v)) a-vow listener)])
   ;; Match Goblins: `on` is a statement unless the caller asked to chain.
   (if promise? chained (void)))
@@ -345,37 +348,58 @@
 ;; uses this rather than a bare `(lambda (_) #t)` so the loops stay interruptible.
 (define (converts-to-broken? e) (not (exn:break? e)))
 
-;; Fire a local vow's listener, if one is registered, and drop it (one-shot).
+;; Fire a local vow's listeners, oldest first, and drop them (one-shot). A
+;; listener's raise does not cost the listeners after it: each one fires, and
+;; the first raise escapes once they have.
 (define (settle-local v id value broken?)
-  (define listener (hash-ref (vat-listeners v) id #f))
-  (when listener
-    (hash-remove! (vat-listeners v) id)
-    (listener value broken?)))
+  (define listeners (hash-ref (vat-listeners v) id '()))
+  (hash-remove! (vat-listeners v) id)
+  (define first-raise #f)
+  (for ([listener (in-list (reverse listeners))])
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (raised) (unless first-raise (set! first-raise (box raised))))])
+      (listener value broken?)))
+  (when first-raise (raise (unbox first-raise))))
 
 ;; ── drive: run queued local turns to quiescence ───────────────────────────────
 ;; Each queued eventual-send runs its actor's turn; the vow settles with the
 ;; value (or, on a raised exception, a break carrying the message) and its
-;; listener fires. Turns a turn queues run in the same drive (FIFO).
+;; listener fires. Turns a turn queues run in the same drive (FIFO). A raise
+;; that escapes a turn (a break, or a listener's own failure) leaves every
+;; turn after it queued, ahead of the turns this batch queued, so a later drive
+;; runs them.
 (define (drive v)
   (let loop ()
     (define pending (reverse (unbox (vat-queue v))))
     (unless (null? pending)
       (set-box! (vat-queue v) '())
-      (for ([entry (in-list pending)])
-        (match-define (queued-send ref method args vow-id) entry)
-        (define-values (value broken?)
-          (with-handlers ([converts-to-broken? (lambda (e) (values (exn->message e) #t))])
-            (values (run-turn ref method args) #f)))
-        (if broken?
-            (settle-local v vow-id value #t)
-            ;; A plain value settles now; a `forward` (a caretaker/attenuator)
-            ;; tail-resolves the vow from the forwarded send, deferring it for a
-            ;; far target, which the awaiting `session-send` loop pumps to settle
-            ;; (ADR-0016).
-            (resolve-behavior v value
-                              (lambda (reply) (settle-local v vow-id reply #f))
-                              (lambda (message) (settle-local v vow-id message #t)))))
+      (define remaining pending)
+      (with-handlers ([(lambda (_) #t)
+                       (lambda (raised)
+                         (set-box! (vat-queue v)
+                                   (append (unbox (vat-queue v)) (reverse (cdr remaining))))
+                         (raise raised))])
+        (let run ()
+          (unless (null? remaining)
+            (drive-entry! v (car remaining))
+            (set! remaining (cdr remaining))
+            (run))))
       (loop))))
+
+(define (drive-entry! v entry)
+  (match-define (queued-send ref method args vow-id) entry)
+  (define-values (value broken?)
+    (with-handlers ([converts-to-broken? (lambda (e) (values (exn->message e) #t))])
+      (values (run-turn ref method args) #f)))
+  (if broken?
+      (settle-local v vow-id value #t)
+      ;; A plain value settles now; a `forward` (a caretaker/attenuator)
+      ;; tail-resolves the vow from the forwarded send, deferring it for a
+      ;; far target, which the awaiting `session-send` loop pumps to settle
+      ;; (ADR-0016).
+      (resolve-behavior v value
+                        (lambda (reply) (settle-local v vow-id reply #f))
+                        (lambda (message) (settle-local v vow-id message #t)))))
 
 ;; Settle an answer from a behavior's result. A plain value fulfills it; a
 ;; `forward` tail-resolves it from the forwarded send, a local target near-calls

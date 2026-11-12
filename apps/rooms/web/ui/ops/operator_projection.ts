@@ -1,6 +1,6 @@
 // Render shared operator facts without loading a protocol client or Host.
 import type {
-	operatorPage,
+	OperatorPage,
 	OperatorReferenceKind,
 	snapshotOperator,
 	StewardshipRow,
@@ -40,7 +40,7 @@ export function operatorStateOf(
 	};
 }
 
-export function appendOperatorPage(current: RoomsOperatorState, page: Awaited<ReturnType<typeof operatorPage>>) {
+export function appendOperatorPage(current: RoomsOperatorState, page: OperatorPage) {
 	const next = {
 		...current,
 		next: { ...current.next, [page.category]: page.next },

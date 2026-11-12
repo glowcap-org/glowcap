@@ -205,16 +205,29 @@ fn Tests(comptime Backend: type) type {
                 try std.testing.expect(!ops.park(@intCast(remaining)));
             }
 
-            // A nudge from another thread ends the park. The watch consumed
-            // nothing: the channel still reads ready for the owner to drain.
+            // A nudge from another thread ends the park. The nudger holds
+            // back until the owner is about to park and a little longer, and
+            // the park ends no earlier than the nudge, whichever lands first.
+            // The empty turns above already showed a park with no nudge
+            // reports no wake. The watch consumed nothing: the channel still
+            // reads ready for the owner to drain.
+            var parking: std.atomic.Value(bool) = .init(false);
+            var nudged_at: std.atomic.Value(i64) = .init(std.math.maxInt(i64));
             const nudger = try std.Thread.spawn(.{}, struct {
-                fn run(channel: net.wake_channel.WakeChannel) void {
-                    std.Io.sleep(std.testing.io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+                fn run(channel: net.wake_channel.WakeChannel, owner_parking: *std.atomic.Value(bool), at: *std.atomic.Value(i64)) void {
+                    const give_up = net.clock.nowMonotonicMs() + wait_budget_ms;
+                    while (!owner_parking.load(.acquire) and net.clock.nowMonotonicMs() < give_up) std.Thread.yield() catch {};
+                    // A raw thread has no Io task, so its sleep cannot be cancelled.
+                    std.Io.sleep(std.testing.io, std.Io.Duration.fromMilliseconds(20), .real) catch unreachable;
+                    at.store(net.clock.nowMonotonicMs(), .release);
+                    // tolerant: a failed nudge leaves parkUntilWoken to time out, and the test asserts that wake right after.
                     _ = channel.nudge() catch {};
                 }
-            }.run, .{wake});
+            }.run, .{ wake, &parking, &nudged_at });
             defer nudger.join();
+            parking.store(true, .release);
             try std.testing.expect(parkUntilWoken(ops));
+            try std.testing.expect(net.clock.nowMonotonicMs() >= nudged_at.load(.acquire));
             try std.testing.expect(!ops.readyPending());
             try std.testing.expect(try readableNow(wake.read));
             try wake.drain();
@@ -482,6 +495,39 @@ fn Tests(comptime Backend: type) type {
                 }
                 if (n <= 0) break;
             }
+        }
+
+        test "completion resident fails a write whose staging cannot grow, with the exact cause" {
+            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            const allocator = std.testing.allocator;
+
+            var server = try open();
+            defer retire(&server);
+            // No spare staging: the first write allocates its buffer.
+            var failing = std.testing.FailingAllocator.init(allocator, .{});
+            var client = try Resident.init(failing.allocator(), try Backend.init(allocator, 64, 8, 4096), .{
+                .send_window_bytes = 16 << 10,
+                .spare_send_buffers = 0,
+            });
+            defer retire(&client);
+            var server_events = Events{ .resident = server.resident() };
+            defer server_events.deinit();
+            var client_events = Events{ .resident = client.resident() };
+            defer client_events.deinit();
+            const pair = try connectPair(allocator, &server, &client, &server_events, &client_events);
+            defer model.freePeerLocator(allocator, pair.locator);
+            const client_ops = client.resident().vtable;
+
+            // A would-block here would owe an `ev_writable` that only a send
+            // completion records, and this idle connection has none in flight.
+            var chunk: [256]u8 = undefined;
+            fill(&chunk, 0);
+            failing.fail_index = failing.alloc_index;
+            try std.testing.expectEqual(@as(isize, -1), client_ops.try_write(&client, pair.client_conn, &chunk));
+            failing.fail_index = std.math.maxInt(usize);
+            const failure = client_ops.take_failure.?(&client, pair.client_conn) orelse return error.TestExpectedFailure;
+            try std.testing.expectEqual(error.OutOfMemory, failure.cause);
+            try std.testing.expectEqual(@as(isize, -1), client_ops.try_write(&client, pair.client_conn, &chunk));
         }
     };
 }

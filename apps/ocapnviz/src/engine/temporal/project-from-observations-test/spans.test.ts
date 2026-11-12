@@ -15,7 +15,7 @@ Deno.test("project: doc without entities is untouched", () => {
 	assertEquals(projectFromObservations(doc), doc);
 });
 
-Deno.test("project: peer with no events → both implicit", () => {
+Deno.test("project: a peer with no events has both bounds implicit", () => {
 	const doc: TimelineDocument = {
 		...emptyDoc(),
 		entities: {
@@ -32,7 +32,7 @@ Deno.test("project: peer with no events → both implicit", () => {
 	});
 });
 
-Deno.test("project: peer with joined event → explicit start", () => {
+Deno.test("project: a peer with a joined event has an explicit start", () => {
 	const doc: TimelineDocument = withEvents({
 		...emptyDoc(),
 		entities: {
@@ -55,7 +55,7 @@ Deno.test("project: peer with joined event → explicit start", () => {
 	});
 });
 
-Deno.test("project: peer with joined + left → explicit start, explicit duration", () => {
+Deno.test("project: a peer with joined and left events has an explicit start and duration", () => {
 	const doc: TimelineDocument = withEvents({
 		...emptyDoc(),
 		entities: { peers: { alice: { profile: "glowcap" } } },
@@ -77,7 +77,7 @@ Deno.test("project: peer with joined + left → explicit start, explicit duratio
 	});
 });
 
-Deno.test("project: message without flightMs → default 500ms duration", () => {
+Deno.test("project: a message without flightMs gets the default 500ms duration", () => {
 	const doc: TimelineDocument = {
 		...emptyDoc(),
 		entities: {
@@ -94,7 +94,7 @@ Deno.test("project: message without flightMs → default 500ms duration", () => 
 	});
 });
 
-Deno.test("project: message-sent observation arrivalT-t → duration", () => {
+Deno.test("project: a message-sent observation's arrivalT minus t becomes the duration", () => {
 	const doc: TimelineDocument = withEvents({
 		...emptyDoc(),
 		entities: {
@@ -120,7 +120,7 @@ Deno.test("project: message-sent observation arrivalT-t → duration", () => {
 	});
 });
 
-Deno.test("project: message with sent event → explicit start", () => {
+Deno.test("project: a message with a sent event has an explicit start", () => {
 	const doc: TimelineDocument = withEvents({
 		...emptyDoc(),
 		entities: {
@@ -145,7 +145,7 @@ Deno.test("project: message with sent event → explicit start", () => {
 	});
 });
 
-Deno.test("project: session with open + close → explicit start + duration", () => {
+Deno.test("project: a session with open and close events has an explicit start and duration", () => {
 	const doc: TimelineDocument = withEvents({
 		...emptyDoc(),
 		entities: {

@@ -18,6 +18,9 @@ const session = @import("session");
 pub const abort_projection = @import("abort_projection.zig");
 const abort_info = @import("abort_info.zig");
 pub const AbortInfo = abort_info.AbortInfo;
+pub const BreakCause = @import("foundation").break_cause.BreakCause;
+pub const RouteFailure = @import("foundation").break_cause.RouteFailure;
+pub const Broken = @import("foundation").break_cause.Broken;
 pub const bootstrap = @import("bootstrap.zig");
 pub const cross_peer = @import("cross_peer.zig");
 pub const events = @import("events.zig");
@@ -60,7 +63,7 @@ const peer_session = @import("peer/session.zig");
 /// directory, and redeemed-token / foreign-home routing that makes
 /// three-party handoff transparent. It lives in the engine core (not the
 /// I/O-bearing driver) because it is pure routing data, so the sans-io C ABI and
-/// native callers reach it without dragging in a transport.
+/// Zig callers reach it without dragging in a transport.
 pub const Node = node.Node;
 const fifo = @import("fifo.zig");
 /// The head-indexed FIFO spine shared by the peer's queues and the action
@@ -191,7 +194,7 @@ pub const Peer = struct {
     /// dequeueing is O(1) and cannot accidentally re-walk a message tree.
     pending_send_bytes: usize = 0,
     /// Queue seats reserved by transactions that have not published their
-    /// carrier yet. Every later reservation includes these seats when growing status-allow: pending state or quoted runtime label
+    /// carrier yet. Every later reservation includes these seats when growing
     /// the backing store, so an infallible commit remains valid across a
     /// callback or other intervening producer.
     pending_send_reservations: usize = 0,
@@ -393,6 +396,7 @@ pub const Peer = struct {
     pub const holdsAnswerReleases = @import("outbound/drain.zig").holdsAnswerReleases;
 
     pub const emitFailure = peer_failures.emitFailure;
+    pub const failClosed = peer_failures.failClosed;
     pub const lastAbort = peer_failures.lastAbort;
     pub const recordFailure = peer_failures.recordFailure;
     pub const recordFailureChain = peer_failures.recordFailureChain;
@@ -408,86 +412,23 @@ pub const Peer = struct {
     pub const pollEvent = peer_drive.pollEvent;
 };
 
-/// The per-session inline footprint budget, held by the compiler.
+/// The per-session inline footprint budget, enforced at compile time.
 ///
-/// A `Peer` is what one CapTP session costs before it touches the heap, and the
-/// 500k-connection destination treats that cost as a budget: a field added here
-/// is a withdrawal from it. `test/engine/footprint_budget_test.zig` holds the
-/// runtime half, the heap a warmed session grows. Crossing this ceiling is not
-/// a build failure to route around. It is a design event that raises the
-/// budget here with the bytes justified.
+/// A `Peer` is what one CapTP session costs before it touches the heap, so a
+/// field added here is paid once per live connection. The value is the size a
+/// 64-bit build measures under runtime safety. `ReleaseFast`, `ReleaseSmall`,
+/// and `wasm32` measure smaller, which is why this is a ceiling and not an
+/// equality. `test/engine/footprint_budget_test.zig` holds the runtime half,
+/// the heap a warmed session grows.
 ///
-/// Three deliberate purchases sit in the struct:
-///
-/// - The end of the session's export range (8 bytes). The allocator is monotonic
-///   and counts positions ever minted rather than live ones, so without a far
-///   end a long-lived session that mints and releases walks into the next
-///   session's range and silently starts naming its objects, the whole hazard
-///   the ranges exist to remove. The word buys a typed refusal instead.
-/// - The import table's enrolled-token side (8 bytes), one word for a map that
-///   is only allocated once a session enrolls a capability under a node-unique
-///   token (ADR-0026). Most sessions never do, so the ordinary session pays the
-///   word and nothing else. It lives on the import row rather than in a
-///   node-side memo so it is forgotten when the import is released. A token
-///   that outlived its row would name whatever capability the partner put at
-///   that position next.
-/// - The low end of the session's export range (8 bytes). The high end alone
-///   stops the allocator being dragged past the range. It says nothing about a
-///   position from *below* the range, which names an object this session does
-///   not host just as surely. A name used in a namespace that is not its own is
-///   the class of bug this core has paid for most.
-///
-/// ADR-0028 gives the session two distinct durable-key facts: the target a dial
-/// named and the far end the byte-channel realizer verified. A
-/// byte-transparent relay can make those different parties, so one slot cannot
-/// represent both without confusing a target requirement with evidence.
-/// Identity is per-session state by design, the second key is paid only in the
-/// struct (the keys are fixed-width and nothing here allocates), and the warmed
-/// per-session ceiling in `test/engine/footprint_budget_test.zig` holds.
-///
-/// The number is where a 64-bit build measures under runtime safety, so a field
-/// added here is a build failure rather than a withdrawal nobody watches. Forty
-/// of the bytes are std's, not glowcap's: each of the five embedded
-/// `std.ArrayList` headers (the four peer queues and the session's sturdyref
-/// cache) carries std's one-byte `pointer_stability` lock, padded to a word, in
-/// Debug and ReleaseSafe, the same lock every hash map here already pays.
-/// ReleaseFast and ReleaseSmall make the lock zero-sized and measure smaller.
-/// Forty-eight more are the wire-hash secret (ADR-0037): one word on the
-/// session and one in each of the five tables keyed by positions the peer
-/// chooses, because those tables' verbs run without the session in hand.
-/// Eight bytes hold the cold result-import release outbox (ADR-0065). Its
-/// stable heap owner lets answer payloads retire their imports without a
-/// fallible finalizer. It stays null until a forwarded result introduces caps.
-/// Eight bytes hold the cold local promise registry. It lets collection visit
-/// projections without scanning partner-sized answer tables on every release.
-/// It stays null until the session projects a local promise.
-/// Sixteen bytes are the two own-side position slabs (exports and outbound
-/// answers): each keeps a free-list head and a live count beside its vector
-/// where the hash map it replaced kept only a header, and the export table
-/// keeps its base and span beside its rows.
-/// Eight bytes are the inbound answer table's count of pending answers a Host
-/// capability promise subscribes to (ADR-0068): the session owns the mark on
-/// each payload and the `max_lifted_answers` bound, so it owns the count that
-/// the bound judges, a word once padded.
-/// Eight bytes are the import table's count of rows a stored resolution
-/// holds (ADR-0070): every outbound release asks whether an entry is held
-/// before encoding, and the count answers for the whole frame without a
-/// lookup per entry while nothing is held, the ordinary case.
-/// Every footprint budget is stated under the safe modes, because every gate runs there and `c-sdk-pack` names ReleaseSafe as
-/// the mode to ship.
-///
-/// It is a ceiling and not an equality, unlike the `Conn` slot overhead in
-/// `src/net/completion/loop/state.zig`. That one measures a *difference*
-/// between two sizes on whatever target is building, which is stable across
-/// targets. This one measures a whole struct full of pointers and `usize`s, and
-/// `wasm32` (the sans-io core under `zig build cross-check`) makes it smaller,
-/// as does a fast build. So no single number is the measurement on every target
-/// and mode, and an equality here would fail the narrow ones.
+/// A struct over this ceiling is a design event, not a build failure to route
+/// around. A new field raises the budget only with its bytes justified in the
+/// decision record that owns it (for example ADR-0026, ADR-0028, ADR-0037).
 pub const peer_session_struct_budget_bytes = 1216;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget. " ++
-            "A larger session struct is a withdrawal from the 500k footprint budget. Raise the budget deliberately, do not route around it.",
+            "A larger session struct raises the footprint of every live connection. Raise the budget deliberately and justify the bytes.",
         .{ @sizeOf(Peer), peer_session_struct_budget_bytes },
     ));
 }

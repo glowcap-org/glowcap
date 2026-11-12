@@ -15,7 +15,7 @@ use super::{
 use glowcap::Argument;
 pub(crate) use links::{AuthorityRefusal, Links, Swiss};
 use queue::{Commit, Prepare};
-pub(super) use queue::{request, submit};
+pub(super) use queue::{Seat, request, submit};
 use rooms_application::{
 	failure::FailureCode,
 	protocol_data,
@@ -158,13 +158,13 @@ impl State {
 }
 
 /// `link(name)` from the directory or a manager: persist, publish, answer.
-pub(super) fn link(state: &State, name: String) -> Result<Argument, String> {
-	scoped_link(state, name, None)
+pub(super) fn link(seat: Seat, name: String) -> Result<Argument, String> {
+	scoped_link(seat, name, None)
 }
 
-fn scoped_link(state: &State, name: String, generation: Option<u64>) -> Result<Argument, String> {
+fn scoped_link(seat: Seat, name: String, generation: Option<u64>) -> Result<Argument, String> {
 	submit(
-		state,
+		seat,
 		protocol_data::LINK,
 		prepare_link(name.clone(), generation),
 		move |state, caller| {
@@ -201,16 +201,18 @@ pub(super) fn bootstrap(
 		if verb != rooms_application::directory::creation::AUTHORITIES || !args.is_empty() {
 			return Err(format!("a room manager bootstrap has no method {verb}"));
 		}
-		{
+		let seat = {
 			let mut state = shared.borrow_mut();
 			let (caller, _) = rooms::caller(&mut state)?;
 			state.ingress(caller)?;
+			let seat = state.authority_writer.reserve()?;
 			state.admit_work(caller, rooms_application::admission::Class::Read, 1)?;
-		}
+			seat
+		};
 		let (name, managed) = (name.clone(), managed.clone());
 		let (held, registration) = (name.clone(), managed.clone());
 		submit(
-			&shared.borrow(),
+			seat,
 			rooms_application::protocol_data::ROOM_AUTHORITIES,
 			move |state| {
 				let registration = registration
@@ -297,28 +299,33 @@ fn manager(
 		let mut state = shared.borrow_mut();
 		require_manager(&state, &name, generation)?;
 		let (caller, _) = rooms::caller(&mut state)?;
+		// The identity is answered from memory, within this turn.
+		if matches!(verb, verbs::MANAGED_IDENTITY | verbs::GOVERNS) {
+			state.ingress(caller)?;
+			state.admit_work(caller, rooms_application::admission::Class::Read, 1)?;
+			if !args.is_empty() {
+				return Err(format!("{verb} takes no arguments"));
+			}
+			return Ok(state.authority.manager_identity(&name).into());
+		}
 		let class = match verb {
-			verbs::MANAGED_IDENTITY | verbs::GOVERNS | verbs::LINK => rooms_application::admission::Class::Read,
+			verbs::LINK => rooms_application::admission::Class::Read,
 			verbs::REVOKE_STEWARD | verbs::REVOKE_ROOM_LINK => rooms_application::admission::Class::Cleanup,
 			_ => rooms_application::admission::Class::Create,
 		};
 		if class != rooms_application::admission::Class::Cleanup {
 			state.ingress(caller)?;
 		}
+		// Every other verb changes the authority through its writer.
+		let seat = state.authority_writer.reserve()?;
 		state.admit_work(caller, class, 1)?;
 		let text = |at: usize| args.get(at).and_then(Argument::as_str);
 		match verb {
-			verbs::MANAGED_IDENTITY | verbs::GOVERNS => {
-				if !args.is_empty() {
-					return Err(format!("{verb} takes no arguments"));
-				}
-				Ok(state.authority.manager_identity(&name).into())
-			}
 			verbs::LINK => {
 				if !args.is_empty() {
 					return Err("link takes no arguments".into());
 				}
-				scoped_link(&state, name.clone(), Some(generation))
+				scoped_link(seat, name.clone(), Some(generation))
 			}
 			verbs::GIVE_STEWARD => {
 				if !args.is_empty() {
@@ -326,7 +333,7 @@ fn manager(
 				}
 				let (held, published) = (name.clone(), name.clone());
 				submit(
-					&state,
+					seat,
 					verbs::GIVE_STEWARD,
 					move |state| {
 						require_manager(state, &held, generation)?;
@@ -360,7 +367,7 @@ fn manager(
 				};
 				state.links.resolve_for(kind, token, &name)?;
 				let (prepare, commit) = revocation(kind, token.into(), Some((name.clone(), generation)));
-				submit(&state, protocol_data::REVOKE, prepare, move |state, _| commit(state))
+				submit(seat, protocol_data::REVOKE, prepare, move |state, _| commit(state))
 			}
 			verbs::UNREGISTER_ROOM => {
 				if !args.is_empty() {
@@ -371,7 +378,7 @@ fn manager(
 					.managed_room(&name)
 					.ok_or("this manager has no room access policy")?;
 				let public = managed.name.clone();
-				set_policy(&state, name.clone(), public, RoomPolicy::Private, generation)
+				set_policy(seat, name.clone(), public, RoomPolicy::Private, generation)
 			}
 			verbs::SET_POLICY => {
 				let modes = [text(0), text(1), text(2)];
@@ -387,7 +394,7 @@ fn manager(
 				if public.encode_utf16().count() > MAX_ROOM {
 					return Err(format!("a room name must be between 1 and {MAX_ROOM} characters"));
 				}
-				set_policy(&state, name.clone(), public.into(), policy, generation)
+				set_policy(seat, name.clone(), public.into(), policy, generation)
 			}
 			_ => Err(format!("a room manager has no method {verb}")),
 		}
@@ -405,7 +412,12 @@ fn require_manager(state: &State, room: &str, generation: u64) -> Result<(), Aut
 /// so a delayed request for an old token cannot retire its replacement.
 pub(super) fn revoke(state: &State, kind: Kind, token: String) -> Result<Argument, String> {
 	let (prepare, commit) = revocation(kind, token, None);
-	submit(state, protocol_data::REVOKE, prepare, move |state, _| commit(state))
+	submit(
+		state.authority_writer.reserve()?,
+		protocol_data::REVOKE,
+		prepare,
+		move |state, _| commit(state),
+	)
 }
 
 /// The same revocation, observed by an operator batch.
@@ -450,16 +462,10 @@ pub(super) fn revocation(kind: Kind, token: String, manager: Option<(String, u64
 
 /// Change a managed room's public name and policy without replacing its
 /// identity or any bearer generation.
-fn set_policy(
-	state: &State,
-	id: String,
-	name: String,
-	policy: RoomPolicy,
-	generation: u64,
-) -> Result<Argument, String> {
+fn set_policy(seat: Seat, id: String, name: String, policy: RoomPolicy, generation: u64) -> Result<Argument, String> {
 	let (held_id, held_name) = (id.clone(), name.clone());
 	submit(
-		state,
+		seat,
 		verbs::SET_POLICY,
 		move |state| {
 			require_manager(state, &held_id, generation)?;

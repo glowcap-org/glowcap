@@ -12,7 +12,7 @@
 //! is the next one minted. The partner agreed to that reuse when it released
 //! the position: `op:gc-exports` is its statement that no mention is in
 //! flight, and the stream is ordered, so nothing it sends afterward can mean
-//! the old object. The bootstrap position sits below the base and keeps its status-allow: replacement state identity
+//! the old object. The bootstrap position sits below the base and keeps its
 //! own row.
 //!
 //! An export row holds the binding of the authoritative `slot.Slot` for its
@@ -186,7 +186,7 @@ pub const ExportTable = struct {
     }
 
     /// The purpose on `position`'s row, for a transition in place. The
-    /// caller reads the arm it expects; an ordinary export holds `.none`.
+    /// caller reads the arm it expects. An ordinary export holds `.none`.
     pub fn purposePtr(self: *ExportTable, position: Id) ?*ResolverPurpose {
         const row = self.mintedRowPtr(position) orelse return null;
         return &row.purpose;
@@ -232,6 +232,21 @@ pub const ExportTable = struct {
 
     /// Install `position` with `cell` at count 1 if absent. Idempotent.
     pub fn registerCell(self: *ExportTable, allocator: std.mem.Allocator, position: Id, cell: Slot) std.mem.Allocator.Error!void {
+        try self.ensureRegisterCapacity(allocator, position);
+        self.registerCellAssumeCapacity(position, cell);
+    }
+
+    /// Grow the table through `position`, so `registerCellAssumeCapacity`
+    /// there cannot fail. A position past the frontier threads the slots
+    /// below it free, as `registerCell` does.
+    pub fn ensureRegisterCapacity(self: *ExportTable, allocator: std.mem.Allocator, position: Id) std.mem.Allocator.Error!void {
+        if (position.int() == bootstrap_position) return;
+        std.debug.assert(self.inRange(position));
+        try self.rows.ensureIndex(allocator, @intCast(position.int() - self.base));
+    }
+
+    /// `registerCell` after `ensureRegisterCapacity` covered `position`.
+    pub fn registerCellAssumeCapacity(self: *ExportTable, position: Id, cell: Slot) void {
         std.debug.assert(slot_ops.mintOf(cell) == .local);
         std.debug.assert(slot_ops.position(cell) == position.int());
         if (position.int() == bootstrap_position) {
@@ -244,7 +259,7 @@ pub const ExportTable = struct {
         const index: u32 = @intCast(position.int() - self.base);
         if (self.rows.contains(index)) return;
         std.debug.assert(self.rows.installable(index));
-        try self.rows.installAt(allocator, index, .{ .count = 1, .binding = slot_ops.bindingOf(cell) });
+        self.rows.installAtAssumeCapacity(index, .{ .count = 1, .binding = slot_ops.bindingOf(cell) });
     }
 
     /// Mint the next position as `kind`, with `mentions` wire retains beyond
@@ -276,17 +291,27 @@ pub const ExportTable = struct {
     /// Decrement `position` by `delta`, retiring the row at zero. Underflow, or
     /// an unknown position with `delta > 0`, is `Error.GcUnderflow`.
     pub fn decrement(self: *ExportTable, position: Id, delta: u64) Error!void {
+        const held: u64 = if (position.int() == bootstrap_position)
+            @intFromBool(self.bootstrap)
+        else if (self.mintedRowPtr(position)) |row| row.count else 0;
+        if (delta > held) return error.GcUnderflow;
+        self.decrementHeld(position, delta);
+    }
+
+    /// Drop `delta` retains the caller proves it holds, retiring the row at
+    /// zero. The infallible twin of `decrement` for undoing retains taken in
+    /// the same dispatch, where underflow is an internal invariant.
+    pub fn decrementHeld(self: *ExportTable, position: Id, delta: u64) void {
+        if (delta == 0) return;
         if (position.int() == bootstrap_position) {
-            if (delta > @as(u64, @intFromBool(self.bootstrap))) return error.GcUnderflow;
-            if (delta != 0) self.bootstrap = false;
+            std.debug.assert(self.bootstrap and delta == 1);
+            self.bootstrap = false;
             return;
         }
-        const row = self.mintedRowPtr(position) orelse {
-            if (delta == 0) return;
-            return error.GcUnderflow;
-        };
-        if (delta > row.count) return error.GcUnderflow;
+        const index = self.indexOf(position).?;
+        const row = self.rows.getPtr(index).?;
+        std.debug.assert(delta <= row.count);
         row.count -= delta;
-        if (row.count == 0) self.rows.remove(self.indexOf(position).?);
+        if (row.count == 0) self.rows.remove(index);
     }
 };

@@ -2,6 +2,7 @@
 // Markdown structure and mention effects live in the shared application path.
 // This module retains presentation vocabulary such as emoji and mentions.
 
+import { invariant } from "../../lib/invariant.ts";
 import type { Conv } from "./conversation.ts";
 import { type DirId, dirMarkIn, dirsAreNamed, type DirView, type SessionPhase } from "./directory.ts";
 import type { PeeringSource } from "./ops/capabilities.ts";
@@ -437,7 +438,7 @@ const PICKER_CODES = [
 ] as const;
 export const PICKER: readonly string[] = PICKER_CODES.map((code) => {
 	const glyph = EMOJI_BY_CODE.get(`:${code}:`);
-	if (glyph === undefined) throw new Error(`picker names an emoji the table lacks: ${code}`);
+	invariant(glyph != null, `picker names an emoji the table lacks: ${code}`);
 	return glyph;
 });
 

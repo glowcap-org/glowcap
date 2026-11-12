@@ -25,12 +25,19 @@ gh, GH_TOKEN, GITHUB_REPOSITORY, and GITHUB_RUN_ID in the environment:
                           as one generation before the workflow saves it.
   verify-prepared TAG     checks that generation's identity and every byte after
                           preparation or restoration, before draft effects.
-  resume-state TAG        reports matching uploaded and missing assets for this
-                          run's release, refusing changed bytes or another run.
-                          A complete matching public release allows a retry
-                          to finish the package dispatch without uploading again.
-  verify-draft TAG        requires the draft to hold every asset before it is
-                          made public.
+  publish-draft TAG       resumes this run's release: creates the draft unless
+                          one exists, uploads only the missing assets, requires
+                          the draft to hold every asset, then makes it public.
+                          Matching uploads are kept, and changed bytes or
+                          another run's release are refused before any effect.
+                          A complete matching public release is left as it is,
+                          so a retry finishes the package dispatch alone.
+  version [TAG]           reads the tree's version from bindings/c-abi-resolve.json
+                          and requires it to be 0.x.y and, given TAG, requires
+                          TAG to name it. release.yml and publish.yml call it.
+  version --newest        reads the version of the repository's newest published release
+                          instead, for validate-release.yml. Both forms write
+                          version to GITHUB_OUTPUT.
   published TAG           is publish.yml's contract: the signed annotated tag
                           names a commit that passed full validation on main,
                           and its public release holds every asset. Writes
@@ -54,6 +61,8 @@ import tarfile
 import time
 import zipfile
 from pathlib import Path, PurePosixPath
+
+import release_version
 
 TARGETS = ("aarch64-macos", "x86_64-macos", "aarch64-linux", "x86_64-linux")
 ROLES = {"product": "glowcap", "sdk": "glowcap-c"}
@@ -93,6 +102,7 @@ FACTS = Path("artifacts/release.json")
 PREPARED_ARTIFACT = "prepared-release"
 PREPARED = Path("artifacts/prepared-release.json")
 NOTES = Path("artifacts/release-notes.md")
+CONTRACT = Path("bindings/c-abi-resolve.json")
 
 
 def require(condition, message):
@@ -143,7 +153,8 @@ def run_marker(run_id):
 def archive_facts(path, tag, commit):
     """The archive's own release metadata, held to its filename and its entry points."""
     match = re.fullmatch(r"(glowcap(?:-c|-web)?)-" + re.escape(tag) + r"-(.+)\.tar\.gz", path.name)
-    require(match is not None and match[2] in (*TARGETS, *PORTABLE), f"unexpected release archive: {path.name}")
+    if match is None or match[2] not in (*TARGETS, *PORTABLE):
+        raise ValueError(f"unexpected release archive: {path.name}")
     portable = PORTABLE.get(match[2])
     if portable:
         role, prefix, entries = portable
@@ -154,7 +165,9 @@ def archive_facts(path, tag, commit):
     with tarfile.open(path) as archive:
         metadata = archive.getmember("share/glowcap/release.json")
         require(metadata.isfile() and 0 < metadata.size <= 65536, f"invalid release metadata: {path.name}")
-        value = json.load(archive.extractfile(metadata))
+        metadata_file = archive.extractfile(metadata)
+        assert metadata_file is not None
+        value = json.load(metadata_file)
         runtime = "macOS" if match[2].endswith("-macos") else "glibc"
         require(
             value["version"] == tag[1:]
@@ -189,7 +202,10 @@ def racket_package(tag, commit):
                 name = "glowcap/" + member.name.removeprefix("bindings/racket/")
                 entry = zipfile.ZipInfo(name, time.gmtime(member.mtime)[:6])
                 entry.compress_type = zipfile.ZIP_DEFLATED
-                with tree.extractfile(member) as data:
+                data = tree.extractfile(member)
+                if data is None:
+                    raise ValueError(f"not a regular file in the git archive: {member.name}")
+                with data:
                     package.writestr(entry, data.read())
 
 
@@ -369,6 +385,50 @@ def draft_state(repository, tag, run_id, *, complete=False, allow_published=Fals
     return result
 
 
+def gh_release(verb, tag, *arguments, timeout):
+    subprocess.run(["gh", "release", verb, tag, *arguments], check=True, timeout=timeout)
+
+
+def publish_draft(repository, tag, run_id):
+    """Fill this run's draft from what is missing, verify it whole, then make it public."""
+    state = draft_state(repository, tag, run_id, allow_published=True)
+    if state["published"]:
+        print(f"The release {tag} is already public with every asset")
+        return
+    if not state["draft_exists"]:
+        gh_release(
+            "create",
+            tag,
+            "--repo",
+            repository,
+            "--title",
+            f"glowcap {tag} alpha",
+            "--prerelease",
+            "--draft",
+            "--latest=false",
+            "--verify-tag",
+            "--notes-file",
+            str(NOTES),
+            timeout=120,
+        )
+    for asset in state["missing_assets"]:
+        gh_release("upload", tag, str(ASSETS / asset), "--repo", repository, timeout=600)
+    draft_state(repository, tag, run_id, complete=True)
+    gh_release(
+        "edit",
+        tag,
+        "--repo",
+        repository,
+        "--draft=false",
+        "--prerelease",
+        "--latest=false",
+        "--notes-file",
+        str(NOTES),
+        timeout=120,
+    )
+    print(f"Published the complete release {tag}")
+
+
 def signed_commit(repository, tag):
     ref = api(repository, f"git/ref/tags/{tag}")["object"]
     require(ref["type"] == "tag", "publication requires an annotated signed tag")
@@ -391,15 +451,50 @@ def published(repository, tag):
     return commit
 
 
+def version_of(tag):
+    """The version a release tag names. Anything but v0.x.y is refused."""
+    version = release_version.of_tag(tag)
+    require(version is not None, f"invalid prerelease tag: {tag}")
+    return version
+
+
 def prerelease_tag(value):
-    if re.fullmatch(r"v0\.[0-9]+\.[0-9]+", value) is None:
-        raise argparse.ArgumentTypeError(f"invalid prerelease tag: {value}")
+    try:
+        version_of(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
     return value
+
+
+def tree_version(tag=None):
+    """The version the checkout states, which `tag`, when given, must name."""
+    stated = json.loads(CONTRACT.read_text()).get("abi_version")
+    require(isinstance(stated, str), f"{CONTRACT} states no abi_version")
+    version = version_of(f"v{stated}")
+    require(tag is None or tag == f"v{version}", f"release tag {tag} does not match the tree's version v{version}")
+    return version
+
+
+def newest_version(repository):
+    """The version of the newest release GitHub lists for the repository."""
+    command = ["gh", "release", "list", "--repo", repository, "--exclude-drafts", "--limit", "1", "--json", "tagName"]
+    listed = json.loads(subprocess.check_output(command, timeout=60))
+    require(isinstance(listed, list) and len(listed) == 1, "the repository lists no release")
+    return version_of(listed[0].get("tagName"))
+
+
+def write_output(**values):
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.writelines(f"{key}={value}\n" for key, value in values.items())
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     modes = parser.add_subparsers(dest="mode", required=True)
+    versioning = modes.add_parser("version").add_mutually_exclusive_group()
+    versioning.add_argument("tag", nargs="?", type=prerelease_tag)
+    versioning.add_argument("--newest", action="store_true")
     assembling = modes.add_parser("assemble")
     assembling.add_argument("artifacts", type=Path)
     for mode in (
@@ -412,8 +507,7 @@ def main(argv=None):
                 "prepared-state",
                 "seal-prepared",
                 "verify-prepared",
-                "resume-state",
-                "verify-draft",
+                "publish-draft",
                 "published",
             )
         ),
@@ -423,11 +517,14 @@ def main(argv=None):
     tag = args.tag
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is not None, "invalid GITHUB_REPOSITORY")
+    if args.mode == "version":
+        version = newest_version(repository) if args.newest else tree_version(tag)
+        write_output(version=version)
+        print(f"Version {version}" + (" of the newest release" if args.newest else " stated by the tree"))
+        return
     if args.mode == "published":
         commit = published(repository, tag)
-        if os.environ.get("GITHUB_OUTPUT"):
-            with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-                output.write(f"version={tag[1:]}\ntag={tag}\ncommit={commit}\n")
+        write_output(version=tag[1:], tag=tag, commit=commit)
         print(f"Verified the public release {tag} at {commit} on checked main")
         return
     run_id = os.environ.get("GITHUB_RUN_ID", "")
@@ -454,11 +551,8 @@ def main(argv=None):
     if args.mode == "bundles":
         bundles(repository, tag)
         print(f"Downloaded the provenance bundle of every signed asset for {tag}")
-    elif args.mode == "resume-state":
-        print(json.dumps(draft_state(repository, tag, run_id, allow_published=True)))
     else:
-        draft_state(repository, tag, run_id, complete=True)
-        print("Complete release draft matches every prepared asset")
+        publish_draft(repository, tag, run_id)
 
 
 if __name__ == "__main__":

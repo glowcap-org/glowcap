@@ -62,10 +62,10 @@ fn reportOpen(self: *Host, session: *HostSession, sink: trace.Sink) void {
         .dialed => |target| target,
         .accepted => claimed orelse "peer",
     };
-    const provenance = if (self.partnerIdentity(session)) |identity|
-        identity.provenance
-    else |_|
-        .unauthenticated;
+    // tolerant: this runs on the owner thread for a live session, so the only
+    // refusals are an unverified or unfinished handshake, which a trace reports
+    // as unauthenticated.
+    const provenance = if (self.partnerIdentity(session)) |identity| identity.provenance else |_| .unauthenticated;
     var session_id_digits: trace.SessionId = undefined;
     var session_id: []const u8 = &.{};
     if (state.partnerSessionKey()) |partner_key_bytes| {

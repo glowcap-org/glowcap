@@ -1,4 +1,4 @@
-//! Native recovery fences the same managed Host calls used over CapTP.
+//! LMDB recovery fences the same managed Host calls used over CapTP.
 const std = @import("std");
 const h = @import("../access/hosting_fixture.zig");
 const fixture = @import("engine_fixture");

@@ -11,7 +11,7 @@ import { dispatch, gctx, snap } from "./harness.ts";
 
 // ─────────────────────── Space mid-press (Figma-convert) ──────────────
 
-Deno.test("pressed + space-down → paused-pan; no drag-pause (no drag in flight)", () => {
+Deno.test("pressed plus space-down moves to paused-pan and emits no drag-pause because no drag is in flight", () => {
 	const { state } = dispatch(IDLE_MACHINE, [{
 		kind: "pointer-down",
 		surface: "stage-empty",
@@ -23,7 +23,7 @@ Deno.test("pressed + space-down → paused-pan; no drag-pause (no drag in flight
 	assertEquals(r.effects, []);
 });
 
-Deno.test("dragging + space-down → paused-pan; emits drag-pause", () => {
+Deno.test("dragging plus space-down moves to paused-pan and emits drag-pause", () => {
 	const { state } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",
@@ -42,7 +42,7 @@ Deno.test("dragging + space-down → paused-pan; emits drag-pause", () => {
 	assertEquals(r.effects[0]!.kind, "drag-pause");
 });
 
-Deno.test("paused-pan + pointer-move → pan-step with surface and delta", () => {
+Deno.test("paused-pan plus pointer-move emits a pan-step with surface and delta", () => {
 	const { state } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",
@@ -69,7 +69,7 @@ Deno.test("paused-pan + pointer-move → pan-step with surface and delta", () =>
 	assertEquals(eff.delta, { dx: 10, dy: 5 });
 });
 
-Deno.test("paused-pan + space-up (button held) → dragging; drag-resume with carriedOrigin", () => {
+Deno.test("paused-pan plus space-up with the button held returns to dragging and emits drag-resume with carriedOrigin", () => {
 	// Drag, pan, release space while still holding pointer.
 	const { state } = dispatch(IDLE_MACHINE, [
 		{
@@ -102,7 +102,7 @@ Deno.test("paused-pan + space-up (button held) → dragging; drag-resume with ca
 	assertEquals(eff.carriedOrigin.clientY, 5);
 });
 
-Deno.test("paused-pan + space-up (button released) → idle; drag-end", () => {
+Deno.test("paused-pan plus space-up with the button released goes idle and emits drag-end", () => {
 	const { state } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",
@@ -125,7 +125,7 @@ Deno.test("paused-pan + space-up (button released) → idle; drag-end", () => {
 	assertEquals(r.effects[0]!.kind, "drag-end");
 });
 
-Deno.test("paused-pan + pointer-up → idle; drag-end (even if space still held)", () => {
+Deno.test("paused-pan plus pointer-up goes idle and emits drag-end, even if space is still held", () => {
 	const { state } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",

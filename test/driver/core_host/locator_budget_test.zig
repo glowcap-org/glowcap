@@ -14,7 +14,7 @@ const hints = [_]model.HintEntry{
     .{ .name = "route-d", .value = .{ .string = "four" } },
 };
 fn options() Host.Options {
-    var result = Host.Options{};
+    var result = Host.Options{ .thread_policy = .unchecked };
     result.captp_version = .next;
     result.codec = .capnp;
     return result;

@@ -219,7 +219,7 @@ pub fn kindFromLabLine(line: []const u8) Kind {
     return .result;
 }
 
-test "collapse long body" {
+test "a long body collapses until toggled" {
     var s = Store.init(std.testing.allocator);
     defer s.deinit();
     var big: std.ArrayList(u8) = .empty;

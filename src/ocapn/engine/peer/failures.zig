@@ -17,6 +17,13 @@ pub fn emitFailure(self: *Peer, err: anyerror) void {
     inbound.emitAbortForError(self, err);
 }
 
+/// Fail the session closed for input that cannot be retried: record the
+/// cause, emit the abort it projects to, and close even when it projects none
+/// (allocation failure).
+pub fn failClosed(self: *Peer, err: anyerror) void {
+    inbound.failClosed(self, err);
+}
+
 /// Most recent typed local dispatch failure, overwritten by the next failure.
 pub fn lastAbort(self: *const Peer) ?abort_info.AbortInfo {
     return self.last_abort;

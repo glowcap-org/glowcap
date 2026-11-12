@@ -56,6 +56,9 @@
          abi-version last-error
          exn:fail:glowcap? exn:fail:glowcap-code exn:fail:glowcap-abort
          exn:fail:glowcap-carrier-failure (struct-out carrier-failure)
+         exn:fail:glowcap-cause (struct-out break-cause) glowcap-application-message glowcap-publication-not-found? glowcap-peer-identity-unverified? glowcap-exporter-unreachable?
+         exn:fail:glowcap:broken? exn:fail:glowcap:broken-reason
+         make-glowcap-transport-unavailable route-failure-from-cause
          session-flush!)
 
 (provide methods

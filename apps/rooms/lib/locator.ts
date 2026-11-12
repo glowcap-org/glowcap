@@ -27,11 +27,7 @@ import {
 	parseSturdyRef,
 	type Session,
 	TRANSPORT_ID,
-	TRANSPORT_IROH,
-	TRANSPORT_NOISE_RELAY,
-	TRANSPORT_ONION,
 	TRANSPORT_TCP,
-	TRANSPORT_WEBRTC,
 } from "@glowcap/runtime";
 import type { Ref } from "@glowcap/runtime";
 import { roomsHostOptions, type RoomsHostPosture } from "./profile.ts";
@@ -104,19 +100,6 @@ export function roomsSturdyrefLocator(sturdyref: string): Locator {
 	return parseRoomsSturdyref(sturdyref).locator;
 }
 
-/** Locator hint naming the directory that routes WebRTC signaling for a
- * tab-hosted session sturdyref. A bare `webrtc` designator does not say which
- * directory filed the answering inbox. Attach reads this instead of guessing
- * the attaching tab's page directory. */
-export const WEBRTC_SIGNALING_DIRECTORY_HINT = "signaling-directory";
-
-/** The directory locator a webrtc session door names for `signalOffer`, or
- * undefined when the sturdyref predates the hint. */
-export function webrtcSignalingDirectoryHint(locator: Locator): string | undefined {
-	const hinted = locator.hints.get(WEBRTC_SIGNALING_DIRECTORY_HINT);
-	return typeof hinted === "string" && hinted !== "" ? hinted : undefined;
-}
-
 export function formatRoomsSturdyref(locator: Locator, swissnum: string | Uint8Array): string {
 	return formatSturdyRef(locator, swissnum, ROOMS_STURDYREF_VERSION);
 }
@@ -181,16 +164,10 @@ export function roomsListen(
 	return listen(bindHost, port, { host, advertisedHost });
 }
 
-/** Dial one physical Rooms transport: an iroh URI over iroh, an onion URI over Tor,
- * a webrtc URI through directory signaling (the default browser-to-browser door
- * for DMs and a tab-hosted session), a noise-relay URI over the sealed relay
- * (the same door when DMs use relay), otherwise `hostname:port` over TCP. In the
- * browser, iroh and onion ride `/relay?target=`, webrtc uses the directory, and
- * noise-relay opens the locator's rendezvous-relay hint. A `host` keys the dial
- * with the host's retained OCapN identity and live-session handoff directory (a
- * member's listen endpoint and its room dial share one Host, so an inbox it
- * publishes giftably is the one a caller's redeem withdraws). Omitted, the dial
- * gets a fresh identity, which is all an ordinary client needs.
+/** Dial one Rooms locator on a transport `runtime` registered: an `ocapn://`
+ * URI on the transport it names, otherwise `hostname:port` over plain TCP. In
+ * the browser, iroh and onion ride `/relay?target=`, webrtc uses the
+ * directory, and noise-relay opens the locator's rendezvous-relay hint.
  *
  * A browser and a terminal dial the same way, and the browser's `connect` rides
  * the relay transparently.
@@ -203,15 +180,6 @@ export function dial(locator: string, runtime: RoomsRuntime, signal?: AbortSigna
 		const loc = roomsLocator(locator);
 		if (loc.transport === TRANSPORT_ID) {
 			throw new Error("a Rooms identity locator must be reached through a named capability");
-		}
-		if (
-			loc.transport !== TRANSPORT_IROH && loc.transport !== TRANSPORT_ONION &&
-			loc.transport !== TRANSPORT_WEBRTC && loc.transport !== TRANSPORT_NOISE_RELAY &&
-			loc.transport !== TRANSPORT_TCP
-		) {
-			throw new Error(
-				`rooms expected an iroh, onion, webrtc, noise-relay, or tcp ocapn:// URI, got "${loc.transport}": ${locator}`,
-			);
 		}
 		return runtime.connect(loc, { signal });
 	}

@@ -20,7 +20,8 @@ below conflict.
   callback, finalizer, or detached task with no result channel pre-reserves,
   defers to a fallible owner, or latches its exact failure. Never dequeue work
   before success. A discarded error in first-party Zig carries an inline
-  `// best-effort:` or `// tolerant:` reason naming its bounded loss.
+  `// best-effort:` or `// tolerant:` reason naming its bounded loss, except
+  a test's `errdefer` cleanup, whose test already reports its first error.
 - **Failure has a boundary.** An operation succeeds with committed effects or
   reports its exact failure, leaves its state documented, and settles its
   waiters. Retire the smallest irrecoverable scope. Input, I/O, pressure,
@@ -44,12 +45,12 @@ below conflict.
 - **Small modules, sharp boundaries.** A reader knows what a file owns before
   reading it. Names and structure are architecture, so a misleading name is a
   boundary bug. Name the owner, mechanism, or execution environment: Zig,
-  C ABI, LMDB, driver loop, or the specific OS. Avoid "native" as a software
-  label, and rename historical names with their owning migration.
-- **Every source file fits one read.** `source-check` holds a line limit with
-  no exceptions. Split by subject when a change would cross the limit,
-  never squeeze by deleting useful content. The
-  [file-budget skill](../skills/file-budget/SKILL.md) is the procedure.
+  C ABI, LMDB, driver loop, or the specific OS. `native_identifier` and
+  `vague_labels` hold the word "native". Rename historical names with their
+  owning migration.
+- **Every source file fits one read.** `file_length` holds the limit. Split
+  by subject when a change would cross it, never squeeze by deleting useful
+  content ([file-budget skill](../skills/file-budget/SKILL.md)).
 - **Taste lands as structure.** External taste-reference names, the
   maintainer's biography, line-audit claims, and destination slogans stay out
   of committed files. Save agent tokens through routing and checks, never by

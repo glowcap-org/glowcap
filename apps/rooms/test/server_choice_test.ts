@@ -18,6 +18,8 @@ import {
 	sessionOffer,
 	withSessionOffer,
 } from "../web/ui/server_choice.ts";
+import { pageStorage } from "../web/ui/page_storage.ts";
+import { LocalRefusal } from "../lib/text/failure.ts";
 
 Deno.test("a typed server address reads as a page base or is refused whole", () => {
 	assertEquals(serverBase(""), { base: null });
@@ -44,18 +46,29 @@ Deno.test("a typed server address reads as a page base or is refused whole", () 
 
 Deno.test("the kept server is the choice, and a damaged one is no choice", () => {
 	const kept = new Map<string, string>();
-	const storage = {
+	const storage = pageStorage(() => ({
 		getItem: (key: string) => kept.get(key) ?? null,
 		setItem: (key: string, value: string) => void kept.set(key, value),
 		removeItem: (key: string) => void kept.delete(key),
-	};
+		key: () => null,
+		length: 0,
+	}));
 	assertEquals(chosenServer(storage), null);
-	chooseServer("https://rooms.example/", storage);
+	assertEquals(chooseServer("https://rooms.example/", storage), null);
 	assertEquals(chosenServer(storage), "https://rooms.example/");
 	kept.set(SERVER_KEY, "not a url");
 	assertEquals(chosenServer(storage), null);
-	chooseServer(null, storage);
+	assertEquals(chooseServer(null, storage), null);
 	assertEquals(kept.has(SERVER_KEY), false);
+});
+
+Deno.test("a browser that blocks storage has chosen no server and refuses a new choice", () => {
+	const blocked = pageStorage(() => {
+		throw new DOMException("The operation is insecure.", "SecurityError");
+	});
+	assertEquals(chosenServer(blocked), null);
+	assertEquals(chooseServer("https://rooms.example/", blocked) instanceof LocalRefusal, true);
+	assertEquals(chooseServer(null, blocked) instanceof LocalRefusal, true);
 });
 
 Deno.test("the server in use is the chosen one, else the page's own, and a static page has none", () => {

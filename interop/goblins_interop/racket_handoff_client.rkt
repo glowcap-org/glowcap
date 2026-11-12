@@ -42,7 +42,7 @@
 
   ;; Runtime connection completes the keyed handshake; the machine's retained
   ;; identity is the recipient key the gift Alice deposits will name.
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define runtime (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))))
   (define session (runtime-connect runtime (tcp-locator HOST PORT)))
   (printf "racket-goblins-handoff: session open (recipient -> alice)\n")
 

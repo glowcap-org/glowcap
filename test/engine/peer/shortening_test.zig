@@ -223,10 +223,10 @@ test "shortening callback OOM leaves protocol maintenance uncommitted" {
         // parked, so disarm before the peer's defer runs.
         defer failing.fail_index = std.math.maxInt(usize);
 
-        peer.session_state.registerImport(.from(5)) catch continue;
-        engine.listen.ensureShorteningListener(&peer, .from(5)) catch continue;
+        peer.session_state.registerImport(.from(5)) catch |err| if (failing.has_induced_failure) continue else return err;
+        engine.listen.ensureShorteningListener(&peer, .from(5)) catch |err| if (failing.has_induced_failure) continue else return err;
         while (true) {
-            const outcome = peer.step() catch break;
+            const outcome = peer.step() catch |err| if (failing.has_induced_failure) break else return err;
             if (outcome == .idle) break;
         }
         while (peer.takeOutbound()) |frame_in| {
@@ -273,10 +273,10 @@ test "late shortening callback OOM does not retain its introduced promise" {
         defer peer.deinit();
         defer failing.fail_index = std.math.maxInt(usize);
 
-        peer.session_state.registerImport(.from(5)) catch continue;
-        engine.listen.ensureShorteningListener(&peer, .from(5)) catch continue;
+        peer.session_state.registerImport(.from(5)) catch |err| if (failing.has_induced_failure) continue else return err;
+        engine.listen.ensureShorteningListener(&peer, .from(5)) catch |err| if (failing.has_induced_failure) continue else return err;
         while (true) {
-            const outcome = peer.step() catch break;
+            const outcome = peer.step() catch |err| if (failing.has_induced_failure) break else return err;
             if (outcome == .idle) break;
         }
         while (peer.takeOutbound()) |frame_in| {
@@ -290,7 +290,7 @@ test "late shortening callback OOM does not retain its introduced promise" {
         peer.session_state.recordSend(.{ .gc_export = .{
             .positions = @constCast(&positions),
             .deltas = @constCast(&deltas),
-        } }) catch continue;
+        } }) catch |err| if (failing.has_induced_failure) continue else return err;
         try std.testing.expect(!peer.session_state.holdsImport(.from(5)));
 
         if (peer.recvBorrowed(callback.view())) |_| {

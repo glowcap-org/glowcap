@@ -91,7 +91,8 @@ function echoBehavior(verb: string | null, args: unknown[]): string {
 if (Deno.args.length < 2) fail("usage: deno_client.ts <peerUri> <deadUri>");
 const [peerUri, deadUri] = Deno.args.slice(-2);
 
-await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+// The runtime dials both profiles the scenes below listen on.
+await using runtime = await Runtime.open({ providers: [tcp.provider({ profiles: [tcp.plain, tcp.keyed] })] });
 
 // ── dial-ok ─────────────────────────────────────────────────────────────────
 const session = await runtime.connect(parseLocator(peerUri));

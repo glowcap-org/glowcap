@@ -34,7 +34,7 @@ pub fn checkRoadmapItems(
 }
 
 /// Static docs never link a temporary doc, so deleting it edits nothing else.
-/// A doc in a temporary home is found by name even unlinked; one declared
+/// A doc in a temporary home is found by name even unlinked. One declared
 /// elsewhere is found by its links.
 pub fn checkLinkDirection(
     io: std.Io,

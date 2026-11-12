@@ -1,4 +1,5 @@
 //! Shared hosting selects callback metadata. Descriptive names never grant access.
+const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const h = @import("hosting_fixture.zig");
 const resources = @import("resource_fixture.zig");
@@ -129,7 +130,9 @@ test "loam callback context follows direct and distinct local dependent resource
     try host.drain(&measured);
     try std.testing.expectEqual(@as(?i64, 0), direct.number);
     try std.testing.expectEqualDeep([2]usize{ 1, 0 }, measured.counts);
-    var peer = h.host_support.init(a, @splat(0x66), .{});
+    var peer = h.host_support.init(a, @splat(0x66), .{
+        .thread_policy = .unchecked,
+    });
     defer peer.deinit();
     const pair = try pairs.openPair(&host.host, &peer, "127.0.0.1:9792");
     const shared = try host.host.callCapability(a, pair.a, host.use, "share-dependent", &.{}, 4096);
@@ -168,6 +171,7 @@ test "loam callback context follows direct and distinct local dependent resource
     try host.send(host.use, "get", &.{}, &refusal);
     try host.drain(&measured);
     try std.testing.expect(refusal.broken);
+    try std.testing.expectEqual(BreakCause.local(.application), refusal.cause);
     try std.testing.expectEqualStrings("rate-limited: retry-after-ms=1000; scope=join", refusal.reason());
 }
 

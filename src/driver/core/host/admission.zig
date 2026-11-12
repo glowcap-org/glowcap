@@ -5,7 +5,6 @@
 //! queries and admissions remain direct aliases on `Host`.
 
 const std = @import("std");
-const builtin = @import("builtin");
 
 const engine = @import("engine");
 const foundation = @import("foundation");
@@ -18,8 +17,10 @@ const Host = host_mod.Host;
 const HostError = host_mod.HostError;
 const HostSession = session_wire.HostSession;
 
-pub const tracks_thread_affinity = builtin.os.tag != .freestanding;
-const OwnerThread = foundation.thread_affinity.OwnerThread(tracks_thread_affinity);
+/// The Host compares thread tokens and never reads a thread. The embedder
+/// chooses `Options.thread_policy`: a checked reader, or explicit confinement
+/// without an affinity check.
+const OwnerThread = foundation.thread_affinity.OwnerThread(true);
 const unclaimed_owner_thread_id = OwnerThread.unclaimed;
 pub const OwnerThreadId = OwnerThread.Id;
 pub const initial_owner_thread_id = OwnerThread.initial;
@@ -53,9 +54,12 @@ pub const CallbackLatch = struct {
     }
 };
 
-fn currentOwnerThreadId() OwnerThreadId {
-    if (comptime !tracks_thread_affinity) return {};
-    return OwnerThread.token(@intCast(std.Thread.getCurrentId()));
+/// The calling thread's token, or null under explicit unchecked confinement.
+fn currentOwnerThreadId(self: *const Host) ?OwnerThreadId {
+    return switch (self.opts.thread_policy) {
+        .checked => |reader| reader.token(),
+        .unchecked => null,
+    };
 }
 
 /// A committed owner-level operation whose terminal outcome still has to cross
@@ -85,7 +89,7 @@ pub const PendingWorkLease = struct {
     /// Bounded child delivery uses the same producers and reply owners as a
     /// top-level call. The actual capability determines its local/wire home.
     /// `via` is the session whose turn this call continues, so a local target
-    /// reads it as the delivering session; a wire target learns nothing from it.
+    /// reads it as the delivering session. A wire target learns nothing from it.
     pub fn call(self: *const PendingWorkLease, allocator: std.mem.Allocator, target: @import("../capability.zig").Ref, verb: ?[]const u8, args: []const @import("../value.zig").Value, reply_bytes: usize, via: ?engine.PeerHandle) !*@import("owned_call.zig").Call {
         const host = self.host orelse return error.NoPendingWork;
         const admission: WorkAdmission = .{ .retained = self };
@@ -115,7 +119,7 @@ pub const WorkAdmission = union(enum) {
     application,
     retained: *const PendingWorkLease,
     /// A child effect of the actual wire turn being served. Finish preserves
-    /// this admission; cancellation does not. The proof lasts only for the turn.
+    /// this admission. Cancellation does not. The proof lasts only for the turn.
     served: struct { session: *HostSession, turn: *@import("actors").Turn },
 
     pub fn check(self: WorkAdmission, host: *Host) !void {
@@ -146,12 +150,37 @@ pub const WorkAdmission = union(enum) {
 };
 
 pub fn assertOwner(self: *Host) void {
-    if (comptime !tracks_thread_affinity) return;
-    const tid = currentOwnerThreadId();
+    const tid = currentOwnerThreadId(self) orelse return;
     if (self.owner_tid != unclaimed_owner_thread_id) {
         std.debug.assert(self.owner_tid == tid);
     } else {
         self.owner_tid = tid;
+    }
+}
+
+/// The release an operation's `deinit` asks for, carried inside the operation
+/// so queueing it needs no allocation and cannot be refused.
+pub const DeferredRelease = struct {
+    next: ?*DeferredRelease = null,
+    run: *const fn (*DeferredRelease) void,
+};
+
+/// Run `node` now at the top level. Inside a Host callback or Vat execution,
+/// queue it for the verb tail that owns that boundary, which runs it once the
+/// callback returns. Owner thread only, like every void Host verb.
+pub fn releaseAtTopLevel(self: *Host, node: *DeferredRelease) void {
+    assertOwner(self);
+    if (!withinCallback(self)) return node.run(node);
+    node.next = self.deferred_releases;
+    self.deferred_releases = node;
+}
+
+/// Run every release a callback queued. Top level only.
+pub fn runDeferredReleases(self: *Host) void {
+    std.debug.assert(!withinCallback(self));
+    while (self.deferred_releases) |node| {
+        self.deferred_releases = node.next;
+        node.run(node);
     }
 }
 
@@ -160,20 +189,17 @@ pub fn assertOwner(self: *Host) void {
 /// work. A later public verb may then claim the Host from another thread. This
 /// is a sequential ownership transfer, not permission for concurrent access.
 pub fn releaseDriverOwnership(self: *Host) void {
-    if (comptime !tracks_thread_affinity) return;
     std.debug.assert(!self.callback_latch.isHeld());
-    if (self.owner_tid != unclaimed_owner_thread_id) {
-        std.debug.assert(self.owner_tid == currentOwnerThreadId());
-        self.owner_tid = unclaimed_owner_thread_id;
-    }
+    if (self.owner_tid == unclaimed_owner_thread_id) return;
+    std.debug.assert(self.owner_tid == currentOwnerThreadId(self));
+    self.owner_tid = unclaimed_owner_thread_id;
 }
 
 /// Setup may publish reachability before the runtime thread starts. Once
 /// a runtime operation claims the Host, locator updates must stay on that
 /// same thread like every other Host mutation.
 pub fn claimOwner(self: *Host) error{WrongThread}!void {
-    if (comptime !tracks_thread_affinity) return;
-    const tid = currentOwnerThreadId();
+    const tid = currentOwnerThreadId(self) orelse return;
     if (self.owner_tid != unclaimed_owner_thread_id) {
         if (self.owner_tid != tid) return error.WrongThread;
     } else {
@@ -182,9 +208,8 @@ pub fn claimOwner(self: *Host) error{WrongThread}!void {
 }
 
 pub fn checkOwnerIfClaimed(self: *const Host) error{WrongThread}!void {
-    if (comptime !tracks_thread_affinity) return;
-    if (self.owner_tid != unclaimed_owner_thread_id and self.owner_tid != currentOwnerThreadId())
-        return error.WrongThread;
+    if (self.owner_tid == unclaimed_owner_thread_id) return;
+    if (self.owner_tid != currentOwnerThreadId(self)) return error.WrongThread;
 }
 
 /// Admit setup/configuration mutation without claiming an unowned Host.
@@ -239,7 +264,7 @@ pub fn admitSessionOperation(self: *const Host, session: *const HostSession) Hos
 }
 
 /// Reserve capacity for a consequence of an admitted operation. Callers must
-/// hold that operation's proof; this does not admit new application work.
+/// hold that operation's proof. This does not admit new application work.
 pub fn admitSessionContinuation(self: *const Host, session: *const HostSession) HostError!void {
     try checkSessionAdmission(self, session, true);
 }

@@ -108,11 +108,17 @@ impl Prepared {
 	/// Opens the session's SQLite store under explicit physical and resident
 	/// budgets. A confirmed anchor cannot create a missing Store. Unknown open
 	/// outcomes are refused and keep the metadata for an exact next attempt.
-	pub async fn start(self, host: Host, limits: Limits, capacity_bytes: usize, live_capacity: u32) -> Result<Session> {
+	pub async fn start(
+		self,
+		host: Host,
+		limits: Limits,
+		capacity_bytes: usize,
+		live_capacity: u32,
+	) -> core::result::Result<Session, rooms_runtime::Error> {
 		let path = self.directory.path().join(STORE);
 		if !path.try_exists().map_err(|error| storage(error.into()))? {
 			if self.bootstrap.anchor.is_some() {
-				return Err(loam::refusal("anchored Rooms Store is missing"));
+				return Err(rooms_runtime::Error::storage_message("anchored Rooms Store is missing"));
 			}
 			std::fs::create_dir(&path).map_err(|error| storage(error.into()))?;
 			std::fs::File::open(&path)

@@ -1,6 +1,6 @@
 //! The foundation layer, gathered in one place. These are the primitives every
 //! other layer moves around: `frame` for wire bytes and who owns them, `spill`
-//! for the stream bytes that have arrived but not yet been consumed as a frame, status-allow: pending state or quoted runtime label
+//! for the stream bytes that have arrived but not yet been consumed as a frame,
 //! `id` for the `PeerId` and `SessionId`, `crypto` for the Ed25519 and
 //! SHA-256 work the handshake and handoff signatures need, `noise` for the
 //! Noise_XK state machine ADR-0041 names, and `sealed` for the sealed byte
@@ -18,6 +18,7 @@ pub const handle_table = @import("handle_table.zig");
 pub const bearer_table = @import("bearer_table.zig");
 pub const frame = @import("frame.zig");
 pub const spill = @import("spill.zig");
+pub const break_cause = @import("break_cause.zig");
 pub const failure_chain = @import("failure_chain.zig");
 pub const error_sets = @import("error_sets.zig");
 pub const id_issuer = @import("id_issuer.zig");

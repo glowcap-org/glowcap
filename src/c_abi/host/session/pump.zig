@@ -118,6 +118,7 @@ pub fn glowcap_host_session_take_packet(
     prefix_cap: usize,
     out_prefix_len: ?*usize,
 ) callconv(.c) i32 {
+    shared.lastErrorClear();
     return takeOutbound("session_take_packet", driver_core.HostSession.takeTransportOutbound, raw, out_frame, out_prefix, prefix_cap, out_prefix_len);
 }
 
@@ -133,6 +134,7 @@ pub fn glowcap_host_session_take_outbound(
     prefix_cap: usize,
     out_prefix_len: ?*usize,
 ) callconv(.c) i32 {
+    shared.lastErrorClear();
     return takeOutbound("session_take_outbound", driver_core.HostSession.takeStreamOutbound, raw, out_frame, out_prefix, prefix_cap, out_prefix_len);
 }
 

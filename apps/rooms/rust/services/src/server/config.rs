@@ -5,7 +5,11 @@
 use super::{error::Error, operations::Asked};
 use rooms_application::server::operations::listeners::{self, Ask};
 pub use rooms_platform::serving::Transport;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+	collections::BTreeMap,
+	net::{IpAddr, Ipv4Addr},
+	path::PathBuf,
+};
 
 pub struct Config {
 	pub admission: rooms_application::admission::Settings,
@@ -24,8 +28,10 @@ pub struct Config {
 	pub history: bool,
 	/// The boot capabilities to mint and publish.
 	pub asked: Asked,
-	/// The loopback port the live timeline endpoint binds while `trace` is
-	/// asked. Zero takes an ephemeral one.
+	/// Interface the live timeline endpoint binds. Defaults to loopback.
+	pub trace_bind: IpAddr,
+	/// Port the live timeline endpoint binds while `trace` is asked.
+	/// Zero takes an ephemeral one.
 	pub trace_port: u16,
 	pub trace_publish: Option<String>,
 	pub trace_connect: Option<String>,
@@ -52,21 +58,47 @@ pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=<transpo
   --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port
   --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)
   --capabilities=all|<name>[,<name>...]  mint operator capabilities and print each one's link: all, or names from admin-listeners, diagnostics, operator, peering, irc, trace (or GLOWCAP_ROOMS_CAPABILITIES, and none by default)
-  --trace-port=<port>  the loopback port the live timeline endpoint binds (default: 9300; 0 takes any)
-  --trace-connect=<ws-url>  advertise the CapTP byte-channel endpoint through a deployment proxy
-  --trace-publish=<ws-url>  advertise the producer endpoint through a deployment proxy
+  --trace-bind=<ip>  the live timeline listener interface (default: 127.0.0.1), which speaks cleartext ws. A specific address off loopback needs both wss:// routes below, and a wildcard advertises loopback
+  --trace-port=<port>  the live timeline listener port (default: 9300; 0 takes any)
+  --trace-connect=<ws-url>  advertise the CapTP byte-channel endpoint through a deployment proxy (wss:// off loopback)
+  --trace-publish=<ws-url>  advertise the producer endpoint through a deployment proxy (wss:// off loopback)
 Options override GLOWCAP_ROOMS_* environment variables. TCP defaults to 127.0.0.1:0.
 rooms-web --print-capabilities reads the kept capabilities again as complete links.
 ";
 
 /// The options beyond the transport's own that take a value.
-const KEYS: &[&str] = &["state", "capabilities", "trace-port", "trace-publish", "trace-connect"];
+const KEYS: &[&str] = &[
+	"state",
+	"capabilities",
+	"trace-bind",
+	"trace-port",
+	"trace-publish",
+	"trace-connect",
+];
 /// The one option that repeats, read in the listener seats' own grammar.
 pub const LISTEN: &str = "listen";
 /// The options that are flags: present, or `1`/`true`/`yes` in the environment.
 const FLAGS: &[&str] = &["history"];
 
 impl Config {
+	/// The configured timeline listener. Port zero is resolved by Trace::start.
+	pub fn trace_address(&self) -> std::net::SocketAddr {
+		(self.trace_bind, self.trace_port).into()
+	}
+
+	/// Every option `parse` reads.
+	pub fn options() -> impl Iterator<Item = &'static str> {
+		KEYS.iter()
+			.chain(std::iter::once(&LISTEN))
+			.chain(FLAGS)
+			.chain(Transport::OPTIONS)
+			.chain(rooms_application::admission::Settings::OPTIONS)
+			.copied()
+	}
+	/// Whether `parse` reads an option of this name.
+	pub fn accepts(key: &str) -> bool {
+		Self::options().any(|option| option == key)
+	}
 	/// The environment variable that stands in for an absent `--<key>`.
 	pub fn variable(key: &str) -> String {
 		format!("GLOWCAP_ROOMS_{}", key.replace('-', "_").to_uppercase())
@@ -93,11 +125,7 @@ impl Config {
 				declared.push(value.to_owned());
 				continue;
 			}
-			if !KEYS.contains(&key)
-				&& !FLAGS.contains(&key)
-				&& !Transport::OPTIONS.contains(&key)
-				&& !rooms_application::admission::Settings::OPTIONS.contains(&key)
-			{
+			if !Self::accepts(key) {
 				return Err(Error::refused(format!("unknown option: --{key}")));
 			}
 			if !FLAGS.contains(&key) && !option.contains('=') {
@@ -139,10 +167,23 @@ impl Config {
 		};
 		let trace_port = match value("trace-port") {
 			None => TRACE_PORT,
-			Some(port) => port
-				.parse::<u16>()
-				.map_err(|_| Error::refused("--trace-port must be an integer from 0 through 65535"))?,
+			Some(port) => rooms_application::host::port(&port)
+				.ok_or_else(|| Error::refused("--trace-port must be an integer from 0 through 65535"))?,
 		};
+		let trace_bind = value("trace-bind")
+			.map(|ip| {
+				ip.parse::<IpAddr>()
+					.map_err(|_| Error::refused("--trace-bind must be an IP address"))
+			})
+			.transpose()?
+			.unwrap_or(Ipv4Addr::LOCALHOST.into());
+		let (trace_connect, trace_publish) = (value("trace-connect"), value("trace-publish"));
+		// Refuse at launch the routes the endpoint would refuse when it starts.
+		super::operations::trace::locator(
+			(trace_bind, trace_port).into(),
+			trace_publish.clone(),
+			trace_connect.clone(),
+		)?;
 		Ok(Some(Self {
 			admission: rooms_application::admission::Settings::parse_from(
 				|key| {
@@ -167,19 +208,10 @@ impl Config {
 			listen,
 			history,
 			asked,
+			trace_bind,
 			trace_port,
-			trace_connect: value("trace-connect")
-				.map(|endpoint| {
-					rooms_application::web_channel::endpoint(&endpoint).map_err(Error::refused)?;
-					Ok::<_, Error>(endpoint)
-				})
-				.transpose()?,
-			trace_publish: value("trace-publish")
-				.map(|endpoint| {
-					rooms_application::server::trace::producer_endpoint(&endpoint).map_err(Error::refused)?;
-					Ok::<_, Error>(endpoint)
-				})
-				.transpose()?,
+			trace_connect,
+			trace_publish,
 		}))
 	}
 	/// The declared listeners, each read the way `up` reads it, refused
@@ -225,6 +257,69 @@ mod tests {
 			Ok(config) => Ok(config.expect("a launch")),
 			Err(error) => Err(error.to_string()),
 		}
+	}
+
+	#[test]
+	fn trace_bind_accepts_explicit_container_interface() {
+		let config = parse(&["--trace-bind=0.0.0.0"], |_| None).unwrap();
+		assert_eq!(config.trace_bind, IpAddr::from(Ipv4Addr::UNSPECIFIED));
+		assert_eq!(
+			parse(&[], |_| None).unwrap().trace_bind,
+			IpAddr::from(Ipv4Addr::LOCALHOST)
+		);
+		let env = |key: &str| (key == "GLOWCAP_ROOMS_TRACE_BIND").then(|| "::1".into());
+		assert_eq!(parse(&[], env).unwrap().trace_bind, "::1".parse::<IpAddr>().unwrap());
+		assert_eq!(
+			parse(&["--trace-bind=127.0.0.2"], env).unwrap().trace_bind,
+			"127.0.0.2".parse::<IpAddr>().unwrap()
+		);
+		assert!(
+			parse(&["--trace-bind=localhost"], |_| None)
+				.err()
+				.unwrap()
+				.contains("IP address")
+		);
+	}
+
+	#[test]
+	fn a_cleartext_trace_route_is_advertised_only_on_loopback() {
+		let refused = |args: &[&str]| parse(args, |_| None).err().expect("a cleartext route off loopback");
+		// The listener's own route is cleartext, so an interface peers reach
+		// needs both routes named.
+		assert_eq!(
+			refused(&["--trace-bind=192.0.2.7"]),
+			"the trace route ws://192.0.2.7:9300/publish is cleartext off loopback, so name a wss:// route with --trace-publish"
+		);
+		assert_eq!(
+			refused(&["--trace-bind=192.0.2.7", "--trace-publish=wss://rooms.example/publish"]),
+			"the trace route ws://192.0.2.7:9300/captp is cleartext off loopback, so name a wss:// route with --trace-connect"
+		);
+		assert_eq!(
+			refused(&["--trace-connect=ws://rooms.example/captp"]),
+			"the trace route ws://rooms.example/captp is cleartext off loopback, so name a wss:// route with --trace-connect"
+		);
+		let proxied = parse(
+			&[
+				"--trace-bind=192.0.2.7",
+				"--trace-publish=wss://rooms.example/publish",
+				"--trace-connect=wss://rooms.example/captp",
+			],
+			|_| None,
+		)
+		.unwrap();
+		assert_eq!(proxied.trace_connect.as_deref(), Some("wss://rooms.example/captp"));
+		// A wildcard listener advertises loopback, with routes named or without.
+		assert_eq!(parse(&["--trace-bind=0.0.0.0"], |_| None).unwrap().trace_publish, None);
+		let forwarded = parse(
+			&[
+				"--trace-bind=0.0.0.0",
+				"--trace-publish=ws://127.0.0.1:20300/publish",
+				"--trace-connect=ws://127.0.0.1:20300/captp",
+			],
+			|_| None,
+		)
+		.unwrap();
+		assert_eq!(forwarded.trace_publish.as_deref(), Some("ws://127.0.0.1:20300/publish"));
 	}
 
 	#[test]

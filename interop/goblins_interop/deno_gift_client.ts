@@ -83,7 +83,10 @@ try {
 	// its accept loop. One node identity serves both the recipient connection and
 	// the exporter connection, so the give's signature matches the deposit.
 	const gifter = await tcp.listen(HOST, 0);
-	const runtime = await Runtime.open({ providers: [tcp.provider()], adoptHost: gifter.host });
+	const runtime = await Runtime.open({
+		providers: [tcp.provider({ profiles: [tcp.plain] })],
+		adoptHost: gifter.host,
+	});
 	const gifterAccept = acceptLoop(gifter);
 	const gifterPort = gifter.port;
 

@@ -26,10 +26,8 @@ impl Config {
 					format!("{peer} onion transport needs --{option} or {global} naming a running Tor endpoint")
 				})
 		};
-		let port = value("port")
-			.unwrap_or_else(|| "0".into())
-			.parse()
-			.map_err(|_| format!("{peer} onion forward port must be an integer from 0 through 65535"))?;
+		let port = rooms_application::host::port(&value("port").unwrap_or_else(|| "0".into()))
+			.ok_or_else(|| format!("{peer} onion forward port must be an integer from 0 through 65535"))?;
 		let forward = value("onion-forward").map(std::path::PathBuf::from);
 		if let Some(path) = &forward
 			&& (!path.is_absolute() || path.as_os_str().is_empty() || port != 0)

@@ -211,7 +211,8 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
         fn listener(ctx: ?*anyopaque, resolution: actors.Resolution) void {
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
             switch (resolution) {
-                .broken => |message| {
+                .broken => |failure| {
+                    const message = failure.detail;
                     self.broke = true;
                     @memcpy(self.buf[0..message.len], message);
                     self.len = message.len;

@@ -24,7 +24,7 @@ export type BrowserLocator = {
 };
 
 export type BrowserRuntime = {
-	connect: (locator: BrowserLocator) => Promise<BrowserSession>;
+	connect: (locator: BrowserLocator, options?: { signal?: AbortSignal }) => Promise<BrowserSession>;
 	parseSturdyRef: (
 		sturdyref: string,
 		captpVersion: "v1_0" | "next",
@@ -41,3 +41,8 @@ export type GlowcapWebModule = {
 		},
 	) => Promise<BrowserRuntime>;
 };
+
+declare global {
+	var __OCV_GLOWCAP_WASM_URL: string | undefined;
+	var __OCV_GLOWCAP_WEB_LOADER: (() => Promise<GlowcapWebModule>) | undefined;
+}

@@ -30,6 +30,7 @@ impl Error {
 		}
 	}
 }
+const NO_ROUTE: &str = "Rooms WebRTC found no route within its connect budget";
 impl fmt::Display for Error {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
@@ -38,10 +39,7 @@ impl fmt::Display for Error {
 			Self::Binding(e) => e.fmt(f),
 			Self::Ice(e) => e.fmt(f),
 			Self::Timeout => f.write_str("Rooms WebRTC signaling timed out"),
-			Self::NoRoute => f.write_str(
-				&rooms_application::failure::FailureCode::DirectNoRoute
-					.line("Rooms WebRTC found no route within its connect budget"),
-			),
+			Self::NoRoute => f.write_str(NO_ROUTE),
 			Self::Stopped => f.write_str("Rooms WebRTC signaling stopped"),
 			Self::Admission(reason) => f.write_str(reason),
 			Self::Cleanup { primary, cleanup } => write!(f, "{primary}; cleanup failed: {cleanup}"),
@@ -72,5 +70,21 @@ impl From<glowcap::Error> for Error {
 impl From<crate::ice::Error> for Error {
 	fn from(e: crate::ice::Error) -> Self {
 		Self::Ice(e)
+	}
+}
+
+impl From<Error> for rooms_runtime::Error {
+	fn from(error: Error) -> Self {
+		match error {
+			Error::Rooms(error) => error.into(),
+			Error::Binding(error) => error.into(),
+			Error::Channel(error) => Self::platform(error),
+			Error::Ice(error) => Self::platform(error),
+			Error::Timeout => rooms_glowcap::client::Error::Timeout("Rooms WebRTC signaling").into(),
+			Error::NoRoute => Self::coded(rooms_application::failure::FailureCode::PeerUnreachable, NO_ROUTE),
+			Error::Stopped => Self::closed("Rooms WebRTC signaling stopped"),
+			Error::Admission(reason) => Self::refused(reason),
+			Error::Cleanup { primary, cleanup } => Self::from(*primary).retain(Self::from(*cleanup)),
+		}
 	}
 }

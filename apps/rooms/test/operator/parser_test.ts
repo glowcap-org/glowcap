@@ -4,6 +4,15 @@ import { parseListenerRows } from "../../lib/listeners.ts";
 import { type OperatorPage, operatorPageAnswer, parseOperatorPageAnswer } from "../../lib/operator.ts";
 import { assertEquals } from "../assert.ts";
 
+function refusal(work: () => unknown): string {
+	try {
+		work();
+		return "";
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
+	}
+}
+
 function refused(work: () => unknown): boolean {
 	try {
 		work();
@@ -16,21 +25,46 @@ function refused(work: () => unknown): boolean {
 Deno.test("operator and diagnostic tuple adapters enforce their bounded row schemas", () => {
 	const oversized = "x".repeat(64 * 1024 + 1);
 	assertEquals(
-		refused(() => parseOperatorPageAnswer("registrations", [1n, null, [[oversized, "session"]]])),
-		true,
+		refusal(() => parseOperatorPageAnswer("registrations", [1n, null, [[oversized, "session", false]], 1n])),
+		"the Rooms operator answered an out-of-bounds inventory row",
 	);
 	assertEquals(
-		refused(() =>
+		refusal(() =>
 			parseOperatorPageAnswer("rooms", [
 				1n,
 				null,
 				[["room-id", "local", "general", "", "local", 0n, [[oversized, "session", ""]], false]],
+				1n,
 			])
 		),
-		true,
+		"the Rooms operator answered an invalid room page",
 	);
 	assertEquals(refused(() => parseDiagnosticRows([["room", oversized, "live"]])), true);
 	assertEquals(refused(() => parseDiagnosticRows([["room", "general", "live", "surplus"]])), true);
+});
+
+Deno.test("a malformed operator page names the page it refuses", () => {
+	const page = (category: Parameters<typeof parseOperatorPageAnswer>[0], rows: unknown) =>
+		refusal(() => parseOperatorPageAnswer(category, [1n, null, rows, 1n]));
+	assertEquals(
+		page("references", [["id", "line", "owner", "room", "member", 7]]),
+		"the Rooms operator answered an invalid reference page",
+	);
+	assertEquals(page("trouble", [["source", "reason", 0n]]), "the Rooms operator answered an invalid trouble page");
+	assertEquals(
+		page("rooms", [["room-id", "local", "general", "", "local", null, [["nick", 1, "here"]], false]]),
+		"the Rooms operator answered an invalid room page",
+	);
+	assertEquals(
+		page("sessions", [["id", "tcp", "nick", "yes"]]),
+		"the Rooms operator answered an invalid inventory row",
+	);
+	assertEquals(page("links", [["name", 3, "listed"]]), "the Rooms operator answered an invalid inventory row");
+	assertEquals(page("trouble", "rows"), "the Rooms operator answered an invalid category page");
+	assertEquals(
+		refusal(() => parseOperatorPageAnswer("links", [1n, null, []])),
+		"the Rooms operator answered an invalid snapshot page",
+	);
 });
 
 Deno.test("an operator page survives the answer-and-parse round trip", () => {

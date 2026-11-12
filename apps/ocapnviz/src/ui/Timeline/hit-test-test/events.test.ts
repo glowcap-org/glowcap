@@ -503,7 +503,7 @@ Deno.test("hitTestEvents: message right edge returns rightEdge=true for arrivalT
 	);
 });
 
-Deno.test("hitTestEvents: expanded peers category — per-entity row narrows the hit", () => {
+Deno.test("hitTestEvents: in the expanded peers category, a per-entity row narrows the hit", () => {
 	// With peers expanded, the row layout is: header at y≈1
 	// (h=30), then alice at y≈33, bob at y≈65. Clicking bob's row
 	// must pick bob's events specifically, NOT "latest started".
@@ -551,7 +551,7 @@ Deno.test("hitTestEvents: expanded peers category — per-entity row narrows the
 	assertEquals(bobHit!.entity, { kind: "peer", id: "bob" });
 });
 
-Deno.test("hitTestEvents: stacked peers — latest start wins", () => {
+Deno.test("hitTestEvents: with stacked peers, the latest start wins", () => {
 	// Alice (0..1000) and Bob (300..900) both alive at t=500. The
 	// paint order puts later-started spans on top, so Bob wins.
 	const events = [

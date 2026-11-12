@@ -1,9 +1,11 @@
 //! Test root for mutation fuzzing (`zig build fuzz`).
 //!
-//! The fuzz entry points live in `test/<layer>/fuzz_test.zig`, one file per
-//! layer, and also run under the ordinary suite, where they replay a fixed
-//! corpus. Fuzzing needs them as their own build artifact so the driver can
-//! run one target at a time.
+//! The fuzz entry points live in files named `fuzz_test.zig` under `test/`,
+//! and also run under the ordinary suite, where they replay a fixed corpus.
+//! Fuzzing needs them as their own build artifact so the driver can run one
+//! target at a time. The imports below are the driver's list of target files,
+//! and `zig build source-check` holds every file that calls
+//! `std.testing.fuzz` to one of them.
 //!
 //! The root is here at `test/` rather than in `test/codec/` for a concrete
 //! reason: a test root sets the package boundary, and the seeds are embedded
