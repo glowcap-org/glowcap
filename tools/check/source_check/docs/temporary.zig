@@ -28,7 +28,7 @@ pub fn checkRoadmapItems(
     defer gpa.free(roadmap);
     var items = Items{ .lines = std.mem.splitScalar(u8, roadmap, '\n') };
     while (items.next()) |item| {
-        if (std.mem.indexOf(u8, item.text, plan_link) != null) continue;
+        if (std.mem.find(u8, item.text, plan_link) != null) continue;
         try appendViolation(gpa, violations, "{s}:{d}: roadmap item links no plan; link its plan under docs/planning/ or planning/plan-to-plan.md", .{ roadmap_path, item.line });
     }
 }
@@ -60,9 +60,9 @@ pub fn checkLinkDirection(
         }
         if (declared.count() == 0) continue;
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, entry.text, at, "](")) |open| {
+        while (std.mem.findPos(u8, entry.text, at, "](")) |open| {
             const start = open + 2;
-            const close = std.mem.indexOfScalarPos(u8, entry.text, start, ')') orelse break;
+            const close = std.mem.findScalarPos(u8, entry.text, start, ')') orelse break;
             at = close;
             const target = try paths.resolveMarkdownTarget(arena, entry.path, entry.text[start..close]) orelse continue;
             if (declared.contains(target)) {
@@ -87,7 +87,7 @@ pub fn checkOwners(
         if (entry.doc.kind != .temporary) continue;
         const target = parentAndName(entry.path);
         const owned = for (docs) |owner| {
-            if (owner.doc.kind == .living and std.mem.indexOf(u8, owner.text, target) != null) break true;
+            if (owner.doc.kind == .living and std.mem.find(u8, owner.text, target) != null) break true;
         } else false;
         if (!owned) try appendViolation(gpa, violations, "{s}: temporary doc with no owner; link it from the living page that will delete it", .{entry.path});
     }
@@ -96,15 +96,15 @@ pub fn checkOwners(
 /// The last directory and file name of a path, as a link to it ends:
 /// `planning/rooms.md`.
 fn parentAndName(path: []const u8) []const u8 {
-    const slash = std.mem.lastIndexOfScalar(u8, path, '/') orelse return path;
-    const parent = std.mem.lastIndexOfScalar(u8, path[0..slash], '/') orelse return path;
+    const slash = std.mem.findScalarLast(u8, path, '/') orelse return path;
+    const parent = std.mem.findScalarLast(u8, path[0..slash], '/') orelse return path;
     return path[parent + 1 ..];
 }
 
 /// The last directory of a home, with its slash: `planning/`.
 fn homeName(home: kinds.Home) []const u8 {
     const trimmed = home.dir[0 .. home.dir.len - 1];
-    const slash = std.mem.lastIndexOfScalar(u8, trimmed, '/') orelse return home.dir;
+    const slash = std.mem.findScalarLast(u8, trimmed, '/') orelse return home.dir;
     return home.dir[slash + 1 ..];
 }
 
@@ -119,8 +119,8 @@ const TempRefs = struct {
     fn next(self: *TempRefs) ?[]const u8 {
         while (self.at < self.text.len) {
             const dir = homeName(self.home);
-            const via_dir = std.mem.indexOfPos(u8, self.text, self.at, dir);
-            const via_bare = if (self.bare) std.mem.indexOfPos(u8, self.text, self.at, "](") else null;
+            const via_dir = std.mem.findPos(u8, self.text, self.at, dir);
+            const via_bare = if (self.bare) std.mem.findPos(u8, self.text, self.at, "](") else null;
             const hit, const skip = pick: {
                 if (via_dir) |d| if (via_bare == null or d <= via_bare.?) break :pick .{ d, dir.len };
                 if (via_bare) |b| break :pick .{ b, "](".len };
@@ -239,7 +239,7 @@ test "items span their continuation lines and skip table headers" {
     for (expected) |want| {
         const item = items.next().?;
         try std.testing.expectEqual(want.line, item.line);
-        try std.testing.expectEqual(want.linked, std.mem.indexOf(u8, item.text, plan_link) != null);
+        try std.testing.expectEqual(want.linked, std.mem.find(u8, item.text, plan_link) != null);
     }
     try std.testing.expect(items.next() == null);
 }

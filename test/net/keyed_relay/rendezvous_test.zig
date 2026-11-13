@@ -45,9 +45,9 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     const port = server.socket.address.getPort();
 
     var relay_url_buf: [64]u8 = undefined;
-    const relay_url = try std.fmt.bufPrint(&relay_url_buf, "ws://localhost:{d}/relay", .{port});
+    const relay_url = try std.mem.print(&relay_url_buf, "ws://localhost:{d}/relay", .{port});
     var register_url_buf: [64]u8 = undefined;
-    const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://LOCALHOST:{d}/register", .{port});
+    const register_url = try std.mem.print(&register_url_buf, "ws://LOCALHOST:{d}/register", .{port});
 
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6e)));
 
@@ -146,19 +146,19 @@ test "keyed-relay routes a cold dial through the target's other relay" {
     const target_port = target_server.socket.address.getPort();
 
     var configured_url_buf: [64]u8 = undefined;
-    const configured_url = try std.fmt.bufPrint(
+    const configured_url = try std.mem.print(
         &configured_url_buf,
         "ws://127.0.0.1:{d}/relay",
         .{unused_port},
     );
     var target_relay_url_buf: [64]u8 = undefined;
-    const target_relay_url = try std.fmt.bufPrint(
+    const target_relay_url = try std.mem.print(
         &target_relay_url_buf,
         "ws://127.0.0.1:{d}/relay",
         .{target_port},
     );
     var target_register_url_buf: [64]u8 = undefined;
-    const target_register_url = try std.fmt.bufPrint(
+    const target_register_url = try std.mem.print(
         &target_register_url_buf,
         "ws://127.0.0.1:{d}/register",
         .{target_port},

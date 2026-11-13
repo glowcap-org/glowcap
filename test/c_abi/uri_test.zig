@@ -44,7 +44,7 @@ test "locator construction records the exact invalid shape" {
     try std.testing.expect(locator == null);
     var message: [256]u8 = undefined;
     const len = @min(c.glowcap_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..len], "InvalidHintWireForm") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..len], "InvalidHintWireForm") != null);
 }
 
 test "parse a peer URI and read its fields" {

@@ -63,7 +63,7 @@ pub fn checkDocCAbiCites(
     while (try docs_walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
-        const path = try std.fmt.allocPrint(arena, "docs/{s}", .{entry.path});
+        const path = try arena.print("docs/{s}", .{entry.path});
         const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for doc C-ABI cite check with {s}", .{ path, @errorName(err) });
             continue;
@@ -81,7 +81,7 @@ pub fn checkDocCAbiCites(
     while (try site_walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".smd")) continue;
-        const path = try std.fmt.allocPrint(arena, "site/content/{s}", .{entry.path});
+        const path = try arena.print("site/content/{s}", .{entry.path});
         const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for doc C-ABI cite check with {s}", .{ path, @errorName(err) });
             continue;
@@ -95,7 +95,7 @@ fn collectGlowcapSymbols(
     out: *std.StringHashMap(void),
 ) !void {
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, contents, search, "glowcap_")) |start| {
+    while (std.mem.findPos(u8, contents, search, "glowcap_")) |start| {
         var end = start + "glowcap_".len;
         while (end < contents.len and isGlowcapIdentChar(contents[end])) end += 1;
         search = end;
@@ -149,7 +149,7 @@ fn docCAbiTokenValid(token: []const u8, symbols: *const std.StringHashMap(void))
 
 fn extractGlowcapCiteToken(span: []const u8) ?[]const u8 {
     if (!std.mem.startsWith(u8, span, "glowcap_")) return null;
-    if (std.mem.indexOfAny(u8, span, "<>") != null) return null;
+    if (std.mem.findAny(u8, span, "<>") != null) return null;
     if (std.mem.endsWith(u8, span, ".h") or std.mem.endsWith(u8, span, ".wasm")) return null;
     var end: usize = "glowcap_".len;
     while (end < span.len and isGlowcapIdentChar(span[end])) end += 1;
@@ -182,9 +182,9 @@ fn scanDocCAbiCitesInContents(
     violations: *std.ArrayList([]const u8),
 ) !void {
     var rest = contents;
-    while (std.mem.indexOf(u8, rest, "`glowcap_")) |start| {
+    while (std.mem.find(u8, rest, "`glowcap_")) |start| {
         const after_tick = rest[start + 1 ..];
-        const close = std.mem.indexOfScalar(u8, after_tick, '`') orelse break;
+        const close = std.mem.findScalar(u8, after_tick, '`') orelse break;
         const span = after_tick[0..close];
         rest = after_tick[close + 1 ..];
         const token = extractGlowcapCiteToken(span) orelse continue;

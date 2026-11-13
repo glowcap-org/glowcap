@@ -61,7 +61,7 @@ fn identifierOccurrences(haystack: []const u8, name: []const u8) usize {
     if (name.len == 0) return 0;
     var count: usize = 0;
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, haystack, at, name)) |found| {
+    while (std.mem.findPos(u8, haystack, at, name)) |found| {
         const before_ok = found == 0 or !text_match.isJsIdentChar(haystack[found - 1]);
         const after = found + name.len;
         const after_ok = after >= haystack.len or !text_match.isJsIdentChar(haystack[after]);

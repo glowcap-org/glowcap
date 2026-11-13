@@ -58,7 +58,7 @@ test "core host: pending id enliven reuses an authenticated via session" {
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(alternate);
-    const routes = try std.fmt.allocPrint(allocator, "{s}|{s}", .{ primary, alternate });
+    const routes = try allocator.print("{s}|{s}", .{ primary, alternate });
     defer allocator.free(routes);
     const via = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
@@ -144,7 +144,7 @@ test "core host: id enliven reuses an authenticated baseline session but not a f
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
     try std.testing.expectEqual(model.CaptpVersion.v1_0, dialed.settledProfile().?.captp_version);
 
-    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{server_key[0..]});
+    const route = try allocator.print("ocapn://{s}.iroh", .{server_key[0..]});
     defer allocator.free(route);
     const via = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
@@ -225,7 +225,7 @@ test "core host: id sturdyrefs stage the selected concrete route when opted in" 
     defer host.deinit();
 
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x12))).publicKey().toDesignator();
-    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route);
     const id_routes = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
@@ -254,7 +254,7 @@ test "core host: id sturdyrefs validate but never dial weak fallback paths" {
     defer host.deinit();
 
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x14))).publicKey().toDesignator();
-    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route);
     const hints = [_]model.HintEntry{
         .{ .name = model.transport.hint_via, .value = .{ .string = route } },

@@ -39,7 +39,7 @@ class SidecarLink(unittest.TestCase):
                     });
                     const module = b.createModule(.{
                         .root_source_file = b.path("main.zig"),
-                        .target = target, .optimize = .Debug,
+                        .target = target, .optimize = .debug,
                     });
                     cargo.linkRustSidecar(b, module, target, b.path("sidecar.a"));
                     b.installArtifact(b.addExecutable(.{ .name = "probe", .root_module = module }));

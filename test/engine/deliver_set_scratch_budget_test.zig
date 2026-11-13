@@ -75,7 +75,7 @@ fn buildBigSetDeliver(allocator: std.mem.Allocator, n: usize) ![]u8 {
     var i: usize = 0;
     while (i < n) : (i += 1) {
         var name: [9]u8 = undefined;
-        try out.appendSlice(allocator, try std.fmt.bufPrint(&name, "5's{d:0>4}", .{i}));
+        try out.appendSlice(allocator, try std.mem.print(&name, "5's{d:0>4}", .{i}));
     }
     try out.appendSlice(allocator, "$]ff>");
     return out.toOwnedSlice(allocator);

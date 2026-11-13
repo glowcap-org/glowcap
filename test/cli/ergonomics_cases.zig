@@ -167,17 +167,17 @@ test "root help footer mentions Examples and XDG_STATE_HOME" {
     var path = [_]*const Command{&fixture_root};
     const text = try cli.cmd_help.writeNodeHelpAlloc(std.testing.allocator, path[0..]);
     defer std.testing.allocator.free(text);
-    try std.testing.expect(std.mem.indexOf(u8, text, "Examples:") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "Exit status:") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "CapTP waits (product defaults):") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "XDG_STATE_HOME") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "GLOWCAP_STATE") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "[flags] <command>") != null);
+    try std.testing.expect(std.mem.find(u8, text, "Examples:") != null);
+    try std.testing.expect(std.mem.find(u8, text, "Exit status:") != null);
+    try std.testing.expect(std.mem.find(u8, text, "CapTP waits (product defaults):") != null);
+    try std.testing.expect(std.mem.find(u8, text, "XDG_STATE_HOME") != null);
+    try std.testing.expect(std.mem.find(u8, text, "GLOWCAP_STATE") != null);
+    try std.testing.expect(std.mem.find(u8, text, "[flags] <command>") != null);
 
     // Help formats from owning constants, prose cannot invent a different map.
     var line: [64]u8 = undefined;
-    const timeout_line = try std.fmt.bufPrint(&line, "  {d}  timeout", .{cli.exit_codes.timeout});
-    try std.testing.expect(std.mem.indexOf(u8, text, timeout_line) != null);
-    const hs_line = try std.fmt.bufPrint(&line, "  handshake  {d} ms", .{cli.ocapn.default_handshake_timeout_ms});
-    try std.testing.expect(std.mem.indexOf(u8, text, hs_line) != null);
+    const timeout_line = try std.mem.print(&line, "  {d}  timeout", .{cli.exit_codes.timeout});
+    try std.testing.expect(std.mem.find(u8, text, timeout_line) != null);
+    const hs_line = try std.mem.print(&line, "  handshake  {d} ms", .{cli.ocapn.default_handshake_timeout_ms});
+    try std.testing.expect(std.mem.find(u8, text, hs_line) != null);
 }

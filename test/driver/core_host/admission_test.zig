@@ -4,6 +4,7 @@
 //! allocation-free, and partner aborts retire without an echo.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 
@@ -100,7 +101,7 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // list of layers waiting on that turn's outcome, the Host's lowering
     // receipts held until it, and the Node's batches staged for it. A
     // session's Peer gains one flag and stays within its struct budget.
-    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    if (!builtin.optimize.runtimeSafety()) return error.SkipZigTest;
     // A public local completion has no peer. Its diagnostic presence tag
     // adds one word to each action seat and the Host's last-action storage.
     // Opaque callbacks carry archive-independent failure text. The Vat's
@@ -276,7 +277,7 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
     const honest = crypto.SecretKey.fromSeed(honest_seed);
     const designator = honest.publicKey().toDesignator();
     var uri_buf: [96]u8 = undefined;
-    const uri = try std.fmt.bufPrint(&uri_buf, "ocapn://{s}.iroh", .{designator[0..]});
+    const uri = try std.mem.print(&uri_buf, "ocapn://{s}.iroh", .{designator[0..]});
 
     // Happy path: the acceptor advertises the dialed identity, so the dialer's
     // claim pin holds and the session opens.

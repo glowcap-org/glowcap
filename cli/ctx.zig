@@ -31,7 +31,7 @@ pub const Ctx = struct {
     front: Front = .argv,
     sink: Sink = .stdout,
     json: JsonMode = .human,
-    identity_path_buf: [std.fs.max_path_bytes]u8 = undefined,
+    identity_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined,
     identity_path: []const u8 = "",
     secret: ?crypto.SecretKey = null,
     /// Live session for REPL / MCP multi-command context.

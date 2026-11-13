@@ -23,7 +23,7 @@
 //!
 //! Nothing crashes and nothing leaks, whatever the read boundaries were and
 //! whatever the application was in the middle of. Each mutation runs under a
-//! fresh `DebugAllocator`, whose teardown fails the mutation on a leak.
+//! fresh `SafeAllocator`, whose teardown fails the mutation on a leak.
 //!
 //! And every table the session declares a bound for stays inside it. A partner's goal is to make the process hold
 //! memory it should not, and a table growing past its declared cap does exactly
@@ -247,15 +247,12 @@ fn hostFeedOne(_: void, smith: *std.testing.Smith) anyerror!void {
     // Let the fuzzer choose where the read boundaries fall. Small sizes are the
     // interesting ones, because that is where a frame straddles two feeds.
     const chunk: usize = smith.valueRangeAtMost(u8, 0, 64);
-    var backing: std.heap.DebugAllocator(.{
-        .stack_trace_frames = 0,
-        .resize_stack_traces = false,
-    }) = .init;
+    var backing: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{ .stack_trace_frames = 0 });
     var budget = Budget.drawWith(smith, session_span, backing.allocator());
     const gpa = budget.allocator();
 
     const result = hostFeedOneWithAllocator(smith, input, chunk, &budget, gpa);
-    if (backing.deinit() == .leak) return error.FuzzAllocatorLeak;
+    if (backing.deinit() != 0) return error.FuzzAllocatorLeak;
     return result;
 }
 
@@ -442,14 +439,11 @@ test "fuzz: no program of honest and damaged receive certificates withdraws a gi
 }
 
 fn handoffOne(_: void, smith: *std.testing.Smith) anyerror!void {
-    var backing: std.heap.DebugAllocator(.{
-        .stack_trace_frames = 0,
-        .resize_stack_traces = false,
-    }) = .init;
+    var backing: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{ .stack_trace_frames = 0 });
     var budget = Budget.drawWith(smith, handoff.span, backing.allocator());
     const gpa = budget.allocator();
     const result = handoffOneWithAllocator(smith, &budget, gpa);
-    if (backing.deinit() == .leak) return error.FuzzAllocatorLeak;
+    if (backing.deinit() != 0) return error.FuzzAllocatorLeak;
     return result;
 }
 

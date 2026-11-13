@@ -99,12 +99,12 @@ pub const Store = struct {
             bytes.appendSlice(self.allocator, line) catch return Error.WriteFailed;
             bytes.append(self.allocator, '\n') catch return Error.WriteFailed;
         }
-        const ep_path = std.fmt.bufPrint(&path_buf, "{s}/episodes.jsonld", .{self.dir}) catch unreachable;
+        const ep_path = std.mem.print(&path_buf, "{s}/episodes.jsonld", .{self.dir}) catch unreachable;
         dir.writeFile(self.io, .{ .sub_path = ep_path, .data = bytes.items }) catch return Error.WriteFailed;
 
         const root = try self.tlog.root();
         const root_hex = log.toHex(root);
-        const root_path = std.fmt.bufPrint(&path_buf, "{s}/transparency.root", .{self.dir}) catch unreachable;
+        const root_path = std.mem.print(&path_buf, "{s}/transparency.root", .{self.dir}) catch unreachable;
         dir.writeFile(self.io, .{ .sub_path = root_path, .data = &root_hex }) catch return Error.WriteFailed;
     }
 

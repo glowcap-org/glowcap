@@ -147,7 +147,7 @@ class InventoryTest(unittest.TestCase):
         layers = [name.strip() for name in declared[1].split(",") if name.strip()]
         selected_layers: list[str] = []
         for kind, command in GROUPS.PHASES["shipped"]:
-            selection = re.fullmatch(r"zig build test -Doptimize=ReleaseSafe -Dtest-layer=([a-z_,]+)", command)
+            selection = re.fullmatch(r"zig build test -Doptimize=safe -Dtest-layer=([a-z_,]+)", command)
             self.assertIsNotNone(selection, "ship-mode tests bound compiler memory by layer")
             assert selection is not None
             selected_layers.extend(selection[1].split(","))

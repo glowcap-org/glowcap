@@ -80,7 +80,7 @@ test "griddle: every schedule answers every question" {
     while (seed < 40) : (seed += 1) {
         const timeline = try runTimeline(gpa, .crossed_fetch, seed);
         defer gpa.free(timeline);
-        try std.testing.expect(std.mem.indexOf(u8, timeline, "\"detail\":\"both-answered\"") != null);
+        try std.testing.expect(std.mem.find(u8, timeline, "\"detail\":\"both-answered\"") != null);
     }
 }
 
@@ -104,7 +104,7 @@ test "griddle: the base kinds carry no protocol, and the CapTP kinds are named a
             saw_captp = true;
         } else {
             // A base kind never names a protocol.
-            try std.testing.expect(std.mem.indexOf(u8, kind, "captp") == null);
+            try std.testing.expect(std.mem.find(u8, kind, "captp") == null);
             saw_base = true;
         }
     }
@@ -145,10 +145,10 @@ test "griddle: latency delays a link without reordering it" {
     defer gpa.free(delayed);
 
     // Both still finish: latency is not failure.
-    try std.testing.expect(std.mem.indexOf(u8, delayed, "\"detail\":\"both-answered\"") != null);
+    try std.testing.expect(std.mem.find(u8, delayed, "\"detail\":\"both-answered\"") != null);
     // And it took longer, the last tick is higher.
     try std.testing.expect(delayed.len >= instant.len);
-    try std.testing.expect(std.mem.indexOf(u8, delayed, "\"sim_t_ns\":0,") != null);
+    try std.testing.expect(std.mem.find(u8, delayed, "\"sim_t_ns\":0,") != null);
 }
 
 test "griddle: a partition strands the question rather than breaking it" {
@@ -160,11 +160,11 @@ test "griddle: a partition strands the question rather than breaking it" {
     const timeline = try runWeather(gpa, .partitioned_fetch, 3, .{ .partition_at = 1 });
     defer gpa.free(timeline);
 
-    try std.testing.expect(std.mem.indexOf(u8, timeline, "\"kind\":\"link_down\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, timeline, "\"kind\":\"message_lost\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, timeline, "\"detail\":\"stranded\"") != null);
+    try std.testing.expect(std.mem.find(u8, timeline, "\"kind\":\"link_down\"") != null);
+    try std.testing.expect(std.mem.find(u8, timeline, "\"kind\":\"message_lost\"") != null);
+    try std.testing.expect(std.mem.find(u8, timeline, "\"detail\":\"stranded\"") != null);
     // Nothing was broken: a stranded question is not a broken one.
-    try std.testing.expect(std.mem.indexOf(u8, timeline, "\"detail\":\"answered\"") == null);
+    try std.testing.expect(std.mem.find(u8, timeline, "\"detail\":\"answered\"") == null);
 }
 
 test "griddle: the same seed replays the same weather" {
@@ -187,7 +187,7 @@ test "griddle: an unpartitioned run never reports a loss" {
     while (seed < 20) : (seed += 1) {
         const timeline = try runWeather(gpa, .crossed_fetch, seed, .{ .latency = true });
         defer gpa.free(timeline);
-        try std.testing.expect(std.mem.indexOf(u8, timeline, "\"kind\":\"message_lost\"") == null);
+        try std.testing.expect(std.mem.find(u8, timeline, "\"kind\":\"message_lost\"") == null);
     }
 }
 
@@ -203,7 +203,7 @@ test "griddle: the runaway guard counts deliveries, not time passing" {
         defer gpa.free(timeline);
         // Runaway would have surfaced as an error above; reaching the end
         // state is the proof the guard let a slow network finish.
-        try std.testing.expect(std.mem.indexOf(u8, timeline, "\"detail\":\"both-answered\"") != null);
+        try std.testing.expect(std.mem.find(u8, timeline, "\"detail\":\"both-answered\"") != null);
     }
 }
 
@@ -215,5 +215,5 @@ test "griddle: a peer's step failure reaches the timeline" {
     const gpa = std.testing.allocator;
     const timeline = try runTimeline(gpa, .crossed_fetch, 11);
     defer gpa.free(timeline);
-    try std.testing.expect(std.mem.indexOf(u8, timeline, "\"kind\":\"captp_failed\"") == null);
+    try std.testing.expect(std.mem.find(u8, timeline, "\"kind\":\"captp_failed\"") == null);
 }

@@ -47,7 +47,7 @@ test "inline handoff redemption preserves its Host promise destination" {
     try std.testing.expect(failed == .fail);
     try std.testing.expectEqual(recipient, failed.fail.dest.deferred.recipient_peer);
     try std.testing.expectEqual(@as(u64, 73), failed.fail.dest.deferred.id);
-    try std.testing.expect(std.mem.indexOf(u8, failed.fail.reason.text, "refused") != null);
+    try std.testing.expect(std.mem.find(u8, failed.fail.reason.text, "refused") != null);
 }
 
 test "a redeemed route routes to its exporter with the real reference swapped in" {

@@ -51,9 +51,9 @@ fn checkFamilies(
         // `src/ocapn` is mapped through its families, checked separately.
         if (std.mem.eql(u8, dir_path, "src") and std.mem.eql(u8, entry.name, "ocapn")) continue;
         if (isUnmapped(entry.name)) continue;
-        const label = try std.fmt.allocPrint(gpa, "<strong>{s}</strong>", .{entry.name});
+        const label = try gpa.print("<strong>{s}</strong>", .{entry.name});
         defer gpa.free(label);
-        if (std.mem.indexOf(u8, map, label) == null) {
+        if (std.mem.find(u8, map, label) == null) {
             try appendViolation(gpa, violations, "{s}/{s}: no layer in {s}; add it where its imports place it", .{ dir_path, entry.name, map_path });
         }
     }

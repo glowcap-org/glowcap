@@ -42,7 +42,7 @@ pub fn check(
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind == .directory or !std.mem.endsWith(u8, entry.name, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "tools/build/{s}", .{entry.name});
+        const path = try gpa.print("tools/build/{s}", .{entry.name});
         defer gpa.free(path);
         const source = dir.readFileAlloc(io, entry.name, gpa, .limited(1 << 21)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read execution postures with {s}", .{ path, @errorName(err) });
@@ -79,7 +79,7 @@ fn checkBuildFile(
     if (!execution_owner) {
         for ([_][]const u8{ ".addRunArtifact(", ".addSystemCommand(" }) |raw| {
             var raw_cursor: usize = 0;
-            while (std.mem.indexOfPos(u8, code, raw_cursor, raw)) |at| {
+            while (std.mem.findPos(u8, code, raw_cursor, raw)) |at| {
                 raw_cursor = at + raw.len;
                 const receiver = precedingIdentifier(code, at);
                 if (std.mem.eql(u8, receiver, "execution")) continue;
@@ -92,18 +92,18 @@ fn checkBuildFile(
     var test_names: std.ArrayList([]const u8) = .empty;
     defer test_names.deinit(gpa);
     var test_cursor: usize = 0;
-    while (std.mem.indexOfPos(u8, code, test_cursor, "b.addTest")) |call_at| {
+    while (std.mem.findPos(u8, code, test_cursor, "b.addTest")) |call_at| {
         test_cursor = call_at + "b.addTest".len;
         if (syntax.assignedConstName(code, call_at)) |name| try test_names.append(gpa, name);
     }
 
     for (process_calls) |spec| {
         var cursor: usize = 0;
-        while (std.mem.indexOfPos(u8, code, cursor, spec.marker)) |call_at| {
+        while (std.mem.findPos(u8, code, cursor, spec.marker)) |call_at| {
             cursor = call_at + spec.marker.len;
             if (isFunctionDeclaration(code, call_at)) continue;
             // Qualified markers are substrings of their unqualified form.
-            if (std.mem.indexOfScalar(u8, spec.marker, '.') == null and call_at > 0 and code[call_at - 1] == '.') continue;
+            if (std.mem.findScalar(u8, spec.marker, '.') == null and call_at > 0 and code[call_at - 1] == '.') continue;
             const open = call_at + spec.marker.len - 1;
             const close = syntax.matchingDelimiter(code, open, '(', ')') orelse {
                 try appendViolation(gpa, violations, "{s}: unterminated `{s}` execution call", .{ path, spec.marker[0 .. spec.marker.len - 1] });
@@ -117,7 +117,7 @@ fn checkBuildFile(
             if (std.mem.eql(u8, spec.marker, "execution.addArtifact(")) {
                 const artifact = syntax.nthTopLevelArg(code[open + 1 .. close], 2) orelse continue;
                 const trimmed = std.mem.trim(u8, artifact, " \t\r\n");
-                if (std.mem.indexOf(u8, trimmed, "b.addTest") != null or text_match.inSet(test_names.items, trimmed)) {
+                if (std.mem.find(u8, trimmed, "b.addTest") != null or text_match.inSet(test_names.items, trimmed)) {
                     try appendViolation(gpa, violations, "{s}: Zig test artifact `{s}` must run through `execution.addZigTest`, preserving standard-runner filters, leak reporting, and subprocess deadlines", .{ path, trimmed });
                 }
             }
@@ -132,8 +132,8 @@ fn precedingIdentifier(code: []const u8, dot_at: usize) []const u8 {
 }
 
 fn isFunctionDeclaration(code: []const u8, call_at: usize) bool {
-    const start = if (std.mem.lastIndexOfScalar(u8, code[0..call_at], '\n')) |newline| newline + 1 else 0;
-    return std.mem.indexOf(u8, code[start..call_at], "fn ") != null;
+    const start = if (std.mem.findScalarLast(u8, code[0..call_at], '\n')) |newline| newline + 1 else 0;
+    return std.mem.find(u8, code[start..call_at], "fn ") != null;
 }
 
 fn validateExecutionPosture(
@@ -238,7 +238,7 @@ fn expectBuildViolation(source: []const u8, needle: []const u8) !void {
     }
     try checkBuildFile(gpa, &violations, "tools/build/fixture.zig", source);
     for (violations.items) |item| {
-        if (std.mem.indexOf(u8, item, needle) != null) return;
+        if (std.mem.find(u8, item, needle) != null) return;
     }
     return error.ExpectedDeadlineViolation;
 }

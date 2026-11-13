@@ -43,7 +43,7 @@ pub fn checkZigDocBareNames(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-            const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ tree, entry.path });
+            const path = try arena.print("{s}/{s}", .{ tree, entry.path });
             const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: cannot be read for the doc-name check ({s})", .{ path, @errorName(err) });
                 continue;
@@ -79,9 +79,9 @@ fn checkFile(
         const t = std.mem.trimStart(u8, line, " \t");
         if (!std.mem.startsWith(u8, t, "///") and !std.mem.startsWith(u8, t, "//!")) continue;
         var rest: []const u8 = t;
-        while (std.mem.indexOfScalar(u8, rest, '`')) |open| {
+        while (std.mem.findScalar(u8, rest, '`')) |open| {
             const after = rest[open + 1 ..];
-            const close = std.mem.indexOfScalar(u8, after, '`') orelse break;
+            const close = std.mem.findScalar(u8, after, '`') orelse break;
             rest = after[close + 1 ..];
             const name = bareName(after[0..close]) orelse continue;
             if (words.contains(name) or text_match.inSet(&foreign_names, name)) continue;
@@ -122,5 +122,5 @@ test "a bare doc name must be spelled in code, not only in comments" {
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
     try checkFile(gpa, &violations, &words, "src/a.zig", "//! See `settleSentResolve`.\n");
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "src/a.zig:1:") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "src/a.zig:1:") != null);
 }

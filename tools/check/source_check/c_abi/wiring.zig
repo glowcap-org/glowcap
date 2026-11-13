@@ -50,7 +50,7 @@ pub fn checkHostActionArmLockstep(
         try appendViolation(gpa, violations, "HostAction arm lockstep: header has {d} GLOWCAP_HOST_ACTION_* but Zig HostAction expects {d} tags", .{ action_names.items.len, zig_tags.len });
     }
     for (zig_tags) |tag| {
-        if (std.mem.indexOf(u8, zig_action, tag) == null) {
+        if (std.mem.find(u8, zig_action, tag) == null) {
             try appendViolation(gpa, violations, "src/driver/core/host/action.zig: missing HostAction tag `{s}`", .{tag});
         }
     }
@@ -62,15 +62,15 @@ pub fn checkHostActionArmLockstep(
     defer gpa.free(embedder);
     for (action_names.items) |name| {
         var token_buf: [96]u8 = undefined;
-        const token = std.fmt.bufPrint(&token_buf, "GLOWCAP_HOST_ACTION_{s}", .{name}) catch {
+        const token = std.mem.print(&token_buf, "GLOWCAP_HOST_ACTION_{s}", .{name}) catch {
             try appendViolation(gpa, violations, "HostAction arm lockstep: action name `{s}` too long", .{name});
             continue;
         };
-        if (std.mem.indexOf(u8, embedder, token) == null) {
+        if (std.mem.find(u8, embedder, token) == null) {
             // SETTLE and FAIL share the complete arm in embedder_pump.
             if (std.mem.eql(u8, name, "SETTLE") or std.mem.eql(u8, name, "FAIL")) {
-                if (std.mem.indexOf(u8, embedder, "GLOWCAP_HOST_ACTION_SETTLE") != null and
-                    std.mem.indexOf(u8, embedder, "GLOWCAP_HOST_ACTION_FAIL") != null) continue;
+                if (std.mem.find(u8, embedder, "GLOWCAP_HOST_ACTION_SETTLE") != null and
+                    std.mem.find(u8, embedder, "GLOWCAP_HOST_ACTION_FAIL") != null) continue;
             }
             try appendViolation(gpa, violations, "src/c_abi/host/embedder_pump.zig: missing drain arm for `{s}`", .{token});
         }
@@ -99,7 +99,7 @@ pub fn checkHostPumpImportGate(
 
         fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
             if (std.mem.startsWith(u8, path, host_core_dir)) return;
-            if (std.mem.indexOf(u8, contents, needle) != null) {
+            if (std.mem.find(u8, contents, needle) != null) {
                 try appendViolation(self.gpa, self.violations, "{s}: imports host/pump.zig — only the Host core's own files may (Host private pump)", .{path});
             }
         }
@@ -127,7 +127,7 @@ pub fn checkNoAdrInRuntimeStrings(
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ rel, entry.path });
+            const path = try gpa.print("{s}/{s}", .{ rel, entry.path });
             defer gpa.free(path);
             const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: failed to read for ADR-runtime-string check with {s}", .{ path, @errorName(err) });
@@ -160,7 +160,7 @@ fn srcHasCallOutsideDef(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
+        const path = try gpa.print("src/{s}", .{entry.path});
         defer gpa.free(path);
         if (std.mem.eql(u8, path, def_path)) continue;
         const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
@@ -172,7 +172,7 @@ fn srcHasCallOutsideDef(
         while (lines.next()) |line| {
             const trimmed = std.mem.trimStart(u8, line, " \t");
             if (std.mem.startsWith(u8, trimmed, "//")) continue;
-            if (std.mem.indexOf(u8, line, call_needle) != null) return true;
+            if (std.mem.find(u8, line, call_needle) != null) return true;
         }
     }
     return false;

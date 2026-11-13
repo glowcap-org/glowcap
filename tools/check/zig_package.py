@@ -2,7 +2,8 @@
 
 Snapshot current Git-visible files, then let Zig apply the manifest's package
 filter through `fetch --save`. Core-only use must not execute optional build
-tools. Single-transport builds and an all-module build compile, link, and run.
+tools. A core build with glowcap optimized apart from the program compiles.
+Single-transport builds and an all-module build compile, link, and run.
 Requires Git, Python, Zig, Rust llvm-tools, and the optional modules' toolchains. Temporary
 consumers and archives are removed on exit; compiler/package caches are retained. Child build
 or fetch failures and deadlines fail the check and replay their output.
@@ -83,6 +84,11 @@ def check(zig, work):
         tool.chmod(0o755)
     core_env = dict(os.environ, PATH=str(forbidden) + os.pathsep + os.environ["PATH"])
     run(zig, "build", cwd=consumer, env=core_env)
+    run(str(consumer / "zig-out/bin/glowcap-consumer"), cwd=consumer, timeout=30)
+    # A program may optimize its dependencies apart from itself. std follows the
+    # program's mode, so a glowcap layout assert that reads a std type must hold
+    # when the two modes differ.
+    run(zig, "build", "-Dglowcap-optimize=fast", cwd=consumer, env=core_env)
     run(str(consumer / "zig-out/bin/glowcap-consumer"), cwd=consumer, timeout=30)
     for selection in ("iroh", "webrtc", "optional"):
         run(zig, "build", f"-D{selection}=true", cwd=consumer)

@@ -225,7 +225,7 @@ test "loam managed graph row-family bound admits exact capacity and refuses one 
             if (view.schema == 7) {
                 application_rows += 1;
             } else {
-                const index = std.mem.indexOfScalar(u64, &families, view.schema) orelse return error.UnexpectedSchema;
+                const index = std.mem.findScalar(u64, &families, view.schema) orelse return error.UnexpectedSchema;
                 managed_rows[index] += 1;
             }
             bytes += change.staged.?.bytes.len;

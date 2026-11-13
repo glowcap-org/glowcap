@@ -17,7 +17,7 @@
 //! flat across the Q sweep. The sweep defends that shape: ns/answer growing
 //! with Q means a per-position scan crept back.
 //!
-//! Run `zig build bench-outbound` (use `-Doptimize=ReleaseFast` for absolute
+//! Run `zig build bench-outbound` (use `-Doptimize=fast` for absolute
 //! figures) to measure and write the report under `zig-out/bench-reports/`.
 //! The `--smoke` argument runs tiny counts and skips the report write. The
 //! `--gate` argument (used by `zig build check` through the ReleaseFast
@@ -256,8 +256,8 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (gate) {
-        if (builtin.mode != .fast) {
-            std.debug.print("perf_gate FAIL outbound: --gate measures ReleaseFast only, got {s}\n", .{@tagName(builtin.mode)});
+        if (builtin.optimize != .fast) {
+            std.debug.print("perf_gate FAIL outbound: --gate measures ReleaseFast only, got {s}\n", .{@tagName(builtin.optimize)});
             std.process.exit(1);
         }
         return runGate(io, allocator);
@@ -270,7 +270,7 @@ pub fn main(init: std.process.Init) !void {
     const send = try measureAnsweredSend(io, allocator, send_iters);
     std.debug.print(
         "outbound_send iters={d} total_ns_per_msg={d:.1} clone_ns_per_msg={d:.1} engine_path_ns={d:.1} mode={s}\n",
-        .{ send.iters, send.total_ns, send.clone_ns, send.total_ns - send.clone_ns, @tagName(builtin.mode) },
+        .{ send.iters, send.total_ns, send.clone_ns, send.total_ns - send.clone_ns, @tagName(builtin.optimize) },
     );
 
     var storms: [3]StormMeasurement = undefined;
@@ -281,7 +281,7 @@ pub fn main(init: std.process.Init) !void {
         count += 1;
         std.debug.print(
             "outbound_gc_storm q={d} wave_ns={d} ns_per_answer={d:.1} mode={s}\n",
-            .{ m.q, m.wave_ns, m.ns_per_answer, @tagName(builtin.mode) },
+            .{ m.q, m.wave_ns, m.ns_per_answer, @tagName(builtin.optimize) },
         );
     }
 
@@ -322,7 +322,7 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, send: SendMeasurement, storms
         \\| Q | wave (ns) | ns/answer |
         \\| ---: | ---: | ---: |
         \\
-    , .{ @tagName(builtin.mode), send.iters, send.total_ns, send.clone_ns, send.total_ns - send.clone_ns });
+    , .{ @tagName(builtin.optimize), send.iters, send.total_ns, send.clone_ns, send.total_ns - send.clone_ns });
     for (storms) |m| {
         try b.print(gpa, "| {d} | {d} | {d:.1} |\n", .{ m.q, m.wave_ns, m.ns_per_answer });
     }

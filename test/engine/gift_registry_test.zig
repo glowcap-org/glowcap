@@ -372,7 +372,7 @@ test "consumed gifts do not count toward max_deposited_gifts" {
     var buf: [8]u8 = undefined;
     var i: u64 = 0;
     while (i < 5) : (i += 1) {
-        const id = try std.fmt.bufPrint(&buf, "gift-{d}", .{i});
+        const id = try std.mem.print(&buf, "gift-{d}", .{i});
         // Only one gift is ever live at a time, so a cap of 1 admits every
         // deposit once its predecessor has been withdrawn.
         try registry.deposit(allocator, limits, null, id, "recipient");

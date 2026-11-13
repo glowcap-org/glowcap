@@ -164,8 +164,8 @@ fn readExporterProfiles(io: std.Io, reader: anytype, log: *ProfileLog) !void {
         };
         const trimmed = std.mem.trimEnd(u8, line, "\r\n");
         if (!std.mem.startsWith(u8, trimmed, "EXPORTER SESSION ")) continue;
-        const codec: model.CodecId = if (std.mem.indexOf(u8, trimmed, "codec=capnp") != null) .capnp else .syrup;
-        const version: model.CaptpVersion = if (std.mem.indexOf(u8, trimmed, "captp=next") != null) .next else .v1_0;
+        const codec: model.CodecId = if (std.mem.find(u8, trimmed, "codec=capnp") != null) .capnp else .syrup;
+        const version: model.CaptpVersion = if (std.mem.find(u8, trimmed, "captp=next") != null) .next else .v1_0;
         log.note("exporter", codec, version);
     }
 }
@@ -176,7 +176,7 @@ fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
 }
 
 fn judgeCarolLine(_: void, line: []const u8) !goblins_child.LineVerdict {
-    const redeemed = std.mem.indexOf(u8, line, "GIFT OK:") != null and std.mem.indexOf(u8, line, "goblins-carol") != null;
+    const redeemed = std.mem.find(u8, line, "GIFT OK:") != null and std.mem.find(u8, line, "goblins-carol") != null;
     return if (redeemed) .confirmed else .more;
 }
 
@@ -188,7 +188,7 @@ pub fn main(init: std.process.Init) !void {
         .max = 65534,
     });
     var carol_port_buf: [8]u8 = undefined;
-    const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{carol_port});
+    const carol_port_str = try std.mem.print(&carol_port_buf, "{d}", .{carol_port});
 
     try run(io, allocator, init.environ_map, carol_port_str);
 

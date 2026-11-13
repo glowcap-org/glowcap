@@ -6,7 +6,7 @@ const Gates = @import("../gates.zig").Registered;
 const Engine = @import("crash.zig").Engine;
 
 /// Registers the SQLite module with its tests and vacuum probe.
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, custody: *std.Build.Module, support: *std.Build.Module, temp: *std.Build.Module, gates: Gates) Engine {
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, core: *std.Build.Module, custody: *std.Build.Module, support: *std.Build.Module, temp: *std.Build.Module, gates: Gates) Engine {
     const sqlite = create(b, target, optimize, core, custody, true);
     const tested = configured(b, target, optimize, core, custody, false, true);
     const tests = b.createModule(.{ .root_source_file = b.path("test/loam_sqlite_test.zig"), .target = target, .optimize = optimize, .link_libc = true });
@@ -22,7 +22,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     tests.addImport("engine_fixture", engine_fixture);
     const suite = b.addTest(.{
         .root_module = tests,
-        .filters = if (gates.test_filter) |filter| b.dupeStrings(&.{filter}) else &.{},
+        .filters = if (gates.test_filter) |filter| b.graph.dupeStrings(&.{filter}) else &.{},
     });
     const run = execution.addZigTest(b, suite, .unit_test);
     const step = b.step("loam-sqlite-test", "Run the durable Loam suite over SQLite and prove each commit refusal changed nothing");
@@ -34,7 +34,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     const compaction_probe = b.addExecutable(.{ .name = "loam-sqlite-compaction-crash-probe", .root_module = compaction_mod });
     const compaction_crash = execution.addSystemCommand(b, .{ .deterministic = 20 }, &.{"python3"});
     compaction_crash.addFileArg(b.path("test/loam/engines/crash_test.py"));
-    compaction_crash.addArtifactArg(compaction_probe);
+    compaction_crash.addArtifactArg2(compaction_probe, .{});
     const compaction_step = b.step("loam-sqlite-compaction-crash-test", "Kill a SQLite vacuum mid-run and after it, then find every live row in a usable store");
     compaction_step.dependOn(&compaction_crash.step);
     gates.runtime_gate.add(compaction_step);
@@ -43,11 +43,11 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
 
 /// One SQLite module for a target, wired to `core`. The profiled bench graph
 /// builds its own through this, unregistered.
-pub fn create(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, custody: *std.Build.Module, registered: bool) *std.Build.Module {
+pub fn create(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, core: *std.Build.Module, custody: *std.Build.Module, registered: bool) *std.Build.Module {
     return configured(b, target, optimize, core, custody, registered, false);
 }
 
-fn configured(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, custody: *std.Build.Module, registered: bool, inject: bool) *std.Build.Module {
+fn configured(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, core: *std.Build.Module, custody: *std.Build.Module, registered: bool, inject: bool) *std.Build.Module {
     const options: std.Build.Module.CreateOptions = .{
         .root_source_file = b.path("src/loam/engines/sqlite/mod.zig"),
         .target = target,

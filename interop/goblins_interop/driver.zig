@@ -109,7 +109,7 @@ const ProjectionResponder = struct {
             const entries = try turn.arena.alloc(model.StructEntry, 1);
             entries[0] = .{
                 .key = try turn.arena.dupe(u8, "name"),
-                .value = .{ .string = try std.fmt.allocPrint(turn.arena, "{s}", .{name}) },
+                .value = .{ .string = try turn.arena.print("{s}", .{name}) },
             };
             return .{ .@"struct" = entries };
         }
@@ -133,7 +133,7 @@ pub fn main(init: std.process.Init) !void {
 
     const port = try harness.parsePortFlag(init.minimal.args, "goblins-interop", default_port, .{});
     var port_buf: [8]u8 = undefined;
-    const port_str = try std.fmt.bufPrint(&port_buf, "{d}", .{port});
+    const port_str = try std.mem.print(&port_buf, "{d}", .{port});
 
     // 1. Launch the Goblins vat and wait for it to publish its echo cap.
     // The bracket spawns Racket by absolute path (it locates its main
@@ -302,7 +302,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     var listener = try tcp.Listener.bind(io, listen_addr);
     defer listener.deinit();
     var port_buf: [8]u8 = undefined;
-    const port_text = try std.fmt.bufPrint(&port_buf, "{d}", .{listener.localAddress().getPort()});
+    const port_text = try std.mem.print(&port_buf, "{d}", .{listener.localAddress().getPort()});
 
     // 2. A responder peer; the call scenarios publish a Greeter actor behind the
     //    swiss-num. `registerBootstrapCap` allocates the export the inbound
@@ -410,7 +410,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     const stdout_text = child_out[0..child_out_len];
 
     if (scenario.serves_actor and !served and
-        std.mem.indexOf(u8, stdout_text, scenario.success_needle) == null)
+        std.mem.find(u8, stdout_text, scenario.success_needle) == null)
     {
         std.debug.print("goblins-interop: listener never served an actor deliver\n", .{});
         goblins_child.dumpChildStderr(io, "goblins-interop", &child);
@@ -418,7 +418,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     }
 
     // 7. The proof: Goblins printed the scenario's success line.
-    if (std.mem.indexOf(u8, stdout_text, scenario.success_needle) == null) {
+    if (std.mem.find(u8, stdout_text, scenario.success_needle) == null) {
         if (harness.expired(io, pump_deadline)) {
             std.debug.print("goblins-interop: listener pump timed out ({s})\n", .{scenario.kind});
         }

@@ -74,7 +74,7 @@ test "Slot never stores a wire descriptor or kind tag — projection only" {
             if (std.mem.eql(u8, field_name, "kind") or
                 std.mem.eql(u8, field_name, "descriptor") or
                 std.mem.eql(u8, field_name, "wire_descriptor") or
-                std.mem.indexOf(u8, field_name, "desc") != null)
+                std.mem.find(u8, field_name, "desc") != null)
             {
                 @compileError("Slot must not store a wire descriptor/kind field; project via toReference");
             }

@@ -54,7 +54,7 @@ pub fn argument(out: *std.ArrayList(u8), a: std.mem.Allocator, kind: calls.Type,
     try supported(kind);
     if (optional) try out.print(a, "\tif let Some(value) = arg{d}{s}\n\t\t&& ", .{ index, if (kind == .bytes) ".as_ref()" else "" }) else try out.appendSlice(a, "\tif ");
     var name: [32]u8 = undefined;
-    const value = if (optional) "value" else try std.fmt.bufPrint(&name, "arg{d}", .{index});
+    const value = if (optional) "value" else try std.mem.print(&name, "arg{d}", .{index});
     try outside(out, a, kind, value);
     try out.appendSlice(a, if (optional) "\n\t{\n" else " {\n");
     try out.appendSlice(a, "\t\treturn Err(Error::InvalidArgument);\n\t}\n");

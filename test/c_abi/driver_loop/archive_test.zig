@@ -334,7 +334,7 @@ fn reportRelayStall(io: std.Io, phase: *const std.atomic.Value(RelayPhase), roun
 }
 
 test "the relay provider registers and dials an authenticated noise-relay session through the C driver" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin()))
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()))
         return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
@@ -351,9 +351,9 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
     defer relay_server.deinit(io);
     const port = relay_server.socket.address.getPort();
     var relay_url_buf: [64]u8 = undefined;
-    const relay_url = try std.fmt.bufPrint(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
+    const relay_url = try std.mem.print(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
     var register_url_buf: [64]u8 = undefined;
-    const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
+    const register_url = try std.mem.print(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
     var relay = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &relay_server, allocator });
     var relay_joined = false;
     errdefer if (!relay_joined) wait.joinedUnwinding("relay", relay.cancel(io));

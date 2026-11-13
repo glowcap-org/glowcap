@@ -21,7 +21,7 @@ pub fn expectFileContains(
     defer gpa.free(contents);
 
     for (needles) |needle| {
-        if (std.mem.indexOf(u8, contents, needle) == null) {
+        if (std.mem.find(u8, contents, needle) == null) {
             try violation_log.appendViolation(gpa, violations, "{s}: missing required text `{s}`", .{ path, needle });
         }
     }
@@ -41,7 +41,7 @@ pub fn fileContains(
         else => return err,
     };
     defer gpa.free(contents);
-    return std.mem.indexOf(u8, contents, needle) != null;
+    return std.mem.find(u8, contents, needle) != null;
 }
 
 /// Match a source fragment while ignoring formatter-controlled ASCII
@@ -105,7 +105,7 @@ pub fn firstIntIn(s: []const u8) ?i64 {
 /// marker is absent or its brace never closes.
 pub fn extractBraceBlock(text: []const u8, marker: []const u8) ?[]const u8 {
     std.debug.assert(std.mem.endsWith(u8, marker, "{"));
-    const start = std.mem.indexOf(u8, text, marker) orelse return null;
+    const start = std.mem.find(u8, text, marker) orelse return null;
     const open = start + marker.len - 1;
     var depth: usize = 1;
     var i = open + 1;
@@ -138,7 +138,7 @@ pub fn extractBraceBlock(text: []const u8, marker: []const u8) ?[]const u8 {
 pub fn containsAsSymbol(haystack: []const u8, needle: []const u8) bool {
     if (needle.len == 0) return false;
     var from: usize = 0;
-    while (std.mem.indexOfPos(u8, haystack, from, needle)) |at| {
+    while (std.mem.findPos(u8, haystack, from, needle)) |at| {
         from = at + 1;
         if (isIdentChar(needle[0]) and at > 0 and isIdentChar(haystack[at - 1])) continue;
         const end = at + needle.len;
@@ -187,8 +187,8 @@ pub fn blankComments(src: []u8) void {
 test "blankComments erases comments without mistaking a locator for one" {
     var src = "a // gone\n.handshake = .{ .ms = 1 },".*;
     blankComments(&src);
-    try std.testing.expect(std.mem.indexOf(u8, &src, "gone") == null);
-    try std.testing.expect(std.mem.indexOf(u8, &src, ".handshake = .{ .ms = 1 }") != null);
+    try std.testing.expect(std.mem.find(u8, &src, "gone") == null);
+    try std.testing.expect(std.mem.find(u8, &src, ".handshake = .{ .ms = 1 }") != null);
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, &src, "\n"));
 
     var uri = "\"tcp://host\", .{ .handshake = .{ .ms = 9 } }".*;
@@ -197,14 +197,14 @@ test "blankComments erases comments without mistaking a locator for one" {
 
     var commented = "// .handshake = .unbounded\n.{}".*;
     blankComments(&commented);
-    try std.testing.expect(std.mem.indexOf(u8, &commented, "unbounded") == null);
+    try std.testing.expect(std.mem.find(u8, &commented, "unbounded") == null);
 }
 
 /// `line` before its `//` comment, or all of it. A `//` inside a string
 /// literal cuts the line short, which only drops identifiers and never
 /// invents one.
 pub fn codeOfLine(line: []const u8) []const u8 {
-    return line[0 .. std.mem.indexOf(u8, line, "//") orelse line.len];
+    return line[0 .. std.mem.find(u8, line, "//") orelse line.len];
 }
 
 /// Identifiers of one code line, in order.
@@ -246,9 +246,9 @@ pub fn namesAfterPrefix(
     out: *std.ArrayList([]const u8),
 ) !void {
     var rest = text;
-    while (std.mem.indexOf(u8, rest, prefix)) |start| {
+    while (std.mem.find(u8, rest, prefix)) |start| {
         const after = rest[start + prefix.len ..];
-        const name_end = std.mem.indexOfAny(u8, after, " \t\r\n") orelse after.len;
+        const name_end = std.mem.findAny(u8, after, " \t\r\n") orelse after.len;
         const name = after[0..name_end];
         if (name.len != 0) try out.append(gpa, name);
         rest = after[name_end..];

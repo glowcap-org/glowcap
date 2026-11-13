@@ -54,7 +54,7 @@ fn slug(text: []const u8, buf: []u8) []const u8 {
     while (i < text.len and n < buf.len) : (i += 1) {
         const c = text[i];
         if (c == ']' and i + 1 < text.len and text[i + 1] == '(') {
-            i = std.mem.indexOfScalarPos(u8, text, i, ')') orelse text.len;
+            i = std.mem.findScalarPos(u8, text, i, ')') orelse text.len;
             continue;
         }
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_') {
@@ -74,9 +74,9 @@ fn slug(text: []const u8, buf: []u8) []const u8 {
 fn explicitAnchor(contents: []const u8, fragment: []const u8) bool {
     inline for (.{ "id=\"", "name=\"" }) |attr| {
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, contents, at, attr)) |i| {
+        while (std.mem.findPos(u8, contents, at, attr)) |i| {
             const start = i + attr.len;
-            const end = std.mem.indexOfScalarPos(u8, contents, start, '"') orelse break;
+            const end = std.mem.findScalarPos(u8, contents, start, '"') orelse break;
             if (std.mem.eql(u8, contents[start..end], fragment)) return true;
             at = end;
         }

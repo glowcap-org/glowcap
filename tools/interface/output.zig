@@ -4,12 +4,12 @@ const std = @import("std");
 
 pub fn write(a: std.mem.Allocator, io: std.Io, inputs: []const []const u8, output: []const u8, bytes: []const u8) !void {
     const cwd = std.Io.Dir.cwd();
-    var directory = try cwd.openDir(io, std.fs.path.dirname(output) orelse ".", .{});
+    var directory = try cwd.openDir(io, std.Io.Dir.path.dirname(output) orelse ".", .{});
     defer directory.close(io);
-    const name = std.fs.path.basename(output);
+    const name = std.Io.Dir.path.basename(output);
     var parent_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const parent = parent_buffer[0..try directory.realPath(io, &parent_buffer)];
-    const destination = try std.fs.path.join(a, &.{ parent, name });
+    const destination = try std.Io.Dir.path.join(a, &.{ parent, name });
     // Check the loaded name as well as a resolved symlink. Replacement never
     // follows the destination symlink, but refusing its source alias avoids
     // silently replacing an input-facing name with generated code.

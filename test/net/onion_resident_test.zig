@@ -126,7 +126,7 @@ test "a dial hands the session a stream positioned after the SOCKS reply" {
     var proxy = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer proxy.deinit();
     var socks_text: [64]u8 = undefined;
-    const socks = try std.fmt.bufPrint(&socks_text, "{f}", .{proxy.localAddress()});
+    const socks = try std.mem.print(&socks_text, "{f}", .{proxy.localAddress()});
 
     var observed: FakeSocksResult = undefined;
     var server = try io.concurrent(fakeSocksServe, .{ io, &proxy, allocator, &observed });
@@ -278,7 +278,7 @@ test "a refused control authentication closes the unreturned stream" {
     var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
-    const endpoint_text = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
+    const endpoint_text = try std.mem.print(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
     var server = try io.concurrent(fakeControlRejectAuth, .{ io, &ctrl_listener });
 
     var ctrl: onion.session.ControlSession = undefined;
@@ -299,7 +299,7 @@ test "a listener publishes the service id Tor named, not one glowcap chose" {
     var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
-    const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
+    const ctrl = try std.mem.print(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
 
     var observed: FakeControlResult = .{ .lines = .empty, .allocator = allocator };
     defer observed.deinit();
@@ -317,7 +317,7 @@ test "a listener publishes the service id Tor named, not one glowcap chose" {
     try std.testing.expect(std.mem.startsWith(u8, add, "ADD_ONION NEW:ED25519-V3 PORT=9045,"));
     // With no configured forward the listener binds a loopback port and names the
     // one the OS chose, so the target is an address rather than a socket path.
-    try std.testing.expect(std.mem.indexOf(u8, add, ",127.0.0.1:") != null);
+    try std.testing.expect(std.mem.find(u8, add, ",127.0.0.1:") != null);
 }
 
 test "onion listener returns Unix-socket removal failure" {
@@ -331,16 +331,16 @@ test "onion listener returns Unix-socket removal failure" {
     var random: [12]u8 = undefined;
     io.random(&random);
     var tmp_path_buf: [64]u8 = undefined;
-    const tmp_path = try std.fmt.bufPrint(&tmp_path_buf, "/tmp/glowcap-{x}", .{random});
+    const tmp_path = try std.mem.print(&tmp_path_buf, "/tmp/glowcap-{x}", .{random});
     try std.Io.Dir.createDirAbsolute(io, tmp_path, .fromMode(0o700));
     defer std.Io.Dir.cwd().deleteTree(io, tmp_path) catch @panic("cannot remove onion test directory");
     var socket_path_buf: [96]u8 = undefined;
-    const socket_path = try std.fmt.bufPrint(&socket_path_buf, "{s}/forward.sock", .{tmp_path});
+    const socket_path = try std.mem.print(&socket_path_buf, "{s}/forward.sock", .{tmp_path});
 
     var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
-    const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
+    const ctrl = try std.mem.print(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
     var observed: FakeControlResult = .{ .lines = .empty, .allocator = allocator };
     defer observed.deinit();
     var control_server = try io.concurrent(fakeControlServe, .{ io, &ctrl_listener, &observed });
@@ -407,7 +407,7 @@ test "onion listener shutdown wakes and joins a blocked accept before release" {
     var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
-    const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
+    const ctrl = try std.mem.print(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
 
     var observed: FakeControlResult = .{ .lines = .empty, .allocator = allocator };
     defer observed.deinit();
@@ -440,7 +440,7 @@ test "onion listener shutdown joins a blocked readiness wait before release" {
     var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
-    const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
+    const ctrl = try std.mem.print(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
 
     var observed: FakeControlResult = .{ .lines = .empty, .allocator = allocator };
     defer observed.deinit();

@@ -73,7 +73,7 @@ pub fn main(init: std.process.Init) !void {
     const port: u16 = if (args_iter.next()) |p| try std.fmt.parseInt(u16, p, 10) else 0;
 
     var bind_buf: [32]u8 = undefined;
-    const bind = try std.fmt.bufPrint(&bind_buf, "{s}:{d}", .{ host_addr, port });
+    const bind = try std.mem.print(&bind_buf, "{s}:{d}", .{ host_addr, port });
     var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = bind }, .ephemeral, opts);
     defer server.deinit();
     try server.publish("root", Board, .{});
@@ -84,7 +84,7 @@ pub fn main(init: std.process.Init) !void {
     try stdout.interface.print("{{\"v\":1,\"event\":\"ready\",\"listen\":\"{s}\"}}\n", .{try server.localDesignator(&designator_buf)});
     try stdout.interface.flush();
 
-    var sessions: std.ArrayListUnmanaged(*driver.Session) = .empty;
+    var sessions: std.ArrayList(*driver.Session) = .empty;
     defer {
         for (sessions.items) |session| session.deinit();
         sessions.deinit(allocator);

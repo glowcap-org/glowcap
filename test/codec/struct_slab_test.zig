@@ -74,7 +74,7 @@ test "struct slab: malformed singleton key is refused with and without storage" 
             defer frame.deinit();
             const bytes = try std.testing.allocator.dupe(u8, frame.bytes());
             defer std.testing.allocator.free(bytes);
-            const index = std.mem.indexOf(u8, bytes, "unique-key") orelse return error.TestUnexpectedResult;
+            const index = std.mem.find(u8, bytes, "unique-key") orelse return error.TestUnexpectedResult;
             bytes[index] = 0xff;
             var storage: [8]view.Argument = undefined;
             for (0..storage.len + 1) |capacity| {

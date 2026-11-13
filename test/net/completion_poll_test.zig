@@ -16,7 +16,7 @@ const Pipe = struct {
 
     fn open() !Pipe {
         var fds: [2]i32 = undefined;
-        if (builtin.os.tag == .linux) {
+        if (builtin.target.os.tag == .linux) {
             const linux = std.os.linux;
             if (linux.errno(linux.pipe2(&fds, .{ .NONBLOCK = true, .CLOEXEC = true })) != .SUCCESS) return error.PipeFailed;
         } else {
@@ -84,13 +84,13 @@ fn exercise(comptime Backend: type, comptime host_optional: bool) !void {
 }
 
 test "completion backends report readiness without consuming and cancel a poll" {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux => try exercise(net.epoll_white_box.TestBackend, false),
-        else => if (builtin.os.tag.isDarwin()) try exercise(net.kqueue_white_box.TestBackend, false) else return error.SkipZigTest,
+        else => if (builtin.target.os.tag.isDarwin()) try exercise(net.kqueue_white_box.TestBackend, false) else return error.SkipZigTest,
     }
 }
 
 test "io_uring reports readiness without consuming and cancels a poll, or skips where the host refuses io_uring" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
     try exercise(net.uring_white_box.TestBackend, true);
 }

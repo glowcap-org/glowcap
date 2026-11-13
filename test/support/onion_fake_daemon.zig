@@ -72,12 +72,12 @@ pub const Daemon = struct {
                 .{ .reuse_address = true },
             ),
         };
-        self.control_text_len = (try std.fmt.bufPrint(
+        self.control_text_len = (try std.mem.print(
             &self.control_text,
             "{f}",
             .{self.control.socket.address},
         )).len;
-        self.socks_text_len = (try std.fmt.bufPrint(
+        self.socks_text_len = (try std.mem.print(
             &self.socks_text,
             "{f}",
             .{self.socks.socket.address},
@@ -178,9 +178,9 @@ pub const Daemon = struct {
                 // Remember the forward target, the last comma-separated field of
                 // the PORT= argument, so a test can reach the endpoint the
                 // listener bound.
-                if (std.mem.indexOf(u8, line, "PORT=")) |at| {
+                if (std.mem.find(u8, line, "PORT=")) |at| {
                     const rest = line[at + "PORT=".len ..];
-                    if (std.mem.indexOfScalar(u8, rest, ',')) |ci| {
+                    if (std.mem.findScalar(u8, rest, ',')) |ci| {
                         const target = rest[ci + 1 ..];
                         const n = @min(target.len, self.last_forward.len);
                         @memcpy(self.last_forward[0..n], target[0..n]);

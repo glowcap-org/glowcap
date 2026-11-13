@@ -49,8 +49,8 @@ fn isRust(path: []const u8) bool {
 /// The directory a manifest governs, as a repository-relative prefix ending in
 /// `/` so prefix tests cannot match a sibling whose name merely starts the same.
 fn crateDir(gpa: std.mem.Allocator, manifest: []const u8) ![]u8 {
-    const cut = std.mem.lastIndexOfScalar(u8, manifest, '/') orelse return gpa.dupe(u8, "");
-    return std.fmt.allocPrint(gpa, "{s}/", .{manifest[0..cut]});
+    const cut = std.mem.findScalarLast(u8, manifest, '/') orelse return gpa.dupe(u8, "");
+    return gpa.print("{s}/", .{manifest[0..cut]});
 }
 
 /// The body of one TOML table, from its header to the next one. Enough for the
@@ -59,16 +59,16 @@ fn crateDir(gpa: std.mem.Allocator, manifest: []const u8) ![]u8 {
 /// guessing about.
 fn tableBody(contents: []const u8, header: []const u8) ?[]const u8 {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, contents, at, header)) |found| {
+    while (std.mem.findPos(u8, contents, at, header)) |found| {
         at = found + header.len;
-        const line_start = if (std.mem.lastIndexOfScalar(u8, contents[0..found], '\n')) |nl| nl + 1 else 0;
+        const line_start = if (std.mem.findScalarLast(u8, contents[0..found], '\n')) |nl| nl + 1 else 0;
         // The header has to start its own line, so `[lints.rust]` is not found
         // inside a comment that mentions it.
         if (std.mem.trim(u8, contents[line_start..found], " \t").len != 0) continue;
         var rest = contents[at..];
         var end: usize = 0;
         while (end < rest.len) {
-            const nl = std.mem.indexOfScalarPos(u8, rest, end, '\n') orelse return rest;
+            const nl = std.mem.findScalarPos(u8, rest, end, '\n') orelse return rest;
             const next = nl + 1;
             if (next < rest.len and rest[next] == '[') return rest[0..next];
             end = next;
@@ -204,7 +204,7 @@ pub fn check(
             for (requirements, 0..) |requirement, index| {
                 if (writes[index]) continue;
                 for (requirement.triggers) |trigger| {
-                    if (std.mem.indexOf(u8, contents, trigger) != null) writes[index] = true;
+                    if (std.mem.find(u8, contents, trigger) != null) writes[index] = true;
                 }
             }
             var all_seen = true;

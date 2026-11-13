@@ -484,7 +484,7 @@ test "answer-position reuse neither cancels nor redirects an accepted listener f
         switch (body) {
             .deliver => {
                 try std.testing.expectEqualStrings("old", (try body.deliver.args.at(1)).bytes);
-                try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "new") == null);
+                try std.testing.expect(std.mem.find(u8, frame.bytes(), "new") == null);
             },
             .gc_export => {
                 try std.testing.expectEqual(@as(u64, 9), try body.gc_export.positions.at(0));

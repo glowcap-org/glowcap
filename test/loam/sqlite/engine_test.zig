@@ -84,8 +84,8 @@ const Foreign = struct {
     /// connection initializes it before opening, as the engine does.
     fn open(directory: []const u8) !Foreign {
         try std.testing.expectEqual(@as(c_int, 0), sqlite3_initialize());
-        var path: [std.fs.max_path_bytes:0]u8 = undefined;
-        const text = try std.fmt.bufPrint(&path, "{s}/{s}\x00", .{ directory, sqlite.file_name });
+        var path: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+        const text = try std.mem.print(&path, "{s}/{s}\x00", .{ directory, sqlite.file_name });
         var db: ?*anyopaque = null;
         try std.testing.expectEqual(@as(c_int, 0), sqlite3_open_v2(@ptrCast(text.ptr), &db, 0x6, null));
         return .{ .db = db.? };

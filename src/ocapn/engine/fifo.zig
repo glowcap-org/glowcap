@@ -32,12 +32,12 @@ const std = @import("std");
 /// element ownership and reservation contract.
 pub fn compactHead(
     comptime T: type,
-    list: *std.ArrayListUnmanaged(T),
+    list: *std.ArrayList(T),
     head: *usize,
 ) void {
     if (head.* == 0) return;
     const live = list.items.len - head.*;
-    std.mem.copyForwards(T, list.items[0..live], list.items[head.*..]);
+    @memmove(list.items[0..live], list.items[head.*..]);
     list.shrinkRetainingCapacity(live);
     head.* = 0;
 }
@@ -53,7 +53,7 @@ pub fn compactHead(
 /// its live depth instead of to everything ever pushed.
 pub fn popHead(
     comptime T: type,
-    list: *std.ArrayListUnmanaged(T),
+    list: *std.ArrayList(T),
     head: *usize,
     allocator: std.mem.Allocator,
     steady_bytes: usize,
@@ -78,7 +78,7 @@ const dead_prefix_rows_min = 64;
 /// connection. The cost is one new allocation when the next burst arrives.
 pub fn reclaimDrained(
     comptime T: type,
-    list: *std.ArrayListUnmanaged(T),
+    list: *std.ArrayList(T),
     head: *usize,
     allocator: std.mem.Allocator,
     steady_bytes: usize,
@@ -105,7 +105,7 @@ pub fn ActionFifo(comptime T: type) type {
         const Self = @This();
 
         /// Rows pushed and not yet popped live at `list.items[head..]`.
-        list: std.ArrayListUnmanaged(T) = .empty,
+        list: std.ArrayList(T) = .empty,
         head: usize = 0,
 
         pub fn push(self: *Self, allocator: std.mem.Allocator, row: T) !void {

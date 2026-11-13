@@ -24,7 +24,7 @@ pub const ObservationIndexRecord = struct {
 
     pub fn remove(self: *ObservationIndexRecord, id: loam.ObjectId) !void {
         for (self.contexts[0..self.count], 0..) |prior, index| if (prior.eql(id)) {
-            std.mem.copyForwards(loam.ObjectId, self.contexts[index .. self.count - 1], self.contexts[index + 1 .. self.count]);
+            @memmove(self.contexts[index .. self.count - 1], self.contexts[index + 1 .. self.count]);
             self.count -= 1;
             return;
         };

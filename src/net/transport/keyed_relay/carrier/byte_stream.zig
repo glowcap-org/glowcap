@@ -136,7 +136,7 @@ const Clear = struct {
             },
         };
         const remaining = writer.end - n;
-        std.mem.copyForwards(u8, writer.buffer[0..remaining], writer.buffer[n..writer.end]);
+        @memmove(writer.buffer[0..remaining], writer.buffer[n..writer.end]);
         writer.end = remaining;
         return @intCast(n);
     }

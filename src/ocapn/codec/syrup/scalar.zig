@@ -83,7 +83,7 @@ pub fn writeAbortWireString(sink: anytype, abort: model.AbortReason) !void {
 /// The typed reason a V1.0 abort wire string names, or an `.other` reason
 /// holding the whole string when its label is not one the model knows.
 pub fn abortReasonFromWireString(wire: []const u8) model.AbortReason {
-    if (std.mem.indexOf(u8, wire, abort_separator)) |split| {
+    if (std.mem.find(u8, wire, abort_separator)) |split| {
         if (model.AbortKind.fromWireName(wire[0..split])) |kind| {
             return .{ .kind = kind, .message = wire[split + abort_separator.len ..] };
         }

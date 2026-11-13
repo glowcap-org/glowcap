@@ -301,7 +301,7 @@ pub fn openAdmissionRelay(backend: *AdmissionBackend) !AdmissionBackend.Fd {
     const fd = try startUpgradeRelay(backend);
     const conn = backend.conns.get(1).?;
     var response_buf: [256]u8 = undefined;
-    const response = try std.fmt.bufPrint(
+    const response = try std.mem.print(
         &response_buf,
         "HTTP/1.1 101 Switching Protocols\r\n" ++
             "Upgrade: websocket\r\n" ++

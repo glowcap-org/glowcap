@@ -117,7 +117,7 @@ fn countOnCode(contents: []const u8, needle: []const u8) usize {
         const trimmed = std.mem.trimStart(u8, line, " \t");
         if (std.mem.startsWith(u8, trimmed, "//")) continue;
         var rest = line;
-        while (std.mem.indexOf(u8, rest, needle)) |at| {
+        while (std.mem.find(u8, rest, needle)) |at| {
             count += 1;
             rest = rest[at + needle.len ..];
         }
@@ -133,7 +133,7 @@ fn findUnqualified(contents: []const u8, needle: []const u8, qualified: []const 
         const trimmed = std.mem.trimStart(u8, line, " \t");
         if (std.mem.startsWith(u8, trimmed, "//")) continue;
         var rest = line;
-        while (std.mem.indexOf(u8, rest, needle)) |at| {
+        while (std.mem.find(u8, rest, needle)) |at| {
             if (!std.mem.startsWith(u8, rest[at..], qualified)) return true;
             rest = rest[at + needle.len ..];
         }

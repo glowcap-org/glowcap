@@ -39,7 +39,7 @@ pub fn check(
             const text = root.readFileAlloc(io, path, arena, .limited(16 << 20)) catch continue;
             try addWords(arena, &words, text);
             // A module is named by its file: `tests.op_gc` is `tests/op_gc.py`.
-            try addWords(arena, &words, std.fs.path.stem(path));
+            try addWords(arena, &words, std.Io.Dir.path.stem(path));
         }
     }
     if (root.readFileAlloc(io, "build.zig", arena, .limited(1 << 20))) |text| {

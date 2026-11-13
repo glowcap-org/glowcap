@@ -77,7 +77,7 @@ pub fn checkRoomsProofChildren(
         );
     }
     for (owned_helpers) |helper| {
-        const helper_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ proof_dir, helper.owner_rel });
+        const helper_path = try gpa.print("{s}/{s}", .{ proof_dir, helper.owner_rel });
         defer gpa.free(helper_path);
         if (!(try text_match.fileContains(io, gpa, root, helper_path, helper.needle))) {
             try appendViolation(gpa, violations, "{s}: the one owner of `{s}` no longer declares it", .{ helper_path, helper.needle });
@@ -99,7 +99,7 @@ fn isComment(line: []const u8) bool {
 }
 
 fn containsAny(line: []const u8, needles: []const []const u8) bool {
-    for (needles) |needle| if (std.mem.indexOf(u8, line, needle) != null) return true;
+    for (needles) |needle| if (std.mem.find(u8, line, needle) != null) return true;
     return false;
 }
 
@@ -111,7 +111,7 @@ fn inspect(
     violations: *std.ArrayList([]const u8),
 ) !void {
     if (!std.mem.eql(u8, child_rel, spawn_owner_rel)) {
-        if (std.mem.indexOf(u8, contents, spawn_needle) != null) try appendViolation(
+        if (std.mem.find(u8, contents, spawn_needle) != null) try appendViolation(
             gpa,
             violations,
             "{s}: spawns a child directly. Use `spawnOwned` from {s}/{s}, so a proof that dies on an uncaught deadline cannot orphan its server onto a port the next run needs",
@@ -131,7 +131,7 @@ fn inspect(
     }
     for (owned_helpers) |helper| {
         if (std.mem.eql(u8, child_rel, helper.owner_rel)) continue;
-        if (std.mem.indexOf(u8, contents, helper.needle) != null) try appendViolation(
+        if (std.mem.find(u8, contents, helper.needle) != null) try appendViolation(
             gpa,
             violations,
             "{s}: declares its own `{s}`. Import it from {s}/{s}",
@@ -151,7 +151,7 @@ fn walk(
     const here = if (rel.len == 0)
         try gpa.dupe(u8, base)
     else
-        try std.fmt.allocPrint(gpa, "{s}/{s}", .{ base, rel });
+        try gpa.print("{s}/{s}", .{ base, rel });
     defer gpa.free(here);
 
     var dir = root.openDir(io, here, .{ .iterate = true }) catch {
@@ -166,7 +166,7 @@ fn walk(
         const child_rel = if (rel.len == 0)
             try gpa.dupe(u8, entry.name)
         else
-            try std.fmt.allocPrint(gpa, "{s}/{s}", .{ rel, entry.name });
+            try gpa.print("{s}/{s}", .{ rel, entry.name });
         defer gpa.free(child_rel);
 
         if (entry.kind == .directory) {
@@ -175,7 +175,7 @@ fn walk(
         }
         if (!std.mem.endsWith(u8, entry.name, ".ts")) continue;
 
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ base, child_rel });
+        const path = try gpa.print("{s}/{s}", .{ base, child_rel });
         defer gpa.free(path);
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch {
             try appendViolation(gpa, violations, "{s}: could not be read", .{path});

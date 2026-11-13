@@ -172,7 +172,7 @@ test "loop refusals speak through the driver family's own error slot" {
         cdrv.glowcap_driver_last_error(&operation_message, operation_message.len),
         operation_message.len,
     );
-    try std.testing.expect(std.mem.indexOf(u8, operation_message[0..operation_message_len], "transport operation options") != null);
+    try std.testing.expect(std.mem.find(u8, operation_message[0..operation_message_len], "transport operation options") != null);
     // A resident table with unset function pointers is refused before any
     // registration happens.
     var table = std.mem.zeroes(cdrv.GlowcapMultiplexedTransport);

@@ -205,7 +205,7 @@ pub const Vat = struct {
     /// may already be draining. Make them terminal no-ops instead of mutating
     /// the table under its own deinitialization walk.
     tearing_down: bool = false,
-    actors: std.AutoHashMapUnmanaged(u64, Cell) = .{},
+    actors: std.AutoHashMapUnmanaged(u64, Cell) = .empty,
     queue_limits: QueueLimits = .{},
     /// A trusted adapter copy cannot drive or change queue admission while
     /// its preflight owns unpublished capacity.
@@ -219,7 +219,7 @@ pub const Vat = struct {
     /// One Vat-wide spare amortizes ordinary local enqueue without retaining a
     /// chunk per idle ingress. Every additional completed chunk is freed.
     spare_chunk: ?*QueueChunk = null,
-    listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
+    listeners: std.AutoHashMapUnmanaged(u64, Listener) = .empty,
     /// One installed callback identity for Vat-owned forwarding contexts.
     /// Zig archives compile distinct function addresses. Retaining this
     /// address costs one word per Vat, avoiding a tag on every listener and
@@ -229,12 +229,12 @@ pub const Vat = struct {
     /// settle vow ids out of global numeric order, so a FIFO high-water
     /// mark is unsound. This index makes late-listener refusal independent of
     /// scheduling order.
-    pending_local_vows: std.AutoHashMapUnmanaged(PendingLocalVowKey, void) = .{},
+    pending_local_vows: std.AutoHashMapUnmanaged(PendingLocalVowKey, void) = .empty,
     /// Resolver id → the local vow it settles (ADR-0014). A row is consumed
     /// by the first settle attempt, so the map holds exactly the live settle
     /// authorities. Freed with the vat. Ids start at 1 so 0 stays unminted
     /// for adapter tiers that want a null sentinel.
-    resolver_vows: std.AutoHashMapUnmanaged(u64, u64) = .{},
+    resolver_vows: std.AutoHashMapUnmanaged(u64, u64) = .empty,
     resolver_ids: foundation.id_issuer.IdIssuer = .{},
     // The turn and settle arenas below, plus the Vat-wide spare chunk's payload
     // arena, retain backing storage across a reset. A safety build does not
@@ -263,15 +263,15 @@ pub const Vat = struct {
     /// fair rotation point rather than re-running the active turn.
     drive_depth: u32 = 0,
     /// The running outermost turn's staged local sends, per ingress (ADR-0058).
-    staged: std.ArrayListUnmanaged(ingress_mod.StagedIngress) = .empty,
+    staged: std.ArrayList(ingress_mod.StagedIngress) = .empty,
     /// Set when the outermost turn fails, so its close drops the held sends.
     turn_failure: ?engine.Broken = null,
     /// Layers that recorded an effect in the running outermost turn and wait
     /// for its outcome (ADR-0058), in enrollment order.
-    participants: std.ArrayListUnmanaged(TurnParticipant) = .empty,
+    participants: std.ArrayList(TurnParticipant) = .empty,
     /// Answer slots reserved by far sends before their effect. Listeners stay
     /// at their Port until notification, so cancellation keeps its usual owner.
-    turn_breaks: std.ArrayListUnmanaged(TurnBreak) = .empty,
+    turn_breaks: std.ArrayList(TurnBreak) = .empty,
     turn_break_reservations: usize = 0,
     /// Scratch for local and far fulfilled-listener calls. Queue chunks may
     /// reclaim independently, so settlement has one depth-guarded arena that a

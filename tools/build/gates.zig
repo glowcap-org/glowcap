@@ -26,7 +26,7 @@ const graphFromTable = root.graphFromTable;
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     /// The public `glowcap` module and the shared layer instances the test
     /// suites import directly.
     lib_mod: *std.Build.Module,
@@ -58,7 +58,7 @@ pub const Registered = struct {
 /// Darwin `kqueue` path, which a Linux host build never compiles)
 /// without running, so a regression there fails `zig build check` instead of
 /// waiting for a Mac.
-fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
+fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.lang.Optimize) *std.Build.Module {
     const mods = graphFromTable(b, t, o, &layer_table, false);
     return mods[layerIndex("glowcap")];
 }
@@ -67,7 +67,7 @@ fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Opt
 /// target, returning the `actors` module at its top, which type-checks the
 /// core for `wasm32-freestanding`, gating the 32-bit overflow guards the codec
 /// carries without pulling in the I/O layers that wasm lacks.
-fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
+fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.lang.Optimize) *std.Build.Module {
     const mods = graphFromTable(b, t, o, layer_table[0 .. layerIndex("actors") + 1], false);
     return mods[layerIndex("actors")];
 }
@@ -76,7 +76,7 @@ fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Op
 /// drives a `Peer` through fixed protocol scenarios and returns the wire bytes
 /// the oracle, fuzz, and memcheck suites compare. Built once per module graph
 /// because each graph has its own target and mode.
-fn scenariosModule(b: *std.Build, mods: []*std.Build.Module, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
+fn scenariosModule(b: *std.Build, mods: []*std.Build.Module, t: std.Build.ResolvedTarget, o: std.lang.Optimize) *std.Build.Module {
     const mod = b.createModule(.{
         .root_source_file = b.path("test/oracle/scenarios/mod.zig"),
         .target = t,
@@ -200,7 +200,7 @@ pub fn register(ctx: Context) Registered {
     const test_filter = b.option([]const u8, "test-filter", "Run only tests whose names contain this substring");
     const tests = b.addTest(.{
         .root_module = tests_mod,
-        .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .filters = if (test_filter) |f| b.graph.dupeStrings(&.{f}) else &.{},
     });
 
     const run_tests = execution.addZigTest(b, tests, .unit_test);
@@ -226,15 +226,15 @@ pub fn register(ctx: Context) Registered {
     // follow io_uring, and Loam stays out until its tests need no LMDB
     // process. `-Dtest-filter` narrows this suite as it does `test`.
     const memcheck_target = b.resolveTargetQuery(.{ .cpu_model = .baseline });
-    const memcheck_mods = graphFromTable(b, memcheck_target, .Debug, &layer_table, false);
+    const memcheck_mods = graphFromTable(b, memcheck_target, .debug, &layer_table, false);
     const memcheck_mod = b.createModule(.{
         .root_source_file = b.path("test/all_test.zig"),
         .target = memcheck_target,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     memcheck_mod.addImport("glowcap", memcheck_mods[layerIndex("glowcap")]);
-    memcheck_mod.addImport("scenarios", scenariosModule(b, memcheck_mods, memcheck_target, .Debug));
-    frame_identity.addFixtures(b, memcheck_mod, memcheck_target, .Debug);
+    memcheck_mod.addImport("scenarios", scenariosModule(b, memcheck_mods, memcheck_target, .debug));
+    frame_identity.addFixtures(b, memcheck_mod, memcheck_target, .debug);
     memcheck_mod.addImport("syrup", memcheck_mods[layerIndex("syrup")]);
     const memcheck_layers = b.addOptions();
     memcheck_layers.addOption([]const []const u8, "layers", &.{ "foundation", "model", "codec", "session", "engine", "actors" });
@@ -244,7 +244,7 @@ pub fn register(ctx: Context) Registered {
     // each probe as a read below the stack.
     const memcheck_tests = b.addTest(.{
         .root_module = memcheck_mod,
-        .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .filters = if (test_filter) |f| b.graph.dupeStrings(&.{f}) else &.{},
         .use_llvm = true,
     });
     // The hosted baseline-CPU Debug suite measured 672s under valgrind.
@@ -275,7 +275,7 @@ pub fn register(ctx: Context) Registered {
         // to one target at a time and runs the fuzzer once per target. Without
         // the filter here it silently fuzzed the same target every time and
         // reported "no findings" for all the others.
-        .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .filters = if (test_filter) |f| b.graph.dupeStrings(&.{f}) else &.{},
     });
     const fuzz_run_step = b.step("fuzz-run", "Fuzz worker: `zig build fuzz` drives this, or add --fuzz yourself for Zig's coverage UI");
     fuzz_run_step.dependOn(&execution.addZigTest(b, fuzz_tests, .search).step);
@@ -287,7 +287,7 @@ pub fn register(ctx: Context) Registered {
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/fuzz/main.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const shard_mod = b.createModule(.{ .root_source_file = b.path("tools/build/shard.zig"), .target = b.graph.host });
@@ -413,13 +413,13 @@ pub fn register(ctx: Context) Registered {
     // target is a different ABI to widen coverage cheaply.
     const cross_macos = b.addObject(.{
         .name = "glowcap-cross-macos",
-        .root_module = crossLibModule(b, b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos }), .Debug),
+        .root_module = crossLibModule(b, b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos }), .debug),
     });
     // wasm32-freestanding type-checks the sans-io core (no I/O layers wasm
     // lacks), gating the 32-bit overflow guards the codec carries.
     const cross_wasm = b.addObject(.{
         .name = "glowcap-cross-wasm-core",
-        .root_module = crossCoreModule(b, b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }), .Debug),
+        .root_module = crossCoreModule(b, b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }), .debug),
     });
     // A real fetched archive applies .paths, unlike a checkout dependency.
     // Exercise core-only use and all optional modules outside the checkout.
@@ -445,9 +445,9 @@ pub fn register(ctx: Context) Registered {
     const cross_fast_mod = b.createModule(.{
         .root_source_file = b.path("test/api_surface_test.zig"),
         .target = target,
-        .optimize = .ReleaseFast,
+        .optimize = .fast,
     });
-    cross_fast_mod.addImport("glowcap", crossLibModule(b, target, .ReleaseFast));
+    cross_fast_mod.addImport("glowcap", crossLibModule(b, target, .fast));
     cross_fast_mod.link_libc = true;
     const cross_fast = b.addTest(.{ .name = "glowcap-cross-fast", .root_module = cross_fast_mod });
     const run_cross_fast = execution.addZigTest(b, cross_fast, .unit_test);

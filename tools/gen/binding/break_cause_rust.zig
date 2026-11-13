@@ -28,7 +28,7 @@ pub fn generate(out: *Buffer, a: std.mem.Allocator) !void {
         "pub struct BreakContext(u8);\n" ++
         "impl BreakContext {\n");
     try out.print(a, "\tpub fn from_raw(raw: u32) -> Option<Self> {{\n\t\tif raw & !{d} == 0 {{ Some(Self(raw as u8)) }} else {{ None }}\n\t}}\n\tpub fn raw(self) -> u32 {{\n\t\tu32::from(self.0)\n\t}}\n", .{s.context_mask});
-    inline for (comptime std.meta.fieldNames(s.Context)) |name| {
+    inline for (@typeInfo(s.Context).@"struct".field_names) |name| {
         try out.print(a, "\tpub fn {s}(self) -> bool {{\n\t\tself.0 & {d} != 0\n\t}}\n\tpub fn with_{s}(self) -> Self {{\n\t\tSelf(self.0 | {d})\n\t}}\n", .{ name, s.contextMask(name), name, s.contextMask(name) });
     }
     try out.appendSlice(a, "}\n" ++
@@ -75,7 +75,7 @@ pub fn generate(out: *Buffer, a: std.mem.Allocator) !void {
         "\t\t}\n" ++
         "\t}");
     try out.append(a, '\n');
-    inline for (comptime std.meta.fieldNames(s.Context)) |name| {
+    inline for (@typeInfo(s.Context).@"struct".field_names) |name| {
         try out.print(a, "\tpub fn with_{s}(mut self) -> Self {{\n\t\tself.context = self.context.with_{s}();\n\t\tself\n\t}}\n", .{ name, name });
     }
     try out.appendSlice(a, "\tpub(crate) fn raw(self) -> crate::sys::GlowcapBreakCause {\n" ++

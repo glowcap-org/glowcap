@@ -18,7 +18,7 @@ pub const Listeners = struct {
     accepts: std.AutoHashMapUnmanaged(u64, Fd) = .empty,
     /// Synthetic close completions waiting for room in a `poll` result. One
     /// slot per open listener is reserved.
-    close_ready: std.ArrayListUnmanaged(u64) = .empty,
+    close_ready: std.ArrayList(u64) = .empty,
 
     const Row = struct {
         accept_ud: ?u64 = null,

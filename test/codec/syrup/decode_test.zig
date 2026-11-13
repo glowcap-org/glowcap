@@ -230,7 +230,7 @@ test "a single collection wider than the decode element cap is refused" {
         for (0..cap + 1) |i| {
             // Fixed-width decimal keys: raw ascending order is encoded
             // ascending order, so only the entry count trips the refusal.
-            const entry = try std.fmt.bufPrint(&key_buf, "8\"k{d:0>7}0+", .{i});
+            const entry = try std.mem.print(&key_buf, "8\"k{d:0>7}0+", .{i});
             try bytes.appendSlice(allocator, entry);
         }
         try bytes.append(allocator, '}');

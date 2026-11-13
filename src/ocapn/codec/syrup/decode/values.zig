@@ -457,7 +457,7 @@ const reference_wire_order = [_]ReferenceWire{ .desc_export, .desc_import_object
 comptime {
     for (@typeInfo(ReferenceWire).@"enum".field_values) |field_value| {
         const kind: ReferenceWire = @fromBackingInt(@intCast(field_value));
-        std.debug.assert(std.mem.indexOfScalar(ReferenceWire, &reference_wire_order, kind) != null);
+        std.debug.assert(std.mem.findScalar(ReferenceWire, &reference_wire_order, kind) != null);
     }
 }
 

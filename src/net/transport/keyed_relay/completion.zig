@@ -201,8 +201,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// Total retained storage for one masked WebSocket send. Application
         /// writes are chunked behind this transport-owned memory commitment.
         send_staging_bytes: usize,
-        conns: ConnMap = .{},
-        pending_dials: PendingDialMap = .{},
+        conns: ConnMap = .empty,
+        pending_dials: PendingDialMap = .empty,
         resolver: ?*completion_resolver.Runtime = null,
         resolver_wake_armed: bool = false,
         dial_close_retry_head: ?*PendingDial = null,
@@ -221,7 +221,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         close_retries: CloseRetryQueue = .{},
         /// Sparse secure-only state. Clear connections keep the plain
         /// `RelayConn` footprint. This table allocates only after a WSS dial.
-        secure: TlsMap = .{},
+        secure: TlsMap = .empty,
         /// Secure writes whose platform submission was refused before
         /// admission. TLS state supplies intrusive links. No ciphertext moves.
         tls_send_retries: TlsSendRetryQueue = .{},

@@ -53,8 +53,8 @@ fn checkTree(
             var line_no: usize = 1;
             var lines = std.mem.splitScalar(u8, contents, '\n');
             while (lines.next()) |line| : (line_no += 1) {
-                if (std.mem.indexOf(u8, line, ".handshake = .unbounded") != null or
-                    std.mem.indexOf(u8, line, ".settle = .unbounded") != null)
+                if (std.mem.find(u8, line, ".handshake = .unbounded") != null or
+                    std.mem.find(u8, line, ".settle = .unbounded") != null)
                 {
                     try appendViolation(self.gpa, self.violations, "{s}:{d}: {s}", .{ path, line_no, self.message });
                 }

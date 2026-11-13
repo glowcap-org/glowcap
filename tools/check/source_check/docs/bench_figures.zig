@@ -24,7 +24,7 @@ fn checkText(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), tex
         var at: usize = 0;
         while (at < line.len) {
             const marker = if (value) "<!-- /value -->" else "<!-- value ";
-            if (std.mem.indexOfPos(u8, line, at, marker)) |hit| {
+            if (std.mem.findPos(u8, line, at, marker)) |hit| {
                 if (!value) try visible.appendSlice(gpa, line[at..hit]);
                 at = hit + marker.len;
                 value = !value;

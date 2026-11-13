@@ -338,7 +338,7 @@ fn parseControlLine(line: []const u8) !void {
     if (reply.field()) |kv| {
         try std.testing.expect(within(line, kv.key));
         try std.testing.expect(within(line, kv.value));
-        try std.testing.expect(std.mem.indexOfScalar(u8, kv.key, '=') == null);
+        try std.testing.expect(std.mem.findScalar(u8, kv.key, '=') == null);
     }
 }
 

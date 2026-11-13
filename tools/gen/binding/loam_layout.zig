@@ -66,11 +66,11 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         try out.print(gpa, "#[repr(C)]\n#[derive(Clone, Copy)]\npub struct {s} {{\n", .{name});
         inline for (@typeInfo(layout.Type).@"struct".field_names, @typeInfo(layout.Type).@"struct".field_types) |name_field, Type| try out.print(gpa, "\tpub {s}{s}: {s},\n", .{ if (std.mem.eql(u8, name_field, "use")) "r#" else "", name_field, comptime spelling(Type) });
         try out.appendSlice(gpa, "}\n");
-        const size = try std.fmt.allocPrint(gpa, "core::mem::size_of::<{s}>()", .{name});
+        const size = try gpa.print("core::mem::size_of::<{s}>()", .{name});
         defer gpa.free(size);
-        const host_size = try std.fmt.allocPrint(gpa, "{d}", .{@sizeOf(layout.Type)});
+        const host_size = try gpa.print("{d}", .{@sizeOf(layout.Type)});
         defer gpa.free(host_size);
-        const wasm_size = try std.fmt.allocPrint(gpa, "crate::sys::layouts_gen::{s}_SIZE", .{layout.stem});
+        const wasm_size = try gpa.print("crate::sys::layouts_gen::{s}_SIZE", .{layout.stem});
         defer gpa.free(wasm_size);
         try assertions(gpa, &out, size, host_size, wasm_size);
         inline for (@typeInfo(layout.Type).@"struct".field_names) |name_field| {
@@ -79,11 +79,11 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
                 for (name_field, 0..) |ch, i| chars[i] = std.ascii.toUpper(ch);
                 break :blk chars;
             };
-            const offset = try std.fmt.allocPrint(gpa, "core::mem::offset_of!({s}, {s}{s})", .{ name, if (std.mem.eql(u8, name_field, "use")) "r#" else "", name_field });
+            const offset = try gpa.print("core::mem::offset_of!({s}, {s}{s})", .{ name, if (std.mem.eql(u8, name_field, "use")) "r#" else "", name_field });
             defer gpa.free(offset);
-            const host_offset = try std.fmt.allocPrint(gpa, "{d}", .{@offsetOf(layout.Type, name_field)});
+            const host_offset = try gpa.print("{d}", .{@offsetOf(layout.Type, name_field)});
             defer gpa.free(host_offset);
-            const wasm_offset = try std.fmt.allocPrint(gpa, "crate::sys::layouts_gen::{s}_{s}_OFF", .{ layout.stem, upper });
+            const wasm_offset = try gpa.print("crate::sys::layouts_gen::{s}_{s}_OFF", .{ layout.stem, upper });
             defer gpa.free(wasm_offset);
             try assertions(gpa, &out, offset, host_offset, wasm_offset);
         }

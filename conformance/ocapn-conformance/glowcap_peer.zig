@@ -108,7 +108,7 @@ const CarFactory = struct {
             .string => |s| s,
             else => return error.BadArgs,
         };
-        const response = std.fmt.allocPrint(turn.vat.allocator, "Vroom! I am a {s} {s} car!", .{ color, name }) catch return error.OutOfMemory;
+        const response = turn.vat.allocator.print("Vroom! I am a {s} {s} car!", .{ color, name }) catch return error.OutOfMemory;
         const car = try turn.spawn(Car, .{ .response = response });
         const export_position = try publishLocal(turn, car);
         return .{ .reference = .{ .near = model.NearRef.object(export_position) } };
@@ -423,7 +423,7 @@ pub fn main(init: std.process.Init) !void {
     defer shared.deinit();
 
     var bind_buf: [32]u8 = undefined;
-    const bind = if (use_onion) "" else try std.fmt.bufPrint(&bind_buf, "{s}:{d}", .{ host_ip, port });
+    const bind = if (use_onion) "" else try std.mem.print(&bind_buf, "{s}:{d}", .{ host_ip, port });
     var listener = try runtime.bindListener(transport_name, bind, .inherit);
     var prepared = switch (runtime.prepareListenerLocatorOutcome(&listener)) {
         .ready => |value| value,

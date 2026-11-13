@@ -151,7 +151,7 @@ pub const Parser = struct {
     fn qualified(self: *Parser, name: []const u8, declaration: bool) Error![]const u8 {
         var prefix = self.prefix;
         var suffix = name;
-        if (!declaration) if (std.mem.indexOfScalar(u8, name, '.')) |dot| {
+        if (!declaration) if (std.mem.findScalar(u8, name, '.')) |dot| {
             try self.budget.spend(self.aliases.len);
             for (self.aliases) |alias| {
                 if (std.mem.eql(u8, alias.name, name[0..dot])) {
@@ -165,7 +165,7 @@ pub const Parser = struct {
         const length = suffix.len + if (prefix.len == 0) @as(usize, 0) else prefix.len + 1;
         if (length > description.max_input_bytes - self.budget.expanded_names) return error.ResourceLimit;
         self.budget.expanded_names += length;
-        return if (prefix.len == 0) suffix else std.fmt.allocPrint(self.a, "{s}.{s}", .{ prefix, suffix });
+        return if (prefix.len == 0) suffix else self.a.print("{s}.{s}", .{ prefix, suffix });
     }
     pub fn header(self: *Parser) Error!Header {
         try self.expect("module");
@@ -180,7 +180,7 @@ pub const Parser = struct {
             if (token.kind != .string) return self.fail("expected quoted import path");
             try self.expect("as");
             const alias = try self.word();
-            if (std.mem.indexOfScalar(u8, alias, '.') != null) return self.fail("import alias must be a simple identifier");
+            if (std.mem.findScalar(u8, alias, '.') != null) return self.fail("import alias must be a simple identifier");
             try self.budget.spend(imports.items.len);
             for (imports.items) |previous| if (std.mem.eql(u8, previous.alias, alias)) return self.fail("duplicate import alias");
             try imports.append(self.a, .{ .path = token.text, .alias = alias, .offset = token.offset });

@@ -70,7 +70,7 @@ pub fn checkThreatModelCoverage(
             try appendViolation(gpa, violations, "{s}: `messageOp` names no wire operation for the `Body` arm `{s}`", .{ ops_path, arm });
             continue;
         };
-        if (std.mem.indexOf(u8, section, wire) == null) {
+        if (std.mem.find(u8, section, wire) == null) {
             try appendViolation(gpa, violations, "{s}: the inbound operation `{s}` has no entry under {s}", .{ doc_path, wire, section_heading });
         }
     }
@@ -101,7 +101,7 @@ fn declaredNames(gpa: std.mem.Allocator, text: []const u8, marker: []const u8, o
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
         if (trimmed.len == 0 or trimmed[trimmed.len - 1] != ',') continue;
-        const colon = std.mem.indexOf(u8, trimmed, ": ") orelse continue;
+        const colon = std.mem.find(u8, trimmed, ": ") orelse continue;
         const name = trimmed[0..colon];
         if (name.len == 0 or !std.ascii.isLower(name[0])) continue;
         var ident = true;
@@ -117,9 +117,9 @@ fn declaredNames(gpa: std.mem.Allocator, text: []const u8, marker: []const u8, o
 /// because a name such as `op:gc-exports` is not a transform of its arm.
 fn wireName(ops: []const u8, arm: []const u8) ?[]const u8 {
     var buffer: [64]u8 = undefined;
-    const key = std.fmt.bufPrint(&buffer, ".{s} => \"", .{arm}) catch return null;
-    const start = (std.mem.indexOf(u8, ops, key) orelse return null) + key.len;
-    const end = std.mem.indexOfScalarPos(u8, ops, start, '"') orelse return null;
+    const key = std.mem.print(&buffer, ".{s} => \"", .{arm}) catch return null;
+    const start = (std.mem.find(u8, ops, key) orelse return null) + key.len;
+    const end = std.mem.findScalarPos(u8, ops, start, '"') orelse return null;
     return ops[start..end];
 }
 
@@ -175,14 +175,14 @@ fn checkCitedTests(
     violations: *std.ArrayList([]const u8),
 ) !void {
     var from: usize = 0;
-    while (std.mem.indexOfScalarPos(u8, section, from, '`')) |open| {
-        const close = std.mem.indexOfScalarPos(u8, section, open + 1, '`') orelse return;
+    while (std.mem.findScalarPos(u8, section, from, '`')) |open| {
+        const close = std.mem.findScalarPos(u8, section, open + 1, '`') orelse return;
         from = close + 1;
         const span = section[open + 1 .. close];
-        if (std.mem.indexOfAny(u8, span, " \n") != null) continue;
+        if (std.mem.findAny(u8, span, " \n") != null) continue;
         const cited = std.mem.endsWith(u8, span, "_test.zig") or std.mem.startsWith(u8, span, "support/");
         if (!cited) continue;
-        const path = try std.fmt.allocPrint(gpa, "test/{s}", .{span});
+        const path = try gpa.print("test/{s}", .{span});
         defer gpa.free(path);
         if (!paths.fileExists(io, root, path)) {
             try appendViolation(gpa, violations, "{s}: cites `{s}`, and {s} does not exist", .{ doc_path, span, path });

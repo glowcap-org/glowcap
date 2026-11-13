@@ -15,7 +15,7 @@ const er = net.multiplexed_resident;
 // Exercise readiness-driven sends on Linux even when io_uring is available.
 comptime {
     _ = Tests(net.Backend);
-    if (builtin.os.tag == .linux) _ = Tests(net.epoll_white_box.TestBackend);
+    if (builtin.target.os.tag == .linux) _ = Tests(net.epoll_white_box.TestBackend);
 }
 
 fn Tests(comptime Backend: type) type {

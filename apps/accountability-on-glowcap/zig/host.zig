@@ -42,7 +42,7 @@ pub fn main(init: std.process.Init) !void {
     var host_id = try identity.Identity.incept(allocator, io);
     defer host_id.deinit();
 
-    const host_data_dir = try std.fmt.allocPrint(allocator, "{s}/host", .{data_root});
+    const host_data_dir = try allocator.print("{s}/host", .{data_root});
     defer allocator.free(host_data_dir);
     var store = try accountable.Store.init(allocator, io, &host_id, host_data_dir);
     defer store.deinit();

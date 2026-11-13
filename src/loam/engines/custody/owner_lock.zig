@@ -26,7 +26,7 @@ pub const Held = struct {
 
 /// Resolve `path` into `canonical`, open the directory, and take its lock.
 /// A directory another process holds is `error.CustodyUnavailable`.
-pub fn acquire(path: [:0]const u8, canonical: *[std.fs.max_path_bytes:0]u8) !Held {
+pub fn acquire(path: [:0]const u8, canonical: *[std.Io.Dir.max_path_bytes:0]u8) !Held {
     switch (loam_owner_lock_canonical_path(path.ptr, canonical, canonical.len)) {
         0 => {},
         @backingInt(std.posix.E.NOENT) => return error.FileNotFound,

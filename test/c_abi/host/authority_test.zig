@@ -315,9 +315,9 @@ test "libglowcap_host: keyed-tcp accept signs the published locator, or its own 
     try expectOk(takeOutbound(accepted_a, &mf_a));
     defer c.glowcap_managed_frame_release(&mf_a);
     const bytes_a = mf_a.bytes.?[0..mf_a.len];
-    try std.testing.expect(std.mem.indexOf(u8, bytes_a, "direct-addresses") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bytes_a, "127.0.0.1:9000") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bytes_a, designator_a[0..]) != null);
+    try std.testing.expect(std.mem.find(u8, bytes_a, "direct-addresses") != null);
+    try std.testing.expect(std.mem.find(u8, bytes_a, "127.0.0.1:9000") != null);
+    try std.testing.expect(std.mem.find(u8, bytes_a, designator_a[0..]) != null);
 
     // A published locator is deployment policy: the accept retains its own
     // candidate but the signed hello still carries the published hint.
@@ -340,8 +340,8 @@ test "libglowcap_host: keyed-tcp accept signs the published locator, or its own 
     try expectOk(takeOutbound(accepted_b, &mf_b));
     defer c.glowcap_managed_frame_release(&mf_b);
     const bytes_b = mf_b.bytes.?[0..mf_b.len];
-    try std.testing.expect(std.mem.indexOf(u8, bytes_b, published_hint) != null);
-    try std.testing.expect(std.mem.indexOf(u8, bytes_b, "10.9.9.9:1") == null);
+    try std.testing.expect(std.mem.find(u8, bytes_b, published_hint) != null);
+    try std.testing.expect(std.mem.find(u8, bytes_b, "10.9.9.9:1") == null);
 }
 
 test "libglowcap_host: a 64-byte seed gives every session its own signing key" {

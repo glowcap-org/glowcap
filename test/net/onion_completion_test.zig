@@ -190,7 +190,7 @@ const ScriptBackend = struct {
             self.expire_on_borrowed_poll = null;
         };
         const rest = self.ready.items.len - n;
-        std.mem.copyForwards(completion.Completion, self.ready.items[0..rest], self.ready.items[n..]);
+        @memmove(self.ready.items[0..rest], self.ready.items[n..]);
         self.ready.shrinkRetainingCapacity(rest);
         return n;
     }
@@ -263,7 +263,7 @@ fn makePeer(_: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
 }
 
 test "Zig OnionLoop composes the onion adapter and completion Loop" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     comptime {
         std.debug.assert(net.OnionBackend == onion.completion.CompletionBackend(net.Backend));
@@ -455,7 +455,7 @@ test "onion completion publishes backend listener metadata and holds control lif
     const address = try backend.listenerAddress(listener_fd);
     try std.testing.expectEqualSlices(u8, service_id, &address.onion);
     try std.testing.expect(Backend.listenerPort(address) == null);
-    try std.testing.expect(std.mem.indexOf(u8, backend.inner.sent_bytes.items, "127.0.0.1:4242") != null);
+    try std.testing.expect(std.mem.find(u8, backend.inner.sent_bytes.items, "127.0.0.1:4242") != null);
     try std.testing.expectEqual(@as(usize, 0), backend.inner.closed_fds.items.len);
 
     try std.testing.expect(!backend.listenerPending(listener_fd));
@@ -589,7 +589,7 @@ fn expectSetupFails(chunks: []const []const u8, ready_ud: u64, publish_sent: boo
     try std.testing.expectEqual(error.ControlReplyTooLong, ready.failure.?);
     try std.testing.expect(!backend.listenerPending(fd));
     try std.testing.expect(backend.control_fd == null);
-    const sent = std.mem.indexOf(u8, backend.inner.sent_bytes.items, "ADD_ONION") != null;
+    const sent = std.mem.find(u8, backend.inner.sent_bytes.items, "ADD_ONION") != null;
     try std.testing.expectEqual(publish_sent, sent);
     try std.testing.expect((try pollOne(&backend)) == null);
 }

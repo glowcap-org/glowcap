@@ -15,7 +15,7 @@ const net = glowcap.net;
 const support_actors = @import("../../support/actors.zig");
 const fake = @import("../../support/onion_fake_daemon.zig");
 
-const supported = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
+const supported = builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin();
 const OnionBackend = if (supported) net.OnionBackend else void;
 const OnionResident = if (supported)
     net.completion_resident.Resident(OnionBackend, net.onion.completion.ResidentPolicy(OnionBackend, net.tcp.CompletionPolicy(net.Backend)))

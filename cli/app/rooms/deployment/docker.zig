@@ -92,9 +92,9 @@ pub const Client = struct {
 
     pub fn composeArgs(self: Client, operands: []const []const u8) ![]const []const u8 {
         return std.mem.concat(self.gpa, []const u8, &.{ &.{
-            "compose",                                                                           "--project-directory",                                               self.workspace,
-            "-f",                                                                                try std.fs.path.join(self.gpa, &.{ self.workspace, "compose.yml" }), "-f",
-            try std.fs.path.join(self.gpa, &.{ self.workspace, "docker-compose.override.yml" }),
+            "compose",                                                                               "--project-directory",                                                   self.workspace,
+            "-f",                                                                                    try std.Io.Dir.path.join(self.gpa, &.{ self.workspace, "compose.yml" }), "-f",
+            try std.Io.Dir.path.join(self.gpa, &.{ self.workspace, "docker-compose.override.yml" }),
         }, operands });
     }
 };

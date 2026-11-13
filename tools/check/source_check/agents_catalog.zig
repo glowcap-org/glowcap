@@ -24,10 +24,10 @@ pub fn checkSkillCatalog(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .directory) continue;
-        if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
+        if (std.mem.findScalar(u8, entry.path, '/') != null) continue;
 
         var skill_buf: [128]u8 = undefined;
-        const skill_path = std.fmt.bufPrint(&skill_buf, "{s}/SKILL.md", .{entry.path}) catch {
+        const skill_path = std.mem.print(&skill_buf, "{s}/SKILL.md", .{entry.path}) catch {
             try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: skill path too long", .{entry.path});
             continue;
         };
@@ -83,7 +83,7 @@ pub fn checkRuleFrontmatter(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
+        if (std.mem.findScalar(u8, entry.path, '/') != null) continue;
         if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
 
         const contents = rules.readFileAlloc(io, entry.path, gpa, .limited(1 << 20)) catch |err| {
@@ -143,7 +143,7 @@ fn pathsMatchGlobs(frontmatter: []const u8, globs: []const u8) bool {
 fn frontmatterBlock(contents: []const u8) ?[]const u8 {
     if (!std.mem.startsWith(u8, contents, "---\n")) return null;
     const rest = contents["---\n".len..];
-    const end = std.mem.indexOf(u8, rest, "\n---") orelse return null;
+    const end = std.mem.find(u8, rest, "\n---") orelse return null;
     return rest[0..end];
 }
 

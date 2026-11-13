@@ -4,11 +4,11 @@ const commands = @import("commands.zig");
 const execution = @import("execution.zig");
 const profile = @import("profile.zig");
 
-pub fn register(b: *std.Build, optimize: std.builtin.OptimizeMode, runtime_gate: *execution.RuntimeGate, profiles: profile.Profiles) void {
+pub fn register(b: *std.Build, optimize: std.lang.Optimize, runtime_gate: *execution.RuntimeGate, profiles: profile.Profiles) void {
     const marks_module = b.createModule(.{
         .root_source_file = b.path("bench/interface/marks.zig"),
         .target = profiles.target,
-        .optimize = .ReleaseFast,
+        .optimize = .fast,
         .valgrind = true,
     });
     marks_module.addImport("profile", b.createModule(profiles.moduleOptions(b, "bench/support/profile.zig")));
@@ -65,9 +65,9 @@ pub fn register(b: *std.Build, optimize: std.builtin.OptimizeMode, runtime_gate:
     b.step("profile-interface", "Attribute paired Rust interface operation phases under callgrind (needs cargo + valgrind + python3)").dependOn(&report.step);
 }
 
-pub fn registerGeneration(b: *std.Build, generator: *std.Build.Step.Compile, optimize: std.builtin.OptimizeMode) void {
+pub fn registerGeneration(b: *std.Build, generator: *std.Build.Step.Compile, optimize: std.lang.Optimize) void {
     const run = commands.addRootedSystemCommand(b, .benchmark, &.{ "python3", "bench/interface/measure.py", "--generator" });
-    run.addArtifactArg(generator);
+    run.addArtifactArg2(generator, .{});
     run.setEnvironmentVariable("GLOWCAP_BENCH_ZIG_OPTIMIZE", @tagName(optimize));
     run.addPassthruArgs();
     run.has_side_effects = true;

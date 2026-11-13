@@ -14,8 +14,8 @@ const binding_exts = [_][]const u8{ ".py", ".rs", ".ts", ".rkt" };
 fn keepBindingSource(path: []const u8) bool {
     for (binding_exts) |ext| {
         if (std.mem.endsWith(u8, path, ext)) {
-            return std.mem.indexOf(u8, path, "node_modules") == null and
-                std.mem.indexOf(u8, path, "/target/") == null;
+            return std.mem.find(u8, path, "node_modules") == null and
+                std.mem.find(u8, path, "/target/") == null;
         }
     }
     return false;
@@ -71,10 +71,10 @@ pub fn check(
                     continue;
                 };
                 defer gpa.free(contents);
-                if (std.mem.indexOf(u8, contents, "\"direct-addresses\"") != null) {
+                if (std.mem.find(u8, contents, "\"direct-addresses\"") != null) {
                     try appendViolation(gpa, violations, "{s}: forbidden `direct-addresses` literal — use HINT_DIRECT_ADDRESSES / HINT-DIRECT-ADDRESSES (mirrors model.transport.hint_direct_addresses)", .{rel});
                 }
-                if (std.mem.indexOf(u8, contents, "\"keyed-tcp\"") != null) {
+                if (std.mem.find(u8, contents, "\"keyed-tcp\"") != null) {
                     try appendViolation(gpa, violations, "{s}: forbidden `keyed-tcp` literal — use TRANSPORT_KEYED_TCP / TRANSPORT-KEYED-TCP (mirrors model.transport.keyed_tcp)", .{rel});
                 }
             }
@@ -154,7 +154,7 @@ pub fn check(
             };
             defer gpa.free(conn_contents);
             for (entry.banned_in_connection) |needle| {
-                if (std.mem.indexOf(u8, conn_contents, needle) != null) {
+                if (std.mem.find(u8, conn_contents, needle) != null) {
                     try appendViolation(gpa, violations, "{s}: forbidden `{s}` — define socket-address spelling in {s}", .{ entry.connection, needle, entry.owner });
                 }
             }
@@ -164,7 +164,7 @@ pub fn check(
             };
             defer gpa.free(owner_contents);
             for (entry.required_in_owner) |needle| {
-                if (std.mem.indexOf(u8, owner_contents, needle) == null) {
+                if (std.mem.find(u8, owner_contents, needle) == null) {
                     try appendViolation(gpa, violations, "{s}: missing `{s}` — socket-address spelling must live here", .{ entry.owner, needle });
                 }
             }
@@ -187,7 +187,7 @@ pub fn check(
             };
             defer gpa.free(contents);
             for (entry.banned) |needle| {
-                if (std.mem.indexOf(u8, contents, needle) != null) {
+                if (std.mem.find(u8, contents, needle) != null) {
                     try appendViolation(gpa, violations, "{s}: forbidden `{s}` — tcp dials split designator via designator_host_port only", .{ entry.path, needle });
                 }
             }
@@ -200,13 +200,13 @@ pub fn check(
             };
             defer if (plan_src) |c| gpa.free(c);
             if (plan_src) |contents| {
-                if (std.mem.indexOf(u8, contents, "peer_id:") == null) {
+                if (std.mem.find(u8, contents, "peer_id:") == null) {
                     try appendViolation(gpa, violations, "src/driver/core/dial_plan.zig: missing `peer_id:` — DialPlan open-shape arm", .{});
                 }
-                if (std.mem.indexOf(u8, contents, "iroh:") != null) {
+                if (std.mem.find(u8, contents, "iroh:") != null) {
                     try appendViolation(gpa, violations, "src/driver/core/dial_plan.zig: forbidden `iroh:` — DialPlan arm is peer_id, not the product name", .{});
                 }
-                if (std.mem.indexOf(u8, contents, "PeerKey.fromDesignator") == null) {
+                if (std.mem.find(u8, contents, "PeerKey.fromDesignator") == null) {
                     try appendViolation(gpa, violations, "src/driver/core/dial_plan.zig: missing `PeerKey.fromDesignator` — keyed-tcp/iroh refuse before I/O", .{});
                 }
             }
@@ -222,7 +222,7 @@ pub fn check(
                 };
                 defer gpa.free(contents);
                 for (entry.needles) |needle| {
-                    if (std.mem.indexOf(u8, contents, needle) != null) {
+                    if (std.mem.find(u8, contents, needle) != null) {
                         try appendViolation(gpa, violations, "{s}: forbidden `{s}` — driver_core must not import the iroh netlayer", .{ entry.path, needle });
                     }
                 }
@@ -240,10 +240,10 @@ pub fn check(
                     continue;
                 };
                 defer gpa.free(contents);
-                if (std.mem.indexOf(u8, contents, entry.required) == null) {
+                if (std.mem.find(u8, contents, entry.required) == null) {
                     try appendViolation(gpa, violations, "{s}: missing `{s}` — peer-id open shape", .{ entry.path, entry.required });
                 }
-                if (std.mem.indexOf(u8, contents, entry.banned) != null) {
+                if (std.mem.find(u8, contents, entry.banned) != null) {
                     try appendViolation(gpa, violations, "{s}: forbidden `{s}` — product name is not the DialPlan shape", .{ entry.path, entry.banned });
                 }
             }
@@ -265,7 +265,7 @@ pub fn check(
             };
             defer gpa.free(contents);
             for (entry.banned) |needle| {
-                if (std.mem.indexOf(u8, contents, needle) != null) {
+                if (std.mem.find(u8, contents, needle) != null) {
                     try appendViolation(gpa, violations, "{s}: forbidden `{s}` — hint→host:port is planDial policy (ADR-0029), not a binding helper", .{ entry.path, needle });
                 }
             }

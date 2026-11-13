@@ -369,7 +369,7 @@ fn silentNetlayer(
     use_control: bool,
 ) !*co.GlowcapOnionNetlayer {
     var endpoint_buf: [48]u8 = undefined;
-    const endpoint = try std.fmt.bufPrint(&endpoint_buf, "{f}", .{server.socket.address});
+    const endpoint = try std.mem.print(&endpoint_buf, "{f}", .{server.socket.address});
     var config: co.GlowcapOnionConfig = .{
         .socks = endpoint.ptr,
         .socks_len = endpoint.len,

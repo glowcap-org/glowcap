@@ -12,7 +12,7 @@ pub fn generate(out: *Buffer, a: std.mem.Allocator) !void {
         }
         if (group[0] == s.RouteFailure) try @import("route_failure.zig").python(out, a);
     }
-    inline for (comptime std.meta.fieldNames(s.Context)) |name| {
+    inline for (@typeInfo(s.Context).@"struct".field_names) |name| {
         try out.appendSlice(a, "\nBREAK_CONTEXT_");
         try s.upper(out, a, name);
         try out.print(a, " = {d}\n", .{s.contextMask(name)});

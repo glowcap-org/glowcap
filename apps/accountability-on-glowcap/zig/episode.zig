@@ -58,7 +58,7 @@ pub const Facts = struct {
 /// canonical form over the semantic fields, order-fixed so signer and auditor
 /// hash the same bytes.
 fn payloadBytes(buf: []u8, f: Facts) []const u8 {
-    return std.fmt.bufPrint(buf, "{s}|{s}|invoked|{s}|{s}|{s}|{d}|{d}|{d}", .{
+    return std.mem.print(buf, "{s}|{s}|invoked|{s}|{s}|{s}|{d}|{d}|{d}", .{
         f.kind.label(), f.subject, f.affordance, f.object, f.graph, f.seq, f.valid_time, f.tx_time,
     }) catch unreachable;
 }
@@ -87,7 +87,7 @@ pub fn emit(allocator: std.mem.Allocator, io: std.Io, signer: *const identity.Id
     var csig_b64: [enc.calcSize(64)]u8 = undefined;
     _ = enc.encode(&csig_b64, &counter_sig);
 
-    return std.fmt.allocPrint(allocator,
+    return allocator.print(
         \\{{"@type":"Episode","kind":"{s}","subject":"{s}","predicate":"invoked","affordance":"{s}","object":"{s}","graph":"{s}","seq":{d},"valid_time":{d},"tx_time":{d},"ephemeral":"{s}","signer":"{s}","payload_sig":"{s}","counter_sig":"{s}"}}
     , .{
         f.kind.label(), f.subject,    f.affordance, f.object, f.graph,

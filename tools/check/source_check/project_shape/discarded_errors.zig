@@ -95,12 +95,12 @@ fn keepDiscardScanned(path: []const u8) bool {
 fn firstPartyTypeScript(path: []const u8) bool {
     if (!std.mem.endsWith(u8, path, ".ts") and !std.mem.endsWith(u8, path, ".tsx")) return false;
     if (std.mem.endsWith(u8, path, ".d.ts")) return false;
-    if (std.mem.indexOf(u8, path, "/test/") != null) return false;
+    if (std.mem.find(u8, path, "/test/") != null) return false;
     if (std.mem.startsWith(u8, path, "test/") and
         !std.mem.startsWith(u8, path, "test/driver/transports/") and
         !std.mem.startsWith(u8, path, "test/support/transport/")) return false;
-    if (std.mem.indexOf(u8, path, "/tests/") != null or std.mem.startsWith(u8, path, "tests/")) return false;
-    const base = std.fs.path.basename(path);
+    if (std.mem.find(u8, path, "/tests/") != null or std.mem.startsWith(u8, path, "tests/")) return false;
+    const base = std.Io.Dir.path.basename(path);
     return !std.mem.endsWith(u8, base, "_test.ts") and !std.mem.endsWith(u8, base, "-test.ts") and
         !std.mem.endsWith(u8, base, ".test.ts") and !std.mem.endsWith(u8, base, "_proof.ts");
 }
@@ -135,7 +135,7 @@ pub fn unjustifiedDiscards(gpa: std.mem.Allocator, contents: []const u8, languag
     defer lines.deinit(gpa);
     var start: usize = 0;
     while (start <= contents.len) {
-        const end = std.mem.indexOfScalarPos(u8, contents, start, '\n') orelse contents.len;
+        const end = std.mem.findScalarPos(u8, contents, start, '\n') orelse contents.len;
         const code_len = blankLine(code[start..end], language);
         // Comments are not code: blank them so the scan below sees none.
         @memset(code[start + code_len .. end], ' ');
@@ -193,7 +193,7 @@ fn blankLine(line: []u8, language: Language) usize {
 
 fn typescriptLineDiscards(line_code: []const u8) bool {
     for (ts_discard_forms) |form| {
-        if (std.mem.indexOf(u8, line_code, form) != null) return true;
+        if (std.mem.find(u8, line_code, form) != null) return true;
     }
     return false;
 }
@@ -228,7 +228,7 @@ fn discardFollows(code: []const u8, from: usize, capture_required: bool) bool {
     var p = skipSpace(code, from);
     var capture: []const u8 = "_";
     if (p < code.len and code[p] == '|') {
-        const close = std.mem.indexOfScalarPos(u8, code, p + 1, '|') orelse return false;
+        const close = std.mem.findScalarPos(u8, code, p + 1, '|') orelse return false;
         capture = std.mem.trim(u8, code[p + 1 .. close], " ");
         p = skipSpace(code, close + 1);
     } else if (capture_required) return false;
@@ -274,7 +274,7 @@ fn skipDroppedCapture(code: []const u8, p: usize, capture: []const u8) usize {
 /// A bare exit, or one that carries a literal, after `return` or `break`.
 fn exitDiscards(code: []const u8, p: usize) bool {
     if (p >= code.len) return true;
-    if (std.mem.indexOfScalar(u8, ";,})", code[p]) != null) return true;
+    if (std.mem.findScalar(u8, ";,})", code[p]) != null) return true;
     return literalAt(code, p);
 }
 
@@ -308,7 +308,7 @@ fn tagOrStructLiteral(code: []const u8, p: usize) bool {
             }
         }
         const body = code[p..@min(q, code.len)];
-        return std.mem.indexOfScalar(u8, body, '(') == null and std.mem.indexOf(u8, body, "error.") == null;
+        return std.mem.findScalar(u8, body, '(') == null and std.mem.find(u8, body, "error.") == null;
     }
     if (!std.ascii.isAlphabetic(code[p]) and code[p] != '_') return false;
     var q = p;
@@ -489,7 +489,7 @@ test "discarded errors: a pure std callee needs no marker, any other callee does
     try expectFlagged("const n = std.fmt.parseInt(u64, s, 10) catch null;", .zig, &.{});
     try expectFlagged("const n = std.fmt.parseInt(\n    u64,\n    s,\n    10,\n) catch return null;", .zig, &.{});
     try expectFlagged("const n = std.math.add(usize, std.math.mul(usize, a, 8) catch return null, b) catch return null;", .zig, &.{});
-    try expectFlagged("const m = std.fmt.bufPrint(&buf, \"{d}\", .{n}) catch \"?\";", .zig, &.{});
+    try expectFlagged("const m = std.mem.print(&buf, \"{d}\", .{n}) catch \"?\";", .zig, &.{});
     try expectFlagged("const n = std.math.divCeil(usize, a, b) catch 1;", .zig, &.{});
     try expectFlagged("const n = parseInt(u64, s, 10) catch null;", .zig, &.{1});
     try expectFlagged("const f = std.fs.cwd().openFile(p, .{}) catch null;", .zig, &.{1});

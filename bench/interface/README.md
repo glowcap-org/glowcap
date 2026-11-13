@@ -16,11 +16,11 @@ TCP. Both use the same actor and current-thread runtime, with Syrup and CapTP
 The [recorded measurements](results.md) retain the paired values and environment.
 
 ```sh
-.agents/skills/work/bin/glowcap-dev zig build bench-interface-diagnostics -Doptimize=ReleaseFast
-.agents/skills/work/bin/glowcap-dev zig build bench-interface-generation -Doptimize=ReleaseFast
-.agents/skills/work/bin/glowcap-dev zig build bench-interface-builds -Doptimize=ReleaseFast -- --pairs=3
-.agents/skills/work/bin/glowcap-dev zig build bench-interface -Doptimize=ReleaseFast -- --mode=latency --samples=100 --pairs=3 --warmup=20
-.agents/skills/work/bin/glowcap-dev zig build profile-interface -Doptimize=ReleaseFast -Dcpu=baseline
+.agents/skills/work/bin/glowcap-dev zig build bench-interface-diagnostics -Doptimize=fast
+.agents/skills/work/bin/glowcap-dev zig build bench-interface-generation -Doptimize=fast
+.agents/skills/work/bin/glowcap-dev zig build bench-interface-builds -Doptimize=fast -- --pairs=3
+.agents/skills/work/bin/glowcap-dev zig build bench-interface -Doptimize=fast -- --mode=latency --samples=100 --pairs=3 --warmup=20
+.agents/skills/work/bin/glowcap-dev zig build profile-interface -Doptimize=fast -Dcpu=baseline
 ```
 
 Use a quiet host for latency and build-time claims, following the

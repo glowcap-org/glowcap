@@ -23,7 +23,7 @@ pub const Lmdb = struct {
     env: *c.Env,
     /// Engine-owned canonical path and requested capacity profile survive
     /// closed handles, so failed recovery can retry without a path allocation.
-    directory: [std.fs.max_path_bytes:0]u8,
+    directory: [std.Io.Dir.max_path_bytes:0]u8,
     capacity_limit_bytes: usize,
     dbi: c_uint,
     lock: custody.owner_lock.Held,
@@ -47,7 +47,7 @@ pub const Lmdb = struct {
     /// reserves a fresh incarnation while holding exclusive lifetime custody.
     pub fn open(path: [:0]const u8, options: Options) !Lmdb {
         if (options.map_bytes < core.backend.min_capacity_bytes or options.map_bytes > std.math.maxInt(std.c.off_t) or options.max_readers == 0) return error.InvalidLimits;
-        var absolute: [std.fs.max_path_bytes:0]u8 = undefined;
+        var absolute: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
         var lock = try custody.owner_lock.acquire(path, &absolute);
         // best-effort: the lock is released on every refusal below, and a failing unlock cannot change what the refusal reports.
         errdefer lock.release() catch {};
@@ -104,7 +104,7 @@ pub const Lmdb = struct {
     pub const Compaction = struct {
         owner: *Lmdb,
         files: c.ReplacementFiles,
-        copy_path: [std.fs.max_path_bytes:0]u8,
+        copy_path: [std.Io.Dir.max_path_bytes:0]u8,
         phase: enum { copying, prepared, installed, finished, failed } = .copying,
 
         fn init(owner: *Lmdb) !Compaction {
@@ -413,8 +413,8 @@ fn commitRefusal(rc: c_int) ?anyerror {
 fn openEnvironment(path: [*:0]const u8, capacity: usize, readers: u32, existing: bool) !*c.Env {
     // LMDB otherwise creates missing data during a recovery attempt.
     if (existing) {
-        var file: [std.fs.max_path_bytes:0]u8 = undefined;
-        const data = std.fmt.bufPrintSentinel(&file, "{s}/" ++ file_name, .{std.mem.span(path)}, 0) catch return error.NameTooLong;
+        var file: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+        const data = std.mem.printSentinel(&file, "{s}/" ++ file_name, .{std.mem.span(path)}, 0) catch return error.NameTooLong;
         if (std.c.access(data, std.c.F_OK) != 0) return error.MissingStore;
     }
     var env: ?*c.Env = null;

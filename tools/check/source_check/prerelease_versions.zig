@@ -52,13 +52,13 @@ const browser_database_versions = [_]struct {
 /// this rule can read, and saying so is better than guessing.
 fn declaredInteger(body: []const u8, name: []const u8) ?i64 {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, body, at, name)) |found| {
+    while (std.mem.findPos(u8, body, at, name)) |found| {
         at = found + name.len;
         const before_ok = found == 0 or !text_match.isJsIdentChar(body[found - 1]);
         if (!before_ok or at >= body.len or text_match.isJsIdentChar(body[at])) continue;
         // Walk back over `const `/`export const ` to be sure this is the
         // declaration and not a use.
-        const line_start = if (std.mem.lastIndexOfScalar(u8, body[0..found], '\n')) |nl| nl + 1 else 0;
+        const line_start = if (std.mem.findScalarLast(u8, body[0..found], '\n')) |nl| nl + 1 else 0;
         // Trimmed at both ends, so the keyword is compared without its trailing
         // space: `const ` and `export const ` both end in the word itself.
         const head = std.mem.trim(u8, body[line_start..found], " \t");
@@ -83,9 +83,9 @@ fn checkFile(
     violations: *std.ArrayList([]const u8),
 ) !void {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, body, at, marker)) |found| {
+    while (std.mem.findPos(u8, body, at, marker)) |found| {
         at = found + marker.len;
-        const close = std.mem.indexOfScalarPos(u8, body, at, ')') orelse continue;
+        const close = std.mem.findScalarPos(u8, body, at, ')') orelse continue;
         const argument = std.mem.trim(u8, body[at..close], " \t");
         if (argument.len == 0) continue;
         const value = if (std.ascii.isDigit(argument[0]))
@@ -141,7 +141,7 @@ pub fn check(
             continue;
         };
         defer gpa.free(body);
-        if (std.mem.indexOf(u8, body, expected.needle) == null) {
+        if (std.mem.find(u8, body, expected.needle) == null) {
             try appendViolation(gpa, violations, "{s}: the Rooms browser database must keep its unsupported prerelease schema at version 1", .{expected.path});
         }
     }
@@ -169,6 +169,6 @@ test "browser database version checks both declaration and opening call" {
         try tmp.dir.writeFile(std.testing.io, .{ .sub_path = browser_database_versions[1].path, .data = fixture.declaration });
         try check(std.testing.io, gpa, tmp.dir, &violations);
         try std.testing.expectEqual(fixture.count, violations.items.len);
-        for (violations.items) |message| try std.testing.expect(std.mem.indexOf(u8, message, "schema at version 1") != null);
+        for (violations.items) |message| try std.testing.expect(std.mem.find(u8, message, "schema at version 1") != null);
     }
 }

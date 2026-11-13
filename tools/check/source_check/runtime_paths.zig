@@ -47,7 +47,7 @@ fn isSpace(c: u8) bool {
 fn resolve(gpa: std.mem.Allocator, from_file: []const u8, link: []const u8) !?[]u8 {
     var parts: std.ArrayList([]const u8) = .empty;
     defer parts.deinit(gpa);
-    var base = std.mem.splitScalar(u8, std.fs.path.dirname(from_file) orelse "", '/');
+    var base = std.mem.splitScalar(u8, std.Io.Dir.path.dirname(from_file) orelse "", '/');
     while (base.next()) |segment| {
         if (segment.len == 0 or std.mem.eql(u8, segment, ".")) continue;
         try parts.append(gpa, segment);
@@ -69,7 +69,7 @@ fn resolve(gpa: std.mem.Allocator, from_file: []const u8, link: []const u8) !?[]
 /// names somewhere else entirely.
 fn isCheckable(literal: []const u8) bool {
     if (literal.len == 0) return false;
-    if (std.mem.indexOf(u8, literal, "://") != null) return false;
+    if (std.mem.find(u8, literal, "://") != null) return false;
     if (std.mem.startsWith(u8, literal, "data:")) return false;
     return true;
 }
@@ -84,7 +84,7 @@ fn checkFile(
 ) !void {
     const opener = "new URL(";
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, body, at, opener)) |found| {
+    while (std.mem.findPos(u8, body, at, opener)) |found| {
         at = found + opener.len;
         // Whitespace here spans lines, so the argument written on its own line
         // reads the same as the argument written inline. That form is the one
@@ -94,7 +94,7 @@ fn checkFile(
         // A computed first argument names no literal to check.
         if (i >= body.len or body[i] != '"') continue;
         const start = i + 1;
-        const end = std.mem.indexOfScalarPos(u8, body, start, '"') orelse continue;
+        const end = std.mem.findScalarPos(u8, body, start, '"') orelse continue;
         const literal = body[start..end];
         var after = end + 1;
         while (after < body.len and (isSpace(body[after]) or body[after] == ',')) after += 1;

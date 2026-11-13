@@ -80,12 +80,12 @@ pub fn fits(fields: []const gen.Field, args: []const driver.Value) bool {
 pub fn registrationId(value: []const u8) bool {
     if (value.len != gen.registration_id_length) return false;
     for (value, 0..) |byte, at| {
-        if (std.mem.indexOfScalar(usize, &gen.registration_id_dashes, at) != null) {
+        if (std.mem.findScalar(usize, &gen.registration_id_dashes, at) != null) {
             if (byte != '-') return false;
         } else if (at == gen.registration_id_version_at) {
-            if (std.mem.indexOfScalar(u8, gen.registration_id_versions, byte) == null) return false;
+            if (std.mem.findScalar(u8, gen.registration_id_versions, byte) == null) return false;
         } else if (at == gen.registration_id_variant_at) {
-            if (std.mem.indexOfScalar(u8, gen.registration_id_variants, std.ascii.toLower(byte)) == null) return false;
+            if (std.mem.findScalar(u8, gen.registration_id_variants, std.ascii.toLower(byte)) == null) return false;
         } else if (!std.ascii.isHex(byte)) {
             return false;
         }

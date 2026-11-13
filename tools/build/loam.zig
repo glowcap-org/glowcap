@@ -11,7 +11,7 @@ const crash_build = @import("loam/crash.zig");
 /// The disk engine modules, each registered with its own test step.
 pub const Engines = struct { lmdb: *std.Build.Module, sqlite: *std.Build.Module };
 
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, gates: Gates, profiles: profile_build.Profiles) Engines {
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, core: *std.Build.Module, gates: Gates, profiles: profile_build.Profiles) Engines {
     const custody = custody_build.create(b, target, optimize);
     const support = b.createModule(.{ .root_source_file = b.path("test/loam/core/fixture.zig"), .target = target, .optimize = optimize });
     support.addImport("glowcap", b.modules.get("glowcap").?);
@@ -40,7 +40,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     return engines;
 }
 
-fn portableCheck(b: *std.Build, optimize: std.builtin.OptimizeMode, gates: Gates) void {
+fn portableCheck(b: *std.Build, optimize: std.lang.Optimize, gates: Gates) void {
     const root = @import("../../build.zig");
     const target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const modules = root.graphFromTable(b, target, optimize, &root.layer_table, false);

@@ -72,14 +72,14 @@ fn clearOutput(
     };
     defer if (prefix_dir) |dir| dir.close(io);
 
-    var cwd_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var cwd_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const cwd_len = std.process.currentPath(io, &cwd_buffer) catch |err| {
         std.debug.print("site-output-owner: unable to resolve current directory: {t}\n", .{err});
         std.process.exit(1);
     };
     const cwd_path = cwd_buffer[0..cwd_len];
 
-    var prefix_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var prefix_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const prefix_path = if (prefix_dir) |dir| prefix: {
         const prefix_len = dir.realPath(io, &prefix_buffer) catch |err| {
             std.debug.print("site-output-owner: unable to resolve site install prefix `{s}`: {t}\n", .{ install_prefix, err });
@@ -91,14 +91,14 @@ fn clearOutput(
         std.process.exit(1);
     };
 
-    const output_path = try std.fs.path.resolve(gpa, &.{ prefix_path, "site" });
+    const output_path = try std.Io.Dir.path.resolve(gpa, &.{ prefix_path, "site" });
 
     var source_dir = std.Io.Dir.cwd().openDir(io, source_root, .{}) catch |err| {
         std.debug.print("site-output-owner: unable to open checked-in site source `{s}`: {t}\n", .{ source_root, err });
         std.process.exit(1);
     };
     defer source_dir.close(io);
-    var source_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var source_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const source_len = source_dir.realPath(io, &source_buffer) catch |err| {
         std.debug.print("site-output-owner: unable to resolve checked-in site source `{s}`: {t}\n", .{ source_root, err });
         std.process.exit(1);
@@ -133,8 +133,8 @@ fn clearOutput(
         break :blk true;
     };
 
-    const repo_root = std.fs.path.dirname(source_path) orelse source_path;
-    const canonical = try std.fs.path.resolve(gpa, &.{ repo_root, "zig-out", "site" });
+    const repo_root = std.Io.Dir.path.dirname(source_path) orelse source_path;
+    const canonical = try std.Io.Dir.path.resolve(gpa, &.{ repo_root, "zig-out", "site" });
     if (!marked and !std.mem.eql(u8, output_path, canonical)) {
         std.debug.print(
             "site-output-owner: refusing to clear `{s}`: it is neither the canonical `zig-out/site` nor a directory carrying this build's `{s}` marker. Remove it yourself, or choose another --prefix.\n",
@@ -156,13 +156,13 @@ fn resolveProspectiveDirectory(
     cwd_path: []const u8,
     path: []const u8,
 ) ![]u8 {
-    const absolute = try std.fs.path.resolve(gpa, &.{ cwd_path, path });
+    const absolute = try std.Io.Dir.path.resolve(gpa, &.{ cwd_path, path });
 
     var probe: []const u8 = absolute;
     while (true) {
         var ancestor = std.Io.Dir.cwd().openDir(io, probe, .{}) catch |err| switch (err) {
             error.FileNotFound => {
-                const parent = std.fs.path.dirname(probe) orelse return err;
+                const parent = std.Io.Dir.path.dirname(probe) orelse return err;
                 if (std.mem.eql(u8, parent, probe)) return err;
                 probe = parent;
                 continue;
@@ -171,10 +171,10 @@ fn resolveProspectiveDirectory(
         };
         defer ancestor.close(io);
 
-        var ancestor_buffer: [std.fs.max_path_bytes]u8 = undefined;
+        var ancestor_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const ancestor_len = try ancestor.realPath(io, &ancestor_buffer);
-        const suffix = try std.fs.path.relative(gpa, cwd_path, environ_map, probe, absolute);
-        return std.fs.path.resolve(gpa, &.{ ancestor_buffer[0..ancestor_len], suffix });
+        const suffix = try std.Io.Dir.path.relative(gpa, cwd_path, environ_map, probe, absolute);
+        return std.Io.Dir.path.resolve(gpa, &.{ ancestor_buffer[0..ancestor_len], suffix });
     }
 }
 
@@ -195,9 +195,9 @@ fn pathContains(
     parent: []const u8,
     child: []const u8,
 ) !bool {
-    const relative = try std.fs.path.relative(gpa, cwd_path, environ_map, parent, child);
+    const relative = try std.Io.Dir.path.relative(gpa, cwd_path, environ_map, parent, child);
     if (relative.len == 0) return true;
-    if (std.fs.path.isAbsolute(relative)) return false;
+    if (std.Io.Dir.path.isAbsolute(relative)) return false;
 
     var components = std.mem.tokenizeAny(u8, relative, "/\\");
     const first = components.next() orelse return true;

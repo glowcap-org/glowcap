@@ -45,7 +45,7 @@ const Dest = union(enum) {
 
     fn writeFmt(self: Dest, comptime fmt: []const u8, args: anytype) !void {
         var buf: [2048]u8 = undefined;
-        const msg = try std.fmt.bufPrint(&buf, fmt, args);
+        const msg = try std.mem.print(&buf, fmt, args);
         try self.writeAll(msg);
     }
 };

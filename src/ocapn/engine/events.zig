@@ -258,7 +258,7 @@ pub const Event = struct {
     /// Additional local answers sharing this resolve's one next-profile wire
     /// callback. The originating frame remains single-owner. Consumers project
     /// the same borrowed resolution once per answer.
-    resolve_aliases: std.ArrayListUnmanaged(session.OutboundAnswerTarget) = .empty,
+    resolve_aliases: std.ArrayList(session.OutboundAnswerTarget) = .empty,
 
     /// Wire observations and private composition effects share one FIFO, so
     /// retirement cannot overtake a delivery already accepted for an export.

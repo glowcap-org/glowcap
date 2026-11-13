@@ -132,5 +132,5 @@ test "shared npm pin parity follows import-map keys" {
     defer parsed_consumer.deinit();
     try checkPinParity(gpa, &violations, "root", parsed_authority.value, "app", parsed_consumer.value);
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "19.3.1") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "19.3.1") != null);
 }

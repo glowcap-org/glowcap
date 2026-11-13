@@ -19,7 +19,7 @@ const builtin = @import("builtin");
 const socket = @import("socket.zig");
 
 const linux = std.os.linux;
-const is_linux = builtin.os.tag == .linux;
+const is_linux = builtin.target.os.tag == .linux;
 
 pub const Failure = error{ WakeNudgeFailed, WakeDrainFailed };
 

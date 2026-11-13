@@ -85,7 +85,7 @@ pub fn drop(vat: *Vat, broken: Broken) void {
 /// Keep whichever of the vat's list and the emptied `detached` list has the
 /// larger backing, so a callback that regrew the vat's list during the drop
 /// never shrinks the retained capacity.
-fn keepLarger(comptime T: type, vat: *Vat, live: *std.ArrayListUnmanaged(T), detached: *std.ArrayListUnmanaged(T)) void {
+fn keepLarger(comptime T: type, vat: *Vat, live: *std.ArrayList(T), detached: *std.ArrayList(T)) void {
     if (live.capacity >= detached.capacity) {
         detached.deinit(vat.allocator);
     } else {

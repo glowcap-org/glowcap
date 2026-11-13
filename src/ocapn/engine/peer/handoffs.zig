@@ -30,7 +30,7 @@ pub const PendingWithdraw = struct {
 /// remains in every owned receive. The fixed-size key only selects the bounded
 /// group to retry after a deposit or gifter close.
 pub const PendingWithdrawGroup = struct {
-    rows: std.ArrayListUnmanaged(PendingWithdraw) = .empty,
+    rows: std.ArrayList(PendingWithdraw) = .empty,
 };
 
 /// Commit a prepared withdrawal settlement. Preparation owns the one outbound

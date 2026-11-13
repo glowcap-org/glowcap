@@ -50,15 +50,15 @@ fn checkFile(
     defer gpa.free(css);
     const bare = try commentsBlanked(gpa, css);
     defer gpa.free(bare);
-    if (std.mem.indexOf(u8, bare, call) == null) return;
+    if (std.mem.find(u8, bare, call) == null) return;
 
     var spans: std.ArrayList(Span) = .empty;
     defer spans.deinit(gpa);
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, bare, i, "@supports")) |at| {
-        const brace = std.mem.indexOfScalarPos(u8, bare, at, '{') orelse break;
+    while (std.mem.findPos(u8, bare, i, "@supports")) |at| {
+        const brace = std.mem.findScalarPos(u8, bare, at, '{') orelse break;
         i = brace + 1;
-        if (std.mem.indexOf(u8, bare[at..brace], probe) == null) continue;
+        if (std.mem.find(u8, bare[at..brace], probe) == null) continue;
         const end = blockEnd(bare, brace + 1) orelse {
             try appendViolation(
                 gpa,
@@ -83,7 +83,7 @@ fn checkFile(
     // Every call outside a guard is a use a non-supporting browser resolves
     // to nothing. A guard prelude's own call is the exemption.
     i = 0;
-    while (std.mem.indexOfPos(u8, bare, i, call)) |at| {
+    while (std.mem.findPos(u8, bare, i, call)) |at| {
         i = at + call.len;
         var placed = false;
         for (spans.items) |s| {
@@ -109,7 +109,7 @@ fn checkFile(
         var j = s.body;
         while (nextCustomProperty(bare[0..s.end], j)) |prop| {
             j = prop.end;
-            if (std.mem.indexOf(u8, valueOf(bare, prop.end, s.end), call) == null) continue;
+            if (std.mem.find(u8, valueOf(bare, prop.end, s.end), call) == null) continue;
             if (declaredOutside(bare, prop.name, spans.items)) continue;
             try appendViolation(
                 gpa,
@@ -125,8 +125,8 @@ fn checkFile(
 fn commentsBlanked(gpa: std.mem.Allocator, css: []const u8) ![]u8 {
     const out = try gpa.dupe(u8, css);
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, out, i, "/*")) |start| {
-        const end = std.mem.indexOfPos(u8, out, start + 2, "*/") orelse out.len;
+    while (std.mem.findPos(u8, out, i, "/*")) |start| {
+        const end = std.mem.findPos(u8, out, start + 2, "*/") orelse out.len;
         const stop = @min(end + 2, out.len);
         for (out[start..stop]) |*c| {
             if (c.* != '\n') c.* = ' ';
@@ -156,7 +156,7 @@ const CustomProperty = struct { name: []const u8, start: usize, end: usize };
 
 fn nextCustomProperty(css: []const u8, from: usize) ?CustomProperty {
     var i = from;
-    while (std.mem.indexOfPos(u8, css, i, "--")) |at| {
+    while (std.mem.findPos(u8, css, i, "--")) |at| {
         var k = at + 2;
         while (k < css.len and isIdent(css[k])) k += 1;
         i = k;
@@ -177,7 +177,7 @@ fn valueOf(css: []const u8, colon_at: usize, limit: usize) []const u8 {
 
 fn declaredOutside(css: []const u8, name: []const u8, spans: []const Span) bool {
     var i: usize = 0;
-    scan: while (std.mem.indexOfPos(u8, css, i, name)) |at| {
+    scan: while (std.mem.findPos(u8, css, i, name)) |at| {
         i = at + name.len;
         for (spans) |s| {
             if (at >= s.prelude and at < s.end) continue :scan;

@@ -114,7 +114,7 @@ pub const Spill = struct {
             // An incomplete frame consumes nothing. Copying that prefix onto
             // itself on every fragment makes assembly quadratic in its size.
             if (n == 0) return;
-            std.mem.copyForwards(u8, self.buf[0..remaining], self.buf[n..][0..remaining]);
+            @memmove(self.buf[0..remaining], self.buf[n..][0..remaining]);
             self.len = remaining;
             return;
         }

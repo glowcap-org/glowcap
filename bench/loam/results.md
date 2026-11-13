@@ -55,7 +55,7 @@ reads near 37 µs and SQLite hot reads near 17 µs.
 So the older unpinned read comparison mixed CPU placement into its engine
 figures. Placement does not explain the durable-write gap.
 
-To reproduce on Linux, run `zig build bench-loam -Doptimize=ReleaseFast --
+To reproduce on Linux, run `zig build bench-loam -Doptimize=fast --
 --tasks-only --cpu=5` with an allowed CPU on your machine, repeat both engines
 on that same CPU, and keep the `tasks_cpu` report line. Pinning controls
 placement, not clock frequency, competing load, or disk state. The first three
@@ -188,7 +188,7 @@ not the successful commit protocol. These runs establish a comparison, not
 a before-and-after performance improvement.
 
 Three full Tasks runs per engine used
-`zig build bench-loam -Doptimize=ReleaseFast -- --tasks-only --engine=<engine>`.
+`zig build bench-loam -Doptimize=fast -- --tasks-only --engine=<engine>`.
 The first invocation ran both engines, LMDB then SQLite. The remaining order
 was SQLite, LMDB, SQLite, LMDB. Values are medians of each run's percentiles.
 
@@ -261,7 +261,7 @@ neither power-loss recovery nor superiority under arbitrary page corruption.
 These runs used Linux aarch64, Zig 0.17.0 and ReleaseFast through the
 repository development front, on a shared machine, on October 14, 2026,
 with the change that runs the Tasks workload on either disk engine. The
-command is `zig build bench-loam -Doptimize=ReleaseFast -- --tasks-only
+command is `zig build bench-loam -Doptimize=fast -- --tasks-only
 --engine=<engine>`, run three times per engine with the engines alternating.
 Each figure is the median of those three runs.
 
@@ -301,7 +301,7 @@ These runs used Linux aarch64, Zig 0.17.0, ReleaseFast and default synchronous
 LMDB commits, through the repository development front, on a shared machine.
 Each run passed every check its workload makes.
 
-- The Tasks table is `zig build bench-loam -Doptimize=ReleaseFast -- --tasks-only`
+- The Tasks table is `zig build bench-loam -Doptimize=fast -- --tasks-only`
   with the changes that profile the workload under callgrind,
   read a directory page in place, verify only the strong edges a commit
   introduces, and stop the Tasks pump once a pass changes nothing.
@@ -363,7 +363,7 @@ measured each operation through the shared reference.
 
 Two runs used Linux aarch64, Zig
 `0.17.0-dev.2294+71403f299`, ReleaseFast and default synchronous LMDB commits.
-The command was `zig build bench-loam -Doptimize=ReleaseFast -- --ordinary-only`,
+The command was `zig build bench-loam -Doptimize=fast -- --ordinary-only`,
 through the repository development front. Both runs passed all six populations,
 collection fences, exact reclamation, restart checks and final allocation release.
 

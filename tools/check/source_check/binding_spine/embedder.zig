@@ -66,7 +66,7 @@ pub fn checkBindingMagicErrorCodes(
             line_number += 1;
             var has_error_context = false;
             for (binding_error_context_patterns) |pattern| {
-                if (std.mem.indexOf(u8, line, pattern) != null) {
+                if (std.mem.find(u8, line, pattern) != null) {
                     has_error_context = true;
                     break;
                 }
@@ -74,7 +74,7 @@ pub fn checkBindingMagicErrorCodes(
             if (!has_error_context) continue;
 
             var search: usize = 0;
-            while (std.mem.indexOfPos(u8, line, search, "-")) |minus| {
+            while (std.mem.findPos(u8, line, search, "-")) |minus| {
                 search = minus + 1;
                 if (search >= line.len) break;
                 const digit = line[search];

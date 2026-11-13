@@ -101,7 +101,7 @@ const Netloc = struct { transport_encoded: []const u8, designator_encoded: []con
 /// designator is data, not a structural delimiter, and each side then
 /// percent-decodes on its own, the same discipline as `decodeHintBytes`.
 fn splitNetloc(netloc_pe: []const u8) Error!Netloc {
-    const dot = std.mem.lastIndexOfScalar(u8, netloc_pe, '.') orelse return Error.MissingTransport;
+    const dot = std.mem.findScalarLast(u8, netloc_pe, '.') orelse return Error.MissingTransport;
     const designator_pe = netloc_pe[0..dot];
     const transport_pe = netloc_pe[dot + 1 ..];
     if (designator_pe.len == 0 or transport_pe.len == 0) return Error.EmptyComponent;
@@ -125,7 +125,7 @@ fn decodeHintBytes(allocator: std.mem.Allocator, query: ?[]const u8) Error!model
     while (it.next()) |segment| {
         if (entries.items.len == model.max_locator_hint_count)
             return Error.InvalidLocator;
-        const eq = std.mem.indexOfScalar(u8, segment, '=') orelse return Error.MalformedHint;
+        const eq = std.mem.findScalar(u8, segment, '=') orelse return Error.MalformedHint;
         const name = try percentDecodeOwned(allocator, segment[0..eq]);
         errdefer allocator.free(name);
         const value = try percentDecodeOwned(allocator, segment[eq + 1 ..]);
@@ -207,7 +207,7 @@ fn decodeSwissNumber(
     // profile grammar, so accept an RFC 3986 spelling of an alphabet byte.
     var encoded_owned: ?[]u8 = null;
     defer if (encoded_owned) |encoded| allocator.free(encoded);
-    const encoded = if (std.mem.indexOfScalar(u8, swiss_pe, '%') != null) blk: {
+    const encoded = if (std.mem.findScalar(u8, swiss_pe, '%') != null) blk: {
         encoded_owned = try percentDecodeOwned(allocator, swiss_pe);
         break :blk encoded_owned.?;
     } else swiss_pe;
@@ -232,7 +232,7 @@ pub const HostPort = struct {
 /// published several picks the first. Returns a sub-slice of `hint` (empty when
 /// the first entry is empty or the hint is only separators).
 pub fn firstDirectAddress(hint: []const u8) []const u8 {
-    const comma = std.mem.indexOfScalar(u8, hint, ',') orelse hint.len;
+    const comma = std.mem.findScalar(u8, hint, ',') orelse hint.len;
     return std.mem.trim(u8, hint[0..comma], " \t");
 }
 
@@ -246,7 +246,7 @@ pub fn firstDirectAddress(hint: []const u8) []const u8 {
 /// through it, so a consumer dialing with its own sockets validates the same
 /// way the Zig dialer does.
 pub fn splitHostPort(designator: []const u8) Error!HostPort {
-    const colon = std.mem.lastIndexOfScalar(u8, designator, ':') orelse return Error.InvalidHostPort;
+    const colon = std.mem.findScalarLast(u8, designator, ':') orelse return Error.InvalidHostPort;
     var host = designator[0..colon];
     const port_text = designator[colon + 1 ..];
     // Plain ASCII digits only: `parseInt` alone would admit Zig integer-literal
@@ -474,7 +474,7 @@ fn writeHintValue(sink: anytype, value: model.HintValue) Error!void {
         .string => |string| try appendPercentEncoded(sink, string, safeQuery),
         .integer => |integer| {
             var buf: [24]u8 = undefined;
-            const rendered = std.fmt.bufPrint(&buf, "{d}", .{integer}) catch unreachable;
+            const rendered = std.mem.print(&buf, "{d}", .{integer}) catch unreachable;
             try sink.appendSlice(rendered);
         },
         .boolean => |boolean| try sink.appendSlice(if (boolean) "true" else "false"),

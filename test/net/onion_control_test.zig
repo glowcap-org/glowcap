@@ -135,7 +135,7 @@ test "the forwarded port is 9045 in the request Tor receives" {
     // service that nothing could reach, and neither side would report why.
     var buf: [control.max_line_bytes]u8 = undefined;
     const line = try control.writeAddOnionNew(&buf, .{ .address = "127.0.0.1:1" });
-    try std.testing.expect(std.mem.indexOf(u8, line, "PORT=9045,") != null);
+    try std.testing.expect(std.mem.find(u8, line, "PORT=9045,") != null);
     try std.testing.expectEqual(@as(u16, 9045), control.virtual_port);
     try std.testing.expectEqual(glowcap.net.onion.socks5.virtual_port, control.virtual_port);
 }

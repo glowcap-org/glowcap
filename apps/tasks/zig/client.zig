@@ -107,7 +107,7 @@ pub fn main(init: std.process.Init) !void {
     const client: Client = .{ .session = session, .arena = arena_state.allocator(), .nick = nick };
 
     var text_buf: [256]u8 = undefined;
-    const text = std.fmt.bufPrint(&text_buf, "[{s}] {s}", .{ nick, task_text }) catch return fail(std.fmt.comptimePrint("<nick> and <task-text> together must fit in {d} bytes", .{text_buf.len - "[] ".len}));
+    const text = std.mem.print(&text_buf, "[{s}] {s}", .{ nick, task_text }) catch return fail(std.fmt.comptimePrint("<nick> and <task-text> together must fit in {d} bytes", .{text_buf.len - "[] ".len}));
 
     const board = try session.fetch(board_name);
     // Watching replies with a receiver to poll and a canceller that frees the

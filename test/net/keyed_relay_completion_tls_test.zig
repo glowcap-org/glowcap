@@ -5,6 +5,7 @@
 //! storage, and deterministic runtime retirement.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const admission = @import("../support/keyed_relay_admission.zig");
 const fake_tls = @import("../support/fake_tls_runtime.zig");
@@ -18,7 +19,7 @@ const designator = @as([64]u8, @splat('a'));
 const secure_connection_state_bytes: usize = 37_216;
 
 test "completion WSS keeps clear state lean and pins secure state" {
-    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    if (!builtin.optimize.runtimeSafety()) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 272), AdmissionBackend.connection_state_bytes);
     try std.testing.expectEqual(
         secure_connection_state_bytes,
@@ -363,7 +364,7 @@ fn completeSecureUpgrade(
 ) !void {
     const conn = backend.conns.get(1).?;
     var response_buf: [256]u8 = undefined;
-    const response = try std.fmt.bufPrint(
+    const response = try std.mem.print(
         &response_buf,
         "HTTP/1.1 101 Switching Protocols\r\n" ++
             "Upgrade: websocket\r\n" ++

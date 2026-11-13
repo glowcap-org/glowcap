@@ -59,7 +59,7 @@ fn failCapTp(ctx: *Ctx, session: ?*driver.Session, err: anyerror, comptime what:
 
 fn printOut(ctx: *Ctx, comptime fmt: []const u8, args: anytype) !void {
     var buf: [8192]u8 = undefined;
-    const msg = try std.fmt.bufPrint(&buf, fmt, args);
+    const msg = try std.mem.print(&buf, fmt, args);
     try ctx.writeResult(msg);
 }
 

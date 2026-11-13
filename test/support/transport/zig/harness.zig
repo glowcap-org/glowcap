@@ -57,7 +57,7 @@ pub fn PositionalReplyBehavior(comptime template: []const u8) type {
                 .bytes => |b| b,
                 else => "stranger",
             };
-            return .{ .string = try std.fmt.allocPrint(turn.turn.arena, template, .{name}) };
+            return .{ .string = try turn.turn.arena.print(template, .{name}) };
         }
     };
 }
@@ -73,7 +73,7 @@ pub fn PositionalReplyActor(comptime template: []const u8) type {
                 .bytes => |b| b,
                 else => "stranger",
             };
-            return .{ .string = try std.fmt.allocPrint(turn.arena, template, .{name}) };
+            return .{ .string = try turn.arena.print(template, .{name}) };
         }
     };
 }

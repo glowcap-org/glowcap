@@ -65,7 +65,7 @@ pub fn attestation(
     subject: *const [said.SAID_LEN]u8,
     request: []const u8,
 ) std.mem.Allocator.Error![]u8 {
-    return std.fmt.allocPrint(allocator, "invoke|{s}|{s}", .{ subject, request });
+    return allocator.print("invoke|{s}|{s}", .{ subject, request });
 }
 
 /// The signed part of an `invoke`, encoded once from a signing key and a
@@ -137,7 +137,7 @@ pub const State = struct {
         kel_mod.verifyBinding(arena, kel, subject, verkey) catch return error.UnboundCaller;
 
         // The capability invocation succeeds; account for it.
-        const result = try std.fmt.allocPrint(arena, "ack:{s}", .{request});
+        const result = try arena.print("ack:{s}", .{request});
         _ = try self.store.record(.outcome, subject, "demo", result);
         self.served.* += 1;
         if (self.last_subject) |dst| @memcpy(dst, subject[0..said.SAID_LEN]);

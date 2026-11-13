@@ -87,7 +87,7 @@ pub fn dropRaw(backend: anytype, c: anytype, count: usize) void {
 fn compactRaw(c: anytype) void {
     if (c.raw_in_head == 0) return;
     const live = rawBytes(c);
-    std.mem.copyForwards(u8, c.raw_in.items[0..live.len], live);
+    @memmove(c.raw_in.items[0..live.len], live);
     c.raw_in.shrinkRetainingCapacity(live.len);
     c.raw_in_head = 0;
 }
@@ -102,10 +102,10 @@ pub fn upgradeMarkerEnd(retained: []const u8, incoming: []const u8, marker: []co
     std.debug.assert(marker.len * 2 - 2 <= boundary.len);
     @memcpy(boundary[0..retained_tail_len], retained[retained.len - retained_tail_len ..]);
     @memcpy(boundary[retained_tail_len..][0..incoming_head_len], incoming[0..incoming_head_len]);
-    if (std.mem.indexOf(u8, boundary[0 .. retained_tail_len + incoming_head_len], marker)) |at| {
+    if (std.mem.find(u8, boundary[0 .. retained_tail_len + incoming_head_len], marker)) |at| {
         const end_in_boundary = at + marker.len;
         if (end_in_boundary > retained_tail_len) return end_in_boundary - retained_tail_len;
     }
-    if (std.mem.indexOf(u8, incoming, marker)) |at| return at + marker.len;
+    if (std.mem.find(u8, incoming, marker)) |at| return at + marker.len;
     return null;
 }

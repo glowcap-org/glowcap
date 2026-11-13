@@ -35,7 +35,7 @@ const Writer = connection.Connection(.writer);
 pub const Sqlite = struct {
     /// Engine-owned canonical path and requested capacity profile survive
     /// closed handles, so failed recovery can retry without a path allocation.
-    directory: [std.fs.max_path_bytes:0]u8,
+    directory: [std.Io.Dir.max_path_bytes:0]u8,
     capacity_limit_bytes: usize,
     reader_limit: u32,
     writer: Writer,
@@ -74,11 +74,11 @@ pub const Sqlite = struct {
     /// reserves a fresh incarnation while holding exclusive lifetime custody.
     pub fn open(path: [:0]const u8, options: Options) !Sqlite {
         if (options.capacity_bytes < core.backend.min_capacity_bytes or options.capacity_bytes / page_bytes > max_pages or options.max_readers == 0 or options.max_readers > max_readers_limit) return error.InvalidLimits;
-        var absolute: [std.fs.max_path_bytes:0]u8 = undefined;
+        var absolute: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
         var lock = try custody.owner_lock.acquire(path, &absolute);
         // best-effort: the lock is released on every refusal below, and a failing unlock cannot change what the refusal reports.
         errdefer lock.release() catch {};
-        var file: [std.fs.max_path_bytes:0]u8 = undefined;
+        var file: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
         const file_path = try filePath(&absolute, &file);
         const creating = options.opening.mode != .open;
         if (!creating and std.c.access(file_path, std.c.F_OK) != 0) return error.MissingStore;
@@ -147,7 +147,7 @@ pub const Sqlite = struct {
 
     /// Open/configure connections without claiming or changing store metadata.
     fn openConnections(self: *Sqlite, creating: bool) !void {
-        var file: [std.fs.max_path_bytes:0]u8 = undefined;
+        var file: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
         const path = try filePath(&self.directory, &file);
         const handle = try connection.openHandle(path, creating);
         {
@@ -399,7 +399,7 @@ pub const Sqlite = struct {
     }
 };
 
-fn filePath(directory: [*:0]const u8, out: *[std.fs.max_path_bytes:0]u8) ![*:0]const u8 {
+fn filePath(directory: [*:0]const u8, out: *[std.Io.Dir.max_path_bytes:0]u8) ![*:0]const u8 {
     const dir = std.mem.span(directory);
     const total = dir.len + 1 + file_name.len;
     if (total >= out.len) return error.NameTooLong;
@@ -453,7 +453,7 @@ fn configure(db: *c.Db, capacity_bytes: usize, creating: bool) !void {
 /// capacity than the file already holds refuses every growing write.
 fn setCapacity(db: *c.Db, capacity_bytes: usize) !void {
     var text: [48]u8 = undefined;
-    const pragma = std.fmt.bufPrintSentinel(&text, "PRAGMA max_page_count={d}", .{capacity_bytes / page_bytes}, 0) catch unreachable;
+    const pragma = std.mem.printSentinel(&text, "PRAGMA max_page_count={d}", .{capacity_bytes / page_bytes}, 0) catch unreachable;
     try connection.exec(db, pragma.ptr);
 }
 

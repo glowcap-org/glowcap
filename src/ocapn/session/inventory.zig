@@ -130,7 +130,7 @@ fn Walk(comptime Meter: type) type {
     return struct {
         session: *Session,
         allocator: std.mem.Allocator,
-        slots: std.ArrayListUnmanaged(Slot) = .empty,
+        slots: std.ArrayList(Slot) = .empty,
         /// Both totals saturate as `model.owned` measures do, and `finish`
         /// refuses a saturated one, so the walk adds without a check per
         /// value.

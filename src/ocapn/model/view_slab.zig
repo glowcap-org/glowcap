@@ -166,7 +166,7 @@ pub const ValueSlab = struct {
             // Mixed-size children can leave the destination partway through
             // a stack element. Reverse first, then move whole values forward.
             reverse(T, stacked);
-            std.mem.copyForwards(T, claimed, stacked);
+            @memmove(claimed, stacked);
         }
         self.used += count * @sizeOf(T);
         self.open += count * @sizeOf(T);

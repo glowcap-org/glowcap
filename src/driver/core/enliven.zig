@@ -46,7 +46,7 @@ pub const PendingEnliven = struct {
 
 pub const PendingEnlivenGroup = struct {
     first: PendingEnliven,
-    rest: std.ArrayListUnmanaged(PendingEnliven) = .empty,
+    rest: std.ArrayList(PendingEnliven) = .empty,
 };
 
 pub const PendingEnlivenMap = std.AutoHashMapUnmanaged(engine.Node.PendingId, PendingEnlivenGroup);

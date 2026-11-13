@@ -1,4 +1,4 @@
-//! Run `zig build bench-set-uniqueness -Doptimize=ReleaseFast` to measure
+//! Run `zig build bench-set-uniqueness -Doptimize=fast` to measure
 //! borrowed set validation. Frame construction stays outside the measured
 //! window. The collision case uses distinct nested values with equal hashes.
 const std = @import("std");

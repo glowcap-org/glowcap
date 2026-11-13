@@ -19,7 +19,7 @@ pub fn List(comptime T: type, comptime inline_capacity: usize) type {
         held: [inline_capacity]T = undefined,
         held_len: usize = 0,
         /// Owns every row once `spilled` is set.
-        heap: std.ArrayListUnmanaged(T) = .empty,
+        heap: std.ArrayList(T) = .empty,
         spilled: bool = false,
 
         pub const empty: Self = .{};

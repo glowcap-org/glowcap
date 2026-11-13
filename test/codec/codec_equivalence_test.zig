@@ -257,7 +257,7 @@ fn expectDuplicateKeyStructRefused(codec_id: model.CodecId) !void {
 
     const buf = try allocator.dupe(u8, wire_frame.bytes());
     defer allocator.free(buf);
-    const second_key = std.mem.indexOf(u8, buf, "k2") orelse return error.TestUnexpectedResult;
+    const second_key = std.mem.find(u8, buf, "k2") orelse return error.TestUnexpectedResult;
     @memcpy(buf[second_key .. second_key + 2], "k1");
     const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = wire_frame.view().shape };
 

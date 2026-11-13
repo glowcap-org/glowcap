@@ -7,7 +7,7 @@ const std = @import("std");
 /// with no `VmRSS` line, is an error the caller decides to skip or to fail on.
 pub fn kb(io: std.Io, pid: std.process.Child.Id) !u64 {
     var path_buf: [64]u8 = undefined;
-    const path = try std.fmt.bufPrint(&path_buf, "/proc/{d}/status", .{pid});
+    const path = try std.mem.print(&path_buf, "/proc/{d}/status", .{pid});
     var file = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer file.close(io);
     var read_buf: [4096]u8 = undefined;
@@ -20,7 +20,7 @@ pub fn kb(io: std.Io, pid: std.process.Child.Id) !u64 {
         len += n;
     }
     const text = text_buf[0..len];
-    const at = std.mem.indexOf(u8, text, "VmRSS:") orelse return error.RssUnavailable;
+    const at = std.mem.find(u8, text, "VmRSS:") orelse return error.RssUnavailable;
     var i = at + "VmRSS:".len;
     while (i < text.len and (text[i] == ' ' or text[i] == '\t')) i += 1;
     const start = i;

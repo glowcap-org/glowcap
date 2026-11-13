@@ -16,7 +16,7 @@ const sample: Record = .{
 };
 fn decode(bytes: []const u8) !Record {
     // Scalar fixtures declare the one parent edge whenever the payload does.
-    const parent = std.mem.indexOf(u8, bytes, "[") != null;
+    const parent = std.mem.find(u8, bytes, "[") != null;
     return decodeEdges(bytes, if (parent) &.{.{ .target = object }} else &.{});
 }
 fn decodeEdges(payload: []const u8, edges: []const f.loam.core.Edge) !Record {

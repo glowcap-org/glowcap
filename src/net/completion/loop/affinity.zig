@@ -5,9 +5,10 @@
 //! quiescent transfer when the driver returns.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const foundation = @import("foundation");
 
-pub const tracks_thread_affinity = std.debug.runtime_safety;
+pub const tracks_thread_affinity = builtin.optimize.runtimeSafety();
 const OwnerThread = foundation.thread_affinity.OwnerThread(tracks_thread_affinity);
 const unclaimed_owner_thread_id = OwnerThread.unclaimed;
 pub const OwnerThreadId = OwnerThread.Id;

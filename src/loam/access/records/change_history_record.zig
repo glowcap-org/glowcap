@@ -64,7 +64,7 @@ pub const ChangeHistoryRecord = struct {
         if (self.next_sequence == std.math.maxInt(u64)) return error.RevisionExhausted;
         for (self.batches[0..self.count]) |prior| if (prior.eql(object)) return error.InvalidRecord;
         if (self.count == capacity) {
-            std.mem.copyForwards(loam.ObjectId, self.batches[0 .. capacity - 1], self.batches[1..capacity]);
+            @memmove(self.batches[0 .. capacity - 1], self.batches[1..capacity]);
             self.count -= 1;
         }
         self.batches[self.count] = object;

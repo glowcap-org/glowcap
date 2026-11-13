@@ -96,33 +96,33 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
     }
     const cwd = try std.process.currentPathAlloc(ctx.io, gpa);
     const workspace = parsed.flagString("dir") orelse blk: {
-        const base = nonempty(ctx.environ.get("XDG_STATE_HOME")) orelse try std.fs.path.join(gpa, &.{
+        const base = nonempty(ctx.environ.get("XDG_STATE_HOME")) orelse try std.Io.Dir.path.join(gpa, &.{
             nonempty(ctx.environ.get("HOME")) orelse return error.Usage, ".local/state",
         });
-        break :blk try std.fs.path.join(gpa, &.{ base, "glowcap/rooms-deployment" });
+        break :blk try std.Io.Dir.path.join(gpa, &.{ base, "glowcap/rooms-deployment" });
     };
-    const absolute_dir = try std.fs.path.resolve(gpa, &.{ cwd, workspace });
-    const absolute_build = if (build.len == 0) "" else try std.fs.path.resolve(gpa, &.{ cwd, build });
+    const absolute_dir = try std.Io.Dir.path.resolve(gpa, &.{ cwd, workspace });
+    const absolute_build = if (build.len == 0) "" else try std.Io.Dir.path.resolve(gpa, &.{ cwd, build });
     if (build.len != 0) _ = try config.linuxPlatform(ctx.io, gpa, absolute_build);
     const starts = comptime verb.starts();
-    const source_checkout = if (starts and image.len == 0 and build.len == 0 and @import("builtin").os.tag == .linux) checkout else null;
+    const source_checkout = if (starts and image.len == 0 and build.len == 0 and @import("builtin").target.os.tag == .linux) checkout else null;
     // Source selection and validation belong here. The checkout launcher owns
     // its toolchain and refreshes the executable before any Docker effect.
     if (source_checkout) |root| try prepareCheckout(ctx, parsed, gpa, root);
     const prefix = try installation.prefix(ctx);
     defer ctx.gpa.free(prefix);
-    const templates = try std.fs.path.join(gpa, &.{ prefix, "share/glowcap/deployment" });
+    const templates = try std.Io.Dir.path.join(gpa, &.{ prefix, "share/glowcap/deployment" });
     var environ = try ctx.environ.clone(gpa);
     try environ.put("COMPOSE_DISABLE_ENV_FILE", "1");
     const docker: Docker = .{ .io = ctx.io, .gpa = gpa, .environ = &environ, .workspace = absolute_dir };
 
     if (verb == .doctor) {
-        try stdout(ctx.io, try std.fmt.allocPrint(gpa, "configuration: {s}\n", .{absolute_dir}));
+        try stdout(ctx.io, try gpa.print("configuration: {s}\n", .{absolute_dir}));
         if (Io.Dir.cwd().openDir(ctx.io, absolute_dir, .{})) |directory| {
             defer directory.close(ctx.io);
             const state: config.Config = .{ .io = ctx.io, .gpa = gpa, .dir = directory, .path = absolute_dir, .templates = templates };
             if (try state.image()) |selected| {
-                try stdout(ctx.io, try std.fmt.allocPrint(gpa, "selected image: {s}\n", .{selected}));
+                try stdout(ctx.io, try gpa.print("selected image: {s}\n", .{selected}));
             } else {
                 try stdout(ctx.io, "selected image: none (run deployment up to select an image)\n");
             }
@@ -163,10 +163,10 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         // an explicit --image or --build, else a Linux checkout's prepared
         // product, else (installed) the saved selection or the release image.
         const source = if (source_checkout) |root|
-            try std.fs.path.join(gpa, &.{ root, "zig-out/product" })
+            try std.Io.Dir.path.join(gpa, &.{ root, "zig-out/product" })
         else
             absolute_build;
-        const default_image = try std.fmt.allocPrint(gpa, "ghcr.io/glowcap-org/glowcap-rooms:v{d}.{d}.{d}", .{
+        const default_image = try gpa.print("ghcr.io/glowcap-org/glowcap-rooms:v{d}.{d}.{d}", .{
             version.version_major, version.version_minor, version.version_patch,
         });
         log.writeMsg(ctx.io, "Preparing deployment image and configuration. Services and volumes have not been changed.\n");
@@ -216,7 +216,7 @@ fn prepareCheckout(ctx: *Ctx, parsed: *types.Parsed, gpa: std.mem.Allocator, roo
     if (std.mem.eql(u8, ctx.environ.get("GLOWCAP_CHECKOUT_PREPARED") orelse "", root)) return;
     var environ = try ctx.environ.clone(gpa);
     try environ.put("GLOWCAP_PREPARE_CHECKOUT", root);
-    const launcher = try std.fs.path.join(gpa, &.{ root, "glowcap" });
+    const launcher = try std.Io.Dir.path.join(gpa, &.{ root, "glowcap" });
     const arguments = try std.mem.concat(gpa, []const u8, &.{ &.{launcher}, parsed.argv });
     return std.process.replace(ctx.io, .{ .argv = arguments, .environ_map = &environ });
 }

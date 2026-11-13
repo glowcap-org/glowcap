@@ -96,8 +96,8 @@ pub fn parsePart(gpa: std.mem.Allocator, bytes: []const u8) !Part {
             self_total += cost;
             continue;
         }
-        const equals = std.mem.indexOfScalar(u8, line, '=');
-        const colon = std.mem.indexOfScalar(u8, line, ':');
+        const equals = std.mem.findScalar(u8, line, '=');
+        const colon = std.mem.findScalar(u8, line, ':');
         if (colon != null and (equals == null or colon.? < equals.?)) {
             try header(&part, arena, &positions, line[0 .. colon.? + 1], std.mem.trim(u8, line[colon.? + 1 ..], " "));
             continue;
@@ -112,10 +112,10 @@ pub fn parsePart(gpa: std.mem.Allocator, bytes: []const u8) !Part {
             callee_file = try resolve(gpa, arena, &file_names, value);
         } else if (std.mem.eql(u8, key, "fn")) {
             const function = try resolve(gpa, arena, &function_names, value);
-            current_function = try std.fmt.allocPrint(arena, "{s}:{s}", .{ current_file, function });
+            current_function = try arena.print("{s}:{s}", .{ current_file, function });
         } else if (std.mem.eql(u8, key, "cfn")) {
             const function = try resolve(gpa, arena, &function_names, value);
-            callee = try std.fmt.allocPrint(arena, "{s}:{s}", .{ callee_file, function });
+            callee = try arena.print("{s}:{s}", .{ callee_file, function });
         } else if (std.mem.eql(u8, key, "calls")) {
             var tokens = std.mem.tokenizeScalar(u8, value, ' ');
             pending_calls = try std.fmt.parseInt(u64, tokens.next() orelse return error.InvalidPart, 10);
@@ -146,7 +146,7 @@ fn isCostLine(line: []const u8) bool {
 
 fn resolve(gpa: std.mem.Allocator, arena: std.mem.Allocator, table: *std.StringHashMapUnmanaged([]const u8), text: []const u8) ![]const u8 {
     if (text.len == 0 or text[0] != '(') return try arena.dupe(u8, text);
-    const close = std.mem.indexOfScalar(u8, text, ')') orelse return error.InvalidPart;
+    const close = std.mem.findScalar(u8, text, ')') orelse return error.InvalidPart;
     const id = text[1..close];
     const rest = std.mem.trimStart(u8, text[close + 1 ..], " ");
     if (rest.len == 0) return table.get(id) orelse error.InvalidPart;

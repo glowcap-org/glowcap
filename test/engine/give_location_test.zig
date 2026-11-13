@@ -151,8 +151,7 @@ fn expectMintedExporter(
 test "id gives fail closed for recipients without route vocabulary" {
     const allocator = std.testing.allocator;
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x25))).publicKey().toDesignator();
-    const route_text = try std.fmt.allocPrint(
-        allocator,
+    const route_text = try allocator.print(
         "ocapn://{s}.iroh",
         .{key[0..]},
     );
@@ -176,7 +175,7 @@ test "id gives fail closed for recipients without route vocabulary" {
 test "id gives lower to the recipient session transport" {
     const allocator = std.testing.allocator;
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x27))).publicKey().toDesignator();
-    const route_text = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route_text = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route_text);
     const routes = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
@@ -237,7 +236,7 @@ test "via remains an ordinary unknown hint outside the id transport" {
 test "route vocabulary recipients keep id locators verbatim" {
     const allocator = std.testing.allocator;
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x26))).publicKey().toDesignator();
-    const route_text = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route_text = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route_text);
     const routes = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
@@ -264,7 +263,7 @@ test "route vocabulary recipients keep id locators verbatim" {
 test "route vocabulary recipients use a baseline exporter's session location" {
     const allocator = std.testing.allocator;
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x28))).publicKey().toDesignator();
-    const route_text = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route_text = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route_text);
     const routes = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
@@ -336,7 +335,7 @@ test "route vocabulary recipients keep a baseline-compatible exporter override" 
 
 test "allocation failure while lowering a private route is returned, never the unstripped bytes" {
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x31))).publicKey().toDesignator();
-    const route_text = try std.fmt.allocPrint(std.testing.allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route_text = try std.testing.allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer std.testing.allocator.free(route_text);
     const routes = [_]model.HintEntry{.{
         .name = model.transport.hint_via,

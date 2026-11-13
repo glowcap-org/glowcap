@@ -272,7 +272,7 @@ test "c-abi onion accept: a forwarded circuit carries a session" {
 
 /// Dial the listener's forward target and run the client half of the round trip.
 fn dialForwardTarget(io: std.Io, allocator: std.mem.Allocator, target: []const u8) anyerror!void {
-    const colon = std.mem.lastIndexOfScalar(u8, target, ':').?;
+    const colon = std.mem.findScalarLast(u8, target, ':').?;
     const port = try std.fmt.parseInt(u16, target[colon + 1 ..], 10);
     const address = try std.Io.net.IpAddress.parse(target[0..colon], port);
     const stream = try std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream });

@@ -145,7 +145,7 @@ fn runKeyedRelayLoopUntil(
 }
 
 test "keyed-relay completion loop: evented cold dial fetches through relay" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
 
@@ -159,9 +159,9 @@ test "keyed-relay completion loop: evented cold dial fetches through relay" {
     const port = server.socket.address.getPort();
 
     var relay_url_buf: [64]u8 = undefined;
-    const relay_url = try std.fmt.bufPrint(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
+    const relay_url = try std.mem.print(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
     var register_url_buf: [64]u8 = undefined;
-    const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
+    const register_url = try std.mem.print(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
 
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x71)));
 

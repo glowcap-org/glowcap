@@ -24,7 +24,7 @@ pub fn installIfChangedExe(b: *std.Build) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{ .name = "install-if-changed", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/build/install_if_changed.zig"),
         .target = b.graph.host,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
     }) });
     install_if_changed = exe;
     return exe;
@@ -41,7 +41,7 @@ pub fn installIfChanged(b: *std.Build, artifact: *std.Build.Step.Compile, dir: s
     const run = execution.addArtifact(b, .build_tool, installIfChangedExe(b));
     run.setName(b.fmt("install {s} ({s})", .{ artifact.name, if (artifact.isDynamicLibrary()) "shared" else "static" }));
     run.addFileArg(artifact.getEmittedBin());
-    run.addDirectoryArg(dir);
+    run.addDirectoryArg2(dir, .{});
     const target = artifact.rootModuleTarget();
     if (artifact.isDynamicLibrary() and std.Build.wantSharedLibSymLinks(target)) {
         const major = artifact.version.?.major;

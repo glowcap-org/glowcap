@@ -47,8 +47,7 @@ test "core host: id pending dial requires authenticated channel identity before 
 
     try host.setAdvertisedLocator(tcpLocator("127.0.0.1:7600"));
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x61))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
         .{ key[0..], key[0..] },
     );
@@ -102,8 +101,7 @@ test "core host: public dial completion refuses an authenticated accepted sessio
     try pumpToQuiescence(allocator, &.{ &client, &remote }, &.{pair}, &dials);
     try std.testing.expect(accepted.sessionOpen());
 
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
         .{ remote_key[0..], remote_key[0..] },
     );
@@ -136,8 +134,7 @@ test "core host: weak id fallback dials only its own concrete identity" {
     const server_key = keyedDesignator(server_seed);
     const accepted = try publishAndOpenAccepted(&server, model.transport.keyed_tcp, &server_key, &.{});
     try client.ensureAdvertisedLocator(model.transport.keyed_tcp);
-    const locator = try std.fmt.allocPrint(
-        allocator,
+    const locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh&alt-locators=ocapn%3A%2F%2F{s}.keyed-tcp",
         .{ outer_key[0..], outer_key[0..], server_key[0..] },
     );
@@ -175,8 +172,7 @@ test "core host: baseline introducing sessions cannot redeem id vocabulary out o
 
     const introducing_pair = try openPair(allocator, &client, &introducer, "127.0.0.1:7603", &dials);
     const exporter_key = keyedDesignator(@as([32]u8, @splat(0x74)));
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
         .{ exporter_key[0..], exporter_key[0..] },
     );
@@ -209,8 +205,7 @@ test "core host: a malformed id give cannot retain route advice" {
     const accepted = try publishAndOpenAccepted(&exporter, model.transport.iroh, &exporter_key, &.{});
     try client.ensureAdvertisedLocator(model.transport.iroh);
 
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh&alt-locators=ocapn%3A%2F%2Fbaseline-service.onion",
         .{ exporter_key[0..], exporter_key[0..] },
     );

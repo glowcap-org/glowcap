@@ -174,7 +174,7 @@ fn codeOf(line: []const u8, language_kind: Language, scan: *Scan, buf: []u8) ?[]
             .semicolon => if (c == ';') return out[0..i],
         }
         if (c == '"' or c == '\'' or c == '`') {
-            const close = std.mem.indexOfScalarPos(u8, out, i + 1, c);
+            const close = std.mem.findScalarPos(u8, out, i + 1, c);
             if (c == '\'' and scan.rust and (close == null or close.? > i + 4)) {
                 i += 1;
                 continue;

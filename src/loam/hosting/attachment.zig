@@ -88,7 +88,7 @@ pub const Attachment = struct {
     /// id maps to a fresh one.
     index: identity_hash.Map(core.ObjectId, u32),
     /// Slots with no actor, ready for `restoreEdge`.
-    free: std.ArrayListUnmanaged(u32),
+    free: std.ArrayList(u32),
     operations: []Operation,
     reads: []?Loading,
     retirements: []?Retirement,
@@ -131,10 +131,10 @@ pub const Attachment = struct {
         errdefer allocator.free(entries);
         for (entries) |*entry| entry.* = .{ .owner = self };
         const slots = std.math.cast(u32, options.max_endpoints) orelse return error.InvalidLimits;
-        var index: identity_hash.Map(core.ObjectId, u32) = .{};
+        var index: identity_hash.Map(core.ObjectId, u32) = .empty;
         errdefer index.deinit(allocator);
         try index.ensureTotalCapacity(allocator, slots);
-        var free = try std.ArrayListUnmanaged(u32).initCapacity(allocator, slots);
+        var free = try std.ArrayList(u32).initCapacity(allocator, slots);
         errdefer free.deinit(allocator);
         var slot = slots;
         while (slot > 0) : (slot -= 1) free.appendAssumeCapacity(slot - 1);

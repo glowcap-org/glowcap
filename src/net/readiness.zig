@@ -28,8 +28,8 @@ const builtin = @import("builtin");
 const wake_channel = @import("wake_channel.zig");
 
 const linux = std.os.linux;
-const is_linux = builtin.os.tag == .linux;
-const is_darwin = builtin.os.tag.isDarwin();
+const is_linux = builtin.target.os.tag == .linux;
+const is_darwin = builtin.target.os.tag.isDarwin();
 
 // Darwin reaches kqueue through libc; Linux uses raw syscalls and never
 // references these externs (the `wake_channel.zig` convention).

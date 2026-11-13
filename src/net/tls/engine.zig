@@ -177,7 +177,7 @@ pub const Client = struct {
     ) error{EngineContractViolation}!usize {
         const expected = self.retry_ciphertext orelse return self.failContract(phase);
         if (destination.len < expected.len) return self.failContract(phase);
-        std.mem.copyForwards(u8, destination[0..expected.len], expected);
+        @memmove(destination[0..expected.len], expected);
         self.retry_ciphertext = destination[0..expected.len];
         return expected.len;
     }

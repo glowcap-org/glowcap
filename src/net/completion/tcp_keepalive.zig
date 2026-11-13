@@ -64,19 +64,19 @@ pub fn apply(fd: std.posix.socket_t, ka: Keepalive) ApplyError!void {
     // Idle option name differs: Linux `TCP_KEEPIDLE` vs Darwin `TCP_KEEPALIVE`.
     // Numbers from the Linux and Darwin TCP headers, keep them named here
     // rather than importing a platform OS module (banned in portable net sources).
-    const idle_opt: c_int = switch (builtin.os.tag) {
+    const idle_opt: c_int = switch (builtin.target.os.tag) {
         .linux => 4, // TCP_KEEPIDLE
         .macos, .ios, .tvos, .watchos, .visionos => 0x10, // TCP_KEEPALIVE
         // SO_KEEPALIVE is already on; unsupported OS must roll it back so we
         // never leave the socket on with multi-hour OS defaults (ADR-0030).
         else => return rollbackKeepalive(fd, error.UnsupportedPlatform),
     };
-    const intvl_opt: c_int = switch (builtin.os.tag) {
+    const intvl_opt: c_int = switch (builtin.target.os.tag) {
         .linux => 5, // TCP_KEEPINTVL
         .macos, .ios, .tvos, .watchos, .visionos => 0x101, // TCP_KEEPINTVL
         else => return rollbackKeepalive(fd, error.UnsupportedPlatform),
     };
-    const cnt_opt: c_int = switch (builtin.os.tag) {
+    const cnt_opt: c_int = switch (builtin.target.os.tag) {
         .linux => 6, // TCP_KEEPCNT
         .macos, .ios, .tvos, .watchos, .visionos => 0x102, // TCP_KEEPCNT
         else => return rollbackKeepalive(fd, error.UnsupportedPlatform),

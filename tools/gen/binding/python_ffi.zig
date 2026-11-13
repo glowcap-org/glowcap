@@ -124,7 +124,7 @@ fn pyReturnType(comptime T: type) []const u8 {
 /// spell.
 fn containsToken(hay: []const u8, token: []const u8) bool {
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, hay, search, token)) |at| {
+    while (std.mem.findPos(u8, hay, search, token)) |at| {
         search = at + 1;
         if (at > 0 and isIdent(hay[at - 1])) continue;
         const after = at + token.len;
@@ -192,7 +192,7 @@ fn renderArchive(
         if (!containsToken(rows.items, param)) return error.UnusedSigTypeParam;
     }
     var scan: usize = 0;
-    while (std.mem.indexOfScalarPos(u8, rows.items, scan, '_')) |at| {
+    while (std.mem.findScalarPos(u8, rows.items, scan, '_')) |at| {
         scan = at + 1;
         if (at > 0 and isIdent(rows.items[at - 1])) continue;
         if (at + 1 >= rows.items.len) continue;

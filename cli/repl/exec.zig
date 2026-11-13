@@ -40,7 +40,7 @@ pub fn appendDivertLine(store: *blocks.Store, line: []const u8) !void {
     const info_prefix = "glowcap: ";
     if (std.mem.startsWith(u8, line, err_prefix)) {
         var buf: [600]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "! {s}", .{line[err_prefix.len..]}) catch line;
+        const msg = std.mem.print(&buf, "! {s}", .{line[err_prefix.len..]}) catch line;
         try store.appendLine(.error_line, msg);
         return;
     }
@@ -62,14 +62,14 @@ pub fn handleLine(
 ) !TurnResult {
     var result: TurnResult = .{};
     var ubuf: [4200]u8 = undefined;
-    const uline = std.fmt.bufPrint(&ubuf, "› {s}", .{line}) catch line;
+    const uline = std.mem.print(&ubuf, "› {s}", .{line}) catch line;
     try store.appendLine(.user, uline);
 
     // Meta commands resolve through the one table in `meta.zig`; the switch is
     // exhaustive, so a new entry without an arm here is a compile error. A
     // trailing argument on a command that takes none falls through to ordinary
     // dispatch (which reports it), exactly as an unknown verb does.
-    const meta_first_len = std.mem.indexOfAny(u8, line, " \t") orelse line.len;
+    const meta_first_len = std.mem.findAny(u8, line, " \t") orelse line.len;
     const meta_rest = std.mem.trim(u8, line[meta_first_len..], " \t");
     if (meta.resolve(line[0..meta_first_len])) |m| meta_arm: {
         switch (m) {
@@ -193,11 +193,11 @@ pub fn handleLine(
 
     const code = registry.dispatch(ctx, verb, tokens[1..]) catch |err| {
         var ebuf: [128]u8 = undefined;
-        const em = std.fmt.bufPrint(&ebuf, "! {s}", .{@errorName(err)}) catch "! error";
+        const em = std.mem.print(&ebuf, "! {s}", .{@errorName(err)}) catch "! error";
         try store.appendLine(.error_line, em);
         if (copy.tipForErrorDetail(@errorName(err))) |tip| {
             var tbuf: [256]u8 = undefined;
-            const tm = std.fmt.bufPrint(&tbuf, "tip: {s}", .{tip}) catch tip;
+            const tm = std.mem.print(&tbuf, "tip: {s}", .{tip}) catch tip;
             try store.appendLine(.tip, tm);
         }
         return result;
@@ -210,7 +210,7 @@ pub fn handleLine(
         const already = items.len > 0 and items[items.len - 1].kind == .error_line;
         if (!already) {
             var ebuf: [32]u8 = undefined;
-            const em = std.fmt.bufPrint(&ebuf, "! exit {d}", .{code}) catch "! exit";
+            const em = std.mem.print(&ebuf, "! exit {d}", .{code}) catch "! exit";
             try store.appendLine(.error_line, em);
         }
     }
@@ -218,7 +218,7 @@ pub fn handleLine(
     if (code == exit_codes.ok) {
         if (progress.glossOnce(verb)) |g| {
             var gbuf: [256]u8 = undefined;
-            const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+            const gm = std.mem.print(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
             try store.appendLine(.gloss, gm);
         }
         progress.noteVerb(verb, ctx);
@@ -229,7 +229,7 @@ pub fn handleLine(
         result.flash = flashForVerb(verb);
     } else if (copy.tipForErrorDetail(out.items)) |tip| {
         var tbuf: [256]u8 = undefined;
-        const tm = std.fmt.bufPrint(&tbuf, "tip: {s}", .{tip}) catch tip;
+        const tm = std.mem.print(&tbuf, "tip: {s}", .{tip}) catch tip;
         try store.appendLine(.tip, tm);
     } else {
         tipFromRecent(store);
@@ -245,7 +245,7 @@ fn tipFromRecent(store: *blocks.Store) void {
         checked += 1;
         if (copy.tipForErrorDetail(store.items.items[i].body)) |tip| {
             var tbuf: [256]u8 = undefined;
-            const tm = std.fmt.bufPrint(&tbuf, "tip: {s}", .{tip}) catch return;
+            const tm = std.mem.print(&tbuf, "tip: {s}", .{tip}) catch return;
             // best-effort: a tip is decoration, so one the store refuses is dropped.
             store.appendLine(.tip, tm) catch {};
             return;

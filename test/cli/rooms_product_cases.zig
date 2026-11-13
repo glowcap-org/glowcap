@@ -66,9 +66,9 @@ const Handed = struct {
     fn to(front: []const u8) Handed {
         const list = @embedFile("rooms_front_options.txt");
         var heading: [64]u8 = undefined;
-        const marker = std.fmt.bufPrint(&heading, "[{s}]\n", .{front}) catch unreachable;
-        const start = (std.mem.indexOf(u8, list, marker) orelse return .{ .lines = std.mem.splitScalar(u8, "", '\n') }) + marker.len;
-        const end = std.mem.indexOfPos(u8, list, start, "\n[") orelse list.len;
+        const marker = std.mem.print(&heading, "[{s}]\n", .{front}) catch unreachable;
+        const start = (std.mem.find(u8, list, marker) orelse return .{ .lines = std.mem.splitScalar(u8, "", '\n') }) + marker.len;
+        const end = std.mem.findPos(u8, list, start, "\n[") orelse list.len;
         return .{ .lines = std.mem.splitScalar(u8, list[start..end], '\n') };
     }
 
@@ -130,7 +130,7 @@ test "Rooms serve offers every served-session option under its session prefix" {
         // The web front names the session's directory `--session-state`.
         if (std.mem.eql(u8, flag.long, "dir")) continue;
         var name: [64]u8 = undefined;
-        const prefixed = try std.fmt.bufPrint(&name, "session-{s}", .{flag.long});
+        const prefixed = try std.mem.print(&name, "session-{s}", .{flag.long});
         try std.testing.expect(flagNamed(serve, prefixed) != null);
         offered += 1;
     }
@@ -147,29 +147,29 @@ test "Rooms completion follows the installed session and team grammar" {
         var lines = std.mem.splitScalar(u8, script, '\n');
         while (lines.next()) |line| {
             const owns_rooms = if (shell == .fish)
-                std.mem.indexOf(u8, line, "and __fish_seen_subcommand_from rooms") != null
+                std.mem.find(u8, line, "and __fish_seen_subcommand_from rooms") != null
             else
                 std.mem.startsWith(u8, line, "    \"apps rooms");
             if (!owns_rooms) continue;
             const owns_trace = if (shell == .fish)
-                std.mem.indexOf(u8, line, "and __fish_seen_subcommand_from trace") != null
+                std.mem.find(u8, line, "and __fish_seen_subcommand_from trace") != null
             else
                 std.mem.startsWith(u8, line, "    \"apps rooms trace\"") or
                     std.mem.startsWith(u8, line, "    \"apps rooms deployment trace\"");
             for ([_][]const u8{ "identity", "plain", "json" }) |flag| {
                 if (owns_trace and std.mem.eql(u8, flag, "json")) continue;
-                const token = try std.fmt.allocPrint(gpa, "{s}{s}", .{ if (shell == .fish) "-l " else "--", flag });
+                const token = try gpa.print("{s}{s}", .{ if (shell == .fish) "-l " else "--", flag });
                 defer gpa.free(token);
-                try std.testing.expect(std.mem.indexOf(u8, line, token) == null);
+                try std.testing.expect(std.mem.find(u8, line, token) == null);
             }
         }
         for ([_][]const u8{ "session", "team" }) |resource| {
             const path = if (shell == .fish)
-                try std.fmt.allocPrint(gpa, "__fish_seen_subcommand_from apps; and __fish_seen_subcommand_from rooms; and __fish_seen_subcommand_from {s}", .{resource})
+                try gpa.print("__fish_seen_subcommand_from apps; and __fish_seen_subcommand_from rooms; and __fish_seen_subcommand_from {s}", .{resource})
             else
-                try std.fmt.allocPrint(gpa, "apps rooms {s}", .{resource});
+                try gpa.print("apps rooms {s}", .{resource});
             defer gpa.free(path);
-            try std.testing.expect(std.mem.indexOf(u8, script, path) != null);
+            try std.testing.expect(std.mem.find(u8, script, path) != null);
         }
     }
 }
@@ -187,7 +187,7 @@ test "Rooms help refuses CapTP flags instead of advertising ignored output and i
         const help = try cli.cmd.help.writeNodeHelpAlloc(std.testing.allocator, path);
         defer std.testing.allocator.free(help);
         for ([_][]const u8{ "--identity", "--plain", "--json" }) |flag| {
-            try std.testing.expect(std.mem.indexOf(u8, help, flag) == null);
+            try std.testing.expect(std.mem.find(u8, help, flag) == null);
         }
     }
 }
@@ -224,12 +224,12 @@ test "an installed component this user cannot reach is a reported cause, not a m
     defer tmp.cleanup();
     const root = try std.Io.Dir.realPathFileAlloc(tmp.dir, runtime.io(), ".", gpa);
     defer gpa.free(root);
-    const missing = try std.fs.path.join(gpa, &.{ root, "absent" });
+    const missing = try std.Io.Dir.path.join(gpa, &.{ root, "absent" });
     defer gpa.free(missing);
     try std.testing.expect(!try cli.installation.exists(&c, missing));
     // A name longer than any filesystem component is refused before lookup.
     const long_name: [300]u8 = @splat('a');
-    const unreachable_path = try std.fs.path.join(gpa, &.{ root, &long_name });
+    const unreachable_path = try std.Io.Dir.path.join(gpa, &.{ root, &long_name });
     defer gpa.free(unreachable_path);
     try std.testing.expectError(error.NameTooLong, cli.installation.exists(&c, unreachable_path));
 }

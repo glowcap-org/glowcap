@@ -36,7 +36,7 @@ pub fn writeJsonString(buf: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []con
             '\t' => try buf.appendSlice(gpa, "\\t"),
             else => if (c < 0x20) {
                 var hex: [6]u8 = undefined;
-                try buf.appendSlice(gpa, try std.fmt.bufPrint(&hex, "\\u{x:0>4}", .{c}));
+                try buf.appendSlice(gpa, try std.mem.print(&hex, "\\u{x:0>4}", .{c}));
             } else try buf.append(gpa, c),
         }
     }
@@ -53,7 +53,7 @@ pub fn writeJsonString(buf: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []con
 pub fn characterLen(rest: []const u8) usize {
     const len = std.unicode.utf8ByteSequenceLength(rest[0]) catch return 1;
     if (len > rest.len) return 1;
-    _ = std.unicode.utf8Decode(rest[0..len]) catch return 1;
+    if (!std.unicode.utf8ValidateSlice(rest[0..len])) return 1;
     return len;
 }
 

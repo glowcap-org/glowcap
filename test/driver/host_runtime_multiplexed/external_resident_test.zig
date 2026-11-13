@@ -78,7 +78,7 @@ const TcpProvider = struct {
 };
 
 test "an external completion resident serves a dial through a foreign stream provider's table" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -163,7 +163,7 @@ fn awaitCompletion(backend: *ExternalBackend, user_data: u64) !net.completion.Co
 }
 
 test "foreign-provider completion backend dials, moves bytes both ways, and closes" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -173,7 +173,7 @@ test "foreign-provider completion backend dials, moves bytes both ways, and clos
     var server = try std.Io.net.IpAddress.listen(&address, io, .{ .reuse_address = true });
     defer server.deinit(io);
     var designator_buf: [32]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{server.socket.address.getPort()});
+    const designator = try std.mem.print(&designator_buf, "127.0.0.1:{d}", .{server.socket.address.getPort()});
     var echo_future = try io.concurrent(echoOnce, .{ io, &server });
     errdefer wait.joinedUnwinding("echo", echo_future.cancel(io));
 

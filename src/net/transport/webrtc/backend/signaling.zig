@@ -92,7 +92,7 @@ pub const max_signal_in = 256;
 fn retainUnvisited(comptime T: type, items: []T, consumed: usize) usize {
     std.debug.assert(consumed <= items.len);
     const remaining = items.len - consumed;
-    if (remaining > 0) std.mem.copyForwards(T, items[0..remaining], items[consumed..]);
+    if (remaining > 0) @memmove(items[0..remaining], items[consumed..]);
     return remaining;
 }
 

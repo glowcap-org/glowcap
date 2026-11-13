@@ -22,7 +22,7 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
             // Markdown H1 names the page; SMD page titles live in frontmatter.
             if (std.mem.startsWith(u8, s, "# ") and !std.mem.endsWith(u8, entry.path, ".smd")) continue;
             var title = std.mem.trim(u8, s, "# \t");
-            if (std.mem.startsWith(u8, title, "[")) title = title[1 .. std.mem.indexOfScalar(u8, title, ']') orelse continue];
+            if (std.mem.startsWith(u8, title, "[")) title = title[1 .. std.mem.findScalar(u8, title, ']') orelse continue];
             try headings.put(arena, title, {});
         }
     }
@@ -58,7 +58,7 @@ fn checkParagraph(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8)
     while (at < prose.len) : (at += 1) {
         if (prose[at] == '`' or prose[at] == '[') {
             const closing: u8 = if (prose[at] == '`') '`' else ']';
-            const end = std.mem.indexOfScalarPos(u8, prose, at + 1, closing) orelse continue;
+            const end = std.mem.findScalarPos(u8, prose, at + 1, closing) orelse continue;
             @memset(prose[at .. end + 1], ' ');
             at = end;
         }
@@ -67,7 +67,7 @@ fn checkParagraph(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8)
     while (titles.next()) |title| {
         if (title.*.len == 0) continue;
         at = 0;
-        while (std.mem.indexOfPos(u8, prose, at, title.*)) |start| {
+        while (std.mem.findPos(u8, prose, at, title.*)) |start| {
             at = start + title.*.len;
             if (start > 0 and std.ascii.isAlphanumeric(prose[start - 1])) continue;
             if (at < prose.len and std.ascii.isAlphanumeric(prose[at])) continue;

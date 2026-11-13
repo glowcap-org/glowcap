@@ -20,7 +20,7 @@ pub const SettlingMovePlan = struct {
     target: model.ImportPosition,
     converges: bool,
     primary: ?model.AnswerPosition = null,
-    followers: std.ArrayListUnmanaged(session.OutboundAnswerTarget) = .empty,
+    followers: std.ArrayList(session.OutboundAnswerTarget) = .empty,
 
     pub fn deinit(self: *SettlingMovePlan, allocator: std.mem.Allocator) void {
         self.followers.deinit(allocator);
@@ -186,7 +186,7 @@ pub fn applySettlingFollowers(
 pub fn takeSettlingFollowers(
     self: *Session,
     primary: model.AnswerPosition,
-) std.ArrayListUnmanaged(session.OutboundAnswerTarget) {
+) std.ArrayList(session.OutboundAnswerTarget) {
     const answer_entry = self.outbound_answers.getPtr(primary) orelse return .empty;
     if (!answer_entry.has_settling_target or answer_entry.settling_index != 0) return .empty;
     const promise = findImportedPromise(self, answer_entry.settling_target) orelse return .empty;
@@ -395,7 +395,7 @@ pub fn commitSettlingMove(
 
 fn appendAnswersExceptPrimary(
     self: *const Session,
-    out: *std.ArrayListUnmanaged(session.OutboundAnswerTarget),
+    out: *std.ArrayList(session.OutboundAnswerTarget),
     entry: *const ImportedPromise,
     primary: model.AnswerPosition,
 ) void {

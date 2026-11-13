@@ -28,7 +28,7 @@ pub const Projection = struct {
             for (types[0..i]) |previous| if (std.meta.eql(previous.kind, item.kind)) return error.ExportCollision;
         }
         for (types, 0..) |_, i| {
-            const name = try std.fmt.allocPrint(a, "ProjectedType{d}", .{i});
+            const name = try a.print("ProjectedType{d}", .{i});
             errdefer a.free(name);
             try self.type_names.append(a, name);
         }

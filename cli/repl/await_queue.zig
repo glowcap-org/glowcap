@@ -160,7 +160,7 @@ pub const Queue = struct {
         if (clock.nowMs() - a.started_ms < spinner_show_after_ms) return;
         self.spin_i = (self.spin_i + 1) % spinner_frames.len;
         var buf: [520]u8 = undefined;
-        const text = std.fmt.bufPrint(&buf, "{s} {s}", .{ spinner_frames[self.spin_i], a.label }) catch a.label;
+        const text = std.mem.print(&buf, "{s} {s}", .{ spinner_frames[self.spin_i], a.label }) catch a.label;
         // best-effort: a missed spinner repaint; the next frame paints again.
         store.setLine(a.block_idx, .pending, text) catch {};
     }
@@ -234,12 +234,12 @@ pub const Queue = struct {
                     // The chain broke at the fetch leg: the name is not
                     // published on the peer, so say so and coach the fix.
                     var buf: [600]u8 = undefined;
-                    const msg = std.fmt.bufPrint(&buf, "! fetch: {s}", .{reason}) catch "! fetch broken";
+                    const msg = std.mem.print(&buf, "! fetch: {s}", .{reason}) catch "! fetch broken";
                     try store.setLine(active.block_idx, .error_line, msg);
                     try store.appendLine(.tip, "tip: publish that name on the peer, then fetch again");
                 } else {
                     var buf: [600]u8 = undefined;
-                    const msg = std.fmt.bufPrint(&buf, "broken: {s}", .{reason}) catch "broken";
+                    const msg = std.mem.print(&buf, "broken: {s}", .{reason}) catch "broken";
                     try store.setLine(active.block_idx, .error_line, msg);
                 }
                 const flash = flashForVerb(active.verb);
@@ -256,7 +256,7 @@ pub const Queue = struct {
             try store.setLine(active.block_idx, .result, "told");
             if (progress.glossOnce("tell")) |g| {
                 var gbuf: [256]u8 = undefined;
-                const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+                const gm = std.mem.print(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
                 try store.appendLine(.gloss, gm);
             }
             progress.noteVerb("tell", ctx);
@@ -276,10 +276,10 @@ pub const Queue = struct {
             };
             const name = active.tokens[1];
             var fbuf: [256]u8 = undefined;
-            const msg = std.fmt.bufPrint(&fbuf, ocapn.fetched_fmt, .{ name, import_pos }) catch "fetched";
+            const msg = std.mem.print(&fbuf, ocapn.fetched_fmt, .{ name, import_pos }) catch "fetched";
             try store.setLine(active.block_idx, .result, msg);
             var nbuf: [256]u8 = undefined;
-            const next = std.fmt.bufPrint(&nbuf, ocapn.fetch_next_fmt, .{ name, import_pos }) catch copy.next_deliver;
+            const next = std.mem.print(&nbuf, ocapn.fetch_next_fmt, .{ name, import_pos }) catch copy.next_deliver;
             try store.appendLine(.tip, next);
         } else {
             var out: std.ArrayList(u8) = .empty;
@@ -306,7 +306,7 @@ pub const Queue = struct {
 
         if (progress.glossOnce(active.verb)) |g| {
             var gbuf: [256]u8 = undefined;
-            const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+            const gm = std.mem.print(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
             try store.appendLine(.gloss, gm);
         }
         progress.noteVerb(active.verb, ctx);
@@ -454,7 +454,7 @@ pub const Queue = struct {
                         try store.setLine(active.block_idx, .result, "told");
                         if (progress.glossOnce("tell")) |g| {
                             var gbuf: [256]u8 = undefined;
-                            const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+                            const gm = std.mem.print(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
                             try store.appendLine(.gloss, gm);
                         }
                         active.deinit();
@@ -511,11 +511,11 @@ fn runPublish(session: *driver.Session, tokens: []const []const u8, block_idx: u
         return;
     };
     var buf: [128]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "published {s}", .{name}) catch "published";
+    const msg = std.mem.print(&buf, "published {s}", .{name}) catch "published";
     try store.setLine(block_idx, .result, msg);
     if (progress.glossOnce("publish")) |g| {
         var gbuf: [256]u8 = undefined;
-        const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+        const gm = std.mem.print(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
         try store.appendLine(.gloss, gm);
     }
 }
@@ -524,7 +524,7 @@ const flashForVerb = flash_mod.flashForVerb;
 
 fn finishErr(store: *blocks.Store, block_idx: usize, err: anyerror) !void {
     var buf: [128]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "! {s}", .{@errorName(err)}) catch "! error";
+    const msg = std.mem.print(&buf, "! {s}", .{@errorName(err)}) catch "! error";
     try store.setLine(block_idx, .error_line, msg);
     if (err == error.WaitTimedOut) {
         try store.appendLine(.tip, "tip: Esc cancels. Fetch a name, then call #<cap> with the id it prints");
@@ -532,7 +532,7 @@ fn finishErr(store: *blocks.Store, block_idx: usize, err: anyerror) !void {
     }
     if (copy.tipForErrorDetail(@errorName(err))) |tip| {
         var tbuf: [256]u8 = undefined;
-        const tm = std.fmt.bufPrint(&tbuf, "tip: {s}", .{tip}) catch tip;
+        const tm = std.mem.print(&tbuf, "tip: {s}", .{tip}) catch tip;
         try store.appendLine(.tip, tm);
     }
 }

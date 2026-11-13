@@ -9,7 +9,7 @@ const memory = @import("process_memory.zig");
 const metrics = @import("alloc_metrics");
 
 pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, depth: u16, smoke: bool) !void {
-    const path = try std.fmt.allocPrintSentinel(init.gpa, "zig-out/loam-managed-workers-{d}", .{r.now(init.io)}, 0);
+    const path = try init.gpa.printSentinel("zig-out/loam-managed-workers-{d}", .{r.now(init.io)}, 0);
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().createDir(init.io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(init.io, path) catch unreachable;

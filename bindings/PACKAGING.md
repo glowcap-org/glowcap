@@ -129,7 +129,7 @@ bindings normalize common aliases such as `amd64`, `arm64`, and `darwin`.
 ## Building release archives
 
 ```sh
-zig build -Doptimize=ReleaseSafe c-sdk-pack -Dcpu=baseline
+zig build -Doptimize=safe c-sdk-pack -Dcpu=baseline
 ```
 
 This writes checksummed archives for the current target under

@@ -77,7 +77,7 @@ fn collectDeclaredFns(
 
         fn visit(self: @This(), _: []const u8, contents: []u8) std.mem.Allocator.Error!void {
             var rest: []const u8 = contents;
-            while (std.mem.indexOf(u8, rest, "fn ")) |at| {
+            while (std.mem.find(u8, rest, "fn ")) |at| {
                 // Only a real declaration: `fn ` at a token boundary.
                 const before_ok = at == 0 or !text_match.isIdentChar(rest[at - 1]);
                 var i = at + 3;
@@ -91,7 +91,7 @@ fn collectDeclaredFns(
             }
 
             rest = contents;
-            while (std.mem.indexOf(u8, rest, "const ")) |at| {
+            while (std.mem.find(u8, rest, "const ")) |at| {
                 const before_ok = at == 0 or !text_match.isIdentChar(rest[at - 1]);
                 var i = at + 6;
                 const start = i;
@@ -169,9 +169,9 @@ pub fn checkZigDocSymbolClaims(
                 if (!isDocLine(line)) continue;
 
                 var rest: []const u8 = line;
-                while (std.mem.indexOfScalar(u8, rest, '`')) |open| {
+                while (std.mem.findScalar(u8, rest, '`')) |open| {
                     const after = rest[open + 1 ..];
-                    const close = std.mem.indexOfScalar(u8, after, '`') orelse break;
+                    const close = std.mem.findScalar(u8, after, '`') orelse break;
                     const span = after[0..close];
                     rest = after[close + 1 ..];
                     try checkSpan(self.gpa, self.violations, self.declared, path, line_no, span);
@@ -199,11 +199,11 @@ fn checkSpan(
     // two-segment referrers while leaving the qualified ones behind is the
     // exact drift this check exists to catch.
     for (span) |c| if (!text_match.isIdentChar(c) and c != '.') return;
-    const dot = std.mem.lastIndexOfScalar(u8, span, '.') orelse return;
+    const dot = std.mem.findScalarLast(u8, span, '.') orelse return;
     const method = span[dot + 1 ..];
     const owner_path = span[0..dot];
     if (owner_path.len == 0 or method.len == 0) return;
-    const owner_dot = std.mem.lastIndexOfScalar(u8, owner_path, '.');
+    const owner_dot = std.mem.findScalarLast(u8, owner_path, '.');
     const type_name = if (owner_dot) |at| owner_path[at + 1 ..] else owner_path;
     if (type_name.len == 0) return;
     // A `std.` path is declared outside this tree whatever its shape, so it
@@ -335,12 +335,12 @@ fn checkMemoryLedgerFile(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, v
     };
     defer gpa.free(contents);
 
-    const ledger_start = std.mem.indexOf(u8, contents, "\n## The ledger") orelse {
+    const ledger_start = std.mem.find(u8, contents, "\n## The ledger") orelse {
         try appendViolation(gpa, violations, "{s}: missing `## The ledger` section", .{path});
         return;
     };
     const after = contents[ledger_start..];
-    const stop = std.mem.indexOf(u8, after, "\n### Named deferred costs") orelse after.len;
+    const stop = std.mem.find(u8, after, "\n### Named deferred costs") orelse after.len;
     const ledger = after[0..stop];
 
     var declared: std.StringHashMap(void) = .init(gpa);
@@ -358,9 +358,9 @@ fn checkMemoryLedgerFile(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, v
     while (lines.next()) |line| {
         line_no += 1;
         var rest: []const u8 = line;
-        while (std.mem.indexOfScalar(u8, rest, '`')) |open| {
+        while (std.mem.findScalar(u8, rest, '`')) |open| {
             const after_open = rest[open + 1 ..];
-            const close = std.mem.indexOfScalar(u8, after_open, '`') orelse break;
+            const close = std.mem.findScalar(u8, after_open, '`') orelse break;
             const span = after_open[0..close];
             rest = after_open[close + 1 ..];
             try checkSpan(gpa, violations, &declared, path, line_no, span);
@@ -389,9 +389,9 @@ fn checkBareFnSpan(
     for (span) |c| if (!text_match.isIdentChar(c) and c != '.') return;
     // A `std.` path is declared outside this tree, so it proves nothing here.
     if (std.mem.startsWith(u8, span, "std.")) return;
-    const last = if (std.mem.lastIndexOfScalar(u8, span, '.')) |at| span[at + 1 ..] else span;
+    const last = if (std.mem.findScalarLast(u8, span, '.')) |at| span[at + 1 ..] else span;
     if (last.len == 0) return;
-    if (std.mem.indexOfScalar(u8, last, '_') != null) return;
+    if (std.mem.findScalar(u8, last, '_') != null) return;
     if (!std.ascii.isLower(last[0])) return;
     if (!hasUpper(last)) return;
     if (declared.contains(last)) return;

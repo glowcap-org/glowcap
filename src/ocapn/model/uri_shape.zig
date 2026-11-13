@@ -24,7 +24,7 @@ pub const View = struct {
 pub fn inspect(text: []const u8) Error!View {
     try validatePercentEncoding(text);
 
-    const colon = std.mem.indexOfScalar(u8, text, ':') orelse return error.UriParseError;
+    const colon = std.mem.findScalar(u8, text, ':') orelse return error.UriParseError;
     const scheme = text[0..colon];
     if (!validScheme(scheme)) return error.UriParseError;
 
@@ -32,16 +32,16 @@ pub fn inspect(text: []const u8) Error!View {
     if (!std.mem.startsWith(u8, text[authority_start..], "//"))
         return error.UriParseError;
     const host_start = authority_start + 2;
-    const host_end = std.mem.indexOfAnyPos(u8, text, host_start, "/?#") orelse text.len;
+    const host_end = std.mem.findAnyPos(u8, text, host_start, "/?#") orelse text.len;
     const authority = text[host_start..host_end];
     if (authority.len == 0) return error.UriParseError;
-    if (std.mem.indexOfAny(u8, authority, "@:") != null)
+    if (std.mem.findAny(u8, authority, "@:") != null)
         return error.UnsupportedUriComponent;
 
-    const fragment = std.mem.indexOfScalarPos(u8, text, host_end, '#');
+    const fragment = std.mem.findScalarPos(u8, text, host_end, '#');
     if (fragment != null) return error.UnsupportedUriComponent;
 
-    const query_mark = std.mem.indexOfScalarPos(u8, text, host_end, '?');
+    const query_mark = std.mem.findScalarPos(u8, text, host_end, '?');
     const path_end = query_mark orelse text.len;
     const path = text[host_end..path_end];
     const query = if (query_mark) |at| text[at + 1 ..] else null;

@@ -127,7 +127,7 @@ fn applyRowToFile(
     switch (row.kind) {
         .forbid => {
             if (row.unless_contains) |guard| {
-                if (std.mem.indexOf(u8, contents, guard) != null) return;
+                if (std.mem.find(u8, contents, guard) != null) return;
             }
             for (row.needles) |needle| {
                 if (contains(contents, needle, row.insensitive)) {
@@ -147,7 +147,7 @@ fn applyRowToFile(
 
 fn contains(haystack: []const u8, needle: []const u8, insensitive: bool) bool {
     if (insensitive) return std.ascii.findIgnoreCasePos(haystack, 0, needle) != null;
-    return std.mem.indexOf(u8, haystack, needle) != null;
+    return std.mem.find(u8, haystack, needle) != null;
 }
 
 // ─── Migrated tables ────────────────────────────────────────────────────────
@@ -198,6 +198,7 @@ const surfaces = @import("bans/surfaces.zig");
 const ts_double_cast = @import("bans/ts_double_cast.zig");
 const rooms = @import("bans/rooms.zig");
 const entropy = @import("bans/entropy.zig");
+const zig_deprecations = @import("bans/zig_deprecations.zig");
 
 const deno_dependency_reproducibility = [_]Ban{
     .{
@@ -251,6 +252,7 @@ pub const all: []const Ban =
     layers.clock_seam ++
     layers.actors_layer_purity ++
     entropy.rows ++
+    zig_deprecations.rows ++
     layers.goblins_runtime_portability ++
     layers.rooms_lib_layer ++
     layers.signature_arm_reads ++
@@ -439,7 +441,7 @@ test "bans: Rooms runtime cannot restore the text catch-all" {
     try std.testing.expectEqual(@as(usize, 4), t.violations.items.len);
     for ([_][]const u8{ "Runtime(String)", "Error::runtime", "watch::Receiver", "watch::Sender" }) |needle| {
         var found = false;
-        for (t.violations.items) |message| found = found or std.mem.indexOf(u8, message, needle) != null;
+        for (t.violations.items) |message| found = found or std.mem.find(u8, message, needle) != null;
         try std.testing.expect(found);
     }
 }
@@ -540,5 +542,5 @@ test "bans: repeated missing tree rows report one stable open failure" {
         },
     });
     try std.testing.expectEqual(@as(usize, 1), t.violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, t.violations.items[0], "failed to open for first missing tree") != null);
+    try std.testing.expect(std.mem.find(u8, t.violations.items[0], "failed to open for first missing tree") != null);
 }

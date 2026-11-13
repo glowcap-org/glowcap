@@ -42,7 +42,7 @@ pub fn concatDirFiles(
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(gpa);
     for (names.items) |name| {
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, name });
+        const path = try gpa.print("{s}/{s}", .{ dir_path, name });
         defer gpa.free(path);
         const body = try root.readFileAlloc(io, path, gpa, .limited(1 << 20));
         defer gpa.free(body);
@@ -115,7 +115,7 @@ pub fn enterSourceDirectory(
     root_path: []const u8,
     entry: std.Io.Dir.Walker.Entry,
 ) !void {
-    const repo_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ root_path, entry.path });
+    const repo_path = try gpa.print("{s}/{s}", .{ root_path, entry.path });
     defer gpa.free(repo_path);
     if (sourceTreeDirectory(repo_path)) try walker.enter(io, entry);
 }
@@ -144,7 +144,7 @@ pub fn cachedSourceTreeFiles(
             continue;
         }
         if (walk_entry.kind != .file) continue;
-        try files.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ root_path, walk_entry.path }));
+        try files.append(arena, try arena.print("{s}/{s}", .{ root_path, walk_entry.path }));
     }
     const owned = try files.toOwnedSlice(arena);
     try inventories.put(arena, root_path, owned);
@@ -190,7 +190,7 @@ pub fn collectSourceFiles(
             continue;
         }
         if (entry.kind != .file or !keep(entry.path)) continue;
-        try found.append(gpa, try std.fmt.allocPrint(gpa, "{s}/{s}", .{ root_path, entry.path }));
+        try found.append(gpa, try gpa.print("{s}/{s}", .{ root_path, entry.path }));
     }
     std.mem.sort([]u8, found.items, {}, struct {
         fn less(_: void, a: []u8, b: []u8) bool {
@@ -363,8 +363,8 @@ test "readSourceSubject includes every nested package leaf" {
     const subject = (try readSourceSubject(io, gpa, tmp.dir, "pkg/")) orelse
         return error.TestUnexpectedResult;
     defer gpa.free(subject);
-    try std.testing.expect(std.mem.indexOf(u8, subject, "root-marker") != null);
-    try std.testing.expect(std.mem.indexOf(u8, subject, "leaf-marker") != null);
+    try std.testing.expect(std.mem.find(u8, subject, "root-marker") != null);
+    try std.testing.expect(std.mem.find(u8, subject, "leaf-marker") != null);
 }
 
 /// The sources that register build steps: the root `build.zig` plus every

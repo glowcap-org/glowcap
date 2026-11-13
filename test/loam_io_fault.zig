@@ -10,7 +10,7 @@ const std = @import("std");
 // stack trace and turn it into SIGABRT.
 pub const std_options: std.Options = .{ .enable_segfault_handler = false };
 comptime {
-    if (@import("builtin").os.tag != .linux) @compileError("loam-io-fault-test requires Linux");
+    if (@import("builtin").target.os.tag != .linux) @compileError("loam-io-fault-test requires Linux");
 }
 const core = @import("loam_core");
 const fixture = @import("engine_fixture");
@@ -105,8 +105,8 @@ pub fn main(init: std.process.Init) !void {
 
 /// Cuts the open engine's data file to `length` bytes.
 fn shrinkData(directory: []const u8, length: c_long) !void {
-    var buffer: [std.fs.max_path_bytes:0]u8 = undefined;
-    const path = try std.fmt.bufPrintSentinel(&buffer, "{s}/{s}", .{ directory, fixture.data_file }, 0);
+    var buffer: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+    const path = try std.mem.printSentinel(&buffer, "{s}/{s}", .{ directory, fixture.data_file }, 0);
     if (truncate(path, length) != 0) return error.TruncateFailed;
 }
 

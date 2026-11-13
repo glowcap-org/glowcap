@@ -34,8 +34,8 @@ pub fn checkReferenceRelayIrohLazy(
         defer gpa.free(contents);
         var lines = std.mem.splitScalar(u8, contents, '\n');
         while (lines.next()) |line| {
-            if (std.mem.indexOf(u8, line, "\"@glowcap/iroh\"") != null and
-                std.mem.indexOf(u8, line, "import(") == null)
+            if (std.mem.find(u8, line, "\"@glowcap/iroh\"") != null and
+                std.mem.find(u8, line, "import(") == null)
             {
                 try appendViolation(gpa, violations, "{s}: static import of `@glowcap/iroh` — {s}", .{ path, why });
             }
@@ -75,8 +75,8 @@ pub fn checkReferenceRelayIrohLazy(
         defer gpa.free(contents);
         var lines = std.mem.splitScalar(u8, contents, '\n');
         while (lines.next()) |line| {
-            if (std.mem.indexOf(u8, line, "glowcap-iroh") != null and
-                std.mem.indexOf(u8, line, "define-runtime-path") == null)
+            if (std.mem.find(u8, line, "glowcap-iroh") != null and
+                std.mem.find(u8, line, "define-runtime-path") == null)
             {
                 try appendViolation(gpa, violations, "{s}: static reference to the `glowcap-iroh` companion — {s}", .{ path, why });
             }

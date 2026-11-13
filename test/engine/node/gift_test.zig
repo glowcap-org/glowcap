@@ -82,7 +82,7 @@ test "one baseline exporter recipe stays concrete for every recipient" {
     defer exporter_counterpart.deinit();
 
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6e))).publicKey().toDesignator();
-    const via = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const via = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(via);
     const route_hints = [_]model.HintEntry{
         .{ .name = model.transport.hint_via, .value = .{ .string = via } },
@@ -176,8 +176,7 @@ test "give lowering asks for the physical recipient transport instead of its adv
     defer exporter_counterpart.deinit();
 
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x74))).publicKey().toDesignator();
-    const via = try std.fmt.allocPrint(
-        allocator,
+    const via = try allocator.print(
         "ocapn://{s}.iroh|ocapn://{s}.noise-tcp",
         .{ key[0..], key[0..] },
     );

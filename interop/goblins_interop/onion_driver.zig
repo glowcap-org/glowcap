@@ -115,7 +115,7 @@ fn dialGoblinsVat(
     environ_map: *std.process.Environ.Map,
     daemon: *Tor,
 ) !void {
-    const work_dir = try std.fmt.allocPrint(allocator, "{s}/goblins", .{daemon.dir});
+    const work_dir = try allocator.print("{s}/goblins", .{daemon.dir});
     defer allocator.free(work_dir);
 
     const ready = try goblins_child.spawnHostAwaitReadiness(

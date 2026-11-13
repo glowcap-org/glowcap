@@ -86,7 +86,7 @@ pub fn serveUpgradeSized(leg: *Leg, response_bytes: ?usize) !void {
             first = false;
         } else if (l.len == 0) {
             break;
-        } else if (std.mem.indexOfScalar(u8, l, ':')) |colon| {
+        } else if (std.mem.findScalar(u8, l, ':')) |colon| {
             if (std.ascii.eqlIgnoreCase(l[0..colon], "sec-websocket-key")) {
                 const value = std.mem.trim(u8, l[colon + 1 ..], " \t");
                 if (value.len > key.len) return error.BadRequest;
@@ -209,7 +209,7 @@ fn bridgeDirectionObserved(
         switch (frame.opcode) {
             .binary, .continuation => {
                 if (probe) |p| {
-                    if (std.mem.indexOf(u8, frame.payload, p.needle) != null)
+                    if (std.mem.find(u8, frame.payload, p.needle) != null)
                         p.found.store(true, .release);
                 }
                 writeServerFrame(dst, .binary, frame.payload) catch |err| {

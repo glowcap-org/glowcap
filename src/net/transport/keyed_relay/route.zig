@@ -98,7 +98,7 @@ pub const RelayUrl = struct {
             .{ .wss, url["wss://".len..] }
         else
             return error.InvalidRelayUrl;
-        const suffix_at = std.mem.indexOfAny(u8, rest, "/?#") orelse rest.len;
+        const suffix_at = std.mem.findAny(u8, rest, "/?#") orelse rest.len;
         const authority = rest[0..suffix_at];
         const endpoint = try parseAuthority(scheme, authority);
         const suffix = rest[suffix_at..];
@@ -108,7 +108,7 @@ pub const RelayUrl = struct {
         for (suffix) |byte| {
             if (byte < 0x21 or byte > 0x7e or byte == '#') return error.InvalidRelayUrl;
         }
-        const query_at = std.mem.indexOfScalar(u8, suffix, '?');
+        const query_at = std.mem.findScalar(u8, suffix, '?');
         const path = suffix[0 .. query_at orelse suffix.len];
         if (path.len != 0 and path[0] != '/') return error.InvalidRelayUrl;
         const query = if (query_at) |at| suffix[at..] else null;
@@ -142,13 +142,13 @@ const ParsedAuthority = struct {
 };
 
 fn parseAuthority(scheme: Scheme, authority: []const u8) error{InvalidRelayUrl}!ParsedAuthority {
-    if (authority.len == 0 or std.mem.indexOfScalar(u8, authority, '@') != null)
+    if (authority.len == 0 or std.mem.findScalar(u8, authority, '@') != null)
         return error.InvalidRelayUrl;
 
     var host: []const u8 = undefined;
     var port = scheme.defaultPort();
     if (authority[0] == '[') {
-        const close = std.mem.indexOfScalar(u8, authority, ']') orelse
+        const close = std.mem.findScalar(u8, authority, ']') orelse
             return error.InvalidRelayUrl;
         if (close == 1) return error.InvalidRelayUrl;
         host = authority[1..close];
@@ -158,14 +158,14 @@ fn parseAuthority(scheme: Scheme, authority: []const u8) error{InvalidRelayUrl}!
             port = try parsePort(tail[1..]);
         }
         _ = std.Io.net.IpAddress.parse(host, port) catch return error.InvalidRelayUrl;
-        if (std.mem.indexOfScalar(u8, host, ':') == null) return error.InvalidRelayUrl;
+        if (std.mem.findScalar(u8, host, ':') == null) return error.InvalidRelayUrl;
     } else {
-        if (std.mem.indexOfScalar(u8, authority, '[') != null or
-            std.mem.indexOfScalar(u8, authority, ']') != null)
+        if (std.mem.findScalar(u8, authority, '[') != null or
+            std.mem.findScalar(u8, authority, ']') != null)
             return error.InvalidRelayUrl;
-        const colon = std.mem.indexOfScalar(u8, authority, ':');
+        const colon = std.mem.findScalar(u8, authority, ':');
         if (colon) |at| {
-            if (std.mem.indexOfScalarPos(u8, authority, at + 1, ':') != null)
+            if (std.mem.findScalarPos(u8, authority, at + 1, ':') != null)
                 return error.InvalidRelayUrl;
             host = authority[0..at];
             port = try parsePort(authority[at + 1 ..]);
@@ -195,7 +195,7 @@ fn validateTarget(path: []const u8, query: ?[]const u8) error{InvalidRelayUrl}!v
 
     var fields = std.mem.splitScalar(u8, fixed[1..], '&');
     while (fields.next()) |field| {
-        const equals = std.mem.indexOfScalar(u8, field, '=') orelse field.len;
+        const equals = std.mem.findScalar(u8, field, '=') orelse field.len;
         const name = field[0..equals];
         if (encodedEquals(name, rendezvous_query) or encodedEquals(name, register_query))
             return error.InvalidRelayUrl;

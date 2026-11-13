@@ -40,9 +40,9 @@ pub fn checkPythonSigsFactoryArity(
 
     var factories: usize = 0;
     var from: usize = 0;
-    while (std.mem.indexOfPos(u8, gen, from, "\ndef ")) |at| {
+    while (std.mem.findPos(u8, gen, from, "\ndef ")) |at| {
         const name_start = at + "\ndef ".len;
-        const open = std.mem.indexOfScalarPos(u8, gen, name_start, '(') orelse break;
+        const open = std.mem.findScalarPos(u8, gen, name_start, '(') orelse break;
         from = open;
         const name = gen[name_start..open];
         if (!std.mem.endsWith(u8, name, "_sigs")) continue;
@@ -65,7 +65,7 @@ pub fn checkPythonSigsFactoryArity(
             };
             defer gpa.free(src);
             var scan: usize = 0;
-            while (std.mem.indexOfPos(u8, src, scan, name)) |site| {
+            while (std.mem.findPos(u8, src, scan, name)) |site| {
                 scan = site + 1;
                 if (site + name.len >= src.len or src[site + name.len] != '(') continue;
                 if (site > 0 and (std.ascii.isAlphanumeric(src[site - 1]) or src[site - 1] == '_')) continue;
@@ -126,7 +126,7 @@ const ArgIter = struct {
 
     fn next(self: *ArgIter) ?[]const u8 {
         while (self.rest.len != 0) {
-            const at = std.mem.indexOfScalar(u8, self.rest, ',') orelse self.rest.len;
+            const at = std.mem.findScalar(u8, self.rest, ',') orelse self.rest.len;
             const item = std.mem.trim(u8, self.rest[0..at], " \t\n\r");
             self.rest = if (at == self.rest.len) self.rest[at..] else self.rest[at + 1 ..];
             if (item.len != 0) return item;

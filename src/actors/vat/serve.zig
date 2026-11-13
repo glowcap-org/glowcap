@@ -298,7 +298,7 @@ pub fn breakFarVows(port: *Port, message: []const u8) void {
     }
     port.far_broken_stamp = port.peer.session_state.store_stamp_counter;
     port.far_listeners.deinit(port.allocator);
-    port.far_listeners = .{};
+    port.far_listeners = .empty;
 }
 
 pub fn resolveFulfill(port: *Port, answer: ?engine.AnswerTarget, reply: model.Argument) !void {

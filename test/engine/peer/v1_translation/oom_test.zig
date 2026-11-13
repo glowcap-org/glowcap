@@ -33,8 +33,7 @@ test "settled-answer encode OOM leaves its carrier queued and emits exactly once
     // mutate or compact the FIFO before its fallible consequence succeeds.
     for (0..130) |offset| {
         const answer = 1_000 + offset;
-        const wire = try std.fmt.allocPrint(
-            std.testing.allocator,
+        const wire = try std.testing.allocator.print(
             "<10'op:deliver<11'desc:export7+>[]{d}+<19'desc:import-promise{d}+>>",
             .{ answer, 2_000 + offset },
         );

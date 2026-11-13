@@ -20,7 +20,7 @@ pub fn plan(send: *const noise.CipherState, spans: []const []const u8) (noise.No
     const record_overhead = noise.record_header_bytes + noise.tag_bytes;
     var result: Plan = .{ .records = 0, .bytes = 0 };
     for (spans) |span| {
-        const count = std.math.divCeil(usize, span.len, noise.max_record_plaintext_bytes) catch unreachable;
+        const count = @divCeil(span.len, noise.max_record_plaintext_bytes);
         result.records = std.math.add(usize, result.records, count) catch
             return error.OutboundOverflow;
         result.bytes = std.math.add(usize, result.bytes, span.len) catch

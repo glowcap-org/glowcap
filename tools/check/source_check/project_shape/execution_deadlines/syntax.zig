@@ -40,12 +40,12 @@ pub fn leadingIdentifier(text: []const u8) ?[]const u8 {
 }
 
 pub fn assignedConstName(source: []const u8, call_at: usize) ?[]const u8 {
-    const statement_start = if (std.mem.lastIndexOfScalar(u8, source[0..call_at], ';')) |semi| semi + 1 else 0;
+    const statement_start = if (std.mem.findScalarLast(u8, source[0..call_at], ';')) |semi| semi + 1 else 0;
     const statement = source[statement_start..call_at];
-    const const_at = std.mem.lastIndexOf(u8, statement, "const ") orelse return null;
+    const const_at = std.mem.findLast(u8, statement, "const ") orelse return null;
     const after_const = statement[const_at + "const ".len ..];
     const name = leadingIdentifier(after_const) orelse return null;
-    if (std.mem.indexOfScalar(u8, after_const[name.len..], '=') == null) return null;
+    if (std.mem.findScalar(u8, after_const[name.len..], '=') == null) return null;
     return name;
 }
 

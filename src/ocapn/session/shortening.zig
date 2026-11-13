@@ -299,9 +299,9 @@ fn closure(self: *Session, allocator: std.mem.Allocator, gc_export: model.GcExpo
 
     var states: ReleaseStates = .keyed(self.wire_hash_multiplier);
     defer states.deinit(allocator);
-    var queue: std.ArrayListUnmanaged(model.ImportPosition) = .empty;
+    var queue: std.ArrayList(model.ImportPosition) = .empty;
     defer queue.deinit(allocator);
-    var extra: std.ArrayListUnmanaged(model.ImportPosition) = .empty;
+    var extra: std.ArrayList(model.ImportPosition) = .empty;
     defer extra.deinit(allocator);
 
     for (gc_export.positions, gc_export.deltas) |raw_position, delta| {

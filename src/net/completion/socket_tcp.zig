@@ -150,7 +150,7 @@ pub fn boundIp4(comptime os: Os, fd: i32) !Ip4 {
 /// the flag across `accept(2)`). Linux epoll uses it after the shared socket
 /// constructors. io_uring callers do not use it.
 pub fn setNonblocking(fd: i32) bool {
-    if (comptime builtin.os.tag == .linux) {
+    if (comptime builtin.target.os.tag == .linux) {
         const flags = linux.fcntl(fd, linux.F.GETFL, 0);
         if (linux.errno(flags) != .SUCCESS) return false;
         const nonblocking: u32 = @bitCast(linux.O{ .NONBLOCK = true });
@@ -210,7 +210,7 @@ pub const ReceiveError = error{ WouldBlock, ReceiveFailed };
 /// Transient pressure remains distinct from terminal failure.
 pub fn receiveNonblocking(fd: i32, bytes: []u8) ReceiveError!usize {
     while (true) {
-        if (builtin.os.tag == .linux) {
+        if (builtin.target.os.tag == .linux) {
             const rc = linux.recvfrom(fd, bytes.ptr, bytes.len, linux.MSG.DONTWAIT, null, null);
             return switch (linux.errno(rc)) {
                 .SUCCESS => @intCast(rc),
@@ -234,7 +234,7 @@ pub fn receiveNonblocking(fd: i32, bytes: []u8) ReceiveError!usize {
 /// residents see only progress, transient pressure, or terminal failure.
 pub fn sendNonblocking(fd: i32, bytes: []const u8) SendError!usize {
     while (true) {
-        if (builtin.os.tag == .linux) {
+        if (builtin.target.os.tag == .linux) {
             const rc = linux.sendto(
                 fd,
                 bytes.ptr,
@@ -382,7 +382,7 @@ fn checkLinux(rc: usize, comptime fallback: CheckError) CheckError!void {
     };
 }
 
-pub const white_box = if (builtin.is_test and builtin.os.tag == .linux) struct {
+pub const white_box = if (builtin.is_test and builtin.target.os.tag == .linux) struct {
     pub fn nodelayEnabled(fd: i32) bool {
         var value: u32 = 0;
         var len: u32 = @sizeOf(u32);

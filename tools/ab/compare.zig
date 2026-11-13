@@ -115,9 +115,9 @@ pub fn main(init: std.process.Init) !void {
 /// extraction leaves only the `.partial` directory, which the next run
 /// replaces. The rename is the commit point.
 fn prepareBase(ctx: *Ctx) ![]const u8 {
-    const resolved = try runCapture(ctx, null, &.{ "git", "rev-parse", "--short=9", "--verify", try std.fmt.allocPrint(ctx.arena, "{s}^{{commit}}", .{ctx.args.base}) });
+    const resolved = try runCapture(ctx, null, &.{ "git", "rev-parse", "--short=9", "--verify", try ctx.arena.print("{s}^{{commit}}", .{ctx.args.base}) });
     const id = std.mem.trim(u8, resolved, " \n\r\t");
-    const dir = try std.fmt.allocPrint(ctx.arena, scratch_root ++ "/{s}", .{id});
+    const dir = try ctx.arena.print(scratch_root ++ "/{s}", .{id});
     const cwd = Io.Dir.cwd();
     if (cwd.access(ctx.io, dir, .{})) |_| {
         std.debug.print("bench-ab: base {s} already extracted at {s}\n", .{ id, dir });
@@ -127,8 +127,8 @@ fn prepareBase(ctx: *Ctx) ![]const u8 {
         else => return err,
     }
     std.debug.print("bench-ab: extracting base {s} into {s}\n", .{ id, dir });
-    const partial = try std.fmt.allocPrint(ctx.arena, "{s}.partial", .{dir});
-    const tar = try std.fmt.allocPrint(ctx.arena, "{s}.tar", .{dir});
+    const partial = try ctx.arena.print("{s}.partial", .{dir});
+    const tar = try ctx.arena.print("{s}.tar", .{dir});
     try cwd.deleteTree(ctx.io, partial);
     try cwd.createDirPath(ctx.io, partial);
     _ = try runCapture(ctx, null, &.{ "git", "archive", "--format=tar", "-o", tar, id });
@@ -144,7 +144,7 @@ fn prepareBase(ctx: *Ctx) ![]const u8 {
 fn runBench(ctx: *Ctx, cwd: ?[]const u8) ![]const Row {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(ctx.gpa);
-    try argv.appendSlice(ctx.gpa, &.{ ctx.args.zig, "build", ctx.args.step, "-Doptimize=ReleaseFast" });
+    try argv.appendSlice(ctx.gpa, &.{ ctx.args.zig, "build", ctx.args.step, "-Doptimize=fast" });
     if (ctx.args.bench_args.len > 0) {
         try argv.append(ctx.gpa, "--");
         try argv.appendSlice(ctx.gpa, ctx.args.bench_args);
@@ -198,15 +198,15 @@ fn parseRows(arena: std.mem.Allocator, text: []const u8) ![]const Row {
 }
 
 fn parseMetric(arena: std.mem.Allocator, token: []const u8) !?Metric {
-    const eq = std.mem.indexOfScalar(u8, token, '=') orelse return null;
+    const eq = std.mem.findScalar(u8, token, '=') orelse return null;
     if (eq == 0) return null;
     const text = token[eq + 1 ..];
     var digits: usize = 0;
-    while (digits < text.len and std.mem.indexOfScalar(u8, "0123456789.+-", text[digits]) != null) digits += 1;
+    while (digits < text.len and std.mem.findScalar(u8, "0123456789.+-", text[digits]) != null) digits += 1;
     if (digits == 0) return null;
     const value = std.fmt.parseFloat(f64, text[0..digits]) catch return null;
     for (text[digits..]) |c| if (!std.ascii.isAlphabetic(c) and c != '/' and c != '%') return null;
-    const key = if (digits == text.len) token[0..eq] else try std.fmt.allocPrint(arena, "{s}[{s}]", .{ token[0..eq], text[digits..] });
+    const key = if (digits == text.len) token[0..eq] else try arena.print("{s}[{s}]", .{ token[0..eq], text[digits..] });
     return .{ .key = key, .text = text, .value = value };
 }
 
@@ -236,7 +236,7 @@ fn median(values: []f64) f64 {
 
 /// The decimal places a bench printed a value with: `68.2` has one, `70` none.
 fn places(text: []const u8) usize {
-    const point = std.mem.indexOfScalar(u8, text, '.') orelse return 0;
+    const point = std.mem.findScalar(u8, text, '.') orelse return 0;
     var count: usize = 0;
     while (point + 1 + count < text.len and std.ascii.isDigit(text[point + 1 + count])) count += 1;
     return count;
@@ -245,7 +245,7 @@ fn places(text: []const u8) usize {
 /// A median printed with the most places any of its inputs carried, so it
 /// reads like the bench's own rows.
 fn number(buf: []u8, value: f64, precision: usize) ![]const u8 {
-    return std.fmt.bufPrint(buf, "{[value]d:.[precision]}", .{ .value = value, .precision = precision });
+    return std.mem.print(buf, "{[value]d:.[precision]}", .{ .value = value, .precision = precision });
 }
 
 /// The table: one block per row of the tree's first run, one line per

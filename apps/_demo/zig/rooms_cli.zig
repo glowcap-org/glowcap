@@ -10,6 +10,6 @@ pub const room_exists = codes.room_exists;
 /// Match a Rooms application refusal after checking its provenance.
 pub fn hasErrorCode(reason: Broken, code: []const u8) bool {
     if (!reason.cause.isApplication()) return false;
-    const colon = std.mem.indexOf(u8, reason.detail, ": ") orelse return false;
+    const colon = std.mem.find(u8, reason.detail, ": ") orelse return false;
     return std.mem.eql(u8, reason.detail[0..colon], code);
 }

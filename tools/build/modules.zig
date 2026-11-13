@@ -21,7 +21,7 @@ pub fn glowcapExecutable(
     b: *std.Build,
     lib_mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     name: []const u8,
     root_source: []const u8,
 ) *std.Build.Step.Compile {
@@ -49,7 +49,7 @@ pub const AbiImport = struct { name: []const u8, module: *std.Build.Module };
 pub fn transportAbiModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
+    o: std.lang.Optimize,
     root_source: []const u8,
     imports: []const AbiImport,
 ) *std.Build.Module {
@@ -71,7 +71,7 @@ pub fn transportAbiModule(
 pub fn conversationHarnessModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
+    o: std.lang.Optimize,
     lib_mod: *std.Build.Module,
 ) *std.Build.Module {
     const wait_mod = b.createModule(.{
@@ -96,7 +96,7 @@ pub fn conversationHarnessModule(
 pub fn driverProviderModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
+    o: std.lang.Optimize,
     c_abi_shared: *std.Build.Module,
     c_abi_driver: *std.Build.Module,
 ) *std.Build.Module {

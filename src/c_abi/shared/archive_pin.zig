@@ -21,7 +21,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const emits_entry = builtin.output_mode == .Lib and builtin.link_mode == .dynamic and
-    builtin.link_libc and (builtin.object_format == .elf or builtin.object_format == .macho);
+    builtin.link_libc and (builtin.target.ofmt == .elf or builtin.target.ofmt == .macho);
 
 comptime {
     if (emits_entry) @export(&entry, .{
@@ -31,7 +31,7 @@ comptime {
 }
 
 // The native x86 backend supports declaration sections, not ExportOptions.section.
-const entry: *const fn () callconv(.c) void linksection(switch (builtin.object_format) {
+const entry: *const fn () callconv(.c) void linksection(switch (builtin.target.ofmt) {
     .elf => ".init_array",
     .macho => "__DATA,__mod_init_func",
     else => unreachable,

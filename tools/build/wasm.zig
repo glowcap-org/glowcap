@@ -58,7 +58,7 @@ const WasmModules = struct {
     loam: *std.Build.Module,
 };
 
-fn wasmModules(b: *std.Build, o: std.builtin.OptimizeMode) WasmModules {
+fn wasmModules(b: *std.Build, o: std.lang.Optimize) WasmModules {
     const t = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const mask = comptime wasmGraphMask();
     var buf: [layer_table.len]arch_check.LayerSpec = undefined;
@@ -111,7 +111,7 @@ fn wasmModules(b: *std.Build, o: std.builtin.OptimizeMode) WasmModules {
     return .{ .browser = wasm_root, .host = host_archive, .ocapn = pick(sub, mods, "c_abi"), .loam = loam_archive };
 }
 
-fn wasmDriverExe(b: *std.Build, o: std.builtin.OptimizeMode) *std.Build.Step.Compile {
+fn wasmDriverExe(b: *std.Build, o: std.lang.Optimize) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{ .name = "glowcap_host", .root_module = wasmModules(b, o).browser });
     // A loadable module, not a command: no `_start`, exports discovered from the
     // `export fn`s (`entry = .disabled`, `rdynamic`). The linker exports linear
@@ -137,7 +137,7 @@ pub fn register(b: *std.Build, cross_check_step: *std.Build.Step) Registered {
     // drives with bytes. Building it also folds the whole browser-binding graph
     // (`c_abi_host`, `c_abi_wasm`) into `cross-check`, so a wasm regression
     // fails the gate.
-    const wasm_driver = wasmDriverExe(b, .ReleaseSmall);
+    const wasm_driver = wasmDriverExe(b, .small);
     const wasm_driver_install = b.addInstallArtifact(wasm_driver, .{
         .dest_dir = .{ .override = .{ .custom = "wasm" } },
     });
@@ -154,7 +154,7 @@ pub fn register(b: *std.Build, cross_check_step: *std.Build.Step) Registered {
 
     // Static consumers share a linear memory with the Host and call the C ABI
     // directly. They do not need the JavaScript trampolines in the browser root.
-    const wasm_static = wasmModules(b, .ReleaseSmall);
+    const wasm_static = wasmModules(b, .small);
     const wasm_archives_step = b.step("wasm-archives", "Build freestanding Host, OCapN, and Loam static archives for Wasm application linking");
     inline for (.{
         .{ "glowcap_host", wasm_static.host },

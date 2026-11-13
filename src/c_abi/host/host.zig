@@ -44,7 +44,7 @@ const GLOWCAP_ERR_INTERNAL = shared.GLOWCAP_ERR_INTERNAL;
 /// (the core reads no threads). The freestanding wasm Host has no threads and
 /// explicitly chooses unchecked confinement.
 const thread_policy: Host.Options.ThreadPolicy =
-    if (builtin.os.tag == .freestanding) .unchecked else .{ .checked = @import("net_thread_id").reader };
+    if (builtin.target.os.tag == .freestanding) .unchecked else .{ .checked = @import("net_thread_id").reader };
 const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────

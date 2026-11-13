@@ -4,7 +4,7 @@ const commands = @import("../commands.zig");
 const Gates = @import("../gates.zig").Registered;
 const Engine = @import("crash.zig").Engine;
 
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, engines: []const Engine, gates: Gates) void {
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, core: *std.Build.Module, engines: []const Engine, gates: Gates) void {
     const step = b.step("loam-io-fault-test", "Fail Linux writes, syncs and reads, and cut data files short, on both disk engines (needs python3)");
     // The syscall interposer is Linux-specific. An explicitly requested step
     // on another target fails compilation instead of reporting empty success.
@@ -21,7 +21,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         // read the engine performs, so its healthy duration grows with that
         // discovered count. Each child keeps its own five-second deadline.
         const run = commands.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "test/loam/engines/io_fault/run.py" });
-        run.addArtifactArg(probe);
+        run.addArtifactArg2(probe, .{});
         run.addArg(engine.name);
         step.dependOn(&run.step);
     }

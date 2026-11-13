@@ -310,7 +310,7 @@ fn qualify(gpa: std.mem.Allocator, prefix: []const u8, name: []const u8) ![]u8 {
     return if (prefix.len == 0)
         gpa.dupe(u8, name)
     else
-        std.fmt.allocPrint(gpa, "{s}.{s}", .{ prefix, name });
+        gpa.print("{s}.{s}", .{ prefix, name });
 }
 
 fn freeViolations(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8)) void {
@@ -331,7 +331,7 @@ test "an extra whole-module alias is rejected by name" {
     defer freeViolations(std.testing.allocator, &violations);
     try checkSource(std.testing.allocator, "sample.zig", source, &.{"supported"}, &violations);
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "added whole-module consumer export `leaked`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "added whole-module consumer export `leaked`") != null);
 }
 
 test "member selection from an imported module is not a module export" {

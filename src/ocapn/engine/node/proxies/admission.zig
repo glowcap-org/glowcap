@@ -94,7 +94,7 @@ const PreparedRecipient = struct {
 pub const Prepared = struct {
     /// Keyed like `Node.promise_proxies`, whose rows these become.
     groups: foundation.identity_hash.MapOf(.wire, topology.HomeKey, Group),
-    recipients: std.ArrayListUnmanaged(PreparedRecipient) = .empty,
+    recipients: std.ArrayList(PreparedRecipient) = .empty,
     committed: bool = false,
 
     pub fn deinit(self: *Prepared, node: *Node) void {
@@ -119,7 +119,7 @@ pub const Prepared = struct {
     pub fn commitProvisional(
         self: *Prepared,
         node: *Node,
-        receipts: *std.ArrayListUnmanaged(Receipt),
+        receipts: *std.ArrayList(Receipt),
     ) void {
         self.commitAs(node, true);
         for (self.recipients.items) |recipient| receipts.appendAssumeCapacity(.{

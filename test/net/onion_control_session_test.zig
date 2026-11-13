@@ -72,7 +72,7 @@ fn converse(io: std.Io, script: Script, conversation: Conversation) anyerror!usi
     var listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
     var endpoint_text: [64]u8 = undefined;
-    const endpoint = try std.fmt.bufPrint(&endpoint_text, "{f}", .{listener.localAddress()});
+    const endpoint = try std.mem.print(&endpoint_text, "{f}", .{listener.localAddress()});
 
     var daemon = try io.concurrent(scriptedDaemon, .{ io, &listener, script });
     const verdict = converseOnce(io, endpoint, conversation);
@@ -157,8 +157,7 @@ test "a returned private key of service_key_cap bytes is admitted and one more i
         const key = try allocator.alloc(u8, key_len);
         defer allocator.free(key);
         @memset(key, 'k');
-        const head = try std.fmt.allocPrint(
-            allocator,
+        const head = try allocator.print(
             "250-ServiceID={s}\r\n250-PrivateKey={s}\r\n",
             .{ service_id, key },
         );

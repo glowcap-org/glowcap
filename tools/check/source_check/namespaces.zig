@@ -432,10 +432,10 @@ const map_forms = [_]struct { needle: []const u8, key_arg: usize }{
 /// has no key argument to read.
 fn bareKeyOn(line: []const u8) bool {
     for ([_][]const u8{ "StringHashMapUnmanaged(", "StringHashMap(", "bearer_table.Table(" }) |needle| {
-        if (std.mem.indexOf(u8, line, needle) != null) return true;
+        if (std.mem.find(u8, line, needle) != null) return true;
     }
     for (map_forms) |form| {
-        const at = std.mem.indexOf(u8, line, form.needle) orelse continue;
+        const at = std.mem.find(u8, line, form.needle) orelse continue;
         const key = typeArgument(line[at + form.needle.len ..], form.key_arg) orelse continue;
         return isBareKeyType(key);
     }
@@ -490,7 +490,7 @@ fn declaredName(line: []const u8) ?[]const u8 {
     else
         trimmed;
 
-    const stop = std.mem.indexOfAny(u8, decl, ": =") orelse return null;
+    const stop = std.mem.findAny(u8, decl, ": =") orelse return null;
     if (stop == 0) return null;
     const name = decl[0..stop];
     for (name) |c| {
@@ -529,7 +529,7 @@ pub fn checkBareKeyedTables(
                 if (!bareKeyOn(line)) continue;
                 const name = declaredName(line) orelse continue;
 
-                const key = try std.fmt.allocPrint(self.gpa, "{s}|{s}", .{ rel, name });
+                const key = try self.gpa.print("{s}|{s}", .{ rel, name });
                 if (self.seen.contains(key)) {
                     self.gpa.free(key);
                 } else {
@@ -546,7 +546,7 @@ pub fn checkBareKeyedTables(
     try source_tree.visitSourceFiles(io, gpa, root, violations, "bare-key namespace", "src", &source_tree.isZigPath, sink, Sink.visit);
 
     for (registered) |t| {
-        const key = try std.fmt.allocPrint(gpa, "{s}|{s}", .{ t.file, t.name });
+        const key = try gpa.print("{s}|{s}", .{ t.file, t.name });
         defer gpa.free(key);
         if (!seen.contains(key)) {
             try appendViolation(gpa, violations, "tools/check/source_check/namespaces.zig: `registered` still lists `{s}` in src/{s}, which no longer declares a bare-keyed table of that name. Drop the entry, or fix the path.", .{ t.name, t.file });

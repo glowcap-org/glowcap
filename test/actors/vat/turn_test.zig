@@ -252,7 +252,7 @@ const ArenaGreeter = struct {
     pub fn handle(self: *ArenaGreeter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = msg;
         self.n += 1;
-        return .{ .bytes = try std.fmt.allocPrint(turn.arena, "greeting-{d}", .{self.n}) };
+        return .{ .bytes = try turn.arena.print("greeting-{d}", .{self.n}) };
     }
 };
 

@@ -118,7 +118,7 @@ pub fn main(init: std.process.Init) !void {
         .{},
     );
     var port_buf: [8]u8 = undefined;
-    const port_str = try std.fmt.bufPrint(&port_buf, "{d}", .{port});
+    const port_str = try std.mem.print(&port_buf, "{d}", .{port});
 
     // Keep stdin private even though this scenario settles over CapTP. The
     // sibling relayed-give proof uses the same fixture's stdin control path;

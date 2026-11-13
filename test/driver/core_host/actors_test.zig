@@ -164,7 +164,7 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
     const parked = dials.items[0];
     try std.testing.expect(parked.host == &recipient);
-    try std.testing.expect(std.mem.indexOf(u8, parked.designator, "127.0.0.1") != null);
+    try std.testing.expect(std.mem.find(u8, parked.designator, "127.0.0.1") != null);
 
     // The deposit has crossed the gifter-facing exporter Port and captured the
     // original actor. Move the public alias before the recipient opens its own
@@ -604,7 +604,7 @@ test "core host: restore under two live sessions breaks only the missing target'
     try bob.vowOn(try bob.send(b.a, late_ref, .{ .verb = "tag", .args = &.{} }), .{ .ctx = &broke, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
     try std.testing.expect(broke.broken);
-    try std.testing.expect(std.mem.indexOf(u8, broke.reason_buf[0..broke.reason_len], "NoSuchActor") != null);
+    try std.testing.expect(std.mem.find(u8, broke.reason_buf[0..broke.reason_len], "NoSuchActor") != null);
     try std.testing.expect(b.a.sessionOpen() and b.b.sessionOpen());
 
     // The position never retargets: a second delivery breaks the same way.

@@ -19,7 +19,7 @@ const arch_check = @import("../check/arch_check.zig");
 pub fn create(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
+    o: std.lang.Optimize,
     table: []const arch_check.LayerSpec,
     expose_root: bool,
 ) []*std.Build.Module {

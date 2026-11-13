@@ -69,7 +69,7 @@ test "a relay reactor that cannot reserve its poll set releases with the allocat
     try std.testing.expectEqual(.consumed, result.ownership);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, result.code());
     const text = message[0..@min(message_len, message.len)];
-    if (std.mem.indexOf(u8, text, "OutOfMemory") == null) {
+    if (std.mem.find(u8, text, "OutOfMemory") == null) {
         std.debug.print("release reported: {s}\n", .{text});
         return error.TestUnexpectedResult;
     }

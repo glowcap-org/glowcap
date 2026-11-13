@@ -4,7 +4,7 @@ const glowcap = @import("glowcap");
 const net = glowcap.net;
 
 test "keepalive apply configures a connected stream" {
-    if (builtin.os.tag != .linux and builtin.os.tag != .macos) return error.SkipZigTest;
+    if (builtin.target.os.tag != .linux and builtin.target.os.tag != .macos) return error.SkipZigTest;
 
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
@@ -23,7 +23,7 @@ test "keepalive apply configures a connected stream" {
 }
 
 test "invalid keepalive rolls SO_KEEPALIVE back off and reports refusal" {
-    if (builtin.os.tag != .linux and builtin.os.tag != .macos) return error.SkipZigTest;
+    if (builtin.target.os.tag != .linux and builtin.target.os.tag != .macos) return error.SkipZigTest;
 
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();

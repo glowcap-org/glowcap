@@ -14,18 +14,18 @@ pub fn resolveMarkdownTarget(gpa: std.mem.Allocator, source_path: []const u8, ra
     if (target.len == 0) return null;
     if (target[0] == '<' and target[target.len - 1] == '>') target = target[1 .. target.len - 1];
     if (target.len == 0 or target[0] == '#') return null;
-    if (std.mem.indexOf(u8, target, "://") != null) return null;
+    if (std.mem.find(u8, target, "://") != null) return null;
     inline for (&.{ "mailto:", "tel:", "data:" }) |scheme| {
         if (std.mem.startsWith(u8, target, scheme)) return null;
     }
     if (std.mem.startsWith(u8, target, "/")) return null;
 
-    const path_end = std.mem.indexOfAny(u8, target, "?#") orelse target.len;
+    const path_end = std.mem.findAny(u8, target, "?#") orelse target.len;
     const target_path = target[0..path_end];
     if (target_path.len == 0) return null;
 
-    const source_dir = std.fs.path.dirname(source_path) orelse ".";
-    const joined = try std.fs.path.join(gpa, &.{ source_dir, target_path });
+    const source_dir = std.Io.Dir.path.dirname(source_path) orelse ".";
+    const joined = try std.Io.Dir.path.join(gpa, &.{ source_dir, target_path });
     defer gpa.free(joined);
     return try normalizeRelativePath(gpa, joined);
 }

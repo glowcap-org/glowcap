@@ -67,7 +67,7 @@ pub fn forEachStylesheet(
             if (!std.mem.endsWith(u8, entry.name, ".css")) continue;
             if (std.mem.eql(u8, entry.name, "tokens.css")) continue;
             if (std.mem.eql(u8, entry.name, "mark.css")) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.name });
+            const path = try gpa.print("{s}/{s}", .{ dir_path, entry.name });
             defer gpa.free(path);
             try visit(io, gpa, root, violations, path);
         }
@@ -133,9 +133,9 @@ pub fn checkUiCore(
     var declared: std.ArrayList([]const u8) = .empty;
     defer declared.deinit(gpa);
     var scan: usize = 0;
-    while (std.mem.indexOfPos(u8, tokens, scan, "url(\"fonts/")) |hit| {
+    while (std.mem.findPos(u8, tokens, scan, "url(\"fonts/")) |hit| {
         const start = hit + "url(\"fonts/".len;
-        const end = std.mem.indexOfScalarPos(u8, tokens, start, '"') orelse {
+        const end = std.mem.findScalarPos(u8, tokens, start, '"') orelse {
             try appendViolation(gpa, violations, "ui/tokens.css: a `url(\"fonts/` is never closed, so the faces after it are invisible here", .{});
             break;
         };
@@ -148,8 +148,8 @@ pub fn checkUiCore(
     }
 
     for (declared.items) |face| {
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const path = std.fmt.bufPrint(&buf, "ui/fonts/{s}", .{face}) catch {
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const path = std.mem.print(&buf, "ui/fonts/{s}", .{face}) catch {
             try appendViolation(gpa, violations, "ui/tokens.css names `{s}`, whose path does not fit a path buffer", .{face});
             continue;
         };
@@ -166,17 +166,17 @@ pub fn checkUiCore(
         defer gpa.free(names);
 
         for (declared.items) |face| {
-            if (std.mem.indexOf(u8, names, face) == null) {
+            if (std.mem.find(u8, names, face) == null) {
                 try appendViolation(gpa, violations, "ui/tokens.css names `{s}` but {s} does not; {s}", .{ face, consumer.names_faces_in, consumer.miss_costs });
             }
 
-            var link_buf: [std.fs.max_path_bytes]u8 = undefined;
-            var target_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const link = std.fmt.bufPrint(&link_buf, "{s}/{s}", .{ consumer.fonts_dir, face }) catch {
+            var link_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+            var target_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+            const link = std.mem.print(&link_buf, "{s}/{s}", .{ consumer.fonts_dir, face }) catch {
                 try appendViolation(gpa, violations, "{s}: the link path for `{s}` does not fit a path buffer", .{ consumer.fonts_dir, face });
                 continue;
             };
-            const target = std.fmt.bufPrint(&target_buf, "{s}{s}", .{ consumer.fonts_target, face }) catch {
+            const target = std.mem.print(&target_buf, "{s}{s}", .{ consumer.fonts_target, face }) catch {
                 try appendViolation(gpa, violations, "{s}: the link target for `{s}` does not fit a path buffer", .{ consumer.fonts_dir, face });
                 continue;
             };
@@ -284,12 +284,12 @@ pub fn checkUiPaletteLiterals(
     while (line_it.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t");
         if (!std.mem.startsWith(u8, trimmed, "--")) continue;
-        const colon = std.mem.indexOfScalar(u8, trimmed, ':') orelse continue;
+        const colon = std.mem.findScalar(u8, trimmed, ':') orelse continue;
         // Every colour on the line, not the first. A folded token reads
         // `--ink: light-dark(#3a3027, #f3e6d0);`, so taking one `#` per
         // declaration would leave the whole dark half of the palette unguarded.
         var at = colon;
-        while (std.mem.indexOfScalarPos(u8, trimmed, at, '#')) |hash| {
+        while (std.mem.findScalarPos(u8, trimmed, at, '#')) |hash| {
             at = hash + 1;
             if (trimmed.len < hash + 7) break;
             const hex = trimmed[hash .. hash + 7];
@@ -352,10 +352,10 @@ pub fn checkUiPaletteLiterals(
             var spaced: [16]u8 = undefined;
             var tight: [16]u8 = undefined;
             for ([_][]const u8{
-                std.fmt.bufPrint(&spaced, "{d}, {d}, {d}", .{ r, g, bl }) catch unreachable,
-                std.fmt.bufPrint(&tight, "{d},{d},{d}", .{ r, g, bl }) catch unreachable,
+                std.mem.print(&spaced, "{d}, {d}, {d}", .{ r, g, bl }) catch unreachable,
+                std.mem.print(&tight, "{d},{d},{d}", .{ r, g, bl }) catch unreachable,
             }) |needle| {
-                if (std.mem.indexOf(u8, css_scan, needle) != null) {
+                if (std.mem.find(u8, css_scan, needle) != null) {
                     try appendViolation(gpa, violations, "{s} writes the core colour {s} as `{s}`; use color-mix over var({s})", .{ path, hex, needle, name });
                 }
             }
@@ -413,7 +413,7 @@ const Scanner = struct {
         while (self.i < self.css.len) {
             const c = self.css[self.i];
             if (c == '/' and self.i + 1 < self.css.len and self.css[self.i + 1] == '*') {
-                const end = std.mem.indexOfPos(u8, self.css, self.i + 2, "*/") orelse {
+                const end = std.mem.findPos(u8, self.css, self.i + 2, "*/") orelse {
                     self.i = self.css.len;
                     return null;
                 };
@@ -474,7 +474,7 @@ pub fn checkUiThemeParity(
         };
         defer gpa.free(css);
 
-        const attr_at = std.mem.indexOf(u8, css, ":not([data-theme=\"light\"])") orelse {
+        const attr_at = std.mem.find(u8, css, ":not([data-theme=\"light\"])") orelse {
             try appendViolation(gpa, violations, "{s}: has no `:not([data-theme=\"light\"])` arm, so a reader who never touches the toggle never gets the default theme", .{path});
             continue;
         };
@@ -499,20 +499,20 @@ pub fn checkUiThemeParity(
 
         // The desktop does not decide the theme, so nothing about the theme
         // may hang off it. A media query is still fine for anything else.
-        var media_at = std.mem.indexOf(u8, css, "prefers-color-scheme: dark");
+        var media_at = std.mem.find(u8, css, "prefers-color-scheme: dark");
         while (media_at) |at| {
             const media_body = declarationBlock(css, at, .at_rule) orelse {
                 try appendViolation(gpa, violations, "{s}: could not read a dark media-query block", .{path});
                 break;
             };
-            if (std.mem.indexOf(u8, media_body, "color-scheme:") != null or
-                std.mem.indexOf(u8, media_body, "data-theme") != null)
+            if (std.mem.find(u8, media_body, "color-scheme:") != null or
+                std.mem.find(u8, media_body, "data-theme") != null)
             {
                 try appendViolation(gpa, violations, "{s}: sets the theme from `prefers-color-scheme`, which the default face replaced; put it under `:not([data-theme=\"light\"])`", .{path});
             }
             const next = at + "prefers-color-scheme: dark".len;
             media_at = if (next < css.len) blk: {
-                const rest = std.mem.indexOf(u8, css[next..], "prefers-color-scheme: dark") orelse break :blk null;
+                const rest = std.mem.find(u8, css[next..], "prefers-color-scheme: dark") orelse break :blk null;
                 break :blk next + rest;
             } else null;
         }
@@ -539,7 +539,7 @@ pub fn checkUiProductTokens(
     defer gpa.free(live);
     const required = [_][]const u8{ "--accent-ink:", "--teal-ink:", "--accent-fill:", "--on-accent:", "--page-bg:", "--accent-line:", "--radius-control:", "--cover:", "--frost:", "--type-ui:" };
     for (required) |needle| {
-        if (std.mem.indexOf(u8, live, needle) == null) {
+        if (std.mem.find(u8, live, needle) == null) {
             try appendViolation(gpa, violations, "ui/tokens.css: missing product token `{s}` (absent, or inside a comment so the browser never sees it)", .{needle[0 .. needle.len - 1]});
         }
     }
@@ -564,7 +564,7 @@ pub fn checkUiProductTokens(
     if (rooms) |css| {
         defer gpa.free(css);
         try checkSurfaceInk(gpa, violations, "apps/rooms/web/ui", css);
-        if (std.mem.indexOf(u8, css, "var(--type-ui)") == null) {
+        if (std.mem.find(u8, css, "var(--type-ui)") == null) {
             try appendViolation(gpa, violations, "apps/rooms/web/ui: never uses var(--type-ui); the product type ramp lives in ui/tokens.css", .{});
         }
     } else {
@@ -578,7 +578,7 @@ fn cssWithoutComments(gpa: std.mem.Allocator, src: []const u8) ![]u8 {
     var i: usize = 0;
     while (i < src.len) {
         if (i + 1 < src.len and src[i] == '/' and src[i + 1] == '*') {
-            const end = std.mem.indexOfPos(u8, src, i + 2, "*/") orelse src.len;
+            const end = std.mem.findPos(u8, src, i + 2, "*/") orelse src.len;
             const stop = if (end == src.len) src.len else end + 2;
             try out.appendNTimes(gpa, ' ', stop - i);
             i = stop;
@@ -596,28 +596,28 @@ fn checkSurfaceInk(
     path: []const u8,
     css: []const u8,
 ) !void {
-    if (std.mem.indexOf(u8, css, "var(--accent-ink)") == null) {
+    if (std.mem.find(u8, css, "var(--accent-ink)") == null) {
         try appendViolation(gpa, violations, "{s}: never uses var(--accent-ink); product text-safe accent lives in ui/tokens.css", .{path});
     }
-    if (std.mem.indexOf(u8, css, "--accent-ink:") != null) {
+    if (std.mem.find(u8, css, "--accent-ink:") != null) {
         try appendViolation(gpa, violations, "{s}: restates --accent-ink; ui/tokens.css owns it", .{path});
     }
-    if (std.mem.indexOf(u8, css, "var(--on-accent)") == null) {
+    if (std.mem.find(u8, css, "var(--on-accent)") == null) {
         try appendViolation(gpa, violations, "{s}: never uses var(--on-accent); product ink on filled amber lives in ui/tokens.css", .{path});
     }
-    if (std.mem.indexOf(u8, css, "--on-accent:") != null) {
+    if (std.mem.find(u8, css, "--on-accent:") != null) {
         try appendViolation(gpa, violations, "{s}: restates --on-accent; ui/tokens.css owns it", .{path});
     }
-    if (std.mem.indexOf(u8, css, "var(--page-bg)") == null) {
+    if (std.mem.find(u8, css, "var(--page-bg)") == null) {
         try appendViolation(gpa, violations, "{s}: never uses var(--page-bg); product page ground lives in ui/tokens.css", .{path});
     }
-    if (std.mem.indexOf(u8, css, "--page-bg:") != null) {
+    if (std.mem.find(u8, css, "--page-bg:") != null) {
         try appendViolation(gpa, violations, "{s}: restates --page-bg; ui/tokens.css owns it", .{path});
     }
-    if (std.mem.indexOf(u8, css, "var(--frost)") == null) {
+    if (std.mem.find(u8, css, "var(--frost)") == null) {
         try appendViolation(gpa, violations, "{s}: never uses var(--frost); product chrome frost lives in ui/tokens.css", .{path});
     }
-    if (std.mem.indexOf(u8, css, "var(--radius-card)") == null) {
+    if (std.mem.find(u8, css, "var(--radius-card)") == null) {
         try appendViolation(gpa, violations, "{s}: never uses var(--radius-card); product card radius lives in ui/tokens.css", .{path});
     }
 }
@@ -627,7 +627,7 @@ fn collectDecls(body: []const u8, out: *std.StringHashMap([]const u8)) !void {
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t");
         if (!std.mem.startsWith(u8, trimmed, "--")) continue;
-        const colon = std.mem.indexOfScalar(u8, trimmed, ':') orelse continue;
+        const colon = std.mem.findScalar(u8, trimmed, ':') orelse continue;
         const name = trimmed[0..colon];
         var value = std.mem.trim(u8, trimmed[colon + 1 ..], " \t");
         if (std.mem.endsWith(u8, value, ";")) value = value[0 .. value.len - 1];

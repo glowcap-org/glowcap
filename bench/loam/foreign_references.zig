@@ -18,13 +18,13 @@ fn callAllowance() !usize {
 }
 
 pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, depth: u16, smoke: bool) !void {
-    const path = try std.fmt.allocPrint(init.gpa, "zig-out/loam-foreign-{d}", .{r.now(init.io)});
+    const path = try init.gpa.print("zig-out/loam-foreign-{d}", .{r.now(init.io)});
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().createDir(init.io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(init.io, path) catch unreachable;
-    const source_path = try std.fmt.allocPrintSentinel(init.gpa, "{s}/source", .{path}, 0);
+    const source_path = try init.gpa.printSentinel("{s}/source", .{path}, 0);
     defer init.gpa.free(source_path);
-    const target_path = try std.fmt.allocPrintSentinel(init.gpa, "{s}/target", .{path}, 0);
+    const target_path = try init.gpa.printSentinel("{s}/target", .{path}, 0);
     defer init.gpa.free(target_path);
     try std.Io.Dir.cwd().createDir(init.io, source_path, .default_dir);
     try std.Io.Dir.cwd().createDir(init.io, target_path, .default_dir);

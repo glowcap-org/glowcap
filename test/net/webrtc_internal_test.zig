@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @import("c_abi_shared");
 const foundation = @import("foundation");
 const net = @import("net");
@@ -64,7 +65,7 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     // carries for the backends that reserve. The watch list and the park's poll set are 64,
     // the cost of parking the runtime inside this backend. The signaling
     // authority is 32: its context and the three send verbs.
-    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    if (!builtin.optimize.runtimeSafety()) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 856), @sizeOf(webrtc.Backend));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Backend));
 }
@@ -250,7 +251,7 @@ fn expectWebrtcCandidateTooLarge(code: i32) !void {
 fn expectWebrtcLastErrorContains(message_part: []const u8) !void {
     var message: [256]u8 = undefined;
     const len = @min(webrtc_archive.glowcap_webrtc_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..len], message_part) != null);
+    try std.testing.expect(std.mem.find(u8, message[0..len], message_part) != null);
 }
 
 test "public webrtc config validates nested ICE views before endpoint creation" {
@@ -307,7 +308,7 @@ fn expectWebrtcConfigRefusal(
     try std.testing.expectEqual(@as(?*webrtc_archive.GlowcapWebrtcNetlayer, null), netlayer);
     var message: [256]u8 = undefined;
     const len = @min(webrtc_archive.glowcap_webrtc_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..len], message_part) != null);
+    try std.testing.expect(std.mem.find(u8, message[0..len], message_part) != null);
 }
 
 test "provider maps a clean WebRTC close to EOF" {

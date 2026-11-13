@@ -54,7 +54,7 @@ pub fn main(init: std.process.Init) !void {
         try @import("loam/collection_cost.zig").run(init, &report, smoke);
         return;
     }
-    try emit(init.gpa, &report, "Loam workload mode={s} arch={s} os={s} durability=engine-default-sync\n", .{ @tagName(builtin.mode), @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
+    try emit(init.gpa, &report, "Loam workload mode={s} arch={s} os={s} durability=engine-default-sync\n", .{ @tagName(builtin.optimize), @tagName(builtin.target.cpu.arch), @tagName(builtin.target.os.tag) });
     if (tasks_only) {
         try @import("loam/tasks.zig").run(init, &report, smoke, engines);
         return write(init, &report, smoke, "zig-out/bench-reports/loam-tasks.txt");
@@ -90,7 +90,7 @@ fn write(init: std.process.Init, report: *std.ArrayList(u8), smoke: bool, sub_pa
 fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: usize, smoke: bool) !void {
     const gpa = init.gpa;
     const io = init.io;
-    const path = try std.fmt.allocPrintSentinel(gpa, "zig-out/loam-bench-{d}-{d}-{d}", .{ now(io), count, size }, 0);
+    const path = try gpa.printSentinel("zig-out/loam-bench-{d}-{d}-{d}", .{ now(io), count, size }, 0);
     defer gpa.free(path);
     try std.Io.Dir.cwd().createDirPath(io, "zig-out");
     try std.Io.Dir.cwd().createDir(io, path, .default_dir);

@@ -151,7 +151,7 @@ pub fn checkBindingHostActionDrains(
                     cap = false;
                 }
                 const variant = variant_buf[0..n];
-                if (std.mem.indexOf(u8, contents, variant) == null) {
+                if (std.mem.find(u8, contents, variant) == null) {
                     try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` arm (from GLOWCAP_HOST_ACTION_{s})", .{ vpath, variant, name });
                 }
                 continue;
@@ -181,7 +181,7 @@ pub fn checkBindingHostActionDrains(
             const token = token_buf[0..n];
             var found = false;
             for (contents_list.items) |contents| {
-                if (std.mem.indexOf(u8, contents, token) != null) {
+                if (std.mem.find(u8, contents, token) != null) {
                     found = true;
                     break;
                 }
@@ -202,7 +202,7 @@ pub fn checkBindingHostActionDrains(
                     symbol_buf[1 + i] = if (c == '_') '-' else std.ascii.toLower(c);
                 }
                 const symbol = symbol_buf[0 .. 1 + name.len];
-                if (std.mem.indexOf(u8, contents, symbol) == null) {
+                if (std.mem.find(u8, contents, symbol) == null) {
                     try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` handler (from GLOWCAP_HOST_ACTION_{s})", .{ sym_path, symbol, name });
                 }
             }

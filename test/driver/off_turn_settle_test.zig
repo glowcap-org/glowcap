@@ -123,7 +123,7 @@ fn clientAsserts(client: *driver.Session, allocator: std.mem.Allocator) !void {
 
     const broken = try client.call(worker_ref, "work", &.{}, arena.allocator());
     try std.testing.expect(broken == .broken);
-    try std.testing.expect(std.mem.indexOf(u8, broken.broken.detail, "worker gave up") != null);
+    try std.testing.expect(std.mem.find(u8, broken.broken.detail, "worker gave up") != null);
 }
 
 // --- HostRuntime: the poll wait wakes on the mailbox fd -----------------

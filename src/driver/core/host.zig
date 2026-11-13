@@ -144,7 +144,7 @@ pub const Host = struct {
     /// authenticates an early withdraw before its deposit row exists. This is
     /// also the one partner-identity index: key lookups derive the side and
     /// compare the selected shell's exact `indexed_partner_key` before use.
-    partner_by_side: std.AutoHashMapUnmanaged([32]u8, engine.PeerHandle) = .{},
+    partner_by_side: std.AutoHashMapUnmanaged([32]u8, engine.PeerHandle) = .empty,
     /// A partner's **authenticated durable identity** → peer handle: the second
     /// of the two peer directories, and not the same one
     /// (ADR-0028). `partner_by_side` names a session *incarnation* through the
@@ -163,12 +163,12 @@ pub const Host = struct {
     /// so a row can be written from a borrowed hello view before apply, which
     /// is when duplicate collapse needs it, without retaining bytes the frame
     /// owns.
-    peer_by_durable: std.AutoHashMapUnmanaged([crypto.peer_key_bytes]u8, engine.PeerHandle) = .{},
+    peer_by_durable: std.AutoHashMapUnmanaged([crypto.peer_key_bytes]u8, engine.PeerHandle) = .empty,
     /// Our own dialed `(transport, designator)` → peer handle. Key slices borrow
     /// the session shell and leave the index before those bytes free. The
     /// complete locator identity prevents one netlayer from satisfying or
     /// shadowing another netlayer's dial.
-    dialed_by_target: session_directory.DialTargetMap = .{},
+    dialed_by_target: session_directory.DialTargetMap = .empty,
     /// Runtime provider occupancy and complete session semantics. Built-in keys
     /// borrow `model.transport.Known`'s static symbol. Extension keys are
     /// Host-owned copies. One row per symbol makes routing authority unique.
@@ -211,13 +211,13 @@ pub const Host = struct {
     /// their rows at settlement. Embedder-facing rows retain the answer position
     /// through settlement and retire on explicit release, preserving promise
     /// pipelining until the public handle itself dies.
-    vows: foundation.identity_hash.Map(u64, *VowRow) = .{},
+    vows: foundation.identity_hash.Map(u64, *VowRow) = .empty,
     vow_ids: foundation.id_issuer.IdIssuer = .{},
     /// Host resolver id → its session-less vow row and the vat resolver it
     /// settles (ADR-0014). A row is consumed by the first settle attempt, so
     /// the map holds exactly the live settle authorities. Freed with the
     /// host. Ids are host-scoped, from their own counter, and never reused.
-    resolver_index: foundation.identity_hash.Map(u64, ResolverIndexEntry) = .{},
+    resolver_index: foundation.identity_hash.Map(u64, ResolverIndexEntry) = .empty,
     resolver_ids: foundation.id_issuer.IdIssuer = .{},
     /// Enlivens waiting on a dial this host staged (`enlivenSelectOrDial`,
     /// ADR-0007). Each row holds the vow id minted for the caller *before*
@@ -267,7 +267,7 @@ pub const Host = struct {
     /// Finite session-close timing lives out of line so an open session pays no
     /// deadline storage. Unbounded finish and cancel need no row. The session
     /// lifecycle carries those states directly.
-    session_close_timing: std.AutoHashMapUnmanaged(engine.PeerHandle, SessionCloseTiming) = .{},
+    session_close_timing: std.AutoHashMapUnmanaged(engine.PeerHandle, SessionCloseTiming) = .empty,
     /// Node actions whose recipient could not take another outbound frame,
     /// parked per recipient so one partner's flow control holds back only what
     /// is bound for it (ADR-0017). A row enters when that recipient refuses
@@ -275,7 +275,7 @@ pub const Host = struct {
     /// leaves the queue, and re-enters in its original order when the embedder
     /// next takes that recipient's outbound bytes or releases its session.
     /// Out of line, so a session under no pressure pays nothing.
-    parked_node_actions: std.AutoHashMapUnmanaged(engine.PeerHandle, std.ArrayListUnmanaged(engine.Node.Action)) = .{},
+    parked_node_actions: std.AutoHashMapUnmanaged(engine.PeerHandle, std.ArrayList(engine.Node.Action)) = .empty,
     /// Cached nearest finite session deadline. The timing map remains the
     /// authority. This avoids an O(n) sweep on every adapter turn.
     next_session_close_deadline_ms: ?i64 = null,

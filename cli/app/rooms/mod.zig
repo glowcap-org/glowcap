@@ -29,13 +29,13 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
             const root = try runtime.prefix(ctx);
             defer ctx.gpa.free(root);
             if (mode == .skills) {
-                const path = try std.fs.path.join(alloc, &.{ root, "share/glowcap/skills" });
+                const path = try std.Io.Dir.path.join(alloc, &.{ root, "share/glowcap/skills" });
                 // tolerant: exists has reported its cause, and 1 is this command's failure exit.
                 if (!(runtime.exists(ctx, path) catch return 1)) {
                     log.err(ctx.io, "missing installed skills. Install the complete glowcap package", .{});
                     return 1;
                 }
-                try @import("../../argv.zig").writeStdout(ctx.io, try std.fmt.allocPrint(alloc, "{s}\n", .{path}));
+                try @import("../../argv.zig").writeStdout(ctx.io, try alloc.print("{s}\n", .{path}));
                 return 0;
             }
             var arguments: std.ArrayList([]const u8) = .empty;
@@ -45,27 +45,27 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                 // web front's test override must not select another release.
                 const server = try runtime.executable(ctx, "rooms-server");
                 defer ctx.gpa.free(server);
-                try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--server={s}", .{server}));
-                const assets = parsed.flagString("assets") orelse try std.fs.path.join(alloc, &.{ root, "share/glowcap/rooms" });
+                try arguments.append(alloc, try alloc.print("--server={s}", .{server}));
+                const assets = parsed.flagString("assets") orelse try std.Io.Dir.path.join(alloc, &.{ root, "share/glowcap/rooms" });
                 // tolerant: exists has reported its cause, and 1 is this command's failure exit.
                 if (!(runtime.exists(ctx, assets) catch return 1)) {
                     log.err(ctx.io, "missing prepared browser assets at {s}. Install the complete glowcap package (contributors: zig build glowcap-install)", .{assets});
                     return 1;
                 }
-                try arguments.appendSlice(alloc, &.{ "--prepared", try std.fmt.allocPrint(alloc, "--assets={s}", .{assets}) });
+                try arguments.appendSlice(alloc, &.{ "--prepared", try alloc.print("--assets={s}", .{assets}) });
                 if (parsed.flagString("state") == null and env(ctx, "GLOWCAP_ROOMS_STATE") == null) {
                     if (env(ctx, "HOME") == null and env(ctx, "XDG_STATE_HOME") == null and env(ctx, "GLOWCAP_STATE") == null) {
                         log.err(ctx.io, "name durable Rooms storage with --state when no user state directory is configured", .{});
                         return error.Usage;
                     }
-                    var state_buf: [std.fs.max_path_bytes]u8 = undefined;
+                    var state_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
                     const state = try @import("../../operability/xdg.zig").defaultStateDir(&state_buf, ctx.environ, .product);
-                    try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--state={s}/rooms", .{state}));
+                    try arguments.append(alloc, try alloc.print("--state={s}/rooms", .{state}));
                 }
             }
             if (mode == .session_ready) {
                 const file = parsed.flagString("file") orelse return error.Usage;
-                try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--check-ready={s}", .{file}));
+                try arguments.append(alloc, try alloc.print("--check-ready={s}", .{file}));
             } else if (mode == .status or mode == .locator or mode == .revision or mode == .page) {
                 const option = switch (mode) {
                     .status => "check-ready",
@@ -74,10 +74,10 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                     .page => "page-link",
                     else => unreachable,
                 };
-                try arguments.append(alloc, if (parsed.flagString("url")) |url| try std.fmt.allocPrint(alloc, "--{s}={s}", .{ option, url }) else try std.fmt.allocPrint(alloc, "--{s}", .{option}));
+                try arguments.append(alloc, if (parsed.flagString("url")) |url| try alloc.print("--{s}={s}", .{ option, url }) else try alloc.print("--{s}", .{option}));
             } else if (mode == .capabilities) {
-                try arguments.append(alloc, if (parsed.flagString("state")) |state| try std.fmt.allocPrint(alloc, "--print-capabilities={s}", .{state}) else "--print-capabilities");
-                if (parsed.flagString("url")) |url| try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--url={s}", .{url}));
+                try arguments.append(alloc, if (parsed.flagString("state")) |state| try alloc.print("--print-capabilities={s}", .{state}) else "--print-capabilities");
+                if (parsed.flagString("url")) |url| try arguments.append(alloc, try alloc.print("--url={s}", .{url}));
             } else {
                 if (mode == .session_serve) {
                     if (parsed.flagString("dir") == null) {
@@ -93,14 +93,14 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                     const option = handedName(mode, key);
                     // A repeatable flag is given to the child once per value.
                     if (parsed.repeated.get(key)) |repeated| {
-                        for (repeated.items) |value| try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--{s}={s}", .{ option, value }));
+                        for (repeated.items) |value| try arguments.append(alloc, try alloc.print("--{s}={s}", .{ option, value }));
                         continue;
                     }
                     const value = switch (entry.value_ptr.*) {
                         .string_flag => |text| text,
                         .bool_flag => |yes| if (yes) "true" else "false",
                     };
-                    try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--{s}={s}", .{ option, value }));
+                    try arguments.append(alloc, try alloc.print("--{s}={s}", .{ option, value }));
                 }
                 try arguments.appendSlice(alloc, parsed.positionals);
             }

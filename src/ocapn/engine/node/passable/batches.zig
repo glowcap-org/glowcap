@@ -39,7 +39,7 @@ pub const Batches = struct {
     next_id: u64 = 1,
     /// Promise-proxy recipients committed by sends inside an open provisional
     /// window, oldest first, kept or withdrawn with that window (ADR-0058).
-    provisional_proxies: std.ArrayListUnmanaged(proxy_admission.Receipt) = .empty,
+    provisional_proxies: std.ArrayList(proxy_admission.Receipt) = .empty,
 };
 
 pub const Batch = struct {
@@ -296,7 +296,7 @@ pub fn finish(self: *Node, batch_id: passable.BatchId) !void {
         .message => {},
     }
 
-    var deposits: std.ArrayListUnmanaged(PreparedDeposit) = .empty;
+    var deposits: std.ArrayList(PreparedDeposit) = .empty;
     defer deposits.deinit(self.allocator);
     errdefer for (deposits.items) |*prepared| prepared.deposit.abandon(prepared.peer);
     try prepareDeposits(self, batch.gifts, &deposits);
@@ -341,7 +341,7 @@ pub fn finish(self: *Node, batch_id: passable.BatchId) !void {
 fn prepareDeposits(
     self: *Node,
     gifts: []const passable.Gift,
-    deposits: *std.ArrayListUnmanaged(PreparedDeposit),
+    deposits: *std.ArrayList(PreparedDeposit),
 ) !void {
     try deposits.ensureTotalCapacityPrecise(self.allocator, gifts.len);
     var exporters: std.AutoHashMapUnmanaged(PeerHandle, ExporterPreparation) = .empty;
@@ -371,7 +371,7 @@ fn prepareDeposits(
     }
 }
 
-fn commitDeposits(deposits: *std.ArrayListUnmanaged(PreparedDeposit)) void {
+fn commitDeposits(deposits: *std.ArrayList(PreparedDeposit)) void {
     for (deposits.items) |*prepared| prepared.deposit.commit(prepared.peer);
     deposits.clearRetainingCapacity();
 }

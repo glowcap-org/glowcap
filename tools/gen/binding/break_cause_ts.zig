@@ -22,7 +22,7 @@ pub fn generate(out: *Buffer, a: std.mem.Allocator) !void {
         try out.appendSlice(a, "\t\tdefault: return null;\n\t}\n}\n");
     }
     try out.appendSlice(a, "\nexport enum BreakContext {\n");
-    inline for (comptime std.meta.fieldNames(s.Context)) |name| {
+    inline for (@typeInfo(s.Context).@"struct".field_names) |name| {
         try out.appendSlice(a, "\t");
         try s.pascal(out, a, name);
         try out.print(a, " = {d},\n", .{s.contextMask(name)});

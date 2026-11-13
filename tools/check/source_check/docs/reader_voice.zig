@@ -65,7 +65,7 @@ pub fn banReaderFlaws(
                 continue;
             }
             if (in_fence or std.mem.startsWith(u8, trimmed, ">") or std.mem.startsWith(u8, line, "    ")) continue;
-            if (std.mem.indexOf(u8, line, "<code") != null or std.mem.indexOf(u8, line, "<pre") != null) continue;
+            if (std.mem.find(u8, line, "<code") != null or std.mem.find(u8, line, "<pre") != null) continue;
         }
         switch (proseFlaw(line, words)) {
             .none => {},
@@ -119,7 +119,7 @@ pub fn banLayoutFlaws(
         else
             null;
         if (skip) |close| {
-            const end = std.mem.indexOfPos(u8, contents, i, close) orelse contents.len;
+            const end = std.mem.findPos(u8, contents, i, close) orelse contents.len;
             // Keep line numbers: a skipped span still ends its lines.
             for (contents[i..end]) |c| if (c == '\n') try text.append(gpa, '\n');
             try text.append(gpa, ' ');
@@ -153,7 +153,7 @@ test "layout text is scanned and its markup is not" {
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
     try banLayoutFlaws(gpa, &violations, "a.shtml", "<p>ok</p>\n<small>the bounded journal</small>\n");
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "a.shtml:2:") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "a.shtml:2:") != null);
 }
 
 /// The CLI's messages and help are read by a person, so a one-line string
@@ -174,12 +174,12 @@ pub fn banCliStringFlaws(
         const t = std.mem.trimStart(u8, line, " \t");
         if (std.mem.startsWith(u8, t, "//")) continue;
         if (std.mem.startsWith(u8, t, "\\\\")) {
-            if (std.mem.indexOf(u8, t, "\u{2014}") != null)
+            if (std.mem.find(u8, t, "\u{2014}") != null)
                 try appendViolation(gpa, violations, "{s}:{d}: an em dash in CLI output (doc-voice); use a comma, colon, or parentheses", .{ path, line_no });
             continue;
         }
         var i: usize = 0;
-        while (std.mem.indexOfScalarPos(u8, line, i, '"')) |open| {
+        while (std.mem.findScalarPos(u8, line, i, '"')) |open| {
             var end = open + 1;
             while (end < line.len and line[end] != '"') end += if (line[end] == '\\') 2 else 1;
             if (end >= line.len) break;
@@ -193,7 +193,7 @@ pub fn banCliStringFlaws(
 }
 
 fn cliStringFlaw(literal: []const u8) ?[]const u8 {
-    if (std.mem.indexOf(u8, literal, "\u{2014}") != null) return "an em dash";
+    if (std.mem.find(u8, literal, "\u{2014}") != null) return "an em dash";
     var i: usize = 1;
     while (i + 1 < literal.len) : (i += 1) {
         const before = literal[i - 1];
@@ -213,7 +213,7 @@ test "a CLI string holds to the punctuation rule and shell syntax does not" {
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
     try banCliStringFlaws(gpa, &violations, "a.zig", "ok();\nlog(\"listening; Ctrl-C to stop\");\n");
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "a.zig:2:") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "a.zig:2:") != null);
     try banCliStringFlaws(gpa, &violations, "a.zig", "    \\\\# x completion \u{2014} eval\n");
     try std.testing.expectEqual(@as(usize, 2), violations.items.len);
 }
@@ -243,13 +243,13 @@ pub fn banDocCommentFlaws(
         var text = t[3..];
         // A span opened on a line above is code up to its closing backtick.
         if (in_span) {
-            const close = std.mem.indexOfScalar(u8, text, '`') orelse continue;
+            const close = std.mem.findScalar(u8, text, '`') orelse continue;
             text = text[close + 1 ..];
             in_span = false;
         }
         if (std.mem.count(u8, text, "`") % 2 == 1) {
             in_span = true;
-            text = text[0..std.mem.lastIndexOfScalar(u8, text, '`').?];
+            text = text[0..std.mem.findScalarLast(u8, text, '`').?];
         }
         switch (proseFlaw(text, .{ .insiders = false })) {
             .none => {},
@@ -271,7 +271,7 @@ test "a doc comment holds to the reader punctuation rule outside code" {
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
     try banDocCommentFlaws(gpa, &violations, "a.zig", "const x = 1;\n//! One thing; another.\n");
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "a.zig:2: a semicolon") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "a.zig:2: a semicolon") != null);
     try banDocCommentFlaws(gpa, &violations, "a.zig", "/// A native binding \u{2014} here.\n");
     try std.testing.expectEqual(@as(usize, 2), violations.items.len);
     // A span left open by a non-doc line does not hide the next comment.
@@ -296,13 +296,13 @@ pub fn proseFlaw(line: []const u8, words: Words) ProseFlaw {
     while (i < line.len) {
         const c = line[i];
         if (c == '`') {
-            const close = std.mem.indexOfScalarPos(u8, line, i + 1, '`') orelse return .none;
+            const close = std.mem.findScalarPos(u8, line, i + 1, '`') orelse return .none;
             i = close + 1;
         } else if (std.mem.startsWith(u8, line[i..], "<!--")) {
-            const close = std.mem.indexOfPos(u8, line, i + 4, "-->") orelse return .none;
+            const close = std.mem.findPos(u8, line, i + 4, "-->") orelse return .none;
             i = close + 3;
         } else if (c == ']' and i + 1 < line.len and line[i + 1] == '(') {
-            const close = std.mem.indexOfScalarPos(u8, line, i + 2, ')') orelse return .none;
+            const close = std.mem.findScalarPos(u8, line, i + 2, ')') orelse return .none;
             i = close + 1;
         } else if (c == '&') {
             var j = i + 1;

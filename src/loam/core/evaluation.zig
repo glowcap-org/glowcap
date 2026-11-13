@@ -26,7 +26,7 @@ pub const Evaluation = struct {
     /// The change's strong edges its committed revision did not hold, by
     /// edge index. Decided while the previous revision is in hand, so a
     /// suspended target read resumes without fetching it again.
-    introduced: std.StaticBitSet(records.Limits.max_edges_bound) = .empty,
+    introduced: std.bit_set.Static(records.Limits.max_edges_bound) = .empty,
     collection_resume: collection.Resume = .{},
 
     pub fn init(batch: *const tx.Batch) Evaluation {
@@ -195,8 +195,8 @@ fn verifyEdge(self: *Evaluation, kv: anytype, target: records.ObjectId, introduc
 }
 
 /// The strong edges of `new` that `old` does not hold, by index in `new`.
-fn introducedEdges(old: records.View, new: records.View) std.StaticBitSet(records.Limits.max_edges_bound) {
-    var introduced: std.StaticBitSet(records.Limits.max_edges_bound) = .empty;
+fn introducedEdges(old: records.View, new: records.View) std.bit_set.Static(records.Limits.max_edges_bound) {
+    var introduced: std.bit_set.Static(records.Limits.max_edges_bound) = .empty;
     var cursor: usize = 0;
     var edges = new.edges();
     var index: usize = 0;

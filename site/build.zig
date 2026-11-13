@@ -54,7 +54,7 @@ fn siteOutputOwner(b: *std.Build) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .root_source_file = b.path("../tools/check/site_output_owner.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     return b.addExecutable(.{
         .name = "site-output-owner",

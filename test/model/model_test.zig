@@ -307,8 +307,7 @@ test "route bundle parses primary locators and route-list hints through one owne
         "ocapn://route-key.noise-tcp?direct-addresses=127.0.0.1%3A9051,127.0.0.1%3A9052",
         direct_uri,
     );
-    const rendered_routes = try std.fmt.allocPrint(
-        allocator,
+    const rendered_routes = try allocator.print(
         "{s}|ocapn://relay-key.keyed-relay",
         .{direct_uri},
     );

@@ -14,7 +14,7 @@ pub fn register(b: *std.Build, checker: *std.Build.Step.Compile, interface_test:
     interface_test.dependOn(&unit_tests.step);
     const compiler = commands.addRootedSystemCommand(b, .build_tool, &.{ "capnp", "--version" });
     const compare = commands.addRootedSystemCommand(b, .build_tool, &.{ "python3", "tools/interface/authoring/capnp/check.py", adapter, "test/interface/authoring/comparison.syrup" });
-    compare.addArtifactArg(checker);
+    compare.addArtifactArg2(checker, .{});
     compare.addArg(generated);
     compare.step.dependOn(&compile.step);
     compare.step.dependOn(&compiler.step);

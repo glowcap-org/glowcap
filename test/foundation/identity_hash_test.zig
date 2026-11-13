@@ -35,7 +35,7 @@ fn collidingKeys(buf: []u64, known: u64, comptime bits: u6) void {
 }
 
 fn distinctTopBuckets(keys: []const u64, multiplier: u64, comptime bits: u6) usize {
-    var seen: std.StaticBitSet(1 << bits) = .empty;
+    var seen: std.bit_set.Static(1 << bits) = .empty;
     for (keys) |key| {
         const slot: usize = @truncate(foundation.identity_hash.wireHash(key, multiplier) & ((1 << bits) - 1));
         seen.set(slot);

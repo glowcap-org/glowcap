@@ -36,7 +36,7 @@ class SharedArchive(unittest.TestCase):
                         .root_module = b.createModule(.{
                             .root_source_file = b.path("library.zig"),
                             .target = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos }),
-                            .optimize = .Debug,
+                            .optimize = .debug,
                         }),
                     });
                     archives.configureSharedArchive(library);

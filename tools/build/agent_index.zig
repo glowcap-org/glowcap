@@ -11,7 +11,7 @@ pub fn register(b: *std.Build, source_check_step: *std.Build.Step) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/gen/agent_index.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const agent_index_check = execution.addLiveRun(b, .{ .deterministic = 30 }, agent_index_exe);

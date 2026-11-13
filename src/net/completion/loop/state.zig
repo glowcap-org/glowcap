@@ -71,10 +71,10 @@ pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 ///
 /// Like every footprint budget, this is the runtime-safety
 /// measurement: each of the two outbound `std.ArrayList` headers carries std's
-/// one-byte `pointer_stability` lock, padded to a word, in Debug and
-/// ReleaseSafe. ReleaseFast and ReleaseSmall make that lock zero-sized, and
-/// nothing else in `Conn` moves with the mode, so the assertion below takes
-/// those two words back in a fast build rather than holding a second number.
+/// word-sized `pointer_stability` lock in Debug and ReleaseSafe. ReleaseFast
+/// and ReleaseSmall make that lock zero-sized, and nothing else in `Conn`
+/// moves with the mode, so the assertion below takes back whatever the lock
+/// does not occupy rather than holding a second number.
 pub const conn_slot_overhead_bytes: usize = 144;
 
 /// How recv-completion consumption ended, decided by `onRecvConsume` while
@@ -211,8 +211,11 @@ pub fn Types(comptime Backend: type) type {
         };
 
         comptime {
-            const fast_mode_discount: usize = if (std.debug.runtime_safety) 0 else 2 * @sizeOf(usize);
-            std.debug.assert(@sizeOf(Conn) - @sizeOf(engine.Peer) == conn_slot_overhead_bytes - fast_mode_discount);
+            // std sizes the lock by the mode std itself compiles in, which is
+            // the root module's and can differ from this module's. The lock's
+            // own size is the only reading that follows it.
+            const absent_lock_bytes: usize = 2 * (@sizeOf(usize) - @sizeOf(std.debug.SafetyLock));
+            std.debug.assert(@sizeOf(Conn) - @sizeOf(engine.Peer) == conn_slot_overhead_bytes - absent_lock_bytes);
             std.debug.assert(@alignOf(Conn) == @alignOf(engine.Peer));
         }
     };

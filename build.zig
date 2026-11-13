@@ -394,7 +394,7 @@ pub fn build(b: *std.Build) void {
     // `lib_mod`. The benches and their `perf-check` tripwire register from
     // tools/build/bench.zig; the Cap'n Proto fixture generator joins the gen
     // family it belongs to.
-    const fast_lib_mod = graphFromTable(b, target, .ReleaseFast, &layer_table, false)[layerIndex("glowcap")];
+    const fast_lib_mod = graphFromTable(b, target, .fast, &layer_table, false)[layerIndex("glowcap")];
     bench_build.register(b, target, optimize, lib_mod, fast_lib_mod, host_mods, check_step, runtime_gate, profiles);
     gen_build.registerCapnpFixtures(b, target, optimize, lib_mod, check_step);
 

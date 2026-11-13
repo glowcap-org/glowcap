@@ -22,11 +22,11 @@ const Stream = std.Io.net.Stream;
 const c = std.c;
 const posix = std.posix;
 const system = posix.system;
-const use_libc = builtin.link_libc or switch (builtin.os.tag) {
+const use_libc = builtin.link_libc or switch (builtin.target.os.tag) {
     .windows, .wasi => true,
     else => false,
 };
-const socket_flags_in_type = switch (builtin.os.tag) {
+const socket_flags_in_type = switch (builtin.target.os.tag) {
     .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => false,
     else => true,
 };

@@ -150,7 +150,7 @@ pub fn releaseBox(allocator: std.mem.Allocator, box: *StateBox) void {
 /// drops the snapshot's reference to every shared box. Captures local state
 /// only, never `peer`, `exports`, far listeners, or the turn arenas.
 pub const Snapshot = struct {
-    boxes: std.AutoHashMapUnmanaged(u64, *StateBox) = .{},
+    boxes: std.AutoHashMapUnmanaged(u64, *StateBox) = .empty,
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *Snapshot) void {
@@ -386,7 +386,7 @@ pub fn snapshot(self: *Vat) Error!Snapshot {
 /// the peer, exports, far listeners, or arenas.
 pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
     if (!quiescent(self)) return error.NotQuiescent;
-    var rebuilt: std.AutoHashMapUnmanaged(u64, Cell) = .{};
+    var rebuilt: std.AutoHashMapUnmanaged(u64, Cell) = .empty;
     errdefer {
         var rit = rebuilt.valueIterator();
         while (rit.next()) |cell| releaseBox(self.allocator, cell.box);

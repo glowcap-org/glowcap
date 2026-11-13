@@ -174,7 +174,7 @@ pub fn Emit(comptime Spec: type) type {
             const value = comptime if (@hasDecl(Spec, "constant")) Spec.constant(name) else @field(c, name);
             if (comptime @typeInfo(@TypeOf(value)) == .pointer) {
                 const text: []const u8 = value;
-                comptime if (std.mem.indexOfAny(u8, text, "\"\\") != null)
+                comptime if (std.mem.findAny(u8, text, "\"\\") != null)
                     @compileError(name ++ " holds a quote or backslash, which a C string literal would need escaped");
                 return line(b, gpa, "#define {s} \"{s}\"", .{ name, text });
             }
@@ -296,7 +296,7 @@ pub fn Emit(comptime Spec: type) type {
                 // or nests the comment, a warning -Werror consumers fail on,
                 // possibly much later, when a header change first invalidates
                 // their compile cache. Space the slash: `*out_a / *out_b`.
-                if (std.mem.indexOf(u8, doc, "/*") != null or std.mem.indexOf(u8, doc, "*/") != null)
+                if (std.mem.find(u8, doc, "/*") != null or std.mem.find(u8, doc, "*/") != null)
                     @compileError("prototype '" ++ fn_name ++ "' doc contains /* or */, which breaks the emitted block comment");
             }
             const info = @typeInfo(@TypeOf(@field(c, fn_name))).@"fn";
@@ -324,7 +324,7 @@ pub fn Emit(comptime Spec: type) type {
         /// in the output text, so the table and the body cannot drift apart.
         pub fn assertAllEmitted(b: *Buf, comptime step: []const u8) !void {
             inline for (emitted_fns) |name| {
-                if (std.mem.indexOf(u8, b.items, " " ++ name ++ "(") == null) {
+                if (std.mem.find(u8, b.items, " " ++ name ++ "(") == null) {
                     std.debug.print(step ++ ": emitted_fns lists `{s}` but no emitFn call emitted it\n", .{name});
                     return error.MissingEmittedFunction;
                 }

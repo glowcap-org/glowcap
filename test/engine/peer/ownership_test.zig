@@ -574,7 +574,7 @@ test "recvBorrowed surfaces inbound get, index, and listen events" {
     {
         const out = try peer_fixture.drainOutbound(&peer, allocator);
         defer allocator.free(out);
-        try std.testing.expect(std.mem.indexOf(u8, out, "fulfill") != null);
-        try std.testing.expect(std.mem.indexOf(u8, out, "desc:import-object") != null or std.mem.indexOf(u8, out, "desc:export") != null);
+        try std.testing.expect(std.mem.find(u8, out, "fulfill") != null);
+        try std.testing.expect(std.mem.find(u8, out, "desc:import-object") != null or std.mem.find(u8, out, "desc:export") != null);
     }
 }

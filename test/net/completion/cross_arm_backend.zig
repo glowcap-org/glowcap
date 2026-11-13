@@ -144,7 +144,7 @@ pub const CrossArmBackend = struct {
         if (self.ready_len == 0) {
             if (!hold_sends and self.held_len > 0) {
                 const held = self.held[0];
-                std.mem.copyForwards(Held, self.held[0 .. self.held_len - 1], self.held[1..self.held_len]);
+                @memmove(self.held[0 .. self.held_len - 1], self.held[1..self.held_len]);
                 self.held_len -= 1;
                 var reported = held.len;
                 if (partial_send_bytes > 0 and partial_send_bytes < held.len) {
@@ -176,7 +176,7 @@ pub const CrossArmBackend = struct {
         }
         const n = @min(out.len, self.ready_len);
         @memcpy(out[0..n], self.ready[0..n]);
-        std.mem.copyForwards(completion.Completion, self.ready[0 .. self.ready_len - n], self.ready[n..self.ready_len]);
+        @memmove(self.ready[0 .. self.ready_len - n], self.ready[n..self.ready_len]);
         self.ready_len -= n;
         return n;
     }

@@ -15,8 +15,8 @@ const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 
 pub fn main() !void {
-    var gpa: std.heap.DebugAllocator(.{}) = .{};
-    defer if (gpa.deinit() == .leak) @panic("leaked memory");
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
+    defer if (gpa.deinit() != 0) @panic("leaked memory");
     const allocator = gpa.allocator();
 
     var pair = try engine.pairing.pairedV1_0Syrup(allocator);

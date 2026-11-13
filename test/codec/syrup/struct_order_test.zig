@@ -19,7 +19,7 @@ test "dictionary ordering matches sorted entry encodings across prefix widths an
         var built: usize = 0;
         defer for (encoded[0..built]) |bytes| a.free(bytes);
         for (keys[0..count], 0..) |key, i| {
-            encoded[i] = try std.fmt.allocPrint(a, "{d}\"{s}{d}+", .{ key.len, key, i });
+            encoded[i] = try a.print("{d}\"{s}{d}+", .{ key.len, key, i });
             built += 1;
         }
         std.mem.sort([]u8, encoded[0..count], {}, struct {

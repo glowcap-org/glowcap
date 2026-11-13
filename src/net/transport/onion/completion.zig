@@ -77,7 +77,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
         allocator: std.mem.Allocator,
         inner: Inner,
         ready: completion.ReadyQueue,
-        conns: ConnMap = .{},
+        conns: ConnMap = .empty,
         next_id: ConnId = 1,
         config: ?ConfigType,
         listener: Listener.State = .{},

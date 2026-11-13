@@ -123,7 +123,7 @@ pub const Listener = struct {
     /// listener, and that boundary stays visible instead of being papered
     /// over with untested sockaddr packing.
     fn listenExclusiveReuseAddr(io: std.Io, address: IpAddress) IpAddress.ListenError!Server {
-        const os: socket.Os = switch (builtin.os.tag) {
+        const os: socket.Os = switch (builtin.target.os.tag) {
             .linux => .linux,
             .macos => .darwin,
             else => return IpAddress.listen(&address, io, .{}),

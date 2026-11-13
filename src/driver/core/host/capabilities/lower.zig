@@ -67,7 +67,7 @@ pub const PreparedValues = struct {
     arena: std.mem.Allocator,
     values: []model.Argument = &.{},
     receipts: CapabilityLoweringReceipts = .{},
-    leases: std.ArrayListUnmanaged(engine.Node.OutboundStagingLease) = .empty,
+    leases: std.ArrayList(engine.Node.OutboundStagingLease) = .empty,
     committed: bool = false,
     /// `holdForTurn` reserved room for these receipts in the running turn.
     turn_held: bool = false,
@@ -142,7 +142,7 @@ pub const PreparedValues = struct {
 /// Lowering receipts of sends made in the running turn, and the room
 /// `holdForTurn` reserved for receipts not yet committed.
 pub const TurnReceipts = struct {
-    held: std.ArrayListUnmanaged(CapabilityLoweringReceipt) = .empty,
+    held: std.ArrayList(CapabilityLoweringReceipt) = .empty,
     reserved: usize = 0,
 
     pub fn deinit(self: *TurnReceipts, allocator: std.mem.Allocator) void {

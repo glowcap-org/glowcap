@@ -81,7 +81,7 @@ test "a slice of integers projects as a run, a list of integer values does not" 
     const run = (try args.at(0)).list;
     try std.testing.expectEqual(@as(usize, 3), try run.len());
     try std.testing.expectEqual(@as(i64, -8), (try run.at(1)).integer);
-    if (builtin.cpu.arch.endian() == .little) try std.testing.expectEqualSlices(i64, &words, run.typedRun().?);
+    if (builtin.target.cpu.arch.endian() == .little) try std.testing.expectEqualSlices(i64, &words, run.typedRun().?);
     try std.testing.expect((try args.at(1)).list.typedRun() == null);
 }
 

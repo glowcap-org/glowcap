@@ -15,7 +15,7 @@ pub fn Harness(comptime Backend: type) type {
 
         pub const Events = struct {
             resident: net.MultiplexedResident,
-            seen: std.ArrayListUnmanaged(er.ReadyEvent) = .empty,
+            seen: std.ArrayList(er.ReadyEvent) = .empty,
 
             /// Wait on the readiness descriptor until a record names `subject` with
             /// any of `events`, keeping every drained record.

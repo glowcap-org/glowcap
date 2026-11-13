@@ -34,8 +34,8 @@ test "op:get on a pending answer resolves the projected answer to the Struct fie
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve") == null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "op:resolve") == null);
+    try std.testing.expect(std.mem.find(u8, wire, "tabby") != null);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(12)).?.status);
 }
 
@@ -53,7 +53,7 @@ test "op:index on a pending answer resolves the projected answer to the List ele
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "one") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "one") != null);
 }
 
 test "releasing an intermediate answer preserves its accepted projection" {
@@ -116,7 +116,7 @@ test "an arbitrary-precision op:index waits for the receiver then breaks out of 
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:index position is out of the List's bounds") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "op:index position is out of the List's bounds") != null);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(22)).?.status);
 }
 
@@ -144,7 +144,7 @@ test "op:untag on a pending answer unwraps the matching Tagged's single value" {
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expect(wire.len != 0);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve") == null);
+    try std.testing.expect(std.mem.find(u8, wire, "op:resolve") == null);
     const projected = peer.session_state.peekResolution(.from(12)).?.fulfill;
     try std.testing.expectEqual(@as(i64, 5), projected.integer);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(12)).?.status);
@@ -194,8 +194,8 @@ test "op:untag breaks on a mismatched tag and on a non-Tagged receiver" {
 
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "does not match") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "did not resolve to a Tagged") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "does not match") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "did not resolve to a Tagged") != null);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(12)).?.status);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(22)).?.status);
 }
@@ -238,7 +238,7 @@ test "a late op:get against an already-settled answer resolves immediately" {
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "tabby") != null);
 }
 
 test "projection breaks: wrong shape, absent field, out-of-bounds, inherited break, non-promise receiver" {
@@ -274,11 +274,11 @@ test "projection breaks: wrong shape, absent field, out-of-bounds, inherited bre
 
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "did not resolve to a Struct") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "field is absent") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "out of the List's bounds") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "upstream broke") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "projection receiver is not a promise") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "did not resolve to a Struct") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "field is absent") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "out of the List's bounds") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "upstream broke") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "projection receiver is not a promise") != null);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(12)).?.status);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(52)).?.status);
 }
@@ -313,7 +313,7 @@ test "a projection follows a resolution that is itself a promise" {
     } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "tabby") != null);
 }
 
 test "sending op:get installs the outbound answer so the partner's resolve admits" {
@@ -393,7 +393,7 @@ test "a cyclic stored-resolution walk reports the cycle" {
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(12)).?.status);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "promise resolution cycle") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "promise resolution cycle") != null);
 }
 
 test "a distinct stored-resolution chain obeys max_resolution_chain" {
@@ -423,7 +423,7 @@ test "a distinct stored-resolution chain obeys max_resolution_chain" {
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(12)).?.status);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "max_resolution_chain") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "max_resolution_chain") != null);
 }
 
 test "a late projection follows a stored local promise to its backing answer" {
@@ -510,12 +510,12 @@ test "a released projection settles detached without touching a reused position"
     defer allocator.free(wire);
     // The detached callbacks carry the projected value, while answer 12 remains
     // the partner's new pending question.
-    try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "tabby") != null);
     try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.inboundAnswer(.from(12)).?.status);
 
     // And the new question can still be answered, which is the whole point.
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(12), .resolution = .{ .fulfill = .{ .string = "the real reply" } } } });
     const second = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(second);
-    try std.testing.expect(std.mem.indexOf(u8, second, "the real reply") != null);
+    try std.testing.expect(std.mem.find(u8, second, "the real reply") != null);
 }

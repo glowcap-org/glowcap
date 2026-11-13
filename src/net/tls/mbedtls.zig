@@ -279,14 +279,14 @@ pub const max_trust_bytes: usize = 8 * 1024 * 1024;
 
 fn validHostname(hostname: []const u8) bool {
     return hostname.len != 0 and hostname.len <= 253 and
-        std.mem.indexOfScalar(u8, hostname, 0) == null;
+        std.mem.findScalar(u8, hostname, 0) == null;
 }
 
 fn validTrustSource(trust: TrustSource) bool {
     return switch (trust) {
         .pem => |pem| pem.len != 0 and pem.len <= max_trust_bytes and
-            std.mem.indexOfScalar(u8, pem, 0) == null and
-            std.mem.indexOf(u8, pem, "-----BEGIN CERTIFICATE-----") != null,
+            std.mem.findScalar(u8, pem, 0) == null and
+            std.mem.find(u8, pem, "-----BEGIN CERTIFICATE-----") != null,
         .der_bundle => |der| der.len != 0 and der.len <= max_trust_bytes,
     };
 }

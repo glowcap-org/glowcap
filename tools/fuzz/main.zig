@@ -137,13 +137,13 @@ pub fn main(init: std.process.Init) !void {
         cache_dir.deleteFile(io, crash_artifact) catch {};
         const runs_before = try totalRuns(io, cache_dir);
 
-        const filter = try std.fmt.allocPrint(arena, "-Dtest-filter={s}", .{target.name});
+        const filter = try arena.print("-Dtest-filter={s}", .{target.name});
         var child = try std.process.spawn(io, .{
             // Fuzzing needs safety, not Debug's per-operation overhead. This
             // target repeatedly builds complete hosts under a leak-checking
             // allocator; ReleaseSafe preserves those checks while making the
             // finite mutation budget practical.
-            .argv = &.{ zig_exe, "build", "fuzz-run", "-Doptimize=ReleaseSafe", fuzz_flag, filter },
+            .argv = &.{ zig_exe, "build", "fuzz-run", "-Doptimize=safe", fuzz_flag, filter },
         });
         const term = try child.wait(io);
 
@@ -159,7 +159,7 @@ pub fn main(init: std.process.Init) !void {
         }
 
         if (try fileExists(io, cache_dir, crash_artifact)) {
-            const cached = try std.fs.path.join(arena, &.{ localCacheDir(init), crash_artifact });
+            const cached = try std.Io.Dir.path.join(arena, &.{ localCacheDir(init), crash_artifact });
             reportFinding(target, keepFinding(io, cwd, cache_dir) orelse cached);
             std.process.exit(1);
         }
@@ -215,11 +215,11 @@ fn findTargets(io: std.Io, cwd: std.Io.Dir, gpa: std.mem.Allocator) ![]const Tar
     var found: std.ArrayList(Target) = .empty;
 
     const root_source = try cwd.readFileAlloc(io, fuzz_root, gpa, .limited(1 << 20));
-    const root_dir = std.fs.path.dirname(fuzz_root).?;
+    const root_dir = std.Io.Dir.path.dirname(fuzz_root).?;
     var imports = importedPaths(root_source);
     while (imports.next()) |relative| {
-        if (!std.mem.eql(u8, std.fs.path.basename(relative), target_file)) continue;
-        const path = try std.fs.path.join(gpa, &.{ root_dir, relative });
+        if (!std.mem.eql(u8, std.Io.Dir.path.basename(relative), target_file)) continue;
+        const path = try std.Io.Dir.path.join(gpa, &.{ root_dir, relative });
         const source = cwd.readFileAlloc(io, path, gpa, .limited(1 << 22)) catch |err| {
             std.debug.print("{s} imports {s}, which cannot be read ({s}).\n", .{ fuzz_root, path, @errorName(err) });
             std.process.exit(1);
@@ -248,9 +248,9 @@ const ImportedPaths = struct {
 
     fn next(self: *ImportedPaths) ?[]const u8 {
         const opener = "@import(\"";
-        const at = std.mem.indexOf(u8, self.rest, opener) orelse return null;
+        const at = std.mem.find(u8, self.rest, opener) orelse return null;
         const after = self.rest[at + opener.len ..];
-        const close = std.mem.indexOfScalar(u8, after, '"') orelse return null;
+        const close = std.mem.findScalar(u8, after, '"') orelse return null;
         self.rest = after[close..];
         return after[0..close];
     }
@@ -263,10 +263,10 @@ fn importedPaths(source: []const u8) ImportedPaths {
 fn collectTargets(source: []const u8, file: []const u8, out: *std.ArrayList(Target), gpa: std.mem.Allocator) !void {
     const opener = "test \"" ++ target_prefix;
     var rest = source;
-    while (std.mem.indexOf(u8, rest, opener)) |at| {
+    while (std.mem.find(u8, rest, opener)) |at| {
         const name_start = at + "test \"".len;
         const after = rest[name_start..];
-        const close = std.mem.indexOfScalar(u8, after, '"') orelse break;
+        const close = std.mem.findScalar(u8, after, '"') orelse break;
         try out.append(gpa, .{ .name = after[0..close], .file = file });
         rest = after[close..];
     }
@@ -274,7 +274,7 @@ fn collectTargets(source: []const u8, file: []const u8, out: *std.ArrayList(Targ
 
 /// Zig's build runner refuses `--fuzz` on Windows and on 32-bit hosts.
 fn fuzzingAvailable() bool {
-    const os = @import("builtin").os.tag;
+    const os = @import("builtin").target.os.tag;
     const supported_os = os == .linux or os.isDarwin();
     return supported_os and @sizeOf(usize) == 8;
 }
@@ -376,14 +376,14 @@ fn readRunCount(io: std.Io, dir: std.Io.Dir, name: []const u8) ?u64 {
 /// in the cache, and the report names that path instead.
 fn keepFinding(io: std.Io, cwd: std.Io.Dir, cache_dir: std.Io.Dir) ?[]const u8 {
     // tolerant: a copy that fails leaves the input in the cache, and the report names that path.
-    cwd.createDirPath(io, std.fs.path.dirname(finding_path).?) catch return null;
+    cwd.createDirPath(io, std.Io.Dir.path.dirname(finding_path).?) catch return null;
     // tolerant: the same fallback, so the report names the cached input.
     std.Io.Dir.copyFile(cache_dir, crash_artifact, cwd, finding_path, io, .{}) catch return null;
     return finding_path;
 }
 
 fn reportFinding(target: Target, input: []const u8) void {
-    const dir = std.fs.path.dirname(target.file) orelse "test";
+    const dir = std.Io.Dir.path.dirname(target.file) orelse "test";
     std.debug.print(
         \\
         \\The fuzzer found an input that crashes this target:

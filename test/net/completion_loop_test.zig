@@ -49,7 +49,7 @@ const DriverExitProbe = struct {
 };
 
 test "completion loop interleaves deferred adapter turns with nonblocking polls" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     var done = std.atomic.Value(bool).init(false);
     var probe = DeferredTurnProbe{ .done = &done };
@@ -73,7 +73,7 @@ test "completion loop interleaves deferred adapter turns with nonblocking polls"
 }
 
 test "completion loop reports driver exit only for a driver lifetime" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     var probe: DriverExitProbe = .{};
     var loop = try Loop.initWithBackendOptions(
@@ -144,7 +144,7 @@ test "completion adapter namespaces compose without handle or token collisions" 
 }
 
 test "completion backend: a wake-channel nudge completes an armed recv" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
     var backend = try glowcap.net.Backend.init(allocator, 8, 2, frame_cap);
@@ -174,7 +174,7 @@ test "completion backend: a wake-channel nudge completes an armed recv" {
 }
 
 test "completion backend: cancel retires an exact recv without closing its fd" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
     var backend = try glowcap.net.Backend.init(allocator, 8, 2, frame_cap);
@@ -222,7 +222,7 @@ fn fetchOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void 
 }
 
 test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
 
@@ -269,7 +269,7 @@ const Greeter = struct {
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         if (!msg.is("greet")) return error.NoSuchMethod;
-        return .{ .string = try std.fmt.allocPrint(turn.arena, "hi from the loop", .{}) };
+        return .{ .string = try turn.arena.print("hi from the loop", .{}) };
     }
 };
 
@@ -390,7 +390,7 @@ fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!v
 }
 
 test "completion loop: a hosted actor answers a call over the loop (objects on the scalable path)" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
     // make_ctx carries the allocator the per-connection vat builders use; its
@@ -428,7 +428,7 @@ test "completion loop: a hosted actor answers a call over the loop (objects on t
 }
 
 test "completion loop: churns hundreds of connection lifecycles through a small slot pool" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
 
@@ -518,7 +518,7 @@ fn slamOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
 }
 
 test "completion loop: survives abrupt mid-handshake drops under churn (close-while-op-armed)" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
 
@@ -571,7 +571,7 @@ test "completion loop: survives abrupt mid-handshake drops under churn (close-wh
 }
 
 test "completion loop: listener sets SO_REUSEADDR without SO_REUSEPORT" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
 

@@ -150,9 +150,9 @@ test "contradictory multiplexed connect success retains rollback close failure" 
     try std.testing.expectEqual(@as(usize, 1), resident.conn_close_calls);
     var message: [512]u8 = undefined;
     const message_len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ProviderContract") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ContradictoryConnectFailure") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "2 secondary failures") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "ProviderContract") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "ContradictoryConnectFailure") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "2 secondary failures") != null);
 }
 
 test "multiplexed connect failure cannot leak a contradictory connection output" {
@@ -196,13 +196,13 @@ test "multiplexed connect failure cannot leak a contradictory connection output"
     try std.testing.expectEqual(@as(usize, 1), resident.conn_close_calls);
     var message: [512]u8 = undefined;
     const message_len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ProviderContract") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ContradictoryConnectRefusal") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "ProviderContract") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "ContradictoryConnectRefusal") != null);
     // The Runtime barrier retains the contract verdict, the first exact
     // consequence, and the truthful total. The operation-local chain owns the
     // later cleanup name; the bounded barrier does not pretend to retain every
     // consequence string.
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "2 secondary failures") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "2 secondary failures") != null);
 }
 
 test "a dial resident cannot smuggle unsupported readiness events" {
@@ -235,9 +235,9 @@ test "multiplexed readiness failure preserves its exact chain" {
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_step(owned_loop.raw, 0));
     var message: [256]u8 = undefined;
     const len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..len], "InjectedReadinessFailure") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..len], "InjectedDrainCleanupFailure") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..len], "2 secondary failures") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..len], "InjectedReadinessFailure") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..len], "InjectedDrainCleanupFailure") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..len], "2 secondary failures") != null);
 }
 
 test "multiplexed readiness drain rejects contradictory failure reports" {

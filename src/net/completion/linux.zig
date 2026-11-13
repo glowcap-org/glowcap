@@ -13,7 +13,7 @@ const epoll = @import("epoll.zig");
 const uring = @import("uring.zig");
 
 comptime {
-    if (builtin.os.tag != .linux) @compileError("the Linux completion selector is Linux-only");
+    if (builtin.target.os.tag != .linux) @compileError("the Linux completion selector is Linux-only");
 }
 
 pub const Implementation = enum {

@@ -96,7 +96,7 @@ pub fn main() !void {
     for (cases) |c| {
         var frame = try capnp.encodeMessage(allocator, c[1]);
         defer frame.deinit();
-        const path = try std.fmt.allocPrint(allocator, "test/codec/capnp_fixtures/{s}", .{c[0]});
+        const path = try allocator.print("test/codec/capnp_fixtures/{s}", .{c[0]});
         defer allocator.free(path);
         try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = frame.bytes() });
         std.debug.print("wrote {s} ({d} bytes)\n", .{ path, frame.bytes().len });

@@ -159,7 +159,7 @@ pub const LifecycleBackend = struct {
 
     fn takeOp(self: *LifecycleBackend, at: usize) Op {
         const op = self.ops[at];
-        std.mem.copyForwards(Op, self.ops[at .. self.ops_len - 1], self.ops[at + 1 .. self.ops_len]);
+        @memmove(self.ops[at .. self.ops_len - 1], self.ops[at + 1 .. self.ops_len]);
         self.ops_len -= 1;
         return op;
     }

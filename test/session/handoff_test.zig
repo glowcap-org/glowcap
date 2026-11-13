@@ -233,7 +233,7 @@ test "session feature gates listen and sturdyref-bearing payloads" {
 test "identity-route locators require the negotiated feature in sturdyrefs" {
     const allocator = std.testing.allocator;
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x70))).publicKey().toDesignator();
-    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route);
     const hints = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
@@ -351,7 +351,7 @@ test "sturdyref locators must be structurally valid" {
 test "identity-route locators require the negotiated feature in handoff gives" {
     const allocator = std.testing.allocator;
     const exporter_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x74))).publicKey().toDesignator();
-    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{exporter_key[0..]});
+    const route = try allocator.print("ocapn://{s}.iroh", .{exporter_key[0..]});
     defer allocator.free(route);
     const hints = [_]model.HintEntry{.{
         .name = model.transport.hint_via,

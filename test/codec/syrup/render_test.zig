@@ -22,7 +22,7 @@ test "a decimal's counted width is the width it fills" {
 /// the record writers use, and the digits match the standard formatter.
 fn expectDecimal(value: u64) !void {
     var expected: [21]u8 = undefined;
-    const want = try std.fmt.bufPrint(&expected, "{d}+", .{value});
+    const want = try std.mem.print(&expected, "{d}+", .{value});
     try std.testing.expectEqual(want.len - 1, glowcap.foundation.decimal.width(value));
     var buf: [21]u8 = undefined;
     glowcap.foundation.decimal.fill(buf[0 .. want.len - 1], value);

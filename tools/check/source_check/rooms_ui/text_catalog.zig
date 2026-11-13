@@ -52,11 +52,11 @@ fn isExempt(path: []const u8) bool {
 /// reached for a literal out of habit, and adjudicating English is not its job.
 fn looksSpoken(value: []const u8) bool {
     if (value.len < 8) return false;
-    if (std.mem.indexOf(u8, value, "://") != null) return false;
-    if (std.mem.indexOfScalar(u8, value, '{') != null) return false;
+    if (std.mem.find(u8, value, "://") != null) return false;
+    if (std.mem.findScalar(u8, value, '{') != null) return false;
     // A selector or an expression, and a list of key names like
     // `ArrowLeft ArrowRight`, where every word carries a capital inside it.
-    if (std.mem.indexOfAny(u8, value, "=[") != null) return false;
+    if (std.mem.findAny(u8, value, "=[") != null) return false;
     if (isPascalList(value)) return false;
     if (isNameList(value)) return false;
     if (isPathData(value)) return false;
@@ -92,7 +92,7 @@ fn looksSpoken(value: []const u8) bool {
 /// named reader-facing props provide the context that makes one a product
 /// word instead.
 fn looksLabel(value: []const u8) bool {
-    if (value.len == 0 or std.mem.indexOfScalar(u8, value, '{') != null) return false;
+    if (value.len == 0 or std.mem.findScalar(u8, value, '{') != null) return false;
     for (value) |c| {
         if (std.ascii.isAlphabetic(c)) return true;
     }
@@ -137,7 +137,7 @@ fn isPathData(value: []const u8) bool {
     for (value, 0..) |c, i| {
         if (!std.ascii.isAlphabetic(c)) continue;
         letters += 1;
-        if (std.mem.indexOfScalar(u8, "MmLlHhVvCcSsQqTtAaZz", c) == null) return false;
+        if (std.mem.findScalar(u8, "MmLlHhVvCcSsQqTtAaZz", c) == null) return false;
         if (i + 1 < value.len and std.ascii.isAlphabetic(value[i + 1])) return false;
     }
     return letters > 0;
@@ -150,7 +150,7 @@ fn withoutHoles(gpa: std.mem.Allocator, value: []const u8) ![]u8 {
     var at: usize = 0;
     while (at < value.len) {
         if (std.mem.startsWith(u8, value[at..], "${")) {
-            const close = std.mem.indexOfScalarPos(u8, value, at, '}') orelse value.len;
+            const close = std.mem.findScalarPos(u8, value, at, '}') orelse value.len;
             at = @min(close + 1, value.len);
             continue;
         }
@@ -171,7 +171,7 @@ fn withoutJsxHoles(gpa: std.mem.Allocator, value: []const u8) !?[]u8 {
     while (at < value.len) {
         switch (value[at]) {
             '{' => {
-                const close = std.mem.indexOfAnyPos(u8, value, at + 1, "{}") orelse {
+                const close = std.mem.findAnyPos(u8, value, at + 1, "{}") orelse {
                     out.deinit(gpa);
                     return null;
                 };
@@ -202,13 +202,13 @@ fn isUnread(line: []const u8) bool {
         std.mem.startsWith(u8, line, "*") or
         std.mem.startsWith(u8, line, "import ") or
         callsInvariant(line) or
-        std.mem.indexOf(u8, line, "console.") != null or
-        std.mem.indexOf(u8, line, "querySelector") != null or
-        std.mem.indexOf(u8, line, ".startsWith(") != null or
-        std.mem.indexOf(u8, line, ".includes(") != null or
-        std.mem.indexOf(u8, line, ".endsWith(") != null or
-        std.mem.indexOf(u8, line, ".closest(") != null or
-        std.mem.indexOf(u8, line, ".matches(") != null;
+        std.mem.find(u8, line, "console.") != null or
+        std.mem.find(u8, line, "querySelector") != null or
+        std.mem.find(u8, line, ".startsWith(") != null or
+        std.mem.find(u8, line, ".includes(") != null or
+        std.mem.find(u8, line, ".endsWith(") != null or
+        std.mem.find(u8, line, ".closest(") != null or
+        std.mem.find(u8, line, ".matches(") != null;
 }
 
 /// JavaScript's built-in error classes. One constructed in the UI carries a
@@ -223,7 +223,7 @@ fn identChar(c: u8) bool {
 /// after a colon belongs to a URL.
 fn codeOf(line: []const u8) []const u8 {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, line, at, "//")) |slash| : (at = slash + 2) {
+    while (std.mem.findPos(u8, line, at, "//")) |slash| : (at = slash + 2) {
         if (slash == 0 or line[slash - 1] != ':') return line[0..slash];
     }
     return line;
@@ -236,7 +236,7 @@ fn plainError(line: []const u8) ?[]const u8 {
     const code = codeOf(line);
     for (plain_errors) |class| {
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, code, at, class)) |found| : (at = found + 1) {
+        while (std.mem.findPos(u8, code, at, class)) |found| : (at = found + 1) {
             const end = found + class.len;
             if (end >= code.len or code[end] != '(') continue;
             if (found > 0 and (identChar(code[found - 1]) or code[found - 1] == '.')) continue;
@@ -249,7 +249,7 @@ fn plainError(line: []const u8) ?[]const u8 {
 /// True when the line calls `invariant`, and not a longer name that ends in it.
 fn callsInvariant(line: []const u8) bool {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, line, at, "invariant(")) |found| : (at = found + 1) {
+    while (std.mem.findPos(u8, line, at, "invariant(")) |found| : (at = found + 1) {
         if (found == 0 or !identChar(line[found - 1])) return true;
     }
     return false;
@@ -285,8 +285,8 @@ const Report = struct {
 /// Every quoted literal on the line that reads as a sentence.
 fn quotedArm(report: *Report, line: []const u8, quote: u8) !void {
     var at: usize = 0;
-    while (std.mem.indexOfScalarPos(u8, line, at, quote)) |open| {
-        const close = std.mem.indexOfScalarPos(u8, line, open + 1, quote) orelse return;
+    while (std.mem.findScalarPos(u8, line, at, quote)) |open| {
+        const close = std.mem.findScalarPos(u8, line, open + 1, quote) orelse return;
         at = close + 1;
         const value = line[open + 1 .. close];
         if (quote == '`') {
@@ -306,7 +306,7 @@ fn quotedArm(report: *Report, line: []const u8, quote: u8) !void {
 fn quotedLabelArm(report: *Report, line: []const u8) !void {
     for ([_][]const u8{ "aria-label", "label", "title", "placeholder", "said", "keep", "commit", "what" }) |prop| {
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, line, at, prop)) |found| {
+        while (std.mem.findPos(u8, line, at, prop)) |found| {
             var open = found + prop.len;
             if (open >= line.len or (line[open] != '=' and line[open] != ':')) {
                 at = open;
@@ -318,7 +318,7 @@ fn quotedLabelArm(report: *Report, line: []const u8) !void {
                 at = open;
                 continue;
             }
-            const close = std.mem.indexOfScalarPos(u8, line, open + 1, '"') orelse break;
+            const close = std.mem.findScalarPos(u8, line, open + 1, '"') orelse break;
             const value = line[open + 1 .. close];
             if (!looksSpoken(value) and looksLabel(value)) try report.say("reader-facing field", value);
             at = close + 1;
@@ -331,7 +331,7 @@ fn quotedLabelArm(report: *Report, line: []const u8) !void {
 /// its `{…}` expressions cut out.
 fn inlineTextArm(report: *Report, line: []const u8) !void {
     var at: usize = 0;
-    while (std.mem.indexOfScalarPos(u8, line, at, '>')) |gt| {
+    while (std.mem.findScalarPos(u8, line, at, '>')) |gt| {
         at = gt + 1;
         // `=>` and `->` are code, and so is a comparison.
         if (gt > 0 and (line[gt - 1] == '=' or line[gt - 1] == '-' or line[gt - 1] == ' ')) continue;
@@ -347,10 +347,10 @@ fn inlineTextArm(report: *Report, line: []const u8) !void {
         const words = try withoutJsxHoles(report.gpa, rest[0..end]) orelse continue;
         defer report.gpa.free(words);
         const segment = std.mem.trim(u8, words, " \t\r");
-        if (std.mem.indexOfAny(u8, segment, "=;()\"`") != null) continue;
+        if (std.mem.findAny(u8, segment, "=;()\"`") != null) continue;
         // What follows a generic's closing angle is code: a comma, a colon,
         // a paren, a bar.
-        if (segment.len > 0 and std.mem.indexOfScalar(u8, ",:)|&]}", segment[0]) != null) continue;
+        if (segment.len > 0 and std.mem.findScalar(u8, ",:)|&]}", segment[0]) != null) continue;
         if (looksSpoken(segment) or looksLabel(segment)) try report.say("JSX text", segment);
     }
 }
@@ -365,17 +365,17 @@ fn textLineArm(report: *Report, raw: []const u8) !void {
     const words = try withoutJsxHoles(report.gpa, raw) orelse return;
     defer report.gpa.free(words);
     const line = std.mem.trim(u8, words, " \t\r");
-    if (std.mem.indexOfAny(u8, line, "<>=;()\"`|&+[]*") != null) return;
+    if (std.mem.findAny(u8, line, "<>=;()\"`|&+[]*") != null) return;
     // Arithmetic in an argument list wrapped over several lines, `x - REACH,`.
     // A sentence here has no dash at all.
-    if (std.mem.indexOf(u8, line, " - ") != null) return;
+    if (std.mem.find(u8, line, " - ") != null) return;
     if (line.len == 0) return;
     if (line[0] == '?' or line[0] == ':' or line[0] == '.') return;
-    if (std.mem.indexOf(u8, line, "??") != null or std.mem.indexOf(u8, line, "?.") != null) return;
+    if (std.mem.find(u8, line, "??") != null or std.mem.find(u8, line, "?.") != null) return;
     // A ternary, `local ? { … } : { … },`, which no sentence spells.
-    if (std.mem.indexOf(u8, line, " ? ") != null) return;
+    if (std.mem.find(u8, line, " ? ") != null) return;
     // `name as OTHER_NAME,` inside an import or export list.
-    if (std.mem.indexOf(u8, line, " as ") != null and std.mem.count(u8, line, " ") == 2) return;
+    if (std.mem.find(u8, line, " as ") != null and std.mem.count(u8, line, " ") == 2) return;
     for ([_][]const u8{
         "type ", "readonly ", "case ",     "return ", "await ",  "const ",
         "let ",  "export ",   "function ", "class ",  "import ", "interface ",
@@ -383,8 +383,8 @@ fn textLineArm(report: *Report, raw: []const u8) !void {
     }) |keyword| {
         if (std.mem.startsWith(u8, line, keyword)) return;
     }
-    if (std.mem.indexOfScalar(u8, line, ':')) |colon| {
-        if (std.mem.indexOfScalar(u8, line[0..colon], ' ') == null) return;
+    if (std.mem.findScalar(u8, line, ':')) |colon| {
+        if (std.mem.findScalar(u8, line[0..colon], ' ') == null) return;
     }
     var at: usize = 1;
     while (at + 1 < line.len) : (at += 1) {
@@ -415,21 +415,21 @@ fn inspectBody(report: *Report, body: []const u8) !void {
             continue;
         }
         if (in_comment) {
-            if (std.mem.indexOf(u8, line, "*/") != null) in_comment = false;
+            if (std.mem.find(u8, line, "*/") != null) in_comment = false;
             continue;
         }
-        if (std.mem.indexOf(u8, line, "/*")) |open| {
-            if (std.mem.indexOfPos(u8, line, open, "*/") == null) in_comment = true;
+        if (std.mem.find(u8, line, "/*")) |open| {
+            if (std.mem.findPos(u8, line, open, "*/") == null) in_comment = true;
             continue;
         }
         if (std.mem.startsWith(u8, line, "//")) continue;
         if (plainError(line)) |class| try report.sayPlainError(class);
         if (in_log) {
-            if (std.mem.indexOf(u8, line, ");") != null) in_log = false;
+            if (std.mem.find(u8, line, ");") != null) in_log = false;
             continue;
         }
-        if ((std.mem.indexOf(u8, line, "console.") != null or callsInvariant(line)) and
-            std.mem.indexOf(u8, line, ");") == null)
+        if ((std.mem.find(u8, line, "console.") != null or callsInvariant(line)) and
+            std.mem.find(u8, line, ");") == null)
         {
             in_log = true;
             continue;
@@ -466,7 +466,7 @@ pub fn checkRoomsTextCatalog(
             seen_exempt += 1;
             continue;
         }
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.path });
+        const path = try gpa.print("{s}/{s}", .{ ui_dir, entry.path });
         defer gpa.free(path);
         const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
             try appendViolation(gpa, violations, "{s}: could not be read", .{path});
@@ -573,7 +573,7 @@ test "an invariant diagnostic is outside UI prose and a plain Error is refused" 
         try inspectBody(&report, line);
         try std.testing.expectEqual(count, violations.items.len);
     }
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[3], "probe.ts:1: `AggregateError(`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[3], "probe.ts:1: `AggregateError(`") != null);
 
     // A sentence handed to another carrier is still read, and so is a line whose call only ends in the word.
     try inspectBody(&report,
@@ -584,8 +584,8 @@ test "an invariant diagnostic is outside UI prose and a plain Error is refused" 
         \\);
     );
     try std.testing.expectEqual(refused.len + 3, violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[refused.len], "probe.ts:1: literal `Finish this first.`") != null);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[refused.len + 2], "probe.ts:4: `Error(`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[refused.len], "probe.ts:1: literal `Finish this first.`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[refused.len + 2], "probe.ts:4: `Error(`") != null);
 }
 
 test "a shader's source is code, and text after it is still read" {
@@ -604,5 +604,5 @@ test "a shader's source is code, and text after it is still read" {
         \\const label = "Something went wrong. Try again later.";
     );
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "probe.ts:5:") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "probe.ts:5:") != null);
 }

@@ -34,7 +34,7 @@ pub const Counter = struct {
 pub const Greeter = struct {
     pub fn handle(self: *Greeter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = self;
-        const greeting = try std.fmt.allocPrint(turn.arena, "hello, {s}", .{try msg.argBytes(0)});
+        const greeting = try turn.arena.print("hello, {s}", .{try msg.argBytes(0)});
         return .{ .bytes = greeting };
     }
 };
@@ -143,7 +143,7 @@ pub const Forwarder = struct {
     sink: actors.Ref,
 
     pub fn handle(self: *Forwarder, turn: *Turn, msg: Delivery) !model.Argument {
-        const payload = try std.fmt.allocPrint(turn.arena, "payload-{s}", .{try msg.argBytes(0)});
+        const payload = try turn.arena.print("payload-{s}", .{try msg.argBytes(0)});
         _ = try turn.send(self.sink, .{ .verb = "store", .args = &.{.{ .bytes = payload }} });
         return .{ .void = {} };
     }

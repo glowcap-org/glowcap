@@ -274,8 +274,8 @@ test "inbound dispatch is identical across the borrowed and owned entry points" 
 
     // Pin the shape too: a malformed frame is rejected, the abort projection
     // emits exactly one outbound op:abort, and the session closes.
-    try std.testing.expect(std.mem.indexOf(u8, borrowed, "dispatch_error=MalformedFrame\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, borrowed, "events=0\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, borrowed, "outbound_frames=1\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, borrowed, "session_closed=true\n") != null);
+    try std.testing.expect(std.mem.find(u8, borrowed, "dispatch_error=MalformedFrame\n") != null);
+    try std.testing.expect(std.mem.find(u8, borrowed, "events=0\n") != null);
+    try std.testing.expect(std.mem.find(u8, borrowed, "outbound_frames=1\n") != null);
+    try std.testing.expect(std.mem.find(u8, borrowed, "session_closed=true\n") != null);
 }

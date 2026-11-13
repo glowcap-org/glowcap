@@ -3,6 +3,7 @@
 //! per-registration export ranges, and the handoff scheduler's wakes.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -28,7 +29,7 @@ test "Node action extraction preserves the inline Node footprint" {
     // seats promised to `promise_settled` actions, one per inbound answer a
     // Host capability promise subscribes to (ADR-0068). The optional callable
     // projection adds two pointers and its tag, 24 bytes on this target.
-    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    if (!builtin.optimize.runtimeSafety()) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 1072), @sizeOf(Node));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));
 }

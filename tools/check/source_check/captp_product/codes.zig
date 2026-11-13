@@ -48,33 +48,33 @@ pub fn checkHostErrorCodeMap(
     defer gpa.free(projection_source);
 
     const set_open = "pub const HostError = error{";
-    const set_start = std.mem.indexOf(u8, host_source, set_open) orelse {
+    const set_start = std.mem.find(u8, host_source, set_open) orelse {
         try appendViolation(gpa, violations, "{s}: `{s}` not found — update `checkHostErrorCodeMap` in tools/check/source_check/captp_product/codes.zig", .{ declaring, set_open });
         return;
     };
     const set_body_start = set_start + set_open.len;
     // The set ends at the first `};` in column zero after it, the spelling every
     // top-level declaration in this tree closes with.
-    const set_end_rel = std.mem.indexOf(u8, host_source[set_body_start..], "\n};") orelse {
+    const set_end_rel = std.mem.find(u8, host_source[set_body_start..], "\n};") orelse {
         try appendViolation(gpa, violations, "{s}: `HostError` has no closing brace line — update `checkHostErrorCodeMap` in tools/check/source_check/captp_product/codes.zig", .{declaring});
         return;
     };
     const set_body = host_source[set_body_start .. set_body_start + set_end_rel];
 
     const switch_open = "pub fn classify(cause: anyerror) Kind {";
-    const switch_start = std.mem.indexOf(u8, map_source, switch_open) orelse {
+    const switch_start = std.mem.find(u8, map_source, switch_open) orelse {
         try appendViolation(gpa, violations, "{s}: `{s}` not found — update `checkHostErrorCodeMap` in tools/check/source_check/captp_product/codes.zig", .{ mapping, switch_open });
         return;
     };
-    const switch_end_rel = std.mem.indexOf(u8, map_source[switch_start..], "\n}") orelse map_source.len - switch_start;
+    const switch_end_rel = std.mem.find(u8, map_source[switch_start..], "\n}") orelse map_source.len - switch_start;
     const switch_body = map_source[switch_start .. switch_start + switch_end_rel];
 
     const classify_open = "pub fn classify(";
-    const classify_start = std.mem.indexOf(u8, projection_source, classify_open) orelse {
+    const classify_start = std.mem.find(u8, projection_source, classify_open) orelse {
         try appendViolation(gpa, violations, "{s}: `{s}` not found — update `checkHostErrorCodeMap` in tools/check/source_check/captp_product/codes.zig", .{ projection, classify_open });
         return;
     };
-    const classify_end_rel = std.mem.indexOf(u8, projection_source[classify_start..], "\n}") orelse projection_source.len - classify_start;
+    const classify_end_rel = std.mem.find(u8, projection_source[classify_start..], "\n}") orelse projection_source.len - classify_start;
     const classify_body = projection_source[classify_start .. classify_start + classify_end_rel];
 
     var members: usize = 0;
@@ -95,19 +95,19 @@ pub fn checkHostErrorCodeMap(
         members += 1;
 
         var needle_buf: [128]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "error.{s},", .{name}) catch {
+        const needle = std.mem.print(&needle_buf, "error.{s},", .{name}) catch {
             try appendViolation(gpa, violations, "exit-code member `{s}` overflows the needle buffer; grow it", .{name});
             continue;
         };
         var alt_buf: [128]u8 = undefined;
-        const alt = std.fmt.bufPrint(&alt_buf, "error.{s} ", .{name}) catch {
+        const alt = std.mem.print(&alt_buf, "error.{s} ", .{name}) catch {
             try appendViolation(gpa, violations, "exit-code member `{s}` overflows the needle buffer; grow it", .{name});
             continue;
         };
-        if (std.mem.indexOf(u8, switch_body, needle) != null) continue;
-        if (std.mem.indexOf(u8, switch_body, alt) != null) continue;
-        if (std.mem.indexOf(u8, classify_body, needle) != null) continue;
-        if (std.mem.indexOf(u8, classify_body, alt) != null) continue;
+        if (std.mem.find(u8, switch_body, needle) != null) continue;
+        if (std.mem.find(u8, switch_body, alt) != null) continue;
+        if (std.mem.find(u8, classify_body, needle) != null) continue;
+        if (std.mem.find(u8, classify_body, alt) != null) continue;
         try appendViolation(
             gpa,
             violations,

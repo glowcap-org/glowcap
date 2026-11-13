@@ -20,7 +20,7 @@
 //!      p50/p99. Each sample carries the timer-read overhead, which is
 //!      measured and reported alongside so the percentiles read accurately.
 //!
-//! Run `zig build bench-dispatch-scaling` (use `-Doptimize=ReleaseFast` for
+//! Run `zig build bench-dispatch-scaling` (use `-Doptimize=fast` for
 //! absolute figures) to measure and write the report under
 //! `zig-out/bench-reports/`. The `--smoke` argument runs tiny counts and
 //! skips the report write. The `--gate` argument (used by `zig build check`
@@ -125,7 +125,7 @@ fn runOrder(
     for (0..rounds) |_| {
         for (order) |i| try driveOneTurn(&peers[i]);
     }
-    const name = try std.fmt.bufPrint(phase[0 .. phase.len - 1], "dispatch-{s}-{d}", .{ label, peers.len });
+    const name = try std.mem.print(phase[0 .. phase.len - 1], "dispatch-{s}-{d}", .{ label, peers.len });
     phase[name.len] = 0;
     profile.end(phase[0..name.len :0]);
     const batch_elapsed: f64 = @floatFromInt(nowNs(io) - batch_start);
@@ -216,8 +216,8 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (gate) {
-        if (builtin.mode != .fast) {
-            std.debug.print("perf_gate FAIL warm_dispatch: --gate measures ReleaseFast only, got {s}\n", .{@tagName(builtin.mode)});
+        if (builtin.optimize != .fast) {
+            std.debug.print("perf_gate FAIL warm_dispatch: --gate measures ReleaseFast only, got {s}\n", .{@tagName(builtin.optimize)});
             std.process.exit(1);
         }
         return runGate(io, backing);
@@ -243,7 +243,7 @@ pub fn main(init: std.process.Init) !void {
             "dispatch_scaling peers={d} turns={d} seq_mean_ns={d:.1} seq_p50_ns={d} seq_p99_ns={d} shuf_mean_ns={d:.1} shuf_p50_ns={d} shuf_p99_ns={d} timer_overhead_ns={d} mode={s}\n",
             .{
                 m.peers,            m.turns,           m.sequential.mean_ns, m.sequential.p50_ns, m.sequential.p99_ns,
-                m.shuffled.mean_ns, m.shuffled.p50_ns, m.shuffled.p99_ns,    overhead_ns,         @tagName(builtin.mode),
+                m.shuffled.mean_ns, m.shuffled.p50_ns, m.shuffled.p99_ns,    overhead_ns,         @tagName(builtin.optimize),
             },
         );
     }
@@ -292,7 +292,7 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, results: []const Measurement,
         \\
         \\Timer-read overhead per percentile sample: about {d} ns. Mode: {s}.
         \\
-    , .{ overhead_ns, @tagName(builtin.mode) });
+    , .{ overhead_ns, @tagName(builtin.optimize) });
 
     var dir = std.Io.Dir.cwd();
     try dir.createDirPath(io, "zig-out/bench-reports");

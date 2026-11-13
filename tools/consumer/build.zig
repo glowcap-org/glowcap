@@ -1,16 +1,18 @@
 //! Downstream fixture for `consumer-check`. Its driver fetches a source archive
-//! into this manifest before building core-only and all-public-module variants.
+//! into this manifest before building core-only and all-public-module variants,
+//! and one variant that compiles glowcap in a mode apart from the program's.
 
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const glowcap_optimize = b.option(std.lang.Optimize, "glowcap-optimize", "Compile glowcap in this mode, apart from the program's") orelse optimize;
     const optional = b.option(bool, "optional", "Link every optional public module") orelse false;
     const iroh = b.option(bool, "iroh", "Link the iroh module") orelse optional;
     const webrtc = b.option(bool, "webrtc", "Link the WebRTC module") orelse optional;
 
-    const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimize, .iroh = iroh, .webrtc = webrtc });
+    const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = glowcap_optimize, .iroh = iroh, .webrtc = webrtc });
 
     const exe = b.addExecutable(.{
         .name = "glowcap-consumer",

@@ -29,7 +29,7 @@ const Greeter = struct {
         const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         if ((try args.len()) != 1) return error.BadInvocation;
-        return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{try args.string(0)}) };
+        return .{ .string = try ht.turn.arena.print("Hello, {s}", .{try args.string(0)}) };
     }
 };
 

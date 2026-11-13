@@ -7,7 +7,7 @@ const execution = @import("execution.zig");
 
 pub const Inputs = struct {
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     glowcap: *std.Build.Module,
     iroh: *std.Build.Module,
     relay_tls: *std.Build.Module,
@@ -24,10 +24,14 @@ pub fn add(b: *std.Build, in: Inputs) void {
     options.addOption(u32, "version_minor", @intCast(in.version.minor));
     options.addOption(u32, "version_patch", @intCast(in.version.patch));
     options.addOption([]const u8, "captp_profile", "ocapn-captp");
-    const vaxis = if (b.lazyDependency("vaxis", .{
+    const vaxis_dep = b.dependencyLazy("vaxis", .{
         .target = in.target,
         .optimize = in.optimize,
-    })) |dep| dep.module("vaxis") else return;
+    }) catch |err| switch (err) {
+        // The build runner has recorded the need. It fetches the package and configures again.
+        error.LazyDependencyNeeded => return,
+    };
+    const vaxis = vaxis_dep.module("vaxis");
 
     const product = cliModule(b, in, vaxis, options, "cli/main.zig", true, in.relay_tls);
     const exe = b.addExecutable(.{ .name = "glowcap", .root_module = product });
@@ -149,5 +153,5 @@ fn testApiModule(
 }
 
 fn filters(b: *std.Build, filter: ?[]const u8) []const []const u8 {
-    return if (filter) |value| b.dupeStrings(&.{value}) else &.{};
+    return if (filter) |value| b.graph.dupeStrings(&.{value}) else &.{};
 }

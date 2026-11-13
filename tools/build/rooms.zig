@@ -30,7 +30,7 @@ const rooms_browser_front = @import("rooms/browser_front.zig");
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     version: std.SemanticVersion,
     /// The public `glowcap` module.
     lib_mod: *std.Build.Module,
@@ -242,7 +242,7 @@ pub fn register(ctx: Context) Registered {
         "deno",                     "run", "--config=apps/rooms/deno.json", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/rooms/demos/demo.ts",
     });
-    rooms_demo.addArtifactArg(rooms_client_exe); // the Zig client's built path
+    rooms_demo.addArtifactArg2(rooms_client_exe, .{}); // the Zig client's built path
     if (ctx.pin_port) |p| rooms_demo.addArg(b.fmt("--port={d}", .{p}));
     if (ctx.attach) rooms_demo.addArg("--attach");
     rooms_demo.step.dependOn(rooms_server_test_step);
@@ -354,7 +354,7 @@ pub fn register(ctx: Context) Registered {
         "deno",                     "run", "--config=apps/rooms/deno.json", "-A", "--unstable-ffi",
         "apps/rooms/demos/demo.ts",
     });
-    rooms_demo_iroh.addArtifactArg(rooms_client_iroh_exe); // the iroh-enabled Zig client
+    rooms_demo_iroh.addArtifactArg2(rooms_client_iroh_exe, .{}); // the iroh-enabled Zig client
     rooms_demo_iroh.addArg("--transport=iroh");
     if (ctx.pin_port) |p| rooms_demo_iroh.addArg(b.fmt("--port={d}", .{p}));
     // The cross-language clients and Rooms server dial iroh through the iroh

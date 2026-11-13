@@ -93,7 +93,7 @@ fn renderRotation(
     said: [SAID_LEN]u8,
     sig_b64: [SIG_LEN]u8,
 ) Error![]u8 {
-    return std.fmt.allocPrint(allocator,
+    return allocator.print(
         \\{{"v":"KERIa","t":"rot","d":"{s}","i":"{s}","s":"{d}","p":"{s}","kt":"1","k":["{s}"],"nt":"1","n":["{s}"],"sig":"{s}"}}
     , .{ said, parts.aid, parts.sn, parts.prior, parts.verkey_b64, parts.next_digest, sig_b64 });
 }
@@ -165,7 +165,7 @@ pub fn currentVerkey(allocator: std.mem.Allocator, kel: []const u8, aid: []const
             if (!std.mem.eql(u8, controller, aid)) return LogError.AidMismatch;
 
             var sn_buf: [24]u8 = undefined;
-            const expected_sn = std.fmt.bufPrint(&sn_buf, "{d}", .{seen}) catch unreachable;
+            const expected_sn = std.mem.print(&sn_buf, "{d}", .{seen}) catch unreachable;
             if (!std.mem.eql(u8, sn, expected_sn)) return LogError.BrokenChain;
 
             const prior = strField(event, "p") orelse return LogError.BrokenChain;

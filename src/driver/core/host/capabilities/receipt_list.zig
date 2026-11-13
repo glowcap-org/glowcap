@@ -10,7 +10,7 @@ pub fn ReceiptList(comptime Receipt: type, comptime inline_capacity: usize) type
 
         inline_items: [inline_capacity]Receipt = undefined,
         len: usize = 0,
-        spill: std.ArrayListUnmanaged(Receipt) = .empty,
+        spill: std.ArrayList(Receipt) = .empty,
 
         /// Reserve room for one more receipt, moving the inline receipts
         /// into `arena` the first time the inline capacity is exceeded.

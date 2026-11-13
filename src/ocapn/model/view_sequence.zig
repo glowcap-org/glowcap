@@ -270,7 +270,7 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
         pub fn typedRun(self: Self) ?[]const RunElem {
             if (Run == null) return null;
             const words = self.wordRun() orelse return null;
-            if (comptime builtin.cpu.arch.endian() != .little) return null;
+            if (comptime builtin.target.cpu.arch.endian() != .little) return null;
             if (!std.mem.isAligned(@intFromPtr(words.ptr), @alignOf(RunElem))) return null;
             const aligned: []align(@alignOf(RunElem)) const u8 = @alignCast(words);
             return std.mem.bytesAsSlice(RunElem, aligned);

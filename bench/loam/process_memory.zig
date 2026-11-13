@@ -25,7 +25,7 @@ pub fn emitSnapshot(gpa: std.mem.Allocator, output: *std.ArrayList(u8), phase: [
 /// Keep both Tasks engine runs on one logical CPU, so migration between
 /// different CPU types cannot masquerade as an engine cost. Linux only.
 pub fn pinCpu(cpu: u32) !void {
-    if (@import("builtin").os.tag != .linux) return error.CpuAffinityUnsupported;
+    if (@import("builtin").target.os.tag != .linux) return error.CpuAffinityUnsupported;
     if (glowcap_bench_pin_cpu(cpu) != 0) return error.CpuAffinityUnavailable;
 }
 

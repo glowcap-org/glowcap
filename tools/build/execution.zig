@@ -87,7 +87,7 @@ pub fn addZigTest(
                 "--num-callers=50",
                 b.fmt("--suppressions={s}", .{repoPath(b, "tools/memcheck.supp")}),
             }, seconds, .{ .quiet_success = true });
-            run.addArtifactArg(compile);
+            run.addArtifactArg2(compile, .{});
             return run;
         },
         .search => {},
@@ -148,12 +148,12 @@ pub fn addArtifact(
     return switch (posture) {
         .deterministic => |seconds| blk: {
             const run = boundedCommand(b, &.{}, seconds);
-            run.addArtifactArg(compile);
+            run.addArtifactArg2(compile, .{});
             break :blk run;
         },
         .browser_proof => |seconds| blk: {
             const run = browserBoundedCommand(b, &.{}, seconds);
-            run.addArtifactArg(compile);
+            run.addArtifactArg2(compile, .{});
             break :blk run;
         },
         .profile => |seconds| blk: {
@@ -173,7 +173,7 @@ pub fn addArtifact(
             // Zig's descending allocation hints. A large allocation after a
             // low mapping can wrap the hint, which Valgrind refuses as OOM.
             if (@sizeOf(usize) == 8) run.addArg("--aspace-minaddr=0x100000000");
-            run.addArtifactArg(compile);
+            run.addArtifactArg2(compile, .{});
             break :blk run;
         },
         .build_tool => registerBuildTool(b, b.addRunArtifact(compile)),
@@ -217,7 +217,7 @@ pub fn profileOutput(b: *std.Build, name: []const u8) []const u8 {
 pub const RuntimeGate = struct {
     step: *std.Build.Step,
     build: *std.Build.Step,
-    members: std.ArrayListUnmanaged(*std.Build.Step) = .empty,
+    members: std.ArrayList(*std.Build.Step) = .empty,
     finalized: bool = false,
 
     pub fn add(self: *RuntimeGate, member: *std.Build.Step) void {

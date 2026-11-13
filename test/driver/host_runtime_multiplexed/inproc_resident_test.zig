@@ -48,7 +48,7 @@ fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
 }
 
 test "inproc completion residents serve a fetch and a call between two runtimes" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();

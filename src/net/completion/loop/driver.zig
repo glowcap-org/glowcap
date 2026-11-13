@@ -7,6 +7,7 @@
 //! own.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const clock = @import("../../clock.zig");
 const contract = @import("../contract.zig");
 const failure_projection = @import("../failure_projection.zig");
@@ -128,7 +129,7 @@ pub fn Machine(
         /// re-arm failure.
         pub fn run(self: *Self, stop: Stop) !void {
             const claimed = affinity.latch(self);
-            if (comptime std.debug.runtime_safety) std.debug.assert(claimed);
+            if (comptime builtin.optimize.runtimeSafety()) std.debug.assert(claimed);
             defer affinity.release(self);
             try Admission.ensureAccepting(self);
             while (switch (stop) {
@@ -159,7 +160,7 @@ pub fn Machine(
         /// before `deinit`.
         pub fn runUntil(self: *Self, done: *const std.atomic.Value(bool), deadline_ms: i32) !void {
             const claimed = affinity.latch(self);
-            if (comptime std.debug.runtime_safety) std.debug.assert(claimed);
+            if (comptime builtin.optimize.runtimeSafety()) std.debug.assert(claimed);
             defer affinity.release(self);
             try Admission.ensureAccepting(self);
             const deadline_start: ?i64 = if (deadline_ms > 0) clock.nowMonotonicMs() else null;
@@ -182,7 +183,7 @@ pub fn Machine(
         /// slots live.
         pub fn closeAndDrain(self: *Self) !void {
             const claimed = affinity.latch(self);
-            if (comptime std.debug.runtime_safety) std.debug.assert(claimed);
+            if (comptime builtin.optimize.runtimeSafety()) std.debug.assert(claimed);
             defer affinity.release(self);
             // The close sweep below is idempotent, it touches only `.open` and
             // `.draining` slots, so a drain that failed part-way can be

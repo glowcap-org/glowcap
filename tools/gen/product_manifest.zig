@@ -102,8 +102,8 @@ test "generation seals sorted regular files with executable bits" {
     try generate(io, std.testing.allocator, tmp.dir);
     const bytes = try tmp.dir.readFileAlloc(io, manifest.filename, std.testing.allocator, .limited(1 << 20));
     defer std.testing.allocator.free(bytes);
-    const readme_offset = std.mem.indexOf(u8, bytes, " README.md\n") orelse return error.TestExpectedEqual;
-    const executable_offset = std.mem.indexOf(u8, bytes, " x bin/glowcap\n") orelse return error.TestExpectedEqual;
+    const readme_offset = std.mem.find(u8, bytes, " README.md\n") orelse return error.TestExpectedEqual;
+    const executable_offset = std.mem.find(u8, bytes, " x bin/glowcap\n") orelse return error.TestExpectedEqual;
     try std.testing.expect(readme_offset < executable_offset);
     const entries = try manifest.parse(std.testing.allocator, bytes);
     defer std.testing.allocator.free(entries);

@@ -31,12 +31,12 @@ fn productManifestModule(b: *std.Build) *std.Build.Module {
     const module = b.createModule(.{
         .root_source_file = b.path("tools/gen/product_manifest.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     module.addImport("installation_manifest", b.createModule(.{
         .root_source_file = b.path("cli/installation/manifest.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     }));
     return module;
 }

@@ -153,11 +153,11 @@ pub fn main(init: std.process.Init) !void {
     const rot_said = try caller_id.rotate(io);
     std.debug.print("      caller rotated; new key-event SAID: {s}\n", .{&rot_said});
 
-    const host_data_dir = try std.fmt.allocPrint(allocator, "{s}/host", .{data_root});
+    const host_data_dir = try allocator.print("{s}/host", .{data_root});
     defer allocator.free(host_data_dir);
     var host_store = try accountable.Store.init(allocator, io, &host_id, host_data_dir);
     defer host_store.deinit();
-    const caller_data_dir = try std.fmt.allocPrint(allocator, "{s}/caller", .{data_root});
+    const caller_data_dir = try allocator.print("{s}/caller", .{data_root});
     defer allocator.free(caller_data_dir);
     var caller_store = try accountable.Store.init(allocator, io, &caller_id, caller_data_dir);
     defer caller_store.deinit();

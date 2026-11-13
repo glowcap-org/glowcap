@@ -74,7 +74,7 @@ fn checkRuntimeLayout(
 
     for (runtime_domain_roots) |domain| {
         var path_buf: [128]u8 = undefined;
-        const path = std.fmt.bufPrint(&path_buf, source_root ++ "/{s}", .{domain}) catch unreachable;
+        const path = std.mem.print(&path_buf, source_root ++ "/{s}", .{domain}) catch unreachable;
         var domain_dir = root.openDir(io, path, .{}) catch |err| {
             try appendViolation(gpa, violations, "{s}: required Rooms runtime domain root is missing or unreadable ({s})", .{ path, @errorName(err) });
             continue;
@@ -82,8 +82,8 @@ fn checkRuntimeLayout(
         domain_dir.close(io);
 
         var declaration_buf: [64]u8 = undefined;
-        const declaration = std.fmt.bufPrint(&declaration_buf, "pub mod {s};", .{domain}) catch unreachable;
-        if (std.mem.indexOf(u8, lib, declaration) == null) {
+        const declaration = std.mem.print(&declaration_buf, "pub mod {s};", .{domain}) catch unreachable;
+        if (std.mem.find(u8, lib, declaration) == null) {
             try appendViolation(gpa, violations, source_root ++ "/lib.rs: missing grouped domain declaration `{s}`", .{declaration});
         }
     }
@@ -144,7 +144,7 @@ pub fn check(
     };
     defer gpa.free(services);
     for (retired_service_identifiers) |identifier| {
-        if (std.mem.indexOf(u8, services, identifier) != null) {
+        if (std.mem.find(u8, services, identifier) != null) {
             try appendViolation(gpa, violations, "apps/rooms/rust/services/src: retired identifier `{s}` must not return", .{identifier});
         }
     }
@@ -159,7 +159,7 @@ pub fn check(
     try rejectDependency(io, gpa, root, violations, "apps/rooms/rust/browser/Cargo.toml", "rooms-platform");
     try rejectDependency(io, gpa, root, violations, "apps/rooms/rust/browser/Cargo.toml", "rooms-services");
     for ([_][]const u8{ "services", "platform", "browser" }) |layer| {
-        const path = try std.fmt.allocPrint(gpa, "apps/rooms/rust/{s}/Cargo.toml", .{layer});
+        const path = try gpa.print("apps/rooms/rust/{s}/Cargo.toml", .{layer});
         defer gpa.free(path);
         try rejectDependency(io, gpa, root, violations, path, "rooms-product");
     }
@@ -182,7 +182,7 @@ test "Rooms runtime keeps domain roots instead of flat owner modules" {
     var declarations: std.ArrayList(u8) = .empty;
     defer declarations.deinit(gpa);
     for (runtime_domain_roots) |domain| {
-        const path = try std.fmt.allocPrint(gpa, source_root ++ "/{s}", .{domain});
+        const path = try gpa.print(source_root ++ "/{s}", .{domain});
         defer gpa.free(path);
         try tmp.dir.createDirPath(std.testing.io, path);
         if (!std.mem.eql(u8, domain, "session")) {
@@ -210,9 +210,9 @@ test "Rooms runtime keeps domain roots instead of flat owner modules" {
     var flat_file = false;
     var flat_directory = false;
     for (violations.items) |message| {
-        missing_session = missing_session or std.mem.indexOf(u8, message, "pub mod session;") != null;
-        flat_file = flat_file or std.mem.indexOf(u8, message, "session_service.rs") != null;
-        flat_directory = flat_directory or std.mem.indexOf(u8, message, "direct_events") != null;
+        missing_session = missing_session or std.mem.find(u8, message, "pub mod session;") != null;
+        flat_file = flat_file or std.mem.find(u8, message, "session_service.rs") != null;
+        flat_directory = flat_directory or std.mem.find(u8, message, "direct_events") != null;
     }
     try std.testing.expect(missing_session and flat_file and flat_directory);
 }
@@ -255,7 +255,7 @@ test "Rooms crate dependencies keep one direction" {
         "apps/rooms/rust/browser/Cargo.toml",
     };
     for (manifests) |path| {
-        const directory = std.fs.path.dirname(path).?;
+        const directory = std.Io.Dir.path.dirname(path).?;
         try tmp.dir.createDirPath(std.testing.io, directory);
         try tmp.dir.writeFile(std.testing.io, .{
             .sub_path = path,
@@ -284,7 +284,7 @@ test "Rooms crate dependencies keep one direction" {
     // browser, plus services depending on product. Services-to-platform is valid.
     try std.testing.expectEqual(@as(usize, 19), violations.items.len);
     for (violations.items) |message| {
-        try std.testing.expect(std.mem.indexOf(u8, message, "Rooms layer must not depend on") != null);
+        try std.testing.expect(std.mem.find(u8, message, "Rooms layer must not depend on") != null);
     }
 }
 
@@ -309,6 +309,6 @@ test "retired service identifiers cannot hide in tests or implementation" {
     }
     try check(std.testing.io, gpa, tmp.dir, &violations);
     try std.testing.expectEqual(@as(usize, 2), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "`room_server`") != null);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[1], "`archive_service`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "`room_server`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[1], "`archive_service`") != null);
 }

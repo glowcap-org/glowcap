@@ -16,6 +16,11 @@ pub fn main() !void {
     };
     std.mem.doNotOptimizeAway(&opts);
 
+    // The completion loop asserts its own footprint at comptime, and part of
+    // that footprint is a std type. std compiles in this program's mode even
+    // when glowcap compiles in another, so the assert has to hold across both.
+    std.mem.doNotOptimizeAway(@sizeOf(glowcap.net.TcpLoop));
+
     const options = @import("options");
     if (options.optional or options.iroh or options.webrtc) @import("optional.zig").exercise();
 

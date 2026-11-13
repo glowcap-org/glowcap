@@ -13,7 +13,7 @@ const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
 const net = glowcap.net;
 
-const supported = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
+const supported = builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin();
 
 const frame_cap = 4096;
 
@@ -83,7 +83,7 @@ test "one stream stack dials noise-tcp and inproc through one backend" {
     defer client.deinit();
     // One stack resident serves every symbol the value names.
     try std.testing.expectEqual(@as(usize, 1), client.residents.items.len);
-    if (builtin.os.tag == .linux) {
+    if (builtin.target.os.tag == .linux) {
         const selected = client.tcpBackendStatus().?;
         const resident: *net.StreamStack.Resident = @ptrCast(@alignCast(client.residents.items[0].resident.ctx));
         try std.testing.expectEqualDeep(net.tcpBackendStatus(resident), selected);

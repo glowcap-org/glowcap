@@ -32,7 +32,7 @@ const Greeter = struct {
         if ((try args.len()) != 1) return error.BadInvocation;
         const who = try args.string(0);
         if (std.mem.eql(u8, verb, "greet")) {
-            return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{who}) };
+            return .{ .string = try ht.turn.arena.print("Hello, {s}", .{who}) };
         }
         for (demo_verbs) |v| {
             const figure = v.figure orelse continue;

@@ -232,7 +232,7 @@ class LocalSteps(unittest.TestCase):
     def test_a_word_that_is_no_step_is_refused(self):
         steps: dict[str, set[str]] = {"check": set(), "unit-test": set()}
         self.assertEqual(
-            named("-Doptimize=ReleaseSafe check --summary all --test-timeout 30s unit-test -- gone".split(), steps),
+            named("-Doptimize=safe check --summary all --test-timeout 30s unit-test -- gone".split(), steps),
             {"check", "unit-test"},
         )
         for command in ("chekc", "check unit-tset", "check --summary all gone", "check all"):
@@ -311,12 +311,12 @@ class LocalSteps(unittest.TestCase):
 
     def test_python_command_lines_are_read_from_the_program(self):
         source = (
-            'run("zig", "build", "-Doptimize=ReleaseSafe", f"-Dtarget={target}", "--summary", mode, "c-sdk-pack", '
+            'run("zig", "build", "-Doptimize=safe", f"-Dtarget={target}", "--summary", mode, "c-sdk-pack", '
             'timeout=1)\nexecute(["zig", "fetch"])\nrun(["zig", "build", *extra, step])\n'
         )
         self.assertEqual(
             python_commands(source),
-            [["-Doptimize=ReleaseSafe", f"-Dtarget={COMPUTED}", "--summary", COMPUTED, "c-sdk-pack"], [COMPUTED]],
+            [["-Doptimize=safe", f"-Dtarget={COMPUTED}", "--summary", COMPUTED, "c-sdk-pack"], [COMPUTED]],
         )
         with self.assertRaisesRegex(ValueError, "is not a build step"):
             named([COMPUTED], {"check": set()})

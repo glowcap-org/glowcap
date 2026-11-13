@@ -82,7 +82,7 @@ const Meter = struct {
     fn finish(self: *Meter, gpa: std.mem.Allocator, report: *std.ArrayList(u8)) !void {
         // A run covers each engine, so a profile part names both.
         var part: [64:0]u8 = undefined;
-        profile.end(std.fmt.bufPrintSentinel(&part, "{s}:{s}", .{ @tagName(self.engine), self.name }, 0) catch unreachable);
+        profile.end(std.mem.printSentinel(&part, "{s}:{s}", .{ @tagName(self.engine), self.name }, 0) catch unreachable);
         const elapsed_ns = r.elapsed(self.io, self.start);
         const ops = self.timings.count;
         const latency = self.timings.summarize();
@@ -106,7 +106,7 @@ fn runOn(comptime engine: Engine, init: std.process.Init, report: *std.ArrayList
     const io = init.io;
     const shape = if (smoke) smoke_shape else full_shape;
     std.debug.assert(shape.lists <= board.max_lists and shape.tasks <= board.max_tasks and shape.headroom < shape.tasks);
-    const path = try std.fmt.allocPrintSentinel(gpa, "zig-out/loam-tasks-bench-{d}", .{r.now(io)}, 0);
+    const path = try gpa.printSentinel("zig-out/loam-tasks-bench-{d}", .{r.now(io)}, 0);
     defer gpa.free(path);
     try std.Io.Dir.cwd().createDirPath(io, "zig-out");
     try std.Io.Dir.cwd().createDir(io, path, .default_dir);
@@ -153,7 +153,7 @@ fn body(gpa: std.mem.Allocator, io: std.Io, report: *std.ArrayList(u8), engine: 
     var sequence = try client.integer(root, "mutation-sequence", &.{});
     var name: [32]u8 = undefined;
     while (try client.integer(root, "lists", &.{}) < shape.lists) {
-        const held = try client.mutate(root, &sequence, &.{ .{ .string = "add-list" }, .{ .string = try std.fmt.bufPrint(&name, "List {d}", .{sequence}) } });
+        const held = try client.mutate(root, &sequence, &.{ .{ .string = "add-list" }, .{ .string = try std.mem.print(&name, "List {d}", .{sequence}) } });
         held.deinit();
     }
     var lists: [board.max_lists]c.Held = undefined;
@@ -171,7 +171,7 @@ fn body(gpa: std.mem.Allocator, io: std.Io, report: *std.ArrayList(u8), engine: 
             const fill = if (i == last) shape.tasks - shape.headroom else shape.tasks;
             for (0..fill) |n| {
                 const at = meter.mark();
-                try client.add(lists[i].cap(), &sequence, try std.fmt.bufPrint(&text, "task {d}-{d}", .{ i, n }));
+                try client.add(lists[i].cap(), &sequence, try std.mem.print(&text, "task {d}-{d}", .{ i, n }));
                 meter.record(at);
             }
         }
@@ -191,13 +191,13 @@ fn body(gpa: std.mem.Allocator, io: std.Io, report: *std.ArrayList(u8), engine: 
     for (&warmed, 0..) |*held, n| {
         held.* = try client.facet(lists[0].cap(), "task", n);
         warmed_count += 1;
-        try client.expectText(held.cap(), try std.fmt.bufPrint(&text, "task 0-{d}", .{n}));
+        try client.expectText(held.cap(), try std.mem.print(&text, "task 0-{d}", .{n}));
     }
     {
         var meter = begin(engine, storage, allocations, bytes, io, "hot-read", shape);
         for (0..shape.samples) |i| {
             const at = meter.mark();
-            try client.expectText(warmed[i % warm].cap(), try std.fmt.bufPrint(&text, "task 0-{d}", .{i % warm}));
+            try client.expectText(warmed[i % warm].cap(), try std.mem.print(&text, "task 0-{d}", .{i % warm}));
             meter.record(at);
         }
         try meter.finish(gpa, report);
@@ -217,7 +217,7 @@ fn body(gpa: std.mem.Allocator, io: std.Io, report: *std.ArrayList(u8), engine: 
             defer facet.deinit();
             const found = try client.facet(facet.cap(), "task", task);
             defer found.deinit();
-            try client.expectText(found.cap(), try std.fmt.bufPrint(&text, "task {d}-{d}", .{ list, task }));
+            try client.expectText(found.cap(), try std.mem.print(&text, "task {d}-{d}", .{ list, task }));
             meter.record(at);
         }
         try meter.finish(gpa, report);
@@ -272,7 +272,7 @@ fn body(gpa: std.mem.Allocator, io: std.Io, report: *std.ArrayList(u8), engine: 
         var meter = begin(engine, storage, allocations, bytes, io, "share-read", shape);
         for (shares[0..sharing], 0..) |share, n| {
             const at = meter.mark();
-            try client.expectText(share.cap(), try std.fmt.bufPrint(&text, "task 0-{d}", .{n}));
+            try client.expectText(share.cap(), try std.mem.print(&text, "task 0-{d}", .{n}));
             meter.record(at);
         }
         try meter.finish(gpa, report);
@@ -286,7 +286,7 @@ fn body(gpa: std.mem.Allocator, io: std.Io, report: *std.ArrayList(u8), engine: 
         var meter = begin(engine, storage, allocations, bytes, io, "watch", shape);
         for (0..shape.headroom) |n| {
             const at = meter.mark();
-            try client.add(lists[last].cap(), &sequence, try std.fmt.bufPrint(&text, "watched {d}", .{n}));
+            try client.add(lists[last].cap(), &sequence, try std.mem.print(&text, "watched {d}", .{n}));
             const seen = try client.poll(watcher, cursor);
             meter.record(at);
             if (!seen.changed) return error.TasksMissedChange;

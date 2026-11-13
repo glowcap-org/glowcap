@@ -158,7 +158,7 @@ fn runLoopCapturing(loop: *Loop, until_closed: usize, out_err: *?anyerror) void 
 }
 
 test "completion loop: outbound dialed sessions fetch from a blocking listener" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -217,7 +217,7 @@ const CloseJournal = struct {
 };
 
 test "completion loop: refused outbound connect closes, reclaims the slot, and fires on_close unopened" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -257,7 +257,7 @@ test "completion loop: refused outbound connect closes, reclaims the slot, and f
 }
 
 test "completion loop: reserved dials cannot be starved by ordinary admission" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});

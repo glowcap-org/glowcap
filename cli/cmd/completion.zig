@@ -27,7 +27,7 @@ const Emitter = union(enum) {
 
     fn writeFmt(self: *Emitter, comptime fmt: []const u8, args: anytype) !void {
         var buf: [4096]u8 = undefined;
-        const msg = try std.fmt.bufPrint(&buf, fmt, args);
+        const msg = try std.mem.print(&buf, fmt, args);
         try self.writeAll(msg);
     }
 };

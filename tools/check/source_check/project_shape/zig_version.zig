@@ -1,7 +1,9 @@
-//! The public package minimum follows the compiler the project pins and tests.
+//! The public package minimum follows the compiler the project pins and tests,
+//! and so does the compiler whose deprecation markers the ban table restates.
 
 const std = @import("std");
 const violation_log = @import("../violation_log.zig");
+const zig_deprecations = @import("../bans/zig_deprecations.zig");
 
 const appendViolation = violation_log.appendViolation;
 
@@ -40,12 +42,20 @@ pub fn check(
             .{ zon_path, minimum, pins_path, pinned },
         );
     }
+    if (!std.mem.eql(u8, pinned, zig_deprecations.surveyed_zig_version)) {
+        try appendViolation(
+            gpa,
+            violations,
+            "tools/check/source_check/bans/zig_deprecations.zig: its rows restate Zig `{s}` and `{s}` pins `{s}`; reread the `Deprecated` doc comments in the pinned `lib/std` and language reference, extend the rows, then move `surveyed_zig_version`",
+            .{ zig_deprecations.surveyed_zig_version, pins_path, pinned },
+        );
+    }
 }
 
 fn quotedValueAfter(source: []const u8, prefix: []const u8) ?[]const u8 {
-    const start = std.mem.indexOf(u8, source, prefix) orelse return null;
+    const start = std.mem.find(u8, source, prefix) orelse return null;
     const value = source[start + prefix.len ..];
-    const end = std.mem.indexOfScalar(u8, value, '"') orelse return null;
+    const end = std.mem.findScalar(u8, value, '"') orelse return null;
     return value[0..end];
 }
 

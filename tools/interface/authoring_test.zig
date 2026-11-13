@@ -37,7 +37,7 @@ test "proposed text equals independent canonical description and retains exact m
     try std.testing.expectEqual(calls.Effect.receipt, prepared.effect);
     try std.testing.expect(prepared.parameters[0] == .pending_value);
     const prepared_rust = try @import("rust.zig").emit(a, &.{.{ .api = "prepared_text", .call = prepared }}, &.{});
-    try std.testing.expect(std.mem.indexOf(u8, prepared_rust, " as prepared_text;") != null);
+    try std.testing.expect(std.mem.find(u8, prepared_rust, " as prepared_text;") != null);
     for ([_][]const u8{ "null-input", "null-result" }) |selector| {
         try std.testing.expectError(error.UnsupportedTarget, calls.read(&model, "comparison.Named", selector));
     }
@@ -73,19 +73,19 @@ test "bound reply and exact method edits change checked consumers" {
     const creation = try model.creation("comparison.Factory", "add");
     try std.testing.expectEqual(@as(usize, 32), creation.maximum);
     const zig = try @import("zig.zig").emit(a, creation);
-    try std.testing.expect(std.mem.indexOf(u8, zig, "32") != null);
+    try std.testing.expect(std.mem.find(u8, zig, "32") != null);
     const changed_reply = try text.translate(a, try edited(a, "read() -> string", "read() -> undefined"), &diagnostic);
     model = try Model.init(a, try description.read(a, changed_reply));
     const reply = try calls.read(&model, "comparison.Reader", "read");
     try std.testing.expect(reply.result == .nothing);
     const ts = try @import("typescript.zig").emit(a, &.{.{ .api = "read", .call = reply }});
-    try std.testing.expect(std.mem.indexOf(u8, ts, "): Pending<void>") != null);
+    try std.testing.expect(std.mem.find(u8, ts, "): Pending<void>") != null);
     const changed_method = try text.translate(a, try edited(a, "\"a-b\"()", "\"renamed\"()"), &diagnostic);
     model = try Model.init(a, try description.read(a, changed_method));
     try std.testing.expectError(error.InvalidDescription, model.method("comparison.Named", "a-b"));
     const renamed = try calls.read(&model, "comparison.Named", "renamed");
     const rust = try @import("rust.zig").emit(a, &.{.{ .api = "renamed", .call = renamed }}, &.{});
-    try std.testing.expect(std.mem.indexOf(u8, rust, "\"renamed\"") != null);
+    try std.testing.expect(std.mem.find(u8, rust, "\"renamed\"") != null);
 }
 
 test "text diagnostics refuse unsupported constructs and invalid checked contracts" {
@@ -145,7 +145,7 @@ test "expanded qualified names refuse before allocation grows with impossible ou
     var valid_diagnostic: text.Diagnostic = .{};
     const bytes = try text.translate(a, valid, &valid_diagnostic);
     var model = try Model.init(a, try description.read(a, bytes));
-    const factory = try std.fmt.allocPrint(a, "{s}.Factory", .{valid[7..][0..4096]});
+    const factory = try a.print("{s}.Factory", .{valid[7..][0..4096]});
     _ = try model.method(factory, "f0");
     var allocated: [2]usize = undefined;
     for ([_]usize{ 512, 2048 }, 0..) |references, i| {

@@ -266,7 +266,7 @@ pub fn main(init: std.process.Init) !void {
     @memset(seen, false);
     var state = State{ .nick = nick, .roster = roster.items, .present = present, .seen = seen };
 
-    if (std.mem.indexOf(u8, locator, "://") != null) {
+    if (std.mem.find(u8, locator, "://") != null) {
         if (build_options.iroh_enabled) {
             try dialIroh(io, allocator, locator, &state, room_name, nick, line);
         } else {

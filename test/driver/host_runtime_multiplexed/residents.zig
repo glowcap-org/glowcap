@@ -104,8 +104,8 @@ pub const FakeResident = struct {
     allocator: std.mem.Allocator,
     epfd: i32,
     next_conn: usize = 1,
-    conns: std.AutoHashMapUnmanaged(usize, Conn) = .{},
-    connecting: std.AutoHashMapUnmanaged(usize, i32) = .{},
+    conns: std.AutoHashMapUnmanaged(usize, Conn) = .empty,
+    connecting: std.AutoHashMapUnmanaged(usize, i32) = .empty,
     throttle: bool = false,
     fail_remote_key: bool = false,
     /// When set, every `try_read` delivers these bytes in place of the
@@ -258,7 +258,7 @@ pub const FakeResident = struct {
             self.last_introducer_len = introducer.len;
         }
         if (self.fail_start_on_call == self.start_calls) return error.NetworkUnreachable;
-        const colon = std.mem.lastIndexOfScalar(u8, locator.designator, ':') orelse return error.InvalidAddress;
+        const colon = std.mem.findScalarLast(u8, locator.designator, ':') orelse return error.InvalidAddress;
         const port = std.fmt.parseInt(u16, locator.designator[colon + 1 ..], 10) catch return error.InvalidAddress;
         var octets: [4]u8 = undefined;
         var it = std.mem.splitScalar(u8, locator.designator[0..colon], '.');

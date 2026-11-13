@@ -50,7 +50,7 @@ pub fn checkRawNuls(
                 continue;
             };
             defer gpa.free(contents);
-            if (std.mem.indexOfScalar(u8, contents, 0) != null) try appendViolation(
+            if (std.mem.findScalar(u8, contents, 0) != null) try appendViolation(
                 gpa,
                 violations,
                 "{s}: first-party text source contains a raw NUL byte; write the separator as an escape",
@@ -88,18 +88,18 @@ pub fn checkRoomsTestHeaders(
             continue;
         };
         defer gpa.free(body);
-        if (std.mem.indexOf(u8, body, "Deno.test(") == null and std.mem.indexOf(u8, body, "roomsTest(") == null) continue;
+        if (std.mem.find(u8, body, "Deno.test(") == null and std.mem.find(u8, body, "roomsTest(") == null) continue;
         var rest = body;
         var first_line = true;
         while (rest.len > 0) {
-            const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+            const line_end = std.mem.findScalar(u8, rest, '\n') orelse rest.len;
             const line = std.mem.trimEnd(u8, rest[0..line_end], "\r");
             if (!((first_line and std.mem.startsWith(u8, line, "#!")) or
                 std.mem.startsWith(u8, line, "/// <reference"))) break;
             rest = if (line_end < rest.len) rest[line_end + 1 ..] else "";
             first_line = false;
         }
-        const header_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        const header_end = std.mem.findScalar(u8, rest, '\n') orelse rest.len;
         const header = std.mem.trimEnd(u8, rest[0..header_end], "\r");
         if (!std.mem.startsWith(u8, header, "// ")) try appendViolation(
             gpa,
@@ -153,15 +153,15 @@ fn keepZig(path: []const u8) bool {
 fn removeDiscardLine(line: []const u8) bool {
     const trimmed = std.mem.trimStart(u8, line, " \t");
     if (std.mem.startsWith(u8, trimmed, "//")) return false;
-    if (std.mem.indexOf(u8, line, "_ = ") == null) return false;
-    return std.mem.indexOf(u8, line, ".remove(") != null or
-        std.mem.indexOf(u8, line, ".fetchRemove(") != null or
-        std.mem.indexOf(u8, line, ".swapRemove(") != null;
+    if (std.mem.find(u8, line, "_ = ") == null) return false;
+    return std.mem.find(u8, line, ".remove(") != null or
+        std.mem.find(u8, line, ".fetchRemove(") != null or
+        std.mem.find(u8, line, ".swapRemove(") != null;
 }
 
 fn hasRemoveJustification(line: []const u8) bool {
-    return std.mem.indexOf(u8, line, "idempotent:") != null or
-        std.mem.indexOf(u8, line, "tolerant:") != null;
+    return std.mem.find(u8, line, "idempotent:") != null or
+        std.mem.find(u8, line, "tolerant:") != null;
 }
 
 /// A discard is justified by a marker on its own line or anywhere in the
@@ -238,11 +238,11 @@ pub fn checkPathIoCopies(
     };
     defer gpa.free(copy);
 
-    const canonical_body = std.mem.indexOf(u8, canonical, marker) orelse {
+    const canonical_body = std.mem.find(u8, canonical, marker) orelse {
         try appendViolation(gpa, violations, "{s}: has no `{s}` line, so its body cannot be told from its header", .{ canonical_path, marker });
         return;
     };
-    const copy_body = std.mem.indexOf(u8, copy, marker) orelse {
+    const copy_body = std.mem.find(u8, copy, marker) orelse {
         try appendViolation(gpa, violations, "{s}: has no `{s}` line, so its body cannot be told from its header", .{ copy_path, marker });
         return;
     };
@@ -282,7 +282,7 @@ pub fn checkDevcontainerBashScripts(
         if (entry.kind != .file) continue;
         if (std.mem.startsWith(u8, entry.path, "patches/")) continue;
         if (std.mem.endsWith(u8, entry.path, ".sh")) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+        const path = try gpa.print("{s}/{s}", .{ dir_path, entry.path });
         defer gpa.free(path);
         // Only the first line decides, and the tree also holds generated shell
         // state (zsh's compiled completion dump) far larger than any script, so
@@ -299,13 +299,13 @@ pub fn checkDevcontainerBashScripts(
             continue;
         };
         const contents = head[0..head_len];
-        const line_end = std.mem.indexOfScalar(u8, contents, '\n') orelse contents.len;
+        const line_end = std.mem.findScalar(u8, contents, '\n') orelse contents.len;
         const first = contents[0..line_end];
         const shebang_bash = std.mem.startsWith(u8, first, "#!") and
-            std.mem.indexOf(u8, first, "bash") != null;
-        const declared_bash = std.mem.indexOf(u8, first, "shellcheck shell=bash") != null;
+            std.mem.find(u8, first, "bash") != null;
+        const declared_bash = std.mem.find(u8, first, "shellcheck shell=bash") != null;
         if (!shebang_bash and !declared_bash) continue;
-        if (std.mem.indexOf(u8, lint_source, entry.path) != null) continue;
+        if (std.mem.find(u8, lint_source, entry.path) != null) continue;
         try appendViolation(
             gpa,
             violations,

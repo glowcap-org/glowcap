@@ -285,7 +285,7 @@ test "alternative locators retry in order on one ticket and a later path succeed
     defer allocator.free(first_alt);
     const second_alt = try peerUri(allocator, "127.0.0.1:9051");
     defer allocator.free(second_alt);
-    const alternatives = try std.fmt.allocPrint(allocator, "{s}|{s}", .{ first_alt, second_alt });
+    const alternatives = try allocator.print("{s}|{s}", .{ first_alt, second_alt });
     defer allocator.free(alternatives);
     const primary = try peerUriWithAlternatives(allocator, "127.0.0.1:9049", alternatives);
     defer allocator.free(primary);
@@ -369,7 +369,7 @@ test "a conflicting handoff route plan fails instead of joining pending work" {
     const refused = node.nextAction().?;
     try std.testing.expect(refused == .fail);
     try std.testing.expectEqual(@as(u64, 62), refused.fail.dest.answer.answer.position.int());
-    try std.testing.expect(std.mem.indexOf(u8, refused.fail.reason.text, "conflicts") != null);
+    try std.testing.expect(std.mem.find(u8, refused.fail.reason.text, "conflicts") != null);
     try std.testing.expect(node.pendingDial(dial.dial.pending, 0) != null);
 }
 
@@ -380,10 +380,9 @@ test "a direct key fallback does not inherit the primary durable-key demand" {
 
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x34))).publicKey();
     const designator = key.toDesignator();
-    const alternate = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{designator[0..]});
+    const alternate = try allocator.print("ocapn://{s}.iroh", .{designator[0..]});
     defer allocator.free(alternate);
-    const locator = try std.fmt.allocPrint(
-        allocator,
+    const locator = try allocator.print(
         "ocapn://{s}.iroh?alt-locators={s}",
         .{ designator[0..], alternate },
     );
@@ -412,8 +411,7 @@ test "alternative locator staging refuses malformed and oversized hints" {
 
     var oversized_hint: [model.route_bundle.max_route_list_bytes + 1]u8 = undefined;
     @memset(&oversized_hint, 'x');
-    const oversized = try std.fmt.allocPrint(
-        allocator,
+    const oversized = try allocator.print(
         "ocapn://127.0.0.1%3A9050.tcp?alt-locators={s}",
         .{oversized_hint},
     );
@@ -512,7 +510,7 @@ test "acceptGive fails closed on unparseable exporter locator" {
     const action = node.nextAction().?;
     try std.testing.expect(action == .fail);
     try std.testing.expectEqual(@as(u64, 3), action.fail.dest.answer.answer.position.int());
-    try std.testing.expect(std.mem.indexOf(u8, action.fail.reason.text, "unparseable") != null);
+    try std.testing.expect(std.mem.find(u8, action.fail.reason.text, "unparseable") != null);
     try std.testing.expect(node.nextAction() == null);
 }
 

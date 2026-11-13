@@ -60,12 +60,12 @@ const Instance = struct {
     /// One listener per transport, keyed by stable loop-minted ids. The Host
     /// advertises one locator per transport too, so refusing a duplicate
     /// transport keeps listener state and Host authority in the same shape.
-    listeners: std.AutoHashMapUnmanaged(ListenerId, ListenerState) = .{},
+    listeners: std.AutoHashMapUnmanaged(ListenerId, ListenerState) = .empty,
     next_listener: u64 = 1,
     next_operation_id: u64 = 1,
     /// FIFO event queue: `events[events_head..]` is pending. The storage
     /// compacts when drained.
-    events: std.ArrayListUnmanaged(OwnedEvent) = .empty,
+    events: std.ArrayList(OwnedEvent) = .empty,
     events_head: usize = 0,
     /// Queue slots promised before dial/listen/accept, session-close, and
     /// completion outcomes commit. Every terminal callback publishes without

@@ -30,7 +30,7 @@ pub fn checkExampleIndex(
         return;
     };
     defer gpa.free(site);
-    if (std.mem.indexOf(u8, site, "examples/README.md") == null) {
+    if (std.mem.find(u8, site, "examples/README.md") == null) {
         try appendViolation(gpa, violations, "site/content/examples.smd: must link the complete inventory in examples/README.md", .{});
     }
 
@@ -48,11 +48,11 @@ pub fn checkExampleIndex(
         // chapter or helper.
 
         var needle_buf: [128]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "zig/{s}", .{entry.name}) catch {
+        const needle = std.mem.print(&needle_buf, "zig/{s}", .{entry.name}) catch {
             try appendViolation(gpa, violations, "examples/zig/{s}: the file name overflows the inventory needle buffer; grow it", .{entry.name});
             continue;
         };
-        if (std.mem.indexOf(u8, index, needle) == null) {
+        if (std.mem.find(u8, index, needle) == null) {
             try appendViolation(gpa, violations, "examples/README.md: missing index for `{s}`", .{entry.name});
         }
     }
@@ -72,11 +72,11 @@ pub fn checkExampleIndex(
         if (!std.mem.endsWith(u8, entry.name, ".c")) continue;
 
         var needle_buf: [128]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "c/{s}", .{entry.name}) catch {
+        const needle = std.mem.print(&needle_buf, "c/{s}", .{entry.name}) catch {
             try appendViolation(gpa, violations, "examples/c/{s}: the file name overflows the inventory needle buffer; grow it", .{entry.name});
             continue;
         };
-        if (std.mem.indexOf(u8, index, needle) == null) {
+        if (std.mem.find(u8, index, needle) == null) {
             try appendViolation(gpa, violations, "examples/README.md: missing index for `{s}`", .{entry.name});
         }
     }
@@ -118,7 +118,7 @@ pub fn checkExampleWiring(
             if (!std.mem.endsWith(u8, entry.name, spec.ext)) continue;
 
             var path_buf: [192]u8 = undefined;
-            const path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ spec.dir, entry.name }) catch {
+            const path = std.mem.print(&path_buf, "{s}/{s}", .{ spec.dir, entry.name }) catch {
                 try appendViolation(gpa, violations, "{s}/{s}: path too long for example-wiring check", .{ spec.dir, entry.name });
                 continue;
             };
@@ -148,9 +148,9 @@ const example_source_dirs = [_]struct { dir: []const u8, ext: []const u8, table_
 
 fn collectBuildExamplePaths(build_zig: []const u8, out: *std.StringHashMap(void)) !void {
     var rest = build_zig;
-    while (std.mem.indexOf(u8, rest, ".path = \"")) |start| {
+    while (std.mem.find(u8, rest, ".path = \"")) |start| {
         const after = rest[start + ".path = \"".len ..];
-        const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
+        const end = std.mem.findScalar(u8, after, '"') orelse break;
         const path = after[0..end];
         rest = after[end..];
         if (!std.mem.startsWith(u8, path, "examples/zig/") and !std.mem.startsWith(u8, path, "examples/c/")) continue;

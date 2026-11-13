@@ -41,7 +41,7 @@ pub const Exchange = struct {
 pub const Listener = struct {
     route_id: u64,
     designator: [crypto.PeerKey.designator_len]u8,
-    ready: std.ArrayListUnmanaged(*PeerPayload),
+    ready: std.ArrayList(*PeerPayload),
 };
 
 pub const PeerPayload = struct {
@@ -68,10 +68,10 @@ pub const NetlayerPayload = struct {
     /// thread while the owner releases on its own, and a retain against a
     /// count already at zero must be refused.
     references: std.atomic.Value(usize) = .init(1),
-    peers: std.AutoHashMapUnmanaged(usize, *PeerPayload) = .{},
+    peers: std.AutoHashMapUnmanaged(usize, *PeerPayload) = .empty,
     /// Exchanges in flight by id. Every value is also in `peers` under its
     /// peer id, so readiness records find it either way.
-    exchanges: std.AutoHashMapUnmanaged(u64, *PeerPayload) = .{},
+    exchanges: std.AutoHashMapUnmanaged(u64, *PeerPayload) = .empty,
     listener: ?Listener = null,
     /// The counter behind the next accept exchange id.
     next_accept: u64 = 1,

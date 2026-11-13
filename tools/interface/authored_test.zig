@@ -35,7 +35,7 @@ test "actual imported bound reply and method edits reach generated consumers" {
     const creation = try bound.model.creation("tasks.TaskList", "add");
     try std.testing.expectEqual(@as(usize, 2048), creation.maximum);
     const zig = try @import("zig.zig").emit(a, creation);
-    try std.testing.expect(std.mem.indexOf(u8, zig, "2048") != null);
+    try std.testing.expect(std.mem.find(u8, zig, "2048") != null);
 
     inputs = authored.sources;
     inputs[1].bytes = try std.mem.replaceOwned(u8, a, inputs[1].bytes, "text() -> Text", "text() -> Name");
@@ -49,7 +49,7 @@ test "actual imported bound reply and method edits reach generated consumers" {
     try std.testing.expectError(error.InvalidDescription, method.model.method("tasks.Task", "text"));
     const renamed = try calls.read(&method.model, "tasks.Task", "content");
     const rust = try @import("rust.zig").emit(a, &.{.{ .api = "content", .call = renamed }}, &.{});
-    try std.testing.expect(std.mem.indexOf(u8, rust, "\"content\"") != null);
+    try std.testing.expect(std.mem.find(u8, rust, "\"content\"") != null);
 }
 
 test "complete authored bundle reports imported semantic and duplicate errors" {
@@ -65,7 +65,7 @@ test "complete authored bundle reports imported semantic and duplicate errors" {
         var diagnostic: text.Diagnostic = .{};
         try std.testing.expectError(error.InvalidDescription, authored.compile(a, &diagnostic, inputs));
         try std.testing.expectEqualStrings("tasks.interface", diagnostic.path);
-        try std.testing.expectEqual(std.mem.indexOf(u8, inputs[1].bytes, case.marker).?, diagnostic.offset);
+        try std.testing.expectEqual(std.mem.find(u8, inputs[1].bytes, case.marker).?, diagnostic.offset);
     }
     var inputs = authored.sources;
     inputs[1].bytes = try std.mem.concat(a, u8, &.{ inputs[1].bytes, "\ntype Name = string\n" });

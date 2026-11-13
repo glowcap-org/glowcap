@@ -33,20 +33,20 @@ pub fn checkStabilityAreaTableRecurringClaims(
     try inventories.collectBuildSteps(arena, ci, inventories.ci_gate_prefix, &listed);
 
     const header = "| Area | Evidence | What remains |";
-    const hit = std.mem.indexOf(u8, doc, header) orelse {
+    const hit = std.mem.find(u8, doc, header) orelse {
         try appendViolation(gpa, violations, "{s}: missing the area evidence table this check treats as the claim surface", .{doc_path});
         return;
     };
 
     var rest = doc[hit + header.len ..];
-    while (std.mem.indexOfScalar(u8, rest, '\n')) |nl| {
+    while (std.mem.findScalar(u8, rest, '\n')) |nl| {
         const row = rest[0..nl];
         rest = rest[nl + 1 ..];
         if (!std.mem.startsWith(u8, rest, "| ")) {
             if (row.len == 0 or std.mem.startsWith(u8, row, "| ")) continue;
             break;
         }
-        const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        const line_end = std.mem.findScalar(u8, rest, '\n') orelse rest.len;
         const line = rest[0..line_end];
         if (std.mem.startsWith(u8, line, "| ---")) continue;
 
@@ -58,7 +58,7 @@ pub fn checkStabilityAreaTableRecurringClaims(
         if (on_demand_at) |at| {
             try rejectRecurringNames(gpa, violations, doc_path, evidence[at..], listed.items, "Evidence labels `{s}` on-demand, but it is in the recurring gate list");
         }
-        if (std.mem.indexOf(u8, remains, "not in the recurring list") != null or
+        if (std.mem.find(u8, remains, "not in the recurring list") != null or
             indexOfInsensitive(remains, "on demand") != null or
             indexOfInsensitive(remains, "on-demand") != null)
         {
@@ -73,7 +73,7 @@ fn nthCell(line: []const u8, n: usize) ?[]const u8 {
     rest = rest[1..];
     var i: usize = 0;
     while (true) {
-        const end = std.mem.indexOfScalar(u8, rest, '|') orelse return null;
+        const end = std.mem.findScalar(u8, rest, '|') orelse return null;
         const cell = std.mem.trim(u8, rest[0..end], " \t");
         if (i == n) return cell;
         rest = rest[end + 1 ..];
@@ -91,9 +91,9 @@ fn rejectRecurringNames(
     comptime fmt: []const u8,
 ) !void {
     var scan = haystack;
-    while (std.mem.indexOfScalar(u8, scan, '`')) |open| {
+    while (std.mem.findScalar(u8, scan, '`')) |open| {
         const after = scan[open + 1 ..];
-        const close = std.mem.indexOfScalar(u8, after, '`') orelse break;
+        const close = std.mem.findScalar(u8, after, '`') orelse break;
         const name = after[0..close];
         scan = after[close + 1 ..];
         if (text_match.inSet(listed, name)) {

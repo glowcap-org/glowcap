@@ -87,10 +87,10 @@ test "sealed channel: a noise-tcp pair opens over fed bytes and both legs report
     // matching a chosen ASCII string is beyond chance, so a hit here means
     // plaintext actually leaked.
     try std.testing.expect(log_ab.items.len >= sealed.msg1_wire_bytes);
-    try std.testing.expect(std.mem.indexOf(u8, log_ab.items, "start-session") == null);
-    try std.testing.expect(std.mem.indexOf(u8, log_ba.items, "start-session") == null);
-    try std.testing.expect(std.mem.indexOf(u8, log_ab.items, "greeter") == null);
-    try std.testing.expect(std.mem.indexOf(u8, log_ba.items, "sealed hello") == null);
+    try std.testing.expect(std.mem.find(u8, log_ab.items, "start-session") == null);
+    try std.testing.expect(std.mem.find(u8, log_ba.items, "start-session") == null);
+    try std.testing.expect(std.mem.find(u8, log_ab.items, "greeter") == null);
+    try std.testing.expect(std.mem.find(u8, log_ba.items, "sealed hello") == null);
 }
 
 test "sealed host consumes a coalesced read larger than one Noise record" {
@@ -115,7 +115,7 @@ test "sealed host consumes a coalesced read larger than one Noise record" {
     var plaintext: std.ArrayList(u8) = .empty;
     defer plaintext.deinit(allocator);
     var prefix_buf: [32]u8 = undefined;
-    const prefix = try std.fmt.bufPrint(&prefix_buf, "{d}:", .{declared_len});
+    const prefix = try std.mem.print(&prefix_buf, "{d}:", .{declared_len});
     try plaintext.appendSlice(allocator, prefix);
     try plaintext.appendNTimes(allocator, 0x61, body_len);
 

@@ -15,8 +15,8 @@ pub const LocatorPayload = struct {
     allocator: std.mem.Allocator,
     transport: []u8,
     designator: []u8,
-    hints: std.ArrayListUnmanaged(model.HintEntry),
-    hint_views: std.ArrayListUnmanaged(shared.GlowcapLocatorHintView),
+    hints: std.ArrayList(model.HintEntry),
+    hint_views: std.ArrayList(shared.GlowcapLocatorHintView),
     wire_form: model.Hints.WireForm,
     view: shared.GlowcapLocatorView,
 

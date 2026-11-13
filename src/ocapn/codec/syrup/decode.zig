@@ -124,7 +124,7 @@ comptime {
     const Tag = std.meta.Tag(model.Message);
     for (@typeInfo(Tag).@"enum".field_values) |field_value| {
         const kind: Tag = @fromBackingInt(@intCast(field_value));
-        std.debug.assert(std.mem.indexOfScalar(Tag, &message_op_order, kind) != null);
+        std.debug.assert(std.mem.findScalar(Tag, &message_op_order, kind) != null);
     }
 }
 

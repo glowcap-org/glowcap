@@ -55,7 +55,7 @@ pub fn argument(value: *const Value) ProjectError!view.Argument {
 /// where the host's words are the wire's, read where they lie, and one
 /// element at a time on a big-endian host.
 fn integersView(words: []const i64) view.Args {
-    if (comptime builtin.cpu.arch.endian() == .little) return .fromRun(std.mem.sliceAsBytes(words));
+    if (comptime builtin.target.cpu.arch.endian() == .little) return .fromRun(std.mem.sliceAsBytes(words));
     return .fromBacking(ctxOf(i64, words), &integers_table.vtable);
 }
 

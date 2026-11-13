@@ -64,17 +64,16 @@ test "inbound op:listen export matrix: refuse, fire live object, refuse bare pro
         while ((try peer.step()) != .idle) {}
         const out = try peer_fixture.drainOutbound(&peer, allocator);
         defer allocator.free(out);
-        try std.testing.expect(std.mem.indexOf(u8, out, "op:deliver") != null);
-        try std.testing.expect(std.mem.indexOf(u8, out, "fulfill") != null);
-        try std.testing.expect(std.mem.indexOf(u8, out, "desc:import-object") != null);
+        try std.testing.expect(std.mem.find(u8, out, "op:deliver") != null);
+        try std.testing.expect(std.mem.find(u8, out, "fulfill") != null);
+        try std.testing.expect(std.mem.find(u8, out, "desc:import-object") != null);
     }
     {
         var peer = peer_fixture.openPeer(allocator);
         defer peer.deinit();
         const promise_export = try peer.session_state.allocatePromiseExport();
         try peer.session_state.registerExport(promise_export);
-        const listen_bytes = try std.fmt.allocPrint(
-            allocator,
+        const listen_bytes = try allocator.print(
             "<9'op:listen<11'desc:export{d}+><18'desc:import-object9+>3+>",
             .{promise_export.int()},
         );

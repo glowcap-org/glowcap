@@ -3,7 +3,7 @@ const std = @import("std");
 
 /// One custody module for a target. Each engine module imports it as
 /// `loam_custody`, so a binary holding two engines compiles the lock once.
-pub fn create(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
+pub fn create(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) *std.Build.Module {
     const module = b.createModule(.{
         .root_source_file = b.path("src/loam/engines/custody/mod.zig"),
         .target = target,

@@ -8,7 +8,7 @@ pub fn register(b: *std.Build, source_check_step: *std.Build.Step) void {
     const root = b.createModule(.{
         .root_source_file = b.path("tools/gen/doc_values.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     // Where docs live is owned by the doc kinds the source check holds.
     root.addImport("doc_kinds", b.createModule(.{ .root_source_file = b.path("tools/check/source_check/docs/kinds.zig") }));

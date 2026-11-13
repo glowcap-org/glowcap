@@ -39,7 +39,7 @@ const GifterGroups = struct {
 /// Aggregate storage stays inline in `Node`. This module is its sole lifecycle
 /// owner and does not add a second scheduler object or indirection.
 pub const Gifters = std.AutoHashMapUnmanaged(PeerHandle, GifterGroups);
-pub const Changes = std.ArrayListUnmanaged(HandoffDependency);
+pub const Changes = std.ArrayList(HandoffDependency);
 
 pub fn deinit(self: *Node) void {
     var gifter_it = self.handoff_waiters.valueIterator();

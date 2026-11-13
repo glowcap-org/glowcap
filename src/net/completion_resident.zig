@@ -114,8 +114,8 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             recv: Recv = .idle,
             /// `front` is borrowed by the backend while `sending`. Writes
             /// append to `back`.
-            front: std.ArrayListUnmanaged(u8) = .empty,
-            back: std.ArrayListUnmanaged(u8) = .empty,
+            front: std.ArrayList(u8) = .empty,
+            back: std.ArrayList(u8) = .empty,
             sent: usize = 0,
             sending: bool = false,
             /// Staged bytes wait in `send_queue` for the next `beforeWait`.
@@ -157,7 +157,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             route: usize,
             fd: Fd,
             identity: ?crypto.PeerKey,
-            accepted: std.ArrayListUnmanaged(Fd) = .empty,
+            accepted: std.ArrayList(Fd) = .empty,
             accept_armed: bool = false,
             /// An accept the kernel refused for a reason that will not clear
             /// on its own (descriptor quota, memory). The listener stays
@@ -174,20 +174,20 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         options: Options,
         /// Records reaped from the kernel and not yet handed to the runtime.
         /// `ready_pending` reports them, because no descriptor does.
-        records: std.ArrayListUnmanaged(ReadyEvent) = .empty,
+        records: std.ArrayList(ReadyEvent) = .empty,
         /// Connections whose flushed batch starts at the next `beforeWait`.
         /// Bounded by the connections with staged bytes. Capacity is kept.
-        send_queue: std.ArrayListUnmanaged(usize) = .empty,
+        send_queue: std.ArrayList(usize) = .empty,
         /// Connections whose receive re-arms at the `beforeWait` that
         /// precedes a park. Bounded by the open connections. Capacity is kept.
-        recv_queue: std.ArrayListUnmanaged(usize) = .empty,
+        recv_queue: std.ArrayList(usize) = .empty,
         /// Descriptors whose readiness wakes the park, armed as it begins.
-        watches: std.ArrayListUnmanaged(completions.Watch) = .empty,
+        watches: std.ArrayList(completions.Watch) = .empty,
         conns: foundation.identity_hash.Map(usize, Conn) = .empty,
         dials: foundation.identity_hash.Map(usize, Dial) = .empty,
         listeners: foundation.identity_hash.Map(usize, *Listener) = .empty,
-        starved: std.ArrayListUnmanaged(usize) = .empty,
-        spare_sends: std.ArrayListUnmanaged(std.ArrayListUnmanaged(u8)) = .empty,
+        starved: std.ArrayList(usize) = .empty,
+        spare_sends: std.ArrayList(std.ArrayList(u8)) = .empty,
         next_conn: usize = 1,
         next_listener: usize = 1,
         /// Listener closes the backend still owes. A stopped listener's row
@@ -206,7 +206,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         pub fn init(allocator: std.mem.Allocator, backend: Backend, options: Options) !Self {
             var owned = backend;
             errdefer owned.deinit();
-            var spare_sends: std.ArrayListUnmanaged(std.ArrayListUnmanaged(u8)) = .empty;
+            var spare_sends: std.ArrayList(std.ArrayList(u8)) = .empty;
             try spare_sends.ensureTotalCapacityPrecise(allocator, options.spare_send_buffers);
             errdefer spare_sends.deinit(allocator);
             return .{
@@ -329,7 +329,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             if (self.failure != null) return error.ProviderContract;
             const count = @min(out.len, self.records.items.len);
             @memcpy(out[0..count], self.records.items[0..count]);
-            std.mem.copyForwards(ReadyEvent, self.records.items[0 .. self.records.items.len - count], self.records.items[count..]);
+            @memmove(self.records.items[0 .. self.records.items.len - count], self.records.items[count..]);
             self.records.shrinkRetainingCapacity(self.records.items.len - count);
             return count;
         }

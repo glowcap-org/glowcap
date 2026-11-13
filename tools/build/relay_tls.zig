@@ -12,7 +12,7 @@ const execution = @import("execution.zig");
 pub fn engineModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     dependency: mbedtls.Dependency,
     foundation: *std.Build.Module,
     net: *std.Build.Module,
@@ -38,7 +38,7 @@ pub fn engineModule(
 fn probeEngineModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     dependency: mbedtls.Dependency,
     foundation: *std.Build.Module,
     net: *std.Build.Module,
@@ -59,7 +59,7 @@ fn probeEngineModule(
 pub fn tlsMbedtlsModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     net: *std.Build.Module,
     engine: *std.Build.Module,
 ) *std.Build.Module {
@@ -88,7 +88,7 @@ pub const RelayAbiModules = struct {
 pub fn relayAbiModules(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     family: Family,
     foundation: *std.Build.Module,
     model: *std.Build.Module,
@@ -144,7 +144,7 @@ pub fn installArchive(
 pub fn addArchiveChecks(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     secure_check: *std.Build.Step,
     static: *std.Build.Step.Compile,
     dynamic: *std.Build.Step.Compile,
@@ -168,14 +168,14 @@ pub fn addArchiveChecks(
 
     const symbols = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"bash"});
     symbols.addFileArg(b.path("tools/check/relay-archive-symbols.sh"));
-    symbols.addArtifactArg(dynamic);
+    symbols.addArtifactArg2(dynamic, .{});
     secure_check.dependOn(&symbols.step);
 }
 
 fn relayAbiModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     foundation: *std.Build.Module,
     model: *std.Build.Module,
     net: *std.Build.Module,
@@ -199,7 +199,7 @@ pub const Modules = struct {
 };
 
 /// The public relay and its TLS engine, with no test or live-probe setup.
-pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, foundation: *std.Build.Module, net: *std.Build.Module) Modules {
+pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, foundation: *std.Build.Module, net: *std.Build.Module) Modules {
     const dependency = mbedtls.add(b);
     const engine = engineModule(b, target, optimize, dependency, foundation, net);
     const tls_mbedtls = tlsMbedtlsModule(b, target, optimize, net, engine);
@@ -217,7 +217,7 @@ pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.
 pub fn addFamily(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     foundation: *std.Build.Module,
     net: *std.Build.Module,
 ) Family {
@@ -283,7 +283,7 @@ pub fn addFamily(
     });
     const live = execution.addSystemCommand(b, .real_internet, &.{"bash"});
     live.addFileArg(b.path("tools/check/relay-tls-live.sh"));
-    live.addArtifactArg(live_client);
+    live.addArtifactArg2(live_client, .{});
     const secure_check = b.step("mbedtls-build", "Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)");
     secure_check.dependOn(&execution.addZigTest(b, tests, .unit_test).step);
     secure_check.dependOn(&live.step);
@@ -301,7 +301,7 @@ pub fn addFamily(
 pub fn addSiteRelayExamples(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     lib_mod: *std.Build.Module,
     relay_tls: *std.Build.Module,
     site_zig_examples_check: *std.Build.Step,
@@ -322,7 +322,7 @@ pub fn addSiteRelayExamples(
 fn allocationProbeHeaders(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) *std.Build.Module {
     const translate = b.addTranslateC(.{
         .root_source_file = b.path("test/support/mbedtls_allocation_probe_import.c"),

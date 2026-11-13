@@ -9,7 +9,7 @@ const glowcap = @import("glowcap");
 const fixtures = @import("../support/completion_loop_fixtures.zig");
 
 test "completion listener: configured wildcard address is reachable through loopback" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin()))
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin()))
         return error.SkipZigTest;
 
     const allocator = std.testing.allocator;

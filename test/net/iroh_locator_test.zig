@@ -99,8 +99,8 @@ test "supported iroh facade and nested surfaces stay exact" {
     // per-connection or wire-path cost. Stated under runtime safety, where each
     // embedded `std.ArrayList` header carries std's one-word
     // `pointer_stability` lock: 32 of these bytes on both platforms.
-    if (!std.debug.runtime_safety) return error.SkipZigTest;
-    const expected_backend_bytes: usize = switch (builtin.os.tag) {
+    if (!builtin.optimize.runtimeSafety()) return error.SkipZigTest;
+    const expected_backend_bytes: usize = switch (builtin.target.os.tag) {
         .linux => 680,
         else => 528,
     };

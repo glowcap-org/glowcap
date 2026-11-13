@@ -11,7 +11,7 @@ const cache_slots = 2;
 
 pub fn run(init: std.process.Init, report: *std.ArrayList(u8), smoke: bool) !void {
     try r.emit(init.gpa, report, "Loam collection counts mode={s} arch={s} os={s} engine=volatile cache_slots={d} max_record_bytes={d} durability=none\n", .{
-        @tagName(builtin.mode), @tagName(builtin.cpu.arch), @tagName(builtin.os.tag), cache_slots, record_bytes,
+        @tagName(builtin.optimize), @tagName(builtin.target.cpu.arch), @tagName(builtin.target.os.tag), cache_slots, record_bytes,
     });
     const chain: usize = if (smoke) 128 else 1024;
     const garbage: usize = if (smoke) 64 else 256;

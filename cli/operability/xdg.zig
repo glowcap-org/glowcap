@@ -24,19 +24,19 @@ pub fn defaultStateDir(buf: []u8, environ: *const std.process.Environ.Map, postu
         }
     }
     if (posture == .mcp_local) {
-        return try std.fmt.bufPrint(buf, ".local/glowcap-mcp-state", .{});
+        return try std.mem.print(buf, ".local/glowcap-mcp-state", .{});
     }
     if (environ.get("XDG_STATE_HOME")) |xdg| {
         if (xdg.len > 0) {
-            return try std.fmt.bufPrint(buf, "{s}/glowcap", .{xdg});
+            return try std.mem.print(buf, "{s}/glowcap", .{xdg});
         }
     }
     if (environ.get("HOME")) |home| {
         if (home.len > 0) {
-            return try std.fmt.bufPrint(buf, "{s}/.local/state/glowcap", .{home});
+            return try std.mem.print(buf, "{s}/.local/state/glowcap", .{home});
         }
     }
-    return try std.fmt.bufPrint(buf, "/tmp/glowcap", .{});
+    return try std.mem.print(buf, "/tmp/glowcap", .{});
 }
 
 /// Default CapTP identity seed path.
@@ -52,7 +52,7 @@ pub fn defaultIdentityPath(buf: []u8, environ: *const std.process.Environ.Map, p
         }
     }
 
-    var state_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var state_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const state = try defaultStateDir(&state_buf, environ, posture);
-    return try std.fmt.bufPrint(buf, "{s}/identity", .{state});
+    return try std.mem.print(buf, "{s}/identity", .{state});
 }

@@ -4,7 +4,7 @@
 //! The alloc-budget test gates per-turn allocation count (`== 1`). This bench
 //! reports ns/op and MB/s as visible numbers, not gated thresholds. Under
 //! `zig build check` it runs in Debug, read the printed `mode=` field and compare
-//! relative regressions, or run with `-Doptimize=ReleaseFast` for absolute figures.
+//! relative regressions, or run with `-Doptimize=fast` for absolute figures.
 //!
 //! Timing uses `std.Io`'s monotonic clock (`.awake`) in the harness only.
 
@@ -209,7 +209,7 @@ fn report(op: []const u8, codec_id: model.CodecId, call: []const u8, iters: usiz
     const mb_per_sec: f64 = (total_bytes / 1_000_000.0) / (elapsed_ns / 1_000_000_000.0);
     std.debug.print(
         "{s} codec={s} iters={d} frame_bytes={d} ns_per_op={d:.1} mb_per_sec={d:.0} mode={s} call={s}\n",
-        .{ op, @tagName(codec_id), iters, frame_len, ns_per, mb_per_sec, @tagName(builtin.mode), call },
+        .{ op, @tagName(codec_id), iters, frame_len, ns_per, mb_per_sec, @tagName(builtin.optimize), call },
     );
 }
 

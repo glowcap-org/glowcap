@@ -123,7 +123,7 @@ const ScriptBackend = struct {
         if (self.ready_len == 0) return error.FakeBackendStalled;
         const n = @min(out.len, self.ready_len);
         @memcpy(out[0..n], self.ready[0..n]);
-        std.mem.copyForwards(completion.Completion, self.ready[0 .. self.ready_len - n], self.ready[n..self.ready_len]);
+        @memmove(self.ready[0 .. self.ready_len - n], self.ready[n..self.ready_len]);
         self.ready_len -= n;
         return n;
     }
@@ -334,7 +334,7 @@ const HeldSendBackend = struct {
         }
         const n = @min(out.len, self.ready_len);
         @memcpy(out[0..n], self.ready[0..n]);
-        std.mem.copyForwards(completion.Completion, self.ready[0 .. self.ready_len - n], self.ready[n..self.ready_len]);
+        @memmove(self.ready[0 .. self.ready_len - n], self.ready[n..self.ready_len]);
         self.ready_len -= n;
         return n;
     }

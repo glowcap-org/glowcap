@@ -41,9 +41,9 @@ pub fn main(init: std.process.Init) !void {
         .note = " (bob listens on port+1)",
     });
     var alice_port_buf: [8]u8 = undefined;
-    const alice_port_str = try std.fmt.bufPrint(&alice_port_buf, "{d}", .{alice_port});
+    const alice_port_str = try std.mem.print(&alice_port_buf, "{d}", .{alice_port});
     var bob_port_buf: [8]u8 = undefined;
-    const bob_port_str = try std.fmt.bufPrint(&bob_port_buf, "{d}", .{alice_port + 1});
+    const bob_port_str = try std.mem.print(&bob_port_buf, "{d}", .{alice_port + 1});
 
     const hosted = try goblins_child.spawnHostAwaitSwiss(io, allocator, init.environ_map, "goblins-handoff", "introducer", &.{ host_script, alice_port_str, bob_port_str });
     var child = hosted.child;

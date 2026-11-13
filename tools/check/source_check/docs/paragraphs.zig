@@ -113,7 +113,7 @@ test "a paragraph past the ceiling is named at its first line" {
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
     try checkIn(gpa, &violations, "a.md", "Intro.\n\nOne. Two. Three.\nFour. Five. Six. Seven.\n");
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "a.md:3:") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "a.md:3:") != null);
 }
 
 /// One link per destination in a prose paragraph. Reference definitions and
@@ -164,13 +164,13 @@ fn fenceLine(line: []const u8) bool {
 }
 fn definition(line: []const u8) ?struct { name: []const u8, target: []const u8 } {
     if (!std.mem.startsWith(u8, line, "[")) return null;
-    const end = std.mem.indexOf(u8, line, "]:") orelse return null;
+    const end = std.mem.find(u8, line, "]:") orelse return null;
     const target = destination(std.mem.trimStart(u8, line[end + 2 ..], " \t"));
     if (target.len == 0) return null;
     return .{ .name = line[1..end], .target = target };
 }
 fn destination(text: []const u8) []const u8 {
-    if (std.mem.startsWith(u8, text, "<")) return text[1 .. std.mem.indexOfScalar(u8, text, '>') orelse text.len];
+    if (std.mem.startsWith(u8, text, "<")) return text[1 .. std.mem.findScalar(u8, text, '>') orelse text.len];
     var depth: usize = 0;
     var end: usize = 0;
     while (end < text.len) : (end += 1) {
@@ -209,14 +209,14 @@ fn paragraphLinks(arena: std.mem.Allocator, gpa: std.mem.Allocator, violations: 
             var end = at;
             while (end < text.len and text[end] == '`') : (end += 1) {}
             const marker = text[at..end];
-            at = if (std.mem.indexOfPos(u8, text, end, marker)) |close| close + marker.len else end;
+            at = if (std.mem.findPos(u8, text, end, marker)) |close| close + marker.len else end;
             continue;
         }
         if (c != '[' or (at > 0 and text[at - 1] == '!')) {
             at += 1;
             continue;
         }
-        const close = std.mem.indexOfScalarPos(u8, text, at + 1, ']') orelse break;
+        const close = std.mem.findScalarPos(u8, text, at + 1, ']') orelse break;
         const name = text[at + 1 .. close];
         at = close + 1;
         var target: ?[]const u8 = null;
@@ -245,7 +245,7 @@ fn paragraphLinks(arena: std.mem.Allocator, gpa: std.mem.Allocator, violations: 
         } else {
             var ref = name;
             if (at < text.len and text[at] == '[') {
-                const end = std.mem.indexOfScalarPos(u8, text, at + 1, ']') orelse break;
+                const end = std.mem.findScalarPos(u8, text, at + 1, ']') orelse break;
                 if (end > at + 1) ref = text[at + 1 .. end];
                 at = end + 1;
             }

@@ -32,7 +32,7 @@ pub fn elapsed(io: std.Io, start: i128) u64 {
     return @intCast(@max(0, now(io) - start));
 }
 pub fn emit(gpa: std.mem.Allocator, report: *std.ArrayList(u8), comptime fmt: []const u8, args: anytype) !void {
-    const line = try std.fmt.allocPrint(gpa, fmt, args);
+    const line = try gpa.print(fmt, args);
     defer gpa.free(line);
     std.debug.print("{s}", .{line});
     try report.appendSlice(gpa, line);

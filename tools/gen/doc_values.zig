@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
                 continue;
             },
         };
-        if (std.mem.indexOf(u8, text, open_tag) == null) continue;
+        if (std.mem.find(u8, text, open_tag) == null) continue;
         const rendered = render(io, gpa, cwd, path, text) catch |err| {
             std.debug.print("gen-doc-values: {s}: {s}\n", .{ path, @errorName(err) });
             failed = true;
@@ -80,21 +80,21 @@ fn usage() void {
 fn render(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, doc: []const u8, text: []const u8) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var at: usize = 0;
-    if (std.mem.endsWith(u8, doc, ".smd") and std.mem.indexOf(u8, text, open_tag) != null) {
+    if (std.mem.endsWith(u8, doc, ".smd") and std.mem.find(u8, text, open_tag) != null) {
         std.debug.print("gen-doc-values: {s}: the site renderer forbids HTML comments, so a site page links the repo doc that quotes the value\n", .{doc});
         return error.MarkerInSitePage;
     }
-    while (std.mem.indexOfPos(u8, text, at, open_tag)) |open| {
+    while (std.mem.findPos(u8, text, at, open_tag)) |open| {
         const spec_start = open + open_tag.len;
-        const spec_end = std.mem.indexOfPos(u8, text, spec_start, "-->") orelse return error.UnclosedMarker;
+        const spec_end = std.mem.findPos(u8, text, spec_start, "-->") orelse return error.UnclosedMarker;
         const value_start = spec_end + "-->".len;
-        const close = std.mem.indexOfPos(u8, text, value_start, close_tag) orelse return error.MissingCloseMarker;
+        const close = std.mem.findPos(u8, text, value_start, close_tag) orelse return error.MissingCloseMarker;
         var words = std.mem.tokenizeScalar(u8, text[spec_start..spec_end], ' ');
         const rel = words.next() orelse return error.MarkerNamesNoFile;
         const name = words.next() orelse return error.MarkerNamesNoConstant;
         const form: Form = if (words.next()) |word| std.meta.stringToEnum(Form, word) orelse return error.UnknownForm else .count;
 
-        const source_path = try std.fs.path.resolvePosix(gpa, &.{ std.fs.path.dirname(doc) orelse ".", rel });
+        const source_path = try std.Io.Dir.path.resolvePosix(gpa, &.{ std.Io.Dir.path.dirname(doc) orelse ".", rel });
         const source = cwd.readFileAlloc(io, source_path, gpa, .limited(4 << 20)) catch {
             std.debug.print("gen-doc-values: {s}: cannot read `{s}`\n", .{ doc, source_path });
             return error.SourceUnreadable;
@@ -120,13 +120,13 @@ fn render(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, doc: []const u8, 
 fn constant(source: []const u8, name: []const u8, depth: u8) EvalError!Value {
     if (depth > 8) return error.ConstantChainTooDeep;
     const decl = declaration(source, name) orelse return error.ConstantNotFound;
-    const eq = std.mem.indexOfScalarPos(u8, source, decl.start, '=') orelse return error.ConstantHasNoValue;
-    const end = std.mem.indexOfAnyPos(u8, source, eq, if (decl.field) ",\n}" else ";") orelse return error.ConstantHasNoValue;
+    const eq = std.mem.findScalarPos(u8, source, decl.start, '=') orelse return error.ConstantHasNoValue;
+    const end = std.mem.findAnyPos(u8, source, eq, if (decl.field) ",\n}" else ";") orelse return error.ConstantHasNoValue;
     var expr = source[eq + 1 .. end];
     if (std.mem.startsWith(u8, std.mem.trimStart(u8, expr, " \t\n"), ".{")) {
-        const member = std.mem.indexOf(u8, expr, ".value") orelse return error.ConstantHasNoValue;
-        const member_eq = std.mem.indexOfScalarPos(u8, expr, member, '=') orelse return error.ConstantHasNoValue;
-        const member_end = std.mem.indexOfAnyPos(u8, expr, member_eq, ",}") orelse return error.ConstantHasNoValue;
+        const member = std.mem.find(u8, expr, ".value") orelse return error.ConstantHasNoValue;
+        const member_eq = std.mem.findScalarPos(u8, expr, member, '=') orelse return error.ConstantHasNoValue;
+        const member_end = std.mem.findAnyPos(u8, expr, member_eq, ",}") orelse return error.ConstantHasNoValue;
         expr = expr[member_eq + 1 .. member_end];
     }
     var result = Value{ .n = 1 };
@@ -142,12 +142,12 @@ fn constant(source: []const u8, name: []const u8, depth: u8) EvalError!Value {
 /// Where `name`'s declaration continues, and whether it is a field default.
 fn declaration(source: []const u8, name: []const u8) ?struct { start: usize, field: bool } {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, source, at, name)) |hit| {
+    while (std.mem.findPos(u8, source, at, name)) |hit| {
         at = hit + name.len;
         const after = source[at..];
         if (after.len == 0 or (after[0] != ':' and after[0] != ' ')) continue;
         if (std.mem.endsWith(u8, source[0..hit], "const ")) return .{ .start = at, .field = false };
-        const line = std.mem.trim(u8, source[(std.mem.lastIndexOfScalar(u8, source[0..hit], '\n') orelse 0)..hit], " \t\n");
+        const line = std.mem.trim(u8, source[(std.mem.findScalarLast(u8, source[0..hit], '\n') orelse 0)..hit], " \t\n");
         const opens_field = line.len == 0 or line[line.len - 1] == '{' or line[line.len - 1] == ',';
         if (after[0] == ':' and opens_field) return .{ .start = at, .field = true };
     }
@@ -158,7 +158,7 @@ fn term(source: []const u8, text: []const u8, depth: u8) EvalError!Value {
     if (call(text, "Duration::from_secs(")) |inner| return .{ .n = 1000 * try integer(inner), .millis = true };
     if (call(text, "Duration::from_millis(")) |inner| return .{ .n = try integer(inner), .millis = true };
     if (text.len > 0 and std.ascii.isDigit(text[0])) return .{ .n = try integer(text) };
-    const last = if (std.mem.lastIndexOf(u8, text, "::")) |sep| text[sep + 2 ..] else text;
+    const last = if (std.mem.findLast(u8, text, "::")) |sep| text[sep + 2 ..] else text;
     const bare = if (std.mem.endsWith(u8, last, ".value")) last[0 .. last.len - ".value".len] else last;
     return constant(source, bare, depth + 1);
 }
@@ -200,7 +200,7 @@ fn format(gpa: std.mem.Allocator, out: *std.ArrayList(u8), value: Value, form: F
                 var digits: [3]u8 = undefined;
                 var len: usize = 3;
                 while (frac % 10 == 0) : (len -= 1) frac /= 10;
-                _ = std.fmt.bufPrint(&digits, "{d:0>3}", .{millis % 1000}) catch unreachable;
+                _ = std.mem.print(&digits, "{d:0>3}", .{millis % 1000}) catch unreachable;
                 try out.print(gpa, ".{s}", .{digits[0..len]});
             }
             try out.appendSlice(gpa, if (millis == 1000) " second" else " seconds");
@@ -211,7 +211,7 @@ fn format(gpa: std.mem.Allocator, out: *std.ArrayList(u8), value: Value, form: F
 /// `4096` as `4,096`.
 fn grouped(gpa: std.mem.Allocator, out: *std.ArrayList(u8), n: u64) !void {
     var buf: [32]u8 = undefined;
-    const digits = std.fmt.bufPrint(&buf, "{d}", .{n}) catch unreachable;
+    const digits = std.mem.print(&buf, "{d}", .{n}) catch unreachable;
     for (digits, 0..) |c, i| {
         if (i > 0 and (digits.len - i) % 3 == 0) try out.append(gpa, ',');
         try out.append(gpa, c);

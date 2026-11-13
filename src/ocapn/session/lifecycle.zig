@@ -6,6 +6,7 @@
 //! policy elsewhere.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const foundation = @import("foundation");
 const model = @import("model");
 
@@ -141,7 +142,7 @@ pub fn keyWireTables(self: *Session, multiplier: u64, bearer_secret: u64) void {
 /// it and both counters end at zero. Under runtime safety the bookkeeping is
 /// checked against its rows first (`audit.check`).
 pub fn deinit(self: *Session) void {
-    if (comptime std.debug.runtime_safety) audit.check(self) catch unreachable;
+    if (comptime builtin.optimize.runtimeSafety()) audit.check(self) catch unreachable;
     // Every Host subscription unsubscribed before teardown.
     std.debug.assert(self.inbound_answers.host_promises == 0);
     self.exports.deinit(self.allocator);

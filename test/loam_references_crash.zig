@@ -54,7 +54,7 @@ pub fn main(init: std.process.Init) !void {
     const creating = std.mem.eql(u8, mode, "create");
     const verifying = std.mem.startsWith(u8, mode, "verify-");
     const boundary = if (creating or verifying) null else std.meta.stringToEnum(Boundary, mode) orelse return error.InvalidArguments;
-    const target_path = try std.fmt.allocPrintSentinel(init.gpa, "{s}/target", .{std.mem.span(args[2])}, 0);
+    const target_path = try init.gpa.printSentinel("{s}/target", .{std.mem.span(args[2])}, 0);
     defer init.gpa.free(target_path);
     if (creating) try std.Io.Dir.cwd().createDirPath(init.io, target_path);
     var source_db = try fixture.open(std.mem.span(args[2]), if (creating) .create else .open, h.f.store_id);

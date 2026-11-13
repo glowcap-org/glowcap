@@ -12,7 +12,7 @@ fn maximumUri(input: model.SturdyRef) ![4096]u8 {
     var hints: [model.max_locator_hint_count]model.HintEntry = undefined;
     var names: [model.max_locator_hint_count][4]u8 = undefined;
     for (&hints, &names, 0..) |*hint, *name, index| hint.* = .{
-        .name = try std.fmt.bufPrint(name, "h{d:0>2}", .{index}),
+        .name = try std.mem.print(name, "h{d:0>2}", .{index}),
         .value = .{ .string = if (index + 1 == hints.len) "" else "x" },
     };
     var sturdy = input;
@@ -34,7 +34,7 @@ fn reuseScratch(memory: *f.hosting.Call.Memory) !void {
 
 test "loam URI allocation bound includes escaped Swiss and refused hint-spine resizing" {
     const canonical = try maximumUri(wire.tcpSturdyref("127.0.0.1:7930", "owned Swiss bytes"));
-    const path = std.mem.indexOf(u8, &canonical, "/s/").? + 3;
+    const path = std.mem.find(u8, &canonical, "/s/").? + 3;
     var escaped: [canonical.len + 2]u8 = undefined;
     @memcpy(escaped[0..path], canonical[0..path]);
     escaped[path] = '%';
@@ -85,13 +85,13 @@ test "loam empty reference preparation fits its allocation bound" {
 test "loam save URI bound includes canonical percent expansion of accepted input" {
     const slashes: [1000]u8 = @splat('/');
     var input: [1100]u8 = undefined;
-    const supplied = try std.fmt.bufPrint(&input, "ocapn://127.0.0.1%3A7930.tcp/s/YQ?hint={s}", .{slashes});
+    const supplied = try std.mem.print(&input, "ocapn://127.0.0.1%3A7930.tcp/s/YQ?hint={s}", .{slashes});
     const parsed = try model.uri.parseSturdyref(a, supplied);
     defer model.uri.freeSturdyref(a, parsed);
     const canonical = try model.uri.writeSturdyref(a, parsed);
     defer a.free(canonical);
     try std.testing.expect(canonical.len > supplied.len);
-    try std.testing.expect(std.mem.indexOf(u8, canonical, "%2F") != null);
+    try std.testing.expect(std.mem.find(u8, canonical, "%2F") != null);
     try std.testing.expect(canonical.len <= try refs.Save.canonicalUriBytesBound(supplied.len));
     try std.testing.expectEqual(@as(usize, 4096), try refs.Save.canonicalUriBytesBound(4096));
     try std.testing.expectError(error.RecordTooLarge, refs.Save.canonicalUriBytesBound(4097));

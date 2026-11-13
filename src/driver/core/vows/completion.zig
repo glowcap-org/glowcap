@@ -131,7 +131,7 @@ pub const Held = union(enum) {
 pub fn takeHeld(self: *Host, vow_id: u64, arena: std.mem.Allocator) !Held {
     const row = self.vows.get(vow_id) orelse return host_mod.HostError.NoSuchVow;
     if (!row.settled or row.handle_released or row.peer() == null) return .pending;
-    var retained: std.ArrayListUnmanaged(capability.Ref) = .empty;
+    var retained: std.ArrayList(capability.Ref) = .empty;
     errdefer promise_values.rollbackRetains(self, retained.items);
     const reply: value_mod.Reply = switch (row.completion) {
         .none => return .queued,
