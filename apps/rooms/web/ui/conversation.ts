@@ -182,6 +182,26 @@ export function awayByPeer(
 	return dirs;
 }
 
+let awayWordsFor: {
+	convs: ReadonlyMap<string, Conv>;
+	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>;
+	words: ReadonlyMap<DirId, ReadonlyMap<string, string | null>>;
+} | null = null;
+
+/** `awayByPeer`, kept for the last pair of maps it was given. Presence replaces
+ * `members` and a conversation change replaces `convs`, so every reader of the
+ * same store state shares one walk, and a selector that asks per store change
+ * pays two comparisons when neither moved. */
+export function awayWords(
+	convs: ReadonlyMap<string, Conv>,
+	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>,
+): ReadonlyMap<DirId, ReadonlyMap<string, string | null>> {
+	if (awayWordsFor == null || awayWordsFor.convs !== convs || awayWordsFor.members !== members) {
+		awayWordsFor = { convs, members, words: awayByPeer(convs, members) };
+	}
+	return awayWordsFor.words;
+}
+
 export function awayOf(
 	words: ReadonlyMap<DirId, ReadonlyMap<string, string | null>>,
 	dir: DirId,

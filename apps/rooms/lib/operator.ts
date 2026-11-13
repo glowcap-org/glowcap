@@ -2,6 +2,7 @@
 
 import { type Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { ask } from "./ask.ts";
+import { errorMessage } from "./error_message.ts";
 import { takeOperationsCap } from "./operations.ts";
 import { MAX_OPERATOR_PAGE, MAX_OPERATOR_QUERY, MAX_OPERATOR_RETIRE_BATCH } from "./limits.ts";
 import {
@@ -246,7 +247,7 @@ export async function subscribeOperator(
 			void ask(session, cap, OPERATOR_UNWATCH, [], "the Rooms operator did not stop watching").catch((error) => {
 				if (cleanupSettledBySessionClose(error)) return;
 				console.error(
-					`Rooms operator watcher cleanup failed: ${error instanceof Error ? error.message : error}`,
+					`Rooms operator watcher cleanup failed: ${errorMessage(error)}`,
 				);
 			});
 		};

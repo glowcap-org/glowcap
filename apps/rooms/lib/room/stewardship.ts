@@ -5,6 +5,7 @@ import { settleCapabilityCleanup } from "../capability_cleanup.ts";
 import type { Argument, Session } from "@glowcap/runtime";
 import { roomAuthorityIdentity } from "../authority_identity.ts";
 import { ask } from "../ask.ts";
+import { errorMessage } from "../error_message.ts";
 import { NOT_STEWARD, RoomsError, roomsErrorOf } from "../errors.ts";
 import { GOVERNS, KICK, LINK } from "../protocol.ts";
 import { parseRoomsSturdyref } from "../locator.ts";
@@ -119,7 +120,7 @@ export class RoomStewardship {
 				"the moderator capability did not identify its room",
 			);
 		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
+			const reason = errorMessage(error);
 			throw new Error(`could not validate that sturdyref as a room moderator capability: ${reason}`);
 		}
 	}

@@ -29,9 +29,9 @@ import {
 	titleMembersHere,
 	titleNoRoomYet,
 } from "../../../lib/text/conversation.ts";
-import { awayByPeer, awayOf, type Conv, membersHere } from "../conversation.ts";
+import { awayOf, awayWords, type Conv, membersHere } from "../conversation.ts";
 import type { DirId } from "../directory.ts";
-import { PresenceAvatar } from "../Avatar.tsx";
+import { PresenceAvatar, presenceState } from "../Avatar.tsx";
 import { Icon } from "../icons.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import { roomPreset } from "../room_policy.ts";
@@ -45,8 +45,6 @@ import { useRoomsState } from "../hooks.ts";
 import { NO_MEMBERS, unreadTotal } from "../store/projection.ts";
 import { directoryName, roomCalled } from "../text.ts";
 import { operationsTitle } from "../../../lib/text/settings.ts";
-
-const NO_CONVS: ReadonlyMap<string, Conv> = new Map();
 
 /** What the title says, and what its mark would do. */
 function titleOf(conv: Conv | null, home: DirId | null): { name: string; said: string } {
@@ -121,15 +119,17 @@ function TopbarPane(
 	const openModalFrom = useOpenModal();
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
-	const members = useRoomsState((state) => state.members);
 	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const unread = useRoomsState(unreadTotal);
-	const convs = useRoomsState((state) => conv?.type === "dm" ? state.convs : NO_CONVS);
-	const roster = conv?.type === "room" ? members.get(conv.key) ?? NO_MEMBERS : NO_MEMBERS;
+	const roster = useRoomsState((state) =>
+		conv?.type === "room" ? state.members.get(conv.key) ?? NO_MEMBERS : NO_MEMBERS
+	);
 	const memberCount = membersHere(roster);
 	// A room that has not said who is in it has no count yet.
 	const counted = roster.size > 0;
-	const away = conv?.type === "dm" ? awayOf(awayByPeer(convs, members), conv.dir, conv.id) : null;
+	const away = useRoomsState((state) =>
+		conv?.type === "dm" ? awayOf(awayWords(state.convs, state.members), conv.dir, conv.id) : null
+	);
 	// The rail toggle is the bar's one constant, whatever the cell shows.
 	const railToggle = (
 		<IconButton
@@ -185,7 +185,7 @@ function TopbarPane(
 		? (
 			<PresenceAvatar
 				name={conv.id}
-				state={online ? (away !== null ? "away" : "online") : "offline"}
+				state={presenceState(online, away)}
 				reason={away ?? undefined}
 			/>
 		)

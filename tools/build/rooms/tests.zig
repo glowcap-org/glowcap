@@ -43,6 +43,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/bridge/prefix_test.ts",
         "apps/rooms/test/bridge/form_test.ts",
         "apps/rooms/test/routes_test.ts",
+        "apps/rooms/test/ask_ref_test.ts",
     },
     &.{
         "apps/rooms/test/text_test.ts",
@@ -67,6 +68,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/directory_conversation_test.ts",
         "apps/rooms/test/store/typing_test.ts",
         "apps/rooms/test/store/roster_test.ts",
+        "apps/rooms/test/store/roster_order_test.ts",
         "apps/rooms/test/store/app_shell_test.ts",
         "apps/rooms/test/page_projection_test.ts",
     },
@@ -115,6 +117,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/store/room_access_test.ts",
         "apps/rooms/test/store/irc_test.ts",
         "apps/rooms/test/store/line_identity_test.ts",
+        "apps/rooms/test/store/unread_identity_test.ts",
         "apps/rooms/test/store/line_change_recording_test.ts",
         "apps/rooms/test/store/archive_sections_test.ts",
         "apps/rooms/test/store/room_identity_test.ts",

@@ -447,24 +447,6 @@ pre > code {
 	box-sizing: border-box;
 }
 
-/* Motion is a preference. Every slide and fade in these sheets is decoration
-   over a state change the page also makes instantly, so a reader who asked
-   their system for reduced motion gets the change without the travel. The
-   durations go near zero rather than to none, because the toast stack retires
-   a leaving notice on `transitionend`, and a transition that never ran never
-   ends. (Its JS fallback would still catch it. This keeps the ordinary path
-   ordinary.) */
-@media (prefers-reduced-motion: reduce) {
-	*,
-	*::before,
-	*::after {
-		transition-duration: 0.01ms !important;
-		animation-duration: 0.01ms !important;
-		animation-delay: 0.01ms !important;
-		animation-iteration-count: 1 !important;
-	}
-}
-
 /* A browser without light-dark() drops the whole palette to invalid
    custom properties, so the plain declarations above carry the light
    arms and this block restores the pair where the function exists.

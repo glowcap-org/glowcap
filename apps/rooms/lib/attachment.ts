@@ -11,6 +11,7 @@
 import { Ref } from "@glowcap/runtime";
 import type { Argument, Behavior, Session } from "@glowcap/runtime";
 import { ATTACH, DISCARD, POST_FILES, READ, WRITE } from "./protocol.ts";
+import { askRef } from "./ask.ts";
 import { answerWithin } from "./deadline.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 import {
@@ -335,19 +336,20 @@ export async function beginUpload(
 	room: Ref,
 	source: AttachmentSource,
 ): Promise<Ref> {
-	const upload = await answerWithin(
-		session.send(room, ATTACH, [
+	return await askRef(
+		session,
+		room,
+		ATTACH,
+		[
 			source.name,
 			source.mime,
 			BigInt(sourceSize(source)),
 			BigInt(source.width ?? 0),
 			BigInt(source.height ?? 0),
-		]),
+		],
 		`the room did not answer taking "${source.name}"`,
-		REQUEST_TIMEOUT_MS,
+		"attach did not return an upload capability",
 	);
-	if (!(upload instanceof Ref)) throw new Error("attach did not return an upload capability");
-	return upload;
 }
 
 /** Thrown when an upload is stopped and did not fail on its own. A caller can

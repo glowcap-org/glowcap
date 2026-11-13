@@ -10,7 +10,7 @@ import { fail } from "../support/fail.ts";
  * end never reported the screen would stay in the document for good.
  *
  * Stillness is proved by asking for motion rather than by looking for it. The
- * page answers this preference with one blanket rule in page.css that clamps
+ * page answers this preference with one blanket rule in controls.css that clamps
  * every animation to nothing, so reading the screen's own elements reports
  * stillness whatever anyone adds, and proves only that the rule works
  * somewhere. This gives the opening screen an animation of its own while the

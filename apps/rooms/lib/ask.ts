@@ -4,8 +4,10 @@
 // one carries a deadline and a sentence for what did not answer. One helper
 // keeps any call site from inventing a different wait or a vaguer reason.
 
-import type { Argument, Ref, Session } from "@glowcap/runtime";
-import { answerWithin } from "./deadline.ts";
+import { type Argument, Ref, type Session } from "@glowcap/runtime";
+import { refuseCapabilityArguments, releaseCapabilityArguments } from "./argument_custody.ts";
+import { settleCapabilityCleanup } from "./capability_cleanup.ts";
+import { answerWithin, claimWithin } from "./deadline.ts";
 import { REQUEST_TIMEOUT_MS } from "./limits.ts";
 
 /** One request to a room or directory, with a deadline on the answer.
@@ -21,4 +23,31 @@ import { REQUEST_TIMEOUT_MS } from "./limits.ts";
  * or their edit does not land. */
 export function ask(session: Session, target: Ref, verb: string, args: Argument[], what: string): Promise<Argument> {
 	return answerWithin(session.send(target, verb, args) as Promise<Argument>, what, REQUEST_TIMEOUT_MS);
+}
+
+/** `ask` for a verb that answers with one capability. `what` is the sentence
+ * for no answer and `wrong` the sentence for any other answer, which is
+ * refused with whatever capabilities it carried released, so a peer's wrong
+ * answer is never taken as a reference. An answer that arrives after the
+ * deadline is released too, because nobody is left to claim it. */
+export async function askRef(
+	session: Session,
+	target: Ref,
+	verb: string,
+	args: Argument[],
+	what: string,
+	wrong: string,
+): Promise<Ref> {
+	const answer = await claimWithin(
+		session.send(target, verb, args) as Promise<Argument>,
+		what,
+		REQUEST_TIMEOUT_MS,
+		(late) =>
+			settleCapabilityCleanup(`${what}: late capability release failed`, () => {
+				const failure = releaseCapabilityArguments(session, [late]);
+				if (failure != null) throw failure;
+			}),
+	);
+	if (answer instanceof Ref) return answer;
+	return refuseCapabilityArguments(session, [answer], wrong);
 }

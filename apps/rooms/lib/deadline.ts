@@ -14,6 +14,7 @@
 import { abortable } from "@glowcap/runtime";
 
 import { Unanswered } from "./answer_within.ts";
+import { errorMessage } from "./error_message.ts";
 export { answerWithin, Unanswered } from "./answer_within.ts";
 
 /** `answerWithin`, with an owner for a successful answer transferred after the
@@ -55,6 +56,6 @@ export async function claimWithin<T>(
 
 function reportAbandonmentFailure(what: string, error: unknown): void {
 	console.error(
-		`rooms: ${what}: late answer cleanup failed: ${error instanceof Error ? error.message : error}`,
+		`rooms: ${what}: late answer cleanup failed: ${errorMessage(error)}`,
 	);
 }

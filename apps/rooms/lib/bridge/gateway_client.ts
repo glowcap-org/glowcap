@@ -6,7 +6,7 @@
 // the same answer-or-id shape. Nothing here knows IRC, and the bridge behind
 // the capability does.
 
-import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
+import { type Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { SNAPSHOT } from "../protocol.ts";
 import {
 	ADD_LEASE,
@@ -17,7 +17,7 @@ import {
 	parseBridgeGateway,
 	REMOVE_LEASE,
 } from "./gateway.ts";
-import { ask } from "../ask.ts";
+import { ask, askRef } from "../ask.ts";
 import { takeOperationsCap } from "../operations.ts";
 
 /** Fetch the gateway and read its description. */
@@ -54,15 +54,14 @@ async function withConnection<T>(session: Session, connection: Ref, run: (connec
 }
 
 async function connectionCap(session: Session, gateway: Ref, connectionId: string): Promise<Ref> {
-	const connection = await ask(
+	return await askRef(
 		session,
 		gateway,
 		GATEWAY_CONNECTION,
 		[connectionId],
 		"the gateway did not answer with the connection",
+		"the gateway did not return a connection capability",
 	);
-	if (!(connection instanceof Ref)) throw new Error("the gateway did not return a connection capability");
-	return connection;
 }
 
 /** Open a connection from the answers a reader filled into the gateway's

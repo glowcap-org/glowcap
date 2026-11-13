@@ -24,9 +24,10 @@ export function useComposerMeasure(
 	},
 ): void {
 	// The cap is the stylesheet's `max-height`, read rather than repeated: two
-	// copies of one number drift the moment either moves. It is read once and
-	// remembered, because asking for it is a style recalculation and asking on
-	// every character is one per keystroke.
+	// copies of one number drift the moment either moves. It is read on mount
+	// and whenever the band's width changes, which is when a media query could
+	// have moved it, and remembered between, because asking for it is a style
+	// recalculation and asking on every character is one per keystroke.
 	const cap = useRef(Infinity);
 	/** Re-read the cap. One authority for the number, so the two places that
 	 * could have seen it move cannot read it differently. */
@@ -41,15 +42,14 @@ export function useComposerMeasure(
 		box.style.height = Math.min(box.scrollHeight, cap.current) + "px";
 	}, [field]);
 
+	useLayoutEffect(() => remeasureCap(), [remeasureCap]);
+
 	// The placeholder is content too. A field that cannot be used carries the
 	// reason as its placeholder, and those sentences are longer than any
 	// addressee: left out of this list it is measured once, at whatever the
 	// reason was when the field went quiet, and a later or longer one is cut off
 	// inside a box still sized for the first.
-	useLayoutEffect(() => {
-		remeasureCap();
-		fit();
-	}, [draft, enabled, placeholder, fit, remeasureCap]);
+	useLayoutEffect(() => fit(), [draft, enabled, placeholder, fit]);
 
 	// The composer floats over the bottom of the message column, so the log has
 	// to leave that much of itself clear, the fade has to be that tall, and the

@@ -15,7 +15,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { homeDirectoryName } from "../../../lib/text/directory.ts";
 import type { AdministeredBridge } from "../ops/capabilities.ts";
-import { awayByPeer, awayOf, type RoomConv, type SessionConv } from "../conversation.ts";
+import { awayOf, awayWords, type RoomConv, type SessionConv } from "../conversation.ts";
 import type { DirId, DirView } from "../directory.ts";
 import { useConversationMembers, useRoomsState } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
@@ -26,7 +26,7 @@ import { Confirm } from "../Confirm.tsx";
 import { Button } from "../Button.tsx";
 import { roomMarkGlyph, roomMarkTitle } from "../room_mark.tsx";
 import { roomPreset } from "../room_policy.ts";
-import { Avatar, PresenceAvatar } from "../Avatar.tsx";
+import { Avatar, PresenceAvatar, presenceState } from "../Avatar.tsx";
 import { StandingMenu } from "../Standing.tsx";
 import { ConvFacts } from "./ConvFacts.tsx";
 import { RoomCapabilities } from "./RoomCapabilities.tsx";
@@ -90,8 +90,6 @@ export const ConvCard = memo(function ConvCard(
 		onLayer: (held: boolean) => void;
 	},
 ) {
-	const members = useRoomsState((state) => state.members);
-	const convs = useRoomsState((state) => state.convs);
 	type View = {
 		conv: SessionConv;
 		archiveShares: readonly ArchiveShareView[];
@@ -139,13 +137,15 @@ export const ConvCard = memo(function ConvCard(
 		};
 	}
 	const shown = last.current;
+	const away = useRoomsState((state) =>
+		shown?.conv.type === "dm" ? awayOf(awayWords(state.convs, state.members), shown.conv.dir, shown.conv.id) : null
+	);
 	const { held, onExited } = useHeldModal(open, retain);
 	useLayoutEffect(() => {
 		onLayer(held);
 		return () => onLayer(false);
 	}, [held, onLayer]);
 	if (!held || shown === null) return null;
-	const away = shown.conv.type === "dm" ? awayOf(awayByPeer(convs, members), shown.conv.dir, shown.conv.id) : null;
 	return (
 		<ConvDialog
 			open={open}
@@ -168,7 +168,7 @@ function ConvMark(
 		return (
 			<PresenceAvatar
 				name={conv.id}
-				state={online ? (away !== null ? "away" : "online") : "offline"}
+				state={presenceState(online, away)}
 				reason={away ?? undefined}
 			/>
 		);

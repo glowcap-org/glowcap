@@ -3,6 +3,7 @@ import { invariant } from "../../lib/invariant.ts";
 import { applicationModule } from "./application.ts";
 import { isRoomPolicy, type RoomPolicy, type RoomPreset } from "../../lib/room/policy.ts";
 export type { RoomPolicy, RoomPreset } from "../../lib/room/policy.ts";
+export { nextRoomPreset, roomIsListed, roomPoliciesEqual, roomPreset, standingOffered } from "../../lib/room/policy.ts";
 
 const policies = new Map<RoomPreset, RoomPolicy>();
 export function policyForRoomPreset(preset: RoomPreset): RoomPolicy {
@@ -16,18 +17,3 @@ export function policyForRoomPreset(preset: RoomPreset): RoomPolicy {
 }
 export const openRoomPolicy = (): RoomPolicy => policyForRoomPreset("open");
 export const privateRoomPolicy = (): RoomPolicy => policyForRoomPreset("private");
-export function roomPreset(policy: RoomPolicy): RoomPreset {
-	return policy.visibility === "secret" ? "private" : policy.speaking === "moderated" ? "moderated" : "open";
-}
-export function standingOffered(offers: "observer" | "participant" | null): RoomPreset {
-	return offers === "participant" ? "open" : "moderated";
-}
-export function nextRoomPreset(preset: RoomPreset): RoomPreset {
-	return preset === "open" ? "moderated" : preset === "moderated" ? "private" : "open";
-}
-export function roomIsListed(policy: RoomPolicy): boolean {
-	return policy.visibility === "listed";
-}
-export function roomPoliciesEqual(left: RoomPolicy, right: RoomPolicy): boolean {
-	return left.visibility === right.visibility && left.entry === right.entry && left.speaking === right.speaking;
-}

@@ -32,7 +32,7 @@ import {
 	OPEN_PRIVATE_LINK,
 	WATCH_PUBLICATIONS,
 } from "./protocol.ts";
-import { ask } from "./ask.ts";
+import { ask, askRef } from "./ask.ts";
 import { DirectorySignaling } from "./directory_signal.ts";
 import { type DirectoryRegisterOptions, DirectoryRegistration } from "./directory_registration.ts";
 export type { DirectoryRegisterOptions } from "./directory_registration.ts";
@@ -46,7 +46,7 @@ import {
 	type RoomPage,
 } from "./directory_publications.ts";
 import { parseRoomsSturdyref } from "./locator.ts";
-import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
+import { refuseCapabilityArguments, releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 import { openManagedRoom } from "./managed_room.ts";
 import { RedeemRouteCoordinator } from "./redeem_routes.ts";
 import { claimCapabilityWithin } from "./capability_cleanup.ts";
@@ -165,13 +165,14 @@ export class Directory {
 	 * from it with `invite`. Two of them may share a label, and neither reader
 	 * learns of the other's. */
 	open(name: string): Promise<Ref> {
-		return ask(
+		return askRef(
 			this.session,
 			this.#directory,
 			OPEN,
 			[name],
 			`the directory did not answer opening "${name}"`,
-		) as Promise<Ref>;
+			`the directory answered opening "${name}" without a room capability`,
+		);
 	}
 
 	/** Create a room with its separate, passable management capability. The
@@ -189,13 +190,14 @@ export class Directory {
 	 * can be retried without creating another room. */
 	openPrivate(label: string, recoveryKey = newManagedRoomId()): Promise<Ref> {
 		if (!isManagedRoomId(recoveryKey)) throw new Error("a private room recovery key is invalid");
-		return ask(
+		return askRef(
 			this.session,
 			this.#directory,
 			OPEN,
 			[label, true, recoveryKey],
 			`the directory did not answer opening private room "${label}"`,
-		) as Promise<Ref>;
+			`the directory answered opening private room "${label}" without a room capability`,
+		);
 	}
 
 	/** Persist and return a private room's durable authority as one directory
@@ -217,24 +219,26 @@ export class Directory {
 
 	/** Return a reference to an existing room. Rejects if there is no such room. */
 	enter(name: string): Promise<Ref> {
-		return ask(
+		return askRef(
 			this.session,
 			this.#directory,
 			ENTER,
 			[name],
 			`the directory did not answer entering "${name}"`,
-		) as Promise<Ref>;
+			`the directory answered entering "${name}" without a room capability`,
+		);
 	}
 
 	/** Return the generation advertised by this wrapper's rich discovery verbs. */
 	enterPublication(id: string): Promise<Ref> {
-		return ask(
+		return askRef(
 			this.session,
 			this.#directory,
 			ENTER_PUBLICATION,
 			[id],
 			"the directory did not answer entering that room publication",
-		) as Promise<Ref>;
+			"the directory answered entering that room publication without a room capability",
+		);
 	}
 
 	/** The stable room sturdyref this directory created. The room Host authors
@@ -411,7 +415,7 @@ export class Directory {
 		);
 		const { reply, via } = result;
 		if (!(reply instanceof Ref)) {
-			throw new Error(`introduce("${nick}") did not return a capability`);
+			refuseCapabilityArguments(via ?? this.session, [reply], `introduce("${nick}") did not return a capability`);
 		}
 		return { dm: reply, via, registrationId: expectedRegistrationId };
 	}

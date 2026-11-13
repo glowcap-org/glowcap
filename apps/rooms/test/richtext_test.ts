@@ -18,7 +18,8 @@ import { createElement } from "react";
 import { RichText } from "../web/ui/panes/RichText.tsx";
 import { assertEquals } from "./assert.ts";
 import { hasIrcFormatting } from "../web/ui/irc_formatting.ts";
-import { messageMentions } from "../web/ui/markdown.ts";
+import { messageMentions, readRichText } from "../web/ui/markdown.ts";
+import { MAX_SCROLLBACK } from "../web/ui/limits.ts";
 import "./support/browser_application.ts";
 import { fail } from "./support/fail.ts";
 
@@ -192,4 +193,13 @@ Deno.test("a line with no control characters takes the ordinary path untouched",
 	// is all of them.
 	assertEquals(hasIrcFormatting("**bold** @zoe"), false);
 	assertEquals(hasIrcFormatting("\x02bold"), true);
+});
+
+Deno.test("a line read again is the same reading, and the cache stays bounded", () => {
+	const first = readRichText("see *this* line");
+	assertEquals(readRichText("see *this* line") === first, true);
+	for (let at = 0; at < MAX_SCROLLBACK + 8; at++) readRichText(`filler line ${at}`);
+	const evicted = readRichText("see *this* line");
+	assertEquals(evicted === first, false);
+	assertEquals(evicted, first);
 });

@@ -32,6 +32,7 @@ import type { AttachmentSource } from "./attachment.ts";
 import { DIRECT_READY, DM, HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM, TYPING } from "./protocol.ts";
 import { type ArchiveShareKind, parseArchiveShareKind } from "./archive/handover.ts";
 import { ask } from "./ask.ts";
+import { errorMessage } from "./error_message.ts";
 import type { Directory } from "./directory.ts";
 import { PostedLine } from "./posted_line.ts";
 import { refuseCapabilityArguments, releaseUnexpectedCapabilityArguments } from "./argument_custody.ts";
@@ -117,7 +118,7 @@ export function directMessageReceiverBehavior(
 			try {
 				kind = parseArchiveShareKind(args[1]);
 			} catch (error) {
-				refuseCapabilityArguments(session(), args, error instanceof Error ? error.message : String(error));
+				refuseCapabilityArguments(session(), args, errorMessage(error));
 			}
 			if (args[2] !== null && typeof args[2] !== "string") {
 				refuseCapabilityArguments(
