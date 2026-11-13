@@ -19,6 +19,11 @@ export function currentTheme(): Theme {
 	return globalThis.document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
+/** 0xRRGGBB to a 6-digit `#rrggbb` CSS string. */
+export function hex(n: number): string {
+	return `#${n.toString(16).padStart(6, "0")}`;
+}
+
 /**
  * Colors, as references to the custom properties styles.css declares.
  * `c.text` evaluates to `--ocv-text` when the element renders.

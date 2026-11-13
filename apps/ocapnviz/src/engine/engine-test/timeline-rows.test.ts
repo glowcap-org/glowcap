@@ -1,5 +1,4 @@
 import { assert, assertEquals } from "@std/assert";
-import { TimelineDocument } from "../timeline.ts";
 import { Engine } from "../engine.ts";
 import { findPeer } from "../world.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
@@ -449,7 +448,7 @@ engineTest(
 		// Define peer 'c' as eternal (no explicit start), then pin a
 		// start time. Identity stays on the entity def; setPeerStart
 		// mutates entity.timing.start.
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			...e.doc.entities,
 			peers: {
 				...e.doc.entities?.peers,
@@ -509,7 +508,7 @@ engineTest(
 		// Make peer 'a' eternal-start (no peer-joined event). Define
 		// it in entities first so the eternal-replay pass keeps it
 		// in the world.
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			peers: { a: { profile: "glowcap" } },
 		};
 		e.dispatch({ kind: "clear-peer-start", peerId: "a" });

@@ -24,6 +24,7 @@ import { notFoundError, validationError } from "../errors.ts";
 import type { AuthoringContext } from "./context.ts";
 import { commitEntityAuthoring, removeObservations, upsertObservation } from "./events.ts";
 import { PEER_TRAJECTORY, type PeerProperty, type PeerUpdate, peerUpdateStates } from "../trajectory.ts";
+import { hasEntry, ownEntry } from "../schema/entity-maps.ts";
 
 function defaultPeerTiming() {
 	return { start: implicitBound(0), duration: implicitBound(0) };
@@ -38,13 +39,13 @@ function syncPeerDuration(
 	peerId: string,
 	duration: number,
 ): void {
-	const def = ctx.doc.entities?.peers?.[peerId];
+	const def = ownEntry(ctx.doc.entities?.peers, peerId);
 	if (!def) return;
 	def.timing = setDuration(def.timing ?? defaultPeerTiming(), duration);
 }
 
 function syncPeerEndCleared(ctx: AuthoringContext, peerId: string): void {
-	const def = ctx.doc.entities?.peers?.[peerId];
+	const def = ownEntry(ctx.doc.entities?.peers, peerId);
 	if (!def) return;
 	def.timing = clearDuration(def.timing ?? defaultPeerTiming());
 }
@@ -54,13 +55,13 @@ function syncPeerStart(
 	peerId: string,
 	startT: number,
 ): void {
-	const def = ctx.doc.entities?.peers?.[peerId];
+	const def = ownEntry(ctx.doc.entities?.peers, peerId);
 	if (!def) return;
 	def.timing = setStart(def.timing ?? defaultPeerTiming(), startT);
 }
 
 function syncPeerStartCleared(ctx: AuthoringContext, peerId: string): void {
-	const def = ctx.doc.entities?.peers?.[peerId];
+	const def = ownEntry(ctx.doc.entities?.peers, peerId);
 	if (!def) return;
 	def.timing = clearStart(def.timing ?? defaultPeerTiming());
 }
@@ -94,7 +95,7 @@ export function updatePeer(
 	// own moments (`setPeerRename`) and this does not touch them, the
 	// same way editing a session's initial state leaves its state
 	// keyframes alone. No-op for eternal-start peers.
-	for (const ev of observationsOf(ctx.doc) as TimelineEvent[]) {
+	for (const ev of observationsOf(ctx.doc)) {
 		if (ev.kind !== "peer-joined" || ev.peerId !== peerId) continue;
 		if (patch.label !== undefined) ev.label = patch.label;
 		if (patch.profile !== undefined) ev.profile = patch.profile;
@@ -120,7 +121,7 @@ function updateAt(
 	peerId: string,
 	t: number,
 ): PeerUpdate | undefined {
-	for (const ev of observationsOf(ctx.doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(ctx.doc)) {
 		if (peerUpdateAt(peerId, t)(ev) && ev.kind === "peer-updated") {
 			return ev;
 		}
@@ -146,7 +147,7 @@ export function setPeerUpdate(
 	property: PeerProperty,
 	value: string,
 ): void {
-	if (ctx.doc.entities?.peers?.[peerId] === undefined) {
+	if (!hasEntry(ctx.doc.entities?.peers, peerId)) {
 		ctx.emitError(notFoundError("peer", peerId));
 		return;
 	}
@@ -211,7 +212,7 @@ export function setPeerDuration(
 	peerId: string,
 	duration: number,
 ): void {
-	const def = ctx.doc.entities?.peers?.[peerId];
+	const def = ownEntry(ctx.doc.entities?.peers, peerId);
 	if (!def) {
 		ctx.emitError(notFoundError("peer", peerId));
 		return;
@@ -236,7 +237,7 @@ export function setPeerEnd(
 	peerId: string,
 	t: number,
 ): void {
-	const def = ctx.doc.entities?.peers?.[peerId];
+	const def = ownEntry(ctx.doc.entities?.peers, peerId);
 	if (!def) {
 		ctx.emitError(notFoundError("peer", peerId));
 		return;
@@ -265,7 +266,7 @@ export function setPeerStart(
 	peerId: string,
 	t: number,
 ): void {
-	const def = ctx.doc.entities?.peers?.[peerId];
+	const def = ownEntry(ctx.doc.entities?.peers, peerId);
 	if (!def) {
 		ctx.emitError(notFoundError("peer", peerId));
 		return;

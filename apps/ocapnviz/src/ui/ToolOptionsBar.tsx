@@ -41,6 +41,7 @@ import { FieldError } from "./error/FieldError.tsx";
 import { toolLabel } from "./ToolPalette.tsx";
 import { useDocVersion } from "./useDocVersion.ts";
 import { ScrubInput } from "./Timeline/ScrubInput.tsx";
+import { hasEntry } from "../engine/schema/entity-maps.ts";
 
 /** Per-tool draft values the bar holds. App lifts these into state
  *  so the values survive tool-switch and so `handleAddPeer` /
@@ -128,7 +129,7 @@ export function nextDefaultPeerId(engine: Engine): string {
 	const peers = engine.doc.entities?.peers;
 	if (!peers) return "peer-1";
 	let n = 1;
-	while (peers[`peer-${n}`] !== undefined) n += 1;
+	while (hasEntry(peers, `peer-${n}`)) n += 1;
 	return `peer-${n}`;
 }
 

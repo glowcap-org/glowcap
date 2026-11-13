@@ -11,7 +11,6 @@
 
 import type { BuilderIntent } from "../intents.ts";
 import { setAllVisModeOnDoc, setCategoryVisModeOnDoc, setRowVisModeOnDoc } from "../visibility.ts";
-import type { TimelineDocument } from "../timeline.ts";
 import { rekeyEntity } from "./identity.ts";
 import type { AuthoringContext } from "./context.ts";
 import { moveEntitySpan, moveEvent } from "./moves.ts";
@@ -199,7 +198,7 @@ export function applyBuilderIntent(
 			return undefined;
 		case "set-row-vis-mode":
 			setRowVisModeOnDoc(
-				ctx.doc as TimelineDocument,
+				ctx.doc,
 				intent.category,
 				intent.id,
 				intent.mode,
@@ -209,7 +208,7 @@ export function applyBuilderIntent(
 		case "set-category-vis-mode":
 			if (
 				setCategoryVisModeOnDoc(
-					ctx.doc as TimelineDocument,
+					ctx.doc,
 					intent.category,
 					intent.mode,
 				)
@@ -218,7 +217,7 @@ export function applyBuilderIntent(
 			}
 			return undefined;
 		case "set-all-vis-mode":
-			if (setAllVisModeOnDoc(ctx.doc as TimelineDocument, intent.mode)) {
+			if (setAllVisModeOnDoc(ctx.doc, intent.mode)) {
 				ctx.notify();
 			}
 			return undefined;

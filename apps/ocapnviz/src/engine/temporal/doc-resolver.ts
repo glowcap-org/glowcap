@@ -62,6 +62,7 @@ import {
 import { type EffectiveRange, intersect } from "./range.ts";
 import type { TimeSpan } from "./time-span.ts";
 import { WORLD_EFFECTIVE, WORLD_INTRINSIC } from "./world.ts";
+import { hasEntry, ownEntry } from "../schema/entity-maps.ts";
 
 export type EntityKind = "peers" | "sessions" | "messages";
 
@@ -71,15 +72,15 @@ const FALLBACK_SPAN: TimeSpan = {
 };
 
 function peerSpan(doc: TimelineDocument, id: string): TimeSpan {
-	return doc.entities?.peers?.[id]?.timing ?? FALLBACK_SPAN;
+	return ownEntry(doc.entities?.peers, id)?.timing ?? FALLBACK_SPAN;
 }
 
 function sessionSpan(doc: TimelineDocument, id: string): TimeSpan {
-	return doc.entities?.sessions?.[id]?.timing ?? FALLBACK_SPAN;
+	return ownEntry(doc.entities?.sessions, id)?.timing ?? FALLBACK_SPAN;
 }
 
 function messageSpan(doc: TimelineDocument, id: string): TimeSpan {
-	return doc.entities?.messages?.[id]?.timing ?? FALLBACK_SPAN;
+	return ownEntry(doc.entities?.messages, id)?.timing ?? FALLBACK_SPAN;
 }
 
 /** Intrinsic range for a peer, parent is world. */
@@ -189,9 +190,19 @@ export function sessionContext(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
-	const def = doc.entities?.sessions?.[id];
+	const def = ownEntry(doc.entities?.sessions, id);
 	if (!def) return WORLD_EFFECTIVE;
 	return intersect(sideContext(doc, def, "a"), sideContext(doc, def, "b"));
+}
+
+/** A session's intrinsic range against `ctx`, its peers' overlap. The one
+ *  statement of the rule, for the caller that holds the context already. */
+function sessionIntrinsicWithin(
+	doc: TimelineDocument,
+	id: string,
+	ctx: EffectiveRange,
+): EffectiveRange {
+	return intrinsicOf(sessionSpan(doc, id), ctx);
 }
 
 export function sessionIntrinsic(
@@ -204,15 +215,17 @@ export function sessionIntrinsic(
 	// distinction between session.intrinsic and session.effective is
 	// carried by the session's own span values, not by two different
 	// parent ranges.
-	const ctx = sessionContext(doc, id);
-	return intrinsicOf(sessionSpan(doc, id), ctx);
+	return sessionIntrinsicWithin(doc, id, sessionContext(doc, id));
 }
 
 export function sessionEffective(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
-	return effectiveOf(sessionIntrinsic(doc, id), sessionContext(doc, id));
+	// The context is one fact read once: it is both the parent the span
+	// resolves against and the clamp on the result.
+	const ctx = sessionContext(doc, id);
+	return effectiveOf(sessionIntrinsicWithin(doc, id, ctx), ctx);
 }
 
 /** Context for a message: its session's effective range. */
@@ -220,9 +233,20 @@ export function messageContext(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
-	const def = doc.entities?.messages?.[id];
+	const def = ownEntry(doc.entities?.messages, id);
 	if (!def) return WORLD_EFFECTIVE;
 	return sessionEffective(doc, def.sessionId);
+}
+
+/** A message's intrinsic range against its session's effective range
+ *  `sessionRange`. The one statement of the rule, for the caller that holds
+ *  the session's range already. */
+function messageIntrinsicWithin(
+	doc: TimelineDocument,
+	id: string,
+	sessionRange: EffectiveRange,
+): EffectiveRange {
+	return intrinsicOf(messageSpan(doc, id), sessionRange);
 }
 
 export function messageIntrinsic(
@@ -230,15 +254,26 @@ export function messageIntrinsic(
 	id: string,
 ): EffectiveRange {
 	// See sessionIntrinsic comment, same simplification.
-	const ctx = messageContext(doc, id);
-	return intrinsicOf(messageSpan(doc, id), ctx);
+	return messageIntrinsicWithin(doc, id, messageContext(doc, id));
 }
 
 export function messageEffective(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
-	return effectiveOf(messageIntrinsic(doc, id), messageContext(doc, id));
+	return messageEffectiveWithin(doc, id, messageContext(doc, id));
+}
+
+/** A message's effective range when the caller already holds its session's
+ *  (`sessionEffective`). A pass over every message of a document reads each
+ *  session's range once and derives every message's from it, instead of
+ *  resolving the session's peers again for each message it carries. */
+export function messageEffectiveWithin(
+	doc: TimelineDocument,
+	id: string,
+	sessionRange: EffectiveRange,
+): EffectiveRange {
+	return effectiveOf(messageIntrinsicWithin(doc, id, sessionRange), sessionRange);
 }
 
 /** The value one of a session's temporal properties carries at `t`:
@@ -256,7 +291,7 @@ export function sessionPropertyValueAt(
 	property: SessionProperty,
 	t: number,
 ): SessionValue | undefined {
-	const def = doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(doc.entities?.sessions, sessionId);
 	if (def === undefined) return undefined;
 	const spec = SESSION_TRAJECTORY[property];
 	return keyframeAt(spec.track(def), t) ?? spec.genesis(def);
@@ -322,7 +357,7 @@ export function sessionEndpointAt(
 	side: SessionSide,
 	t: number,
 ): SessionEndpoint {
-	const def = doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(doc.entities?.sessions, sessionId);
 	if (def === undefined) return sessionEndpoint({});
 	const end = def[side];
 	const at = keyframeAt(endpointTrack(def, side), t) ??
@@ -380,7 +415,7 @@ export function peerValueAt(
 	property: PeerProperty,
 	t: number,
 ): string | undefined {
-	const def = doc.entities?.peers?.[peerId];
+	const def = ownEntry(doc.entities?.peers, peerId);
 	if (def === undefined) return undefined;
 	const spec = PEER_TRAJECTORY[property];
 	return keyframeAt(spec.track(def), t) ?? spec.genesis(def);
@@ -400,7 +435,7 @@ export function peerGenesisValue(
 	peerId: string,
 	property: PeerProperty,
 ): string {
-	const def = doc.entities?.peers?.[peerId];
+	const def = ownEntry(doc.entities?.peers, peerId);
 	const spec = PEER_TRAJECTORY[property];
 	return (def && spec.genesis(def)) ?? spec.fallback(peerId);
 }
@@ -461,7 +496,7 @@ export function momentEffective(
 	id: string,
 	t: number,
 ): number {
-	if (doc.entities?.[kind]?.[id] === undefined) return t;
+	if (!hasEntry(doc.entities?.[kind], id)) return t;
 	const eff = effectiveOfEntity(doc, kind, id);
 	if (t < eff.start) return eff.start;
 	if (Number.isFinite(eff.end) && t > eff.end) return eff.end;
@@ -511,7 +546,7 @@ export function clampReasonFor(
 	if (side === "end" && intrinsic.end <= effective.end) return null;
 
 	if (kind === "sessions") {
-		const def = doc.entities?.sessions?.[id];
+		const def = ownEntry(doc.entities?.sessions, id);
 		if (!def) return null;
 		// Whichever END forces the tighter bound, named by the peer that
 		// sets it. An end that changed hands is held by the occupant
@@ -542,7 +577,7 @@ export function clampReasonFor(
 	}
 
 	// messages
-	const def = doc.entities?.messages?.[id];
+	const def = ownEntry(doc.entities?.messages, id);
 	if (!def) return null;
 	return `session ${def.sessionId}`;
 }

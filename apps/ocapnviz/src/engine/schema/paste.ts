@@ -35,11 +35,12 @@
 
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
-import { type EngineError, type EngineResult, err, ok, validationError } from "../errors.ts";
+import { type EngineError, type EngineResult, err, ok, reservedIdError, validationError } from "../errors.ts";
+import { isReservedEntityId } from "../../schema/entity-id.ts";
 import type { EntityKind } from "./refs.ts";
 import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, withEdgeRef } from "./edges.ts";
 import { type ClipboardEntities, type ClipboardPayload } from "./clipboard.ts";
-import { entityMapIn, entityMapOf } from "./entity-maps.ts";
+import { entityMapIn, entityMapOf, hasEntry } from "./entity-maps.ts";
 
 /** Per-kind id remap. Keys are payload ids. Values are target ids
  * (same when no collision, suffixed when collided). */
@@ -60,6 +61,13 @@ export function cascadePaste(
 	payload: ClipboardPayload,
 	clockT: number,
 ): EngineResult<CascadePasteResult> {
+	// 0. A payload that carries the reserved id is refused whole.
+	for (const map of [payload.entities.peers, payload.entities.sessions, payload.entities.messages]) {
+		for (const id of Object.keys(map ?? {})) {
+			if (isReservedEntityId(id)) return err(reservedIdError(id));
+		}
+	}
+
 	// 1. Validate external refs.
 	const missing = validateExternalRefs(doc, payload);
 	if (missing) return err(missing);
@@ -113,7 +121,7 @@ function validateExternalRefs(
 	const missing: string[] = [];
 	for (const ref of payload.externalRefs) {
 		const map = entityMapOf(doc, ref.kind);
-		if (!map || !Object.prototype.hasOwnProperty.call(map, ref.id)) {
+		if (!hasEntry(map, ref.id)) {
 			missing.push(`${ref.kind} "${ref.id}"`);
 		}
 	}
@@ -319,7 +327,7 @@ function findStragglers(
 	const stragglers: string[] = [];
 	const has = (kind: EntityKind, id: string): boolean => {
 		const map = entityMapOf(doc, kind);
-		return !!map && Object.prototype.hasOwnProperty.call(map, id);
+		return !!hasEntry(map, id);
 	};
 	// Check class-2 refs in pasted entity defs.
 	for (const entityKind of ["peer", "session", "message"] as const) {

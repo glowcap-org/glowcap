@@ -6,6 +6,8 @@
  * `recovery` is mandatory, never ship an error a user can't act on.
  */
 
+import { reservedEntityIdMessage } from "../schema/entity-id.ts";
+
 export type EngineErrorCode =
 	| "collision" // user supplied an ID that already exists
 	| "not-found" // referenced entity doesn't exist
@@ -42,6 +44,14 @@ export function collisionError(
 		detail: `${category} ${id} already exists in this document.`,
 		recovery: `Pick a different ID, or rename ${id} first.`,
 	};
+}
+
+/** An id the schema refuses, named so the author can pick another. */
+export function reservedIdError(id: string): EngineError {
+	return validationError(
+		reservedEntityIdMessage(id),
+		"Pick a different ID.",
+	);
 }
 
 export function notFoundError(

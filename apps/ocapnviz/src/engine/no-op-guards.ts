@@ -61,6 +61,7 @@ import { parseEndpointStageId } from "../schema/session-end.ts";
 import { allVisModeOnDoc, categoryVisModeOnDoc, rowVisModeOnDoc } from "./visibility.ts";
 import type { BuilderIntent } from "./intents.ts";
 import { PEER_TRAJECTORY, SESSION_TRAJECTORY } from "./trajectory.ts";
+import { hasEntry, ownEntry } from "./schema/entity-maps.ts";
 
 /** The span, only when the USER authored it. A `set-*` timing
  *  intent is never a no-op against a projection-derived span: even
@@ -125,7 +126,7 @@ export function isNoOpIntent(
 			// ("Pin here"), never a no-op. Unknown peers are, and known
 			// means defined in the doc, not present in the world, so the
 			// Inspector can pin a peer outside the playhead window.
-			if (doc.entities?.peers?.[intent.peerId] === undefined) return true;
+			if (!hasEntry(doc.entities?.peers, intent.peerId)) return true;
 			const pinned = authoredPeerPosition(doc, intent.peerId);
 			return pinned !== null &&
 				pinned.x === intent.position.x &&
@@ -135,7 +136,7 @@ export function isNoOpIntent(
 			// Unpinning an end nobody placed changes nothing.
 			const at = parseEndpointStageId(intent.endpointId);
 			if (!at) return true;
-			return doc.entities?.sessions?.[at.sessionId]
+			return ownEntry(doc.entities?.sessions, at.sessionId)
 				?.endpointPosition?.[at.side] === undefined;
 		}
 		case "reposition-endpoint": {
@@ -144,7 +145,7 @@ export function isNoOpIntent(
 			// unpinned end where it already sits is a real document change.
 			const at = parseEndpointStageId(intent.endpointId);
 			if (!at) return true;
-			const def = doc.entities?.sessions?.[at.sessionId];
+			const def = ownEntry(doc.entities?.sessions, at.sessionId);
 			if (def === undefined) return true;
 			const pinned = def.endpointPosition?.[at.side];
 			return pinned !== undefined &&
@@ -154,7 +155,7 @@ export function isNoOpIntent(
 		case "update-peer": {
 			// The mutation patches `doc.entities.peers`, compare against
 			// that definition, not the world entity materialized from it.
-			const def = doc.entities?.peers?.[intent.peerId];
+			const def = ownEntry(doc.entities?.peers, intent.peerId);
 			if (!def) return true;
 			const p = intent.patch;
 			if (p.label !== undefined && p.label !== def.label) return false;
@@ -211,40 +212,40 @@ export function isNoOpIntent(
 			// silently no-ops for them. The cascade in `deletePeer`
 			// itself handles eternal peers correctly, so this guard must not
 			// short-circuit on events alone.
-			const obs = observationsOf(doc) as readonly TimelineEvent[];
+			const obs = observationsOf(doc);
 			const hasEvent = obs.some(
 				(ev) => ev.kind === "peer-joined" && ev.peerId === intent.peerId,
 			);
-			const hasEternal = doc.entities?.peers?.[intent.peerId] !== undefined &&
+			const hasEternal = hasEntry(doc.entities?.peers, intent.peerId) &&
 				!hasEvent;
 			return !hasEvent && !hasEternal;
 		}
 		case "delete-session": {
-			const obs = observationsOf(doc) as readonly TimelineEvent[];
+			const obs = observationsOf(doc);
 			const hasEvent = obs.some(
 				(ev) =>
 					ev.kind === "session-opened" &&
 					ev.sessionId === intent.sessionId,
 			);
-			const hasEternal = doc.entities?.sessions?.[intent.sessionId] !== undefined &&
+			const hasEternal = hasEntry(doc.entities?.sessions, intent.sessionId) &&
 				!hasEvent;
 			return !hasEvent && !hasEternal;
 		}
 		case "delete-message": {
-			const obs = observationsOf(doc) as readonly TimelineEvent[];
+			const obs = observationsOf(doc);
 			const hasEvent = obs.some(
 				(ev) =>
 					ev.kind === "message-sent" &&
 					ev.messageId === intent.messageId,
 			);
-			const hasEternal = doc.entities?.messages?.[intent.messageId] !== undefined &&
+			const hasEternal = hasEntry(doc.entities?.messages, intent.messageId) &&
 				!hasEvent;
 			return !hasEvent && !hasEternal;
 		}
 		case "update-session": {
 			// Same doc-definition authority as update-peer for the three
 			// fields that carry no time.
-			const def = doc.entities?.sessions?.[intent.sessionId];
+			const def = ownEntry(doc.entities?.sessions, intent.sessionId);
 			if (!def) return true;
 			const p = intent.patch;
 			if (p.codec !== undefined && p.codec !== def.codec) {
@@ -287,7 +288,7 @@ export function isNoOpIntent(
 			// than the message-sent observation event. cascadeRewrite re-keys
 			// entities but leaves observation events alone, so
 			// a renamed message's only valid lookup is via `doc.entities`.
-			const def = doc.entities?.messages?.[intent.messageId];
+			const def = ownEntry(doc.entities?.messages, intent.messageId);
 			if (!def) return true;
 			const p = intent.patch;
 			if (p.label !== undefined && p.label !== (def.label ?? "")) {
@@ -310,7 +311,7 @@ export function isNoOpIntent(
 		case "move-event": {
 			const move = intent.move;
 			const ev: TimelineEvent | undefined = (
-				observationsOf(doc) as readonly TimelineEvent[]
+				observationsOf(doc)
 			).find((e) => e.id === move.eventId);
 			if (!ev) return true;
 			// A committed move writes BOTH authorities, the observation
@@ -376,7 +377,7 @@ export function isNoOpIntent(
 			// painted anchor), so the guard must too. An implicit start
 			// retains its last stored value, which the resolvers ignore.
 			const dur = authoredTiming(
-				doc.entities?.peers?.[intent.peerId]?.timing,
+				ownEntry(doc.entities?.peers, intent.peerId)?.timing,
 			)
 				?.duration;
 			return dur?.explicit === true &&
@@ -384,71 +385,71 @@ export function isNoOpIntent(
 					intent.t;
 		}
 		case "set-peer-duration": {
-			const def = doc.entities?.peers?.[intent.peerId];
+			const def = ownEntry(doc.entities?.peers, intent.peerId);
 			const dur = authoredTiming(def?.timing)?.duration;
 			return dur?.explicit === true && dur.value === intent.duration;
 		}
 		case "clear-peer-end": {
-			const def = doc.entities?.peers?.[intent.peerId];
+			const def = ownEntry(doc.entities?.peers, intent.peerId);
 			return def === undefined || def.timing?.duration.explicit !== true;
 		}
 		case "set-peer-start": {
-			const def = doc.entities?.peers?.[intent.peerId];
+			const def = ownEntry(doc.entities?.peers, intent.peerId);
 			const s = authoredTiming(def?.timing)?.start;
 			return s?.explicit === true && s.value === intent.t;
 		}
 		case "clear-peer-start": {
-			const def = doc.entities?.peers?.[intent.peerId];
+			const def = ownEntry(doc.entities?.peers, intent.peerId);
 			return def === undefined || def.timing?.start.explicit !== true;
 		}
 		case "set-session-start": {
-			const def = doc.entities?.sessions?.[intent.sessionId];
+			const def = ownEntry(doc.entities?.sessions, intent.sessionId);
 			const s = authoredTiming(def?.timing)?.start;
 			return s?.explicit === true && s.value === intent.t;
 		}
 		case "clear-session-start": {
-			const def = doc.entities?.sessions?.[intent.sessionId];
+			const def = ownEntry(doc.entities?.sessions, intent.sessionId);
 			return def === undefined || def.timing?.start.explicit !== true;
 		}
 		case "set-message-start": {
-			const def = doc.entities?.messages?.[intent.messageId];
+			const def = ownEntry(doc.entities?.messages, intent.messageId);
 			const s = authoredTiming(def?.timing)?.start;
 			return s?.explicit === true && s.value === intent.t;
 		}
 		case "clear-message-start": {
-			const def = doc.entities?.messages?.[intent.messageId];
+			const def = ownEntry(doc.entities?.messages, intent.messageId);
 			return def === undefined || def.timing?.start.explicit !== true;
 		}
 		case "set-message-end": {
 			// Effective-start anchor, same rationale as set-peer-end.
 			const dur = authoredTiming(
-				doc.entities?.messages?.[intent.messageId]?.timing,
+				ownEntry(doc.entities?.messages, intent.messageId)?.timing,
 			)?.duration;
 			return dur?.explicit === true &&
 				messageEffective(doc, intent.messageId).start + dur.value ===
 					intent.t;
 		}
 		case "set-message-duration": {
-			const def = doc.entities?.messages?.[intent.messageId];
+			const def = ownEntry(doc.entities?.messages, intent.messageId);
 			const dur = authoredTiming(def?.timing)?.duration;
 			return dur?.explicit === true && dur.value === intent.duration;
 		}
 		case "set-session-end": {
 			// Effective-start anchor, same rationale as set-peer-end.
 			const dur = authoredTiming(
-				doc.entities?.sessions?.[intent.sessionId]?.timing,
+				ownEntry(doc.entities?.sessions, intent.sessionId)?.timing,
 			)?.duration;
 			return dur?.explicit === true &&
 				sessionEffective(doc, intent.sessionId).start + dur.value ===
 					intent.t;
 		}
 		case "set-session-duration": {
-			const def = doc.entities?.sessions?.[intent.sessionId];
+			const def = ownEntry(doc.entities?.sessions, intent.sessionId);
 			const dur = authoredTiming(def?.timing)?.duration;
 			return dur?.explicit === true && dur.value === intent.duration;
 		}
 		case "clear-session-end": {
-			const def = doc.entities?.sessions?.[intent.sessionId];
+			const def = ownEntry(doc.entities?.sessions, intent.sessionId);
 			return def === undefined || def.timing?.duration.explicit !== true;
 		}
 		case "set-session-keyframe": {
@@ -460,7 +461,7 @@ export function isNoOpIntent(
 			// end that a signed handoff had attributed produces a pair with
 			// nothing backing it, which is a change even though the same peer
 			// stays there.
-			const def = doc.entities?.sessions?.[intent.sessionId];
+			const def = ownEntry(doc.entities?.sessions, intent.sessionId);
 			if (!def) return true;
 			const spec = SESSION_TRAJECTORY[intent.property];
 			return declaresValueAt(
@@ -471,7 +472,7 @@ export function isNoOpIntent(
 			);
 		}
 		case "remove-session-keyframe": {
-			const def = doc.entities?.sessions?.[intent.sessionId];
+			const def = ownEntry(doc.entities?.sessions, intent.sessionId);
 			if (!def) return true;
 			return !declaresAnythingAt(
 				SESSION_TRAJECTORY[intent.property].track(def),
@@ -489,7 +490,7 @@ export function isNoOpIntent(
 			// already holds and there is nothing pinned by having said it
 			// again. Attaching an end AT a time is `set-session-keyframe`,
 			// and that one is a declaration and reads as one.
-			const end = doc.entities?.sessions?.[intent.sessionId]
+			const end = ownEntry(doc.entities?.sessions, intent.sessionId)
 				?.[intent.side];
 			if (!end) return true;
 			const p = intent.patch;
@@ -511,7 +512,7 @@ export function isNoOpIntent(
 			// so they take the same reading. The projection puts these
 			// observations on the property's track, and the track is what
 			// the document says.
-			const def = doc.entities?.peers?.[intent.peerId];
+			const def = ownEntry(doc.entities?.peers, intent.peerId);
 			if (!def) return true;
 			return declaresValueAt(
 				PEER_TRAJECTORY[intent.property].track(def),
@@ -520,7 +521,7 @@ export function isNoOpIntent(
 			);
 		}
 		case "remove-peer-update": {
-			const def = doc.entities?.peers?.[intent.peerId];
+			const def = ownEntry(doc.entities?.peers, intent.peerId);
 			if (!def) return true;
 			return !declaresAnythingAt(
 				PEER_TRAJECTORY[intent.property].track(def),
@@ -528,7 +529,7 @@ export function isNoOpIntent(
 			);
 		}
 		case "set-session-initial-state": {
-			const def = doc.entities?.sessions?.[intent.sessionId];
+			const def = ownEntry(doc.entities?.sessions, intent.sessionId);
 			return def === undefined || def.initialState === intent.state;
 		}
 		case "rename-peer":

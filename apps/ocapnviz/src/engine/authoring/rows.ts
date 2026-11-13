@@ -6,7 +6,6 @@
  */
 
 import type { AuthoringContext } from "./context.ts";
-import type { TimelineDocument } from "../timeline.ts";
 
 export function reorderRow(
 	ctx: AuthoringContext,
@@ -22,7 +21,7 @@ export function reorderRow(
 	const anyEntry = next.peers !== undefined ||
 		next.sessions !== undefined ||
 		next.messages !== undefined;
-	(ctx.doc as TimelineDocument).rowOrder = anyEntry ? next : undefined;
+	ctx.doc.rowOrder = anyEntry ? next : undefined;
 	// Pure view-state. No clock seek needed (the renderer reads
 	// `doc.rowOrder` directly each paint). But we DO need to
 	// notify React-side subscribers (`useEngineVersion`) so the

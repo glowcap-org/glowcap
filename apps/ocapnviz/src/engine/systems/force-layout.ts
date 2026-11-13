@@ -85,10 +85,11 @@ function parseRegion(peerId: string): string {
 	const parts = lower.split("-");
 	if (parts.length >= 3) {
 		const two = `${parts[0]}-${parts[1]}`;
-		if (two in REGION_CENTROIDS) return two;
+		if (Object.hasOwn(REGION_CENTROIDS, two)) return two;
 	}
-	if (parts.length >= 2 && parts[0]! in REGION_CENTROIDS) {
-		return parts[0]!;
+	const first = parts[0];
+	if (parts.length >= 2 && first !== undefined && Object.hasOwn(REGION_CENTROIDS, first)) {
+		return first;
 	}
 	return "default";
 }

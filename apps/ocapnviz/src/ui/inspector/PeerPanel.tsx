@@ -39,6 +39,7 @@ import { elideIdentifier, Identifier } from "../identifier.tsx";
 import { useEngineVersion } from "../useEngineVersion.ts";
 import { isInSelection, peerInfo, sessionInfo, sessionsTouchingPeer } from "./entity-info.ts";
 import type { EntityRefKey } from "../../interactions/entity-ref.ts";
+import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /** Position row that follows mid-drag world coords. The PeerFields shell
  *  stays on doc+clock so label/id/profile groups do not re-reconcile every
@@ -88,7 +89,7 @@ export function PeerFields(
 	// owned by `PeerPositionLiveRow` below.
 	const live = findPeer(engine.world, id);
 	const joinedEv = findPeerJoinedEvent(engine.doc, id);
-	const def = engine.doc.entities?.peers?.[id];
+	const def = ownEntry(engine.doc.entities?.peers, id);
 	if (!live && !def) return <Unknown kind="peer" id={id} />;
 
 	const editing = editor !== undefined;

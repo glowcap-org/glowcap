@@ -27,6 +27,7 @@ import { peerLabelAt, sessionPropertyValueAt } from "../../engine/temporal/doc-r
 import type { EditorBindings } from "./bindings.ts";
 import { Field } from "./fields.tsx";
 import { OptionalTimeRow, TrajectoryInsert, TrajectoryValue } from "./trajectory.tsx";
+import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /** What the "state a property here" control offers at `t`, and the value each
  *  offer would insert.
@@ -49,7 +50,7 @@ export function trajectoryInsertOffers(
 	t: number,
 	properties: readonly SessionProperty[],
 ): { property: SessionProperty; value: SessionValue }[] {
-	const def = engine.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(engine.doc.entities?.sessions, sessionId);
 	const firstPeer = Object.keys(engine.doc.entities?.peers ?? {})[0];
 	const out: { property: SessionProperty; value: SessionValue }[] = [];
 	for (const property of properties) {
@@ -92,7 +93,7 @@ export function SessionMoments(
 	const peerIds = Object.keys(engine.doc.entities?.peers ?? {});
 	const effStart = engine.intrinsicStart("sessions", sessionId);
 	const effEnd = engine.intrinsicEnd("sessions", sessionId);
-	const def = engine.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(engine.doc.entities?.sessions, sessionId);
 	const shown = new Set(properties);
 	const moments = sessionTrajectoryRows(engine.doc, sessionId)
 		.filter((m) => shown.has(m.property));

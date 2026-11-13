@@ -5,6 +5,8 @@ import { DescriptiveMetadata, Provenance } from "../schema/provenance.ts";
 import { TimeSpanSchema } from "./temporal/zod.ts";
 import { Observation, Position, Recording } from "./temporal/recording.ts";
 import { Keyframe } from "./temporal/keyframes.ts";
+import { hasEntry } from "./schema/entity-maps.ts";
+import { entityRecord } from "../schema/entity-id.ts";
 
 /** Re-exported so an authoring caller reads one module. The schema
  *  itself lives with the observation that carries it. */
@@ -166,9 +168,9 @@ const MessageDefinition = z.object({
 export type MessageDefinition = z.infer<typeof MessageDefinition>;
 
 const Entities = z.object({
-	peers: z.record(z.string(), PeerDefinition).optional(),
-	sessions: z.record(z.string(), SessionDefinition).optional(),
-	messages: z.record(z.string(), MessageDefinition).optional(),
+	peers: entityRecord(PeerDefinition).optional(),
+	sessions: entityRecord(SessionDefinition).optional(),
+	messages: entityRecord(MessageDefinition).optional(),
 }).optional();
 export type Entities = z.infer<typeof Entities>;
 
@@ -360,7 +362,7 @@ export const TimelineDocument = z
 			...(rest.entities?.messages ?? {}),
 		};
 		for (const ev of events) {
-			if (ev.kind === "peer-joined" && !peers[ev.peerId]) {
+			if (ev.kind === "peer-joined" && !hasEntry(peers, ev.peerId)) {
 				peers[ev.peerId] = {
 					profile: ev.profile,
 					...(ev.label !== undefined ? { label: ev.label } : {}),
@@ -368,7 +370,7 @@ export const TimelineDocument = z
 					...(ev.position !== undefined ? { position: ev.position } : {}),
 				};
 			} else if (
-				ev.kind === "session-opened" && !sessions[ev.sessionId]
+				ev.kind === "session-opened" && !hasEntry(sessions, ev.sessionId)
 			) {
 				sessions[ev.sessionId] = {
 					a: ev.a,
@@ -378,7 +380,7 @@ export const TimelineDocument = z
 					...(ev.transport !== undefined ? { transport: ev.transport } : {}),
 					...(ev.initialState !== undefined ? { initialState: ev.initialState } : {}),
 				};
-			} else if (ev.kind === "message-sent" && !messages[ev.messageId]) {
+			} else if (ev.kind === "message-sent" && !hasEntry(messages, ev.messageId)) {
 				messages[ev.messageId] = {
 					sessionId: ev.sessionId,
 					from: ev.from,

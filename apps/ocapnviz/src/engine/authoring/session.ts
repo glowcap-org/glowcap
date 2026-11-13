@@ -23,6 +23,7 @@ import { notFoundError, validationError } from "../errors.ts";
 import { SESSION_TRAJECTORY, type SessionProperty, type SessionValue } from "../trajectory.ts";
 import type { AuthoringContext } from "./context.ts";
 import { bumpEntities, commitEntityAuthoring, removeObservations, upsertObservation } from "./events.ts";
+import { hasEntry, ownEntry } from "../schema/entity-maps.ts";
 
 /** The observation stating one of a session's properties at exactly
  *  `t`, what a keyframe write replaces and a removal drops. The
@@ -44,7 +45,7 @@ function syncSessionDuration(
 	sessionId: string,
 	duration: number,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) return;
 	def.timing = setDuration(def.timing ?? defaultSessionTiming(), duration);
 }
@@ -53,7 +54,7 @@ function syncSessionEndCleared(
 	ctx: AuthoringContext,
 	sessionId: string,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) return;
 	def.timing = clearDuration(def.timing ?? defaultSessionTiming());
 }
@@ -63,7 +64,7 @@ function syncSessionStart(
 	sessionId: string,
 	startT: number,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) return;
 	def.timing = setStart(def.timing ?? defaultSessionTiming(), startT);
 }
@@ -72,7 +73,7 @@ function syncSessionStartCleared(
 	ctx: AuthoringContext,
 	sessionId: string,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) return;
 	def.timing = clearStart(def.timing ?? defaultSessionTiming());
 }
@@ -150,7 +151,7 @@ export function setSessionStart(
 	sessionId: string,
 	t: number,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) {
 		ctx.emitError(notFoundError("session", sessionId));
 		return;
@@ -198,7 +199,7 @@ export function setSessionDuration(
 	sessionId: string,
 	duration: number,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) {
 		ctx.emitError(notFoundError("session", sessionId));
 		return;
@@ -221,7 +222,7 @@ export function setSessionEnd(
 	sessionId: string,
 	t: number,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) {
 		ctx.emitError(notFoundError("session", sessionId));
 		return;
@@ -268,7 +269,7 @@ export function setSessionKeyframe(
 	t: number,
 	value: SessionValue,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) {
 		ctx.emitError(notFoundError("session", sessionId));
 		return;
@@ -295,7 +296,7 @@ export function setSessionKeyframe(
 	// only half of it is the reference.
 	const named = spec.stated(parsed);
 	if (
-		spec.names === "peers" && ctx.doc.entities?.peers?.[named] === undefined
+		spec.names === "peers" && !hasEntry(ctx.doc.entities?.peers, named)
 	) {
 		ctx.emitError(notFoundError("peer", named));
 		return;
@@ -324,7 +325,7 @@ export function removeSessionKeyframe(
 	property: SessionProperty,
 	t: number,
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) return;
 	const spec = SESSION_TRAJECTORY[property];
 	removeObservations(ctx, momentAt(property, sessionId, t));
@@ -361,7 +362,7 @@ export function updateSessionEndpoint(
 		attributedBy?: EndpointAttribution | null;
 	},
 ): void {
-	const def = ctx.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
 	if (!def) {
 		ctx.emitError(notFoundError("session", sessionId));
 		return;
@@ -370,7 +371,7 @@ export function updateSessionEndpoint(
 	let peer = current.peer;
 	if (patch.peer === null) peer = undefined;
 	else if (patch.peer !== undefined) {
-		if (ctx.doc.entities?.peers?.[patch.peer] === undefined) {
+		if (!hasEntry(ctx.doc.entities?.peers, patch.peer)) {
 			ctx.emitError(notFoundError("peer", patch.peer));
 			return;
 		}
@@ -407,7 +408,7 @@ export function updateSessionEndpoint(
 	// Mirror onto the opening observation so the recording says what the
 	// definition says, exactly as a peer's identity edit mirrors onto
 	// its join.
-	for (const ev of observationsOf(ctx.doc) as TimelineEvent[]) {
+	for (const ev of observationsOf(ctx.doc)) {
 		if (ev.kind !== "session-opened" || ev.sessionId !== sessionId) {
 			continue;
 		}

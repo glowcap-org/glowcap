@@ -44,14 +44,14 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 	const left = a as Record<string, unknown>;
 	const right = b as Record<string, unknown>;
 	for (const key of Object.keys(left)) {
-		if (!deepEqual(left[key], right[key])) return false;
+		if (!deepEqual(left[key], Object.hasOwn(right, key) ? right[key] : undefined)) return false;
 	}
 	// Only the keys the first object did not carry are left to check:
 	// the loop above already compared every shared one. A key the first
 	// object lacks is equal exactly when the second is not really
 	// stating it either.
 	for (const key of Object.keys(right)) {
-		if (!(key in left) && right[key] !== undefined) return false;
+		if (!Object.hasOwn(left, key) && right[key] !== undefined) return false;
 	}
 	return true;
 }

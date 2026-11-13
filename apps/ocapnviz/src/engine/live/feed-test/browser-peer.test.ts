@@ -1,6 +1,6 @@
 // Browser peer lifetime while subscription is still being constructed.
 
-import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
+import { assertEquals, assertRejects, assertStrictEquals, assertThrows } from "@std/assert";
 import { browserPeerFactory, MAX_TRACE_RECORD_BYTES } from "../connection.ts";
 import type { BrowserSession, GlowcapWebModule } from "../glowcap-web-api.ts";
 
@@ -121,4 +121,34 @@ Deno.test("a connection lost during setup is the setup failure, with no failed c
 		assertEquals(closes, 1);
 	});
 	assertEquals(unowned, []);
+});
+
+Deno.test("the record bound counts encoded bytes, not characters", async () => {
+	const inboxes: Array<(verb: string, args: readonly unknown[]) => unknown> = [];
+	const records: string[] = [];
+	const session: BrowserSession = {
+		serve: () => new Promise<void>(() => {}),
+		spawn: (behavior) => {
+			inboxes.push(behavior);
+			return "inbox";
+		},
+		enliven: () => Promise.resolve("trace"),
+		send: () => Promise.resolve(null),
+		close: () => Promise.resolve(),
+	};
+	await withSession(session, async () => {
+		const peer = await browserPeerFactory("trace", (line) => records.push(line), new AbortController().signal);
+		const inbox = inboxes[0];
+		if (inbox === undefined) throw new Error("the peer spawned no inbox");
+		// Three bytes a character: short enough in characters to fit one
+		// byte per character, long enough in bytes to refuse.
+		const within = "€".repeat(Math.floor(MAX_TRACE_RECORD_BYTES / 3));
+		assertEquals(inbox("record", [within]), null);
+		assertEquals(records, [within]);
+		const beyond = "€".repeat(Math.floor(MAX_TRACE_RECORD_BYTES / 3) + 1);
+		assertEquals(beyond.length <= MAX_TRACE_RECORD_BYTES, true);
+		assertThrows(() => inbox("record", [beyond]), Error, "trace record exceeds the viewer bound");
+		assertEquals(records, [within]);
+		await peer.close();
+	});
 });

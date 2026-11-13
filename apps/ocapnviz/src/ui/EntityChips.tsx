@@ -15,7 +15,7 @@ import {
 } from "../schema/session-end.ts";
 import { CAPTP_VERSION_COLORS, colorForProfile, lineStyleForCodec, PROFILE_FALLBACK_COLOR } from "../render/palette.ts";
 import type { PeerActivity } from "../render/node-activity.ts";
-import { c, FONT, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
+import { c, FONT, hex, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
 const chip = {
 	display: "inline-flex",
@@ -420,8 +420,4 @@ function activityVisual(
 		case "idle":
 			return [c.surfaceMuted, c.textSubtle, "idle"];
 	}
-}
-
-function hex(color: number): string {
-	return `#${color.toString(16).padStart(6, "0")}`;
 }

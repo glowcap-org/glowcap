@@ -15,6 +15,7 @@ import { validationError } from "../errors.ts";
 import { SESSION_TRAJECTORY, sessionMomentOf } from "../trajectory.ts";
 import type { AuthoringContext } from "./context.ts";
 import { bumpEntities, growDurationToFit } from "./events.ts";
+import { ownEntry } from "../schema/entity-maps.ts";
 
 /** One observation mutation in a planned gesture. */
 export type PlannedMove =
@@ -40,22 +41,22 @@ function applyPatch(ctx: AuthoringContext, patch: MovePatch): void {
 	// projection's derived marker. Otherwise projection could clobber the
 	// gesture on the next tick.
 	if (patch.kind === "peer-timing") {
-		const def = ctx.doc.entities?.peers?.[patch.peerId];
+		const def = ownEntry(ctx.doc.entities?.peers, patch.peerId);
 		if (def) def.timing = asAuthored(patch.span);
 		return;
 	}
 	if (patch.kind === "session-timing") {
-		const def = ctx.doc.entities?.sessions?.[patch.sessionId];
+		const def = ownEntry(ctx.doc.entities?.sessions, patch.sessionId);
 		if (def) def.timing = asAuthored(patch.span);
 		return;
 	}
 	if (patch.kind === "message-timing") {
-		const def = ctx.doc.entities?.messages?.[patch.messageId];
+		const def = ownEntry(ctx.doc.entities?.messages, patch.messageId);
 		if (def) def.timing = asAuthored(patch.span);
 		return;
 	}
 
-	const def = ctx.doc.entities?.sessions?.[patch.sessionId];
+	const def = ownEntry(ctx.doc.entities?.sessions, patch.sessionId);
 	const track = def?.keyframes?.state;
 	if (!def || !track) return;
 	const ki = track.findIndex((kf) => kf.t === patch.oldT);

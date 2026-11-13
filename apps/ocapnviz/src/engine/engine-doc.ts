@@ -21,7 +21,6 @@ import {
 } from "./document-fields.ts";
 import { clampReasonFor, effectiveOfEntity, intrinsicOfEntity } from "./temporal/doc-resolver.ts";
 import type { PeerProperty, SessionProperty, SessionValue } from "./trajectory.ts";
-import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
 import {
 	allVisModeOnDoc,
 	categoryVisModeOnDoc,
@@ -32,7 +31,6 @@ import {
 	setRowVisModeOnDoc,
 } from "./visibility.ts";
 import type { AuthoringContext } from "./authoring/context.ts";
-import { applyAuthored as applyAuthoredOnCtx } from "./authoring/events.ts";
 import { moveEvent as moveEventOnCtx, type MoveIntent } from "./authoring/moves.ts";
 import {
 	clearPeerEnd as clearPeerEndOnCtx,
@@ -72,16 +70,6 @@ export abstract class EngineDocApi {
 	protected abstract notify(docChanged?: boolean): void;
 	abstract beginTransaction(label?: string): void;
 	abstract endTransaction(): void;
-
-	/** Append an event, preserving the sort-by-`t` invariant. Extends
-	 * `doc.duration` if the event lands past the end (Flash-style: the
-	 * timeline grows as you draw past it). Re-seeks so the change
-	 * folds in immediately even when paused. Tests stub this directly,
-	 * which is why the public surface stays even though the engine
-	 * routes through `ctx` everywhere else. */
-	applyAuthored(event: TimelineEvent): void {
-		applyAuthoredOnCtx(this.ctx, event);
-	}
 
 	/**
 	 * Remove a peer and everything that depends on it. Cascades:
@@ -160,7 +148,7 @@ export abstract class EngineDocApi {
 	 * to the same time". Rejections here are real conflicts.
 	 *
 	 * Extends `doc.duration` when the new time(s) exceed the current
-	 * end (Flash convention, same as `applyAuthored`).
+	 * end (Flash convention: the timeline grows as you draw past it).
 	 */
 	moveEvent(move: MoveIntent): void {
 		moveEventOnCtx(this.ctx, move);
@@ -399,7 +387,7 @@ export abstract class EngineDocApi {
 		mode: "visible" | "label" | "body" | "both",
 	): void {
 		setRowVisModeOnDoc(
-			this.ctx.doc as TimelineDocument,
+			this.ctx.doc,
 			category,
 			id,
 			mode,
@@ -423,7 +411,7 @@ export abstract class EngineDocApi {
 	): void {
 		if (
 			setCategoryVisModeOnDoc(
-				this.ctx.doc as TimelineDocument,
+				this.ctx.doc,
 				category,
 				mode,
 			)
@@ -436,7 +424,7 @@ export abstract class EngineDocApi {
 	 * and per-entity flags, same cascade rationale as
 	 * `setCategoryVisMode`. */
 	setAllVisMode(mode: "visible" | "label" | "body" | "both"): void {
-		if (setAllVisModeOnDoc(this.ctx.doc as TimelineDocument, mode)) {
+		if (setAllVisModeOnDoc(this.ctx.doc, mode)) {
 			this.notify();
 		}
 	}

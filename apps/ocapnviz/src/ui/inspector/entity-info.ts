@@ -23,6 +23,7 @@ import {
 import type { CaptpVersion, Codec, PeerProfile, SessionState } from "../../schema/topology.ts";
 import type { EntityKind, EntityRefKey } from "../../interactions/entity-ref.ts";
 import type { LifecycleStatus } from "../EntityChips.tsx";
+import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /** "Is this entity also in the multi-select set?", the cross-
  *  reference check the per-kind Connections rows use to light up
@@ -60,7 +61,7 @@ export function peerInfo(engine: Engine, peerId: string): PeerInfo | null {
 			lifecycle: "active",
 		};
 	}
-	const def = engine.doc.entities?.peers?.[peerId];
+	const def = ownEntry(engine.doc.entities?.peers, peerId);
 	if (!def) return null;
 	const start = engine.effectiveStart("peers", peerId);
 	const end = engine.effectiveEnd("peers", peerId);
@@ -88,7 +89,7 @@ export function sessionInfo(
 			lifecycle: "active",
 		};
 	}
-	const def = engine.doc.entities?.sessions?.[sessionId];
+	const def = ownEntry(engine.doc.entities?.sessions, sessionId);
 	if (!def) return null;
 	const start = engine.effectiveStart("sessions", sessionId);
 	const end = engine.effectiveEnd("sessions", sessionId);

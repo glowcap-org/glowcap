@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { TimelineDocument, type TimelineEvent } from "../timeline.ts";
+import { TimelineDocument } from "../timeline.ts";
 import { Engine } from "../engine.ts";
 import { observationsOf, primaryObservations } from "../temporal/recording-access.ts";
 import {
@@ -360,7 +360,7 @@ engineTest(
 			[...first.entries()],
 			[
 				...computeMessageTimeBundles(
-					observationsOf(e.doc) as readonly TimelineEvent[],
+					observationsOf(e.doc),
 				).entries(),
 			],
 		);
@@ -429,7 +429,7 @@ engineTest(
 		});
 		const rebuilt = e.frameGeometry.timeBundles;
 		const expected = computeMessageTimeBundles(
-			observationsOf(e.doc) as readonly TimelineEvent[],
+			observationsOf(e.doc),
 		);
 		assertEquals([...rebuilt.entries()], [...expected.entries()]);
 	},

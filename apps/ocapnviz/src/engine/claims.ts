@@ -1,5 +1,5 @@
 import { endpointNodeId, endpointStageId, SESSION_SIDES } from "../schema/session-end.ts";
-import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
+import type { TimelineDocument } from "./timeline.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 
 /**
@@ -157,7 +157,7 @@ export function endpointClaims(doc: TimelineDocument): Map<string, string> {
 			}
 		}
 	}
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind !== "session-opened") continue;
 		for (const side of SESSION_SIDES) {
 			const stageId = endpointStageId(ev.sessionId, side);
@@ -194,7 +194,7 @@ export function sessionEnds(
 			b: endpointNodeId(sessionId, "b", def.b),
 		});
 	}
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind !== "session-opened") continue;
 		if (ends.has(ev.sessionId)) continue; // entities entry won
 		ends.set(ev.sessionId, {
@@ -219,7 +219,7 @@ function peerDesignators(doc: TimelineDocument): Map<string, string> {
 			designators.set(peerId, def.designator);
 		}
 	}
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind !== "peer-joined") continue;
 		if (ev.designator === undefined) continue;
 		if (designators.has(ev.peerId)) continue; // entities entry won

@@ -35,6 +35,7 @@ import { projectFromObservations } from "./temporal/project-from-observations.ts
 import { EngineDocApi } from "./engine-doc.ts";
 import { EditSession } from "./edit-session.ts";
 import { Playback } from "./playback.ts";
+import { hasEntry } from "./schema/entity-maps.ts";
 
 export type EngineOptions = {
 	/** Override the document's layout mode. */
@@ -491,7 +492,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		position: { x: number; y: number },
 	): void {
 		const at = parseEndpointStageId(endpointId);
-		if (!at || this.doc.entities?.sessions?.[at.sessionId] === undefined) {
+		if (!at || !hasEntry(this.doc.entities?.sessions, at.sessionId)) {
 			return;
 		}
 		writeEndpointPosition(this.doc, endpointId, position);
@@ -528,7 +529,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		// ONE snapshot serves two roles:
 		//   1. Atomic rollback if the mutation throws partway. Without
 		//      this, a half-applied dispatch (e.g. `mintId`
-		//      bumped, `definePeer` ran, then `applyAuthored` threw)
+		//      bumped, `definePeer` ran, then a later step threw)
 		//      would desync state vs. fixture identity. The user-visible
 		//      symptom shows up the moment validation/collision checks
 		//      start throwing (rename / paste / duplicate).

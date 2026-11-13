@@ -25,6 +25,14 @@ export const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
 export const MAX_TRACE_RECORD_BYTES = 1 << 20;
 
+/** Whether `line` encodes to more than `MAX_TRACE_RECORD_BYTES` of UTF-8.
+ *  A UTF-16 string of length n encodes to at most 3n bytes, so a line that
+ *  short is within the bound without being encoded. */
+function exceedsRecordBound(line: string): boolean {
+	if (line.length * 3 <= MAX_TRACE_RECORD_BYTES) return false;
+	return new TextEncoder().encode(line).byteLength > MAX_TRACE_RECORD_BYTES;
+}
+
 function retirementError(cause: unknown): EngineError {
 	return {
 		code: "internal",
@@ -168,8 +176,7 @@ export const browserPeerFactory: LivePeerFactory = async (
 			) {
 				throw new Error("trace inbox expects one JSON string record");
 			}
-			const bytes = new TextEncoder().encode(args[0]).byteLength;
-			if (bytes > MAX_TRACE_RECORD_BYTES) {
+			if (exceedsRecordBound(args[0])) {
 				void retire();
 				throw new Error("trace record exceeds the viewer bound");
 			}
@@ -360,11 +367,7 @@ export class LiveFeed {
 
 	#receive(generation: number, line: string): void {
 		if (generation !== this.#generation || this.#closedByUser) return;
-		if (
-			new TextEncoder().encode(line).byteLength > MAX_TRACE_RECORD_BYTES
-		) {
-			return;
-		}
+		if (exceedsRecordBound(line)) return;
 		try {
 			const raw = parseWireRecord(line);
 			const epoch = numberFromWire(raw.epoch);

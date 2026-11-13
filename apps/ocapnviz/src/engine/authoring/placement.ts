@@ -13,7 +13,8 @@
 import { parseEndpointStageId } from "../../schema/session-end.ts";
 import { patchPeerDefinition } from "../entities.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
-import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
+import type { TimelineDocument } from "../timeline.ts";
+import { ownEntry } from "../schema/entity-maps.ts";
 
 export function writePeerPosition(
 	doc: TimelineDocument,
@@ -27,7 +28,7 @@ export function writePeerPosition(
 	patchPeerDefinition(doc, peerId, {
 		position: { x: position.x, y: position.y },
 	});
-	for (const ev of observationsOf(doc) as TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "peer-joined" && ev.peerId === peerId) {
 			ev.position = { x: position.x, y: position.y };
 			break;
@@ -41,7 +42,7 @@ export function writeEndpointPosition(
 	position: { x: number; y: number },
 ): void {
 	const at = parseEndpointStageId(endpointId);
-	const def = at && doc.entities?.sessions?.[at.sessionId];
+	const def = at && ownEntry(doc.entities?.sessions, at.sessionId);
 	if (!at || !def) return;
 	def.endpointPosition = {
 		...def.endpointPosition,
@@ -55,9 +56,9 @@ export function clearPeerPositionOnDoc(
 	doc: TimelineDocument,
 	peerId: string,
 ): void {
-	const def = doc.entities?.peers?.[peerId];
+	const def = ownEntry(doc.entities?.peers, peerId);
 	if (def) delete def.position;
-	for (const ev of observationsOf(doc) as TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "peer-joined" && ev.peerId === peerId) {
 			delete ev.position;
 			break;
@@ -72,7 +73,7 @@ export function clearEndpointPositionOnDoc(
 	endpointId: string,
 ): boolean {
 	const at = parseEndpointStageId(endpointId);
-	const def = at && doc.entities?.sessions?.[at.sessionId];
+	const def = at && ownEntry(doc.entities?.sessions, at.sessionId);
 	if (!at || !def?.endpointPosition) return false;
 	delete def.endpointPosition[at.side];
 	return true;

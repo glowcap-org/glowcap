@@ -16,9 +16,11 @@
  */
 
 import type { TimelineDocument } from "../timeline.ts";
-import { collisionError, type EngineResult, err, ok } from "../errors.ts";
+import { collisionError, type EngineResult, err, ok, reservedIdError } from "../errors.ts";
+import { isReservedEntityId } from "../../schema/entity-id.ts";
 import { parseEndpointStageId } from "../../schema/session-end.ts";
 import { cascadeRewrite } from "../schema/cascade.ts";
+import { hasEntry } from "../schema/entity-maps.ts";
 import { restoreSnapshotInto, takeSnapshot } from "../snapshot.ts";
 import type { AuthoringContext } from "./context.ts";
 
@@ -38,8 +40,9 @@ export function checkRekeyCollision(
 	category: RenameCategory,
 	newId: string,
 ): EngineResult<void> {
+	if (isReservedEntityId(newId)) return err(reservedIdError(newId));
 	const map = doc.entities?.[renameCategoryToEntitiesKey(category)];
-	if (map && Object.prototype.hasOwnProperty.call(map, newId)) {
+	if (hasEntry(map, newId)) {
 		return err(collisionError(category, newId));
 	}
 	// A peer and a session end nothing attributed are drawn as one node

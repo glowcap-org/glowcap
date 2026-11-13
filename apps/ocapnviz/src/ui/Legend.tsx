@@ -15,7 +15,7 @@ import {
 } from "../schema/topology.ts";
 import { endpointSwatchStyle, NEUTRAL_BODY_COLOR, peerBodySwatchStyle } from "./EntityChips.tsx";
 import { HelpGlyph } from "./glyphs.tsx";
-import { c, FONT, PANEL, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
+import { c, FONT, hex, PANEL, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
 // Layout class lives in styles.css (`.ocv-legend-grid`) so it can
 // use container queries to switch from 1-column to 2-column when
@@ -89,10 +89,6 @@ const lineSwatch = (
 	height: 0,
 	borderTop: `${width}px ${style} ${typeof color === "number" ? hex(color) : color}`,
 }) satisfies React.CSSProperties;
-
-function hex(color: number): string {
-	return `#${color.toString(16).padStart(6, "0")}`;
-}
 
 /** Legend body, slotted into a `<Section title="Legend">`.
  *

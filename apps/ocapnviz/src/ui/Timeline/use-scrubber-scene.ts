@@ -217,7 +217,7 @@ export function useScrubberScene(args: {
 			// Event retimes mutate the live document inside a transaction, before
 			// React receives a new prop snapshot. The static lane picture must follow.
 			const liveEntities = p.doc.entities;
-			const liveEvents = observationsOf(p.doc) as readonly TimelineEvent[];
+			const liveEvents = observationsOf(p.doc);
 			const eventDragActive = drag?.kind === "event" && drag.moved && !drag.selectOnly;
 			const curGutter = gutterWidthOf(p.view);
 			const curHoverRow = hoverGutterRowRef.current;

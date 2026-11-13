@@ -31,6 +31,7 @@ import { drawOverviewScene } from "./overview-paint.ts";
 import { overviewHitAt, timelineCursor, type TimelineGesture } from "./timeline-cursor.ts";
 import { resolveTimelineGesture } from "./timeline-gesture.ts";
 import type { SurfaceGestureCtx } from "../../interactions/gesture-resolver.ts";
+import { releasePointerCaptureIfHeld } from "../pointer-capture.ts";
 
 export const OVERVIEW_HEIGHT = 26;
 
@@ -439,11 +440,7 @@ export function Overview(
 
 	const handlePointerUp = useCallback(
 		(e: React.PointerEvent<HTMLDivElement>) => {
-			try {
-				e.currentTarget.releasePointerCapture(e.pointerId);
-			} catch {
-				// capture may already be released
-			}
+			releasePointerCaptureIfHeld(e.currentTarget, e.pointerId);
 			endDrag();
 			// Recompute cursor now rather than waiting for the next move.
 			handleHoverMove(e);

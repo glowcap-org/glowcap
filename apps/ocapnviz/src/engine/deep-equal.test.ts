@@ -73,3 +73,11 @@ Deno.test("values of different types are different", () => {
 	assert(!deepEqual({ t: 0 }, { t: false }));
 	assert(!deepEqual({ t: {} }, { t: null }));
 });
+
+Deno.test("a key named for something an object inherits is a key like any other", () => {
+	// `"toString" in {}` is true, so a membership test against the first
+	// object would take an added entity with that id for a key it already has.
+	assert(!deepEqual({ peers: { a: 1 } }, { peers: { a: 1, toString: 1 } }));
+	assert(deepEqual({ peers: { a: 1, constructor: undefined } }, { peers: { a: 1 } }));
+	assert(deepEqual({ peers: { a: 1, toString: undefined } }, { peers: { a: 1 } }));
+});

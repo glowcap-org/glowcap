@@ -20,6 +20,21 @@ type EntityMaps = {
 	readonly messages?: Readonly<Record<string, MessageDefinition>> | undefined;
 };
 
+/** The definition `map` holds under `id` as its own key. Ids come from a
+ *  loaded file, and a plain index also answers `constructor`, `toString`, and
+ *  the rest of what an object inherits, so a lookup asks for the key itself. */
+export function ownEntry<D>(
+	map: Readonly<Record<string, D>> | undefined,
+	id: string,
+): D | undefined {
+	return map !== undefined && Object.hasOwn(map, id) ? map[id] : undefined;
+}
+
+/** Whether `map` holds `id` as its own key. */
+export function hasEntry(map: Readonly<Record<string, unknown>> | undefined, id: string): boolean {
+	return map !== undefined && Object.hasOwn(map, id);
+}
+
 /** The map of definitions for `kind` in `entities`, or undefined when it
  *  holds none. */
 export function entityMapIn(

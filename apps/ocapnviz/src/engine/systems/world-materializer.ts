@@ -16,9 +16,9 @@
 
 import type { SessionState } from "../../schema/topology.ts";
 import { endpointStageId, SESSION_SIDES } from "../../schema/session-end.ts";
-import { containsTime } from "../temporal/range.ts";
+import { containsTime, type EffectiveRange } from "../temporal/range.ts";
 import {
-	messageEffective,
+	messageEffectiveWithin,
 	peerEffective,
 	peerLabelAt,
 	peerProfileAt,
@@ -131,21 +131,35 @@ export function materializeWorldAt(
 		}
 	}
 
+	// A session's range is read once per pass: the session asks for it, and
+	// so does every message that rides on it.
+	const sessionRanges = new Map<string, EffectiveRange>();
+	const sessionRange = (sessionId: string): EffectiveRange => {
+		let range = sessionRanges.get(sessionId);
+		if (range === undefined) {
+			range = sessionEffective(doc, sessionId);
+			sessionRanges.set(sessionId, range);
+		}
+		return range;
+	};
+
 	// --- Sessions (with state keyframe lookup) ---
 	const sessions = doc.entities?.sessions ?? {};
 	for (const [sessionId, def] of Object.entries(sessions)) {
-		const alive = containsTime(sessionEffective(doc, sessionId), t);
+		const alive = containsTime(sessionRange(sessionId), t);
 		const existing = heldSessions.get(sessionId);
 		// Who is on each end is as temporal as the session's state: a
 		// viewer draws a wire before it can name the peer that dialed
 		// it, and learning that moves the edge rather than replacing
 		// the session. Where each end sits, and whether anything attributed
-		// it, are one question asked in one place, and it has an answer at
-		// every t whether or not the session is drawn there.
-		const place = {
-			a: sessionEndpointPlaceAt(doc, sessionId, "a", t),
-			b: sessionEndpointPlaceAt(doc, sessionId, "b", t),
-		};
+		// it, are one question asked in one place. A session that is not drawn
+		// has no ends to place, so it is not asked.
+		const place = alive
+			? {
+				a: sessionEndpointPlaceAt(doc, sessionId, "a", t),
+				b: sessionEndpointPlaceAt(doc, sessionId, "b", t),
+			}
+			: undefined;
 		// An end nothing has attributed is a node in its own right: the edge
 		// needs something to reach at both ends, and a reader needs something
 		// to select in order to ask what this end claims. Its id names the end
@@ -157,7 +171,7 @@ export function materializeWorldAt(
 		// has no ends to draw.
 		for (const side of SESSION_SIDES) {
 			const nodeId = endpointStageId(sessionId, side);
-			const loose = alive && place[side].peer === undefined;
+			const loose = place !== undefined && place[side].peer === undefined;
 			const drawn = heldEndpoints.get(nodeId);
 			// What the end claims is stated once, when the session opens, so it
 			// comes off the genesis end at every moment. An author editing it has
@@ -185,7 +199,7 @@ export function materializeWorldAt(
 				drawn.endpoint = next;
 			}
 		}
-		if (alive) {
+		if (place !== undefined) {
 			const state: SessionState = sessionStateAt(doc, sessionId, t);
 			const a = place.a.node;
 			const b = place.b.node;
@@ -224,7 +238,7 @@ export function materializeWorldAt(
 	// --- Messages (in-flight at t) ---
 	const messages = doc.entities?.messages ?? {};
 	for (const [messageId, def] of Object.entries(messages)) {
-		const eff = messageEffective(doc, messageId);
+		const eff = messageEffectiveWithin(doc, messageId, sessionRange(def.sessionId));
 		const alive = containsTime(eff, t);
 		const existing = heldMessages.get(messageId);
 		// Every field of a flight is editable while it is in the air: the label

@@ -53,6 +53,7 @@ import {
 	selectionPhrase,
 	shiftCaveats,
 } from "./selection-summary.ts";
+import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /** Everything the group panel needs about the host's selection: the
  *  set itself, and the one way it is allowed to change it. */
@@ -236,7 +237,7 @@ function SharedFields(
 
 	if (allKind === "peer") {
 		const peers = refs.flatMap((r) => {
-			const def = engine.doc.entities?.peers?.[r.id];
+			const def = ownEntry(engine.doc.entities?.peers, r.id);
 			return def ? [{ id: r.id, profile: def.profile }] : [];
 		});
 		if (peers.length === 0) return null;
@@ -261,7 +262,7 @@ function SharedFields(
 
 	if (allKind === "session") {
 		const sessions = refs.flatMap((r) => {
-			const def = engine.doc.entities?.sessions?.[r.id];
+			const def = ownEntry(engine.doc.entities?.sessions, r.id);
 			return def ? [{ id: r.id, def }] : [];
 		});
 		if (sessions.length === 0) return null;
@@ -589,7 +590,7 @@ function entityLabel(
 	if (ref.kind === "endpoint") {
 		const at = parseEndpointStageId(ref.id);
 		const claim = at
-			? engine.doc.entities?.sessions?.[at.sessionId]?.[at.side]
+			? ownEntry(engine.doc.entities?.sessions, at.sessionId)?.[at.side]
 				.designator
 			: undefined;
 		return endpointLabelText(claim);
@@ -601,6 +602,6 @@ function entityLabel(
 			? elideIdentifier(ref.id)
 			: sessionPairName(engine.doc, ref.id, engine.clock.t);
 	}
-	const def = engine.doc.entities?.messages?.[ref.id];
+	const def = ownEntry(engine.doc.entities?.messages, ref.id);
 	return elideIdentifier(def?.label ?? ref.id);
 }

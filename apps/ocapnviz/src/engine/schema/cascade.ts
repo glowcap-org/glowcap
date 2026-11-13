@@ -21,12 +21,13 @@
  */
 
 import type { TimelineDocument } from "../timeline.ts";
-import { collisionError, type EngineResult, err, ok } from "../errors.ts";
+import { collisionError, type EngineResult, err, ok, reservedIdError } from "../errors.ts";
+import { isReservedEntityId } from "../../schema/entity-id.ts";
 import type { EntityKind } from "./refs.ts";
 import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, withEdgeRef } from "./edges.ts";
 import { DOC_INDEX_EDGES, docIndexesForTarget } from "./doc-index.ts";
 import { assertNoRefsTo, findEntityRefs } from "./walk.ts";
-import { editEntityMap, entityMapOf } from "./entity-maps.ts";
+import { editEntityMap, entityMapOf, hasEntry } from "./entity-maps.ts";
 
 /** Strip a single entity from `doc.entities` and clean up empty maps so
  * `entities` becomes `undefined` when nothing is left. Pure. */
@@ -36,7 +37,7 @@ function removeEntity(
 	id: string,
 ): TimelineDocument {
 	return editEntityMap(doc, kind, (map) => {
-		if (!Object.prototype.hasOwnProperty.call(map, id)) return map;
+		if (!hasEntry(map, id)) return map;
 		const nextMap = { ...map };
 		delete nextMap[id];
 		return nextMap;
@@ -216,16 +217,17 @@ export function cascadeRewrite(
 	newId: string,
 ): EngineResult<TimelineDocument> {
 	if (oldId === newId) return ok(doc);
+	if (isReservedEntityId(newId)) return err(reservedIdError(newId));
 
 	const map = entityMapOf(doc, kind);
-	if (map && Object.prototype.hasOwnProperty.call(map, newId)) {
+	if (hasEntry(map, newId)) {
 		return err(collisionError(kind, newId));
 	}
 
 	let result = doc;
 
 	// 1. Move the entity definition under the new key, if it has one.
-	if (map && Object.prototype.hasOwnProperty.call(map, oldId)) {
+	if (hasEntry(map, oldId)) {
 		result = editEntityMap(result, kind, (m) => {
 			const def = m[oldId];
 			if (def === undefined) return m;

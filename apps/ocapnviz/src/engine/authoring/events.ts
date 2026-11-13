@@ -1,9 +1,7 @@
 /**
  * Insert and remove observations in the primary recording source.
  * Retime lives in [`moves.ts`](./moves.ts). Used by the higher-level
- * peer/session/message authoring modules and by callers (live-feed)
- * that need to push authored observations without the per-category
- * orchestration.
+ * peer/session/message authoring modules.
  */
 
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
@@ -20,9 +18,15 @@ export function growDurationToFit(
 	event: TimelineEvent,
 ): void {
 	const need = event.kind === "message-sent" ? Math.max(event.t, event.arrivalT) : event.t;
-	if (need <= ctx.doc.duration) return;
-	(ctx.doc as { duration: number }).duration = need;
-	ctx.clock.setDuration(need);
+	growDurationTo(ctx, need);
+}
+
+/** Extend `doc.duration` and the clock's bound to `to`, when `to` is past the
+ * current end. */
+function growDurationTo(ctx: AuthoringContext, to: number): void {
+	if (to <= ctx.doc.duration) return;
+	(ctx.doc as { duration: number }).duration = to;
+	ctx.clock.setDuration(to);
 }
 
 /**
@@ -43,7 +47,7 @@ export function growDurationToFit(
  */
 export function latestStatedTime(doc: TimelineDocument): number {
 	let latest = 0;
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		latest = Math.max(latest, ev.t);
 		if (ev.kind === "message-sent") latest = Math.max(latest, ev.arrivalT);
 	}
@@ -70,44 +74,12 @@ export function commitEntityAuthoring(
 	ctx: AuthoringContext,
 	growToT?: number,
 ): void {
-	if (growToT !== undefined && growToT > ctx.doc.duration) {
-		(ctx.doc as { duration: number }).duration = growToT;
-		ctx.clock.setDuration(growToT);
-	}
+	if (growToT !== undefined) growDurationTo(ctx, growToT);
 	// Bump entities reference so downstream WeakMap caches (e.g. the
 	// Scrubber lane-bundle cache) invalidate. Entity authoring mutates
 	// `doc.entities` in place; without this swap, viewer caches keyed
 	// on identity keep painting the pre-edit shape.
 	bumpEntities(ctx);
-	ctx.recomputeLayout();
-	ctx.seekTo(ctx.clock.t);
-}
-
-/** Insert `event` into the primary recording source at the right sorted position,
- * grow the doc duration to cover it, recompute keyframe layout (so
- * any new topology entity has a position), and seek the clock so
- * the world reflects the new doc on the next paint.
- *
- * Used only by live-feed (incoming observations over the live websocket).
- * Authoring intents mutate entity.timing / keyframes directly via
- * `commitEntityAuthoring`. */
-export function applyAuthored(
-	ctx: AuthoringContext,
-	event: TimelineEvent,
-): void {
-	const events = primaryObservations(ctx.doc);
-	let insertAt = events.length;
-	for (let i = 0; i < events.length; i++) {
-		if (events[i]!.t > event.t) {
-			insertAt = i;
-			break;
-		}
-	}
-	events.splice(insertAt, 0, event);
-	growDurationToFit(ctx, event);
-	// New topology-changing events need a keyframe recompute so the
-	// layout has an entry for them; otherwise `layout.update` leaves
-	// them at the `applyEvent` default of (0, 0).
 	ctx.recomputeLayout();
 	ctx.seekTo(ctx.clock.t);
 }

@@ -149,7 +149,7 @@ engineTest(
 	"updatePeer can edit eternal-start peers (no peer-joined event)",
 	() => {
 		const e = new Engine(structuredClone(doc));
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			peers: { eternal: { profile: "glowcap", label: "before" } },
 		};
 		e.seekTo(0);
@@ -176,7 +176,7 @@ engineTest(
 		assertEquals(e.doc.entities?.peers?.a !== undefined, true);
 		// Add an eternal-only session referencing peer 'a' so we can
 		// verify cascade-through-entities works too.
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			...(e.doc.entities ?? {}),
 			sessions: {
 				...(e.doc.entities?.sessions ?? {}),

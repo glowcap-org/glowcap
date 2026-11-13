@@ -78,6 +78,7 @@ import {
 	peerUpdateStates,
 	SESSION_TRAJECTORY,
 } from "../trajectory.ts";
+import { hasEntry } from "../schema/entity-maps.ts";
 
 const DEFAULT_FLIGHT_MS = 500;
 
@@ -397,6 +398,19 @@ function synthesizeMessageDef(
 	};
 }
 
+/** What a document looked like when a projection over it changed nothing.
+ *  The playing tick and every seek project again, so an unchanged document
+ *  is recognized without reading its observations. The three facts are the
+ *  ones `observationsOf` says a write moves: the entities an authoring edit
+ *  swaps, the observation list, and the length a live feed grows. */
+type FixedPoint = {
+	readonly entities: TimelineDocument["entities"];
+	readonly events: readonly TimelineEvent[];
+	readonly length: number;
+};
+
+const fixedPoints = new WeakMap<TimelineDocument, FixedPoint>();
+
 /** Return a new doc with `timing` synthesized for any entity that
  *  doesn't carry one, derived `timing` re-derived from the current
  *  observations, plus entity-definition entries synthesized for any
@@ -406,10 +420,12 @@ function synthesizeMessageDef(
 export function projectFromObservations(
 	doc: TimelineDocument,
 ): TimelineDocument {
-	// Cast is safe: Observation and TimelineEvent share their wire
-	// shape (TimelineEvent is the writer-side name; Observation is
-	// the reader-side name on the recording).
-	const events = observationsOf(doc) as readonly TimelineEvent[];
+	const events = observationsOf(doc);
+	const held = fixedPoints.get(doc);
+	if (
+		held !== undefined && held.entities === doc.entities &&
+		held.events === events && held.length === events.length
+	) return doc;
 	const idx = indexObservations(events);
 
 	const seedPeers: Record<string, PeerDefinition> = {
@@ -423,7 +439,7 @@ export function projectFromObservations(
 	};
 	let touched = false;
 	for (const [id, row] of idx.peers) {
-		if (seedPeers[id] !== undefined) continue;
+		if (hasEntry(seedPeers, id)) continue;
 		const synth = synthesizePeerDef(row.joined);
 		if (synth !== undefined) {
 			seedPeers[id] = synth;
@@ -431,7 +447,7 @@ export function projectFromObservations(
 		}
 	}
 	for (const [id, row] of idx.sessions) {
-		if (seedSessions[id] !== undefined) continue;
+		if (hasEntry(seedSessions, id)) continue;
 		const synth = synthesizeSessionDef(row.opened);
 		if (synth !== undefined) {
 			seedSessions[id] = synth;
@@ -439,7 +455,7 @@ export function projectFromObservations(
 		}
 	}
 	for (const [id, sent] of idx.messages) {
-		if (seedMessages[id] !== undefined) continue;
+		if (hasEntry(seedMessages, id)) continue;
 		const synth = synthesizeMessageDef(sent);
 		if (synth !== undefined) {
 			seedMessages[id] = synth;
@@ -563,7 +579,14 @@ export function projectFromObservations(
 		)
 		: undefined;
 
-	if (!touched) return doc;
+	if (!touched) {
+		fixedPoints.set(doc, {
+			entities: doc.entities,
+			events,
+			length: events.length,
+		});
+		return doc;
+	}
 	return {
 		...doc,
 		entities: {

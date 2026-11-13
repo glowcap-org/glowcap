@@ -11,6 +11,7 @@
 
 import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineDocument } from "./timeline.ts";
 import type { CaptpVersion, Codec, PeerProfile, SessionState, Transport } from "../schema/topology.ts";
+import { ownEntry } from "./schema/entity-maps.ts";
 
 /** Write peer identity to `doc.entities.peers[peerId]`. Called when
  * a peer is created or its identity is edited, so the entities-map
@@ -41,7 +42,7 @@ export function patchPeerDefinition(
 		position?: { x: number; y: number };
 	},
 ): void {
-	const prev = doc.entities?.peers?.[peerId];
+	const prev = ownEntry(doc.entities?.peers, peerId);
 	if (!prev) return;
 	const next: PeerDefinition = { ...prev };
 	if (patch.label !== undefined) next.label = patch.label;
@@ -86,7 +87,7 @@ export function patchSessionDefinition(
 		transport?: Transport | null;
 	},
 ): void {
-	const prev = doc.entities?.sessions?.[sessionId];
+	const prev = ownEntry(doc.entities?.sessions, sessionId);
 	if (!prev) return;
 	const { transport, ...rest } = patch;
 	const next: SessionDefinition = { ...prev, ...rest };
@@ -122,7 +123,7 @@ export function patchMessageDefinition(
 		to?: string;
 	},
 ): void {
-	const prev = doc.entities?.messages?.[messageId];
+	const prev = ownEntry(doc.entities?.messages, messageId);
 	if (!prev) return;
 	const next: MessageDefinition = { ...prev };
 	if (patch.label !== undefined) {

@@ -20,6 +20,7 @@ import { observationsOf } from "../../engine/temporal/recording-access.ts";
 import { parseEndpointStageId } from "../../schema/session-end.ts";
 import { type EntityKind, type EntityRefKey, parseEntityKey } from "../../interactions/entity-ref.ts";
 import { sessionInfo } from "./entity-info.ts";
+import { hasEntry, ownEntry } from "../../engine/schema/entity-maps.ts";
 
 // ───────────────────────── words ───────────────────────────────────────
 
@@ -134,16 +135,16 @@ function timedOf(engine: Engine, key: EntityRefKey): Timed | null {
 	const { kind, id } = parseEntityKey(key);
 	const entities = engine.doc.entities;
 	if (kind === "peer") {
-		return entities?.peers?.[id] ? { category: "peers", id } : null;
+		return ownEntry(entities?.peers, id) ? { category: "peers", id } : null;
 	}
 	if (kind === "session") {
-		return entities?.sessions?.[id] ? { category: "sessions", id } : null;
+		return ownEntry(entities?.sessions, id) ? { category: "sessions", id } : null;
 	}
 	if (kind === "message") {
-		return entities?.messages?.[id] ? { category: "messages", id } : null;
+		return ownEntry(entities?.messages, id) ? { category: "messages", id } : null;
 	}
 	const at = parseEndpointStageId(id);
-	if (!at || !entities?.sessions?.[at.sessionId]) return null;
+	if (!at || !hasEntry(entities?.sessions, at.sessionId)) return null;
 	return { category: "sessions", id: at.sessionId };
 }
 
@@ -289,9 +290,7 @@ export function bulkShiftPlan(
 	selection: ReadonlySet<EntityRefKey>,
 ): ShiftPlan {
 	const genesis = new Map<EntityRefKey, { id: string; t: number }>();
-	// `TimelineEvent` is the authoring name for `Observation`; the
-	// engine's own helpers read the stream the same way.
-	for (const ev of observationsOf(engine.doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(engine.doc)) {
 		const key = genesisKeyOf(ev);
 		if (key === null || !selection.has(key)) continue;
 		genesis.set(key, { id: ev.id, t: ev.t });

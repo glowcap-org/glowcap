@@ -256,7 +256,7 @@ engineTest(
 		// start. The cascade-aware validation accepts effective-start = 0
 		// for eternal peers.
 		const e = new Engine(structuredClone(doc));
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			...e.doc.entities,
 			peers: {
 				...e.doc.entities?.peers,
@@ -275,7 +275,7 @@ engineTest(
 	"set-session-end works on eternal-start sessions",
 	() => {
 		const e = new Engine(structuredClone(doc));
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			...e.doc.entities,
 			sessions: {
 				...e.doc.entities?.sessions,
@@ -386,7 +386,7 @@ engineTest(
 		// Define message m_new on session s1 with no message-sent
 		// event, implicit start should cascade to session s1's
 		// effective start.
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			...e.doc.entities,
 			messages: {
 				...e.doc.entities?.messages,
@@ -431,7 +431,7 @@ engineTest(
 	"set-message-end writes entity.timing.duration",
 	() => {
 		const e = new Engine(structuredClone(doc));
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			...e.doc.entities,
 			messages: {
 				...e.doc.entities?.messages,
@@ -468,7 +468,7 @@ engineTest(
 		// Add the new session to the existing (projected) entities map,
 		// replacing it wholesale would drop the projector's peer defs
 		// and break bound resolution downstream.
-		(e.doc as TimelineDocument).entities = {
+		e.doc.entities = {
 			...e.doc.entities,
 			sessions: {
 				...e.doc.entities?.sessions,

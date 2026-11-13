@@ -17,7 +17,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { MoveIntent, MoveSpanIntent } from "../../engine/authoring/moves.ts";
 import type { Engine } from "../../engine/engine.ts";
-import type { TimelineEvent } from "../../engine/timeline.ts";
 import { observationsOf } from "../../engine/temporal/recording-access.ts";
 import { formatClockTime as formatTime } from "../format.ts";
 import type { StageSelection } from "../../render/stage-selection.ts";
@@ -517,7 +516,7 @@ export function TimelinePanel(
 								doc={doc}
 								events={observationsOf(
 									doc,
-								) as readonly TimelineEvent[]}
+								)}
 								entities={doc.entities}
 								expandedLanes={view.expandedLanes}
 								expandedCategories={view.expandedCategories}

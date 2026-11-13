@@ -89,5 +89,5 @@ export function sessionOf(e: Engine, id = "s1") {
 }
 
 export function observations(e: Engine): readonly TimelineEvent[] {
-	return observationsOf(e.doc) as readonly TimelineEvent[];
+	return observationsOf(e.doc);
 }

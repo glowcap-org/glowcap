@@ -11,7 +11,7 @@
  */
 
 import { endpointNodeId } from "../../schema/session-end.ts";
-import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
+import type { TimelineDocument } from "../timeline.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
 import { containsTime } from "../temporal/range.ts";
 import { peerEffective, sessionEffective } from "../temporal/doc-resolver.ts";
@@ -49,7 +49,7 @@ export function topologyChanges(doc: TimelineDocument): TopologyChange[] {
 	const changes: TopologyChange[] = [];
 	const announcedPeers = new Set<string>();
 	const announcedSessions = new Set<string>();
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		switch (ev.kind) {
 			case "peer-joined":
 				announcedPeers.add(ev.peerId);

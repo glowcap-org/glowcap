@@ -14,6 +14,7 @@ import { parseEndpointStageId } from "../schema/session-end.ts";
 import { assertNever } from "./assert-never.ts";
 import { entityKey, type EntityKind, type EntityRef, type EntityRefKey, parseEntityKey } from "./entity-ref.ts";
 import type { SelectMode } from "./select-mode.ts";
+import { hasEntry } from "../engine/schema/entity-maps.ts";
 
 export type SelectionState = {
 	/** Inspector follow target. The current entity moves to the most
@@ -225,15 +226,15 @@ export function documentHolds(
 ): boolean {
 	switch (ref.kind) {
 		case "peer":
-			return entities?.peers?.[ref.id] !== undefined;
+			return hasEntry(entities?.peers, ref.id);
 		case "session":
-			return entities?.sessions?.[ref.id] !== undefined;
+			return hasEntry(entities?.sessions, ref.id);
 		case "message":
-			return entities?.messages?.[ref.id] !== undefined;
+			return hasEntry(entities?.messages, ref.id);
 		case "endpoint": {
 			const at = parseEndpointStageId(ref.id);
 			if (at === undefined) return false;
-			return entities?.sessions?.[at.sessionId] !== undefined;
+			return hasEntry(entities?.sessions, at.sessionId);
 		}
 	}
 }

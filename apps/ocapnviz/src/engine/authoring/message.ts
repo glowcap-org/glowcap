@@ -12,6 +12,7 @@ import { clearStart, setDuration, setStart } from "../temporal/time-span.ts";
 import { notFoundError, validationError } from "../errors.ts";
 import type { AuthoringContext } from "./context.ts";
 import { commitEntityAuthoring } from "./events.ts";
+import { ownEntry } from "../schema/entity-maps.ts";
 
 // Messages always have explicit duration once defined. Default
 // here matches DEFAULT_MESSAGE_FLIGHT_MS, same as the engine's
@@ -30,7 +31,7 @@ function syncMessageStart(
 	messageId: string,
 	startT: number,
 ): void {
-	const def = ctx.doc.entities?.messages?.[messageId];
+	const def = ownEntry(ctx.doc.entities?.messages, messageId);
 	if (!def) return;
 	def.timing = setStart(def.timing ?? defaultMessageTiming(), startT);
 }
@@ -39,7 +40,7 @@ function syncMessageStartCleared(
 	ctx: AuthoringContext,
 	messageId: string,
 ): void {
-	const def = ctx.doc.entities?.messages?.[messageId];
+	const def = ownEntry(ctx.doc.entities?.messages, messageId);
 	if (!def) return;
 	def.timing = clearStart(def.timing ?? defaultMessageTiming());
 }
@@ -49,7 +50,7 @@ function syncMessageDuration(
 	messageId: string,
 	duration: number,
 ): void {
-	const def = ctx.doc.entities?.messages?.[messageId];
+	const def = ownEntry(ctx.doc.entities?.messages, messageId);
 	if (!def) return;
 	def.timing = setDuration(def.timing ?? defaultMessageTiming(), duration);
 }
@@ -77,7 +78,7 @@ export function updateMessage(
 		swapDirection?: true;
 	},
 ): void {
-	const def = ctx.doc.entities?.messages?.[messageId];
+	const def = ownEntry(ctx.doc.entities?.messages, messageId);
 	if (!def) return;
 	const defPatch: {
 		label?: string;
@@ -89,7 +90,7 @@ export function updateMessage(
 	if (patch.sessionId !== undefined && patch.sessionId !== def.sessionId) {
 		// Validate: target session's endpoints must include both
 		// sender and receiver. Otherwise the message is malformed.
-		const target = ctx.doc.entities?.sessions?.[patch.sessionId];
+		const target = ownEntry(ctx.doc.entities?.sessions, patch.sessionId);
 		// An end holds an endpoint, not a peer id: comparing the two would be
 		// legal TypeScript and always false, so every move would be refused.
 		const targetA = target?.a.peer;
@@ -126,7 +127,7 @@ export function setMessageStart(
 	messageId: string,
 	t: number,
 ): void {
-	const def = ctx.doc.entities?.messages?.[messageId];
+	const def = ownEntry(ctx.doc.entities?.messages, messageId);
 	if (!def) {
 		ctx.emitError(notFoundError("message", messageId));
 		return;
@@ -166,7 +167,7 @@ export function setMessageDuration(
 	messageId: string,
 	duration: number,
 ): void {
-	const def = ctx.doc.entities?.messages?.[messageId];
+	const def = ownEntry(ctx.doc.entities?.messages, messageId);
 	if (!def) {
 		ctx.emitError(notFoundError("message", messageId));
 		return;
@@ -204,7 +205,7 @@ export function setMessageEnd(
 	messageId: string,
 	arrivalT: number,
 ): void {
-	const def = ctx.doc.entities?.messages?.[messageId];
+	const def = ownEntry(ctx.doc.entities?.messages, messageId);
 	if (!def) {
 		ctx.emitError(notFoundError("message", messageId));
 		return;
