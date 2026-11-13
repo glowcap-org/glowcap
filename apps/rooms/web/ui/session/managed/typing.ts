@@ -4,12 +4,14 @@
 // A line ends its author's typing where it arrives. While a line with nothing
 // to upload is on its way, its conversation's typing waits for it, and the
 // level its composer asks for last is read when the line settles. A line that
-// lands was the stop. No stop follows it unless a start was still on its way
-// when the line left, and a member typing a newer draft is said again because
-// the line ended what was said before it. A line the room refused stopped
-// nothing, so the level asked for is sent either way. A line typing did not
-// wait for ends typing the same way, so a member still typing when it lands
-// is said again then.
+// lands was the stop. That holds for a start still on its way when the line
+// left: the session forwards what one source is asked in the order it was
+// asked, so that start reaches the conversation ahead of the line. A member
+// typing a newer draft is said again because the line ended what was said
+// before it.
+// A line the room refused stopped nothing, so the level asked for is sent
+// either way. A line typing did not wait for ends typing the same way, so a
+// member still typing when it lands is said again then.
 // A rate-limited level waits out the room's stated delay and is sent again
 // unless a newer one replaced it. Any other refusal ends typing for that
 // conversation.
@@ -30,12 +32,8 @@ export class ManagedTyping {
 	/** The level each conversation's composer asked for last, until the
 	 * conversation hears a stop. A line that settles reads it. */
 	readonly #asked = new Map<string, Level>();
-	/** Conversations with a line on its way. Each holds the start that was on
-	 * its way when the draft left, if one was: it can reach the conversation
-	 * behind the line, so the line is not its stop. */
-	readonly #lineOut = new Map<string, Level | null>();
-	/** The level whose call is on its way to the conversation. */
-	#sending: Level | null = null;
+	/** Conversations with a line on its way. */
+	readonly #lineOut = new Set<string>();
 	#sender: { id: string; selected: string; handle: RoomsManagedTyping } | null = null;
 	#running: Promise<void> | null = null;
 	#stopped = false;
@@ -46,17 +44,15 @@ export class ManagedTyping {
 	/** A line is leaving conversation `id`. The composer sends one at a time.
 	 * A level not yet sent waits with it. */
 	lineLeft(id: string): void {
-		this.#lineOut.set(id, this.#sending?.id === id && this.#sending.on ? this.#sending : null);
+		this.#lineOut.add(id);
 		this.#desired.delete(id);
 	}
 	/** The line from conversation `id` landed there, or did not. */
 	lineSettled(id: string, landed: boolean): Promise<void> {
-		const behind = this.#lineOut.get(id);
-		if (behind === undefined) return Promise.resolve();
-		this.#lineOut.delete(id);
+		if (!this.#lineOut.delete(id)) return Promise.resolve();
 		const asked = this.#asked.get(id);
 		if (asked == null) return Promise.resolve();
-		if (landed && !asked.on && behind == null) {
+		if (landed && !asked.on) {
 			this.#asked.delete(id);
 			return Promise.resolve();
 		}
@@ -118,14 +114,9 @@ export class ManagedTyping {
 				// meanwhile holds the level, and a newer level or a conversation
 				// that is gone leaves nothing of it to send.
 				if (this.#lineOut.has(desired.id) || this.#asked.get(desired.id) !== desired) continue;
-				this.#sending = desired;
 				await this.#sender.handle.set(desired.on);
-				this.#sending = null;
 				if (!desired.on && this.#asked.get(desired.id) === desired) this.#asked.delete(desired.id);
 			} catch (error) {
-				this.#sending = null;
-				// Nobody heard a start the conversation refused.
-				if (this.#lineOut.get(desired.id) === desired) this.#lineOut.set(desired.id, null);
 				const delay = roomsErrorIn(error)?.retryAfterMs ?? null;
 				if (delay != null) {
 					// A level the room asked to hear again later is sent again
