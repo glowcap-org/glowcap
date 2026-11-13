@@ -9,12 +9,14 @@
 //
 // A row on its way to its place can be drawn past the log's end. The reader
 // stays at the end through that, and through a line that lands while such a
-// row is still on its way. The last part holds both, with the moves slowed so
-// that the second line lands inside the first one's move.
+// row is still on its way. The last part holds both, with every move held at
+// its start so that the second line lands while the first is as far out as it
+// gets.
 
 import type { Browser, Page } from "playwright";
 import { fail } from "../support/fail.ts";
 import { joinAs } from "../support/join.ts";
+import { NEAR_END } from "../../web/ui/panes/log_travel.tsx";
 import { awaitBubble, say } from "./harness.ts";
 
 const ROOM = "travel";
@@ -29,13 +31,11 @@ function tall(what: string): string {
 }
 const TALL = tall("a line");
 const BEHIND = tall("the line behind it");
-/** How far from the end the page still counts a reader as reading the newest
- * line. The tall line has to draw its group farther past the end than this. */
-const AT_END = 80;
 
 type Moves = { rows: number; rolls: number; members: number; all: number };
 
-/** Count the moves the page starts from script from here on, by what moves. */
+/** Count the moves the page starts from script from here on, by what moves,
+ * and hold each at its start while the reader's moves are held. */
 async function countMoves(tab: Page): Promise<void> {
 	await tab.evaluate(() => {
 		const counted = document.documentElement.dataset;
@@ -46,34 +46,34 @@ async function countMoves(tab: Page): Promise<void> {
 			if (this.parentElement?.id === "log") count("proofRowMoves");
 			if (this.parentElement?.id === "members") count("proofMemberMoves");
 			if (this.classList.contains("rolling-count")) count("proofRollMoves");
-			// A slowed move runs at an even pace, so how far along it is
-			// follows from how long ago it started.
-			const slowed = Number(counted.proofSlowed ?? 1);
-			const paced = slowed !== 1 && typeof timing === "object" && typeof timing.duration === "number"
-				? { ...timing, duration: timing.duration * slowed, easing: "linear" }
-				: timing;
-			return animate.call(this, frames, paced);
+			const move = animate.call(this, frames, timing);
+			if (counted.proofHeld === "1") move.pause();
+			return move;
 		};
 	});
 }
 
-/** Slow this reader's moves from here on, and record how far the log reports
- * itself past where its reader is. A reader at the end is at no distance from
- * it, so that distance is how far rows in motion are drawn past the end. */
-async function slowAndMeasure(tab: Page, slowed: number): Promise<void> {
-	await tab.evaluate((slowed) => {
-		const counted = document.documentElement.dataset;
-		counted.proofSlowed = String(slowed);
-		counted.proofPastEnd = "0";
-		const measure = () => {
-			const log = document.getElementById("log");
-			if (log == null) return;
-			const past = log.scrollHeight - log.scrollTop - log.clientHeight;
-			counted.proofPastEnd = String(Math.max(Number(counted.proofPastEnd), past));
-			requestAnimationFrame(measure);
-		};
-		requestAnimationFrame(measure);
-	}, slowed);
+/** Hold every move this reader is started at its start, or let them all run. */
+async function holdMoves(tab: Page, held: boolean): Promise<void> {
+	await tab.evaluate((held) => {
+		document.documentElement.dataset.proofHeld = held ? "1" : "0";
+		if (held) return;
+		for (const move of document.getAnimations()) if (move.playState === "paused") move.play();
+	}, held);
+}
+
+/** How far the log reports itself past where its reader is, once the page has
+ * been told of every scroll so far. A reader at the end is at no distance from
+ * it, so this is how far rows in motion are drawn past the end. */
+async function pastEnd(tab: Page, who: string): Promise<number> {
+	const past = await tab.evaluate(async () => {
+		// A scroll is told to the page before the frame after it is drawn.
+		await new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn)));
+		const log = document.getElementById("log");
+		return log == null ? null : log.scrollHeight - log.scrollTop - log.clientHeight;
+	});
+	if (past == null) fail(`${who} has no log to read`);
+	return past;
 }
 
 async function moves(tab: Page): Promise<Moves> {
@@ -149,33 +149,36 @@ export async function run(browser: Browser, port: number): Promise<void> {
 
 		// A tall line joins its author's group, so the group grows by more than
 		// the room under the log and starts its move drawn past the log's end.
-		// A second tall line lands while the group is still out there.
+		// The move is held there while a second tall line lands. A reader the
+		// page kept at the end is as far from the log's reported end after
+		// the second line as after the first, because the one group is still
+		// drawn where it was.
 		await say(calm, SHORT);
 		await awaitBubble(moving, SHORT, "travel-moving");
 		await rowsAtRest(moving, "travel-moving");
-		await slowAndMeasure(moving, 20);
+		await holdMoves(moving, true);
 		await say(calm, TALL);
 		await awaitBubble(moving, TALL, "travel-moving");
+		const first = await pastEnd(moving, "travel-moving");
+		if (first <= NEAR_END) {
+			fail(`the tall line drew its group ${first}px past the log's end, too little to hold anything`);
+		}
 		await say(third, BEHIND);
 		await awaitBubble(moving, BEHIND, "travel-moving");
+		const second = await pastEnd(moving, "travel-moving");
+		if (Math.abs(second - first) > 2) {
+			fail(
+				`a line that landed behind a group drawn ${first}px past the log's end left its reader ${second}px from the end the log reports`,
+			);
+		}
+		await holdMoves(moving, false);
 		await rowsAtRest(moving, "travel-moving");
 		await say(calm, LAST);
 		await awaitBubble(moving, LAST, "travel-moving");
 		await rowsAtRest(moving, "travel-moving");
-		const end = await moving.evaluate(() => {
-			const log = document.getElementById("log");
-			return {
-				short: log == null ? null : log.scrollHeight - log.scrollTop - log.clientHeight,
-				pastEnd: Number(document.documentElement.dataset.proofPastEnd),
-			};
-		});
-		if (end.pastEnd <= AT_END) {
-			fail(`the tall line drew its group ${end.pastEnd}px past the log's end, too little to hold anything`);
-		}
-		if (end.short == null || end.short > 1) {
-			fail(
-				`a reader at the end of the log was left ${end.short}px short of it after two tall lines and the next`,
-			);
+		const short = await pastEnd(moving, "travel-moving");
+		if (short > 1) {
+			fail(`a reader at the end of the log was left ${short}px short of it after two tall lines and the next`);
 		}
 	} finally {
 		for (const tab of tabs) await tab.context().close();

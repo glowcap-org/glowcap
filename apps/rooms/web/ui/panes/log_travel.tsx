@@ -125,6 +125,16 @@ function underway(row: Element): number {
 	return row.getAnimations().length === 0 ? 0 : new DOMMatrixReadOnly(getComputedStyle(row).transform).m42;
 }
 
+/** Where the log puts the bottom of its last row, whatever move the row is on. */
+function restingBottom(last: Element): number {
+	return last.getBoundingClientRect().bottom - underway(last);
+}
+
+/** How close to the log's end still counts as reading its newest line. A row
+ * drawn farther past the end than this, and counted as log, would read as the
+ * reader having left the end. */
+export const NEAR_END = 80;
+
 /** How far a log that scrolls reports itself longer than it is. A scroll
  * region counts what is drawn in it, so a row drawn past the log's end
  * lengthens it until the row arrives. Every row in motion is measured: a row
@@ -140,18 +150,19 @@ export function overhang(log: Element): number {
 	if (farthest === -Infinity) return 0;
 	const under = (parseFloat(getComputedStyle(log).paddingBottom) || 0) +
 		(parseFloat(getComputedStyle(last).marginBottom) || 0);
-	const end = last.getBoundingClientRect().bottom - underway(last) + under;
+	const end = restingBottom(last) + under;
 	return Math.max(0, Math.floor(farthest - end));
 }
 
 /** The place a new row drawn lower would lengthen what the log can scroll:
  * the end of a log that scrolls, under its last row and the room the composer
- * stands in. A log that cuts off what passes its end, as the page that
- * scrolls whole does, has no such place. */
+ * stands in. The last row's own margin is left as room. A log that cuts off
+ * what passes its end, as the page that scrolls whole does, has no such place. */
 function endOf(log: Element): number {
 	const style = getComputedStyle(log);
 	if (style.overflowY === "clip") return Infinity;
-	return (log.lastElementChild?.getBoundingClientRect().bottom ?? 0) + (parseFloat(style.paddingBottom) || 0);
+	const last = log.lastElementChild;
+	return (last == null ? 0 : restingBottom(last)) + (parseFloat(style.paddingBottom) || 0);
 }
 
 /** Send each row from where it stood to where the log now puts it. */

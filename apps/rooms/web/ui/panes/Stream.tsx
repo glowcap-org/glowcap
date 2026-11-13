@@ -30,10 +30,7 @@ import { useRoomsState } from "../hooks.ts";
 import { NO_DRAFT } from "../store.ts";
 import { ScrollMemory } from "../scroll_memory.ts";
 import { PRESENTATION, useProgress } from "../presentation.ts";
-import { type LogStanding, LogStood, overhang, travel } from "./log_travel.tsx";
-
-// How close to the end still counts as "reading the newest message".
-const AT_BOTTOM_SLACK = 80;
+import { type LogStanding, LogStood, NEAR_END, overhang, travel } from "./log_travel.tsx";
 
 export function Stream(
 	{
@@ -124,7 +121,7 @@ export function Stream(
 
 	const atBottom = useCallback((): boolean => {
 		const e = scroller();
-		return !e || e.scrollHeight - past(e) - e.scrollTop - e.clientHeight < AT_BOTTOM_SLACK;
+		return !e || e.scrollHeight - past(e) - e.scrollTop - e.clientHeight < NEAR_END;
 	}, [scroller, past]);
 
 	const toEnd = useCallback((e: Element): void => {
