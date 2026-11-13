@@ -23,6 +23,9 @@ export function fixture(powers: Partial<CommandPowers> = {}, result?: unknown) {
 	const completion = Promise.withResolvers<void>();
 	const drafts: [string, string][] = [];
 	const commands: [string, string[]][] = [];
+	const linesLeft: string[] = [];
+	const linesSettled: [string, boolean | null][] = [];
+	const linesLanded: string[] = [];
 	let acquisitions = 0;
 	const session = {
 		pending: [],
@@ -31,6 +34,18 @@ export function fixture(powers: Partial<CommandPowers> = {}, result?: unknown) {
 			stage: (id: string, text: string) => drafts.push([id, text]),
 			flush: () => Promise.resolve(),
 			sync() {},
+		},
+		typing: {
+			lineLeft: (id: string) => linesLeft.push(id),
+			forget: (id: string) => linesSettled.push([id, null]),
+			lineLanded: (id: string) => {
+				linesLanded.push(id);
+				return Promise.resolve();
+			},
+			lineSettled: (id: string, landed: boolean) => {
+				linesSettled.push([id, landed]);
+				return Promise.resolve();
+			},
 		},
 		command: (verb: string, args: string[]) => {
 			commands.push([verb, args]);
@@ -70,6 +85,9 @@ export function fixture(powers: Partial<CommandPowers> = {}, result?: unknown) {
 		completion,
 		drafts,
 		commands,
+		linesLeft,
+		linesSettled,
+		linesLanded,
 		acquisitions: () => acquisitions,
 		close,
 	};

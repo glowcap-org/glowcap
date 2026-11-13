@@ -474,11 +474,12 @@ export class DirectMessage {
 	}
 
 	/** Flag whether we are typing to this peer. This is the direct sibling of
-	 * `Room.setTyping` with the same posture: fire-and-forget (`tell`), so a
-	 * lost flag costs nothing and never blocks a keystroke, and an inbox that
-	 * predates the verb breaks the tell silently. */
+	 * `Room.setTyping` with the same lease and the same posture: said again
+	 * every `TYPING_RENEW_MS` while the member keeps typing, ended by a line
+	 * with no off, and fire-and-forget (`tell`), so a lost flag never blocks a
+	 * keystroke. An inbox that predates the verb breaks the tell silently. */
 	typing(on: boolean): Promise<void> {
-		// best-effort: a lost flag is the whole loss; the next keystroke sends another.
+		// best-effort: a lost flag is the whole loss, and a renewal or the expiry repairs it.
 		return this.#session.tell(this.#target(), TYPING, [on]).catch(() => {});
 	}
 }

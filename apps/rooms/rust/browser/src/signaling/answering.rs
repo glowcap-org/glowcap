@@ -114,7 +114,16 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 					None => unreachable!("nonempty answering workers"),
 				},
 				event = inbox.next() => {
-					if let Err(error) = directory.check().await { break Err(error.into()); }
+					// An offer opens an exchange, so it is admitted under a
+					// registration that still stands, and an inbox that ended
+					// names a lost registration as its cause. A candidate only
+					// feeds an exchange already admitted, and `answer` asks again
+					// when the channel opens and when its handshake completes.
+					if !matches!(event, Ok(Some(policy::Incoming::Candidate { .. })))
+						&& let Err(error) = directory.check().await
+					{
+						break Err(error.into());
+					}
 					match event {
 					Err(error) => break Err(error.into()),
 					Ok(None) => break Ok(()),

@@ -321,6 +321,18 @@ How each kind of change shows while it is pending:
   permission summary when the control can inspect a conflicting edit. Recovery stays reachable when refresh removes
   editing powers. Entry action groups wrap within their row on phones.
 - Typing expires with its authority and records a bounded diagnostic instead of a toast per keystroke.
+- Typing starts at a keystroke, never at focus on a draft kept from earlier, a draft put back after a refused send,
+  or a change to a line already said. While a member keeps typing, the page renews the level on a timer shorter
+  than a reader's wait. A stop names the conversation that heard the start.
+- A line is its author's typing stop. While a line with no files to upload is on its way, its conversation's typing
+  waits: no stop goes beside the line, typing for the next draft follows it, and a line the room refuses is
+  followed by the level the composer asked for last. A start still on its way when the line leaves is followed
+  by its stop.
+- A member still typing when a line they sent lands, an uploaded one included, is said again, because the line
+  ended what the room heard before it. A line picked up after a reload lands with no word to typing, and the next
+  renewal says a member who is typing again.
+- A reader's page clears the author's indicator when the line arrives, and clears a member's indicator when that
+  member leaves or goes offline. The Send button keeps the caret in the field, so pressing it is not a pause.
 - Sidebar-close and archive-drop refusals stay on their rows.
 
 A room post carries a bounded operation identity to its own membership's notification. The page reconciles that

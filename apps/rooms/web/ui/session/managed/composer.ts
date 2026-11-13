@@ -60,6 +60,8 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 	// conversation is a separate gesture; it cannot become an old receipt retry.
 	// The session's bounded completion registry retains uncertain submissions.
 	const retained = new WeakMap<Draft, string>();
+	/** Cleared drafts whose lines typing waits for. */
+	const linesOut = new WeakSet<Draft>();
 	async function gesture(
 		draft: Draft,
 		prepare: (id: string) => Promise<ManagedOperation>,
@@ -135,20 +137,51 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		return cleared;
 	}
 	function restoreSubmission(row: Conv, cleared: Draft, draft: Draft): void {
+		settleLine(row, cleared, false);
 		if (store.replaceDraft(projection, row.key, cleared, draft) && isSessionConv(row)) {
 			session.drafts.stage(row.persistId, draft.text);
 			session.drafts.sync(row.persistId);
 		}
+	}
+	/** Typing in `row` hears what became of the line `cleared` left as. When
+	 * it waited for the line it hears the first answer. A line it did not
+	 * wait for, an uploaded one or one whose answer came late, is told only
+	 * when it lands, because it ended this member's typing where it arrived. */
+	function settleLine(row: Conv, cleared: Draft | undefined, landed: boolean): void {
+		if (cleared == null || !isSessionConv(row)) return;
+		const waited = linesOut.delete(cleared);
+		if (!waited && !landed) return;
+		if (store.getConv(projection, row.key) == null) return session.typing.forget(row.persistId);
+		const told = waited
+			? session.typing.lineSettled(row.persistId, landed)
+			: session.typing.lineLanded(row.persistId);
+		void told.catch((error: unknown) => {
+			store.noteTrouble(projection, "typing", refusalText(error));
+		});
 	}
 	function start(row: Conv, draft: Draft, plan?: ComposerPlan, cleared?: Draft): Promise<void> {
 		plan ??= draft.changing == null ? planComposerSend(row, draft, powers) : undefined;
 		if ((plan?.kind === "command" || plan?.kind === "send") && !retained.has(draft)) {
 			cleared ??= clearSubmission(row, draft);
 		}
+		// A line with nothing to upload first ends this member's typing where
+		// it arrives, so the conversation's typing waits for it from here. A
+		// line that waits on its files, and one still queued behind another
+		// gesture, leave the stop to go out when the draft clears, and typing
+		// hears of that line when it lands.
+		if (cleared != null && isSessionConv(row) && plan?.kind === "send" && draft.files.length === 0) {
+			session.typing.lineLeft(row.persistId);
+			linesOut.add(cleared);
+		}
 		clearRefusal(projection, `send:${row.key}`);
 		const task = perform(row, draft, plan, cleared).catch((error: unknown) => {
 			if (!rememberRefusal(projection, `send:${row.key}`, error)) throw error;
-		}).finally(() => sending.delete(row.key));
+		}).finally(() => {
+			sending.delete(row.key);
+			// A line that neither landed nor came back has an outcome nobody
+			// knows yet. Typing does not wait on it.
+			settleLine(row, cleared, false);
+		});
 		sending.set(row.key, { draft, task });
 		return task;
 	}
@@ -253,6 +286,8 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			store.deliver(projection, row.key, { ...item, awaitingReceipt: true, retryable: false });
 			let confirmed = false;
 			const confirm = (completed?: CompletedLine) => {
+				// A recovered result confirms again, and the line landed once.
+				if (!confirmed) settleLine(row, cleared, true);
 				confirmed = true;
 				store.confirmSentLine(
 					projection,

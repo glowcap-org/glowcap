@@ -482,20 +482,14 @@ export const SIGNAL_EXCHANGE_TIMEOUT_MS = APPLICATION_DATA.SIGNAL_EXCHANGE_TIMEO
  * its Host moves to the next route. */
 export const SIGNAL_CONNECT_TIMEOUT_MS = APPLICATION_DATA.SIGNAL_CONNECT_TIMEOUT_MS;
 
-/** How long a member may pause mid-draft before we stop telling the room they
- * are typing. */
-export const TYPING_IDLE_MS = 4_000;
-
-/** How long another member's typing flag stands, unrefreshed, before a reader
- * clears it themselves. This guards against a dropped "stopped" leaving an
- * indicator up for good.
- *
- * Derived from the pause, because the two are one decision. A reader has to
- * wait longer than a sender pauses. Shorter, and the indicator would clear
- * while the sender still believes it is showing, then flick back on their next
- * keystroke. Written as a sum, raising the pause raises the wait with it, the
- * one relationship between them that has to hold. */
-export const TYPING_CLEAR_MS = TYPING_IDLE_MS + 2_000;
+/** How long a member may pause mid-draft before a client says they stopped
+ * typing. The application crate's `room::membership` owns the three typing
+ * durations and the reason for each. */
+export const TYPING_IDLE_MS = APPLICATION_DATA.TYPING_IDLE_MS;
+/** How often a client says again that its member is still typing. */
+export const TYPING_RENEW_MS = APPLICATION_DATA.TYPING_RENEW_MS;
+/** How long a typing flag stands with no renewal before a reader clears it. */
+export const TYPING_CLEAR_MS = APPLICATION_DATA.TYPING_CLEAR_MS;
 
 /** Which transport a session holds to the room server, named for the UI so it
  * can label a direct-message path ("encrypted iroh QUIC" vs "a direct TCP

@@ -1,5 +1,6 @@
 //! A dropped connection and an explicit room departure have different roster effects.
 use super::*;
+use crate::room::membership::{TYPING_CLEAR_MS, TYPING_RENEW_MS, TYPING_REPEAT_MS};
 
 #[test]
 fn disconnect_keeps_offline_presence_but_releases_the_live_seat() {
@@ -179,39 +180,70 @@ fn typing_renews_a_bounded_lease_and_unchanged_away_is_coalesced() {
 	let entrance = world.open(1, "Garden", RoomPolicy::Open);
 	let alice = world.join(1, &entrance, "Alice").membership;
 	world.join(2, &entrance, "Bob");
-	assert!(
+	let relayed = |world: &World, on: bool, now: u64| {
 		!world
 			.rooms
-			.typing_at(&entrance.room, alice, true, 0)
+			.typing_at(&entrance.room, alice, on, now)
 			.unwrap()
 			.tells
 			.is_empty()
+	};
+	assert!(relayed(&world, true, 0));
+	assert!(
+		!relayed(&world, true, TYPING_REPEAT_MS - 1),
+		"a start the room just relayed is not news"
+	);
+	// The latest a client can start its renewal clock with nothing relayed.
+	// The lease's own ordering holds its renewal inside the readers' wait.
+	let renewed = TYPING_REPEAT_MS - 1 + TYPING_RENEW_MS;
+	assert!(
+		relayed(&world, true, renewed),
+		"that client's renewal reaches the readers"
 	);
 	assert!(
-		world
-			.rooms
-			.typing_at(&entrance.room, alice, true, 1)
-			.unwrap()
-			.tells
-			.is_empty()
+		relayed(&world, true, renewed + TYPING_RENEW_MS),
+		"and so does the next, each one inside the wait a reader gives the last"
 	);
+	let lapsed = renewed + TYPING_RENEW_MS + TYPING_CLEAR_MS;
 	assert!(
-		!world
-			.rooms
-			.typing_at(&entrance.room, alice, true, 2500)
-			.unwrap()
-			.tells
-			.is_empty()
+		!relayed(&world, false, lapsed),
+		"a stop for a level every reader already dropped is not news"
 	);
+	assert!(relayed(&world, true, lapsed));
 	assert!(
-		world
-			.rooms
-			.typing_at(&entrance.room, alice, false, 8000)
-			.unwrap()
-			.tells
-			.is_empty()
+		relayed(&world, false, lapsed + TYPING_CLEAR_MS - 1),
+		"a stop is relayed for as long as a reader still shows the level"
 	);
 	assert!(world.rooms.away_needed(&entrance.room, alice, "away").unwrap());
 	world.rooms.away(&entrance.room, alice, "away").unwrap();
 	assert!(!world.rooms.away_needed(&entrance.room, alice, "away").unwrap());
+}
+
+#[test]
+fn a_posted_line_ends_its_authors_typing_without_a_notice() {
+	let mut world = World::new(false);
+	let entrance = world.open(1, "Garden", RoomPolicy::Open);
+	let alice = world.join(1, &entrance, "Alice").membership;
+	world.join(2, &entrance, "Bob");
+	world.rooms.typing_at(&entrance.room, alice, true, 0).unwrap();
+	let (_, posted) = world.rooms.post(&entrance.room, alice, "hello", 100).unwrap();
+	assert!(
+		posted
+			.effects
+			.tells
+			.iter()
+			.all(|tell| !matches!(tell.notice, Notice::Typing { .. })),
+		"the line is the only notice a post sends"
+	);
+	// The lease is over: a stop has nothing left to say, and the next start
+	// is told at once, where an unbroken lease would coalesce it.
+	assert!(!world.rooms.typing_needed(&entrance.room, alice, false, 101).unwrap());
+	assert!(
+		!world
+			.rooms
+			.typing_at(&entrance.room, alice, true, 102)
+			.unwrap()
+			.tells
+			.is_empty()
+	);
 }

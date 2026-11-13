@@ -449,6 +449,31 @@ later membership verb (`post`, `leave`, `away`, `typing`) goes to the seat, so a
 post needs no sender field: the seat is the membership. Leaving or
 disconnecting releases the nickname.
 
+`typing(on)` is a level the room relays to the other members and never
+records. The room holds it for `TYPING_CLEAR_MS` and a reader shows it that
+long, so a member still typing says so again every `TYPING_RENEW_MS`, and a
+reader drops an indicator nobody renewed. `room/membership.rs` in the
+application crate owns the three typing durations and their order. A posted
+line ends its author's typing. The room ends its hold with no notice, and a
+client that shows typing clears the author's indicator when the line arrives,
+so a line needs no `typing(false)`, and a client whose member is still typing
+when their own line lands says so again. A client clears the indicator of a
+member who leaves or goes offline the same way.
+
+A session asks the directory about its registered name (`signalCheck`) when
+a signaling route starts, after a retry or a failure, before it answers an
+offer, and at a workspace change once the last answer has grown old. The
+directory withdraws a name without telling its holder, so the last of these
+is how a session still in use hears of it.
+
+A line costs the sender one `post` and its answer, and each member one
+`notify`, the sender's own included. A typing level from a managed session
+costs one call and its answer, and each other member one `notify`. The answer
+is there because a session forwards every operation as a call. Arriving in a
+room is told as separate notices: what the room carries, its policy, its
+listing, the join, the roster, who is offline, one notice per member who is
+away, and the subject.
+
 The subject facet carries `setSubject(description, link?)`. Every participant
 is answered with one, and because it is a reference rather than a rank, a
 member can pass it to somebody who is not even in the room.

@@ -129,7 +129,7 @@ you to use or pass on, and the inbox is the one you make yourself.
 <article class="object" data-tone="own">
 <p class="object-name">inbox</p>
 <p class="object-from">You make it, and hand it to rooms and to the directory. Rooms call <code>notify</code> on it. Other members call the rest.</p>
-<p class="object-calls"><code>notify</code> <code>dm</code> <code>directReady</code> <code>handRoom</code> <code>offerRoom</code> <code>handArchive</code> <code>offerArchive</code> <code>offer</code> <code>candidate</code></p>
+<p class="object-calls"><code>notify</code> <code>dm</code> <code>typing</code> <code>directReady</code> <code>handRoom</code> <code>offerRoom</code> <code>handArchive</code> <code>offerArchive</code> <code>offer</code> <code>candidate</code></p>
 <p class="object-back">Receives every line a room sends you, whatever another member hands you directly, and the signaling offers and candidates a WebRTC exchange routes to you.</p>
 </article>
 </div>
@@ -163,12 +163,16 @@ every client being rebuilt first.
 | `withdrawn` | id | That line is taken back |
 | `roster` | names | Who is here, sent when you arrive |
 | `join`, `leave` | name | Someone came or went |
-| `typing` | name, on or off | Someone is typing, never stored |
+| `typing` | name, on or off | Someone is typing, never stored. It ends at off, at a line from that name, when that name leaves or goes offline, or after some seconds with no repeat |
 | `away` | name, reason | Someone stepped away. An empty reason means they are back |
 | `subject` | description, then an optional link | What the room is about. An empty description means taken down |
 | `line-bytes` | a number | The longest line this room will carry |
 | `listed`, `unlisted` | | Whether this room is on the public list, sent when you arrive |
 | `membershipEnded` | | This room has released the seat behind your inbox |
+
+Typing in a direct conversation ends the same way. A client whose member is
+still typing says on again before that time runs out, and again when a line
+it sent arrives while they type. It needs no off beside a line it sends.
 
 # How long each thing lives
 

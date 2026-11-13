@@ -14,6 +14,7 @@ use crate::{
 	files::FileDescription,
 	room::{
 		line::MAX_LINE_BYTES,
+		membership::{TYPING_CLEAR_MS, TYPING_REPEAT_MS},
 		message::{ChangeKind, LineId},
 		policy::MembershipKind,
 	},
@@ -118,7 +119,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				request: d.request,
 				normalized: false,
 			});
-		self.said(room, nick, text, previews, now, Vec::new(), receipt)
+		self.said(room, membership, nick, text, previews, now, Vec::new(), receipt)
 	}
 
 	/// Publish every file staged by this membership as one line. Wall time
@@ -191,13 +192,14 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			caption.into()
 		};
 		let previews = previews.retained_for(&caption);
-		self.said(room, nick, &caption, previews, wall_ms, files, receipt)
+		self.said(room, membership, nick, &caption, previews, wall_ms, files, receipt)
 	}
 
 	#[allow(clippy::too_many_arguments)]
 	fn said(
 		&mut self,
 		room: &RoomKey,
+		membership: MembershipKey,
 		nick: String,
 		text: &str,
 		previews: crate::open_graph::Selection,
@@ -278,6 +280,12 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		if let Some(token) = kept {
 			self.kept_lines.insert(token, key);
 		}
+		// A line says its author stopped typing. A member's client clears that
+		// flag when the line arrives, so the lease ends here with no notice of
+		// its own.
+		if let Some(author) = self.rooms.get(room).and_then(|room| room.member(membership)) {
+			author.typing_until.set(0);
+		}
 		self.broadcast_line(
 			room,
 			&mut effects,
@@ -320,7 +328,11 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		self.typing_at(room, membership, on, 0)
 	}
 	/// A receiver expires its own indicator. The server keeps only one scalar
-	/// lease per live member, no timer or queue of transient states.
+	/// lease per live member, no timer or queue of transient states. The lease
+	/// lasts as long as a reader shows the level. A start the room already
+	/// holds is news again once `TYPING_REPEAT_MS` of the lease has run. A
+	/// client that starts its renewal clock at a repeat the room did not relay
+	/// still renews inside the lease the readers hold.
 	pub fn typing_needed(
 		&self,
 		room: &RoomKey,
@@ -330,7 +342,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	) -> Result<bool, Refusal> {
 		let until = participant(&self.rooms, room, membership)?.typing_until.get();
 		Ok(if on {
-			until <= now.saturating_add(2500)
+			until <= now.saturating_add(TYPING_CLEAR_MS - TYPING_REPEAT_MS)
 		} else {
 			until > now
 		})
@@ -346,7 +358,9 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			return Ok(Effects::default());
 		}
 		let member = participant(&self.rooms, room, membership)?;
-		member.typing_until.set(if on { now.saturating_add(5000) } else { 0 });
+		member
+			.typing_until
+			.set(if on { now.saturating_add(TYPING_CLEAR_MS) } else { 0 });
 		let mut effects = Effects::default();
 		self.broadcast(
 			room,

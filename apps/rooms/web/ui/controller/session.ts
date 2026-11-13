@@ -83,7 +83,8 @@ export interface RoomsConversationController {
 	openFile(key: string, id: number): void;
 	openViewer(key: string, id: number): void;
 	stepViewer(direction: ViewerDirection): void;
-	setTyping(on: boolean): void;
+	/** Send the typing level for the conversation under `key`, on screen or not. */
+	setTyping(key: string, on: boolean): void;
 	setStanding(standing: string): Promise<void>;
 	setDirStanding(dir: DirId, standing: string | null): Promise<void>;
 	setRoomStanding(key: string, standing: string | null): Promise<void>;
