@@ -19,6 +19,7 @@
 // thing to read.
 
 import { bootAsides, bootNote, type BootPhase, bootStillOpening, bootStillOpeningStatic } from "../../lib/text/boot.ts";
+import { lessMotion } from "./motion.ts";
 import { servedByRooms } from "./page_base.ts";
 
 export type { BootPhase };
@@ -55,7 +56,7 @@ export function startBootAsides(): void {
 	if (timer !== undefined || aside() === null) return;
 	// A reader who asked for less motion gets one aside and no rotation: the
 	// point is something to read, not something to watch change.
-	const still = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+	const still = lessMotion();
 	showing = Math.floor(Math.random() * bootAsides.length);
 	const tick = () => {
 		const line = aside();

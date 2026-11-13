@@ -42,9 +42,25 @@ Releases before 0.1.7 are in the
 - The Rooms page says a member is typing when they edit a draft. Focus on a
   draft kept from earlier says nothing, and neither does changing a line
   already said.
+- The Rooms page moves what a change displaces. When a line lands, the rows
+  above it slide to their new places and the line rises with them. The
+  welcome card at the top of a conversation grows from the size it had, a
+  member who arrives fades into the member list, the member counts roll to a
+  new figure, and the message field eases between its states. Nothing waits
+  for a move, and a reader who asked for less motion gets none.
+- The Rooms page shows the placeholder for earlier history once the read has
+  run long enough to be a wait, as its other waits do. It drew the
+  placeholder at once, so a quick read laid the log out around it and again
+  without it.
 
 ### Fixed
 
+- The Rooms join card no longer says a name is already in use while that name
+  is this tab's own registration on a directory it just reached. A directory
+  lists a new member before it tells that member its name, so the card waits
+  for the grant before calling its own pending name taken.
+- The members button in the Rooms page counts nothing until the room has
+  said who is in it. It showed 0 while a join was on its way.
 - A Rooms session asks the server to recheck its registered name
   (`signalCheck`) when a signaling route starts, after a retry or a failure,
   and at a change to its saved state once the last answer has grown old. It

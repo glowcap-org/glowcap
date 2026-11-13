@@ -21,6 +21,10 @@ Visual rules:
 - The topbar stripe and the welcome card take their color from the sidebar row that opened the conversation. The
   sidebar header's teal-to-orange fade never changes, and orange controls stay orange.
 - Wrapped prose never ends with a single word on its last line, and a card heading breaks into even halves.
+- A change moves what it displaces. The rows above a line that lands slide to their new places and the line rises with
+  them, the welcome card grows from the size it had, a member who arrives fades into the list, and a count rolls to its
+  new figure. Nothing waits for a move: the log is laid out and scrolled at once, and only the drawing follows. A reader
+  who asked for less motion is shown each change where it ends, and so is a page that is out of sight.
 - A long refusal shows two lines where it appeared, and **Show** opens the rest on its own card.
 - Monospace is for things a person could type: addresses, commands, code, keys, and the clock. It renders larger than
   the sans-serif text, so beside it monospace steps down one size.
@@ -289,7 +293,7 @@ Presentation follows `presentation.ts`:
 
 | Feedback                                                                                 | Delay                        |
 | ---------------------------------------------------------------------------------------- | ---------------------------- |
-| Pressed control's busy decoration                                                        | 400ms                        |
+| Pressed control's busy decoration, placeholder for earlier history                       | 400ms                        |
 | Sending message                                                                          | 1s                           |
 | Joining or reconnecting decoration                                                       | 2s                           |
 | Failure, permission change, disabling a conflicting control, releasing a settled control | Immediate                    |

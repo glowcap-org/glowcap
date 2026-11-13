@@ -186,10 +186,10 @@
 	text-wrap: pretty;
 }
 
-/* Earlier messages arrive above the live log. Reserve their measure where they
-   will appear, so the empty column does not pretend the room has answered and
-   then jump when it does. The shared shimmer owns motion and its reduced-motion
-   answer. These lines own only the log-native shape. */
+/* Earlier messages arrive above the live log. Once reading them has run long
+   enough to be a wait, this stands where they will appear and has their
+   measure. The shared shimmer owns motion and its reduced-motion answer. These
+   lines own only the shape. */
 .history-loading {
 	align-self: flex-start;
 	box-sizing: border-box;

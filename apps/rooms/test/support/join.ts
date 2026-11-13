@@ -56,10 +56,32 @@ export async function joinAs(browser: Browser, port: number, nick: string, optio
 		await tab.fill("#nick", nick);
 	}
 	await tab.fill("#room", options.room ?? ROOM);
+	// A join that succeeds never tells its member their name is taken. The
+	// directory announces the registration this join makes, and the card must
+	// not read its own name back as somebody else's. What the card said about
+	// the name before the press is not the join's doing, so the watch starts at
+	// the press. It ends with the card.
+	await tab.evaluate(() => {
+		const said = () => document.getElementById("joinNickError")?.textContent ?? null;
+		let watching = false;
+		document.addEventListener("click", (press) => {
+			if (watching || !(press.target instanceof Element) || press.target.closest("#joinBtn") == null) return;
+			watching = true;
+			let stood = said();
+			new MutationObserver((_, watch) => {
+				const now = said();
+				if (now != null && now !== stood) document.documentElement.dataset.proofNickRefusal = now;
+				stood = now;
+				if (document.getElementById("joinScreen") == null) watch.disconnect();
+			}).observe(document.body, { childList: true, subtree: true, characterData: true });
+		}, { capture: true });
+	});
 	await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
 		const status = await tab.textContent("#status").catch(() => "?");
 		fail(`${nick} never joined; status="${status}"`);
 	});
+	const refused = await tab.evaluate(() => document.documentElement.dataset.proofNickRefusal ?? null);
+	if (refused != null) fail(`${nick} joined and was told on the way: ${JSON.stringify(refused)}`);
 	return tab;
 }

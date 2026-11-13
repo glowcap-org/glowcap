@@ -1,7 +1,7 @@
 //! Read-only nickname projection for keyboard-time feedback. The server's
 //! atomic register remains authoritative. This only interprets bounded live
 //! evidence already held by the browser.
-use rooms_application::directory::registration::{nickname_availability, suggested_nick};
+use rooms_application::directory::registration::{OwnNick, nickname_availability, suggested_nick};
 use wasm_bindgen::prelude::*;
 
 const MAX_EVIDENCE_BYTES: usize = 128 * 1024;
@@ -35,17 +35,25 @@ fn names(raw: Option<js_sys::Array>) -> Result<Option<Vec<String>>, JsValue> {
 #[wasm_bindgen(js_name = nicknameAvailability)]
 pub fn nickname_availability_js(
 	nick: js_sys::JsString,
-	own: Option<js_sys::JsString>,
+	granted: Option<js_sys::JsString>,
+	requested: Option<js_sys::JsString>,
 	directory: Option<js_sys::Array>,
 	room: Option<js_sys::Array>,
 ) -> Result<String, JsValue> {
 	let nick = String::from(nick);
-	let own = own.map(String::from);
+	let granted = granted.map(String::from);
+	let requested = requested.map(String::from);
+	let own = match (granted.as_deref(), requested.as_deref()) {
+		(Some(_), Some(_)) => return Err(JsValue::from_str("a nickname is either granted or requested")),
+		(Some(name), None) => Some(OwnNick::Granted(name)),
+		(None, Some(name)) => Some(OwnNick::Requested(name)),
+		(None, None) => None,
+	};
 	let directory = names(directory)?;
 	let room = names(room)?;
 	let answer = nickname_availability(
 		&nick,
-		own.as_deref(),
+		own,
 		directory.as_ref().map(|values| values.iter().map(String::as_str)),
 		room.as_ref().map(|values| values.iter().map(String::as_str)),
 	);

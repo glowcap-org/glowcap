@@ -211,21 +211,31 @@ Deno.test("room nickname availability uses only live registration or exact roste
 	]]);
 	const target = { directory: HOME, link: null, room: "GENERAL" };
 	assert(
-		joinNick.joinNickAvailability("alice", target, "home-name", null, conversations, members).kind === "taken",
+		joinNick.joinNickAvailability("alice", target, { granted: "home-name" }, null, conversations, members).kind ===
+			"taken",
 		"a folded roster collision was not known to be taken",
 	);
-	const taken = joinNick.joinNickAvailability("Alice", target, "home-name", null, conversations, members);
+	const taken = joinNick.joinNickAvailability(
+		"Alice",
+		target,
+		{ granted: "home-name" },
+		null,
+		conversations,
+		members,
+	);
 	assert(
 		taken.kind === "taken" && taken.source === "room" && taken.suggestion === "Alice-3",
 		"the room collision did not skip an occupied suffix",
 	);
 	assert(
-		joinNick.joinNickAvailability("home-name", target, "home-name", null, conversations, members).kind ===
+		joinNick.joinNickAvailability("home-name", target, { granted: "home-name" }, null, conversations, members)
+			.kind ===
 			"available",
 		"the reader's own granted room seat was called a collision",
 	);
 	assert(
-		joinNick.joinNickAvailability("new-name", target, "home-name", null, conversations, members).kind ===
+		joinNick.joinNickAvailability("new-name", target, { granted: "home-name" }, null, conversations, members)
+			.kind ===
 			"available",
 		"an absent name in a received roster was not known to be available",
 	);
@@ -233,7 +243,7 @@ Deno.test("room nickname availability uses only live registration or exact roste
 		joinNick.joinNickAvailability(
 			"alice",
 			{ ...target, room: "elsewhere" },
-			"home-name",
+			{ granted: "home-name" },
 			null,
 			conversations,
 			members,
@@ -242,13 +252,14 @@ Deno.test("room nickname availability uses only live registration or exact roste
 		"one room's roster claimed knowledge about another room",
 	);
 	assert(
-		joinNick.joinNickAvailability("alice", target, "home-name", null, conversations, new Map()).kind === "unknown",
+		joinNick.joinNickAvailability("alice", target, { granted: "home-name" }, null, conversations, new Map())
+			.kind === "unknown",
 		"a missing roster was mistaken for an empty authoritative one",
 	);
 	const directoryTaken = joinNick.joinNickAvailability(
 		"alice",
 		{ ...target, room: "a room this tab has never joined" },
-		"home-name",
+		{ granted: "home-name" },
 		["Alice", "alice-2"],
 		new Map(),
 		new Map(),
@@ -257,6 +268,17 @@ Deno.test("room nickname availability uses only live registration or exact roste
 		directoryTaken.kind === "taken" && directoryTaken.source === "directory" &&
 			directoryTaken.suggestion === "alice-3",
 		"a live directory registration did not reserve its name or skip its occupied suffix",
+	);
+	assert(
+		joinNick.joinNickAvailability(
+			"alice",
+			{ ...target, room: "a room this tab has never joined" },
+			{ requested: "Alice" },
+			["Alice", "alice-2"],
+			new Map(),
+			new Map(),
+		).kind === "unknown",
+		"this tab's own pending registration, listed before its grant, was called a collision",
 	);
 });
 
