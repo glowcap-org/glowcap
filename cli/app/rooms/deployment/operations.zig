@@ -56,7 +56,7 @@ pub fn selectImage(state: Config, docker: Docker, image: []const u8, build: []co
 /// An `up` or `reset` that keeps the selected image says so, with the revision
 /// that image was built from: an operator who rebuilt the product and ran
 /// reset otherwise sees fresh data on old code and no reason why.
-pub fn announceKept(state: Config, docker: Docker) !void {
+fn announceKept(state: Config, docker: Docker) !void {
     const id = try state.image() orelse return;
     log.writeMsg(state.io, try state.gpa.print("Keeping the selected image {s} at revision {s}. Pass --build <product> or --image <reference> to deploy another.\n", .{
         short(id), try imageRevision(docker, id),

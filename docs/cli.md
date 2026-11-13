@@ -216,7 +216,8 @@ quit
 `Tab` completes and `F1` shows the full key map. Mouse, selection, scrolling,
 and clipboard behavior are documented in-app. `GLOWCAP_REPL_QUIET=1` skips the
 one-line greeting, `GLOWCAP_REPL_NO_MOUSE=1` turns mouse handling off, and
-`GLOWCAP_REPL_REDUCED_MOTION=1` shortens the flash and motion.
+`GLOWCAP_REPL_REDUCED_MOTION=1` turns off the flash on a table that changed
+and holds the wait spinner on one glyph.
 
 ## Use glowcap from an agent (MCP)
 

@@ -22,7 +22,7 @@ const engine = glowcap.ocapn.engine;
 /// hash order, so "the first row" would name a different import from one
 /// build to the next. The lowest and highest positions are the same rows every
 /// time, and a program that needs one of them can say which.
-pub const ImportPick = enum { lowest, highest };
+const ImportPick = enum { lowest, highest };
 
 /// The position of some import this peer holds, or null when it holds
 /// none. A release for a position nobody holds is refused before it reaches any
@@ -57,7 +57,7 @@ pub fn heldImport(peer: *engine.Peer, releasable_only: bool, pick: ImportPick) ?
 /// The lowest wire position of a question this peer asked and still holds, or
 /// null when it holds none. Lowest, for the same reason `heldImport` picks by
 /// position rather than table order.
-pub fn heldOutboundAnswer(peer: *engine.Peer) ?u64 {
+fn heldOutboundAnswer(peer: *engine.Peer) ?u64 {
     const Found = struct {
         position: ?u64 = null,
         fn take(self: *@This(), view: glowcap.ocapn.session.AnswerRowView) void {
@@ -80,7 +80,7 @@ pub fn heldOutboundAnswer(peer: *engine.Peer) ?u64 {
 /// available: not a finding, not a failure, just a sweep that stops making
 /// progress and looks like a slow one. `pairing` bounds its own shuttle for the
 /// same reason.
-pub const drain_step_cap: usize = 256;
+const drain_step_cap: usize = 256;
 
 /// Step a peer until it has nothing left to do, or say it is stuck.
 ///

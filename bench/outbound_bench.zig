@@ -54,8 +54,8 @@ const target_import: u64 = 5;
 /// dimensionless (the same code at two sizes), so machine speed cancels out
 /// of it entirely: a reintroduced per-position scan shows as roughly
 /// Q-proportional growth against a measured noise floor near 1.2.
-pub const gate_outbound_send_ceiling_ns: f64 = 8_000;
-pub const gate_storm_growth_ceiling: f64 = 3.0;
+const gate_outbound_send_ceiling_ns: f64 = 8_000;
+const gate_storm_growth_ceiling: f64 = 3.0;
 
 const gate_batches = 5;
 const gate_iters_per_batch = 20_000;

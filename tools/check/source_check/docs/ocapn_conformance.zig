@@ -237,7 +237,7 @@ fn checkSuite(
     }
 }
 
-pub const SuitePlanEntry = struct { name: []const u8, state: []const u8, decision: []const u8 };
+const SuitePlanEntry = struct { name: []const u8, state: []const u8, decision: []const u8 };
 
 /// Execution consumes the same reviewed rows as the accounting gate. The
 /// caller validates the manifest first. Returned strings belong to `arena`.

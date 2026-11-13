@@ -51,7 +51,7 @@ pub const Event = union(enum) {
     captp_outcome: struct { id: u8, detail: []const u8 },
 
     /// Render as one NDJSON line, including the trailing newline.
-    pub fn writeJson(self: Event, out: *std.ArrayList(u8), gpa: std.mem.Allocator, clock: u64) !void {
+    fn writeJson(self: Event, out: *std.ArrayList(u8), gpa: std.mem.Allocator, clock: u64) !void {
         const t = clock * ns_per_tick;
         try out.print(gpa, "{{\"v\":{d},\"sim_t_ns\":{d},\"kind\":\"{s}\"", .{
             schema_version,

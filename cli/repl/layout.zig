@@ -30,12 +30,12 @@ pub const Geom = struct {
     rows: u16,
 };
 
-pub const split_min_cols: u16 = 80;
+const split_min_cols: u16 = 80;
 pub const rail_min_w: u16 = 26;
-pub const rail_max_w: u16 = 36;
+const rail_max_w: u16 = 36;
 /// Prompt dock: border + input + footer tip = 4 when roomy.
-pub const prompt_comfort_h: u16 = 4;
-pub const prompt_min_h: u16 = 3;
+const prompt_comfort_h: u16 = 4;
+const prompt_min_h: u16 = 3;
 
 /// Layout for a terminal of any size. A zero dimension counts as one.
 /// `guide` reserves the stage strip for the optional CapTP walkthrough.
@@ -189,7 +189,7 @@ pub const ScreenRect = struct {
 };
 
 /// Inside a vaxis child created with `.border = .all` (1 cell each side).
-pub fn insideAllBorder(frame_x: u16, frame_y: u16, frame_w: u16, frame_h: u16) ScreenRect {
+fn insideAllBorder(frame_x: u16, frame_y: u16, frame_w: u16, frame_h: u16) ScreenRect {
     return .{
         .x = frame_x +| 1,
         .y = frame_y +| 1,
@@ -209,10 +209,4 @@ pub fn contentBelowTitle(frame_x: u16, frame_y: u16, frame_w: u16, frame_h: u16)
         .w = inner.w,
         .h = inner.h -| 1,
     };
-}
-
-/// Drawable transcript rows inside a bordered pane with a 1-row title.
-/// `transcript_h` is the outer frame height passed to `win.child` (includes border).
-pub fn transcriptInnerH(transcript_h: u16) u16 {
-    return contentBelowTitle(0, 0, 80, transcript_h).h;
 }

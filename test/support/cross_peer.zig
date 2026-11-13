@@ -49,7 +49,7 @@ fn startSessionWithKey(key: []const u8) model.Message {
 /// admission needs the local key to decide whether a give is addressed to this
 /// recipient. An open production session always learned both keys during its
 /// handshake, so a keyless Peer is not a valid handoff recipient fixture.
-pub fn openPeerWithSessionKeys(
+fn openPeerWithSessionKeys(
     allocator: std.mem.Allocator,
     local_key: []const u8,
     partner_key: []const u8,

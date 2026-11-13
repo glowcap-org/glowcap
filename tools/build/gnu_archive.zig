@@ -171,7 +171,7 @@ const testing = std.testing;
 
 /// The symbol table a fixture carries: 32-bit offsets under `/`, or the
 /// 64-bit offsets under `/SYM64/` that Zig writes for x86_64.
-pub const SymbolTable = enum {
+const SymbolTable = enum {
     narrow,
     wide,
 

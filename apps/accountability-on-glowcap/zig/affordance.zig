@@ -30,10 +30,10 @@ pub const AFFORDANCE_NAME = "affordance";
 pub const frame_cap: usize = 1 << 16;
 
 /// Environment override for gate runs that must not dirty the source tree.
-pub const data_root_env = "GLOWCAP_ACCOUNTABILITY_DATA_ROOT";
+const data_root_env = "GLOWCAP_ACCOUNTABILITY_DATA_ROOT";
 /// The root the public demo stores its `.data/` under. Each host owns a
 /// subdirectory.
-pub const default_data_root = "apps/accountability-on-glowcap/.data";
+const default_data_root = "apps/accountability-on-glowcap/.data";
 
 pub fn dataRoot(init: std.process.Init) []const u8 {
     return init.environ_map.get(data_root_env) orelse default_data_root;

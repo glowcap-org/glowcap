@@ -17,7 +17,7 @@ const Window = vaxis.Window;
 const session_mod = glowcap.ocapn.session;
 const Slot = session_mod.slot.Slot;
 
-pub fn slotKindLabel(s: Slot) []const u8 {
+fn slotKindLabel(s: Slot) []const u8 {
     return switch (s) {
         .local_value => "near",
         .local_unresolved => "promise",

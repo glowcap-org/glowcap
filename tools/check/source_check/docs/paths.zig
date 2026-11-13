@@ -30,7 +30,7 @@ pub fn resolveMarkdownTarget(gpa: std.mem.Allocator, source_path: []const u8, ra
     return try normalizeRelativePath(gpa, joined);
 }
 
-pub fn normalizeRelativePath(gpa: std.mem.Allocator, path: []const u8) ![]u8 {
+fn normalizeRelativePath(gpa: std.mem.Allocator, path: []const u8) ![]u8 {
     var parts: std.ArrayList([]const u8) = .empty;
     defer parts.deinit(gpa);
 

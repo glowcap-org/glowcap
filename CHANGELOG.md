@@ -55,6 +55,9 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- `GLOWCAP_REPL_REDUCED_MOTION=1` turns off the REPL's flash on a table that
+  changed and holds the wait spinner on one glyph. The REPL read the variable
+  and changed nothing.
 - The Rooms join card no longer says a name is already in use while that name
   is this tab's own registration on a directory it just reached. A directory
   lists a new member before it tells that member its name, so the card waits

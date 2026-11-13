@@ -23,12 +23,12 @@ const driver = glowcap.driver;
 const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 
-pub const spinner_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+const spinner_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
 /// Frame budget while animating a wait (~60 Hz). Also the `stepReadable` cap so
 /// a remote answer wakes the loop early instead of sitting out a blind sleep.
 pub const frame_ms: i32 = 16;
 /// Defer spinner glyphs until a wait is perceptible (local/flush settle stays clean).
-pub const spinner_show_after_ms: i64 = 50;
+const spinner_show_after_ms: i64 = 50;
 
 fn sessionVerbOf(verb: []const u8) ?registry.SessionVerb {
     const cmd = registry.find(verb) orelse return null;
@@ -90,11 +90,19 @@ const Active = struct {
     }
 };
 
+/// The glyph index after `i`: the first glyph stays put under reduced motion.
+pub fn nextSpinnerFrame(i: usize, reduced_motion: bool) usize {
+    if (reduced_motion) return 0;
+    return (i + 1) % spinner_frames.len;
+}
+
 pub const Queue = struct {
     gpa: std.mem.Allocator,
     pending: std.ArrayList(Queued) = .empty,
     active: ?*Active = null,
     spin_i: usize = 0,
+    /// Holds the wait spinner on its first glyph.
+    reduced_motion: bool = false,
 
     pub fn init(gpa: std.mem.Allocator) Queue {
         return .{ .gpa = gpa };
@@ -158,7 +166,7 @@ pub const Queue = struct {
     fn paintSpinnerIfDue(self: *Queue, store: *blocks.Store) void {
         const a = self.active orelse return;
         if (clock.nowMs() - a.started_ms < spinner_show_after_ms) return;
-        self.spin_i = (self.spin_i + 1) % spinner_frames.len;
+        self.spin_i = nextSpinnerFrame(self.spin_i, self.reduced_motion);
         var buf: [520]u8 = undefined;
         const text = std.mem.print(&buf, "{s} {s}", .{ spinner_frames[self.spin_i], a.label }) catch a.label;
         // best-effort: a missed spinner repaint; the next frame paints again.

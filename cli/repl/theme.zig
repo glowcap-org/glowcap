@@ -7,20 +7,20 @@ pub const Style = vaxis.Style;
 
 // ── Palette ──────────────────────────────────────────────────────────
 pub const accent = Color{ .index = 214 }; // amber: focus / brand
-pub const accent_dim = Color{ .index = 172 };
+const accent_dim = Color{ .index = 172 };
 pub const muted = Color{ .index = 243 };
-pub const chrome_fg = Color{ .index = 249 };
-pub const body_fg = Color{ .index = 255 };
-pub const result_fg = Color{ .index = 116 };
-pub const gloss_fg = Color{ .index = 111 };
-pub const danger_fg = Color{ .index = 203 };
-pub const tip_fg = Color{ .index = 221 };
-pub const open_fg = Color{ .index = 114 };
-pub const link_fg = Color{ .index = 75 };
-pub const user_fg = Color{ .index = 229 };
+const chrome_fg = Color{ .index = 249 };
+const body_fg = Color{ .index = 255 };
+const result_fg = Color{ .index = 116 };
+const gloss_fg = Color{ .index = 111 };
+const danger_fg = Color{ .index = 203 };
+const tip_fg = Color{ .index = 221 };
+const open_fg = Color{ .index = 114 };
+const link_fg = Color{ .index = 75 };
+const user_fg = Color{ .index = 229 };
 /// Selection wash: bright enough to read as “selected” on dark surfaces.
-pub const select_bg = Color{ .index = 61 };
-pub const status_bg = Color{ .index = 235 };
+const select_bg = Color{ .index = 61 };
+const status_bg = Color{ .index = 235 };
 
 pub fn styleChrome() Style {
     return .{ .fg = chrome_fg };

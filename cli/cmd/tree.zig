@@ -22,7 +22,7 @@ const Parsed = types.Parsed;
 
 const build_options = @import("build_options");
 
-pub const root_flags = [_]Flag{
+const root_flags = [_]Flag{
     .{ .long = "json", .help = "Emit JSON on stdout", .persistent = true },
     .{ .long = "plain", .help = "Emit human text on stdout (default)", .persistent = true },
     .{ .long = "identity", .help = "Path to CapTP identity seed", .kind = .string_flag, .persistent = true },
@@ -217,8 +217,3 @@ pub const root: Command = .{
     .flags = &root_flags,
     .children = &root_children,
 };
-
-/// CapTP ocapn leaves projected from `registry.commands` (for parity tests).
-pub fn ocapnLeaves() []const Command {
-    return &ocapn_children;
-}

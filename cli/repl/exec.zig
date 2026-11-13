@@ -14,7 +14,7 @@ const await_queue = @import("await_queue.zig");
 const flash_mod = @import("flash.zig");
 pub const Flash = flash_mod.Flash;
 
-pub const TurnResult = struct {
+const TurnResult = struct {
     quit: bool = false,
     flash: Flash = .none,
     focus_pane: ?teach.Pane = null,
@@ -23,7 +23,7 @@ pub const TurnResult = struct {
     enqueue_captp: ?[]const u8 = null,
 };
 
-pub fn appendGuideCoach(store: *blocks.Store) !void {
+fn appendGuideCoach(store: *blocks.Store) !void {
     var it = std.mem.splitScalar(u8, copy.coach_guide, '\n');
     while (it.next()) |line| {
         if (line.len == 0) continue;

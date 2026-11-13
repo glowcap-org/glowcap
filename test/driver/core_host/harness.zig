@@ -422,7 +422,7 @@ pub const SessionOpenFailingAllocator = struct {
         self.induced_failure = false;
     }
 
-    pub fn shouldFail(self: *SessionOpenFailingAllocator) bool {
+    fn shouldFail(self: *SessionOpenFailingAllocator) bool {
         if (self.phase == .unarmed) return false;
         const enrolled = if (self.host) |host| host.sessions.count() != 0 else false;
         const matches = switch (self.phase) {

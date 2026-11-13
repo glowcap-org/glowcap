@@ -83,12 +83,12 @@ pub const Weather = struct {
     /// Cut every link at this tick, or never.
     partition_at: ?u64 = null,
     /// The widest per-link latency the seed may draw.
-    pub const max_latency_ticks: u64 = 4;
+    const max_latency_ticks: u64 = 4;
 };
 
 /// How many deliveries a run may take before it is treated as a runaway. A
 /// real scenario settles in a handful. This only stops a bug from spinning.
-pub const max_deliveries: usize = 512;
+const max_deliveries: usize = 512;
 
 pub const Error = error{
     /// The scenario did not reach its end state within `max_deliveries`.
@@ -98,7 +98,7 @@ pub const Error = error{
 /// A two-peer conversation under a seeded schedule. Two peers is what the
 /// first scenario needs. The link table is general, so a wider topology is a
 /// matter of more peers and more links, not a different scheduler.
-pub const Sim = struct {
+const Sim = struct {
     gpa: std.mem.Allocator,
     /// Borrowed: the runner owns the peers, so a live `engine.Peer` is never
     /// moved after the handshake that wired it.
@@ -289,7 +289,7 @@ pub const Sim = struct {
     /// the clock reaches its tick, and the run continues afterwards: the peers
     /// keep talking into a dead network, which is precisely what they cannot
     /// detect.
-    pub fn runToQuiescence(self: *Sim) !void {
+    fn runToQuiescence(self: *Sim) !void {
         var delivered: usize = 0;
         while (true) {
             if (self.weather.partition_at) |at| {

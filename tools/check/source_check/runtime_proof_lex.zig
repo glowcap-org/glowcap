@@ -69,7 +69,7 @@ pub const IdentIter = struct {
     lang: Lang,
     rest: []const u8,
 
-    pub fn isStart(ch: u8) bool {
+    fn isStart(ch: u8) bool {
         return std.ascii.isAlphabetic(ch) or ch == '_';
     }
 
@@ -138,7 +138,7 @@ pub const Owners = struct {
         };
     }
 
-    pub fn advancePython(self: *Owners, line: []const u8) Owner {
+    fn advancePython(self: *Owners, line: []const u8) Owner {
         if (self.importing) {
             self.pending += parenDelta(line);
             if (self.pending <= 0) {
@@ -174,7 +174,7 @@ pub const Owners = struct {
         return self.chain();
     }
 
-    pub fn advanceRacket(self: *Owners, line: []const u8) Owner {
+    fn advanceRacket(self: *Owners, line: []const u8) Owner {
         if (line.len != 0 and line[0] == '(') {
             const head = line[1..];
             self.inert = racketFormIs(head, "provide") or racketFormIs(head, "require");
@@ -199,7 +199,7 @@ fn racketFormIs(head: []const u8, name: []const u8) bool {
     return head.len == name.len or !IdentIter.isPart(.racket, head[name.len]);
 }
 
-pub fn parenDelta(line: []const u8) isize {
+fn parenDelta(line: []const u8) isize {
     var delta: isize = 0;
     for (line) |ch| {
         if (ch == '(') delta += 1;
@@ -208,7 +208,7 @@ pub fn parenDelta(line: []const u8) isize {
     return delta;
 }
 
-pub fn pythonDefName(body: []const u8) ?[]const u8 {
+fn pythonDefName(body: []const u8) ?[]const u8 {
     var rest = body;
     if (std.mem.startsWith(u8, rest, "async ")) rest = std.mem.trimStart(u8, rest["async ".len..], " ");
     if (!std.mem.startsWith(u8, rest, "def ")) return null;
@@ -220,7 +220,7 @@ pub fn pythonDefName(body: []const u8) ?[]const u8 {
 
 /// The name bound by a column-zero `(define…)` form: `(define (f x) …)`,
 /// `(define f …)`, and the `define-values` / `define-syntax-rule` siblings.
-pub fn racketDefineName(head: []const u8) ?[]const u8 {
+fn racketDefineName(head: []const u8) ?[]const u8 {
     if (!std.mem.startsWith(u8, head, "define")) return null;
     var i: usize = "define".len;
     while (i < head.len and head[i] != ' ' and head[i] != '\t') i += 1;

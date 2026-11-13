@@ -6,7 +6,7 @@ const Ban = bans.Ban;
 const Where = bans.Where;
 
 /// Docs the transport-vocabulary rows scan.
-pub const transport_vocabulary_paths: []const []const u8 = &.{
+const transport_vocabulary_paths: []const []const u8 = &.{
     ".agents/rules/architecture.md",
     "AGENTS.md",
     "CONTRIBUTING.md",

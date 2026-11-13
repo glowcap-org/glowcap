@@ -85,7 +85,7 @@ test "mcp default catalog names include listen and dial" {
 }
 
 test "tree ocapn leaves project the sole CapTP registry" {
-    const leaves = cli.tree.ocapnLeaves();
+    const leaves = (cli.tree.root.findChild("ocapn") orelse return error.TestUnexpectedResult).children;
     try std.testing.expectEqual(cli.registry.commands.len, leaves.len);
     for (cli.registry.commands, leaves) |reg, leaf| {
         try std.testing.expectEqualStrings(reg.name, leaf.name);

@@ -36,7 +36,7 @@ pub fn irohAbiModule(
 /// The webrtc C ABI module over `host_mods`. The body lives with the WebRTC
 /// family in `tools/build/webrtc.zig` (ADR-0035, mirroring
 /// `irohAbiModule`), and this adapter only resolves the layer instances.
-pub fn webrtcAbiModule(
+fn webrtcAbiModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
     o: std.lang.Optimize,
@@ -126,7 +126,7 @@ pub fn createSupport(
     };
 }
 
-pub const ReflectedArchives = struct {
+const ReflectedArchives = struct {
     tcp: *std.Build.Module,
     inproc: *std.Build.Module,
     relay: *std.Build.Module,

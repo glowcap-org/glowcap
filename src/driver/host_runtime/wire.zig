@@ -29,7 +29,7 @@ pub const Wire = struct {
     closed: bool = false,
     /// Physical carrier retirement is a separate barrier from logical CapTP
     /// closure. Its progress arrives through the resident's readiness row.
-    carrier_close: CarrierClose = .open,
+    carrier_closed: bool = false,
     carrier_close_deadline_ms: ?i64 = null,
     /// The logical primary plus the first carrier-cleanup consequence. Static
     /// names keep this bounded and allocation-free on the close path.
@@ -46,14 +46,8 @@ pub const Wire = struct {
     /// link parks the resident's pushed records in its bounded buffer.
     attended: bool = true,
 
-    pub const CarrierClose = enum {
-        open,
-        wait_resident,
-        complete,
-    };
-
     pub fn carrierClosed(self: *const Wire) bool {
-        return self.carrier_close == .complete;
+        return self.carrier_closed;
     }
 
     /// The wire's connection on its resident, with the outbound frame the

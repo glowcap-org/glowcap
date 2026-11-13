@@ -16,7 +16,7 @@ const engine = glowcap.ocapn.engine;
 /// same frame can be re-applied to one peer. A distinct-answer deliver would
 /// both grow the answer table per turn and, on a reused position, trip the
 /// live-answer-reuse refusal. Export 7 must be live on the peer.
-pub const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
+const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// Drive one wire turn: dispatch the borrowed deliver and drain every surfaced
 /// event (releasing each owned frame), matching how a host pumps the peer. The

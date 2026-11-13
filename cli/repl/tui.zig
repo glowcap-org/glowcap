@@ -9,6 +9,7 @@ const theme = @import("theme.zig");
 const complete = @import("complete.zig");
 const layout = @import("layout.zig");
 const panes = @import("panes.zig");
+const flash_mod = @import("flash.zig");
 const blocks = @import("blocks.zig");
 const exec = @import("exec.zig");
 const history_mod = @import("history.zig");
@@ -86,7 +87,6 @@ pub fn run(ctx: *Ctx) !u8 {
     var lab = ecs.LabWorld.init(ctx.gpa);
     defer lab.deinit();
     lab.res.no_mouse = no_mouse;
-    lab.res.reduced_motion = envTruthy(ctx.environ, "GLOWCAP_REPL_REDUCED_MOTION");
     lab.transcript_e = try lab.entities.spawn();
     lab.prompt_e = try lab.entities.spawn();
     lab.jump_chip_e = try lab.entities.spawn();
@@ -122,6 +122,8 @@ pub fn run(ctx: *Ctx) !u8 {
     var burst: [64]Event = undefined;
 
     var captp_q = await_queue.Queue.init(ctx.gpa);
+    const reduced_motion = envTruthy(ctx.environ, "GLOWCAP_REPL_REDUCED_MOTION");
+    captp_q.reduced_motion = reduced_motion;
     var closed = false;
     defer {
         // The active flag is a live vow listener. Close the session while the
@@ -258,8 +260,6 @@ pub fn run(ctx: *Ctx) !u8 {
             flash_frames -= 1;
             if (flash_frames == 0) flash = .none;
         }
-        lab.res.auto_follow.paused = store.scroll_off > 0;
-        lab.res.auto_follow.new_while_paused = store.new_while_paused;
 
         progress.syncFromCtx(ctx);
         transcript_inner = try render(
@@ -273,7 +273,7 @@ pub fn run(ctx: *Ctx) !u8 {
             menu_open,
             menu_buf[0..menu_n],
             menu_sel,
-            flash,
+            flash_mod.shown(flash, reduced_motion),
             &transcript_view_h,
             &jump_btn,
         );
@@ -490,7 +490,6 @@ fn render(
 
     const quiet = lab.res.mode == .quiet;
     const g = layout.compute(win.width, win.height, menu_open and menu_items.len > 0, menu_items.len, progress.guide_active);
-    lab.res.geom = g;
 
     var y: u16 = 0;
     if (g.status_h > 0) {
@@ -542,8 +541,8 @@ fn render(
                 .border = focusBorder(transcript_focused),
             });
             var jump_buf: [32]u8 = undefined;
-            const jump_label: ?[]const u8 = if (store.scroll_off > 0 and lab.res.auto_follow.new_while_paused > 0)
-                std.mem.print(&jump_buf, "↓ {d} new", .{lab.res.auto_follow.new_while_paused}) catch "↓ jump"
+            const jump_label: ?[]const u8 = if (store.scroll_off > 0 and store.new_while_paused > 0)
+                std.mem.print(&jump_buf, "↓ {d} new", .{store.new_while_paused}) catch "↓ jump"
             else if (store.scroll_off > 0)
                 "↓ jump"
             else

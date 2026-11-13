@@ -35,7 +35,7 @@ fn racketArgv(buf: [][]const u8, script_argv: []const []const u8) []const []cons
 /// How a spawned Racket script is wired to the driver. A driver reads the
 /// script's stdout and, on failure, its stderr, so both are pipes unless the
 /// script's output is its own to print.
-pub const ScriptStdio = struct {
+const ScriptStdio = struct {
     stdin: std.process.SpawnOptions.StdIo = .inherit,
     stdout: std.process.SpawnOptions.StdIo = .pipe,
     stderr: std.process.SpawnOptions.StdIo = .pipe,
@@ -111,7 +111,7 @@ pub fn openKeyedSession(
 
 /// The same bracket for a caller that already holds its session secret, the
 /// handoff withdraw, which must present the key the gift was deposited under.
-pub fn openKeyedSessionWith(
+fn openKeyedSessionWith(
     peer: *engine.Peer,
     conn: anytype,
     designator: []const u8,
@@ -295,7 +295,7 @@ fn readReadinessBlock(
 pub const swiss_field = "\"swiss\":\"";
 
 /// A spawned Racket host and the swiss-num its readiness line published.
-pub const SpawnedHost = struct {
+const SpawnedHost = struct {
     child: std.process.Child,
     /// Caller owns the bytes.
     swiss: []u8,
@@ -354,7 +354,7 @@ fn spawnHostAwaitSwissStdio(
 
 /// A spawned Racket host and every readiness line it printed up to the one that
 /// carried `needle`.
-pub const SpawnedHostReadiness = struct {
+const SpawnedHostReadiness = struct {
     child: std.process.Child,
     /// Caller owns the bytes. Read fields out with `extractField`.
     block: []u8,

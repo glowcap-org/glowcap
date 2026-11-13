@@ -51,7 +51,7 @@ pub const Binary = enum {
     }
 
     /// Install the Cargo binary built into `target_dir` as this executable.
-    pub fn addInstall(self: Binary, b: *std.Build, target_dir: []const u8) *std.Build.Step.InstallFile {
+    fn addInstall(self: Binary, b: *std.Build, target_dir: []const u8) *std.Build.Step.InstallFile {
         const built = self.row().cargo orelse self.row().name;
         return b.addInstallFileWithDir(b.path(b.fmt("{s}/{s}", .{ target_dir, built })), .prefix, self.libexec(b));
     }
