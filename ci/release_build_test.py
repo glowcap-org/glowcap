@@ -13,12 +13,10 @@ import hashlib
 import io
 import json
 import os
-import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -183,95 +181,6 @@ class ReleaseBuild(unittest.TestCase):
 
     def test_archives_fetch_through_the_shared_front(self):
         self.assertEqual(run(RELEASE["archives"], "Fetch pinned Zig dependencies"), "python3 ci/gates.py fetch")
-
-    def test_macos_shared_archive_records_its_abi_major(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            for name in ("archives.zig", "commands.zig", "execution.zig", "shard.zig"):
-                (directory / name).write_bytes((ROOT / "tools/build" / name).read_bytes())
-            (directory / "library.zig").write_text("export fn answer() u32 { return 42; }\n")
-            (directory / "build.zig").write_text(
-                textwrap.dedent("""\
-                const std = @import("std");
-                const archives = @import("archives.zig");
-                pub fn build(b: *std.Build) void {
-                    const library = b.addLibrary(.{
-                        .name = "probe", .linkage = .dynamic,
-                        .version = .{ .major = 3, .minor = 2, .patch = 1 },
-                        .root_module = b.createModule(.{
-                            .root_source_file = b.path("library.zig"),
-                            .target = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos }),
-                            .optimize = .Debug,
-                        }),
-                    });
-                    archives.configureSharedArchive(library);
-                    b.installArtifact(library);
-                }
-                """)
-            )
-            result = subprocess.run(
-                ["zig", "build", "--cache-dir", str(directory / "cache")],
-                cwd=directory,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            binary = (directory / "zig-out/lib/libprobe.3.2.1.dylib").read_bytes()
-            self.assertEqual(struct.unpack_from("<I", binary)[0], 0xFEEDFACF)
-            offset = 32
-            for _ in range(struct.unpack_from("<I", binary, 16)[0]):
-                command, size = struct.unpack_from("<II", binary, offset)
-                if command == 0xD:  # LC_ID_DYLIB
-                    start = offset + struct.unpack_from("<I", binary, offset + 8)[0]
-                    self.assertEqual(binary[start : binary.index(b"\0", start)], b"@rpath/libprobe.3.dylib")
-                    break
-                offset += size
-            else:
-                self.fail("shared archive has no LC_ID_DYLIB")
-
-    def test_transport_linker_searches_the_selected_sdk(self):
-        # An empty SDK makes the linker report where it searched. Exercise the
-        # real shared recipe: shell argument checks cannot prove SDK discovery.
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            sdk = directory / "SDK with spaces"
-            (sdk / "usr/lib").mkdir(parents=True)
-            (sdk / "System/Library/Frameworks").mkdir(parents=True)
-            for name in ("archives.zig", "cargo.zig", "commands.zig", "execution.zig", "shard.zig"):
-                (directory / name).write_bytes((ROOT / "tools/build" / name).read_bytes())
-            (directory / "sidecar.a").write_bytes(b"!<arch>\n")
-            (directory / "main.zig").write_text("pub fn main() void {}\n")
-            (directory / "build.zig").write_text(
-                textwrap.dedent("""\
-                const std = @import("std");
-                const cargo = @import("cargo.zig");
-                pub fn build(b: *std.Build) void {
-                    const target = b.resolveTargetQuery(.{
-                        .cpu_arch = .aarch64, .os_tag = .macos,
-                        .os_version_min = .{ .semver = .{ .major = 15, .minor = 0, .patch = 0 } },
-                    });
-                    const module = b.createModule(.{
-                        .root_source_file = b.path("main.zig"),
-                        .target = target, .optimize = .Debug,
-                    });
-                    cargo.linkRustSidecar(b, module, target, b.path("sidecar.a"));
-                    b.installArtifact(b.addExecutable(.{ .name = "probe", .root_module = module }));
-                }
-                """)
-            )
-            result = subprocess.run(
-                ["zig", "build", "--cache-dir", str(directory / "cache")],
-                cwd=directory,
-                env=dict(os.environ, SDKROOT=str(sdk)),
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            self.assertNotEqual(result.returncode, 0, "the empty SDK must refuse linking")
-            self.assertIn(str(sdk / "usr/lib/libobjc"), result.stderr)
-            self.assertIn(str(sdk / "System/Library/Frameworks/Foundation.framework"), result.stderr)
-            self.assertNotIn("searched paths: none", result.stderr)
 
     def test_archive_build_selects_the_sdk_only_for_a_macos_target(self):
         self.assertEqual(

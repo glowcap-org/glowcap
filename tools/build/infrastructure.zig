@@ -40,7 +40,7 @@ pub fn register(b: *std.Build) void {
     // tests are registered below by name, because some take arguments their
     // owning step supplies. The ci tests read the workflows with PyYAML, which
     // ci/uv.lock supplies.
-    for ([_][]const u8{ "ci", "tools", "tools/gen" }) |directory| {
+    for ([_][]const u8{ "ci", "tools", "tools/build", "tools/gen" }) |directory| {
         const in_project = std.mem.eql(u8, directory, "ci");
         for (pythonTests(b, directory)) |name| {
             const unittest = [_][]const u8{ "python3", "-m", "unittest", "discover", "-s", directory, "-p", name };
