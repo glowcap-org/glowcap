@@ -7,7 +7,7 @@
 // and the rail itself only decides which sections there are.
 
 import { PRESENTATION, useProgress } from "../presentation.ts";
-import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { dmMarkTitle, dmRemove, dmSectionTitle } from "../../../lib/text/controls.ts";
 import {
 	dmJoinARoomFirst,
@@ -24,25 +24,21 @@ import {
 import { useRoomsState, useSessionPaused } from "../hooks.ts";
 import { NO_MEMBERS } from "../store/projection.ts";
 import { MAX_NICK } from "../limits.ts";
-import { Avatar, PresenceAvatar } from "../Avatar.tsx";
+import { Avatar, PresenceAvatar, presenceState } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
 import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, dirWhere, nothingWhilePaused } from "../text.ts";
-import { awayByPeer, awayOf, CAUGHT_UP, type Conv, type DmConv, type Standing, type Unread } from "../conversation.ts";
+import { awayOf, awayWords, CAUGHT_UP, type Conv, type DmConv, type Standing, type Unread } from "../conversation.ts";
 import type { DirId, DirView, SessionPhase } from "../directory.ts";
 import { dmRow, type RailRow, unreadCount } from "./filter.ts";
 import { Empty, heldBack, nothingMatches, RowClose } from "./rows.tsx";
 import { RailSection } from "./Section.tsx";
 
 function DmRow(
-	{ conv, unread, online, away, where, home, phase, here, canInteract, onOpen, onClose, onAbout }: {
+	{ conv, unread, online, where, home, phase, here, canInteract, onOpen, onClose, onAbout }: {
 		conv: DmConv;
 		unread: Unread;
 		online: boolean;
-		/** Why the peer has stepped away, by the shared rooms' word, or null
-		 * while they are here, `peerAway`'s answer, worn by the chip's
-		 * pip exactly as the roster wears it. */
-		away: string | null;
 		/** Which directory this line was introduced on, or nothing at all while
 		 * this tab holds one. It is drawn on the row and said in the row's label
 		 * as well as worn as a color, because two people may hold the same
@@ -66,6 +62,9 @@ function DmRow(
 		onAbout: (dir: DirId) => void;
 	},
 ) {
+	// Presence writes the members map and not the conversation, so each row
+	// reads its own peer's word and a join elsewhere redraws no other row.
+	const away = useRoomsState((state) => awayOf(awayWords(state.convs, state.members), conv.dir, conv.id));
 	// How the directory that introduced this line is doing, and empty while it is
 	// connected. A line reached through a directory that is not connected is a
 	// line this reader cannot use, which is a fact about this row.
@@ -121,7 +120,7 @@ function DmRow(
 				{conv.line === "closed" ? <Avatar name={conv.id} /> : (
 					<PresenceAvatar
 						name={conv.id}
-						state={online ? (away !== null ? "away" : "online") : "offline"}
+						state={presenceState(online, away)}
 						reason={away ?? undefined}
 					/>
 				)}
@@ -207,10 +206,6 @@ function DmRows(
 		.sort((a, b) => a.id.localeCompare(b.id));
 	const open = rows.filter((conv) => shows(dmRow(conv, unreadOf(conv.key))));
 	const hidden = rows.length - open.length;
-	// One walk over every roster, shared by all the rows below. Presence writes
-	// the members map, not the conversation, so this depends on both.
-	const members = useRoomsState((state) => state.members);
-	const away = useMemo(() => awayByPeer(convs, members), [convs, members]);
 	if (rows.length === 0) {
 		return (
 			<Empty
@@ -230,7 +225,6 @@ function DmRows(
 					unread={unreadOf(conv.key)}
 					online={dirs.get(conv.dir)?.dmablePeers.get(conv.id.toLowerCase())?.registrationId ===
 						conv.peerRegistrationId}
-					away={awayOf(away, conv.dir, conv.id)}
 					where={dirWhere(conv.dir, home, dirs)}
 					home={home}
 					phase={dirs.get(conv.dir)?.session ?? "disconnected"}
@@ -266,6 +260,26 @@ function dmNameOffers(
 		}
 	}
 	return [...names.values()];
+}
+
+let offeredFor: {
+	convs: ReadonlyMap<string, Conv>;
+	dirs: ReadonlyMap<DirId, DirView>;
+	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>;
+	names: string[];
+} | null = null;
+
+/** `dmNameOffers` for the last three maps it was given, so the per-change
+ * selector below walks the rosters only when one of them was replaced. */
+function dmNameOffersFor(
+	convs: ReadonlyMap<string, Conv>,
+	dirs: ReadonlyMap<DirId, DirView>,
+	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>,
+): string[] {
+	if (offeredFor?.convs !== convs || offeredFor.dirs !== dirs || offeredFor.members !== members) {
+		offeredFor = { convs, dirs, members, names: dmNameOffers(convs, dirs, members) };
+	}
+	return offeredFor.names;
 }
 
 /** The rail's direct-message list and its "+" field. Presence belongs here,
@@ -305,8 +319,7 @@ export function DirectMessages(
 		onAbout: (dir: DirId) => void;
 	},
 ) {
-	const members = useRoomsState((state) => state.members);
-	const offers = useMemo(() => dmNameOffers(convs, dirs, members), [convs, dirs, members]);
+	const offers = useRoomsState(useShallow((state) => dmNameOffersFor(convs, dirs, state.members)));
 	return (
 		<RailSection
 			className="dms"

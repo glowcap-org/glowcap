@@ -12,6 +12,7 @@ import { type Behavior, type Ref, type Session } from "@glowcap/runtime";
 import { settleCapabilityCleanup } from "./capability_cleanup.ts";
 import { directMessageReceiverBehavior } from "./direct_message.ts";
 import { DM } from "./protocol.ts";
+import { errorMessage } from "./error_message.ts";
 
 /** Build a `dm` Host publication that pushes each received text to `inbox` and answers
  * the caller with `replyText(received)`, over the arriving connection. The reply
@@ -51,7 +52,7 @@ export function recordingReplyDm(
 			if (target == null || sending == null) return null;
 			queueMicrotask(() => {
 				void sending.send(target, DM, [replyText(text)]).catch((error) => {
-					console.error(`rooms inline DM reply failed: ${error instanceof Error ? error.message : error}`);
+					console.error(`rooms inline DM reply failed: ${errorMessage(error)}`);
 				}).finally(() => {
 					if (reply != null) {
 						settleCapabilityCleanup("inline DM reply route release failed", () => session.release(reply));

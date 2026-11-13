@@ -37,6 +37,7 @@
 // address the mirror writes, keeping `prefs.ts`'s bookmark contract.
 
 import { invariant } from "../../lib/invariant.ts";
+import { errorMessage } from "../../lib/error_message.ts";
 import * as store from "./store.ts";
 import { useEffect, useRef } from "react";
 import { createBrowserRouter, Outlet, RouterProvider, useLocation, useParams, useRouteError } from "react-router";
@@ -442,7 +443,7 @@ function RouteCrash() {
 		if (!leaving) handOffNow();
 	}, [leaving]);
 	if (leaving) return null;
-	const message = failed instanceof Error ? failed.message : String(failed);
+	const message = errorMessage(failed);
 	return (
 		<div className="crash" role="alert">
 			<h2>{crashTitle}</h2>

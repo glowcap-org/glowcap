@@ -9,6 +9,7 @@
 // it is also how this module reports that the bundle arrived at all.
 
 import { invariant } from "../../lib/invariant.ts";
+import { errorMessage } from "../../lib/error_message.ts";
 import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
 import { type ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -191,7 +192,7 @@ async function awaitRuntime(boot: () => Promise<unknown>): Promise<void> {
 		} catch (err) {
 			console.error("rooms: the runtime did not come up, retrying:", err);
 			if (Date.now() >= slowAt) {
-				noteBootDelay(err instanceof Error ? err.message : String(err));
+				noteBootDelay(errorMessage(err));
 			}
 			await new Promise((settle) => setTimeout(settle, backoff));
 			backoff = Math.min(backoff * 2, RUNTIME_RETRY_CEILING_MS);

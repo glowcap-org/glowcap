@@ -60,17 +60,23 @@ export function linePosition(history: readonly Item[], id: number): number {
 	return lineIndexOf(history).byId.get(id) ?? -1;
 }
 
+/** The chat line at `at`. Both indexes hold only positions of chat lines. */
+function chatAt(history: readonly Item[], at: number): ChatItem | undefined {
+	const item = history[at];
+	return item.kind === "chat" ? item : undefined;
+}
+
 /** The line the room calls `lineId`, or undefined when this tab does not hold
  * it. */
 export function lineByLineId(history: readonly Item[], lineId: number): ChatItem | undefined {
 	const at = lineIndexOf(history).byLineId.get(lineId);
-	return at === undefined ? undefined : history[at] as ChatItem;
+	return at === undefined ? undefined : chatAt(history, at);
 }
 
 /** The line an archive names by coordinate, or undefined. */
 export function lineByCoordinate(history: readonly Item[], coordinate: HistoryCoordinate): ChatItem | undefined {
 	const at = lineIndexOf(history).byCoordinate.get(historyCoordinateKey(coordinate));
-	return at === undefined ? undefined : history[at] as ChatItem;
+	return at === undefined ? undefined : chatAt(history, at);
 }
 
 /** A chat line with what its text carries stamped on it, so the log reads a
@@ -118,21 +124,31 @@ function writeHistory(
 	const histories = new Map(state.histories);
 	if (history.length === 0) histories.delete(key);
 	else histories.set(key, history);
-	if (unread === undefined) {
-		projection.set({ histories });
-		return;
-	}
-	const unreads = new Map(state.unreads);
-	if (unread.kind === "caught-up") unreads.delete(key);
-	else unreads.set(key, unread);
-	projection.set({ histories, unreads });
+	const unreads = unread === undefined ? null : changedUnreads(state.unreads, key, unread);
+	projection.set(unreads == null ? { histories } : { histories, unreads });
 }
 
 function writeUnread(projection: PageProjection, key: string, unread: Unread): void {
-	const unreads = new Map(projection.get().unreads);
+	const unreads = changedUnreads(projection.get().unreads, key, unread);
+	if (unreads != null) projection.set({ unreads });
+}
+
+/** The unreads map with one conversation's mark replaced, or null when the
+ * stored mark already equals it. Subscribers that select the whole map redraw
+ * only when it changes, so a line into the conversation being read leaves the
+ * map as it is. */
+function changedUnreads(current: ReadonlyMap<string, Unread>, key: string, unread: Unread): Map<string, Unread> | null {
+	if (sameUnread(current.get(key) ?? CAUGHT_UP, unread)) return null;
+	const unreads = new Map(current);
 	if (unread.kind === "caught-up") unreads.delete(key);
 	else unreads.set(key, unread);
-	projection.set({ unreads });
+	return unreads;
+}
+
+function sameUnread(a: Unread, b: Unread): boolean {
+	if (a.kind === "caught-up" || b.kind === "caught-up") return a.kind === b.kind;
+	if (a.from !== b.from) return false;
+	return a.kind === "unread" && b.kind === "unread" ? a.count === b.count : a.kind === b.kind;
 }
 
 /** Keep an unread run attached to a row the reader can still reach. History

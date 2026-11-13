@@ -1,7 +1,7 @@
 // Client ownership of one consumable room invitation and its retry receipt.
 
-import { Ref, type Session } from "@glowcap/runtime";
-import { ask } from "../ask.ts";
+import type { Ref, Session } from "@glowcap/runtime";
+import { askRef } from "../ask.ts";
 import { CLAIM_INVITATION } from "../protocol.ts";
 
 function receipt(): string {
@@ -21,15 +21,14 @@ export class RoomInvitation {
 	}
 
 	async claim(): Promise<Ref> {
-		const entrance = await ask(
+		return await askRef(
 			this.#session,
 			this.#invitation,
 			CLAIM_INVITATION,
 			[this.#receipt],
 			"the room invitation did not answer its claim",
+			"the room invitation answered without an entrance capability",
 		);
-		if (!(entrance instanceof Ref)) throw new Error("the room invitation answered without an entrance capability");
-		return entrance;
 	}
 
 	release(): void {

@@ -27,7 +27,6 @@ import { CopyButton } from "../Copy.tsx";
 import type { Subject } from "../../../lib/room/subject.ts";
 import { Icon } from "../icons.tsx";
 import { useRoomsState } from "../hooks.ts";
-import { NO_DRAFT } from "../store.ts";
 import { ScrollMemory } from "../scroll_memory.ts";
 import { PRESENTATION, useProgress } from "../presentation.ts";
 import { type LogStanding, LogStood, NEAR_END, overhang, travel } from "./log_travel.tsx";
@@ -76,7 +75,9 @@ export function Stream(
 ) {
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
-	const draft = useRoomsState((state) => conv == null ? NO_DRAFT : state.drafts.get(conv.key) ?? NO_DRAFT);
+	// Only the line being changed is read here. The rest of the draft changes on every keystroke and is
+	// the composer's to read.
+	const changing = useRoomsState((state) => conv == null ? undefined : state.drafts.get(conv.key)?.changing);
 	const history = useRoomsState((state) => conv == null ? NO_HISTORY : state.histories.get(conv.key) ?? NO_HISTORY);
 	const unread = useRoomsState((state) => conv == null ? CAUGHT_UP : state.unreads.get(conv.key) ?? CAUGHT_UP);
 	const log = useRef<HTMLElement>(null);
@@ -203,7 +204,7 @@ export function Stream(
 
 	// What the log is given to draw. Its rows are read before a commit that
 	// replaces one of these values, and before no other.
-	const drawn = { conv, history, unread, nick, sendControls, ignored, changing: draft.changing, readingEarlier };
+	const drawn = { conv, history, unread, nick, sendControls, ignored, changing, readingEarlier };
 
 	// This effect follows the one that writes the scroll position, so `travel`
 	// measures each row where it ends. It runs at every commit and does
@@ -338,11 +339,6 @@ export function Stream(
 				canInteract={canInteract}
 				conv={conv}
 				nick={nick}
-				draft={draft.text}
-				draftFiles={draft.files}
-				draftPreviews={draft.previews}
-				changing={draft.changing}
-				draftKeeping={draft.keeping}
 				liveRooms={liveRooms}
 				reachable={reachable}
 				mobile={mobile}

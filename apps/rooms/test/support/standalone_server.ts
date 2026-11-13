@@ -1,14 +1,11 @@
 // Connection supervision for standalone servers exercised by tests.
 
 import { retainCleanupFailures, secondaryFailures, type Session } from "@glowcap/runtime";
+import { errorMessage } from "../../lib/error_message.ts";
 import { routinePeerDisconnect } from "./session_failure.ts";
 
 export interface ClosingServer extends AsyncIterable<Session> {
 	close(): void;
-}
-
-function failureText(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 async function serveConnection(session: Session): Promise<void> {
@@ -23,10 +20,10 @@ async function serveConnection(session: Session): Promise<void> {
 
 function reportConnectionFailure(label: string, error: unknown): void {
 	if (!routinePeerDisconnect(error)) {
-		console.error(`${label}: a peer connection ended unexpectedly: ${failureText(error)}`);
+		console.error(`${label}: a peer connection ended unexpectedly: ${errorMessage(error)}`);
 	}
 	for (const cleanup of secondaryFailures(error)) {
-		console.error(`${label}: closing that connection also failed: ${failureText(cleanup)}`);
+		console.error(`${label}: closing that connection also failed: ${errorMessage(cleanup)}`);
 	}
 }
 

@@ -11,6 +11,8 @@
 // detail card, under a sentence that stands without it. The unreadable-value
 // arm of `failureView` is the worked example.
 
+import { errorMessage } from "../error_message.ts";
+
 // Import the taxonomy only, never `errors.ts`: reading a `VowBroken` carrier
 // needs `@glowcap/runtime`, a host module the browser bundle must not contain.
 import {
@@ -52,7 +54,7 @@ function diagnosticText(cause: unknown): string {
 	if (cause == null) return "";
 	if (Array.isArray(cause)) return cause.map(diagnosticText).filter(Boolean).join("\n");
 	if (cause instanceof LocalRefusal) return diagnosticText(cause.cause) || cause.code;
-	return cause instanceof Error ? cause.message : String(cause);
+	return errorMessage(cause);
 }
 
 /** One bounded, machine-readable answer for every caught failure. Known Rooms
@@ -87,7 +89,7 @@ export function failureView(err: unknown): FailureView {
 		}
 		return { code: typed.code, detail: typed.detail, ...definition };
 	}
-	const detail = err instanceof Error ? err.message : String(err);
+	const detail = errorMessage(err);
 	const failure = structuredFailure(err);
 	// -2 is an argument glowcap refused to read: a locator, a link, or a swiss
 	// number that does not parse. Text that stopped short is the mistake the

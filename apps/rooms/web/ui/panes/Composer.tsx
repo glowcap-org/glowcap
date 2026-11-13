@@ -34,12 +34,13 @@ import {
 } from "../../../lib/text/controls.ts";
 import { useCoarsePointer, useDismissOnClickOutside, useRoomsState } from "../hooks.ts";
 import { roomJoiningNow } from "../store/rooms.ts";
+import { NO_DRAFT } from "../store.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { composerReducer, initialComposerState } from "./composer_state.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { composerSpeaks } from "../typing.ts";
 import { actionRefusal } from "../error_text.ts";
-import { type AttachmentView, type Conv, conversationTakesFiles } from "../conversation.ts";
+import { type Conv, conversationTakesFiles } from "../conversation.ts";
 import type { LiveRooms, SessionPhase } from "../directory.ts";
 import { acceptCompletion, type Candidate } from "../complete.ts";
 import { useComposerCompletion } from "../composer/completion.ts";
@@ -56,7 +57,6 @@ import { markerFor, wrapSelection } from "../composer/keys.ts";
 import { useOpenModal } from "../modal.ts";
 import { composerHintFormatting } from "../../../lib/text/writing.ts";
 import { useComposerMeasure } from "../composer/measure.tsx";
-import type { DraftPreview } from "../link_preview.ts";
 import { DraftLinkPreviews } from "./LinkPreviews.tsx";
 
 export function Composer(
@@ -64,11 +64,6 @@ export function Composer(
 		canInteract,
 		conv,
 		nick,
-		draft,
-		draftFiles,
-		draftPreviews,
-		changing,
-		draftKeeping,
 		liveRooms,
 		reachable,
 		mobile,
@@ -80,17 +75,6 @@ export function Composer(
 		canInteract: boolean;
 		conv: Conv | null;
 		nick: string;
-		draft: string;
-		draftFiles: readonly File[];
-		draftPreviews: readonly DraftPreview[];
-		/** The line being rewritten, or nothing while an ordinary message is being
-		 * written. The id rather than a flag, because moving from changing one line
-		 * to changing another is a change this has to notice. */
-		changing: number | undefined;
-		/** The files kept on a file line being changed, when the change is to one.
-		 * Present makes the composer a view of that line's files, each removable,
-		 * with the new ones added after them. */
-		draftKeeping: readonly AttachmentView[] | undefined;
 		liveRooms: LiveRooms;
 		/** Names this directory says are reachable for a direct message. What a
 		 * command whose target is somebody to bring in (`/invite`, `/msg`)
@@ -112,6 +96,15 @@ export function Composer(
 	const browser = useRoomsBrowser();
 	const openModalFrom = useOpenModal();
 	const session = useRoomsSession();
+	// The draft changes on every keystroke, so this band reads it and the
+	// conversation column around it does not.
+	const {
+		text: draft,
+		files: draftFiles,
+		previews: draftPreviews,
+		changing,
+		keeping: draftKeeping,
+	} = useRoomsState((state) => conv == null ? NO_DRAFT : state.drafts.get(conv.key) ?? NO_DRAFT);
 	const bar = useRef<HTMLDivElement>(null);
 	const field = useRef<HTMLTextAreaElement>(null);
 	const filePick = useRef<HTMLInputElement>(null);

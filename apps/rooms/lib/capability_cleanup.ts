@@ -3,6 +3,7 @@
 import { CLOSED } from "@glowcap/abi";
 import { GlowcapError, type Ref, type Session } from "@glowcap/runtime";
 import { claimWithin } from "./deadline.ts";
+import { errorMessage } from "./error_message.ts";
 
 /** A closed CapTP session has already reclaimed every reference it carried.
  * Later release or unwatch calls cannot do more cleanup and are successful for
@@ -19,7 +20,7 @@ export function settleCapabilityCleanup(label: string, cleanup: () => void): voi
 		cleanup();
 	} catch (error) {
 		if (cleanupSettledBySessionClose(error)) return;
-		console.error(`rooms: ${label}: ${error instanceof Error ? error.message : error}`);
+		console.error(`rooms: ${label}: ${errorMessage(error)}`);
 	}
 }
 

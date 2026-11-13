@@ -6,6 +6,12 @@ import { presenceTitle } from "../../lib/text/conversation.ts";
 
 export type PresenceState = "online" | "away" | "offline";
 
+/** The state a chip wears for a member who is or is not here, with the away
+ * word when they gave one. */
+export function presenceState(online: boolean, away: string | null): PresenceState {
+	return online ? (away != null ? "away" : "online") : "offline";
+}
+
 export function Avatar(
 	{ name, className }: { name: string; className?: string },
 ) {

@@ -5,6 +5,7 @@
  * server arguments. This program starts that backend on an ephemeral loopback
  * port, points Vite at it, and retires both processes on exit. */
 import { fileURLToPath } from "node:url";
+import { errorMessage } from "../lib/error_message.ts";
 
 const webRoot = fileURLToPath(new URL("./", import.meta.url));
 const denoConfig = fileURLToPath(new URL("../deno.json", import.meta.url));
@@ -258,7 +259,7 @@ if (import.meta.main) {
 	try {
 		await run(parseDevelopmentLaunch(Deno.args));
 	} catch (error) {
-		console.error(`rooms-dev: ${error instanceof Error ? error.message : String(error)}`);
+		console.error(`rooms-dev: ${errorMessage(error)}`);
 		Deno.exit(1);
 	}
 }

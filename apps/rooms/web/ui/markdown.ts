@@ -2,6 +2,7 @@
 // Authored text is parsed by the Rust application. This layer only decodes the
 // projection and derives presentation facts from it.
 import { markdownDocument } from "./application.ts";
+import { MAX_SCROLLBACK } from "./limits.ts";
 import { hasIrcFormatting, type IrcRun, ircRuns } from "./irc_formatting.ts";
 
 export type MarkdownNode =
@@ -81,6 +82,34 @@ export function readMarkdown(text: string): MarkdownDocument {
  * gets its own Markdown document, so Markdown cannot open on one side of an IRC
  * state change and close under a different style. */
 export function readRichText(text: string): readonly RichTextPart[] {
+	const known = readings.get(text);
+	if (known != null) {
+		readings.delete(text);
+		readings.set(text, known);
+		return known;
+	}
+	const reading = parseRichText(text);
+	if (reading.some((part) => part.document.degraded === "adapter-failed")) return reading;
+	readings.set(text, reading);
+	if (readings.size > MAX_SCROLLBACK) {
+		for (const oldest of readings.keys()) {
+			readings.delete(oldest);
+			break;
+		}
+	}
+	return reading;
+}
+
+/** Each parse crosses into Wasm and decodes JSON, and the parse is a pure
+ * function of the text. The readings of the most recently read distinct
+ * texts are kept, as many as one log holds. A line parses again on coming
+ * back to a conversation only when more distinct texts than that were read in
+ * between, and identical lines share one reading. A reading the adapter failed to produce is not
+ * kept, because the next parse may succeed. Callers receive the shared value
+ * through read-only types. */
+const readings = new Map<string, readonly RichTextPart[]>();
+
+function parseRichText(text: string): readonly RichTextPart[] {
 	if (!hasIrcFormatting(text)) return [{ document: readMarkdown(text) }];
 	return ircRuns(text).map((irc) => {
 		const before = irc.text.match(/^[ \t]+/)?.[0] ?? "";

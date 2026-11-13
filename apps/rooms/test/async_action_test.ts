@@ -90,7 +90,7 @@ Deno.test("a synchronous throw is a refusal, not an escaped exception", async ()
 	assertEquals(run.why.includes("no held control"), true);
 });
 
-import { PRESENTATION, PresentationRun } from "../web/ui/presentation.ts";
+import { PRESENTATION, PresentationRun, watchVisibility } from "../web/ui/presentation.ts";
 
 for (const delay of [PRESENTATION.busy, PRESENTATION.sending, PRESENTATION.connection]) {
 	Deno.test(`progress appears at ${delay}ms and retired timers cannot paint a later run`, () => {
@@ -147,4 +147,27 @@ Deno.test("background wake starts the feedback slot when progress is actually dr
 	run.close();
 	assertEquals(run.visible("sleeping", PRESENTATION.busy), false);
 	assertEquals(run.remaining, 0);
+});
+
+Deno.test("only a pending wait listens for the tab becoming visible", () => {
+	const target = new EventTarget();
+	let added = 0;
+	let removed = 0;
+	const add = target.addEventListener.bind(target);
+	const remove = target.removeEventListener.bind(target);
+	target.addEventListener = (...args: Parameters<EventTarget["addEventListener"]>) => (added++, add(...args));
+	target.removeEventListener = (
+		...args: Parameters<EventTarget["removeEventListener"]>
+	) => (removed++, remove(...args));
+	let woken = 0;
+	watchVisibility(false, () => woken++, target)();
+	assertEquals([added, removed], [0, 0]);
+	const stop = watchVisibility(true, () => woken++, target);
+	assertEquals(added, 1);
+	target.dispatchEvent(new Event("visibilitychange"));
+	assertEquals(woken, 1);
+	stop();
+	assertEquals(removed, 1);
+	target.dispatchEvent(new Event("visibilitychange"));
+	assertEquals(woken, 1);
 });

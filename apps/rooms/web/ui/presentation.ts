@@ -59,18 +59,24 @@ export class PresentationRun {
 	}
 }
 
+/** A tab that slept past the delay shows a pending wait on return, so only a
+ * pending wait listens for the tab becoming visible. Returns the cleanup. */
+export function watchVisibility(pending: boolean, wake: () => void, target: EventTarget | undefined): () => void {
+	if (!pending || target == null) return () => {};
+	target.addEventListener("visibilitychange", wake);
+	return () => target.removeEventListener("visibilitychange", wake);
+}
+
 export function useProgress(pending: boolean, delay: number = PRESENTATION.busy, identity: unknown = pending): boolean {
 	const [, redraw] = useReducer((value: number) => value + 1, 0);
 	const run = useMemo(() => new PresentationRun(redraw), []);
 	useEffect(() => {
 		if (pending) run.start(identity, delay);
 		else run.close();
-		const wake = () => redraw();
-		const document = (globalThis as { document?: EventTarget }).document;
-		document?.addEventListener("visibilitychange", wake);
+		const unwatch = watchVisibility(pending, redraw, (globalThis as { document?: EventTarget }).document);
 		return () => {
 			run.close();
-			document?.removeEventListener("visibilitychange", wake);
+			unwatch();
 		};
 	}, [run, pending, delay, identity]);
 	return pending && run.visible(identity, delay);

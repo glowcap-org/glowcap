@@ -45,6 +45,10 @@ export interface Roster {
 	online: number;
 }
 
+/** The page locale's ordering, built once. It is the comparison `localeCompare` makes with no
+ * arguments. */
+const collator = new Intl.Collator();
+
 /** The roster in the order it is read, with `you` the name this directory
  * granted this reader.
  *
@@ -58,12 +62,12 @@ export function rosterOf(members: ReadonlyMap<string, Standing>, you: string): R
 	const rows = [...members].sort((a, b) =>
 		mine(b[0]) - mine(a[0]) ||
 		Number(b[1].online) - Number(a[1].online) ||
-		a[0].localeCompare(b[0])
+		collator.compare(a[0], b[0])
 	);
 	return { rows, online: membersHere(members) };
 }
 
-function MemberRow(
+function MemberRowView(
 	{ conv, bridge, name, standing, you, reachable, canInteract }: {
 		/** The room this roster belongs to, which the member card needs to say
 		 * where its reading came from. */
@@ -250,6 +254,10 @@ function MembersPane(
 		</aside>
 	);
 }
+
+// A row is redrawn only when its props change. Most presence events replace one member's standing
+// and leave the rest, so one row redraws. A roster event rebuilds every standing, so every row does.
+const MemberRow = memo(MemberRowView);
 
 // Memoised: see `useRoomsState`. None of these props change with a keystroke.
 export const Members = memo(MembersPane);

@@ -422,32 +422,33 @@ summary:focus-visible,
 	outline: 2px solid var(--accent);
 	outline-offset: 2px;
 }
-/* Honour a reduced-motion preference: drop the transitions and the reconnect
-   spinner's spin, so the interface holds still for anyone who asks the OS for
-   less movement. */
 /* Reduced motion means less travel, not less feedback.
 
    Asking for it should not turn a change into a jump cut: something that
    vanishes between two frames can leave a reader unsure anything happened at
-   all, which is worse than the motion they asked to be spared. So repeated
-   animation stops, movement stops, and fades stay, short ones.
+   all, which is worse than the motion they asked to be spared. So every
+   animation and transition runs for 0.01ms, once, and a change lands where it
+   ends. The two overrides below keep a 150ms fade, because a fade is not
+   travel.
 
-   The duration is a near-zero rather than `none` on purpose, and it is
-   load-bearing beyond taste: `boot.ts` takes the opening screen down on the
-   fade's own `transitionend`, and a transition with no duration never fires
-   one. Writing `transition: none` here would strand that screen over the page
-   for every reader who has asked for less motion. */
+   The duration is a near-zero rather than `none` on purpose. `boot.ts` takes
+   the opening screen down on the fade's `transitionend`, `modal.ts` closes a
+   dialog on one, and the toast stack retires a leaving notice on one. A
+   transition with no duration never fires the event, so `transition: none`
+   would leave each of those to the timer under it, and the opening screen
+   would come down late for every reader who has asked for less motion.
+
+   Delays are cut to the same 0.01ms because a delayed piece with `backwards`
+   fill sits at its hidden first frame through the delay, which for a
+   reduced-motion reader is a blank blink before the finished stack. */
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,
 	*::after {
-		animation-duration: .001ms !important;
-		/* Delays too: a delayed piece with `backwards` fill sits at its hidden
-		   first frame through the delay, which for a reduced-motion reader is
-		   a blank blink before the finished stack. */
-		animation-delay: 0s !important;
+		animation-duration: 0.01ms !important;
+		animation-delay: 0.01ms !important;
 		animation-iteration-count: 1 !important;
-		transition-duration: .001ms !important;
+		transition-duration: 0.01ms !important;
 	}
 	/* Two exceptions, both of which fade rather than travel, and both of which
 	   would otherwise change between two frames with nothing to show for it.

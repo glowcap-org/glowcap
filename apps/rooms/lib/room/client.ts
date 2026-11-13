@@ -52,7 +52,7 @@ import { roomCalledAs, roomIsPrivate, roomPolicy } from "./entrance.ts";
 // Room, and the exports module owns its sibling clients.
 export * from "./client_exports.ts";
 
-import { ask } from "../ask.ts";
+import { ask, askRef } from "../ask.ts";
 import { PostedLine, postedLineResult } from "../posted_line.ts";
 import type { Message } from "./message.ts";
 import { type Subject, subjectRefusal } from "./subject.ts";
@@ -262,14 +262,14 @@ export class Room {
 	}
 
 	async invite(kind: RoomMembershipKind = "participant"): Promise<RoomInvitation> {
-		const invitation = await ask(
+		const invitation = await askRef(
 			this.#session,
 			this.#membershipRef(),
 			MINT_INVITATION,
 			[kind],
 			"the membership did not answer an invitation",
+			"the membership answered without an invitation capability",
 		);
-		if (!(invitation instanceof Ref)) throw new Error("the membership answered without an invitation capability");
 		return new RoomInvitation(this.#session, invitation);
 	}
 

@@ -1,4 +1,5 @@
-import { Ref, retainSecondaryFailure, type Session } from "@glowcap/runtime";
+import { type Argument, Ref, retainSecondaryFailure, type Session } from "@glowcap/runtime";
+import { refuseCapabilityArguments } from "./argument_custody.ts";
 import { ask } from "./ask.ts";
 import { Unanswered } from "./deadline.ts";
 import type { Directory } from "./directory.ts";
@@ -133,7 +134,7 @@ export class DirectoryPeering {
 			this.#releaseOrRetainSource(held);
 			throw new Error("directory peering is closed");
 		}
-		let answer: Promise<unknown>;
+		let answer: Promise<Argument>;
 		try {
 			answer = this.#publicationAnswer(
 				this.#session,
@@ -150,7 +151,9 @@ export class DirectoryPeering {
 		// second retain with no authority role.
 		this.#releaseOrRetainSource(held);
 		const lease = await answer;
-		if (!(lease instanceof Ref)) throw new Error("publishDurableRoom did not return a lease capability");
+		if (!(lease instanceof Ref)) {
+			refuseCapabilityArguments(this.#session, [lease], "publishDurableRoom did not return a lease capability");
+		}
 		const publication = new RoomPublication(this.#session, lease);
 		if (this.#closed) {
 			await this.#cancelClosedPublication(publication);
@@ -198,10 +201,10 @@ export class DirectoryPeering {
 		authority: Ref,
 		args: Parameters<Session["send"]>[2],
 		what: string,
-	): Promise<unknown> {
+	): Promise<Argument> {
 		let abandoned = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
-		const sent = session.send(authority, PUBLISH_DURABLE_ROOM, args) as Promise<unknown>;
+		const sent = session.send(authority, PUBLISH_DURABLE_ROOM, args) as Promise<Argument>;
 		const observed = sent.then((value) => {
 			if (abandoned && value instanceof Ref) this.#retireLatePublication(value);
 			return value;
