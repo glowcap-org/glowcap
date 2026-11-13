@@ -66,7 +66,8 @@
  *   does not erase a session another producer still reports;
  * - one message is one message however many ends report it: each
  *   carries a tag over its own wire bytes that both ends derive
- *   alike, and the second sighting folds into the first;
+ *   alike, and the other end's sighting of it folds into the first
+ *   (`drawsMessage`);
  * - what a peer RUNS is stated, never deduced from the fact that it
  *   reported: every peer starts unknown, and a producer that says what
  *   it runs names its own end at the moment it says so rather than at
@@ -81,11 +82,11 @@ import { LedgerLifetime } from "./stage-ledger/lifetime.ts";
 import { LedgerNames } from "./stage-ledger/names.ts";
 import {
 	anonKey,
+	drawsMessage,
 	type EndingReason,
 	type FarEndBacking,
 	type LivePeer,
 	type LiveWire,
-	MAX_SEEN_DIGESTS,
 	selfProfileOf,
 	sideOf,
 	wireKeyFor,
@@ -363,7 +364,7 @@ export class StageLedger {
 				selfKey,
 				otherKey,
 			}]]),
-			seen: new Set(),
+			seen: new Map(),
 			looseClaims: new Map(),
 		};
 		this.wires.set(wireKey, row);
@@ -551,19 +552,9 @@ export class StageLedger {
 		const row = this.wires.get(wireKey);
 		const obs = row?.observers.get(sessionId);
 		if (row === undefined || obs === undefined) return null;
-		// One frame crosses one wire, so both ends hold the same bytes and
-		// derive the same tag. The first sighting draws the message and enters
-		// the tag; the second CONSUMES it. Consuming rather than remembering is
-		// what keeps a peer that really does send identical bytes twice drawing
-		// twice.
 		if (digest !== undefined && digest.length > 0) {
-			if (row.seen.delete(digest)) return null;
-			row.seen.add(digest);
-			while (row.seen.size > MAX_SEEN_DIGESTS) {
-				const oldest = row.seen.values().next();
-				if (oldest.done === true) break;
-				row.seen.delete(oldest.value);
-			}
+			const source = sideOf(row, outbound ? obs.selfKey : obs.otherKey);
+			if (!drawsMessage(row, sessionId, source, outbound, digest)) return null;
 		}
 		// A message whose far end is loose still arrives somewhere: at the
 		// end itself, which is drawn and holds a position exactly so that it

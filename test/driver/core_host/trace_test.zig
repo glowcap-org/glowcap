@@ -144,6 +144,11 @@ test "core host: the live trace reports open, both message directions, and close
     try std.testing.expect(server_log.contains("open codec=syrup"));
     try std.testing.expect(server_log.contains("msg in poke"));
 
+    // The answer is a deliver to the caller's resolver. The answerer reports
+    // it where the frame leaves and the caller where it arrives.
+    try std.testing.expect(server_log.contains("msg out fulfill"));
+    try std.testing.expect(client_log.contains("msg in fulfill"));
+
     // Release pairs the close with the open, exactly once per side.
     try client.releaseSession(pair.a);
     try server.releaseSession(pair.b);
@@ -509,6 +514,12 @@ test "core host: both ends of a wire tag one message identically" {
     const sent = client_log.find("poke", true) orelse return error.NoOutboundPoke;
     const heard = server_log.find("poke", false) orelse return error.NoInboundPoke;
     try std.testing.expectEqualSlices(u8, &sent, &heard);
+
+    // An answer crosses the other way as a deliver to the caller's resolver,
+    // and the two records of it agree the same way.
+    const answered = server_log.find("fulfill", true) orelse return error.NoOutboundAnswer;
+    const settled = client_log.find("fulfill", false) orelse return error.NoInboundAnswer;
+    try std.testing.expectEqualSlices(u8, &answered, &settled);
 
     // And the tag must cover the frame, not something coarser that happens to
     // agree across ends. Two sends of the SAME verb carrying different

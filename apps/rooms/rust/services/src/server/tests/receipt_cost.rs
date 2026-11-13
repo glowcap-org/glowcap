@@ -150,17 +150,17 @@ async fn retained_post_measures_request_and_callback_wire_bytes() {
 						before + 1,
 						"the ordered callback precedes the reply"
 					);
+					let callback = if retained { receipt::TAG } else { "notify" };
+					assert_eq!(callbacks.borrow().last().unwrap(), callback);
+					// The trace reports each frame where it arrives: the request at
+					// the room, then the callback and the answer at the member.
+					let frames = lengths.borrow();
 					assert_eq!(
-						callbacks.borrow().last().unwrap(),
-						if retained { receipt::TAG } else { "notify" }
+						frames.iter().map(|(op, _)| op.as_deref()).collect::<Vec<_>>(),
+						[Some(verb), Some(callback), Some("fulfill")],
+						"request, callback, and answer frames"
 					);
-					assert_eq!(
-						lengths.borrow().len(),
-						2,
-						"request and callback frames: {:?}",
-						lengths.borrow()
-					);
-					totals.push(lengths.borrow().iter().map(|(_, len)| len).sum::<usize>());
+					totals.push(frames[..2].iter().map(|(_, len)| len).sum::<usize>());
 				}
 				assert!(
 					totals[1] <= totals[0] + 24,

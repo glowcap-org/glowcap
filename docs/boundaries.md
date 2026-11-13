@@ -146,6 +146,14 @@ recognized-failure syntax remain unsupported
   permanent-name costs, and close rules are specified in the
   [access storage guide](loam/access-storage.md).
 
+### Live trace
+
+A host's live trace reports every deliver it sends. It reports a deliver it
+receives only when the application or the Host serves it. A forwarded answer,
+a shortening callback, and a retired resolver's callback are reported by
+their sender alone. A pipelined call is reported when its target settles, as
+a frame with a different tag, so ocapnviz Live draws that call twice.
+
 ### Rooms
 
 [Rooms limitations](../apps/rooms/limitations.md) owns application
