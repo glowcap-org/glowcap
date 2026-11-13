@@ -466,6 +466,15 @@ offer, and at a workspace change once the last answer has grown old. The
 directory withdraws a name without telling its holder, so the last of these
 is how a session still in use hears of it.
 
+A managed session forwards what one session source is asked in the order it
+was asked: the session host starts an operation only once every earlier one
+on the same source has left (`schedule` in `src/loam/hosting/drive.zig`). A
+conversation's typing and lines go through one source to one target, so a
+typing start made before a line arrives before it and the line ends it, and
+the page sends no stop after a line. The order holds on one connection. A
+direct conversation that changes routes between a start and its line can
+show the author typing until the reader's wait ends.
+
 A line costs the sender one `post` and its answer, and each member one
 `notify`, the sender's own included. A typing level from a managed session
 costs one call and its answer, and each other member one `notify`. The answer

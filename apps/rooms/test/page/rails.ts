@@ -7,7 +7,7 @@
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
-import { recordNotices } from "./harness.ts";
+import { awaitBubble, recordNotices, say } from "./harness.ts";
 import { proveRoomDepartures } from "./departure.ts";
 
 export async function run(tab: Page, browser: Browser, httpPort: number): Promise<Page> {
@@ -55,6 +55,27 @@ export async function run(tab: Page, browser: Browser, httpPort: number): Promis
 		fail(`a member typing in the room did not show where the other member is typing: ${JSON.stringify(said)}`);
 	});
 	await second.fill("#line", "");
+	await tab.waitForFunction(
+		() => document.getElementById("typing")?.classList.contains("show") !== true,
+		undefined,
+		{ timeout: 30_000 },
+	).catch(() => fail("a member who emptied their draft stayed shown as typing"));
+
+	// A line sent the moment it is written is never followed by its author
+	// shown as typing. The page sends no stop after such a line, so a start
+	// that arrived behind it would show here with the line already on screen.
+	await say(second, "sent the moment it was written");
+	await awaitBubble(tab, "sent the moment it was written", "web-alice");
+	const shownAfterLine = await tab.evaluate(() =>
+		new Promise<boolean>((resolve) => {
+			const said = document.getElementById("typing");
+			const shown = () => said?.classList.contains("show") === true;
+			if (said == null || shown()) return resolve(shown());
+			new MutationObserver(() => shown() && resolve(true)).observe(said, { attributes: true });
+			setTimeout(() => resolve(false), 2_000);
+		})
+	);
+	if (shownAfterLine) fail("a line sent the moment it was written left its author shown as typing");
 
 	// ── Ignoring a name that turns out to be your own ────────────────────
 	// The ignore list is names, and a name is a claim a directory grants and

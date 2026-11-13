@@ -214,7 +214,7 @@ Deno.test("a conversation that is gone is owed nothing", async () => {
 	await session.typing.close();
 });
 
-Deno.test("a start still on its way when its draft leaves is followed by its stop", async () => {
+Deno.test("a start still on its way when its draft leaves is ended by the line", async () => {
 	const sent: boolean[] = [];
 	const arrived = Promise.withResolvers<void>();
 	const session = viewer({
@@ -235,11 +235,11 @@ Deno.test("a start still on its way when its draft leaves is followed by its sto
 	assertEquals(sent, [true]);
 	arrived.resolve();
 	await start;
-	assertEquals(sent, [true, false], "the room may hear that start after the line, so the line is not its stop");
+	assertEquals(sent, [true], "the session forwards that start ahead of the line, so the line is its stop");
 	await session.typing.close();
 });
 
-Deno.test("a start the room refused while its draft left owes no stop", async () => {
+Deno.test("a start the room refuses while a line is out reports its refusal and sends nothing more", async () => {
 	const sent: boolean[] = [];
 	const answered = Promise.withResolvers<void>();
 	const session = viewer({
@@ -259,7 +259,7 @@ Deno.test("a start the room refused while its draft left owes no stop", async ()
 	answered.reject(new RoomsError("no-such-room", "the room is gone"));
 	assert(await start.then(() => false, () => true), "the refused start reports its refusal");
 	await session.typing.lineSettled("room", true);
-	assertEquals(sent, [true], "nobody heard that start, so the line owes it no stop");
+	assertEquals(sent, [true], "the refused start is neither sent again nor followed by a stop");
 	await session.typing.close();
 });
 
