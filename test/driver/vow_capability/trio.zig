@@ -16,7 +16,7 @@ const Pair = harness.Pair;
 /// releases it unless the test asked it to keep the capability. One
 /// instantiation per Host, so each keeps its own record: the tag is read so
 /// the compiler mints a type per Host instead of sharing one.
-pub fn ReaderOf(comptime which: u8) type {
+fn ReaderOf(comptime which: u8) type {
     return struct {
         pub const tag = which;
         pub var ran: usize = 0;
@@ -87,7 +87,7 @@ pub const ReaderC = ReaderOf('c');
 
 /// Defers every answer and parks the resolver for the test to settle. One
 /// instantiation per Host, as with the readers.
-pub fn GreeterOf(comptime which: u8) type {
+fn GreeterOf(comptime which: u8) type {
     return struct {
         pub const tag = which;
         pub var ran: usize = 0;
@@ -198,7 +198,7 @@ pub const Trio = struct {
         self.arena.deinit();
     }
 
-    pub fn clearDials(self: *Trio) void {
+    fn clearDials(self: *Trio) void {
         for (self.dials.items) |parked| std.testing.allocator.free(parked.designator);
         self.dials.clearRetainingCapacity();
     }
@@ -212,7 +212,7 @@ pub const Trio = struct {
     }
 
     /// Fetch `name` over `hs`, a session of `a`, and hold it as a capability.
-    pub fn fetchHeld(self: *Trio, hs: *driver.core.HostSession, name: []const u8) !driver.Capability {
+    fn fetchHeld(self: *Trio, hs: *driver.core.HostSession, name: []const u8) !driver.Capability {
         return self.fetchHeldOn(&self.a, hs, name);
     }
 

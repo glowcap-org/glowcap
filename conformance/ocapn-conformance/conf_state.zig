@@ -150,7 +150,7 @@ pub const PendingEnliven = struct {
 /// executed after the runtime step unwinds. The hook may inspect and claim an
 /// event, but Host.fetch/acceptInlineGive and HostRuntime.startDial are
 /// deliberately top-level operations and reject callback re-entry.
-pub const DeferredAction = union(enum) {
+const DeferredAction = union(enum) {
     accept_give: struct {
         session: *HostSession,
         give: model.HandoffGive,

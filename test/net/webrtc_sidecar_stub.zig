@@ -28,7 +28,7 @@ pub var open_checks: usize = 0;
 pub var receive_result: isize = -2;
 
 /// Records the next `drain_driver_ready` hands the driver, then clears.
-pub var driver_events: [8]webrtc.ReadyEvent = undefined;
+var driver_events: [8]webrtc.ReadyEvent = undefined;
 pub var driver_event_count: usize = 0;
 
 /// The id of the peer created last.

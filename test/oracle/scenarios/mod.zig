@@ -408,7 +408,7 @@ pub fn runDrivenGcPair(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8
 
 /// The two inbound entry points that converge on one dispatcher: the borrowed
 /// zero-copy path and the owned-frame path.
-pub const InboundMode = enum { borrowed, owned };
+const InboundMode = enum { borrowed, owned };
 
 /// Drive one inbound frame through `mode` and trace the observable dispatcher
 /// output (rejection error, surfaced events, outbound frame count + byte length,

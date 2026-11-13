@@ -295,7 +295,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime policy: type, comptime cfg: 
 /// One `call/outs` wrapper: the public name takes the non-cell arguments
 /// (named from the header) and returns `(values rc out…)`, or, for a void
 /// raw, just `(values out…)` with a constant 0 status inside.
-pub fn renderMultiWrapper(
+fn renderMultiWrapper(
     gpa: std.mem.Allocator,
     out: *std.ArrayList(u8),
     comptime M: type,

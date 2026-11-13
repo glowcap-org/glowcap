@@ -44,7 +44,7 @@ pub const max_steps = 8;
 /// three open sessions, and the handoff between them.
 pub const span: u16 = 16384;
 /// The most bytes one flip arm changes.
-pub const max_flips = 3;
+const max_flips = 3;
 
 /// The actions a step draws.
 pub const act_honest: u64 = 0;

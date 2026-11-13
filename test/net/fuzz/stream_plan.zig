@@ -88,7 +88,7 @@ pub const Tail = enum {
 
 /// One stream: the geometry the fuzzer chose, the frames it asked for, and the
 /// bytes those add up to.
-pub const StreamPlan = struct {
+const StreamPlan = struct {
     /// Bytes of read buffer the frame reader is given.
     read_len: usize,
     /// Most bytes one read may return, however much room the buffer has. This is
@@ -109,11 +109,11 @@ pub const StreamPlan = struct {
 /// The frame part of a corpus seed. `corpus_seeds.seed` prefixes each frame with
 /// a little-endian length for the fuzzer's replay framing, so the frame is what
 /// follows that prefix.
-pub fn corpusFrame(index: usize) []const u8 {
+fn corpusFrame(index: usize) []const u8 {
     return seeds.message_seeds[index % seeds.message_seeds.len][4..];
 }
 
-pub fn appendOuterFrame(dest: []u8, frame: []const u8) ?usize {
+fn appendOuterFrame(dest: []u8, frame: []const u8) ?usize {
     var prefix_buf: [32]u8 = undefined;
     const prefix = std.mem.print(&prefix_buf, "{d}:", .{frame.len}) catch return null;
     const total = prefix.len + frame.len;
@@ -131,7 +131,7 @@ pub fn appendOuterFrame(dest: []u8, frame: []const u8) ?usize {
 /// envelope carries its body opaque, so a payload byte that looks like a
 /// record opener must come back exactly as sent, and the byte-identical check
 /// below is what would notice a framer that read meaning into it.
-pub fn synthesizeDeliver(out: []u8, want: usize) []const u8 {
+fn synthesizeDeliver(out: []u8, want: usize) []const u8 {
     const opener = "<10'op:deliver<11'desc:export7+>[";
     const closer = "]42+f>";
     const integer = "1+";
@@ -158,7 +158,7 @@ pub fn synthesizeDeliver(out: []u8, want: usize) []const u8 {
 /// every replay, so a saved finding would replay under a geometry the fuzzer
 /// never found it with, and for a target whose whole subject is geometry that
 /// is the wrong one every time.
-pub fn planStream(input: []const u8) ?StreamPlan {
+fn planStream(input: []const u8) ?StreamPlan {
     if (input.len <= stream_config_bytes) return null;
 
     const read_len = 1 + @as(usize, input[0]) % max_read_len;
@@ -226,7 +226,7 @@ pub fn planStream(input: []const u8) ?StreamPlan {
 /// Cut `bytes` into chunk-sized reader calls, returning how many were filled.
 /// The pieces are sized so they can span the whole stream: a fixed small piece
 /// silently truncates everything past `calls.len` bytes.
-pub fn splitStream(bytes: []const u8, calls: []std.testing.Reader.Call, piece: usize) usize {
+fn splitStream(bytes: []const u8, calls: []std.testing.Reader.Call, piece: usize) usize {
     const min_piece = std.math.divCeil(usize, bytes.len, calls.len) catch 1;
     const use = @max(piece, @max(min_piece, 1));
     var count: usize = 0;
@@ -241,7 +241,7 @@ pub fn splitStream(bytes: []const u8, calls: []std.testing.Reader.Call, piece: u
 
 /// The spill's boundedness and retention, checked where a caller can see them:
 /// between frames.
-pub fn expectSpillBounded(spill: *const net.Spill, plan: StreamPlan) !void {
+fn expectSpillBounded(spill: *const net.Spill, plan: StreamPlan) !void {
     // A spill that is not accumulating has freed its storage, not merely
     // emptied it. That is the whole reason this is a spill rather than a buffer
     // per connection.
