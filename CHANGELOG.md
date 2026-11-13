@@ -61,6 +61,12 @@ Releases before 0.1.7 are in the
   attach and emoji buttons do, so a phone's keyboard stays up after a send.
   Pressing it took the caret away, which also sent a typing stop ahead of
   every line sent that way.
+- The live trace reports the answer to a call where it arrives. A host
+  reported the answers it sent and not the ones its own calls received.
+- ocapnviz Live draws a message whose bytes repeat an earlier one. A second
+  send of the same bytes from the same end was taken for the first one
+  arriving and not drawn, which hid answers that carry nothing. The same
+  bytes sent from both ends were drawn once.
 - ocapnviz Build mode shows text as it is typed. Fields such as a peer's
   label and a message's label dropped each key until the field lost focus,
   and then kept only the last one.

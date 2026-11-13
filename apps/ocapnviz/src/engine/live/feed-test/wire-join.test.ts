@@ -230,6 +230,81 @@ Deno.test("a peer sending the same bytes twice draws twice", () => {
 	assertEquals(drawn, [1, 0, 1, 0]);
 });
 
+/** One wire both ends watch. `sight` says how many messages a sighting
+ * drew: the end that reported it, and whether the message left that end. */
+function watchedWire(wire: string) {
+	const convert = makeBaseEventConverter();
+	for (const [end, a, b] of [["p1", "alice", "bob"], ["p2", "bob", "alice"]]) {
+		convert({
+			v: 1,
+			sim_t_ns: 0,
+			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
+			session: `${end}/live-h1-s1`,
+			a,
+			b,
+			session_id: wire,
+			codec: "syrup",
+		});
+	}
+	let at = 2_000_000;
+	return {
+		convert,
+		sight: (end: "p1" | "p2", outbound: boolean): number =>
+			convert({
+				v: 1,
+				sim_t_ns: at += 1000,
+				kind: "ocapn.message-decoded",
+				session: `${end}/live-h1-s1`,
+				outbound,
+				op: "fulfill",
+				digest: "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+			}).filter((e) => e.kind === "message-sent").length,
+	};
+}
+
+Deno.test("an end that reports alone draws every message it sends", () => {
+	// Two empty answers to one resolver position are the same bytes. When the
+	// far end reports no arrival, the next one is another message and not the
+	// first one arriving.
+	const { sight } = watchedWire(wireName("a"));
+	assertEquals([sight("p1", true), sight("p1", true), sight("p1", true)], [1, 1, 1]);
+});
+
+Deno.test("arrivals reported late fold into the messages they are", () => {
+	const { sight } = watchedWire(wireName("b"));
+	assertEquals(
+		[sight("p1", true), sight("p1", true), sight("p2", false), sight("p2", false)],
+		[1, 1, 0, 0],
+	);
+});
+
+Deno.test("an arrival reported before the send draws the message once", () => {
+	const { sight } = watchedWire(wireName("c"));
+	assertEquals(
+		[sight("p2", false), sight("p2", false), sight("p1", true), sight("p1", true)],
+		[1, 1, 0, 0],
+	);
+});
+
+Deno.test("the same bytes traveling both ways are two messages", () => {
+	const { sight } = watchedWire(wireName("d"));
+	assertEquals(
+		[sight("p1", true), sight("p2", true), sight("p2", false), sight("p1", false)],
+		[1, 1, 0, 0],
+	);
+});
+
+Deno.test("a producer that leaves takes its unmatched sightings with it", () => {
+	// What the departed end reported arriving can no longer be matched, so a
+	// later send of the same bytes is a message and not one of those arrivals.
+	const { convert, sight } = watchedWire(wireName("e"));
+	assertEquals([sight("p1", false), sight("p1", false), sight("p1", false)], [1, 1, 1]);
+	convert({ v: 1, sim_t_ns: 3_000_000, kind: "trace.producer-left", scope: "p1" });
+	assertEquals([sight("p2", true), sight("p2", true)], [1, 1]);
+});
+
 Deno.test("either endpoint closes the shared wire immediately", () => {
 	// A direct message closed from the receiving tab must end the session in
 	// the picture. Both ends may report the close, but the first observation is

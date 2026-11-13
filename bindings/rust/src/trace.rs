@@ -84,9 +84,7 @@ pub struct TraceEvent {
 	/// consumer from the session's open.
 	pub outbound: bool,
 	pub op: Option<String>,
-	/// `MessageDecoded`: the wire frame's true byte length, when the core
-	/// reported the frame (inbound messages, while an outbound send is traced
-	/// before its deferred encode).
+	/// `MessageDecoded`: the wire frame's true byte length.
 	pub len: Option<usize>,
 	/// The whole frame, base64, when it fits `PAYLOAD_CAP`.
 	pub bytes_b64: Option<String>,

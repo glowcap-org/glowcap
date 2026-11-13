@@ -90,6 +90,25 @@ pub const BeforeServeError = error{MissingAdvertisedLocator} ||
     foundation.error_sets.Of(engine.Node.acceptGive) ||
     foundation.error_sets.Of(engine.Node.claimResolve);
 
+/// The live trace's inbound seat. It reports each deliver the engine surfaces
+/// as an event, with the selector the actor layer's one splitter reads,
+/// absence included. It reads the event's own frame and not `view`, because
+/// the answer to a call arrives as a deliver to the caller's resolver and
+/// `view` holds the resolve it became. A deliver the engine settles with no
+/// event is reported by its sender only: a forwarded answer, a shortening
+/// callback, and a retired resolver's callback. A pipelined call surfaces
+/// when its target settles, as a frame the engine encoded again, so its tag
+/// differs from the sender's.
+fn traceInboundDeliver(host: *Host, session: *HostSession, event: *const engine.Event) void {
+    if (host.trace_sink == null) return;
+    const arrived = event.wireView();
+    if (arrived.* != .deliver) return;
+    // best-effort: tracing is observation only, so a deliver the splitter
+    // cannot read is skipped, never the serve it observes.
+    const delivery = actors.Delivery.fromArgs(arrived.deliver.args) catch return;
+    host.traceMessage(session, false, delivery.verb, event.bytes());
+}
+
 /// The before-serve hook `sessions.zig` installs on every Host CapTP session.
 pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) BeforeServeError!bool {
     _ = served;
@@ -98,13 +117,9 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
     // Private effects are served by the Port that owns the export binding.
     if (event.kind() == .release_pipeline_export) return false;
     const body = event.view();
-    // Every event notices a just-opened session. Every deliver reports its
-    // selector, including absence, using the actor layer's one splitter.
+    // Every event notices a just-opened session.
     host.traceNoteOpen(session);
-    if (host.trace_sink != null and body.* == .deliver) {
-        const delivery = try actors.Delivery.fromArgs(body.deliver.args);
-        host.traceMessage(session, false, delivery.verb, event.bytes());
-    }
+    traceInboundDeliver(host, session, event);
     if (body.* == .start_session) {
         if (session.role == .accepted)
             try crossed_hellos.tiebreakInbound(host, session, body.start_session);

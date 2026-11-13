@@ -11,7 +11,7 @@
 
 import type { TimelineEvent } from "../timeline.ts";
 import type { LedgerNames } from "./names.ts";
-import type { EndingReason, LivePeer, LiveWire } from "./rows.ts";
+import { type EndingReason, forgetObserver, type LivePeer, type LiveWire } from "./rows.ts";
 
 export class LedgerLifetime {
 	constructor(
@@ -82,7 +82,10 @@ export class LedgerLifetime {
 		const row = this.wires.get(wireKey);
 		if (row === undefined) return [];
 		row.observers.delete(sessionId);
-		if (why === "unobserved" && row.observers.size > 0) return [];
+		if (why === "unobserved" && row.observers.size > 0) {
+			forgetObserver(row, sessionId);
+			return [];
+		}
 		const retiredObservers = [...row.observers.keys()];
 		for (const observerSessionId of row.observers.keys()) {
 			this.wireOfSession.delete(observerSessionId);

@@ -58,11 +58,11 @@ export type LiveWire = {
 	bKey: string;
 	/** Every producer session watching this wire, by scoped session id. */
 	observers: Map<string, Observer>;
-	/** Message tags already drawn on this wire. A tag is entered by the
-	 * first end to report the message and CONSUMED by the second, so a
-	 * peer that sends the same bytes twice draws two
-	 * messages. Bounded, oldest out first. */
-	seen: Set<string>;
+	/** Messages drawn on this wire that one end has reported and the other
+	 * has not, by the end each left from and its tag. `drawsMessage` owns the
+	 * fold, and `forgetObserver` drops what a departed observer entered.
+	 * Bounded, oldest out first. */
+	seen: Map<string, { observer: string; departing: boolean; count: number }>;
 	/** Names an application claimed for an end nobody could name yet,
 	 * by side, held until the end attaches to a peer that can wear
 	 * them.
@@ -78,7 +78,7 @@ export type LiveWire = {
 /** Message tags held per wire for the fold. One conversation's
  * in-flight window is a handful. This is far past it and still a
  * fixed ceiling per wire. */
-export const MAX_SEEN_DIGESTS = 512;
+const MAX_SEEN_DIGESTS = 512;
 
 /** Why a row on stage ended.
  *
@@ -117,6 +117,55 @@ export function anonKey(wireKey: string): string {
 /** Which end of a wire a ledger key sits on. */
 export function sideOf(row: LiveWire, key: string): SessionSide {
 	return row.aKey === key ? "a" : "b";
+}
+
+/** Whether a sighting is a message this wire has not drawn yet.
+ *
+ * One frame crosses one wire, so both ends hold the same bytes and derive
+ * the same tag. Each end reports a message once: the end it leaves reports
+ * it `departing`, and the end it reaches reports it arriving. The first
+ * report of a tag draws the message and enters it. A report of the other
+ * kind for that tag, traveling the same way, is the same message seen from
+ * the other end, so it takes one from the entry and draws nothing. A report
+ * of the same kind is another message with the same bytes, as two empty
+ * answers to one resolver position are, so it draws whether or not the
+ * other end reports at all. The same bytes traveling the other way are a
+ * different message. */
+export function drawsMessage(
+	row: LiveWire,
+	observer: string,
+	source: SessionSide,
+	departing: boolean,
+	digest: string,
+): boolean {
+	const key = `${source}:${digest}`;
+	const held = row.seen.get(key);
+	if (held === undefined) {
+		row.seen.set(key, { observer, departing, count: 1 });
+		while (row.seen.size > MAX_SEEN_DIGESTS) {
+			const oldest = row.seen.keys().next();
+			if (oldest.done === true) break;
+			row.seen.delete(oldest.value);
+		}
+		return true;
+	}
+	if (held.departing === departing) {
+		held.observer = observer;
+		held.count += 1;
+		return true;
+	}
+	if (held.count === 1) row.seen.delete(key);
+	else held.count -= 1;
+	return false;
+}
+
+/** An observer stopped watching a wire another still watches. What it
+ * reported and nobody matched can no longer be matched by it, and the end
+ * it watched may be reported by a different observer next. */
+export function forgetObserver(row: LiveWire, observer: string): void {
+	for (const [key, held] of row.seen) {
+		if (held.observer === observer) row.seen.delete(key);
+	}
 }
 
 /** What one observation says about its own reporting end: the producer's
