@@ -289,6 +289,45 @@ pub(crate) fn terminal_read_result(state: &Inbound) -> isize {
 	}
 }
 
+/// What the gate says of the channel: `OK` once open, `WOULD_BLOCK` while it
+/// is still being established, `CLOSED` after a clean close, `ERR` after a
+/// failure.
+pub(crate) fn open_result(gate: &OpenGate) -> i32 {
+	if gate.closed {
+		return if gate.failed { ERR } else { CLOSED };
+	}
+	if gate.open { OK } else { WOULD_BLOCK }
+}
+
+/// Admit one whole packet to an open channel's send queue, or say why not.
+/// `WOULD_BLOCK` covers a channel still opening and a full queue. An ended
+/// channel answers with its ending, `CLOSED` or `ERR`. The gate latches that
+/// ending before the queue closes, so a queue found closed reads the gate.
+pub(crate) fn try_send(shared: &PeerShared, bytes: &[u8]) -> isize {
+	match open_result(&shared.open.lock().unwrap()) {
+		OK => {}
+		pending_or_ended => return pending_or_ended as isize,
+	}
+	if bytes.is_empty() {
+		return 0;
+	}
+	if shared.dc.lock().unwrap().is_none() {
+		return WOULD_BLOCK as isize;
+	}
+	let accepted = enqueue_outbound(&mut shared.outbound.lock().unwrap(), bytes);
+	if accepted > 0 {
+		shared.outbound_ready.notify_one();
+	}
+	if accepted == ERR as isize {
+		// The queue closed between the two locks, so the gate holds the ending.
+		return match open_result(&shared.open.lock().unwrap()) {
+			CLOSED => CLOSED as isize,
+			_ => ERR as isize,
+		};
+	}
+	accepted
+}
+
 /// Admit one whole packet. A prefix would become a distinct DataChannel message,
 /// so a packet either enters complete or the caller retries it unchanged.
 pub(crate) fn enqueue_outbound(state: &mut Outbound, bytes: &[u8]) -> isize {

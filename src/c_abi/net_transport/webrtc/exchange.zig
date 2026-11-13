@@ -135,8 +135,9 @@ pub fn retire(payload: *NetlayerPayload, peer: *PeerPayload, notice: Notice) ?an
 /// record. A dial that fails keeps its cause for `finish_connect`. An accept
 /// that fails before opening ends here, with `done`, because the listener has
 /// nothing to report for it. Once open, I/O readiness passes through under
-/// the peer id until the driver claims the peer, so a hello the far peer
-/// sends first is not lost.
+/// the peer id. A hello the far peer sends first can share the opening
+/// record or reach the driver before it claims the peer. The driver reads
+/// each connection once when it adopts it, which covers both.
 pub fn routeEvent(payload: *NetlayerPayload, peer: *PeerPayload, events: u32) ?c.GlowcapMultiplexedReadyEvent {
     const exchange = &peer.exchange.?;
     switch (exchange.state) {

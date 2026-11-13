@@ -231,7 +231,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const fd = try self.reserveFd();
             try self.conns.ensureUnusedCapacity(1);
             const end = try exchange.connect(designator, self.sink, Namespace.fdId(fd));
-            self.conns.putAssumeCapacity(fd, .{ .end = end, .pending = .{ .writable_hint = true } });
+            self.conns.putAssumeCapacity(fd, .{ .end = end, .pending = .{} });
             self.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
             return fd;
         }
@@ -388,7 +388,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 const fd = Namespace.fdFromId(end.row) catch continue;
                 const entry = self.conns.getPtr(fd) orelse continue;
                 entry.pending.readable_hint = true;
-                entry.pending.writable_hint = true;
                 if (entry.pending.read_ud != null) TryIo.completeRecv(self, entry);
                 if (entry.pending.write_ud != null) TryIo.completeSend(self, entry);
             }
@@ -412,11 +411,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const fd = try self.reserveFd();
             try self.conns.ensureUnusedCapacity(1);
             end.bind(self.sink, Namespace.fdId(fd));
-            // Bytes or a close may have arrived before this end had a sink.
-            self.conns.putAssumeCapacity(fd, .{ .end = end, .pending = .{
-                .readable_hint = true,
-                .writable_hint = true,
-            } });
+            self.conns.putAssumeCapacity(fd, .{ .end = end, .pending = .{} });
             return fd;
         }
 

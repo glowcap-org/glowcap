@@ -20,13 +20,6 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_is_open(peer: *const Glowca
 	unsafe { borrowed(peer, ERR, |peer| open_result(&peer.shared.open.lock().unwrap())) }
 }
 
-pub(crate) fn open_result(gate: &OpenGate) -> i32 {
-	if gate.closed {
-		return if gate.failed { ERR } else { CLOSED };
-	}
-	if gate.open { OK } else { WOULD_BLOCK }
-}
-
 /// Non-blocking receive for readiness owners. Returns one packet, zero at clean
 /// EOF, `WOULD_BLOCK` when no packet is buffered yet, `BUFFER_TOO_SMALL` when
 /// the packet remains queued for a larger buffer, or `ERR` on invalid input.
@@ -64,7 +57,8 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_receive_packet(
 /// Non-blocking send for readiness owners. The call copies one whole packet
 /// into the bounded sidecar staging buffer and returns immediately, without
 /// entering the async runtime. `WOULD_BLOCK` means no sidecar capacity is
-/// available, so re-arm on `EV_WRITABLE` and retry the same packet.
+/// available, so re-arm on `EV_WRITABLE` and retry the same packet. An ended
+/// channel admits nothing: `CLOSED` after a clean close, `ERR` after a failure.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 	peer: *mut GlowcapWebrtcPeer,
@@ -77,26 +71,10 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 		if buf.is_null() || len > isize::MAX as usize {
 			return ERR as isize;
 		}
-		if !peer.shared.open.lock().unwrap().open {
-			return WOULD_BLOCK as isize;
-		}
-		if len == 0 {
-			return 0;
-		}
-		if peer.shared.dc.lock().unwrap().is_none() {
-			return WOULD_BLOCK as isize;
-		}
 		// SAFETY: the caller's contract is `len` readable bytes at `buf`, and
-		// the null, oversized, and zero-length cases went to the arms above.
+		// the null and oversized cases went to the arm above.
 		let bytes = unsafe { std::slice::from_raw_parts(buf, len) };
-		let accepted = {
-			let mut outbound = peer.shared.outbound.lock().unwrap();
-			enqueue_outbound(&mut outbound, bytes)
-		};
-		if accepted > 0 {
-			peer.shared.outbound_ready.notify_one();
-		}
-		accepted
+		try_send(&peer.shared, bytes)
 	};
 	// SAFETY: the handle contract `borrowed` states.
 	unsafe { borrowed(peer, ERR as isize, send) }

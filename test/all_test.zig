@@ -340,6 +340,7 @@ comptime {
     if (wanted(.net)) {
         _ = @import("net/inproc_completion_test.zig");
         _ = @import("net/completion_poll_test.zig");
+        _ = @import("net/hinted_try_io_test.zig");
         _ = @import("net/completion_listeners_test.zig");
         _ = @import("net/tcp_completion_policy_test.zig");
         _ = @import("net/completion_resident_test.zig");

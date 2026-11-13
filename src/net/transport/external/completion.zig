@@ -390,10 +390,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                     entry.pending.readable_hint = true;
                     TryIo.completeRecv(self, entry);
                 },
-                .write => {
-                    entry.pending.writable_hint = true;
-                    TryIo.completeSend(self, entry);
-                },
+                .write => TryIo.completeSend(self, entry),
             }
         }
 
@@ -413,7 +410,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
         }
 
-        /// Arm a poll for each direction with a parked seat and no hint.
+        /// Arm a poll for a parked read with no hint and for a parked write.
         fn armPolls(self: *Self, fd: Fd) void {
             const entry = self.conns.getPtr(fd) orelse return;
             if (entry.closing or entry.phase != .open or entry.pending.terminal_failure != null) return;
@@ -423,7 +420,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                     return TryIo.failOpenConnection(self, entry, err);
                 entry.read_poll = true;
             }
-            if (entry.pending.write_ud != null and !entry.pending.writable_hint and !entry.write_poll) {
+            if (entry.pending.write_ud != null and !entry.write_poll) {
                 self.platform.submitPoll(Identity.userData(.write_poll, id), entry.fd, .writable) catch |err|
                     return TryIo.failOpenConnection(self, entry, err);
                 entry.write_poll = true;
@@ -471,7 +468,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 .provider = provider,
                 .phase = .{ .open = handle.ptr },
                 .fd = handle.fd,
-                .pending = .{ .writable_hint = true },
+                .pending = .{},
             };
         }
 

@@ -390,15 +390,30 @@ pub fn serveGreeter(
 
     var served = std.atomic.Value(bool).init(false);
     _ = try host.publish("greeter", Greeter, .{ .done = &served, .greeting = greeting });
-    try waitFor(resident, peer, &pump, &host, session, session, sessionOpenDone, 10_000);
-    try serveUntil(resident, peer, &pump, &host, session, &served, atomicFlagDone, 10_000);
-    // The caller owns shutdown after observing its reply. Exiting here would
-    // turn an ordinary client close into a race with transport destruction.
-    serveUntil(resident, peer, &pump, &host, session, session, sessionClosedDone, 10_000) catch |err| switch (err) {
-        // tolerant: the greeting completed, and this is the caller closing its channel.
-        error.ChannelClosed => return,
+    greeterWaits(resident, peer, &pump, &host, session, &served) catch |err| switch (err) {
+        // tolerant: the greeting completed, and this is the caller closing its
+        // channel. One pump drive can carry the whole conversation, so the
+        // close can surface in any of the three waits.
+        error.ChannelClosed => if (!served.load(.acquire)) return err,
         else => return err,
     };
+}
+
+/// The greeter's waits in order: the session opens, the greeting is served,
+/// and the caller closes. The caller owns shutdown after observing its reply.
+/// Exiting at the reply would turn an ordinary client close into a race with
+/// transport destruction.
+fn greeterWaits(
+    resident: *webrtc.Resident,
+    peer: *webrtc.Peer,
+    pump: *PacketPump,
+    host: *Host,
+    session: *HostSession,
+    served: *std.atomic.Value(bool),
+) !void {
+    try waitFor(resident, peer, pump, host, session, session, sessionOpenDone, 10_000);
+    try serveUntil(resident, peer, pump, host, session, served, atomicFlagDone, 10_000);
+    try serveUntil(resident, peer, pump, host, session, session, sessionClosedDone, 10_000);
 }
 
 /// The dialing half over an open channel: run the keyed handshake as the

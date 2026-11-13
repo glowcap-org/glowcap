@@ -31,6 +31,14 @@ Releases before 0.1.7 are in the
 - ocapnviz Build mode shows text as it is typed. Fields such as a peer's
   label and a message's label dropped each key until the field lost focus,
   and then kept only the last one.
+- A connection reads what its peer sent before glowcap finished opening it.
+  Over WebRTC, a first message that arrived that early stayed unread, and the
+  session timed out in its handshake.
+- `glowcap_webrtc_peer_try_send_packet` names how a channel ended:
+  `GLOWCAP_ERR_CLOSED` after a clean close and `GLOWCAP_ERR_IO` after a
+  fault. It returned `GLOWCAP_ERR_IO` for both once the channel had opened,
+  and `GLOWCAP_ERR_WOULD_BLOCK` on every call for a channel that ended before
+  it opened.
 
 ## [0.1.7] - 2026-11-11
 
