@@ -40,18 +40,16 @@ import { type Browser, chromium } from "playwright";
 import { TYPING_CLEAR_MS } from "../../lib/limits.ts";
 import { connectTraceViewer } from "../trace/viewer.ts";
 import { endConversation, openConv } from "../trace/drive.ts";
+import { endpointPeer, type StageEvent, statesOnlyWhatHappened, str } from "../trace/timeline.ts";
 import { fail } from "../support/fail.ts";
 import { joinAs } from "../support/join.ts";
 import { awaitBubble, openDmTo, say } from "../page/harness.ts";
 import { reapOwned } from "../support/children.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
-/** One record off the endpoint, as the converter takes it, and the shape of
- * one event it produces. Both are open records here: this file states no
- * structure of its own for either, and reads a converted event only through
- * the accessors below, against ocapnviz's own schema. */
+/** One record off the endpoint, as the converter takes it. An open record:
+ * this file states no structure of its own for it. */
 type FeedRecord = Record<string, unknown>;
-type StageEvent = Record<string, unknown>;
 
 // ocapnviz is its own Deno scope, the root `deno.json` excludes it, so its
 // converter is reached by URL rather than by a specifier the root scope's
@@ -112,26 +110,6 @@ function schemaKinds(): Set<string> {
 		kinds.add(literal);
 	}
 	return kinds;
-}
-
-/** A string field of a converted event, or undefined when it carries none. */
-function str(ev: StageEvent, field: string): string | undefined {
-	const value = ev[field];
-	return typeof value === "string" ? value : undefined;
-}
-
-/** The peer one end of a `session-opened` attached to, or null when that end is
- * loose: a claim nothing has backed yet, drawn as a session end with no peer.
- * An accepting side reports a session before anything proves who dialed, so
- * this is the ordinary state of a fresh end rather than an error. */
-function endpointPeer(ev: StageEvent, side: "a" | "b"): string | null {
-	const end = ev[side];
-	if (typeof end === "string") return end;
-	if (end !== null && typeof end === "object") {
-		const peer = (end as { peer?: unknown }).peer;
-		if (typeof peer === "string") return peer;
-	}
-	return null;
 }
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
@@ -253,59 +231,6 @@ class Picture {
 			.sort()
 			.join(", ");
 		return `peers {${peers}} sessions {${edges}}`;
-	}
-}
-
-/** The property the rest of this file rests on: a stretch of timeline may not
- * state a departure or a close the protocol never produced.
- *
- * A viewer learns who is on the far end of a wire AFTER it has drawn the wire,
- * a browser tab dials with no address to prove, so the accepting end reports
- * the session before anyone can say whose it is. Learning that is a fact about
- * the viewer. Reporting it as `session-closed` and `peer-left` makes it a claim
- * about the network, and the network did no such thing: one session opened and
- * stayed open.
- *
- * So: of everything that opened while this slice was recorded, nothing closed
- * inside it, and nobody who appeared on one of those sessions left inside it. */
-function statesOnlyWhatHappened(since: StageEvent[], what: string): void {
-	const opened = new Set<string>();
-	const appeared = new Set<string>();
-	for (const ev of since) {
-		if (str(ev, "kind") !== "session-opened") continue;
-		opened.add(str(ev, "sessionId") ?? "");
-		for (const side of ["a", "b"] as const) {
-			const peer = endpointPeer(ev, side);
-			if (peer !== null) appeared.add(peer);
-		}
-	}
-	// An end attributed inside this slice is a peer that appeared on one of
-	// these sessions just as surely as one named at the open, and it must not
-	// then be reported as having left.
-	for (const ev of since) {
-		if (str(ev, "kind") !== "session-endpoint-attributed") continue;
-		if (!opened.has(str(ev, "sessionId") ?? "")) continue;
-		appeared.add(str(ev, "peerId") ?? "");
-	}
-	const closed = since
-		.filter((e) =>
-			(str(e, "kind") === "session-closed" || str(e, "kind") === "session-unobserved") &&
-			opened.has(str(e, "sessionId") ?? "")
-		)
-		.map((e) => str(e, "sessionId"));
-	if (closed.length > 0) {
-		fail(
-			`${what}, but the timeline closed ${closed.join(", ")} — a session that opened and never ended`,
-		);
-	}
-	const left = since
-		.filter((e) =>
-			(str(e, "kind") === "peer-left" || str(e, "kind") === "peer-unobserved") &&
-			appeared.has(str(e, "peerId") ?? "")
-		)
-		.map((e) => str(e, "peerId"));
-	if (left.length > 0) {
-		fail(`${what}, but the timeline said ${left.join(", ")} left — a peer that never departed`);
 	}
 }
 
@@ -566,6 +491,20 @@ try {
 		fail(`a typed room line asked for more than its typing and the line: ${typing.join(", ")}`);
 	}
 	console.log(`  ok: the sender asked the room for ${typing.join(", ")}`);
+
+	// A line sent the moment it is written can leave while its typing start
+	// is still on its way. The start reaches the room ahead of the line, so
+	// the line is the last thing its sender asks. A typing call behind it is
+	// a start nothing ends or a stop the line already made.
+	const beforeFilled = picture.messages.length;
+	await say(tab1, "sent as written");
+	await awaitBubble(tab2, "sent as written", NICK2);
+	await pause();
+	const filled = fromSender(beforeFilled).filter((op) => op !== "signalCheck").join(", ");
+	if (filled !== "typing, postCorrelated" && filled !== "postCorrelated") {
+		fail(`a line sent as it was written was not the last thing its sender asked: ${filled}`);
+	}
+	console.log(`  ok: a line sent as it was written asked the room for ${filled}`);
 
 	// Directory registration and room membership have independent lifetimes.
 	// Leaving the room keeps the registered name and both held connections.

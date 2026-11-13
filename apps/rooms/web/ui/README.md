@@ -326,8 +326,8 @@ How each kind of change shows while it is pending:
   than a reader's wait. A stop names the conversation that heard the start.
 - A line is its author's typing stop. While a line with no files to upload is on its way, its conversation's typing
   waits: no stop goes beside the line, typing for the next draft follows it, and a line the room refuses is
-  followed by the level the composer asked for last. A start still on its way when the line leaves is followed
-  by its stop.
+  followed by the level the composer asked for last. A start still on its way when the line leaves reaches the
+  conversation ahead of the line, so the line ends it too.
 - A member still typing when a line they sent lands, an uploaded one included, is said again, because the line
   ended what the room heard before it. A line picked up after a reload lands with no word to typing, and the next
   renewal says a member who is typing again.
