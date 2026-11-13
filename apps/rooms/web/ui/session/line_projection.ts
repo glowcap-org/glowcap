@@ -102,10 +102,24 @@ export class AttachedLineProjection<F extends FileDescription = FileDescription>
 			this.#releaseIncoming(event);
 			return;
 		}
+		// A member who left or went offline is not typing, and a connection
+		// that is gone sends no stop.
+		if (!event.replayed) {
+			const gone = event.presence?.kind === "leave"
+				? [event.presence.name]
+				: event.presence?.kind === "offline"
+				? event.presence.names
+				: [];
+			for (const name of gone) applyTyping(this.#page, key, name, false);
+		}
 		if (isStateOnlyRoomEvent(event.text, event.presence, event.attachments, event.change)) {
 			this.#releaseIncoming(event);
 			return;
 		}
+		// A line said just now is how its author stops typing, whether or not
+		// the line can be shown. No separate stop follows it. A replayed line
+		// says nothing about now.
+		if (!event.replayed && event.change === "said") applyTyping(this.#page, key, event.from, false);
 		const unshowable = lineNotShowable(event.from, event.text);
 		if (unshowable != null) {
 			store.deliver(this.#page.projection, key, store.sysItem(this.#page.projection, unshowable));

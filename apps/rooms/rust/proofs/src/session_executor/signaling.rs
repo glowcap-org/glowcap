@@ -53,14 +53,17 @@ pub(super) async fn run() {
 				let calls = Rc::new(Cell::new(0));
 				let refuse_route = Rc::new(Cell::new(false));
 				let refused_routes = Rc::new(Cell::new(0));
+				let asked_directory = Rc::new(Cell::new(0));
 				let target = host
 					.spawn({
 						let calls = calls.clone();
+						let asked_directory = asked_directory.clone();
 						let refuse_route = refuse_route.clone();
 						let refused_routes = refused_routes.clone();
 						move |verb, _| {
 							let verb = verb.ok_or("fixture requires a method")?;
 							if verb == policy::CHECK {
+								asked_directory.set(asked_directory.get() + 1);
 								if refuse_route.get() {
 									refused_routes.set(refused_routes.get() + 1);
 									return Err("injected upstream observation failure".into());
@@ -188,6 +191,20 @@ pub(super) async fn run() {
 					.await
 					.unwrap();
 				registration.ready().await.unwrap();
+				// A workspace change that keeps the selection is answered from this
+				// session. A saved draft is one, and it asks the directory nothing.
+				let asked = asked_directory.get();
+				for _ in 0..3 {
+					owner.replace_workspace(&intent).await.unwrap();
+					for _ in 0..32 {
+						environment::yield_turn().await;
+					}
+				}
+				assert_eq!(
+					asked_directory.get(),
+					asked,
+					"an unchanged selection asked the directory again"
+				);
 				// Observation failure is not authority loss. The same registration
 				// remains charged until its feeds and source checks recover.
 				platform.refuse_observation.set(true);
@@ -213,7 +230,7 @@ pub(super) async fn run() {
 				registration.ready().await.unwrap();
 				// A broken route reply also carries no affirmative authority verdict.
 				refuse_route.set(true);
-				owner.replace_workspace(&intent).await.unwrap();
+				registration.retry();
 				while !matches!(registration.status(), Some(Err(_))) {
 					environment::yield_turn().await;
 				}

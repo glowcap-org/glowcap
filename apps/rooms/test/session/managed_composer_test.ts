@@ -3,12 +3,9 @@
 import { snapshot as managedSnapshot } from "../support/managed_viewer.ts";
 import { assertEquals } from "../assert.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
-import {
-	type ManagedOperation,
-	ResultAcquisitionError,
-	TerminalObservationError,
-} from "../../web/ui/session/managed/operation.ts";
+import { type ManagedOperation, TerminalObservationError } from "../../web/ui/session/managed/operation.ts";
 import { fixture, store, tick } from "./managed_composer/fixture.ts";
+import "./managed_composer/recovery.ts";
 
 for (const outcome of ["committed", "refused", "unknown", "terminal"] as const) {
 	Deno.test(`managed send remains visible across pending admission and ${outcome} completion`, async () => {
@@ -70,6 +67,7 @@ Deno.test("delayed command refusal stays in the originating conversation and res
 		assertEquals(store.draftFor(f.page.projection, f.first.key).text, original);
 		assertEquals(store.activeDraft(f.page.projection).text, "later typing");
 		assertEquals(f.page.projection.get().toasts.length, 0);
+		assertEquals(f.linesLeft, [], "a command is not a line, so its typing stop is still owed");
 	} finally {
 		f.close();
 	}
@@ -157,76 +155,6 @@ Deno.test("command waits for its draft clear admission before mutating the works
 	}
 });
 
-Deno.test("an uncertain chat keeps its own recovery while a newly typed command executes", async () => {
-	let recovered = 0;
-	let commands = 0;
-	const f = fixture({
-		unignore: () => {
-			commands++;
-			return true;
-		},
-		say: () => {},
-	});
-	try {
-		f.session.execute = (id) => {
-			Object.defineProperty(f.session, "pending", { configurable: true, value: [id] });
-			return Promise.reject(new Error("admission acknowledgement lost"));
-		};
-		f.session.completeOperation = () => {
-			recovered++;
-			return Promise.resolve(true);
-		};
-		f.actions.setDraft("uncertain chat");
-		f.actions.send();
-		await tick();
-		f.actions.setDraft("/unignore ada");
-		f.actions.send();
-		await tick();
-		assertEquals(recovered, 0);
-		assertEquals(commands, 1);
-		assertEquals(store.activeDraft(f.page.projection).text, "");
-		const line = store.historyOf(f.page.projection, f.first.key).find((item) => item.kind === "chat")!;
-		f.actions.retry(f.first.key, line.id);
-		await tick();
-		assertEquals(recovered, 1);
-		assertEquals(commands, 1);
-	} finally {
-		f.close();
-	}
-});
-
-Deno.test("each uncertain line recovers its own receipt in one conversation", async () => {
-	const f = fixture();
-	const operations: string[] = [];
-	const recovered: string[] = [];
-	try {
-		f.session.execute = (id) => {
-			operations.push(id);
-			Object.defineProperty(f.session, "pending", { configurable: true, value: [...operations] });
-			return Promise.reject(new Error("admission acknowledgement lost"));
-		};
-		f.session.completeOperation = (id) => {
-			recovered.push(id);
-			return Promise.resolve(true);
-		};
-		for (const text of ["first uncertain line", "second uncertain line"]) {
-			f.actions.setDraft(text);
-			f.actions.send();
-			await tick();
-		}
-		const lines = store.historyOf(f.page.projection, f.first.key).filter((item) => item.kind === "chat");
-		assertEquals(lines.map((line) => line.text), ["first uncertain line", "second uncertain line"]);
-		assertEquals(recovered, []);
-		for (const line of lines) {
-			f.actions.retry(f.first.key, line.id);
-			await tick();
-		}
-		assertEquals(recovered, operations);
-	} finally {
-		f.close();
-	}
-});
-
 for (const newer of [false, true]) {
 	Deno.test(`managed send commitment preserves ${newer ? "a newer draft" : "another conversation's draft"}`, async () => {
 		const f = fixture();
@@ -266,43 +194,16 @@ Deno.test("managed composer retains the next submitted draft while the previous 
 		assertEquals(f.commands.map(([, args]) => args[1]), ["first", "second"]);
 		assertEquals(f.acquisitions(), 2);
 		assertEquals(store.activeDraft(f.page.projection).text, "");
+		assertEquals(
+			[f.linesLeft, f.linesSettled],
+			[["first", "first"], [["first", true], ["first", true]]],
+			"typing waited for each line and heard each one land",
+		);
 	} finally {
 		f.close();
 	}
 });
 
-Deno.test("a queued line is independent of an earlier uncertain send", async () => {
-	const f = fixture();
-	try {
-		f.session.command = (verb, args = []) => {
-			f.commands.push([verb, args]);
-			const first = f.commands.length === 1;
-			return Promise.resolve({
-				result: () => first ? f.completion.promise : Promise.resolve(),
-			} as unknown as ManagedOperation);
-		};
-		f.session.execute = async (id, prepare, complete) => {
-			if (f.session.pending.length === 0) (f.session.pending as string[]).push(id);
-			await complete(await prepare());
-		};
-		f.actions.setDraft("first uncertain line");
-		f.actions.send();
-		await tick();
-		f.actions.setDraft("independent queued line");
-		f.actions.send();
-		f.completion.reject(new TerminalObservationError("original outcome remains unknown"));
-		await tick();
-		await tick();
-		assertEquals(f.commands.map(([, args]) => args[1]), ["first uncertain line", "independent queued line"]);
-		assertEquals(f.acquisitions(), 1);
-		const lines = store.historyOf(f.page.projection, f.first.key).filter((item) => item.kind === "chat");
-		assertEquals(lines.map((line) => line.state), ["unconfirmed", undefined]);
-		assertEquals(lines[0].operation, f.session.pending[0]);
-		assertEquals(store.activeDraft(f.page.projection).text, "");
-	} finally {
-		f.close();
-	}
-});
 Deno.test("managed refused send preserves the complete original draft", async () => {
 	const f = fixture();
 	try {
@@ -316,6 +217,11 @@ Deno.test("managed refused send preserves the complete original draft", async ()
 		assertEquals(store.draftFor(f.page.projection, f.first.key).text, "retained caption");
 		assertEquals(store.activeDraft(f.page.projection).text, "other draft");
 		assertEquals(f.acquisitions(), 0);
+		assertEquals(
+			[f.linesLeft, f.linesSettled],
+			[["first"], [["first", false]]],
+			"typing waited for the line and hears the room refused it",
+		);
 	} finally {
 		f.close();
 	}
@@ -330,11 +236,17 @@ Deno.test("typing after a queued submission preserves both the send and the newe
 		f.actions.setDraft("queued");
 		f.actions.send();
 		f.actions.setDraft("keep this");
+		assertEquals(f.linesLeft, ["first"], "a line queued behind another has not left yet");
 		f.completion.resolve();
 		await tick();
 		await tick();
 		assertEquals(f.commands.map(([, args]) => args[1]), ["first", "queued"]);
 		assertEquals(store.activeDraft(f.page.projection).text, "keep this");
+		assertEquals(
+			[f.linesLeft, f.linesSettled],
+			[["first", "first"], [["first", true], ["first", true]]],
+			"typing waits for one line at a time, from when each leaves and not from when it queued",
+		);
 	} finally {
 		f.close();
 	}
@@ -404,86 +316,67 @@ Deno.test("managed composer preserves committed archive identity without claimin
 	}
 });
 
-Deno.test("a file submitted behind pending text owns its sources and leaves later typing intact", async () => {
-	const f = fixture();
-	const file = new File(["queued bytes"], "queued.txt", { type: "text/plain" });
-	let upload: unknown;
-	const current = managedSnapshot();
-	current.intent.conversations.push({
-		kind: "room",
-		id: "first",
-		directory: "directory",
-		name: "first",
-		access: null,
-		seat: "seat",
-		control: null,
-		reconnect: "manual",
-		standing: null,
-		draft: "",
-	});
-	const reserved: unknown[] = [];
-	Object.defineProperty(f.session, "current", { value: current });
-	Object.defineProperty(f.session, "effects", {
-		value: { reserve: (...args: unknown[]) => reserved.push(args.slice(1)) },
-	});
-	f.session.refresh = () => Promise.resolve(current);
-	f.session.perform = async (_id, prepare) => await prepare() as unknown as ManagedOperation;
-	const workspace: Pick<ManagedRoomsSession["workspace"], "prepareUpload"> = {
-		prepareUpload: (_id, _revision, conversation, caption, _previews, sources) => {
-			upload = { conversation, caption, sources: sources.length };
-			// The real Wasm conversion consumes these wrappers. The fixture owns
-			// that conversion boundary and releases the sources it observes.
-			for (const source of sources) source.free();
-			return Promise.resolve({ result: () => Promise.resolve() } as never);
-		},
-	};
-	Object.defineProperty(f.session, "workspace", { value: workspace });
-	try {
-		const room = store.getConv(f.page.projection, f.first.key);
-		if (room?.type !== "room") throw new Error("room fixture");
-		store.put(f.page.projection, { ...room, grants: new Set(["files"]) });
-		f.actions.setDraft("first text");
-		f.actions.send();
-		await tick();
-		assertEquals(store.activeDraft(f.page.projection).text, "");
-		store.addDraftFiles(f.page.projection, [file]);
-		f.actions.send();
-		assertEquals(store.activeDraft(f.page.projection).files, []);
-		f.actions.setDraft("later typing");
-		f.completion.resolve();
-		for (let i = 0; i < 5; i++) await tick();
-		assertEquals(upload, { conversation: "first", caption: "", sources: 1 });
-		assertEquals(reserved, [["say", ["first"]]]);
-		assertEquals(f.commands.map(([, args]) => args[1]), ["first text"]);
-		assertEquals(store.activeDraft(f.page.projection).text, "later typing");
-	} finally {
-		f.close();
-	}
-});
-
-for (const retainedReceipt of [false, true]) {
-	Deno.test(`uncertain ${retainedReceipt ? "retained" : "terminal"} delivery does not restore a fresh sendable draft`, async () => {
+for (const refused of [false, true]) {
+	Deno.test(`a file ${refused ? "the room refuses" : "submitted"} behind pending text owns its sources and leaves later typing intact`, async () => {
 		const f = fixture();
-		if (retainedReceipt) {
-			f.session.execute = async (id, prepare, complete) => {
-				(f.session.pending as string[]).push(id);
-				await complete(await prepare());
-			};
-		}
+		const file = new File(["queued bytes"], "queued.txt", { type: "text/plain" });
+		let upload: unknown;
+		const current = managedSnapshot();
+		current.intent.conversations.push({
+			kind: "room",
+			id: "first",
+			directory: "directory",
+			name: "first",
+			access: null,
+			seat: "seat",
+			control: null,
+			reconnect: "manual",
+			standing: null,
+			draft: "",
+		});
+		const reserved: unknown[] = [];
+		Object.defineProperty(f.session, "current", { value: current });
+		Object.defineProperty(f.session, "effects", {
+			value: { reserve: (...args: unknown[]) => reserved.push(args.slice(1)) },
+		});
+		f.session.refresh = () => Promise.resolve(current);
+		f.session.perform = async (_id, prepare) => await prepare() as unknown as ManagedOperation;
+		const workspace: Pick<ManagedRoomsSession["workspace"], "prepareUpload"> = {
+			prepareUpload: (_id, _revision, conversation, caption, _previews, sources) => {
+				upload = { conversation, caption, sources: sources.length };
+				// The real Wasm conversion consumes these wrappers. The fixture owns
+				// that conversion boundary and releases the sources it observes.
+				for (const source of sources) source.free();
+				if (refused) return Promise.reject(new Error("the room refused the upload"));
+				return Promise.resolve({ result: () => Promise.resolve() } as never);
+			},
+		};
+		Object.defineProperty(f.session, "workspace", { value: workspace });
 		try {
-			f.actions.setDraft("uncertain message");
+			const room = store.getConv(f.page.projection, f.first.key);
+			if (room?.type !== "room") throw new Error("room fixture");
+			store.put(f.page.projection, { ...room, grants: new Set(["files"]) });
+			f.actions.setDraft("first text");
 			f.actions.send();
-			await tick();
-			f.completion.reject(
-				retainedReceipt ? new Error("interrupted") : new TerminalObservationError("no delivery evidence"),
-			);
 			await tick();
 			assertEquals(store.activeDraft(f.page.projection).text, "");
+			store.addDraftFiles(f.page.projection, [file]);
 			f.actions.send();
-			await tick();
-			assertEquals(f.commands.length, 1);
-			const line = store.historyOf(f.page.projection, f.first.key).find((item) => item.kind === "chat");
-			assertEquals(line?.kind === "chat" ? [line.state, line.retryable] : null, ["unconfirmed", retainedReceipt]);
+			assertEquals(store.activeDraft(f.page.projection).files, []);
+			f.actions.setDraft("later typing");
+			f.completion.resolve();
+			for (let i = 0; i < 5; i++) await tick();
+			assertEquals(upload, { conversation: "first", caption: "", sources: 1 });
+			assertEquals(reserved, [["say", ["first"]]]);
+			assertEquals(f.commands.map(([, args]) => args[1]), ["first text"]);
+			assertEquals(store.activeDraft(f.page.projection).text, "later typing");
+			// The text line is its own typing stop. The file line waits on its
+			// upload, so its stop is sent apart from it, and typing hears of the
+			// line when it lands because it ends what the member typed meanwhile.
+			assertEquals(
+				[f.linesLeft, f.linesSettled, f.linesLanded],
+				[["first"], [["first", true]], refused ? [] : ["first"]],
+			);
 		} finally {
 			f.close();
 		}
@@ -522,49 +415,6 @@ Deno.test("a delayed send receipt cannot name a replacement membership's line be
 		f.close();
 	}
 });
-
-for (const stage of ["admission observation", "acquisition"] as const) {
-	Deno.test(`confirmed delivery survives ${stage} failure and receipt release`, async () => {
-		const history = { source: "archive", generation: "original", id: "7" };
-		const f = fixture({}, { id: 7, line: "original-result", history });
-		let operation = "";
-		f.session.execute = async (id, prepare, complete) => {
-			operation = id;
-			(f.session.pending as string[]).push(id);
-			await complete(await prepare());
-		};
-		f.session.actions.acquireLine = async (_id, command) => {
-			throw new ResultAcquisitionError(await command.result(), new Error("original membership was replaced"));
-		};
-		if (stage === "admission observation") {
-			const command = f.session.command.bind(f.session);
-			f.session.command = async (...args) => {
-				const operation = await command(...args);
-				await operation.result();
-				throw new ResultAcquisitionError(undefined, new Error("snapshot unavailable after commit"));
-			};
-		}
-		try {
-			f.actions.setDraft("already delivered");
-			f.actions.send();
-			await tick();
-			f.actions.setDraft("later draft");
-			f.completion.resolve();
-			await tick();
-			const lines = () => store.historyOf(f.page.projection, f.first.key).filter((row) => row.kind === "chat");
-			assertEquals(lines().map((row) => [row.text, row.state, row.lineId, row.history, row.held]), [
-				["already delivered", undefined, undefined, stage === "acquisition" ? history : undefined, false],
-			]);
-			assertEquals(f.session.pending, [operation], "the original acquisition stays recoverable");
-			store.releaseSentLine(f.page.projection, operation);
-			assertEquals(lines()[0].state, undefined, "releasing editing authority cannot erase known delivery");
-			assertEquals(store.activeDraft(f.page.projection).text, "later draft");
-			assertEquals(f.commands.length, 1);
-		} finally {
-			f.close();
-		}
-	});
-}
 
 for (const outcome of ["commit", "refuse", "newerAccepted"] as const) {
 	Deno.test(`optimistic line edit preserves accepted content and newer input: ${outcome}`, async () => {

@@ -116,7 +116,10 @@ export class Room {
 	/** Subscribe to a room you already hold a reference to, on an open connection.
 	 * Publishes the inbox, hands the room that capability, and surfaces the
 	 * room's callbacks on `messages`. `onTyping`, if given, fires with each
-	 * other member's ephemeral typing flag. Those signals never reach `messages`. */
+	 * other member's ephemeral typing flag and expires nothing. A caller that
+	 * shows a start drops it after `TYPING_CLEAR_MS` with no repeat, and at a
+	 * line from that member or that member leaving, because neither sends an
+	 * off. Those signals never reach `messages`. */
 	static async subscribe(
 		session: Session,
 		roomRef: Ref,
@@ -499,11 +502,16 @@ export class Room {
 		this.#session.release(attachment.blob);
 	}
 
-	/** Flag whether we are typing in this room. Fire-and-forget (`tell`, no reply):
-	 * a typing signal is ephemeral, so a lost one costs nothing and never blocks a
-	 * keystroke. The room drops it silently if we are no longer subscribed. */
+	/** Flag whether we are typing in this room. The room and every reader hold
+	 * a start for `TYPING_CLEAR_MS`, so say it again every `TYPING_RENEW_MS`
+	 * while the member keeps typing, and not at every keystroke: the room
+	 * relays a repeat to every other member. A line we post ends it with no
+	 * off, so a member still typing when their line lands is said again.
+	 * Fire-and-forget (`tell`, no reply): a lost flag never blocks a
+	 * keystroke, and the next renewal or the expiry repairs it. The room
+	 * drops it silently if we are no longer subscribed. */
 	setTyping(on: boolean): Promise<void> {
-		// best-effort: a lost flag is the whole loss; the next keystroke sends another.
+		// best-effort: a lost flag is the whole loss, and a renewal or the expiry repairs it.
 		return this.#session.tell(this.#membershipRef(), TYPING, [on]).catch(() => {});
 	}
 

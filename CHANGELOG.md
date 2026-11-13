@@ -25,9 +25,42 @@ Releases before 0.1.7 are in the
 - ocapnviz serves the Inter typeface itself, so the page asks no other site
   for a font. Its build names every file relative to the entry document, so
   it works from any directory, and carries no service worker.
+- In Rooms, a posted line ends its author's typing. The room ends that
+  member's typing state when it publishes the line and sends no notice for
+  it, and the page sends no `typing(false)` beside a line that has no files
+  to upload. A client that shows who is typing clears a member's indicator
+  when that member's line arrives, and a client whose member is still typing
+  when their own line lands says so again.
+- A Rooms room holds a typing level for as long as a reader shows it, and
+  the application crate's `room::membership` owns the three typing durations
+  (`TYPING_IDLE_MS`, `TYPING_RENEW_MS`, `TYPING_CLEAR_MS`). A client that says
+  its member is typing says so again every `TYPING_RENEW_MS` while that holds,
+  and not at every keystroke: the room relays a repeated start sooner than it
+  did. A start with no renewal stands longer than it did.
+- The Rooms page clears a member's typing indicator when that member leaves
+  or goes offline. It waited for the indicator to expire.
+- The Rooms page says a member is typing when they edit a draft. Focus on a
+  draft kept from earlier says nothing, and neither does changing a line
+  already said.
 
 ### Fixed
 
+- A Rooms session asks the server to recheck its registered name
+  (`signalCheck`) when a signaling route starts, after a retry or a failure,
+  and at a change to its saved state once the last answer has grown old. It
+  asked after every such change, which included each keystroke of a draft.
+- Someone who types in Rooms for longer than a few seconds stays shown as
+  typing. The page said so once, and other members' pages cleared the
+  indicator while the member was still typing.
+- A typing stop from the Rooms page goes to the conversation that heard the
+  start, whichever conversation is on screen when it is sent.
+- A Rooms page answering WebRTC offers rechecks its registered name for an
+  offer and for the transport that offer opens. It rechecked for every
+  candidate too.
+- The Send button in the Rooms page leaves the caret in the field, as the
+  attach and emoji buttons do, so a phone's keyboard stays up after a send.
+  Pressing it took the caret away, which also sent a typing stop ahead of
+  every line sent that way.
 - ocapnviz Build mode shows text as it is typed. Fields such as a peer's
   label and a message's label dropped each key until the field lost focus,
   and then kept only the last one.

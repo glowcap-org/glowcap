@@ -551,8 +551,8 @@ export function createManagedController(
 		openFile: (key, id) => files.open(key, id),
 		openViewer: (key, id) => files.openViewer(key, id),
 		stepViewer: (direction) => files.stepViewer(direction),
-		setTyping: (on) => {
-			const row = current();
+		setTyping: (key, on) => {
+			const row = store.getConv(projection, key);
 			if (row == null || row.type === "directory") return;
 			const intent = conversationById(session.current, row.persistId);
 			const selected = intent?.kind === "room" && intent.seat != null

@@ -3,6 +3,24 @@
 use super::{attachment::AttachmentArgument, policy::MembershipKind};
 
 pub use crate::protocol_data::{AWAY, LEAVE, SET_SUBJECT, SUBSCRIBE, TYPING};
+/// How long a member may pause mid-draft before their client says they
+/// stopped typing.
+pub const TYPING_IDLE_MS: u64 = 4_000;
+/// How often a client says again that its member is still typing. Longer than
+/// the pause, so a burst of a few seconds ends at its pause with no renewal.
+pub const TYPING_RENEW_MS: u64 = 10_000;
+/// How long a typing level lasts with no renewal. The room holds it this
+/// long and a reader shows it this long, so a renewal arrives sooner. It
+/// bounds only an indicator whose stop was lost: a stop, a line, and a
+/// departure each end the level at once.
+pub const TYPING_CLEAR_MS: u64 = 12_000;
+/// How young a lease is while a repeated start is the same news. Half of what
+/// a reader waits beyond a renewal, so a repeat the room did not relay and the
+/// renewal after it both land inside the lease.
+pub(crate) const TYPING_REPEAT_MS: u64 = (TYPING_CLEAR_MS - TYPING_RENEW_MS) / 2;
+const _: () = assert!(TYPING_IDLE_MS < TYPING_RENEW_MS);
+const _: () = assert!(TYPING_RENEW_MS < TYPING_CLEAR_MS);
+const _: () = assert!(TYPING_REPEAT_MS > 0 && TYPING_REPEAT_MS + TYPING_RENEW_MS < TYPING_CLEAR_MS);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
 	Answer,

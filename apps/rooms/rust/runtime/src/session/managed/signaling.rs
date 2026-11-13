@@ -10,6 +10,18 @@ use rooms_application::content::{
 use rooms_glowcap::client::{Deadline, Tasks, directory::signaling::Route};
 use std::collections::BTreeMap;
 
+/// How long the directory's answer about a registration stands. The directory
+/// can withdraw a name while its holder stays connected, and it tells the
+/// holder nothing. A session still in use asks again at its first workspace
+/// change after this long, which is how it hears of a withdrawn name. An idle
+/// session asks nothing.
+const DIRECTORY_ANSWER_STANDS_MS: u64 = 60_000;
+/// `answered` is when the directory last answered, or `None` when a retry or a
+/// failure put its answer in doubt.
+fn directory_answer_stands(answered: Option<u64>, now: u64) -> bool {
+	answered.is_some_and(|at| now.saturating_sub(at) < DIRECTORY_ANSWER_STANDS_MS)
+}
+
 pub struct SignalingRegistration<P: Tasks + Deadline> {
 	lifetime: Membership<P>,
 	route: Route<P>,
@@ -108,10 +120,17 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			id,
 			None,
 			move |mut signals| async move {
+				// `signaling_route` asked the directory once. A workspace change can
+				// replace the selection or pause its source, and both are read
+				// here from this session. It cannot change what the directory
+				// holds, so a change alone is no reason to ask the directory. A
+				// retry and a failed pass ask at once.
+				let mut directory_answered = Some(platform.monotonic_millis());
 				loop {
 					if *signals.stopping.borrow_and_update() {
 						return Ok(());
 					}
+					let ask_directory = !directory_answer_stands(directory_answered, platform.monotonic_millis());
 					let checked = tokio::select! { biased;
 						_ = signals.stopping.changed() => return Ok(()),
 						checked = platform.within(20_000, async {
@@ -130,7 +149,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 								_ => false,
 							};
 							if !active { return Ok(false); }
-							checking.check().await.map_err(Error::from)?;
+							if ask_directory {
+								checking.check().await.map_err(Error::from)?;
+							}
 							Ok(true)
 						}) => checked.unwrap_or_else(|| Err(Error::uncertain("signaling source check is still unresolved"))),
 					};
@@ -139,15 +160,23 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 						Ok(false) => return Ok(()),
 						Err(failure) => Some(failure),
 						Ok(true) => {
+							if ask_directory {
+								directory_answered = Some(platform.monotonic_millis());
+							}
 							signals.ready.send_replace(Some(Ok(())));
 							tokio::select! { biased;
 								_ = signals.stopping.changed() => return Ok(()),
-								_ = signals.retrying.changed() => { changes.retry(); continue; },
+								_ = signals.retrying.changed() => {
+									directory_answered = None;
+									changes.retry();
+									continue;
+								},
 								changed = changes.changed() => changed.err(),
 							}
 						}
 					};
 					if let Some(failure) = failed {
+						directory_answered = None;
 						writer.report("Signaling supervision", &failure);
 						signals.ready.send_replace(Some(Err(failure)));
 						// Capacity, transport and feed failures retain the same watcher.
@@ -257,5 +286,31 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				}
 			},
 		))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{DIRECTORY_ANSWER_STANDS_MS, directory_answer_stands};
+
+	#[test]
+	fn the_directory_is_asked_again_once_its_answer_is_old_or_in_doubt() {
+		assert!(directory_answer_stands(Some(1_000), 1_000));
+		assert!(directory_answer_stands(
+			Some(1_000),
+			1_000 + DIRECTORY_ANSWER_STANDS_MS - 1
+		));
+		assert!(!directory_answer_stands(
+			Some(1_000),
+			1_000 + DIRECTORY_ANSWER_STANDS_MS
+		));
+		assert!(
+			!directory_answer_stands(None, 1_000),
+			"a retry or a failure asks at once"
+		);
+		assert!(
+			directory_answer_stands(Some(1_000), 0),
+			"a clock behind the answer does not ask"
+		);
 	}
 }

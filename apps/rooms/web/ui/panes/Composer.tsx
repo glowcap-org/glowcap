@@ -37,8 +37,9 @@ import { roomJoiningNow } from "../store/rooms.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { composerReducer, initialComposerState } from "./composer_state.ts";
 import { useRoomsSession } from "../controller/session.ts";
+import { composerSpeaks } from "../typing.ts";
 import { actionRefusal } from "../error_text.ts";
-import { type AttachmentView, type Conv, conversationCarries, conversationTakesFiles } from "../conversation.ts";
+import { type AttachmentView, type Conv, conversationTakesFiles } from "../conversation.ts";
 import type { LiveRooms, SessionPhase } from "../directory.ts";
 import { acceptCompletion, type Candidate } from "../complete.ts";
 import { useComposerCompletion } from "../composer/completion.ts";
@@ -159,7 +160,7 @@ export function Composer(
 	const accept = (candidate: Candidate) => {
 		if (trigger === null) return;
 		const next = acceptCompletion(draft, trigger, caret, candidate);
-		session.setDraft(next.text);
+		edit(next.text);
 		dispatch({ kind: "caret", caret: next.caret });
 		const box = field.current;
 		queueMicrotask(() => {
@@ -194,14 +195,15 @@ export function Composer(
 		}).finally(() => dispatch({ kind: "recovering", held: false }));
 	};
 
-	// Rooms and direct lines both carry an ephemeral typing level. Every way of
-	// stopping (sending, going idle, blurring, switching away, closing the tab)
-	// is this one condition going false.
-	useTypingSignal(
-		enabled && focused && conv !== null && (conv.type !== "dm" || conv.line === "live") &&
-			draft.trim() !== "" && conversationCarries(conv, "typing"),
+	// Rooms and direct lines both carry an ephemeral typing level. Sending,
+	// blurring, and switching away each stop it by this one condition going
+	// false. A pause stops it on the signal's own timer.
+	const { edit, typed } = useTypingSignal(
+		conv?.key ?? null,
+		composerSpeaks(conv, { enabled, focused, changing, draft }),
 		draft,
 		session.setTyping,
+		session.setDraft,
 	);
 
 	// Never carry a stray tray across a conversation switch. Arriving at a
@@ -247,10 +249,11 @@ export function Composer(
 		if (!box) return;
 		const start = box.selectionStart ?? draft.length;
 		const end = box.selectionEnd ?? draft.length;
-		session.setDraft(draft.slice(0, start) + s + draft.slice(end));
+		// The caret comes back first, so the edit is made in a field that has it.
+		box.focus();
+		edit(draft.slice(0, start) + s + draft.slice(end));
 		queueMicrotask(() => {
 			box.selectionStart = box.selectionEnd = start + s.length;
-			box.focus();
 		});
 	};
 
@@ -395,7 +398,7 @@ export function Composer(
 						aria-activedescendant={listOpen ? `complete-${pick}` : undefined}
 						disabled={!enabled}
 						onChange={(e) => {
-							session.setDraft(e.target.value);
+							edit(e.target.value);
 							syncCaret(e.target);
 						}}
 						onSelect={(e) => syncCaret(e.currentTarget)}
@@ -436,7 +439,7 @@ export function Composer(
 									box.selectionEnd ?? 0,
 									marker,
 								);
-								session.setDraft(next.text);
+								edit(next.text);
 								queueMicrotask(() => {
 									box.setSelectionRange(next.start, next.end);
 									syncCaret(box);
@@ -494,6 +497,7 @@ export function Composer(
 									const last = session.recallLastSent();
 									if (last !== null) {
 										e.preventDefault();
+										typed();
 										dispatch({ kind: "recalled", line: last });
 										const box = field.current;
 										queueMicrotask(() => {
@@ -624,6 +628,7 @@ export function Composer(
 								shape="circle"
 								type="submit"
 								disabled={!enabled || !canSend || sendCooldown > 0}
+								onMouseDown={(e) => e.preventDefault()}
 							/>
 						)}
 				</div>

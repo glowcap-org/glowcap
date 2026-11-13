@@ -100,6 +100,61 @@ Deno.test("someone who was typing when it happened is not typing now", () => {
 	}
 });
 
+Deno.test("a line said now ends its author's typing in a room and in a direct conversation", () => {
+	for (const conversation of [room, direct]) {
+		const row = conversation();
+		const f = fixture(row);
+		try {
+			const target = { kind: row.kind, id: row.id };
+			const typers = () => [...f.page.projection.get().typers.get(f.selected().key) ?? []].length;
+			f.projection.activity({
+				cursor: "1",
+				event: {
+					at: 1,
+					target,
+					notice: row.kind === "room"
+						? {
+							kind: "line",
+							from: ROOM_SENDER,
+							metadata: { presence: { kind: "typing", name: "bo", on: true } },
+						}
+						: { kind: "typing", on: true },
+				},
+			}, false);
+			assertEquals(typers(), 1, row.kind);
+			const said = { text: "hello", marker: { id: 1, change: "said" as const } };
+			f.projection.activity({
+				cursor: "2",
+				event: {
+					at: 2,
+					target,
+					notice: row.kind === "room" ? { kind: "line", from: "bo", ...said } : { kind: "line", ...said },
+				},
+			}, false);
+			assertEquals([typers(), f.page.typing.timers.size], [0, 0], row.kind);
+		} finally {
+			for (const timer of f.page.typing.timers.values()) clearTimeout(timer);
+			f.close();
+		}
+	}
+});
+
+Deno.test("a member who leaves or goes offline is no longer shown as typing", () => {
+	for (const gone of [{ kind: "leave", name: "bo" }, { kind: "offline", names: ["bo"] }] satisfies Presence[]) {
+		const f = fixture();
+		try {
+			const typers = () => [...f.page.projection.get().typers.get(f.selected().key) ?? []].length;
+			f.projection.activity(presence(1, "", { kind: "typing", name: "bo", on: true }), false);
+			assertEquals(typers(), 1, gone.kind);
+			f.projection.activity(presence(2, "bo is gone", gone), false);
+			assertEquals([typers(), f.page.typing.timers.size], [0, 0], gone.kind);
+		} finally {
+			for (const timer of f.page.typing.timers.values()) clearTimeout(timer);
+			f.close();
+		}
+	}
+});
+
 Deno.test("a line and its presence narration carry the time the session accepted them", () => {
 	const f = fixture();
 	try {

@@ -37,6 +37,7 @@ import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 // Run: `zig build rooms-web-trace-lifecycle`.
 
 import { type Browser, chromium } from "playwright";
+import { TYPING_CLEAR_MS } from "../../lib/limits.ts";
 import { connectTraceViewer } from "../trace/viewer.ts";
 import { endConversation, openConv } from "../trace/drive.ts";
 import { fail } from "../support/fail.ts";
@@ -509,8 +510,39 @@ try {
 	await openConv(tab1, `.room-open:has-text("${ROOM}")`);
 	await openConv(tab2, `.room-open:has-text("${ROOM}")`);
 	const beforeRoom = picture.messages.length;
-	await say(tab1, "hello the room");
+	// Typed a key at a time, the way a person writes it, so the line is
+	// preceded by a typing start the other member is shown.
+	const composer = tab1.locator("#line:not(:disabled):not([inert] *)");
+	const fromSender = (from: number) => picture.messages.slice(from).filter((m) => m.from === peer1).map((m) => m.op);
+	const shownTyping = () =>
+		tab2.waitForFunction(
+			(name) => {
+				const said = document.getElementById("typing");
+				return said?.classList.contains("show") === true && (said.textContent ?? "").includes(name);
+			},
+			NICK1,
+			{ timeout: 30_000 },
+		).catch(() => fail("the other member was not shown that the first is typing"));
+	// The watch starts before the first key, so it sees the indicator
+	// however long this host takes to draw it.
+	const shown = shownTyping();
+	await composer.pressSequentially("hello the roo", { delay: 20 });
+	await shown;
+	// The last key keeps the level on, so the line and not a pause ends it.
+	await composer.press("m");
+	await shownTyping();
+	const beforeSend = picture.messages.length;
+	// Sent with the button, the one way a phone sends, and it keeps the caret.
+	await tab1.locator("#sendBtn:not(:disabled):not([inert] *)").click();
+	if (!await composer.evaluate((field) => document.activeElement === field)) fail("Send took the caret away");
 	await awaitBubble(tab2, "hello the room", NICK2);
+	// The line itself ends the indicator, well inside the wait a reader gives
+	// a flag nobody renewed.
+	await tab2.waitForFunction(
+		() => document.getElementById("typing")?.classList.contains("show") !== true,
+		undefined,
+		{ timeout: TYPING_CLEAR_MS / 3 },
+	).catch(() => fail("the line arrived and its author was still shown as typing"));
 	await settles(
 		picture,
 		"the room line travelled on the room sessions",
@@ -520,6 +552,20 @@ try {
 				since.some((m) => m.op === "notify" && m.session === roomEdge2);
 		},
 	);
+	// Sending asks the room for the line and nothing else: the line is its
+	// own typing stop. A changed draft is no reason to ask the directory about
+	// this tab's registration, so at most one such question falls in the
+	// span, when the directory's last answer had grown old.
+	await pause();
+	const typing = fromSender(beforeRoom);
+	const sending = fromSender(beforeSend).filter((op) => op !== "signalCheck");
+	if (
+		typing.filter((op) => op === "signalCheck").length > 1 || sending.length !== 1 ||
+		sending[0] !== "postCorrelated"
+	) {
+		fail(`a typed room line asked for more than its typing and the line: ${typing.join(", ")}`);
+	}
+	console.log(`  ok: the sender asked the room for ${typing.join(", ")}`);
 
 	// Directory registration and room membership have independent lifetimes.
 	// Leaving the room keeps the registered name and both held connections.

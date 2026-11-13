@@ -1,55 +1,46 @@
 // Composer helpers: the typing signal, the file chip, and how to name who is typing.
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRoomsState } from "../hooks.ts";
 import { NO_TYPERS } from "../store/projection.ts";
 import { fileSize } from "../media.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";
-import { TYPING_IDLE_MS } from "../limits.ts";
+import { ComposerTyping } from "../typing.ts";
 import { typingMore, typingOne, typingTwo } from "../../../lib/text/page.ts";
 
-/** Tell the room we are typing while the draft holds text, and stop when we
- * send, go idle, blur, or leave.
+/** Tell a conversation we are typing while the member edits its draft, and
+ * stop when we send, go idle, blur, or leave. `ComposerTyping` owns the level
+ * and its timers.
  *
- * The flag is level, not edge: `true` goes once and a final `false` always goes,
- * so a stuck indicator cannot linger on the other members' screens. Leaving the
- * conversation runs this effect's cleanup and sends that last `false`. There is
- * no separate "stop typing on switch" call to forget.
- *
- * `draft` is a dependency even though nothing here reads it, and that is the
- * whole of the idle timer working: `typing` stays true across a whole burst of
- * keystrokes, so depending on it alone the effect runs once, the timer fires at
- * four seconds, and nothing ever re-arms it. Typing longer than that would stop
- * telling the room. Depending on the draft re-arms the timer per keystroke, so
- * "idle" means no keystroke arrived during the whole interval. */
-export function useTypingSignal(typing: boolean, draft: string, setTyping: (on: boolean) => void) {
-	const on = useRef(false);
+ * `edit` is how the composer changes the draft at the member's hand, and
+ * `typed` marks a change it makes another way as theirs. The effect that
+ * follows the changed draft reads either as a keystroke, so a draft that
+ * changes with neither says nothing. */
+export function useTypingSignal(
+	conversation: string | null,
+	typing: boolean,
+	draft: string,
+	setTyping: (conversation: string, on: boolean) => void,
+	setDraft: (text: string) => void,
+): { edit: (text: string) => void; typed: () => void } {
+	const composer = useMemo(() => new ComposerTyping(setTyping), [setTyping]);
+	const edited = useRef(false);
+	useEffect(() => () => composer.close(), [composer]);
 	useEffect(() => {
-		if (!typing) {
-			if (on.current) {
-				on.current = false;
-				setTyping(false);
-			}
-			return;
-		}
-		if (!on.current) {
-			on.current = true;
-			setTyping(true);
-		}
-		const idle = setTimeout(() => {
-			on.current = false;
-			setTyping(false);
-		}, TYPING_IDLE_MS);
-		return () => clearTimeout(idle);
-	}, [typing, draft, setTyping]);
-	// Leaving the page entirely still owes the room a final `false`.
-	useEffect(() => () => {
-		if (on.current) {
-			on.current = false;
-			setTyping(false);
-		}
-	}, [setTyping]);
+		composer.note(conversation, typing, edited.current);
+		edited.current = false;
+	}, [composer, conversation, typing, draft]);
+	const typed = useCallback(() => {
+		edited.current = true;
+	}, []);
+	return {
+		typed,
+		edit: (text) => {
+			if (text !== draft) typed();
+			setDraft(text);
+		},
+	};
 }
 
 // Long enough for a phone's keyboard to finish sliding in, so the second pass
