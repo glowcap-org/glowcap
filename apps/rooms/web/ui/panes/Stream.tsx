@@ -29,6 +29,8 @@ import { Icon } from "../icons.tsx";
 import { useRoomsState } from "../hooks.ts";
 import { NO_DRAFT } from "../store.ts";
 import { ScrollMemory } from "../scroll_memory.ts";
+import { PRESENTATION, useProgress } from "../presentation.ts";
+import { type LogStanding, LogStood, overhang, travel } from "./log_travel.tsx";
 
 // How close to the end still counts as "reading the newest message".
 const AT_BOTTOM_SLACK = 80;
@@ -98,16 +100,37 @@ export function Stream(
 	// store, while ScrollMemory keeps this long-lived view bounded independently.
 	const positions = useRef(new ScrollMemory());
 	const seen = useRef<{ key: string | null; count: number }>({ key: null, count: 0 });
+	// Where the log's rows stood before the commit that just changed it.
+	const stood = useRef<LogStanding | null>(null);
 	const [showJump, setShowJump] = useState(false);
+	// A read of earlier history says so once it has run long enough to be a
+	// wait, as every other wait on the page does. A read that ends sooner
+	// draws nothing, so the log is not built around a placeholder and then
+	// rebuilt without it.
+	const readingEarlier = useProgress(
+		conv?.type === "room" && conv.earlierHistory === "loading",
+		PRESENTATION.busy,
+		conv?.key,
+	);
 
 	const scroller = useCallback((): Element | null => {
 		return mobile ? document.scrollingElement ?? document.documentElement : log.current;
 	}, [mobile]);
 
+	// How far the scroll region reports itself past its end. A row of the log
+	// on its way to its place can be drawn past the end, and the region counts
+	// it until it arrives. The page that scrolls whole cuts such a row off.
+	const past = useCallback((e: Element): number => e === log.current ? overhang(e) : 0, []);
+
 	const atBottom = useCallback((): boolean => {
 		const e = scroller();
-		return !e || e.scrollHeight - e.scrollTop - e.clientHeight < AT_BOTTOM_SLACK;
-	}, [scroller]);
+		return !e || e.scrollHeight - past(e) - e.scrollTop - e.clientHeight < AT_BOTTOM_SLACK;
+	}, [scroller, past]);
+
+	const toEnd = useCallback((e: Element): void => {
+		const reach = past(e);
+		e.scrollTop = reach === 0 ? e.scrollHeight : e.scrollHeight - reach - e.clientHeight;
+	}, [past]);
 
 	// Everything that puts the end of the conversation back on screen comes
 	// through here: the composer changing height, the keyboard settling, the jump
@@ -122,10 +145,10 @@ export function Stream(
 	const keepLatestInView = useCallback((force?: boolean) => {
 		const e = scroller();
 		if (!e || latest.current === null || !(force || pinned.current)) return;
-		e.scrollTop = e.scrollHeight;
+		toEnd(e);
 		pinned.current = true;
 		setShowJump(false);
-	}, [scroller]);
+	}, [scroller, toEnd]);
 
 	// One listener for both scroll regions. It records where this conversation has
 	// been left and whether the reader is still at the end.
@@ -167,19 +190,33 @@ export function Stream(
 		const mine = last?.kind === "chat" && last.mine;
 		if (seen.current.key !== key) {
 			const saved = positions.current.recall(key);
-			if (saved === undefined) e.scrollTop = e.scrollHeight;
+			if (saved === undefined) toEnd(e);
 			else e.scrollTop = saved;
 			// A long conversation may not have finished laying out yet, especially
 			// on the phone's page scroll, so a second pass on the next frame actually
 			// reaches the end instead of falling a screen short.
 			if (saved === undefined) requestAnimationFrame(() => keepLatestInView(true));
 		} else if (count !== seen.current.count && (pinned.current || mine)) {
-			e.scrollTop = e.scrollHeight;
+			toEnd(e);
 		}
 		seen.current = { key, count };
 		pinned.current = atBottom();
 		setShowJump(!pinned.current && count > 0);
-	}, [key, count, history, scroller, atBottom, keepLatestInView]);
+	}, [key, count, history, scroller, atBottom, toEnd, keepLatestInView]);
+
+	// What the log is given to draw. Its rows are read before a commit that
+	// replaces one of these values, and before no other.
+	const drawn = { conv, history, unread, nick, sendControls, ignored, changing: draft.changing, readingEarlier };
+
+	// This effect follows the one that writes the scroll position, so `travel`
+	// measures each row where it ends. It runs at every commit and does
+	// nothing unless the log changed: the reading it answers is taken only
+	// then.
+	useLayoutEffect(() => {
+		const was = stood.current;
+		stood.current = null;
+		if (was != null && log.current != null) travel(log.current, was);
+	});
 
 	// Dropping a file anywhere over the conversation posts it, which is where a
 	// person aims. The counter is what makes the highlight survive dragging over
@@ -270,18 +307,9 @@ export function Stream(
 					)}
 				</div>
 			)}
+			<LogStood log={log} conversation={key} drawn={drawn} into={stood} />
 			<ErrorBoundary part="message log">
-				<Log
-					ref={log}
-					conv={conv}
-					history={history}
-					unread={unread}
-					nick={nick}
-					sendControls={sendControls}
-					ignored={ignored}
-					changing={draft.changing}
-					hidden={conv === null}
-				/>
+				<Log ref={log} {...drawn} hidden={conv === null} />
 			</ErrorBoundary>
 			{conv === null && (
 				<JoinCard

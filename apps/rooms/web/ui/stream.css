@@ -247,7 +247,11 @@
 	}
 	#log {
 		position: static;
+		/* The page scrolls, not this. A row that is moving to its place is cut
+		   off at this box's end, so a line rises from the composer's edge and
+		   is not drawn over the composer or past the end of the page. */
 		overflow: visible;
+		overflow-y: clip;
 		flex: 1 0 auto;
 		padding: 16px 0 12px;
 	}

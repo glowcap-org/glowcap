@@ -141,7 +141,7 @@ function drawBlock(
 }
 
 function LogPane(
-	{ conv, history, unread, nick, hidden, ignored, sendControls, changing, ref }: {
+	{ conv, history, unread, nick, hidden, ignored, sendControls, changing, readingEarlier, ref }: {
 		conv: Conv | null;
 		/** This conversation's log. Passed rather than read here so the log stays
 		 * a function of its props, and so an arriving line repaints without the
@@ -151,6 +151,8 @@ function LogPane(
 		 * the conversation. */
 		unread: Unread;
 		nick: string;
+		/** Whether a read of earlier history has run long enough to say so. */
+		readingEarlier: boolean;
 		hidden: boolean;
 		/** The line this window is part way through rewriting, so the log can say
 		 * which one it is. Passed rather than read here for the same reason the
@@ -210,7 +212,7 @@ function LogPane(
 		<section id="log" ref={ref} aria-live="polite" aria-label={messagesLabel} hidden={hidden}>
 			{conv && (
 				<>
-					<div className="conv-intro">
+					<div className="conv-intro" data-motion="reflow">
 						{
 							/* The same mark the title and the rail wear: a public room
 							   is its hash-name, a private one a lock, a person their
@@ -237,7 +239,7 @@ function LogPane(
 						<p>{introBody(conv, dirs)}</p>
 						{conv.type === "dm" && conv.line === "closed" && <DirectReconnect key={conv.key} conv={conv} />}
 					</div>
-					{conv.type === "room" && conv.earlierHistory === "loading" && (
+					{readingEarlier && (
 						<div className="history-loading" role="status" aria-label={conversationLoadingEarlier}>
 							<span className="history-loading-line shimmer" />
 							<span className="history-loading-line short shimmer" />

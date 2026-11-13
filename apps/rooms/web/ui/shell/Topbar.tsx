@@ -8,6 +8,7 @@
 // them rewriting a label another left describing a wait that was over.
 
 import { memo } from "react";
+import { RollingCount } from "../RollingCount.tsx";
 import { railToggleLabel } from "../../../lib/text/controls.ts";
 import {
 	factLineNotOpen,
@@ -124,7 +125,10 @@ function TopbarPane(
 	const homeDirectory = useRoomsState((state) => state.homeDirectory);
 	const unread = useRoomsState(unreadTotal);
 	const convs = useRoomsState((state) => conv?.type === "dm" ? state.convs : NO_CONVS);
-	const memberCount = conv?.type === "room" ? membersHere(members.get(conv.key) ?? NO_MEMBERS) : 0;
+	const roster = conv?.type === "room" ? members.get(conv.key) ?? NO_MEMBERS : NO_MEMBERS;
+	const memberCount = membersHere(roster);
+	// A room that has not said who is in it has no count yet.
+	const counted = roster.size > 0;
 	const away = conv?.type === "dm" ? awayOf(awayByPeer(convs, members), conv.dir, conv.id) : null;
 	// The rail toggle is the bar's one constant, whatever the cell shows.
 	const railToggle = (
@@ -308,15 +312,19 @@ function TopbarPane(
 				/* Wherever the member column stands, this shows and hides it. Before
 				    a room is open the wide layout still draws the column, saying
 				    what would fill it, so the button is there too and counts
-				    nothing: a zero would report a room with nobody in it. A phone
-				    draws no column there, so it has nothing to put away. */
+				    nothing: a zero would report a room with nobody in it. A room
+				    that has not said who is in it counts nothing for the same
+				    reason. A phone draws no column there, so it has nothing to put
+				    away. */
 			}
 			<IconButton
 				id="membersToggle"
 				icon="group"
-				label={isRoom ? said : membersTitle}
+				label={isRoom && counted ? said : membersTitle}
 				size={mobile ? "large" : "normal"}
-				badge={isRoom ? (memberCount > 99 ? "99+" : memberCount) : undefined}
+				badge={conv?.type === "room" && counted
+					? <RollingCount count={memberCount} said={memberCount > 99 ? "99+" : undefined} of={conv.key} />
+					: undefined}
 				// Past two digits the exact number stops being what anyone reads: a
 				// room of 143 and a room of 178 are the same room to a reader. The
 				// roster behind the button keeps the real figure, as does the label

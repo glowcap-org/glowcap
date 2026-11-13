@@ -37,6 +37,7 @@ import * as completion from "../page/completion.ts";
 import * as fieldOffers from "../page/field_offers.ts";
 import * as files from "../page/files.ts";
 import * as layout from "../page/layout.ts";
+import * as logTravel from "../page/log_travel.ts";
 import * as foreign from "../page/foreign.ts";
 import * as directories from "../page/directories.ts";
 import * as standing from "../page/standing.ts";
@@ -210,6 +211,7 @@ try {
 	await phase("operations", () => operations.run(tab, opsState, foreignLocator));
 	await phase("registration", () => registration.run(tab));
 	await phase("member card", () => memberCard.run(tab));
+	await phase("log travel", () => logTravel.run(activeBrowser, httpPort));
 	if (invalidMarkup.length !== 0) {
 		fail(`the page rendered invalid nested markup: ${invalidMarkup.join(" | ")}`);
 	}

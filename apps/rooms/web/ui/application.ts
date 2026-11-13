@@ -139,9 +139,13 @@ const NicknameAvailabilitySchema = z.discriminatedUnion("kind", [
 	}),
 ]);
 
+/** This tab's own name on a directory: the one it granted, or the one this
+ * tab's registration asked for before the directory answered. */
+export type OwnNick = { readonly granted: string } | { readonly requested: string };
+
 export function nicknameAvailability(
 	nick: string,
-	own: string | null,
+	own: OwnNick | null,
 	directory: readonly string[] | null,
 	room: readonly string[] | null,
 ): RustNicknameAvailability {
@@ -150,7 +154,8 @@ export function nicknameAvailability(
 	return projected(
 		applicationModule().nicknameAvailability(
 			nick,
-			own ?? undefined,
+			own != null && "granted" in own ? own.granted : undefined,
+			own != null && "requested" in own ? own.requested : undefined,
 			directory == null ? undefined : directory as string[],
 			room == null ? undefined : room as string[],
 		),

@@ -6,9 +6,17 @@
 
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { memo, useMemo } from "react";
-import { type BridgeFacts, membersHere, type RoomConv, type Standing } from "../conversation.ts";
+import { memo, useLayoutEffect, useMemo, useRef } from "react";
+import {
+	arrivals,
+	type BridgeFacts,
+	membersHere,
+	type RoomConv,
+	type RosterShown,
+	type Standing,
+} from "../conversation.ts";
 import { useConversationMembers, useRoomsState, useSessionPaused } from "../hooks.ts";
+import { arrive, fillIn } from "../motion.ts";
 import { openingDirect } from "../../../lib/text/managed_session.ts";
 import { memberDetail, memberIdentity } from "../member_identity.ts";
 import { nothingWhilePaused } from "../text.ts";
@@ -187,6 +195,21 @@ function MembersPane(
 ) {
 	const members = useConversationMembers(conv?.key ?? null);
 	const roster = useMemo(() => rosterOf(members, nick), [members, nick]);
+	const list = useRef<HTMLUListElement>(null);
+	const shown = useRef<RosterShown>({ key: null, names: new Set() });
+	useLayoutEffect(() => {
+		const key = conv?.key ?? null;
+		const names = roster.rows.map(([name]) => name);
+		const rise = arrivals(shown.current, key, names);
+		shown.current = { key, names: new Set(names) };
+		const rows = list.current;
+		if (rows == null) return;
+		if (rise === "all") return fillIn(rows);
+		for (const at of rise) {
+			const row = rows.children[at];
+			if (row != null) arrive(row);
+		}
+	}, [conv?.key, roster]);
 	const paused = useSessionPaused();
 	const away = useRoomsState((state) => conv != null && state.dirs.get(conv.dir)?.session === "disconnected");
 	// Before the first join there is no room to have a roster, so the pane says
@@ -208,7 +231,7 @@ function MembersPane(
 			<div className="members-body">
 				<h2 className="overline">{membersTitle}</h2>
 				<p id="presenceSummary">{summary}</p>
-				<ul id="members">
+				<ul id="members" ref={list}>
 					{conv &&
 						roster.rows.map(([name, standing]) => (
 							<MemberRow

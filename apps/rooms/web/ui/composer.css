@@ -223,6 +223,9 @@
 	   of its own. It rests rather than floats:
 	   --lift, not the menu's --shadow. */
 	box-shadow: var(--lift);
+	/* The card settles into each of its states: resting when the room can be
+	   written to, lit when the caret is in it. */
+	transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease;
 }
 /* A field nobody can type in. Resting on the column is how this card says a
    message can be written here, so when one cannot be it stops resting: flat

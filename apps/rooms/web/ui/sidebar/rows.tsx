@@ -14,6 +14,7 @@ import { Icon } from "../icons.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import { roomPreset } from "../room_policy.ts";
 import { IconButton } from "../IconButton.tsx";
+import { RollingCount } from "../RollingCount.tsx";
 import { useAsyncAction } from "../async_action.ts";
 import { Button } from "../Button.tsx";
 import {
@@ -216,10 +217,12 @@ export function RoomRow(
 					<span className="rname-text">{conv.id}</span>
 					{conv.bridge !== undefined && <span className="chip bridge-chip">{conv.bridge.badge}</span>}
 				</span>
-				{unread > 0
-					? <span className="rcount unread">{unread}</span>
-					: people > 0
-					? <span className="rcount">{people}</span>
+				{unread > 0 ? <span className="rcount unread">{unread}</span> : people > 0
+					? (
+						<span className="rcount">
+							<RollingCount count={people} of={conv.key} />
+						</span>
+					)
 					: conv.membership !== "joined" && (conv.membership !== "joining" || joining)
 					? (
 						<span className="rcount room-state">

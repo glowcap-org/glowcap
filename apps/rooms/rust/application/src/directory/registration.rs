@@ -90,12 +90,24 @@ pub enum NicknameAvailability {
 	Taken { source: &'static str, suggestion: String },
 }
 
+/// This tab's own name on the directory: the one the directory granted, or
+/// the one its registration asked for before the directory answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnNick<'a> {
+	Granted(&'a str),
+	Requested(&'a str),
+}
+
 /// Project what current discovery evidence proves about an exact nickname.
 /// `None` means that source is not known. `Some` means the supplied view is a
 /// usable snapshot. Submission still races safely against directory allocation.
+///
+/// The directory lists a registration to its watchers before it tells the
+/// holder, so a listed name equal to a pending request may be this tab's own.
+/// That evidence proves nothing until the grant arrives.
 pub fn nickname_availability<'a>(
 	nick: &str,
-	own: Option<&str>,
+	own: Option<OwnNick<'_>>,
 	directory: Option<impl IntoIterator<Item = &'a str>>,
 	room: Option<impl IntoIterator<Item = &'a str>>,
 ) -> NicknameAvailability {
@@ -103,9 +115,11 @@ pub fn nickname_availability<'a>(
 	if nick.is_empty() {
 		return NicknameAvailability::Unknown;
 	}
-	if own.is_some_and(|own| own.eq_ignore_ascii_case(nick)) {
-		return NicknameAvailability::Available;
-	}
+	let pending = match own {
+		Some(OwnNick::Granted(own)) if own.eq_ignore_ascii_case(nick) => return NicknameAvailability::Available,
+		Some(OwnNick::Requested(own)) => own.eq_ignore_ascii_case(nick),
+		_ => false,
+	};
 	let mut occupied = BTreeSet::new();
 	let requested = nick.to_lowercase();
 	let mut directory_taken = false;
@@ -123,6 +137,9 @@ pub fn nickname_availability<'a>(
 		}
 	}
 	if occupied.contains(&requested) {
+		if pending {
+			return NicknameAvailability::Unknown;
+		}
 		let mut suggestion = suggested_nick(nick);
 		for _ in 0..=occupied.len() {
 			if !occupied.contains(&suggestion.to_lowercase()) {
@@ -381,8 +398,29 @@ mod tests {
 		let directory = ["Alice", "alice-2"];
 		let room = ["alice-3"];
 		assert_eq!(
-			nickname_availability("alice", Some("ALICE"), Some(directory), None::<[&str; 0]>),
+			nickname_availability(
+				"alice",
+				Some(OwnNick::Granted("ALICE")),
+				Some(directory),
+				None::<[&str; 0]>
+			),
 			NicknameAvailability::Available
+		);
+		assert_eq!(
+			nickname_availability("alice", Some(OwnNick::Requested("ALICE")), Some(directory), Some(room)),
+			NicknameAvailability::Unknown
+		);
+		assert_eq!(
+			nickname_availability(
+				"alice-2",
+				Some(OwnNick::Requested("alice")),
+				Some(directory),
+				Some(room)
+			),
+			NicknameAvailability::Taken {
+				source: "directory",
+				suggestion: "alice-4".into(),
+			}
 		);
 		assert_eq!(
 			nickname_availability("Alice", None, Some(directory), Some(room)),

@@ -2,8 +2,8 @@
 // room evidence, including the authoritative refusal from an earlier attempt.
 
 import type { Conv, Standing } from "./conversation.ts";
-import type { DirId } from "./directory.ts";
-import { nicknameAvailability, roomAuthorityToken } from "./application.ts";
+import type { DirId, DirView } from "./directory.ts";
+import { nicknameAvailability, type OwnNick, roomAuthorityToken } from "./application.ts";
 
 export interface JoinNickTarget {
 	readonly directory: DirId;
@@ -43,7 +43,7 @@ export function answerJoinNick(
 	nick: string,
 	offeredNick: string,
 	target: JoinNickTarget | null,
-	ownNick: string | null,
+	ownNick: OwnNick | null,
 	registeredNames: Iterable<string> | null,
 	conversations: ReadonlyMap<string, Conv>,
 	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>,
@@ -84,7 +84,7 @@ export function answerJoinNick(
 export function joinNickAvailability(
 	nick: string,
 	target: JoinNickTarget | null,
-	ownNick: string | null,
+	ownNick: OwnNick | null,
 	registeredNames: Iterable<string> | null,
 	conversations: ReadonlyMap<string, Conv>,
 	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>,
@@ -102,8 +102,16 @@ export function joinNickAvailability(
 	// A joined room announces a roster containing this reader. Its absence is a
 	// projection gap, not evidence that every name is free.
 	const rosterNames = roster !== undefined && roster.size > 0 ? [...roster.keys()] : null;
-	// The directory's actual grant proves this reader is the holder. Rust owns
+	// The directory's actual grant proves this reader is the holder, and a
+	// pending request may be the listed holder. Rust owns
 	// collision folding and suffix policy; this adapter only selects which live
 	// directory and room evidence describes the aimed destination.
 	return nicknameAvailability(nick, ownNick, directoryNames, rosterNames);
+}
+
+/** This tab's own name on a directory, granted or still pending. */
+export function ownJoinNick(dir: DirView | undefined): OwnNick | null {
+	if (dir === undefined) return null;
+	if (dir.nick !== "") return { granted: dir.nick };
+	return dir.requestedNick === "" ? null : { requested: dir.requestedNick };
 }

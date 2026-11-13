@@ -216,6 +216,10 @@
 	font-weight: 700;
 	font-variant-numeric: tabular-nums;
 }
+/* A figure that rolls needs a box of its own to move in. */
+.rolling-count {
+	display: inline-block;
+}
 .icon-button:has(.icon-button-badge) {
 	width: auto;
 	min-width: var(--icon-button-normal);

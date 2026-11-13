@@ -147,6 +147,19 @@ export function membersHere(members: ReadonlyMap<string, Standing>): number {
 	return here;
 }
 
+/** The roster a reader was last shown, and the room it was for. */
+export type RosterShown = { key: string | null; names: ReadonlySet<string> };
+
+/** Which rows of a roster are new to a reader who is watching it, by where
+ * they stand in `names`. A room the reader has just opened is drawn as it
+ * stands. A room that says who is in it for the first time is `"all"`: the
+ * list is filled in as one. After that, each row is somebody who arrived. */
+export function arrivals(was: RosterShown, key: string | null, names: readonly string[]): "all" | number[] {
+	if (key == null || was.key !== key) return [];
+	if (was.names.size === 0) return names.length === 0 ? [] : "all";
+	return names.flatMap((name, at) => was.names.has(name) ? [] : [at]);
+}
+
 export function awayByPeer(
 	convs: ReadonlyMap<string, Conv>,
 	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>,

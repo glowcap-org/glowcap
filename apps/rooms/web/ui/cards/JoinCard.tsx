@@ -37,7 +37,7 @@ import {
 	suggestedJoinNick,
 	typedRoomLink,
 } from "../joining.ts";
-import { answerJoinNick, joinNickAvailability } from "../join_nick.ts";
+import { answerJoinNick, joinNickAvailability, ownJoinNick } from "../join_nick.ts";
 import { NICK_TAKEN, NO_SERVER } from "../../../lib/error_codes.ts";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
 import { JoinAddress } from "./JoinAddress.tsx";
@@ -178,7 +178,7 @@ export const JoinCard = memo(function JoinCard(
 			requested,
 			offered,
 			target,
-			target === null ? null : dirs.get(target.directory)?.nick ?? null,
+			target === null ? null : ownJoinNick(dirs.get(target.directory)),
 			target === null
 				? null
 				: [...(dirs.get(target.directory)?.dmablePeers.values() ?? [])].map((peer) => peer.name),

@@ -10,7 +10,7 @@ import { ControlProgress, useProgress } from "./presentation.ts";
 // separate family next door in `Button.tsx`, and content-as-controls (a room
 // row, a message act) are neither.
 
-import type { ComponentPropsWithRef } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 import { Icon, type IconName } from "./icons.tsx";
 
 export type IconButtonSize = "small" | "normal" | "large";
@@ -30,8 +30,9 @@ export type IconButtonProps =
 		variant?: IconButtonVariant;
 		tone?: IconButtonTone;
 		shape?: IconButtonShape;
-		/** A short count attached to the icon, never arbitrary button content. */
-		badge?: string | number;
+		/** A short count attached to the icon: the figure, or the element that
+		 * draws it. Never arbitrary button content. */
+		badge?: ReactNode;
 		/** The action is in flight. The glyph gives way to the shared progress
 		 * ring and the control cannot be pressed a second time. */
 		busy?: boolean;
