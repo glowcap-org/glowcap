@@ -59,11 +59,6 @@ pub fn room_invite_refusal(who: js_sys::JsString, you: js_sys::JsString) -> Resu
 	))
 }
 
-#[wasm_bindgen(js_name = addressesEveryone)]
-pub fn addresses_everyone(who: js_sys::JsString) -> Result<bool, JsValue> {
-	Ok(rooms_application::slash::interpret::everyone(&input(who)?))
-}
-
 fn input(text: js_sys::JsString) -> Result<rooms_application::text::DocumentText, JsValue> {
 	crate::js_text::document(&text, 65_536).map_err(|error| js_sys::Error::new(&error.to_string()).into())
 }

@@ -28,7 +28,7 @@ import { rank } from "./complete.ts";
  * reader is part-way through naming one of them. */
 const OFFERS = 8;
 
-export interface Suggest {
+interface Suggest {
 	/** Spread onto the input: what it is, whether the list is up, and which row
 	 * it is standing on. */
 	aria: {

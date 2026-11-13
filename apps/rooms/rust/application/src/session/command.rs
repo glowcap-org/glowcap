@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize, Serializer, ser::SerializeSeq};
 
 pub const MAX_ARGUMENTS: usize = 64;
 pub const MAX_MATERIAL_BYTES: usize = 512 * 1024;
-pub const MAX_ARGUMENT_UNITS: usize = 64 * 1024;
+const MAX_ARGUMENT_UNITS: usize = 64 * 1024;
 // Enum iteration and wire names are generated from the same variants. Exhaustive
 // application requirement matches make a new route require an explicit decision.
 macro_rules! catalog {

@@ -245,6 +245,18 @@ async fn aborted(runtime: Rc<Runtime>, client: &Client<HostPlatform>, path: &Pat
 	client.session().release(root).unwrap();
 }
 
+struct Fixture(Vec<u8>);
+impl rooms_glowcap::client::sources::Reader for Fixture {
+	fn read(
+		&self,
+		offset: usize,
+		length: usize,
+	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, String>>>> {
+		let span = self.0[offset..offset + length].to_vec();
+		Box::pin(async move { Ok(span) })
+	}
+}
+
 async fn scoped_sources(client: &Client<HostPlatform>) {
 	use rooms_glowcap::client::sources::{Source as Backing, Sources};
 	let held = Rc::new(RefCell::new(Vec::<Ref>::new()));
@@ -271,7 +283,7 @@ async fn scoped_sources(client: &Client<HostPlatform>) {
 		.put_sources(
 			&pool,
 			&row,
-			vec![Backing::bytes(description.clone(), vec![7, 8]).unwrap()],
+			vec![Backing::reader(description.clone(), Fixture(vec![7, 8]))],
 		)
 		.await
 		.unwrap();
@@ -290,7 +302,7 @@ async fn scoped_sources(client: &Client<HostPlatform>) {
 		&receiver,
 		"putFiles",
 		vec![rooms_glowcap::archive::record_row(&row)],
-		vec![Backing::bytes(description, vec![7, 8]).unwrap()],
+		vec![Backing::reader(description, Fixture(vec![7, 8]))],
 	)
 	.await
 	.unwrap();

@@ -210,9 +210,6 @@ impl Settings {
 	pub const fn rows(self) -> usize {
 		self.rows
 	}
-	pub const fn aggregate_scale(self) -> u32 {
-		self.aggregate_scale
-	}
 	pub fn aggregate(self) -> Profile {
 		self.aggregate
 	}

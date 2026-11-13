@@ -58,7 +58,7 @@ interface MemberEndpoint {
 /** One transport's flavour of the handoff: the wording, the deadline, and how to
  * stand Bob and the room up. Everything else (register, introduce, the three
  * assertions, the DM, teardown) is identical and lives in `runDmHandoff`. */
-export interface DmTransport {
+interface DmTransport {
 	/** Prefix for the demo's FAILED/OK console lines, e.g. `"rooms-dm"`. */
 	label: string;
 	/** The private line Carol sends Bob once introduced. */

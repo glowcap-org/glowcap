@@ -14,7 +14,7 @@ import { AUTO_IMAGE_BYTES } from "./limits.ts";
 /** The four ways this interface can present a posted file. A viewer opens the
  * first two full-screen, plays the third in place, and offers the fourth as a
  * download, so this is the one decision every media component branches on. */
-export type MediaKind = "image" | "video" | "audio" | "file";
+type MediaKind = "image" | "video" | "audio" | "file";
 
 /** Whether this window pulls a file's bytes the moment it hears about it,
  * rather than waiting to be asked.

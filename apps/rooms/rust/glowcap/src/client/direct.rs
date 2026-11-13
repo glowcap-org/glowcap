@@ -32,7 +32,6 @@ pub struct Direct<D> {
 	target: Option<Ref>,
 	reply: Option<Ref>,
 	registration: rooms_application::directory::registration::Id,
-	owns_session: bool,
 }
 impl<D: Deadline> Direct<D> {
 	/// Adopt an actual reply occurrence on its delivering connection.
@@ -42,21 +41,18 @@ impl<D: Deadline> Direct<D> {
 			target: Some(target),
 			reply: None,
 			registration,
-			owns_session: false,
 		}
 	}
 	fn adopt_owned(
 		client: Client<D>,
 		target: Ref,
 		registration: rooms_application::directory::registration::Id,
-		owns_session: bool,
 	) -> Self {
 		Self {
 			client,
 			target: Some(target),
 			reply: None,
 			registration,
-			owns_session,
 		}
 	}
 	pub fn registration(&self) -> &rooms_application::directory::registration::Id {
@@ -64,9 +60,6 @@ impl<D: Deadline> Direct<D> {
 	}
 	pub fn session(&self) -> &Session {
 		&self.client.session
-	}
-	pub fn owns_session(&self) -> bool {
-		self.owns_session
 	}
 	pub fn live(&self) -> bool {
 		self.target.as_ref().is_some_and(|target| !target.released()) && self.session().is_open()
@@ -236,12 +229,11 @@ impl<D: Deadline + Tasks + Clone + 'static> directory::Directory<D> {
 		expected: Option<&rooms_application::directory::registration::Id>,
 	) -> Result<Direct<D>, Error> {
 		let introduced = self.introduce(peer, expected).await?;
-		let (target, registration, session, owns_session) = introduced.into_parts();
+		let (target, registration, session) = introduced.into_parts();
 		Ok(Direct::adopt_owned(
 			Client::from_shared_session(session, self.client().deadline.clone()),
 			target,
 			registration,
-			owns_session,
 		))
 	}
 }
@@ -256,7 +248,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Direct<D> {
 		self.send_files_with_previews(text, &Default::default(), owner, files)
 			.await
 	}
-	pub async fn send_files_with_previews(
+	async fn send_files_with_previews(
 		&self,
 		text: &str,
 		previews: &rooms_application::open_graph::Selection,

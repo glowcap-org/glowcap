@@ -4,7 +4,7 @@
 // bounded line grammar and casemapping. It knows nothing about sockets, rooms,
 // capabilities, or reconnect policy. The 512-byte ceiling includes CRLF.
 
-export const IRC_LINE_BYTES = 512;
+const IRC_LINE_BYTES = 512;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 

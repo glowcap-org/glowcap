@@ -8,7 +8,7 @@ use crate::{
 use alloc::{vec, vec::Vec};
 use serde::{Serialize, Serializer, ser::SerializeSeq};
 
-pub const MAX_RETAINED_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_RETAINED_BYTES: usize = 8 * 1024 * 1024;
 const MAX_CHUNKS: usize = 256;
 // Reserve accounting for worst-case chunk-vector capacities, independent of
 // allocator growth. Each row chunk accounts for its own capacity and text.

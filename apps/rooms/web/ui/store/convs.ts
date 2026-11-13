@@ -36,11 +36,11 @@ import { roomAuthorityToken as authorityToken } from "../application.ts";
  * another pair's key. The typing timers join their two halves the same way and
  * for the same reason. A raw NUL in the source would make the file binary, and
  * every text tool then skips it without saying so. */
-export function roomKey(dir: DirId, name: string): string {
+function roomKey(dir: DirId, name: string): string {
 	return "room:" + dir + "\u0000" + name.toLowerCase();
 }
 
-export function publishedRoomKey(dir: DirId, publicationId: string): string {
+function publishedRoomKey(dir: DirId, publicationId: string): string {
 	return "room-publication:" + dir + "\u0000" + publicationId;
 }
 

@@ -20,7 +20,7 @@ export function cleartextOf(locator: string): readonly Cleartext[] {
 	}
 }
 
-export interface RoomsRuntimeOptions {
+interface RoomsRuntimeOptions {
 	readonly host?: Host;
 	/** The iroh provider a listener already installed on the adopted Host. */
 	readonly installedTransport?: typeof TRANSPORT_IROH;

@@ -97,7 +97,7 @@ fn one_person(text: &DocumentText, name: Name) -> Result<Option<DocumentText>, P
 		definition.name, definition.usage
 	)))
 }
-pub fn everyone(text: &DocumentText) -> bool {
+fn everyone(text: &DocumentText) -> bool {
 	text.as_str().is_some_and(crate::room::inbox::addresses_everyone)
 }
 pub fn invite_refusal(who: &DocumentText, you: &DocumentText) -> Option<String> {

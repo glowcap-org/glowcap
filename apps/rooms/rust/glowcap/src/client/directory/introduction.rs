@@ -26,11 +26,10 @@ pub struct Introduction {
 	pub inbox: Ref,
 	pub registration: Id,
 	connection: Rc<Session>,
-	owns_connection: bool,
 }
 impl Introduction {
-	pub(crate) fn into_parts(self) -> (Ref, Id, Rc<Session>, bool) {
-		(self.inbox, self.registration, self.connection, self.owns_connection)
+	pub(crate) fn into_parts(self) -> (Ref, Id, Rc<Session>) {
+		(self.inbox, self.registration, self.connection)
 	}
 	pub fn session(&self) -> &Session {
 		&self.connection
@@ -99,8 +98,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 		let Argument::Reference(inbox) = reply.reply else {
 			return Err(policy::Error::Capability.into());
 		};
-		let owns_connection = reply.via.is_some();
-		let connection = if owns_connection {
+		let connection = if reply.via.is_some() {
 			// The redeem result observes the exporter. This client must own its
 			// share of that connection until its line and delegated files retire.
 			let session = self
@@ -117,7 +115,6 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 			inbox,
 			registration: id.clone(),
 			connection,
-			owns_connection,
 		})
 	}
 }

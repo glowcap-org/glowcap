@@ -7,7 +7,7 @@ import { conversationIdentity, HistoryCoordinateSchema, type WorkspaceSnapshot }
 /** The schema is the one definition of a command's line receipt: the type
  * and the validator both derive from it. A receipt may omit fields. It may
  * not lie about them. */
-export const LineResultSchema = z.object({
+const LineResultSchema = z.object({
 	id: z.optional(z.nullable(z.number())),
 	line: z.optional(z.nullable(z.string())),
 	history: z.optional(z.nullable(HistoryCoordinateSchema)),

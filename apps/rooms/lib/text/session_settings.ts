@@ -6,15 +6,6 @@
 // each says what stays and what goes: a session that keeps running for
 // everyone else, a browser that forgets, an archive that is not erased.
 
-/** The three access levels a session link can carry, and what each lets its
- * holder do. */
-export type SessionAccessLevel = "observe" | "interact" | "admin";
-export const sessionAccessLabel: Readonly<Record<SessionAccessLevel, string>> = {
-	observe: "Read only",
-	interact: "Can interact",
-	admin: "Can administer",
-};
-
 /** Rooms and settings: what this browser works from. */
 export const currentSessionTitle = "Rooms and settings";
 export const currentSessionPaused = "This link is paused.";

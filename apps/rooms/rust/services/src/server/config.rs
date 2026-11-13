@@ -38,7 +38,7 @@ pub struct Config {
 }
 
 /// The timeline endpoint's port when nothing overrides it.
-pub const TRACE_PORT: u16 = 9300;
+const TRACE_PORT: u16 = 9300;
 
 pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=<transport>] [--listen=<transport>[,<name>=<value>...]]... [--history]
   --state=<directory>  keep the server document, history, and operator choices here across restarts

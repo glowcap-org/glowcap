@@ -2,8 +2,8 @@
 // never an identity for a new post. Mutation conflicts name the exact target.
 import { SESSION_COMMAND_REQUIREMENTS } from "../../../../lib/session_content_data.ts";
 
-export type CommandName = keyof typeof SESSION_COMMAND_REQUIREMENTS;
-export interface GesturePolicy {
+type CommandName = keyof typeof SESSION_COMMAND_REQUIREMENTS;
+interface GesturePolicy {
 	presentation: "optimistic" | "indicate";
 	conflict:
 		| "workspace"

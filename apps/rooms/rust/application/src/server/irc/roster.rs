@@ -17,7 +17,7 @@ use alloc::{
 
 /// How many IRC names one bridged room will carry. A larger channel is not
 /// refused. Its roster is, because a roster crosses the wire whole.
-pub const ROSTER_LIMIT: usize = 256;
+pub(crate) const ROSTER_LIMIT: usize = 256;
 
 /// How an IRC nick is written as a name in the room's own namespace. A name
 /// that will not fit is refused rather than shortened, because shortening

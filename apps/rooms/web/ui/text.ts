@@ -108,7 +108,7 @@ export function directoryDmBlocked(session: SessionPhase): string {
  * who compares two of them is comparing two readings of one connection, and two
  * derivations would eventually hand them two answers. The card that answers for
  * a directory has room for both parts and says both. */
-export interface DirConnection {
+interface DirConnection {
 	/** The phase in words. */
 	said: string;
 	/** What this directory is doing, when that says more than the phase word
@@ -201,7 +201,7 @@ export function dirCaptionSaid(name: string, session: SessionPhase): string {
  * mark is reachable only through a name, so a surface that wears a color has
  * already said which directory it is on. The color is still undefined past the
  * ramp, where no directory wears one. */
-export interface DirNamed {
+interface DirNamed {
 	name: string;
 	/** The `data-dir` that names the same directory in color. */
 	mark: string | undefined;
@@ -243,7 +243,7 @@ export function dirWhere(dir: DirId, home: DirId | null, dirs: ReadonlyMap<DirId
  * word through: their standing when they set one, worn in the roster's away
  * tint, and otherwise a quiet "here" once a directory has granted a name, or
  * the plain connected word before one has. */
-export interface FootState {
+interface FootState {
 	said: string;
 	/** Whether the row is the reader's standing, which is the one arm the foot
 	 * tints the way the roster tints a member's away reason. */

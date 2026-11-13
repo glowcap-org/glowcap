@@ -3,7 +3,7 @@ import { Children, createElement, isValidElement, type ReactNode, useEffect, use
 import { controlInProgress } from "../../lib/text/controls.ts";
 
 export const PRESENTATION = { busy: 400, feedback: 500, sending: 1000, connection: 2000 } as const;
-export interface PresentationClock {
+interface PresentationClock {
 	now(): number;
 	later(work: () => void, ms: number): () => void;
 }
@@ -84,7 +84,7 @@ export function useProgress(pending: boolean, delay: number = PRESENTATION.busy,
 
 // A mounted, quiet live region announces a delayed wait once. It is outside
 // the disabled control, whose accessible name continues to name its action.
-export function controlText(node: ReactNode): string {
+function controlText(node: ReactNode): string {
 	return Children.toArray(node).map((child): string => {
 		if (typeof child === "string" || typeof child === "number") return String(child);
 		return isValidElement<{ children?: ReactNode }>(child) ? controlText(child.props.children) : "";

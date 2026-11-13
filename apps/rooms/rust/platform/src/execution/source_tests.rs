@@ -35,6 +35,13 @@ impl Tasks for Platform {
 		HostPlatform.spawn(work)
 	}
 }
+struct Bytes(Vec<u8>);
+impl Reader for Bytes {
+	fn read(&self, offset: usize, length: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>>>> {
+		let span = self.0[offset..offset + length].to_vec();
+		Box::pin(async move { Ok(span) })
+	}
+}
 struct Probe {
 	mode: Rc<Cell<u8>>,
 	calls: tokio::sync::mpsc::Sender<(usize, usize)>,
@@ -99,12 +106,14 @@ async fn scenario() {
 		Id::parse("11111111-1111-4111-8111-111111111111").unwrap(),
 	);
 	let owner = Sources::new(platform.clone());
-	assert!(Source::bytes(description(1), vec![]).is_err());
 	direct
 		.send_files(
 			"bytes",
 			&owner,
-			vec![Source::bytes(description(CHUNK_BYTES + 1), vec![7; CHUNK_BYTES + 1]).unwrap()],
+			vec![Source::reader(
+				description(CHUNK_BYTES + 1),
+				Bytes(vec![7; CHUNK_BYTES + 1]),
+			)],
 		)
 		.await
 		.unwrap();

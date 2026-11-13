@@ -68,7 +68,7 @@ impl Relay {
 	pub fn is_self_nick(&self, nick: &str) -> bool {
 		fold(nick) == fold(&self.self_nick)
 	}
-	pub fn is_channel(&self, value: &str) -> bool {
+	fn is_channel(&self, value: &str) -> bool {
 		fold(value) == fold(&self.channel)
 	}
 	/// Align IRC membership with the number of live Rooms readers.

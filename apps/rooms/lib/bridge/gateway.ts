@@ -30,7 +30,7 @@ import { MAX_GATEWAY_NAME } from "../application_data.ts";
 /** How a link state reads, in three tones Rooms styles: a settled good state,
  * a state in flight, and a failure. The bridge writes the word, and Rooms
  * paints the tone, as it does for the seat's link states. */
-export const GatewayStatusSchema = z.strictObject({
+const GatewayStatusSchema = z.strictObject({
 	label: nonemptyText(MAX_FORM_LABEL),
 	tone: z.enum(["ok", "pending", "failed", "idle"]),
 });
@@ -38,7 +38,7 @@ export type GatewayStatus = z.infer<typeof GatewayStatusSchema>;
 
 /** One line of a connection's own description: a labeled value the bridge
  * states about the connection, such as its endpoint or its login. */
-export const GatewayFactSchema = z.strictObject({
+const GatewayFactSchema = z.strictObject({
 	label: nonemptyText(MAX_FORM_LABEL),
 	value: nonemptyText(MAX_FORM_VALUE),
 });
@@ -53,7 +53,7 @@ export { MAX_GATEWAY_NAME };
 
 /** One bridged resource under a connection: an IRC channel, or whatever the
  * bridge leases. `roomName` is the Rooms room it became, when it has one. */
-export const GatewayLeaseSchema = z.strictObject({
+const GatewayLeaseSchema = z.strictObject({
 	id: nonemptyText(MAX_GATEWAY_NAME),
 	title: nonemptyText(MAX_GATEWAY_NAME),
 	status: GatewayStatusSchema,
@@ -67,7 +67,7 @@ export const GatewayLeaseSchema = z.strictObject({
 export type GatewayLease = z.infer<typeof GatewayLeaseSchema>;
 
 /** One live connection the operator retains, with the leases under it. */
-export const GatewayConnectionSchema = z.strictObject({
+const GatewayConnectionSchema = z.strictObject({
 	id: nonemptyText(MAX_GATEWAY_NAME),
 	title: nonemptyText(MAX_GATEWAY_NAME),
 	facts: z.array(GatewayFactSchema).check(z.maxLength(8)),
@@ -82,7 +82,7 @@ export type GatewayConnection = z.infer<typeof GatewayConnectionSchema>;
  * bridge knows what removing a lease costs. `say` is the whole loss sentence,
  * `keep` the way out, and `commit` the commitment, the same three the identity
  * form's `confirm` carries. */
-export const GatewayLeaseRemovalSchema = z.strictObject({
+const GatewayLeaseRemovalSchema = z.strictObject({
 	label: nonemptyText(MAX_FORM_LABEL),
 	say: nonemptyText(MAX_FORM_SAID),
 	keep: nonemptyText(MAX_FORM_LABEL),
@@ -90,7 +90,7 @@ export const GatewayLeaseRemovalSchema = z.strictObject({
 });
 
 /** The gateway as its bridge describes it right now. */
-export const BridgeGatewaySchema = z.strictObject({
+const BridgeGatewaySchema = z.strictObject({
 	/** What this gateway is and does, in the bridge's words, for the page head. */
 	title: nonemptyText(MAX_FORM_TITLE),
 	description: boundedText(MAX_FORM_SAID),

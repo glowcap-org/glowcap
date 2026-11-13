@@ -2,14 +2,6 @@
 
 import * as z from "zod/mini";
 
-export const ROOM_VISIBILITIES = ["listed", "secret"] as const;
-export const ROOM_ENTRIES = ["open", "invite-only"] as const;
-export const ROOM_SPEAKING = ["open", "moderated"] as const;
-
-export type RoomVisibility = typeof ROOM_VISIBILITIES[number];
-export type RoomEntry = typeof ROOM_ENTRIES[number];
-export type RoomSpeaking = typeof ROOM_SPEAKING[number];
-
 export const RoomPolicySchema = z.union([
 	z.strictObject({ visibility: z.literal("listed"), entry: z.literal("open"), speaking: z.literal("open") }),
 	z.strictObject({ visibility: z.literal("listed"), entry: z.literal("open"), speaking: z.literal("moderated") }),
@@ -26,12 +18,6 @@ export const OPEN_ROOM_POLICY: RoomPolicy = {
 	visibility: "listed",
 	entry: "open",
 	speaking: "open",
-};
-
-export const MODERATED_ROOM_POLICY: RoomPolicy = {
-	visibility: "listed",
-	entry: "open",
-	speaking: "moderated",
 };
 
 export const PRIVATE_ROOM_POLICY: RoomPolicy = {
@@ -62,28 +48,8 @@ export function standingOffered(offers: "observer" | "participant" | null): Room
 	return offers === "participant" ? "open" : "moderated";
 }
 
-export function policyForRoomPreset(preset: RoomPreset): RoomPolicy {
-	return preset === "private"
-		? PRIVATE_ROOM_POLICY
-		: preset === "moderated"
-		? MODERATED_ROOM_POLICY
-		: OPEN_ROOM_POLICY;
-}
-
 export function nextRoomPreset(preset: RoomPreset): RoomPreset {
 	return preset === "open" ? "moderated" : preset === "moderated" ? "private" : "open";
-}
-
-export function isRoomVisibility(value: unknown): value is RoomVisibility {
-	return typeof value === "string" && (ROOM_VISIBILITIES as readonly string[]).includes(value);
-}
-
-export function isRoomEntry(value: unknown): value is RoomEntry {
-	return typeof value === "string" && (ROOM_ENTRIES as readonly string[]).includes(value);
-}
-
-export function isRoomSpeaking(value: unknown): value is RoomSpeaking {
-	return typeof value === "string" && (ROOM_SPEAKING as readonly string[]).includes(value);
 }
 
 export function isRoomPolicy(value: unknown): value is RoomPolicy {

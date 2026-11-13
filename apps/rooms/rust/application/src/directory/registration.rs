@@ -16,26 +16,6 @@ pub enum NicknameAllocation {
 	Automatic,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
-pub enum NicknameIntent {
-	Exact { name: String },
-	Automatic { base: String },
-}
-impl NicknameIntent {
-	pub fn requested(&self) -> &str {
-		match self {
-			Self::Exact { name } => name,
-			Self::Automatic { base } => base,
-		}
-	}
-	pub const fn allocation(&self) -> NicknameAllocation {
-		match self {
-			Self::Exact { .. } => NicknameAllocation::Exact,
-			Self::Automatic { .. } => NicknameAllocation::Automatic,
-		}
-	}
-}
 impl NicknameAllocation {
 	pub const fn wire(self) -> &'static str {
 		match self {
@@ -168,9 +148,6 @@ pub enum Claim {
 	Signaling,
 }
 
-/// Signaling-only tab registrations do not consume a workspace nickname.
-/// The bounded alternatives preserve the original tab naming contract.
-pub const SIGNALING_NAME_ATTEMPTS: usize = 4;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
 	Id,

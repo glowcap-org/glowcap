@@ -11,20 +11,38 @@
 
 import type { Page } from "playwright";
 import { takeCapability } from "../page/capability_set.ts";
-import { traceCapOf, tracePublishUrlOf } from "../../lib/trace_view.ts";
+import { designatorHostPort, parseSturdyRef } from "@glowcap/runtime";
 
 // The viewer contract itself is shared with the `rooms-trace-tail` tool, so it
 // lives beside the publishing half rather than under the proofs. What stays
-// here is what only a proof needs: scraping the announcement out of a child's
-// stderr, and seeding a tab's remembered capability.
-export {
-	connectTraceViewer,
-	traceCapOf,
-	tracePortOf,
-	tracePublishUrlOf,
-	type TraceRecord,
-	traceUrlOf,
-} from "../../lib/trace_view.ts";
+// here is what only a proof needs: reading the port, the capability, and the
+// producer route out of the announcement, scraping the announcement out of a
+// child's stderr, and seeding a tab's remembered capability.
+export { connectTraceViewer, type TraceRecord, traceUrlOf } from "../../lib/trace_view.ts";
+
+/** The endpoint's port, read out of the announcement. A viewer needs the byte
+ * channel to open and the peer to establish a session with, and the
+ * announcement states both, so a caller that asked for an ephemeral port
+ * connects from it alone. */
+export function tracePortOf(sturdyref: string): number {
+	return designatorHostPort(parseSturdyRef(sturdyref, "v1_0").locator.designator).port;
+}
+
+/** The trace capability inside the announcement. The sturdyref's swissnum is
+ * the same swiss the endpoint requires of every socket, so a holder of the
+ * announcement needs no second secret. */
+export function traceCapOf(sturdyref: string): string {
+	return new TextDecoder().decode(parseSturdyRef(sturdyref, "v1_0").swissnum);
+}
+
+/** The producer route the link advertises. A producer presents
+ * `traceCapOf(sturdyref)` as its first message there. A link without the route
+ * is refused. */
+export function tracePublishUrlOf(sturdyref: string): string {
+	const endpoint = parseSturdyRef(sturdyref, "v1_0").locator.hints.get("trace-publish");
+	if (typeof endpoint !== "string") throw new Error("the trace link must advertise its trace-publish endpoint");
+	return endpoint;
+}
 
 const ANNOUNCE = "ROOMS-TRACE-LISTENING ";
 

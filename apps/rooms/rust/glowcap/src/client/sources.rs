@@ -16,90 +16,21 @@ mod hosting;
 pub trait Reader {
 	fn read(&self, offset: usize, length: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>>>>;
 }
-enum Backing {
-	Frozen(super::files::capture::Captured),
-	Reader(Box<dyn Reader>),
-}
 #[derive(Clone)]
 pub struct Source(Rc<SourceData>);
 struct SourceData {
 	description: FileDescription,
-	backing: Backing,
+	reader: Box<dyn Reader>,
 }
 impl Source {
-	/// Immutable local storage can be retained after upload without reading a
-	/// mutable source again. Reader-backed sources retain their streaming path.
-	pub fn capture(&self) -> Option<super::files::capture::Captured> {
-		match &self.0.backing {
-			Backing::Frozen(captured) => Some(captured.clone()),
-			Backing::Reader(_) => None,
-		}
-	}
 	pub fn description(&self) -> &FileDescription {
 		&self.0.description
 	}
-	pub fn bytes(description: FileDescription, bytes: Vec<u8>) -> Result<Self, Error> {
-		if description.size() != bytes.len() {
-			return Err(policy::Error::Source.into());
-		}
-		let captured =
-			super::files::capture::Captured::from_shared(description, std::sync::Arc::new(bytes.into_boxed_slice()))
-				.map_err(|_| policy::Error::Source)?;
-		Ok(Self::captured(captured))
-	}
-	/// Adopt immutable capture storage without another full-file read or copy.
-	pub fn captured(captured: super::files::capture::Captured) -> Self {
-		Self(Rc::new(SourceData {
-			description: captured.description().clone(),
-			backing: Backing::Frozen(captured),
-		}))
-	}
-
 	pub fn reader(description: FileDescription, reader: impl Reader + 'static) -> Self {
 		Self(Rc::new(SourceData {
 			description,
-			backing: Backing::Reader(Box::new(reader)),
+			reader: Box::new(reader),
 		}))
-	}
-	/// Local observers read the retained source independently of its exported
-	/// one-pass grant. Network encoding copies only the returned bounded span.
-	pub async fn read<D: Deadline>(
-		&self,
-		clock: &D,
-		offset: u64,
-		maximum: usize,
-	) -> Result<super::files::capture::Chunk, String> {
-		let length = rooms_application::files::transfer::read_length(self.description().size(), offset, maximum)
-			.map_err(|error| error.to_string())?;
-		if length == 0 {
-			return Ok(Vec::new().into());
-		}
-		match &self.0.backing {
-			Backing::Frozen(captured) => captured.span(offset, length),
-			Backing::Reader(reader) => {
-				let bytes = clock
-					.within(
-						rooms_application::files::transfer::STALL_MS,
-						reader.read(offset as usize, length),
-					)
-					.await
-					.ok_or("the local source stopped answering")??;
-				if bytes.len() != length {
-					return Err("local source returned an invalid span".into());
-				}
-				Ok(bytes.into())
-			}
-		}
-	}
-	pub async fn materialize<D: Deadline>(&self, clock: &D) -> Result<super::files::capture::Captured, String> {
-		use super::files::capture::{Captured, Chunk};
-		if let Backing::Frozen(captured) = &self.0.backing {
-			return Ok(captured.clone());
-		}
-		Captured::read_with(self.description().clone(), |offset, length| async move {
-			self.read(clock, offset, length).await.map(Chunk::into_vec)
-		})
-		.await
 	}
 }
 struct Job {

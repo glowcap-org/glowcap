@@ -6,12 +6,6 @@ use crate::room::{
 };
 use alloc::{string::String, vec::Vec};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Direction {
-	Incoming,
-	Outgoing,
-}
-
 pub struct Line<R> {
 	pub line: LineId,
 	pub text: String,

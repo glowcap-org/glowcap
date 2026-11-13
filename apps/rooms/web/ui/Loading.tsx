@@ -7,7 +7,7 @@
 
 import { loadingWhat } from "../../lib/text/page.ts";
 
-export type LoadingLayout = "pane" | "page" | "catalog";
+type LoadingLayout = "pane" | "page" | "catalog";
 
 export function LoadingSurface({ what, layout }: { what: string; layout: LoadingLayout }) {
 	const surface = layout === "pane"

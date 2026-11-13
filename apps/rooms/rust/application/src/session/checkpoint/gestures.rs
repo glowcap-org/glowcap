@@ -8,10 +8,8 @@ use alloc::{
 };
 use serde::Serialize;
 mod direct;
-mod directory;
 mod sharing;
 pub use direct::{DirectGesture, Invalid as DirectInvalid};
-pub use directory::Reach;
 pub use sharing::ShareRoom;
 
 pub struct RoomGesture {
@@ -74,11 +72,6 @@ pub struct Destination<'a> {
 	pub nick_allocation: crate::directory::registration::NicknameAllocation,
 	pub link: Option<&'a str>,
 	pub policy: RoomPolicy,
-}
-pub struct JoinPlan {
-	pub readiness: Option<Reach>,
-	pub preparation: Option<RoomGesture>,
-	pub admission: RoomGesture,
 }
 fn encode(value: &impl Serialize) -> Result<String, &'static str> {
 	serde_json::to_string(value).map_err(|_| "Could not encode the Rooms gesture")

@@ -48,8 +48,8 @@ pub enum Prepared {
 	Send { text: DocumentText },
 	Command { plan: Plan },
 }
-pub const DIRECTORY_NO_CHAT: &str = "This view does not carry messages. Use a command.";
-pub const ROOM_NO_FILES: &str = "This room does not carry files.";
+const DIRECTORY_NO_CHAT: &str = "This view does not carry messages. Use a command.";
+const ROOM_NO_FILES: &str = "This room does not carry files.";
 pub fn line_refusal(text: &DocumentText, limit: Option<usize>) -> Option<String> {
 	let maximum = limit.unwrap_or(MAX_LINE_BYTES).min(MAX_LINE_BYTES);
 	(text.utf8_lossy().len() > maximum).then(|| format!("Message too long (max {maximum} bytes)"))

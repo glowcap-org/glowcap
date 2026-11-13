@@ -25,7 +25,7 @@ import { gesturesConflict, gestureScope } from "./gestures.ts";
 import { OperationLifecycle } from "./lifecycle.ts";
 import { CancellationRecovery } from "./cancellation.ts";
 
-export interface GestureContinuation {
+interface GestureContinuation {
 	signal?: AbortSignal;
 	settled(): Promise<void>;
 }

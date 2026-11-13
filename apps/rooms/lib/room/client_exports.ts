@@ -5,7 +5,6 @@ export { readRoomEvent, type RoomEvent, type RoomInfo, type RoomPage } from "../
 export { DirectMessage } from "../direct_message.ts";
 export { DirectoryPeering, type DurableRoom, RoomPublication } from "../peering.ts";
 export { PostedLine } from "../posted_line.ts";
-export { RoomInvitation } from "./invitation.ts";
 export { RoomManager } from "./manager.ts";
 export { type DiagnosticRow, snapshotDiagnostics, takeDiagnostics } from "../diagnostics.ts";
 export type { BridgeGateway, GatewayConnection, GatewayLease, GatewayStatus } from "../bridge/gateway.ts";
@@ -65,4 +64,4 @@ export {
 	roomRecordAt,
 } from "./message.ts";
 export { isSubjectEmpty, type Subject, subject, subjectRefusal, SubjectSchema } from "./subject.ts";
-export { linkRoomReference, roomCalledAs, roomIsPrivate, roomPolicy } from "./entrance.ts";
+export { roomPolicy } from "./entrance.ts";

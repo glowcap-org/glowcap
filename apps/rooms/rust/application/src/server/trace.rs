@@ -14,14 +14,14 @@ use alloc::{
 };
 use serde_json::{Map, Value};
 
-pub const MAX_ROWS_PER_PRODUCER: usize = 1024;
+const MAX_ROWS_PER_PRODUCER: usize = 1024;
 pub const MAX_REMOTE_PRODUCERS: usize = 64;
-pub const MAX_REPLAY_ROWS: usize = 4096;
+const MAX_REPLAY_ROWS: usize = 4096;
 pub const MAX_FIELD_BYTES: usize = 4096;
 pub const MAX_LINE_BYTES: usize = 1 << 20;
 pub const MAX_SUBSCRIBERS: usize = 64;
 pub const MAX_SUBSCRIBER_QUEUE: usize = 256;
-pub const MAX_SUBSCRIBER_QUEUE_BYTES: usize = 8 << 20;
+const MAX_SUBSCRIBER_QUEUE_BYTES: usize = 8 << 20;
 
 /// The close a refused socket carries.
 pub const REFUSED_CLOSE_CODE: u16 = 4403;
@@ -110,7 +110,7 @@ impl Endpoint {
 			self.epoch
 		)
 	}
-	pub fn replay_end_line(&self, now_ns: u64) -> String {
+	fn replay_end_line(&self, now_ns: u64) -> String {
 		format!(
 			"{{\"v\":1,\"sim_t_ns\":{now_ns},\"kind\":\"trace.replay-end\",\"epoch\":{}}}",
 			self.epoch

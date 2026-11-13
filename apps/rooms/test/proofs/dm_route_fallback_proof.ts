@@ -32,7 +32,8 @@ import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, directOpened, openDmTo, pathSaid } from "../page/harness.ts";
 import { takeCapability } from "../page/capability_set.ts";
-import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
+import { roomsLocator } from "../../lib/locator.ts";
+import { formatRoomsSturdyref } from "../support/sturdyref.ts";
 import { SIGNAL_CONNECT_TIMEOUT_MS, SIGNAL_EXCHANGE_TIMEOUT_MS } from "../../lib/limits.ts";
 import { factDmRelay } from "../../lib/text/conversation.ts";
 

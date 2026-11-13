@@ -67,7 +67,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// dial carries its offer, answer and candidates through it. The route is
 	/// checked once here, and the directory refuses a later exchange itself
 	/// when the name has expired or been replaced.
-	pub async fn signaling_route(&self, row: &workspace::Directory) -> Result<Route<P>> {
+	async fn signaling_route(&self, row: &workspace::Directory) -> Result<Route<P>> {
 		let selected = workspace::SignalingSelection::directory(row)
 			.ok_or_else(|| Error::stale("signaling has no exact registered name and source"))?;
 		let source = self.directory_source(row).await?;

@@ -7,7 +7,7 @@ import type { RoomsPermission } from "../../../lib/session_content_data.ts";
 import { PermissionFields, permissionSummary } from "./PermissionFields.tsx";
 import { Choice, Choices } from "../Choices.tsx";
 
-export type CeilingMode = "none" | "within" | "all" | "custom";
+type CeilingMode = "none" | "within" | "all" | "custom";
 export interface CeilingAnswer {
 	mode: CeilingMode;
 	custom: RoomsPermission[];

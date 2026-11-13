@@ -4,7 +4,7 @@
 use alloc::{collections::VecDeque, string::String};
 
 /// Entries the ring keeps.
-pub const KEPT: usize = 50;
+pub(crate) const KEPT: usize = 50;
 pub const MAX_SOURCE_BYTES: usize = 128;
 pub const MAX_REASON_BYTES: usize = 1024;
 

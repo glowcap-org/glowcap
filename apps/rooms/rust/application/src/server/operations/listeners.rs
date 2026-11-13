@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 /// Live listeners one server holds at once. A resource bound, not an
 /// authorization: whoever holds the capability may use all of it.
-pub const MAX_LIVE: usize = 8;
+const MAX_LIVE: usize = 8;
 /// A string option value, in bytes.
 pub const MAX_OPTION_VALUE: usize = 64 * 1024;
 const MAX_ASK_VALUE: usize = 4096;

@@ -21,7 +21,7 @@ export type ComposerState = {
 
 /** One transition. Reader actions are verbs. The token effect delivers the
  * completion token's identity, and the recall paths deliver the line. */
-export type ComposerAction =
+type ComposerAction =
 	| { kind: "tray"; open: boolean }
 	| { kind: "focused"; held: boolean }
 	| { kind: "recovering"; held: boolean }

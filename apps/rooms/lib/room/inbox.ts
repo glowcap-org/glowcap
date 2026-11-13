@@ -13,7 +13,7 @@ import { parseRoomPolicy, type RoomPolicy } from "./policy.ts";
 import type { RoomAuthorityChange } from "./authority.ts";
 import { lineCost, MAX_LINE, MAX_NICK, nickRefusal } from "../limits.ts";
 
-export interface RoomInboxReceiver {
+interface RoomInboxReceiver {
 	typing(name: string, on: boolean): void;
 	listed(value: boolean): void;
 	line(message: Message): void;

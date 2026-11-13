@@ -24,7 +24,6 @@ import {
 	type Attachment,
 	attachmentCapabilities,
 	fetchBlob,
-	fetchBlobChunk,
 	readAttachments,
 	sendWithAttachments,
 } from "./attachment.ts";
@@ -41,7 +40,7 @@ import { lineCost, MAX_LINE } from "./limits.ts";
 /** The direct protocol accepted on a public inbox or reply route. Messages and
  * reciprocal route delivery are the base contract. Optional sibling verbs
  * return their actual supported outcome. */
-export interface DirectMessageReceiver {
+interface DirectMessageReceiver {
 	message(text: string, attachments: Attachment[], session: Session, reply: Ref | null): ReturnType<Behavior>;
 	ready(session: Session, reply: Ref): void | Promise<void>;
 	typing?(on: boolean): void;
@@ -214,13 +213,6 @@ export class DirectMessage {
 		return this.#session.sessionOpen;
 	}
 
-	/** Whether an arriving occurrence names the route this line already uses.
-	 * Ref wrappers own separate retains, so target equality is `Ref.equals`, not
-	 * JavaScript object identity. */
-	usesRoute(session: Session, target: Ref): boolean {
-		return !this.#spent && this.#session === session && this.#dm?.equals(target) === true;
-	}
-
 	private constructor(
 		session: Session,
 		dm: Ref,
@@ -373,20 +365,6 @@ export class DirectMessage {
 		return line instanceof Ref ? new PostedLine(this.#session, line) : null;
 	}
 
-	/** Hand the peer our reply inbox without sending a visible message. This is
-	 * the reciprocal introduction path for peers whose carrier we can dial even
-	 * when they cannot dial ours. */
-	async establishReplyRoute(): Promise<void> {
-		if (this.#replyInbox == null) throw new Error("this direct line has no reply route to establish");
-		await ask(
-			this.#session,
-			this.#target(),
-			DIRECT_READY,
-			[this.#replyInbox],
-			"they did not answer the reciprocal direct route",
-		);
-	}
-
 	/** Hand this peer a room, over this line.
 	 *
 	 * The reference is the invitation: it crosses as a handoff and arrives as a
@@ -419,10 +397,6 @@ export class DirectMessage {
 	 * handed to the peer on the same connection. */
 	spawn(behavior: import("@glowcap/runtime").Behavior): Ref {
 		return this.#session.spawn(behavior);
-	}
-
-	releaseCapability(capability: Ref): void {
-		this.#session.release(capability);
 	}
 
 	/** Offer this peer a room as durable data, over this line.
@@ -464,20 +438,14 @@ export class DirectMessage {
 		return fetchBlob(this.#session, attachment, onProgress);
 	}
 
-	/** Pull one bounded slice without materializing the complete attachment. */
-	fetchChunk(attachment: Attachment, offset: number, maxLen: number): Promise<Uint8Array> {
-		return fetchBlobChunk(this.#session, attachment, offset, maxLen);
-	}
-
 	/** Give back a file capability this member no longer needs. */
 	release(attachment: Attachment): void {
 		this.#session.release(attachment.blob);
 	}
 
-	/** Flag whether we are typing to this peer. This is the direct sibling of
-	 * `Room.setTyping` with the same lease and the same posture: said again
-	 * every `TYPING_RENEW_MS` while the member keeps typing, ended by a line
-	 * with no off, and fire-and-forget (`tell`), so a lost flag never blocks a
+	/** Flag whether we are typing to this peer. Said again every
+	 * `TYPING_RENEW_MS` while the member keeps typing, ended by a line with no
+	 * off, and fire-and-forget (`tell`), so a lost flag never blocks a
 	 * keystroke. An inbox that predates the verb breaks the tell silently. */
 	typing(on: boolean): Promise<void> {
 		// best-effort: a lost flag is the whole loss, and a renewal or the expiry repairs it.

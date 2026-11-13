@@ -16,7 +16,7 @@ import { acquireTraceCapability } from "../trace/viewer.ts";
 /** The room every proof joins unless it says otherwise. */
 export const ROOM = "lobby";
 
-export interface JoinOptions {
+interface JoinOptions {
 	/** The room to enter. */
 	room?: string;
 	/** A query string for the page address, such as `?dm=webrtc`, which picks

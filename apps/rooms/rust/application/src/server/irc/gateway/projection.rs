@@ -22,16 +22,16 @@ use alloc::{
 /// the form drawn and the answers read back.
 pub const NAME: &str = "name";
 pub const HOST: &str = "host";
-pub const PORT: &str = "port";
+const PORT: &str = "port";
 pub const NICK: &str = "nick";
-pub const REALNAME: &str = "realname";
+const REALNAME: &str = "realname";
 pub const TLS: &str = "tls";
 pub const ACCOUNT: &str = "account";
-pub const PASSWORD: &str = "password";
-pub const CHANNEL: &str = "channel";
-pub const OPERATOR_PERMISSION: &str = "permission";
-pub const OPEN_ACTION: &str = "open";
-pub const ADD_ACTION: &str = "add";
+const PASSWORD: &str = "password";
+const CHANNEL: &str = "channel";
+const OPERATOR_PERMISSION: &str = "permission";
+const OPEN_ACTION: &str = "open";
+const ADD_ACTION: &str = "add";
 
 pub use crate::bridge::gateway::{
 	Connection, Description, Fact, Lease, LeaseRemoval, MAX_GATEWAY_JSON, Status, StatusTone,

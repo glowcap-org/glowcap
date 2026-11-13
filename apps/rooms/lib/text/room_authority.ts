@@ -10,7 +10,7 @@ import { managedAccessText } from "./managed_access.ts";
 /** What each of a room's three links does. Every place that describes a link
  * (the room card, its lead, the operator's card) draws these and adds only
  * what is particular to where it stands. */
-export const roomLinkPower =
+const roomLinkPower =
 	"The room link lets anyone who holds it enter this room and pass it on. It gives no moderation and no message history.";
 export const managerLinkPower =
 	"The manager link runs the room. Whoever holds it creates and revokes the room link and moderator link, and sets who may enter and speak.";

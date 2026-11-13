@@ -13,7 +13,8 @@ import { until, within } from "../support/wait.ts";
 import { roomsTest, waitForHttp } from "../support/rooms_server.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { connectTraceViewer } from "../../lib/trace_view.ts";
-import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
+import { roomsLocator } from "../../lib/locator.ts";
+import { formatRoomsSturdyref } from "../support/sturdyref.ts";
 
 async function readSwiss(stateDir: string): Promise<string> {
 	for (let i = 0; i < 200; i++) {

@@ -19,15 +19,12 @@ import { addressDesignator, listen, locator as tcpLocator, type Server } from "@
 import { DIRECTORY } from "./protocol.ts";
 import {
 	designatorHostPort,
-	formatLocatorUri,
-	formatSturdyRef,
 	Host,
 	type Locator,
 	parseLocator,
 	parseSturdyRef,
 	type Session,
 	TRANSPORT_ID,
-	TRANSPORT_TCP,
 } from "@glowcap/runtime";
 import type { Ref } from "@glowcap/runtime";
 import { roomsHostOptions, type RoomsHostPosture } from "./profile.ts";
@@ -43,7 +40,7 @@ export function loopbackTcpDesignator(port: number): string {
 
 /** Turn the server's announce token into a dial locator: a bare port becomes a
  * `127.0.0.1:<port>` TCP locator. An `ocapn://` URI passes through unchanged. */
-export function announceToLocator(token: string): string {
+function announceToLocator(token: string): string {
 	return /^\d+$/.test(token) ? loopbackTcpDesignator(Number(token)) : token;
 }
 
@@ -84,24 +81,16 @@ export type RoomsDial = (locator: string) => Promise<Session>;
 /** A directory reached through the Host-owned route scheduler already carries
  * the public directory capability it redeemed. A concrete physical locator
  * carries only its session and fetches the same capability after opening. */
-export type ReachedRoomsDirectory = Session | { session: Session; directory: Ref };
+type ReachedRoomsDirectory = Session | { session: Session; directory: Ref };
 export type RoomsDirectoryDial = (locator: string) => Promise<ReachedRoomsDirectory>;
 
 /** Rooms durable capabilities have one URI encoding, independent of the live
  * CapTP profile that later carries them. The Goblins-compatible base64url form
  * is the persisted and copyable application contract. */
-const ROOMS_STURDYREF_VERSION = "v1_0" as const;
+export const ROOMS_STURDYREF_VERSION = "v1_0" as const;
 
 export function parseRoomsSturdyref(sturdyref: string): ReturnType<typeof parseSturdyRef> {
 	return parseSturdyRef(sturdyref, ROOMS_STURDYREF_VERSION);
-}
-
-export function roomsSturdyrefLocator(sturdyref: string): Locator {
-	return parseRoomsSturdyref(sturdyref).locator;
-}
-
-export function formatRoomsSturdyref(locator: Locator, swissnum: string | Uint8Array): string {
-	return formatSturdyRef(locator, swissnum, ROOMS_STURDYREF_VERSION);
 }
 
 /** Parse the two locator forms Rooms accepts into the shared OCapN value: a
@@ -111,19 +100,6 @@ export function roomsLocator(locator: string): Locator {
 	if (isUriLocator(locator)) return parseLocator(locator);
 	const { hostname, port } = designatorHostPort(locator);
 	return tcpLocator(hostname, port);
-}
-
-/** Say a parsed locator back in the form a rooms peer dials.
- *
- * The inverse of `roomsLocator`, kept beside it because the two forms are one
- * decision. A caller that reads an address out of somewhere else, such as the
- * locator inside a room link, needs it back in the form `dial` accepts, and a
- * second place deciding that would be a second grammar. A TCP peer is written
- * as the `host:port` shorthand, which is its designator and carries the whole
- * address. Every other transport is written as its complete URI, hints and
- * all, because the hints are part of what makes it dialable. */
-export function roomsAddress(locator: Locator): string {
-	return locator.transport === TRANSPORT_TCP ? locator.designator : formatLocatorUri(locator);
 }
 
 /** Create a Host for a rooms peer.

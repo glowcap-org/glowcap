@@ -121,7 +121,7 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 /// The SASL PLAIN payload: `\0account\0password`, base64.
-pub fn sasl_plain_payload(credentials: &SaslPlain) -> Result<String, Invalid> {
+pub(crate) fn sasl_plain_payload(credentials: &SaslPlain) -> Result<String, Invalid> {
 	validate_sasl_plain(credentials)?;
 	let raw = format!("\0{}\0{}", credentials.account, credentials.password);
 	Ok(base64(raw.as_bytes()))
@@ -129,7 +129,7 @@ pub fn sasl_plain_payload(credentials: &SaslPlain) -> Result<String, Invalid> {
 
 /// The AUTHENTICATE lines carrying one payload, 400 characters at a time,
 /// with the empty continuation a full last chunk requires.
-pub fn sasl_lines(credentials: &SaslPlain) -> Result<Vec<Vec<u8>>, Invalid> {
+pub(crate) fn sasl_lines(credentials: &SaslPlain) -> Result<Vec<Vec<u8>>, Invalid> {
 	let payload = sasl_plain_payload(credentials)?;
 	let mut lines = Vec::new();
 	let bytes = payload.as_bytes();
@@ -247,7 +247,7 @@ impl Registration {
 		Ok(lines)
 	}
 	/// A PING answered at any time, registration or not.
-	pub fn pong(message: &Message) -> Option<Vec<u8>> {
+	pub(crate) fn pong(message: &Message) -> Option<Vec<u8>> {
 		if !message.is("PING") {
 			return None;
 		}
@@ -423,7 +423,7 @@ impl Registration {
 		Ok(Step::default())
 	}
 	/// Whether a prefix names this connection's own nick.
-	pub fn is_self(&self, prefix: Option<&str>) -> bool {
+	fn is_self(&self, prefix: Option<&str>) -> bool {
 		super::protocol::nick_from_prefix(prefix)
 			.is_some_and(|nick| super::protocol::fold(nick) == super::protocol::fold(&self.current))
 	}

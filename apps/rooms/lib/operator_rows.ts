@@ -12,7 +12,7 @@ import { MAX_OPERATOR_PAGE, MAX_TROUBLE_REASON_BYTES, MAX_TROUBLE_SOURCE_BYTES }
 import { boundedText, nonemptyText, nonnegativeSafeInteger, positiveSafeInteger } from "./schema.ts";
 import type { OperatorCategory } from "./operator_vocabulary.ts";
 
-export const MAX_OPERATOR_TEXT_CHARS = 64 * 1024;
+const MAX_OPERATOR_TEXT_CHARS = 64 * 1024;
 const operatorText = boundedText(MAX_OPERATOR_TEXT_CHARS);
 const operatorName = nonemptyText(MAX_OPERATOR_TEXT_CHARS);
 const roomVisibility = z.enum(["listed", "private"]);
@@ -99,7 +99,7 @@ export type OperatorRoomKind = OperatorRoomRow["kind"];
 export type OperatorTroubleRow = z.infer<typeof OperatorTroubleRowSchema>;
 
 /** The rows each category's page carries. */
-export interface OperatorRowsByCategory {
+interface OperatorRowsByCategory {
 	stewardships: StewardshipRow[];
 	links: OperatorLinkRow[];
 	registrations: OperatorRegistrationRow[];

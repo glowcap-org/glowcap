@@ -1,4 +1,4 @@
-/* The controls that carry a choice: the two segmented rows, the switch, and
+/* The controls that carry a choice: the tab bar, the switch, and
    the checkbox, with the rows that label the last two. They live together
    because they answer the same kind of question with the same vocabulary (
    the accent says "chosen", the field language says "act here") wherever a
@@ -139,7 +139,7 @@
 	padding: 0 4px;
 	transition: color .12s ease, background-color .12s ease;
 }
-/* The ink a chosen cell wears, in either row, and not --accent-ink on its own.
+/* The ink a chosen tab wears, and not --accent-ink on its own.
    That token is chosen to clear small text against paper, and the ground under
    this word is paper with better than a quarter of the accent poured into it,
    so the ink has to move away from the colour it is standing in rather than sit
@@ -156,11 +156,8 @@
 
    The same move the rail's selected row and its count badge make, for the same
    reason. */
-.tab[aria-selected="true"],
-.segment[aria-pressed="true"] {
-	color: color-mix(in srgb, var(--accent-ink) 70%, var(--ink));
-}
 .tab[aria-selected="true"] {
+	color: color-mix(in srgb, var(--accent-ink) 70%, var(--ink));
 	font-weight: 800;
 }
 /* Hover lights the idle cell, never the chosen one: the thumb is already
@@ -186,147 +183,6 @@
 .tab:focus-visible {
 	z-index: 2;
 	outline-offset: 1px;
-}
-
-/* The other segmented row: a set of answers, any number of which can be in
-   force.
-
-   It is as wide as its answers and no wider. Told to fill, it became a bar
-   across whatever held it with two words adrift in the middle, which is not a
-   compact control but a stretched toolbar wearing one's clothes. Cells shrink
-   and cut before the track grows.
-
-   It never wraps. A row that breaks onto a second line stops being a segmented
-   row and becomes a short stack of buttons, and staying on one line was the
-   reason to reach for this over a column of checkboxes at all. Where the
-   answers will not fit on one, that is the checkbox column asking for its job
-   back. Compact is not a size this control was given. It is the whole of what
-   it is for, and `--segmented-h` is the one number a surface changes.
-
-   Every line in it is drawn exactly once. The row has no outline of its own:
-   each cell carries its own, and each cell but the first is pulled a pixel left
-   so its leading edge lands on the trailing edge of the one before it. One
-   border box, one line.
-
-   That is what makes the highlight work without stacking two rings. A line
-   between two cells belongs to both of them, so it should light when either one
-   is chosen, and a chosen cell rises above its neighbours and draws the
-   shared edge in the accent. The four sides then answer to different rules
-   without being written as four rules: top and bottom are nobody else's, so
-   they light with their own cell, while left and right are shared and light
-   from whichever side of them was chosen.
-
-   The ends belong to the cells that sit at them. Rounding the row by clipping
-   over the top of the cells would slice a chosen cell's ring at the corners.
-   It is only needed when a wrapping row moves which cells are visually first
-   and last. It cannot wrap, so they say so
-   themselves and a chosen end cell closes its outline the whole way round. */
-.segmented {
-	--segmented-h: 24px;
-	--segmented-r: var(--radius-control);
-	display: flex;
-	flex-wrap: nowrap;
-	width: fit-content;
-	max-width: 100%;
-	min-width: 0;
-	isolation: isolate;
-}
-/* A cell at rest is the page's own paper inside one hairline. A recess drawn
-   cell by cell would make a row of separately sunk buttons and leave
-   the chosen one, drawing none, reading as the flattest thing in a control where
-   chosen is the thing meant to stand out. */
-.segment {
-	all: unset;
-	box-sizing: border-box;
-	position: relative;
-	flex: 0 1 auto;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 0;
-	min-height: var(--segmented-h);
-	margin-left: -1px;
-	padding: 0 9px;
-	border: 1px solid var(--rule);
-	font: inherit;
-	font-size: var(--type-caption);
-	line-height: 1.2;
-	color: var(--ink-soft);
-	background: var(--paper);
-	cursor: pointer;
-	user-select: none;
-	text-align: center;
-	transition: color .12s ease, background-color .12s ease, border-color .12s ease;
-}
-.segment:first-child {
-	margin-left: 0;
-	border-start-start-radius: var(--segmented-r);
-	border-end-start-radius: var(--segmented-r);
-}
-.segment:last-child {
-	border-start-end-radius: var(--segmented-r);
-	border-end-end-radius: var(--segmented-r);
-}
-/* A cell in force wears what the tab bar's chosen cell wears, because it is the
-   same question one control down and that one is already measured. The wash
-   alone was the thing this control must never be, barely chosen: it sat under
-   the same soft ink as the cells beside it, so all it said was that something
-   over here was slightly tinted.
-
-   Raised over its neighbours so the edges it shares with them are drawn in its
-   colour rather than theirs. That single declaration is the whole of the rule
-   about which lines light: a shared edge is one line, and the chosen cell is
-   the one on top of it. */
-.segment[aria-pressed="true"] {
-	z-index: 1;
-	border-color: var(--accent);
-	background: color-mix(in srgb, var(--accent) 28%, var(--paper-raised));
-	color: color-mix(in srgb, var(--accent-ink) 70%, var(--ink));
-}
-/* A long answer is a directory named after the address it was reached by, so it
-   ends in an ellipsis rather than running out of its own cell. The line box is
-   taller than the type's own, because an element that clips sideways for an
-   ellipsis clips top and bottom too. */
-.segment-said {
-	flex: 0 1 auto;
-	line-height: 1.45;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-/* An icon a caller put in a label sits on the line with the words. Page icons
-   are drawn as blocks, which is right where one stands alone and wrong here: a
-   block took the whole line and pushed the words underneath it, turning a
-   one-line cell into two. Inline, and lifted the pixel and a half that puts a
-   glyph drawn on its own box onto a text baseline. Ellipsis is why this is not
-   a flex row instead: cutting a long answer needs an inline formatting context,
-   and a flex container has none to cut in. */
-.segment-said .icon-svg {
-	display: inline-block;
-	vertical-align: -1.5px;
-	margin-right: 3px;
-}
-/* Hover lights the idle cell and leaves a chosen one alone, the way the tab bar
-   does: the wash is already there, and a second on top of it reads as the cell
-   flickering. Laid as an image over the cell's own ground rather than as a
-   colour, so one declaration works over both of them. Touch sticks :hover, so
-   it is pointer-only. */
-@media (hover: hover) {
-	.segment:hover:not(:disabled):not([aria-pressed="true"]) {
-		color: var(--ink);
-		background-image: linear-gradient(var(--hover), var(--hover));
-	}
-}
-/* Above even a chosen neighbour, because a ring that is half covered by the
-   next cell along is not telling a keyboard reader where they are. */
-.segment:focus-visible {
-	z-index: 2;
-	outline-offset: -3px;
-}
-.segment:disabled {
-	opacity: .45;
-	cursor: not-allowed;
 }
 
 /* A setting that is on or off, with the switch at the end of its name. The
@@ -495,10 +351,6 @@
    Without it, the page keeps its light face everywhere. */
 @supports (color: light-dark(#000, #fff)) {
 	.tabs-thumb {
-		background: light-dark(color-mix(in srgb, var(--accent) 28%, var(--paper-raised)), color-mix(in srgb,
-			var(--accent) 15%, var(--paper-raised)));
-	}
-	.segment[aria-pressed="true"] {
 		background: light-dark(color-mix(in srgb, var(--accent) 28%, var(--paper-raised)), color-mix(in srgb,
 			var(--accent) 15%, var(--paper-raised)));
 	}

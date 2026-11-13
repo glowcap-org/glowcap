@@ -14,7 +14,7 @@ import { projectedError } from "../../../../lib/error_codes.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 
 type Failure = { target: { kind: string; id: string }; reason: string; failure?: unknown };
-export type MembershipStatus = { failures?: readonly Failure[]; sourceFailure?: string };
+type MembershipStatus = { failures?: readonly Failure[]; sourceFailure?: string };
 
 function destination(projection: PageProjection, target: Failure["target"]): ActionRefusal["target"] | null {
 	if (target.kind === "directory") return { directory: target.id, room: "" };

@@ -7,7 +7,7 @@ import { isManagedRoomId, newManagedRoomId } from "./limits.ts";
 import { OPEN_MANAGED, ROOM_AUTHORITIES } from "./protocol.ts";
 import { OPEN_ROOM_POLICY, type RoomPolicy } from "./room/policy.ts";
 
-export interface ManagedRoomAnswer {
+interface ManagedRoomAnswer {
 	room: Ref;
 	roomLink: string;
 	managerLink: string;

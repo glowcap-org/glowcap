@@ -18,7 +18,7 @@ import { reachRoomThroughRelay, startWeb, waitForIndex, withWeb } from "./serve_
 import { webPort } from "../support/web_front.ts";
 import { roomLocator, roomPortOf } from "../support/rooms_server.ts";
 import { HINT_RENDEZVOUS_RELAY } from "../../lib/doors.ts";
-import { roomsIdentityDoors } from "../../lib/routes.ts";
+import { roomsIdentityDoors } from "../support/routes.ts";
 import { parseLocator, stringHint, TRANSPORT_ID, TRANSPORT_NOISE_RELAY, TRANSPORT_TCP } from "@glowcap/runtime";
 
 Deno.test("the web supervisor prints one pasteable capability bundle", async () => {

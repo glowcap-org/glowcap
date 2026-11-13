@@ -18,9 +18,9 @@ import { useChangeGroup, useCommitSettling } from "./commitment.tsx";
 import { policyForRoomPreset, type RoomPreset } from "./room_policy.ts";
 import { LocalRefusal } from "../../lib/text/failure.ts";
 
-export type AuthorityAct = "drop-manager" | "drop-steward" | "revoke-steward" | "revoke-room" | "unregister-room";
+type AuthorityAct = "drop-manager" | "drop-steward" | "revoke-steward" | "revoke-room" | "unregister-room";
 
-export interface AuthorityConfirmation {
+interface AuthorityConfirmation {
 	readonly act: AuthorityAct;
 	readonly token: string;
 }

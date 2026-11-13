@@ -29,7 +29,6 @@ http-body-util.workspace = true
 [dev-dependencies]
 rooms-testing = { path = "../testing" }
 rooms-glowcap = { path = "../glowcap" }
-rooms-runtime = { path = "../runtime" }
 glowcap = { workspace = true, features = ["tcp"] }
 tokio = { workspace = true, features = ["test-util"] }
 futures-util = { workspace = true, features = ["async-await", "sink"] }

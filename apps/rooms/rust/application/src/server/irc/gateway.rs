@@ -304,7 +304,7 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 	pub fn seat(&self, key: &str, connection: C) -> Option<&Seat> {
 		self.seats.get(key)?.get(&connection)
 	}
-	pub fn seats_of(&self, key: &str) -> impl Iterator<Item = (C, &Seat)> {
+	fn seats_of(&self, key: &str) -> impl Iterator<Item = (C, &Seat)> {
 		self.seats
 			.get(key)
 			.into_iter()
@@ -402,7 +402,7 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 		}
 		Some(false)
 	}
-	pub fn forget_identity(&mut self, connection: C, network: &str) {
+	fn forget_identity(&mut self, connection: C, network: &str) {
 		let key = network_key(network);
 		if let Some(by_network) = self.identities.get_mut(&connection) {
 			by_network.remove(&key);

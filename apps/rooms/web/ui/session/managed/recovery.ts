@@ -63,7 +63,7 @@ export async function releaseEffect(
 	if (held != null) finish(held);
 }
 
-export interface Recovery {
+interface Recovery {
 	workspace: RoomsManagedWorkspace;
 	retain(operation: ManagedOperation): void;
 	orphan?(operation: ManagedOperation): void;

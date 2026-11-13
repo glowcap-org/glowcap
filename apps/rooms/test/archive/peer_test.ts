@@ -14,7 +14,8 @@ import {
 	revokeArchiveShare,
 } from "../support/archive/client.ts";
 import { fetchBlob } from "../../lib/attachment.ts";
-import { roomsAddress, roomsHost } from "../../lib/locator.ts";
+import { roomsHost } from "../../lib/locator.ts";
+import { roomsAddress } from "../support/sturdyref.ts";
 import { stopOwned } from "../support/children.ts";
 import { assert } from "../assert.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";

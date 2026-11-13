@@ -58,13 +58,6 @@ pub struct Usage {
 	pub captures: usize,
 }
 pub struct SessionArchive<P: Platform>(Rc<State<P>>);
-/// Fences new recordings while a retention change clears and commits.
-pub struct RecordingPause(Rc<Cell<usize>>);
-impl Drop for RecordingPause {
-	fn drop(&mut self) {
-		self.0.set(self.0.get() - 1);
-	}
-}
 struct State<P: Platform> {
 	changes: tokio::sync::broadcast::Sender<rooms_application::archive::change::Change>,
 	hosting: crate::archive::hosting::Budget,
@@ -73,7 +66,6 @@ struct State<P: Platform> {
 	peer_selected: Cell<bool>,
 	selection_issue: RefCell<Option<String>>,
 	status: watch::Sender<()>,
-	recording_pauses: Rc<Cell<usize>>,
 	captures: Rc<Cell<usize>>,
 	requests: mpsc::Sender<Pending<P>>,
 	stop: watch::Sender<bool>,
@@ -172,7 +164,6 @@ impl<P: Platform> SessionArchive<P> {
 			peer_selected: Cell::new(false),
 			selection_issue: RefCell::new(None),
 			status,
-			recording_pauses: Rc::default(),
 			captures: Rc::new(Cell::new(0)),
 			requests,
 			stop,
@@ -200,9 +191,6 @@ impl<P: Platform> SessionArchive<P> {
 		self.0.admit(link.len(), 0, |reply| Command::Prepare(link, reply))
 	}
 	pub fn put(&self, record: Record, sources: Vec<File<P>>) -> Result<Reply<u64>, Error> {
-		if self.0.recording_pauses.get() != 0 {
-			return Err(Error::stale("history retention is changing"));
-		}
 		if !sources.is_empty() {
 			rooms_application::archive::blobs::validate_sources(
 				&record,
@@ -250,9 +238,6 @@ impl<P: Platform> SessionArchive<P> {
 		message: &rooms_application::archive::recording::Message<'_>,
 		mut sources: Sources<P>,
 	) -> Result<Option<Recording>, Error> {
-		if self.0.recording_pauses.get() != 0 {
-			return Ok(None);
-		}
 		let Some(record) = rooms_application::archive::recording::message(source, message, sources.descriptions())
 			.map_err(Error::invalid_by)?
 		else {

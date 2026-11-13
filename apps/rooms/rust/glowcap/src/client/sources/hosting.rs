@@ -22,16 +22,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 				return Ok(Argument::Bytes(Vec::new()));
 			};
 			let range = read.range();
-			let future = match &read.source().0.backing {
-				Backing::Frozen(captured) => {
-					// The binding's reply owns its span. This one bounded copy does
-					// not keep the full backing allocation alive after completion.
-					let bytes = captured.span(range.start as u64, range.len())?.into_vec();
-					read.finish(bytes.len()).map_err(|e| e.to_string())?;
-					return Ok(Argument::Bytes(bytes));
-				}
-				Backing::Reader(reader) => reader.read(range.start, range.len()),
-			};
+			let future = read.source().0.reader.read(range.start, range.len());
 			let owner = state.upgrade().ok_or("the source owner has closed")?;
 			let session = glowcap::current_session().map_err(|e| e.to_string())?;
 			let mut resolver = host.defer_turn().map_err(|e| e.to_string())?;

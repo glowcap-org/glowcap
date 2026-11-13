@@ -6,7 +6,7 @@ import type { PageProjection } from "./projection.ts";
 import { foldLine, historyOf, lineByCoordinate, lineByLineId, updateItem } from "./items.ts";
 
 /** The room's names for a committed send. */
-export interface SentLineReceipt {
+interface SentLineReceipt {
 	id?: number;
 	history?: HistoryCoordinate | null;
 }

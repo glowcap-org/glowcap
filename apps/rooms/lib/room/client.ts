@@ -21,8 +21,6 @@
 // returns, and the subscription answer carries the live membership.
 
 import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime";
-import type { BridgeAnswers, BridgeForm } from "../bridge/form.ts";
-import { answerBridgeForm, askBridgeForm } from "../bridge/wire.ts";
 import type { Session } from "@glowcap/runtime";
 import {
 	type Attachment,
@@ -30,13 +28,11 @@ import {
 	beginUpload,
 	discardUpload,
 	fetchBlob,
-	fetchBlobChunk,
 	fillUpload,
 	postStagedFiles,
 } from "../attachment.ts";
-import { AWAY, HISTORY, LEAVE, MINT_INVITATION, POST, SET_SUBJECT, SUBSCRIBE, TYPING } from "../protocol.ts";
-import { RoomStewardship } from "./stewardship.ts";
-import { managedRoomIdentity } from "./manager.ts";
+import { AWAY, HISTORY, LEAVE, POST, SET_SUBJECT, SUBSCRIBE } from "../protocol.ts";
+import { RoomLinks } from "./links.ts";
 import type { RoomAuthorityChange } from "./authority.ts";
 import { readMembershipAnswer, type RoomMembershipKind } from "./membership.ts";
 import { RoomMessageStream } from "./message_stream.ts";
@@ -44,29 +40,27 @@ import { settleCapabilityCleanup } from "../capability_cleanup.ts";
 import { roomInboxBehavior } from "./inbox.ts";
 import { answerWithin } from "../deadline.ts";
 import { REQUEST_TIMEOUT_MS } from "../limits.ts";
-import { RoomInvitation } from "./invitation.ts";
 import type { RoomPolicy } from "./policy.ts";
-import { roomCalledAs, roomIsPrivate, roomPolicy } from "./entrance.ts";
+import { roomPolicy } from "./entrance.ts";
 
 // The client's public names are reachable through this module. This file owns
 // Room, and the exports module owns its sibling clients.
 export * from "./client_exports.ts";
 
-import { ask, askRef } from "../ask.ts";
+import { ask } from "../ask.ts";
 import { PostedLine, postedLineResult } from "../posted_line.ts";
 import type { Message } from "./message.ts";
 import { type Subject, subjectRefusal } from "./subject.ts";
 
-export interface RoomSubscribeOptions {
+interface RoomSubscribeOptions {
 	readonly onTyping?: (from: string, on: boolean) => void;
 	readonly voucher?: Uint8Array;
 	readonly onAuthorityChanged?: (room: Room, change: RoomAuthorityChange) => void;
 	readonly onPolicyChanged?: (room: Room, policy: RoomPolicy) => void;
 }
 
-/** A membership in a chat room. Get one with `Room.subscribe` (the app's
- * `joinRoom` in `enter_room.ts` is the friendly wrapper), read `messages`, call
- * `say`, and `leave` when you are done. */
+/** A membership in a chat room. Get one with `Room.subscribe`, read
+ * `messages`, call `say`, and `leave` when you are done. */
 export class Room {
 	#session: Session;
 	#room: Ref;
@@ -80,10 +74,9 @@ export class Room {
 	 * `attach` and `postFiles` go to. A room that cannot hold bytes offers
 	 * none, and so does an observer seat. */
 	#files: Ref | null = null;
-	readonly #stewardship: RoomStewardship;
+	readonly #links: RoomLinks;
 	/** What subscribe's arrival said about this occupancy, when it said so. */
 	#listed: boolean | undefined;
-	#endedReason: string | null = null;
 	#arrivalSettled = false;
 	#arrivalFailure: Error | null = null;
 	#arrival: Promise<void>;
@@ -98,7 +91,7 @@ export class Room {
 	private constructor(session: Session, room: Ref) {
 		this.#session = session;
 		this.#room = room;
-		this.#stewardship = new RoomStewardship(session, room);
+		this.#links = new RoomLinks(session, room);
 		this.#messageStream = new RoomMessageStream((message) => {
 			for (const attachment of message.attachments) {
 				settleCapabilityCleanup(
@@ -135,12 +128,9 @@ export class Room {
 			listed: (listed) => self.#listed = listed,
 			line: (message) => self.#messageStream.push(message),
 			arrived: () => self.#arrive(),
-			ended: (reason) => {
-				self.#endedReason = reason;
-				self.#endStream();
-			},
+			ended: () => self.#endStream(),
 			authorityChanged: (change) => {
-				self.#stewardship.forget(change);
+				self.#links.forget(change);
 				options.onAuthorityChanged?.(self, change);
 			},
 			authorityStatus: () => {},
@@ -210,21 +200,7 @@ export class Room {
 	 * nothing. A link preserves the room's identity, not its history policy.
 	 * Retention is the Rooms operator's choice. */
 	async link(): Promise<string> {
-		return await this.#stewardship.link();
-	}
-
-	/** What this room calls itself, or "" when it has no label to give.
-	 *
-	 * A link does not carry a name. This lets `/join` of that locator sit in
-	 * the place that created it instead of under an invented name. */
-	async called(): Promise<string> {
-		return await roomCalledAs(this.#session, this.#room);
-	}
-
-	/** Whether this room is unlisted. A link to a public room is still that
-	 * public room, and a link to a private one is not a name on the directory. */
-	async isPrivate(): Promise<boolean> {
-		return await roomIsPrivate(this.#session, this.#room);
+		return await this.#links.link();
 	}
 
 	policy(): Promise<RoomPolicy> {
@@ -240,10 +216,6 @@ export class Room {
 		return this.#room;
 	}
 
-	get membershipReference(): Ref {
-		return this.#membershipRef();
-	}
-
 	/** Whether this occupancy is a directory name, when subscribe said so.
 	 *
 	 * Undefined against a room that did not state it, such as an older room or
@@ -257,42 +229,6 @@ export class Room {
 		return this.#membershipKind;
 	}
 
-	get canSpeak(): boolean {
-		return this.#membershipKind === "participant";
-	}
-
-	async invite(kind: RoomMembershipKind = "participant"): Promise<RoomInvitation> {
-		const invitation = await askRef(
-			this.#session,
-			this.#membershipRef(),
-			MINT_INVITATION,
-			[kind],
-			"the membership did not answer an invitation",
-			"the membership answered without an invitation capability",
-		);
-		return new RoomInvitation(this.#session, invitation);
-	}
-
-	/** Why the room ended this membership, when it sent a terminal fact before
-	 * closing the message stream. Null for local leave, replacement, or a lost
-	 * connection whose session owns the reason. */
-	get endedReason(): string | null {
-		return this.#endedReason;
-	}
-
-	/** Whether this membership holds the authority to say what the room is
-	 * about. False against a room that does not offer one. */
-	get canSetSubject(): boolean {
-		return this.#subject !== null;
-	}
-
-	/** Whether this membership holds the authority to put files in the room.
-	 * False against a room that offers none: one that cannot hold bytes, or an
-	 * observer seat. A composer draws its attach control from this. */
-	get canPostFiles(): boolean {
-		return this.#files !== null;
-	}
-
 	/** Say this membership has stepped away, or `""` to say it is back.
 	 *
 	 * Nobody hands this over. A member's standing is theirs to state, and the
@@ -301,72 +237,16 @@ export class Room {
 		await ask(this.#session, this.#membershipRef(), AWAY, [reason], "the membership did not answer stepping away");
 	}
 
-	/** Try to create the room's durable steward authority. Only the typed
-	 * `not-steward` answer means this membership does not hold it. Transport,
-	 * parser, runtime, and publication failures remain failures. */
-	async claimSteward(): Promise<boolean> {
-		return await this.#stewardship.claim();
-	}
-
-	/** Take a steward sturdyref for this room. The imported capability
-	 * identifies the room publication it governs before replacing any authority
-	 * already held, so pasting a valid steward for another room fails closed. */
-	async takeSteward(stewardLink: string): Promise<void> {
-		await this.#stewardship.take(stewardLink);
-	}
-
 	async takeManager(managerLink: string): Promise<void> {
-		await this.#stewardship.takeManager(managerLink);
-	}
-
-	managerIdentity(): Promise<string> {
-		return managedRoomIdentity(this.#session, this.#room);
-	}
-
-	dropSteward(): void {
-		this.#stewardship.drop();
-	}
-
-	dropManager(): void {
-		this.#stewardship.dropManager();
-	}
-
-	revokeManagedAuthority(kind: "room" | "steward", token: string): Promise<void> {
-		return this.#stewardship.revokeManagedAuthority(kind, token);
-	}
-
-	unregisterManagedRoom(): Promise<{ policy: RoomPolicy; name: string }> {
-		return this.#stewardship.unregisterRoom();
-	}
-
-	setPolicy(policy: RoomPolicy, name: string): Promise<{ policy: RoomPolicy; name: string }> {
-		return this.#stewardship.setPolicy(policy, name);
+		await this.#links.takeManager(managerLink);
 	}
 
 	get roomLink(): string | null {
-		return this.#stewardship.roomLink;
-	}
-
-	get stewardLink(): string | null {
-		return this.#stewardship.stewardLink;
+		return this.#links.roomLink;
 	}
 
 	get managerLink(): string | null {
-		return this.#stewardship.managerLink;
-	}
-
-	/** Whether this membership holds the steward. */
-	get canKick(): boolean {
-		return this.#stewardship.held;
-	}
-
-	get canClaimSteward(): boolean {
-		return this.#stewardship.managerLink !== null;
-	}
-
-	/** Ask a member, by nick, to leave through the steward already held. */
-	async kick(nick: string): Promise<void> {
-		await this.#stewardship.kick(nick);
+		return this.#links.managerLink;
 	}
 
 	/** Say what the room is about, for everyone in it and everyone who arrives
@@ -375,8 +255,7 @@ export class Room {
 	 *
 	 * Throws when this membership holds no subject facet, or when the subject
 	 * breaks the room's rules, before anything is sent. A room that does not
-	 * offer a facet leaves the membership in that state. Ask `canSetSubject`
-	 * first. */
+	 * offer a facet leaves the membership in that state. */
 	async setSubject(subject: Subject): Promise<void> {
 		if (this.#subject === null) throw new Error("this room did not offer a subject to set");
 		const refusal = subjectRefusal(subject.description, subject.link);
@@ -407,18 +286,6 @@ export class Room {
 			if (from !== "") lines.push({ from, text, at });
 		}
 		return lines;
-	}
-
-	/** What form this membership's bridge wants drawn, or null when it wants
-	 * none. See `askBridgeForm`. */
-	bridgeForm(): Promise<BridgeForm | null> {
-		return askBridgeForm(this.#session, this.#membershipRef());
-	}
-
-	/** Press one of that form's actions with what the reader typed. The answer is
-	 * the bridge's sentence about what happened. */
-	submitBridgeForm(action: string, answers: BridgeAnswers): Promise<string> {
-		return answerBridgeForm(this.#session, this.#membershipRef(), action, answers);
 	}
 
 	/** Say a line to everyone in the room. */
@@ -493,26 +360,9 @@ export class Room {
 		return fetchBlob(this.#session, attachment, onProgress);
 	}
 
-	readFile(attachment: Attachment, offset: number, maxLen: number): Promise<Uint8Array> {
-		return fetchBlobChunk(this.#session, attachment, offset, maxLen);
-	}
-
 	/** Give back a file capability this member no longer needs. */
 	release(attachment: Attachment): void {
 		this.#session.release(attachment.blob);
-	}
-
-	/** Flag whether we are typing in this room. The room and every reader hold
-	 * a start for `TYPING_CLEAR_MS`, so say it again every `TYPING_RENEW_MS`
-	 * while the member keeps typing, and not at every keystroke: the room
-	 * relays a repeat to every other member. A line we post ends it with no
-	 * off, so a member still typing when their line lands is said again.
-	 * Fire-and-forget (`tell`, no reply): a lost flag never blocks a
-	 * keystroke, and the next renewal or the expiry repairs it. The room
-	 * drops it silently if we are no longer subscribed. */
-	setTyping(on: boolean): Promise<void> {
-		// best-effort: a lost flag is the whole loss, and a renewal or the expiry repairs it.
-		return this.#session.tell(this.#membershipRef(), TYPING, [on]).catch(() => {});
 	}
 
 	/** Leave this room: drop the membership and end the `messages` stream
@@ -551,22 +401,6 @@ export class Room {
 		if (failure !== null) throw failure;
 	}
 
-	/** Stop reading this membership without telling the room, because a newer
-	 * claim on the same connection has already replaced it.
-	 *
-	 * `leave` is the wrong verb there, and more than wasteful. The room keys a
-	 * departure by connection, so a leave sent after re-entering would take back
-	 * the place the re-entry just made and leave a member who believes they are
-	 * in a room that has dropped them. Re-entry already replaced the record on
-	 * the room's side, and what is left is this side's stream. */
-	replaced(): void {
-		if (this.#retired) return;
-		this.#retired = true;
-		this.#endStream();
-		const failure = this.#releaseMembershipRefs();
-		if (failure !== null) throw failure;
-	}
-
 	#releaseMembershipRefs(): unknown | null {
 		let failure: unknown | null = null;
 		const release = (field: "#inbox" | "#subject" | "#files" | "#membership", ref: Ref | null) => {
@@ -585,11 +419,6 @@ export class Room {
 		release("#subject", this.#subject);
 		release("#files", this.#files);
 		release("#membership", this.#membership);
-		try {
-			this.#stewardship.release();
-		} catch (error) {
-			failure = failure === null ? error : retainSecondaryFailure(failure, error);
-		}
 		return failure;
 	}
 

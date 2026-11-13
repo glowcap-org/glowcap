@@ -1,14 +1,23 @@
 use super::{tests::description, *};
 use glowcap::Session;
+use rooms_application::files::FileDescription;
 use rooms_application::{files::CHUNK_BYTES, room::attachment::Attachment};
-use rooms_glowcap::client::sources::Source;
+use rooms_glowcap::client::files::capture::Captured;
 use std::{cell::Cell, rc::Rc, time::Duration};
+
+async fn captured(description: FileDescription, bytes: Vec<u8>) -> Captured {
+	Captured::read_with(description, |offset, length| {
+		let span = bytes[offset as usize..offset as usize + length].to_vec();
+		async move { Ok(span) }
+	})
+	.await
+	.unwrap()
+}
 
 pub(super) async fn run(session: &Session, peer: &Session) {
 	let size = 1024 * 1024;
-	let bytes = vec![7; size];
-	let original = bytes.as_ptr();
-	let source = Source::bytes(description("local", size), bytes).unwrap();
+	let source = captured(description("local", size), vec![7; size]).await;
+	let original = source.span(0, CHUNK_BYTES).unwrap().as_ref().as_ptr();
 	let reads = Rc::new(Cell::new(0));
 	let observed = reads.clone();
 	let _root = peer
@@ -28,8 +37,8 @@ pub(super) async fn run(session: &Session, peer: &Session) {
 			.uploads(
 				session,
 				vec![
-					(attachment.blob.clone(), source.capture().unwrap()),
-					(attachment.blob.clone(), source.capture().unwrap()),
+					(attachment.blob.clone(), source.clone()),
+					(attachment.blob.clone(), source.clone()),
 				],
 				&[],
 			)
@@ -37,7 +46,7 @@ pub(super) async fn run(session: &Session, peer: &Session) {
 	);
 	assert_eq!(owner.usage().files, 0, "duplicate upload admission is atomic");
 	let upload = owner
-		.uploads(session, vec![(attachment.blob.clone(), source.capture().unwrap())], &[])
+		.uploads(session, vec![(attachment.blob.clone(), source.clone())], &[])
 		.unwrap()
 		.pop()
 		.unwrap();
@@ -46,7 +55,7 @@ pub(super) async fn run(session: &Session, peer: &Session) {
 	assert_eq!(owner.usage().bytes, size);
 	assert!(
 		owner
-			.uploads(session, vec![(attachment.blob.clone(), source.capture().unwrap())], &[])
+			.uploads(session, vec![(attachment.blob.clone(), source.clone())], &[])
 			.is_err()
 	);
 	assert_eq!(
@@ -92,7 +101,7 @@ pub(super) async fn run(session: &Session, peer: &Session) {
 		.unwrap();
 	let blob = session.fetch("upload-failed").await.unwrap();
 	let upload = owner
-		.uploads(session, vec![(blob.clone(), source.capture().unwrap())], &[])
+		.uploads(session, vec![(blob.clone(), source.clone())], &[])
 		.unwrap();
 	let file = owner
 		.receive(
@@ -139,7 +148,7 @@ async fn pressure(session: &Session) {
 	let blob = session
 		.spawn_owned(|_, _| panic!("retained upload must not read"))
 		.unwrap();
-	let source = Source::bytes(description("new", 1), vec![9]).unwrap();
+	let source = captured(description("new", 1), vec![9]).await;
 	// Local history still names [A, B], while a delegated [B] revision is
 	// queued ahead of our keep[0] + C. Peer indices already name B.
 	let previous: Vec<_> = views[..2]
@@ -148,11 +157,7 @@ async fn pressure(session: &Session) {
 		.map(|(file, blob)| file.previous(blob.clone()))
 		.collect();
 	let upload = owner
-		.uploads(
-			session,
-			vec![(blob.clone(), source.capture().unwrap())],
-			&identities[..2],
-		)
+		.uploads(session, vec![(blob.clone(), source.clone())], &identities[..2])
 		.unwrap()
 		.pop()
 		.unwrap();
@@ -201,7 +206,7 @@ async fn pressure(session: &Session) {
 		.map(|_| {
 			(
 				session.spawn_owned(|_, _| panic!("refused batch cannot read")).unwrap(),
-				source.capture().unwrap(),
+				source.clone(),
 			)
 		})
 		.collect();

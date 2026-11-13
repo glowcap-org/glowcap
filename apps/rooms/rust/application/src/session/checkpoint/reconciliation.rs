@@ -66,7 +66,7 @@ pub enum Fact {
 	},
 }
 impl Fact {
-	pub fn room_context(&self) -> Option<&RoomContext> {
+	fn room_context(&self) -> Option<&RoomContext> {
 		match self {
 			Self::RoomReconnect { context, .. }
 			| Self::RoomAuthority { context, .. }

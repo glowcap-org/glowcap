@@ -17,14 +17,14 @@ use alloc::{
 use serde::{Deserialize, Serialize};
 
 /// The most IRC rows of one kind the document keeps.
-pub const MAX_IRC_ROWS: usize = super::MAX_OPERATIONS_ROWS;
+const MAX_IRC_ROWS: usize = super::MAX_OPERATIONS_ROWS;
 const MAX_GENERATION: u64 = (1 << 53) - 1;
 
 pub const FILE: &str = "operations.json";
 pub const VERSION: u64 = 1;
 pub const MAX_BYTES: usize = 2 * 1024 * 1024;
 /// Listeners one server remembers.
-pub const MAX_LISTENERS: usize = 8;
+const MAX_LISTENERS: usize = 8;
 const MAX_OPTION_NAME: usize = 64;
 const MAX_OPTIONS: usize = 16;
 
@@ -196,7 +196,7 @@ impl Document {
 		}
 		Ok(())
 	}
-	pub fn irc_network(&self, name: &str) -> Option<&NetworkChoice> {
+	fn irc_network(&self, name: &str) -> Option<&NetworkChoice> {
 		let key = network_key(name);
 		self.irc_networks.iter().find(|network| network.key() == key)
 	}

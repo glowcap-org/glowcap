@@ -77,7 +77,7 @@ export type TravelRow = {
 /** Where a row starts its move. It is drawn `by` from its place. `covered` of
  * its top is not drawn, and that much is let out evenly until the move is
  * `until` of the way there. */
-export type TravelStart = { by: number; covered: number; until: number };
+type TravelStart = { by: number; covered: number; until: number };
 
 /** Where each row starts, first row to last.
  *

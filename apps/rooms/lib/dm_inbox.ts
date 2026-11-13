@@ -19,7 +19,7 @@ import { isRegistrationId } from "./directory_publications.ts";
 import type { Directory } from "./room/client.ts";
 
 /** Creates and offers direct-message inboxes for live registrations. */
-export interface InboxOfferer {
+interface InboxOfferer {
 	/** Create an inbox for `peer`'s registration ID if there is none, and offer it
 	 * to the directory. Always re-offers across a directory reconnect. */
 	offer(peer: string, registrationId: string, opening: string): void;
@@ -36,11 +36,11 @@ export interface InboxOfferer {
 /** Host-scoped owner of every live inbox alias published through it. Directory
  * offerers are children of this owner, so the configured ceiling is one
  * structural ledger and not a per-caller convention. */
-export interface InboxPublisher {
+interface InboxPublisher {
 	offerer(opts: InboxOffererOptions): InboxOfferer;
 }
 
-export interface InboxOffererOptions {
+interface InboxOffererOptions {
 	/** The directory to offer through, read at each offer so a reconnect is
 	 * picked up. */
 	dir: () => Directory | null;

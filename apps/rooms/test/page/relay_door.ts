@@ -15,7 +15,7 @@ import { formatLocatorUri, parseLocator, TRANSPORT_NOISE_RELAY } from "@glowcap/
 import type { Browser, Page } from "playwright";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { HINT_RENDEZVOUS_RELAY } from "../../lib/doors.ts";
-import { roomsIdentityDoors, roomsIdentityRoute } from "../../lib/routes.ts";
+import { roomsIdentityDoors, roomsIdentityRoute } from "../support/routes.ts";
 import { routeRelay } from "../../lib/text/directory.ts";
 import { doorUnreachable } from "../../lib/text/failure.ts";
 import { serverAskAfterDoor } from "../../lib/text/session.ts";

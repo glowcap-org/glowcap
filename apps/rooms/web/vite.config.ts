@@ -53,7 +53,7 @@ function lockedPackagesOnly(): Plugin {
 	};
 }
 
-export interface DevelopmentListen {
+interface DevelopmentListen {
 	host: string;
 }
 

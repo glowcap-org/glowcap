@@ -386,11 +386,11 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 			longWhy: sink?.querySelector("#kitchenLongSaid") != null,
 			toast: sink?.querySelector(".toast") != null,
 			crash: sink?.querySelector(".crash") != null,
-			// The controls that carry a choice, all three of them. A control drawn
+			// The controls that carry a choice, both of them. A control drawn
 			// only where it is used is judged against the panel around it rather
 			// than against its siblings, which is how one comes to have a look of
 			// its own without anybody deciding it should.
-			chosen: ["switch", "checkbox", "segmented"]
+			chosen: ["switch", "checkbox"]
 				.filter((control) => sink?.querySelector("." + control) == null),
 		};
 	});
@@ -421,41 +421,6 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	// A ring of a fractional size turns about a point beside its drawn centre.
 	if (!waits.rings.every((side) => Number.isInteger(side))) {
 		fail(`a progress ring is not whole pixels across, so it wobbles as it turns: ${JSON.stringify(waits.rings)}`);
-	}
-	// The segmented row is drawn nowhere else, so the catalog is the only place it
-	// can be held to anything. What it owes a reader is that it says so. A gallery
-	// is shopped from, and an entry that does not say whether anything uses it is
-	// an invitation to adopt whatever state it happens to be in. It is finished
-	// now, which changes what the entry has to say and not whether it has to say
-	// something: a reader picking it up should know they will be the first.
-	const parked = await tab.evaluate(() => {
-		const track = document.getElementById("kitchenSegmentedWrap");
-		const sample = track?.closest(".kitchen-sample");
-		if (track === null || sample == null) return null;
-		const cells = [...track.querySelectorAll(".segment")];
-		return {
-			cells: cells.length,
-			// It stays on one line whatever it is given, because a row that breaks
-			// onto a second is a short stack of buttons rather than a segmented
-			// row, and staying on one line is the reason to reach for this at all.
-			// Held here because the catalog is where the control is squeezed.
-			lines: new Set(cells.map((cell) => Math.round(cell.getBoundingClientRect().top))).size,
-			// And it does not push its way out of what holds it: it shrinks its
-			// cells and cuts their words instead.
-			overflows: Math.round(track.getBoundingClientRect().width) >
-				Math.round((track.parentElement?.getBoundingClientRect().width ?? 0) + 1),
-			said: (sample.textContent ?? "").toLowerCase(),
-		};
-	});
-	if (parked === null) fail("the parts catalog does not stand the segmented row at the rail's own width");
-	else if (parked.lines !== 1) {
-		fail(`the segmented row broke onto ${parked.lines} lines, which is a stack of buttons and not this control`);
-	} else if (parked.overflows) {
-		fail(
-			`the segmented row pushed out of what holds it rather than cutting its answers: ${JSON.stringify(parked)}`,
-		);
-	} else if (!parked.said.includes("draws one yet")) {
-		fail("the catalog offers the segmented row without saying that nothing in the page uses one");
 	}
 	await tab.click("#kitchenBack");
 	await tab.waitForFunction(() => document.getElementById("kitchenSink") === null)

@@ -18,7 +18,7 @@ import { BreakCause, BreakReason, parseLocator, VowBroken } from "@glowcap/runti
 import { roomsErrorOf } from "../lib/errors.ts";
 import { HINT_RENDEZVOUS_RELAY } from "../lib/doors.ts";
 import { initializeApplication } from "./support/application.ts";
-import { formatRoomsSturdyref } from "../lib/locator.ts";
+import { formatRoomsSturdyref } from "./support/sturdyref.ts";
 import {
 	connectionLost,
 	doorBlocked,

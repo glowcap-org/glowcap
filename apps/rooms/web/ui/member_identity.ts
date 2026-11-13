@@ -44,7 +44,7 @@ export function hueOf(name: string): string {
 /** How a member's relationship to a bridge is drawn. `foreign` is somebody who
  * exists only over there. The rest are a Rooms member's link states. These are
  * the page's own classes rather than a bridge's words. */
-export type MemberNetwork = "rooms" | "foreign" | "rooms-connecting" | "rooms-linked" | "rooms-failed";
+type MemberNetwork = "rooms" | "foreign" | "rooms-connecting" | "rooms-linked" | "rooms-failed";
 
 export interface MemberIdentity {
 	/** The name the row leads with. A bridged member's roster key carries an

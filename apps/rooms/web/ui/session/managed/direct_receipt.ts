@@ -1,6 +1,6 @@
 // The Rust results::Direct owns the acquired inbox receipt.
 import { LocalRefusal } from "../../../../lib/text/failure.ts";
-export interface DirectReceipt {
+interface DirectReceipt {
 	inbox: string;
 }
 

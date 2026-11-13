@@ -4,15 +4,7 @@
 // refused. The shape that matters most is the one that cannot be written down
 // at all: a reveal holds leaves, so a form has no depth to bound.
 
-import {
-	BridgeFieldSchema,
-	type BridgeForm,
-	bridgeFormFields,
-	BridgeFormSchema,
-	bridgeFormSecretIds,
-	bridgeFormSubmission,
-	splitBridgeSubmission,
-} from "../../lib/bridge/form.ts";
+import { BridgeFieldSchema, type BridgeForm, BridgeFormSchema } from "../../lib/bridge/form.ts";
 import { MAX_FORM_ACTIONS, MAX_FORM_FIELDS, MAX_FORM_LABEL, MAX_FORM_VALUE } from "../../lib/limits.ts";
 import { assertEquals } from "../assert.ts";
 import * as z from "zod/mini";
@@ -112,126 +104,6 @@ Deno.test("a reveal is one level deep, and deeper is unrepresentable rather than
 		})),
 		false,
 	);
-});
-
-Deno.test("a submission splits by the form's own declaration, not by the caller's memory", () => {
-	const declared = z.parse(
-		BridgeFormSchema,
-		form({
-			fields: [
-				{ kind: "text", id: "nick", label: "IRC nick", required: true },
-				{
-					kind: "toggle",
-					id: "registered",
-					label: "Log in",
-					on: false,
-					reveals: [
-						{ kind: "text", id: "account", label: "Account", required: true },
-						{ kind: "secret", id: "password", label: "Password", required: true },
-					],
-				},
-			],
-		}),
-	);
-	// A secret behind a toggle is still a secret, so the ids come from the whole
-	// walk rather than the top level.
-	assertEquals([...bridgeFormSecretIds(declared)], ["password"]);
-	const split = splitBridgeSubmission(bridgeFormSecretIds(declared), {
-		nick: "ada",
-		account: "ada",
-		password: "hunter2",
-	});
-	assertEquals(split.answers, { nick: "ada", account: "ada" });
-	assertEquals(split.secrets, { password: "hunter2" });
-	// An answer the form never declared is not a secret, because only a
-	// declaration makes one. It stays with the rest rather than being guessed at
-	// by its name.
-	assertEquals(splitBridgeSubmission(bridgeFormSecretIds(declared), { passphrase: "x" }).secrets, {});
-	// A form that asks for nothing secret splits to nothing secret, so a
-	// reconnect can replay it with no custody at all.
-	assertEquals(splitBridgeSubmission(bridgeFormSecretIds(z.parse(BridgeFormSchema, form())), { nick: "ada" }), {
-		answers: { nick: "ada" },
-		secrets: {},
-	});
-});
-
-Deno.test("an action's submission carries only what the reader was asked", () => {
-	const declared = z.parse(
-		BridgeFormSchema,
-		form({
-			fields: [
-				{ kind: "text", id: "nick", label: "IRC nick", required: true },
-				{
-					kind: "toggle",
-					id: "registered",
-					label: "Log in",
-					on: false,
-					reveals: [
-						{ kind: "text", id: "account", label: "Account", required: true },
-						{ kind: "secret", id: "password", label: "Password", required: true },
-					],
-				},
-			],
-			actions: [
-				{ id: "link", label: "Link", busyLabel: "Linking…", tone: "primary", remembered: true },
-				{ id: "disconnect", label: "Disconnect", busyLabel: "Disconnecting…", tone: "quiet", remembered: true },
-			],
-		}),
-	);
-	const [link, disconnect] = declared.actions;
-	const typed = { nick: "ada", account: "ada", password: "hunter2" };
-
-	// An off toggle keeps its reveals out, but its own state still travels: a
-	// toggle is an answer, not only disclosure, and a bridge that treats one as a
-	// value (IRC's TLS) reads its "on"/"" back rather than a silent absence.
-	assertEquals(bridgeFormSubmission(declared, link, typed, new Set()), {
-		answers: { nick: "ada", registered: "" },
-		secrets: {},
-	});
-	// An on toggle asks its reveals, and the declaration routes the secret.
-	assertEquals(bridgeFormSubmission(declared, link, typed, new Set(["registered"])), {
-		answers: { nick: "ada", registered: "on", account: "ada" },
-		secrets: { password: "hunter2" },
-	});
-	// A required visible field left empty refuses with its own label.
-	assertEquals(
-		bridgeFormSubmission(declared, link, { nick: "ada", account: "ada" }, new Set(["registered"])),
-		{ why: "Password is required." },
-	);
-	// The quiet way out stands alone, so pressing it never sends a credential.
-	assertEquals(bridgeFormSubmission(declared, disconnect, typed, new Set(["registered"])), {
-		answers: {},
-		secrets: {},
-	});
-});
-
-Deno.test("a form's fields read as one list, revealed ones included", () => {
-	const declared = z.parse(
-		BridgeFormSchema,
-		form({
-			fields: [
-				{ kind: "text", id: "nick", label: "IRC nick", required: true },
-				{
-					kind: "toggle",
-					id: "registered",
-					label: "Log in",
-					on: false,
-					reveals: [
-						{ kind: "text", id: "account", label: "Account", required: true },
-						{ kind: "secret", id: "password", label: "Password", required: true },
-					],
-				},
-			],
-		}),
-	);
-	// Revealed fields count whether or not the toggle is on: they are part of the
-	// form either way, and what the toggle decides is whether a reader is asked.
-	assertEquals(bridgeFormFields(declared).map((field) => field.id), [
-		"nick",
-		"registered",
-		"account",
-		"password",
-	]);
 });
 
 Deno.test("bridge refresh updates untouched defaults without revoking edits or retaining removed secrets", async () => {

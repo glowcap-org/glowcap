@@ -35,7 +35,6 @@ import {
 import { ask, askRef } from "./ask.ts";
 import { DirectorySignaling } from "./directory_signal.ts";
 import { type DirectoryRegisterOptions, DirectoryRegistration } from "./directory_registration.ts";
-export type { DirectoryRegisterOptions } from "./directory_registration.ts";
 import {
 	parseDirectoryWatchSnapshot,
 	parseRegistrationId,
@@ -157,13 +156,8 @@ export class Directory {
 		}
 	}
 
-	/** Create a new room and return a reference to it.
-	 *
-	 * A public room takes the name, so this rejects if that name is taken. A
-	 * private one takes nothing. It is not listed, cannot be entered by name, and
-	 * is reached only by holding the reference this answers with or one passed on
-	 * from it with `invite`. Two of them may share a label, and neither reader
-	 * learns of the other's. */
+	/** Create a new room and return a reference to it. The room takes the
+	 * name, so this rejects if that name is taken. */
 	open(name: string): Promise<Ref> {
 		return askRef(
 			this.session,
@@ -183,21 +177,6 @@ export class Directory {
 		options: { policy?: RoomPolicy; roomId?: string } = {},
 	): Promise<{ room: Ref; roomLink: string; managerLink: string }> {
 		return openManagedRoom(this.session, this.#directory, name, options);
-	}
-
-	/** Create or recover one private room under an opaque caller-held key.
-	 * A repeated call with the same key returns the same room, so a lost answer
-	 * can be retried without creating another room. */
-	openPrivate(label: string, recoveryKey = newManagedRoomId()): Promise<Ref> {
-		if (!isManagedRoomId(recoveryKey)) throw new Error("a private room recovery key is invalid");
-		return askRef(
-			this.session,
-			this.#directory,
-			OPEN,
-			[label, true, recoveryKey],
-			`the directory did not answer opening private room "${label}"`,
-			`the directory answered opening private room "${label}" without a room capability`,
-		);
 	}
 
 	/** Persist and return a private room's durable authority as one directory

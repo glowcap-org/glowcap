@@ -8,9 +8,10 @@
 import { designatorHostPort, type Host, type Runtime, type Session, TRANSPORT_TCP } from "@glowcap/runtime";
 import { Reachability } from "@glowcap/iroh";
 
-import { dial as dialWithRuntime, roomsHost, roomsLocator, roomsSturdyrefLocator } from "../../lib/locator.ts";
+import { dial as dialWithRuntime, roomsHost, roomsLocator } from "../../lib/locator.ts";
+import { roomsSturdyrefLocator } from "./sturdyref.ts";
 import { isUriLocator } from "../../lib/doors.ts";
-import { roomsIdentityDoors } from "../../lib/routes.ts";
+import { roomsIdentityDoors } from "./routes.ts";
 import { cleartextOf, openRoomsRuntime } from "../../lib/runtime.ts";
 import { assert } from "../assert.ts";
 import { drainStdout, readAnnounced, readAnnouncedPort } from "./announce.ts";
@@ -21,8 +22,6 @@ import { delay } from "./wait.ts";
 export class TestRuntimeScope {
 	readonly #byHost = new Map<Host, Promise<Runtime>>();
 	readonly #runtimes = new Set<Runtime>();
-	readonly #served: Promise<void>[] = [];
-	readonly #faults: unknown[] = [];
 
 	async dial(locator: string, host = roomsHost()): Promise<Session> {
 		let pending = this.#byHost.get(host);
@@ -39,31 +38,10 @@ export class TestRuntimeScope {
 		return await dialWithRuntime(locator, runtime);
 	}
 
-	/** Run a session's inbound loop and make its outcome this test's.
-	 *
-	 * `serve()` resolves when the connection closes cleanly and rejects on a
-	 * transport or protocol fault, so a loop nobody awaits is a wire fault
-	 * nobody sees. The scope keeps every loop it started, latches a rejection
-	 * the moment it happens, and raises it when the scope closes: the test
-	 * that opened the session fails, named, rather than a later wait naming an
-	 * unrelated selector. */
-	serve(session: Session): Promise<void> {
-		const served = session.serve().then(() => undefined, (error: unknown) => {
-			this.#faults.push(error);
-		});
-		this.#served.push(served);
-		return served;
-	}
-
 	async close(): Promise<void> {
 		for (const runtime of [...this.#runtimes].reverse()) await runtime.close();
 		this.#runtimes.clear();
 		this.#byHost.clear();
-		// Every loop ends with its runtime, so this waits on nothing that is
-		// still running; what it collects is the faults latched along the way.
-		await Promise.all(this.#served.splice(0));
-		const faults = this.#faults.splice(0);
-		if (faults.length > 0) throw faults[0];
 	}
 }
 
@@ -88,13 +66,6 @@ export function roomsTest(
 export function dial(locator: string, host?: Host): Promise<Session> {
 	if (activeRuntimeScope === null) throw new Error("rooms test dial used outside a test scope");
 	return activeRuntimeScope.dial(locator, host);
-}
-
-/** Run `session`'s inbound loop under the active test scope, which raises any
- * wire fault the loop ends with when the test's scope closes. */
-export function serving(session: Session): Promise<void> {
-	if (activeRuntimeScope === null) throw new Error("rooms test serve used outside a test scope");
-	return activeRuntimeScope.serve(session);
 }
 
 /** The port a server started with `--port=0` bound, read from its announcement.

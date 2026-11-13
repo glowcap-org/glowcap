@@ -21,7 +21,7 @@ impl<R> Offers<R> {
 	pub fn peers(&self) -> Vec<String> {
 		self.peers.keys().cloned().collect()
 	}
-	pub fn holds_peer(&self, peer: &str) -> bool {
+	fn holds_peer(&self, peer: &str) -> bool {
 		self.peers.contains_key(peer)
 	}
 	pub fn holds(&self, peer: &str, opening: &str) -> bool {

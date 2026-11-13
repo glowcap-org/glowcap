@@ -23,8 +23,8 @@ use alloc::{
 pub const LINES_KEPT: usize = 500;
 /// Whole-server resident bounds. At the line limit the text held is at most
 /// 32 MiB of UTF-8 plus bounded names.
-pub const LINES_KEPT_TOTAL: usize = 4_096;
-pub const ROOMS_KEPT: usize = 256;
+pub(crate) const LINES_KEPT_TOTAL: usize = 4_096;
+pub(crate) const ROOMS_KEPT: usize = 256;
 /// Past this many rows on disk, a room file is rewritten to the kept tail.
 pub const COMPACT_AT: usize = LINES_KEPT * 2;
 /// One pre-compaction room file at the worst JSON escaping expansion.
@@ -93,7 +93,7 @@ fn validate_room(room: &str) -> Result<(), Error> {
 }
 
 /// Refuse persisted or newly admitted state that no room could have produced.
-pub fn validate_line(line: &KeptLine) -> Result<(), Error> {
+fn validate_line(line: &KeptLine) -> Result<(), Error> {
 	validate_fields(&line.from, &line.text, line.at)?;
 	if crate::open_graph::Selection::new(&line.text, line.previews.urls().iter().map(String::as_str)).is_err() {
 		return Err(Error::Line);

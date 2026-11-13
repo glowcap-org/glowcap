@@ -10,7 +10,7 @@ import { applicationModule } from "../../application.ts";
 /** Layout of the tuple returned by `pending.request.originalIntent()`: the
  * producer serializes `(id, base, name, args)` with the workspace base
  * revision as a JSON number (application/src/session/command.rs). */
-export type RetainedCommandIntent = readonly [
+type RetainedCommandIntent = readonly [
 	id: string,
 	base: number,
 	name: string,

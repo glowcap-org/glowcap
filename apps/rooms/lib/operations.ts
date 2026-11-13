@@ -15,7 +15,7 @@ import { retainCleanupFailures } from "@glowcap/runtime";
  * on the current directory can silently retarget authority when two servers
  * restored the same operator state. Operations therefore accepts only the bare
  * swiss scoped by the live directory in front of the reader. */
-export function operationsSwiss(pasted: string): string {
+function operationsSwiss(pasted: string): string {
 	const trimmed = pasted.trim();
 	if (trimmed.includes("://")) {
 		throw new Error("paste the bare swiss number this directory printed, not a sturdyref for another host");

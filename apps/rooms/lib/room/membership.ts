@@ -20,7 +20,7 @@ export function isRoomMembershipKind(value: unknown): value is RoomMembershipKin
  * room's storage and publish them, which `attach` and `postFiles` go to. A
  * room that cannot hold bytes answers null there, and a client that holds
  * nothing draws no attach control. */
-export interface RoomMembershipAnswer {
+interface RoomMembershipAnswer {
 	readonly seat: Ref;
 	readonly kind: RoomMembershipKind;
 	readonly subject: Ref | null;

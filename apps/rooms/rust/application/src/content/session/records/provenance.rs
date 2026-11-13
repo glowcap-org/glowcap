@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 pub type Origins = List<session::outgoing::Origin, { session::custody::MAX_FIELDS_PER_ROLE }>;
-pub type Bridges = List<session::bridge::Witness, { session::bridge::MAX_WITNESSES }>;
+pub(crate) type Bridges = List<session::bridge::Witness, { session::bridge::MAX_WITNESSES }>;
 /// Both empty arrays and their member names when the private family is first
 /// allocated. Reservation proofs hold this envelope against the serde encoder.
 pub const EMPTY_BYTES: usize = b"{\"outgoing\":[],\"bridges\":[]}".len();

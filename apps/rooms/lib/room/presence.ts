@@ -43,7 +43,7 @@ export const PresenceSchema = z.union([
 
 export type Presence = z.infer<typeof PresenceSchema>;
 
-export const RoomMemberStateSchema = z.strictObject({
+const RoomMemberStateSchema = z.strictObject({
 	online: z.boolean(),
 	away: boundedText(MAX_AWAY),
 	/** The foreign seat this member holds, when a bridge has said they hold one.

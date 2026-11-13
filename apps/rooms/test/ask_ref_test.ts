@@ -2,7 +2,6 @@
 // wrong answer carried is released, whether it arrives in time or after the deadline.
 import type { Argument, Ref, Session } from "@glowcap/runtime";
 import { refFromId } from "../../../bindings/ts/runtime/value.ts";
-import { RoomInvitation } from "../lib/room/invitation.ts";
 import { askRef } from "../lib/ask.ts";
 import { errorMessage } from "../lib/error_message.ts";
 import { Directory } from "../lib/directory.ts";
@@ -27,14 +26,6 @@ async function refusal(work: () => Promise<unknown>): Promise<string> {
 	}
 	return "";
 }
-
-Deno.test("an invitation claim answered with a list holding a reference releases that reference", async () => {
-	const stray = refFromId(7n);
-	const { session, released } = peer([stray]);
-	const said = await refusal(() => new RoomInvitation(session, refFromId(1n)).claim());
-	assertEquals(said, "the room invitation answered without an entrance capability");
-	assert(released.length === 1 && released[0] === stray, "the reference in the wrong answer was not released");
-});
 
 Deno.test("askRef answers the reference, and refuses in the caller's sentence", async () => {
 	const answered = refFromId(3n);

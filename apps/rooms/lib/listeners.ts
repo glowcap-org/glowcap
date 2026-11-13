@@ -7,15 +7,6 @@
 // server side lives under `server/operations`.
 
 import type { Ref, Session } from "@glowcap/runtime";
-import {
-	TRANSPORT_IROH,
-	TRANSPORT_KEYED_RELAY,
-	TRANSPORT_KEYED_TCP,
-	TRANSPORT_NOISE_RELAY,
-	TRANSPORT_NOISE_TCP,
-	TRANSPORT_ONION,
-	TRANSPORT_TCP,
-} from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { LIST } from "./protocol.ts";
 import { DOWN, UP } from "./protocol_operator.ts";
@@ -24,34 +15,23 @@ import { takeOperationsCap } from "./operations.ts";
 import { MAX_OPERATIONS_ROWS } from "./limits.ts";
 import { boundedText, naturalWireNumber, nonemptyText, positiveSafeInteger } from "./schema.ts";
 
-export const LISTENER_TRANSPORTS = [
-	TRANSPORT_TCP,
-	TRANSPORT_KEYED_TCP,
-	TRANSPORT_NOISE_TCP,
-	TRANSPORT_IROH,
-	TRANSPORT_KEYED_RELAY,
-	TRANSPORT_NOISE_RELAY,
-	TRANSPORT_ONION,
-] as const;
-export const ListenerTransportSchema = z.enum(LISTENER_TRANSPORTS);
-export type ListenerTransport = z.infer<typeof ListenerTransportSchema>;
 const listenerText = boundedText(64 * 1024);
 const listenerOptionKind = z.enum(["host", "port", "url"]);
 const listenerTakes = z.array(z.tuple([listenerText, listenerOptionKind, listenerText])).check(z.maxLength(32));
 
 /** One knob a seat's `up` accepts, as the server lists it. */
-export const ListenerUpOptionSchema = z.strictObject({
+const ListenerUpOptionSchema = z.strictObject({
 	name: listenerText,
 	kind: listenerOptionKind,
 	hint: listenerText,
 });
 
-export const ListenerOptionsSchema = z.record(
+const ListenerOptionsSchema = z.record(
 	nonemptyText(64),
 	z.union([boundedText(64 * 1024), z.int()]),
 ).check(z.refine((options) => Object.keys(options).length <= 16));
 
-export type ListenerOptions = z.infer<typeof ListenerOptionsSchema>;
+type ListenerOptions = z.infer<typeof ListenerOptionsSchema>;
 
 /** One transport seat, as the admin capability reports it: the server's
  * catalog entry (name, description, an optional reference page, what an `up`
@@ -62,7 +42,7 @@ export type ListenerOptions = z.infer<typeof ListenerOptionsSchema>;
  * `unavailable` sentence means the server already knows an `up` would
  * refuse. */
 
-export const ListenerRowSchema = z.strictObject({
+const ListenerRowSchema = z.strictObject({
 	transport: listenerText,
 	description: listenerText,
 	/** A page that explains the technology, or empty. */

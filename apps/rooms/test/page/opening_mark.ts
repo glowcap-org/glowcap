@@ -12,7 +12,7 @@ export async function withoutOpeningGpu(tab: Page): Promise<void> {
 
 /** The lockup as one screen draws it: the mark's box, and the distance from the
  * bottom of that box to the top of the logotype. */
-export type Lockup = { size: number; fit: number };
+type Lockup = { size: number; fit: number };
 
 export async function proveOpeningWithoutGpu(tab: Page): Promise<Lockup> {
 	const opening = await tab.evaluate(async () => {

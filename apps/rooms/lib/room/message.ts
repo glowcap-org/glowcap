@@ -103,7 +103,7 @@ export function roomRecordAt(args: Argument[]): number {
  * Two surfaces carry it: the facts a room states on a line, and the view an
  * attached session rebuilds a room from after a reload. One shared type keeps
  * the two from disagreeing about what a bridge may say. */
-export const BridgeFactsSchema = z.strictObject({
+const BridgeFactsSchema = z.strictObject({
 	prefix: nonemptyText(MAX_SEAT_PREFIX),
 	badge: nonemptyText(MAX_SEAT_BADGE),
 	said: nonemptyText(MAX_SEAT_SAID),
@@ -119,13 +119,11 @@ export const BridgeFactsSchema = z.strictObject({
 	scope: nonemptyText(MAX_FORM_SCOPE),
 });
 
-export type BridgeFacts = z.infer<typeof BridgeFactsSchema>;
-
 /** What a room carries of a message beyond its text and files, as booleans a
  * surface can switch on. See `readCarries`. Every field is present, so a
  * reader across a JSON boundary needs no default to tell "not carried" from
  * "not said". A room that never said is an absent `carries`, not a false one. */
-export const RoomCarriesSchema = z.strictObject({
+const RoomCarriesSchema = z.strictObject({
 	previews: z.boolean(),
 	typing: z.boolean(),
 });
@@ -136,7 +134,7 @@ export type RoomCarries = z.infer<typeof RoomCarriesSchema>;
  *
  * All are optional and independent. A line carries whichever the room chose to
  * put on it, usually the welcome, and none the rest of the time. */
-export const RoomFactsSchema = z.strictObject({
+const RoomFactsSchema = z.strictObject({
 	/** See `readSubject`. An empty description is a subject taken down. */
 	subject: z.optional(SubjectSchema),
 	/** See `readLineBytes`. */
@@ -210,7 +208,7 @@ export function readCarries(args: Argument[]): RoomCarries | undefined {
  * inbound string is. A room that says any of it malformed has said none of it,
  * because a half-read prefix would mislabel a roster instead of leaving it
  * plain. */
-export function readBridge(args: Argument[]): RoomFacts["bridge"] {
+function readBridge(args: Argument[]): RoomFacts["bridge"] {
 	if (args[2] !== BRIDGE) return undefined;
 	if (!bounded(args[3], MAX_SEAT_PREFIX)) return undefined;
 	if (!bounded(args[4], MAX_SEAT_BADGE) || !bounded(args[5], MAX_SEAT_SAID)) return undefined;

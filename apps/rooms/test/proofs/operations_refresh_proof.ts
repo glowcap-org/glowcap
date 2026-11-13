@@ -8,7 +8,8 @@ import { namedRoomRow } from "../support/conversation_row.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { removeCapability, takeCapability } from "../page/capability_set.ts";
 import { fail } from "../support/fail.ts";
-import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
+import { roomsLocator } from "../../lib/locator.ts";
+import { formatRoomsSturdyref } from "../support/sturdyref.ts";
 
 const root = new URL("../../../../", import.meta.url).pathname;
 const state = await Deno.makeTempDir({ prefix: "rooms-operations-refresh-" });

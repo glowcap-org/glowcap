@@ -40,7 +40,7 @@ const LEAVING = "leaving";
  * looking at a sheet over a page that is ready. */
 const HANDOVER_FLOOR_MS = 500;
 
-export type RoomsOpeningReadiness = "controller-snapshot" | "directory-attempt";
+type RoomsOpeningReadiness = "controller-snapshot" | "directory-attempt";
 
 /** Whether the wait this screen covers is over: the page's first attempt at a
  * room server has come back, connected or not.

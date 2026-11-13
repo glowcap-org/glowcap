@@ -881,7 +881,6 @@ dependencies = [
  "rooms-application",
  "rooms-glowcap",
  "rooms-platform",
- "rooms-runtime",
  "rooms-services",
  "rooms-testing",
  "serde",

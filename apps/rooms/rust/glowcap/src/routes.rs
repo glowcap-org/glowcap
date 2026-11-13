@@ -56,7 +56,7 @@ impl Address {
 			.map(|link| Self::from_locator(link.locator))
 			.transpose()
 	}
-	pub fn from_locator(locator: Locator) -> Result<Self> {
+	fn from_locator(locator: Locator) -> Result<Self> {
 		let authority = peer_uri(&locator)?;
 		let address = if locator.transport == TRANSPORT_TCP {
 			locator.designator.clone()
@@ -272,6 +272,50 @@ mod tests {
 			"tcp"
 		);
 		assert!(super::directory_doors("not an address").unwrap().is_none());
+	}
+	/// The route lists the host key's proving doors in dial order whatever
+	/// order the listeners came in, and keeps a baseline door as a fallback.
+	#[test]
+	fn an_identity_route_orders_its_own_proving_doors_and_keeps_fallbacks_apart() {
+		let key = "ab".repeat(32);
+		let other = "cd".repeat(32);
+		let route = super::identity_route(
+			&key,
+			&[
+				format!("ocapn://{other}.iroh"),
+				format!("ocapn://{key}.noise-tcp?direct-addresses=127.0.0.1%3A9000"),
+				format!("ocapn://{key}.iroh"),
+				"127.0.0.1:9000".to_owned(),
+				format!("ocapn://{key}.noise-relay?rendezvous-relay=ws%3A%2F%2F127.0.0.1%3A8080%2Frelay"),
+				format!("ocapn://{key}.webrtc"),
+			],
+		)
+		.expect("proving doors and a fallback make a route");
+		assert_eq!(route.designator, key);
+		let doors = super::doors(&route);
+		let transports: Vec<&str> = doors.iter().map(|door| door.transport.as_str()).collect();
+		assert_eq!(transports, ["webrtc", "iroh", "noise-relay", "noise-tcp", "tcp"]);
+		assert!(doors[..4].iter().all(|door| door.designator == key));
+		let Some(glowcap::HintValue::String(fallbacks)) = route.hints.get(glowcap::HINT_ALT_LOCATORS) else {
+			panic!("the baseline door is not a fallback");
+		};
+		assert!(!fallbacks.contains('|') && fallbacks.ends_with(".tcp"), "{fallbacks}");
+	}
+	/// A route needs one door that proves the host key and a second door of
+	/// either kind. Another key's door and a baseline door prove nothing.
+	#[test]
+	fn an_identity_route_needs_a_proving_door_and_a_second_door() {
+		let key = "ab".repeat(32);
+		let other = "cd".repeat(32);
+		let proving = format!("ocapn://{key}.iroh");
+		let baseline = "127.0.0.1:9000".to_owned();
+		let route = super::identity_route(&key, &[proving.clone(), baseline.clone()])
+			.expect("a proving door and a baseline door make a route");
+		let transports: Vec<String> = super::doors(&route).into_iter().map(|door| door.transport).collect();
+		assert_eq!(transports, ["iroh", "tcp"]);
+		assert!(super::identity_route(&key, std::slice::from_ref(&proving)).is_none());
+		assert!(super::identity_route(&key, &[proving, format!("ocapn://{other}.noise-relay")]).is_none());
+		assert!(super::identity_route(&key, &[baseline, format!("ocapn://{key}.keyed-tcp")]).is_none());
 	}
 	/// A browser on Browser to browser lists a bare WebRTC door, and on
 	/// Fastest an identity route. Both name the one key's authority.

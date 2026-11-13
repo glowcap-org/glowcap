@@ -38,7 +38,7 @@ import { isUriLocator } from "../../lib/doors.ts";
 import { cleartextOf, openRoomsRuntime } from "../../lib/runtime.ts";
 import { Reachability } from "@glowcap/iroh";
 
-export interface RunClientOptions {
+interface RunClientOptions {
 	readonly dial: RoomsDirectoryDial;
 	readonly roster?: readonly string[];
 	readonly timeoutMs?: number;

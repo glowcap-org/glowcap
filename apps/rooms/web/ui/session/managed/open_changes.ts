@@ -11,9 +11,9 @@ import type { EffectView } from "./model.ts";
 import { recoveryStatus } from "../../../../lib/text/recovery.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 
-export type OpenChangeState = keyof typeof recoveryStatus;
+type OpenChangeState = keyof typeof recoveryStatus;
 
-export type OpenChange = {
+type OpenChange = {
 	readonly id: string;
 	readonly status: string;
 	readonly state: OpenChangeState;
