@@ -39,7 +39,7 @@ export const OVERVIEW_HEIGHT = 26;
 const OVERVIEW_HOST_TITLE =
 	"Overview: drag the rectangle to pan and drag its edges to zoom. Click outside it to recenter. The wheel zooms, and Shift with the wheel pans.";
 
-export type OverviewProps = {
+type OverviewProps = {
 	view: TimelineView;
 	clock: ClockSnapshot;
 	/** Width hint for the marker div. Actual paint width comes

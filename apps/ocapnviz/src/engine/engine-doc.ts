@@ -38,7 +38,6 @@ import {
 	deletePeer as deletePeerOnCtx,
 	removePeerUpdate as removePeerUpdateOnCtx,
 	setPeerDuration as setPeerDurationOnCtx,
-	setPeerEnd as setPeerEndOnCtx,
 	setPeerStart as setPeerStartOnCtx,
 	setPeerUpdate as setPeerUpdateOnCtx,
 	updatePeer as updatePeerOnCtx,
@@ -50,7 +49,6 @@ import {
 	deleteSession as deleteSessionOnCtx,
 	removeSessionKeyframe as removeSessionKeyframeOnCtx,
 	setSessionDuration as setSessionDurationOnCtx,
-	setSessionEnd as setSessionEndOnCtx,
 	setSessionInitialState as setSessionInitialStateOnCtx,
 	setSessionKeyframe as setSessionKeyframeOnCtx,
 	setSessionStart as setSessionStartOnCtx,
@@ -61,7 +59,6 @@ import {
 	clearMessageStart as clearMessageStartOnCtx,
 	deleteMessage as deleteMessageOnCtx,
 	setMessageDuration as setMessageDurationOnCtx,
-	setMessageEnd as setMessageEndOnCtx,
 	setMessageStart as setMessageStartOnCtx,
 	updateMessage as updateMessageOnCtx,
 } from "./authoring/message.ts";
@@ -246,10 +243,6 @@ export abstract class EngineDocApi {
 		return clampReasonFor(this.ctx.doc, category, id, side);
 	}
 
-	setPeerEnd(peerId: string, t: number): void {
-		setPeerEndOnCtx(this.ctx, peerId, t);
-	}
-
 	setPeerDuration(peerId: string, duration: number): void {
 		setPeerDurationOnCtx(this.ctx, peerId, duration);
 	}
@@ -305,19 +298,8 @@ export abstract class EngineDocApi {
 		clearMessageStartOnCtx(this.ctx, messageId);
 	}
 
-	setMessageEnd(messageId: string, arrivalT: number): void {
-		setMessageEndOnCtx(this.ctx, messageId, arrivalT);
-	}
-
 	setMessageDuration(messageId: string, duration: number): void {
 		setMessageDurationOnCtx(this.ctx, messageId, duration);
-	}
-
-	/** Session counterpart to `setPeerEnd`, pins `timing.duration`
-	 * so the session's painted end lands at `t`. Validated against
-	 * the painted start (close cannot precede open). */
-	setSessionEnd(sessionId: string, t: number): void {
-		setSessionEndOnCtx(this.ctx, sessionId, t);
 	}
 
 	setSessionDuration(sessionId: string, duration: number): void {

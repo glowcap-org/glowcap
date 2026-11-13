@@ -123,19 +123,19 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
 export const TOP_BAR_HEIGHT = 44;
 
-export const LEFT_PANE_MIN = 200;
-export const LEFT_PANE_MAX = 480;
+const LEFT_PANE_MIN = 200;
+const LEFT_PANE_MAX = 480;
 // Sized just over the `.ocv-legend-grid` container-query breakpoint
 // (280px) so users see the 2-column layout out of the box instead of
 // having to drag the pane wider.
-export const LEFT_PANE_DEFAULT = 320;
+const LEFT_PANE_DEFAULT = 320;
 
-export const RIGHT_PANE_MIN = 220;
-export const RIGHT_PANE_MAX = 520;
+const RIGHT_PANE_MIN = 220;
+const RIGHT_PANE_MAX = 520;
 // Inspector pane needs enough width that the Details kv grid's
 // value column can comfortably hold an editable label / profile
 // dropdown / public-identifier input without crowding the keys.
-export const RIGHT_PANE_DEFAULT = 320;
+const RIGHT_PANE_DEFAULT = 320;
 
 // Bottom timeline pane. MAX keeps a stale persisted value from
 // shoving the pane off the viewport on smaller displays; MIN is
@@ -151,8 +151,8 @@ export const RIGHT_PANE_DEFAULT = 320;
 // is slightly tight, but the common case is the right place to
 // optimize for.
 export const BOTTOM_PANE_MIN = 93;
-export const BOTTOM_PANE_MAX = 600;
-export const BOTTOM_PANE_DEFAULT = 220;
+const BOTTOM_PANE_MAX = 600;
+const BOTTOM_PANE_DEFAULT = 220;
 
 export const RESIZE_HANDLE_THICKNESS = 6;
 
@@ -211,7 +211,7 @@ export function loadPersistedStageVisibility(): StageVisibility | null {
 	return parseStored(StageVisibilitySchema, loadStoredValue(VISIBILITY_STORAGE_KEY));
 }
 
-export function clamp(n: number, min: number, max: number): number {
+function clamp(n: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, n));
 }
 
@@ -240,7 +240,7 @@ export const TIMELINE_VIEW_STORAGE_KEY = "ocapnviz:timeline-view";
  * the loaded doc's duration. What IS included is durable user
  * preference: which lanes are visible, which categories are
  * drilled-down, the gutter width. Sets are serialized as arrays. */
-export type PersistedTimelineView = {
+type PersistedTimelineView = {
 	expandedLanes?: LaneKind[];
 	expandedCategories?: Array<Exclude<LaneKind, "ruler">>;
 	gutterWidth?: number;
@@ -268,7 +268,7 @@ export function savePersistedTimelineView(v: PersistedTimelineView): void {
 }
 
 /** Live mode accepts the durable trace capability announced by rooms. */
-export const DEFAULT_LIVE_STURDYREF = "";
+const DEFAULT_LIVE_STURDYREF = "";
 
 /** The Live deep link in a page address's fragment: `#live=<sturdyref>`, or
  * an empty `#live=` for no selected capability. A sturdyref is a capability,
@@ -287,7 +287,7 @@ export function liveOverrideFrom(address: { readonly hash: string }): { liveStur
  * straight into Live mode, then drop the fragment from the address, so the
  * capability is not left in history or a copied link. Null when the page
  * asked for nothing, or outside a browser. */
-export function readLiveOverride(): { liveSturdyref: string } | null {
+function readLiveOverride(): { liveSturdyref: string } | null {
 	let page: Location | undefined;
 	try {
 		page = globalThis.location;
@@ -314,7 +314,7 @@ const PersistedAppStateSchema = z.object({
  * shape. The caller falls back to defaults whole. Checks for
  * `localStorage` directly (not `window`) so this works in both
  * browser and Deno test environments. */
-export function loadPersistedAppState(): Omit<AppState, "liveSturdyref"> | null {
+function loadPersistedAppState(): Omit<AppState, "liveSturdyref"> | null {
 	const stored = parseStored(PersistedAppStateSchema, loadStoredValue(APP_STATE_STORAGE_KEY));
 	// Remove any stored capability even if saving preferences is refused.
 	forgetStoredValue(APP_STATE_STORAGE_KEY);

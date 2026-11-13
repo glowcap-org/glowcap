@@ -19,17 +19,17 @@ import type { Clock } from "./clock.ts";
 import type { TimelineDocument } from "./timeline.ts";
 
 /** An opening view as a document stores it: three numbers, or nothing said. */
-export type StoredView =
+type StoredView =
 	| { zoom: number; center: { x: number; y: number } }
 	| undefined;
 
-export type DocumentIdentityField =
+type DocumentIdentityField =
 	| "dct:title"
 	| "dct:description"
 	| "dct:creator";
 
 /** Undo bracketing the duration write needs. The engine owns history. */
-export type DocumentTxn = {
+type DocumentTxn = {
 	begin(label: string): void;
 	end(): void;
 };
@@ -41,7 +41,7 @@ export type DocumentTxn = {
  * (`writeOpeningView`), so a document that says nothing and one that says
  * 1:1 centered cannot both occur.
  */
-export function sameStoredView(a: StoredView, b: StoredView): boolean {
+function sameStoredView(a: StoredView, b: StoredView): boolean {
 	if (a === undefined || b === undefined) return a === b;
 	return a.zoom === b.zoom && a.center.x === b.center.x &&
 		a.center.y === b.center.y;

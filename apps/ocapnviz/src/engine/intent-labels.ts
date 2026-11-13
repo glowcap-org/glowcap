@@ -76,8 +76,6 @@ export function intentLabel(intent: BuilderIntent): string {
 			return intent.move.kind === "translate" ? "Move span" : "Resize span";
 		case "move-event":
 			return intent.move.kind === "resize-end" ? "Adjust flight time" : "Move event";
-		case "set-peer-end":
-			return "Set peer end";
 		case "set-peer-duration":
 			return "Set peer duration";
 		case "clear-peer-end":
@@ -94,12 +92,8 @@ export function intentLabel(intent: BuilderIntent): string {
 			return "Set message start";
 		case "clear-message-start":
 			return "Clear message start";
-		case "set-message-end":
-			return "Set message arrival";
 		case "set-message-duration":
 			return "Set message flight";
-		case "set-session-end":
-			return "Set session end";
 		case "set-session-duration":
 			return "Set session duration";
 		case "clear-session-end":

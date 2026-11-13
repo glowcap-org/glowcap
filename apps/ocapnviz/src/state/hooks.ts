@@ -332,7 +332,7 @@ export function useBufferEngine(input: {
  * the fixture you then pick from the picker reads as the source
  * already playing, so the explicit switch does nothing.
  */
-export type BufferSourceTracker = {
+type BufferSourceTracker = {
 	/**
 	 * Whether `nextSource` means a new buffer, recording it as seen
 	 * either way.

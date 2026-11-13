@@ -9,7 +9,6 @@ import { assertEquals } from "@std/assert";
 import { explicitBound, implicitBound } from "./bound.ts";
 import { effectiveOf } from "./effective.ts";
 import { intrinsicOf } from "./inheritance.ts";
-import { rangeOf } from "./range.ts";
 import type { TimeSpan } from "./time-span.ts";
 import { WORLD_EFFECTIVE, WORLD_INTRINSIC } from "./world.ts";
 
@@ -47,7 +46,7 @@ Deno.test("peer: both bounds explicit resolves as authored", () => {
 
 /* ---------- session (parent = peer overlap, here a finite range) ---------- */
 
-const peerOverlap = rangeOf(2, 12);
+const peerOverlap = { start: 2, end: 12 };
 
 Deno.test("session: both bounds implicit spans the peer overlap", () => {
 	const v = span(implicitBound(0), implicitBound(0));
@@ -78,7 +77,7 @@ Deno.test("session: an explicit duration past the overlap end makes the effectiv
 
 /* ---------- message (parent = session; duration ALWAYS explicit) ---------- */
 
-const session = rangeOf(3, 10);
+const session = { start: 3, end: 10 };
 
 Deno.test("message: an implicit start with explicit duration starts where the session starts", () => {
 	const v = span(implicitBound(0), explicitBound(2));
@@ -109,7 +108,7 @@ Deno.test("message: an arrival past the session end clamps the effective end and
 /* ---------- empty parent context ---------- */
 
 Deno.test("any entity in an empty context has an empty effective range", () => {
-	const empty = rangeOf(5, 5);
+	const empty = { start: 5, end: 5 };
 	const v = span(explicitBound(2), explicitBound(8));
 	const i = intrinsicOf(v, empty);
 	const eff = effectiveOf(i, empty);

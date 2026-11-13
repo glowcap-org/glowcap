@@ -11,7 +11,7 @@
 import type { Graphics } from "pixi.js";
 
 /** Axis-aligned rectangle in surface-local coordinates. */
-export type Rect = {
+type Rect = {
 	x: number;
 	y: number;
 	width: number;
@@ -21,7 +21,7 @@ export type Rect = {
 /** Half-open clamp bounds. `maxX` / `maxY` are exclusive in the same
  *  sense as canvas dimensions. A rect that ends exactly at `maxX`
  *  reads as flush-right against the edge. */
-export type Bounds = {
+type Bounds = {
 	minX: number;
 	minY: number;
 	maxX: number;
@@ -95,7 +95,7 @@ export function rectCircleOverlap(
  *  collinear case (returns false). For marquee selection the
  *  endpoint-in-rect check covers collinear segments touching the
  *  rect anyway. */
-export function segmentsIntersect(
+function segmentsIntersect(
 	p1x: number,
 	p1y: number,
 	p2x: number,

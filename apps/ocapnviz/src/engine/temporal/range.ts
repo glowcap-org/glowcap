@@ -17,22 +17,12 @@ export type EffectiveRange = {
 	end: number;
 };
 
-export const rangeOf = (start: number, end: number): EffectiveRange => ({
-	start,
-	end,
-});
-
-/** A range is empty when its end is at or before its start.
- *  Drives the ghost-render gate on the Stage and the "hidden"
- *  state for sessions whose peers don't overlap. */
-export const isEmpty = (r: EffectiveRange): boolean => r.end <= r.start;
-
 export const containsTime = (r: EffectiveRange, t: number): boolean => t >= r.start && t < r.end;
 
 /** Intersect two ranges. For a session with two peer parents,
  *  call `intersect(peerA.effective, peerB.effective)` to produce
  *  the session's context. The result may be empty if the inputs
- *  don't overlap, `isEmpty` catches that. */
+ *  don't overlap. */
 export const intersect = (
 	a: EffectiveRange,
 	b: EffectiveRange,

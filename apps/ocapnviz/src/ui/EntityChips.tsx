@@ -135,7 +135,7 @@ export function endpointSwatchStyle(size = 12): React.CSSProperties {
 	};
 }
 
-export function EndpointSwatch({ size = 12 }: { size?: number }) {
+function EndpointSwatch({ size = 12 }: { size?: number }) {
 	return <span style={endpointSwatchStyle(size)} />;
 }
 
@@ -155,7 +155,7 @@ export function SessionSwatch(
 	);
 }
 
-export function MessageSwatch({ size = 10 }: { size?: number }) {
+function MessageSwatch({ size = 10 }: { size?: number }) {
 	return (
 		<span
 			style={{

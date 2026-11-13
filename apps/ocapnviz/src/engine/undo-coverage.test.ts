@@ -222,9 +222,6 @@ const CASES: Record<BuilderIntent["kind"], Case> = {
 			move: { kind: "translate", eventId: "e7", newT: 2500 },
 		}),
 	},
-	"set-peer-end": {
-		intent: () => ({ kind: "set-peer-end", peerId: "a", t: 4000 }),
-	},
 	"set-peer-duration": {
 		intent: () => ({
 			kind: "set-peer-duration",
@@ -233,7 +230,7 @@ const CASES: Record<BuilderIntent["kind"], Case> = {
 		}),
 	},
 	"clear-peer-end": {
-		setUp: (e) => void e.dispatch({ kind: "set-peer-end", peerId: "a", t: 4000 }),
+		setUp: (e) => void e.dispatch({ kind: "set-peer-duration", peerId: "a", duration: 3000 }),
 		intent: () => ({ kind: "clear-peer-end", peerId: "a" }),
 	},
 	"set-peer-start": {
@@ -241,9 +238,6 @@ const CASES: Record<BuilderIntent["kind"], Case> = {
 	},
 	"clear-peer-start": {
 		intent: () => ({ kind: "clear-peer-start", peerId: "a" }),
-	},
-	"set-session-end": {
-		intent: () => ({ kind: "set-session-end", sessionId: "s1", t: 6000 }),
 	},
 	"set-session-duration": {
 		intent: () => ({
@@ -255,9 +249,9 @@ const CASES: Record<BuilderIntent["kind"], Case> = {
 	"clear-session-end": {
 		setUp: (e) =>
 			void e.dispatch({
-				kind: "set-session-end",
+				kind: "set-session-duration",
 				sessionId: "s1",
-				t: 6000,
+				duration: 5000,
 			}),
 		intent: () => ({ kind: "clear-session-end", sessionId: "s1" }),
 	},
@@ -335,9 +329,6 @@ const CASES: Record<BuilderIntent["kind"], Case> = {
 	},
 	"clear-message-start": {
 		intent: () => ({ kind: "clear-message-start", messageId: "m1" }),
-	},
-	"set-message-end": {
-		intent: () => ({ kind: "set-message-end", messageId: "m1", t: 1800 }),
 	},
 	"set-message-duration": {
 		intent: () => ({

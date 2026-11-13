@@ -46,7 +46,7 @@ export function outOfReach(cause: unknown): TraceOutOfReach | null {
 }
 
 /** What answers a permission question, replaceable in a test. */
-export interface PermissionsQuery {
+interface PermissionsQuery {
 	query(descriptor: { name: string }): Promise<{ state: string }>;
 }
 

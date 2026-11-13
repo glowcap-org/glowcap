@@ -112,21 +112,21 @@ of its own.
 ## Intents
 
 Authoring goes through a small set of span operations in `time-span.ts`:
-`setStart`, `clearStart`, `setDuration`, `clearDuration`, `setEnd`, `clearEnd`,
-and `moveBy`. Clearing an axis leaves its value in place and flips `explicit` to
-false.
+`setStart`, `clearStart`, `setDuration`, and `clearDuration`. Clearing an axis
+leaves its value in place and flips `explicit` to false. The document only sees
+start and duration.
 
-`setEnd` is the only one with hidden arithmetic. It converts an end time typed
-into the Inspector into `duration = typedEnd - intrinsic.start` at dispatch, and
-from there the document only sees start and duration. `moveBy` is the rigid-move
-primitive drag gestures use: it changes start and leaves duration alone.
+Drag gestures rewrite a span from its resolved bounds with `translateSpan`,
+`setSpanStartAt`, and `setSpanEndAt`. Each writes the start as explicit, and
+writes the duration as explicit when the span has an end.
 
 A duration is never negative, and authoring intents enforce that. A zero
 duration is allowed and renders as a tick rather than a bar.
 
 Which gesture does what is a gesture decision, not a data-model one. Dragging a
-bar's middle calls `moveBy`, dragging its right edge calls `setDuration`, and
-dragging its left edge calls both so that the right edge stays put.
+bar's middle calls `translateSpan`, dragging its right edge calls
+`setSpanEndAt`, and dragging its left edge calls `setSpanStartAt` so that the
+right edge stays put.
 
 ## What the UI shows
 

@@ -65,7 +65,7 @@ export type StageCameraCommand =
  * meant a consumer could attach one and forget the other, which is a camera that
  * answers commands and cannot say where it ended up.
  */
-export type StageCameraPort = {
+type StageCameraPort = {
 	run(command: StageCameraCommand): void;
 	/** Where the camera is. Read rather than published, because the one caller
 	 *  is an act the reader just asked for, and a value pushed every frame would be
@@ -74,7 +74,7 @@ export type StageCameraPort = {
 };
 
 /** Everything the controls can display. */
-export type StageCameraReadout = {
+type StageCameraReadout = {
 	/** The scale as a person reads it, e.g. `"40%"`.
 	 *
 	 *  The field renders the live scale through the same formatter rather than this

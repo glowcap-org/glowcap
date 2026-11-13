@@ -52,7 +52,7 @@ export const CLAIM_LEAN = 2 / 3;
 
 /** The segment one claim sits on: the node its session runs from, and the
  *  peer the claim names, which is where that session is solved to end. */
-export type ClaimSegment = { from: string; toward: string };
+type ClaimSegment = { from: string; toward: string };
 
 /**
  * Where a claim sits: on the curve its session would take if it reached the

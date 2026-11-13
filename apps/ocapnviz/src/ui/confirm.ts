@@ -45,7 +45,7 @@ export type ConfirmRequest = {
 };
 
 /** A request on screen, waiting to be answered. */
-export type PendingConfirm = ConfirmRequest & {
+type PendingConfirm = ConfirmRequest & {
 	/** Answer it. Calling this twice does nothing the second time, so Escape and
 	 *  a click on the same button cannot both resolve. */
 	answer: (confirmed: boolean) => void;

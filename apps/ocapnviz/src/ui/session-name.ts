@@ -44,7 +44,7 @@ export type EndName = {
  *  the pills are set in Departure Mono, a pixel-grid face that carries `·`
  *  at its own advance and would have to borrow another typeface mid-word
  *  for an arrow. */
-export const SESSION_PAIR_SEPARATOR = " · ";
+const SESSION_PAIR_SEPARATOR = " · ";
 
 /**
  * What to call one end of a session at `t`.

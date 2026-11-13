@@ -8,7 +8,7 @@
 
 import { reservedEntityIdMessage } from "../schema/entity-id.ts";
 
-export type EngineErrorCode =
+type EngineErrorCode =
 	| "collision" // user supplied an ID that already exists
 	| "not-found" // referenced entity doesn't exist
 	| "validation" // intent payload failed a schema or invariant check

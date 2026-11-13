@@ -70,7 +70,7 @@ export function eyeballHoverStatus(
 export type TimelineGesture = { surface: SurfaceId; verb: DefaultVerb };
 
 /** The pointer position, in the host element's own coordinates. */
-export type HostPoint = { px: number; py: number };
+type HostPoint = { px: number; py: number };
 
 /**
  * What the Scrubber is pointing at, and which gutter row that lights up.
@@ -232,7 +232,7 @@ function gutterHover(
 
 /** The three surfaces the Overview strip can produce. Named so a caller can
  *  read the hit's own `t` without re-deriving it. */
-export type OverviewHit = Extract<
+type OverviewHit = Extract<
 	Hit,
 	{
 		surface:

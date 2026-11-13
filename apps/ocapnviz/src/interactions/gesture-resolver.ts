@@ -39,7 +39,7 @@ export type SurfaceGestureCtx = Omit<GestureContext, "hit">;
 /** Modes the rubber-band drag commits in, latched at the resolver
  *  step (so the drag handler knows how to combine the rect's hits
  *  with the current multi-selection). */
-export type RubberBandMode = SelectMode;
+type RubberBandMode = SelectMode;
 
 export type DefaultVerb =
 	// Pointer-down verbs, resolved at pointer-down; drive both click
@@ -81,7 +81,7 @@ export type DefaultVerb =
 	 *  narrowing the window the Scrubber shows. */
 	| { kind: "resize-time-window"; edge: "start" | "end" };
 
-export type ToolCreateVerb =
+type ToolCreateVerb =
 	| { kind: "create-peer-at"; t: number }
 	| {
 		kind: "two-click-pick";

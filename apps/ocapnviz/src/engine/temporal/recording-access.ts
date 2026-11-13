@@ -78,8 +78,7 @@ function stillDescribes(
 
 /** Flattened list of all observations in the doc, in source-declaration
  *  order across sources, chronological within each. Use when a reader needs
- *  every observation regardless of source. For per-source access use
- *  `sourcesOf(doc)`.
+ *  every observation regardless of source.
  *
  *  **The same list for the same document.** Two calls on a document nothing
  *  has written to return the identical array, so a reader may cache on what
@@ -123,11 +122,4 @@ export function observationsOf(doc: TimelineDocument): readonly Observation[] {
 		entities: doc.entities,
 	});
 	return view;
-}
-
-/** Per-source view. Returns the empty array when no recording is
- *  present (rare post-parse, only fresh-from-construction docs
- *  before any authoring write). */
-export function sourcesOf(doc: TimelineDocument): readonly RecordingSource[] {
-	return doc.recording?.sources ?? [];
 }

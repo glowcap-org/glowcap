@@ -20,7 +20,7 @@ import type { ScrubberPointerHost, ScrubberPointerLive } from "./scrubber-pointe
 
 const SCRUBBER_SURFACE_TAG = "timeline";
 
-export type ScrubberPointerBindings =
+type ScrubberPointerBindings =
 	& {
 		hostRef: RefObject<HTMLDivElement | null>;
 		dragRef: MutableRefObject<DragMode>;

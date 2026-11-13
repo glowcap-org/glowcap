@@ -82,7 +82,7 @@ export type PeerProperty = "label" | "profile";
  *  (its value is always already there) and an open one goes on showing an
  *  implementation nobody named. Reading `closed` to choose a CONTROL is what
  *  put a bare text field beside every other picker's select. */
-export type TrajectoryEditor =
+type TrajectoryEditor =
 	| { readonly kind: "text" }
 	| {
 		readonly kind: "enum";
@@ -123,7 +123,7 @@ export type TrajectoryDisplay = {
 	readonly editor: TrajectoryEditor;
 };
 
-export type TrajectoryProperty = TrajectoryDisplay & {
+type TrajectoryProperty = TrajectoryDisplay & {
 	/** The value this observation states, or null when it states
 	 *  nothing about this property. */
 	readonly read: (ev: PeerUpdate) => string | null;
@@ -256,7 +256,7 @@ export type SessionValue = string | EndpointAttachment;
  *  `authoring/session.ts` drives every member: one op inserts a
  *  moment and one removes it, for any property, and neither learns a
  *  property's name. */
-export type SessionTrajectoryProperty = TrajectoryDisplay & {
+type SessionTrajectoryProperty = TrajectoryDisplay & {
 	/** What this observation states about `sessionId`'s property, or
 	 *  null when it states something else, another session, another
 	 *  end, or another property entirely. */
@@ -459,7 +459,7 @@ export function sessionRowDisplay(
  *  An observation id does neither. `upsertObservation` keeps the id of
  *  the moment it replaces, and a move rewrites `t` in place, so the id
  *  outlives every edit the Inspector can make to the moment. */
-export type SessionMoment = {
+type SessionMoment = {
 	property: SessionProperty;
 	eventId: string;
 	t: number;

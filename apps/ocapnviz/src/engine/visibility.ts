@@ -15,8 +15,8 @@
 
 import type { TimelineDocument } from "./timeline.ts";
 
-export type VisMode = "visible" | "label" | "body" | "both";
-export type VisCategory = "peers" | "sessions" | "messages";
+type VisMode = "visible" | "label" | "body" | "both";
+type VisCategory = "peers" | "sessions" | "messages";
 
 type RowHiddenLike = TimelineDocument["rowHidden"];
 

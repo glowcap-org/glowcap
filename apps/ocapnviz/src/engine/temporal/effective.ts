@@ -6,8 +6,7 @@
  * `docs/temporal-model.md`.
  *
  * The output is what Stage / Scrubber / hit-test / "is this
- * visible" checks all read. May be empty (`isEmpty(result) ===
- * true`) when constraints squeeze the intrinsic range out of the
+ * visible" checks all read. May be empty (`end <= start`) when constraints squeeze the intrinsic range out of the
  * context window entirely, that's the "hidden but selectable"
  * state for sessions whose peers don't overlap.
  *

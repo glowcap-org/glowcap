@@ -40,7 +40,7 @@ export const EMPTY_SELECTION: SelectionState = {
  *  Named on its own because the one question it answers, does this document
  *  still hold this entity, is asked from outside the store too, and a caller
  *  with a document in hand can ask it directly (`documentHolds`). */
-export type DeclaredEntities = {
+type DeclaredEntities = {
 	peers?: Readonly<Record<string, unknown>> | undefined;
 	sessions?: Readonly<Record<string, unknown>> | undefined;
 	messages?: Readonly<Record<string, unknown>> | undefined;

@@ -21,7 +21,7 @@ import { StageLedger, wireKeyFor } from "../stage-ledger.ts";
  * loose parameters: it started as a ledger, gained an epoch, and gained the
  * producer-to-host map below, and each of those would otherwise have been one
  * more positional argument at every call. */
-export type FeedState = {
+type FeedState = {
 	ledger: StageLedger;
 	epoch: { current: number | undefined };
 	/** Producer scope -> the host that producer reports as its own `a`, so a

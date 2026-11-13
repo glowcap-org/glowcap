@@ -49,7 +49,7 @@ import { hasEntry } from "../engine/schema/entity-maps.ts";
  *  message values are sticky across drops, users
  *  typically build several of the same kind in a row, so flipping
  *  `codec` once should apply to every session you drop after. */
-export type ToolDrafts = {
+type ToolDrafts = {
 	// add-peer
 	peerId: string;
 	peerLabel: string;
@@ -125,7 +125,7 @@ export class ToolDraftStore {
  *  with a meaningful placeholder. The engine's actual mint may
  *  pick a different id if the user has manually used the suggested
  *  one between renders, but the next dispatch will reconcile. */
-export function nextDefaultPeerId(engine: Engine): string {
+function nextDefaultPeerId(engine: Engine): string {
 	const peers = engine.doc.entities?.peers;
 	if (!peers) return "peer-1";
 	let n = 1;

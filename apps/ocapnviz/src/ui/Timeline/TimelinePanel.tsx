@@ -37,7 +37,7 @@ import { type TimelineLive, TimelineToolbar } from "./timeline-toolbar.tsx";
  * required by wheel handlers. They fire faster than React
  * renders, so deltas need to stack on the latest state, not a
  * closure-captured snapshot. */
-export type SetView = (
+type SetView = (
 	next: TimelineView | ((current: TimelineView) => TimelineView),
 ) => void;
 
@@ -74,7 +74,7 @@ function reducer(state: TimelineView, action: TimelineIntent): TimelineView {
 	}
 }
 
-export type TimelinePanelProps = {
+type TimelinePanelProps = {
 	/** Subscribed locally via `useClockSnapshot` so the rest of the
 	 * app doesn't re-reconcile on every Pixi tick. */
 	engine: Engine;

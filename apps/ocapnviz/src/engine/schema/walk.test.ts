@@ -1,60 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { smallFixture } from "./schema-test/harness.ts";
-import { findDocIndexRefs, findEntityRefs, findEventRefs } from "./walk.ts";
-import { primaryObservations } from "../temporal/recording-access.ts";
-
-Deno.test("findEventRefs: peer alice referenced by 4 events", () => {
-	const doc = smallFixture();
-	const refs = findEventRefs(primaryObservations(doc), "peer", "alice");
-	// peer-joined.peerId, session-opened.a, message-sent.from
-	// (peer-left/etc. absent in this fixture).
-	assertEquals(refs.length, 3);
-	const fields = refs.map((r) => `${r.event.kind}.${r.field}`).sort();
-	assertEquals(fields, [
-		"message-sent.from",
-		"peer-joined.peerId",
-		"session-opened.a",
-	]);
-});
-
-Deno.test("findEventRefs: peer bob referenced by 3 events as b/to/peerId", () => {
-	const doc = smallFixture();
-	const refs = findEventRefs(primaryObservations(doc), "peer", "bob");
-	assertEquals(refs.length, 3);
-	const fields = refs.map((r) => `${r.event.kind}.${r.field}`).sort();
-	assertEquals(fields, [
-		"message-sent.to",
-		"peer-joined.peerId",
-		"session-opened.b",
-	]);
-});
-
-Deno.test("findEventRefs: session s1 referenced by 2 events", () => {
-	const doc = smallFixture();
-	const refs = findEventRefs(primaryObservations(doc), "session", "s1");
-	assertEquals(refs.length, 2);
-	const fields = refs.map((r) => `${r.event.kind}.${r.field}`).sort();
-	assertEquals(fields, [
-		"message-sent.sessionId",
-		"session-opened.sessionId",
-	]);
-});
-
-Deno.test("findEventRefs: message m1 referenced by 2 events", () => {
-	const doc = smallFixture();
-	const refs = findEventRefs(primaryObservations(doc), "message", "m1");
-	assertEquals(refs.length, 2);
-	const fields = refs.map((r) => `${r.event.kind}.${r.field}`).sort();
-	assertEquals(fields, [
-		"message-delivered.messageId",
-		"message-sent.messageId",
-	]);
-});
-
-Deno.test("findEventRefs: unknown id returns empty", () => {
-	const doc = smallFixture();
-	assertEquals(findEventRefs(primaryObservations(doc), "peer", "carol"), []);
-});
+import { findDocIndexRefs, findEntityRefs } from "./walk.ts";
 
 Deno.test("findEntityRefs: peer alice referenced by session.a", () => {
 	const doc = smallFixture();

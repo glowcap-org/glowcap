@@ -43,7 +43,7 @@ export const BEAT = {
  * order, and neither side may grow without the other. */
 const UNIFORM_FLOATS = 40;
 
-export type Colours = {
+type Colours = {
 	light: [number, number, number];
 	rim: [number, number, number];
 	fill: [number, number, number];
@@ -160,7 +160,7 @@ function reach(f: number): number {
 /** Everything the shader is told about one frame, beyond the colours. Kept
  * as its own step so a harness can ask for a frozen frame and get exactly the
  * numbers the live loop would have sent. */
-export type Beats = {
+type Beats = {
 	stem: number;
 	cap: number;
 	glow: number;

@@ -9,7 +9,7 @@
 
 import type { EffectiveRange } from "./range.ts";
 
-export const WORLD_RANGE: EffectiveRange = {
+const WORLD_RANGE: EffectiveRange = {
 	start: 0,
 	end: Number.POSITIVE_INFINITY,
 };

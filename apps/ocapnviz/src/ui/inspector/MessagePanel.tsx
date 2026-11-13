@@ -42,7 +42,7 @@ import { ownEntry } from "../../engine/schema/entity-maps.ts";
 /** The part of a `message-sent` observation the Payload group reads.
  *  Taken from the schema rather than restated, so a field that moves
  *  there fails the build here. */
-export type MessagePayloadFields = Pick<
+type MessagePayloadFields = Pick<
 	Extract<Observation, { kind: "message-sent" }>,
 	"bytesB64" | "byteLen" | "bytesCodec" | "provenance"
 >;

@@ -172,7 +172,6 @@ const Entities = z.object({
 	sessions: entityRecord(SessionDefinition).optional(),
 	messages: entityRecord(MessageDefinition).optional(),
 }).optional();
-export type Entities = z.infer<typeof Entities>;
 
 /** Per-category row-management overrides for the Flash-grade
  * timeline. Identical structurally. Kept as two distinct named
@@ -207,7 +206,6 @@ const RowBodyHidden = z.object({
  *  the default / pass-through. The three "hidden" modes each
  *  drop a specific aspect of the entity. */
 const VisMode = z.enum(["visible", "label", "body", "both"]);
-export type VisMode = z.infer<typeof VisMode>;
 
 /** Master "all rows" visibility flag. Stored independently of
  *  per-category / per-entity flags. The render layer composes

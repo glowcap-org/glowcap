@@ -30,11 +30,11 @@ import { bezierAt, type FrameGeometry, temporalArcAmount } from "../session-geom
  * Peer positions are handled by `KeyframeLayoutSystem`.
  */
 
-export type MessageFlightConfig = {
+type MessageFlightConfig = {
 	easing: EasingFn;
 };
 
-export const DEFAULT_MESSAGE_FLIGHT_CONFIG: MessageFlightConfig = {
+const DEFAULT_MESSAGE_FLIGHT_CONFIG: MessageFlightConfig = {
 	easing: smoothstep,
 };
 

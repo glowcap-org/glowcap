@@ -23,7 +23,7 @@ const SCRUB_INPUT_SURFACE_TAG = "ui-scrub-input";
 // gesture the component adds on top, not a different kind of control.
 const NUMERIC_CLASS = "ocv-input is-numeric";
 
-export type ScrubInputProps = {
+type ScrubInputProps = {
 	/** Controlled value, parent owns the state.
 	 *
 	 *  A FUNCTION where the value lives outside React and moves faster than a

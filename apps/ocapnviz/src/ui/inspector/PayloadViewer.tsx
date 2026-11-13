@@ -98,7 +98,7 @@ function decodeBase64(b64: string): Uint8Array | null {
  * frame says so, because a pane that renders nothing reads as a
  * broken viewer rather than as an absent payload.
  */
-export type PayloadState =
+type PayloadState =
 	| {
 		readonly kind: "frame";
 		readonly bytes: Uint8Array;

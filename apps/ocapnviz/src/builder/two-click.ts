@@ -41,7 +41,7 @@ function singletonSet(entity: EntityRef): ReadonlySet<EntityRefKey> {
  *  The bar typically pre-fills the defaults visibly so the user
  *  sees what's about to happen, but the caller decides whether to
  *  forward them. */
-export type TwoClickOptions = {
+type TwoClickOptions = {
 	// open-session
 	codec?: Codec;
 	captpVersion?: CaptpVersion;
@@ -270,7 +270,7 @@ export function openSessionToNewEnd(
 
 /** Find an open session whose endpoints are exactly {a, b}, in
  * either order. Returns the session id or null. */
-export function findOpenSessionBetween(
+function findOpenSessionBetween(
 	engine: Engine,
 	a: string,
 	b: string,

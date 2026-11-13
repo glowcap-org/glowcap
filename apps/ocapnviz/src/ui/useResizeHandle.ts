@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useGestureSurface } from "../interactions/use-gesture-surface.ts";
 import { releasePointerCaptureIfHeld } from "./pointer-capture.ts";
 
-export type ResizeAxis = "x" | "y";
+type ResizeAxis = "x" | "y";
 
 const RESIZE_HANDLE_SURFACE_TAG = "ui-resize";
 

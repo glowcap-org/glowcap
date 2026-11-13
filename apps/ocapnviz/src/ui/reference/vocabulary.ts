@@ -56,7 +56,7 @@ export const TRANSPORT_VERDICT: Record<TransportStanding, string> = {
 	testing: "Testing only",
 };
 
-export type TransportRow = ReferenceEntry & {
+type TransportRow = ReferenceEntry & {
 	readonly standing: TransportStanding;
 	/**
 	 * Whether this netlayer authenticates the peer: whether the code realizing

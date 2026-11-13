@@ -36,7 +36,7 @@ import type { UnifiedCanvasContextValue } from "./UnifiedCanvas.tsx";
 /** Shared empty-set sentinel so a cleared preview does not churn set identity. */
 const EMPTY_ENTITY_SET: ReadonlySet<EntityRefKey> = new Set();
 
-export type StageEmptyGestures = {
+type StageEmptyGestures = {
 	rubberBandOverlayRef: MutableRefObject<Graphics | null>;
 	rubberBandRef: MutableRefObject<
 		{ startX: number; startY: number; curX: number; curY: number } | null

@@ -216,7 +216,7 @@ export function DiscardAllButton(
 	);
 }
 
-export const DISCARD_CONFIRM: ConfirmRequest = {
+const DISCARD_CONFIRM: ConfirmRequest = {
 	title: "Discard every edit?",
 	detail: "This puts the composition back to the document it was built from " +
 		"and clears the history, so it cannot be undone.",

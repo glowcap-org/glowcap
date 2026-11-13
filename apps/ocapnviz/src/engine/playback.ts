@@ -37,7 +37,7 @@ import type { GameWorld } from "./world.ts";
  * systems that draw a frame from it. Projection may replace the doc
  * object, `rebindDoc` keeps authoring in step when that happens.
  */
-export type PlaybackHost = {
+type PlaybackHost = {
 	getDoc(): TimelineDocument;
 	setDoc(value: TimelineDocument): void;
 	readonly clock: Clock;

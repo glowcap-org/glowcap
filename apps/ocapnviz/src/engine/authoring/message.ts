@@ -195,28 +195,3 @@ export function setMessageDuration(
 	syncMessageDuration(ctx, messageId, duration);
 	commitEntityAuthoring(ctx, arrivalT);
 }
-
-/** End-flavored wrapper. Translates `arrivalT` to a flight duration
- *  off the message's painted (effective) start, the same anchor
- *  `setPeerEnd` / `setSessionEnd` use, then defers to
- *  `setMessageDuration`. */
-export function setMessageEnd(
-	ctx: AuthoringContext,
-	messageId: string,
-	arrivalT: number,
-): void {
-	const def = ownEntry(ctx.doc.entities?.messages, messageId);
-	if (!def) {
-		ctx.emitError(notFoundError("message", messageId));
-		return;
-	}
-	const start = messageEffective(ctx.doc, messageId).start;
-	if (arrivalT < start) {
-		ctx.emitError(validationError(
-			`Message arrival (${arrivalT}) is before its send time (${start}).`,
-			"Move arrival after the send, or move the send earlier.",
-		));
-		return;
-	}
-	setMessageDuration(ctx, messageId, arrivalT - start);
-}

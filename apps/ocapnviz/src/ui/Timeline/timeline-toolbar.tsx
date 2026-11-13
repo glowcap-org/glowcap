@@ -38,7 +38,7 @@ export type TimelineLive = {
 	onDiscardRecording: () => void;
 };
 
-export type TimelineToolbarProps = {
+type TimelineToolbarProps = {
 	rowRef: Ref<HTMLDivElement>;
 	disabled?: boolean | undefined;
 	live?: TimelineLive | undefined;

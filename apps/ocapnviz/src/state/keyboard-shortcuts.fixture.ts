@@ -11,7 +11,7 @@ import type { KeyboardShortcutBindings } from "./keyboard-shortcuts.ts";
 import type { AppMode } from "./app-state.ts";
 import type { Engine } from "../engine/engine.ts";
 
-export type RecordedBindings = {
+type RecordedBindings = {
 	b: KeyboardShortcutBindings;
 	/** What ran, in order. */
 	calls: string[];

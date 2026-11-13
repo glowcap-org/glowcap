@@ -1,8 +1,7 @@
 /**
  * Discovery primitives for the cascade subsystem.
  *
- * Three pure functions over `EVENT_EDGES`, `ENTITY_EDGES`, and
- * `DOC_INDEX_EDGES`: given a target entity, find every ref site that
+ * Two pure functions over `ENTITY_EDGES` and `DOC_INDEX_EDGES`: given a target entity, find every ref site that
  * points at it. The cascade operations in `cascade.ts` consume these
  * primitives to implement delete and rewrite.
  *
@@ -11,51 +10,14 @@
  * See `docs/schema-driven-transactions.md` for the design.
  */
 
-import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
+import type { TimelineDocument } from "../timeline.ts";
 import type { EntityKind } from "./refs.ts";
-import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef } from "./edges.ts";
+import { ENTITY_EDGES, readEdgeRef } from "./edges.ts";
 import { entityMapOf } from "./entity-maps.ts";
 import { DOC_INDEX_EDGES, type DocIndexEdge } from "./doc-index.ts";
 
-/** `doc.entities` keys parallel to the three entity kinds. */
-export const ENTITIES_KEY = {
-	peer: "peers",
-	session: "sessions",
-	message: "messages",
-} as const satisfies Record<EntityKind, "peers" | "sessions" | "messages">;
-
-/** A site where an event references a target entity. The field name is
- *  type-erased to `string` because the call site aggregates across
- *  every event kind. The precise per-kind narrowing isn't useful when
- *  the consumer needs to act uniformly. */
-export type EventRefSite = {
-	readonly event: TimelineEvent;
-	readonly field: string;
-};
-
-/** Every event in `events` that references `(targetKind, targetId)`
- *  via any of its class-1 edges. */
-export function findEventRefs(
-	events: readonly TimelineEvent[],
-	targetKind: EntityKind,
-	targetId: string,
-): EventRefSite[] {
-	const out: EventRefSite[] = [];
-	for (const event of events) {
-		const edges = EVENT_EDGES[event.kind];
-		for (const edge of edges) {
-			if (edge.target !== targetKind) continue;
-			const value = readEdgeRef(event, edge);
-			if (value === targetId) {
-				out.push({ event, field: String(edge.field) });
-			}
-		}
-	}
-	return out;
-}
-
 /** A site where an entity definition references a target entity. */
-export type EntityRefSite = {
+type EntityRefSite = {
 	readonly entityKind: EntityKind;
 	readonly entityId: string;
 	readonly field: string;
@@ -92,7 +54,7 @@ export function findEntityRefs(
 }
 
 /** A site where a doc-level id-list contains the target id. */
-export type DocIndexRefSite = {
+type DocIndexRefSite = {
 	readonly edge: DocIndexEdge;
 	readonly indexInList: number;
 };

@@ -18,13 +18,13 @@ import { peerEffective, sessionEffective } from "../temporal/doc-resolver.ts";
 import { sessionEnds } from "../claims.ts";
 
 /** One thing arriving on stage or leaving it, at the moment it happens. */
-export type TopologyChange =
+type TopologyChange =
 	| { t: number; kind: "peer-in"; peerId: string }
 	| { t: number; kind: "peer-out"; peerId: string }
 	| { t: number; kind: "session-in"; sessionId: string; a: string; b: string }
 	| { t: number; kind: "session-out"; sessionId: string };
 
-export type StandingSession = { id: string; a: string; b: string };
+type StandingSession = { id: string; a: string; b: string };
 
 /**
  * Every moment the walk stops at, in time order.

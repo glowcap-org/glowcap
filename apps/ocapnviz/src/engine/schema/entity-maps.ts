@@ -1,16 +1,15 @@
 /**
  * Typed access to the per-kind maps in `doc.entities`.
  *
- * `ENTITIES_KEY` names the key for a kind, but indexing `doc.entities`
- * with that union loses the per-key value type. These two functions do the
- * dispatch once, as a switch the compiler checks, so cascade, extract,
- * and paste read and replace a kind's map without a cast.
+ * Indexing `doc.entities` with a kind-derived key union loses the per-key
+ * value type. These two functions do the dispatch once, as a switch the
+ * compiler checks, so cascade, extract, and paste read and replace a kind's map without a cast.
  */
 
 import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineDocument } from "../timeline.ts";
 import type { EntityKind } from "./refs.ts";
 
-export type EntityDef = PeerDefinition | SessionDefinition | MessageDefinition;
+type EntityDef = PeerDefinition | SessionDefinition | MessageDefinition;
 
 /** The `peers` / `sessions` / `messages` maps of a doc or a clipboard
  *  payload, which share one shape. */

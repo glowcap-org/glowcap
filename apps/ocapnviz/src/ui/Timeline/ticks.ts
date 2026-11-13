@@ -12,7 +12,7 @@
  * ticks reach the target spacing.
  */
 
-export type TickStep = {
+type TickStep = {
 	/** Distance between major ticks in ms. */
 	major: number;
 	/** Distance between minor ticks in ms (`major / k` for some k). */

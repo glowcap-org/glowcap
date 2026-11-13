@@ -20,7 +20,7 @@ import {
 } from "./selection-store.ts";
 import { entityKey, type EntityRefKey } from "./entity-ref.ts";
 
-export type StoreSelectionHost = {
+type StoreSelectionHost = {
 	storeSelection: SelectionState;
 	dispatchSelection: Dispatch<SelectionAction>;
 	handleRubberBandCommit: (

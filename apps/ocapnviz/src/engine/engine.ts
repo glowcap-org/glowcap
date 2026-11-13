@@ -37,7 +37,7 @@ import { EditSession } from "./edit-session.ts";
 import { Playback } from "./playback.ts";
 import { hasEntry } from "./schema/entity-maps.ts";
 
-export type EngineOptions = {
+type EngineOptions = {
 	/** Override the document's layout mode. */
 	layoutMode?: LayoutMode;
 };

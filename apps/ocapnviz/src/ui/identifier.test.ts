@@ -10,7 +10,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { elideIdentifier, IDENTIFIER_ELIDE_ABOVE, IDENTIFIER_END_CHARS } from "./identifier.tsx";
+import { elideIdentifier, IDENTIFIER_ELIDE_ABOVE, IDENTIFIER_END_CHARS } from "./elide.ts";
 
 /** A 64-character hex key, the shape an iroh node id arrives in. */
 function key(seed: string): string {

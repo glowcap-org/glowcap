@@ -15,7 +15,7 @@ import { resetDocumentTo, restoreSnapshotInto, takeSnapshot } from "./snapshot.t
 import { KeyframeLayoutSystem } from "./systems/keyframe-layout-system.ts";
 import type { TimelineDocument } from "./timeline.ts";
 
-export type EditHost = {
+type EditHost = {
 	getDoc(): TimelineDocument;
 	readonly clock: Clock;
 	readonly layout: KeyframeLayoutSystem;

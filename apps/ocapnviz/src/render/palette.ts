@@ -110,7 +110,7 @@ export type CodecLineStyle = "solid" | "dashed" | "dotted";
  *  the Inspector's session swatch and the Legend all read it, so the mark in the
  *  key is the mark on the picture. Spelled as CSS names because two of those
  *  three draw a border. The stage reads it as a drawing style. */
-export const CODEC_LINE_STYLE: Record<BuiltinCodec, CodecLineStyle> = {
+const CODEC_LINE_STYLE: Record<BuiltinCodec, CodecLineStyle> = {
 	capnp: "solid",
 	syrup: "dashed",
 };
@@ -118,7 +118,7 @@ export const CODEC_LINE_STYLE: Record<BuiltinCodec, CodecLineStyle> = {
 /** The mark for a codec this viewer cannot name. It must not reuse either
  *  built-in mark: that would say "Syrup" or "Cap'n Proto" where the trace only
  *  said "not in this ABI vocabulary". */
-export const CODEC_FALLBACK_LINE_STYLE: CodecLineStyle = "dotted";
+const CODEC_FALLBACK_LINE_STYLE: CodecLineStyle = "dotted";
 
 export function lineStyleForCodec(codec: Codec): CodecLineStyle {
 	const known: { readonly [name: string]: CodecLineStyle | undefined } = CODEC_LINE_STYLE;

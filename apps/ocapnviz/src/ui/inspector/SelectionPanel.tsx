@@ -57,7 +57,7 @@ import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /** Everything the group panel needs about the host's selection: the
  *  set itself, and the one way it is allowed to change it. */
-export type SelectionPanelProps = {
+type SelectionPanelProps = {
 	engine: Engine;
 	selection: ReadonlySet<EntityRefKey>;
 	editor?: EditorBindings | undefined;

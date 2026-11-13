@@ -5,7 +5,7 @@
  * and lets tests drive a fixed timestep.
  */
 
-export type PlaybackState = "paused" | "playing";
+type PlaybackState = "paused" | "playing";
 
 export type ClockSnapshot = {
 	/** Simulated time, in milliseconds since the timeline's t=0. */

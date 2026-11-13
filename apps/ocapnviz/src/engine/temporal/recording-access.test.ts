@@ -1,7 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import type { TimelineDocument } from "../timeline.ts";
 import { TimelineDocument as Doc } from "../timeline.ts";
-import { observationsOf, primaryObservations, sourcesOf } from "./recording-access.ts";
+import { observationsOf, primaryObservations } from "./recording-access.ts";
 
 function emptyDoc(): TimelineDocument {
 	return Doc.parse({
@@ -98,49 +98,6 @@ Deno.test("observationsOf: multi-source flattens in source-declaration order", (
 	});
 	const obs = observationsOf(doc);
 	assertEquals(obs.map((o) => o.id), ["a", "b", "c"]);
-});
-
-Deno.test("sourcesOf: flat input events project into a single 'input' source", () => {
-	const doc = Doc.parse({
-		id: "test",
-		duration: 100,
-		events: [{
-			id: "e1",
-			kind: "peer-joined",
-			t: 5,
-			peerId: "alice",
-			profile: "glowcap",
-		}],
-	});
-	const sources = sourcesOf(doc);
-	assertEquals(sources.length, 1);
-	assertEquals(sources[0]!.id, "input");
-	assertEquals(sources[0]!.meta.kind, "input");
-	assertEquals(sources[0]!.observations.length, 1);
-});
-
-Deno.test("sourcesOf: recording layer surfaces verbatim", () => {
-	const doc = Doc.parse({
-		id: "test",
-		duration: 100,
-		recording: {
-			sources: [
-				{
-					id: "live",
-					meta: { kind: "glowcap-host" },
-					observations: [],
-				},
-				{
-					id: "enterprise",
-					meta: { kind: "griddle", version: "0.3.1" },
-					observations: [],
-				},
-			],
-		},
-	});
-	const sources = sourcesOf(doc);
-	assertEquals(sources.length, 2);
-	assertEquals(sources[1]!.meta.version, "0.3.1");
 });
 
 Deno.test("primaryObservations: lazy-creates a primary source on empty doc", () => {

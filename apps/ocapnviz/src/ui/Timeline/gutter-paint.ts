@@ -22,7 +22,7 @@ import type { TextPool } from "./textPool.ts";
 
 /** x-position of the category chevron on header rows. Hit-test
  * uses ±8 px around this. */
-export const HEADER_CHEVRON_X = 8;
+const HEADER_CHEVRON_X = 8;
 
 /** x-position of the CATEGORY eyeball on header rows. Sits to the
  * right of the chevron so the chevron-toggle and visibility-toggle
@@ -38,7 +38,7 @@ export const HEADER_EYEBALL_X = 24;
  *  HEADER_EYEBALL_X) gives the eye + label a visible offset so
  *  the parent / child relationship reads at a glance instead of
  *  having to be inferred from the chevron alone. */
-export const ROW_INDENT_PX = 6;
+const ROW_INDENT_PX = 6;
 
 /** x-position of the row eyeball on per-entity rows. Hit-test
  * uses ±8 px around this. */

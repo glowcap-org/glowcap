@@ -20,7 +20,7 @@ import { FONT, SIZE } from "../tokens.ts";
 
 /** Palette subset `drawLaneSpans` actually reads. Decoupled from
  * the full `ThemedColors` so the helper signature stays narrow. */
-export type LanePaintPalette = {
+type LanePaintPalette = {
 	canvas: number;
 };
 

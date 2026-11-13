@@ -24,7 +24,7 @@ import { hasEntry } from "../schema/entity-maps.ts";
 import { restoreSnapshotInto, takeSnapshot } from "../snapshot.ts";
 import type { AuthoringContext } from "./context.ts";
 
-export type RenameCategory = "peer" | "session" | "message";
+type RenameCategory = "peer" | "session" | "message";
 
 function renameCategoryToEntitiesKey(
 	category: RenameCategory,

@@ -135,7 +135,6 @@ export const DurableProvenance = z.enum([
 	"authenticated-transport",
 	"unauthenticated",
 ]);
-export type DurableProvenance = z.infer<typeof DurableProvenance>;
 
 /**
  * The attribution a producer's provenance verdict backs, or undefined when the
@@ -249,7 +248,7 @@ export type SessionEndpoint = z.infer<typeof SessionEndpoint>;
  *  exactly that shape (`authoring/session.ts` resolves three patches against
  *  three current values), and a union a builder cannot spell is a union a
  *  builder goes around. */
-export type EndpointParts =
+type EndpointParts =
 	| {
 		peer: string;
 		designator?: string | undefined;

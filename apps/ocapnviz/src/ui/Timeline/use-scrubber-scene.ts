@@ -25,7 +25,7 @@ import { type DragMode } from "./scrubber-drag.ts";
 
 /** What the ticker reads each frame. Written by the host on every render
  *  so the long-lived paint callback never closes over a stale prop. */
-export type ScrubberSceneLive = {
+type ScrubberSceneLive = {
 	view: TimelineView;
 	clock: ClockSnapshot;
 	doc: TimelineDocument;

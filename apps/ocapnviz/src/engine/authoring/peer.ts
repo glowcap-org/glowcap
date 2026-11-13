@@ -228,31 +228,6 @@ export function setPeerDuration(
 	commitEntityAuthoring(ctx, peerEffective(ctx.doc, peerId).end);
 }
 
-/** End-flavored wrapper around `setPeerDuration`. Translates absolute
- *  `t` to a duration off the peer's effective start. Prefer
- *  `setPeerDuration` for inspector-style edits that already know the
- *  duration. This stays for drag-to-arrival-time gestures. */
-export function setPeerEnd(
-	ctx: AuthoringContext,
-	peerId: string,
-	t: number,
-): void {
-	const def = ownEntry(ctx.doc.entities?.peers, peerId);
-	if (!def) {
-		ctx.emitError(notFoundError("peer", peerId));
-		return;
-	}
-	const start = peerEffective(ctx.doc, peerId).start;
-	if (t < start) {
-		ctx.emitError(validationError(
-			`Peer end (${t}) is before its start (${start}).`,
-			"Move the end handle past the start, or clear the start first.",
-		));
-		return;
-	}
-	setPeerDuration(ctx, peerId, t - start);
-}
-
 /** Restore the peer's implicit (eternal) end. */
 export function clearPeerEnd(ctx: AuthoringContext, peerId: string): void {
 	syncPeerEndCleared(ctx, peerId);
