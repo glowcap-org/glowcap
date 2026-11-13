@@ -75,7 +75,7 @@ pub fn onPath(io: Io, alloc: std.mem.Allocator, environ: ?*const std.process.Env
     const path_var = (if (environ) |e| e.get("PATH") else null) orelse return null;
     var it = std.mem.tokenizeScalar(u8, path_var, ':');
     while (it.next()) |dir| {
-        const candidate = try std.fmt.allocPrint(alloc, "{s}/{s}", .{ dir, name });
+        const candidate = try alloc.print("{s}/{s}", .{ dir, name });
         // A PATH entry this user cannot search is skipped, as exec's own
         // search skips it.
         const found = exists(io, candidate) catch |err| switch (err) {

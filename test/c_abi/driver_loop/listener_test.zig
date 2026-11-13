@@ -223,8 +223,8 @@ test "listener advertisement preserves the provider failure chain without retiri
     );
     var message: [256]u8 = undefined;
     const message_len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedAdvertiseFailure") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedAdvertiseCleanupFailure") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "ForcedAdvertiseFailure") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "ForcedAdvertiseCleanupFailure") != null);
     try std.testing.expect(resident.listeners[0].active);
     try std.testing.expectEqual(@as(usize, 0), resident.stop_listen_calls);
     try expectOk(cdrv.glowcap_driver_listener_locator(owned_loop.raw, listener_id, &locator));
@@ -253,8 +253,8 @@ test "listener restoration state preserves the provider failure chain" {
     try std.testing.expectEqual(@as(usize, 0), needed);
     var message: [256]u8 = undefined;
     const message_len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedRestorationFailure") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedRestorationCleanupFailure") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "ForcedRestorationFailure") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "ForcedRestorationCleanupFailure") != null);
     try std.testing.expect(resident.listeners[0].active);
     try std.testing.expectEqual(@as(usize, 0), resident.stop_listen_calls);
 }
@@ -570,7 +570,7 @@ test "an unselected listener refuses accept visibly until routing policy is sele
     );
     var message: [128]u8 = undefined;
     const message_len = cdrv.glowcap_driver_last_error(&message, message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "MissingAdvertisedLocator") != null);
+    try std.testing.expect(std.mem.find(u8, message[0..message_len], "MissingAdvertisedLocator") != null);
 
     try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     try expectStep(cdrv.glowcap_driver_step(server, 0));

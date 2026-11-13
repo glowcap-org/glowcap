@@ -28,7 +28,7 @@ fn retire(resident: *TcpResident) void {
 }
 
 test "completion-backed residents accept, dial, call, and redeem a give over TCP (ADR-0018)" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});

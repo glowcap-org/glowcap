@@ -386,6 +386,6 @@ test "a guaranteed settlement carrying a routing route emits the wire import pos
     const bytes = frame.bytes();
 
     var wire_digits: [24]u8 = undefined;
-    const wire_text = try std.fmt.bufPrint(&wire_digits, "{d}", .{wire_import});
-    try std.testing.expect(std.mem.indexOf(u8, bytes, wire_text) != null);
+    const wire_text = try std.mem.print(&wire_digits, "{d}", .{wire_import});
+    try std.testing.expect(std.mem.find(u8, bytes, wire_text) != null);
 }

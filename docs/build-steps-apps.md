@@ -124,13 +124,13 @@ Benchmarks print measurements or write reports under `zig-out/bench-reports/`.
 
 ```sh
 zig build bench-floors                # Measure each primitive alone: Ed25519, the Noise XK handshake and records, a frame copy, and a loopback round trip
-zig build bench-floors -Doptimize=ReleaseFast # each primitive alone (Ed25519, Noise XK handshake and records, frame copy, loopback round trip); bench/README.md pairs product paths with these; -- --smoke under check
+zig build bench-floors -Doptimize=fast # each primitive alone (Ed25519, Noise XK handshake and records, frame copy, loopback round trip); bench/README.md pairs product paths with these; -- --smoke under check
 zig build bench-frame-view            # Run frame/view benchmark
 zig build bench-host-locator          # Measure warmed Host advertised-route allocation traffic
 zig build bench-uri                   # Measure locator and sturdyref URI rendering time and allocation traffic
-zig build bench-uri -Doptimize=ReleaseFast # locator and sturdyref rendering time and allocation traffic
+zig build bench-uri -Doptimize=fast # locator and sturdyref rendering time and allocation traffic
 zig build bench-set-uniqueness        # Measure borrowed set validation and collision scratch on both codecs
-zig build bench-set-uniqueness -Doptimize=ReleaseFast # borrowed set validation and collision scratch on both codecs
+zig build bench-set-uniqueness -Doptimize=fast # borrowed set validation and collision scratch on both codecs
 zig build bench-rooms-projection      # Count conversation and line-custody visits in the production Rooms projection
 zig build bench-codec                 # Run codec/dispatch throughput benchmark
 zig build bench-dispatch-scaling      # Measure inbound dispatch ns/turn across N peers (cold-cache regime) with p50/p99
@@ -138,7 +138,7 @@ zig build bench-outbound              # Measure the outbound engine path (send/s
 zig build bench-peer-scaling          # Measure per-session memory and live authenticated socket scale
 zig build bench-snapshot              # Measure vat snapshot/restore: O(objects), flat in object size, off by default
 zig build bench-loam                  # Measure Loam residency, wakeups, edits, collection interference, and the Tasks app on either disk engine
-zig build bench-loam -Doptimize=ReleaseFast # LMDB-backed conversation graph, sleepy actors, edits, collection, and cold reads at scale, and the Tasks app on each disk engine (`-- --tasks-only --engine=lmdb|sqlite` picks one); -- --smoke under check
+zig build bench-loam -Doptimize=fast # LMDB-backed conversation graph, sleepy actors, edits, collection, and cold reads at scale, and the Tasks app on each disk engine (`-- --tasks-only --engine=lmdb|sqlite` picks one); -- --smoke under check
 zig build relay-scaling               # Measure the reference relay's per-connection footprint, prove it holds thousands of connections at once, and extrapolate to a host's descriptor and RAM ceiling, the relay-tier sibling of bench-peer-scaling (needs deno)
 zig build bench-transports            # Measure OCapN round-trip latency/throughput over TCP, Noise TCP, in-process, and iroh (needs cargo)
 zig build bench-interface             # Compare raw and generated Rust calls over the same TCP workflow (needs cargo)

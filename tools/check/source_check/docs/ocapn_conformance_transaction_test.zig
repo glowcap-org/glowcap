@@ -27,11 +27,11 @@ test "adoption manifest rejects unreviewed draft and suite changes" {
     defer tmp.cleanup();
     const draft = "# Operations\n## op:abort\nDisconnect.\n";
     const setup = "def setup_session(): pass\n";
-    const root_row = try std.fmt.allocPrint(arena, "| Operations | both | adopted | `zig build test` | none | {s} |\n", .{fixtureDigest("# Operations\n")});
-    const draft_row = try std.fmt.allocPrint(arena, "| op:abort | both | adopted | `zig build test` | none | {s} |\n", .{fixtureDigest("## op:abort\nDisconnect.\n")});
+    const root_row = try arena.print("| Operations | both | adopted | `zig build test` | none | {s} |\n", .{fixtureDigest("# Operations\n")});
+    const draft_row = try arena.print("| op:abort | both | adopted | `zig build test` | none | {s} |\n", .{fixtureDigest("## op:abort\nDisconnect.\n")});
     const removed_row = "| op:get | next | pending | none | `docs/decision.md` | removed |\n";
-    const suite_row = try std.fmt.allocPrint(arena, "| `utils/captp.py` | both | adopted | `zig build test` | none | {s} |\n", .{fixtureDigest(setup)});
-    const manifest = try std.fmt.allocPrint(arena, "{s}\n| --- | --- | --- | --- | --- | --- |\n{s}{s}\n{s}\n| --- | --- | --- | --- | --- | --- |\n{s}", .{ header, try std.mem.concat(arena, u8, &.{ root_row, draft_row }), removed_row, suite_header, suite_row });
+    const suite_row = try arena.print("| `utils/captp.py` | both | adopted | `zig build test` | none | {s} |\n", .{fixtureDigest(setup)});
+    const manifest = try arena.print("{s}\n| --- | --- | --- | --- | --- | --- |\n{s}{s}\n{s}\n| --- | --- | --- | --- | --- | --- |\n{s}", .{ header, try std.mem.concat(arena, u8, &.{ root_row, draft_row }), removed_row, suite_header, suite_row });
     try writeTestFile(io, tmp.dir, manifest_path, manifest);
     try writeTestFile(io, tmp.dir, draft_path, draft);
     try writeTestFile(io, tmp.dir, steps_path, "zig build test\n");
@@ -115,7 +115,7 @@ test "adoption manifest rejects unreviewed draft and suite changes" {
 }
 
 fn writeTestFile(io: std.Io, dir: std.Io.Dir, path: []const u8, bytes: []const u8) !void {
-    if (std.fs.path.dirname(path)) |parent| try dir.createDirPath(io, parent);
+    if (std.Io.Dir.path.dirname(path)) |parent| try dir.createDirPath(io, parent);
     try dir.writeFile(io, .{ .sub_path = path, .data = bytes });
 }
 
@@ -128,7 +128,7 @@ fn expectManifestResult(io: std.Io, dir: std.Io.Dir, expected: ?[]const u8) !voi
     }
     try checkManifest(io, gpa, dir, &violations);
     if (expected) |needle| {
-        for (violations.items) |message| if (std.mem.indexOf(u8, message, needle) != null) return;
+        for (violations.items) |message| if (std.mem.find(u8, message, needle) != null) return;
         std.debug.print("expected manifest diagnostic: {s}\nactual: {any}\n", .{ needle, violations.items });
         return error.TestExpectedError;
     }

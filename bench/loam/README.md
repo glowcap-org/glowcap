@@ -1,6 +1,6 @@
 # Loam workloads
 
-Run `zig build bench-loam -Doptimize=ReleaseFast` to measure the Host/Vat,
+Run `zig build bench-loam -Doptimize=fast` to measure the Host/Vat,
 record-backed actors, and storage engine together. The Tasks workload runs on
 each disk engine, and every other workload measures LMDB's own pages and file capacity. Output names the optimization
 mode, architecture, OS, and durability profile, then each workload's limits:
@@ -71,7 +71,7 @@ smoke run uses two lists of eight tasks.
 
 ## Cold reads at scale
 
-`zig build bench-loam -Doptimize=ReleaseFast -- --scale-only` stores 10 thousand
+`zig build bench-loam -Doptimize=fast -- --scale-only` stores 10 thousand
 and then 1 million resources under one owner and measures a cold hosted read of
 a few of them. The unfiltered full run leaves it out because the 1 million
 population takes minutes to build. The unfiltered `--smoke` run, which `check`
@@ -118,7 +118,7 @@ lower two pages can differ. A scan would add reads in proportion to the count.
 
 ## Collection cost
 
-`zig build bench-loam -Doptimize=ReleaseFast -- --collection-only` uses the
+`zig build bench-loam -Doptimize=fast -- --collection-only` uses the
 Volatile backend with two cache slots and 1,024-byte record scratch. Each row
 starts with the same rooted chain of 1,024 records and 256 unreachable records
 in two-record cycles. Holds vary across 0, 32 and 128 distinct already-reachable

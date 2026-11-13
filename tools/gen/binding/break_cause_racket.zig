@@ -19,7 +19,7 @@ pub fn generate(out: *Buffer, a: std.mem.Allocator) !void {
         }
         try out.appendSlice(a, "    [else #f]))\n");
     }
-    inline for (comptime std.meta.fieldNames(s.Context)) |name| {
+    inline for (@typeInfo(s.Context).@"struct".field_names) |name| {
         try out.appendSlice(a, "(provide break-context-");
         try s.kebab(out, a, name);
         try out.appendSlice(a, ")\n(define break-context-");

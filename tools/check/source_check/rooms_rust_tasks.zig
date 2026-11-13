@@ -69,7 +69,7 @@ test "bare host spawn is caught without hiding production paths that contain tes
     }
     try checkTree(std.testing.io, gpa, tmp.dir, &violations, "src");
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "attestations/worker.rs:1") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "attestations/worker.rs:1") != null);
 }
 
 fn checkTree(
@@ -88,7 +88,7 @@ fn checkTree(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file or !isProduction(entry.path)) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
+        const path = try gpa.print("{s}/{s}", .{ tree, entry.path });
         defer gpa.free(path);
         const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
             try appendViolation(gpa, violations, "{s}: could not read for the task-ownership check", .{path});

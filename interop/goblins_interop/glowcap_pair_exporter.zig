@@ -38,8 +38,7 @@ const Greeter = struct {
         // the caller's name as the one argument.
         _ = verb;
         if ((try args.len()) != 1) return error.BadInvocation;
-        return .{ .string = try std.fmt.allocPrint(
-            ht.turn.arena,
+        return .{ .string = try ht.turn.arena.print(
             "Hello {s}, I'm the glowcap exporter reached across the profile split!",
             .{try args.string(0)},
         ) };

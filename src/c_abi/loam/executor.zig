@@ -57,7 +57,7 @@ pub fn Executor(comptime Engine: type) type {
 
                 pub fn open(self: @This(), identity: loam.StoreId, mode: loam.OpenMode) !Engine {
                     const path_slice = try shared.sliceFromC(self.path, self.path_len);
-                    if (std.mem.indexOfScalar(u8, path_slice, 0) != null) return error.InvalidArgument;
+                    if (std.mem.findScalar(u8, path_slice, 0) != null) return error.InvalidArgument;
                     const owned_path = try allocator.dupeSentinel(u8, path_slice, 0);
                     defer allocator.free(owned_path);
                     var options: Engine.Options = .{ .opening = .{ .id = identity, .mode = mode } };

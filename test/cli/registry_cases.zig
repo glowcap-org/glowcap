@@ -171,8 +171,8 @@ test "json CapTP failure writes non-empty sink body (MCP/argv --json)" {
     const code = try cli.ocapn.cmdProbe(&c, &parsed);
     try std.testing.expect(code != cli.exit_codes.ok);
     try std.testing.expect(capture.items.len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"ok\":false") != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"error\"") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"ok\":false") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"error\"") != null);
 
     var body: std.ArrayList(u8) = .empty;
     defer body.deinit(gpa);
@@ -190,10 +190,10 @@ test "mcp inputSchema projects front-applicable flags only" {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(std.testing.allocator);
     try cli.mcp_schema.appendInputSchema(&out, std.testing.allocator, dial);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"locator\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"repl\"") == null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "additionalProperties\":false") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"args\"") == null);
+    try std.testing.expect(std.mem.find(u8, out.items, "\"locator\"") != null);
+    try std.testing.expect(std.mem.find(u8, out.items, "\"repl\"") == null);
+    try std.testing.expect(std.mem.find(u8, out.items, "additionalProperties\":false") != null);
+    try std.testing.expect(std.mem.find(u8, out.items, "\"args\"") == null);
 }
 
 test "mcp fillParsed maps named locator and rejects undeclared fields" {
@@ -241,11 +241,11 @@ test "mcp call inputSchema exposes named locator/name/verb/args" {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(std.testing.allocator);
     try cli.mcp_schema.appendInputSchema(&out, std.testing.allocator, call);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"locator\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"name\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"verb\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"args\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"required\":[\"name\",\"verb\"]") != null);
+    try std.testing.expect(std.mem.find(u8, out.items, "\"locator\"") != null);
+    try std.testing.expect(std.mem.find(u8, out.items, "\"name\"") != null);
+    try std.testing.expect(std.mem.find(u8, out.items, "\"verb\"") != null);
+    try std.testing.expect(std.mem.find(u8, out.items, "\"args\"") != null);
+    try std.testing.expect(std.mem.find(u8, out.items, "\"required\":[\"name\",\"verb\"]") != null);
 }
 
 test "mcp fillParsed maps named call fields and requires their schema" {
@@ -295,13 +295,13 @@ test "REPL everyday help matches Tab CapTP set" {
     };
     try cli.registry.helpEveryday(HelpW{ .list = &help_buf, .gpa = gpa }, .repl);
     // Row format is `  {name:<10}  …`, substring "locator" also appears in dial help.
-    try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  listen    ") != null);
-    try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  locator   ") == null);
-    try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  dial      ") != null);
+    try std.testing.expect(std.mem.find(u8, help_buf.items, "  listen    ") != null);
+    try std.testing.expect(std.mem.find(u8, help_buf.items, "  locator   ") == null);
+    try std.testing.expect(std.mem.find(u8, help_buf.items, "  dial      ") != null);
     for (cli.registry.commands) |cmd| {
-        const row_prefix = try std.fmt.allocPrint(gpa, "  {s:<10}  ", .{cmd.name});
+        const row_prefix = try gpa.print("  {s:<10}  ", .{cmd.name});
         defer gpa.free(row_prefix);
-        const in_help = std.mem.indexOf(u8, help_buf.items, row_prefix) != null;
+        const in_help = std.mem.find(u8, help_buf.items, row_prefix) != null;
         try std.testing.expectEqual(cli.registry.leafVisible(&cmd, .repl), in_help);
     }
 }
@@ -363,11 +363,11 @@ test "invalid UTF-8 from a partner does not break the JSON response" {
     const parsed = try std.json.parseFromSlice(std.json.Value, gpa, out.items, .{});
     defer parsed.deinit();
     const s = parsed.value.string;
-    try std.testing.expect(std.mem.indexOf(u8, s, "ok") != null);
-    try std.testing.expect(std.mem.indexOf(u8, s, "mid") != null);
-    try std.testing.expect(std.mem.indexOf(u8, s, "end") != null);
+    try std.testing.expect(std.mem.find(u8, s, "ok") != null);
+    try std.testing.expect(std.mem.find(u8, s, "mid") != null);
+    try std.testing.expect(std.mem.find(u8, s, "end") != null);
     // The valid character came through untouched.
-    try std.testing.expect(std.mem.indexOf(u8, s, "\xc3\xa9") != null);
+    try std.testing.expect(std.mem.find(u8, s, "\xc3\xa9") != null);
     // The invalid bytes did not.
-    try std.testing.expect(std.mem.indexOfScalar(u8, s, 0xff) == null);
+    try std.testing.expect(std.mem.findScalar(u8, s, 0xff) == null);
 }

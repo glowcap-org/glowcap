@@ -201,7 +201,7 @@ pub const UpgradeResponseValidator = struct {
     malformed: bool = false,
 
     pub fn observe(self: *@This(), line: []const u8, expected_accept: *const [28]u8) void {
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse {
+        const colon = std.mem.findScalar(u8, line, ':') orelse {
             self.malformed = true;
             return;
         };

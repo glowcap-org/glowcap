@@ -122,7 +122,7 @@ pub fn register(
     // ordinary cold-cache resolver may select an older versioned package first.
     for (suite_runs) |run| commands.setLibDir(run, .host);
     commands.setLibDir(rust_binding_lint, .host);
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos => {
             rust_suite.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
             rust_binding_lint.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
@@ -148,7 +148,7 @@ pub fn register(
         run.step.dependOn(b.getInstallStep());
         run.setEnvironmentVariable("PYTHONPATH", commands.rootPath(b, "bindings/python"));
         commands.setLibDir(run, .host);
-        switch (builtin.os.tag) {
+        switch (builtin.target.os.tag) {
             .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir),
             .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir),
             else => {},

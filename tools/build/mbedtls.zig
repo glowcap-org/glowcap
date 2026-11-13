@@ -143,7 +143,7 @@ pub const Dependency = struct {
         self: Dependency,
         b: *std.Build,
         target: std.Build.ResolvedTarget,
-        optimize: std.builtin.OptimizeMode,
+        optimize: std.lang.Optimize,
     ) *std.Build.Module {
         const translate = b.addTranslateC(.{
             .root_source_file = b.path("src/net/tls/mbedtls_import.c"),
@@ -184,7 +184,7 @@ pub fn add(b: *std.Build) Dependency {
     // The fetch script is the single version-and-checksum authority. Keeping
     // the build-cache label version-neutral prevents an update from requiring
     // a second, mechanically coupled pin edit here.
-    const source = fetch.addOutputDirectoryArg("mbedtls-source");
+    const source = fetch.addOutputDirectoryArg2("mbedtls-source", .{});
     return .{ .source = source };
 }
 

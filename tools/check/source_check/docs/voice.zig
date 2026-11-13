@@ -247,7 +247,7 @@ fn banHabitualEmDash(
     if (std.mem.eql(u8, path, ".agents/rules/doc-voice.md")) return;
     const habits = [_][]const u8{ "— which", "— and then" };
     for (habits) |needle| {
-        if (std.mem.indexOf(u8, contents, needle) != null) {
+        if (std.mem.find(u8, contents, needle) != null) {
             try appendViolation(
                 gpa,
                 violations,
@@ -295,7 +295,7 @@ fn banHabitualJustification(
     const listed = for (voice_debt.justification_tic) |debt| {
         if (std.mem.eql(u8, path, debt)) break true;
     } else false;
-    const present = std.mem.indexOf(u8, contents, needle) != null;
+    const present = std.mem.find(u8, contents, needle) != null;
     if (present and !listed) {
         try appendViolation(
             gpa,
@@ -334,7 +334,7 @@ fn banConnectiveArrowOutsideFences(
         if (std.mem.startsWith(u8, trimmed, "```")) {
             in_fence = !in_fence;
         } else if (!in_fence) {
-            if (std.mem.indexOf(u8, line, "→") != null or std.mem.indexOf(u8, line, "⇒") != null) {
+            if (std.mem.find(u8, line, "→") != null or std.mem.find(u8, line, "⇒") != null) {
                 try appendViolation(gpa, violations, "{s}: connective arrow in prose — write a verb (`becomes`, `then`, `to`) instead of `→`/`⇒` (doc-voice)", .{path});
                 return;
             }
@@ -379,7 +379,7 @@ fn banNegationHeadings(
         if (in_fence) continue;
         const heading = headingSubject(trimmed) orelse continue;
         for (needles) |needle| {
-            if (std.mem.indexOf(u8, heading, needle) != null) {
+            if (std.mem.find(u8, heading, needle) != null) {
                 try appendViolation(
                     gpa,
                     violations,
@@ -400,7 +400,7 @@ fn headingSubject(trimmed: []const u8) ?[]const u8 {
     const title_prefix = ".title = \"";
     if (std.mem.startsWith(u8, rest, title_prefix)) {
         const inner = rest[title_prefix.len..];
-        const close = std.mem.indexOfScalar(u8, inner, '"') orelse return inner;
+        const close = std.mem.findScalar(u8, inner, '"') orelse return inner;
         return inner[0..close];
     }
     var i: usize = 0;
@@ -463,7 +463,7 @@ pub fn checkParagraphLength(
         for (try walk.files(where)) |path| {
             if (std.mem.startsWith(u8, path, "docs/decisions/")) continue;
             const contents = try walk.read(path) orelse continue;
-            if (std.mem.indexOf(u8, contents[0..@min(contents.len, 400)], "GENERATED") != null) continue;
+            if (std.mem.find(u8, contents[0..@min(contents.len, 400)], "GENERATED") != null) continue;
             try paragraphs.checkIn(gpa, violations, path, contents);
         }
     }

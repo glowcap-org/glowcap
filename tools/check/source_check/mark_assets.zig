@@ -47,13 +47,13 @@ const Path = struct { fill: []const u8, d: []const u8 };
 /// Every `<path fill="…" d="…"/>` of an SVG, in document order.
 fn readPaths(gpa: std.mem.Allocator, svg: []const u8, out: *std.ArrayList(Path)) !void {
     var rest = svg;
-    while (std.mem.indexOf(u8, rest, "<path fill=\"")) |at| {
+    while (std.mem.find(u8, rest, "<path fill=\"")) |at| {
         rest = rest[at + "<path fill=\"".len ..];
-        const fill_end = std.mem.indexOfScalar(u8, rest, '"') orelse return;
+        const fill_end = std.mem.findScalar(u8, rest, '"') orelse return;
         const fill = rest[0..fill_end];
-        const d_at = std.mem.indexOf(u8, rest, " d=\"") orelse return;
+        const d_at = std.mem.find(u8, rest, " d=\"") orelse return;
         rest = rest[d_at + " d=\"".len ..];
-        const d_end = std.mem.indexOfScalar(u8, rest, '"') orelse return;
+        const d_end = std.mem.findScalar(u8, rest, '"') orelse return;
         try out.append(gpa, .{ .fill = fill, .d = rest[0..d_end] });
         rest = rest[d_end..];
     }
@@ -62,10 +62,10 @@ fn readPaths(gpa: std.mem.Allocator, svg: []const u8, out: *std.ArrayList(Path))
 /// The value of one `--name:` declaration, up to its semicolon.
 fn declaration(css: []const u8, name: []const u8) ?[]const u8 {
     var buf: [64]u8 = undefined;
-    const needle = std.fmt.bufPrint(&buf, "--{s}: ", .{name}) catch return null;
-    const at = std.mem.indexOf(u8, css, needle) orelse return null;
+    const needle = std.mem.print(&buf, "--{s}: ", .{name}) catch return null;
+    const at = std.mem.find(u8, css, needle) orelse return null;
     const from = at + needle.len;
-    const end = std.mem.indexOfScalar(u8, css[from..], ';') orelse return null;
+    const end = std.mem.findScalar(u8, css[from..], ';') orelse return null;
     return css[from .. from + end];
 }
 
@@ -74,17 +74,17 @@ fn declaration(css: []const u8, name: []const u8) ?[]const u8 {
 /// guarded block.
 fn lastDeclaration(css: []const u8, name: []const u8) ?[]const u8 {
     var buf: [64]u8 = undefined;
-    const needle = std.fmt.bufPrint(&buf, "--{s}: ", .{name}) catch return null;
-    const at = std.mem.lastIndexOf(u8, css, needle) orelse return null;
+    const needle = std.mem.print(&buf, "--{s}: ", .{name}) catch return null;
+    const at = std.mem.findLast(u8, css, needle) orelse return null;
     const from = at + needle.len;
-    const end = std.mem.indexOfScalar(u8, css[from..], ';') orelse return null;
+    const end = std.mem.findScalar(u8, css[from..], ';') orelse return null;
     return css[from .. from + end];
 }
 
 fn viewBox(svg: []const u8) ?[4]f64 {
-    const at = std.mem.indexOf(u8, svg, "viewBox=\"") orelse return null;
+    const at = std.mem.find(u8, svg, "viewBox=\"") orelse return null;
     const from = at + "viewBox=\"".len;
-    const end = std.mem.indexOfScalar(u8, svg[from..], '"') orelse return null;
+    const end = std.mem.findScalar(u8, svg[from..], '"') orelse return null;
     var it = std.mem.tokenizeScalar(u8, svg[from .. from + end], ' ');
     var out: [4]f64 = undefined;
     for (&out) |*slot| {
@@ -99,7 +99,7 @@ fn viewBox(svg: []const u8) ?[4]f64 {
 /// decimals, then as short as it can be spelled.
 fn percent(gpa: std.mem.Allocator, of_box: f64) ![]u8 {
     const rounded = @round((of_box / 24.0) * 100.0 * 10000.0) / 10000.0;
-    return std.fmt.allocPrint(gpa, "{d}%", .{rounded});
+    return gpa.print("{d}%", .{rounded});
 }
 
 /// The mark's generated files carry one trace between them.
@@ -182,9 +182,9 @@ pub fn checkMarkAssets(
         // The mask value is the same path data inside a data URI, and the
         // generator's encoding leaves path data alone, so it appears verbatim.
         var name_buf: [64]u8 = undefined;
-        const mask_name = try std.fmt.bufPrint(&name_buf, "mark-{s}", .{layer.mask});
+        const mask_name = try std.mem.print(&name_buf, "mark-{s}", .{layer.mask});
         if (declaration(tokens, mask_name)) |value| {
-            if (std.mem.indexOf(u8, value, path.d) == null) {
+            if (std.mem.find(u8, value, path.d) == null) {
                 try appendViolation(gpa, violations, "{s}: `--{s}` does not carry {s}'s {s} path; run `zig build gen-mark`", .{ tokens_css, mask_name, mark_svg, layer.mask });
             }
         } else {
@@ -194,14 +194,14 @@ pub fn checkMarkAssets(
         // The tone pair's dark arm is the color mark.svg paints that layer,
         // because the artwork holds the night tones and the pair holds both.
         var tone_buf: [64]u8 = undefined;
-        const tone_name = try std.fmt.bufPrint(&tone_buf, "mark-{s}", .{layer.tone});
+        const tone_name = try std.mem.print(&tone_buf, "mark-{s}", .{layer.tone});
         const pair = lastDeclaration(tokens, tone_name) orelse {
             try appendViolation(gpa, violations, "{s}: `--{s}` is gone; it is the {s} layer's tone in both themes", .{ tokens_css, tone_name, layer.mask });
             continue;
         };
         var expected_buf: [64]u8 = undefined;
-        const expected = try std.fmt.bufPrint(&expected_buf, ", {s})", .{path.fill});
-        if (!std.mem.startsWith(u8, pair, "light-dark(") or std.mem.indexOf(u8, pair, expected) == null) {
+        const expected = try std.mem.print(&expected_buf, ", {s})", .{path.fill});
+        if (!std.mem.startsWith(u8, pair, "light-dark(") or std.mem.find(u8, pair, expected) == null) {
             try appendViolation(gpa, violations, "{s}: `--{s}` does not pair with {s}, the tone {s} paints its {s}; run `zig build gen-mark`", .{ tokens_css, tone_name, path.fill, mark_svg, layer.mask });
         }
     }
@@ -233,8 +233,8 @@ pub fn checkMarkAssets(
         const want = try percent(gpa, place.value);
         defer gpa.free(want);
         var needle_buf: [64]u8 = undefined;
-        const needle = try std.fmt.bufPrint(&needle_buf, "\t{s}: {s};", .{ place.name, want });
-        if (std.mem.indexOf(u8, css, needle) == null) {
+        const needle = try std.mem.print(&needle_buf, "\t{s}: {s};", .{ place.name, want });
+        if (std.mem.find(u8, css, needle) == null) {
             try appendViolation(gpa, violations, "{s}: the mark piece's `{s}` is not `{s}`, the share of a 24-unit box {s}'s frame grows to; run `zig build gen-mark`", .{ mark_css, place.name, want, mark_svg });
         }
     }

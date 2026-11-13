@@ -247,7 +247,7 @@ test "peer URI refuses excess hints before materializing another entry" {
     for (0..model.max_locator_hint_count + 1) |index| {
         if (index != 0) try text.append(allocator, '&');
         var entry: [32]u8 = undefined;
-        try text.appendSlice(allocator, try std.fmt.bufPrint(&entry, "h{d}=v", .{index}));
+        try text.appendSlice(allocator, try std.mem.print(&entry, "h{d}=v", .{index}));
     }
     try std.testing.expectError(uri.Error.InvalidLocator, uri.parsePeer(allocator, text.items));
 }

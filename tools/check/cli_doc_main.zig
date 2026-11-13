@@ -52,7 +52,7 @@ fn checkReasons(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), 
                 header = number;
                 table = .rule;
             },
-            .rule => table = if (row and std.mem.indexOfNone(u8, line, "|-: \t\r") == null) .rows else .after,
+            .rule => table = if (row and std.mem.findNone(u8, line, "|-: \t\r") == null) .rows else .after,
             .rows => if (!row) {
                 table = .after;
             } else {
@@ -162,14 +162,14 @@ fn checkInvocation(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8
             }
             continue; // the loop advances past the container name
         }
-        if (std.mem.eql(u8, std.fs.path.basename(arg), "glowcap")) {
+        if (std.mem.eql(u8, std.Io.Dir.path.basename(arg), "glowcap")) {
             if (problem(args[at + 1 ..])) |why| try violation_log.appendViolation(gpa, violations, "{s}:{d}: glowcap example {s}", .{ path, number, why });
         }
         break;
     }
 }
 fn assignment(arg: []const u8) bool {
-    const equal = std.mem.indexOfScalar(u8, arg, '=') orelse return false;
+    const equal = std.mem.findScalar(u8, arg, '=') orelse return false;
     if (equal == 0 or (!std.ascii.isAlphabetic(arg[0]) and arg[0] != '_')) return false;
     for (arg[0..equal]) |c| if (!std.ascii.isAlphanumeric(c) and c != '_') return false;
     return true;
@@ -239,7 +239,7 @@ fn problem(args: []const []const u8) ?[]const u8 {
             continue;
         }
         if (!flags_done and std.mem.startsWith(u8, arg, "-")) {
-            const eq = std.mem.indexOfScalar(u8, arg, '=') orelse arg.len;
+            const eq = std.mem.findScalar(u8, arg, '=') orelse arg.len;
             const flag = lookup(path[0..depth], arg[0..eq]) orelse return "uses an unknown flag";
             if (seen_count == seen.len) return "has too many flags";
             seen[seen_count] = flag.long;
@@ -261,7 +261,7 @@ fn problem(args: []const []const u8) ?[]const u8 {
     if (!node.isLeaf() or node.run == null) return "must name a leaf command";
     for (node.flags) |flag| {
         // Required flags are declared by the command catalog's help metadata.
-        if (std.mem.indexOf(u8, flag.help, "(required)") == null) continue;
+        if (std.mem.find(u8, flag.help, "(required)") == null) continue;
         var found = false;
         for (seen[0..seen_count]) |name| {
             if (std.mem.eql(u8, name, flag.long)) found = true;

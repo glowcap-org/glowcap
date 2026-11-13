@@ -8,7 +8,7 @@ pub const Manifest = staging.Manifest;
 
 /// `companion_steps` build the shared libraries the SDK ships beside its
 /// static archives, which the default install leaves out.
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, companion_steps: []const *std.Build.Step, check_step: *std.Build.Step, manifest: Manifest) void {
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, version: std.SemanticVersion, companion_steps: []const *std.Build.Step, check_step: *std.Build.Step, manifest: Manifest) void {
     productPreset(b, target);
     portablePackages(b, version);
     const manifest_tests = staging.addManifestTests(b);
@@ -103,7 +103,7 @@ fn productPreset(b: *std.Build, target: std.Build.ResolvedTarget) void {
     // in its fixed configuration, preserving the caller's target, prefix, and
     // cache root. The environment front owns the lease across both builds.
     const run = commands.addRootedSystemCommand(b, .build_tool, &.{
-        b.graph.zig_exe, "build", "glowcap-install", "-Doptimize=ReleaseSafe", "-Dcpu=baseline", "--cache-dir",
+        b.graph.zig_exe, "build", "glowcap-install", "-Doptimize=safe", "-Dcpu=baseline", "--cache-dir",
     });
     run.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
     run.addArg("--prefix");
@@ -121,9 +121,9 @@ fn hostTargetFailure(b: *std.Build, target: std.Build.ResolvedTarget) ?[]const u
     return null;
 }
 
-fn gate(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, step: *std.Build.Step, proof: *std.Build.Step) void {
+fn gate(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, step: *std.Build.Step, proof: *std.Build.Step) void {
     if (optimize == .debug) {
-        step.dependOn(&b.addFail("release packages refuse Debug; pass -Doptimize=ReleaseSafe").step);
+        step.dependOn(&b.addFail("release packages refuse Debug; pass -Doptimize=safe").step);
     } else if (hostTargetFailure(b, target)) |reason| {
         step.dependOn(&b.addFail(reason).step);
     } else if (!target.query.cpu_model.eql(.baseline) or !target.query.cpu_features_add.isEmpty()) {

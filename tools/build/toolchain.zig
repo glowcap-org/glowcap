@@ -105,7 +105,7 @@ pub fn register(
     check_step: *std.Build.Step,
     runtime_gate: *execution.RuntimeGate,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) void {
     const verdict = toolchain_check.create(b, check_step, &in_tree_runtimes);
     const step = b.step("toolchain-check", "Hold `zig build check` to the external runtimes it declares, and to their presence here");
@@ -122,7 +122,7 @@ pub fn register(
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/check/toolchain_present.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const present_run = execution.addArtifact(b, .{ .deterministic = 10 }, present);

@@ -133,7 +133,7 @@ pub fn checkDurablePinWriters(
     for (verbs) |verb| {
         const declaring_source = try readOrReport(io, gpa, root, violations, verb.declared_in);
         defer if (declaring_source) |bytes| gpa.free(bytes);
-        if (declaring_source != null and std.mem.indexOf(u8, declaring_source.?, verb.declaration) == null) {
+        if (declaring_source != null and std.mem.find(u8, declaring_source.?, verb.declaration) == null) {
             try appendViolation(
                 gpa,
                 violations,
@@ -144,7 +144,7 @@ pub fn checkDurablePinWriters(
         for (verb.speakers) |speaker| {
             const source = try readOrReport(io, gpa, root, violations, speaker) orelse continue;
             defer gpa.free(source);
-            if (std.mem.indexOf(u8, source, verb.call) != null) continue;
+            if (std.mem.find(u8, source, verb.call) != null) continue;
             try appendViolation(
                 gpa,
                 violations,
@@ -156,7 +156,7 @@ pub fn checkDurablePinWriters(
             .none_because => {},
             .entry => |entry| {
                 const header = header_source orelse continue;
-                const published = std.mem.indexOf(u8, header, entry) != null;
+                const published = std.mem.find(u8, header, entry) != null;
                 if (published) continue;
                 try appendViolation(
                     gpa,
@@ -182,7 +182,7 @@ pub fn checkDurablePinWriters(
         };
         defer gpa.free(contents);
         for (verbs) |verb| {
-            if (std.mem.indexOf(u8, contents, verb.call) == null) continue;
+            if (std.mem.find(u8, contents, verb.call) == null) continue;
             try appendViolation(
                 gpa,
                 violations,
@@ -200,7 +200,7 @@ pub fn checkDurablePinWriters(
             if (std.mem.eql(u8, path, this_check)) return;
 
             for (verbs) |verb| {
-                if (std.mem.indexOf(u8, contents, verb.call) == null) continue;
+                if (std.mem.find(u8, contents, verb.call) == null) continue;
                 var allowed = false;
                 for (verb.speakers) |speaker| {
                     if (std.mem.eql(u8, path, speaker)) allowed = true;
@@ -223,7 +223,7 @@ pub fn checkDurablePinWriters(
 /// Zig sources only, and not a vendored dependency's: those carry no glowcap
 /// rule, and skipping them by name keeps the walk from reading their sources.
 fn keepFirstPartyZig(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, ".zig") and std.mem.indexOf(u8, path, "node_modules/") == null;
+    return std.mem.endsWith(u8, path, ".zig") and std.mem.find(u8, path, "node_modules/") == null;
 }
 
 /// A file the check must read, or null after a violation that names it and

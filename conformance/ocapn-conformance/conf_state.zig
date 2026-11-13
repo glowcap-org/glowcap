@@ -40,7 +40,7 @@ pub const STURDYREF_ENLIVENER = "gi02I1qghIwPiKGKleCQAOhpy3ZtYRpB";
 /// no lock.
 pub const AddrTable = struct {
     allocator: std.mem.Allocator,
-    entries: std.StringHashMapUnmanaged([]u8) = .{},
+    entries: std.StringHashMapUnmanaged([]u8) = .empty,
 
     /// Record or replace `uuid`'s address. On failure the table is as it was.
     pub fn put(self: *AddrTable, uuid: []const u8, hostport: []const u8) !void {
@@ -133,7 +133,7 @@ pub const ConfCtx = struct {
     shared: *Shared,
     session: *HostSession,
     host_serve_options: driver.core.ServeOptions,
-    resolver_map: std.AutoHashMapUnmanaged(u64, engine.AnswerTarget) = .{},
+    resolver_map: std.AutoHashMapUnmanaged(u64, engine.AnswerTarget) = .empty,
 };
 
 /// A gifter enliven waiting for an exporter session to open before its fetch
@@ -178,22 +178,22 @@ pub const Shared = struct {
     runtime: *driver.HostRuntime,
     /// Per-session conformance state, keyed by session. Only accepted sessions
     /// (desks) register here, dialed exporter/redeem legs never do.
-    confs: std.AutoHashMapUnmanaged(PeerHandle, *ConfCtx) = .{},
+    confs: std.AutoHashMapUnmanaged(PeerHandle, *ConfCtx) = .empty,
     /// Gifter enlivens whose exporter session was not yet open when the enliven
     /// arrived, drained in `on_open`.
-    pending: std.ArrayListUnmanaged(PendingEnliven) = .empty,
+    pending: std.ArrayList(PendingEnliven) = .empty,
     /// Host-driving effects held until the before-serve callback latch opens.
-    deferred: std.ArrayListUnmanaged(DeferredAction) = .empty,
+    deferred: std.ArrayList(DeferredAction) = .empty,
     /// Exact failure from a callback that has no return slot. Drained after
     /// the step that raised it, so a gifter intercept cannot vanish as success.
     callback_err: ?anyerror = null,
     /// Sessions the listener accepted or a gifter dial opened during a step,
     /// set up once the step unwinds. The runtime pauses each one's inbound at
     /// open, so setup always precedes the partner's first delivery.
-    accepted: std.ArrayListUnmanaged(*HostSession) = .empty,
-    dialed: std.ArrayListUnmanaged(*HostSession) = .empty,
+    accepted: std.ArrayList(*HostSession) = .empty,
+    dialed: std.ArrayList(*HostSession) = .empty,
     /// Every session this peer owns, released once its wire closes.
-    owned: std.ArrayListUnmanaged(*HostSession) = .empty,
+    owned: std.ArrayList(*HostSession) = .empty,
 
     pub fn noteCallbackErr(self: *Shared, err: anyerror) void {
         if (self.callback_err == null) self.callback_err = err;

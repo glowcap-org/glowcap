@@ -131,8 +131,8 @@ test "a shortened deliver moves to the new position and stays on one wire" {
     try std.testing.expectEqual(@as(u64, 5), before_body.deliver.target.near.export_position.int());
     try std.testing.expectEqual(@as(u64, 6), after_body.deliver.target.near.export_position.int());
     try std.testing.expect(peer.session_state.holdsImport(.from(6)));
-    try std.testing.expect(std.mem.indexOf(u8, before.storage, "before") != null);
-    try std.testing.expect(std.mem.indexOf(u8, after.storage, "after") != null);
+    try std.testing.expect(std.mem.find(u8, before.storage, "before") != null);
+    try std.testing.expect(std.mem.find(u8, after.storage, "after") != null);
 }
 
 test "a delayed shortening callback cannot rewrite a reused import position" {

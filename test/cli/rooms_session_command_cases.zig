@@ -86,7 +86,7 @@ test "Rooms grammar rejects repeated single values and unknown flags before hand
     cli.argv.test_stdout_capture.reset();
     try std.testing.expectEqual(@as(u8, 0), try cli.cmd.dispatch(&team_root, &ctx, &.{ "start", "--help" }));
     const help = cli.argv.test_stdout_capture.captured();
-    try std.testing.expect(std.mem.indexOf(u8, help, "--member") != null);
-    try std.testing.expect(std.mem.indexOf(u8, help, "--room") != null);
+    try std.testing.expect(std.mem.find(u8, help, "--member") != null);
+    try std.testing.expect(std.mem.find(u8, help, "--room") != null);
     try std.testing.expect(last == null);
 }

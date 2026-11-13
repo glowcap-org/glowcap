@@ -29,29 +29,29 @@ fn run(ctx: *Ctx, parsed: *types.Parsed) !u8 {
             return error.Usage;
         };
         if (home.len == 0) return error.Usage;
-        break :blk try std.fs.path.join(gpa, &.{ home, ".local" });
+        break :blk try std.Io.Dir.path.join(gpa, &.{ home, ".local" });
     };
     if (destination.len == 0) return error.Usage;
     const selected = @import("../operability/signals.zig").interruptible([]const u8, ctx.io, install, .{ ctx.io, gpa, root, destination }) catch |err| {
         log.err(ctx.io, "installation failed: {s}. Existing installations were not replaced", .{@errorName(err)});
         return 1;
     };
-    try @import("../argv.zig").writeStdout(ctx.io, try std.fmt.allocPrint(gpa, "Installed {s}\nAdd {s} to PATH. Previous versions remain under {s}/lib/glowcap.\n", .{ selected, std.fs.path.dirname(selected).?, destination }));
+    try @import("../argv.zig").writeStdout(ctx.io, try gpa.print("Installed {s}\nAdd {s} to PATH. Previous versions remain under {s}/lib/glowcap.\n", .{ selected, std.Io.Dir.path.dirname(selected).?, destination }));
     return 0;
 }
 
 pub fn install(io: Io, gpa: std.mem.Allocator, source: []const u8, destination: []const u8) ![]const u8 {
     const cwd = Io.Dir.cwd();
     const current = try std.process.currentPathAlloc(io, gpa);
-    const root = try std.fs.path.resolve(gpa, &.{ current, destination });
-    const managed = try std.fs.path.join(gpa, &.{ root, "lib/glowcap" });
-    const link = try std.fs.path.join(gpa, &.{ root, "bin/glowcap" });
+    const root = try std.Io.Dir.path.resolve(gpa, &.{ current, destination });
+    const managed = try std.Io.Dir.path.join(gpa, &.{ root, "lib/glowcap" });
+    const link = try std.Io.Dir.path.join(gpa, &.{ root, "bin/glowcap" });
     const input = try cwd.openDir(io, source, .{});
     defer input.close(io);
     const bytes = try input.readFileAlloc(io, manifest.filename, gpa, .limited(4 * 1024 * 1024));
     const entries = try manifest.parse(gpa, bytes);
     const id = manifest.identity(bytes);
-    const generation = try std.fs.path.join(gpa, &.{ managed, &id });
+    const generation = try std.Io.Dir.path.join(gpa, &.{ managed, &id });
     try paths.ensureDirPath(io, managed);
     var lock = try @import("../operability/state_lock.zig").tryAcquire(io, managed);
     defer lock.deinit();
@@ -65,7 +65,7 @@ pub fn install(io: Io, gpa: std.mem.Allocator, source: []const u8, destination: 
         error.FileNotFound => {
             var random: [16]u8 = undefined;
             try io.randomSecure(&random);
-            const stage = try std.fmt.allocPrint(gpa, "{s}/.install-{s}", .{ managed, std.fmt.bytesToHex(random, .lower) });
+            const stage = try gpa.print("{s}/.install-{s}", .{ managed, std.fmt.bytesToHex(random, .lower) });
             try cwd.createDir(io, stage, .fromMode(0o755));
             defer cwd.deleteTree(io, stage) catch |cleanup_err| {
                 log.err(io, "could not remove temporary installation {s}: {s}", .{ stage, @errorName(cleanup_err) });
@@ -79,10 +79,10 @@ pub fn install(io: Io, gpa: std.mem.Allocator, source: []const u8, destination: 
     }
     try paths.ensureParentDir(io, link);
     try refuseForeignLink(io, link);
-    const target = try std.fmt.allocPrint(gpa, "../lib/glowcap/{s}/bin/glowcap", .{id});
+    const target = try gpa.print("../lib/glowcap/{s}/bin/glowcap", .{id});
     var random: [16]u8 = undefined;
     try io.randomSecure(&random);
-    const pending = try std.fmt.allocPrint(gpa, "{s}/bin/.glowcap-{s}", .{ root, std.fmt.bytesToHex(random, .lower) });
+    const pending = try gpa.print("{s}/bin/.glowcap-{s}", .{ root, std.fmt.bytesToHex(random, .lower) });
     try cwd.symLink(io, target, pending, .{});
     defer cwd.deleteFile(io, pending) catch |err| {
         if (err != error.FileNotFound) log.err(io, "could not remove temporary selection {s}: {s}", .{ pending, @errorName(err) });
@@ -122,7 +122,7 @@ fn copyVerified(io: Io, input: Io.Dir, output: Io.Dir, bytes: []const u8, entrie
 }
 
 fn refuseForeignLink(io: Io, path: []const u8) !void {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const n = Io.Dir.cwd().readLink(io, path, &buf) catch |err| switch (err) {
         error.FileNotFound => return,
         else => return error.UnmanagedExecutable,

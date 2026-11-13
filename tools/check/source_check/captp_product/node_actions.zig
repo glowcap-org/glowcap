@@ -86,36 +86,36 @@ fn compare(
     pump_src: []const u8,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const action_at = std.mem.indexOf(u8, action_src, "pub const Action = union(enum)") orelse {
+    const action_at = std.mem.find(u8, action_src, "pub const Action = union(enum)") orelse {
         try appendViolation(gpa, violations, "src/ocapn/engine/node/actions.zig: Node.Action union missing", .{});
         return;
     };
     const action_body = action_src[action_at..];
-    const action_end = std.mem.indexOf(u8, action_body, "\n};") orelse action_body.len;
+    const action_end = std.mem.find(u8, action_body, "\n};") orelse action_body.len;
     var actual_count: usize = 0;
     var action_lines = std.mem.splitScalar(u8, action_body[0..action_end], '\n');
     while (action_lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, "    ") or
             std.mem.startsWith(u8, line, "        ") or
             std.mem.startsWith(u8, line, "    ///")) continue;
-        if (std.mem.indexOfScalar(u8, line, ':') != null) actual_count += 1;
+        if (std.mem.findScalar(u8, line, ':') != null) actual_count += 1;
     }
     if (actual_count != tags.len)
         try appendViolation(gpa, violations, "src/ocapn/engine/node/actions.zig: Node.Action has {d} tags; exact supported inventory has {d}", .{ actual_count, tags.len });
-    const exec_at = std.mem.indexOf(u8, pump_src, "fn execNodeAction") orelse {
+    const exec_at = std.mem.find(u8, pump_src, "fn execNodeAction") orelse {
         try appendViolation(gpa, violations, "src/driver/core/host/pump.zig: execNodeAction missing", .{});
         return;
     };
     const exec_body = pump_src[exec_at..];
-    const exec_end = std.mem.indexOf(u8, exec_body, "\n}") orelse exec_body.len;
+    const exec_end = std.mem.find(u8, exec_body, "\n}") orelse exec_body.len;
     for (tags) |tag| {
         var declaration_buf: [64]u8 = undefined;
-        const declaration = std.fmt.bufPrint(&declaration_buf, "\n    {s}:", .{tag}) catch unreachable;
+        const declaration = std.mem.print(&declaration_buf, "\n    {s}:", .{tag}) catch unreachable;
         var arm_buf: [64]u8 = undefined;
-        const arm = std.fmt.bufPrint(&arm_buf, ".{s} =>", .{tag}) catch unreachable;
-        if (std.mem.indexOf(u8, action_body[0..action_end], declaration) == null)
+        const arm = std.mem.print(&arm_buf, ".{s} =>", .{tag}) catch unreachable;
+        if (std.mem.find(u8, action_body[0..action_end], declaration) == null)
             try appendViolation(gpa, violations, "src/ocapn/engine/node/actions.zig: Node.Action missing tag `{s}`", .{tag});
-        if (std.mem.indexOf(u8, exec_body[0..exec_end], arm) == null)
+        if (std.mem.find(u8, exec_body[0..exec_end], arm) == null)
             try appendViolation(gpa, violations, "src/driver/core/host/pump.zig: execNodeAction missing arm for Node.Action.{s}", .{tag});
     }
 }
@@ -147,7 +147,7 @@ test "missing Node action executor arm is rejected" {
     }
     try compare(std.testing.allocator, action_src, pump_src, &violations);
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "release_capability") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "release_capability") != null);
 }
 
 test "extra Node action tag is rejected" {
@@ -179,5 +179,5 @@ test "extra Node action tag is rejected" {
     }
     try compare(std.testing.allocator, action_src, pump_src, &violations);
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "exact supported inventory") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "exact supported inventory") != null);
 }

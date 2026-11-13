@@ -9,7 +9,7 @@ sources:
 
 The benchmarks measure what glowcap costs. They never decide behavior, which
 is the tests' job. [Application build steps](../docs/build-steps-apps.md) lists every `bench-*`
-step. Absolute figures come from `-Doptimize=ReleaseFast` runs, and a smoke
+step. Absolute figures come from `-Doptimize=fast` runs, and a smoke
 run only proves a bench still runs.
 
 Record the date, source revision, hardware
@@ -146,7 +146,7 @@ result:
 unshare -Urn sh -eu -c '
 ulimit -n 524288
 ip link set lo up
-exec zig build -Doptimize=ReleaseFast bench-peer-scaling -- --live --live-max=500000
+exec zig build -Doptimize=fast bench-peer-scaling -- --live --live-max=500000
 '
 ```
 

@@ -226,7 +226,7 @@ class ReleaseBuild(unittest.TestCase):
                         continue
                     expected = [
                         "build",
-                        "-Doptimize=ReleaseSafe",
+                        "-Doptimize=safe",
                         "c-sdk-pack",
                         "glowcap-pack",
                         "-Dcpu=baseline",

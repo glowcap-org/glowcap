@@ -52,7 +52,7 @@ pub fn expectSymlink(
         return;
     }
 
-    var buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const len = root.readLink(io, path, &buffer) catch |err| {
         try appendViolation(gpa, violations, "{s}: expected symlink to {s}, readLink failed with {s}", .{
             path,
@@ -106,13 +106,13 @@ pub fn checkCursorRuleOverlay(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
+        if (std.mem.findScalar(u8, entry.path, '/') != null) continue;
         if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
 
         canonical_count += 1;
         const stem = entry.path[0 .. entry.path.len - ".md".len];
-        const cursor_path = try std.fmt.allocPrint(gpa, ".cursor/rules/{s}.mdc", .{stem});
-        const expected_target = try std.fmt.allocPrint(gpa, "../../.agents/rules/{s}", .{entry.path});
+        const cursor_path = try gpa.print(".cursor/rules/{s}.mdc", .{stem});
+        const expected_target = try gpa.print("../../.agents/rules/{s}", .{entry.path});
 
         try expectSymlink(io, gpa, root, violations, cursor_path, expected_target);
     }
@@ -127,7 +127,7 @@ pub fn checkCursorRuleOverlay(
     var cursor_walker = try cursor_rules.walk(gpa);
     defer cursor_walker.deinit();
     while (try cursor_walker.next(io)) |entry| {
-        if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
+        if (std.mem.findScalar(u8, entry.path, '/') != null) continue;
         if (!std.mem.endsWith(u8, entry.path, ".mdc")) {
             try appendViolation(gpa, violations, ".cursor/rules/{s}: Cursor rule overlay must contain only .mdc symlinks", .{entry.path});
             continue;
@@ -142,8 +142,8 @@ pub fn checkCursorRuleOverlay(
         }
 
         const stem = entry.path[0 .. entry.path.len - ".mdc".len];
-        const expected_target = try std.fmt.allocPrint(gpa, "../../.agents/rules/{s}.md", .{stem});
-        var buffer: [std.fs.max_path_bytes]u8 = undefined;
+        const expected_target = try gpa.print("../../.agents/rules/{s}.md", .{stem});
+        var buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const target_len = cursor_rules.readLink(io, entry.path, &buffer) catch |err| {
             try appendViolation(gpa, violations, ".cursor/rules/{s}: readLink failed with {s}", .{ entry.path, @errorName(err) });
             continue;
@@ -157,7 +157,7 @@ pub fn checkCursorRuleOverlay(
             });
         }
 
-        const canonical_path = try std.fmt.allocPrint(gpa, ".agents/rules/{s}.md", .{stem});
+        const canonical_path = try gpa.print(".agents/rules/{s}.md", .{stem});
         root.access(io, canonical_path, .{}) catch |err| {
             try appendViolation(gpa, violations, ".cursor/rules/{s}: canonical rule {s} is not accessible ({s})", .{
                 entry.path,

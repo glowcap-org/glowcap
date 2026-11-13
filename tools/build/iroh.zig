@@ -21,7 +21,7 @@ const layerIndex = root_build.layerIndex;
 pub fn abiModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     model_mod: *std.Build.Module,
     net_mod: *std.Build.Module,
     c_abi_shared_mod: *std.Build.Module,
@@ -38,7 +38,7 @@ pub fn abiModule(
 pub const AbiContext = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     version: std.SemanticVersion,
     model_mod: *std.Build.Module,
     net_mod: *std.Build.Module,
@@ -107,7 +107,7 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
 pub const StepsContext = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     abi_version: std.SemanticVersion,
     lib_mod: *std.Build.Module,
     host_mods: []*std.Build.Module,
@@ -130,7 +130,7 @@ pub const StepsRegistration = struct {
 
 /// The iroh resident (`src/net/transport/iroh.zig`) over one layer graph:
 /// the host graph for every gate, the profiled graph for `profile-transports`.
-fn residentModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mods: []*std.Build.Module) *std.Build.Module {
+fn residentModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, mods: []*std.Build.Module) *std.Build.Module {
     const mod = b.createModule(.{ .root_source_file = b.path("src/net/transport/iroh.zig"), .target = target, .optimize = optimize });
     inline for (.{ "foundation", "model", "engine", "net" }) |layer| mod.addImport(layer, mods[layerIndex(layer)]);
     return mod;
@@ -138,7 +138,7 @@ fn residentModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
 
 /// Publish the resident with its Cargo-built sidecar. Repository checks use
 /// a separate unlinked resident so compile-only gates do not invoke Cargo.
-pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mods: []*std.Build.Module, archive: std.Build.LazyPath) void {
+pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, mods: []*std.Build.Module, archive: std.Build.LazyPath) void {
     const published_iroh_mod = b.addModule("glowcap_iroh", .{
         .root_source_file = b.path("src/net/transport/iroh.zig"),
         .target = target,
@@ -469,7 +469,7 @@ pub fn linkIrohSidecar(
 pub fn irohDriverModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
+    o: std.lang.Optimize,
     lib_mod: *std.Build.Module,
     resident: *std.Build.Module,
     root_source: []const u8,

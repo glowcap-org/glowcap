@@ -11,7 +11,7 @@ pub const Pair = [2]u16;
 
 /// Parse the value after `--pin=`: two decimal core numbers joined by a comma.
 pub fn parsePair(text: []const u8) !Pair {
-    const comma = std.mem.indexOfScalar(u8, text, ',') orelse return error.PinWantsTwoCores;
+    const comma = std.mem.findScalar(u8, text, ',') orelse return error.PinWantsTwoCores;
     return .{
         try std.fmt.parseInt(u16, text[0..comma], 10),
         try std.fmt.parseInt(u16, text[comma + 1 ..], 10),

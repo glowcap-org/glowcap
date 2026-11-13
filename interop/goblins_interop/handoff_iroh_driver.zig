@@ -53,7 +53,7 @@ pub fn main(init: std.process.Init) !void {
 
     const introducer = try gifter.fetch(swiss);
     const refreshed = try expectFulfilled(try gifter.call(introducer, "refresh-exporter", &.{}, arena));
-    if (refreshed != .string or std.mem.indexOf(u8, refreshed.string, ",127.0.0.1:1") == null)
+    if (refreshed != .string or std.mem.find(u8, refreshed.string, ",127.0.0.1:1") == null)
         return error.AddressRefreshFailed;
 
     // The answer is a give naming the exporter. The call returns once this
@@ -95,6 +95,6 @@ fn expectExporterHome(gifter: *driver.Session, greeter: driver.Capability, expor
     const identity = try core.partnerIdentity(home);
     if (!std.mem.eql(u8, identity.designator, exporter_id)) return error.WrongExporter;
     if (identity.provenance != .authenticated_transport) return error.UnprovenExporter;
-    if (std.mem.indexOf(u8, identity.locator_record, ",127.0.0.1:1") == null)
+    if (std.mem.find(u8, identity.locator_record, ",127.0.0.1:1") == null)
         return error.ExporterKeptOldAdvertisement;
 }

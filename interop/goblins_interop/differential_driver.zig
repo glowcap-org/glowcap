@@ -313,7 +313,7 @@ pub fn main(init: std.process.Init) !void {
     };
 
     var port_buf: [8]u8 = undefined;
-    const port_str = try std.fmt.bufPrint(&port_buf, "{d}", .{flags.port});
+    const port_str = try std.mem.print(&port_buf, "{d}", .{flags.port});
     const hosted = try goblins_child.spawnHostAwaitSwiss(io, allocator, init.environ_map, "goblins-differential", "echo cap", &.{ host_script, host, port_str });
     var child = hosted.child;
     defer child.kill(io);

@@ -109,7 +109,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
                 .pending_value, .list, .tuple, .record => return error.UnsupportedProjection,
                 .boolean, .bytes, .symbol, .float64, .error_value => {
                     var name: [32]u8 = undefined;
-                    try scalars.invalid(&out, a, kind, try std.fmt.bufPrint(&name, "arg{d}", .{i}));
+                    try scalars.invalid(&out, a, kind, try std.mem.print(&name, "arg{d}", .{i}));
                 },
                 .integer => unreachable,
             }
@@ -119,7 +119,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
             if (kind == .bytes and scalars.bounded(kind.bytes)) {
                 var name: [32]u8 = undefined;
                 try out.print(a, "{s}if (", .{indent});
-                try scalars.byteBounds(&out, a, kind.bytes, try std.fmt.bufPrint(&name, "arg{d}", .{i}));
+                try scalars.byteBounds(&out, a, kind.bytes, try std.mem.print(&name, "arg{d}", .{i}));
                 try out.appendSlice(a, ") throw new TypeError(\"byte argument outside bounds\");\n");
             }
             if (optional) try out.appendSlice(a, "\t}\n");

@@ -12,5 +12,5 @@ pub fn appendViolation(
     comptime fmt: []const u8,
     args: anytype,
 ) !void {
-    try violations.append(gpa, try std.fmt.allocPrint(gpa, fmt, args));
+    try violations.append(gpa, try gpa.print(fmt, args));
 }

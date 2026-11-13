@@ -70,7 +70,7 @@ pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
         try ctx.writeResult(out.items);
     } else {
         var buf: [512]u8 = undefined;
-        const line = try std.fmt.bufPrint(&buf, "{s}\n", .{uri});
+        const line = try std.mem.print(&buf, "{s}\n", .{uri});
         try ctx.writeResult(line);
     }
 

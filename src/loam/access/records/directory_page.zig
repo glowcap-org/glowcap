@@ -102,7 +102,7 @@ pub const DirectoryPage = struct {
         const index = self.rank(key);
         const n = self.count();
         if (self.get(key) == null) {
-            std.mem.copyBackwards(loam.Edge, self.targets[index + 1 .. n + 1], self.targets[index..n]);
+            @memmove(self.targets[index + 1 .. n + 1], self.targets[index..n]);
             self.header.mask |= @as(u256, 1) << key;
         }
         self.targets[index] = .{ .target = target, .strength = strengthFor(self.header.family, self.header.level) };
@@ -112,7 +112,7 @@ pub const DirectoryPage = struct {
         if (self.get(key) == null) return;
         const index = self.rank(key);
         const n = self.count();
-        std.mem.copyForwards(loam.Edge, self.targets[index .. n - 1], self.targets[index + 1 .. n]);
+        @memmove(self.targets[index .. n - 1], self.targets[index + 1 .. n]);
         self.header.mask &= ~(@as(u256, 1) << key);
     }
 

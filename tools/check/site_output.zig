@@ -53,9 +53,9 @@ pub fn main(init: std.process.Init) !void {
 
         inline for (.{ "href=\"", "src=\"" }) |marker| {
             var rest = html;
-            while (std.mem.indexOf(u8, rest, marker)) |at| {
+            while (std.mem.find(u8, rest, marker)) |at| {
                 const value = rest[at + marker.len ..];
-                const end = std.mem.indexOfScalar(u8, value, '"') orelse {
+                const end = std.mem.findScalar(u8, value, '"') orelse {
                     std.debug.print("site-output-check: `{s}` has an unterminated `{s}` attribute\n", .{ entry.path, marker[0 .. marker.len - 2] });
                     failures += 1;
                     break;
@@ -63,7 +63,7 @@ pub fn main(init: std.process.Init) !void {
                 const raw = value[0..end];
                 rest = value[end + 1 ..];
 
-                if (std.mem.indexOfScalar(u8, raw, '$') != null) {
+                if (std.mem.findScalar(u8, raw, '$') != null) {
                     std.debug.print("site-output-check: `{s}` contains unresolved {s}`{s}`\n", .{ entry.path, marker, raw });
                     failures += 1;
                     continue;
@@ -91,9 +91,9 @@ pub fn main(init: std.process.Init) !void {
 
 fn deploymentPrefix(home: []const u8) ?[]const u8 {
     const marker = "class=\"brand\" href=\"";
-    const at = std.mem.indexOf(u8, home, marker) orelse return null;
+    const at = std.mem.find(u8, home, marker) orelse return null;
     const value = home[at + marker.len ..];
-    const end = std.mem.indexOfScalar(u8, value, '"') orelse return null;
+    const end = std.mem.findScalar(u8, value, '"') orelse return null;
     const href = value[0..end];
     if (href.len == 0 or href[0] != '/' or href[href.len - 1] != '/') return null;
     return href;
@@ -108,7 +108,7 @@ fn targetPath(
     if (raw.len == 0 or raw[0] == '#') return null;
     if (isExternal(raw)) return null;
 
-    const query_at = std.mem.indexOfAny(u8, raw, "?#") orelse raw.len;
+    const query_at = std.mem.findAny(u8, raw, "?#") orelse raw.len;
     const path = raw[0..query_at];
     if (path.len == 0) return null;
 
@@ -117,8 +117,8 @@ fn targetPath(
         if (!std.mem.startsWith(u8, path, prefix)) return error.OutsideDeploymentPrefix;
         normalized = try gpa.dupe(u8, path[prefix.len..]);
     } else {
-        const source_dir = std.fs.path.dirname(source_path) orelse "";
-        const absolute = try std.fs.path.resolve(gpa, &.{ "/", source_dir, path });
+        const source_dir = std.Io.Dir.path.dirname(source_path) orelse "";
+        const absolute = try std.Io.Dir.path.resolve(gpa, &.{ "/", source_dir, path });
         defer gpa.free(absolute);
         std.debug.assert(absolute.len != 0 and absolute[0] == '/');
         normalized = try gpa.dupe(u8, absolute[1..]);
@@ -126,7 +126,7 @@ fn targetPath(
     errdefer gpa.free(normalized);
 
     if (normalized.len == 0 or normalized[normalized.len - 1] == '/') {
-        const target = try std.fmt.allocPrint(gpa, "{s}index.html", .{normalized});
+        const target = try gpa.print("{s}index.html", .{normalized});
         gpa.free(normalized);
         return target;
     }
@@ -135,8 +135,8 @@ fn targetPath(
 
 fn isExternal(raw: []const u8) bool {
     if (std.mem.startsWith(u8, raw, "//")) return true;
-    const colon = std.mem.indexOfScalar(u8, raw, ':') orelse return false;
-    const slash = std.mem.indexOfScalar(u8, raw, '/') orelse raw.len;
+    const colon = std.mem.findScalar(u8, raw, ':') orelse return false;
+    const slash = std.mem.findScalar(u8, raw, '/') orelse raw.len;
     return colon < slash;
 }
 

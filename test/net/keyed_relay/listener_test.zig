@@ -145,7 +145,7 @@ test "keyed-relay listener readiness clears idle hints and retains unclaimed arr
     var server = try ip.IpAddress.listen(&relay_addr, io, .{ .reuse_address = true });
     defer server.deinit(io);
     var url_buf: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(&url_buf, "ws://127.0.0.1:{d}/register", .{server.socket.address.getPort()});
+    const url = try std.mem.print(&url_buf, "ws://127.0.0.1:{d}/register", .{server.socket.address.getPort()});
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6f)));
     var resident = try keyed_relay.Resident.initRegistered(allocator, io, url, url, identity.publicKey());
     defer std.debug.assert(resident.deinit() == null);
@@ -236,7 +236,7 @@ test "keyed-relay listener setup returns the exact registration refusal" {
     var server = try ip.IpAddress.listen(&relay_addr, io, .{ .reuse_address = true });
     defer server.deinit(io);
     var url_buf: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(&url_buf, "ws://127.0.0.1:{d}/register", .{server.socket.address.getPort()});
+    const url = try std.mem.print(&url_buf, "ws://127.0.0.1:{d}/register", .{server.socket.address.getPort()});
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6b)));
     var resident = try keyed_relay.Resident.initRegistered(allocator, io, url, url, identity.publicKey());
     defer std.debug.assert(resident.deinit() == null);
@@ -280,7 +280,7 @@ test "keyed-relay listen owns a stalled initial registration asynchronously" {
     const port = server.socket.address.getPort();
 
     var url_buf: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
+    const url = try std.mem.print(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6c)));
     var resident = try keyed_relay.Resident.initRegistered(allocator, io, url, url, identity.publicKey());
     defer _ = resident.deinit();
@@ -332,7 +332,7 @@ test "keyed-relay listener close wakes and joins a parked readiness wait" {
     const port = server.socket.address.getPort();
 
     var url_buf: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
+    const url = try std.mem.print(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6d)));
     var resident = try keyed_relay.Resident.initRegistered(allocator, io, url, url, identity.publicKey());
     defer _ = resident.deinit();
@@ -408,7 +408,7 @@ test "keyed-relay listener recovers a stalled replacement without invalidating i
     const port = server.socket.address.getPort();
 
     var url_buf: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
+    const url = try std.mem.print(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6e)));
     var resident = try keyed_relay.Resident.initRegistered(allocator, io, url, url, identity.publicKey());
     var resident_live = true;

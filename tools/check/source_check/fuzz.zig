@@ -56,7 +56,7 @@ pub fn checkFuzzRegressionSeeds(
     defer freeFiles(gpa, test_files);
 
     for (test_files) |harness_path| {
-        if (!std.mem.eql(u8, std.fs.path.basename(harness_path), target_file)) continue;
+        if (!std.mem.eql(u8, std.Io.Dir.path.basename(harness_path), target_file)) continue;
         const harness = root.readFileAlloc(io, harness_path, gpa, .limited(2 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot be read for the fuzz-wiring check ({s})", .{ harness_path, @errorName(err) });
             continue;
@@ -71,7 +71,7 @@ pub fn checkFuzzRegressionSeeds(
         // target that will never take the path it was found on.
         try checkTargetsReplayRegressions(gpa, harness_path, harness, violations);
 
-        const regressions_dir = try std.fmt.allocPrint(gpa, "{s}/fuzz_regressions", .{std.fs.path.dirname(harness_path).?});
+        const regressions_dir = try gpa.print("{s}/fuzz_regressions", .{std.Io.Dir.path.dirname(harness_path).?});
         defer gpa.free(regressions_dir);
         // Git holds no empty directory, so a target without saved crashes has
         // none; the driver's copy instruction creates it with the first one.
@@ -89,9 +89,9 @@ pub fn checkFuzzRegressionSeeds(
             if (file.kind != .file) continue;
             if (!std.mem.endsWith(u8, file.name, ".bin")) continue;
 
-            const needle = try std.fmt.allocPrint(gpa, "fuzz_regressions/{s}\")", .{file.name});
+            const needle = try gpa.print("fuzz_regressions/{s}\")", .{file.name});
             defer gpa.free(needle);
-            const embed = std.mem.indexOf(u8, harness, needle) orelse {
+            const embed = std.mem.find(u8, harness, needle) orelse {
                 try appendViolation(gpa, violations, "{s}: `{s}` is not replayed. Add it to the regression seeds in {s}, or delete it.", .{ regressions_dir, file.name, harness_path });
                 continue;
             };
@@ -110,7 +110,7 @@ pub fn checkFuzzRegressionSeeds(
             // the wrong list, and a filename prefix makes that visible where
             // nothing else can.
             if (seedListCount(harness) > 1) {
-                const want = try std.fmt.allocPrint(gpa, "{s}-", .{list});
+                const want = try gpa.print("{s}-", .{list});
                 defer gpa.free(want);
                 if (!std.mem.startsWith(u8, file.name, want)) {
                     try appendViolation(gpa, violations, "{s}: `{s}` is embedded in `{s}`, but this file has more than one seed list and the name does not say which. Rename it `{s}<something>.bin`, or move it to the list its input shape belongs to.", .{ regressions_dir, file.name, list, want });
@@ -138,7 +138,7 @@ fn enclosingSeedList(source: []const u8, at: usize) ?[]const u8 {
     const opener = " = [_][]const u8{";
     var probe: usize = 0;
     var best: ?[]const u8 = null;
-    while (std.mem.indexOfPos(u8, source, probe, opener)) |hit| {
+    while (std.mem.findPos(u8, source, probe, opener)) |hit| {
         probe = hit + opener.len;
         if (hit > at) break;
         const close = matchingBrace(source, probe) orelse continue;
@@ -164,7 +164,7 @@ fn matchingBrace(source: []const u8, from: usize) ?usize {
             if (depth == 0) return i;
         },
         '/' => if (i + 1 < source.len and source[i + 1] == '/') {
-            i = std.mem.indexOfScalarPos(u8, source, i, '\n') orelse return null;
+            i = std.mem.findScalarPos(u8, source, i, '\n') orelse return null;
         },
         '"' => {
             i += 1;
@@ -186,9 +186,9 @@ test "a seed list ends at its own closing brace" {
         \\};
         \\const other = @embedFile("fuzz_regressions/outside.bin");
     ;
-    const inside = std.mem.indexOf(u8, harness, "after.bin").?;
+    const inside = std.mem.find(u8, harness, "after.bin").?;
     try std.testing.expectEqualStrings("regression_seeds", enclosingSeedList(harness, inside).?);
-    const outside = std.mem.indexOf(u8, harness, "outside.bin").?;
+    const outside = std.mem.find(u8, harness, "outside.bin").?;
     try std.testing.expect(enclosingSeedList(harness, outside) == null);
 }
 
@@ -197,7 +197,7 @@ fn seedListCount(source: []const u8) usize {
     const opener = " = [_][]const u8{";
     var count: usize = 0;
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, source, at, opener)) |hit| {
+    while (std.mem.findPos(u8, source, at, opener)) |hit| {
         at = hit + opener.len;
         var start = hit;
         while (start > 0 and text_match.isIdentChar(source[start - 1])) start -= 1;
@@ -211,7 +211,7 @@ fn seedListCount(source: []const u8) usize {
 /// substring inside it does not.
 fn mentionsSeedList(body: []const u8) bool {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, body, at, "regression_seeds")) |hit| {
+    while (std.mem.findPos(u8, body, at, "regression_seeds")) |hit| {
         at = hit + "regression_seeds".len;
         if (at >= body.len or !text_match.isIdentChar(body[at])) return true;
     }
@@ -226,7 +226,7 @@ fn mentionsSeedList(body: []const u8) bool {
 fn targetsReading(source: []const u8, name: []const u8) usize {
     var count: usize = 0;
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, source, at, target_opener)) |hit| {
+    while (std.mem.findPos(u8, source, at, target_opener)) |hit| {
         at = hit + target_opener.len;
         if (mentionsIdentifier(testBody(source, at), name)) count += 1;
     }
@@ -236,7 +236,7 @@ fn targetsReading(source: []const u8, name: []const u8) usize {
 /// Whether `haystack` contains `name` as a whole identifier.
 fn mentionsIdentifier(haystack: []const u8, name: []const u8) bool {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, haystack, at, name)) |hit| {
+    while (std.mem.findPos(u8, haystack, at, name)) |hit| {
         at = hit + name.len;
         const before_ok = hit == 0 or !text_match.isIdentChar(haystack[hit - 1]);
         const after_ok = at >= haystack.len or !text_match.isIdentChar(haystack[at]);
@@ -253,7 +253,7 @@ fn mentionsIdentifier(haystack: []const u8, name: []const u8) bool {
 /// literal, and the scan then runs to the next apostrophe, swallowing whatever
 /// braces lie between. Two targets in this tree hit exactly that.
 fn testBody(source: []const u8, at: usize) []const u8 {
-    const open = std.mem.indexOfScalarPos(u8, source, at, '{') orelse return source[0..0];
+    const open = std.mem.findScalarPos(u8, source, at, '{') orelse return source[0..0];
     var depth: usize = 0;
     var i = open;
     while (i < source.len) {
@@ -303,9 +303,9 @@ fn checkTargetsReplayRegressions(
 ) !void {
     const seeds_name = "regression_seeds";
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, source, at, target_opener)) |hit| {
+    while (std.mem.findPos(u8, source, at, target_opener)) |hit| {
         at = hit + target_opener.len;
-        const name_end = std.mem.indexOfScalarPos(u8, source, at, '"') orelse source.len;
+        const name_end = std.mem.findScalarPos(u8, source, at, '"') orelse source.len;
         const name = source[at..@min(name_end, source.len)];
         // The target's body: its own braces, not "everything until the next
         // target". A file whose last target is a five-hundred-line harness gave
@@ -313,7 +313,7 @@ fn checkTargetsReplayRegressions(
         // file, so any one target's seed list satisfied all of them, the
         // per-file check this replaced, wearing per-target clothes.
         const body = testBody(source, at);
-        if (std.mem.indexOf(u8, body, fuzz_call) == null) {
+        if (std.mem.find(u8, body, fuzz_call) == null) {
             try appendViolation(gpa, violations, "{s}: target \"{s}\" never calls `{s}`, so `zig build fuzz` selects a name that searches nothing.", .{ harness_path, name, fuzz_call });
             continue;
         }
@@ -377,8 +377,8 @@ pub fn checkFuzzTargetsAreReachable(
         const calls = std.mem.count(u8, source, fuzz_call);
         if (calls == 0) continue;
 
-        const dir = std.fs.path.dirname(path).?;
-        if (!std.mem.eql(u8, std.fs.path.basename(path), target_file)) {
+        const dir = std.Io.Dir.path.dirname(path).?;
+        if (!std.mem.eql(u8, std.Io.Dir.path.basename(path), target_file)) {
             try appendViolation(gpa, violations, "{s}: calls `{s}` but `zig build fuzz` only finds targets in files named `{s}`. Move it to {s}/{s}, or it will never be mutated.", .{ path, fuzz_call, target_file, dir, target_file });
             continue;
         }
@@ -391,10 +391,10 @@ pub fn checkFuzzTargetsAreReachable(
         // The exact import line the driver reads, relative to the root's own
         // directory. A substring of the path would let `collections/fuzz_test.zig`
         // pass for `loam/collections/fuzz_test.zig`.
-        const relative = path[(std.fs.path.dirname(fuzz_root).?.len + 1)..];
-        const import = try std.fmt.allocPrint(gpa, "@import(\"{s}\")", .{relative});
+        const relative = path[(std.Io.Dir.path.dirname(fuzz_root).?.len + 1)..];
+        const import = try gpa.print("@import(\"{s}\")", .{relative});
         defer gpa.free(import);
-        if (std.mem.indexOf(u8, fuzz_check, import) == null) {
+        if (std.mem.find(u8, fuzz_check, import) == null) {
             try appendViolation(gpa, violations, "{s}: is not imported by {s}, so it is not in the artifact the fuzzer runs and the driver never reads it. Add `_ = {s};`.", .{ path, fuzz_root, import });
         }
     }

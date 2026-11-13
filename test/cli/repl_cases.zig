@@ -65,7 +65,7 @@ test "complete suggests verbs for empty line" {
             if (std.mem.eql(u8, c.token, entry.name)) saw = true;
         }
         try std.testing.expect(saw);
-        try std.testing.expect(std.mem.indexOf(u8, cli.repl_meta.footer, entry.name) != null);
+        try std.testing.expect(std.mem.find(u8, cli.repl_meta.footer, entry.name) != null);
     }
 }
 
@@ -211,8 +211,8 @@ test "log divert captures Ctx.logErr off stderr" {
     };
     ctx.logErr("dial needs an ocapn:// locator", .{});
     if (cap.failure) |err| return err;
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "dial needs an ocapn:// locator") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "glowcap: error:") != null);
+    try std.testing.expect(std.mem.find(u8, list.items, "dial needs an ocapn:// locator") != null);
+    try std.testing.expect(std.mem.find(u8, list.items, "glowcap: error:") != null);
 }
 
 test "layout transcriptInnerH and emergency row sum" {

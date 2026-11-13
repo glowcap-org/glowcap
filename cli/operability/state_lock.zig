@@ -25,7 +25,7 @@ pub const Guard = struct {
 
 /// Directory that owns the identity file (parent of `…/identity`).
 pub fn stateDirOfIdentity(identity_path: []const u8) []const u8 {
-    return std.fs.path.dirname(identity_path) orelse ".";
+    return std.Io.Dir.path.dirname(identity_path) orelse ".";
 }
 
 /// Lock path for an identity seed.
@@ -35,30 +35,30 @@ pub fn stateDirOfIdentity(identity_path: []const u8) []const u8 {
 /// `identity`) locks `<path>.lock` beside the seed so two seeds under `/tmp`
 /// do not contend on `/tmp/lock`.
 pub fn lockPathForIdentity(buf: []u8, identity_path: []const u8) ![]const u8 {
-    const base = std.fs.path.basename(identity_path);
+    const base = std.Io.Dir.path.basename(identity_path);
     if (std.mem.eql(u8, base, "identity")) {
         const dir = stateDirOfIdentity(identity_path);
-        return try std.fmt.bufPrint(buf, "{s}/lock", .{dir});
+        return try std.mem.print(buf, "{s}/lock", .{dir});
     }
-    return try std.fmt.bufPrint(buf, "{s}.lock", .{identity_path});
+    return try std.mem.print(buf, "{s}.lock", .{identity_path});
 }
 
 fn lockPath(buf: []u8, state_dir: []const u8) ![]const u8 {
-    return try std.fmt.bufPrint(buf, "{s}/lock", .{state_dir});
+    return try std.mem.print(buf, "{s}/lock", .{state_dir});
 }
 
 /// Non-blocking exclusive acquire on `state_dir/lock`. Prefer
 /// `tryAcquireForIdentity` when the caller holds an identity path.
 pub fn tryAcquire(io: Io, state_dir: []const u8) !Guard {
     try path_io.ensureDirPath(io, state_dir);
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try lockPath(&path_buf, state_dir);
     return tryAcquirePath(io, path);
 }
 
 /// Non-blocking exclusive acquire for the identity at `identity_path`.
 pub fn tryAcquireForIdentity(io: Io, identity_path: []const u8) !Guard {
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try lockPathForIdentity(&path_buf, identity_path);
     try path_io.ensureParentDir(io, path);
     return tryAcquirePath(io, path);

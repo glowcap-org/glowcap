@@ -204,5 +204,5 @@ test "Loam C in-memory release consumes the handle when the engine close fails" 
     try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, released.code());
     var text: [160]u8 = undefined;
     const len = n.glowcap_loam_volatile_last_error(&text, text.len);
-    try std.testing.expect(std.mem.indexOf(u8, text[0..len], "Busy") != null);
+    try std.testing.expect(std.mem.find(u8, text[0..len], "Busy") != null);
 }

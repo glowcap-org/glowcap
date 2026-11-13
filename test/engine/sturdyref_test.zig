@@ -263,7 +263,7 @@ test "sturdyref FIFO survives arbitrary invalidation and dense row relocation" {
                 .kind = .object,
             });
             for (names[0 .. step + 1], 0..) |*prior, value| {
-                const retained = std.mem.indexOfScalar(usize, expected.items, value) != null;
+                const retained = std.mem.findScalar(usize, expected.items, value) != null;
                 const cached = s.sturdyrefCacheLookup(prior);
                 try std.testing.expectEqual(retained, cached != null);
                 if (cached) |entry| try std.testing.expectEqual(value + 1, entry.far.import_position.int());

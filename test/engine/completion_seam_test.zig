@@ -52,7 +52,7 @@ fn drainBuffered(peer: *engine.Peer, buf: []u8, valid_in: usize) !struct { appli
             .incomplete => break,
             .consumed => |n| {
                 applied += 1;
-                std.mem.copyForwards(u8, buf[0 .. valid - n], buf[n..valid]);
+                @memmove(buf[0 .. valid - n], buf[n..valid]);
                 valid -= n;
             },
         }

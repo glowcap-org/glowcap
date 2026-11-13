@@ -13,8 +13,8 @@ const engine = @import("mod.zig");
 const Peer = engine.Peer;
 
 pub const PreparedShortening = struct {
-    nominations: std.ArrayListUnmanaged(session.ShorteningNomination) = .empty,
-    reservations: std.ArrayListUnmanaged(engine.Peer.PendingReservation) = .empty,
+    nominations: std.ArrayList(session.ShorteningNomination) = .empty,
+    reservations: std.ArrayList(engine.Peer.PendingReservation) = .empty,
 
     pub fn abandon(self: *PreparedShortening, peer: *Peer) void {
         for (self.reservations.items) |reservation| peer.cancelPendingReservation(reservation);

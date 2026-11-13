@@ -78,7 +78,7 @@ test "an unavailable CapTP transport is named before identity creation" {
     ));
     try std.testing.expect(ctx.secret == null);
     try std.testing.expect(ctx.state_guard == null);
-    try std.testing.expect(std.mem.indexOf(u8, cli.log.test_capture.captured(), "transport 'iroh' is not available here. This CLI dials tcp. Set GLOWCAP_RENDEZVOUS") != null);
+    try std.testing.expect(std.mem.find(u8, cli.log.test_capture.captured(), "transport 'iroh' is not available here. This CLI dials tcp. Set GLOWCAP_RENDEZVOUS") != null);
 }
 
 test "listen backgrounds on the MCP front: bind now, one listener, close stops it" {
@@ -100,8 +100,8 @@ test "listen backgrounds on the MCP front: bind now, one listener, close stops i
     // background thread's.
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&c, &parsed));
     try std.testing.expect(c.background_listener != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "ocapn://") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"listening\":true") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "ocapn://") != null);
 
     // One listener per context: a second listen refuses loud.
     var second = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -252,8 +252,8 @@ test "state-dir lock is exclusive" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-lock-test-{d}", .{std.os.linux.getpid()});
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const dir = try std.mem.print(&path_buf, "/tmp/glowcap-cli-lock-test-{d}", .{std.os.linux.getpid()});
     // tolerant: a missing directory, or a stale one a prior run left, is all that is lost, and the lock assertions below would reveal a leftover.
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     // tolerant: a leftover directory in /tmp is all that is lost, and the next run clears it first.
@@ -270,7 +270,7 @@ test "stateDirOfIdentity strips the identity leaf" {
 }
 
 test "lockPathForIdentity uses state-dir lock or seed-adjacent lock" {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try std.testing.expectEqualStrings(
         "/tmp/glowcap/lock",
         try cli.state_lock.lockPathForIdentity(&buf, "/tmp/glowcap/identity"),
@@ -312,16 +312,16 @@ test "info succeeds under state-dir lock with preset identity path" {
     defer runtime.deinit();
     const io = runtime.io();
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-info-{d}", .{std.os.linux.getpid()});
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const dir = try std.mem.print(&path_buf, "/tmp/glowcap-cli-info-{d}", .{std.os.linux.getpid()});
     // tolerant: a missing directory, or a stale one a prior run left, is all that is lost, and createDirPath below starts from what remains.
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     // tolerant: a leftover directory in /tmp is all that is lost, and the next run clears it first.
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
-    var id_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const id_path = try std.fmt.bufPrint(&id_buf, "{s}/identity", .{dir});
+    var id_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const id_path = try std.mem.print(&id_buf, "{s}/identity", .{dir});
 
     var c = makeCtx(io, gpa, &runtime.environ);
     defer c.deinit();
@@ -339,9 +339,9 @@ test "info succeeds under state-dir lock with preset identity path" {
     const code = try cli.ocapn.cmdInfo(&c, &parsed);
     try std.testing.expectEqual(cli.exit_codes.ok, code);
     try std.testing.expect(c.state_guard != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"ok\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"front\":\"argv\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"path\":") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"ok\":true") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"front\":\"argv\"") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"path\":") != null);
 }
 
 test "mcp lifecycle defaults are finite" {
@@ -362,8 +362,8 @@ test "an unwritable state directory is refused as an identity problem, not a dia
     defer runtime.deinit();
     const io = runtime.io();
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-ro-{d}", .{std.os.linux.getpid()});
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const dir = try std.mem.print(&path_buf, "/tmp/glowcap-cli-ro-{d}", .{std.os.linux.getpid()});
     // tolerant: a missing directory, or a stale one a prior run left, is all that is lost, and the read-only assertions below would reveal a leftover.
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     defer {
@@ -375,9 +375,9 @@ test "an unwritable state directory is refused as an identity problem, not a dia
 
     // A path one level below a directory that refuses new entries, so both the
     // lock and the mint fail the way an unwritable home does.
-    var id_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const id_path = try std.fmt.bufPrint(&id_buf, "{s}/sub/identity", .{dir});
-    var dir_z: [std.fs.max_path_bytes]u8 = undefined;
+    var id_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const id_path = try std.mem.print(&id_buf, "{s}/sub/identity", .{dir});
+    var dir_z: [std.Io.Dir.max_path_bytes]u8 = undefined;
     @memcpy(dir_z[0..dir.len], dir);
     dir_z[dir.len] = 0;
     if (std.os.linux.chmod(@ptrCast(&dir_z), 0o500) != 0) return error.SkipZigTest;
@@ -422,7 +422,7 @@ test "listen --rendezvous reaches the background front, not just argv" {
     try parsed.setString("rendezvous-relay", "ws://127.0.0.1:1/relay");
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&c, &parsed));
     try std.testing.expect(c.background_listener != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "keyed-relay") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "keyed-relay") != null);
     try std.testing.expect(c.closeBackgroundListener() == null);
     try std.testing.expect(c.background_listener == null);
 
@@ -469,14 +469,14 @@ test "info reports a background listener that died on its own" {
     var info_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer info_parsed.deinit();
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":true") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"listening\":true") != null);
 
     // Simulate the loop stopping by itself, the way a relay drop would.
     c.background_listener.?.stop_reason.store("ConnectionLost", .release);
     capture.clearRetainingCapacity();
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":false") != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "ConnectionLost") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"listening\":false") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "ConnectionLost") != null);
 
     // The benign stop reports the same way: a one-partner listener that
     // served its partner is not listening, and says why, rather than
@@ -485,15 +485,15 @@ test "info reports a background listener that died on its own" {
     c.background_listener.?.stop_reason.store(lb.Handle.served_stop, .release);
     capture.clearRetainingCapacity();
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":false") != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "served its one partner") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"listening\":false") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "served its one partner") != null);
 
     // Human output carries the same lifecycle truth as JSON output.
     c.json = .human;
     capture.clearRetainingCapacity();
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "listening: false") != null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "listener_stopped: served its one partner") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "listening: false") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "listener_stopped: served its one partner") != null);
 }
 
 test "close composition keeps the primary and notes cleanup as a consequence" {
@@ -535,7 +535,7 @@ test "close keeps accept-thread listener failure as the command outcome" {
     defer close_parsed.deinit();
     try std.testing.expectEqual(cli.exit_codes.dial, try cli.ocapn.cmdClose(&c, &close_parsed));
     try std.testing.expect(c.background_listener == null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "SocketConfigurationFailed") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "SocketConfigurationFailed") != null);
 
     // Consuming: a second close has no listener left to retry.
     capture.clearRetainingCapacity();

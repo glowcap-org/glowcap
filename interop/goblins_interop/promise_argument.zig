@@ -209,7 +209,7 @@ pub fn receiveFromGoblins(init: std.process.Init) !void {
     defer server.deinit();
     var designator_buf: [64]u8 = undefined;
     const designator = try server.localDesignator(&designator_buf);
-    const port_text = designator[(std.mem.lastIndexOfScalar(u8, designator, ':') orelse return error.BadDesignator) + 1 ..];
+    const port_text = designator[(std.mem.findScalarLast(u8, designator, ':') orelse return error.BadDesignator) + 1 ..];
 
     var shared: Shared = .{ .host = server.runtime.core };
     var done = std.atomic.Value(bool).init(false);
@@ -231,7 +231,7 @@ pub fn receiveFromGoblins(init: std.process.Init) !void {
         goblins_child.dumpChildStderr(io, "goblins-interop", &child);
         return error.AnswerArgumentNeverSettled;
     };
-    const verdict_ok = std.mem.indexOf(u8, line, "ANSWER ARG OK") != null;
+    const verdict_ok = std.mem.find(u8, line, "ANSWER ARG OK") != null;
     std.debug.print("goblins-interop: {s}\n", .{line});
     if (!verdict_ok) goblins_child.dumpChildStderr(io, "goblins-interop", &child);
     child.kill(io);

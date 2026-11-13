@@ -140,6 +140,6 @@ pub const ImportedPromise = struct {
     settling_listener_claimed: bool = false,
     settling_listener_export: model.ExportPosition = .from(0),
     settling_answer: ?model.AnswerPosition = null,
-    settling_followers: std.ArrayListUnmanaged(answers.OutboundAnswerTarget) = .empty,
+    settling_followers: std.ArrayList(answers.OutboundAnswerTarget) = .empty,
     settling_node_claimed: bool = false,
 };

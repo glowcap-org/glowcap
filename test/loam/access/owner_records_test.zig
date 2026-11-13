@@ -45,7 +45,7 @@ test "access owner refuses the prerelease vocabulary encoding without a dependen
     const policy = try f.core.Policy.init(.{ .id = @fromBackingInt(1), .permissions = &.{} });
     const payload = try (records.OwnerRecord{ .owner = @fromBackingInt(71), .policy = policy }).encodeAlloc(a);
     defer a.free(payload);
-    const position = std.mem.indexOf(u8, payload, "[]").?;
+    const position = std.mem.find(u8, payload, "[]").?;
     const old = try a.alloc(u8, payload.len - 2);
     defer a.free(old);
     @memcpy(old[0..position], payload[0..position]);

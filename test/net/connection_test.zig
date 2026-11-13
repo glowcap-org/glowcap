@@ -352,7 +352,7 @@ test "encodeAndFlush drains the projected abort to the wire when stepToIdle fail
 
     // The fail-loud `op:abort` reached the wire (the contract's whole point), and
     // the typed session-domain cause stays readable through `lastAbort`.
-    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "op:abort") != null);
+    try std.testing.expect(std.mem.find(u8, writer.buffered(), "op:abort") != null);
     const cause = peer.lastAbort().?;
     try std.testing.expectEqual(engine.abort_projection.Domain.session, cause.domain);
 }

@@ -153,7 +153,7 @@ test "relay route corpus pins Zig admission and byte-exact request targets" {
     for (parsed.value.accepted) |case| {
         const url = try keyed_relay.RelayUrl.parse(case.route);
         const request = url.openRequest(.rendezvous, parsed.value.designator);
-        const target = try std.fmt.allocPrint(std.testing.allocator, "{s}{s}{c}{s}={s}", .{
+        const target = try std.testing.allocator.print("{s}{s}{c}{s}={s}", .{
             request.path(),
             request.fixedQueryPrefix(),
             request.queryJoin(),
@@ -242,7 +242,7 @@ test "secure relay keeps upgrade primary ahead of TLS cleanup refusal" {
     var accepted = try io.concurrent(refuseIdentityTlsUpgrade, .{ io, &server });
 
     var url_buffer: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(&url_buffer, "wss://127.0.0.1:{d}/relay", .{server.socket.address.getPort()});
+    const url = try std.mem.print(&url_buffer, "wss://127.0.0.1:{d}/relay", .{server.socket.address.getPort()});
     var identity_tls = IdentityTls{ .refuse_client_close = true };
     var tls_runtime = identity_tls.runtime();
     var resident = try keyed_relay.Resident.initProfileWithTls(
@@ -284,7 +284,7 @@ test "secure relay composes injected TLS below the one WebSocket upgrade" {
     var accepted = try io.concurrent(acceptIdentityTls, .{ io, &server });
 
     var url_buffer: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_buffer,
         "wss://127.0.0.1:{d}/relay",
         .{server.socket.address.getPort()},
@@ -476,7 +476,7 @@ test "resident DNS dial preserves the exact WebSocket refusal" {
     errdefer if (!server_future_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_buffer,
         "ws://localhost:{d}/relay",
         .{server.socket.address.getPort()},

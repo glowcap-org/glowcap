@@ -260,7 +260,7 @@ const Graph = struct {
     }
 
     fn noteSites(self: *Graph, line: []const u8, owner: []const u8) !void {
-        if (std.mem.indexOf(u8, line, "glowcap_host_") == null) return;
+        if (std.mem.find(u8, line, "glowcap_host_") == null) return;
         for (self.verbs) |verb| {
             // Boundary-matched, so `…_publish` is not read out of
             // `…_published_ref`.

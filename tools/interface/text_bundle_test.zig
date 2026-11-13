@@ -65,7 +65,7 @@ test "imported container child errors keep the child source position" {
     var input = try bundle(a, &diagnostic, source, invalid, false);
     try std.testing.expectError(error.InvalidDescription, input.translate());
     try std.testing.expectEqualStrings("shared/loam.interface", diagnostic.path);
-    try std.testing.expectEqual(std.mem.indexOf(u8, invalid, "Missing").?, diagnostic.offset);
+    try std.testing.expectEqual(std.mem.find(u8, invalid, "Missing").?, diagnostic.offset);
 }
 
 test "imported bound and unresolved type diagnostics preserve the innermost source" {
@@ -122,7 +122,7 @@ test "module input and token budgets cover the aggregate compilation" {
     _ = try input.add(.{ .path = "a", .bytes = large });
     try std.testing.expectError(error.ResourceLimit, input.add(.{ .path = "b", .bytes = large }));
     input = .{ .a = a, .diagnostic = &diagnostic };
-    for (0..text.max_files) |i| _ = try input.add(.{ .path = "a", .bytes = try std.fmt.allocPrint(a, "module M{d}", .{i}) });
+    for (0..text.max_files) |i| _ = try input.add(.{ .path = "a", .bytes = try a.print("module M{d}", .{i}) });
     try std.testing.expectError(error.ResourceLimit, input.add(.{ .path = "b", .bytes = "module Extra" }));
     input = .{ .a = a, .diagnostic = &diagnostic };
     _ = try input.add(.{ .path = "a", .bytes = "module A\ntype T = string" });

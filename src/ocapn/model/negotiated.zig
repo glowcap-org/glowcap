@@ -54,7 +54,7 @@ pub const CodecId = enum(u16) {
     pub fn hintToken(self: CodecId) HintToken {
         var token: HintToken = .{};
         const suffix: []const u8 = if (self.ownedByGlowcap()) owned_suffix else "";
-        const written = std.fmt.bufPrint(&token.bytes, "{d}{s}", .{ @backingInt(self), suffix }) catch
+        const written = std.mem.print(&token.bytes, "{d}{s}", .{ @backingInt(self), suffix }) catch
             unreachable; // `max_len` fits the widest id and suffix.
         token.len = @intCast(written.len);
         return token;
@@ -64,7 +64,7 @@ pub const CodecId = enum(u16) {
     /// malformed, and a token this build does not write, such as another
     /// build's Cap'n Proto, is null.
     pub fn fromHintToken(token: []const u8) error{MalformedHintToken}!?CodecId {
-        const digits = token[0 .. std.mem.indexOfScalar(u8, token, '/') orelse token.len];
+        const digits = token[0 .. std.mem.findScalar(u8, token, '/') orelse token.len];
         const id = std.fmt.parseInt(u16, digits, 10) catch return error.MalformedHintToken;
         const codec_id: CodecId = @fromBackingInt(id);
         return if (std.mem.eql(u8, codec_id.hintToken().slice(), token)) codec_id else null;

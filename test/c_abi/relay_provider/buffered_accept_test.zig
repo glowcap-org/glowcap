@@ -60,7 +60,7 @@ fn serveBufferedRegistration(
 }
 
 test "relay C accept publishes payload buffered by the registered listener" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin()))
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()))
         return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
@@ -88,8 +88,8 @@ test "relay C accept publishes payload buffered by the registered listener" {
     const port = server.socket.address.getPort();
     var relay_store: [64]u8 = undefined;
     var register_store: [64]u8 = undefined;
-    const relay_url = try std.fmt.bufPrint(&relay_store, "ws://localhost:{d}/relay", .{port});
-    const register_url = try std.fmt.bufPrint(&register_store, "ws://localhost:{d}/register", .{port});
+    const relay_url = try std.mem.print(&relay_store, "ws://localhost:{d}/relay", .{port});
+    const register_url = try std.mem.print(&register_store, "ws://localhost:{d}/register", .{port});
     var config = harness.copiedTrustConfig(relay_url);
     config.register_url = register_url.ptr;
     config.register_url_len = register_url.len;

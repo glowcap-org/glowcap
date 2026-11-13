@@ -88,7 +88,7 @@ test "core host: a Value-shaped behavior reads a plain deliver as views and a ca
     try std.testing.expectEqual(@as(i64, 64 * 65 / 2), try settledInteger(&client, pair, first));
     try std.testing.expectEqual(Backing.views, seen.?);
     // Syrup's parsed batch fits a word run in the frame's existing head.
-    try std.testing.expectEqual(@import("builtin").cpu.arch.endian() == .little, in_place.?);
+    try std.testing.expectEqual(@import("builtin").target.cpu.arch.endian() == .little, in_place.?);
 
     // The same call with a capability among the samples lifts the delivery
     // whole, so the capability arrives as one Host identity and every other

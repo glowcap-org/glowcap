@@ -13,7 +13,7 @@ within each stated study, without assuming they describe another host.
 
 The initial managed workload ran over the core of September 27, 2026, on
 Linux aarch64, using
-`.agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=ReleaseFast`
+`.agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=fast`
 and synchronous LMDB commits. The workload additions are the source beside
 this report. The production core was unchanged. All six managed populations
 passed reply, revocation, commit, reload and final allocation-release checks.
@@ -39,7 +39,7 @@ and local service throughput separately from the read budgets.
 
 The executor additions ran on Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and default
 synchronous LMDB commits. The command was
-`.agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=ReleaseFast`.
+`.agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=fast`.
 The production core was unchanged.
 
 Every sustained phase used four workers and eight admitted calls. Read and mixed
@@ -74,7 +74,7 @@ cannot attribute all growth to Loam or isolate a fresh-process population.
 The complete workload passed on Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous LMDB commits:
 
 ```sh
-.agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=ReleaseFast --summary failures
+.agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=fast --summary failures
 ```
 
 All six managed populations passed commit, reply, revocation, read-budget and
@@ -314,7 +314,7 @@ execution or hardware power-loss evidence.
 ## Recorded returned authority and parked calls, October 2, 2026
 
 The implementation passed
-`zig build bench-loam -Doptimize=ReleaseFast -- --references-only` through the
+`zig build bench-loam -Doptimize=fast -- --references-only` through the
 checkout's `glowcap-dev` front on Linux aarch64 with Zig
 `0.17.0-dev.2127+e90365cd5` and default synchronous LMDB commits.
 The complete report is regenerated at `zig-out/bench-reports/loam-references.txt`.
@@ -370,7 +370,7 @@ retirement correction. Linux aarch64, Zig
 record envelope 2 and metadata 3. The checkout's `glowcap-dev` front ran:
 
 ```sh
-zig build bench-loam -Doptimize=ReleaseFast -- --managed-only
+zig build bench-loam -Doptimize=fast -- --managed-only
 ```
 
 The command exited successfully and writes the complete report to

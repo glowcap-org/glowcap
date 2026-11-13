@@ -139,7 +139,7 @@ pub fn draftOf(
 fn blankRuns(bytes: []u8, needle: []const u8) void {
     if (needle.len == 0) return;
     var from: usize = 0;
-    while (std.mem.indexOfPos(u8, bytes, from, needle)) |at| {
+    while (std.mem.findPos(u8, bytes, from, needle)) |at| {
         @memset(bytes[at..][0..needle.len], blank);
         from = at + needle.len;
     }
@@ -156,7 +156,7 @@ pub fn rotationPreimage(
     verkey_b64: []const u8,
     next_digest: []const u8,
 ) []const u8 {
-    return std.fmt.bufPrint(buf, "{s}|{s}|{s}", .{ said, verkey_b64, next_digest }) catch unreachable;
+    return std.mem.print(buf, "{s}|{s}|{s}", .{ said, verkey_b64, next_digest }) catch unreachable;
 }
 
 /// The next-key commitment: a digest over the next verkey, which is the

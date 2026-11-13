@@ -13,7 +13,7 @@
 //! socket round trip with and without a park, each with no completion loop
 //! above it.
 //!
-//! Run `zig build bench-floors -Doptimize=ReleaseFast` for absolute figures,
+//! Run `zig build bench-floors -Doptimize=fast` for absolute figures,
 //! with `--pin=A,B` to keep the timed thread on core A and its partner on B.
 //! `--smoke` (used by `zig build check`) runs a few iterations of each row to
 //! prove the bench still runs. Nothing here gates: a floor is a property of
@@ -353,7 +353,7 @@ pub fn main(init: std.process.Init) !void {
     const socket_iterations: usize = if (smoke) 4 else 20_000;
 
     std.debug.print("floors mode={s} payload_bytes={d} record_bytes={d} ping_bytes={d} pin={s}\n", .{
-        @tagName(@import("builtin").mode), payload_bytes, record_bytes, ping_bytes, if (pin != null) "yes" else "no",
+        @tagName(@import("builtin").optimize), payload_bytes, record_bytes, ping_bytes, if (pin != null) "yes" else "no",
     });
     try floorEd25519(io, crypto_iterations);
     try floorNoiseHandshake(io, crypto_iterations);

@@ -14,7 +14,7 @@ pub const Shard = struct {
 
     /// Parse `k/n` with `1 <= k <= n`, or return null.
     pub fn parse(text: []const u8) ?Shard {
-        const slash = std.mem.indexOfScalar(u8, text, '/') orelse return null;
+        const slash = std.mem.findScalar(u8, text, '/') orelse return null;
         const index = std.fmt.parseInt(u32, text[0..slash], 10) catch return null;
         const count = std.fmt.parseInt(u32, text[slash + 1 ..], 10) catch return null;
         if (count == 0 or index == 0 or index > count) return null;

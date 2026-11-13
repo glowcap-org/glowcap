@@ -157,14 +157,14 @@ pub fn checkCAbiResolve(
         const minor = headerMacroU32(header, "GLOWCAP_VERSION_MINOR") orelse 0;
         const patch = headerMacroU32(header, "GLOWCAP_VERSION_PATCH") orelse 0;
         var buf: [32]u8 = undefined;
-        const got = std.fmt.bufPrint(&buf, "{d}.{d}.{d}", .{ major, minor, patch }) catch unreachable;
+        const got = std.mem.print(&buf, "{d}.{d}.{d}", .{ major, minor, patch }) catch unreachable;
         if (!std.mem.eql(u8, got, want)) {
             try appendViolation(gpa, violations, "{s}: `abi_version` `{s}` must match include/glowcap_ocapn.h `{s}`", .{ contract_path, want, got });
         }
         if (getField(parsed.value, "user_agent")) |ua| {
             switch (ua) {
                 .string => |s| {
-                    if (std.mem.indexOf(u8, s, want) == null) {
+                    if (std.mem.find(u8, s, want) == null) {
                         try appendViolation(gpa, violations, "{s}: `user_agent` must embed `abi_version` `{s}`", .{ contract_path, want });
                     }
                 },
@@ -216,7 +216,7 @@ pub fn checkCAbiResolve(
         return;
     };
     defer gpa.free(pyproject);
-    if (std.mem.indexOf(u8, pyproject, "c-abi-resolve.json") == null) {
+    if (std.mem.find(u8, pyproject, "c-abi-resolve.json") == null) {
         try appendViolation(gpa, violations, "bindings/python/pyproject.toml: package-data must ship c-abi-resolve.json", .{});
     }
     const deno_json = root.readFileAlloc(io, "bindings/ts/runtime/deno.json", gpa, .limited(1 << 20)) catch |err| {
@@ -224,8 +224,8 @@ pub fn checkCAbiResolve(
         return;
     };
     defer gpa.free(deno_json);
-    if (std.mem.indexOf(u8, deno_json, "c-abi-resolve.json") == null or
-        std.mem.indexOf(u8, deno_json, "\"publish\"") == null)
+    if (std.mem.find(u8, deno_json, "c-abi-resolve.json") == null or
+        std.mem.find(u8, deno_json, "\"publish\"") == null)
     {
         try appendViolation(gpa, violations, "bindings/ts/runtime/deno.json: publish.include must ship c-abi-resolve.json", .{});
     }
@@ -234,17 +234,17 @@ pub fn checkCAbiResolve(
         return;
     };
     defer gpa.free(racket_info);
-    if (std.mem.indexOf(u8, racket_info, "private/c-abi-resolve.json") == null) {
+    if (std.mem.find(u8, racket_info, "private/c-abi-resolve.json") == null) {
         try appendViolation(gpa, violations, "bindings/racket/info.rkt: must name private/c-abi-resolve.json as a must-ship package path", .{});
     }
-    if (std.mem.indexOf(u8, racket_info, "compile-omit-paths") == null) {
+    if (std.mem.find(u8, racket_info, "compile-omit-paths") == null) {
         try appendViolation(gpa, violations, "bindings/racket/info.rkt: must declare compile-omit-paths (and not omit the resolve contract)", .{});
     }
 }
 
 fn headerMacroU32(text: []const u8, name: []const u8) ?u32 {
     var prefix_buf: [96]u8 = undefined;
-    const prefix = std.fmt.bufPrint(&prefix_buf, "#define {s} ", .{name}) catch return null;
+    const prefix = std.mem.print(&prefix_buf, "#define {s} ", .{name}) catch return null;
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");

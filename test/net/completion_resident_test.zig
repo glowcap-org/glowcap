@@ -18,7 +18,7 @@ const er = net.multiplexed_resident;
 // Exercise readiness-driven sends on Linux even when io_uring is available.
 comptime {
     _ = Tests(net.Backend);
-    if (builtin.os.tag == .linux) _ = Tests(net.epoll_white_box.TestBackend);
+    if (builtin.target.os.tag == .linux) _ = Tests(net.epoll_white_box.TestBackend);
 }
 
 fn Tests(comptime Backend: type) type {
@@ -54,12 +54,12 @@ fn Tests(comptime Backend: type) type {
         const completion_resident_connection_state_bytes: usize = 152;
 
         test "completion resident connection row holds its pinned size" {
-            if (!std.debug.runtime_safety) return error.SkipZigTest;
+            if (!builtin.optimize.runtimeSafety()) return error.SkipZigTest;
             try std.testing.expectEqual(completion_resident_connection_state_bytes, Resident.connection_state_bytes);
         }
 
         test "completion resident reads a receive that completed since its last pump without a would-block turn" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;
 
             var server = try open();
@@ -101,7 +101,7 @@ fn Tests(comptime Backend: type) type {
         }
 
         test "completion resident reports records it holds between a verb and its service" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;
 
             var server = try open();
@@ -145,7 +145,7 @@ fn Tests(comptime Backend: type) type {
         }
 
         test "a consumed receive re-arms at the park, not as the verb returns" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;
             var server = try open();
             defer retire(&server);
@@ -187,7 +187,7 @@ fn Tests(comptime Backend: type) type {
         }
 
         test "completion resident parks in its own queue and a watched descriptor wakes it" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             var resident = try open();
             defer retire(&resident);
             const wake = try net.wake_channel.WakeChannel.open();
@@ -242,7 +242,7 @@ fn Tests(comptime Backend: type) type {
         }
 
         test "completion resident holds every flushed batch of a turn for one send at the park" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;
 
             var server = try open();
@@ -290,7 +290,7 @@ fn Tests(comptime Backend: type) type {
         }
 
         test "a close sends the batch it flushed before it shuts the socket" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;
 
             var server = try open();
@@ -331,7 +331,7 @@ fn Tests(comptime Backend: type) type {
         }
 
         test "completion resident bounds its send window, owes writable, and drains on close" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;
 
             var server = try open();
@@ -439,7 +439,7 @@ fn Tests(comptime Backend: type) type {
         }
 
         test "an abort ends a close whose partner never reads" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;
 
             var server = try open();
@@ -498,7 +498,7 @@ fn Tests(comptime Backend: type) type {
         }
 
         test "completion resident fails a write whose staging cannot grow, with the exact cause" {
-            if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;
 
             var server = try open();

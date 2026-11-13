@@ -237,11 +237,7 @@ pub fn Machine(
             const ud = reg.accept_ud orelse return;
             if (reg.unaccepted_len == 0) return;
             const accepted = reg.unaccepted[0];
-            std.mem.copyForwards(
-                Tracked,
-                reg.unaccepted[0 .. reg.unaccepted_len - 1],
-                reg.unaccepted[1..reg.unaccepted_len],
-            );
+            @memmove(reg.unaccepted[0 .. reg.unaccepted_len - 1], reg.unaccepted[1..reg.unaccepted_len]);
             reg.unaccepted_len -= 1;
             reg.accept_ud = null;
             backend.ready.appendAssumeCapacity(.{

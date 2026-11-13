@@ -8,6 +8,6 @@ const std = @import("std");
 pub fn baseName(comptime T: type) []const u8 {
     @setEvalBranchQuota(1_000_000);
     const name = @typeName(T);
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.');
+    const dot = std.mem.findScalarLast(u8, name, '.');
     return if (dot) |i| name[i + 1 ..] else name;
 }

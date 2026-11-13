@@ -48,7 +48,7 @@ zig build check-build                       # Compile everything check runs, so 
 zig build runtime-check                     # Run deterministic process, application, and language-workspace checks without cross-step contention
 zig build runtime-check-build               # Compile everything runtime-check runs, so its deadline measures only the runs; part of runtime-check
 zig build runtime-toolchain-check           # Check runtime gate declarations and installed tools before compiling its proofs; part of runtime-check
-zig build runtime-check -Doptimize=ReleaseSafe # Run against CI's optimized product archives
+zig build runtime-check -Doptimize=safe # Run against CI's optimized product archives
 zig build check-external                    # Run outside-authority protocol conformance and every shipped Rooms page browser proof (needs uv + racket + goblins + cargo + deno + Playwright)
 zig build test                              # Run the unit and scenario test suite (test/all_test.zig); part of check
 zig build test -Dtest-filter=substring # only tests whose names match
@@ -110,13 +110,13 @@ zig build site-tabs-check                   # Press the code-tabs on every built
 zig build mycelium-test                     # Prove touch devices skip the background and desktop animation respects visibility, motion preferences and teardown (needs deno + Playwright); part of site-render-check
 zig build site-serve                        # Serve the documentation site with Zine's development server, the Rooms page at /rooms/app/ and ocapnviz at /ocapnviz/ included, and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; prepares the Rooms pictures, the Rooms page, and ocapnviz first only when site/assets lacks them, so run site-captures, site-rooms-page, or site-ocapnviz-page to refresh one)
 zig build c-sdk-pack                        # Package and verify the C SDK (explicit Release mode and baseline CPU required)
-zig build c-sdk-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)
+zig build c-sdk-pack -Doptimize=safe -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)
 zig build glowcap-install                   # Install the complete glowcap product and stage its deployment tree: CLI, Rooms runtimes, browser assets and skills (needs cargo + deno + wasm-bindgen); part of glowcap, glowcap-host-test, glowcap-install-test, runtime-check-build
 zig build glowcap-release                   # Prepare the complete host product with ReleaseSafe and baseline CPU settings for installation or Linux deployment (needs cargo + deno + wasm-bindgen)
 zig build glowcap-install-test              # Prove the source launcher serves Rooms after glowcap-install, with installed sessions, skills, and completion; part of runtime-check
 zig build glowcap-host-test                 # Prove verified host installation and Docker deployment commands without a daemon (needs python3); part of runtime-check
 zig build glowcap-pack                      # Package and exercise the complete relocatable glowcap product (explicit Release mode and baseline CPU required)
-zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
+zig build glowcap-pack -Doptimize=safe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
 zig build glowcap-package-test              # Prove release rollback and reject damaged packages, broken skills, and loader fallbacks; part of check, infrastructure-check
 zig build portable-pack                     # Package prebuilt browser JavaScript, Wasm, examples, and Rust Wasm archives; part of portable-package-test
 zig build portable-package-test             # Run the extracted browser example and link a Rust Wasm consumer through the library downloader

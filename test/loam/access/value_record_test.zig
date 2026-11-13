@@ -78,7 +78,7 @@ test "loam mutation receipt value decoder rejects oversized counts scalar length
         try std.testing.expectError(error.InvalidRecord, Codec.decode(Value, std.testing.allocator, invalid, &context));
     }
     var id: g.loam.core.ObjectId = .{ .store = @fromBackingInt(3), .incarnation = 1, .sequence = 1 };
-    const bytes = try std.fmt.allocPrint(std.testing.allocator, "<10'capability33:{s}>", .{id.key()});
+    const bytes = try std.testing.allocator.print("<10'capability33:{s}>", .{id.key()});
     defer std.testing.allocator.free(bytes);
     try std.testing.expectError(error.UndeclaredCapability, Codec.decode(Value, std.testing.allocator, bytes, &context));
 }

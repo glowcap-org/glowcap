@@ -14,7 +14,7 @@ pub const Loaded = struct {
 };
 
 fn openSource(io: std.Io, path: []const u8) !std.Io.File {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return std.Io.Dir.cwd().openFile(io, path, .{});
+    if (builtin.target.os.tag == .windows or builtin.target.os.tag == .wasi) return std.Io.Dir.cwd().openFile(io, path, .{});
     // Io's ordinary POSIX opener can wait for a FIFO writer before stat.
     // O_NONBLOCK lets the existing descriptor-kind check reject it first.
     var flags: std.posix.O = .{ .ACCMODE = .RDONLY, .NONBLOCK = true };
@@ -29,7 +29,7 @@ fn openSource(io: std.Io, path: []const u8) !std.Io.File {
 pub fn compile(a: std.mem.Allocator, io: std.Io, input: []const u8, root_option: ?[]const u8, diagnostic: *text.Diagnostic) !Loaded {
     diagnostic.* = .{};
     const cwd = std.Io.Dir.cwd();
-    const root = try cwd.realPathFileAlloc(io, root_option orelse std.fs.path.dirname(input) orelse ".", a);
+    const root = try cwd.realPathFileAlloc(io, root_option orelse std.Io.Dir.path.dirname(input) orelse ".", a);
     var loader: Loader = .{ .a = a, .io = io, .root = root, .bundle = .{ .a = a, .diagnostic = diagnostic } };
     _ = loader.load(input, 0) catch |err| {
         if (diagnostic.message.len == 0) diagnostic.* = .{ .path = input, .message = @errorName(err) };
@@ -46,8 +46,8 @@ const Loader = struct {
     paths: std.ArrayList([]const u8) = .empty,
 
     fn relative(self: Loader, path: []const u8) ![]const u8 {
-        if (std.mem.eql(u8, self.root, std.fs.path.sep_str)) return path[1..];
-        if (!std.mem.startsWith(u8, path, self.root) or path.len <= self.root.len or path[self.root.len] != std.fs.path.sep) return error.ImportOutsideRoot;
+        if (std.mem.eql(u8, self.root, std.Io.Dir.path.sep_str)) return path[1..];
+        if (!std.mem.startsWith(u8, path, self.root) or path.len <= self.root.len or path[self.root.len] != std.Io.Dir.path.sep) return error.ImportOutsideRoot;
         return path[self.root.len + 1 ..];
     }
 
@@ -92,8 +92,8 @@ const Loader = struct {
         for (order, dependencies) |at, *dependency| {
             const import = imports[at];
             errdefer if (self.bundle.diagnostic.message.len == 0) self.bundle.diagnostic.set(.{ .path = relative_path, .bytes = source }, import.offset, "import could not be loaded");
-            if (import.path.len == 0 or std.fs.path.isAbsolute(import.path) or std.mem.indexOfScalar(u8, import.path, ':') != null or std.mem.indexOfScalar(u8, import.path, '\\') != null) return error.InvalidImportPath;
-            const path = try std.fs.path.join(self.a, &.{ std.fs.path.dirname(real).?, import.path });
+            if (import.path.len == 0 or std.Io.Dir.path.isAbsolute(import.path) or std.mem.findScalar(u8, import.path, ':') != null or std.mem.findScalar(u8, import.path, '\\') != null) return error.InvalidImportPath;
+            const path = try std.Io.Dir.path.join(self.a, &.{ std.Io.Dir.path.dirname(real).?, import.path });
             const resolved = try cwd.realPathFileAlloc(self.io, path, self.a);
             _ = try self.relative(resolved);
             dependency.* = .{ .path = resolved, .import_index = at };

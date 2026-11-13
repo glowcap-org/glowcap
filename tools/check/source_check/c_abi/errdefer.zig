@@ -80,7 +80,7 @@ fn deadErrdeferLines(gpa: std.mem.Allocator, contents: []const u8, out: *std.Arr
                         continue;
                     }
                 }
-                if (std.mem.indexOf(u8, code, "errdefer") != null) try out.append(gpa, line + 1);
+                if (std.mem.find(u8, code, "errdefer") != null) try out.append(gpa, line + 1);
             }
             for (code) |ch| switch (ch) {
                 '{' => {
@@ -110,7 +110,7 @@ fn functionHeaderEnd(lines: []const []const u8, start: usize) ?usize {
     var line = start;
     while (line < lines.len) : (line += 1) {
         const code = codePart(lines[line]);
-        if (std.mem.indexOfScalar(u8, code, '{') != null) return line + 1;
+        if (std.mem.findScalar(u8, code, '{') != null) return line + 1;
         // A prototype or a one-line `fn` type ends without a body.
         if (std.mem.endsWith(u8, std.mem.trimEnd(u8, code, " \t"), ";")) return null;
     }
@@ -120,8 +120,8 @@ fn functionHeaderEnd(lines: []const []const u8, start: usize) ?usize {
 fn isCConvention(header: []const []const u8) bool {
     for (header) |line| {
         const code = codePart(line);
-        if (std.mem.indexOf(u8, code, "export fn ") != null) return true;
-        if (std.mem.indexOf(u8, code, "callconv(.c)") != null) return true;
+        if (std.mem.find(u8, code, "export fn ") != null) return true;
+        if (std.mem.find(u8, code, "callconv(.c)") != null) return true;
     }
     return false;
 }
@@ -131,8 +131,8 @@ fn returnsError(header: []const []const u8) bool {
         const code = codePart(line);
         // The return type sits after the parameter list's `)`; an error
         // union there carries `!`.
-        if (std.mem.lastIndexOfScalar(u8, code, ')')) |close| {
-            if (std.mem.indexOfScalar(u8, code[close..], '!') != null) return true;
+        if (std.mem.findScalarLast(u8, code, ')')) |close| {
+            if (std.mem.findScalar(u8, code[close..], '!') != null) return true;
         }
     }
     return false;
@@ -156,7 +156,7 @@ fn skipBody(lines: []const []const u8, open: usize, header_end: usize) usize {
 
 /// The part of a line before any `//` comment.
 fn codePart(line: []const u8) []const u8 {
-    return if (std.mem.indexOf(u8, line, "//")) |at| line[0..at] else line;
+    return if (std.mem.find(u8, line, "//")) |at| line[0..at] else line;
 }
 
 test "an errdefer in an export fn is dead and reported; a nested error-returning fn keeps its own" {

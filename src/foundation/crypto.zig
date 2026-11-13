@@ -353,6 +353,6 @@ fn updateByteString(hasher: *Sha256, bytes: []const u8) void {
 /// integer-to-ASCII formatting, not a copy of any wire payload.
 fn updateLen(hasher: *Sha256, len: usize) void {
     var buf: [20]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, "{d}", .{len}) catch unreachable;
+    const text = std.mem.print(&buf, "{d}", .{len}) catch unreachable;
     hasher.update(text);
 }

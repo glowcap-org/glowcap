@@ -194,7 +194,7 @@ pub const Broken = struct {
         while (i < end) {
             const len = std.unicode.utf8ByteSequenceLength(detail[i]) catch break;
             if (len > end - i) break;
-            _ = std.unicode.utf8Decode(detail[i..][0..len]) catch break;
+            if (!std.unicode.utf8ValidateSlice(detail[i..][0..len])) break;
             i += len;
         }
         return detail[0..i];
@@ -211,7 +211,7 @@ pub const Broken = struct {
         const prefix = self.cause.label() orelse return self.detail;
         const detail = self.bounded().detail;
         if (detail.len == 0) return prefix;
-        return std.fmt.bufPrint(buffer, "{s}: {s}", .{ prefix, detail }) catch unreachable;
+        return std.mem.print(buffer, "{s}: {s}", .{ prefix, detail }) catch unreachable;
     }
 
     /// Format through the caller's writeAll method, keeping the foundation

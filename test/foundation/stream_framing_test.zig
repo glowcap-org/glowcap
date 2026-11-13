@@ -15,12 +15,12 @@ test "a rendered prefix is the canonical decimal and colon at every width" {
     var power: usize = 1;
     while (true) {
         for ([_]usize{ power - 1, power, power + 1 }) |length| {
-            const want = try std.fmt.bufPrint(&want_buf, "{d}:", .{length});
+            const want = try std.mem.print(&want_buf, "{d}:", .{length});
             try std.testing.expectEqualStrings(want, stream_framing.renderPrefix(&buf, length));
         }
         power = std.math.mul(usize, power, 10) catch break;
     }
-    const widest = try std.fmt.bufPrint(&want_buf, "{d}:", .{std.math.maxInt(usize)});
+    const widest = try std.mem.print(&want_buf, "{d}:", .{std.math.maxInt(usize)});
     try std.testing.expectEqualStrings(widest, stream_framing.renderPrefix(&buf, std.math.maxInt(usize)));
     // A rendered prefix parses back to the length it was rendered from.
     const body = "abc";

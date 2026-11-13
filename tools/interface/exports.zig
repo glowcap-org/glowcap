@@ -23,11 +23,11 @@ fn validate(methods: []const calls.Named, support: []const Support) !void {
 
 /// Call bodies use this private namespace, never the caller's export name.
 pub fn callName(buffer: []u8, index: usize) ![]const u8 {
-    return std.fmt.bufPrint(buffer, "call_{d}", .{index});
+    return std.mem.print(buffer, "call_{d}", .{index});
 }
 
 pub fn oneShotName(buffer: []u8, index: usize) ![]const u8 {
-    return std.fmt.bufPrint(buffer, "receipt_once_{d}", .{index});
+    return std.mem.print(buffer, "receipt_once_{d}", .{index});
 }
 
 pub fn rust(a: std.mem.Allocator, implementation: []const u8, methods: []const calls.Named, support: []const Support) ![]u8 {
@@ -39,7 +39,7 @@ pub fn rust(a: std.mem.Allocator, implementation: []const u8, methods: []const c
     var suffix: usize = 0;
     while (occupied(module, methods, support)) {
         suffix += 1;
-        module = try std.fmt.bufPrint(&module_buffer, "__glowcap_{d}", .{suffix});
+        module = try std.mem.print(&module_buffer, "__glowcap_{d}", .{suffix});
     }
     try out.appendSlice(a, "// Generated from checked interface descriptions.\n");
     const ordered = try a.dupe(Support, support);

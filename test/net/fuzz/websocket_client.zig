@@ -126,7 +126,7 @@ pub fn closePayload(_: void, smith: *std.testing.Smith) anyerror!void {
 /// sharing `validUpgradeResponse`'s splitter.
 fn validByLines(bytes: []const u8, accept: *const [28]u8) bool {
     var rest = bytes;
-    const first_end = std.mem.indexOf(u8, rest, "\r\n") orelse rest.len;
+    const first_end = std.mem.find(u8, rest, "\r\n") orelse rest.len;
     if (!proto.validUpgradeStatus(rest[0..first_end])) return false;
     rest = rest[@min(rest.len, first_end + 2)..];
     var validator: proto.UpgradeResponseValidator = .{};
@@ -134,7 +134,7 @@ fn validByLines(bytes: []const u8, accept: *const [28]u8) bool {
     // block ending in a separator has one empty final line.
     var more = first_end < bytes.len;
     while (more) {
-        const end = std.mem.indexOf(u8, rest, "\r\n");
+        const end = std.mem.find(u8, rest, "\r\n");
         validator.observe(rest[0 .. end orelse rest.len], accept);
         if (end) |at| {
             rest = rest[at + 2 ..];
@@ -159,7 +159,7 @@ pub fn upgrade(_: void, smith: *std.testing.Smith) anyerror!void {
     // Accepted means the evidence is on the wire, not merely that nothing
     // objected.
     try std.testing.expect(std.mem.startsWith(u8, input, "HTTP/1.1 101"));
-    try std.testing.expect(std.mem.indexOf(u8, input, &accept) != null);
+    try std.testing.expect(std.mem.find(u8, input, &accept) != null);
     try std.testing.expect(containsIgnoreCase(input, "websocket"));
     try std.testing.expect(containsIgnoreCase(input, "upgrade"));
 }

@@ -1,6 +1,7 @@
 //! Driver-thread ownership and monotonic Runtime/session shutdown barriers.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const model = @import("model");
 const net = @import("net");
@@ -28,7 +29,7 @@ pub const SessionCloseStatus = struct {
 
 /// Enter one Zig driver operation. Public only for sibling owning faces.
 pub fn enterDriver(self: *HostRuntime) void {
-    if (comptime std.debug.runtime_safety) self.core.assertOwner();
+    if (comptime builtin.optimize.runtimeSafety()) self.core.assertOwner();
     self.driver_depth += 1;
 }
 

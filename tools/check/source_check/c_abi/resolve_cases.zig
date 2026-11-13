@@ -148,12 +148,12 @@ pub fn checkCAbiResolveCases(
         const cache_lib = try applyContractTemplate(gpa, cache_tmpl, version, target, cache_base);
         defer gpa.free(cache_lib);
 
-        const got_url = try std.fmt.allocPrint(gpa, "{s}/{s}/{s}", .{ base, tag, tarball });
+        const got_url = try gpa.print("{s}/{s}/{s}", .{ base, tag, tarball });
         defer gpa.free(got_url);
         if (!std.mem.eql(u8, got_url, want_url)) {
             try appendViolation(gpa, violations, "{s}: case `{s}` url want `{s}` got `{s}`", .{ cases_path, id, want_url, got_url });
         }
-        const got_sums = try std.fmt.allocPrint(gpa, "{s}/{s}/SHA256SUMS", .{ base, tag });
+        const got_sums = try gpa.print("{s}/{s}/SHA256SUMS", .{ base, tag });
         defer gpa.free(got_sums);
         if (!std.mem.eql(u8, got_sums, want_sums)) {
             try appendViolation(gpa, violations, "{s}: case `{s}` sums_url want `{s}` got `{s}`", .{ cases_path, id, want_sums, got_sums });
@@ -171,7 +171,7 @@ pub fn checkCAbiResolveCases(
             continue;
         };
         defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, "GLOWCAP_SKIP_DOWNLOAD") == null) {
+        if (std.mem.find(u8, contents, "GLOWCAP_SKIP_DOWNLOAD") == null) {
             try appendViolation(gpa, violations, "{s}: resolve port must honor GLOWCAP_SKIP_DOWNLOAD", .{path});
         }
     }
@@ -188,7 +188,7 @@ fn applyContractTemplate(allocator: std.mem.Allocator, tmpl: []const u8, version
             't' => target,
             else => unreachable,
         };
-        if (std.mem.indexOf(u8, out, needle) != null) {
+        if (std.mem.find(u8, out, needle) != null) {
             const next = try std.mem.replaceOwned(u8, allocator, out, needle, replacement);
             allocator.free(out);
             out = next;

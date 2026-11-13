@@ -42,7 +42,7 @@ test "a far send's frame is queued at admission and step emits those bytes" {
         try std.testing.expect(row.item == .encoded);
         const queued = try std.testing.allocator.dupe(u8, row.item.encoded.frame.bytes());
         defer std.testing.allocator.free(queued);
-        try std.testing.expect(std.mem.indexOf(u8, queued, "hello") != null);
+        try std.testing.expect(std.mem.find(u8, queued, "hello") != null);
         // The caller's storage is its own again: mutating it changes nothing.
         payload = "bye!!".*;
 

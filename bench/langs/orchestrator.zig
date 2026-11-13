@@ -304,7 +304,7 @@ const Host = struct {
 /// Spawn a fresh host and read its NDJSON readiness line to learn the port.
 fn startHost(ctx: *Ctx) !Host {
     const port_arg = if (ctx.pinned_port) |p|
-        try std.fmt.allocPrint(ctx.arena, "{d}", .{p})
+        try ctx.arena.print("{d}", .{p})
     else
         "0";
     var child = try spawnOn(ctx, cores(ctx, .host), .{
@@ -322,7 +322,7 @@ fn startHost(ctx: *Ctx) !Host {
         const line = reader.interface.takeDelimiterInclusive('\n') catch
             return error.HostExitedBeforeReady;
         const listen = jf(line, "\"listen\"") orelse continue;
-        const colon = std.mem.lastIndexOfScalar(u8, listen, ':') orelse continue;
+        const colon = std.mem.findScalarLast(u8, listen, ':') orelse continue;
         const port = std.fmt.parseInt(u16, listen[colon + 1 ..], 10) catch continue;
         return .{ .child = child, .port = port };
     }
@@ -330,8 +330,8 @@ fn startHost(ctx: *Ctx) !Host {
 
 /// Build the client's argv for `mode` against `port`/`n` (arena-owned).
 fn buildArgv(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) ![]const []const u8 {
-    const port_str = try std.fmt.allocPrint(ctx.arena, "{d}", .{port});
-    const n_str = try std.fmt.allocPrint(ctx.arena, "{d}", .{n});
+    const port_str = try ctx.arena.print("{d}", .{port});
+    const n_str = try ctx.arena.print("{d}", .{n});
     return switch (def.kind) {
         .zig => try dupArgv(ctx, &.{ ctx.zig_client, mode, host_addr, port_str, n_str }),
         .rust => try dupArgv(ctx, &.{ ctx.rust_bin, mode, host_addr, port_str, n_str }),
@@ -366,7 +366,7 @@ fn runMetric(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) !
     while (true) {
         // tolerant: the end of the client's output ends the read, and a missing metric line or a failing exit below fails the run.
         const line = reader.interface.takeDelimiterInclusive('\n') catch break;
-        if (found == null and std.mem.indexOf(u8, line, "\"metric\"") != null)
+        if (found == null and std.mem.find(u8, line, "\"metric\"") != null)
             found = try ctx.arena.dupe(u8, line);
     }
     const term = try child.wait(ctx.io);
@@ -404,9 +404,9 @@ fn runConnections(ctx: *Ctx, def: ClientDef, port: u16, n: usize) !ConnResult {
     while (true) {
         // tolerant: the end of the client's output ends the read, and a missing metric line or a failing exit below fails the run.
         const l = reader.interface.takeDelimiterInclusive('\n') catch break;
-        if (std.mem.indexOf(u8, l, "\"event\"") != null and std.mem.indexOf(u8, l, "warmed") != null) {
+        if (std.mem.find(u8, l, "\"event\"") != null and std.mem.find(u8, l, "warmed") != null) {
             base = try sampleMinRss(ctx, pid, base_samples, base_dt_ms);
-        } else if (std.mem.indexOf(u8, l, "\"metric\"") != null and std.mem.indexOf(u8, l, "connections") != null) {
+        } else if (std.mem.find(u8, l, "\"metric\"") != null and std.mem.find(u8, l, "connections") != null) {
             line = try ctx.arena.dupe(u8, l);
             loaded = try sampleMinRss(ctx, pid, loaded_samples, loaded_dt_ms);
         }
@@ -417,7 +417,7 @@ fn runConnections(ctx: *Ctx, def: ClientDef, port: u16, n: usize) !ConnResult {
     const per_conn = @as(f64, @floatFromInt(delta)) / @as(f64, @floatFromInt(@max(1, n)));
     return .{
         .line = line orelse return error.MissingClientMetric,
-        .per_conn_kb = try std.fmt.allocPrint(ctx.arena, "{d:.1}", .{per_conn}),
+        .per_conn_kb = try ctx.arena.print("{d:.1}", .{per_conn}),
     };
 }
 
@@ -443,7 +443,7 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
         while (true) {
             // tolerant: the end of the client's output ends the read, and the missing cold-done marker below fails the run.
             const l = reader.interface.takeDelimiterInclusive('\n') catch break;
-            if (std.mem.indexOf(u8, l, "cold-done") != null) {
+            if (std.mem.find(u8, l, "cold-done") != null) {
                 found = true;
                 break;
             }
@@ -457,7 +457,7 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
         child.kill(ctx.io);
     }
     std.sort.pdq(f64, times, {}, std.sort.asc(f64));
-    return std.fmt.allocPrint(ctx.arena, "{d:.2}", .{percentile.of(f64, times, 0.50)});
+    return ctx.arena.print("{d:.2}", .{percentile.of(f64, times, 0.50)});
 }
 
 /// Sample a pid's VmRSS `samples` times `dt_ms` apart, keeping the minimum (the
@@ -488,7 +488,7 @@ fn jfDash(line: []const u8, key: []const u8) []const u8 {
 /// of `line`, so it lives as long as the caller's line). `key` includes its
 /// surrounding quotes, e.g. `"\"p50_ms\""`.
 fn jf(line: []const u8, key: []const u8) ?[]const u8 {
-    const at = std.mem.indexOf(u8, line, key) orelse return null;
+    const at = std.mem.find(u8, line, key) orelse return null;
     var i = at + key.len;
     while (i < line.len and line[i] != ':') i += 1;
     if (i >= line.len) return null;

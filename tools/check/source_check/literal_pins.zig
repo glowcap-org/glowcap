@@ -72,7 +72,7 @@ fn checkPins(
             continue;
         };
         defer gpa.free(owner);
-        if (std.mem.indexOf(u8, owner, pin.literal) == null) {
+        if (std.mem.find(u8, owner, pin.literal) == null) {
             try appendViolation(gpa, violations, "{s}: no longer holds `{s}`, {s}; move the pin's owner with the literal", .{ pin.owner, pin.literal, pin.what });
             continue;
         }
@@ -82,7 +82,7 @@ fn checkPins(
                 continue;
             };
             defer gpa.free(contents);
-            if (std.mem.indexOf(u8, contents, pin.literal) == null) {
+            if (std.mem.find(u8, contents, pin.literal) == null) {
                 try appendViolation(gpa, violations, "{s}: does not carry `{s}` ({s}), which {s} owns", .{ mirror, pin.literal, pin.what, pin.owner });
             }
         }
@@ -110,6 +110,6 @@ test "a mirror or owner that drops the pinned literal is a violation naming the 
         try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "mirror.html", .data = fixture.mirror });
         try checkPins(std.testing.io, gpa, tmp.dir, &violations, &rows);
         try std.testing.expectEqual(fixture.count, violations.items.len);
-        for (violations.items) |message| try std.testing.expect(std.mem.indexOf(u8, message, fixture.names) != null);
+        for (violations.items) |message| try std.testing.expect(std.mem.find(u8, message, fixture.names) != null);
     }
 }

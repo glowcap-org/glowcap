@@ -565,7 +565,7 @@ fn runNestedGivePipelining(case: PipeliningCase) !void {
     if (close_introducer) {
         try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_anchor, r_to_e }, &dials);
         try std.testing.expect(reply.broken);
-        try std.testing.expect(std.mem.indexOf(u8, reply.reason(), "connection released") != null);
+        try std.testing.expect(std.mem.find(u8, reply.reason(), "connection released") != null);
         try std.testing.expectEqual(
             @as(usize, 0),
             recipient.node.redeems.withdrawals.rows.count(),

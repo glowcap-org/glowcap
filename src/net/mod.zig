@@ -146,7 +146,7 @@ pub const external_completion = @import("transport/external/completion.zig");
 pub const completion_resident = @import("completion_resident.zig");
 /// Every first-party stream symbol on one completion backend, as one
 /// HostRuntime resident. Empty off the supported platforms.
-pub const StreamStack = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+pub const StreamStack = if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
     @import("stream_resident.zig").Stack(Backend)
 else
     struct {};
@@ -208,19 +208,19 @@ pub const carrier_failure = @import("carrier_failure.zig");
 /// The io_uring completion backend (Linux). Empty off Linux so other builds stay
 /// clean. It implements the `completion` backend interface and is reached
 /// through `Loop` below.
-const uring = if (@import("builtin").os.tag == .linux) @import("completion/uring.zig") else struct {};
-const linux_completion = if (@import("builtin").os.tag == .linux) @import("completion/linux.zig") else struct {};
-pub const linux_completion_white_box = if (@import("builtin").is_test and @import("builtin").os.tag == .linux)
+const uring = if (@import("builtin").target.os.tag == .linux) @import("completion/uring.zig") else struct {};
+const linux_completion = if (@import("builtin").target.os.tag == .linux) @import("completion/linux.zig") else struct {};
+pub const linux_completion_white_box = if (@import("builtin").is_test and @import("builtin").target.os.tag == .linux)
     linux_completion.white_box
 else
     struct {};
-const epoll = if (@import("builtin").os.tag == .linux) @import("completion/epoll.zig") else struct {};
-pub const epoll_white_box = if (@import("builtin").is_test and @import("builtin").os.tag == .linux)
+const epoll = if (@import("builtin").target.os.tag == .linux) @import("completion/epoll.zig") else struct {};
+pub const epoll_white_box = if (@import("builtin").is_test and @import("builtin").target.os.tag == .linux)
     epoll.white_box
 else
     struct {};
 /// Test-only access to Linux backend invariants. Empty in production builds.
-pub const uring_white_box = if (@import("builtin").is_test and @import("builtin").os.tag == .linux)
+pub const uring_white_box = if (@import("builtin").is_test and @import("builtin").target.os.tag == .linux)
     uring.white_box
 else
     struct {};
@@ -229,8 +229,8 @@ else
 /// the same `completion` backend interface, bridging kqueue's readiness model to
 /// the completion-shaped backend interface, and is reached through `Loop`
 /// below. A Windows (IOCP) backend is not implemented.
-const kqueue = if (@import("builtin").os.tag.isDarwin()) @import("completion/kqueue.zig") else struct {};
-pub const kqueue_white_box = if (@import("builtin").is_test and @import("builtin").os.tag.isDarwin())
+const kqueue = if (@import("builtin").target.os.tag.isDarwin()) @import("completion/kqueue.zig") else struct {};
+pub const kqueue_white_box = if (@import("builtin").is_test and @import("builtin").target.os.tag.isDarwin())
     kqueue.white_box
 else
     struct {};
@@ -240,9 +240,9 @@ else
 /// locator into `IpAddress`). Linux selects io_uring or epoll, Darwin uses
 /// kqueue, and any other platform gets an empty struct. Named `TcpLoop` so it is not
 /// confused with the generic `completion.Loop(Backend, DialResolver)`.
-pub const TcpLoop = if (@import("builtin").os.tag == .linux)
+pub const TcpLoop = if (@import("builtin").target.os.tag == .linux)
     completion.Loop(linux_completion.Backend, tcp.DialResolver)
-else if (@import("builtin").os.tag.isDarwin())
+else if (@import("builtin").target.os.tag.isDarwin())
     completion.Loop(kqueue.Backend, tcp.DialResolver)
 else
     struct {};
@@ -257,9 +257,9 @@ else
 /// Zig listener interface before the value is moved into `TcpLoop`. The
 /// ordinary constructor defaults to loopback. An empty struct off
 /// the supported platforms.
-pub const Backend = if (@import("builtin").os.tag == .linux)
+pub const Backend = if (@import("builtin").target.os.tag == .linux)
     linux_completion.Backend
-else if (@import("builtin").os.tag.isDarwin())
+else if (@import("builtin").target.os.tag.isDarwin())
     kqueue.Backend
 else
     struct {};
@@ -269,11 +269,11 @@ else
 /// The TCP, onion, keyed-relay, Noise, and iroh loop backends all preserve this
 /// status through their adapter layers. Applications decide how to present it.
 /// The library never writes unsolicited startup output. Empty off Linux.
-pub const TcpBackendStatus = if (@import("builtin").os.tag == .linux)
+pub const TcpBackendStatus = if (@import("builtin").target.os.tag == .linux)
     linux_completion.Status
 else
     struct {};
-pub const TcpBackendFallbackReason = if (@import("builtin").os.tag == .linux)
+pub const TcpBackendFallbackReason = if (@import("builtin").target.os.tag == .linux)
     linux_completion.FallbackReason
 else
     enum {};
@@ -281,7 +281,7 @@ else
 /// Return the selected Linux TCP backend for a TCP, onion, keyed-relay, Noise,
 /// or iroh completion loop. Empty off Linux.
 pub fn tcpBackendStatus(loop: anytype) TcpBackendStatus {
-    if (comptime @import("builtin").os.tag == .linux) {
+    if (comptime @import("builtin").target.os.tag == .linux) {
         return loop.backend.tcpBackendStatus();
     } else {
         return emptyTcpBackendStatus(loop);
@@ -296,14 +296,14 @@ fn emptyTcpBackendStatus(_: anytype) TcpBackendStatus {
 /// publication (ADR-0042). Construct `Backend`, move it into
 /// `OnionBackend.initOnion` with the deployment's Tor endpoints, then pass the
 /// result to `OnionLoop.initWithBackend`.
-pub const OnionBackend = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+pub const OnionBackend = if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
     onion.completion.CompletionBackend(Backend)
 else
     struct {};
 
 /// The dial resolver paired with `OnionBackend`: `onion` designators become
 /// SOCKS targets while the platform resolver continues to own TCP designators.
-pub const OnionDialResolver = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+pub const OnionDialResolver = if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
     onion.completion.DialResolver(tcp.DialResolver, Backend)
 else
     struct {};
@@ -312,7 +312,7 @@ else
 /// listens on `onion` locators without the driver drives this loop. Tor
 /// conversations stay in `OnionBackend`. `completion.Loop` remains
 /// transport-blind.
-pub const OnionLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+pub const OnionLoop = if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
     completion.Loop(OnionBackend, OnionDialResolver)
 else
     struct {};
@@ -323,14 +323,14 @@ else
 /// `initWithBackend` with `relay.CompletionBackend(Backend).initWithRelay`
 /// when constructing the loop so the relay URL, WebSocket entropy, and optional
 /// send-staging commitment are explicit deployment state.
-pub const KeyedRelayBackend = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+pub const KeyedRelayBackend = if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
     relay.CompletionBackend(Backend)
 else
     struct {};
 
 /// A completion loop whose locator grammar includes `tcp`, `keyed-tcp`, and
 /// outbound `keyed-relay`.
-pub const KeyedRelayLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+pub const KeyedRelayLoop = if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
     completion.Loop(KeyedRelayBackend, relay.DialResolver)
 else
     struct {};

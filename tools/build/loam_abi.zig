@@ -8,7 +8,7 @@ const root = @import("../../build.zig");
 const execution = @import("execution.zig");
 const Gates = @import("gates.zig").Registered;
 pub const Registered = struct { portable: *std.Build.Module, lmdb: *std.Build.Module, sqlite: *std.Build.Module, volatile_abi: *std.Build.Module, zig_installs: [4]*std.Build.Step };
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, layers: []*std.Build.Module, host: *std.Build.Module, lmdb: *std.Build.Module, sqlite: *std.Build.Module, gates: Gates) Registered {
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, version: std.SemanticVersion, layers: []*std.Build.Module, host: *std.Build.Module, lmdb: *std.Build.Module, sqlite: *std.Build.Module, gates: Gates) Registered {
     const imports = [_]modules.AbiImport{
         .{ .name = "loam_core", .module = layers[root.layerIndex("loam_core")] },
         .{ .name = "loam_access", .module = layers[root.layerIndex("loam_access")] },

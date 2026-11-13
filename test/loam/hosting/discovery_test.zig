@@ -384,7 +384,7 @@ test "loam publication cold fetch preserves pipelined calls in both protocol pro
 }
 
 fn feedFetch(fixture: *f.Fixture, server: *f.driver.HostSession, name: []const u8, answer: []const u8) !void {
-    const wire = try std.fmt.allocPrint(std.testing.allocator, "<10'op:deliver<11'desc:export0+>[5'fetch{d}:{s}]{s}<19'desc:import-promise99+>>", .{ name.len, name, answer });
+    const wire = try std.testing.allocator.print("<10'op:deliver<11'desc:export0+>[5'fetch{d}:{s}]{s}<19'desc:import-promise99+>>", .{ name.len, name, answer });
     defer std.testing.allocator.free(wire);
     try fixture.host.feed(server, .{ .bytes = wire, .shape = .byte });
 }

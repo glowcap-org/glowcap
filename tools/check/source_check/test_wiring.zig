@@ -66,7 +66,7 @@ pub fn check(
         if (std.mem.eql(u8, entry.path, "all_test.zig")) continue;
 
         var needle_buf: [192]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "@import(\"{s}\")", .{entry.path}) catch {
+        const needle = std.mem.print(&needle_buf, "@import(\"{s}\")", .{entry.path}) catch {
             try appendViolation(gpa, violations, "test/{s}: path too long for test-suite wiring check", .{entry.path});
             continue;
         };
@@ -82,14 +82,14 @@ pub fn check(
 
     for (suite_roots, root_contents) |path, contents| {
         var rest = contents;
-        while (std.mem.indexOf(u8, rest, "@import(\"")) |start| {
+        while (std.mem.find(u8, rest, "@import(\"")) |start| {
             const after = rest[start + "@import(\"".len ..];
-            const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
+            const end = std.mem.findScalar(u8, after, '"') orelse break;
             const target = after[0..end];
             rest = after[end..];
             if (!std.mem.endsWith(u8, target, "_test.zig")) continue;
             var target_buf: [192]u8 = undefined;
-            const target_path = std.fmt.bufPrint(&target_buf, "test/{s}", .{target}) catch {
+            const target_path = std.mem.print(&target_buf, "test/{s}", .{target}) catch {
                 try appendViolation(gpa, violations, "test/{s}: the target path overflows the wiring needle buffer; grow it", .{target});
                 continue;
             };
@@ -164,14 +164,14 @@ fn checkTypeScriptSuite(
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, "_test.ts")) continue;
         var rooted_buf: [256]u8 = undefined;
         var inside_buf: [256]u8 = undefined;
-        const rooted = std.fmt.bufPrint(&rooted_buf, "\"{s}/{s}\"", .{ suite.dir, entry.path }) catch null;
-        const inside = std.fmt.bufPrint(&inside_buf, "\"{s}\"", .{entry.path}) catch null;
+        const rooted = std.mem.print(&rooted_buf, "\"{s}/{s}\"", .{ suite.dir, entry.path }) catch null;
+        const inside = std.mem.print(&inside_buf, "\"{s}\"", .{entry.path}) catch null;
         if (rooted == null or inside == null) {
             try appendViolation(gpa, violations, "{s}/{s}: path too long for test wiring check", .{ suite.dir, entry.path });
             continue;
         }
-        const named = std.mem.indexOf(u8, owners.items, rooted.?) != null or
-            (suite.runs_inside and std.mem.indexOf(u8, owners.items, inside.?) != null);
+        const named = std.mem.find(u8, owners.items, rooted.?) != null or
+            (suite.runs_inside and std.mem.find(u8, owners.items, inside.?) != null);
         if (!named) try appendViolation(
             gpa,
             violations,
@@ -197,15 +197,15 @@ fn separatelyRegistered(
         defer gpa.free(owner);
         blankComments(owner);
         var needle_buf: [224]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "\"test/{s}\"", .{test_path}) catch return false;
-        return std.mem.indexOf(u8, owner, needle) != null;
+        const needle = std.mem.print(&needle_buf, "\"test/{s}\"", .{test_path}) catch return false;
+        return std.mem.find(u8, owner, needle) != null;
     }
     return false;
 }
 
 /// Whether any comment-blanked root contains `needle`.
 fn importedByAny(roots: []const []u8, needle: []const u8) bool {
-    for (roots) |contents| if (std.mem.indexOf(u8, contents, needle) != null) return true;
+    for (roots) |contents| if (std.mem.find(u8, contents, needle) != null) return true;
     return false;
 }
 
@@ -274,8 +274,8 @@ fn checkCheckerTests(
 fn testBlock(source: []u8) ?[]const u8 {
     blankComments(source);
     const open = "\ntest {\n";
-    const start = (std.mem.indexOf(u8, source, open) orelse return null) + open.len;
-    const len = std.mem.indexOf(u8, source[start..], "\n}") orelse return null;
+    const start = (std.mem.find(u8, source, open) orelse return null) + open.len;
+    const len = std.mem.find(u8, source[start..], "\n}") orelse return null;
     return source[start..][0..len];
 }
 
@@ -292,9 +292,9 @@ fn declaresTest(source: []const u8) bool {
 
 /// True when `block` imports the module at `path` under the modules directory.
 fn imports(gpa: std.mem.Allocator, block: []const u8, path: []const u8) !bool {
-    const line = try std.fmt.allocPrint(gpa, "_ = @import(\"source_check/{s}\");", .{path});
+    const line = try gpa.print("_ = @import(\"source_check/{s}\");", .{path});
     defer gpa.free(line);
-    return std.mem.indexOf(u8, block, line) != null;
+    return std.mem.find(u8, block, line) != null;
 }
 
 test "a module's tests run only when the root's test block imports the module" {

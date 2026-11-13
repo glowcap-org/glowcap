@@ -15,7 +15,7 @@ const glowcapExecutable = modules.glowcapExecutable;
 pub fn register(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     lib_mod: *std.Build.Module,
     check_step: *std.Build.Step,
     pin_port: ?u16,
@@ -27,7 +27,7 @@ pub fn register(
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/check/ocapn_adoption.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const adoption = execution.addLiveRun(b, .{ .deterministic = 30 }, adoption_exe);
@@ -54,7 +54,7 @@ pub fn register(
     // Its readiness probe and every module own separate deadlines, so adding a
     // module increases coverage without competing for one aggregate budget.
     const ocapn_conformance = commands.addRootedSystemCommand(b, .child_bounded, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--peer" });
-    ocapn_conformance.addArtifactArg(ocapn_peer_exe);
+    ocapn_conformance.addArtifactArg2(ocapn_peer_exe, .{});
     ocapn_conformance.has_side_effects = true;
     ocapn_conformance.step.dependOn(adoption_step);
     // The run above takes the peer's path directly, so it needs no install.
@@ -69,9 +69,9 @@ pub fn register(
     ocapn_conformance_step.dependOn(&ocapn_conformance.step);
 
     const next_conformance = commands.addRootedSystemCommand(b, .child_bounded, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--profile=next", "--peer" });
-    next_conformance.addArtifactArg(ocapn_peer_exe);
+    next_conformance.addArtifactArg2(ocapn_peer_exe, .{});
     next_conformance.addArg("--adoption-tool");
-    next_conformance.addArtifactArg(adoption_exe);
+    next_conformance.addArtifactArg2(adoption_exe, .{});
     next_conformance.has_side_effects = true;
     next_conformance.step.dependOn(adoption_step);
     const next_fixtures = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
@@ -95,7 +95,7 @@ pub fn register(
     ocapn_onion_peer_options.addOption(bool, "use_onion", true);
     ocapn_onion_peer_exe.root_module.addOptions("ocapn_peer_options", ocapn_onion_peer_options);
     const ocapn_conformance_onion = commands.addRootedSystemCommand(b, .real_internet, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap-onion.sh", "--peer" });
-    ocapn_conformance_onion.addArtifactArg(ocapn_onion_peer_exe);
+    ocapn_conformance_onion.addArtifactArg2(ocapn_onion_peer_exe, .{});
     ocapn_conformance_onion.step.dependOn(adoption_step);
     ocapn_conformance_onion.has_side_effects = true;
     const ocapn_conformance_onion_step = b.step("ocapn-conformance-onion", "Run the upstream OCapN suite against glowcap over an operator-supplied Tor (needs uv + external Tor + network)");
@@ -116,10 +116,10 @@ pub fn register(
     // `racket test/oracle/generate.rkt test/oracle/corpus`.
     const fixture_gen = execution.addSystemCommand(b, .build_tool, &.{"racket"});
     fixture_gen.addFileArg(b.path("test/oracle/generate.rkt"));
-    const fixture_gen_out = fixture_gen.addOutputDirectoryArg("generated-fixtures");
+    const fixture_gen_out = fixture_gen.addOutputDirectoryArg2("generated-fixtures", .{});
     const fixture_diff = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "diff", "-r" });
-    fixture_diff.addDirectoryArg(b.path("test/oracle/corpus"));
-    fixture_diff.addDirectoryArg(fixture_gen_out);
+    fixture_diff.addDirectoryArg2(b.path("test/oracle/corpus"), .{});
+    fixture_diff.addDirectoryArg2(fixture_gen_out, .{});
     const fixture_gen_check_step = b.step("fixture-gen-check", "Regenerate Syrup fixtures via the upstream Racket Syrup encoder and diff against the committed corpus (needs racket + syrup)");
     fixture_gen_check_step.dependOn(&fixture_diff.step);
 

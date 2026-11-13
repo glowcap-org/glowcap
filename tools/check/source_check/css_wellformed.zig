@@ -49,7 +49,7 @@ fn cssFault(css: []const u8) ?CssFault {
     while (i < css.len) {
         const c = css[i];
         if (c == '/' and i + 1 < css.len and css[i + 1] == '*') {
-            const end = std.mem.indexOfPos(u8, css, i + 2, "*/") orelse
+            const end = std.mem.findPos(u8, css, i + 2, "*/") orelse
                 return .{ .at = i, .why = "unclosed `/*` comment; declarations after it never apply" };
             const body = css[i + 2 .. end];
             if (commentHidesDeclaration(body)) |rel| {

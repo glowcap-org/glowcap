@@ -40,7 +40,7 @@ fn isPathChar(c: u8) bool {
 }
 
 fn basenameOf(name: []const u8) []const u8 {
-    if (std.mem.lastIndexOfScalar(u8, name, '/')) |slash| return name[slash + 1 ..];
+    if (std.mem.findScalarLast(u8, name, '/')) |slash| return name[slash + 1 ..];
     return name;
 }
 
@@ -70,7 +70,7 @@ pub fn checkProseFileClaims(
                 continue;
             };
             var i: usize = 0;
-            while (std.mem.indexOfScalarPos(u8, source, i, '`')) |open| {
+            while (std.mem.findScalarPos(u8, source, i, '`')) |open| {
                 var end = open + 1;
                 while (end < source.len and isPathChar(source[end])) end += 1;
                 i = end + 1;

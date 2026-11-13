@@ -95,7 +95,7 @@ pub fn main(init: std.process.Init) !void {
     };
     std.debug.print("onion-session: recorded ocapn://{s}.onion before server restart\n", .{service_id});
 
-    const cookie_path = try std.fmt.allocPrint(gpa, "{s}/control_auth_cookie", .{daemon.dir});
+    const cookie_path = try gpa.print("{s}/control_auth_cookie", .{daemon.dir});
     defer gpa.free(cookie_path);
     var child = try std.process.spawn(io, .{
         .argv = &.{

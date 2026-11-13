@@ -44,7 +44,7 @@ pub fn check(
     var names = std.mem.tokenizeScalar(u8, tracked, ' ');
     while (names.next()) |name| {
         const named = readableName(name);
-        if (std.mem.indexOf(u8, lower, named) == null) {
+        if (std.mem.find(u8, lower, named) == null) {
             try appendViolation(gpa, violations, "{s}: pinned dependency `{s}` is not described (expected the words \"{s}\")", .{ doc_path, name, named });
         }
     }
@@ -57,7 +57,7 @@ pub fn check(
         defer gpa.free(manifest);
         var keys = DependencyKeys{ .rest = dependencyBlock(manifest) orelse continue };
         while (keys.next()) |key| {
-            if (std.mem.indexOf(u8, lower, key) == null) {
+            if (std.mem.find(u8, lower, key) == null) {
                 try appendViolation(gpa, violations, "{s}: Zig package `{s}` from {s} is not described", .{ doc_path, key, manifest_path });
             }
         }
@@ -66,9 +66,9 @@ pub fn check(
 
 fn trackedDeps(source: []const u8) ?[]const u8 {
     const prefix = "GLOWCAP_PINS_DEPS=\"";
-    const start = std.mem.indexOf(u8, source, prefix) orelse return null;
+    const start = std.mem.find(u8, source, prefix) orelse return null;
     const value = source[start + prefix.len ..];
-    const end = std.mem.indexOfScalar(u8, value, '"') orelse return null;
+    const end = std.mem.findScalar(u8, value, '"') orelse return null;
     return value[0..end];
 }
 
@@ -80,7 +80,7 @@ fn readableName(tracked: []const u8) []const u8 {
 /// The text between `.dependencies = .{` and its closing brace.
 fn dependencyBlock(manifest: []const u8) ?[]const u8 {
     const open = ".dependencies = .{";
-    const start = (std.mem.indexOf(u8, manifest, open) orelse return null) + open.len;
+    const start = (std.mem.find(u8, manifest, open) orelse return null) + open.len;
     var depth: usize = 1;
     for (manifest[start..], start..) |c, i| switch (c) {
         '{' => depth += 1,
@@ -104,7 +104,7 @@ const DependencyKeys = struct {
             '{' => depth += 1,
             '}' => depth -|= 1,
             '/' => if (i + 1 < self.rest.len and self.rest[i + 1] == '/') {
-                i = std.mem.indexOfScalarPos(u8, self.rest, i, '\n') orelse self.rest.len;
+                i = std.mem.findScalarPos(u8, self.rest, i, '\n') orelse self.rest.len;
             },
             '.' => if (depth == 0) {
                 var end = i + 1;

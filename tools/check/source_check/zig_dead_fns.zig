@@ -71,7 +71,7 @@ fn privateFnName(line: []const u8) ?[]const u8 {
     if (std.mem.startsWith(u8, t, "inline ")) t = t["inline ".len..];
     if (!std.mem.startsWith(u8, t, "fn ")) return null;
     const rest = t["fn ".len..];
-    const open = std.mem.indexOfScalar(u8, rest, '(') orelse return null;
+    const open = std.mem.findScalar(u8, rest, '(') orelse return null;
     const name = rest[0..open];
     if (name.len == 0) return null;
     for (name) |c| if (!text_match.isIdentChar(c)) return null;
@@ -89,5 +89,5 @@ test "a private fn named only by its declaration or a comment is dead" {
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
     try checkFile(gpa, &violations, "src/a.zig", "/// Calls `dead`.\nfn dead() void {} // dead\npub fn api() void {}\n");
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "src/a.zig:2: private fn `dead`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "src/a.zig:2: private fn `dead`") != null);
 }

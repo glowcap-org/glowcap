@@ -20,7 +20,7 @@ fn prefixed(comptime prefix: []const u8, comptime subject: []const u8, comptime 
     var out: [flags.len]Flag = undefined;
     @setEvalBranchQuota(100_000);
     for (flags, 0..) |flag, index| {
-        if (std.mem.indexOf(u8, flag.help, "--") != null) @compileError("the help of --" ++ flag.long ++ " holds `--`, and a prefixed flag's help may name no flag");
+        if (std.mem.find(u8, flag.help, "--") != null) @compileError("the help of --" ++ flag.long ++ " holds `--`, and a prefixed flag's help may name no flag");
         out[index] = flag;
         out[index].long = prefix ++ flag.long;
         out[index].help = subject ++ flag.help;

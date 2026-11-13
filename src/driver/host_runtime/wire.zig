@@ -63,8 +63,8 @@ pub const Wire = struct {
         index: usize,
         conn: usize,
         pending: ?PendingOut = null,
-        parked: std.ArrayListUnmanaged(u8) = .empty,
-        parked_packets: std.ArrayListUnmanaged([]u8) = .empty,
+        parked: std.ArrayList(u8) = .empty,
+        parked_packets: std.ArrayList([]u8) = .empty,
         parked_packet_bytes: usize = 0,
         /// The read loop stopped at the chunk that opened the session, so the
         /// embedder's post-open setup runs before later chunks dispatch.

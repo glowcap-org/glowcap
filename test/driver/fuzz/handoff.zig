@@ -58,9 +58,9 @@ const Signature = struct {
 
     /// The first `sig-val` record at or after `from`.
     fn find(bytes: []const u8, from: usize) ?Signature {
-        const record = std.mem.indexOfPos(u8, bytes, from, "[7'sig-val[5'eddsa[1'r32:") orelse return null;
+        const record = std.mem.findPos(u8, bytes, from, "[7'sig-val[5'eddsa[1'r32:") orelse return null;
         const r = record + "[7'sig-val[5'eddsa[1'r32:".len;
-        const s_label = std.mem.indexOfPos(u8, bytes, r + 32, "[1's32:") orelse return null;
+        const s_label = std.mem.findPos(u8, bytes, r + 32, "[1's32:") orelse return null;
         const s = s_label + "[1's32:".len;
         if (s + 32 > bytes.len) return null;
         return .{ .r = r, .s = s };
@@ -183,7 +183,7 @@ pub const Trio = struct {
         while (try self.r_to_e.a.takeOutbound()) |frame_value| {
             var frame = frame_value;
             defer frame.deinit();
-            if (std.mem.indexOf(u8, frame.bytes(), "withdraw-gift") != null and self.withdraw.len == 0) {
+            if (std.mem.find(u8, frame.bytes(), "withdraw-gift") != null and self.withdraw.len == 0) {
                 const peer = self.r_to_e.a.served.port.peer;
                 const body = try glowcap.ocapn.codec.dispatch.decodeBodyForProfile(
                     peer.session_state.codec,
@@ -201,7 +201,7 @@ pub const Trio = struct {
         }
         if (self.withdraw.len == 0) return error.NoWithdrawFrame;
         if (!self.giftLive()) return error.GiftNotDeposited;
-        self.envelope_start = std.mem.indexOf(u8, self.withdraw, "<17'desc:sig-envelope") orelse return error.NoEnvelope;
+        self.envelope_start = std.mem.find(u8, self.withdraw, "<17'desc:sig-envelope") orelse return error.NoEnvelope;
         self.envelope_end = valueEnd(self.withdraw, self.envelope_start) orelse return error.NoEnvelope;
         // The give's signature closes the inner envelope and the receive's
         // closes the outer, so the second found is the receive's.
@@ -215,8 +215,8 @@ pub const Trio = struct {
         self.answer_base = answer[1];
         if (self.answer_base < '0' or self.answer_base + max_steps > '9' + 1) return error.NoAnswerPosition;
         const resolver_label = "<18'desc:import-object";
-        self.resolver_start = (std.mem.indexOfPos(u8, self.withdraw, self.envelope_end, resolver_label) orelse return error.NoResolver) + resolver_label.len;
-        self.resolver_end = std.mem.indexOfScalarPos(u8, self.withdraw, self.resolver_start, '+') orelse return error.NoResolver;
+        self.resolver_start = (std.mem.findPos(u8, self.withdraw, self.envelope_end, resolver_label) orelse return error.NoResolver) + resolver_label.len;
+        self.resolver_end = std.mem.findScalarPos(u8, self.withdraw, self.resolver_start, '+') orelse return error.NoResolver;
         self.resolver_base = try std.fmt.parseInt(u64, self.withdraw[self.resolver_start..self.resolver_end], 10);
         if (self.resolver_base > std.math.maxInt(u64) - max_steps) return error.NoResolver;
     }
@@ -256,7 +256,7 @@ pub const Trio = struct {
         // certificate can leave its answer pending; reusing its resolver then
         // violates the protocol before the next certificate is examined.
         var resolver_buf: [20]u8 = undefined;
-        const resolver = try std.fmt.bufPrint(&resolver_buf, "{d}", .{self.resolver_base + self.feeds});
+        const resolver = try std.mem.print(&resolver_buf, "{d}", .{self.resolver_base + self.feeds});
         self.feeds += 1;
         var prefix_buf: [stream_framing.prefix_buffer_bytes]u8 = undefined;
         const frame_len = copy.len - (self.resolver_end - self.resolver_start) + resolver.len;

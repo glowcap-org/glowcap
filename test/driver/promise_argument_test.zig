@@ -100,7 +100,7 @@ fn importOf(host: *Host, hs: *driver.core.HostSession, name: []const u8, pair: h
     if (captured.ref == null) return error.FetchUnsettled;
     const after = heldImports(hs.served.port.peer);
     for (after.items[0..after.len]) |position| {
-        if (std.mem.indexOfScalar(u64, before.items[0..before.len], position) == null) return position;
+        if (std.mem.findScalar(u64, before.items[0..before.len], position) == null) return position;
     }
     return error.NoNewImport;
 }

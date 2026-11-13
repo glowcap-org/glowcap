@@ -230,8 +230,7 @@ fn tsHandlerName(gpa: std.mem.Allocator, arm: Arm) ![]u8 {
 /// the same boundary so its raw output is already `deno fmt`-clean, the check
 /// compares bytes, and there is no formatter pass between generate and commit.
 fn emitTsHandlerSignature(out: *std.ArrayList(u8), gpa: std.mem.Allocator, method: []const u8, name: []const u8) !void {
-    const single = try std.fmt.allocPrint(
-        gpa,
+    const single = try gpa.print(
         "\t{s}: (action: Extract<HostAction, {{ kind: typeof HOST_ACTION_{s} }}>) => void | Promise<void>;",
         .{ method, name },
     );

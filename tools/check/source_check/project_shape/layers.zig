@@ -44,7 +44,7 @@ pub fn checkLayerOwnership(
         const name = std.mem.trimEnd(u8, span, "/");
         try named.put(name, {});
         var path_buf: [160]u8 = undefined;
-        const path = std.fmt.bufPrint(&path_buf, "src/{s}", .{name}) catch {
+        const path = std.mem.print(&path_buf, "src/{s}", .{name}) catch {
             try appendViolation(gpa, violations, "layer `{s}` overflows the ownership check path buffer; grow it", .{name});
             continue;
         };
@@ -88,7 +88,7 @@ fn checkGroupingChildren(
     rule_path: []const u8,
 ) !void {
     var path_buf: [160]u8 = undefined;
-    const group_path = std.fmt.bufPrint(&path_buf, "src/{s}", .{group}) catch {
+    const group_path = std.mem.print(&path_buf, "src/{s}", .{group}) catch {
         try appendViolation(gpa, violations, "layer group `{s}` overflows the ownership check path buffer; grow it", .{group});
         return;
     };
@@ -116,7 +116,7 @@ fn checkGroupingChildren(
 
     for (subdirs.items) |sub| {
         var needle_buf: [160]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "{s}/{s}", .{ group, sub }) catch {
+        const needle = std.mem.print(&needle_buf, "{s}/{s}", .{ group, sub }) catch {
             try appendViolation(gpa, violations, "layer subdirectory {s}/{s} overflows the ownership check needle buffer; grow it", .{ group, sub });
             continue;
         };
@@ -171,7 +171,7 @@ pub fn checkTestPlacement(
     while (try it.next(io)) |entry| {
         if (entry.kind != .directory) continue;
         var needle_buf: [160]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "test/{s}", .{entry.name}) catch {
+        const needle = std.mem.print(&needle_buf, "test/{s}", .{entry.name}) catch {
             try appendViolation(gpa, violations, "test/{s}: the directory name overflows the placement needle buffer; grow it", .{entry.name});
             continue;
         };

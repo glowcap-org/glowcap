@@ -208,7 +208,7 @@ test "core host: keyed dial to a verified partner session key refuses SessionPai
     const partner_key = crypto.SecretKey.fromSeed(partner_seed).publicKey();
     const designator = partner_key.toDesignator();
     var uri_buf: [96]u8 = undefined;
-    const uri = try std.fmt.bufPrint(&uri_buf, "ocapn://{s}.iroh", .{designator[0..]});
+    const uri = try std.mem.print(&uri_buf, "ocapn://{s}.iroh", .{designator[0..]});
 
     var dialer = test_host.init(allocator, @as([32]u8, @splat(0x52)), Host.Options.init(.unchecked, frame_cap));
     defer dialer.deinit();
@@ -313,7 +313,7 @@ test "core host: a burst of accepts before any start-session indexes every partn
         peers[i] = test_host.init(allocator, @as([32]u8, @splat(@as(u8, @intCast(0x61 + i)))), Host.Options.init(.unchecked, frame_cap));
         peers_inited += 1;
         var buf: [24]u8 = undefined;
-        const designator = try std.fmt.bufPrint(&buf, "127.0.0.1:{d}", .{7100 + i});
+        const designator = try std.mem.print(&buf, "127.0.0.1:{d}", .{7100 + i});
         accepted[i] = try publishAndOpenAccepted(&host, "tcp", designator, &.{});
         try peers[i].ensureAdvertisedLocator("tcp");
         dialed[i] = try peers[i].openDialedLocator(tcpLocator(designator));

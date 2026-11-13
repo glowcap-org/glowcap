@@ -35,7 +35,7 @@ const tcp_keepalive = @import("tcp_keepalive.zig");
 const Listeners = @import("uring_listeners.zig").Listeners;
 
 comptime {
-    if (builtin.os.tag != .linux) @compileError("the io_uring completion backend is Linux-only");
+    if (builtin.target.os.tag != .linux) @compileError("the io_uring completion backend is Linux-only");
 }
 
 const tcp_os = socket_tcp.Os.linux;

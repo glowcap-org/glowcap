@@ -79,7 +79,7 @@ fn explains(gpa: std.mem.Allocator, doc: []const u8, text: []const u8, path: []c
         return false;
     }
     const dir = kinds.readmeDir(doc) orelse return false;
-    return std.mem.startsWith(u8, path, dir) and std.mem.indexOfScalar(u8, path[dir.len..], '/') == null;
+    return std.mem.startsWith(u8, path, dir) and std.mem.findScalar(u8, path[dir.len..], '/') == null;
 }
 
 fn gitLines(io: std.Io, gpa: std.mem.Allocator, argv: []const []const u8, out: *std.ArrayList([]const u8)) !void {

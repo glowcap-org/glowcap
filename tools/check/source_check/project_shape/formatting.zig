@@ -42,7 +42,7 @@ pub fn check(
         "[*.{json,jsonc}]",
     };
     for (required) |needle| {
-        if (std.mem.indexOf(u8, editorconfig, needle) == null) {
+        if (std.mem.find(u8, editorconfig, needle) == null) {
             try appendViolation(gpa, violations, "{s}: missing `{s}` from the shared whitespace policy", .{ editorconfig_path, needle });
         }
     }
@@ -55,14 +55,14 @@ pub fn check(
         defer gpa.free(source);
 
         for ([_][]const u8{ "\"lineWidth\": 120", "\"semiColons\": true", "\"singleQuote\": false" }) |needle| {
-            if (std.mem.indexOf(u8, source, needle) == null) {
+            if (std.mem.find(u8, source, needle) == null) {
                 try appendViolation(gpa, violations, "{s}: missing Deno syntax policy `{s}`", .{ path, needle });
             }
         }
         for (inherited_keys) |key| {
-            const key_needle = try std.fmt.allocPrint(gpa, "\"{s}\"", .{key});
+            const key_needle = try gpa.print("\"{s}\"", .{key});
             defer gpa.free(key_needle);
-            if (std.mem.indexOf(u8, source, key_needle) != null) {
+            if (std.mem.find(u8, source, key_needle) != null) {
                 try appendViolation(gpa, violations, "{s}: `{s}` shadows .editorconfig; keep cross-language whitespace in one authority", .{ path, key });
             }
         }

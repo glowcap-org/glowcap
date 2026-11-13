@@ -247,7 +247,7 @@ pub const Store = struct {
     /// Counts the change just written at `changes[count]`, ordered at
     /// `position`.
     fn insertOrder(self: *Store, position: usize) void {
-        std.mem.copyBackwards(usize, self.order[position + 1 .. self.count + 1], self.order[position..self.count]);
+        @memmove(self.order[position + 1 .. self.count + 1], self.order[position..self.count]);
         self.order[position] = self.count;
         self.count += 1;
     }

@@ -254,7 +254,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
 fn setLibraryEnvironment(run: *std.Build.Step.Run, b: *std.Build) void {
     const directory = commands.rootPath(b, "zig-out/lib");
     commands.setLibDir(run, .host);
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", directory),
         .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", directory),
         else => {},

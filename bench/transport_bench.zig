@@ -28,7 +28,7 @@
 //! Like the other benches, it reports numbers and gates none of them. Under
 //! `zig build check` it would run in Debug. It is not on `check` because it links
 //! the Rust sidecar. Read the printed `mode=` field and run with
-//! `-Doptimize=ReleaseFast` for absolute figures: `zig build bench-transports`.
+//! `-Doptimize=fast` for absolute figures: `zig build bench-transports`.
 
 const std = @import("std");
 const nowNs = @import("support/clock.zig").nowNs;
@@ -201,7 +201,7 @@ fn clientMeasure(
     // the same shape as the Cap'n Proto harnesses under `bench/capnp/`. The
     // profile phase is the timed loop, named like the report row.
     var phase_buf: [32]u8 = undefined;
-    const phase = try std.fmt.bufPrintSentinel(&phase_buf, "{s}-{s}", .{ name, @tagName(call) }, 0);
+    const phase = try std.mem.printSentinel(&phase_buf, "{s}-{s}", .{ name, @tagName(call) }, 0);
     profile.begin();
     for (samples) |*sample| {
         _ = arena_state.reset(.retain_capacity);
@@ -255,7 +255,7 @@ fn openMeasure(
     samples: []u64,
 ) !void {
     var phase_buf: [32]u8 = undefined;
-    const phase = try std.fmt.bufPrintSentinel(&phase_buf, "{s}-session-open", .{name}, 0);
+    const phase = try std.mem.printSentinel(&phase_buf, "{s}-session-open", .{name}, 0);
     for (0..warmup + samples.len) |i| {
         if (i == warmup) profile.begin();
         const t0 = nowNs(io);
@@ -297,7 +297,7 @@ fn report(transport: []const u8, call: []const u8, warmup: usize, samples: []u64
     const rps: f64 = if (mean_ns > 0) 1_000_000_000.0 / mean_ns else 0;
     std.debug.print(
         "roundtrip transport={s} codec={s} call={s} calls={d} warmup={d} p50_ns={d} p99_ns={d} mean_ns={d:.0} rps={d:.0} mode={s} busy_poll_us={d} pin={s} readings={d} frame_cap={d}\n",
-        .{ transport, @tagName(opts.codec), call, n, warmup, p50, p99, mean_ns, rps, @tagName(builtin.mode), opts.busy_poll_ns / std.time.ns_per_us, if (pin != null) "yes" else "no", if (std.mem.eql(u8, call, "report")) report_samples.len else 0, opts.frame_cap },
+        .{ transport, @tagName(opts.codec), call, n, warmup, p50, p99, mean_ns, rps, @tagName(builtin.optimize), opts.busy_poll_ns / std.time.ns_per_us, if (pin != null) "yes" else "no", if (std.mem.eql(u8, call, "report")) report_samples.len else 0, opts.frame_cap },
     );
 }
 
@@ -557,7 +557,7 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
     const rps: f64 = if (secs > 0) @as(f64, @floatFromInt(total)) / secs else 0;
     std.debug.print(
         "loop transport=iroh conns={d} calls_each={d} aggregate_rps={d:.0} mode={s}\n",
-        .{ loop_conns, calls, rps, @tagName(builtin.mode) },
+        .{ loop_conns, calls, rps, @tagName(builtin.optimize) },
     );
 }
 

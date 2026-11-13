@@ -63,8 +63,8 @@ pub fn checkAbiFreeingVerb(
             var j: usize = i - 1;
             while (true) {
                 const doc_line = lines.items[j];
-                if (std.mem.indexOf(u8, doc_line, "without releasing") != null) states_no_release = true;
-                if (std.mem.indexOf(u8, doc_line, "free") != null) claims_free = true;
+                if (std.mem.find(u8, doc_line, "without releasing") != null) states_no_release = true;
+                if (std.mem.find(u8, doc_line, "free") != null) claims_free = true;
                 if (std.mem.startsWith(u8, std.mem.trimStart(u8, doc_line, " \t"), "/*")) break;
                 if (j == 0) break;
                 j -= 1;
@@ -141,10 +141,10 @@ pub fn checkCAbiSurfaceShape(
             if (!name_set.contains(base)) {
                 try appendViolation(gpa, violations, "C ABI surface (ADR-0022): {s} has no base constructor {s}", .{ name, base });
             }
-        } else if (std.mem.indexOf(u8, name, "_new") != null) {
-            const twin_in = try std.fmt.allocPrint(gpa, "{s}_in", .{name});
+        } else if (std.mem.find(u8, name, "_new") != null) {
+            const twin_in = try gpa.print("{s}_in", .{name});
             defer gpa.free(twin_in);
-            const twin_alloc = try std.fmt.allocPrint(gpa, "{s}_with_allocator", .{name});
+            const twin_alloc = try gpa.print("{s}_with_allocator", .{name});
             defer gpa.free(twin_alloc);
             if (!name_set.contains(twin_in) and !name_set.contains(twin_alloc)) {
                 try appendViolation(gpa, violations, "C ABI surface (ADR-0022): {s} has no allocator-aware twin ({s}_in or {s}_with_allocator); allocation policy is one axis spelled one way", .{ name, name, name });
@@ -174,9 +174,9 @@ pub fn checkCAbiSurfaceShape(
             continue;
         }
         const clear = if (family.len == 0)
-            try std.fmt.allocPrint(gpa, "glowcap_clear_last_error", .{})
+            try gpa.print("glowcap_clear_last_error", .{})
         else
-            try std.fmt.allocPrint(gpa, "glowcap_{s}_clear_last_error", .{family});
+            try gpa.print("glowcap_{s}_clear_last_error", .{family});
         defer gpa.free(clear);
         if (!name_set.contains(clear)) {
             try appendViolation(gpa, violations, "C ABI surface (ADR-0022): {s} has no matching {s}; an error channel is a last_error/clear_last_error pair", .{ name, clear });
@@ -208,7 +208,7 @@ pub fn checkCAbiHeaderCommentSeparation(
         defer gpa.free(contents);
 
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, contents, at, ";/*")) |hit| {
+        while (std.mem.findPos(u8, contents, at, ";/*")) |hit| {
             try appendViolation(
                 gpa,
                 violations,
@@ -284,7 +284,7 @@ pub fn checkAbiExportsConsumed(
             };
             defer gpa.free(contents);
             var search: usize = 0;
-            while (std.mem.indexOfPos(u8, contents, search, "glowcap_")) |start| {
+            while (std.mem.findPos(u8, contents, search, "glowcap_")) |start| {
                 var end = start;
                 while (end < contents.len and text_match.isIdentChar(contents[end])) end += 1;
                 search = end;
@@ -335,13 +335,13 @@ fn collectHeaderDeclarations(
     const text = try gpa.dupe(u8, contents);
     defer gpa.free(text);
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, text, i, "/*")) |open| {
-        const close = std.mem.indexOfPos(u8, text, open + 2, "*/") orelse break;
+    while (std.mem.findPos(u8, text, i, "/*")) |open| {
+        const close = std.mem.findPos(u8, text, open + 2, "*/") orelse break;
         @memset(text[open .. close + 2], ' ');
         i = close + 2;
     }
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, text, search, "glowcap_")) |start| {
+    while (std.mem.findPos(u8, text, search, "glowcap_")) |start| {
         var end = start;
         while (end < text.len and text_match.isIdentChar(text[end])) end += 1;
         search = end;

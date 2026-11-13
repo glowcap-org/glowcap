@@ -31,7 +31,7 @@ pub const RetryWindow = struct {
     pub fn append(self: *RetryWindow, receipt: loam.ObjectId) !void {
         _ = try self.lookup(self.next);
         if (self.count == capacity) {
-            std.mem.copyForwards(loam.ObjectId, self.receipts[0 .. capacity - 1], self.receipts[1..capacity]);
+            @memmove(self.receipts[0 .. capacity - 1], self.receipts[1..capacity]);
             self.count -= 1;
         }
         self.receipts[self.count] = receipt;

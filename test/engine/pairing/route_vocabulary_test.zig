@@ -73,7 +73,7 @@ test "identity-route hellos cannot be the unnegotiated first hello" {
     const allocator = std.testing.allocator;
     const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x49)));
     const key = secret.publicKey().toDesignator();
-    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route);
     const hints = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
@@ -110,7 +110,7 @@ test "identity-route hellos require local and remote opt-in" {
     const allocator = std.testing.allocator;
     const remote_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x4a)));
     const key = remote_secret.publicKey().toDesignator();
-    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    const route = try allocator.print("ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route);
     const frame = try idHelloFrame(allocator, remote_secret, &key, route, null);
 
@@ -134,7 +134,7 @@ test "identity-route hellos admit only complete same-key carrier plans" {
     try std.testing.expectError(session.Error.MalformedMessage, missing.step());
     try std.testing.expect(!missing.session_state.handshake_remote_received);
 
-    const wrong_route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{other_designator});
+    const wrong_route = try allocator.print("ocapn://{s}.iroh", .{other_designator});
     defer allocator.free(wrong_route);
     var mismatched = try receiveIdHello(allocator, &id_designator, wrong_route);
     defer mismatched.deinit();
@@ -146,7 +146,7 @@ test "identity-route hellos admit only complete same-key carrier plans" {
     try std.testing.expectError(session.Error.MalformedMessage, unsupported.step());
     try std.testing.expect(!unsupported.session_state.handshake_remote_received);
 
-    const valid_route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{id_designator});
+    const valid_route = try allocator.print("ocapn://{s}.iroh", .{id_designator});
     defer allocator.free(valid_route);
     var valid = try receiveIdHello(allocator, &id_designator, valid_route);
     defer valid.deinit();
@@ -159,8 +159,7 @@ test "identity-route hello refuses duplicate nested route hints" {
     const allocator = std.testing.allocator;
     const id_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x55)));
     const id_designator = id_secret.publicKey().toDesignator();
-    const duplicate = try std.fmt.allocPrint(
-        allocator,
+    const duplicate = try allocator.print(
         "ocapn://{s}.iroh?relay=one&relay=two",
         .{id_designator},
     );
@@ -176,7 +175,7 @@ test "identity-route hello admits a weak baseline handoff fallback" {
     const allocator = std.testing.allocator;
     const remote_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x58)));
     const remote_designator = remote_secret.publicKey().toDesignator();
-    const via = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{remote_designator});
+    const via = try allocator.print("ocapn://{s}.iroh", .{remote_designator});
     defer allocator.free(via);
     const onion = "ocapn://baseline-service.onion";
 
@@ -204,7 +203,7 @@ test "identity-route hello is admitted before the local hello" {
     const allocator = std.testing.allocator;
     const remote_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x56)));
     const remote_designator = remote_secret.publicKey().toDesignator();
-    const via = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{remote_designator});
+    const via = try allocator.print("ocapn://{s}.iroh", .{remote_designator});
     defer allocator.free(via);
 
     var peer = engine.Peer.initNegotiatingWith(allocator, .{

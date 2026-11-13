@@ -219,7 +219,7 @@ test "a verifying peer refuses a hinted-locator handshake whose hint bytes were 
     // bytes can notice, proving the hints participate in the signed domain.
     const tampered = try allocator.dupe(u8, hinted_locator_bytes);
     defer allocator.free(tampered);
-    tampered[std.mem.lastIndexOfScalar(u8, tampered, '1').?] = '2';
+    tampered[std.mem.findScalarLast(u8, tampered, '1').?] = '2';
     const frame = try hintedStartSessionFrame(allocator, partner_secret, tampered);
     try verifier.feedOwned(frame);
     try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());

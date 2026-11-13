@@ -330,7 +330,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
             while (setup.held != null) {
                 const held_bytes = setup.held.?.borrowed.recvBytes().?;
                 const available = held_bytes[setup.held_offset..];
-                const newline = std.mem.indexOfScalar(u8, available, '\n') orelse {
+                const newline = std.mem.findScalar(u8, available, '\n') orelse {
                     appendFragment(backend, setup, available);
                     if (backend.listener.setup == null) return;
                     backend.inner.recycleBorrowed(setup.held.?);
@@ -387,7 +387,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
                 .auth_recv => {
                     if (reply.continuation != .end) return;
                     var forward_buf: [32]u8 = undefined;
-                    const forward = std.fmt.bufPrint(&forward_buf, "127.0.0.1:{d}", .{setup.forward_port}) catch
+                    const forward = std.mem.print(&forward_buf, "127.0.0.1:{d}", .{setup.forward_port}) catch
                         return fail(backend, error.ControlProtocolViolation);
                     const add = (if (config(backend).service_key.len == 0)
                         onion_control.writeAddOnionNew(&setup.request, .{ .address = forward })

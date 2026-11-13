@@ -26,7 +26,7 @@ pub fn locator(
     identity: ?crypto.PeerKey,
 ) error{ InvalidAddress, OutOfMemory }!model.PeerLocator {
     var address_storage: [designator_buf_len]u8 = undefined;
-    const bound = std.fmt.bufPrint(&address_storage, "{f}", .{address}) catch unreachable;
+    const bound = std.mem.print(&address_storage, "{f}", .{address}) catch unreachable;
     var identity_storage: [crypto.PeerKey.designator_len]u8 = undefined;
     const designator: []const u8 = switch (profile.designator_scheme) {
         .address => bound,

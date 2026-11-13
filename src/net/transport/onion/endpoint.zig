@@ -42,7 +42,7 @@ pub const Endpoint = union(enum) {
             if (text.len > UnixAddress.max_len) return Error.InvalidEndpoint;
             return .{ .unix = text };
         }
-        const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return Error.InvalidEndpoint;
+        const colon = std.mem.findScalarLast(u8, text, ':') orelse return Error.InvalidEndpoint;
         const port = std.fmt.parseInt(u16, text[colon + 1 ..], 10) catch return Error.InvalidEndpoint;
         const host = text[0..colon];
         // A bracketed IPv6 literal keeps its brackets in the text and loses them

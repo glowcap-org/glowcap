@@ -7,9 +7,9 @@ const std = @import("std");
 /// ending at the next `## ` heading or end of file. The slice points into
 /// `contents`, so it shares its lifetime.
 pub fn sectionBody(contents: []const u8, heading: []const u8) ?[]const u8 {
-    const start = std.mem.indexOf(u8, contents, heading) orelse return null;
+    const start = std.mem.find(u8, contents, heading) orelse return null;
     const after = contents[start + heading.len ..];
-    const end = std.mem.indexOf(u8, after, "\n## ") orelse after.len;
+    const end = std.mem.find(u8, after, "\n## ") orelse after.len;
     return after[0..end];
 }
 
@@ -21,7 +21,7 @@ pub fn collectBulletSpans(gpa: std.mem.Allocator, section: []const u8, out: *std
         const trimmed = std.mem.trimStart(u8, line, " \t");
         if (!std.mem.startsWith(u8, trimmed, "- `")) continue;
         const after_tick = trimmed["- `".len..];
-        const close = std.mem.indexOfScalar(u8, after_tick, '`') orelse continue;
+        const close = std.mem.findScalar(u8, after_tick, '`') orelse continue;
         try out.append(gpa, after_tick[0..close]);
     }
 }

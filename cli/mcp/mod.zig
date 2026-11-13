@@ -134,7 +134,7 @@ fn handleInitialize(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8, roo
     var body: std.ArrayList(u8) = .empty;
     defer body.deinit(gpa);
     var ver_buf: [32]u8 = undefined;
-    const ver = try std.fmt.bufPrint(&ver_buf, "{d}.{d}.{d}", .{
+    const ver = try std.mem.print(&ver_buf, "{d}.{d}.{d}", .{
         build_options.version_major,
         build_options.version_minor,
         build_options.version_patch,
@@ -171,8 +171,8 @@ fn handleToolsList(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8, cata
 pub fn idToJson(gpa: std.mem.Allocator, id: ?std.json.Value) !?[]u8 {
     if (id) |v| {
         return switch (v) {
-            .integer => |n| try std.fmt.allocPrint(gpa, "{d}", .{n}),
-            .float => |n| try std.fmt.allocPrint(gpa, "{d}", .{n}),
+            .integer => |n| try gpa.print("{d}", .{n}),
+            .float => |n| try gpa.print("{d}", .{n}),
             .string => |s| blk: {
                 var out: std.ArrayList(u8) = .empty;
                 errdefer out.deinit(gpa);
@@ -501,7 +501,7 @@ fn finishMcp(ctx: *Ctx, code: u8) u8 {
 test "the version a client asks for comes back when we speak it" {
     const gpa = std.testing.allocator;
     for (supported_protocol_versions) |want| {
-        const body = try std.fmt.allocPrint(gpa, "{{\"params\":{{\"protocolVersion\":\"{s}\"}}}}", .{want});
+        const body = try gpa.print("{{\"params\":{{\"protocolVersion\":\"{s}\"}}}}", .{want});
         defer gpa.free(body);
         const parsed = try std.json.parseFromSlice(std.json.Value, gpa, body, .{});
         defer parsed.deinit();

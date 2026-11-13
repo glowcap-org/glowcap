@@ -81,7 +81,7 @@ test "TypeScript tell exports reserve only emitted support" {
         .effect = .tell,
     } }});
     defer a.free(code);
-    try std.testing.expect(std.mem.indexOf(u8, code, "class Pending") == null);
-    try std.testing.expect(std.mem.indexOf(u8, code, "function nothing") == null);
-    try std.testing.expect(std.mem.indexOf(u8, code, "import { Sym }") != null);
+    try std.testing.expect(std.mem.find(u8, code, "class Pending") == null);
+    try std.testing.expect(std.mem.find(u8, code, "function nothing") == null);
+    try std.testing.expect(std.mem.find(u8, code, "import { Sym }") != null);
 }

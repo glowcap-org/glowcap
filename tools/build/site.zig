@@ -19,7 +19,7 @@ const listing = @import("listing.zig");
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     /// The public `glowcap` module: the autodoc source and every Zig
     /// snippet's import.
     lib_mod: *std.Build.Module,
@@ -172,12 +172,12 @@ pub fn register(ctx: Context) Registered {
     const brand_mark_bundle = commands.addRootedSystemCommand(b, .build_tool, &.{
         "deno", "bundle", "--quiet", "--platform", "browser", "--config", "deno.json", "site/brand_mark.ts", "--output",
     });
-    const brand_mark_bundled = brand_mark_bundle.addOutputFileArg("mark.js");
+    const brand_mark_bundled = brand_mark_bundle.addOutputFileArg2("mark.js", .{});
     brand_mark_bundle.has_side_effects = true;
     const brand_mark_mod = b.createModule(.{
         .root_source_file = b.path("tools/gen/site_brand_mark.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     const brand_mark_exe = b.addExecutable(.{
         .name = "site-brand-mark",
@@ -239,7 +239,7 @@ pub fn register(ctx: Context) Registered {
     const site_output_check_mod = b.createModule(.{
         .root_source_file = b.path("tools/check/site_output.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     const site_output_check_exe = b.addExecutable(.{
         .name = "site-output-check",
@@ -277,7 +277,7 @@ pub fn register(ctx: Context) Registered {
     const mycelium_bundle = commands.addRootedSystemCommand(b, .build_tool, &.{
         "deno", "bundle", "--platform", "browser", "--config", "deno.json", "tools/check/mycelium_page.ts", "--output",
     });
-    const mycelium_source = mycelium_bundle.addOutputFileArg("mycelium-test.js");
+    const mycelium_source = mycelium_bundle.addOutputFileArg2("mycelium-test.js", .{});
     mycelium_bundle.has_side_effects = true;
     const mycelium = commands.addRootedSystemCommand(b, .{ .browser_proof = 60 }, &.{
         "deno", "run", "--allow-all", "tools/check/mycelium.ts",
@@ -353,7 +353,7 @@ pub fn register(ctx: Context) Registered {
 pub fn addSiteZigExampleCompile(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     name: []const u8,
     path: []const u8,
     imports: []const std.Build.Module.Import,

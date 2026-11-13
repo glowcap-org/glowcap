@@ -9,7 +9,7 @@ const std = @import("std");
 /// caller reading it must check `len` first; `of` does.
 pub fn index(len: usize, p: f64) usize {
     if (len == 0) return 0;
-    const rank: usize = @intFromFloat(@ceil(p * @as(f64, @floatFromInt(len))));
+    const rank: usize = @ceil(p * @as(f64, @floatFromInt(len)));
     return @min(len - 1, @max(rank, 1) - 1);
 }
 

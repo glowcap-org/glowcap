@@ -25,7 +25,7 @@ test "Observation graph preserves positional tag and schema bounds" {
     _ = try ts.emit(a, &.{.{ .api = "poll", .call = call }});
     for ([_][]const u8{ "Session", "Ref", "Argument", "DecodeBudget" }) |name| {
         const code = try rust.emit(a, &.{.{ .api = "poll", .call = call }}, &.{.{ .api = name, .kind = call.result }});
-        try std.testing.expect(std.mem.indexOf(u8, code, "pub struct ProjectedType0(") != null);
+        try std.testing.expect(std.mem.find(u8, code, "pub struct ProjectedType0(") != null);
     }
     for ([_][]const u8{ "Pending", "poll", "Error" }) |name| {
         try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = "poll", .call = call }}, &.{.{ .api = name, .kind = call.result }}));
@@ -61,7 +61,7 @@ fn doublingModel(a: std.mem.Allocator, count: usize) !Model {
     const Node = description.Node;
     const definitions = try a.alloc(Node, 2 * count);
     for (0..count) |i| {
-        definitions[2 * i] = .{ .kind = .string, .bytes = try std.fmt.allocPrint(a, "T{d}", .{i}) };
+        definitions[2 * i] = .{ .kind = .string, .bytes = try a.print("T{d}", .{i}) };
         const expression: Node = if (i == 0) .{ .kind = .symbol, .bytes = "bool" } else blk: {
             const fields = try a.alloc(Node, 1);
             fields[0] = definitions[2 * (i - 1)];
@@ -128,9 +128,9 @@ test "TypeScript nested leaves preserve target refusals and compile only selecte
     const tuple: types.Tuple = .{ .fields = &.{ .nothing, .{ .text = .{} }, .float64, .error_value, .value } };
     var call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .tuple = &tuple }, .effect = .call };
     const code = try ts.emit(a, &.{.{ .api = "read", .call = call }});
-    try std.testing.expect(std.mem.indexOf(u8, code, "Sequence<null | string | number | Error | Argument>") != null);
-    try std.testing.expect(std.mem.indexOf(u8, code, "import { Sym }") == null);
-    try std.testing.expect(std.mem.indexOf(u8, code, "import { Tagged }") == null);
+    try std.testing.expect(std.mem.find(u8, code, "Sequence<null | string | number | Error | Argument>") != null);
+    try std.testing.expect(std.mem.find(u8, code, "import { Sym }") == null);
+    try std.testing.expect(std.mem.find(u8, code, "import { Tagged }") == null);
     call.parameters = &.{.{ .tuple = &tuple }};
     call.required_parameters = 1;
     try std.testing.expectError(error.UnsupportedProjection, ts.emit(a, &.{.{ .api = "read", .call = call }}));

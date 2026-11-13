@@ -14,7 +14,7 @@ const addInstalledSystemRun = commands.addInstalledSystemRun;
 pub fn register(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     lib_mod: *std.Build.Module,
     loam_sqlite: *std.Build.Module,
     check_step: *std.Build.Step,
@@ -57,8 +57,8 @@ pub fn register(
         "deno",               "run", "--allow-ffi", "--allow-read", "--allow-write", "--allow-net", "--allow-run", "--allow-env",
         "apps/tasks/demo.ts",
     });
-    tasks_demo.addArtifactArg(tasks_client_exe);
-    tasks_demo.addArtifactArg(tasks_server_exe);
+    tasks_demo.addArtifactArg2(tasks_client_exe, .{});
+    tasks_demo.addArtifactArg2(tasks_server_exe, .{});
     if (pin_port) |p| tasks_demo.addArg(b.fmt("--port={d}", .{p}));
     if (attach) tasks_demo.addArg("--attach");
     const tasks_demo_step = b.step("demo-tasks", "Run the cross-language tasks board demo (needs deno; joins python3/racket/cargo clients when present)");
@@ -79,7 +79,7 @@ pub fn register(
     const mutation_checks = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-read", "--allow-write", "--allow-run", "--allow-env", "apps/tasks/mutation_test.ts",
     });
-    mutation_checks.addArtifactArg(tasks_server_exe);
+    mutation_checks.addArtifactArg2(tasks_server_exe, .{});
     commands.setLibDir(mutation_checks, .host);
     mutation_checks.has_side_effects = true;
     const mutation_types = commands.addRootedSystemCommand(b, .build_tool, &.{ "deno", "check", "apps/tasks/deno/mutation_test.ts" });
@@ -123,7 +123,7 @@ pub fn register(
         "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/tools/demo.ts",
     });
-    tools_demo.addArtifactArg(tools_agent_exe); // the Zig agent's built path
+    tools_demo.addArtifactArg2(tools_agent_exe, .{}); // the Zig agent's built path
     if (pin_port) |p| tools_demo.addArg(b.fmt("--port={d}", .{p}));
     if (attach) tools_demo.addArg("--attach");
     const tools_demo_step = b.step("demo-tools", "Run the cross-language tools demo: delegation, attenuation, and revocation (needs deno; joins python3/racket/cargo agents when present)");
@@ -168,7 +168,7 @@ pub fn register(
         "deno",                                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/accountability-on-glowcap/deno/demo.ts",
     });
-    accountability_demo.addArtifactArg(host_exe); // the Zig host's built path
+    accountability_demo.addArtifactArg2(host_exe, .{}); // the Zig host's built path
     if (pin_port) |p| accountability_demo.addArg(b.fmt("--port={d}", .{p}));
     if (attach) accountability_demo.addArg("--attach"); // the orchestrator rejects it: each caller needs a fresh host
     const accountability_demo_step = b.step("demo-accountability", "Run the cross-language accountability demo: Zig host + Deno/Python callers (needs deno)");

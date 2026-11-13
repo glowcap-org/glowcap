@@ -350,7 +350,7 @@ test "setExporterLocation rejects an id route that cannot prove its outer key" {
 
     const outer_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x46))).publicKey().toDesignator();
     const route_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x47))).publicKey().toDesignator();
-    const via = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{route_key[0..]});
+    const via = try allocator.print("ocapn://{s}.iroh", .{route_key[0..]});
     defer allocator.free(via);
     const hints = [_]model.HintEntry{.{
         .name = model.transport.hint_via,

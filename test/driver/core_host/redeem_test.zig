@@ -102,8 +102,7 @@ test "core host: id pending dial does not preselect an unverified concrete sessi
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
     try std.testing.expect(dialed.sessionOpen());
 
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
         .{ server_key[0..], server_key[0..] },
     );
@@ -166,7 +165,7 @@ test "core host: session-scoped id sturdyrefs validate route bundle before fetch
         }),
     );
 
-    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{server_key[0..]});
+    const route = try allocator.print("ocapn://{s}.iroh", .{server_key[0..]});
     defer allocator.free(route);
     const weak = "ocapn://baseline-service.onion";
     const fallback_hints = [_]model.HintEntry{

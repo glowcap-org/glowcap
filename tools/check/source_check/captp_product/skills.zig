@@ -16,20 +16,20 @@ pub fn collectCaptpRegistryNames(
     registry_src: []const u8,
     out: *std.ArrayList([]const u8),
 ) !void {
-    const start = std.mem.indexOf(u8, registry_src, "pub const commands") orelse return;
-    const end_marker = std.mem.indexOfPos(u8, registry_src, start, "\n};") orelse registry_src.len;
+    const start = std.mem.find(u8, registry_src, "pub const commands") orelse return;
+    const end_marker = std.mem.findPos(u8, registry_src, start, "\n};") orelse registry_src.len;
     const block = registry_src[start..end_marker];
     var line_start: usize = 0;
     while (line_start < block.len) {
-        const nl = std.mem.indexOfScalarPos(u8, block, line_start, '\n') orelse block.len;
+        const nl = std.mem.findScalarPos(u8, block, line_start, '\n') orelse block.len;
         const line = std.mem.trim(u8, block[line_start..nl], " \t");
         if (std.mem.startsWith(u8, line, ".name = \"")) {
             const after = ".name = \"".len;
-            if (std.mem.indexOfScalarPos(u8, line, after, '"')) |q| {
+            if (std.mem.findScalarPos(u8, line, after, '"')) |q| {
                 const name = line[after..q];
                 var next = if (nl < block.len) nl + 1 else block.len;
                 while (next < block.len) {
-                    const nnl = std.mem.indexOfScalarPos(u8, block, next, '\n') orelse block.len;
+                    const nnl = std.mem.findScalarPos(u8, block, next, '\n') orelse block.len;
                     const next_line = std.mem.trim(u8, block[next..nnl], " \t");
                     if (next_line.len == 0) {
                         next = if (nnl < block.len) nnl + 1 else block.len;
@@ -55,7 +55,7 @@ pub fn captpVerbTableIsPartial(skill: []const u8, names: []const []const u8) boo
     var hit: usize = 0;
     var seen: [64]bool = @splat(false);
     while (line_start < skill.len) {
-        const nl = std.mem.indexOfScalarPos(u8, skill, line_start, '\n') orelse skill.len;
+        const nl = std.mem.findScalarPos(u8, skill, line_start, '\n') orelse skill.len;
         const line = skill[line_start..nl];
         const is_row = line.len > 0 and line[0] == '|';
         if (is_row) {
@@ -64,7 +64,7 @@ pub fn captpVerbTableIsPartial(skill: []const u8, names: []const []const u8) boo
             for (line[0..lower_buf_len], 0..) |c, i| lower_buf[i] = std.ascii.toLower(c);
             const lower = lower_buf[0..lower_buf_len];
             if (!in_inventory) {
-                if (std.mem.indexOf(u8, lower, "verb") != null or std.mem.indexOf(u8, lower, "command") != null) {
+                if (std.mem.find(u8, lower, "verb") != null or std.mem.find(u8, lower, "command") != null) {
                     in_inventory = true;
                 }
             } else {
@@ -75,7 +75,7 @@ pub fn captpVerbTableIsPartial(skill: []const u8, names: []const []const u8) boo
                         continue;
                     }
                     const after_bar = cell_start + 1;
-                    const next_bar = std.mem.indexOfScalarPos(u8, line, after_bar, '|') orelse line.len;
+                    const next_bar = std.mem.findScalarPos(u8, line, after_bar, '|') orelse line.len;
                     const cell = std.mem.trim(u8, line[after_bar..next_bar], " \t");
                     if (cell.len >= 3 and cell[0] == '`' and cell[cell.len - 1] == '`') {
                         const span = cell[1 .. cell.len - 1];
@@ -117,8 +117,8 @@ pub fn checkGlowcapCliSkillAuthority(
     };
     defer gpa.free(skill);
 
-    const has_help = std.mem.indexOf(u8, skill, "glowcap help") != null or
-        std.mem.indexOf(u8, skill, "help ocapn") != null;
+    const has_help = std.mem.find(u8, skill, "glowcap help") != null or
+        std.mem.find(u8, skill, "help ocapn") != null;
     if (!has_help) {
         try appendViolation(gpa, violations, "{s}: CapTP catalog authority must point at `glowcap help` / `help ocapn` (not a second verb table)", .{skill_path});
     }

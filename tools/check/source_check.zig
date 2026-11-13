@@ -108,8 +108,8 @@ pub fn create(b: *Build) *Step {
             .target = b.graph.host,
             // This analyzer scans the whole source tree on every gate. Keep
             // safety checks while optimizing its parsing and traversal loops.
-            .optimize = .ReleaseSafe,
-            .imports = checkImports(b, b.graph.host, .ReleaseSafe),
+            .optimize = .safe,
+            .imports = checkImports(b, b.graph.host, .safe),
         }),
     });
     const run = b.addRunArtifact(exe);
@@ -122,7 +122,7 @@ pub fn create(b: *Build) *Step {
 /// text: the codec-neutral model, the `libglowcap_host` symbol inventory, and
 /// the Python and Racket FFI omission policies that the binding runtime-proof
 /// check joins.
-pub fn checkImports(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) []const Build.Module.Import {
+pub fn checkImports(b: *Build, target: Build.ResolvedTarget, optimize: std.lang.Optimize) []const Build.Module.Import {
     const policies = [_][]const u8{ "python", "racket" };
     const imports = b.allocator.alloc(Build.Module.Import, 2 + policies.len) catch @panic("OOM");
     imports[0] = .{ .name = "model", .module = leafModule(b, target, optimize, "src/ocapn/model/mod.zig", &.{}) };
@@ -136,7 +136,7 @@ pub fn checkImports(b: *Build, target: Build.ResolvedTarget, optimize: std.built
 /// `src/c_abi/host/symbols.zig` alone. It imports only `c_abi_shared` for the
 /// `Symbol` row type, so a shim exposes the shared vocabulary leaf under that
 /// name instead of the whole shared layer.
-fn hostInventoryModule(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *Build.Module {
+fn hostInventoryModule(b: *Build, target: Build.ResolvedTarget, optimize: std.lang.Optimize) *Build.Module {
     const vocabulary = leafModule(b, target, optimize, "src/c_abi/shared/symbols.zig", &.{});
     const shim = b.addWriteFiles().add("c_abi_shared.zig", "pub const symbols = @import(\"symbols\");\n");
     const shared = b.createModule(.{
@@ -151,7 +151,7 @@ fn hostInventoryModule(b: *Build, target: Build.ResolvedTarget, optimize: std.bu
 fn leafModule(
     b: *Build,
     target: Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     comptime path: []const u8,
     imports: []const Build.Module.Import,
 ) *Build.Module {
@@ -352,7 +352,7 @@ pub fn check(
 }
 
 fn zigLibPath(b: *Build) []const u8 {
-    const zig_dir = std.fs.path.dirname(b.graph.zig_exe) orelse ".";
+    const zig_dir = std.Io.Dir.path.dirname(b.graph.zig_exe) orelse ".";
     return b.pathJoin(&.{ zig_dir, "lib" });
 }
 

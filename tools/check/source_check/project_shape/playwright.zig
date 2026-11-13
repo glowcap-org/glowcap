@@ -51,18 +51,18 @@ pub fn checkPlaywrightPin(
     defer gpa.free(pins);
 
     const decl = "PLAYWRIGHT_VERSION=\"";
-    const at = std.mem.indexOf(u8, pins, decl) orelse {
+    const at = std.mem.find(u8, pins, decl) orelse {
         try appendViolation(gpa, violations, "{s}: `{s}…` is gone, so nothing declares the Playwright version the browser proofs and the image share", .{ pins_path, decl });
         return;
     };
     const rest = pins[at + decl.len ..];
-    const end = std.mem.indexOfScalar(u8, rest, '"') orelse {
+    const end = std.mem.findScalar(u8, rest, '"') orelse {
         try appendViolation(gpa, violations, "{s}: `{s}` is not a closed quoted string", .{ pins_path, decl });
         return;
     };
     const version = rest[0..end];
 
-    const expected = try std.fmt.allocPrint(gpa, "\"playwright\": \"npm:playwright@{s}\"", .{version});
+    const expected = try gpa.print("\"playwright\": \"npm:playwright@{s}\"", .{version});
     defer gpa.free(expected);
 
     // The root scope is named because it is where the shipped browser proofs
@@ -92,7 +92,7 @@ pub fn checkPlaywrightPin(
             defer gpa.free(contents);
             const inline_pin = "npm:playwright@";
             var from: usize = 0;
-            while (std.mem.indexOfPos(u8, contents, from, inline_pin)) |hit| {
+            while (std.mem.findPos(u8, contents, from, inline_pin)) |hit| {
                 from = hit + inline_pin.len;
                 if (from >= contents.len or !std.ascii.isDigit(contents[from])) continue;
                 var stop = from;
@@ -111,9 +111,9 @@ pub fn checkPlaywrightPin(
 /// and generated trees carry no glowcap rule, and a lock file records a
 /// resolution rather than declaring one.
 fn keepPlaywrightScanned(path: []const u8) bool {
-    if (std.mem.indexOf(u8, path, "node_modules/") != null) return false;
-    if (std.mem.indexOf(u8, path, "upstream/") != null) return false;
-    if (std.mem.indexOf(u8, path, "dist/") != null) return false;
+    if (std.mem.find(u8, path, "node_modules/") != null) return false;
+    if (std.mem.find(u8, path, "upstream/") != null) return false;
+    if (std.mem.find(u8, path, "dist/") != null) return false;
     if (std.mem.endsWith(u8, path, "deno.json")) return true;
     return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx") or
         std.mem.endsWith(u8, path, ".js") or std.mem.endsWith(u8, path, ".mjs");
@@ -137,8 +137,8 @@ fn checkPlaywrightImportMap(
         return false;
     };
     defer gpa.free(contents);
-    if (std.mem.indexOf(u8, contents, "\"playwright\":") == null) return false;
-    if (std.mem.indexOf(u8, contents, expected) == null) {
+    if (std.mem.find(u8, contents, "\"playwright\":") == null) return false;
+    if (std.mem.find(u8, contents, expected) == null) {
         try appendViolation(gpa, violations, "{s}: does not map `playwright` to `npm:playwright@{s}`, the version {s} pins for the image's browser", .{ path, version, pins_path });
     }
     return true;

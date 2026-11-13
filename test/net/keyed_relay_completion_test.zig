@@ -7,6 +7,7 @@
 //! `keyed_relay_completion_wire_test.zig`.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const admission = @import("../support/keyed_relay_admission.zig");
 
@@ -31,7 +32,7 @@ const keyed_relay_resolver_job_state_bytes: usize = 1136;
 
 test "keyed-relay completion connection state has a measured footprint" {
     try std.testing.expectEqual(@as(usize, 8), AdmissionBackend.parallel_address_attempts);
-    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    if (!builtin.optimize.runtimeSafety()) return error.SkipZigTest;
     try std.testing.expectEqual(keyed_relay_connection_state_bytes, AdmissionBackend.connection_state_bytes);
     try std.testing.expectEqual(
         keyed_relay_pending_dial_state_bytes,
@@ -402,7 +403,7 @@ test "keyed-relay upgrade bounds only HTTP bytes and preserves coalesced frame r
     const conn = backend.conns.get(1).?;
 
     var response_buf: [256]u8 = undefined;
-    const response = try std.fmt.bufPrint(
+    const response = try std.mem.print(
         &response_buf,
         "HTTP/1.1 101 Switching Protocols\r\n" ++
             "Upgrade: websocket\r\n" ++

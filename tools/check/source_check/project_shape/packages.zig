@@ -159,7 +159,7 @@ pub fn checkTsPackagePublishSurface(
     };
     for (packages) |pkg| {
         var member_buf: [32]u8 = undefined;
-        const member = std.fmt.bufPrint(&member_buf, "./{s}", .{pkg}) catch {
+        const member = std.mem.print(&member_buf, "./{s}", .{pkg}) catch {
             try appendViolation(gpa, violations, "package `{s}` overflows the workspace needle buffer; grow it", .{pkg});
             continue;
         };
@@ -227,7 +227,7 @@ pub fn checkTsPackagePublishSurface(
 
     for (packages) |pkg| {
         var pkg_path_buf: [64]u8 = undefined;
-        const pkg_path = std.fmt.bufPrint(&pkg_path_buf, "bindings/ts/{s}", .{pkg}) catch {
+        const pkg_path = std.mem.print(&pkg_path_buf, "bindings/ts/{s}", .{pkg}) catch {
             try appendViolation(gpa, violations, "package `{s}` overflows the publish-surface path buffer; grow it", .{pkg});
             continue;
         };
@@ -239,7 +239,7 @@ pub fn checkTsPackagePublishSurface(
         defer pkg_dir.close(io);
 
         var self_buf: [64]u8 = undefined;
-        const self_specifier = std.fmt.bufPrint(&self_buf, "\"@glowcap/{s}", .{pkg}) catch {
+        const self_specifier = std.mem.print(&self_buf, "\"@glowcap/{s}", .{pkg}) catch {
             try appendViolation(gpa, violations, "package `{s}` overflows the self-import needle buffer; grow it", .{pkg});
             continue;
         };
@@ -260,7 +260,7 @@ pub fn checkTsPackagePublishSurface(
                     line_no += 1;
                     const trimmed = std.mem.trimStart(u8, line, " \t");
                     if (std.mem.startsWith(u8, trimmed, "//") or std.mem.startsWith(u8, trimmed, "*")) continue;
-                    const at = std.mem.indexOf(u8, line, self_specifier) orelse continue;
+                    const at = std.mem.find(u8, line, self_specifier) orelse continue;
                     const rest = line[at + self_specifier.len ..];
                     if (rest.len == 0 or (rest[0] != '"' and rest[0] != '/')) continue;
                     try appendViolation(
@@ -285,7 +285,7 @@ pub fn checkTsPackagePublishSurface(
         }
 
         var deno_path_buf: [80]u8 = undefined;
-        const deno_path = std.fmt.bufPrint(&deno_path_buf, "{s}/deno.json", .{pkg_path}) catch {
+        const deno_path = std.mem.print(&deno_path_buf, "{s}/deno.json", .{pkg_path}) catch {
             try appendViolation(gpa, violations, "{s}: the manifest path overflows the publish-surface buffer; grow it", .{pkg_path});
             continue;
         };
@@ -348,7 +348,7 @@ pub fn checkTsPackagePublishSurface(
                 .{ deno_path, target },
             );
             var root_target_buf: [160]u8 = undefined;
-            const root_target = std.fmt.bufPrint(&root_target_buf, "{s}/{s}", .{ pkg, relative }) catch {
+            const root_target = std.mem.print(&root_target_buf, "{s}/{s}", .{ pkg, relative }) catch {
                 try appendViolation(gpa, violations, "{s}/{s}: the entry path overflows the publish-surface buffer; grow it", .{ pkg, relative });
                 continue;
             };
@@ -411,7 +411,7 @@ pub fn checkTsPackagePublishSurface(
             try appendViolation(gpa, violations, "{s}: `publish.include` must name `README.md`, the package's page on JSR", .{deno_path});
         }
         var readme_path_buf: [80]u8 = undefined;
-        const readme_path = std.fmt.bufPrint(&readme_path_buf, "{s}/README.md", .{pkg_path}) catch {
+        const readme_path = std.mem.print(&readme_path_buf, "{s}/README.md", .{pkg_path}) catch {
             try appendViolation(gpa, violations, "{s}: the README path overflows the publish-surface buffer; grow it", .{pkg_path});
             continue;
         };

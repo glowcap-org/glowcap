@@ -192,7 +192,7 @@ pub const Reply = struct {
     /// `250-PrivateKey=<key>` carry their values. Null when there is no `=`,
     /// which is the ordinary shape of a bare `250 OK`.
     pub fn field(self: Reply) ?struct { key: []const u8, value: []const u8 } {
-        const eq = std.mem.indexOfScalar(u8, self.text, '=') orelse return null;
+        const eq = std.mem.findScalar(u8, self.text, '=') orelse return null;
         return .{ .key = self.text[0..eq], .value = self.text[eq + 1 ..] };
     }
 };
@@ -261,7 +261,7 @@ const Cursor = struct {
 };
 
 fn print(buf: []u8, comptime fmt: []const u8, args: anytype) Error![]const u8 {
-    const written = std.fmt.bufPrint(buf, fmt, args) catch return Error.LineTooLong;
+    const written = std.mem.print(buf, fmt, args) catch return Error.LineTooLong;
     return checkLen(written);
 }
 

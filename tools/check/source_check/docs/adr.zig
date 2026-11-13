@@ -39,9 +39,9 @@ pub fn checkAdrIndex(
         if (entry.kind != .file) continue;
         if (!std.mem.startsWith(u8, entry.path, "ADR-")) continue;
         if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
-        const link = try std.fmt.allocPrint(gpa, "(adr/{s})", .{entry.path});
+        const link = try gpa.print("(adr/{s})", .{entry.path});
         defer gpa.free(link);
-        if (std.mem.indexOf(u8, index, link) == null) {
+        if (std.mem.find(u8, index, link) == null) {
             try appendViolation(gpa, violations, "{s}: does not list {s}/{s}", .{ index_path, dir_path, entry.path });
         }
     }
@@ -88,7 +88,7 @@ pub fn checkAdrFrontmatter(
         // `ADR-0033-byte-transparent-relays.md` -> `ADR-0033`. A name with no
         // second dash carries no number to compare against, so that one clause
         // sits out while the status clauses below still run.
-        if (std.mem.indexOfScalarPos(u8, entry.path, 4, '-')) |dash| {
+        if (std.mem.findScalarPos(u8, entry.path, 4, '-')) |dash| {
             const expected_id = entry.path[0..dash];
             if (!std.mem.eql(u8, id, expected_id)) {
                 try appendViolation(gpa, violations, "{s}/{s}: frontmatter `id: {s}` disagrees with the filename's `{s}`", .{ dir_path, entry.path, id, expected_id });
@@ -165,7 +165,7 @@ pub fn checkAdrRelations(
         };
         try records.append(gpa, .{
             .id = try gpa.dupe(u8, id),
-            .path = try std.fmt.allocPrint(gpa, "docs/decisions/adr/{s}", .{entry.path}),
+            .path = try gpa.print("docs/decisions/adr/{s}", .{entry.path}),
             .body = body,
         });
     }
@@ -247,7 +247,7 @@ fn adrListInner(raw: []const u8) ?[]const u8 {
 
 fn adrFrontmatterValue(body: []const u8, field: []const u8) ?[]const u8 {
     if (!std.mem.startsWith(u8, body, "---\n")) return null;
-    const end = std.mem.indexOfPos(u8, body, 4, "\n---") orelse return null;
+    const end = std.mem.findPos(u8, body, 4, "\n---") orelse return null;
     var lines = std.mem.splitScalar(u8, body[4..end], '\n');
     while (lines.next()) |line| {
         if (line.len <= field.len) continue;
@@ -287,7 +287,7 @@ pub fn checkAdrCitations(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, v
             else => return err,
         };
         defer gpa.free(body);
-        if (std.mem.indexOfScalar(u8, body, 0) != null) continue;
+        if (std.mem.findScalar(u8, body, 0) != null) continue;
         try checkCitationText(gpa, violations, &known, path, body);
     }
 }
@@ -301,7 +301,7 @@ fn citationNumber(body: []const u8, at: usize) ?usize {
 
 fn checkCitationText(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), known: *const [10000]bool, path: []const u8, body: []const u8) !void {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, body, at, "ADR")) |hit| {
+    while (std.mem.findPos(u8, body, at, "ADR")) |hit| {
         at = hit + 3;
         if (hit > 0 and (std.ascii.isAlphanumeric(body[hit - 1]) or body[hit - 1] == '_')) continue;
         const plural = std.mem.startsWith(u8, body[at..], "s ");
@@ -361,6 +361,6 @@ test "tracked scratch citations fail when corrupted and pass when restored" {
         try checkAdrCitations(io, gpa, tmp.dir, &violations, path);
         const bad = i == 1 or i == 2;
         try std.testing.expectEqual(@as(usize, if (bad) 1 else 0), violations.items.len);
-        if (bad) try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "notes.md:1: ADR citation `9999`") != null);
+        if (bad) try std.testing.expect(std.mem.find(u8, violations.items[0], "notes.md:1: ADR citation `9999`") != null);
     }
 }

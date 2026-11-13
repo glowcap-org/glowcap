@@ -57,13 +57,13 @@ pub fn checkAbiVersionLockstep(
         };
         defer gpa.free(contents);
         const search_from = if (source.anchor) |anchor|
-            (if (std.mem.indexOf(u8, contents, anchor)) |at| contents[at..] else contents)
+            (if (std.mem.find(u8, contents, anchor)) |at| contents[at..] else contents)
         else
             contents;
         var parts: [3]i64 = undefined;
         var ok = true;
         for (source.keys, 0..) |key, k| {
-            const at = std.mem.indexOf(u8, search_from, key) orelse {
+            const at = std.mem.find(u8, search_from, key) orelse {
                 try appendViolation(gpa, violations, "{s}: ABI version component '{s}' not found", .{ source.path, key });
                 ok = false;
                 continue;
@@ -83,9 +83,9 @@ pub fn checkAbiVersionLockstep(
         return;
     };
     defer gpa.free(zon);
-    if (std.mem.indexOf(u8, zon, ".version = \"")) |at| {
+    if (std.mem.find(u8, zon, ".version = \"")) |at| {
         const rest = zon[at + ".version = \"".len ..];
-        const end = std.mem.indexOfScalar(u8, rest, '"') orelse rest.len;
+        const end = std.mem.findScalar(u8, rest, '"') orelse rest.len;
         var it = std.mem.splitScalar(u8, rest[0..end], '.');
         const major = firstIntIn(it.next() orelse "");
         const minor = firstIntIn(it.next() orelse "");
@@ -129,7 +129,7 @@ fn checkStatedReleaseVersions(
     anchor: Triple,
 ) !void {
     const pages = [_][]const u8{ "README.md", "SECURITY.md", "docs/shipped.md", "site/content/index.smd", "site/content/project.smd" };
-    const want = try std.fmt.allocPrint(gpa, "{d}.{d}.{d}", .{ anchor.major, anchor.minor, anchor.patch });
+    const want = try gpa.print("{d}.{d}.{d}", .{ anchor.major, anchor.minor, anchor.patch });
     defer gpa.free(want);
     for (pages) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
@@ -139,12 +139,12 @@ fn checkStatedReleaseVersions(
         defer gpa.free(contents);
         var stated: usize = 0;
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, contents, at, " alpha")) |hit| {
+        while (std.mem.findPos(u8, contents, at, " alpha")) |hit| {
             at = hit + " alpha".len;
             var start = hit;
             while (start > 0 and (std.ascii.isDigit(contents[start - 1]) or contents[start - 1] == '.' or contents[start - 1] == '`')) start -= 1;
             const version = std.mem.trim(u8, contents[start..hit], "`");
-            if (std.mem.indexOfScalar(u8, version, '.') == null) continue;
+            if (std.mem.findScalar(u8, version, '.') == null) continue;
             stated += 1;
             if (!std.mem.eql(u8, version, want)) {
                 try appendViolation(gpa, violations, "{s}: states release version {s} alpha, but build.zig abi_version is {s}", .{ path, version, want });
@@ -196,7 +196,7 @@ pub fn checkPrereleaseProviderAbiVersions(
         };
         defer gpa.free(contents);
         for (source.keys) |key| {
-            const at = std.mem.indexOf(u8, contents, key) orelse {
+            const at = std.mem.find(u8, contents, key) orelse {
                 try appendViolation(gpa, violations, "{s}: provider ABI constant `{s}` is missing", .{ source.path, key });
                 continue;
             };

@@ -75,13 +75,13 @@ fn exercise(comptime Backend: type, comptime host_optional: bool) !void {
 }
 
 test "completion backends accept and close on several listeners at once" {
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux => try exercise(net.epoll_white_box.TestBackend, false),
-        else => if (builtin.os.tag.isDarwin()) try exercise(net.kqueue_white_box.TestBackend, false) else return error.SkipZigTest,
+        else => if (builtin.target.os.tag.isDarwin()) try exercise(net.kqueue_white_box.TestBackend, false) else return error.SkipZigTest,
     }
 }
 
 test "io_uring accepts and closes on several listeners at once, or skips where the host refuses io_uring" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
     try exercise(net.uring_white_box.TestBackend, true);
 }

@@ -70,7 +70,7 @@ fn commandArgs(args: []const Step.Run.Arg) []const Step.Run.Arg {
             .lazy_path, .decorated_directory => |path| path.prefix,
             else => return args[index..],
         };
-        const equals = std.mem.indexOfScalar(u8, prefix, '=') orelse {
+        const equals = std.mem.findScalar(u8, prefix, '=') orelse {
             if (std.mem.startsWith(u8, prefix, "-")) return args;
             return args[index..];
         };
@@ -138,10 +138,10 @@ fn moduleOf(step: *Step) ?[]const u8 {
 /// declaration is about which script may run. Comparing spellings instead made
 /// a correct call site look undeclared.
 fn repoRelative(root: []const u8, script: []const u8) []const u8 {
-    if (!std.fs.path.isAbsolute(script)) return script;
+    if (!std.Io.Dir.path.isAbsolute(script)) return script;
     if (!std.mem.startsWith(u8, script, root)) return script;
     const rest = script[root.len..];
-    return if (rest.len > 0 and rest[0] == std.fs.path.sep) rest[1..] else rest;
+    return if (rest.len > 0 and rest[0] == std.Io.Dir.path.sep) rest[1..] else rest;
 }
 
 /// The row declaring `program`, or null when the gate declares no such runtime.
@@ -169,15 +169,13 @@ fn violation(
             for (runtime.modules) |allowed| {
                 if (std.mem.eql(u8, allowed, module)) return null;
             }
-            return try std.fmt.allocPrint(
-                gpa,
+            return try gpa.print(
                 "step '{s}' runs '{s} -m {s}', which is not among the modules declared for '{s}'",
                 .{ step.name, program, module, program },
             );
         }
         if (runtime.scripts.len == 0 and runtime.modules.len == 0) return null;
-        const written = scriptOf(step) orelse return try std.fmt.allocPrint(
-            gpa,
+        const written = scriptOf(step) orelse return try gpa.print(
             "step '{s}' runs '{s}' with no named script, and '{s}' is declared for named scripts only",
             .{ step.name, program, program },
         );
@@ -185,14 +183,12 @@ fn violation(
         for (runtime.scripts) |allowed| {
             if (std.mem.eql(u8, allowed, script)) return null;
         }
-        return try std.fmt.allocPrint(
-            gpa,
+        return try gpa.print(
             "step '{s}' runs '{s} {s}', which is not among the scripts declared for '{s}'",
             .{ step.name, program, script, program },
         );
     }
-    return try std.fmt.allocPrint(
-        gpa,
+    return try gpa.print(
         "step '{s}' runs '{s}', which `{s}` does not declare",
         .{ step.name, program, gate_name },
     );
@@ -236,7 +232,7 @@ fn checkGraph(
         if (programOf(current, zig_exe)) |program| {
             const index = declaredIndex(runtimes, program);
             if (index) |found| {
-                if (std.mem.indexOfScalar(usize, reached.items, found) == null)
+                if (std.mem.findScalar(usize, reached.items, found) == null)
                     try reached.append(gpa, found);
             }
             if (try violation(gpa, if (index) |found| runtimes[found] else null, current, program, root_path, gate_name)) |line|

@@ -52,7 +52,7 @@ const Fence = struct {
             return true;
         }
         if (count < 3) return false;
-        if (content[0] == '`' and std.mem.indexOfScalar(u8, content[count..], '`') != null) return false;
+        if (content[0] == '`' and std.mem.findScalar(u8, content[count..], '`') != null) return false;
         self.marker = content[0];
         self.width = count;
         return true;
@@ -152,7 +152,7 @@ fn checkDisposition(
     row: Row,
 ) !void {
     if (std.mem.eql(u8, row.state, "adopted")) {
-        if (std.mem.indexOf(u8, row.evidence, "`zig build ") == null) {
+        if (std.mem.find(u8, row.evidence, "`zig build ") == null) {
             try appendViolation(gpa, violations, "ocapn conformance: adopted `{s}` needs executable evidence", .{row.name});
         }
         if (!std.mem.eql(u8, row.decision, "none")) {
@@ -173,7 +173,7 @@ fn checkDisposition(
         return;
     }
     const path = decision[1 .. decision.len - 1];
-    if (path.len == 0 or std.fs.path.isAbsolute(path) or std.mem.indexOf(u8, path, "..") != null or !std.mem.endsWith(u8, path, ".md")) {
+    if (path.len == 0 or std.Io.Dir.path.isAbsolute(path) or std.mem.find(u8, path, "..") != null or !std.mem.endsWith(u8, path, ".md")) {
         try appendViolation(gpa, violations, "ocapn conformance: `{s}` decision must name a repository Markdown file", .{row.name});
         return;
     }
@@ -225,7 +225,7 @@ fn checkSuite(
                 (std.mem.eql(u8, row.profile, earlier.profile) or std.mem.eql(u8, row.profile, "both") or std.mem.eql(u8, earlier.profile, "both")))
                 try appendViolation(gpa, violations, "ocapn conformance: suite row `{s}` appears more than once for {s}", .{ row.name, row.profile });
         }
-        if (!std.mem.endsWith(u8, row.name, ".py") or std.fs.path.isAbsolute(row.name) or std.mem.indexOf(u8, row.name, "..") != null) {
+        if (!std.mem.endsWith(u8, row.name, ".py") or std.Io.Dir.path.isAbsolute(row.name) or std.mem.find(u8, row.name, "..") != null) {
             try appendViolation(gpa, violations, "ocapn conformance: invalid suite path `{s}`", .{row.name});
             continue;
         }
@@ -362,7 +362,7 @@ fn checkEvidence(
             if (!listsStep(steps, code[step_prefix.len..])) {
                 try appendViolation(gpa, violations, "ocapn conformance: `{s}` evidence names a step docs/build-steps.md does not list: {s}", .{ row.name, code });
             }
-        } else if (std.fs.path.isAbsolute(code) or std.mem.indexOf(u8, code, "..") != null) {
+        } else if (std.Io.Dir.path.isAbsolute(code) or std.mem.find(u8, code, "..") != null) {
             try appendViolation(gpa, violations, "ocapn conformance: `{s}` evidence path `{s}` must be inside the repository", .{ row.name, code });
         } else {
             root.access(io, code, .{}) catch {
@@ -376,7 +376,7 @@ fn checkEvidence(
 fn listsStep(steps: []const u8, step: []const u8) bool {
     if (step.len == 0) return false;
     var rest = steps;
-    while (std.mem.indexOf(u8, rest, step_prefix)) |at| {
+    while (std.mem.find(u8, rest, step_prefix)) |at| {
         const after = rest[at + step_prefix.len ..];
         if (std.mem.startsWith(u8, after, step)) {
             const tail = after[step.len..];
@@ -392,7 +392,7 @@ fn listsStep(steps: []const u8, step: []const u8) bool {
 fn stripMarkup(arena: std.mem.Allocator, raw: []const u8) ![]const u8 {
     var text = std.mem.trim(u8, raw, " ");
     if (text.len > 0 and text[0] == '[') {
-        if (std.mem.lastIndexOf(u8, text, "](#")) |close| {
+        if (std.mem.findLast(u8, text, "](#")) |close| {
             if (text[text.len - 1] == ')') text = text[1..close];
         }
     }
@@ -422,7 +422,7 @@ fn scanDraft(arena: std.mem.Allocator, draft: []const u8) ![]const Section {
     var open: ?struct { name: []const u8, start: usize } = null;
     var offset: usize = 0;
     while (offset < draft.len) {
-        const end = if (std.mem.indexOfScalarPos(u8, draft, offset, '\n')) |nl| nl + 1 else draft.len;
+        const end = if (std.mem.findScalarPos(u8, draft, offset, '\n')) |nl| nl + 1 else draft.len;
         const raw = draft[offset..end];
         if (fence.consumes(raw)) {
             offset = end;

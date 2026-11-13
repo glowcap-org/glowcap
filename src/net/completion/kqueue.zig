@@ -39,7 +39,7 @@ const tcp_keepalive = @import("tcp_keepalive.zig");
 const readiness = @import("kqueue_readiness.zig");
 
 comptime {
-    if (!builtin.os.tag.isDarwin()) @compileError("the kqueue completion backend is for Darwin");
+    if (!builtin.target.os.tag.isDarwin()) @compileError("the kqueue completion backend is for Darwin");
 }
 
 const c = std.c;

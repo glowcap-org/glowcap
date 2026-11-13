@@ -69,10 +69,10 @@ pub fn gloss(verb: []const u8) []const u8 {
 }
 
 pub fn tipForErrorDetail(detail: []const u8) ?[]const u8 {
-    if (std.mem.indexOf(u8, detail, "UriParseError") != null) return tip_quoted_uri;
-    if (std.mem.indexOf(u8, detail, "needs <name|#N> <verb>") != null) return tip_missing_verb;
-    if (std.mem.indexOf(u8, detail, "No open session") != null) return tip_no_session;
-    if (std.mem.indexOf(u8, detail, "NoSuchMethod") != null) return tip_missing_verb;
+    if (std.mem.find(u8, detail, "UriParseError") != null) return tip_quoted_uri;
+    if (std.mem.find(u8, detail, "needs <name|#N> <verb>") != null) return tip_missing_verb;
+    if (std.mem.find(u8, detail, "No open session") != null) return tip_no_session;
+    if (std.mem.find(u8, detail, "NoSuchMethod") != null) return tip_missing_verb;
     return null;
 }
 

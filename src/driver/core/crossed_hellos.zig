@@ -47,7 +47,7 @@ pub const DialTarget = struct {
 };
 
 pub const CrossedHellos = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    entries: std.ArrayList(Entry) = .empty,
 
     const Entry = struct {
         /// The matching axis: the complete locator identity this outbound dial

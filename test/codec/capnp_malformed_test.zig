@@ -81,7 +81,7 @@ test "Cap'n Proto refuses invalid UTF-8 String and Symbol values where it writes
     for ([_][]const u8{ "\xc3\xa9", "\xf0\x9f\x98\x80" }) |needle| {
         const bytes = try std.testing.allocator.dupe(u8, frame.bytes());
         defer std.testing.allocator.free(bytes);
-        const offset = std.mem.indexOf(u8, bytes, needle) orelse return error.TestUnexpectedResult;
+        const offset = std.mem.find(u8, bytes, needle) orelse return error.TestUnexpectedResult;
         bytes[offset] = 0xff;
         const view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
         try std.testing.expectError(capnp.Error.MalformedFrame, capnp.decodeBody(view));
@@ -113,7 +113,7 @@ test "a Struct with duplicate keys is refused on the live view path" {
 
     const buf = try allocator.dupe(u8, frame.bytes());
     defer allocator.free(buf);
-    const second_key = std.mem.indexOf(u8, buf, "k2") orelse return error.TestUnexpectedResult;
+    const second_key = std.mem.find(u8, buf, "k2") orelse return error.TestUnexpectedResult;
     @memcpy(buf[second_key .. second_key + 2], "k1");
     const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
@@ -185,7 +185,7 @@ test "a Struct with descending keys is refused: decode requires the encoder's as
 
     const buf = try allocator.dupe(u8, frame.bytes());
     defer allocator.free(buf);
-    const first_key = std.mem.indexOf(u8, buf, "k1") orelse return error.TestUnexpectedResult;
+    const first_key = std.mem.find(u8, buf, "k1") orelse return error.TestUnexpectedResult;
     @memcpy(buf[first_key .. first_key + 2], "k3");
     const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
@@ -554,7 +554,7 @@ test "a locator carrying the same hint name twice is refused" {
 
     const bytes = try allocator.dupe(u8, frame.bytes());
     defer allocator.free(bytes);
-    const second = std.mem.indexOf(u8, bytes, "direct-addresses2") orelse
+    const second = std.mem.find(u8, bytes, "direct-addresses2") orelse
         return error.TestUnexpectedResult;
     bytes[second + "direct-addresses".len] = '1';
     const view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };

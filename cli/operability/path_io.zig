@@ -30,5 +30,5 @@ pub fn ensureDirPath(io: Io, path: []const u8) !void {
 }
 
 pub fn ensureParentDir(io: Io, path: []const u8) !void {
-    if (std.fs.path.dirname(path)) |dir| try ensureDirPath(io, dir);
+    if (std.Io.Dir.path.dirname(path)) |dir| try ensureDirPath(io, dir);
 }

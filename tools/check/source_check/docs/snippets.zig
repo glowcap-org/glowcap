@@ -31,7 +31,7 @@ pub fn checkQuickStartSnippet(
         "const glowcap = @import(\"glowcap\");",
     };
     for (import_lines) |import_line| {
-        if (std.mem.indexOf(u8, example, import_line) == null) {
+        if (std.mem.find(u8, example, import_line) == null) {
             try appendViolation(gpa, violations, "{s}: missing quick-start import `{s}`", .{ example_path, import_line });
             return;
         }
@@ -73,15 +73,15 @@ pub fn checkRelaySnippetsUseWss(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (std.mem.indexOf(u8, entry.path, "relay") == null) continue;
-        const path = try std.fmt.allocPrint(gpa, "site/examples/{s}", .{entry.path});
+        if (std.mem.find(u8, entry.path, "relay") == null) continue;
+        const path = try gpa.print("site/examples/{s}", .{entry.path});
         defer gpa.free(path);
         const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for relay WSS check with {s}", .{ path, @errorName(err) });
             continue;
         };
         defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, "wss://") == null) {
+        if (std.mem.find(u8, contents, "wss://") == null) {
             try appendViolation(gpa, violations, "{s}: relay first-call must speak `wss://` (platform trust, not a loopback `ws://` testing URL)", .{path});
         }
         if (containsCleartextWsUrl(contents)) {
@@ -92,7 +92,7 @@ pub fn checkRelaySnippetsUseWss(
 
 fn containsCleartextWsUrl(contents: []const u8) bool {
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, contents, i, "ws://")) |pos| {
+    while (std.mem.findPos(u8, contents, i, "ws://")) |pos| {
         if (pos == 0 or contents[pos - 1] != 's') return true;
         i = pos + 5;
     }
@@ -244,7 +244,7 @@ fn compareQuickStartDoc(
             capturing = false;
             var has_marker = false;
             for (fence.items) |l| {
-                if (std.mem.indexOf(u8, l, marker) != null) has_marker = true;
+                if (std.mem.find(u8, l, marker) != null) has_marker = true;
             }
             if (has_marker) {
                 found = true;
@@ -290,7 +290,7 @@ pub fn checkMermaidBlocks(
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
 
-        const path = try std.fmt.allocPrint(gpa, "docs/{s}", .{entry.path});
+        const path = try gpa.print("docs/{s}", .{entry.path});
         defer gpa.free(path);
         try checkMermaidBlocksInFile(io, gpa, root, violations, path);
     }
@@ -335,7 +335,7 @@ fn checkMermaidBlocksInFile(
             continue;
         }
 
-        if (std.mem.indexOfScalar(u8, line, ';') != null) {
+        if (std.mem.findScalar(u8, line, ';') != null) {
             try appendViolation(gpa, violations, "{s}:{d}: Mermaid reads ';' as a statement separator even inside note and label text, so the rest of the line becomes a broken statement at render time. Reword without the semicolon.", .{ path, line_no });
         }
         if ((try mermaidBlockKind(block.items)) == .state and stateLabelHasColon(trimmed)) {
@@ -354,9 +354,9 @@ fn checkMermaidBlocksInFile(
 /// A transition `A --> B: label` takes everything after its first colon as the
 /// label, and Mermaid's state grammar refuses a colon inside it.
 fn stateLabelHasColon(line: []const u8) bool {
-    if (std.mem.indexOf(u8, line, "-->") == null) return false;
-    const label = std.mem.indexOfScalar(u8, line, ':') orelse return false;
-    return std.mem.indexOfScalar(u8, line[label + 1 ..], ':') != null;
+    if (std.mem.find(u8, line, "-->") == null) return false;
+    const label = std.mem.findScalar(u8, line, ':') orelse return false;
+    return std.mem.findScalar(u8, line[label + 1 ..], ':') != null;
 }
 
 fn mermaidBlockKind(block: []const u8) !?MermaidKind {
@@ -416,7 +416,7 @@ pub fn checkExampleFenceIndent(
             // relative to the directory being walked, which would never carry
             // a fragment that names the top-level directory.
             for (skip_fragments) |frag| {
-                if (std.mem.indexOf(u8, path, frag) != null) {
+                if (std.mem.find(u8, path, frag) != null) {
                     continue :files;
                 }
             }
@@ -454,7 +454,7 @@ fn checkFenceIndentFile(
         if (std.mem.startsWith(u8, trimmed, "```")) {
             if (fence_lang == null) {
                 const info = std.mem.trim(u8, trimmed[3..], " \t\r");
-                const end = std.mem.indexOfAny(u8, info, " \t") orelse info.len;
+                const end = std.mem.findAny(u8, info, " \t") orelse info.len;
                 fence_lang = info[0..end];
                 fence_flagged = false;
             } else {

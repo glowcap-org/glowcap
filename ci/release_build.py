@@ -60,7 +60,7 @@ def archives(target):
     run(
         "zig",
         "build",
-        "-Doptimize=ReleaseSafe",
+        "-Doptimize=safe",
         "c-sdk-pack",
         "glowcap-pack",
         "-Dcpu=baseline",

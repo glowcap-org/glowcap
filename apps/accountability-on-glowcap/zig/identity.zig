@@ -154,7 +154,7 @@ pub const Identity = struct {
     ) Error![]u8 {
         var verkey_b64: [SAID_LEN]u8 = undefined;
         encodeSaid('D', self.current.verkey(), &verkey_b64);
-        return std.fmt.allocPrint(allocator,
+        return allocator.print(
             \\{{"v":"KERIa","t":"icp","d":"{s}","i":"{s}","s":"0","kt":"1","k":["{s}"],"nt":"1","n":["{s}"]}}
         , .{ said, said, verkey_b64, next_digest });
     }
@@ -189,7 +189,7 @@ fn logWithRotation(
 ) ![]u8 {
     const rot = try kel_mod.mintRotation(allocator, parts);
     defer allocator.free(rot.bytes);
-    return std.fmt.allocPrint(allocator, "{s}{s}\n", .{ icp, rot.bytes });
+    return allocator.print("{s}{s}\n", .{ icp, rot.bytes });
 }
 
 test "a presented log binds the key its rotations end on" {

@@ -86,7 +86,7 @@ fn collectTestDeclarations(
     out: *std.ArrayList([]const u8),
 ) !void {
     var cursor: usize = 0;
-    while (std.mem.indexOfPos(u8, source, cursor, "b.addTest")) |call_at| {
+    while (std.mem.findPos(u8, source, cursor, "b.addTest")) |call_at| {
         cursor = call_at + "b.addTest".len;
         const name = syntax.assignedConstName(source, call_at) orelse {
             try appendViolation(gpa, violations, "{s}: every `b.addTest` must be assigned to a named compile step before it is classified", .{gates_path});
@@ -104,7 +104,7 @@ fn collectClassifications(
 ) !void {
     const marker = "execution.addZigTest(";
     var cursor: usize = 0;
-    while (std.mem.indexOfPos(u8, source, cursor, marker)) |call_at| {
+    while (std.mem.findPos(u8, source, cursor, marker)) |call_at| {
         const open = call_at + marker.len - 1;
         const close = syntax.matchingDelimiter(source, open, '(', ')') orelse {
             try appendViolation(gpa, violations, "{s}: unterminated `execution.addZigTest` call", .{gates_path});
@@ -171,7 +171,7 @@ fn rejectRawTestRuns(
 ) !void {
     const marker = "b.addRunArtifact(";
     var cursor: usize = 0;
-    scan: while (std.mem.indexOfPos(u8, source, cursor, marker)) |call_at| {
+    scan: while (std.mem.findPos(u8, source, cursor, marker)) |call_at| {
         const open = call_at + marker.len - 1;
         const close = syntax.matchingDelimiter(source, open, '(', ')') orelse {
             try appendViolation(gpa, violations, "{s}: unterminated raw `b.addRunArtifact` call", .{gates_path});
@@ -183,7 +183,7 @@ fn rejectRawTestRuns(
         // the explicitly classified `fuzz_tests` search. It is the only raw
         // RunArtifact construction in this standard-suite build owner.
         if (std.mem.eql(u8, arg, "fuzz_driver_exe")) continue :scan;
-        if (std.mem.indexOf(u8, arg, "b.addTest") != null) {
+        if (std.mem.find(u8, arg, "b.addTest") != null) {
             try appendViolation(gpa, violations, "{s}: inline `b.addRunArtifact(b.addTest(...))` bypasses the Zig test execution posture", .{gates_path});
             continue :scan;
         }
@@ -256,7 +256,7 @@ fn expectViolation(source: []const u8, needle: []const u8) !void {
     }
     try checkSource(gpa, &violations, source);
     for (violations.items) |item| {
-        if (std.mem.indexOf(u8, item, needle) != null) return;
+        if (std.mem.find(u8, item, needle) != null) return;
     }
     return error.ExpectedDeadlineViolation;
 }

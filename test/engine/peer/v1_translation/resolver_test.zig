@@ -42,8 +42,8 @@ test "raw-open fixture records v1.0 resolver callback imports" {
     try std.testing.expectEqual(.progress, try peer.step());
     var out = peer.takeOutbound().?;
     defer out.deinit();
-    try std.testing.expect(std.mem.indexOf(u8, out.storage, "op:deliver") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.storage, "fulfill") != null);
+    try std.testing.expect(std.mem.find(u8, out.storage, "op:deliver") != null);
+    try std.testing.expect(std.mem.find(u8, out.storage, "fulfill") != null);
 }
 
 test "V1 resolver authority outlives stateless argument GC" {
@@ -139,8 +139,8 @@ test "V1.0 resolver-only delivery retains a virtual answer without inventing a w
     try std.testing.expectEqual(.progress, try peer.step());
     var out = peer.takeOutbound().?;
     defer out.deinit();
-    try std.testing.expect(std.mem.indexOf(u8, out.storage, "op:deliver") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.storage, "fulfill") != null);
+    try std.testing.expect(std.mem.find(u8, out.storage, "op:deliver") != null);
+    try std.testing.expect(std.mem.find(u8, out.storage, "fulfill") != null);
 }
 
 test "V1.0 resolver-only bootstrap fetch answers through its prepared virtual answer" {
@@ -503,7 +503,7 @@ test "a V1.0 settling listener hears an answer that resolves to the partner's ow
         if (body != .deliver) continue;
         const target = body.deliver.target;
         if (target == .near and target.near.export_position.int() == 50) {
-            try std.testing.expect(std.mem.indexOf(u8, frame.storage, "fulfill") != null);
+            try std.testing.expect(std.mem.find(u8, frame.storage, "fulfill") != null);
             heard = true;
         }
     }

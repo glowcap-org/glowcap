@@ -71,8 +71,7 @@ const Greeter = struct {
             return .{ .string = "primed" };
         }
         if ((try args.len()) != 1) return error.BadInvocation;
-        return .{ .string = try std.fmt.allocPrint(
-            ht.turn.arena,
+        return .{ .string = try ht.turn.arena.print(
             "Hello {s}, I'm the glowcap exporter, primed with {s}!",
             .{ try args.string(0), self.mark[0..self.mark_len] },
         ) };
@@ -144,14 +143,14 @@ pub fn main(init: std.process.Init) !void {
         .note = " (alice binds port+1, carol port+2)",
     });
     var alice_port_buf: [8]u8 = undefined;
-    const alice_port_str = try std.fmt.bufPrint(&alice_port_buf, "{d}", .{glowcap_port + 1});
+    const alice_port_str = try std.mem.print(&alice_port_buf, "{d}", .{glowcap_port + 1});
     var carol_port_buf: [8]u8 = undefined;
-    const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{glowcap_port + 2});
+    const carol_port_str = try std.mem.print(&carol_port_buf, "{d}", .{glowcap_port + 2});
     var glowcap_designator_buf: [32]u8 = undefined;
-    const glowcap_designator = try std.fmt.bufPrint(&glowcap_designator_buf, "{s}:{d}", .{ host_addr, glowcap_port });
+    const glowcap_designator = try std.mem.print(&glowcap_designator_buf, "{s}:{d}", .{ host_addr, glowcap_port });
 
     var bind_buf: [32]u8 = undefined;
-    const bind = try std.fmt.bufPrint(&bind_buf, "{s}:{d}", .{ host_addr, glowcap_port });
+    const bind = try std.mem.print(&bind_buf, "{s}:{d}", .{ host_addr, glowcap_port });
 
     var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = bind }, .ephemeral, opts);
     defer server.deinit();
@@ -184,7 +183,7 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(hosted.swiss);
 
     var alice_designator_buf: [32]u8 = undefined;
-    const alice_designator = try std.fmt.bufPrint(&alice_designator_buf, "{s}:{s}", .{ host_addr, alice_port_str });
+    const alice_designator = try std.mem.print(&alice_designator_buf, "{s}:{s}", .{ host_addr, alice_port_str });
 
     // Wait until Alice's prime landed and the serving thread bound the decoy
     // over the alias: from here, only exact-object withdrawal can carry the
@@ -238,7 +237,7 @@ fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
 /// Carol's greeting must be the primed original, not the decoy the alias
 /// names: exact-object identity, proven live.
 fn judgeCarolLine(_: void, line: []const u8) !goblins_child.LineVerdict {
-    if (std.mem.indexOf(u8, line, "GIFT OK:") == null) return .more;
-    if (std.mem.indexOf(u8, line, "primed with alice-mark-7") == null) return error.WrongObjectWithdrawn;
+    if (std.mem.find(u8, line, "GIFT OK:") == null) return .more;
+    if (std.mem.find(u8, line, "primed with alice-mark-7") == null) return error.WrongObjectWithdrawn;
     return .confirmed;
 }

@@ -170,5 +170,5 @@ pub const Fixture = struct {
 pub fn expectLastErrorContains(message_part: []const u8) !void {
     var message: [256]u8 = undefined;
     const len = @min(webrtc_archive.glowcap_webrtc_last_error(&message, message.len), message.len);
-    try std.testing.expect(std.mem.indexOf(u8, message[0..len], message_part) != null);
+    try std.testing.expect(std.mem.find(u8, message[0..len], message_part) != null);
 }

@@ -21,7 +21,7 @@ pub fn Policy(comptime Backend: type) type {
     return struct {
         fn profileFor(transport: []const u8) addressing.Error!model.transport.Metadata {
             const known = model.transport.parseKnown(transport) orelse return error.UnknownTransport;
-            if (std.mem.indexOfScalar(model.transport.Known, &profiles, known) == null) return error.UnknownTransport;
+            if (std.mem.findScalar(model.transport.Known, &profiles, known) == null) return error.UnknownTransport;
             return known.metadata();
         }
 

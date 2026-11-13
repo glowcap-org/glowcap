@@ -121,7 +121,7 @@ pub fn emit(out: *std.ArrayList(u8), a: std.mem.Allocator, projection: *graph.Gr
                         if (compatible) {
                             for (fields, 0..) |field, j| {
                                 var buffer: [32]u8 = undefined;
-                                if (field == .integer and !scalars.packedInteger(field.integer)) try packedBounds(out, a, field.integer, try std.fmt.bufPrint(&buffer, "values[{d}]", .{j}), "\t\t");
+                                if (field == .integer and !scalars.packedInteger(field.integer)) try packedBounds(out, a, field.integer, try std.mem.print(&buffer, "values[{d}]", .{j}), "\t\t");
                             }
                         } else try out.appendSlice(a, "\t\tthrow new TypeError(\"integer tuple has incompatible fields\");\n");
                         try out.appendSlice(a, "\t} else {\n");
@@ -130,7 +130,7 @@ pub fn emit(out: *std.ArrayList(u8), a: std.mem.Allocator, projection: *graph.Gr
             }
             for (fields, 0..) |field, j| {
                 var buffer: [32]u8 = undefined;
-                try child(out, a, projection, field, try std.fmt.bufPrint(&buffer, "values[{d}]", .{j}), if (branch) "\t\t" else "\t");
+                try child(out, a, projection, field, try std.mem.print(&buffer, "values[{d}]", .{j}), if (branch) "\t\t" else "\t");
             }
             if (branch) try out.appendSlice(a, "\t}\n");
         }

@@ -47,7 +47,7 @@ pub fn checkSiteContentLinks(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".smd")) continue;
-        const path = try std.fmt.allocPrint(gpa, "site/content/{s}", .{entry.path});
+        const path = try gpa.print("site/content/{s}", .{entry.path});
         defer gpa.free(path);
         try checkSiteContentLinksInFile(io, gpa, root, violations, path, generated.value);
     }
@@ -117,14 +117,14 @@ fn checkSiteContentLinksInFile(
     // `$site.page` is a layout expression. SuperMD leaves it literal inside
     // page content, producing an href that looks plausible in source and is
     // broken in the rendered artifact. Content links use `$link.page`.
-    if (std.mem.indexOf(u8, contents, "$site.page(")) |_| {
+    if (std.mem.find(u8, contents, "$site.page(")) |_| {
         try appendViolation(gpa, violations, "{s}: page content contains `$site.page(...)`; use `$link.page(...)` so SuperMD resolves the link", .{path});
     }
 
     var rest = contents;
-    while (std.mem.indexOf(u8, rest, "href=\"#")) |start| {
+    while (std.mem.find(u8, rest, "href=\"#")) |start| {
         const after = rest[start + "href=\"#".len ..];
-        const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
+        const end = std.mem.findScalar(u8, after, '"') orelse break;
         const fragment = after[0..end];
         rest = after[end + 1 ..];
         if (fragment.len != 0 and !siteHeadingHasFragment(contents, fragment)) {
@@ -133,16 +133,16 @@ fn checkSiteContentLinksInFile(
     }
 
     rest = contents;
-    while (std.mem.indexOf(u8, rest, "$link.page('")) |start| {
+    while (std.mem.find(u8, rest, "$link.page('")) |start| {
         const after = rest[start + "$link.page('".len ..];
-        const end = std.mem.indexOfScalar(u8, after, '\'') orelse break;
+        const end = std.mem.findScalar(u8, after, '\'') orelse break;
         const id = after[0..end];
         rest = after[end + 1 ..];
         if (id.len == 0) continue;
 
-        const as_page = try std.fmt.allocPrint(gpa, "site/content/{s}.smd", .{id});
+        const as_page = try gpa.print("site/content/{s}.smd", .{id});
         defer gpa.free(as_page);
-        const as_index = try std.fmt.allocPrint(gpa, "site/content/{s}/index.smd", .{id});
+        const as_index = try gpa.print("site/content/{s}/index.smd", .{id});
         defer gpa.free(as_index);
         if (!paths.fileExists(io, root, as_page) and !paths.fileExists(io, root, as_index)) {
             try appendViolation(gpa, violations, "{s}: $link.page('{s}') resolves to neither `{s}` nor `{s}`", .{ path, id, as_page, as_index });
@@ -150,14 +150,14 @@ fn checkSiteContentLinksInFile(
     }
 
     rest = contents;
-    while (std.mem.indexOf(u8, rest, "$image.siteAsset('")) |start| {
+    while (std.mem.find(u8, rest, "$image.siteAsset('")) |start| {
         const after = rest[start + "$image.siteAsset('".len ..];
-        const end = std.mem.indexOfScalar(u8, after, '\'') orelse break;
+        const end = std.mem.findScalar(u8, after, '\'') orelse break;
         const name = after[0..end];
         rest = after[end + 1 ..];
         if (name.len == 0) continue;
 
-        const asset = try std.fmt.allocPrint(gpa, "site/assets/{s}", .{name});
+        const asset = try gpa.print("site/assets/{s}", .{name});
         defer gpa.free(asset);
         const is_generated = for (generated) |output| {
             if (std.mem.eql(u8, name, output)) break true;
@@ -172,9 +172,9 @@ fn checkSiteContentLinksInFile(
 /// or null when it is linked by a slug of its text.
 fn namedId(title: []const u8) ?[]const u8 {
     const named = "$section.id('";
-    const at = std.mem.indexOf(u8, title, named) orelse return null;
+    const at = std.mem.find(u8, title, named) orelse return null;
     const id = title[at + named.len ..];
-    const end = std.mem.indexOfScalar(u8, id, '\'') orelse return null;
+    const end = std.mem.findScalar(u8, id, '\'') orelse return null;
     return id[0..end];
 }
 
@@ -294,9 +294,9 @@ pub fn checkSiteNavParity(
             id = id[0 .. id.len - "/index".len];
         }
 
-        const needle = try std.fmt.allocPrint(gpa, "site.page('{s}')", .{id});
+        const needle = try gpa.print("site.page('{s}')", .{id});
         defer gpa.free(needle);
-        if (std.mem.indexOf(u8, nav, needle) == null) {
+        if (std.mem.find(u8, nav, needle) == null) {
             try appendViolation(gpa, violations, "site/content/{s}: orphaned page, {s} has no `{s}` nav entry, so the page ships invisible in the sidebar", .{ entry.path, nav_path, needle });
         }
     }
@@ -391,8 +391,8 @@ pub fn checkSiteMotionReducedGuard(
             };
             defer gpa.free(contents);
 
-            if (std.mem.indexOf(u8, contents, "@keyframes") == null) continue;
-            if (std.mem.indexOf(u8, contents, "prefers-reduced-motion") != null) continue;
+            if (std.mem.find(u8, contents, "@keyframes") == null) continue;
+            if (std.mem.find(u8, contents, "prefers-reduced-motion") != null) continue;
             try appendViolation(gpa, violations, "{s}: declares @keyframes with no prefers-reduced-motion guard; animated site styles must keep a static fallback (base styles = the finished picture)", .{path});
         }
     }
@@ -502,7 +502,7 @@ pub fn checkSiteDiagramTokens(
 
         const needle = "var(--dia-";
         var search: usize = 0;
-        while (std.mem.indexOfPos(u8, svg, search, needle)) |at| {
+        while (std.mem.findPos(u8, svg, search, needle)) |at| {
             const name_start = at + "var(".len;
             var name_end = name_start;
             while (name_end < svg.len and (std.ascii.isAlphanumeric(svg[name_end]) or svg[name_end] == '-')) : (name_end += 1) {}
@@ -510,9 +510,9 @@ pub fn checkSiteDiagramTokens(
             const name = svg[name_start..name_end];
             if (reported.contains(name)) continue;
 
-            const declaration = try std.fmt.allocPrint(gpa, "{s}:", .{name});
+            const declaration = try gpa.print("{s}:", .{name});
             defer gpa.free(declaration);
-            if (std.mem.indexOf(u8, sheet, declaration) != null) continue;
+            if (std.mem.find(u8, sheet, declaration) != null) continue;
             try reported.put(gpa, name, {});
             try appendViolation(gpa, violations, "site/assets/{s}: names `{s}`, which site/assets/style.css never declares, so the dark theme paints that part in the light literal", .{ entry.name, name });
         }
@@ -556,24 +556,24 @@ pub fn checkSiteDiagramTextFill(
 
 fn textRuleSetsFill(svg: []const u8) bool {
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, svg, search, "text")) |at| {
+    while (std.mem.findPos(u8, svg, search, "text")) |at| {
         search = at + "text".len;
         // A type selector: preceded by whitespace or `{`/`}`, followed by `{`.
         if (at > 0 and !std.ascii.isWhitespace(svg[at - 1]) and svg[at - 1] != '}') continue;
         const rest = std.mem.trimStart(u8, svg[search..], " \t");
         if (rest.len == 0 or rest[0] != '{') continue;
-        const close = std.mem.indexOfScalar(u8, rest, '}') orelse return false;
-        if (std.mem.indexOf(u8, rest[0..close], "fill:") != null) return true;
+        const close = std.mem.findScalar(u8, rest, '}') orelse return false;
+        if (std.mem.find(u8, rest[0..close], "fill:") != null) return true;
     }
     return false;
 }
 
 fn firstTextFillAttribute(svg: []const u8) ?usize {
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, svg, search, "<text")) |at| {
-        const end = std.mem.indexOfScalarPos(u8, svg, at, '>') orelse return null;
+    while (std.mem.findPos(u8, svg, search, "<text")) |at| {
+        const end = std.mem.findScalarPos(u8, svg, at, '>') orelse return null;
         search = end;
-        if (std.mem.indexOf(u8, svg[at..end], " fill=\"") != null) {
+        if (std.mem.find(u8, svg[at..end], " fill=\"") != null) {
             return std.mem.count(u8, svg[0..at], "\n") + 1;
         }
     }
@@ -603,11 +603,11 @@ test "a text rule's fill shadows a text element's fill attribute" {
 
 fn frontmatterField(body: []const u8, needle: []const u8) ?[]const u8 {
     if (!std.mem.startsWith(u8, body, "---\n")) return null;
-    const end = std.mem.indexOfPos(u8, body, 4, "\n---") orelse return null;
+    const end = std.mem.findPos(u8, body, 4, "\n---") orelse return null;
     const front = body[4..end];
-    const at = std.mem.indexOf(u8, front, needle) orelse return null;
+    const at = std.mem.find(u8, front, needle) orelse return null;
     const rest = front[at + needle.len ..];
-    const close = std.mem.indexOfScalar(u8, rest, '"') orelse return null;
+    const close = std.mem.findScalar(u8, rest, '"') orelse return null;
     return rest[0..close];
 }
 
@@ -634,5 +634,5 @@ test "site assets accept declared capture outputs but refuse missing undeclared 
     }
     try checkSiteContentLinks(io, gpa, tmp.dir, &violations);
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "rooms-typo-dark.webp") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "rooms-typo-dark.webp") != null);
 }

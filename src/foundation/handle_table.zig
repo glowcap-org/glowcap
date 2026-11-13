@@ -73,7 +73,7 @@ fn Table(comptime H: type, comptime V: type, comptime role: Role) type {
             value: ?V,
         };
 
-        rows: std.ArrayListUnmanaged(Row) = .empty,
+        rows: std.ArrayList(Row) = .empty,
         /// An owner's free chain, most recently freed first, so a churning
         /// index space stays compact.
         free_head: Index = none,

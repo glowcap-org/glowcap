@@ -267,7 +267,7 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         try ctx.writeResult(out.items);
     } else {
         var buf: [512]u8 = undefined;
-        const line = try std.fmt.bufPrint(&buf, "{s}\n", .{uri});
+        const line = try std.mem.print(&buf, "{s}\n", .{uri});
         try ctx.writeResult(line);
     }
     ctx.logInfo("listening in the background. `close` stops it", .{});

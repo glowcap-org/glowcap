@@ -104,7 +104,7 @@ pub fn probeReports(
     // A probe can print a partial listing and then fail; only a clean exit
     // makes its output evidence.
     if (!result.term.success()) return false;
-    return std.mem.indexOf(u8, result.stdout, expected) != null;
+    return std.mem.find(u8, result.stdout, expected) != null;
 }
 
 /// Whether `program` resolves to something the build could execute.
@@ -120,13 +120,13 @@ pub fn resolvesOnPath(
     environ: *const std.process.Environ.Map,
     program: []const u8,
 ) !bool {
-    if (std.mem.indexOfScalar(u8, program, std.fs.path.sep) != null)
+    if (std.mem.findScalar(u8, program, std.Io.Dir.path.sep) != null)
         return isExecutableFile(io, program);
     const path = environ.get("PATH") orelse return false;
-    var entries = std.mem.splitScalar(u8, path, std.fs.path.delimiter);
+    var entries = std.mem.splitScalar(u8, path, std.Io.Dir.path.delimiter);
     while (entries.next()) |entry| {
         if (entry.len == 0) continue;
-        const candidate = try std.fs.path.join(gpa, &.{ entry, program });
+        const candidate = try std.Io.Dir.path.join(gpa, &.{ entry, program });
         defer gpa.free(candidate);
         if (isExecutableFile(io, candidate)) return true;
     }
@@ -231,8 +231,8 @@ test "the report names what is missing against its reason and the remedy" {
         .{ "wasm32-unknown-unknown", "the wasm C ABI archives compile for it" },
     });
     defer gpa.free(report);
-    try std.testing.expect(std.mem.indexOf(u8, report, "'wasm-bindgen' is missing") != null);
-    try std.testing.expect(std.mem.indexOf(u8, report, "pinned Wasm ABI") != null);
-    try std.testing.expect(std.mem.indexOf(u8, report, "'wasm32-unknown-unknown' is missing") != null);
-    try std.testing.expect(std.mem.indexOf(u8, report, "Rebuild the container") != null);
+    try std.testing.expect(std.mem.find(u8, report, "'wasm-bindgen' is missing") != null);
+    try std.testing.expect(std.mem.find(u8, report, "pinned Wasm ABI") != null);
+    try std.testing.expect(std.mem.find(u8, report, "'wasm32-unknown-unknown' is missing") != null);
+    try std.testing.expect(std.mem.find(u8, report, "Rebuild the container") != null);
 }

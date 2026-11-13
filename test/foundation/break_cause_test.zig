@@ -36,9 +36,9 @@ test "nested failure rendering keeps each operation without changing provenance"
 
 test "failure formatting renders provenance and context at the output boundary" {
     var text: [512]u8 = undefined;
-    try std.testing.expectEqualStrings("plain refusal", try std.fmt.bufPrint(&text, "{f}", .{failures.Broken.unnamed("plain refusal")}));
-    try std.testing.expectEqualStrings("ExporterUnreachable: no connector", try std.fmt.bufPrint(&text, "{f}", .{@as(failures.Broken, .{ .detail = "no connector", .cause = Cause.local(.transport_unavailable) })}));
-    try std.testing.expectEqualStrings("PeerIdentityUnverified", try std.fmt.bufPrint(&text, "{f}", .{failures.Broken.partner("PeerIdentityUnverified")}));
+    try std.testing.expectEqualStrings("plain refusal", try std.mem.print(&text, "{f}", .{failures.Broken.unnamed("plain refusal")}));
+    try std.testing.expectEqualStrings("ExporterUnreachable: no connector", try std.mem.print(&text, "{f}", .{@as(failures.Broken, .{ .detail = "no connector", .cause = Cause.local(.transport_unavailable) })}));
+    try std.testing.expectEqualStrings("PeerIdentityUnverified", try std.mem.print(&text, "{f}", .{failures.Broken.partner("PeerIdentityUnverified")}));
 }
 
 // Restoration is an outer failure; its route diagnosis remains available as data.

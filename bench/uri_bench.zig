@@ -1,4 +1,4 @@
-//! Run `zig build bench-uri -Doptimize=ReleaseFast` to measure URI rendering.
+//! Run `zig build bench-uri -Doptimize=fast` to measure URI rendering.
 //! Each case reports time separately from allocation traffic. The instrumented
 //! pass refuses in-place growth so allocator luck cannot hide output copies.
 const std = @import("std");

@@ -113,11 +113,11 @@ pub const designator_buf_len = profile_listener.designator_buf_len;
 /// caller holding a typed address dials without writing the `model.PeerLocator`
 /// literal or the designator format by hand. `buf` is a fixed
 /// `designator_buf_len`-byte array because that width holds any designator, so
-/// the format cannot run out of room and the `bufPrint` cannot fail. `buf` need
+/// the format cannot run out of room and the `std.mem.print` cannot fail. `buf` need
 /// only outlive the dial that copies what the session retains. The owning
 /// `driver.connect` takes the returned locator directly.
 pub fn locatorFromAddress(buf: *[designator_buf_len]u8, address: IpAddress) model.PeerLocator {
-    const designator = std.fmt.bufPrint(buf, "{f}", .{address}) catch unreachable;
+    const designator = std.mem.print(buf, "{f}", .{address}) catch unreachable;
     return .hintless(transport_name, designator);
 }
 

@@ -23,7 +23,7 @@ const listing = @import("listing.zig");
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     /// The public `glowcap` module.
     lib_mod: *std.Build.Module,
     fast_lib_mod: *std.Build.Module,
@@ -204,13 +204,13 @@ pub fn register(ctx: Context) Registered {
     // `-Doptimize`, because the Rust row always builds `--release` and the
     // interpreters always run optimized: a fair cross-language comparison needs
     // the Zig rows optimized too, so a plain `zig build bench-langs` is accurate
-    // without remembering `-Doptimize=ReleaseFast`. The pin only holds through
+    // without remembering `-Doptimize=fast`. The pin only holds through
     // `fast_lib_mod`: optimize mode is per-module, so importing `lib_mod` here
     // would run Debug glowcap under a ReleaseFast main. The orchestrator is
     // glue, its own speed never enters a measured number, so it tracks
     // `-Doptimize`.
-    const langs_host_exe = modules.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-host", "bench/langs/host.zig");
-    const langs_zig_client_exe = modules.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-client-zig", "bench/langs/clients/zig_bench.zig");
+    const langs_host_exe = modules.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .fast, "glowcap-langs-host", "bench/langs/host.zig");
+    const langs_zig_client_exe = modules.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .fast, "glowcap-langs-client-zig", "bench/langs/clients/zig_bench.zig");
     const langs_orchestrator = modules.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-langs-orchestrator", "bench/langs/orchestrator.zig");
     // `--pin=A,B` places every client on core A and the host on core B through
     // the helper the two-thread benches pin with.
@@ -220,18 +220,18 @@ pub fn register(ctx: Context) Registered {
     // rest of its measured path.
     const clock_path = b.path("bench/support/clock.zig");
     langs_orchestrator.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = ctx.optimize }));
-    langs_zig_client_exe.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = .ReleaseFast }));
+    langs_zig_client_exe.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = .fast }));
     // The nearest-rank percentile both ends report latencies through.
     const percentile_path = b.path("bench/support/percentile.zig");
     langs_orchestrator.root_module.addImport("percentile", b.createModule(.{ .root_source_file = percentile_path, .target = ctx.target, .optimize = ctx.optimize }));
-    langs_zig_client_exe.root_module.addImport("percentile", b.createModule(.{ .root_source_file = percentile_path, .target = ctx.target, .optimize = .ReleaseFast }));
+    langs_zig_client_exe.root_module.addImport("percentile", b.createModule(.{ .root_source_file = percentile_path, .target = ctx.target, .optimize = .fast }));
     langs_orchestrator.root_module.addImport("rss", b.createModule(.{ .root_source_file = b.path("bench/support/rss.zig"), .target = ctx.target, .optimize = ctx.optimize }));
     const run_bench_langs = execution.addLiveRun(b, .benchmark, langs_orchestrator);
     // The Deno, Python, and Rust rows link the installed C ABI archives, so the
     // run needs the install step the way the binding suites do.
     run_bench_langs.step.dependOn(b.getInstallStep());
-    run_bench_langs.addArtifactArg(langs_host_exe);
-    run_bench_langs.addArtifactArg(langs_zig_client_exe);
+    run_bench_langs.addArtifactArg2(langs_host_exe, .{});
+    run_bench_langs.addArtifactArg2(langs_zig_client_exe, .{});
     if (ctx.pin_port) |p| run_bench_langs.addArg(b.fmt("--port={d}", .{p}));
     run_bench_langs.addPassthruArgs();
     b.step("bench-langs", "Per-language consumer-cost benchmark: fixed Zig host, swap client (Zig always; joins deno/python3/cargo/racket+goblins when present)")

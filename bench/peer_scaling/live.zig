@@ -116,8 +116,8 @@ fn runStep(
     const arena = arena_state.allocator();
     const shards = @min(total, requested_shards);
 
-    const server_total = try std.fmt.allocPrint(arena, "--live-server={d}", .{total});
-    const server_shards = try std.fmt.allocPrint(arena, "--live-shards={d}", .{shards});
+    const server_total = try arena.print("--live-server={d}", .{total});
+    const server_shards = try arena.print("--live-shards={d}", .{shards});
     var server = try spawnChild(io, &.{ executable, server_total, server_shards });
     defer server.process.kill(io);
     const server_pid = server.process.id orelse return error.MissingChildPid;
@@ -127,14 +127,14 @@ fn runStep(
     const ports = ports_line["PORTS ".len..];
     const server_rss_before = try rss.kb(io, server_pid);
 
-    const client_total = try std.fmt.allocPrint(arena, "--live-client={d}", .{total});
-    const client_ports = try std.fmt.allocPrint(arena, "--live-ports={s}", .{ports});
+    const client_total = try arena.print("--live-client={d}", .{total});
+    const client_ports = try arena.print("--live-ports={s}", .{ports});
     const t0 = nowNs(io);
     var client = try spawnChild(io, &.{ executable, client_total, client_ports });
     defer client.process.kill(io);
     const client_pid = client.process.id orelse return error.MissingChildPid;
     const ready = try readLine(io, &client, arena);
-    const expected = try std.fmt.allocPrint(arena, "CLIENT_READY {d}", .{total});
+    const expected = try arena.print("CLIENT_READY {d}", .{total});
     if (!std.mem.eql(u8, ready, expected)) return error.InvalidClientReady;
     const elapsed_ns: u64 = @intCast(@max(nowNs(io) - t0, 0));
     const server_rss_after = try rss.kb(io, server_pid);

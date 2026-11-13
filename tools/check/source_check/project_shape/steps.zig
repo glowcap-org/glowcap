@@ -44,9 +44,9 @@ fn collectCommandRegions(gpa: std.mem.Allocator, contents: []const u8, out: *std
             continue;
         }
         var rest = line;
-        while (std.mem.indexOfScalar(u8, rest, '`')) |open| {
+        while (std.mem.findScalar(u8, rest, '`')) |open| {
             const after_open = rest[open + 1 ..];
-            const close = std.mem.indexOfScalar(u8, after_open, '`') orelse break;
+            const close = std.mem.findScalar(u8, after_open, '`') orelse break;
             try out.append(gpa, after_open[0..close]);
             rest = after_open[close + 1 ..];
         }
@@ -66,7 +66,7 @@ const CommandScan = struct {
 
     fn region(self: CommandScan, text: []const u8) !void {
         var rest = text;
-        while (std.mem.indexOf(u8, rest, "zig build")) |start| {
+        while (std.mem.find(u8, rest, "zig build")) |start| {
             const after = rest[start + "zig build".len ..];
             rest = after;
 
@@ -85,7 +85,7 @@ const CommandScan = struct {
         }
 
         rest = text;
-        while (std.mem.indexOf(u8, rest, "bash ")) |start| {
+        while (std.mem.find(u8, rest, "bash ")) |start| {
             const after = rest[start + "bash ".len ..];
             rest = after;
 
@@ -95,7 +95,7 @@ const CommandScan = struct {
             const script_path = std.mem.trim(u8, trimmed[0..firstCommandTokenEnd(trimmed)], "`'\",);]");
             if (script_path.len == 0) continue;
             if (std.mem.startsWith(u8, script_path, "-")) continue;
-            if (std.mem.indexOfScalar(u8, script_path, '/') == null) continue;
+            if (std.mem.findScalar(u8, script_path, '/') == null) continue;
 
             self.root.access(self.io, script_path, .{}) catch |err| {
                 try appendViolation(self.gpa, self.violations, "{s}: documents `bash {s}`, but script `{s}` is not accessible ({s})", .{
@@ -185,7 +185,7 @@ fn collectCommandDocsUnder(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ext)) continue;
-        try out.append(gpa, try std.fmt.allocPrint(arena, "{s}/{s}", .{ dir_path, entry.path }));
+        try out.append(gpa, try arena.print("{s}/{s}", .{ dir_path, entry.path }));
     }
 }
 
@@ -204,9 +204,9 @@ fn collectBuildSteps(gpa: std.mem.Allocator, build_zig: []const u8, steps: *std.
     };
     for (patterns) |pattern| {
         var rest = build_zig;
-        while (std.mem.indexOf(u8, rest, pattern)) |start| {
+        while (std.mem.find(u8, rest, pattern)) |start| {
             const after = rest[start + pattern.len ..];
-            const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
+            const end = std.mem.findScalar(u8, after, '"') orelse break;
             const name = after[0..end];
             try steps.put(name, {});
             rest = after[end..];
@@ -258,9 +258,9 @@ pub fn checkArchiveTables(
     defer artifacts.deinit(gpa);
     const marker = ".artifact = \"";
     var rest = build_zig;
-    while (std.mem.indexOf(u8, rest, marker)) |start| {
+    while (std.mem.find(u8, rest, marker)) |start| {
         const after = rest[start + marker.len ..];
-        const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
+        const end = std.mem.findScalar(u8, after, '"') orelse break;
         try artifacts.append(gpa, after[0..end]);
         rest = after[end..];
     }
@@ -277,11 +277,11 @@ pub fn checkArchiveTables(
         defer gpa.free(contents);
         for (artifacts.items) |artifact| {
             var name_buf: [128]u8 = undefined;
-            const archive = std.fmt.bufPrint(&name_buf, "lib{s}", .{artifact}) catch {
+            const archive = std.mem.print(&name_buf, "lib{s}", .{artifact}) catch {
                 try appendViolation(gpa, violations, "build.zig: artifact name `{s}` too long for archive-table check", .{artifact});
                 continue;
             };
-            if (std.mem.indexOf(u8, contents, archive) == null) {
+            if (std.mem.find(u8, contents, archive) == null) {
                 try appendViolation(gpa, violations, "{s}: missing archive name `{s}` (archive-table check)", .{ path, archive });
             }
         }
@@ -311,12 +311,12 @@ test "collectCommandRegions yields only fenced and inline-code text" {
     const seen = joined.items;
 
     // Command context is captured.
-    try std.testing.expect(std.mem.indexOf(u8, seen, "zig build check") != null);
-    try std.testing.expect(std.mem.indexOf(u8, seen, "bash setup.sh") != null);
-    try std.testing.expect(std.mem.indexOf(u8, seen, "zig build source-check") != null);
+    try std.testing.expect(std.mem.find(u8, seen, "zig build check") != null);
+    try std.testing.expect(std.mem.find(u8, seen, "bash setup.sh") != null);
+    try std.testing.expect(std.mem.find(u8, seen, "zig build source-check") != null);
     // Prose is not, so its trailing tokens can never be read as a step.
-    try std.testing.expect(std.mem.indexOf(u8, seen, "system") == null);
-    try std.testing.expect(std.mem.indexOf(u8, seen, "nonsense") == null);
+    try std.testing.expect(std.mem.find(u8, seen, "system") == null);
+    try std.testing.expect(std.mem.find(u8, seen, "nonsense") == null);
 }
 
 test "a step cited inside an HTML code span ends at the closing tag" {

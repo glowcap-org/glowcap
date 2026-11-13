@@ -23,7 +23,7 @@ pub const locator_buf_len = 256;
 /// secret. The returned server's `deinit` releases it.
 pub fn listen(allocator: std.mem.Allocator, io: std.Io, port: u16, opts: driver.SessionOptions) !*driver.Server {
     var bind_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bind = try std.fmt.bufPrint(&bind_buf, "127.0.0.1:{d}", .{port});
+    const bind = try std.mem.print(&bind_buf, "127.0.0.1:{d}", .{port});
     return driver.listen(allocator, io, transports, model.transport.noise_tcp, .{ .designator = bind }, .{ .keyed = try driver.drawSessionSecret(io) }, opts);
 }
 

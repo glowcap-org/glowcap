@@ -42,10 +42,10 @@ test "uncertain disk commit refreshes under custody and resolves the original St
         reading = false;
         // Refresh must survive a failed reopen, retain custody, and never
         // create a new data file in place of the one it cannot find.
-        var source_buf: [std.fs.max_path_bytes:0]u8 = undefined;
-        var parked_buf: [std.fs.max_path_bytes:0]u8 = undefined;
-        const source = try std.fmt.bufPrintSentinel(&source_buf, "{s}/" ++ engine.data_file, .{tmp.path}, 0);
-        const parked = try std.fmt.bufPrintSentinel(&parked_buf, "{s}/parked-data", .{tmp.path}, 0);
+        var source_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+        var parked_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+        const source = try std.mem.printSentinel(&source_buf, "{s}/" ++ engine.data_file, .{tmp.path}, 0);
+        const parked = try std.mem.printSentinel(&parked_buf, "{s}/parked-data", .{tmp.path}, 0);
         try std.testing.expectEqual(@as(c_int, 0), rename(source, parked));
         var parking = true;
         defer if (parking) {

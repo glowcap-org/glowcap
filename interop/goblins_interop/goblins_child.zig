@@ -255,9 +255,9 @@ pub fn enlivenCap(
 /// up to and including the opening quote, e.g. `"swiss":"`, or null if the
 /// needle is absent.
 pub fn extractField(line: []const u8, needle: []const u8) ?[]const u8 {
-    const start = (std.mem.indexOf(u8, line, needle) orelse return null) + needle.len;
+    const start = (std.mem.find(u8, line, needle) orelse return null) + needle.len;
     const rest = line[start..];
-    const end = std.mem.indexOfScalar(u8, rest, '"') orelse return null;
+    const end = std.mem.findScalar(u8, rest, '"') orelse return null;
     return rest[0..end];
 }
 
@@ -285,7 +285,7 @@ fn readReadinessBlock(
             else => return err,
         };
         try block.appendSlice(allocator, line);
-        if (std.mem.indexOf(u8, line, needle) != null) return block.toOwnedSlice(allocator);
+        if (std.mem.find(u8, line, needle) != null) return block.toOwnedSlice(allocator);
     }
 }
 
@@ -448,8 +448,8 @@ pub fn followChildVerdict(
         };
         std.debug.print("{s}: {s}", .{ prefix, line });
         if (try judge(ctx, line) == .confirmed) return true;
-        if (std.mem.indexOf(u8, line, "GIFT ERR") != null or
-            std.mem.indexOf(u8, line, "GIFT TIMEOUT") != null) return false;
+        if (std.mem.find(u8, line, "GIFT ERR") != null or
+            std.mem.find(u8, line, "GIFT TIMEOUT") != null) return false;
     }
     return false;
 }
@@ -495,9 +495,9 @@ pub fn awaitChildStdoutLine(
 /// sees the whole line rather than a prefix that happened to contain the needle.
 fn lineWith(text: []const u8, needle: []const u8) ?[]const u8 {
     var rest = text;
-    while (std.mem.indexOfScalar(u8, rest, '\n')) |end| {
+    while (std.mem.findScalar(u8, rest, '\n')) |end| {
         const line = rest[0..end];
-        if (std.mem.indexOf(u8, line, needle) != null) return line;
+        if (std.mem.find(u8, line, needle) != null) return line;
         rest = rest[end + 1 ..];
     }
     return null;

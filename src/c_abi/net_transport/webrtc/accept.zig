@@ -76,7 +76,7 @@ pub fn listen(
         return failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress);
     if (requested.len != 0 and identity.len != 0 and !std.mem.eql(u8, requested, identity))
         return failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress);
-    var ready: std.ArrayListUnmanaged(*PeerPayload) = .empty;
+    var ready: std.ArrayList(*PeerPayload) = .empty;
     ready.ensureTotalCapacity(payload.allocator, webrtc.max_accepts_in_flight) catch |err|
         return failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
     payload.listener = .{

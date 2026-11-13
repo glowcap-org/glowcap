@@ -42,7 +42,7 @@ pub fn checkBindingTestAggregate(
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".rkt")) continue;
         if (isSharedModule(entry.path)) continue;
         scenario_count += 1;
-        const required = try std.fmt.allocPrint(gpa, "scenarios/{s}", .{entry.path});
+        const required = try gpa.print("scenarios/{s}", .{entry.path});
         defer gpa.free(required);
         const count = stringLiteralCount(require_form, required, .exact);
         if (count != 1) {
@@ -188,7 +188,7 @@ pub fn checkRacketScriptBalance(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".rkt")) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+        const path = try gpa.print("{s}/{s}", .{ dir_path, entry.path });
         defer gpa.free(path);
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for paren-balance check with {s}", .{ path, @errorName(err) });

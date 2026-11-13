@@ -50,7 +50,7 @@ test "a null cap leaves the session count unbounded and a zero cap is refused at
     defer host.deinit();
     for (0..3) |i| {
         var designator: [16]u8 = undefined;
-        _ = try publishAndOpenAccepted(&host, "tcp", try std.fmt.bufPrint(&designator, "127.0.0.1:72{d:0>2}", .{20 + i}), &.{});
+        _ = try publishAndOpenAccepted(&host, "tcp", try std.mem.print(&designator, "127.0.0.1:72{d:0>2}", .{20 + i}), &.{});
     }
     try std.testing.expectEqual(@as(usize, 3), host.sessions.count());
 }

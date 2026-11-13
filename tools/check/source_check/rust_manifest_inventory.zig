@@ -18,17 +18,17 @@ const list_marker = "const rust_manifests = [_][]const u8{";
 const roots = [_][]const u8{ "apps", "bindings", "bench", "transports", "test" };
 
 fn isManifest(path: []const u8) bool {
-    return std.mem.eql(u8, std.fs.path.basename(path), "Cargo.toml");
+    return std.mem.eql(u8, std.Io.Dir.path.basename(path), "Cargo.toml");
 }
 
 /// The manifests in `manifests` that `list` must name: each one no workspace
 /// manifest above it covers. `workspaces[i]` says whether `manifests[i]`
 /// declares a workspace.
 fn uncovered(manifest: []const u8, manifests: []const []const u8, workspaces: []const bool) bool {
-    const dir = std.fs.path.dirname(manifest) orelse "";
+    const dir = std.Io.Dir.path.dirname(manifest) orelse "";
     for (manifests, workspaces) |other, workspace| {
         if (!workspace or std.mem.eql(u8, other, manifest)) continue;
-        const above = std.fs.path.dirname(other) orelse "";
+        const above = std.Io.Dir.path.dirname(other) orelse "";
         if (dir.len > above.len and std.mem.startsWith(u8, dir, above) and dir[above.len] == '/') return false;
     }
     return true;
@@ -36,7 +36,7 @@ fn uncovered(manifest: []const u8, manifests: []const []const u8, workspaces: []
 
 fn listed(list: []const u8, manifest: []const u8) bool {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, list, at, manifest)) |hit| {
+    while (std.mem.findPos(u8, list, at, manifest)) |hit| {
         at = hit + manifest.len;
         if (hit > 0 and list[hit - 1] == '"' and at < list.len and list[at] == '"') return true;
     }
@@ -72,7 +72,7 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
             continue;
         };
         defer gpa.free(contents);
-        workspace.* = std.mem.startsWith(u8, contents, "[workspace]") or std.mem.indexOf(u8, contents, "\n[workspace]") != null;
+        workspace.* = std.mem.startsWith(u8, contents, "[workspace]") or std.mem.find(u8, contents, "\n[workspace]") != null;
     }
     for (manifests.items) |manifest| {
         if (!uncovered(manifest, manifests.items, workspaces) or listed(list, manifest)) continue;

@@ -29,7 +29,7 @@ pub const Config = struct {
     }
 
     pub fn template(self: Config, name: []const u8) ![]const u8 {
-        const path = try std.fs.path.join(self.gpa, &.{ self.templates, name });
+        const path = try std.Io.Dir.path.join(self.gpa, &.{ self.templates, name });
         return Io.Dir.cwd().readFileAlloc(self.io, path, self.gpa, .limited(1024 * 1024));
     }
 
@@ -44,9 +44,9 @@ pub const Config = struct {
         if (!imageId(id)) return error.InvalidImageSelection;
         if (try self.image()) |previous| {
             if (std.mem.eql(u8, previous, id)) return;
-            try self.write("previous-image", try std.fmt.allocPrint(self.gpa, "{s}\n", .{previous}), true);
+            try self.write("previous-image", try self.gpa.print("{s}\n", .{previous}), true);
         }
-        try self.write("image", try std.fmt.allocPrint(self.gpa, "{s}\n", .{id}), true);
+        try self.write("image", try self.gpa.print("{s}\n", .{id}), true);
     }
 
     pub fn prepare(self: Config) !void {
@@ -84,7 +84,7 @@ pub const revision_label = "org.opencontainers.image.revision";
 const linux_product_needed = "Docker needs a Linux product. Run `zig build glowcap-release` in the Linux devcontainer and pass its product directory with --build";
 
 pub fn productRelease(io: Io, gpa: std.mem.Allocator, product: []const u8) !Release {
-    const path = try std.fs.path.join(gpa, &.{ product, "share/glowcap/release.json" });
+    const path = try std.Io.Dir.path.join(gpa, &.{ product, "share/glowcap/release.json" });
     const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(64 * 1024));
     const metadata = try std.json.parseFromSlice(std.json.Value, gpa, bytes, .{ .allocate = .alloc_always });
     const fields = if (metadata.value == .object) metadata.value.object else {
@@ -103,7 +103,7 @@ pub fn productRelease(io: Io, gpa: std.mem.Allocator, product: []const u8) !Rele
     const dirty = if (fields.get("dirty")) |value| value == .bool and value.bool else false;
     return .{
         .platform = platform,
-        .revision = if (commit) |c| if (dirty) try std.fmt.allocPrint(gpa, "{s}-dirty", .{c}) else c else null,
+        .revision = if (commit) |c| if (dirty) try gpa.print("{s}-dirty", .{c}) else c else null,
     };
 }
 

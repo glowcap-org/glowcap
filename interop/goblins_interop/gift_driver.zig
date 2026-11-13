@@ -106,8 +106,8 @@ fn readCarolOk(io: std.Io, child: *std.process.Child, expect_hint: bool) !void {
 }
 
 fn judgeCarolLine(log: *CarolLog, line: []const u8) !goblins_child.LineVerdict {
-    if (std.mem.indexOf(u8, line, "HINT SEEN: " ++ route_hint_name) != null) log.saw_hint = true;
-    const redeemed = std.mem.indexOf(u8, line, "GIFT OK:") != null and std.mem.indexOf(u8, line, "goblins-carol") != null;
+    if (std.mem.find(u8, line, "HINT SEEN: " ++ route_hint_name) != null) log.saw_hint = true;
+    const redeemed = std.mem.find(u8, line, "GIFT OK:") != null and std.mem.find(u8, line, "goblins-carol") != null;
     return if (redeemed) .confirmed else .more;
 }
 
@@ -122,9 +122,9 @@ pub fn main(init: std.process.Init) !void {
     });
     const hinted_exporter = harness.hasFlag(init.minimal.args, "--hinted-exporter");
     var bob_port_buf: [8]u8 = undefined;
-    const bob_port_str = try std.fmt.bufPrint(&bob_port_buf, "{d}", .{bob_port});
+    const bob_port_str = try std.mem.print(&bob_port_buf, "{d}", .{bob_port});
     var carol_port_buf: [8]u8 = undefined;
-    const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{bob_port + 1});
+    const carol_port_str = try std.mem.print(&carol_port_buf, "{d}", .{bob_port + 1});
 
     var hint_hex_buf: [route_hint_bytes.len * 2]u8 = undefined;
     const bob_argv_hinted = [_][]const u8{
@@ -132,7 +132,7 @@ pub fn main(init: std.process.Init) !void {
         host_addr,
         bob_port_str,
         route_hint_name,
-        std.fmt.bufPrint(&hint_hex_buf, "{x}", .{route_hint_bytes[0..]}) catch unreachable,
+        std.mem.print(&hint_hex_buf, "{x}", .{route_hint_bytes[0..]}) catch unreachable,
     };
     const bob_argv: []const []const u8 = if (hinted_exporter) bob_argv_hinted[0..] else bob_argv_hinted[0..3];
 

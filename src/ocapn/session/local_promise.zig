@@ -25,7 +25,7 @@ pub const CollectionState = enum { active, deferred };
 /// projection or at teardown.
 pub const Registry = struct {
     state: CollectionState = .active,
-    projections: std.ArrayListUnmanaged(model.ExportPosition) = .empty,
+    projections: std.ArrayList(model.ExportPosition) = .empty,
     /// Projections whose stored settlement still owes its carrier
     /// (`settlement_deferred`). Nonzero makes the Peer's step retry one, and
     /// zero lets `deferredSettlement` answer without a scan.

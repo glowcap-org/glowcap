@@ -28,7 +28,7 @@ test "container punctuation and payload counts are grammar errors" {
         "record<\"\\ud800\">",
     }) |expression| {
         var diagnostic: text.Diagnostic = .{};
-        const input = try std.fmt.allocPrint(a, "module M\ntype T = {s}", .{expression});
+        const input = try a.print("module M\ntype T = {s}", .{expression});
         try std.testing.expectError(error.InvalidText, text.translate(a, input, &diagnostic));
         try std.testing.expectEqual(@as(usize, 2), diagnostic.line);
     }
@@ -37,7 +37,7 @@ test "container punctuation and payload counts are grammar errors" {
         "type T = map<string, value>",   "type T = string | bool",
     }) |declaration| {
         var diagnostic: text.Diagnostic = .{};
-        const input = try std.fmt.allocPrint(a, "module M\n{s}", .{declaration});
+        const input = try a.print("module M\n{s}", .{declaration});
         try std.testing.expectError(error.UnsupportedSyntax, text.translate(a, input, &diagnostic));
     }
 }
@@ -52,14 +52,14 @@ test "container bounds are validated at the shared model boundary" {
         "record<\"tag\">(max_items: 1)", "tagged<\"tag\", string>(max_items: 1)",
     }) |expression| {
         var diagnostic: text.Diagnostic = .{};
-        const input = try std.fmt.allocPrint(a, "module M\ntype T = {s}", .{expression});
+        const input = try a.print("module M\ntype T = {s}", .{expression});
         try std.testing.expectError(error.InvalidDescription, text.translate(a, input, &diagnostic));
         try std.testing.expectEqualStrings("description rejected by checked model", diagnostic.message);
     }
     for ([_][]const u8{
         "<6'tagged3\"tag>", "<6'tagged3\"tag7'integer4'bool>", "<6'tagged1+7'integer>",
     }) |expression| {
-        const bytes = try std.fmt.allocPrint(a, "<17'glowcap:interface1+{{14\"glowcap.values1+}}{{1\"T<4'type{s}>}}>", .{expression});
+        const bytes = try a.print("<17'glowcap:interface1+{{14\"glowcap.values1+}}{{1\"T<4'type{s}>}}>", .{expression});
         try std.testing.expectError(error.InvalidDescription, Model.init(a, try description.read(a, bytes)));
     }
 }

@@ -37,15 +37,15 @@ pub const Port = struct {
     /// this Port's outbound answer namespace. Dense storage lets bulk failure
     /// pop one listener before each callback in O(1), while cancellation
     /// still sees the rest.
-    far_listeners: std.AutoArrayHashMapUnmanaged(engine.OutboundAnswerTarget, Listener) = .{},
+    far_listeners: std.array_hash_map.Auto(engine.OutboundAnswerTarget, Listener) = .empty,
     /// A bulk break consumes every answer minted before it, including sends
     /// without observers: a vow whose row stamp is at or below this watermark
     /// is broken. Fresh sends after the break may still be observed.
     far_broken_stamp: u64 = 0,
     /// Local actor id for each export position projected on this Port.
-    exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
+    exports: std.AutoHashMapUnmanaged(u64, u64) = .empty,
     /// Canonical export position already projecting a local actor.
-    reverse_exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
+    reverse_exports: std.AutoHashMapUnmanaged(u64, u64) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, peer: *engine.Peer) Port {
         return .{ .allocator = allocator, .peer = peer };

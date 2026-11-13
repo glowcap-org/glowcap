@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
     const body = try cwd.readFileAlloc(init.io, helpers, init.gpa, .limited(64 << 10));
     defer init.gpa.free(body);
     const marker = "\n\t/** Nested transaction */";
-    const inserted = try std.fmt.allocPrint(init.gpa, "\n{s}{s}", .{ body, marker });
+    const inserted = try init.gpa.print("\n{s}{s}", .{ body, marker });
     defer init.gpa.free(inserted);
     try replace(init.gpa, &source, marker, inserted, 1);
     try cwd.writeFile(init.io, .{ .sub_path = output, .data = source });

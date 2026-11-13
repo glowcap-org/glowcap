@@ -115,7 +115,7 @@ pub fn corpusFrame(index: usize) []const u8 {
 
 pub fn appendOuterFrame(dest: []u8, frame: []const u8) ?usize {
     var prefix_buf: [32]u8 = undefined;
-    const prefix = std.fmt.bufPrint(&prefix_buf, "{d}:", .{frame.len}) catch return null;
+    const prefix = std.mem.print(&prefix_buf, "{d}:", .{frame.len}) catch return null;
     const total = prefix.len + frame.len;
     if (total > dest.len) return null;
     @memcpy(dest[0..prefix.len], prefix);
@@ -197,14 +197,14 @@ pub fn planStream(input: []const u8) ?StreamPlan {
     switch (tail) {
         .clean => {},
         .oversize_length => {
-            const prefix = std.fmt.bufPrint(stream_buf[at..], "{d}:", .{cap + 1}) catch return null;
+            const prefix = std.mem.print(stream_buf[at..], "{d}:", .{cap + 1}) catch return null;
             at += prefix.len;
         },
         .truncated_frame => {
             const frame = corpusFrame(input[4]);
             const keep = 1 + @as(usize, input[5]) % (frame.len - 1);
             var prefix_buf: [32]u8 = undefined;
-            const prefix = std.fmt.bufPrint(&prefix_buf, "{d}:", .{frame.len}) catch return null;
+            const prefix = std.mem.print(&prefix_buf, "{d}:", .{frame.len}) catch return null;
             @memcpy(stream_buf[at..][0..prefix.len], prefix);
             at += prefix.len;
             @memcpy(stream_buf[at..][0..keep], frame[0..keep]);
@@ -337,9 +337,9 @@ pub fn ratifyStreamShapes() !void {
     // the frame cap is refused before any body bytes arrive.
     for ([_]usize{ small_frame_cap, large_frame_cap }) |cap| {
         var prefix_buf: [32]u8 = undefined;
-        const at_cap = try std.fmt.bufPrint(&prefix_buf, "{d}:", .{cap});
+        const at_cap = try std.mem.print(&prefix_buf, "{d}:", .{cap});
         try std.testing.expect(glowcap.net.outerPrefix(at_cap, cap) == .incomplete);
-        const over_cap = try std.fmt.bufPrint(&prefix_buf, "{d}:", .{cap + 1});
+        const over_cap = try std.mem.print(&prefix_buf, "{d}:", .{cap + 1});
         try std.testing.expect(glowcap.net.outerPrefix(over_cap, cap) == .too_large);
     }
 }

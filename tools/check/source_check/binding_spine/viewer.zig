@@ -53,7 +53,7 @@ pub fn checkTraceViewerVocabulary(
         defer gpa.free(contents);
         inline for (captp_vocabulary.captp_wire_words) |arm| {
             const quoted = "\"" ++ arm.wire ++ "\"";
-            if (std.mem.indexOf(u8, contents, quoted) == null) {
+            if (std.mem.find(u8, contents, quoted) == null) {
                 try appendViolation(gpa, violations, "{s}: the viewer has no word for `.{s}`, which every producer sends as {s} (`{s}`). A version the feed can carry and the viewer cannot read draws as nothing.", .{ viewer, arm.tag, quoted, authority });
             }
         }
@@ -80,7 +80,7 @@ pub fn checkTraceViewerVocabulary(
             continue;
         };
         defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, row.needle) == null) {
+        if (std.mem.find(u8, contents, row.needle) == null) {
             try appendViolation(gpa, violations, "{s}: missing `{s}`. The schema's `a_profile` vocabulary is pinned in checkTraceViewerVocabulary, because no Zig declaration owns it and a producer and its viewer have to say the same word.", .{ row.path, row.needle });
         }
     }
@@ -121,12 +121,12 @@ fn checkViewerProvenanceMirror(
     defer gpa.free(source);
 
     const decl = "pub const DurableProvenance = enum {";
-    const decl_at = std.mem.indexOf(u8, source, decl) orelse {
+    const decl_at = std.mem.find(u8, source, decl) orelse {
         try appendViolation(gpa, violations, "{s}: no `{s}` to hold the viewer against. Either the enum moved, in which case checkViewerProvenanceMirror follows it, or it is gone and the viewer's mirror should go with it.", .{ authority, decl });
         return;
     };
     const body_start = decl_at + decl.len;
-    const body_end = std.mem.indexOfPos(u8, source, body_start, "\n};") orelse {
+    const body_end = std.mem.findPos(u8, source, body_start, "\n};") orelse {
         try appendViolation(gpa, violations, "{s}: `DurableProvenance` has no closing brace, so its arms were read against nothing", .{authority});
         return;
     };
@@ -143,12 +143,12 @@ fn checkViewerProvenanceMirror(
     // fail. This is the profile rows' rule above ("the whole declaration, not
     // the bare word") applied to a list.
     const viewer_decl = "export const DurableProvenance = z.enum([";
-    const list_at = std.mem.indexOf(u8, contents, viewer_decl) orelse {
+    const list_at = std.mem.find(u8, contents, viewer_decl) orelse {
         try appendViolation(gpa, violations, "{s}: no `{s}` to hold against {s}. The mirror is what this check exists for, so a renamed or deleted declaration is the failure rather than a reason to skip.", .{ viewer, viewer_decl, authority });
         return;
     };
     const list_start = list_at + viewer_decl.len;
-    const list_end = std.mem.indexOfPos(u8, contents, list_start, "]);") orelse {
+    const list_end = std.mem.findPos(u8, contents, list_start, "]);") orelse {
         try appendViolation(gpa, violations, "{s}: `DurableProvenance` has no closing `]);`, so its words were read against nothing", .{viewer});
         return;
     };
@@ -163,7 +163,7 @@ fn checkViewerProvenanceMirror(
         if (line.len == 0 or std.mem.startsWith(u8, line, "//")) continue;
         if (!std.mem.endsWith(u8, line, ",")) continue;
         const tag = std.mem.trim(u8, line[0 .. line.len - 1], " \t");
-        if (tag.len == 0 or std.mem.indexOfAny(u8, tag, " \t:(){}") != null) continue;
+        if (tag.len == 0 or std.mem.findAny(u8, tag, " \t:(){}") != null) continue;
         arms += 1;
 
         // The viewer writes the wire word, which is the tag with underscores
@@ -175,7 +175,7 @@ fn checkViewerProvenanceMirror(
         }
         const quoted = try std.mem.concat(gpa, u8, &.{ "\"", wire, "\"" });
         defer gpa.free(quoted);
-        if (std.mem.indexOf(u8, viewer_list, quoted) == null) {
+        if (std.mem.find(u8, viewer_list, quoted) == null) {
             try appendViolation(gpa, violations, "{s}: the viewer's `DurableProvenance` has no word for `.{s}`, which {s} declares and the trace can carry as {s}. `attributionForProvenance` answers an unrecognized verdict with no attribution, so this draws as \"nothing proved this\" rather than failing.", .{ viewer, tag, authority, quoted });
         }
     }

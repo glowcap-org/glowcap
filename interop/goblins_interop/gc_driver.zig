@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
 
     const port = try harness.parsePortFlag(init.minimal.args, "goblins-gc", default_port, .{});
     var port_buf: [8]u8 = undefined;
-    const port_str = try std.fmt.bufPrint(&port_buf, "{d}", .{port});
+    const port_str = try std.mem.print(&port_buf, "{d}", .{port});
 
     const hosted = try goblins_child.spawnHostAwaitSwiss(io, allocator, init.environ_map, "goblins-gc", "echo cap", &.{ host_script, host, port_str });
     var child = hosted.child;

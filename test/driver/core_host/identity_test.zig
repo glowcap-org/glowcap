@@ -264,7 +264,7 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
 
     // The dialed host's keyed designator: the identity we are dialing.
     var dialed_designator: [64]u8 = undefined;
-    _ = try std.fmt.bufPrint(&dialed_designator, "{x}", .{dialed.node.secretKey().publicKey().bytes});
+    _ = try std.mem.print(&dialed_designator, "{x}", .{dialed.node.secretKey().publicKey().bytes});
 
     const keyed_locator: glowcap.ocapn.model.PeerLocator = .{
         .transport = "keyed-tcp",

@@ -231,7 +231,7 @@ comptime {
         _ = @import("driver/promise_argument_test.zig");
         _ = @import("driver/vow_capability_test.zig");
         _ = @import("driver/off_turn_settle_test.zig");
-        if (@import("builtin").os.tag == .linux) {
+        if (@import("builtin").target.os.tag == .linux) {
             _ = @import("driver/host_runtime_multiplexed/lifecycle_test.zig");
             _ = @import("driver/host_runtime_multiplexed/park_test.zig");
             _ = @import("driver/host_runtime_multiplexed/zig_server_test.zig");
@@ -241,10 +241,10 @@ comptime {
             _ = @import("driver/session_wire_fault_test.zig");
             _ = @import("driver/host_runtime_step/dial_retry_test.zig");
         }
-        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/serve_test.zig");
         _ = @import("driver/host_runtime_step/flood_test.zig");
-        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/deferred_release_claim_test.zig");
         _ = @import("driver/host_runtime_step/refused_partner_release_test.zig");
         _ = @import("driver/host_runtime_step/staged_dial_test.zig");
@@ -384,28 +384,28 @@ comptime {
         _ = @import("net/keyed_relay_completion_wire_test.zig");
         _ = @import("net/keyed_tcp_test.zig");
         _ = @import("net/noise_tcp_test.zig");
-        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("net/completion_loop_test.zig");
-        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("net/completion_listener_test.zig");
         _ = @import("net/completion_loop_backpressure_test.zig");
         _ = @import("net/completion_loop_stream_test.zig");
         _ = @import("net/completion_loop_reclaim_test.zig");
         _ = @import("net/completion_loop_reclaim/fan_in_test.zig");
-        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("net/completion_dialer_test.zig");
-        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin()) {
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()) {
             _ = @import("net/completion/cross_arm_test.zig");
             _ = @import("net/completion/wake_test.zig");
             _ = @import("net/completion/close_slot_test.zig");
         }
-        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("net/readiness_test.zig");
-        if (@import("builtin").os.tag == .linux)
+        if (@import("builtin").target.os.tag == .linux)
             _ = @import("net/uring_test.zig");
-        if (@import("builtin").os.tag == .linux)
+        if (@import("builtin").target.os.tag == .linux)
             _ = @import("net/linux_completion_test.zig");
-        if (@import("builtin").os.tag.isDarwin())
+        if (@import("builtin").target.os.tag.isDarwin())
             _ = @import("net/kqueue_test.zig");
     }
     if (wanted(.session)) {
@@ -491,7 +491,7 @@ comptime {
         _ = @import("c_abi/relay_provider/reactor_failure_test.zig");
         _ = @import("c_abi/tcp_provider_options_test.zig");
         _ = @import("c_abi/tcp_profiles_test.zig");
-        if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("c_abi/driver_loop/close_test.zig");
         _ = @import("c_abi/driver_loop/adopt_test.zig");
         _ = @import("c_abi/driver_loop/provider_test.zig");

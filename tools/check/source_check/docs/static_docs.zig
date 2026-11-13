@@ -134,10 +134,10 @@ fn isAny(_: []const u8) bool {
 /// True when a Markdown link target on `line` points into the local home.
 fn linksLocal(line: []const u8) bool {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, line, at, "](")) |open| {
+    while (std.mem.findPos(u8, line, at, "](")) |open| {
         const start = open + "](".len;
-        const end = std.mem.indexOfScalarPos(u8, line, start, ')') orelse line.len;
-        if (std.mem.indexOf(u8, line[start..end], kinds.local_home) != null) return true;
+        const end = std.mem.findScalarPos(u8, line, start, ')') orelse line.len;
+        if (std.mem.find(u8, line[start..end], kinds.local_home) != null) return true;
         at = end;
     }
     return false;

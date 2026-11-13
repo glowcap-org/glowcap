@@ -32,7 +32,7 @@ test "relay stream failure is exact and claim-once" {
     errdefer if (!server_future_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_buffer,
         "ws://localhost:{d}/relay",
         .{server.socket.address.getPort()},

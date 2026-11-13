@@ -379,5 +379,5 @@ test "libglowcap_host: a baseline peer refuses outbound untag before minting its
     try std.testing.expectEqual(std.math.maxInt(u64), refused_vow);
     var err_buf: [128]u8 = undefined;
     const err_len = cd.glowcap_host_last_error(&err_buf, err_buf.len);
-    try std.testing.expect(std.mem.indexOf(u8, err_buf[0..err_len], "FeatureNotNegotiated") != null);
+    try std.testing.expect(std.mem.find(u8, err_buf[0..err_len], "FeatureNotNegotiated") != null);
 }

@@ -70,7 +70,7 @@ pub fn layout(arena: Allocator, io: Io, file: Io.File, size: u64) !?[]const Piec
             long_names = bytes;
         } else {
             const full = resolveName(name, long_names) orelse return null;
-            const base = std.fs.path.basenamePosix(full);
+            const base = std.Io.Dir.path.basenamePosix(full);
             if (base.len == 0) return null;
             // An inline name lies in `header`, which the next member reuses.
             try members.append(arena, .{ .name = try arena.dupe(u8, base), .fields = header[16..].*, .offset = offset, .size = member_size });
@@ -83,9 +83,9 @@ pub fn layout(arena: Allocator, io: Io, file: Io.File, size: u64) !?[]const Piec
     for (members.items, name_fields) |member, *field| {
         @memset(field, ' ');
         if (member.name.len <= max_inline_name) {
-            _ = std.fmt.bufPrint(field, "{s}/", .{member.name}) catch unreachable;
+            _ = std.mem.print(field, "{s}/", .{member.name}) catch unreachable;
         } else {
-            _ = std.fmt.bufPrint(field, "/{d}", .{names.items.len}) catch return null;
+            _ = std.mem.print(field, "/{d}", .{names.items.len}) catch return null;
             try names.print(arena, "{s}/\n", .{member.name});
         }
     }
@@ -108,7 +108,7 @@ pub fn layout(arena: Allocator, io: Io, file: Io.File, size: u64) !?[]const Piec
         try appendPadded(arena, &pieces, table.data);
     }
     if (names.items.len != 0) {
-        const header = try std.fmt.allocPrint(arena, "{s: <16}{s: <32}{d: <10}`\n", .{ "//", "", names.items.len });
+        const header = try arena.print("{s: <16}{s: <32}{d: <10}`\n", .{ "//", "", names.items.len });
         try pieces.append(arena, .{ .bytes = header });
         try appendPadded(arena, &pieces, names.items);
     }
@@ -129,7 +129,7 @@ fn resolveName(name: []const u8, long_names: []const u8) ?[]const u8 {
     if (name.len > 1 and name[0] == '/') {
         const at = std.fmt.parseInt(usize, name[1..], 10) catch return null;
         if (at >= long_names.len) return null;
-        const end = std.mem.indexOfPos(u8, long_names, at, "/\n") orelse return null;
+        const end = std.mem.findPos(u8, long_names, at, "/\n") orelse return null;
         return long_names[at..end];
     }
     if (name.len < 2 or name[name.len - 1] != '/') return null;
@@ -203,10 +203,10 @@ pub fn fixture(gpa: Allocator, table: SymbolTable, names: []const []const u8, co
     for (names, fields) |name, *field| {
         @memset(field, ' ');
         if (name.len <= max_inline_name) {
-            _ = try std.fmt.bufPrint(field, "{s}/", .{name});
+            _ = try std.mem.print(field, "{s}/", .{name});
             continue;
         }
-        _ = try std.fmt.bufPrint(field, "/{d}", .{long_names.items.len});
+        _ = try std.mem.print(field, "/{d}", .{long_names.items.len});
         try long_names.print(gpa, "{s}/\n", .{name});
     }
     const width = table.width();

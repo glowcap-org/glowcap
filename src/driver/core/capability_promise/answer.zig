@@ -297,7 +297,7 @@ pub fn ownData(self: *Host, session: *HostSession, argument: model.Argument) !Ro
 pub fn cloneData(self: *Host, value: value_mod.Value) !Row.SettledData {
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     errdefer arena.deinit();
-    var retained: std.ArrayListUnmanaged(capability.Ref) = .empty;
+    var retained: std.ArrayList(capability.Ref) = .empty;
     errdefer promise_values.rollbackRetains(self, retained.items);
     const cloned = try promise_values.cloneValues(self, arena.allocator(), &.{value}, &retained);
     return .{ .arena = arena, .value = cloned[0] };

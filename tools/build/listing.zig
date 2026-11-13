@@ -27,7 +27,7 @@ pub fn sortedFiles(b: *std.Build, dir_path: []const u8) []const []const u8 {
         std.debug.panic("{s}: {s}", .{ dir_path, @errorName(err) })) |entry|
     {
         if (entry.kind != .file) continue;
-        names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
+        names.append(b.allocator, b.graph.dupeString(entry.name)) catch @panic("OOM");
     }
     std.mem.sort([]const u8, names.items, {}, lessThan);
     return names.items;

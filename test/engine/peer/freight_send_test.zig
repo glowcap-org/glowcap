@@ -44,7 +44,7 @@ test "freight is queued at admission as the bytes an owned tree encodes to" {
         payload = "bye!!".*;
         const from_views = try drainOne(&peer, profile);
         defer std.testing.allocator.free(from_views);
-        try std.testing.expect(std.mem.indexOf(u8, from_views, "hello") != null);
+        try std.testing.expect(std.mem.find(u8, from_views, "hello") != null);
 
         // A second peer in the same state sends the owned tree, so the two
         // frames mint the same answer and resolver positions.

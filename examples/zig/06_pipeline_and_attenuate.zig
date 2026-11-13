@@ -27,7 +27,7 @@ const Record = struct {
 
     pub fn handle(self: *Record, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         if (msg.is("play"))
-            return .{ .string = try std.fmt.allocPrint(turn.arena, "spinning: {s}", .{self.title}) };
+            return .{ .string = try turn.arena.print("spinning: {s}", .{self.title}) };
         if (msg.is("eject")) return .{ .string = self.title };
         return error.NoSuchMethod;
     }
@@ -82,8 +82,8 @@ fn onResolve(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 }
 
 pub fn main() !void {
-    var gpa: std.heap.DebugAllocator(.{}) = .{};
-    defer if (gpa.deinit() == .leak) @panic("leaked memory");
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
+    defer if (gpa.deinit() != 0) @panic("leaked memory");
     const allocator = gpa.allocator();
 
     var pair = try engine.pairing.pairedV1_0Syrup(allocator);

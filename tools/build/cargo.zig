@@ -36,13 +36,13 @@ pub fn rustSidecar(b: *std.Build, manifest: []const u8, library: []const u8) Rus
     const run = commands.addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "build", "--locked", "--release", "--manifest-path", manifest,
     });
-    const target_dir = run.addPrefixedOutputDirectoryArg("--target-dir=", "target");
+    const target_dir = run.addOutputDirectoryArg2("target", .{ .prefix = "--target-dir=" });
     run.has_side_effects = true;
     const name = b.fmt("lib{s}.a", .{library});
     const install = execution.addArtifact(b, .build_tool, archives.installIfChangedExe(b));
     install.setName(b.fmt("install {s} (sidecar)", .{name}));
     install.addFileArg(target_dir.path(b, b.fmt("release/{s}", .{name})));
-    const lib = install.addOutputDirectoryArg("lib");
+    const lib = install.addOutputDirectoryArg2("lib", .{});
     // Only the program can see whether the destination holds the bytes.
     install.has_side_effects = true;
     return .{ .build = run, .target_dir = target_dir, .archive = lib.path(b, name) };
@@ -65,8 +65,8 @@ pub fn linkRustSidecar(
         // Explicit deployment targets do not inherit the host's SDK search
         // paths. --sysroot alone does not supply -L or -F on this toolchain.
         if (b.graph.environ_map.get("SDKROOT")) |sdk| {
-            mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr", "lib" }) });
-            mod.addFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System", "Library", "Frameworks" }) });
+            mod.addLibraryPath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr", "lib" })));
+            mod.addFrameworkPath(b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "System", "Library", "Frameworks" })));
         }
         // The macOS release builds exercise these Rust dependencies.
         inline for (&.{

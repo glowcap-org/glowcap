@@ -112,7 +112,7 @@ const Client = struct {
     /// The call is refused, and the reason names `cause`.
     fn expectRefused(self: *Client, cause: []const u8, result: anytype) !void {
         try std.testing.expectError(error.Refused, result);
-        if (std.mem.indexOf(u8, self.reason.detail, cause) == null) {
+        if (std.mem.find(u8, self.reason.detail, cause) == null) {
             std.debug.print("refused for \"{f}\", expected \"{s}\"\n", .{ self.reason, cause });
             return error.WrongRefusal;
         }

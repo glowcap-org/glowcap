@@ -59,8 +59,8 @@ pub fn main(init: std.process.Init) !void {
     if (failed) std.process.exit(1);
 
     const readme = try cwd.readFileAlloc(io, readme_path, gpa, .limited(1 << 20));
-    const begin = std.mem.indexOf(u8, readme, begin_marker) orelse return missingMarkers();
-    const end = std.mem.indexOfPos(u8, readme, begin, end_marker) orelse return missingMarkers();
+    const begin = std.mem.find(u8, readme, begin_marker) orelse return missingMarkers();
+    const end = std.mem.findPos(u8, readme, begin, end_marker) orelse return missingMarkers();
     const rendered = try std.mem.concat(gpa, u8, &.{ readme[0..begin], out.items, readme[end + end_marker.len ..] });
     if (std.mem.eql(u8, rendered, readme)) return;
     if (check) {
@@ -90,9 +90,9 @@ fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8
     var walker = try dir.walk(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
-        if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
+        if (std.mem.findScalar(u8, entry.path, '/') != null) continue;
         const name, const file = switch (kind) {
-            .skill => if (entry.kind == .directory) .{ entry.path, try std.fmt.allocPrint(gpa, "{s}/SKILL.md", .{entry.path}) } else continue,
+            .skill => if (entry.kind == .directory) .{ entry.path, try gpa.print("{s}/SKILL.md", .{entry.path}) } else continue,
             .rule => if (entry.kind == .file and std.mem.endsWith(u8, entry.path, ".md") and !std.mem.eql(u8, entry.path, "README.md"))
                 .{ entry.path[0 .. entry.path.len - ".md".len], entry.path }
             else
@@ -102,7 +102,7 @@ fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8
             else
                 continue,
         };
-        const full = try std.fs.path.join(gpa, &.{ path, file });
+        const full = try std.Io.Dir.path.join(gpa, &.{ path, file });
         const text = try cwd.readFileAlloc(io, full, gpa, .limited(1 << 20));
         const purpose = (if (kind == .hook) hookPurpose(text) else try description(gpa, text)) orelse {
             std.debug.print("gen-agent-index: {s} says nothing about its purpose; give it a {s}\n", .{ full, if (kind == .hook) "first comment line" else "frontmatter `description`" });
@@ -111,7 +111,7 @@ fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8
         };
         try rows.append(gpa, .{
             .name = try gpa.dupe(u8, name),
-            .link = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ path[".agents/".len..], file }),
+            .link = try gpa.print("{s}/{s}", .{ path[".agents/".len..], file }),
             .purpose = firstSentence(purpose),
         });
     }
@@ -122,7 +122,7 @@ fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8
 /// folded block (`>-`) joined into one line.
 fn description(gpa: std.mem.Allocator, text: []const u8) !?[]const u8 {
     if (!std.mem.startsWith(u8, text, "---\n")) return null;
-    const end = std.mem.indexOf(u8, text[3..], "\n---\n") orelse return null;
+    const end = std.mem.find(u8, text[3..], "\n---\n") orelse return null;
     var lines = std.mem.splitScalar(u8, text[4 .. 3 + end + 1], '\n');
     while (lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, "description:")) continue;
@@ -153,7 +153,7 @@ fn hookPurpose(text: []const u8) ?[]const u8 {
 }
 
 fn firstSentence(text: []const u8) []const u8 {
-    const end = std.mem.indexOf(u8, text, ". ") orelse return text;
+    const end = std.mem.find(u8, text, ". ") orelse return text;
     return text[0 .. end + 1];
 }
 

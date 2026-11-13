@@ -14,11 +14,11 @@ pub const Encoder = struct {
     }
     fn atom(self: *Encoder, value: []const u8, marker: u8) Error!void {
         var buffer: [32]u8 = undefined;
-        try self.append((std.fmt.bufPrint(&buffer, "{d}{c}", .{ value.len, marker }) catch unreachable));
+        try self.append((std.mem.print(&buffer, "{d}{c}", .{ value.len, marker }) catch unreachable));
         try self.append(value);
     }
     fn key(a: std.mem.Allocator, value: Node) Error![]const u8 {
-        return if (value.kind == .string) std.fmt.allocPrint(a, "{d}\"{s}", .{ value.bytes.len, value.bytes }) else if (value.kind == .boolean and !value.boolean) "f" else error.InvalidText;
+        return if (value.kind == .string) a.print("{d}\"{s}", .{ value.bytes.len, value.bytes }) else if (value.kind == .boolean and !value.boolean) "f" else error.InvalidText;
     }
     pub fn node(self: *Encoder, value: Node, depth: usize) Error!void {
         if (depth > description.max_depth or self.remaining == 0) return error.ResourceLimit;
@@ -27,7 +27,7 @@ pub const Encoder = struct {
             .string, .symbol => try self.atom(value.bytes, if (value.kind == .string) '"' else '\''),
             .integer => {
                 var buffer: [32]u8 = undefined;
-                try self.append((std.fmt.bufPrint(&buffer, "{d}{c}", .{ @abs(value.integer), @as(u8, if (value.integer < 0) '-' else '+') }) catch unreachable));
+                try self.append((std.mem.print(&buffer, "{d}{c}", .{ @abs(value.integer), @as(u8, if (value.integer < 0) '-' else '+') }) catch unreachable));
             },
             .boolean => try self.append(if (value.boolean) "t" else "f"),
             .list, .record => {

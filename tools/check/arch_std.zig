@@ -117,7 +117,7 @@ test "standard effect detection includes direct imports and namespace aliases" {
         \\const linux = platform.linux;
         \\const windows = @import("std").os.windows;
     );
-    inline for (comptime std.meta.fieldNames(Usage)) |field| try std.testing.expect(@field(usage, field));
+    inline for (@typeInfo(Usage).@"struct".field_names) |field| try std.testing.expect(@field(usage, field));
 }
 
 test "standard effect detection ignores strings comments and unrelated members" {
@@ -130,5 +130,5 @@ test "standard effect detection ignores strings comments and unrelated members" 
         \\const a = b;
         \\const b = a;
     );
-    inline for (comptime std.meta.fieldNames(Usage)) |field| try std.testing.expect(!@field(usage, field));
+    inline for (@typeInfo(Usage).@"struct".field_names) |field| try std.testing.expect(!@field(usage, field));
 }

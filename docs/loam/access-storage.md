@@ -533,7 +533,7 @@ Loading from disk and issuing grants have allocation limits set by their
 tests.
 
 The workload sizes below are test inputs.
-`zig build bench-loam -Doptimize=ReleaseFast -- --scale-only` measures
+`zig build bench-loam -Doptimize=fast -- --scale-only` measures
 indexed reads from disk.
 `zig build loam-browser-test` checks atomic browser storage, ownership,
 cancellation, sharing, and restoring after a page reload. The

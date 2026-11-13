@@ -90,14 +90,14 @@ fn checkMarkdownLinksInFile(
         if (in_fence) continue;
 
         var rest = line;
-        while (std.mem.indexOf(u8, rest, "](")) |start| {
+        while (std.mem.find(u8, rest, "](")) |start| {
             const after = rest[start + "](".len ..];
-            const end = std.mem.indexOfScalar(u8, after, ')') orelse break;
+            const end = std.mem.findScalar(u8, after, ')') orelse break;
             const raw_target = after[0..end];
             rest = after[end + 1 ..];
 
             const target = std.mem.trim(u8, raw_target, " \t\r\n<>");
-            const fragment = if (std.mem.indexOfScalar(u8, target, '#')) |at| target[at + 1 ..] else "";
+            const fragment = if (std.mem.findScalar(u8, target, '#')) |at| target[at + 1 ..] else "";
             if (std.mem.startsWith(u8, target, "#")) {
                 if (!anchors.has(contents, fragment)) try missingAnchor(gpa, violations, path, line_no, raw_target, path);
                 continue;
@@ -183,8 +183,8 @@ fn isBlobLinkProse(path: []const u8) bool {
     const is_prose = std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".smd");
     // Vendored trees and dependency caches are not ours to fix.
     return is_prose and
-        std.mem.indexOf(u8, path, "node_modules/") == null and
-        std.mem.indexOf(u8, path, "upstream/") == null;
+        std.mem.find(u8, path, "node_modules/") == null and
+        std.mem.find(u8, path, "upstream/") == null;
 }
 
 const blob_link_prefix = "github.com/glowcap-org/glowcap/";
@@ -203,7 +203,7 @@ fn checkRepoBlobLinksInFile(
     defer gpa.free(contents);
 
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, contents, i, blob_link_prefix)) |at| {
+    while (std.mem.findPos(u8, contents, i, blob_link_prefix)) |at| {
         const after = contents[at + blob_link_prefix.len ..];
         i = at + blob_link_prefix.len;
         const ref: []const u8 = for ([_][]const u8{ "blob/main/", "tree/main/" }) |candidate| {
@@ -272,7 +272,7 @@ pub fn checkDanglingReferenceLinks(
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+            const path = try gpa.print("{s}/{s}", .{ dir_path, entry.path });
             defer gpa.free(path);
             try checkDanglingRefsInMarkdownFile(io, gpa, root, violations, path);
         }
@@ -294,7 +294,7 @@ pub fn checkDanglingReferenceLinks(
             }
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+            const path = try gpa.print("{s}/{s}", .{ dir_path, entry.path });
             defer gpa.free(path);
             try checkDanglingRefsInZigFile(io, gpa, root, violations, path);
         }
@@ -364,14 +364,14 @@ fn checkDanglingRefsInZigFile(
 /// bracket character), not a reference, so it is skipped.
 fn danglingReferenceColumn(line: []const u8) ?usize {
     var search_from: usize = 0;
-    while (std.mem.indexOfPos(u8, line, search_from, "[`")) |start| {
+    while (std.mem.findPos(u8, line, search_from, "[`")) |start| {
         search_from = start + 1;
         if (start != 0 and line[start - 1] == '`') continue;
         const inner_start = start + 2;
-        const close = std.mem.indexOfPos(u8, line, inner_start, "`]") orelse return null;
+        const close = std.mem.findPos(u8, line, inner_start, "`]") orelse return null;
         const inner = line[inner_start..close];
         if (inner.len == 0) continue;
-        if (std.mem.indexOfAny(u8, inner, "`]") != null) continue;
+        if (std.mem.findAny(u8, inner, "`]") != null) continue;
         const after = close + 2;
         if (after < line.len and (line[after] == '(' or line[after] == ':' or line[after] == '[')) continue;
         return start;
@@ -416,7 +416,7 @@ pub fn checkRegistryReadmeLinks(
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .directory) continue;
-        const path = try std.fmt.allocPrint(gpa, "bindings/ts/{s}/README.md", .{entry.name});
+        const path = try gpa.print("bindings/ts/{s}/README.md", .{entry.name});
         defer gpa.free(path);
         root.access(io, path, .{}) catch continue; // tolerant: the publish-surface check reports a package without a README
         try checkRegistryReadmeFile(io, gpa, root, violations, path);
@@ -439,8 +439,8 @@ fn checkRegistryReadmeFile(
     var line_no: usize = 0;
     while (lines.next()) |line| {
         line_no += 1;
-        const climbs = std.mem.indexOf(u8, line, "](../") != null or
-            (std.mem.startsWith(u8, line, "[") and std.mem.indexOf(u8, line, "]: ../") != null);
+        const climbs = std.mem.find(u8, line, "](../") != null or
+            (std.mem.startsWith(u8, line, "[") and std.mem.find(u8, line, "]: ../") != null);
         if (!climbs) continue;
         try appendViolation(
             gpa,

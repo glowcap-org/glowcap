@@ -68,7 +68,7 @@ pub fn checkRoomsSessionAccess(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file or !source_tree.isTypeScriptPath(entry.path) or isGenerated(entry.path)) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
+            const path = try gpa.print("{s}/{s}", .{ tree, entry.path });
             defer gpa.free(path);
             const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
                 try appendViolation(gpa, violations, "{s}: could not read for the session-access ban", .{path});
@@ -76,7 +76,7 @@ pub fn checkRoomsSessionAccess(
             };
             defer gpa.free(source);
             for (banned) |needle| {
-                if (std.mem.indexOf(u8, source, needle) == null) continue;
+                if (std.mem.find(u8, source, needle) == null) continue;
                 try appendViolation(
                     gpa,
                     violations,

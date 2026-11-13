@@ -42,7 +42,7 @@ pub fn checkIrohLoopConvergence(
         };
         defer gpa.free(contents);
         for (forbidden) |entry| {
-            if (std.mem.indexOf(u8, contents, entry.needle) != null) {
+            if (std.mem.find(u8, contents, entry.needle) != null) {
                 try appendViolation(gpa, violations, "{s}: forbidden `{s}` — {s}", .{ path, entry.needle, entry.reason });
             }
         }
@@ -96,11 +96,11 @@ pub fn checkIrohBindingAggregatesComplete(
         };
         for (family.steps) |step| {
             var buf: [64]u8 = undefined;
-            const needle = std.fmt.bufPrint(&buf, "\"{s}\"", .{step}) catch {
+            const needle = std.mem.print(&buf, "\"{s}\"", .{step}) catch {
                 try appendViolation(gpa, violations, "iroh family step `{s}` overflows the needle buffer; grow it", .{step});
                 continue;
             };
-            if (std.mem.indexOf(u8, block, needle) == null) {
+            if (std.mem.find(u8, block, needle) == null) {
                 try appendViolation(gpa, violations, "{s}: `{s}` is missing a `{s}` row — every iroh binding aggregate must carry deno, python, rust, and racket", .{ path, family.marker, step });
             }
         }

@@ -150,7 +150,7 @@ comptime {
 /// lookup. Pointer-free projections use opaque ids whose issuer also separates
 /// Hosts. Zig refs carry the Registry pointer as their scope proof.
 pub const Registry = struct {
-    slots: std.ArrayListUnmanaged(Slot) = .empty,
+    slots: std.ArrayList(Slot) = .empty,
     free_head: ?u32 = null,
     by_target: std.AutoHashMapUnmanaged(Key, Ref) = .empty,
     by_id: std.AutoHashMapUnmanaged(CapabilityId, u32) = .empty,

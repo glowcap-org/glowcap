@@ -51,7 +51,7 @@ pub fn policy(arena: std.mem.Allocator, schema: *const core.Policy, value: core.
 
 pub fn unsigned(arena: std.mem.Allocator, value: u128) !driver.Value {
     if (std.math.cast(i64, value)) |n| return .{ .integer = n };
-    return .{ .big_integer = .{ .negative = false, .digits = try std.fmt.allocPrint(arena, "{d}", .{value}) } };
+    return .{ .big_integer = .{ .negative = false, .digits = try arena.print("{d}", .{value}) } };
 }
 
 /// Inactive management discloses status alone. Active management reports its

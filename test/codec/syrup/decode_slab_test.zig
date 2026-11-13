@@ -248,7 +248,7 @@ test "abandoned child storage is reclaimed without touching earlier or later sib
         "{1\"a[0+1+]1\"bt1\"cf1\"dt}",
     };
     for (bodies) |middle| {
-        const wire = try std.fmt.allocPrint(std.testing.allocator, "<10'op:deliver<11'desc:export7+>[[tf]{s}[ft]]ff>", .{middle});
+        const wire = try std.testing.allocator.print("<10'op:deliver<11'desc:export7+>[[tf]{s}[ft]]ff>", .{middle});
         defer std.testing.allocator.free(wire);
         var storage: [7]view.Argument = undefined;
         var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&storage));

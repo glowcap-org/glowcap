@@ -69,7 +69,7 @@ pub fn Machine(comptime Self: type) type {
             if (conn.sending or conn.close == .closing) return;
             if (conn.front.items.len == conn.sent) {
                 if (conn.back.items.len == 0) return;
-                std.mem.swap(std.ArrayListUnmanaged(u8), &conn.front, &conn.back);
+                std.mem.swap(std.ArrayList(u8), &conn.front, &conn.back);
                 retireStaging(self, &conn.back);
                 conn.sent = 0;
             }
@@ -407,7 +407,7 @@ pub fn Machine(comptime Self: type) type {
 
         /// Return a drained staging buffer to the spare list, or free it when
         /// the list is full or the buffer outgrew a spare.
-        fn retireStaging(self: *Self, staging: *std.ArrayListUnmanaged(u8)) void {
+        fn retireStaging(self: *Self, staging: *std.ArrayList(u8)) void {
             if (staging.capacity == 0) return;
             if (staging.capacity <= self.options.spare_send_bytes and
                 self.spare_sends.items.len < self.spare_sends.capacity)

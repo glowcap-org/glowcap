@@ -28,8 +28,7 @@ test "id route bundles refuse carriers that cannot prove the canonical key" {
 
     const recipient = try node.registerPeer(routeOptions());
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x30))).publicKey().toDesignator();
-    const unsafe = try std.fmt.allocPrint(
-        allocator,
+    const unsafe = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.keyed-relay",
         .{ key[0..], key[0..] },
     );
@@ -49,8 +48,7 @@ test "id route bundles race same-key proving carriers in order" {
     defer node.deinit();
 
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x32))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay",
         .{ key[0..], key[0..], key[0..] },
     );
@@ -87,8 +85,7 @@ test "id route rank fills a bounded strong window before serial weak fallback" {
 
     const recipient = try node.registerPeer(routeOptions());
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x34))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay%7Cocapn%3A%2F%2F{s}.noise-tcp&alt-locators=ocapn%3A%2F%2Ffallback-one.onion%7Cocapn%3A%2F%2F127.0.0.1%253A7010.tcp",
         .{ key[0..], key[0..], key[0..], key[0..] },
     );
@@ -151,8 +148,7 @@ test "first completed admitted id route wins and late losers are stale" {
     defer node.deinit();
 
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x36))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay",
         .{ key[0..], key[0..], key[0..] },
     );
@@ -190,8 +186,7 @@ test "id route weak fallbacks redeem without claiming the outer identity" {
 
     const recipient = try node.registerPeer(routeOptions());
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x37))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh&alt-locators=ocapn%3A%2F%2Fbaseline-service.onion",
         .{ key[0..], key[0..] },
     );
@@ -240,8 +235,7 @@ test "verified id completion keeps one discovered route under explicit policy" {
     );
     defer exporter_counterpart.deinit();
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x39))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay&alt-locators=ocapn%3A%2F%2Fbaseline-service.onion",
         .{ key[0..], key[0..], key[0..] },
     );
@@ -278,8 +272,7 @@ test "verified id completion keeps one discovered route under explicit policy" {
     try std.testing.expect(restored.explicit == null);
     try std.testing.expectEqualSlices(u8, canonical, restored.discovered.?);
 
-    const later = try std.fmt.allocPrint(
-        allocator,
+    const later = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.noise-tcp&alt-locators=ocapn%3A%2F%2Flater-service.onion",
         .{ key[0..], key[0..] },
     );
@@ -314,8 +307,7 @@ test "weak id completion retains route advice only after withdrawal without cach
     );
     defer exporter_counterpart.deinit();
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x3b))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh&alt-locators=ocapn%3A%2F%2Fbaseline-service.onion",
         .{ key[0..], key[0..] },
     );
@@ -364,8 +356,7 @@ test "broken id withdrawal cannot publish route advice" {
     );
     defer exporter_counterpart.deinit();
     const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x3d))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
         .{ key[0..], key[0..] },
     );
@@ -404,8 +395,7 @@ test "id route bundles refuse routes that prove a different key" {
 
     const id_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x34))).publicKey().toDesignator();
     const route_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x35))).publicKey().toDesignator();
-    const id_locator = try std.fmt.allocPrint(
-        allocator,
+    const id_locator = try allocator.print(
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
         .{ id_key[0..], route_key[0..] },
     );

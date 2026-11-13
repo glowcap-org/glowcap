@@ -20,11 +20,11 @@ const Probe = struct {
 
 /// One `loam-<probe>-crash-test` step per probe, each running that probe
 /// over every engine in `engines`, all under the runtime gate.
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, engines: []const Engine, gates: Gates) void {
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, core: *std.Build.Module, engines: []const Engine, gates: Gates) void {
     const Run = struct {
         b: *std.Build,
         target: std.Build.ResolvedTarget,
-        optimize: std.builtin.OptimizeMode,
+        optimize: std.lang.Optimize,
         core: *std.Build.Module,
         scenarios: *std.Build.Module,
         engines: []const Engine,
@@ -47,7 +47,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
                     const end = @min(start + batch_size, probe.scenarios.len);
                     const run = execution.addSystemCommand(self.b, .{ .deterministic = probe.deadline }, &.{"python3"});
                     run.addFileArg(self.b.path("test/loam/engines/crash_test.py"));
-                    run.addArtifactArg(executable);
+                    run.addArtifactArg2(executable, .{});
                     for (probe.scenarios[start..end]) |scenario| run.addArgs(&.{ "--scenario", scenario });
                     for (probe.boundaries) |boundary| run.addArgs(&.{ "--boundary", boundary });
                     step.dependOn(&run.step);

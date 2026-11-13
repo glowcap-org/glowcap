@@ -28,7 +28,7 @@ const Greeter = struct {
         // accessor: a `greet` with no argument breaks its own answer instead of
         // indexing past the slice.
         const name = try msg.argString(0);
-        return .{ .string = try std.fmt.allocPrint(turn.arena, "{s}, {s}!", .{ self.greeting, name }) };
+        return .{ .string = try turn.arena.print("{s}, {s}!", .{ self.greeting, name }) };
     }
 };
 
@@ -69,8 +69,8 @@ fn onResolve(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 }
 
 pub fn main() !void {
-    var gpa: std.heap.DebugAllocator(.{}) = .{};
-    defer if (gpa.deinit() == .leak) @panic("leaked memory");
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
+    defer if (gpa.deinit() != 0) @panic("leaked memory");
     const allocator = gpa.allocator();
 
     var pair = try engine.pairing.pairedV1_0Syrup(allocator);

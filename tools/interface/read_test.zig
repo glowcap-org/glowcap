@@ -20,7 +20,7 @@ test "TypeScript projects bounded text and integer inputs and replies" {
     }
     const call = try calls.read(&model, "fixture.Reader", "read");
     const source = try ts.emit(a, &.{.{ .api = "read", .call = call }});
-    try std.testing.expect(std.mem.indexOf(u8, source, "Pending<string>") != null);
+    try std.testing.expect(std.mem.find(u8, source, "Pending<string>") != null);
 }
 
 test "Rust refuses bare and partial integer projections without narrowing them" {

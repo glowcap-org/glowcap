@@ -143,7 +143,7 @@ and matching wasm-bindgen toolchains. A host that only runs Rooms installs the
 ### Build the package
 
 ```sh
-zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline
+zig build glowcap-pack -Doptimize=safe -Dcpu=baseline
 ```
 
 The output goes under `zig-out/glowcap-release/`.

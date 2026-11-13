@@ -48,7 +48,7 @@ fn expectRecv(backends: []const *Backend, owner: *Backend, fd: Backend.Fd, user_
 }
 
 test "keyed-relay completion listener accepts a dialer through its registration" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
     var threaded = Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -59,9 +59,9 @@ test "keyed-relay completion listener accepts a dialer through its registration"
     defer relay_server.deinit(io);
     const port = relay_server.socket.address.getPort();
     var relay_url_buf: [64]u8 = undefined;
-    const relay_url = try std.fmt.bufPrint(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
+    const relay_url = try std.mem.print(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
     var register_url_buf: [64]u8 = undefined;
-    const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
+    const register_url = try std.mem.print(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x72))).publicKey();
 
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &relay_server, allocator });
@@ -144,7 +144,7 @@ fn dropThenExpectRegistration(io: Io, server: *ip.Server, done: *std.atomic.Valu
 }
 
 test "keyed-relay completion listener registers again after the relay drops it" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
     var threaded = Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -155,7 +155,7 @@ test "keyed-relay completion listener registers again after the relay drops it" 
     defer relay_server.deinit(io);
     const port = relay_server.socket.address.getPort();
     var url_buf: [64]u8 = undefined;
-    const register_url = try std.fmt.bufPrint(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
+    const register_url = try std.mem.print(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
     const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x73))).publicKey();
 
     var done = std.atomic.Value(bool).init(false);

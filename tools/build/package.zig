@@ -2,7 +2,7 @@
 const std = @import("std");
 const root = @import("../../build.zig");
 
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mods: []*std.Build.Module) void {
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, mods: []*std.Build.Module) void {
     const iroh = b.option(bool, "iroh", "Expose glowcap_iroh and build its Rust backend") orelse false;
     const webrtc = b.option(bool, "webrtc", "Expose glowcap_webrtc and build its Rust backend") orelse false;
     if (iroh or webrtc) {

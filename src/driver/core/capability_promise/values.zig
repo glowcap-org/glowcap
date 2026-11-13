@@ -24,7 +24,7 @@ pub fn cloneValues(
     self: *Host,
     allocator: std.mem.Allocator,
     values: []const value_mod.Value,
-    retained: *std.ArrayListUnmanaged(capability.Ref),
+    retained: *std.ArrayList(capability.Ref),
 ) CloneError![]value_mod.Value {
     return cloneValuesAt(self, allocator, values, retained, 0);
 }
@@ -33,7 +33,7 @@ fn cloneValuesAt(
     self: *Host,
     allocator: std.mem.Allocator,
     values: []const value_mod.Value,
-    retained: *std.ArrayListUnmanaged(capability.Ref),
+    retained: *std.ArrayList(capability.Ref),
     depth: usize,
 ) CloneError![]value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
@@ -47,7 +47,7 @@ fn cloneValue(
     self: *Host,
     allocator: std.mem.Allocator,
     value: value_mod.Value,
-    retained: *std.ArrayListUnmanaged(capability.Ref),
+    retained: *std.ArrayList(capability.Ref),
     depth: usize,
 ) CloneError!value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;

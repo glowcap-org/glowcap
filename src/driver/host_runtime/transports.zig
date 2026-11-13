@@ -16,7 +16,7 @@ const runtime = @import("../host_runtime.zig");
 const HostRuntime = runtime.HostRuntime;
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
-const stack_supported = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
+const stack_supported = builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin();
 const Stack = if (stack_supported) net.StreamStack else void;
 
 pub const Transports = struct {
@@ -85,7 +85,7 @@ fn installSupported(self: *HostRuntime, transports: Transports) !void {
         .registrations = registrations,
         .owner = .{ .ctx = owned, .same_configuration = StackOwner.sameConfiguration, .release = StackOwner.releaseOpaque },
     });
-    if (builtin.os.tag == .linux)
+    if (builtin.target.os.tag == .linux)
         self.stream_backend_status = net.tcpBackendStatus(&owned.resident);
     owned_live = false;
 }

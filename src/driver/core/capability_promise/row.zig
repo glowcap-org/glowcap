@@ -22,8 +22,8 @@ pub const Row = struct {
     origin: Origin,
     state: State = .pending,
     abandoned: bool = false,
-    projections: std.ArrayListUnmanaged(Projection) = .empty,
-    operations: std.ArrayListUnmanaged(PendingOperation) = .empty,
+    projections: std.ArrayList(Projection) = .empty,
+    operations: std.ArrayList(PendingOperation) = .empty,
     operation_head: usize = 0,
 
     /// What the promise stands for, and which session's close ends it.

@@ -38,28 +38,28 @@ pub fn checkCommunityReviewCiMatrix(
     try collectBuildSteps(arena, ci, ci_gate_prefix, &running);
 
     const header = "| Evidence | CI | Proves | Does not prove |";
-    const hit = std.mem.indexOf(u8, doc, header) orelse {
+    const hit = std.mem.find(u8, doc, header) orelse {
         try appendViolation(gpa, violations, "{s}: the evidence matrix header is gone, so nothing derives the CI column", .{doc_path});
         return;
     };
 
     var rest = doc[hit + header.len ..];
     var rows: usize = 0;
-    while (std.mem.indexOfScalar(u8, rest, '\n')) |nl| {
+    while (std.mem.findScalar(u8, rest, '\n')) |nl| {
         const row = rest[0..nl];
         rest = rest[nl + 1 ..];
         if (!std.mem.startsWith(u8, rest, "| ")) {
             if (row.len == 0 or std.mem.startsWith(u8, row, "| ")) continue;
             break;
         }
-        const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        const line_end = std.mem.findScalar(u8, rest, '\n') orelse rest.len;
         const line = rest[0..line_end];
         if (std.mem.startsWith(u8, line, "| ---")) continue;
 
-        const evidence_end = std.mem.indexOfPos(u8, line, 2, " | ") orelse continue;
+        const evidence_end = std.mem.findPos(u8, line, 2, " | ") orelse continue;
         const evidence = line[2..evidence_end];
         const cell_start = evidence_end + 3;
-        const cell_end = std.mem.indexOfPos(u8, line, cell_start, " |") orelse continue;
+        const cell_end = std.mem.findPos(u8, line, cell_start, " |") orelse continue;
         const cell = std.mem.trim(u8, line[cell_start..cell_end], " \t\r");
         // A cell that is neither is a violation, not a row to skip. Skipping
         // let any row opt out of the derivation by writing `Yes`, `partial`, or
@@ -86,16 +86,16 @@ pub fn checkCommunityReviewCiMatrix(
         // the one that produces that row's evidence. That is the author's word,
         // and it is taken only where the cell has no word of its own.
         var gates: std.ArrayList([]const u8) = .empty;
-        const names_step = std.mem.indexOf(u8, evidence, "`zig build ") != null;
-        if (std.mem.indexOf(u8, line, "<!-- ci-gate:")) |ann| blk: {
+        const names_step = std.mem.find(u8, evidence, "`zig build ") != null;
+        if (std.mem.find(u8, line, "<!-- ci-gate:")) |ann| blk: {
             const body = line[ann + "<!-- ci-gate:".len ..];
-            const body_end = std.mem.indexOf(u8, body, "-->") orelse body.len;
+            const body_end = std.mem.find(u8, body, "-->") orelse body.len;
             if (names_step and !std.mem.eql(u8, std.mem.trim(u8, body[0..body_end], " \t\r"), "check")) {
                 try appendViolation(gpa, violations, "{s}: evidence row `{s}` names its own `zig build` step and annotates a different one. Only `check` may override, for a step that rides inside it.", .{ doc_path, evidence });
                 break :blk;
             }
             const ann_start = ann + "<!-- ci-gate:".len;
-            const ann_end = std.mem.indexOfPos(u8, line, ann_start, "-->") orelse line.len;
+            const ann_end = std.mem.findPos(u8, line, ann_start, "-->") orelse line.len;
             var it = std.mem.splitScalar(u8, line[ann_start..ann_end], ',');
             while (it.next()) |name| {
                 const trimmed = std.mem.trim(u8, name, " \t\r");
@@ -104,7 +104,7 @@ pub fn checkCommunityReviewCiMatrix(
         }
         if (gates.items.len == 0 and names_step) {
             // No usable annotation: derive from the step the cell names.
-            const span = std.mem.indexOf(u8, evidence, "`zig build ").?;
+            const span = std.mem.find(u8, evidence, "`zig build ").?;
             const name_start = span + "`zig build ".len;
             var stop = name_start;
             while (stop < evidence.len and evidence[stop] != '`') stop += 1;
@@ -149,7 +149,7 @@ pub fn collectBuildSteps(
     out: *std.ArrayList([]const u8),
 ) !void {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, haystack, at, prefix)) |hit| {
+    while (std.mem.findPos(u8, haystack, at, prefix)) |hit| {
         const start = hit + prefix.len;
         var stop = start;
         // A space ends the name as surely as a backtick, a quote, or a newline
@@ -205,9 +205,9 @@ pub fn checkFuzzCorpusSeeds(
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".bin")) continue;
 
-        const needle = try std.fmt.allocPrint(gpa, "corpus/{s}\")", .{entry.name});
+        const needle = try gpa.print("corpus/{s}\")", .{entry.name});
         defer gpa.free(needle);
-        if (std.mem.indexOf(u8, harness, needle) == null) {
+        if (std.mem.find(u8, harness, needle) == null) {
             try appendViolation(gpa, violations, "{s}: corpus entry `{s}` is not wired as a seed in {s}", .{ corpus_dir, entry.name, harness_path });
         }
     }

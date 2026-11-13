@@ -55,7 +55,7 @@ fn printFmt(
 ) void {
     // best-effort: a line the frame arena cannot format is not drawn this
     // frame; the next frame retries from scratch.
-    const line = std.fmt.allocPrint(frame, fmt, args) catch return;
+    const line = frame.print(fmt, args) catch return;
     printLine(win, row, col, line, style);
 }
 
@@ -125,7 +125,7 @@ pub fn drawStage(win: Window, progress: *const teach.Progress, frame: std.mem.Al
         else
             theme.styleStageTodo();
         // best-effort: stop drawing stage labels when the frame arena refuses.
-        const piece = std.fmt.allocPrint(frame, "{s}{s} ", .{ mark, st.label() }) catch break;
+        const piece = frame.print("{s}{s} ", .{ mark, st.label() }) catch break;
         printLine(win, 0, col, piece, style);
         col +|= @intCast(@min(piece.len, 32));
         if (col >= win.width) break;
@@ -450,7 +450,7 @@ pub fn drawJumpButton(
     else
         theme.styleButton();
     // best-effort: an unrenderable button label is not drawn this frame.
-    const text = std.fmt.allocPrint(frame, "[ {s} ]", .{btn.label}) catch return;
+    const text = frame.print("[ {s} ]", .{btn.label}) catch return;
     if (btn.y >= win.height or btn.x >= win.width) return;
     const strip = win.child(.{
         .x_off = btn.x,

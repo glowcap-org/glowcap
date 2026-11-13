@@ -16,7 +16,7 @@ const socket_tcp = @import("socket_tcp.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
 
 comptime {
-    if (builtin.os.tag != .linux) @compileError("the epoll completion backend is Linux-only");
+    if (builtin.target.os.tag != .linux) @compileError("the epoll completion backend is Linux-only");
 }
 
 const tcp_os = socket_tcp.Os.linux;

@@ -197,7 +197,7 @@ test "relay provider equivalence includes the immutable trust snapshot" {
 }
 
 test "relay C provider preserves the final tail until explicit connection release" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin()))
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()))
         return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
@@ -215,7 +215,7 @@ test "relay C provider preserves the final tail until explicit connection releas
     errdefer if (!server_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var url_store: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_store,
         "ws://localhost:{d}/relay",
         .{server.socket.address.getPort()},
@@ -352,7 +352,7 @@ test "relay C provider preserves the final tail until explicit connection releas
 }
 
 test "relay C dial cancellation retires an unclaimed connection through its request id" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin()))
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()))
         return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
@@ -367,7 +367,7 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
     errdefer if (!server_joined) wait.joinedUnwinding("server", server_future.cancel(io));
 
     var url_store: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_store,
         "ws://localhost:{d}/relay",
         .{server.socket.address.getPort()},
@@ -440,7 +440,7 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
 }
 
 test "relay C listener cancellation and stop each settle through the route id" {
-    if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin()))
+    if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()))
         return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
@@ -457,8 +457,8 @@ test "relay C listener cancellation and stop each settle through the route id" {
     var relay_store: [64]u8 = undefined;
     var register_store: [64]u8 = undefined;
     const port = server.socket.address.getPort();
-    const relay_url = try std.fmt.bufPrint(&relay_store, "ws://localhost:{d}/relay", .{port});
-    const register_url = try std.fmt.bufPrint(&register_store, "ws://localhost:{d}/register", .{port});
+    const relay_url = try std.mem.print(&relay_store, "ws://localhost:{d}/relay", .{port});
+    const register_url = try std.mem.print(&register_store, "ws://localhost:{d}/register", .{port});
     var config = copiedTrustConfig(relay_url);
     config.register_url = register_url.ptr;
     config.register_url_len = register_url.len;

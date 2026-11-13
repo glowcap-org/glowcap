@@ -63,7 +63,7 @@ pub const ResourceChange = struct {
         if (action == .move) {
             if (action.move) |parent| after = try history.resourcePath(view, parent);
             if (after.count == after.ids.len) return error.DepthLimit;
-            std.mem.copyBackwards(core.ResourceId, after.ids[1 .. after.count + 1], after.ids[0..after.count]);
+            @memmove(after.ids[1 .. after.count + 1], after.ids[0..after.count]);
             after.ids[0] = target;
             after.count += 1;
         }

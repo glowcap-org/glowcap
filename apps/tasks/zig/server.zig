@@ -57,7 +57,7 @@ pub fn main(init: std.process.Init) !void {
     // The demo reads this line on stdout for the port, the board's name, and
     // the locator.
     var line_buf: [128 + sealed.locator_buf_len]u8 = undefined;
-    try std.Io.File.stdout().writeStreamingAll(io, try std.fmt.bufPrint(&line_buf, "TASKS-SERVER-LISTENING {d} {s} {s}\n", .{ announced.port, storage.name.slice(), announced.locator }));
+    try std.Io.File.stdout().writeStreamingAll(io, try std.mem.print(&line_buf, "TASKS-SERVER-LISTENING {d} {s} {s}\n", .{ announced.port, storage.name.slice(), announced.locator }));
 
     try serve(server, &storage, null);
 }
@@ -95,7 +95,7 @@ pub fn serve(server: *driver.Server, storage: *Storage, stop: ?*const std.atomic
 /// Listen on loopback in the clear, for a peer that speaks only plain TCP.
 fn listenCleartext(allocator: std.mem.Allocator, io: std.Io, port: u16) !*driver.Server {
     var bind_buf: [glowcap.net.tcp.designator_buf_len]u8 = undefined;
-    const bind = try std.fmt.bufPrint(&bind_buf, "127.0.0.1:{d}", .{port});
+    const bind = try std.mem.print(&bind_buf, "127.0.0.1:{d}", .{port});
     return driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, glowcap.ocapn.model.transport.tcp, .{ .designator = bind }, .ephemeral, session_opts);
 }
 

@@ -118,7 +118,7 @@ the unfiltered check for the affected area:
 | Change | Check |
 | --- | --- |
 | Zig implementation | `zig build check` |
-| Process or application behavior, language workspaces | Also `zig build runtime-check -Doptimize=ReleaseSafe` |
+| Process or application behavior, language workspaces | Also `zig build runtime-check -Doptimize=safe` |
 | Documentation | `zig build source-check` |
 
 [Build steps](docs/build-steps.md) lists focused checks for bindings, examples,
@@ -204,8 +204,8 @@ with `.agents/skills/work/bin/glowcap-dev python3 ci/gates.py run <phase>`
 alone:
 
 ```sh
-zig build runtime-check-build -Doptimize=ReleaseSafe
-zig build runtime-check -Doptimize=ReleaseSafe
+zig build runtime-check-build -Doptimize=safe
+zig build runtime-check -Doptimize=safe
 ```
 
 When hosted runners are unavailable, local checks remain the way to validate a

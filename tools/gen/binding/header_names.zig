@@ -10,19 +10,19 @@ const std = @import("std");
 /// the header has no such prototype.
 pub fn headerParamNames(gpa: std.mem.Allocator, header: []const u8, name: []const u8) !?[][]const u8 {
     var search: usize = 0;
-    const open = while (std.mem.indexOfPos(u8, header, search, name)) |at| {
+    const open = while (std.mem.findPos(u8, header, search, name)) |at| {
         const after = at + name.len;
         search = after;
         // The prototype occurrence, not a comment mention: the name abuts
         // `(` on a line that starts at column 0 with the return type
         // (comment lines start with `/*` or indentation).
         if (after >= header.len or header[after] != '(') continue;
-        const line_start = if (std.mem.lastIndexOfScalar(u8, header[0..at], '\n')) |nl| nl + 1 else 0;
+        const line_start = if (std.mem.findScalarLast(u8, header[0..at], '\n')) |nl| nl + 1 else 0;
         const first = header[line_start];
         if (first == ' ' or first == '/' or first == '*') continue;
         break after;
     } else return null;
-    const close = std.mem.indexOfScalarPos(u8, header, open, ')') orelse return null;
+    const close = std.mem.findScalarPos(u8, header, open, ')') orelse return null;
     const params_text = header[open + 1 .. close];
 
     var names: std.ArrayList([]const u8) = .empty;

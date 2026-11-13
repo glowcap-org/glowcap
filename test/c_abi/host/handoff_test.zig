@@ -337,7 +337,7 @@ test "libglowcap_host: a failed dial breaks the redeeming vow with the reason" {
     _ = try drainActions(&hosts, &dials, &watches);
     try std.testing.expect(redeemed.fired);
     try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, redeemed.kind);
-    try std.testing.expect(std.mem.indexOf(u8, redeemed.msg[0..redeemed.msg_len], "exporter unreachable") != null);
+    try std.testing.expect(std.mem.find(u8, redeemed.msg[0..redeemed.msg_len], "exporter unreachable") != null);
 }
 
 test "libglowcap_host: host_dialed refuses a session belonging to another host" {
@@ -519,8 +519,7 @@ test "libglowcap_host: id route bundles expose a bounded strong-route race" {
     const hosts = [_]?*cd.GlowcapHost{client};
 
     const route_key = glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x36))).publicKey().toDesignator();
-    const sturdyref = try std.fmt.allocPrint(
-        std.testing.allocator,
+    const sturdyref = try std.testing.allocator.print(
         "ocapn://{s}.id/s/d2lkZ2V0?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay",
         .{ route_key[0..], route_key[0..], route_key[0..] },
     );

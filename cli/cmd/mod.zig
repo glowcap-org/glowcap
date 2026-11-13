@@ -33,7 +33,7 @@ fn looksLikeFlag(a: []const u8) bool {
 fn matchFlag(flags: []const Flag, token: []const u8) ?Flag {
     if (std.mem.startsWith(u8, token, "--")) {
         const body = token[2..];
-        const eq = std.mem.indexOfScalar(u8, body, '=');
+        const eq = std.mem.findScalar(u8, body, '=');
         const name = if (eq) |i| body[0..i] else body;
         for (flags) |f| {
             if (std.mem.eql(u8, f.long, name)) return f;
@@ -126,7 +126,7 @@ fn consumeFlag(
     i += 1;
     switch (flag.kind) {
         .bool_flag => {
-            if (std.mem.startsWith(u8, a, "--") and std.mem.indexOfScalar(u8, a, '=') != null) {
+            if (std.mem.startsWith(u8, a, "--") and std.mem.findScalar(u8, a, '=') != null) {
                 log.err(ctx.io, "--{s} does not take a value", .{flag.long});
                 try help_mod.writeNodeHelpErr(ctx.io, path);
                 return error.Usage;
@@ -141,7 +141,7 @@ fn consumeFlag(
         .string_flag => {
             var value: []const u8 = undefined;
             if (std.mem.startsWith(u8, a, "--")) {
-                if (std.mem.indexOfScalar(u8, a, '=')) |eq| {
+                if (std.mem.findScalar(u8, a, '=')) |eq| {
                     value = a[eq + 1 ..];
                 } else {
                     if (i >= argv_in.len) {

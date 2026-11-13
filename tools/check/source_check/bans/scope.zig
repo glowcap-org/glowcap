@@ -54,21 +54,21 @@ pub fn collectFiles(
                 defer walker.deinit();
                 while (try walker.next(io)) |entry| {
                     if (entry.kind == .directory) {
-                        const repo_path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ tree.dir, entry.path });
+                        const repo_path = try arena.print("{s}/{s}", .{ tree.dir, entry.path });
                         if (source_tree.sourceTreeDirectory(repo_path) and treeAdmitsDirectory(tree, entry.path)) {
                             try walker.enter(io, entry);
                         }
                         continue;
                     }
                     if (entry.kind != .file or !treeAdmits(tree, entry.path)) continue;
-                    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ tree.dir, entry.path });
+                    const path = try arena.print("{s}/{s}", .{ tree.dir, entry.path });
                     if (!treeExcludes(tree, path)) try out.append(arena, path);
                 }
             } else {
                 var it = dir.iterate();
                 while (try it.next(io)) |entry| {
                     if (entry.kind != .file or !treeAdmits(tree, entry.name)) continue;
-                    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ tree.dir, entry.name });
+                    const path = try arena.print("{s}/{s}", .{ tree.dir, entry.name });
                     if (!treeExcludes(tree, path)) try out.append(arena, path);
                 }
             }
@@ -78,7 +78,7 @@ pub fn collectFiles(
 
 fn treeAdmitsDirectory(tree: Where.Tree, sub_path: []const u8) bool {
     for (tree.skip_dirs) |skip| {
-        if (std.mem.indexOf(u8, sub_path, skip) != null) return false;
+        if (std.mem.find(u8, sub_path, skip) != null) return false;
     }
     return true;
 }

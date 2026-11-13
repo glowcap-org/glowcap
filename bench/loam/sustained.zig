@@ -18,7 +18,7 @@ fn foreground(workload: *w.Workload, actor: anytype, answer: *w.Answer) !void {
 }
 
 pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, smoke: bool) !void {
-    const path = try std.fmt.allocPrintSentinel(init.gpa, "zig-out/loam-workers-{d}-{d}", .{ r.now(init.io), count }, 0);
+    const path = try init.gpa.printSentinel("zig-out/loam-workers-{d}-{d}", .{ r.now(init.io), count }, 0);
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().createDir(init.io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(init.io, path) catch unreachable;

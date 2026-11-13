@@ -81,7 +81,7 @@ fn senderOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void
 }
 
 test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's wire" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
 

@@ -124,7 +124,7 @@ fn inspect(
 ) !void {
     var literals: Literals = .{ .body = body };
     while (literals.next()) |segment| {
-        if (std.mem.indexOfScalar(u8, segment.text, ' ') == null) continue;
+        if (std.mem.findScalar(u8, segment.text, ' ') == null) continue;
         switch (reader_voice.proseFlaw(segment.text, .{ .insiders = true })) {
             .none => {},
             .mark => |mark| try appendViolation(
@@ -165,7 +165,7 @@ pub fn checkRoomsTextVoice(
     var entries = dir.iterate();
     while (try entries.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".ts")) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ text_dir, entry.name });
+        const path = try gpa.print("{s}/{s}", .{ text_dir, entry.name });
         defer gpa.free(path);
         const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
             try appendViolation(gpa, violations, "{s}: could not be read", .{path});

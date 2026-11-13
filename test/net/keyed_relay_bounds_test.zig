@@ -61,7 +61,7 @@ fn expectSizedUpgrade(response_bytes: usize, admitted: bool) !void {
     errdefer if (!served_joined) wait.joinedUnwinding("served", served.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_buffer,
         "ws://127.0.0.1:{d}/relay",
         .{server.socket.address.getPort()},
@@ -187,7 +187,7 @@ fn expectPongsHandBackTurns(pongs: usize, expected_turns: usize) !void {
     errdefer if (!served_joined) wait.joinedUnwinding("served", served.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_buffer,
         "ws://127.0.0.1:{d}/relay",
         .{server.socket.address.getPort()},
@@ -249,7 +249,7 @@ test "relay nonblocking read spends the frame budget without losing a byte" {
     errdefer if (!served_joined) wait.joinedUnwinding("served", served.cancel(io));
 
     var url_buffer: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_buffer,
         "ws://127.0.0.1:{d}/relay",
         .{server.socket.address.getPort()},
@@ -316,7 +316,7 @@ fn expectCrowdedAnswer(comptime answer_len: usize, expect_too_many: bool) !void 
     const io = crowded.io();
 
     var url_buffer: [64]u8 = undefined;
-    const url = try std.fmt.bufPrint(
+    const url = try std.mem.print(
         &url_buffer,
         "ws://relay.test:{d}/relay",
         .{try closedLoopbackPort(io)},

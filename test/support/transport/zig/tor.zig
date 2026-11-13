@@ -49,7 +49,7 @@ pub const Tor = struct {
         // look like a success or the other way round.
         var seed: [8]u8 = undefined;
         try io.randomSecure(&seed);
-        const dir = try std.fmt.allocPrint(gpa, "/tmp/glowcap-onion-{x}", .{&seed});
+        const dir = try gpa.print("/tmp/glowcap-onion-{x}", .{&seed});
         errdefer gpa.free(dir);
         const cwd = std.Io.Dir.cwd();
         try cwd.createDirPath(io, dir);
@@ -57,18 +57,18 @@ pub const Tor = struct {
         // list, so this is a precondition rather than tidiness.
         try cwd.setFilePermissions(io, dir, .fromMode(0o700), .{});
 
-        const socks_path = try std.fmt.allocPrint(gpa, "{s}/socks", .{dir});
+        const socks_path = try gpa.print("{s}/socks", .{dir});
         errdefer gpa.free(socks_path);
-        const control_path = try std.fmt.allocPrint(gpa, "{s}/control", .{dir});
+        const control_path = try gpa.print("{s}/control", .{dir});
         errdefer gpa.free(control_path);
-        const log_path = try std.fmt.allocPrint(gpa, "{s}/tor.log", .{dir});
+        const log_path = try gpa.print("{s}/tor.log", .{dir});
         errdefer gpa.free(log_path);
 
-        const socks_arg = try std.fmt.allocPrint(gpa, "unix:{s}", .{socks_path});
+        const socks_arg = try gpa.print("unix:{s}", .{socks_path});
         defer gpa.free(socks_arg);
-        const control_arg = try std.fmt.allocPrint(gpa, "unix:{s}", .{control_path});
+        const control_arg = try gpa.print("unix:{s}", .{control_path});
         defer gpa.free(control_arg);
-        const log_arg = try std.fmt.allocPrint(gpa, "notice file {s}", .{log_path});
+        const log_arg = try gpa.print("notice file {s}", .{log_path});
         defer gpa.free(log_arg);
 
         const child = try std.process.spawn(io, .{
@@ -128,9 +128,9 @@ pub const Tor = struct {
         while (true) {
             if (std.Io.Dir.cwd().readFileAlloc(self.io, self.log_path, self.gpa, .limited(1 << 20))) |text| {
                 defer self.gpa.free(text);
-                if (std.mem.indexOf(u8, text, "Bootstrapped 100%") != null) return;
-                if (std.mem.indexOf(u8, text, "[err]")) |at| {
-                    const line_end = std.mem.indexOfScalarPos(u8, text, at, '\n') orelse text.len;
+                if (std.mem.find(u8, text, "Bootstrapped 100%") != null) return;
+                if (std.mem.find(u8, text, "[err]")) |at| {
+                    const line_end = std.mem.findScalarPos(u8, text, at, '\n') orelse text.len;
                     std.debug.print("tor: {s}\n", .{text[at..line_end]});
                     return error.TorFailed;
                 }
@@ -150,17 +150,17 @@ pub const Tor = struct {
         const text = try std.Io.Dir.cwd().readFileAlloc(self.io, self.log_path, self.gpa, .limited(1 << 20));
         defer self.gpa.free(text);
         const marker = kind ++ " listener listening on port ";
-        const at = std.mem.indexOf(u8, text, marker) orelse return error.TorListenerPortMissing;
+        const at = std.mem.find(u8, text, marker) orelse return error.TorListenerPortMissing;
         const digits_at = at + marker.len;
-        const digits_end = std.mem.indexOfScalarPos(u8, text, digits_at, '.') orelse return error.TorListenerPortMissing;
+        const digits_end = std.mem.findScalarPos(u8, text, digits_at, '.') orelse return error.TorListenerPortMissing;
         const port = std.fmt.parseInt(u16, text[digits_at..digits_end], 10) catch return error.TorListenerPortMissing;
-        return std.fmt.allocPrint(self.gpa, "127.0.0.1:{d}", .{port});
+        return self.gpa.print("127.0.0.1:{d}", .{port});
     }
 
     /// The control cookie Tor wrote, read only when `Options.cookie_authentication`
     /// asked for one.
     fn readCookie(self: *Tor) ![]u8 {
-        const path = try std.fmt.allocPrint(self.gpa, "{s}/control_auth_cookie", .{self.dir});
+        const path = try self.gpa.print("{s}/control_auth_cookie", .{self.dir});
         defer self.gpa.free(path);
         return std.Io.Dir.cwd().readFileAlloc(self.io, path, self.gpa, .limited(4096));
     }

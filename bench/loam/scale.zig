@@ -49,7 +49,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), smoke: bool) !voi
 fn population(init: std.process.Init, report: *std.ArrayList(u8), profile: Profile, count: usize) !Outcome {
     const gpa = init.gpa;
     const io = init.io;
-    const path = try std.fmt.allocPrintSentinel(gpa, "zig-out/loam-scale-bench-{d}-{d}", .{ r.now(io), count }, 0);
+    const path = try gpa.printSentinel("zig-out/loam-scale-bench-{d}-{d}", .{ r.now(io), count }, 0);
     defer gpa.free(path);
     try std.Io.Dir.cwd().createDirPath(io, "zig-out");
     try std.Io.Dir.cwd().createDir(io, path, .default_dir);
@@ -171,7 +171,7 @@ fn sample(gpa: std.mem.Allocator, count: usize, samples: usize) ![]usize {
     var filled: usize = 0;
     while (filled < samples) {
         const pick = prng.random().uintLessThan(usize, count);
-        if (std.mem.indexOfScalar(usize, picks[0..filled], pick) != null) continue;
+        if (std.mem.findScalar(usize, picks[0..filled], pick) != null) continue;
         picks[filled] = pick;
         filled += 1;
     }

@@ -355,7 +355,7 @@ pub const TraceLog = struct {
         }
         if (self.n == self.buf.len) return;
         const line = switch (event) {
-            .session_open => |open| std.fmt.bufPrint(
+            .session_open => |open| std.mem.print(
                 &self.buf[self.n],
                 "open codec={s} captp={s} designator={s} transport={s} provenance={s}",
                 .{
@@ -366,12 +366,12 @@ pub const TraceLog = struct {
                     @tagName(open.provenance),
                 },
             ) catch return,
-            .message => |msg| std.fmt.bufPrint(
+            .message => |msg| std.mem.print(
                 &self.buf[self.n],
                 "msg {s} {s}",
                 .{ if (msg.outbound) "out" else "in", msg.verb orelse "<direct>" },
             ) catch return,
-            .session_close => std.fmt.bufPrint(&self.buf[self.n], "close", .{}) catch return,
+            .session_close => std.mem.print(&self.buf[self.n], "close", .{}) catch return,
         };
         self.lens[self.n] = line.len;
         self.n += 1;
@@ -383,7 +383,7 @@ pub const TraceLog = struct {
 
     pub fn contains(self: *const TraceLog, needle: []const u8) bool {
         for (0..self.n) |i| {
-            if (std.mem.indexOf(u8, self.row(i), needle) != null) return true;
+            if (std.mem.find(u8, self.row(i), needle) != null) return true;
         }
         return false;
     }

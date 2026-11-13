@@ -45,7 +45,7 @@ fn nameByte(c: u8) bool {
 /// a stylesheet, and the same shape in the inline styles a component sets.
 fn collectDefined(gpa: std.mem.Allocator, source: []const u8, out: *std.StringHashMapUnmanaged(void)) !void {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, source, at, "--")) |start| {
+    while (std.mem.findPos(u8, source, at, "--")) |start| {
         var end = start + 2;
         while (end < source.len and nameByte(source[end])) end += 1;
         at = end;
@@ -63,7 +63,7 @@ fn collectDefined(gpa: std.mem.Allocator, source: []const u8, out: *std.StringHa
 /// Every custom property a stylesheet reads with no fallback beside it.
 fn collectUsed(gpa: std.mem.Allocator, css: []const u8, out: *std.StringHashMapUnmanaged(void)) !void {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, css, at, "var(")) |open| {
+    while (std.mem.findPos(u8, css, at, "var(")) |open| {
         var scan = open + 4;
         while (scan < css.len and (css[scan] == ' ' or css[scan] == '\t' or css[scan] == '\n')) scan += 1;
         at = scan;
@@ -112,32 +112,32 @@ pub fn checkRoomsGapSteps(
 
     var named: usize = 0;
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, code, at, "gap:")) |found| {
+    while (std.mem.findPos(u8, code, at, "gap:")) |found| {
         at = found + 4;
         // `row-gap:` and `column-gap:` are this too; `--gap-row:` is the step
         // being declared, not a use of one.
         if (found > 0 and (code[found - 1] == '-' or std.ascii.isAlphabetic(code[found - 1]))) {
             const before = code[0..found];
-            const dash = std.mem.lastIndexOfScalar(u8, before, '-') orelse continue;
+            const dash = std.mem.findScalarLast(u8, before, '-') orelse continue;
             if (dash + 1 != found) continue;
-            const word_from = if (std.mem.lastIndexOfAny(u8, before[0..dash], " \t\n;{")) |w| w + 1 else 0;
+            const word_from = if (std.mem.findLastAny(u8, before[0..dash], " \t\n;{")) |w| w + 1 else 0;
             const word = before[word_from..dash];
             if (!std.mem.eql(u8, word, "row") and !std.mem.eql(u8, word, "column")) continue;
         }
         const rest = code[at..];
-        const end = std.mem.indexOfScalar(u8, rest, ';') orelse continue;
+        const end = std.mem.findScalar(u8, rest, ';') orelse continue;
         const value = std.mem.trim(u8, rest[0..end], " \t\r\n");
         // A gap set through a step is the state this check exists to reach, so
         // it counts as watched: with only pixel gaps counted, the day the last
         // pixel gap became a step or an em the guard below fired on success.
-        if (std.mem.indexOf(u8, value, "var(--gap-") != null) {
+        if (std.mem.find(u8, value, "var(--gap-") != null) {
             named += 1;
             continue;
         }
-        if (std.mem.indexOf(u8, value, "px") == null) continue;
+        if (std.mem.find(u8, value, "px") == null) continue;
         named += 1;
         // A fraction is type fitting rather than layout, and says so at its site.
-        if (std.mem.indexOfScalar(u8, value, '.') != null) continue;
+        if (std.mem.findScalar(u8, value, '.') != null) continue;
         try appendViolation(
             gpa,
             violations,
@@ -193,7 +193,7 @@ pub fn checkRoomsRequestDeadlines(
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.basename, ".ts")) continue;
         // Where the racing itself is written, and the helper every verb uses.
         if (std.mem.eql(u8, entry.basename, "deadline.ts")) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+        const path = try gpa.print("{s}/{s}", .{ dir_path, entry.path });
         defer gpa.free(path);
         const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
             try appendViolation(gpa, violations, "{s}: could not read {s}", .{ dir_path, entry.path });
@@ -202,7 +202,7 @@ pub fn checkRoomsRequestDeadlines(
         defer gpa.free(body);
 
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, body, at, "session.send(")) |found| {
+        while (std.mem.findPos(u8, body, at, "session.send(")) |found| {
             at = found + 13;
             seen += 1;
             // Wide enough to reach the top of the method the send is in: a
@@ -211,16 +211,16 @@ pub fn checkRoomsRequestDeadlines(
             // written and how it was first misread here.
             const from = if (found > 1600) found - 1600 else 0;
             const before = body[from..found];
-            if (std.mem.indexOf(u8, before, "Within(") != null) continue;
-            if (std.mem.indexOf(u8, before, "setTimeout(") != null) continue;
+            if (std.mem.find(u8, before, "Within(") != null) continue;
+            if (std.mem.find(u8, before, "setTimeout(") != null) continue;
             // Nothing is waiting on a send that was handed to no one.
-            const line_from = std.mem.lastIndexOfScalar(u8, before, '\n') orelse 0;
-            if (std.mem.indexOf(u8, before[line_from..], "void ") != null) continue;
+            const line_from = std.mem.findScalarLast(u8, before, '\n') orelse 0;
+            if (std.mem.find(u8, before[line_from..], "void ") != null) continue;
             const after_from = found;
             const after_to = @min(body.len, found + 700);
             const after = body[after_from..after_to];
-            if (std.mem.indexOf(u8, after, "Promise.race(") != null) continue;
-            if (std.mem.indexOf(u8, after, "setTimeout(") != null) continue;
+            if (std.mem.find(u8, after, "Promise.race(") != null) continue;
+            if (std.mem.find(u8, after, "setTimeout(") != null) continue;
             const line = std.mem.count(u8, body[0..found], "\n") + 1;
             try appendViolation(
                 gpa,
@@ -269,7 +269,7 @@ pub fn checkRoomsComposedTokens(
 
     var bands: usize = 0;
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, code, at, "var(--ring")) |found| {
+    while (std.mem.findPos(u8, code, at, "var(--ring")) |found| {
         at = found + 4;
         bands += 1;
     }
@@ -282,7 +282,7 @@ pub fn checkRoomsComposedTokens(
         );
     }
     at = 0;
-    while (std.mem.indexOfPos(u8, code, at, "--ring-hue")) |found| {
+    while (std.mem.findPos(u8, code, at, "--ring-hue")) |found| {
         at = found + 10;
         // A declaration of it, not a mention: the colon is what makes it one.
         var scan = at;
@@ -339,10 +339,10 @@ pub fn checkRoomsCardWidths(
             const selector = std.mem.trim(u8, code[selector_from..i], " \t\r\n");
             selector_from = i + 1;
             if (!namesACard(selector)) continue;
-            const close = std.mem.indexOfPos(u8, code, i, "}") orelse code.len;
+            const close = std.mem.findPos(u8, code, i, "}") orelse code.len;
             const value = ownWidthValue(code[i..close]) orelse continue;
             held += 1;
-            if (std.mem.indexOf(u8, value, "var(--card-") != null) continue;
+            if (std.mem.find(u8, value, "var(--card-") != null) continue;
             try appendViolation(
                 gpa,
                 violations,
@@ -370,11 +370,11 @@ pub fn checkRoomsCardWidths(
 fn namesACard(selector: []const u8) bool {
     var last = selector;
     for ([_]u8{ ' ', '>', '+', '~', ',', '\n', '\t' }) |sep| {
-        if (std.mem.lastIndexOfScalar(u8, last, sep)) |at| last = last[at + 1 ..];
+        if (std.mem.findScalarLast(u8, last, sep)) |at| last = last[at + 1 ..];
     }
     last = std.mem.trim(u8, last, " \t\r\n");
     if (std.mem.eql(u8, last, ".join")) return true;
-    if (std.mem.indexOf(u8, last, "modal-card") != null) return true;
+    if (std.mem.find(u8, last, "modal-card") != null) return true;
     return std.mem.endsWith(u8, last, "-modal");
 }
 
@@ -383,11 +383,11 @@ fn namesACard(selector: []const u8) bool {
 /// measure the card stands at, which is the thing the scale names.
 fn ownWidthValue(body: []const u8) ?[]const u8 {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, body, at, "width:")) |found| {
+    while (std.mem.findPos(u8, body, at, "width:")) |found| {
         at = found + 6;
         if (found > 0 and (body[found - 1] == '-' or std.ascii.isAlphabetic(body[found - 1]))) continue;
         const rest = body[found..];
-        const end = std.mem.indexOfScalar(u8, rest, ';') orelse rest.len;
+        const end = std.mem.findScalar(u8, rest, ';') orelse rest.len;
         return rest[0..end];
     }
     return null;
@@ -442,13 +442,13 @@ pub fn checkRoomsTypeRamp(
 
     var ramped: usize = 0;
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, css, at, "font-size:")) |found| {
+    while (std.mem.findPos(u8, css, at, "font-size:")) |found| {
         at = found + "font-size:".len;
         // `--x-font-size:` declares one rather than setting this.
         if (found > 0 and (css[found - 1] == '-' or std.ascii.isAlphabetic(css[found - 1]))) continue;
         if (insideComment(css, found)) continue;
         const rest = css[at..];
-        const value = std.mem.trim(u8, rest[0..(std.mem.indexOfScalar(u8, rest, ';') orelse continue)], " \t\r\n");
+        const value = std.mem.trim(u8, rest[0..(std.mem.findScalar(u8, rest, ';') orelse continue)], " \t\r\n");
         if (namesARampStep(css, value)) {
             ramped += 1;
             continue;
@@ -474,8 +474,8 @@ pub fn checkRoomsTypeRamp(
 /// Whether an offset falls inside a CSS comment, judged by which of `/*` and
 /// `*/` came last before it.
 fn insideComment(css: []const u8, at: usize) bool {
-    const opened = std.mem.lastIndexOf(u8, css[0..at], "/*") orelse return false;
-    const closed = std.mem.lastIndexOf(u8, css[0..at], "*/") orelse return true;
+    const opened = std.mem.findLast(u8, css[0..at], "/*") orelse return false;
+    const closed = std.mem.findLast(u8, css[0..at], "*/") orelse return true;
     return opened > closed;
 }
 
@@ -483,10 +483,10 @@ fn insideComment(css: []const u8, at: usize) bool {
 /// hop from one, or `inherit`, which takes whatever the ancestor resolved to.
 fn namesARampStep(css: []const u8, value: []const u8) bool {
     if (std.mem.eql(u8, value, "inherit")) return true;
-    if (std.mem.indexOf(u8, value, "var(--type-") != null) return true;
+    if (std.mem.find(u8, value, "var(--type-") != null) return true;
     // One hop. `var(--filter-answer)` is a size named once and read four times,
     // and the declaration it stands for is in these same sheets.
-    const opens = std.mem.indexOf(u8, value, "var(--") orelse return false;
+    const opens = std.mem.find(u8, value, "var(--") orelse return false;
     const name_from = opens + "var(".len;
     var name_to = name_from;
     while (name_to < value.len and nameByte(value[name_to])) name_to += 1;
@@ -495,10 +495,10 @@ fn namesARampStep(css: []const u8, value: []const u8) bool {
     if (name.len + 1 > needle_buf.len) return false;
     @memcpy(needle_buf[0..name.len], name);
     needle_buf[name.len] = ':';
-    const decl = std.mem.indexOf(u8, css, needle_buf[0 .. name.len + 1]) orelse return false;
+    const decl = std.mem.find(u8, css, needle_buf[0 .. name.len + 1]) orelse return false;
     const tail = css[decl..];
-    const stop = std.mem.indexOfScalar(u8, tail, ';') orelse return false;
-    return std.mem.indexOf(u8, tail[0..stop], "var(--type-") != null;
+    const stop = std.mem.findScalar(u8, tail, ';') orelse return false;
+    return std.mem.find(u8, tail[0..stop], "var(--type-") != null;
 }
 
 /// Whether a comment sits immediately above a declaration, inside the same
@@ -513,10 +513,10 @@ fn argumentPrecedes(css: []const u8, at: usize) bool {
     var back = at;
     while (back > 0 and std.ascii.isWhitespace(css[back - 1])) back -= 1;
     if (back < 2 or !std.mem.eql(u8, css[back - 2 .. back], "*/")) return false;
-    const opened = std.mem.lastIndexOf(u8, css[0..back], "/*") orelse return false;
+    const opened = std.mem.findLast(u8, css[0..back], "/*") orelse return false;
     // Inside this rule rather than above the selector: an argument for a size
     // belongs in the block that sets it.
-    const brace = std.mem.lastIndexOfScalar(u8, css[0..at], '{') orelse return false;
+    const brace = std.mem.findScalarLast(u8, css[0..at], '{') orelse return false;
     return opened > brace;
 }
 
@@ -559,7 +559,7 @@ pub fn checkRoomsCustomProperties(
                 std.mem.endsWith(u8, entry.basename, ".tsx") or
                 std.mem.endsWith(u8, entry.basename, ".html");
             if (!ok) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.path });
+            const path = try gpa.print("{s}/{s}", .{ ui_dir, entry.path });
             defer gpa.free(path);
             const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
                 // Not tolerable: a component this check could not read is one

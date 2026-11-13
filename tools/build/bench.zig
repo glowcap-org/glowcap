@@ -16,7 +16,7 @@ const layerIndex = root.layerIndex;
 pub fn register(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     lib_mod: *std.Build.Module,
     fast_lib_mod: *std.Build.Module,
     host_mods: []*std.Build.Module,
@@ -88,7 +88,7 @@ pub fn register(
 
     // One bench alternated between an archived base revision and this tree,
     // ReleaseFast on both sides, read from the bench's own key=number rows.
-    const ab_mod = b.createModule(.{ .root_source_file = b.path("tools/ab/compare.zig"), .target = b.graph.host, .optimize = .Debug });
+    const ab_mod = b.createModule(.{ .root_source_file = b.path("tools/ab/compare.zig"), .target = b.graph.host, .optimize = .debug });
     const ab = b.addExecutable(.{ .name = "bench-ab", .root_module = ab_mod });
     const run_ab = execution.addLiveRun(b, .benchmark, ab);
     run_ab.addArg(b.graph.zig_exe);
@@ -120,8 +120,8 @@ pub fn register(
         }
 
         if (bench.gate_on_check) {
-            const gate_exe = glowcapExecutable(b, fast_lib_mod, target, .ReleaseFast, b.fmt("{s}-gate", .{bench.name}), bench.path);
-            addTestSupport(b, gate_exe.root_module, fast_lib_mod, target, .ReleaseFast);
+            const gate_exe = glowcapExecutable(b, fast_lib_mod, target, .fast, b.fmt("{s}-gate", .{bench.name}), bench.path);
+            addTestSupport(b, gate_exe.root_module, fast_lib_mod, target, .fast);
             const gate = execution.addArtifact(b, .{ .deterministic = 30 }, gate_exe);
             gate.addArg("--gate");
             perf_check_step.dependOn(&gate.step);
@@ -146,7 +146,7 @@ fn addTestSupport(
     module: *std.Build.Module,
     glowcap: *std.Build.Module,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) void {
     module.addImport("alloc_metrics", b.createModule(.{ .root_source_file = b.path("test/support/alloc_metrics.zig"), .target = target, .optimize = optimize }));
     const warm_turn = b.createModule(.{ .root_source_file = b.path("test/support/warm_turn.zig"), .target = target, .optimize = optimize });

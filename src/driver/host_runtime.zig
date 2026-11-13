@@ -74,17 +74,17 @@ pub const HostRuntime = struct {
     /// One provider registry for dial and listen dispatch. Entries carry the
     /// Host-owned canonical symbol and a multiplexed-resident index. Concrete provider contexts remain borrowed
     /// and must outlive the HostRuntime. Selection itself has no second authority.
-    providers: std.ArrayListUnmanaged(Provider) = .empty,
+    providers: std.ArrayList(Provider) = .empty,
     /// Installed provider packages and their configuration/lifetime owner.
     /// Package overlap and idempotency are Runtime composition policy. An ABI
     /// adapter supplies only the opaque comparison and release effects.
-    provider_packages: std.ArrayListUnmanaged(InstalledProviderPackage) = .empty,
+    provider_packages: std.ArrayList(InstalledProviderPackage) = .empty,
     /// Immutable selection report from the runtime-owned stream stack.
     stream_backend_status: ?net.TcpBackendStatus = null,
     /// Canonical transport profiles with a listener pending or active. Keys
     /// borrow the provider registry, which outlives this map. The Runtime owns
     /// occupancy. Adapter listener ids are only handles onto that authority.
-    listener_profiles: std.StringHashMapUnmanaged(void) = .{},
+    listener_profiles: std.StringHashMapUnmanaged(void) = .empty,
     /// Activated listeners owned by this Runtime, keyed by the observer tag
     /// their accepted sessions report. Keeping the transport handles here
     /// makes Runtime close, readiness service, and accept admission driver
@@ -133,7 +133,7 @@ pub const HostRuntime = struct {
     /// The multiplexed runtimes this host dials and accepts through (ADR-0024).
     /// Each runtime handle is borrowed and
     /// its `ctx` and vtable must outlive registration.
-    residents: std.ArrayListUnmanaged(RegisteredResident) = .empty,
+    residents: std.ArrayList(RegisteredResident) = .empty,
     /// Active profile listeners routed by the multiplexed runtime's accept-event
     /// subject. The runtime owns readiness. Each row owns one profile's
     /// listener handle and observation independently.
@@ -149,22 +149,22 @@ pub const HostRuntime = struct {
     resident_read_scratch: []u8 = &.{},
     /// Resident dials awaiting `ev_connect`, keyed by runtime and its
     /// host-minted request id.
-    pending_resident_dials: std.AutoHashMapUnmanaged(ResidentRequestKey, *ResidentDialWait) = .{},
+    pending_resident_dials: std.AutoHashMapUnmanaged(ResidentRequestKey, *ResidentDialWait) = .empty,
     /// Scratch a resident's ready records drain into. Batch-sized, so a drain
     /// pass allocates nothing.
     event_scratch: [resident_event_batch]net.multiplexed_resident.ReadyEvent = undefined,
     /// Scratch for the readiness wait: one poll row per resident readiness
     /// descriptor, then the mailbox and readiness wakes. Retained, so the
     /// wait itself allocates nothing.
-    poll_scratch: std.ArrayListUnmanaged(std.posix.pollfd) = .empty,
-    extra_fd_scratch: std.ArrayListUnmanaged(std.posix.fd_t) = .empty,
+    poll_scratch: std.ArrayList(std.posix.pollfd) = .empty,
+    extra_fd_scratch: std.ArrayList(std.posix.fd_t) = .empty,
     /// Wake descriptors already handed to the parking resident
     /// (`watchWakeSources`).
-    watched_fds: std.ArrayListUnmanaged(i32) = .empty,
+    watched_fds: std.ArrayList(i32) = .empty,
     /// Descriptors watched through `watchFd`. Kept on both faces, so
     /// descriptor-conflict detection and `unwatchFd` have one lifecycle path
     /// whether or not a ready set mirrors them.
-    listener_fds: std.ArrayListUnmanaged(i32) = .empty,
+    listener_fds: std.ArrayList(i32) = .empty,
     /// The off-turn settle mailbox (ADR-0014 stage 4), minted on first
     /// request. Its wake fd rides every readiness wait beside the wires.
     mailbox: ?*settle_mailbox.SettleMailbox = null,
@@ -194,11 +194,11 @@ pub const HostRuntime = struct {
     /// handshake lifecycle. Heap rows stay stable when an outcome callback
     /// stages another open during the sweep. Admission lives separately
     /// because blocking opens consume the same bound without owning a row.
-    pending_opens: std.ArrayListUnmanaged(*PendingOpen) = .empty,
+    pending_opens: std.ArrayList(*PendingOpen) = .empty,
     /// Listener construction that waits on provider progress. Completed
     /// listeners never remain here: finish transfers ownership to the
     /// observer, while cancellation and failure consume the attempt.
-    pending_listeners: std.ArrayListUnmanaged(*PendingListener) = .empty,
+    pending_listeners: std.ArrayList(*PendingListener) = .empty,
     /// One authority for every transport connect and CapTP handshake not yet
     /// open, including synchronous constructors that pump pending actions.
     open_admissions: usize = 0,

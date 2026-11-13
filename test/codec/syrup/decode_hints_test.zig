@@ -180,7 +180,7 @@ test "borrowed start-session decode refuses noncanonical hint order" {
 
     const canonical = "{1\"a1\"x1\"b1\"y}";
     const reversed = "{1\"b1\"y1\"a1\"x}";
-    const at = std.mem.indexOf(u8, frame.bytes(), canonical) orelse return error.MissingHintMap;
+    const at = std.mem.find(u8, frame.bytes(), canonical) orelse return error.MissingHintMap;
     @memcpy(@constCast(frame.bytes())[at..][0..reversed.len], reversed);
     try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(frame.view()));
 }

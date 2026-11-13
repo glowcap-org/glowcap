@@ -90,9 +90,9 @@ pub const Store = struct {
         var summary: []u8 = undefined;
         if (collapse) {
             var first_end: usize = text.len;
-            if (std.mem.indexOfScalar(u8, text, '\n')) |nl| first_end = nl;
+            if (std.mem.findScalar(u8, text, '\n')) |nl| first_end = nl;
             const prefix = text[0..@min(first_end, 80)];
-            summary = try std.fmt.allocPrint(self.gpa, "{s} … ({d} lines, click to expand)", .{ prefix, line_n });
+            summary = try self.gpa.print("{s} … ({d} lines, click to expand)", .{ prefix, line_n });
         } else {
             summary = body;
         }

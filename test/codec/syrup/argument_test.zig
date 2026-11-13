@@ -30,7 +30,7 @@ test "a Struct argument round-trips through Syrup in canonical key order" {
     defer frame.deinit();
 
     // Canonical order puts the shorter-encoded key first: 1"a"… before 2"bb"….
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "{1\"a") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "{1\"a") != null);
 
     const decoded = try syrup.decodeOwned(allocator, frame.view());
     defer model.freeMessage(allocator, decoded);
@@ -205,7 +205,7 @@ test "a big integer round-trips through encode and non-canonical forms are refus
     } };
     var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
     defer frame.deinit();
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "340282366920938463463374607431768211456-") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "340282366920938463463374607431768211456-") != null);
     const round = try syrup.decodeOwned(allocator, frame.view());
     defer model.freeMessage(allocator, round);
     try std.testing.expect(model.argumentsEqual(big, round.deliver.args[0]));

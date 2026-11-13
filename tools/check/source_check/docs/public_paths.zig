@@ -36,7 +36,7 @@ fn checkText(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), pat
 /// Home installation/state paths are public interfaces, not checkout scratch.
 fn localRepoPath(line: []const u8) bool {
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, line, at, ".local/")) |start| {
+    while (std.mem.findPos(u8, line, at, ".local/")) |start| {
         at = start + ".local/".len;
         const prefix = line[0..start];
         if (std.mem.endsWith(u8, prefix, "~/") or

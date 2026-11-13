@@ -110,7 +110,7 @@ test "C header break reasons are the bytes the Host settles with" {
         }
     }
     const Context = @FieldType(Cause, "context");
-    inline for (comptime std.meta.fieldNames(Context)) |field| {
+    inline for (@typeInfo(Context).@"struct".field_names) |field| {
         const name = comptime blk: {
             var suffix: [field.len]u8 = undefined;
             break :blk "GLOWCAP_BREAK_CONTEXT_" ++ std.ascii.upperString(&suffix, field);

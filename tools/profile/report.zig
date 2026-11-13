@@ -26,8 +26,8 @@ pub fn main(init: std.process.Init) !void {
     const prefix = args.next() orelse return error.MissingPrefix;
     if (args.next() != null) return error.InvalidArguments;
     if (!std.mem.endsWith(u8, prefix, parts_suffix)) return error.InvalidPrefix;
-    const dir_path = std.fs.path.dirname(prefix) orelse ".";
-    const base = std.fs.path.basename(prefix);
+    const dir_path = std.Io.Dir.path.dirname(prefix) orelse ".";
+    const base = std.Io.Dir.path.basename(prefix);
     var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
     defer dir.close(io);
     var parts: std.ArrayList(Part) = .empty;
@@ -58,7 +58,7 @@ pub fn main(init: std.process.Init) !void {
     defer out.deinit(gpa);
     const name = base[0 .. base.len - parts_suffix.len];
     try render(gpa, &out, name, parts.items);
-    const report_path = try std.fmt.allocPrint(gpa, "{s}/{s}.md", .{ dir_path, name });
+    const report_path = try gpa.print("{s}/{s}.md", .{ dir_path, name });
     defer gpa.free(report_path);
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = report_path, .data = out.items });
     std.debug.print("{s}\nprofile report written to {s}\n", .{ out.items, report_path });

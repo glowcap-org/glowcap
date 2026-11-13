@@ -93,13 +93,13 @@ pub fn checkBindingConstants(
         try header_buffers.append(gpa, header);
         var rest = header;
         const needle = "#define GLOWCAP_";
-        while (std.mem.indexOf(u8, rest, needle)) |start| {
+        while (std.mem.find(u8, rest, needle)) |start| {
             const after = rest[start + needle.len ..];
-            const line_end = std.mem.indexOfScalar(u8, after, '\n') orelse after.len;
+            const line_end = std.mem.findScalar(u8, after, '\n') orelse after.len;
             const line = after[0..line_end];
             rest = after[line_end..];
 
-            const name_end = std.mem.indexOfAny(u8, line, " \t") orelse continue;
+            const name_end = std.mem.findAny(u8, line, " \t") orelse continue;
             const name = line[0..name_end];
             const value = firstIntIn(line[name_end..]) orelse continue;
             try header_vals.put(name, value);
@@ -117,10 +117,10 @@ pub fn checkBindingConstants(
 
         if (file.racket) {
             var rest = contents;
-            while (std.mem.indexOf(u8, rest, "(define ")) |start| {
+            while (std.mem.find(u8, rest, "(define ")) |start| {
                 const after = rest[start + "(define ".len ..];
                 rest = after;
-                const name_end = std.mem.indexOfAny(u8, after, " \t") orelse continue;
+                const name_end = std.mem.findAny(u8, after, " \t") orelse continue;
                 const raw_name = after[0..name_end];
                 const value = firstIntIn(after[name_end..]) orelse continue;
                 try compareConstant(gpa, violations, file.path, &header_vals, raw_name, value, &norm_buf);
@@ -130,17 +130,17 @@ pub fn checkBindingConstants(
             while (lines.next()) |raw_line| {
                 const trimmed = std.mem.trim(u8, raw_line, " \t");
                 if (std.mem.startsWith(u8, trimmed, "//") or std.mem.startsWith(u8, trimmed, "#")) continue;
-                const eq = std.mem.indexOfScalar(u8, raw_line, '=') orelse continue;
+                const eq = std.mem.findScalar(u8, raw_line, '=') orelse continue;
                 var lhs = raw_line[0..eq];
-                if (std.mem.indexOfScalar(u8, lhs, ':')) |colon| lhs = lhs[0..colon];
+                if (std.mem.findScalar(u8, lhs, ':')) |colon| lhs = lhs[0..colon];
                 const lhs_trimmed = std.mem.trim(u8, lhs, " \t");
-                const name_start = if (std.mem.lastIndexOfAny(u8, lhs_trimmed, " \t")) |sp| sp + 1 else 0;
+                const name_start = if (std.mem.findLastAny(u8, lhs_trimmed, " \t")) |sp| sp + 1 else 0;
                 const raw_name = lhs_trimmed[name_start..];
                 if (raw_name.len == 0) continue;
                 // The value is the first integer up to a `;` or `//` comment.
                 var rhs = raw_line[eq + 1 ..];
-                if (std.mem.indexOfScalar(u8, rhs, ';')) |semi| rhs = rhs[0..semi];
-                if (std.mem.indexOf(u8, rhs, "//")) |c| rhs = rhs[0..c];
+                if (std.mem.findScalar(u8, rhs, ';')) |semi| rhs = rhs[0..semi];
+                if (std.mem.find(u8, rhs, "//")) |c| rhs = rhs[0..c];
                 const value = firstIntIn(rhs) orelse continue;
                 try compareConstant(gpa, violations, file.path, &header_vals, raw_name, value, &norm_buf);
             }

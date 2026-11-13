@@ -7,10 +7,10 @@
 
 (define codec-out
   (string-append
-   "encode codec=syrup iters=200000 frame_bytes=70 ns_per_op=133.7 mb_per_sec=524 mode=ReleaseFast\n"
-   "decode codec=syrup iters=200000 frame_bytes=70 ns_per_op=93.0 mb_per_sec=752 mode=ReleaseFast\n"
-   "encode codec=capnp iters=200000 frame_bytes=264 ns_per_op=173.1 mb_per_sec=1525 mode=ReleaseFast\n"
-   "decode codec=capnp iters=200000 frame_bytes=264 ns_per_op=58.3 mb_per_sec=4531 mode=ReleaseFast\n"
+   "encode codec=syrup iters=200000 frame_bytes=70 ns_per_op=133.7 mb_per_sec=524 mode=fast\n"
+   "decode codec=syrup iters=200000 frame_bytes=70 ns_per_op=93.0 mb_per_sec=752 mode=fast\n"
+   "encode codec=capnp iters=200000 frame_bytes=264 ns_per_op=173.1 mb_per_sec=1525 mode=fast\n"
+   "decode codec=capnp iters=200000 frame_bytes=264 ns_per_op=58.3 mb_per_sec=4531 mode=fast\n"
    "dispatch turns=50000 ns_per_turn=179.1 turns_per_sec=5582434\n"
    "sparse_import_table inserts=100000 ns_per_insert=37.4\n"))
 
@@ -63,8 +63,8 @@
 
 (define iroh-out
   (string-append
-   "roundtrip transport=tcp calls=3000 warmup=300 p50_ns=43750 p99_ns=79084 mean_ns=44977 rps=22234 mode=ReleaseFast\n"
-   "roundtrip transport=iroh calls=3000 warmup=300 p50_ns=155209 p99_ns=251958 mean_ns=158251 rps=6319 mode=ReleaseFast\n"))
+   "roundtrip transport=tcp calls=3000 warmup=300 p50_ns=43750 p99_ns=79084 mean_ns=44977 rps=22234 mode=fast\n"
+   "roundtrip transport=iroh calls=3000 warmup=300 p50_ns=155209 p99_ns=251958 mean_ns=158251 rps=6319 mode=fast\n"))
 
 ;; Every implementation prints a greet line and a report line; the report
 ;; figures sit 5 µs above greet here so each cell is distinguishable.
@@ -162,7 +162,7 @@
       (check-true (regexp-match? #px"<td>glowcap, Cap'n Proto codec</td><td>10.1 µs</td><td>14.3 µs</td><td>15.1 µs</td><td>19.3 µs</td>" region))
       (check-true (regexp-match? #px"class=\"bench-charts\"" region)))
     (test-case "glance"
-      (define iroh (parse-iroh (string-append iroh-out "loop transport=iroh conns=16 calls_each=1000 aggregate_rps=54365 mode=ReleaseFast\n")))
+      (define iroh (parse-iroh (string-append iroh-out "loop transport=iroh conns=16 calls_each=1000 aggregate_rps=54365 mode=fast\n")))
       (define region (glance-region (parse-codec codec-out) (parse-frameview fv-out) (parse-peer peer-out)
                                     iroh (parse-langs-md langs-md) (parse-loam loam-out)))
       ;; One allocation reads singular, and large counts carry separators.

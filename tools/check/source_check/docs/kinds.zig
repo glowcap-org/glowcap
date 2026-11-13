@@ -82,7 +82,7 @@ fn frontPage(path: []const u8) bool {
         if (std.mem.eql(u8, dir, parent)) return true;
         if (!std.mem.startsWith(u8, dir, parent)) continue;
         const rest = dir[parent.len..];
-        if (std.mem.indexOfScalar(u8, rest, '/') == rest.len - 1 and rest[0] != '_') return true;
+        if (std.mem.findScalar(u8, rest, '/') == rest.len - 1 and rest[0] != '_') return true;
     }
     return false;
 }
@@ -102,7 +102,7 @@ pub const root_docs = [_][]const u8{ "README.md", "CONTRIBUTING.md", "SECURITY.m
 
 /// A doc we write. Vendored upstream checkouts are someone else's.
 pub fn isDoc(path: []const u8) bool {
-    if (std.mem.indexOf(u8, path, "/upstream/") != null) return false;
+    if (std.mem.find(u8, path, "/upstream/") != null) return false;
     return std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".smd");
 }
 
@@ -123,7 +123,7 @@ pub fn collectDocs(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, tree: []
             continue;
         }
         if (entry.kind != .file) continue;
-        const path = try std.fs.path.join(gpa, &.{ tree, entry.path });
+        const path = try std.Io.Dir.path.join(gpa, &.{ tree, entry.path });
         if (isDoc(path)) try out.append(gpa, path);
     }
 }
@@ -148,7 +148,7 @@ pub fn placeOf(path: []const u8) Place {
     for (root_docs) |doc| if (std.mem.eql(u8, path, doc)) return .decides;
     for (temporary_homes) |home| if (std.mem.startsWith(u8, path, home.dir)) return .decides;
     if (livingByPlace(path)) return .decides;
-    if (std.mem.eql(u8, std.fs.path.basename(path), "README.md")) return .index;
+    if (std.mem.eql(u8, std.Io.Dir.path.basename(path), "README.md")) return .index;
     return .declares;
 }
 
@@ -156,8 +156,8 @@ pub fn placeOf(path: []const u8) Place {
 /// changelogs are living wherever they sit.
 fn livingByPlace(path: []const u8) bool {
     if (std.mem.startsWith(u8, path, "docs/decisions/")) return true;
-    if (std.mem.indexOf(u8, path, "/research/") != null) return true;
-    const base = std.fs.path.basename(path);
+    if (std.mem.find(u8, path, "/research/") != null) return true;
+    const base = std.Io.Dir.path.basename(path);
     return std.mem.endsWith(u8, base, "results.md") or std.mem.eql(u8, base, "CHANGELOG.md");
 }
 
@@ -223,7 +223,7 @@ pub const Frontmatter = struct {
 
     pub fn of(text: []const u8) ?Frontmatter {
         if (!std.mem.startsWith(u8, text, "---\n")) return null;
-        const end = std.mem.indexOf(u8, text[3..], "\n---\n") orelse return null;
+        const end = std.mem.find(u8, text[3..], "\n---\n") orelse return null;
         return .{ .body = text[4 .. 3 + end + 1] };
     }
 
@@ -276,8 +276,8 @@ pub const Frontmatter = struct {
     /// A value YAML reads as the same plain string.
     fn plain(value: []const u8) bool {
         if (value.len == 0) return false;
-        if (std.mem.indexOfScalar(u8, "'\"[{&*!|>%@`-?", value[0]) != null) return false;
-        return std.mem.indexOf(u8, value, ": ") == null and std.mem.indexOf(u8, value, " #") == null;
+        if (std.mem.findScalar(u8, "'\"[{&*!|>%@`-?", value[0]) != null) return false;
+        return std.mem.find(u8, value, ": ") == null and std.mem.find(u8, value, " #") == null;
     }
 };
 
@@ -301,20 +301,20 @@ pub fn sourcePath(resource: []const u8) ?[]const u8 {
 /// directory holding it, resolved from the doc, or a code span naming it from
 /// the repository root. Links into this repository on GitHub count too.
 pub fn names(gpa: std.mem.Allocator, doc: []const u8, text: []const u8, path: []const u8) !bool {
-    const dir = std.fs.path.dirname(doc) orelse ".";
+    const dir = std.Io.Dir.path.dirname(doc) orelse ".";
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, text, at, "](")) |open| {
+    while (std.mem.findPos(u8, text, at, "](")) |open| {
         at = open + 2;
-        const close = std.mem.indexOfAnyPos(u8, text, at, ") \n") orelse break;
+        const close = std.mem.findAnyPos(u8, text, at, ") \n") orelse break;
         var target = text[at..close];
-        if (std.mem.indexOfScalar(u8, target, '#')) |hash| target = target[0..hash];
+        if (std.mem.findScalar(u8, target, '#')) |hash| target = target[0..hash];
         if (target.len == 0) continue;
         if (repoUrl(target)) |rest| {
             if (pointsAt(rest, path)) return true;
             continue;
         }
-        if (std.mem.indexOf(u8, target, "://") != null or std.mem.startsWith(u8, target, "mailto:")) continue;
-        const resolved = try std.fs.path.resolvePosix(gpa, &.{ dir, target });
+        if (std.mem.find(u8, target, "://") != null or std.mem.startsWith(u8, target, "mailto:")) continue;
+        const resolved = try std.Io.Dir.path.resolvePosix(gpa, &.{ dir, target });
         defer gpa.free(resolved);
         if (pointsAt(resolved, path)) return true;
     }
@@ -322,7 +322,7 @@ pub fn names(gpa: std.mem.Allocator, doc: []const u8, text: []const u8, path: []
     _ = spans.next();
     while (spans.next()) |span| {
         defer _ = spans.next();
-        if (std.mem.indexOfScalar(u8, span, '/') == null or std.mem.indexOfAny(u8, span, " \n") != null) continue;
+        if (std.mem.findScalar(u8, span, '/') == null or std.mem.findAny(u8, span, " \n") != null) continue;
         const named = std.mem.trimStart(u8, std.mem.trimStart(u8, span, "."), "/");
         if (pointsAt(named, path)) return true;
     }

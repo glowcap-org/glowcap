@@ -91,7 +91,7 @@ fn checkBanSource(
     const code = try codeOnly(gpa, source);
     defer gpa.free(code);
     for (ban.needles) |needle| {
-        if (std.mem.indexOf(u8, code, needle) != null) {
+        if (std.mem.find(u8, code, needle) != null) {
             try appendViolation(
                 gpa,
                 violations,
@@ -129,7 +129,7 @@ pub fn checkRoomsLayerBans(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".ts")) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ban.file, entry.path });
+            const path = try gpa.print("{s}/{s}", .{ ban.file, entry.path });
             defer gpa.free(path);
             const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
                 try appendViolation(gpa, violations, "{s}: could not read for the DOM ban", .{path});
@@ -150,7 +150,7 @@ pub fn checkRoomsLayerBans(
     defer gpa.free(net);
     const net_code = try codeOnly(gpa, net);
     defer gpa.free(net_code);
-    if (std.mem.indexOf(u8, net_code, ".tsx\"") != null) {
+    if (std.mem.find(u8, net_code, ".tsx\"") != null) {
         try appendViolation(
             gpa,
             violations,
@@ -181,7 +181,7 @@ pub fn checkRoomsControlSurfaces(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".tsx")) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.path });
+        const path = try gpa.print("{s}/{s}", .{ ui_dir, entry.path });
         defer gpa.free(path);
         const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
             try appendViolation(gpa, violations, "{s}: could not read for the shared-control check", .{path});
@@ -207,8 +207,8 @@ pub fn checkRoomsControlSurfaces(
                 if (code[at] == '\\' and at + 1 < code.len) at += 2 else at += 1;
             }
             const literal = code[start..@min(at, code.len)];
-            if (std.mem.indexOf(u8, literal, "modal-card") != null and
-                std.mem.indexOf(u8, literal, "card-plane") == null)
+            if (std.mem.find(u8, literal, "modal-card") != null and
+                std.mem.find(u8, literal, "card-plane") == null)
             {
                 try appendViolation(
                     gpa,
@@ -221,7 +221,7 @@ pub fn checkRoomsControlSurfaces(
         }
 
         if (!std.mem.startsWith(u8, entry.path, "ops/")) continue;
-        if (std.mem.indexOf(u8, code, "<button") != null) {
+        if (std.mem.find(u8, code, "<button") != null) {
             try appendViolation(
                 gpa,
                 violations,
@@ -231,10 +231,10 @@ pub fn checkRoomsControlSurfaces(
         }
         for ([_][]const u8{ "<input", "<select" }) |tag| {
             var found_at: usize = 0;
-            while (std.mem.indexOfPos(u8, code, found_at, tag)) |found| {
-                const end = std.mem.indexOfPos(u8, code, found, ">") orelse code.len;
+            while (std.mem.findPos(u8, code, found_at, tag)) |found| {
+                const end = std.mem.findPos(u8, code, found, ">") orelse code.len;
                 const element = code[found..end];
-                if (std.mem.indexOf(u8, element, "className=\"field\"") == null) {
+                if (std.mem.find(u8, element, "className=\"field\"") == null) {
                     try appendViolation(
                         gpa,
                         violations,
@@ -289,8 +289,8 @@ pub fn checkRoomsBootStates(
     // The sheet spells it `data-boot`; a script writing it spells the same
     // attribute `dataset.boot`. One name, two syntaxes, so the check has to
     // carry the translation between them.
-    if (std.mem.indexOf(u8, sheet, "[data-boot") != null and
-        std.mem.indexOf(u8, written.items, "dataset.boot") == null)
+    if (std.mem.find(u8, sheet, "[data-boot") != null and
+        std.mem.find(u8, written.items, "dataset.boot") == null)
     {
         try appendViolation(
             gpa,
@@ -302,13 +302,13 @@ pub fn checkRoomsBootStates(
 
     const drawn = "[data-boot=\"";
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, sheet, at, drawn)) |found| {
+    while (std.mem.findPos(u8, sheet, at, drawn)) |found| {
         const start = found + drawn.len;
-        const end = std.mem.indexOfScalarPos(u8, sheet, start, '"') orelse break;
+        const end = std.mem.findScalarPos(u8, sheet, start, '"') orelse break;
         at = end;
-        const quoted = try std.fmt.allocPrint(gpa, "\"{s}\"", .{sheet[start..end]});
+        const quoted = try gpa.print("\"{s}\"", .{sheet[start..end]});
         defer gpa.free(quoted);
-        if (std.mem.indexOf(u8, written.items, quoted) == null) {
+        if (std.mem.find(u8, written.items, quoted) == null) {
             try appendViolation(
                 gpa,
                 violations,
@@ -356,9 +356,9 @@ pub fn checkRoomsConfig(
             if (entry.kind == .directory) continue;
             if (!keepRoomsSheet(entry.name)) continue;
             if (std.mem.eql(u8, entry.name, "page.css")) continue;
-            const needle = try std.fmt.allocPrint(gpa, "@import url(\"{s}\")", .{entry.name});
+            const needle = try gpa.print("@import url(\"{s}\")", .{entry.name});
             defer gpa.free(needle);
-            if (std.mem.indexOf(u8, page, needle) == null) {
+            if (std.mem.find(u8, page, needle) == null) {
                 try appendViolation(
                     gpa,
                     violations,
@@ -406,7 +406,7 @@ const sheet_media_marker = "@media (max-width:";
 /// The pixel count written right after the first `marker`, or null when the
 /// marker is absent or no whole `<digits>px` follows it.
 fn breakpointPx(code: []const u8, marker: []const u8) ?u32 {
-    const at = std.mem.indexOf(u8, code, marker) orelse return null;
+    const at = std.mem.find(u8, code, marker) orelse return null;
     const rest = std.mem.trimStart(u8, code[at + marker.len ..], " ");
     var end: usize = 0;
     while (end < rest.len and std.ascii.isDigit(rest[end])) end += 1;

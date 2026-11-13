@@ -121,7 +121,7 @@ fn runIdentity(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
 fn runVersion(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
     _ = parsed;
     var buf: [256]u8 = undefined;
-    const msg = try std.fmt.bufPrint(&buf, "glowcap {d}.{d}.{d}\ncaptp-profile {s}\n", .{
+    const msg = try std.mem.print(&buf, "glowcap {d}.{d}.{d}\ncaptp-profile {s}\n", .{
         build_options.version_major,
         build_options.version_minor,
         build_options.version_patch,

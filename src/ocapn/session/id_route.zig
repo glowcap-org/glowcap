@@ -121,8 +121,8 @@ fn hintString(hints: anytype, name: []const u8) ?[]const u8 {
 
 fn validateRoute(route: model.route_bundle.RouteUriView, expected: crypto.PeerKey) Error!void {
     model.route_bundle.validateDialPathView(route) catch return error.UnparseableId;
-    if (std.mem.indexOfScalar(u8, route.designator_encoded, '%') != null or
-        std.mem.indexOfScalar(u8, route.transport_encoded, '%') != null)
+    if (std.mem.findScalar(u8, route.designator_encoded, '%') != null or
+        std.mem.findScalar(u8, route.transport_encoded, '%') != null)
         return error.UnparseableId;
 
     try validateCarrier(route.transport_encoded, route.designator_encoded, expected);

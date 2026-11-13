@@ -97,7 +97,7 @@ test "noise-tcp listener designator is the identity key, and close wakes a block
     try std.testing.expectEqualStrings(net.tcp.noise.transport_name, locator.transport);
     try std.testing.expectEqualStrings(&secret.publicKey().toDesignator(), locator.designator);
     const addr = net.netlayer.directAddrHint(locator.hints) orelse return error.MissingDirectAddresses;
-    try std.testing.expect(std.mem.indexOfScalar(u8, addr, ':') != null);
+    try std.testing.expect(std.mem.findScalar(u8, addr, ':') != null);
 
     var waiter = try io.concurrent(waitUntilNoiseListenerClose, .{listener});
     try wait.untilLeaseHeld(io, net.tcp.noise.white_box.acceptGate(listener));

@@ -34,9 +34,9 @@ test "Syrup locator encoding uses typed locator and preserves empty false hints"
     });
     defer frame.deinit();
 
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "memory") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "exporter") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "f>") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "memory") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "exporter") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "f>") != null);
 
     const decoded = try syrup.decodeBody(frame.view());
     try std.testing.expectEqual(model.Hints.WireForm.boolean_false, decoded.start_session.acceptable_location.hints.wireForm());
@@ -71,7 +71,7 @@ test "Syrup start-session carries hint entries canonically and signs over the sa
         },
     });
     defer frame.deinit();
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), locator_bytes) != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), locator_bytes) != null);
 
     const signed = try syrup.canonicalLocationSignedBytes(allocator, location);
     defer allocator.free(signed);
@@ -134,7 +134,7 @@ test "op:abort with a typed kind encodes the wire label prefix" {
     // and builds "<label>: <message>" at encode time, general across kinds and
     // symmetric with the decoder's abort-prefix parse, with no per-message
     // special case.
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "VersionMismatch: expected ocapn-1.0") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "VersionMismatch: expected ocapn-1.0") != null);
 }
 
 test "minimal op:deliver encodes to the next Syrup byte shape" {
@@ -180,7 +180,7 @@ test "Syrup encodes a Set in canonical encoded-byte order, not model order" {
     try std.testing.expectEqualSlices(u8, frame_a.bytes(), frame_b.bytes());
 
     // The items come out sorted by their encoded bytes (1, 2, 3), not insertion order.
-    try std.testing.expect(std.mem.indexOf(u8, frame_a.bytes(), "#1+2+3+$") != null);
+    try std.testing.expect(std.mem.find(u8, frame_a.bytes(), "#1+2+3+$") != null);
 }
 
 test "Syrup encodes an empty Set as the bare #$ markers and the neutral decode accepts it" {
@@ -192,7 +192,7 @@ test "Syrup encodes an empty Set as the bare #$ markers and the neutral decode a
     var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args[0..] } });
     defer frame.deinit();
     // An empty set is the open/close markers with nothing between them.
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "#$") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "#$") != null);
 
     // The codec-neutral decode (the production inbound path) reads it back as a
     // single empty-set argument.
@@ -289,8 +289,8 @@ test "a no-answer deliver encodes as a single op:deliver, never op:deliver-only"
     // separate one-way record.
     var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
     defer frame.deinit();
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "op:deliver-only") == null);
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "op:deliver") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "op:deliver-only") == null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "op:deliver") != null);
 
     // It round-trips to a deliver with no answer, the shape the engine and
     // session handle for a one-way send.
@@ -507,8 +507,8 @@ test "Syrup near-promise payload encodes desc:import-promise and round-trips kin
     });
     defer frame.deinit();
 
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "desc:import-promise") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "desc:import-object") == null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "desc:import-promise") != null);
+    try std.testing.expect(std.mem.find(u8, frame.bytes(), "desc:import-object") == null);
 
     // A sender's promise-shaped `Near` export encodes `<desc:import-promise>` and
     // decodes on the receiver as a promise-shaped `Far` import (ADR-0006 flip);
@@ -556,7 +556,7 @@ test "forDirectAddresses signs #f for empty, an entry for present — the exact 
     const loc_hinted: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = "abc", .hints = hinted };
     const bytes_hinted = try syrup.encodePeerLocatorRecord(allocator, loc_hinted);
     defer allocator.free(bytes_hinted);
-    try std.testing.expect(std.mem.indexOf(u8, bytes_hinted, "direct-addresses") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bytes_hinted, "1.2.3.4:5") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bytes_hinted, "{") != null);
+    try std.testing.expect(std.mem.find(u8, bytes_hinted, "direct-addresses") != null);
+    try std.testing.expect(std.mem.find(u8, bytes_hinted, "1.2.3.4:5") != null);
+    try std.testing.expect(std.mem.find(u8, bytes_hinted, "{") != null);
 }

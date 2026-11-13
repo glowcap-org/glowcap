@@ -58,7 +58,7 @@ pub fn checkAbiReturnShape(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/c_abi/{s}", .{entry.path});
+        const path = try gpa.print("src/c_abi/{s}", .{entry.path});
         defer gpa.free(path);
         const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot be read for the layout-mirror check ({s})", .{ path, @errorName(err) });
@@ -68,12 +68,12 @@ pub fn checkAbiReturnShape(
 
         const opener = "pub export fn ";
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, contents, at, opener)) |hit| {
+        while (std.mem.findPos(u8, contents, at, opener)) |hit| {
             at = hit + opener.len;
             var name_end = at;
             while (name_end < contents.len and text_match.isIdentChar(contents[name_end])) name_end += 1;
             const name = contents[at..name_end];
-            const body_start = std.mem.indexOfScalarPos(u8, contents, name_end, '{') orelse break;
+            const body_start = std.mem.findScalarPos(u8, contents, name_end, '{') orelse break;
             const signature = contents[name_end..body_start];
 
             var depth: usize = 0;
@@ -86,7 +86,7 @@ pub fn checkAbiReturnShape(
                 }
             }
             const body = contents[body_start..@min(i + 1, contents.len)];
-            if (std.mem.indexOf(u8, signature, ") i32") != null) {
+            if (std.mem.find(u8, signature, ") i32") != null) {
                 const first_statement = std.mem.trimStart(u8, body[1..], " \t\r\n");
                 const clears_error = std.mem.startsWith(u8, first_statement, "shared.lastErrorClear();") or
                     std.mem.startsWith(u8, first_statement, "abi.lastErrorClear();") or
@@ -95,13 +95,13 @@ pub fn checkAbiReturnShape(
                     try appendViolation(gpa, violations, "{s}: `{s}` returns a status without clearing its archive-local diagnostic first; an undetailed refusal could inherit an older call's cause", .{ path, name });
                 }
             }
-            if (std.mem.indexOf(u8, body, "errdefer") != null) {
+            if (std.mem.find(u8, body, "errdefer") != null) {
                 try appendViolation(gpa, violations, "{s}: `{s}` is an `export fn`, so its `errdefer` never fires (the function returns codes, not errors) and the cleanup it promises leaks on every failure path. Move the fallible half into an error-returning helper and map the error to a code at the boundary.", .{ path, name });
             }
             // Only the `void` returns are in question below; a code already
             // reports.
-            if (std.mem.indexOf(u8, signature, ") void") == null) continue;
-            if (std.mem.indexOf(u8, body, "setLastError") == null) continue;
+            if (std.mem.find(u8, signature, ") void") == null) continue;
+            if (std.mem.find(u8, body, "setLastError") == null) continue;
             try appendViolation(gpa, violations, "{s}: `{s}` returns `void` and writes the error slot, so an embedder cannot see the failure it just recorded. Give it an `i32` code, or stop recording one.", .{ path, name });
         }
     }
@@ -142,15 +142,15 @@ pub fn checkBindingStructPins(
 
         fn visit(self: @This(), _: []const u8, contents: []u8) std.mem.Allocator.Error!void {
             var cursor: usize = 0;
-            while (std.mem.indexOfPos(u8, contents, cursor, layout_needle)) |row| {
-                const line_end = std.mem.indexOfScalarPos(u8, contents, row, '\n') orelse contents.len;
+            while (std.mem.findPos(u8, contents, cursor, layout_needle)) |row| {
+                const line_end = std.mem.findScalarPos(u8, contents, row, '\n') orelse contents.len;
                 const line = contents[row..line_end];
                 cursor = line_end;
-                const comma = std.mem.indexOf(u8, line, ", ") orelse continue;
+                const comma = std.mem.find(u8, line, ", ") orelse continue;
                 var type_name: []const u8 = line[comma + 2 ..];
-                if (std.mem.indexOfScalar(u8, type_name, ')')) |close| type_name = type_name[0..close];
+                if (std.mem.findScalar(u8, type_name, ')')) |close| type_name = type_name[0..close];
                 type_name = std.mem.trim(u8, type_name, " \t\r");
-                if (std.mem.lastIndexOfScalar(u8, type_name, '.')) |dot| type_name = type_name[dot + 1 ..];
+                if (std.mem.findScalarLast(u8, type_name, '.')) |dot| type_name = type_name[dot + 1 ..];
                 if (type_name.len == 0) continue;
                 var duplicate = false;
                 for (self.abi_types.items) |known| {
@@ -271,7 +271,7 @@ fn mirrorTokenPresent(
     const needle = try std.mem.concat(gpa, u8, &.{ before, name, after });
     defer gpa.free(needle);
     var from: usize = 0;
-    while (std.mem.indexOfPos(u8, contents, from, needle)) |at| {
+    while (std.mem.findPos(u8, contents, from, needle)) |at| {
         from = at + 1;
         if (after.len != 0) return true;
         const next = at + needle.len;
@@ -345,16 +345,16 @@ pub fn checkTraceVocabulary(
 
         inline for (codecs) |codec| {
             const quoted = "\"" ++ codec ++ "\"";
-            if (std.mem.indexOf(u8, contents, quoted) == null) try appendViolation(gpa, violations, "{s}: the trace never says {s}, the word `{s}` gives the built-in codec `.{s}`. A session reports the codec it negotiated, so every trace has a word for every one this model ships.", .{ path, quoted, authority, codec });
+            if (std.mem.find(u8, contents, quoted) == null) try appendViolation(gpa, violations, "{s}: the trace never says {s}, the word `{s}` gives the built-in codec `.{s}`. A session reports the codec it negotiated, so every trace has a word for every one this model ships.", .{ path, quoted, authority, codec });
         }
 
         inline for (captp_vocabulary.captp_wire_words) |arm| {
             const wire_quoted = "\"" ++ arm.wire ++ "\"";
-            if (std.mem.indexOf(u8, contents, wire_quoted) == null) {
+            if (std.mem.find(u8, contents, wire_quoted) == null) {
                 try appendViolation(gpa, violations, "{s}: the trace never says {s}, the word `{s}` puts on the wire for `.{s}`. A trace reports on the wire, so it reports the wire's spelling.", .{ path, wire_quoted, authority, arm.tag });
             }
             const tag_quoted = "\"" ++ arm.tag ++ "\"";
-            if (std.mem.indexOf(u8, contents, tag_quoted) != null) {
+            if (std.mem.find(u8, contents, tag_quoted) != null) {
                 try appendViolation(gpa, violations, "{s}: the trace says {s}, which is the Zig enum tag for this version and not a word any peer ever sends. Say {s} instead, the spelling `{s}` puts on the wire.", .{ path, tag_quoted, arm.wire, authority });
             }
         }

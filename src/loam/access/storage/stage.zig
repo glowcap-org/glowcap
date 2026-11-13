@@ -117,7 +117,7 @@ fn appendResourceRecord(append: *Append, kind: core.KindId, parent: ?core.Resour
     try history.touchResources(view, parent_path.slice(), .subtree);
     var path = parent_path;
     if (path.count == path.ids.len) return error.DepthLimit;
-    std.mem.copyBackwards(core.ResourceId, path.ids[1 .. path.count + 1], path.ids[0..path.count]);
+    @memmove(path.ids[1 .. path.count + 1], path.ids[0..path.count]);
     path.ids[0] = id;
     path.count += 1;
     try history.append(view, .{ .resource = .{ .id = id, .kind = .created, .before = &.{}, .after = path.slice() } });

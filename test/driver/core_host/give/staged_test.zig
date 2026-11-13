@@ -146,7 +146,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
         .ctx = &staged_reply,
         .func = NestedCallCapture.record,
     }));
-    if (owner == .observed) try std.testing.expect(std.mem.indexOf(u8, staged_reply.reason(), "GiftIdUnavailable") != null);
+    if (owner == .observed) try std.testing.expect(std.mem.find(u8, staged_reply.reason(), "GiftIdUnavailable") != null);
     try std.testing.expect(!g_to_r.a.isTerminating());
     try std.testing.expect(g_to_r.a.sessionOpen());
     var deliveries: usize = 0;

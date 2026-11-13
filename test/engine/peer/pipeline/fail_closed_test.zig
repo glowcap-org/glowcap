@@ -181,7 +181,7 @@ test "a multi-hop pipeline cycle breaks its dependent call without closing the s
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     const wire = try peer_fixture.drainOutbound(&p2, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "promise resolution cycle") != null);
+    try std.testing.expect(std.mem.find(u8, wire, "promise resolution cycle") != null);
     try std.testing.expectEqual(session.AnswerStatus.broken, p2.session_state.inboundAnswer(.from(99)).?.status);
     try std.testing.expectEqual(session.State.open, p2.session_state.state);
 }

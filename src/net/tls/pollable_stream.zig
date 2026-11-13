@@ -145,7 +145,7 @@ pub const Stream = struct {
         const reader = &self.reader.interface;
         if (reader.end == reader.buffer.len and reader.seek != 0) {
             const buffered = reader.buffered();
-            std.mem.copyForwards(u8, reader.buffer[0..buffered.len], buffered);
+            @memmove(reader.buffer[0..buffered.len], buffered);
             reader.seek = 0;
             reader.end = buffered.len;
         }
@@ -190,7 +190,7 @@ pub const Stream = struct {
         const consumed = transition.transfer.plaintext_consumed;
         if (consumed != 0) {
             const remaining = writer.end - consumed;
-            std.mem.copyForwards(u8, writer.buffer[0..remaining], writer.buffer[consumed..writer.end]);
+            @memmove(writer.buffer[0..remaining], writer.buffer[consumed..writer.end]);
             writer.end = remaining;
         }
         // tolerant: the drain latched its cause on the transform for takeFailure, and -1 is the carrier's dead-channel return.

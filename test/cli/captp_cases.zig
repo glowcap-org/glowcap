@@ -82,12 +82,12 @@ fn expectPublishedCallRoundTrip(
 
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdCall(&client, &call_parsed));
     for (needles) |needle| {
-        try std.testing.expect(std.mem.indexOf(u8, client_capture.items, needle) != null);
+        try std.testing.expect(std.mem.find(u8, client_capture.items, needle) != null);
     }
 
     const host_code = try host_future.await(io);
     try std.testing.expectEqual(cli.exit_codes.ok, host_code);
-    try std.testing.expect(std.mem.indexOf(u8, host_capture.items, "ocapn://") != null);
+    try std.testing.expect(std.mem.find(u8, host_capture.items, "ocapn://") != null);
 }
 
 test "listen publish greeter once then call round-trips through cli.ocapn" {
@@ -129,7 +129,7 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     var call_parsed = cli.cmd_types.Parsed{ .gpa = gpa, .positionals = &positionals };
     defer call_parsed.deinit();
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdCall(&client, &call_parsed));
-    try std.testing.expect(std.mem.indexOf(u8, client_capture.items, "Hello, background") != null);
+    try std.testing.expect(std.mem.find(u8, client_capture.items, "Hello, background") != null);
     try std.testing.expect(host.background_listener.?.accepted.load(.acquire) == 1);
 
     // A --publish listener goes quiet after its one partner, and records the
@@ -184,14 +184,14 @@ test "MCP locator call retains session for a follow-up call" {
     defer first_parsed.deinit();
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdCall(&client, &first_parsed));
     try std.testing.expect(client.session != null);
-    try std.testing.expect(std.mem.indexOf(u8, client_capture.items, "Hello, retained") != null);
+    try std.testing.expect(std.mem.find(u8, client_capture.items, "Hello, retained") != null);
 
     client_capture.clearRetainingCapacity();
     const second = [_][]const u8{ "greeter", "greet", "again" };
     var second_parsed = cli.cmd_types.Parsed{ .gpa = gpa, .positionals = &second };
     defer second_parsed.deinit();
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdCall(&client, &second_parsed));
-    try std.testing.expect(std.mem.indexOf(u8, client_capture.items, "Hello, again") != null);
+    try std.testing.expect(std.mem.find(u8, client_capture.items, "Hello, again") != null);
 
     _ = client.closeSession(.cancel);
     const host_code = try host_future.await(io);
@@ -285,18 +285,18 @@ fn expectConnectionDeath(store: *const cli.repl_blocks.Store) !void {
     var saw_death = false;
     for (store.items.items) |block| {
         if (block.kind != .error_line) continue;
-        try std.testing.expect(std.mem.indexOf(u8, block.summary, "WaitTimedOut") == null);
-        try std.testing.expect(std.mem.indexOf(u8, block.summary, "wait timed out") == null);
+        try std.testing.expect(std.mem.find(u8, block.summary, "WaitTimedOut") == null);
+        try std.testing.expect(std.mem.find(u8, block.summary, "wait timed out") == null);
         // Clean close names `session closing` on the vow; a transport fault
         // is `ConnectionLost` or the break string `connection failed`; a
         // peer that went away without a fault names `connection closed`.
         // Whether the read side sees the close before a write meets the
         // reset is the kernel's order, and the queued send leaves at the
         // park, after the read.
-        if (std.mem.indexOf(u8, block.summary, "session closing") != null or
-            std.mem.indexOf(u8, block.summary, "ConnectionLost") != null or
-            std.mem.indexOf(u8, block.summary, "connection failed") != null or
-            std.mem.indexOf(u8, block.summary, "connection closed") != null)
+        if (std.mem.find(u8, block.summary, "session closing") != null or
+            std.mem.find(u8, block.summary, "ConnectionLost") != null or
+            std.mem.find(u8, block.summary, "connection failed") != null or
+            std.mem.find(u8, block.summary, "connection closed") != null)
         {
             saw_death = true;
         }

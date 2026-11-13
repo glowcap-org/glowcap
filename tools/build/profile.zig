@@ -17,7 +17,7 @@ pub const Profiles = struct {
 
     /// ReleaseFast, as every absolute figure is. A profile of Debug code ranks
     /// safety checks and missed inlining, not the product.
-    pub const optimize: std.builtin.OptimizeMode = .ReleaseFast;
+    pub const optimize: std.lang.Optimize = .fast;
 
     pub fn module(self: Profiles, comptime name: []const u8) *std.Build.Module {
         return self.mods[root.layerIndex(name)];
@@ -34,7 +34,7 @@ pub const Profiles = struct {
 pub fn register(b: *std.Build, check_step: *std.Build.Step) Profiles {
     const target = b.resolveTargetQuery(.{ .cpu_model = .baseline });
     const mods = root.graphFromTable(b, target, Profiles.optimize, &root.layer_table, false);
-    const report_mod = b.createModule(.{ .root_source_file = b.path("tools/profile/report.zig"), .target = b.graph.host, .optimize = .Debug });
+    const report_mod = b.createModule(.{ .root_source_file = b.path("tools/profile/report.zig"), .target = b.graph.host, .optimize = .debug });
     const report = b.addExecutable(.{ .name = "profile-report", .root_module = report_mod });
     const tests = b.addTest(.{ .root_module = report_mod });
     const run_tests = execution.addZigTest(b, tests, .unit_test);

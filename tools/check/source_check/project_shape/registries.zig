@@ -31,9 +31,9 @@ pub fn checkOracleCorpusRegistry(
     var registered = std.StringHashMap(void).init(gpa);
     defer registered.deinit();
     var rest = registry_src;
-    while (std.mem.indexOf(u8, rest, "fixture(\"")) |start| {
+    while (std.mem.find(u8, rest, "fixture(\"")) |start| {
         const after = rest[start + "fixture(\"".len ..];
-        const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
+        const end = std.mem.findScalar(u8, after, '"') orelse break;
         try registered.put(after[0..end], {});
         rest = after[end..];
     }
@@ -159,7 +159,7 @@ fn collectWireTokens(
     const prefixes = [_][]const u8{ "op:", "desc:", "ocapn-" };
     for (prefixes) |prefix| {
         var i: usize = 0;
-        while (std.mem.indexOfPos(u8, text, i, prefix)) |pos| {
+        while (std.mem.findPos(u8, text, i, prefix)) |pos| {
             var end = pos + prefix.len;
             while (end < text.len and isWireTokenChar(text[end])) end += 1;
             const has_body = end > pos + prefix.len;
@@ -308,7 +308,7 @@ fn reportUnignored(
         var ignored = false;
         var lines = std.mem.splitScalar(u8, matches, '\n');
         while (lines.next()) |line| {
-            const tab = std.mem.lastIndexOfScalar(u8, line, '\t') orelse continue;
+            const tab = std.mem.findScalarLast(u8, line, '\t') orelse continue;
             if (!std.mem.eql(u8, line[tab + 1 ..], entry)) continue;
             var fields = std.mem.splitScalar(u8, line[0..tab], ':');
             const source = fields.first();
@@ -344,8 +344,8 @@ test "an entry no committed rule ignores is a violation" {
 
     try reportUnignored(gpa, &violations, &entries, ".gitignore:2:zig-out/\tzig-out/\n", tracked);
     try std.testing.expectEqual(@as(usize, 2), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "`.serena/cache/`") != null);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[1], "`bindings/rust/Cargo.lock`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "`.serena/cache/`") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[1], "`bindings/rust/Cargo.lock`") != null);
 }
 
 test "only a committed rule that ignores counts" {
@@ -465,7 +465,7 @@ pub fn checkRepositoryUrl(
     // to contain. Matching on it rather than on a host finds a link to any
     // forge, including one nobody has thought of.
     const slug = repo_url["https://".len..];
-    const host = slug[0..std.mem.indexOfScalar(u8, slug, '/').?];
+    const host = slug[0..std.mem.findScalar(u8, slug, '/').?];
     const bare = slug[host.len..];
 
     var tracked_it = std.mem.splitScalar(u8, ls_files.stdout, 0);
@@ -487,12 +487,12 @@ pub fn checkRepositoryUrl(
         defer gpa.free(body);
 
         var at: usize = 0;
-        while (std.mem.indexOfPos(u8, body, at, bare)) |hit| {
+        while (std.mem.findPos(u8, body, at, bare)) |hit| {
             at = hit + bare.len;
             // Walk back to the scheme so the whole URL can be judged, not the
             // slug that every candidate shares.
-            const line_start = if (std.mem.lastIndexOfScalar(u8, body[0..hit], '\n')) |nl| nl + 1 else 0;
-            const scheme = std.mem.lastIndexOf(u8, body[line_start..hit], "https://") orelse continue;
+            const line_start = if (std.mem.findScalarLast(u8, body[0..hit], '\n')) |nl| nl + 1 else 0;
+            const scheme = std.mem.findLast(u8, body[line_start..hit], "https://") orelse continue;
             const url_start = line_start + scheme;
             if (!std.mem.startsWith(u8, body[url_start..], repo_url)) {
                 if (namesDeclaredHost(body, hit, host)) continue;
@@ -514,7 +514,7 @@ pub fn checkRepositoryUrl(
                 var stop: usize = 0;
                 while (stop < tail.len and !isUrlTerminator(tail[stop])) stop += 1;
                 var target = std.mem.trimEnd(u8, tail[0..stop], ".,;:)");
-                if (std.mem.indexOfAny(u8, target, "?#")) |suffix| target = target[0..suffix];
+                if (std.mem.findAny(u8, target, "?#")) |suffix| target = target[0..suffix];
                 if (target.len == 0) continue;
                 const clean = std.mem.trimEnd(u8, target, "/");
                 if (clean.len == 0) continue;

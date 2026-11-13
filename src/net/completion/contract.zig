@@ -541,7 +541,7 @@ pub const ReadyQueue = struct {
             // Halving the dead prefix each time keeps total copied records
             // linear over the burst while reclaiming space in a never-empty
             // queue.
-            std.mem.copyForwards(Completion, self.items.items[0..rest], self.items.items[self.head..]);
+            @memmove(self.items.items[0..rest], self.items.items[self.head..]);
             self.items.shrinkRetainingCapacity(rest);
             self.head = 0;
         }

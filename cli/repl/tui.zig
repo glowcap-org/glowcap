@@ -543,7 +543,7 @@ fn render(
             });
             var jump_buf: [32]u8 = undefined;
             const jump_label: ?[]const u8 = if (store.scroll_off > 0 and lab.res.auto_follow.new_while_paused > 0)
-                std.fmt.bufPrint(&jump_buf, "↓ {d} new", .{lab.res.auto_follow.new_while_paused}) catch "↓ jump"
+                std.mem.print(&jump_buf, "↓ {d} new", .{lab.res.auto_follow.new_while_paused}) catch "↓ jump"
             else if (store.scroll_off > 0)
                 "↓ jump"
             else

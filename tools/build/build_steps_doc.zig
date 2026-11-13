@@ -200,13 +200,13 @@ pub fn render(gpa: std.mem.Allocator, doc_path: []const u8, current: []const u8,
             continue;
         }
         const index = by_name.get(name.?) orelse {
-            try problems.append(gpa, try std.fmt.allocPrint(gpa, "{s}:{d}: `zig build {s}` names no step; remove the row or declare the step", .{ doc_path, line_no, name.? }));
+            try problems.append(gpa, try gpa.print("{s}:{d}: `zig build {s}` names no step; remove the row or declare the step", .{ doc_path, line_no, name.? }));
             try text.appendSlice(gpa, line);
             if (lines.peek() != null) try text.append(gpa, '\n');
             continue;
         };
         if (seen[index]) {
-            try problems.append(gpa, try std.fmt.allocPrint(gpa, "{s}:{d}: `zig build {s}` has a second row; keep the one under its subject", .{ doc_path, line_no, name.? }));
+            try problems.append(gpa, try gpa.print("{s}:{d}: `zig build {s}` has a second row; keep the one under its subject", .{ doc_path, line_no, name.? }));
         }
         seen[index] = true;
         try appendRow(gpa, &text, inventory[index], width);
@@ -219,7 +219,7 @@ pub fn render(gpa: std.mem.Allocator, doc_path: []const u8, current: []const u8,
 pub fn unlisted(gpa: std.mem.Allocator, inventory: []const Entry, seen: []const bool, problems: *std.ArrayList([]const u8)) !void {
     for (inventory, 0..) |entry, i| {
         if (seen[i]) continue;
-        try problems.append(gpa, try std.fmt.allocPrint(gpa, "step `{s}` has no row; add `zig build {s}` under its subject in {s} or {s} and run `zig build gen-build-steps`", .{ entry.name, entry.name, doc_paths[0], doc_paths[1] }));
+        try problems.append(gpa, try gpa.print("step `{s}` has no row; add `zig build {s}` under its subject in {s} or {s} and run `zig build gen-build-steps`", .{ entry.name, entry.name, doc_paths[0], doc_paths[1] }));
     }
 }
 
@@ -229,7 +229,7 @@ fn bareRowName(line: []const u8) ?[]const u8 {
     const prefix = "zig build ";
     if (!std.mem.startsWith(u8, line, prefix)) return null;
     const after = line[prefix.len..];
-    const end = std.mem.indexOfScalar(u8, after, ' ') orelse after.len;
+    const end = std.mem.findScalar(u8, after, ' ') orelse after.len;
     const name = after[0..end];
     if (name.len == 0 or name[0] == '-') return null;
     const rest = std.mem.trimStart(u8, after[end..], " ");
@@ -302,8 +302,8 @@ test "bare rows are rewritten, examples and prose stay, and the rest is reported
     try problems.appendSlice(arena.allocator(), rendered.problems);
     try unlisted(arena.allocator(), &inventory, seen, &problems);
     try std.testing.expectEqual(@as(usize, 2), problems.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, problems.items[0], "`zig build missing` names no step") != null);
-    try std.testing.expect(std.mem.indexOf(u8, problems.items[1], "step `orphan` has no row") != null);
+    try std.testing.expect(std.mem.find(u8, problems.items[0], "`zig build missing` names no step") != null);
+    try std.testing.expect(std.mem.find(u8, problems.items[1], "step `orphan` has no row") != null);
 }
 
 test "a second row for one step is reported" {

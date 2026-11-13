@@ -26,7 +26,7 @@ const webrtc_build = @import("webrtc.zig");
 pub fn irohAbiModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
+    o: std.lang.Optimize,
     host_mods: []*std.Build.Module,
     resident: *std.Build.Module,
 ) *std.Build.Module {
@@ -39,7 +39,7 @@ pub fn irohAbiModule(
 pub fn webrtcAbiModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
+    o: std.lang.Optimize,
     host_mods: []*std.Build.Module,
     resident: *std.Build.Module,
 ) *std.Build.Module {
@@ -76,7 +76,7 @@ pub const Support = struct {
 pub fn createSupport(
     bb: *std.Build,
     tgt: std.Build.ResolvedTarget,
-    opt: std.builtin.OptimizeMode,
+    opt: std.lang.Optimize,
     host_mods: []*std.Build.Module,
 ) Support {
     const iroh_policy = bb.createModule(.{
@@ -137,7 +137,7 @@ fn addHeaderGen(
     bb: *std.Build,
     check_agg: *std.Build.Step,
     tgt: std.Build.ResolvedTarget,
-    opt: std.builtin.OptimizeMode,
+    opt: std.lang.Optimize,
     support: Support,
     hg: HeaderGen,
 ) void {
@@ -210,7 +210,7 @@ fn addHeaderGen(
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     check_step: *std.Build.Step,
     runtime_gate: *execution.RuntimeGate,
     host_mods: []*std.Build.Module,
@@ -271,10 +271,10 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
     const authoring_install = b.addInstallArtifact(authoring_exe, .{});
     interface_test.dependOn(&authoring_install.step);
     const authoring_cli_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/authoring/check_cli.py" });
-    authoring_cli_check.addArtifactArg(authoring_exe);
+    authoring_cli_check.addArtifactArg2(authoring_exe, .{});
     interface_test.dependOn(&authoring_cli_check.step);
     const authoring_output_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/authoring/check_output.py" });
-    authoring_output_check.addArtifactArg(authoring_exe);
+    authoring_output_check.addArtifactArg2(authoring_exe, .{});
     interface_test.dependOn(&authoring_output_check.step);
     @import("interface_authoring.zig").register(b, authoring_exe, interface_test, ctx.runtime_gate);
 
@@ -574,7 +574,7 @@ pub fn registerMirrors(
 pub fn registerCapnpFixtures(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     lib_mod: *std.Build.Module,
     check_step: *std.Build.Step,
 ) void {

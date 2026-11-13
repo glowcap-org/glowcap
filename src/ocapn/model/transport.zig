@@ -111,7 +111,7 @@ pub const SymbolError = error{InvalidTransportSymbol};
 /// the final `.` as its designator/transport separator and the Syrup form
 /// explicitly forbids `.` inside the transport symbol.
 pub fn validateSymbol(symbol: []const u8) SymbolError!void {
-    if (symbol.len == 0 or std.mem.indexOfScalar(u8, symbol, '.') != null)
+    if (symbol.len == 0 or std.mem.findScalar(u8, symbol, '.') != null)
         return error.InvalidTransportSymbol;
 }
 

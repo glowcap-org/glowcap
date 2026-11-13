@@ -13,13 +13,12 @@ pub const pure_callees = [_][]const u8{
     "std.fmt.parseInt",
     "std.fmt.parseFloat",
     "std.fmt.charToDigit",
-    "std.fmt.bufPrint",
+    "std.mem.print",
     "std.math.add",
     "std.math.sub",
     "std.math.mul",
     "std.math.divCeil",
     "std.unicode.utf8ByteSequenceLength",
-    "std.unicode.utf8Decode",
 };
 
 /// Standard-library pauses whose refusal loses nothing. A refused yield

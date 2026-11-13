@@ -45,7 +45,7 @@ fn promoteLeg(backend: *AdmissionBackend) !void {
         try std.testing.expectEqual(@as(usize, 0), try poll(backend));
     };
     var response_buf: [256]u8 = undefined;
-    const response = try std.fmt.bufPrint(
+    const response = try std.mem.print(
         &response_buf,
         "HTTP/1.1 101 Switching Protocols\r\n" ++
             "Upgrade: websocket\r\n" ++

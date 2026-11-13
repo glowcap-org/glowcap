@@ -124,7 +124,7 @@ pub const Cache = struct {
         errdefer allocator.free(entries);
         const pins = try allocator.alloc(Pin, leases);
         errdefer allocator.free(pins);
-        var index: identity_hash.ArrayMap(records.ObjectId, u32) = .{};
+        var index: identity_hash.ArrayMap(records.ObjectId, u32) = .empty;
         errdefer index.deinit(allocator);
         try index.ensureTotalCapacity(allocator, slot_count);
         @memset(entries, .{});

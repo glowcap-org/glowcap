@@ -88,7 +88,7 @@ const QueryNames = struct {
 
     fn next(self: *QueryNames) ViewError!?[]const u8 {
         const segment = (if (self.segments) |*it| it.next() else null) orelse return null;
-        const eq = std.mem.indexOfScalar(u8, segment, '=') orelse return error.UnparseableLocator;
+        const eq = std.mem.findScalar(u8, segment, '=') orelse return error.UnparseableLocator;
         return segment[0..eq];
     }
 };
@@ -130,7 +130,7 @@ fn inspectRouteUri(uri_text: []const u8) ViewError!RouteUriView {
         return error.UnparseableLocator;
 
     const host = uri.authority;
-    const dot = std.mem.lastIndexOfScalar(u8, host, '.') orelse return error.UnparseableLocator;
+    const dot = std.mem.findScalarLast(u8, host, '.') orelse return error.UnparseableLocator;
     const designator = host[0..dot];
     const transport_name = host[dot + 1 ..];
     if (designator.len == 0 or transport_name.len == 0) return error.UnparseableLocator;
@@ -273,7 +273,7 @@ const AcceptRoute = struct {
 
 fn appendUriList(
     allocator: std.mem.Allocator,
-    paths: *std.ArrayListUnmanaged(model.PeerLocator),
+    paths: *std.ArrayList(model.PeerLocator),
     value: []const u8,
     validator: anytype,
 ) !void {
@@ -305,7 +305,7 @@ fn fromOwnedPrimary(
     var primary_owned = true;
     errdefer if (primary_owned) model.freePeerLocator(allocator, primary);
 
-    var paths: std.ArrayListUnmanaged(model.PeerLocator) = .empty;
+    var paths: std.ArrayList(model.PeerLocator) = .empty;
     errdefer {
         for (paths.items) |path| model.freePeerLocator(allocator, path);
         paths.deinit(allocator);
@@ -421,7 +421,7 @@ fn fromIdLocatorWithPathSet(
         null;
     if (alternatives) |weak| try validateCombinedListBytes(routes, weak);
 
-    var paths: std.ArrayListUnmanaged(model.PeerLocator) = .empty;
+    var paths: std.ArrayList(model.PeerLocator) = .empty;
     errdefer {
         for (paths.items) |path| model.freePeerLocator(allocator, path);
         paths.deinit(allocator);

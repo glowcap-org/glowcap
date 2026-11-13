@@ -34,7 +34,7 @@ const echo_server = @import("echo.zig").EchoServer(reply);
 /// registration attempt has failed, so only the runtime's own timer can
 /// bring the registration back: nothing else wakes the accepting wait.
 fn exercise(transport: model.transport.Known, late_relay: bool) !void {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -48,9 +48,9 @@ fn exercise(transport: model.transport.Known, late_relay: bool) !void {
     if (late_relay) relay_server.deinit(io);
     defer relay_server.deinit(io);
     var relay_url_buf: [64]u8 = undefined;
-    const relay_url = try std.fmt.bufPrint(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
+    const relay_url = try std.mem.print(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
     var register_url_buf: [64]u8 = undefined;
-    const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
+    const register_url = try std.mem.print(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
 
     var registered = std.atomic.Value(bool).init(false);
     // The relay scans every forwarded payload for the reply's plaintext.

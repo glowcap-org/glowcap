@@ -526,7 +526,7 @@ pub const registration_id = struct {
     pub const variants = "89ab";
 
     fn isDash(at: usize) bool {
-        return std.mem.indexOfScalar(usize, &dashes, at) != null;
+        return std.mem.findScalar(usize, &dashes, at) != null;
     }
 
     fn isHex(at: usize) bool {

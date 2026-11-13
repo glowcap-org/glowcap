@@ -188,7 +188,7 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
         .{ .needle = client_node_id, .missing = error.GoblinsNamedAnotherPartner },
     };
     for (accepted_claims) |claim| {
-        if (std.mem.indexOf(u8, session_line, claim.needle) != null) continue;
+        if (std.mem.find(u8, session_line, claim.needle) != null) continue;
         goblins_child.dumpChildStderr(io, "goblins-iroh", &child);
         return claim.missing;
     }
@@ -319,7 +319,7 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
         .{ .needle = node_id, .missing = error.GoblinsNamedAnotherPartner },
     };
     for (claims) |claim| {
-        if (std.mem.indexOf(u8, stdout_text, claim.needle) != null) continue;
+        if (std.mem.find(u8, stdout_text, claim.needle) != null) continue;
         std.debug.print("goblins-iroh: goblins client stdout: {s}\n", .{stdout_text});
         goblins_child.dumpChildStderr(io, "goblins-iroh", &child);
         return claim.missing;

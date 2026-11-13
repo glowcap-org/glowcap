@@ -308,8 +308,8 @@ test "call presence keeps the Models trailing optional rule" {
     } }};
     const code = try @import("rust.zig").emit(std.testing.allocator, &methods, &.{});
     defer std.testing.allocator.free(code);
-    try std.testing.expect(std.mem.indexOf(u8, code, ".transpose()?") != null);
-    try std.testing.expect(std.mem.indexOf(u8, code, "arguments.truncate(count + 2)") != null);
+    try std.testing.expect(std.mem.find(u8, code, ".transpose()?") != null);
+    try std.testing.expect(std.mem.find(u8, code, "arguments.truncate(count + 2)") != null);
 }
 
 test {
@@ -383,12 +383,12 @@ test "server read emitter keeps edited constraints and rejects unsupported shape
         "@as(u128, bytes.len) < 2 or @as(u128, bytes.len) > 32",
         "@as(u128, count) < 1 or @as(u128, count) > 12",
         "pub const board_list_verb = \"renamed-list\";",
-    }) |needle| try std.testing.expect(std.mem.indexOf(u8, source, needle) != null);
+    }) |needle| try std.testing.expect(std.mem.find(u8, source, needle) != null);
     // Full-width schema maxima stay u64. Storage owns its separate usize cast.
     edited = original;
     edited[1].call.result = .{ .text = .{ .max = std.math.maxInt(u64) } };
     const wide = try zig.emitServer(a, creation, &edited);
-    try std.testing.expect(std.mem.indexOf(u8, wide, "pub const max_name_bytes: u64 = 18446744073709551615;") != null);
+    try std.testing.expect(std.mem.find(u8, wide, "pub const max_name_bytes: u64 = 18446744073709551615;") != null);
     for (0..7) |case| {
         edited = original;
         switch (case) {

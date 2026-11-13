@@ -21,7 +21,7 @@ const execution = @import("execution.zig");
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     abi_version: std.SemanticVersion,
     /// The public `glowcap` module.
     lib_mod: *std.Build.Module,
@@ -61,7 +61,7 @@ pub const Registered = struct {
 pub fn abiModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
+    o: std.lang.Optimize,
     foundation_mod: *std.Build.Module,
     c_abi_shared_mod: *std.Build.Module,
     resident: *std.Build.Module,
@@ -166,7 +166,7 @@ fn addBrowserProof(
 }
 
 /// Publish the resident with its Cargo-built sidecar, without repository gates.
-pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, foundation: *std.Build.Module, model: *std.Build.Module, engine: *std.Build.Module, net: *std.Build.Module, archive: std.Build.LazyPath) void {
+pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, foundation: *std.Build.Module, model: *std.Build.Module, engine: *std.Build.Module, net: *std.Build.Module, archive: std.Build.LazyPath) void {
     const published_webrtc_mod = b.addModule("glowcap_webrtc", .{
         .root_source_file = b.path("src/net/transport/webrtc.zig"),
         .target = target,

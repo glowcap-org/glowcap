@@ -153,11 +153,11 @@ fn judgeCarolLine(scan: *CarolScan, raw_line: []const u8) !goblins_child.LineVer
     }
     // `from goblins-bob` is the half of the greeting only Bob's greeter can
     // write; Carol sent her own name in, so it proves nothing on its own.
-    if (std.mem.indexOf(u8, line, "PIPELINE OK:") != null and
-        std.mem.indexOf(u8, line, "hello goblins-carol-pipelined, from goblins-bob") != null)
+    if (std.mem.find(u8, line, "PIPELINE OK:") != null and
+        std.mem.find(u8, line, "hello goblins-carol-pipelined, from goblins-bob") != null)
         scan.pipeline_answered = true;
-    if (std.mem.indexOf(u8, line, "GIFT OK:") != null and
-        std.mem.indexOf(u8, line, "hello goblins-carol, from goblins-bob") != null)
+    if (std.mem.find(u8, line, "GIFT OK:") != null and
+        std.mem.find(u8, line, "hello goblins-carol, from goblins-bob") != null)
         scan.gift_answered = true;
     return if (scan.asked_bob_to_settle and scan.pipeline_answered and scan.gift_answered) .confirmed else .more;
 }
@@ -171,9 +171,9 @@ pub fn main(init: std.process.Init) !void {
         .note = " (carol binds port+1)",
     });
     var bob_port_buf: [8]u8 = undefined;
-    const bob_port_str = try std.fmt.bufPrint(&bob_port_buf, "{d}", .{bob_port});
+    const bob_port_str = try std.mem.print(&bob_port_buf, "{d}", .{bob_port});
     var carol_port_buf: [8]u8 = undefined;
-    const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{bob_port + 1});
+    const carol_port_str = try std.mem.print(&carol_port_buf, "{d}", .{bob_port + 1});
 
     // Bob's stdin stays a pipe: the driver decides when the promise settles.
     const hosted = try goblins_child.spawnHostAwaitSwissWithStdin(

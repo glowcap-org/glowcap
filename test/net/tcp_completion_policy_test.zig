@@ -10,7 +10,7 @@ const crypto = glowcap.foundation.crypto;
 const net = glowcap.net;
 const model = glowcap.ocapn.model;
 
-const supported = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
+const supported = builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin();
 const Policy = if (supported) net.tcp.CompletionPolicy(net.Backend) else void;
 
 fn identity() crypto.PeerKey {

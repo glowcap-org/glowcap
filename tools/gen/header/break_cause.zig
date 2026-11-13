@@ -12,7 +12,7 @@ pub fn emit(out: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
         }
     }
     const Context = @FieldType(Cause, "context");
-    inline for (comptime std.meta.fieldNames(Context)) |field| {
+    inline for (@typeInfo(Context).@"struct".field_names) |field| {
         try out.print(allocator, "#define GLOWCAP_BREAK_CONTEXT_{s} {d}u\n", .{ upper(field), @as(u32, 1) << @bitOffsetOf(Context, field) });
     }
     inline for (std.enums.values(@import("c_abi").RouteFailure)) |value| {

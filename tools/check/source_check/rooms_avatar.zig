@@ -34,7 +34,7 @@ pub fn checkAvatarRamp(
     };
     defer gpa.free(identity_ts);
     const slots_decl = "const AVATAR_SLOTS = ";
-    const at = std.mem.indexOf(u8, identity_ts, slots_decl) orelse {
+    const at = std.mem.find(u8, identity_ts, slots_decl) orelse {
         try appendViolation(gpa, violations, "{s}/member_identity.ts: `const AVATAR_SLOTS = ` is gone; hueOf's slot count is the half of the avatar ramp this check reads", .{ui_dir});
         return;
     };
@@ -48,8 +48,8 @@ pub fn checkAvatarRamp(
     var n: i64 = 0;
     while (n < slots) : (n += 1) {
         var name_buf: [32]u8 = undefined;
-        const needle = std.fmt.bufPrint(&name_buf, "--avatar-{d}: #", .{n + 1}) catch unreachable;
-        const def = std.mem.indexOf(u8, sheet, needle) orelse {
+        const needle = std.mem.print(&name_buf, "--avatar-{d}: #", .{n + 1}) catch unreachable;
+        const def = std.mem.find(u8, sheet, needle) orelse {
             try appendViolation(gpa, violations, "the rooms stylesheets define no `--avatar-{d}` while member_identity.ts's AVATAR_SLOTS is {d}; a picked slot with no tint draws white initials on nothing", .{ n + 1, slots });
             continue;
         };
@@ -66,8 +66,8 @@ pub fn checkAvatarRamp(
     }
     {
         var name_buf: [32]u8 = undefined;
-        const extra = std.fmt.bufPrint(&name_buf, "--avatar-{d}: #", .{slots + 1}) catch unreachable;
-        if (std.mem.indexOf(u8, sheet, extra) != null) {
+        const extra = std.mem.print(&name_buf, "--avatar-{d}: #", .{slots + 1}) catch unreachable;
+        if (std.mem.find(u8, sheet, extra) != null) {
             try appendViolation(gpa, violations, "the rooms stylesheets define `--avatar-{d}` but member_identity.ts's AVATAR_SLOTS is {d}; hueOf can never pick it", .{ slots + 1, slots });
         }
     }

@@ -15,7 +15,7 @@ const completion = @import("loop.zig");
 const socket_tcp = @import("socket_tcp.zig");
 
 comptime {
-    if (!builtin.os.tag.isDarwin()) @compileError("the kqueue completion backend is for Darwin");
+    if (!builtin.target.os.tag.isDarwin()) @compileError("the kqueue completion backend is for Darwin");
 }
 
 const c = std.c;

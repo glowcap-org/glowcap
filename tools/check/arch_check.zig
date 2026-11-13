@@ -62,18 +62,18 @@ pub fn create(b: *Build, table: []const LayerSpec) *Step {
     const check_mod = b.createModule(.{
         .root_source_file = b.path("tools/check/arch_check.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     const table_mod = b.createModule(.{
         .root_source_file = table_file,
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     table_mod.addImport("arch_check", check_mod);
     const main_mod = b.createModule(.{
         .root_source_file = b.path("tools/check/arch_check_main.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     main_mod.addImport("arch_check", check_mod);
     main_mod.addImport("arch_check_table", table_mod);
@@ -82,7 +82,7 @@ pub fn create(b: *Build, table: []const LayerSpec) *Step {
     const tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("tools/check/arch_std.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     }) });
     run.step.dependOn(&b.addRunArtifact(tests).step);
     run.addArg(b.root.toString(b.allocator) catch @panic("OOM"));
@@ -127,8 +127,7 @@ pub fn check(
         const file_path = entry.path;
 
         const layer_index = layerIndexOf(table, file_path) orelse {
-            try violations.append(gpa, try std.fmt.allocPrint(
-                gpa,
+            try violations.append(gpa, try gpa.print(
                 "{s}: no layer in build.zig's layer_table claims this file, declare its module or move it",
                 .{file_path},
             ));
@@ -158,9 +157,9 @@ pub fn check(
                 const trimmed = std.mem.trimStart(u8, line, " \t");
                 if (std.mem.startsWith(u8, trimmed, "//")) continue;
                 var rest = line;
-                while (std.mem.indexOf(u8, rest, "@import(\"")) |start| {
+                while (std.mem.find(u8, rest, "@import(\"")) |start| {
                     rest = rest[start + "@import(\"".len ..];
-                    const end = std.mem.indexOfScalar(u8, rest, '"') orelse break;
+                    const end = std.mem.findScalar(u8, rest, '"') orelse break;
                     const imported = rest[0..end];
                     rest = rest[end..];
                     if (!isLayerName(table, imported)) continue;
@@ -170,8 +169,7 @@ pub fn check(
                         if (std.mem.eql(u8, edge, imported)) granted = true;
                     }
                     if (!granted) {
-                        try violations.append(gpa, try std.fmt.allocPrint(
-                            gpa,
+                        try violations.append(gpa, try gpa.print(
                             "{s}:{d}: imports layer module '{s}' but layer '{s}' grants no such edge — add the edge to build.zig's layer_table",
                             .{ file_path, line_no, imported, spec.name },
                         ));
@@ -192,8 +190,7 @@ pub fn check(
         };
         for (effects) |effect| {
             if (spec.core and effect.used) {
-                try violations.append(gpa, try std.fmt.allocPrint(
-                    gpa,
+                try violations.append(gpa, try gpa.print(
                     "{s}: core layer '{s}' references {s} — the core stays sync and no-I/O",
                     .{ file_path, spec.name, effect.name },
                 ));
@@ -206,15 +203,13 @@ pub fn check(
         // `std.atomic`: concurrency primitives belong in adapters, and a core
         // owner that checks thread affinity compares a token its embedder reads.
         if (spec.core and standard.thread) {
-            try violations.append(gpa, try std.fmt.allocPrint(
-                gpa,
+            try violations.append(gpa, try gpa.print(
                 "{s}: core layer '{s}' references std.Thread — the core owns no threads or scheduler",
                 .{ file_path, spec.name },
             ));
         }
         if (spec.core and standard.atomic) {
-            try violations.append(gpa, try std.fmt.allocPrint(
-                gpa,
+            try violations.append(gpa, try gpa.print(
                 "{s}: core layer '{s}' references std.atomic — concurrency primitives belong in adapters",
                 .{ file_path, spec.name },
             ));
@@ -231,9 +226,8 @@ pub fn check(
             while (lines.next()) |line| : (line_no += 1) {
                 const trimmed = std.mem.trimStart(u8, line, " \t");
                 if (std.mem.startsWith(u8, trimmed, "//")) continue;
-                if (std.mem.indexOf(u8, line, "std.testing") != null) {
-                    try violations.append(gpa, try std.fmt.allocPrint(
-                        gpa,
+                if (std.mem.find(u8, line, "std.testing") != null) {
+                    try violations.append(gpa, try gpa.print(
                         "{s}:{d}: references std.testing — test vocabulary lives under test/, never in src/ production code",
                         .{ file_path, line_no },
                     ));
@@ -258,9 +252,8 @@ pub fn check(
                 const trimmed = std.mem.trimStart(u8, line, " \t");
                 if (std.mem.startsWith(u8, trimmed, "//")) continue;
                 for ([_][]const u8{ "codec.syrup.", "codec.capnp." }) |needle| {
-                    if (std.mem.indexOf(u8, line, needle) != null) {
-                        try violations.append(gpa, try std.fmt.allocPrint(
-                            gpa,
+                    if (std.mem.find(u8, line, needle) != null) {
+                        try violations.append(gpa, try gpa.print(
                             "{s}:{d}: names `{s}` above the codec layer — route ordinary bytes through `codec.dispatch`, and signature bytes through `codec.signed`, which says why they do not follow the negotiated codec",
                             .{ file_path, line_no, needle },
                         ));
@@ -285,8 +278,7 @@ pub fn check(
             std.mem.endsWith(u8, file_path, "net/wake_channel.zig") or
             std.mem.endsWith(u8, file_path, "net/readiness.zig");
         if (!platform_gated and (standard.linux or standard.windows)) {
-            try violations.append(gpa, try std.fmt.allocPrint(
-                gpa,
+            try violations.append(gpa, try gpa.print(
                 "{s}: names a platform syscall namespace (std.os.linux / std.os.windows) — portable code uses std.posix; platform-gated backends are allowlisted in tools/check/arch_check.zig",
                 .{file_path},
             ));
@@ -298,8 +290,7 @@ pub fn check(
     for (table, live) |spec, row| {
         for (spec.imports, row) |edge, seen| {
             if (!seen) {
-                try violations.append(gpa, try std.fmt.allocPrint(
-                    gpa,
+                try violations.append(gpa, try gpa.print(
                     "layer '{s}' grants edge '{s}' but no file under src/{s} imports it — remove the edge from build.zig's layer_table",
                     .{ spec.name, edge, spec.prefix },
                 ));
@@ -359,7 +350,7 @@ fn identByte(c: u8) bool {
 // binding that is used.
 fn lineHasToken(line: []const u8, name: []const u8) bool {
     var base: usize = 0;
-    while (std.mem.indexOfPos(u8, line, base, name)) |pos| {
+    while (std.mem.findPos(u8, line, base, name)) |pos| {
         const before_ok = pos == 0 or !identByte(line[pos - 1]);
         const after = pos + name.len;
         const after_ok = after >= line.len or !identByte(line[after]);
@@ -425,7 +416,7 @@ fn bindingUsedOutsideDecl(contents: []const u8, name: []const u8, decl_line: usi
 /// token outside its decl line, comments, and `_ = X;` discards, so an unused
 /// import laundered by a discard reads dead and the dead-edge ban fires.
 fn edgeLiveInFile(gpa: std.mem.Allocator, contents: []const u8, edge: []const u8) !bool {
-    const import_expr = try std.fmt.allocPrint(gpa, "@import(\"{s}\")", .{edge});
+    const import_expr = try gpa.print("@import(\"{s}\")", .{edge});
     defer gpa.free(import_expr);
 
     var line_no: usize = 0;
@@ -434,7 +425,7 @@ fn edgeLiveInFile(gpa: std.mem.Allocator, contents: []const u8, edge: []const u8
         const trimmed = std.mem.trimStart(u8, line, " \t");
         if (std.mem.startsWith(u8, trimmed, "//")) continue;
         var base: usize = 0;
-        while (std.mem.indexOfPos(u8, line, base, import_expr)) |pos| {
+        while (std.mem.findPos(u8, line, base, import_expr)) |pos| {
             base = pos + import_expr.len;
             const after = pos + import_expr.len;
             // `@import("edge").Field`: an inline field/method use.

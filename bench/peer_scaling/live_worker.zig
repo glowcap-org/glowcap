@@ -204,7 +204,7 @@ const ClientShard = struct {
         self.next_id += 1;
         const ordinal = id + 1;
         var designator_buf: [32]u8 = undefined;
-        const designator = try std.fmt.bufPrint(&designator_buf, "127.{d}.{d}.{d}:1", .{
+        const designator = try std.mem.print(&designator_buf, "127.{d}.{d}.{d}:1", .{
             (ordinal >> 16) & 0xff,
             (ordinal >> 8) & 0xff,
             ordinal & 0xff,

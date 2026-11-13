@@ -9,7 +9,7 @@ const protocol_path = "apps/rooms/lib/protocol.ts";
 fn authoredStringConstant(line: []const u8) bool {
     const declaration = std.mem.trimStart(u8, line, " \t");
     if (!std.mem.startsWith(u8, declaration, "export const ")) return false;
-    const equals = std.mem.indexOfScalar(u8, declaration, '=') orelse return false;
+    const equals = std.mem.findScalar(u8, declaration, '=') orelse return false;
     const value = std.mem.trimStart(u8, declaration[equals + 1 ..], " \t");
     return value.len != 0 and (value[0] == '"' or value[0] == '\'' or value[0] == '`');
 }

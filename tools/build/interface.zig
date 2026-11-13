@@ -9,7 +9,7 @@ pub fn registerRuntime(b: *std.Build, tasks_server: *std.Build.Step.Compile, run
     const rust_proof = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-read", "--allow-write", "--allow-run", "--allow-env", "test/interface/run.ts",
     });
-    rust_proof.addArtifactArg(tasks_server);
+    rust_proof.addArtifactArg2(tasks_server, .{});
     rust_proof.step.dependOn(&rust_build.step);
     rust_proof.has_side_effects = true;
     const typescript = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
@@ -18,7 +18,7 @@ pub fn registerRuntime(b: *std.Build, tasks_server: *std.Build.Step.Compile, run
     commands.setLibDir(typescript, .host);
     typescript.has_side_effects = true;
     const generated = addInstalledSystemRun(b, .build_tool, &.{ "python3", "test/interface/authoring/check_generated.py" });
-    generated.addArtifactArg(checker);
+    generated.addArtifactArg2(checker, .{});
     generated.step.dependOn(&rust_build.step);
     commands.setLibDir(generated, .host);
     const conversation_step = b.step("interface-conversation-check", "Prove generated Tasks creation and Rust/TypeScript pending callback conversations (needs cargo + deno + python3)");
@@ -38,7 +38,7 @@ fn registerGoblins(b: *std.Build, tasks_server: *std.Build.Step.Compile, check_s
     const caller = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-read", "--allow-write", "--allow-run", "--allow-env", "interop/goblins_interop/interface_creation_harness.ts",
     });
-    caller.addArtifactArg(tasks_server);
+    caller.addArtifactArg2(tasks_server, .{});
     caller.has_side_effects = true;
     const step = b.step("interface-goblins-check", "Prove generated recipient handoff and plain Goblins calling the generated Tasks server boundary (needs cargo + racket + Goblins + deno)");
     step.dependOn(&recipient.step);

@@ -12,7 +12,7 @@ const glowcapExecutable = modules.glowcapExecutable;
 pub fn register(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     lib_mod: *std.Build.Module,
     check_step: *std.Build.Step,
     ocapn_static: *std.Build.Step.Compile,
@@ -53,7 +53,7 @@ pub fn register(
             exe.root_module.link_libc = true;
         }
         const run = execution.addArtifact(b, .{ .deterministic = 30 }, exe);
-        if (ex.store) _ = run.addOutputDirectoryArg("store");
+        if (ex.store) _ = run.addOutputDirectoryArg2("store", .{});
         examples_step.dependOn(&run.step);
         // The quick start reruns the same executable with its output shown, so
         // `examples` keeps its quiet, cached run.

@@ -358,5 +358,5 @@ pub fn MapOf(comptime provenance: Provenance, comptime K: type, comptime V: type
 
 /// An unmanaged insertion-ordered hash map keyed by an identity.
 pub fn ArrayMap(comptime K: type, comptime V: type) type {
-    return std.ArrayHashMapUnmanaged(K, V, ArrayContext(K), false);
+    return std.array_hash_map.Custom(K, V, ArrayContext(K), false);
 }

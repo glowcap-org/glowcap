@@ -61,7 +61,7 @@ pub const Dialing = struct {
     cancel_requested: bool = false,
     /// Unsupported fallbacks cannot erase an earlier attempted connection.
     all_transports_unavailable: bool = true,
-    waiters: std.ArrayListUnmanaged(Waiter) = .empty,
+    waiters: std.ArrayList(Waiter) = .empty,
 };
 
 /// A winning route has settled the logical dial while these losing physical

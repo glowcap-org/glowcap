@@ -9,6 +9,6 @@ pub fn appendLine(
     args: anytype,
 ) !void {
     var buf: [256]u8 = undefined;
-    const line = try std.fmt.bufPrint(&buf, format, args);
+    const line = try std.mem.print(&buf, format, args);
     try out.appendSlice(allocator, line);
 }

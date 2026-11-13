@@ -83,20 +83,20 @@ pub fn checkDriverRootShadow(
         const decl = "pub const ";
         if (!std.mem.startsWith(u8, std.mem.trimStart(u8, line, " \t"), decl)) continue;
         const after = std.mem.trimStart(u8, line, " \t")[decl.len..];
-        const eq = std.mem.indexOfScalar(u8, after, '=') orelse continue;
+        const eq = std.mem.findScalar(u8, after, '=') orelse continue;
         const name = std.mem.trim(u8, after[0..eq], " \t");
         if (name.len == 0) continue;
         const value = std.mem.trim(u8, after[eq + 1 ..], " \t;");
         // Does the core declare this name too?
         var core_decl_buf: [128]u8 = undefined;
-        const core_decl = std.fmt.bufPrint(&core_decl_buf, "pub const {s} =", .{name}) catch {
+        const core_decl = std.mem.print(&core_decl_buf, "pub const {s} =", .{name}) catch {
             try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` overflows the forwarding check's needle buffer; grow it", .{ line_no, name });
             continue;
         };
-        if (std.mem.indexOf(u8, core_src, core_decl) == null) continue;
+        if (std.mem.find(u8, core_src, core_decl) == null) continue;
         // It does. The driver root's value must forward it.
         var want_buf: [160]u8 = undefined;
-        const want = std.fmt.bufPrint(&want_buf, "driver_core.{s}", .{name}) catch {
+        const want = std.mem.print(&want_buf, "driver_core.{s}", .{name}) catch {
             try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` overflows the forwarding check's needle buffer; grow it", .{ line_no, name });
             continue;
         };
@@ -142,7 +142,7 @@ pub fn checkSingleJsonEscaper(
             continue;
         };
         defer gpa.free(source);
-        if (std.mem.indexOf(u8, source, definition) == null) continue;
+        if (std.mem.find(u8, source, definition) == null) continue;
         try found.append(gpa, try gpa.dupe(u8, entry.path));
     }
 

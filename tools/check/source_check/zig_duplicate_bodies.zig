@@ -134,11 +134,11 @@ fn isTable(body: []const []const u8, code_lines: usize) bool {
 /// branches.
 fn isBindingRow(code: []const u8) bool {
     if (code.len < 2 or code[0] != '.' or !text_match.isIdentStart(code[1])) return false;
-    const eq = std.mem.indexOf(u8, code, " = ") orelse return false;
+    const eq = std.mem.find(u8, code, " = ") orelse return false;
     if (!std.mem.endsWith(u8, code, ",")) return false;
     const value = code[eq + 3 ..];
     for ([_][]const u8{ "try ", " orelse ", " catch ", "if (", "switch (" }) |logic| {
-        if (std.mem.indexOf(u8, value, logic) != null) return false;
+        if (std.mem.find(u8, value, logic) != null) return false;
     }
     return true;
 }
@@ -358,7 +358,7 @@ fn violationsFor(gpa: std.mem.Allocator, sources: []const []const u8) !std.Array
         bodies.deinit(gpa);
     }
     for (sources, 0..) |source, n| {
-        const path = try std.fmt.allocPrint(gpa, "src/{d}.zig", .{n});
+        const path = try gpa.print("src/{d}.zig", .{n});
         defer gpa.free(path);
         try collectBodies(gpa, &bodies, path, source);
     }
@@ -373,8 +373,8 @@ test "a renamed copy is reported once and a differing body is not" {
     var violations = try violationsFor(gpa, &.{ copy_a, copy_b, different });
     defer freeViolations(gpa, &violations);
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "drainPacket") != null);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "drainStream") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "drainPacket") != null);
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "drainStream") != null);
 }
 
 test "a body below the length floor is never compared" {

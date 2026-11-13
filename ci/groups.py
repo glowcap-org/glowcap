@@ -91,9 +91,9 @@ GROUPS = (
         shards=2,
         phases={
             "runtime": [
-                prerequisite("zig build runtime-toolchain-check -Doptimize=ReleaseSafe"),
-                build("zig build runtime-check-build -Doptimize=ReleaseSafe"),
-                long("zig build runtime-check -Doptimize=ReleaseSafe"),
+                prerequisite("zig build runtime-toolchain-check -Doptimize=safe"),
+                build("zig build runtime-check-build -Doptimize=safe"),
+                long("zig build runtime-check -Doptimize=safe"),
             ]
         },
     ),
@@ -108,9 +108,9 @@ GROUPS = (
             # without dropping a layer. ci/gates_test.py holds the partition
             # to the Layer enum in test/all_test.zig.
             "shipped": [
-                build("zig build test -Doptimize=ReleaseSafe -Dtest-layer=loam,root,foundation,codec,model"),
-                build("zig build test -Doptimize=ReleaseSafe -Dtest-layer=engine,session,actors,c_abi"),
-                build("zig build test -Doptimize=ReleaseSafe -Dtest-layer=driver,net"),
+                build("zig build test -Doptimize=safe -Dtest-layer=loam,root,foundation,codec,model"),
+                build("zig build test -Doptimize=safe -Dtest-layer=engine,session,actors,c_abi"),
+                build("zig build test -Doptimize=safe -Dtest-layer=driver,net"),
             ],
             # Representative browser and outside-authority proofs on every change.
             "smoke": [

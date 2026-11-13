@@ -83,7 +83,7 @@ fn acceptAlias(io: std.Io, server: *std.Io.net.Server, designator: []const u8) !
     try ws_relay.serveUpgrade(&leg);
     var target: [128]u8 = undefined;
     try std.testing.expectEqualStrings(
-        try std.fmt.bufPrint(&target, "/relay?rendezvous={s}", .{designator}),
+        try std.mem.print(&target, "/relay?rendezvous={s}", .{designator}),
         leg.target,
     );
 }
@@ -97,7 +97,7 @@ test "relay alias opens a public WSS hint through the internal pollable carrier"
     defer server.deinit(io);
     var url: [64]u8 = undefined;
     var resident = try relay.Resident.initConfigured(std.testing.allocator, io, .{
-        .relay_url = try std.fmt.bufPrint(&url, "ws://127.0.0.1:{d}/relay", .{server.socket.address.getPort()}),
+        .relay_url = try std.mem.print(&url, "ws://127.0.0.1:{d}/relay", .{server.socket.address.getPort()}),
         .relay_alias_url = public_route,
     }, .noise, null);
     defer std.testing.expect(resident.deinit() == null) catch unreachable;

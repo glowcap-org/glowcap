@@ -50,7 +50,7 @@ pub fn formatEntry(buffer: []u8, entry: Entry) ![]u8 {
     if (!safePath(entry.path) or std.mem.eql(u8, entry.path, filename)) return error.InvalidManifest;
     const digest = std.fmt.bytesToHex(entry.digest, .lower);
     const marker: u8 = if (entry.executable) 'x' else '-';
-    return std.fmt.bufPrint(buffer, "{s} {c} {s}\n", .{ digest, marker, entry.path });
+    return std.mem.print(buffer, "{s} {c} {s}\n", .{ digest, marker, entry.path });
 }
 
 pub fn isExecutable(permissions: std.Io.File.Permissions) bool {

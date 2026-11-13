@@ -20,7 +20,7 @@ pub const none: u32 = std.math.maxInt(u32);
 
 pub fn PositionSlab(comptime Row: type) type {
     return struct {
-        slots: std.ArrayListUnmanaged(Slot) = .empty,
+        slots: std.ArrayList(Slot) = .empty,
         free_head: u32 = none,
         live_count: u32 = 0,
 

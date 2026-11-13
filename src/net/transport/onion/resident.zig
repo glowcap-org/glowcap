@@ -367,7 +367,7 @@ pub const Listener = struct {
         }
         std.debug.assert(ep == .address);
         const bound = self.server.socket.address;
-        const written = std.fmt.bufPrint(&self.forward_text, "{f}", .{bound}) catch
+        const written = std.mem.print(&self.forward_text, "{f}", .{bound}) catch
             return error.InvalidAddress;
         return written;
     }

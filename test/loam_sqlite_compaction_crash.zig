@@ -32,7 +32,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn key(buffer: *[16]u8, prefix: []const u8, index: usize) []const u8 {
-    return std.fmt.bufPrint(buffer, "{s}/{d:0>5}", .{ prefix, index }) catch unreachable;
+    return std.mem.print(buffer, "{s}/{d:0>5}", .{ prefix, index }) catch unreachable;
 }
 
 fn value(buffer: *[1024]u8, index: usize) []const u8 {

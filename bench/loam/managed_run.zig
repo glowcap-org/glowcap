@@ -10,7 +10,7 @@ const r = @import("report.zig");
 pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, depth: u16, smoke: bool, references_only: bool) !void {
     const gpa = init.gpa;
     const io = init.io;
-    const path = try std.fmt.allocPrintSentinel(gpa, "zig-out/loam-managed-bench-{d}-{d}-{d}", .{ r.now(io), count, depth }, 0);
+    const path = try gpa.printSentinel("zig-out/loam-managed-bench-{d}-{d}-{d}", .{ r.now(io), count, depth }, 0);
     defer gpa.free(path);
     try std.Io.Dir.cwd().createDir(io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(io, path) catch unreachable;

@@ -136,7 +136,7 @@ pub fn checkBindingReflectedFfiWired(
     // 1. Collect the declared `glowcap_host_*` symbols per binding, from its
     //    generated driver FFI table.
     for (reflected_ffi_bindings, 0..) |b, bi| {
-        const gen_path = try std.fmt.allocPrint(gpa, "bindings/{s}", .{b.gen_ffi});
+        const gen_path = try gpa.print("bindings/{s}", .{b.gen_ffi});
         defer gpa.free(gen_path);
         const gen = root.readFileAlloc(io, gen_path, gpa, .limited(2 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read generated FFI table for reflected-wired check with {s}", .{ gen_path, @errorName(err) });
@@ -145,7 +145,7 @@ pub fn checkBindingReflectedFfiWired(
         defer gpa.free(gen);
         const needle = "glowcap_host_";
         var rest = gen;
-        while (std.mem.indexOf(u8, rest, needle)) |start| {
+        while (std.mem.find(u8, rest, needle)) |start| {
             const after = rest[start..];
             var end: usize = needle.len;
             while (end < after.len) : (end += 1) {
@@ -194,7 +194,7 @@ pub fn checkBindingReflectedFfiWired(
         };
         defer gpa.free(contents);
         for (per_binding[bi].items) |*e| {
-            if (!e.seen and std.mem.indexOf(u8, contents, e.name) != null) e.seen = true;
+            if (!e.seen and std.mem.find(u8, contents, e.name) != null) e.seen = true;
         }
     }
 
@@ -223,18 +223,18 @@ pub fn checkBindingReflectedFfiWired(
 fn classifyAbiType(text: []const u8) CoarseAbiType {
     const t = std.mem.trim(u8, text, " \t\r\n");
     if (t.len == 0 or std.mem.eql(u8, t, "void")) return .none;
-    if (std.mem.indexOfScalar(u8, t, '*') != null) return .ptr;
-    if (std.mem.indexOf(u8, t, "intptr_t") != null) return .iword;
-    if (std.mem.indexOf(u8, t, "isize") != null) return .iword;
-    if (std.mem.indexOf(u8, t, "size_t") != null) return .word;
-    if (std.mem.indexOf(u8, t, "usize") != null) return .word;
+    if (std.mem.findScalar(u8, t, '*') != null) return .ptr;
+    if (std.mem.find(u8, t, "intptr_t") != null) return .iword;
+    if (std.mem.find(u8, t, "isize") != null) return .iword;
+    if (std.mem.find(u8, t, "size_t") != null) return .word;
+    if (std.mem.find(u8, t, "usize") != null) return .word;
     // `uint32_t` contains `int32_t` as a substring, so the unsigned width must
     // be classified before the signed one.
-    if (std.mem.indexOf(u8, t, "uint32_t") != null) return .uint32;
-    if (std.mem.indexOf(u8, t, "u32") != null) return .uint32;
-    if (std.mem.indexOf(u8, t, "int32_t") != null) return .int32;
-    if (std.mem.indexOf(u8, t, "i32") != null) return .int32;
-    if (std.mem.indexOf(u8, t, "void") != null) return .none;
+    if (std.mem.find(u8, t, "uint32_t") != null) return .uint32;
+    if (std.mem.find(u8, t, "u32") != null) return .uint32;
+    if (std.mem.find(u8, t, "int32_t") != null) return .int32;
+    if (std.mem.find(u8, t, "i32") != null) return .int32;
+    if (std.mem.find(u8, t, "void") != null) return .none;
     return .unknown;
 }
 
@@ -278,7 +278,7 @@ fn extractAnchoredAbi(
     out: *std.StringHashMap([]const u8),
 ) !void {
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, text, search, anchor)) |start| {
+    while (std.mem.findPos(u8, text, search, anchor)) |start| {
         const name_start = start + anchor.len;
         var name_end = name_start;
         while (name_end < text.len and isAbiIdentChar(text[name_end])) name_end += 1;
@@ -286,8 +286,8 @@ fn extractAnchoredAbi(
         const name = text[name_start..name_end];
         if (!std.mem.startsWith(u8, name, prefix)) continue;
         if (name_end >= text.len or text[name_end] != '(') continue;
-        const params_end = std.mem.indexOfScalarPos(u8, text, name_end + 1, ')') orelse continue;
-        const ret_stop = std.mem.indexOfScalarPos(u8, text, params_end + 1, ret_end) orelse continue;
+        const params_end = std.mem.findScalarPos(u8, text, name_end + 1, ')') orelse continue;
+        const ret_stop = std.mem.findScalarPos(u8, text, params_end + 1, ret_end) orelse continue;
         var ret_text = std.mem.trim(u8, text[params_end + 1 .. ret_stop], " \t\r\n");
         if (std.mem.startsWith(u8, ret_text, "->")) ret_text = ret_text[2..];
         const sig = try renderAbiSig(arena, text[name_end + 1 .. params_end], ret_text);
@@ -308,20 +308,20 @@ fn extractCHeaderAbi(
 ) !void {
     const text = try arena.dupe(u8, contents);
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, text, i, "/*")) |open| {
-        const close = std.mem.indexOfPos(u8, text, open + 2, "*/") orelse break;
+    while (std.mem.findPos(u8, text, i, "/*")) |open| {
+        const close = std.mem.findPos(u8, text, open + 2, "*/") orelse break;
         @memset(text[open .. close + 2], ' ');
         i = close + 2;
     }
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, text, search, prefix)) |start| {
+    while (std.mem.findPos(u8, text, search, prefix)) |start| {
         var name_end = start;
         while (name_end < text.len and isAbiIdentChar(text[name_end])) name_end += 1;
         search = name_end;
         if (start > 0 and isAbiIdentChar(text[start - 1])) continue;
         if (name_end >= text.len or text[name_end] != '(') continue;
-        const params_end = std.mem.indexOfScalarPos(u8, text, name_end + 1, ')') orelse continue;
-        const ret_start = if (std.mem.lastIndexOfScalar(u8, text[0..start], ';')) |semi| semi + 1 else 0;
+        const params_end = std.mem.findScalarPos(u8, text, name_end + 1, ')') orelse continue;
+        const ret_start = if (std.mem.findScalarLast(u8, text[0..start], ';')) |semi| semi + 1 else 0;
         const sig = try renderAbiSig(arena, text[name_end + 1 .. params_end], text[ret_start..start]);
         try out.put(text[start..name_end], sig);
     }
@@ -330,8 +330,8 @@ fn extractCHeaderAbi(
 /// The first quoted string in `text` starting at `from`, or null when none
 /// remains. Returns the bytes between the quotes.
 fn nextQuotedString(text: []const u8, from: usize) ?[]const u8 {
-    const open = std.mem.indexOfScalarPos(u8, text, from, '"') orelse return null;
-    const close = std.mem.indexOfScalarPos(u8, text, open + 1, '"') orelse return null;
+    const open = std.mem.findScalarPos(u8, text, from, '"') orelse return null;
+    const close = std.mem.findScalarPos(u8, text, open + 1, '"') orelse return null;
     return text[open + 1 .. close];
 }
 
@@ -528,28 +528,28 @@ fn checkCratePins(
             // Every dependency table carries the word: `[dependencies]`,
             // `[dev-dependencies]`, `[build-dependencies]`, dotted and
             // target-specific forms alike.
-            in_dep_section = std.mem.indexOf(u8, line, "dependencies") != null;
+            in_dep_section = std.mem.find(u8, line, "dependencies") != null;
             // In a dotted table like `[dependencies.iroh]` the dependency is
             // the table itself, so only its `version` key carries the pin.
-            dependency_table = if (std.mem.indexOf(u8, line, "dependencies.")) |start|
+            dependency_table = if (std.mem.find(u8, line, "dependencies.")) |start|
                 std.mem.trim(u8, line[start + "dependencies.".len ..], "]\"")
             else
                 null;
             continue;
         }
         if (!in_dep_section) continue;
-        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const eq = std.mem.findScalar(u8, line, '=') orelse continue;
         const key = std.mem.trim(u8, line[0..eq], " \t");
         if (dependency_table != null and !std.mem.eql(u8, key, "version") and !std.mem.eql(u8, key, "workspace")) continue;
         const value = std.mem.trim(u8, line[eq + 1 ..], " \t");
         const dotted = std.mem.endsWith(u8, key, ".workspace");
         const inherited = ((dotted or std.mem.eql(u8, key, "workspace")) and std.mem.eql(u8, value, "true")) or
-            std.mem.indexOf(u8, value, "workspace = true") != null;
+            std.mem.find(u8, value, "workspace = true") != null;
         const dependency = dependency_table orelse if (dotted) key[0 .. key.len - ".workspace".len] else key;
         // An inline table names its version explicitly; a plain string dep is
         // the version itself. Anything else (git, path, no version) escapes
         // the registry pin and fails the same way.
-        const version = if (std.mem.indexOf(u8, line, "version")) |v|
+        const version = if (std.mem.find(u8, line, "version")) |v|
             nextQuotedString(line, v)
         else
             nextQuotedString(line, eq);
@@ -578,9 +578,9 @@ fn workspacePinned(workspace: []const u8, dependency: []const u8) bool {
             continue;
         }
         if (!in_workspace) continue;
-        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const eq = std.mem.findScalar(u8, line, '=') orelse continue;
         if (!std.mem.eql(u8, std.mem.trim(u8, line[0..eq], " \t\""), dependency)) continue;
-        const version = nextQuotedString(line, std.mem.indexOf(u8, line, "version") orelse eq) orelse return false;
+        const version = nextQuotedString(line, std.mem.find(u8, line, "version") orelse eq) orelse return false;
         return version.len > 1 and version[0] == '=';
     }
     return false;

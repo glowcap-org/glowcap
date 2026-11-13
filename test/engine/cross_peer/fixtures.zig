@@ -132,7 +132,7 @@ pub const RoutingVerifier = struct {
 
     pub fn verify(ctx: ?*anyopaque, payload: []const u8, signature: []const u8) bool {
         const self: *RoutingVerifier = @ptrCast(@alignCast(ctx.?));
-        const label_at = std.mem.indexOf(u8, payload, "desc:handoff-") orelse return false;
+        const label_at = std.mem.find(u8, payload, "desc:handoff-") orelse return false;
         const key = if (std.mem.startsWith(u8, payload[label_at..], "desc:handoff-receive"))
             self.recipient_key
         else

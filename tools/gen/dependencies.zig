@@ -145,7 +145,7 @@ const areas = [_]struct { area: Area, title: []const u8, intro: []const u8 }{
 fn areaFor(path: []const u8, name: []const u8) ?Area {
     if (std.mem.eql(u8, path, "build.zig.zon")) return if (std.mem.eql(u8, name, "vaxis")) .cli else .library;
     if (std.mem.startsWith(u8, path, "transports/") or std.mem.startsWith(u8, path, "tools/deps/")) return .transports;
-    if (std.mem.startsWith(u8, path, "bindings/proofs/") or std.mem.indexOf(u8, path, "/relay/Cargo.toml") != null or
+    if (std.mem.startsWith(u8, path, "bindings/proofs/") or std.mem.find(u8, path, "/relay/Cargo.toml") != null or
         std.mem.eql(u8, path, "bindings/ts/deno.json")) return .validation;
     if (std.mem.startsWith(u8, path, "bindings/")) return .bindings;
     if (std.mem.startsWith(u8, path, "apps/rooms/")) return .rooms;
@@ -234,8 +234,8 @@ fn usage() noreturn {
 
 fn matches(kind: Kind, path: []const u8) bool {
     if (std.mem.endsWith(u8, kind.file, "/")) return std.mem.startsWith(u8, path, kind.file);
-    if (std.mem.indexOfScalar(u8, kind.file, '/') != null) return std.mem.eql(u8, path, kind.file);
-    return std.mem.eql(u8, std.fs.path.basename(path), kind.file);
+    if (std.mem.findScalar(u8, kind.file, '/') != null) return std.mem.eql(u8, path, kind.file);
+    return std.mem.eql(u8, std.Io.Dir.path.basename(path), kind.file);
 }
 
 /// Every manifest path in the tree, sorted so the page is stable.
@@ -285,7 +285,7 @@ fn readManifest(
     for (lines.items, 0..) |line, i| {
         const body = commentText(line, kind.leader) orelse continue;
         if (!std.mem.startsWith(u8, body, "dep ")) continue;
-        const sep = std.mem.indexOf(u8, body, ": ") orelse {
+        const sep = std.mem.find(u8, body, ": ") orelse {
             try report(failed, path, i, "a `dep` comment needs `dep <name>: <purpose>`", .{});
             continue;
         };
@@ -357,11 +357,11 @@ fn cargoDeclarations(gpa: std.mem.Allocator, lines: []const []const u8, out: *st
             continue;
         }
         if (!in_deps or trimmed.len == 0 or trimmed[0] == '#') continue;
-        const eq = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
+        const eq = std.mem.findScalar(u8, trimmed, '=') orelse continue;
         var name = std.mem.trim(u8, trimmed[0..eq], " \"");
         if (std.mem.endsWith(u8, name, ".workspace")) continue;
-        if (std.mem.indexOf(u8, trimmed, "path =") != null or std.mem.indexOf(u8, trimmed, "workspace = true") != null) continue;
-        if (std.mem.indexOfScalar(u8, name, '.')) |dot| name = name[0..dot];
+        if (std.mem.find(u8, trimmed, "path =") != null or std.mem.find(u8, trimmed, "workspace = true") != null) continue;
+        if (std.mem.findScalar(u8, name, '.')) |dot| name = name[0..dot];
         try out.append(gpa, .{ .name = name, .line = i });
     }
 }
@@ -379,11 +379,11 @@ fn denoDeclarations(gpa: std.mem.Allocator, lines: []const []const u8, out: *std
             in_imports = false;
             continue;
         }
-        const colon = std.mem.indexOf(u8, trimmed, "\": \"") orelse continue;
+        const colon = std.mem.find(u8, trimmed, "\": \"") orelse continue;
         const value = trimmed[colon + 4 ..];
         const spec = if (std.mem.startsWith(u8, value, "npm:") or std.mem.startsWith(u8, value, "jsr:")) value[4..] else continue;
         const from: usize = if (std.mem.startsWith(u8, spec, "@")) 1 else 0;
-        const end = std.mem.indexOfAnyPos(u8, spec, from, "@\"") orelse spec.len;
+        const end = std.mem.findAnyPos(u8, spec, from, "@\"") orelse spec.len;
         try out.append(gpa, .{ .name = spec[0..end], .line = i });
     }
 }
@@ -398,7 +398,7 @@ fn zonDeclarations(gpa: std.mem.Allocator, lines: []const []const u8, out: *std.
         }
         if (!in_deps) continue;
         if (!std.mem.startsWith(u8, trimmed, ".") or !std.mem.endsWith(u8, trimmed, "= .{")) continue;
-        const name = std.mem.trim(u8, trimmed[1 .. std.mem.indexOfScalar(u8, trimmed, '=') orelse continue], " ");
+        const name = std.mem.trim(u8, trimmed[1 .. std.mem.findScalar(u8, trimmed, '=') orelse continue], " ");
         var j = i + 1;
         while (j < lines.len) : (j += 1) {
             const inner = std.mem.trim(u8, lines[j], " \t\r");
@@ -423,7 +423,7 @@ fn pythonDeclarations(gpa: std.mem.Allocator, lines: []const []const u8, out: *s
         if (trimmed.len == 0 or trimmed[0] == '#') continue;
         var rest = trimmed;
         if (!in_array) {
-            const eq = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
+            const eq = std.mem.findScalar(u8, trimmed, '=') orelse continue;
             const key = std.mem.trim(u8, trimmed[0..eq], " ");
             const grouped = std.mem.eql(u8, section, "[project.optional-dependencies]") or std.mem.eql(u8, section, "[dependency-groups]");
             if (!grouped and !std.mem.eql(u8, key, "dependencies")) continue;
@@ -432,14 +432,14 @@ fn pythonDeclarations(gpa: std.mem.Allocator, lines: []const []const u8, out: *s
             in_array = true;
         }
         var at: usize = 0;
-        while (std.mem.indexOfScalarPos(u8, rest, at, '"')) |open| {
-            const close = std.mem.indexOfScalarPos(u8, rest, open + 1, '"') orelse break;
+        while (std.mem.findScalarPos(u8, rest, at, '"')) |open| {
+            const close = std.mem.findScalarPos(u8, rest, open + 1, '"') orelse break;
             const requirement = rest[open + 1 .. close];
-            const end = std.mem.indexOfAny(u8, requirement, "<>=!~[; ") orelse requirement.len;
+            const end = std.mem.findAny(u8, requirement, "<>=!~[; ") orelse requirement.len;
             try out.append(gpa, .{ .name = requirement[0..end], .line = i });
             at = close + 1;
         }
-        if (std.mem.indexOfScalar(u8, rest, ']') != null) in_array = false;
+        if (std.mem.findScalar(u8, rest, ']') != null) in_array = false;
     }
 }
 
@@ -447,7 +447,7 @@ fn submoduleDeclarations(gpa: std.mem.Allocator, lines: []const []const u8, out:
     for (lines, 0..) |line, i| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
         if (!std.mem.startsWith(u8, trimmed, "[submodule \"")) continue;
-        const name = trimmed["[submodule \"".len .. std.mem.lastIndexOfScalar(u8, trimmed, '"') orelse continue];
+        const name = trimmed["[submodule \"".len .. std.mem.findScalarLast(u8, trimmed, '"') orelse continue];
         try out.append(gpa, .{ .name = name, .line = i });
     }
 }

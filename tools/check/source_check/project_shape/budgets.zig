@@ -61,7 +61,7 @@ pub fn checkFootprintBudgetQuotes(
         };
         defer gpa.free(source);
 
-        const at = std.mem.indexOf(u8, source, fact.decl) orelse {
+        const at = std.mem.find(u8, source, fact.decl) orelse {
             try appendViolation(gpa, violations, "{s}: `{s}…` is gone, so nothing derives the {s} the docs quote", .{ fact.source_path, fact.decl, fact.label });
             continue;
         };
@@ -80,12 +80,12 @@ pub fn checkFootprintBudgetQuotes(
                 continue;
             };
             defer gpa.free(contents);
-            const claim = std.mem.indexOf(u8, contents, quote.anchor) orelse {
+            const claim = std.mem.find(u8, contents, quote.anchor) orelse {
                 try appendViolation(gpa, violations, "{s}: has no `{s}…` phrase stating the {s}, so nothing here is anchored to {s}", .{ quote.path, quote.anchor, fact.label, fact.source_path });
                 continue;
             };
             const stated = contents[claim + quote.anchor.len ..];
-            const needle = try std.fmt.allocPrint(gpa, "{s}{s}", .{ number, quote.suffix });
+            const needle = try gpa.print("{s}{s}", .{ number, quote.suffix });
             defer gpa.free(needle);
             if (!std.mem.startsWith(u8, stated, needle)) {
                 const shown = stated[0..@min(stated.len, 20)];

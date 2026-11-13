@@ -29,7 +29,7 @@ test "libglowcap_host: a verb off the owning thread is refused WrongThread" {
     thread.join();
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, foreign.code);
     const text = foreign.last_error[0..@min(foreign.last_error_len, foreign.last_error.len)];
-    try std.testing.expect(std.mem.indexOf(u8, text, "WrongThread") != null);
+    try std.testing.expect(std.mem.find(u8, text, "WrongThread") != null);
 
     // The owner keeps driving after the refusal.
     try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, host.glowcap_host_next_action(owned, &action));
