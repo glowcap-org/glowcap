@@ -301,10 +301,9 @@ async def _iroh_readiness_failure_settles_waiters_exactly() -> None:
     writable = loop.wait_writable(connection)
     dial = asyncio.get_running_loop().create_future()
     loop._dials[11] = dial
-    accepted = loop.next_accept()
     loop._on_ready()
     assert loop.failure is failure, "iroh loop replaced its readiness failure"
-    for waiter in (readable, writable, dial, accepted):
+    for waiter in (readable, writable, dial):
         try:
             await waiter
         except BaseException as observed:
@@ -312,7 +311,7 @@ async def _iroh_readiness_failure_settles_waiters_exactly() -> None:
         else:
             raise AssertionError("iroh readiness failure became a clean close")
 
-    future = loop.next_accept()
+    future = loop.wait_readable(connection)
     try:
         await future
     except BaseException as observed:

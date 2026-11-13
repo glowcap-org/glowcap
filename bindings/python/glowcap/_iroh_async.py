@@ -73,7 +73,7 @@ class _IrohLoop:
 
     It registers the netlayer's single readiness fd with the asyncio event loop
     (:meth:`asyncio.loop.add_reader`) and, when the fd signals, drains the pending
-    readiness records and fans each out to the connection (or accept) waiting on
+    readiness records and fans each out to the connection waiting on
     it. Everything runs on the one event-loop thread, no dedicated thread, no
     cross-thread posting, and because the drain touches only the endpoint, never
     a per-connection buffer, a connection can be released at any time without
@@ -89,8 +89,6 @@ class _IrohLoop:
         self._conns: dict[int, _ConnWaiters] = {}
         self._dials: dict[int, asyncio.Future] = {}
         self._next_request = 1
-        self._accept_waiter: asyncio.Future | None = None
-        self._accept_pending = 0
         self._closed = False
         self._failure: BaseException | None = None
         self._fd = -1
@@ -161,21 +159,6 @@ class _IrohLoop:
             w.writable = fut
         return fut
 
-    def next_accept(self) -> asyncio.Future:
-        """A future resolving ``True`` when an accepted connection may be claimed,
-        ``False`` on close."""
-        fut = asyncio.get_running_loop().create_future()
-        if self._failure is not None:
-            fut.set_exception(self._failure)
-        elif self._closed:
-            fut.set_result(False)
-        elif self._accept_pending > 0:
-            self._accept_pending -= 1
-            fut.set_result(True)
-        else:
-            self._accept_waiter = fut
-        return fut
-
     @property
     def failure(self) -> BaseException | None:
         """The exact readiness-dispatch failure, if the endpoint faulted."""
@@ -201,14 +184,6 @@ class _IrohLoop:
             if not fut.done():
                 fut.set_exception(failure or GlowcapError(_ERR_CLOSED, "iroh loop closed"))
         self._dials.clear()
-        if self._accept_waiter is not None:
-            a = self._accept_waiter
-            self._accept_waiter = None
-            if not a.done():
-                if failure is not None:
-                    a.set_exception(failure)
-                else:
-                    a.set_result(False)
 
     def _wake_closed(self, w: _ConnWaiters, failure: BaseException | None = None) -> None:
         w.closed = True
@@ -242,13 +217,7 @@ class _IrohLoop:
 
     def _dispatch(self, subject: int, events: int) -> None:
         if events & _IROH_EV_ACCEPT:
-            if self._accept_waiter is not None:
-                a = self._accept_waiter
-                self._accept_waiter = None
-                if not a.done():
-                    a.set_result(True)
-            else:
-                self._accept_pending += 1
+            # An accept record carries no connection for this loop to route.
             return
         if events & _IROH_EV_CONNECT:
             fut = self._dials.pop(subject, None)

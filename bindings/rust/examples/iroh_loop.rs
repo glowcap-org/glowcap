@@ -12,7 +12,7 @@
 //! at once.
 //!
 //! It exercises the whole loop surface live through the binding: the readiness
-//! fd, the records `drain_ready` returns, non-blocking `try_accept`, and
+//! fd, the records `drain_ready` returns, the server's `accept`, and
 //! `try_read` / `try_write` with their `WOULD_BLOCK` re-arming. Teardown is
 //! non-blocking by construction: no parked read races a release.
 //!

@@ -6,8 +6,8 @@
 // Zig alone owns the CapTP wire codecs and protocol semantics.
 // All of this is package-internal: the peer/vat/connection
 // modules import what they need (`encodeArgs`, `readArg`, `readArgArray`,
-// `refStruct`, `readReference`); the barrel exposes none of it. `encodeArg` and
-// `writeReference` are module-private, used only by their exported wrappers.
+// `refStruct`); the barrel exposes none of it. `encodeArg`, `readReference`,
+// and `writeReference` are module-private, used only by their exported wrappers.
 
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { L } from "./internal/layout.ts";
@@ -172,7 +172,7 @@ function encodeStructEntries(
 	return buf;
 }
 
-export function readReference(view: DataView, off: number): Ref {
+function readReference(view: DataView, off: number): Ref {
 	return refFromId(view.getBigUint64(off + L.REF_ID_OFF, true));
 }
 

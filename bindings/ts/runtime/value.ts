@@ -123,7 +123,7 @@ export interface SessionProfile {
 
 const MAX_U32 = 0xffff_ffff;
 
-export function codecFromId(codec: number, source = "generated default"): Codec {
+function codecFromId(codec: number, source = "generated default"): Codec {
 	if (codec === CODEC_SYRUP) return "syrup";
 	if (codec === CODEC_CAPNP) return "capnp";
 	if (source === "generated default") {
@@ -132,7 +132,7 @@ export function codecFromId(codec: number, source = "generated default"): Codec 
 	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown ${source} codec ${String(codec)}`);
 }
 
-export function captpVersionFromId(version: number, source = "generated default"): CaptpVersion {
+function captpVersionFromId(version: number, source = "generated default"): CaptpVersion {
 	if (version === CAPTP_V1_0) return "v1_0";
 	if (version === CAPTP_NEXT) return "next";
 	if (source === "generated default") {
