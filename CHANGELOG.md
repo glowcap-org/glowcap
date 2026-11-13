@@ -86,6 +86,19 @@ Releases before 0.1.7 are in the
 - ocapnviz Build mode shows text as it is typed. Fields such as a peer's
   label and a message's label dropped each key until the field lost focus,
   and then kept only the last one.
+- ocapnviz Build mode shows a moment changed in a recording that holds
+  several sources. The viewer kept the list of moments it had read before
+  the edit, and drew the moment as it was.
+- A recording kept from ocapnviz Live names no address. Its description held
+  the trace link the viewer had dialed, and that link lets its holder watch
+  the server, so a saved or shared recording carried it.
+- ocapnviz reads an id such as `constructor` or `toString` as any other id.
+  Looking up such an id found what every JavaScript object inherits under
+  that name, and the viewer took it for a peer, session, or message of the
+  recording. The id `__proto__` is refused with the reason wherever an id
+  enters a recording.
+- ocapnviz opens a recording of several sources where one source holds a
+  very large number of observations. It failed with a call-stack error.
 - A connection reads what its peer sent before glowcap finished opening it.
   Over WebRTC, a first message that arrived that early stayed unread, and the
   session timed out in its handshake.

@@ -43,6 +43,7 @@ import { isInSelection, peerInfo, sessionInfo } from "./entity-info.ts";
 import { sessionEndName } from "../session-name.ts";
 import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 import { SessionEndFields, SessionEndNames } from "./session-end-fields.tsx";
+import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 export function SessionFields(
 	{ engine, id, editor }: {
@@ -56,7 +57,7 @@ export function SessionFields(
 	const live = findSession(engine.world, id);
 	const openedEv = findSessionOpenedEvent(engine.doc, id);
 	const closedEv = findSessionClosedEvent(engine.doc, id);
-	const def = engine.doc.entities?.sessions?.[id];
+	const def = ownEntry(engine.doc.entities?.sessions, id);
 	if (!live && !def) return <Unknown kind="session" id={id} />;
 
 	// Where each end sits at the playhead, and whether anything attributed
@@ -368,7 +369,7 @@ export function SessionConnections(
 ) {
 	const s = sessionInfo(engine, id);
 	if (!s) return null;
-	const def = engine.doc.entities?.sessions?.[id];
+	const def = ownEntry(engine.doc.entities?.sessions, id);
 	return (
 		<div style={linkRowList}>
 			{SESSION_SIDES.map((side) => {

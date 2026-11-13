@@ -491,7 +491,7 @@ export function sessionTrajectoryRows(
 	sessionId: string,
 ): SessionMoment[] {
 	const out: SessionMoment[] = [];
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		const moment = sessionMomentOf(ev);
 		if (moment === null || moment.sessionId !== sessionId) continue;
 		const spec = SESSION_TRAJECTORY[moment.property];

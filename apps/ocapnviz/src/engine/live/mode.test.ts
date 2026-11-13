@@ -2,7 +2,9 @@ import { assert, assertEquals } from "@std/assert";
 import { Engine } from "../engine.ts";
 import { engineTest } from "../engine-test/harness.ts";
 import { makeBaseEventConverter } from "./feed.ts";
-import { claimRecording, emptyCaptureError, makeLiveAppender } from "./mode.ts";
+import { claimRecording, emptyCaptureError, makeLiveAppender, startLiveMode } from "./mode.ts";
+import { saveStampedDoc } from "../../builder/document-io.ts";
+import type { LivePeerFactory } from "./connection.ts";
 import { findPeer, findSession } from "../world.ts";
 import type { TimelineDocument } from "../timeline.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
@@ -474,4 +476,35 @@ Deno.test("claimRecording: the claim owns its observations", () => {
 		"an arrival after the claim reached the claimed recording",
 	);
 	assertEquals(primaryObservations(doc).length, 2);
+});
+
+Deno.test("a saved recording holds no part of the link it was captured with", async () => {
+	const marker = "SECRET-SWISSNUM-MARKER";
+	const link = `ocapn://node.keyed-tcp?h=127.0.0.1:9/s/${marker}`;
+	const records: Array<(line: string) => void> = [];
+	const factory: LivePeerFactory = (_ref, onRecord) => {
+		records.push(onRecord);
+		return Promise.resolve({ closed: new Promise<void>(() => {}), close: () => Promise.resolve() });
+	};
+	const handle = startLiveMode({ sturdyref: link, peerFactory: factory });
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	const record = records[0];
+	if (record === undefined) throw new Error("the dial must reach the peer factory");
+	record(JSON.stringify({
+		v: 1,
+		sim_t_ns: 5_000_000,
+		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
+		session: "alice--bob",
+		a: "alice",
+		b: "bob",
+		codec: "syrup",
+	}));
+	const claimed = claimRecording(handle.engine.doc, "claimed");
+	handle.dispose();
+	assert(claimed !== null, "the capture must hold an observation");
+	const saved = JSON.stringify(saveStampedDoc(claimed, "2026-01-01T00:00:00.000Z"), null, 2);
+	assertEquals(saved.includes(marker), false);
+	assertEquals(saved.includes("ocapn://"), false);
 });

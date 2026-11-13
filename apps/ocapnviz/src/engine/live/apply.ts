@@ -18,6 +18,21 @@ import {
 	stringFromWire,
 } from "./record.ts";
 
+/** The values of a raw record that become ids on the stage: the producer's
+ *  session handle, both ends, a message's own ends, and the session's wire
+ *  name. `convertEvent` refuses a reserved id among them before it changes
+ *  any state. `feed-test/reserved-fields.test.ts` sets each string field of
+ *  each record kind to the reserved id, so a field `applyEvent` reads as an
+ *  id and this list leaves out fails there. */
+export function idValuesOf(ev: BaseTimelineEvent): string[] {
+	const ids: string[] = [];
+	for (const field of [ev.session, ev.a, ev.b, ev.src, ev.dst, ev.session_id]) {
+		const id = stringFromWire(field);
+		if (id !== undefined) ids.push(id);
+	}
+	return ids;
+}
+
 export function applyEvent(
 	ev: BaseTimelineEvent,
 	state: {

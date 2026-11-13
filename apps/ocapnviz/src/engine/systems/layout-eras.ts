@@ -12,7 +12,7 @@
  * are recorded on `KeyframeLayoutSystem` and in `docs/era-collapse.md`.
  */
 
-import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
+import type { TimelineDocument } from "../timeline.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
 import { peerEffective, sessionEffective } from "../temporal/doc-resolver.ts";
 import { claimsOnStage, sessionEnds } from "../claims.ts";
@@ -356,7 +356,7 @@ function computeAuthoredEra(
 ): Era[] {
 	const pins = authoredPins(doc);
 	const layout: Layout = new Map(pins);
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind !== "peer-joined") continue;
 		if (layout.has(ev.peerId)) continue;
 		layout.set(ev.peerId, { x: 0, y: 0 });

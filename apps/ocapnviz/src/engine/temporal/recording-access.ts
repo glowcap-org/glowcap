@@ -52,6 +52,10 @@ type Flattened = {
 	 *  Identity catches a source replaced wholesale. The length catches a live
 	 *  feed, which appends to the array it already has. */
 	readonly from: readonly { arr: readonly Observation[]; len: number }[];
+	/** The document's entities at the build. An authoring edit can replace one
+	 *  observation with another, which changes neither a source's identity
+	 *  nor its length, and every authoring path then swaps `doc.entities`. */
+	readonly entities: TimelineDocument["entities"];
 };
 
 const flattenedByRecording = new WeakMap<
@@ -62,7 +66,9 @@ const flattenedByRecording = new WeakMap<
 function stillDescribes(
 	memo: Flattened,
 	sources: readonly RecordingSource[],
+	entities: TimelineDocument["entities"],
 ): boolean {
+	if (memo.entities !== entities) return false;
 	if (memo.from.length !== sources.length) return false;
 	return memo.from.every((was, i) => {
 		const now = sources[i]!.observations;
@@ -82,7 +88,8 @@ function stillDescribes(
  *  frame forever. The single-source doc, every fixture, every live capture,
  *  gets it for free, because the flattening of one list is that list. Several
  *  sources are flattened once and the result held against the arrays it was
- *  built from, so a source appended to or swapped out is flattened again and
+ *  built from and the entities the document had, so a source appended to or
+ *  swapped out, or an edit that swapped the entities, is flattened again and
  *  nothing else is.
  *
  *  What it does NOT cover is an observation mutated in place, which changes
@@ -98,15 +105,22 @@ export function observationsOf(doc: TimelineDocument): readonly Observation[] {
 	const sources = recording.sources;
 	if (sources.length === 1) return sources[0]!.observations;
 	const memo = flattenedByRecording.get(recording);
-	if (memo !== undefined && stillDescribes(memo, sources)) return memo.view;
+	if (memo !== undefined && stillDescribes(memo, sources, doc.entities)) {
+		return memo.view;
+	}
 	const view: Observation[] = [];
-	for (const src of sources) view.push(...src.observations);
+	// Spreading a source into `push` puts every element on the call stack,
+	// which throws a RangeError once a source holds on the order of 100,000.
+	for (const src of sources) {
+		for (const observation of src.observations) view.push(observation);
+	}
 	flattenedByRecording.set(recording, {
 		view,
 		from: sources.map((s) => ({
 			arr: s.observations,
 			len: s.observations.length,
 		})),
+		entities: doc.entities,
 	});
 	return view;
 }

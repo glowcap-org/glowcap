@@ -12,13 +12,15 @@
 
 import { nodeKindOf } from "../../schema/session-end.ts";
 import type { CaptpVersion, Codec, SessionState } from "../../schema/topology.ts";
-import { collisionError, notFoundError, validationError } from "../errors.ts";
+import { collisionError, notFoundError, reservedIdError, validationError } from "../errors.ts";
+import { isReservedEntityId } from "../../schema/entity-id.ts";
 import { defineMessage, definePeer, defineSession } from "../entities.ts";
 import { type BuilderIntent, DEFAULT_MESSAGE_FLIGHT_MS } from "../intents.ts";
 import { explicitBound, implicitBound } from "../temporal/bound.ts";
 import type { TimeSpan } from "../temporal/time-span.ts";
 import type { AuthoringContext } from "./context.ts";
 import { commitEntityAuthoring } from "./events.ts";
+import { hasEntry } from "../schema/entity-maps.ts";
 
 /** Defaults for an `open-session` intent that didn't pin them. */
 const DEFAULT_SESSION_CODEC: Codec = "capnp";
@@ -35,7 +37,11 @@ export function spawnPeer(
 	// `rename-*` paths' UX.
 	let peerId: string;
 	if (intent.id !== undefined && intent.id.length > 0) {
-		if (ctx.doc.entities?.peers?.[intent.id] !== undefined) {
+		if (isReservedEntityId(intent.id)) {
+			ctx.emitError(reservedIdError(intent.id));
+			return undefined;
+		}
+		if (hasEntry(ctx.doc.entities?.peers, intent.id)) {
 			ctx.emitError(collisionError("peer", intent.id));
 			return undefined;
 		}
@@ -85,7 +91,7 @@ export function spawnSession(
 	for (const end of [intent.a, intent.b]) {
 		const peer = end.peer;
 		if (peer === undefined) continue;
-		if (ctx.doc.entities?.peers?.[peer] !== undefined) continue;
+		if (hasEntry(ctx.doc.entities?.peers, peer)) continue;
 		ctx.emitError(
 			nodeKindOf(peer) === "endpoint"
 				? validationError(

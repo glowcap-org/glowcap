@@ -6,7 +6,7 @@
 import { assertEquals } from "@std/assert";
 import { endpointStageId } from "../../schema/session-end.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
-import { TimelineDocument, type TimelineEvent } from "../timeline.ts";
+import { TimelineDocument } from "../timeline.ts";
 import {
 	clearEndpointPositionOnDoc,
 	clearPeerPositionOnDoc,
@@ -54,7 +54,7 @@ function pinDoc(): TimelineDocument {
 }
 
 function joinedPosition(doc: TimelineDocument, peerId: string) {
-	for (const ev of observationsOf(doc) as TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "peer-joined" && ev.peerId === peerId) {
 			return ev.position;
 		}

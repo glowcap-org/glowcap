@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGestureSurface } from "../interactions/use-gesture-surface.ts";
+import { releasePointerCaptureIfHeld } from "./pointer-capture.ts";
 
 export type ResizeAxis = "x" | "y";
 
@@ -124,11 +125,7 @@ export function useResizeHandle(
 	const onPointerUp = useCallback(
 		(event: React.PointerEvent<HTMLDivElement>) => {
 			if (surface.pointer() !== event.pointerId) return;
-			try {
-				event.currentTarget.releasePointerCapture(event.pointerId);
-			} catch {
-				// capture may already be released
-			}
+			releasePointerCaptureIfHeld(event.currentTarget, event.pointerId);
 			endDrag();
 		},
 		[surface, endDrag],

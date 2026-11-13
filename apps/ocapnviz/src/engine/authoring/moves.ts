@@ -12,6 +12,7 @@ import { implicitBound } from "../temporal/bound.ts";
 import { notFoundError, validationError } from "../errors.ts";
 import type { AuthoringContext } from "./context.ts";
 import { commitMoves, type MovePatch, occupiedMoment, type PlannedMove } from "./move-commit.ts";
+import { ownEntry } from "../schema/entity-maps.ts";
 
 /** Drag gesture against an event. Each variant encodes exactly the
  *  inputs that gesture needs, no booleans that "only matter for
@@ -129,7 +130,7 @@ export function moveEvent(
 			(e) => e.kind === "message-delivered" && e.messageId === ev.messageId,
 		);
 		if (delivered) moves.push({ ev: delivered, newT: newArrivalT });
-		const def = ctx.doc.entities?.messages?.[ev.messageId];
+		const def = ownEntry(ctx.doc.entities?.messages, ev.messageId);
 		if (def?.timing) {
 			const eff = messageEffective(ctx.doc, ev.messageId);
 			// Translate dt is measured against the painted start, not the
@@ -179,7 +180,7 @@ export function moveEvent(
 				}
 			}
 		}
-		const def = ctx.doc.entities?.peers?.[ev.peerId];
+		const def = ownEntry(ctx.doc.entities?.peers, ev.peerId);
 		if (def?.timing) {
 			const eff = peerEffective(ctx.doc, ev.peerId);
 			// Painted-start dt for the span patch; see the message branch.
@@ -204,7 +205,7 @@ export function moveEvent(
 		}
 		const newT = intent.newT;
 		moves.push({ ev, newT });
-		const def = ctx.doc.entities?.peers?.[ev.peerId];
+		const def = ownEntry(ctx.doc.entities?.peers, ev.peerId);
 		if (def?.timing) {
 			const eff = peerEffective(ctx.doc, ev.peerId);
 			patches.push({
@@ -252,7 +253,7 @@ export function moveEvent(
 				}
 			}
 		}
-		const def = ctx.doc.entities?.sessions?.[ev.sessionId];
+		const def = ownEntry(ctx.doc.entities?.sessions, ev.sessionId);
 		if (def?.timing) {
 			const eff = sessionEffective(ctx.doc, ev.sessionId);
 			// Painted-start dt for the span patch; see the message branch.
@@ -277,7 +278,7 @@ export function moveEvent(
 		}
 		const newT = intent.newT;
 		moves.push({ ev, newT });
-		const def = ctx.doc.entities?.sessions?.[ev.sessionId];
+		const def = ownEntry(ctx.doc.entities?.sessions, ev.sessionId);
 		if (def?.timing) {
 			const eff = sessionEffective(ctx.doc, ev.sessionId);
 			patches.push({
@@ -342,7 +343,7 @@ export function moveEntitySpan(
 	}
 
 	if (ref.kind === "peer") {
-		const def = ctx.doc.entities?.peers?.[ref.id];
+		const def = ownEntry(ctx.doc.entities?.peers, ref.id);
 		if (!def) {
 			ctx.emitError(notFoundError("peer", ref.id));
 			return;
@@ -399,7 +400,7 @@ export function moveEntitySpan(
 			});
 		}
 	} else {
-		const def = ctx.doc.entities?.sessions?.[ref.id];
+		const def = ownEntry(ctx.doc.entities?.sessions, ref.id);
 		if (!def) {
 			ctx.emitError(notFoundError("session", ref.id));
 			return;

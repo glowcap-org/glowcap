@@ -37,6 +37,7 @@ import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 import type { Codec } from "../../schema/topology.ts";
 import { UNNAMED_PROFILE } from "../../schema/topology.ts";
 import type { Observation } from "../../engine/temporal/recording.ts";
+import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /** The part of a `message-sent` observation the Payload group reads.
  *  Taken from the schema rather than restated, so a field that moves
@@ -94,7 +95,7 @@ export function MessageFields(
 	const durationScrub = useScrubBracket(editor, "Message duration");
 	const live = findMessageInFlight(engine, id)?.messageInFlight;
 	const sentEv = findMessageInDoc(engine.doc, id);
-	const def = engine.doc.entities?.messages?.[id];
+	const def = ownEntry(engine.doc.entities?.messages, id);
 	if (!live && !sentEv && !def) return <Unknown kind="message" id={id} />;
 
 	const label = live?.label ?? def?.label;

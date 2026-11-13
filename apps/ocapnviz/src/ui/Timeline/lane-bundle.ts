@@ -49,12 +49,8 @@ import { keyframeAt, type KeyframeTrack } from "../../engine/temporal/keyframes.
 import { momentOf } from "../../engine/event-helpers.ts";
 import { PEER_TRAJECTORY, peerUpdateStates } from "../../engine/trajectory.ts";
 import type { SessionState } from "../../schema/topology.ts";
-import type { Theme } from "../tokens.ts";
-
-/** 0xRRGGBB → 6-digit `#rrggbb` CSS string. */
-export function hex(n: number): string {
-	return `#${n.toString(16).padStart(6, "0")}`;
-}
+import { hex, type Theme } from "../tokens.ts";
+import { hasEntry, ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /**
  * One contiguous time span on a lane (peer alive, session open,
@@ -327,7 +323,7 @@ export function buildLaneBundle(
 	// upper edge; we clip to `duration` for paint so the open-edge
 	// pill stretches to the visible end of the doc.
 	for (const peerId of rowIds.peers) {
-		const def = entities?.peers?.[peerId];
+		const def = ownEntry(entities?.peers, peerId);
 		if (!def) continue;
 		const eff = peerEffective(doc, peerId);
 		const open = !Number.isFinite(eff.end);
@@ -366,7 +362,7 @@ export function buildLaneBundle(
 	// Sessions: span = sessionEffective(doc, id). Same open-edge
 	// treatment when end inherits past the doc's tail.
 	for (const sessionId of rowIds.sessions) {
-		const def = entities?.sessions?.[sessionId];
+		const def = ownEntry(entities?.sessions, sessionId);
 		if (!def) continue;
 		const eff = sessionEffective(doc, sessionId);
 		const open = !Number.isFinite(eff.end);
@@ -400,7 +396,7 @@ export function buildLaneBundle(
 	// have explicit duration (per `projectFromObservations`), so
 	// effective.end is finite as long as the parent session resolves.
 	for (const messageId of rowIds.messages) {
-		const def = entities?.messages?.[messageId];
+		const def = ownEntry(entities?.messages, messageId);
 		if (!def) continue;
 		const eff = messageEffective(doc, messageId);
 		const open = !Number.isFinite(eff.end);
@@ -438,7 +434,7 @@ export function buildLaneBundle(
 		// profile color, so its tone is chosen against that fill. A
 		// glyph whose peer is undeclared has no pill under it and takes
 		// the chrome tone instead.
-		const profile = entities?.peers?.[ev.peerId] === undefined ? undefined : peerProfileAt(doc, ev.peerId, ev.t);
+		const profile = !hasEntry(entities?.peers, ev.peerId) ? undefined : peerProfileAt(doc, ev.peerId, ev.t);
 		const glyph: LaneGlyph = {
 			t: momentEffective(doc, "peers", ev.peerId, ev.t),
 			shape: "diamond",

@@ -22,6 +22,7 @@
  */
 
 import { z } from "zod";
+import { EntityId } from "../../schema/entity-id.ts";
 import { Provenance } from "../../schema/provenance.ts";
 import { CaptpVersion, Codec, PeerProfile, SessionState, Transport } from "../../schema/topology.ts";
 import { EndpointAttribution, SessionEndpoint, SessionSide } from "../../schema/session-end.ts";
@@ -51,7 +52,7 @@ export type Position = z.infer<typeof Position>;
 const PeerJoinedObs = z.object({
 	...observationBase,
 	kind: z.literal("peer-joined"),
-	peerId: z.string().min(1),
+	peerId: EntityId,
 	label: z.string().optional(),
 	profile: PeerProfile,
 	designator: z.string().optional(),
@@ -64,7 +65,7 @@ const PeerJoinedObs = z.object({
 const PeerLeftObs = z.object({
 	...observationBase,
 	kind: z.literal("peer-left"),
-	peerId: z.string().min(1),
+	peerId: EntityId,
 });
 
 /** The viewer stopped being able to see this peer. Its row ends
@@ -79,13 +80,13 @@ const PeerLeftObs = z.object({
 const PeerUnobservedObs = z.object({
 	...observationBase,
 	kind: z.literal("peer-unobserved"),
-	peerId: z.string().min(1),
+	peerId: EntityId,
 });
 
 const SessionOpenedObs = z.object({
 	...observationBase,
 	kind: z.literal("session-opened"),
-	sessionId: z.string().min(1),
+	sessionId: EntityId,
 	/** The session's two ends. Either may be loose, a claim nothing
 	 *  proved, attached to no peer, which is why these are endpoints and
 	 *  not bare peer ids. An authored scenario writes a
@@ -103,14 +104,14 @@ const SessionOpenedObs = z.object({
 const SessionStateChangedObs = z.object({
 	...observationBase,
 	kind: z.literal("session-state-changed"),
-	sessionId: z.string().min(1),
+	sessionId: EntityId,
 	state: SessionState,
 });
 
 const SessionClosedObs = z.object({
 	...observationBase,
 	kind: z.literal("session-closed"),
-	sessionId: z.string().min(1),
+	sessionId: EntityId,
 });
 
 /** The viewer stopped being able to see this session. Its row ends
@@ -125,7 +126,7 @@ const SessionClosedObs = z.object({
 const SessionUnobservedObs = z.object({
 	...observationBase,
 	kind: z.literal("session-unobserved"),
-	sessionId: z.string().min(1),
+	sessionId: EntityId,
 });
 
 /** Something backed the claim on one end of a session already drawn,
@@ -146,10 +147,10 @@ const SessionUnobservedObs = z.object({
 const SessionEndpointAttributedObs = z.object({
 	...observationBase,
 	kind: z.literal("session-endpoint-attributed"),
-	sessionId: z.string().min(1),
+	sessionId: EntityId,
 	/** Which end. The same two names `session-opened` gives them. */
 	side: SessionSide,
-	peerId: z.string().min(1),
+	peerId: EntityId,
 	/** What backed the claim, when anything did.
 	 *
 	 *  The pair it states with `peerId` is what the keyframe track carries
@@ -176,8 +177,8 @@ const SessionEndpointAttributedObs = z.object({
 const MessageSentObs = z.object({
 	...observationBase,
 	kind: z.literal("message-sent"),
-	messageId: z.string().min(1),
-	sessionId: z.string().min(1),
+	messageId: EntityId,
+	sessionId: EntityId,
 	from: z.string().min(1),
 	to: z.string().min(1),
 	arrivalT: z.number().nonnegative().finite(),
@@ -211,7 +212,7 @@ const MessageSentObs = z.object({
 const PeerUpdatedObs = z.object({
 	...observationBase,
 	kind: z.literal("peer-updated"),
-	peerId: z.string().min(1),
+	peerId: EntityId,
 	label: z.string().optional(),
 	/** The implementation the peer is known by from here on.
 	 *
@@ -233,7 +234,7 @@ const PeerUpdatedObs = z.object({
 const MessageDeliveredObs = z.object({
 	...observationBase,
 	kind: z.literal("message-delivered"),
-	messageId: z.string().min(1),
+	messageId: EntityId,
 });
 
 export const Observation = z.discriminatedUnion("kind", [

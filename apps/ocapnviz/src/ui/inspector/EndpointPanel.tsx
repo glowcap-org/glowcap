@@ -41,6 +41,7 @@ import { Identifier } from "../identifier.tsx";
 import { useEngineVersion } from "../useEngineVersion.ts";
 import { isInSelection, peerInfo, sessionInfo } from "./entity-info.ts";
 import type { EntityRefKey } from "../../interactions/entity-ref.ts";
+import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /** What the document and the world know about one loose end. Null when the
  *  id does not name an end of a declared session, which is what an
@@ -48,7 +49,7 @@ import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 function endpointInfo(engine: Engine, id: string) {
 	const at = parseEndpointStageId(id);
 	if (!at) return null;
-	const def = engine.doc.entities?.sessions?.[at.sessionId];
+	const def = ownEntry(engine.doc.entities?.sessions, at.sessionId);
 	if (!def) return null;
 	const live = findEndpoint(engine.world, id);
 	return {
@@ -100,7 +101,7 @@ function EndpointPositionLiveRow(
 	// at the pre-drag point for the whole gesture.
 	const atEnd = parseEndpointStageId(id);
 	const pinned = atEnd
-		? engine.doc.entities?.sessions?.[atEnd.sessionId]
+		? ownEntry(engine.doc.entities?.sessions, atEnd.sessionId)
 			?.endpointPosition?.[atEnd.side] ?? null
 		: null;
 	const live = findEndpoint(engine.world, id);

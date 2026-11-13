@@ -26,7 +26,6 @@ import {
 	UNATTRIBUTED_WORD,
 } from "../../schema/session-end.ts";
 import { scenarios } from "../../fixtures/index.ts";
-import type { TimelineEvent } from "../../engine/timeline.ts";
 import { observationsOf } from "../../engine/temporal/recording-access.ts";
 import {
 	ATTRIBUTION_LADDER,
@@ -183,7 +182,7 @@ Deno.test("no recording claims a proof its transport could not have made", () =>
 	// trace and is the producer's own answer, but nothing on that path ever reads
 	// a fixture, so the fixtures answer to this instead.
 	for (const doc of scenarios) {
-		for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		for (const ev of observationsOf(doc)) {
 			if (ev.kind !== "session-opened") continue;
 			const transport = ev.transport;
 			// A netlayer this build has never heard of has no row to check against,

@@ -13,7 +13,7 @@ import type { EntityKind } from "./refs.ts";
 import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef } from "./edges.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
 import { type ClipboardEntities, type ClipboardPayload, type ExternalRef } from "./clipboard.ts";
-import { entityMapIn } from "./entity-maps.ts";
+import { entityMapIn, ownEntry } from "./entity-maps.ts";
 
 /** Selection input: which entity ids are being copied, by kind. */
 export type Selection = {
@@ -30,7 +30,7 @@ function pick<D>(
 	if (!map) return undefined;
 	const out: Record<string, D> = {};
 	for (const id of ids) {
-		const def = map[id];
+		const def = ownEntry(map, id);
 		if (def) out[id] = def;
 	}
 	return Object.keys(out).length > 0 ? out : undefined;

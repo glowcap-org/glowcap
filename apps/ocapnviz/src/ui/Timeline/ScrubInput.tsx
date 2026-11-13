@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useGestureSurface } from "../../interactions/use-gesture-surface.ts";
 import { FONT, SIZE } from "../tokens.ts";
+import { releasePointerCaptureIfHeld } from "../pointer-capture.ts";
 
 const SCRUB_INPUT_SURFACE_TAG = "ui-scrub-input";
 // Chrome lives in `.ocv-input.is-numeric` in controls.css, the input
@@ -366,7 +367,7 @@ export function ScrubInput(
 			const drag = dragRef.current;
 			if (!drag) return;
 			const wasScrub = drag.moved;
-			e.currentTarget.releasePointerCapture(e.pointerId);
+			releasePointerCaptureIfHeld(e.currentTarget, e.pointerId);
 			cleanupDrag();
 			if (!wasScrub) enterEdit();
 		},

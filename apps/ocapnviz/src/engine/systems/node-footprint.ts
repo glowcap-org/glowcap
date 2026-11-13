@@ -16,7 +16,7 @@ import {
 	pillSize,
 } from "../../render/stage-labels.ts";
 import { endpointClaims } from "../claims.ts";
-import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
+import type { TimelineDocument } from "../timeline.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
 
 /**
@@ -105,7 +105,7 @@ export function nodeFootprints(
 		}
 		boxes.set(peerId, nodeFootprint(widest, false));
 	}
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind !== "peer-joined") continue;
 		if (boxes.has(ev.peerId)) continue; // entities entry won
 		boxes.set(
@@ -127,7 +127,7 @@ export function nodeFootprints(
 			);
 		}
 	}
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind !== "session-opened") continue;
 		for (const side of SESSION_SIDES) {
 			const stageId = endpointStageId(ev.sessionId, side);

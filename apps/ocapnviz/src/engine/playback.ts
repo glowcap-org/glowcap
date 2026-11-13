@@ -29,7 +29,7 @@ import { MessageFlightSystem } from "./systems/message-flight-system.ts";
 import { materializeWorldAt } from "./systems/world-materializer.ts";
 import { projectFromObservations } from "./temporal/project-from-observations.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
-import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
+import type { TimelineDocument } from "./timeline.ts";
 import type { GameWorld } from "./world.ts";
 
 /**
@@ -178,7 +178,7 @@ export class Playback {
 		let timeBundles = this.#frameGeometry.timeBundles;
 		if (this.#timeBundlesDirty) {
 			timeBundles = computeMessageTimeBundles(
-				observationsOf(this.host.getDoc()) as readonly TimelineEvent[],
+				observationsOf(this.host.getDoc()),
 			);
 			this.#timeBundlesDirty = false;
 		}

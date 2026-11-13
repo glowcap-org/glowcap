@@ -25,6 +25,7 @@ import type { TimelineDocument } from "../engine/timeline.ts";
 import { peerLabelAt, sessionEndpointPlaceAt } from "../engine/temporal/doc-resolver.ts";
 import { type SessionSide, UNNAMED_END_LABEL } from "../schema/session-end.ts";
 import { elideIdentifier } from "./elide.ts";
+import { ownEntry } from "../engine/schema/entity-maps.ts";
 
 /** What one end of a session is called, and which kind of name that is.
  *
@@ -74,7 +75,7 @@ export function sessionEndName(
 		const label = peerLabelAt(doc, place.peer, t);
 		return { text: label, opaque: label === place.peer };
 	}
-	const claim = doc.entities?.sessions?.[sessionId]?.[side].designator;
+	const claim = ownEntry(doc.entities?.sessions, sessionId)?.[side].designator;
 	return claim === undefined ? { text: UNNAMED_END_LABEL, opaque: false } : { text: claim, opaque: true };
 }
 

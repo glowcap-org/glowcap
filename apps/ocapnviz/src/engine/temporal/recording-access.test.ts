@@ -246,3 +246,60 @@ Deno.test("observationsOf: several sources flatten once, and again when one grow
 	assertEquals(grown.length, 3);
 	assertEquals(grown.map((o) => o.id), ["e1", "e2", "e3"]);
 });
+
+Deno.test("observationsOf: several sources flatten again when an edit replaces an observation", () => {
+	const doc = Doc.parse({
+		id: "test",
+		duration: 100,
+		recording: {
+			sources: ["a", "b"].map((id, at) => ({
+				id,
+				meta: { kind: "glowcap-host" },
+				observations: [{
+					id: `e${at}`,
+					kind: "peer-joined",
+					t: at,
+					peerId: id,
+					profile: "glowcap",
+				}],
+			})),
+		},
+	});
+	const first = observationsOf(doc);
+	// What authoring does: one observation out and one in, so no source
+	// changes length, and then the entities are swapped.
+	primaryObservations(doc).splice(0, 1, {
+		id: "e0",
+		kind: "peer-joined",
+		t: 0,
+		peerId: "carol",
+		profile: "glowcap",
+	});
+	doc.entities = { ...doc.entities };
+	const edited = observationsOf(doc);
+	assert(edited !== first, "the list from before the edit was served again");
+	assertEquals(edited.map((o) => "peerId" in o ? o.peerId : null), ["carol", "b"]);
+	assert(edited === observationsOf(doc), "an unchanged document flattened twice");
+});
+
+Deno.test("observationsOf: a source of two hundred thousand observations flattens beside another", () => {
+	const joined = (id: string) => ({
+		id,
+		kind: "peer-joined" as const,
+		t: 0,
+		peerId: id,
+		profile: "glowcap",
+	});
+	const big = Array.from({ length: 200_000 }, () => joined("big"));
+	const doc = Doc.parse({
+		id: "test",
+		duration: 100,
+		recording: {
+			sources: [
+				{ id: "a", meta: { kind: "glowcap-host" }, observations: big },
+				{ id: "b", meta: { kind: "glowcap-host" }, observations: [joined("small")] },
+			],
+		},
+	});
+	assertEquals(observationsOf(doc).length, 200_001);
+});

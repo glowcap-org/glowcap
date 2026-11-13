@@ -30,6 +30,7 @@ import {
 import { type SpanRect, spanScreenRect } from "./span-geometry.ts";
 import { EDGE_HANDLE_PX, type HitEntity, type ScrubberHit } from "./hit-test.ts";
 import { buildEventHitIndex, type EventHitIndex, type MomentHit } from "./event-hit-index.ts";
+import { ownEntry } from "../../engine/schema/entity-maps.ts";
 
 /** The moment glyph nearest `px` within the edge-handle band, on the
  * given lane. `entityId` narrows to one entity's row. Null means the
@@ -236,7 +237,7 @@ export function hitTestEvents(
 		// structural fix behind bug #3a: the prior single-loop "best
 		// body then check edges" branch couldn't reach a peer whose
 		// body didn't contain the click even when its edge did.
-		const peerCount = entityId === null ? index.peerIds.length : doc.entities?.peers?.[entityId] ? 1 : 0;
+		const peerCount = entityId === null ? index.peerIds.length : ownEntry(doc.entities?.peers, entityId) ? 1 : 0;
 		let bestEdge:
 			| { peerId: string; dPx: number; rightEdge: boolean }
 			| null = null;
@@ -365,7 +366,11 @@ export function hitTestEvents(
 		// painted pill). Anchor event resolves through observations so
 		// the drag target's `eventId` is well-defined.
 		// Same id set is walked twice below (edges, then body), hoisted.
-		const sessionCount = entityId === null ? index.sessionIds.length : doc.entities?.sessions?.[entityId] ? 1 : 0;
+		const sessionCount = entityId === null
+			? index.sessionIds.length
+			: ownEntry(doc.entities?.sessions, entityId)
+			? 1
+			: 0;
 		let bestEdge:
 			| { sessionId: string; dPx: number; rightEdge: boolean }
 			| null = null;
@@ -522,7 +527,11 @@ export function hitTestEvents(
 
 	// Messages: span shape comes from `messageEffective`, anchor
 	// event from observations (the message-sent event by messageId).
-	const messageCount = entityId === null ? index.messageIds.length : doc.entities?.messages?.[entityId] ? 1 : 0;
+	const messageCount = entityId === null
+		? index.messageIds.length
+		: ownEntry(doc.entities?.messages, entityId)
+		? 1
+		: 0;
 	let bestMsg:
 		| { messageId: string; startT: number; endT: number }
 		| null = null;

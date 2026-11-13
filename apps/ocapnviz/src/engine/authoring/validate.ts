@@ -7,10 +7,12 @@
  * validates inside `cascadePaste`.
  */
 
-import { collisionError, type EngineResult, err, ok } from "../errors.ts";
+import { collisionError, type EngineResult, err, ok, reservedIdError } from "../errors.ts";
+import { isReservedEntityId } from "../../schema/entity-id.ts";
 import type { BuilderIntent, EngineIntent } from "../intents.ts";
 import type { TimelineDocument } from "../timeline.ts";
 import { checkRekeyCollision } from "./identity.ts";
+import { hasEntry } from "../schema/entity-maps.ts";
 
 export function validateIntent(
 	doc: TimelineDocument,
@@ -36,7 +38,8 @@ export function validateIntent(
 		intent.kind === "add-peer" &&
 		intent.id !== undefined && intent.id.length > 0
 	) {
-		if (doc.entities?.peers?.[intent.id] !== undefined) {
+		if (isReservedEntityId(intent.id)) return err(reservedIdError(intent.id));
+		if (hasEntry(doc.entities?.peers, intent.id)) {
 			return err(collisionError("peer", intent.id));
 		}
 	}

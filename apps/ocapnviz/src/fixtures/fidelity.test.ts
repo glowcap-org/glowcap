@@ -70,7 +70,7 @@ const designatorShapes: ReadonlyMap<string, RegExp> = new Map(Object.entries(DES
 
 function opensOf(doc: (typeof scenarios)[number]) {
 	const out: Extract<TimelineEvent, { kind: "session-opened" }>[] = [];
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "session-opened") out.push(ev);
 	}
 	return out;
@@ -221,7 +221,7 @@ Deno.test("between them the recordings show every attribution the schema declare
 				if (by !== undefined) seen.add(by);
 			}
 		}
-		for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		for (const ev of observationsOf(doc)) {
 			if (ev.kind !== "session-endpoint-attributed") continue;
 			if (ev.attributedBy !== undefined) seen.add(ev.attributedBy);
 		}
@@ -261,7 +261,7 @@ Deno.test("no shipped message comes from a peer its session cannot name yet", ()
 			row.push({ t, at });
 			moves.set(key, row);
 		};
-		for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		for (const ev of observationsOf(doc)) {
 			if (ev.kind === "session-opened") {
 				for (const side of SESSION_SIDES) {
 					note(
@@ -284,7 +284,7 @@ Deno.test("no shipped message comes from a peer its session cannot name yet", ()
 			}
 			return at;
 		};
-		for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		for (const ev of observationsOf(doc)) {
 			if (ev.kind !== "message-sent") continue;
 			const ends = SESSION_SIDES.map((side) => nodeAt(ev.sessionId, side, ev.t));
 			// A message on a session the recording never opened is a different

@@ -18,6 +18,7 @@ import { eventIdOfPlan } from "../scrubber-drag.ts";
 import { scrubberHoverAt } from "../timeline-cursor.ts";
 import { resolveTimelineGesture } from "../timeline-gesture.ts";
 import type { ScrubberPointerHost } from "./host.ts";
+import { releasePointerCaptureIfHeld } from "../../pointer-capture.ts";
 
 export function onScrubberPointerDown(
 	h: ScrubberPointerHost,
@@ -431,10 +432,6 @@ export function onScrubberPointerUp(
 	h: ScrubberPointerHost,
 	e: PointerEvent<HTMLDivElement>,
 ): void {
-	try {
-		e.currentTarget.releasePointerCapture(e.pointerId);
-	} catch {
-		// capture may already be released
-	}
+	releasePointerCaptureIfHeld(e.currentTarget, e.pointerId);
 	endScrubberDrag(h);
 }

@@ -139,6 +139,11 @@ export function dialLiveFeed(opts: FeedDial): {
 	};
 }
 
+/** What the live document says about itself. The dialed link carries the
+ *  secret that grants access to the trace, and a claimed recording is saved
+ *  with this text, so it names no address. */
+const LIVE_DESCRIPTION = "Live event stream. New events append as they arrive.";
+
 /**
  * Construct an empty live `TimelineDocument`, the capture, and an
  * engine that folds incoming `LiveFeed` events into it.
@@ -161,7 +166,7 @@ export function startLiveMode(
 		id: "live",
 		metadata: {
 			"dct:title": "Live timeline-event feed",
-			"dct:description": `Live event stream from ${opts.sturdyref}. New events append as they arrive.`,
+			"dct:description": LIVE_DESCRIPTION,
 		},
 		duration: opts.durationMs ?? 60 * 60 * 1000, // 1h default
 		recording: {

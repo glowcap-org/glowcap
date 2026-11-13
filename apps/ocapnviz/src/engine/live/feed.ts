@@ -12,8 +12,9 @@
  */
 
 import type { TimelineEvent } from "../timeline.ts";
-import { applyEvent, scopeOf } from "./apply.ts";
+import { applyEvent, idValuesOf, scopeOf } from "./apply.ts";
 import { type BaseTimelineEvent, nonEmptyStringFromWire, numberFromWire, stringFromWire } from "./record.ts";
+import { isReservedEntityId, reservedEntityIdMessage } from "../../schema/entity-id.ts";
 import { StageLedger, wireKeyFor } from "../stage-ledger.ts";
 
 /** What one feed remembers between records. Named rather than threaded as
@@ -134,6 +135,9 @@ function flushReplayBatch(
 	out: TimelineEvent[],
 	snapshotT?: number,
 ): void {
+	// Every live record reaches here, and with no batch held and no snapshot
+	// to compare against there is nothing to flush or to retire.
+	if (state.replayBatch.length === 0 && snapshotT === undefined) return;
 	const batch = state.replayBatch;
 	state.replayBatch = [];
 	// Both passes ask the same question of a record, is this an open, and
@@ -227,6 +231,11 @@ export function convertEvent(
 	ev: BaseTimelineEvent,
 	state: FeedState,
 ): TimelineEvent[] {
+	// Before any state moves: a refused record changes no ledger, scope, or
+	// batch, and the events of the records around it are not its to drop.
+	for (const id of idValuesOf(ev)) {
+		if (isReservedEntityId(id)) throw new Error(reservedEntityIdMessage(id));
+	}
 	const out: TimelineEvent[] = [];
 	const simNs = numberFromWire(ev.sim_t_ns);
 	if (simNs == null) return out;

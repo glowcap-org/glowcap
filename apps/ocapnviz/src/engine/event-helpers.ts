@@ -19,6 +19,7 @@ import {
 import { observationsOf } from "./temporal/recording-access.ts";
 import { type EngineError, validationError } from "./errors.ts";
 import { endpointStageId, SESSION_SIDES } from "../schema/session-end.ts";
+import { ownEntry } from "./schema/entity-maps.ts";
 
 /** Generic order-by-rowOrder. Listed ids come first in the given
  * order. Unlisted items keep their original (insertion) order
@@ -68,7 +69,7 @@ export function findMessageInDoc(
 	doc: TimelineDocument,
 	messageId: string,
 ): Extract<TimelineEvent, { kind: "message-sent" }> | null {
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "message-sent" && ev.messageId === messageId) return ev;
 	}
 	return null;
@@ -83,7 +84,7 @@ export function findPeerJoinedEvent(
 	doc: TimelineDocument,
 	peerId: string,
 ): Extract<TimelineEvent, { kind: "peer-joined" }> | null {
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "peer-joined" && ev.peerId === peerId) return ev;
 	}
 	return null;
@@ -97,7 +98,7 @@ export function authoredPeerPosition(
 	doc: TimelineDocument,
 	peerId: string,
 ): { x: number; y: number } | null {
-	const def = doc.entities?.peers?.[peerId];
+	const def = ownEntry(doc.entities?.peers, peerId);
 	if (def?.position) return def.position;
 	return findPeerJoinedEvent(doc, peerId)?.position ?? null;
 }
@@ -133,7 +134,7 @@ export function authoredPins(
 	// A peer whose definition carries no pin may still have been placed by the
 	// observation that recorded it joining; `authoredPeerPosition` reads the
 	// definition first for the same reason, and one unpin clears both.
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind !== "peer-joined" || pins.has(ev.peerId)) continue;
 		if (ev.position) pins.set(ev.peerId, ev.position);
 	}
@@ -144,7 +145,7 @@ export function findPeerLeftEvent(
 	doc: TimelineDocument,
 	peerId: string,
 ): Extract<TimelineEvent, { kind: "peer-left" }> | null {
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "peer-left" && ev.peerId === peerId) return ev;
 	}
 	return null;
@@ -168,7 +169,7 @@ export function peerEnding(
 	const found: { t: number; how: "left" | "unobserved" }[] = [];
 	const left = findPeerLeftEvent(doc, peerId);
 	if (left !== null) found.push({ t: left.t, how: "left" });
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "peer-unobserved" && ev.peerId === peerId) {
 			found.push({ t: ev.t, how: "unobserved" });
 			break;
@@ -220,7 +221,7 @@ export function findPeerUpdateEvents(
 	peerId: string,
 ): PeerUpdate[] {
 	const out: PeerUpdate[] = [];
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		const moment = momentOf(ev);
 		if (moment?.lane !== "peers" || moment.owner !== peerId) continue;
 		// Narrowing: `momentOf` answers whose moment this is without
@@ -255,7 +256,7 @@ export function findSessionOpenedEvent(
 	doc: TimelineDocument,
 	sessionId: string,
 ): Extract<TimelineEvent, { kind: "session-opened" }> | null {
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "session-opened" && ev.sessionId === sessionId) {
 			return ev;
 		}
@@ -267,7 +268,7 @@ export function findSessionClosedEvent(
 	doc: TimelineDocument,
 	sessionId: string,
 ): Extract<TimelineEvent, { kind: "session-closed" }> | null {
-	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+	for (const ev of observationsOf(doc)) {
 		if (ev.kind === "session-closed" && ev.sessionId === sessionId) {
 			return ev;
 		}
