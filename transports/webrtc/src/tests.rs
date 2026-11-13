@@ -465,6 +465,34 @@ fn first_terminal_cause_wins_open_and_read_results() {
 }
 
 #[test]
+fn a_send_on_an_ended_channel_names_its_ending() {
+	let open_peer = |id| {
+		test_shared(
+			id,
+			Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new())),
+			Arc::new(Mutex::new(OpenGate {
+				open: true,
+				closed: false,
+				failed: false,
+			})),
+			Arc::new(Notify::new()),
+			Readiness::new().unwrap(),
+		)
+	};
+	let closed = open_peer(9);
+	publish_peer_closed(&closed);
+	assert_eq!(try_send(&closed, b"late"), CLOSED as isize);
+
+	let failed = open_peer(10);
+	publish_peer_failed(&failed);
+	assert_eq!(try_send(&failed, b"late"), ERR as isize);
+
+	let opening = open_peer(11);
+	opening.open.lock().unwrap().open = false;
+	assert_eq!(try_send(&opening, b"early"), WOULD_BLOCK as isize);
+}
+
+#[test]
 fn open_check_distinguishes_clean_close_from_failed_setup() {
 	assert_eq!(
 		open_result(&OpenGate {

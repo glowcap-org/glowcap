@@ -60,7 +60,6 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
             // read: the try-write reports the close, and the shared machine
             // latches it, exactly as the iroh backend handles its own edge.
             if (ev.events & (ev_writable | ev_closed) != 0) {
-                entry.pending.writable_hint = true;
                 if (entry.pending.write_ud != null) Connections.completeSend(self, entry);
             }
         }

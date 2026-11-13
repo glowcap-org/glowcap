@@ -136,9 +136,7 @@ pub fn startAdoptExternal(
     // settle through this operation's observer, never the close observer
     // for application-owned sessions.
     self.pending_opens.appendAssumeCapacity(row);
-    const wire = self.wires.get(session.peer_handle).?;
-    Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
-    if (!wire.closed) _ = Internal.feedReadable(self, wire, null) catch |err| Internal.closeWire(self, wire, err);
+    Internal.startAdoptedWire(self, session);
 }
 
 /// The shared staged-dial mint behind `startDial` and the
@@ -544,8 +542,8 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !void {
 }
 
 /// Claim a staged dial's completed resident connect: finish it, bind the
-/// channel-proved key and the wire, push the queued hello, and move the
-/// row to the handshake stage. `DialAttempt.finish` consumes the request,
+/// channel-proved key and the wire, move the row to the handshake stage, and
+/// start the wire. `DialAttempt.finish` consumes the request,
 /// so a failure settles the row failed with nothing left to cancel.
 pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: *PendingOpen) !void {
     std.debug.assert(row.stage.resident_dial.resident == resident_index);
@@ -575,7 +573,6 @@ pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: 
         return failPendingOpen(self, row, err);
     };
     // The hello's flush action drained to a no-op while the wire did not
-    // exist yet; push the queued frame now that it does.
-    const wire = self.wires.get(row.session.peer_handle).?;
-    Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
+    // exist yet. The start writes that queued frame.
+    Internal.startAdoptedWire(self, row.session);
 }

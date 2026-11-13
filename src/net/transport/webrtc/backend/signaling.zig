@@ -301,7 +301,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
             const outcome = self.accept_stash.orderedRemove(0);
             switch (outcome) {
                 .connected => |held| {
-                    self.conns.put(held.fd, .{ .peer = held.peer, .pending = .{ .writable_hint = true } }) catch |err| {
+                    self.conns.put(held.fd, .{ .peer = held.peer, .pending = .{} }) catch |err| {
                         var peer = held.peer;
                         std.debug.assert(self.by_id.remove(@backingInt(peer.id())));
                         peer.deinit();
@@ -481,7 +481,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
             const kv = self.pending_dials.fetchRemove(fd) orelse return;
             var row = kv.value;
             self.allocator.free(row.designator);
-            self.conns.put(fd, .{ .peer = row.peer, .pending = .{ .writable_hint = true } }) catch {
+            self.conns.put(fd, .{ .peer = row.peer, .pending = .{} }) catch {
                 std.debug.assert(self.by_id.remove(@backingInt(row.peer.id())));
                 row.peer.deinit();
                 self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = -1, .failure = error.OutOfMemory });

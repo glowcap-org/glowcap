@@ -30,10 +30,10 @@ pub fn bindWire(
 }
 
 /// Begin a resident dial, await its completion while serving siblings, bind
-/// its channel-proved key, adopt the claimed connection, and write what the
-/// session already holds. The await drains core actions, so the session's
-/// flush can fire before its wire exists. A sealed dial's first handshake
-/// message waits in its channel, where no later flush would find it.
+/// its channel-proved key, adopt the claimed connection, and start its wire.
+/// The await drains core actions, so the session's flush can fire before its
+/// wire exists. A sealed dial's first handshake message waits in its channel,
+/// where no later flush would find it.
 pub fn bindResidentWire(
     self: *HostRuntime,
     session: *driver_core.HostSession,
@@ -56,8 +56,32 @@ pub fn bindResidentWire(
     if (try resident.connRemoteKey(conn_id)) |key|
         session.served.port.peer.bindVerifiedChannelKey(key);
     try adoptResidentConn(self, session, resident_index, &conn);
+    try startWire(self, session, session);
+}
+
+/// Start the wire `adoptResidentConn` just made for `session`: write what the
+/// session queued while it had no wire, then read once. A resident reports a
+/// connection's readiness in records that are consumed when drained, and a
+/// record that fired before the wire existed named a connection the runtime
+/// could not route. The far peer's hello can arrive that early. One attempt
+/// in each direction stands in for any such record, and later I/O follows the
+/// records. A write failure closes the wire with its cause. A caller that
+/// awaits `session` itself passes it as `own` and hears the refusal the read
+/// finds exactly, as `feedReadable` reports it.
+fn startWire(self: *HostRuntime, session: *driver_core.HostSession, own: ?*driver_core.HostSession) !void {
     const wire = self.wires.get(session.peer_handle).?;
-    Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
+    Internal.writeOutbound(self, wire) catch |err| {
+        Internal.closeWire(self, wire, err);
+        return;
+    };
+    if (!wire.closed) _ = try Internal.feedReadable(self, wire, own);
+}
+
+/// Start the wire of a staged adoption. No caller awaits the session, so a
+/// failure closes the wire with its cause and the pending open reports it.
+pub fn startAdoptedWire(self: *HostRuntime, session: *driver_core.HostSession) void {
+    startWire(self, session, null) catch |err|
+        Internal.closeWire(self, self.wires.get(session.peer_handle).?, err);
 }
 
 /// Park until the resident connect result drains, servicing all other ready

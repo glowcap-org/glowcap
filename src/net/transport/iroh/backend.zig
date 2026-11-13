@@ -349,10 +349,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         fn bindFd(self: *Self, fd: Fd, cconn: *CConn) !void {
-            // Fresh connections are writable; seed the hint so the first hello
-            // send is not stranded if a writable edge fired before by_id
-            // registration (edge-triggered readiness drops unknown conns).
-            try self.conns.put(fd, .{ .cconn = cconn, .pending = .{ .writable_hint = true } });
+            try self.conns.put(fd, .{ .cconn = cconn, .pending = .{} });
             errdefer std.debug.assert(self.conns.remove(fd));
             const conn_id = self.resident.loopConnId(cconn);
             if (conn_id == 0) return error.InvalidConnId;
@@ -515,7 +512,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 if (entry.pending.read_ud != null) TryIo.completeRecv(self, entry);
             }
             if (ev.events & (ev_writable | ev_closed) != 0) {
-                entry.pending.writable_hint = true;
                 if (entry.pending.write_ud != null) TryIo.completeSend(self, entry);
             }
         }

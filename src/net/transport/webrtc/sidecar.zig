@@ -316,9 +316,11 @@ pub const Peer = struct {
 
     /// Hand one whole packet to the sidecar's outbound staging buffer and return
     /// immediately. `WouldBlock` means re-arm on `ev_writable` and retry the
-    /// same packet.
+    /// same packet. `Closed` means the channel ended cleanly first, and
+    /// `Failed` that it faulted.
     pub fn trySendPacket(self: *Peer, bytes: []const u8) TryPacketError!usize {
         const n = glowcap_webrtc_sidecar_conn_try_send_packet(self.peer, bytes.ptr, bytes.len);
+        if (n == rc_closed) return error.Closed;
         if (n == rc_would_block) return error.WouldBlock;
         if (n == rc_buffer_too_small) return error.BufferTooSmall;
         if (n < 0 or n > bytes.len) return error.Failed;

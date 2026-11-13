@@ -4,9 +4,9 @@
 //! iroh and WebRTC both reach glowcap through a sidecar that reports
 //! readiness edges on one descriptor and offers non-blocking try-read and
 //! try-write verbs. Turning that into the completion contract is the same
-//! machine for both: a submitted read or write waits on the hint its last
-//! edge left, one attempt runs when the hint is up, a would-block outcome
-//! keeps the seat and drops the hint, and a terminal failure latches on the
+//! machine for both: a submitted read attempts once when the readable hint
+//! is up, a submitted write always attempts once, a would-block outcome
+//! keeps the seat for the next edge, and a terminal failure latches on the
 //! entry so every later operation settles with the same first cause. This
 //! module owns that machine. The backend supplies the sidecar verbs, the
 //! seat accounting its ready queue uses, and the borrow token its buffer pool
@@ -14,7 +14,7 @@
 
 const contract = @import("contract.zig");
 
-/// Seats and hints for one open sidecar connection.
+/// Seats and the readable hint for one open sidecar connection.
 pub const HintedPending = struct {
     read_ud: ?u64 = null,
     write_ud: ?u64 = null,
@@ -24,8 +24,10 @@ pub const HintedPending = struct {
     /// pending and later read or write completes with it instead of touching
     /// the sidecar again.
     terminal_failure: ?anyerror = null,
-    readable_hint: bool = false,
-    writable_hint: bool = false,
+    /// Whether a submitted read attempts at once. It starts up: a sidecar
+    /// reports each edge once, and one that fired before the connection had
+    /// its row is gone, so the first read learns the state from the verb.
+    readable_hint: bool = true,
 };
 
 /// One non-blocking read attempt.
@@ -128,16 +130,9 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
             var result: i32 = -1;
             var failure: ?anyerror = null;
             switch (Ops.tryWrite(entry, bytes)) {
-                .transferred => |n| {
-                    result = @intCast(n);
-                    entry.pending.writable_hint = true;
-                },
-                .would_block => {
-                    entry.pending.writable_hint = false;
-                    return;
-                },
+                .transferred => |n| result = @intCast(n),
+                .would_block => return,
                 .failed => |err| {
-                    entry.pending.writable_hint = false;
                     failure = err;
                     latch(entry, err);
                 },
@@ -162,8 +157,7 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
             try Ops.reserveSeats(backend, 1);
             entry.pending.write_ud = user_data;
             entry.pending.write_bytes = bytes;
-            // Always attempt once: a seeded writable hint or a live edge may
-            // already allow the write; a would-block parks until the next edge.
+            // Always attempt once: a would-block parks until the next edge.
             completeSend(backend, entry);
         }
 

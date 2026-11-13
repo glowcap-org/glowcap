@@ -440,6 +440,7 @@ pub const HostRuntime = struct {
     const bindWire = runtime_connections.bindWire;
     const bindResidentWire = runtime_connections.bindResidentWire;
     const adoptResidentConn = runtime_connections.adoptResidentConn;
+    const startAdoptedWire = runtime_connections.startAdoptedWire;
 
     const freeWire = runtime_carrier.freeWire;
     const dropWire = runtime_carrier.dropWire;
@@ -565,4 +566,5 @@ pub const Internal = struct {
     pub const releaseListenerProfile = HostRuntime.releaseListenerProfile;
     pub const bindWire = HostRuntime.bindWire;
     pub const adoptResidentConn = HostRuntime.adoptResidentConn;
+    pub const startAdoptedWire = HostRuntime.startAdoptedWire;
 };

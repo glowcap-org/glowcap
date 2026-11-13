@@ -1,7 +1,8 @@
 //! `driver.HostRuntime` lifecycle over a multiplexed resident (ADR-0024):
 //! close and cancellation own their teardown consequences, external adoption
-//! commits its pending-open owner, listener setup and profiles admit
-//! exactly one owner, and a failed remote-key contract retires its dial.
+//! commits its pending-open owner, a staged dial is read when the runtime
+//! adopts it, listener setup and profiles admit exactly one owner, and a
+//! failed remote-key contract retires its dial.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -348,6 +349,52 @@ test "resident dial cancellation attaches exact teardown consequences to its own
     try std.testing.expectEqualStrings("ResidentCancelFailed", failure.chain.secondaryName().?);
     try std.testing.expectEqual(@as(u16, 2), failure.chain.secondary_count);
     try std.testing.expectEqual(@as(usize, 0), observed.reservations);
+}
+
+test "a staged resident dial is read at adoption, with no readable record" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.hold_connect = true;
+    resident.connect_succeeds = true;
+    // The far peer ended the connection before the runtime claimed it. The
+    // resident reported that readiness while no wire existed to take it.
+    resident.read_result = 0;
+
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), .{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+
+    var observed = ObservedOpen{};
+    try runtime.startDial(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "remote.test:1",
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit, 93, .{
+        .ctx = &observed,
+        .reserve = ObservedOpen.reserve,
+        .release = ObservedOpen.release,
+        .opened = ObservedOpen.opened,
+        .failed = ObservedOpen.failed,
+    });
+    try std.testing.expectEqual(@as(usize, 0), resident.read_calls);
+
+    // The connect record is the only one this step drains.
+    resident.held_record = .{
+        .subject = resident.pending_connect.?,
+        .events = net.multiplexed_resident.ev_connect,
+    };
+    _ = try resident.wake.nudge();
+    _ = try runtime.stepAny(0);
+    try std.testing.expectEqual(@as(usize, 1), resident.read_calls);
+    try std.testing.expect(!observed.did_open);
+    try std.testing.expectEqual(error.ConnectionClosed, observed.failure.?);
+    try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
 }
 
 test "external adoption commits its pending-open owner before immediate EOF" {

@@ -2,7 +2,8 @@
 //! authority is refused, a failed batch preserves a
 //! shared live readiness descriptor, equal descriptors do not merge distinct
 //! residents, two profiles share one resident with independent listener
-//! lifecycles, accept close-ownership transfers exactly once, a dial refusal
+//! lifecycles, accept close-ownership transfers exactly once, an accepted or
+//! dialed connection is read when the runtime adopts it, a dial refusal
 //! reaches its observer with the exact failure chain, and an always-ready
 //! resident cannot starve its sibling.
 
@@ -325,6 +326,95 @@ test "successful resident accept transfers close ownership to the wire" {
     try std.testing.expectEqual(@as(usize, 1), runtime.resident_wires.count());
 
     runtime.deinit();
+    try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
+}
+
+test "an accepted resident connection is read at adoption, with no readable record" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    var runtime = try prepareAcceptOwnershipRuntime(std.testing.allocator, io, &resident);
+    defer runtime.deinit();
+
+    // The far peer ended the connection before the runtime claimed it. The
+    // resident reported that readiness while no wire existed to take it, so
+    // the accept record is the only one this step drains.
+    resident.read_result = 0;
+    resident.announceAccept();
+    _ = try runtime.stepAny(1_000);
+    try std.testing.expect(resident.claimed);
+    try std.testing.expectEqual(@as(usize, 1), resident.read_calls);
+    try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
+    try std.testing.expectEqual(@as(usize, 0), runtime.pending_opens.items.len);
+}
+
+test "a blocking resident dial is read at adoption, with no readable record" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.hold_connect = true;
+    resident.connect_succeeds = true;
+    resident.connect_ready_at_start = true;
+    // The far peer ended the connection before the runtime claimed it, and
+    // the connect record is the only one the resident reports.
+    resident.read_result = 0;
+
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), .{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+    try runtime.core.setAdvertisedLocator(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "resident.test:1",
+        .hints = model.Hints.emptyFalse(),
+    });
+
+    try std.testing.expectError(error.ConnectionClosed, runtime.connectLocator(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "remote.test:1",
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit));
+    try std.testing.expectEqual(@as(usize, 1), resident.read_calls);
+    try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
+}
+
+test "a blocking resident dial hears the refusal its adoption read found" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.hold_connect = true;
+    resident.connect_succeeds = true;
+    resident.connect_ready_at_start = true;
+    // The far peer's first bytes are no hello, and they arrived before the
+    // runtime claimed the connection.
+    resident.read_once = "not a hello";
+
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), .{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+    try runtime.core.setAdvertisedLocator(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "resident.test:1",
+        .hints = model.Hints.emptyFalse(),
+    });
+
+    try std.testing.expectError(error.MalformedFrame, runtime.connectLocator(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "remote.test:1",
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit));
     try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
 }
 

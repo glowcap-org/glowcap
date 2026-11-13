@@ -46,6 +46,15 @@ pub const AcceptOwnershipResident = struct {
     keep_ready: bool = false,
     /// When set, every dial start refuses with exactly this failure.
     dial_failure: ?net.netlayer.DialFailure = null,
+    /// When set, a held connect finishes with the connection.
+    connect_succeeds: bool = false,
+    /// When set, a held connect reports its connect record as it starts.
+    connect_ready_at_start: bool = false,
+    /// What every read of the connection answers. Zero is end of stream.
+    read_result: isize = net.multiplexed_resident.would_block,
+    /// When set, the first read hands over these bytes instead.
+    read_once: ?[]const u8 = null,
+    read_calls: usize = 0,
 
     pub const transport = "x-accept-ownership";
     pub const alternate_transport = "x-accept-ownership-alt";
@@ -188,13 +197,20 @@ pub const AcceptOwnershipResident = struct {
         self.dialed[index] = true;
         if (self.hold_connect) {
             self.pending_connect = request_id;
+            if (self.connect_ready_at_start) {
+                self.held_record = .{ .subject = request_id, .events = net.multiplexed_resident.ev_connect };
+                _ = self.wake.nudge() catch unreachable;
+            }
             return .admitted;
         }
         return .{ .failed = .init(error.InvalidAddress) };
     }
 
-    fn finishConnect(_: *anyopaque, _: usize) net.MultiplexedDialRawFinishOutcome {
-        return .{ .failed = .init(error.ConnectionLost) };
+    fn finishConnect(ctx: *anyopaque, _: usize) net.MultiplexedDialRawFinishOutcome {
+        const self = of(ctx);
+        if (!self.connect_succeeds) return .{ .failed = .init(error.ConnectionLost) };
+        self.pending_connect = null;
+        return .{ .connected = conn_id };
     }
 
     fn cancelConnect(ctx: *anyopaque, request_id: usize) ?glowcap.foundation.FailureChain {
@@ -297,8 +313,14 @@ pub const AcceptOwnershipResident = struct {
         return .complete;
     }
 
-    fn tryRead(_: *anyopaque, _: usize, _: []u8) isize {
-        return net.multiplexed_resident.would_block;
+    fn tryRead(ctx: *anyopaque, _: usize, buf: []u8) isize {
+        const self = of(ctx);
+        self.read_calls += 1;
+        const bytes = self.read_once orelse return self.read_result;
+        self.read_once = null;
+        const n = @min(buf.len, bytes.len);
+        @memcpy(buf[0..n], bytes[0..n]);
+        return @intCast(n);
     }
 
     fn tryWrite(_: *anyopaque, _: usize, bytes: []const u8) isize {

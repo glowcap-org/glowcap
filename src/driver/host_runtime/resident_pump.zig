@@ -190,8 +190,7 @@ fn startAcceptedConn(
         .outcome = .{ .listener_accept = observation },
     };
     self.pending_opens.appendAssumeCapacity(row);
-    const wire = self.wires.get(session.peer_handle).?;
-    Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
+    Internal.startAdoptedWire(self, session);
 }
 
 /// Drain a resident connection until the runtime window refuses, feeding each

@@ -292,8 +292,9 @@ int32_t glowcap_webrtc_peer_is_open(GlowcapWebrtcPeer *peer);
 int32_t glowcap_webrtc_peer_try_receive_packet(GlowcapWebrtcPeer *peer, uint8_t *buf, size_t len, size_t *out_read);
 /* Copy one whole packet into the bounded send queue and return immediately.
    out_written is len on success. On GLOWCAP_ERR_WOULD_BLOCK retry the same packet
-   after WRITABLE; GLOWCAP_ERR_BUFFER_TOO_SMALL means the packet exceeds this
-   transport's packet cap. */
+   after WRITABLE. GLOWCAP_ERR_BUFFER_TOO_SMALL means the packet exceeds this
+   transport's packet cap. GLOWCAP_ERR_CLOSED means the channel closed cleanly
+   first, and GLOWCAP_ERR_IO that it faulted. */
 int32_t glowcap_webrtc_peer_try_send_packet(GlowcapWebrtcPeer *peer, const uint8_t *buf, size_t len, size_t *out_written);
 /* Close the channel without releasing the handle and report CLOSED readiness.
    Idempotent; glowcap_webrtc_peer_release is still required afterward. */

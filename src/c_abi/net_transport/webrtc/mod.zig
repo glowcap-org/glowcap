@@ -415,7 +415,8 @@ pub export fn glowcap_webrtc_peer_try_receive_packet(peer: ?*GlowcapWebrtcPeer, 
 
 /// Hand one whole outbound packet to the sidecar's staging buffer and return
 /// immediately. On `GLOWCAP_ERR_WOULD_BLOCK`, retry the same packet after
-/// WRITABLE readiness.
+/// WRITABLE readiness. `GLOWCAP_ERR_CLOSED` means the channel closed cleanly
+/// first, and `GLOWCAP_ERR_IO` that it faulted.
 pub export fn glowcap_webrtc_peer_try_send_packet(peer: ?*GlowcapWebrtcPeer, buf: ?[*]const u8, len: usize, out_written: ?*usize) i32 {
     c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return GLOWCAP_ERR_NULL_POINTER;
