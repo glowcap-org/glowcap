@@ -226,17 +226,30 @@ const deno_dependency_reproducibility = [_]Ban{
     },
 };
 
-const rust_sidecar_ffi_safety = [_]Ban{.{
-    .where = .{ .tree = .{
-        .dir = "transports",
-        .suffixes = &.{".rs"},
-        .skip_dirs = &.{"/sidecar-runtime/"},
-    } },
-    .kind = .forbid,
-    .needles = &.{"pub extern \"C\" fn"},
-    .check = "Rust sidecar FFI safety",
-    .why = "a sidecar export crosses caller-owned raw pointers or handles, so its Rust signature must state the unsafe calling contract",
-}};
+const rust_sidecar_ffi_safety = [_]Ban{
+    .{
+        .where = .{ .tree = .{
+            .dir = "transports",
+            .suffixes = &.{".rs"},
+            .skip_dirs = &.{"/sidecar-runtime/"},
+        } },
+        .kind = .forbid,
+        .needles = &.{"pub extern \"C\" fn"},
+        .check = "Rust sidecar FFI safety",
+        .why = "a sidecar export crosses caller-owned raw pointers or handles, so its Rust signature must state the unsafe calling contract",
+    },
+    .{
+        .where = .{ .tree = .{
+            .dir = "transports",
+            .suffixes = &.{".rs"},
+            .exclude = &.{"transports/ffi_handles.rs"},
+        } },
+        .kind = .forbid,
+        .needles = &.{ "from_raw_parts", "copy_nonoverlapping" },
+        .check = "Rust sidecar caller buffers",
+        .why = "a caller's `ptr + len` becomes a slice only through `caller_slice` and `caller_out` in `transports/ffi_handles.rs`, which refuse a null pointer and a byte size past `isize::MAX`",
+    },
+};
 
 pub const all: []const Ban =
     ts_double_cast.rows ++

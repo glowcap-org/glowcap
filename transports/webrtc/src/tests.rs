@@ -331,6 +331,43 @@ fn taking_every_held_candidate_frees_the_whole_queue_budget() {
 }
 
 #[test]
+fn out_text_write_answers_each_buffer_shape() {
+	// Each write starts from a length no text reports, so a write that reported
+	// nothing fails its assertion. Answers the status and the reported length.
+	let written = |out: *mut u8, cap: usize, text: &str| {
+		let mut required = usize::MAX;
+		// SAFETY: every caller passes null with zero capacity or its own live buffer of `cap` bytes, and
+		// `required` outlives the write.
+		let status = unsafe { OutText::new(out, cap, &mut required) }.write(text);
+		(status, required)
+	};
+
+	let mut roomy = [0xAAu8; 5];
+	assert_eq!(written(roomy.as_mut_ptr(), roomy.len(), "abc"), (OK, 3));
+	assert_eq!(&roomy, b"abc\xAA\xAA");
+
+	let mut exact = [0xAAu8; 3];
+	assert_eq!(written(exact.as_mut_ptr(), exact.len(), "abc"), (OK, 3));
+	assert_eq!(&exact, b"abc");
+
+	let mut small = [0xAAu8; 2];
+	assert_eq!(written(small.as_mut_ptr(), small.len(), "abc"), (BUFFER_TOO_SMALL, 3));
+	assert_eq!(small, [0xAA; 2]);
+
+	// SAFETY: `roomy` is this frame's live buffer, and a null length slot is within `new`'s contract.
+	let unreported = unsafe { OutText::new(roomy.as_mut_ptr(), roomy.len(), std::ptr::null_mut()) };
+	assert_eq!(unreported.write("xyz"), OK);
+	assert_eq!(&roomy, b"xyz\xAA\xAA");
+
+	assert_eq!(written(std::ptr::null_mut(), 0, "abc"), (BUFFER_TOO_SMALL, 3));
+	assert_eq!(
+		written(std::ptr::null_mut(), 0, ""),
+		(BUFFER_TOO_SMALL, 0),
+		"a null buffer never reports success"
+	);
+}
+
+#[test]
 fn next_local_candidate_retries_without_releasing_the_front() {
 	let mut queue = CandidateQueue::new();
 	assert!(queue.admit("abcdef".to_string()));

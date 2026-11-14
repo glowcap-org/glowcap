@@ -69,15 +69,16 @@ impl DialText {
 	/// `out` and report the copied count through `out_len`. A null `out`
 	/// declines the text and reports zero.
 	pub(crate) fn copy_to(&self, out: *mut u8, out_cap: usize, out_len: *mut usize) {
-		let copied = if out.is_null() {
-			0
-		} else {
-			char_boundary_at_most(self.as_str(), out_cap)
+		let fits = char_boundary_at_most(self.as_str(), out_cap);
+		// SAFETY: the contract requires `out_cap` writable bytes at `out`, and `fits` is at most that. A null `out`
+		// with `fits > 0` answers `None`.
+		let copied = match unsafe { caller_out(out, fits) } {
+			Some(slots) => {
+				slots.write_copy_of_slice(&self.bytes[..fits]);
+				fits
+			}
+			None => 0,
 		};
-		if copied > 0 {
-			// Safety: the contract requires `out_cap` writable bytes at `out`.
-			unsafe { std::ptr::copy_nonoverlapping(self.bytes.as_ptr(), out, copied) };
-		}
 		// SAFETY: the contract makes `out_len` null or one writable `usize`, and `as_mut` maps null to `None`.
 		if let Some(slot) = unsafe { out_len.as_mut() } {
 			*slot = copied;

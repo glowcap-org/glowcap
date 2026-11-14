@@ -144,12 +144,16 @@ impl OutText {
 	pub(crate) fn write(&self, text: &str) -> i32 {
 		let bytes = text.as_bytes();
 		self.report_len(bytes.len());
-		if bytes.len() > self.cap || self.out.is_null() {
+		let slots = if bytes.len() <= self.cap && !self.out.is_null() {
+			// SAFETY: `new`'s contract gives `cap` writable bytes at `out`, and this arm holds the text to that.
+			unsafe { caller_out(self.out, bytes.len()) }
+		} else {
+			None
+		};
+		let Some(slots) = slots else {
 			return BUFFER_TOO_SMALL;
-		}
-		// SAFETY: `new`'s contract gives `cap` writable bytes at `out`, and the
-		// arm above refused both a null `out` and a text longer than `cap`.
-		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.out, bytes.len()) };
+		};
+		slots.write_copy_of_slice(bytes);
 		OK
 	}
 

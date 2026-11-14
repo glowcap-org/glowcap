@@ -6,6 +6,34 @@ use std::io::{Read, Write};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
+/// A text getter answers the text's whole length for every buffer, and writes
+/// only into a buffer that holds all of it.
+#[test]
+fn write_str_reports_the_full_length_and_copies_only_when_it_fits() {
+	let mut fit = [0xAAu8; 6];
+	assert_eq!(write_str("abcd", fit.as_mut_ptr(), fit.len()), 4);
+	assert_eq!(&fit, b"abcd\xAA\xAA");
+
+	let mut exact = [0xAAu8; 4];
+	assert_eq!(write_str("abcd", exact.as_mut_ptr(), exact.len()), 4);
+	assert_eq!(&exact, b"abcd");
+
+	let mut small = [0xAAu8; 3];
+	assert_eq!(write_str("abcd", small.as_mut_ptr(), small.len()), 4);
+	assert_eq!(small, [0xAA; 3], "a too-small buffer is a query");
+
+	assert_eq!(write_str("", small.as_mut_ptr(), small.len()), 0);
+	assert_eq!(small, [0xAA; 3], "an empty text writes nothing");
+
+	assert_eq!(write_str("abcd", std::ptr::null_mut(), 0), 4);
+	assert_eq!(write_str("", std::ptr::null_mut(), 0), 0);
+	assert_eq!(
+		write_str("abcd", std::ptr::null_mut(), 4),
+		4,
+		"a null buffer is never written"
+	);
+}
+
 // These wrappers exercise the C surface with buffers owned by each test and an
 // endpoint the test holds as an owned `Box`. A wrapper takes the endpoint by
 // reference, so the handle it passes is live for the call by construction, and
