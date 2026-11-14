@@ -55,12 +55,18 @@ fn dispatchFed(self: *Host, session: *HostSession, body: anytype) !void {
 /// Settle what a dispatch can refuse once it has started. A serve that lost
 /// its event under memory pressure condemns the session: `Served` already
 /// removed the event, so retrying the frame would replay protocol authority.
+/// So does a stream suffix the tail could not retain after a frame of the same
+/// call dispatched: the stream position is gone, so a retry would repeat bytes.
 /// Backpressure mid-dispatch is a consumed frame: its bytes dispatched or
 /// stayed owned in the tail, so the next verb observes the pressure instead
 /// of inviting a replay. Every other refusal is the caller's.
 fn settleStartedDispatch(self: *Host, session: *HostSession, err: anytype) @TypeOf(err)!void {
     if (err == error.EventServeOutOfMemory) {
         host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+        return;
+    }
+    if (err == error.StreamTailOutOfMemory) {
+        host_pump.condemnAndClose(self, session, .resource_exhausted, "stream input could not be retained under memory pressure");
         return;
     }
     if (err == error.OutboundBackpressure) return;
@@ -70,9 +76,12 @@ fn settleStartedDispatch(self: *Host, session: *HostSession, err: anytype) @Type
 /// Feed raw bytes from a byte-stream transport. Each bare codec frame must be
 /// wrapped as one canonical Syrup byte string (`length:body`). This method owns
 /// split prefixes/bodies, coalesced outer frames, the bounded tail, and the
-/// handshake pause. With no pending tail it parses the borrowed chunk in place
-/// and retains only an incomplete suffix, while a tail is active, extending it
-/// is the one bounded copy. Whole-frame callers continue to use `feed`.
+/// handshake pause. Whole frames parse in place from the borrowed chunk, and
+/// the tail keeps the front of an incomplete frame or the bytes behind a pause.
+/// A retryable `OutOfMemory` means nothing from the chunk dispatched, so the
+/// same chunk feeds again. A suffix the tail cannot retain after a frame
+/// dispatched retires the session with a resource-exhausted verdict and returns
+/// success. Whole-frame callers continue to use `feed`.
 /// Intrinsically message-framed transports do not add this envelope.
 pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
     try self.checkOwnedSession(session);

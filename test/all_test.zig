@@ -263,6 +263,7 @@ comptime {
         _ = @import("driver/core_host/close_test.zig");
         _ = @import("driver/core_host/finish_test.zig");
         _ = @import("driver/core_host/pressure_test.zig");
+        _ = @import("driver/core_host/stream_tail_test.zig");
         _ = @import("driver/core_host/give_test.zig");
         _ = @import("driver/core_host/give/staged_test.zig");
         _ = @import("driver/core_host/give/tell_retirement_test.zig");
@@ -391,6 +392,7 @@ comptime {
             _ = @import("net/completion_listener_test.zig");
         _ = @import("net/completion_loop_backpressure_test.zig");
         _ = @import("net/completion_loop_stream_test.zig");
+        _ = @import("net/completion_loop_spill_test.zig");
         _ = @import("net/completion_loop_reclaim_test.zig");
         _ = @import("net/completion_loop_reclaim/fan_in_test.zig");
         if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())

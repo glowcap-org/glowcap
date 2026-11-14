@@ -174,22 +174,22 @@ fn fillStep(r: *std.Io.Reader) FillError!Fill {
 ///
 /// At this tier it is the bounded overflow behind a small read buffer. The
 /// steady state is inactive: frames that fit the read buffer decode as borrowed
-/// prefixes and the spill costs nothing. When one admissible frame outgrows the
-/// buffer, its bytes move here so the prefix stays contiguous while the buffer
-/// keeps reading. That is rare, so the readers here drain with
-/// `spill_retain_bytes` and the burst is returned outright. Steady
-/// per-connection memory is the read buffer again, not `max_frame_bytes`.
+/// prefixes and the spill costs nothing. The reader pump spills only for a frame
+/// larger than its read buffer, and moves the buffered bytes here so the prefix
+/// stays contiguous while the buffer keeps reading. The byte-fed drain
+/// (`drainWholeFrames`) parks the front of one frame per straddling chunk and
+/// frees it when the frame completes. Both drain with `spill_retain_bytes`, so
+/// a drained spill holds no memory. Steady per-connection memory is the read
+/// buffer again, not `max_frame_bytes`.
 ///
-/// The spill path costs one extra bounded copy per oversize frame (read buffer
-/// into spill). The fast path stays a zero-copy borrow. That copy is a named
-/// design event (ADR-0012).
+/// The spill path costs one extra bounded copy per straddling frame (into the
+/// spill). The fast path stays a zero-copy borrow. That copy is a named design
+/// event (ADR-0012).
 pub const Spill = foundation.Spill;
 
-/// What a drained spill keeps at this tier: nothing. A stream reader spills only
-/// for a frame too large for its read buffer, which is the exception rather than
-/// the traffic, so the burst is freed outright and the next oversize frame pays
-/// one fresh allocation. The byte-fed host tier straddles frame boundaries on
-/// ordinary traffic and names a steady size instead.
+/// What a drained spill keeps at this tier: nothing. Each straddling frame
+/// pays a fresh allocation for its parked front, and its drain frees the
+/// block. The byte-fed host tier keeps a steady size instead.
 pub const spill_retain_bytes: usize = 0;
 
 /// Move every byte the reader holds into the spill (the reader is left empty,
@@ -296,8 +296,17 @@ pub const RecvStream = union(enum) {
 /// the stream boundary. `recvBorrowed` retains the complete bounded body once,
 /// parses it once as exactly one codec frame, and refuses anything else.
 pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !RecvStream {
-    const outer = switch (outerPrefix(bytes, peer.limits().max_frame_bytes)) {
-        .incomplete => return .incomplete,
+    const outer = (try nextOuter(peer, bytes)) orelse return .incomplete;
+    try recvOuterBody(peer, outer.body);
+    return .{ .consumed = outer.consumed };
+}
+
+/// The first outer frame of `bytes`, or null while it is incomplete. A
+/// malformed or oversize prefix queues its typed abort and returns its error.
+/// Inline because every frame of a drain passes through it.
+inline fn nextOuter(peer: *engine.Peer, bytes: []const u8) error{ MalformedFrame, FrameTooLarge }!?@FieldType(OuterPrefix, "decoded") {
+    switch (outerPrefix(bytes, peer.limits().max_frame_bytes)) {
+        .incomplete => return null,
         .malformed => {
             peer.emitFailure(error.MalformedFrame);
             return error.MalformedFrame;
@@ -306,14 +315,18 @@ pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !RecvStream {
             peer.emitFailure(error.FrameTooLarge);
             return error.FrameTooLarge;
         },
-        .decoded => |decoded| decoded,
-    };
+        .decoded => |decoded| return decoded,
+    }
+}
+
+/// Apply the body of one outer-framed message to `peer`. The body is borrowed
+/// for the call.
+fn recvOuterBody(peer: *engine.Peer, body: []const u8) !void {
     const shape = codec.dispatch.frameShape(peer.inboundCodec()) orelse {
         peer.emitFailure(error.MalformedFrame);
         return error.MalformedFrame;
     };
-    try peer.recvBorrowed(.{ .bytes = outer.body, .shape = shape });
-    return .{ .consumed = outer.consumed };
+    try peer.recvBorrowed(.{ .bytes = body, .shape = shape });
 }
 
 /// The verdict of draining whole frames from one received chunk.
@@ -337,47 +350,78 @@ pub const DrainVerdict = union(enum) {
 /// and the iroh loop over sidecar `try_read` chunks, so the frame-boundary,
 /// cap-mirror, and spill handling live in a single place and cannot drift.
 ///
-/// A frame already accumulating in the spill absorbs `chunk` and stays the decode
-/// prefix. Otherwise whole frames apply straight from the borrowed `chunk` and
-/// only a trailing partial frame copies into the spill (the one bounded copy a
-/// frame split across chunk boundaries pays, ADR-0019). The cap is read from the
-/// peer's own `max_frame_bytes`, the same authority the codec scans against, so
-/// neither loop can pass a divergent cap.
+/// The spill holds the bytes of at most one incomplete frame. A chunk arriving
+/// while one waits gives up only the bytes that complete it (the whole body is
+/// applied in place from the chunk when the spill holds only the prefix), the
+/// spill empties, and every frame behind it applies straight from the borrowed
+/// `chunk`. Only a trailing partial frame copies into the spill (the one
+/// bounded copy a frame split across chunk boundaries pays, ADR-0012). The cap
+/// is read from the peer's own `max_frame_bytes`, the same authority the codec
+/// scans against, so neither loop can pass a divergent cap.
 pub fn drainWholeFrames(
     peer: *engine.Peer,
     spill: *Spill,
     chunk: []const u8,
     allocator: std.mem.Allocator,
 ) DrainVerdict {
-    // A frame already in the spill owns every newly received byte: extend it so
-    // the prefix stays contiguous. The supply then stays the spill for this whole
-    // call even if it drains mid-loop, `chunk` has been absorbed and must not be
-    // re-read.
-    const from_spill = spill.isActive();
-    if (from_spill) spill.absorbBytes(allocator, chunk) catch |err| {
-        failConsumed(peer, err);
-        return .close;
-    };
     var offset: usize = 0;
+    // The body the spill completed. The loop below applies it first, so every
+    // frame of the call is applied from one place.
+    var held: ?[]const u8 = null;
+    if (spill.isActive()) {
+        const completed = foundation.stream_framing.completeFirstFrame(
+            spill,
+            allocator,
+            chunk,
+            peer.limits().max_frame_bytes,
+        ) catch |err| {
+            failConsumed(peer, err);
+            return .close;
+        };
+        switch (completed) {
+            .waiting => return .ok,
+            .frame => |frame| {
+                held = frame.body;
+                offset = frame.used;
+            },
+            .parse => {
+                // This drain parks only bytes whose first frame was incomplete,
+                // and completeness depends on the bytes alone, so a whole frame
+                // never waits on entry. The one way here is a prefix the chunk
+                // turned malformed or oversize, which `nextOuter` refuses.
+                _ = nextOuter(peer, spill.bytes()) catch |err| {
+                    failConsumed(peer, err);
+                    return .fail;
+                };
+                unreachable;
+            },
+        }
+    }
     while (true) {
-        const supply = if (from_spill) spill.bytes() else chunk[offset..];
-        if (supply.len == 0) break;
-        const outcome = recvOuterPrefix(peer, supply) catch |err| {
+        const body = held orelse in_place: {
+            const outer = (nextOuter(peer, chunk[offset..]) catch |err| {
+                failConsumed(peer, err);
+                return .fail;
+            }) orelse break;
+            offset += outer.consumed;
+            break :in_place outer.body;
+        };
+        recvOuterBody(peer, body) catch |err| {
+            // A refused frame never waits in the spill whole.
+            if (held != null) spill.consume(allocator, spill.len, spill_retain_bytes);
             failConsumed(peer, err);
             return .fail;
         };
-        switch (outcome) {
-            .incomplete => break,
-            .consumed => |used| {
-                if (from_spill) spill.consume(allocator, used, spill_retain_bytes) else offset += used;
-            },
+        if (held != null) {
+            held = null;
+            spill.consume(allocator, spill.len, spill_retain_bytes);
         }
     }
     // A partial frame tail cannot stay in the caller's buffer (a pool buffer is
     // recycled the moment the completion returns; a `try_read` chunk is
     // transient), so it absorbs into the bounded spill and waits for the next
     // chunk.
-    if (!from_spill and offset < chunk.len) {
+    if (offset < chunk.len) {
         spill.absorbBytes(allocator, chunk[offset..]) catch |err| {
             failConsumed(peer, err);
             return .close;

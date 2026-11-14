@@ -16,7 +16,7 @@ const engine = glowcap.ocapn.engine;
 /// same frame can be re-applied to one peer. A distinct-answer deliver would
 /// both grow the answer table per turn and, on a reused position, trip the
 /// live-answer-reuse refusal. Export 7 must be live on the peer.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
+pub const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// Drive one wire turn: dispatch the borrowed deliver and drain every surfaced
 /// event (releasing each owned frame), matching how a host pumps the peer. The
@@ -24,8 +24,16 @@ const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 /// session reuses backing capacity instead of growing one entry per turn.
 pub fn driveOneTurn(peer: *engine.Peer) !void {
     try peer.recvBorrowed(.{ .bytes = deliver_to_live_export, .shape = .byte });
+    _ = drainEvents(peer);
+}
+
+/// Release every surfaced event and count them.
+pub fn drainEvents(peer: *engine.Peer) usize {
+    var count: usize = 0;
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
+        count += 1;
     }
+    return count;
 }

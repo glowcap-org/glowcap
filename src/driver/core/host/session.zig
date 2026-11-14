@@ -75,9 +75,10 @@ pub const HostSession = struct {
 
     /// The unconsumed stream tail `Host.feedBytes` keeps between chunks: a
     /// partial frame straddling two reads, or the frames one read coalesced
-    /// behind the handshake hello (feeding stops at session-open). Owned by
-    /// the shell and freed with it. Capacity a burst grew past
-    /// `stream_feed.steady_feed_tail_bytes` returns when the tail fully drains.
+    /// behind the handshake hello (feeding stops at session-open) or held by
+    /// outbound pressure. Owned by the shell and freed with it. Capacity a
+    /// burst grew past `stream_feed.steady_feed_tail_bytes` returns when the
+    /// tail fully drains.
     ///
     /// It is the same `foundation.Spill` the `net` tier folds its parser over,
     /// which is why the boundedness ADR-0012 argues holds here too. The tiers

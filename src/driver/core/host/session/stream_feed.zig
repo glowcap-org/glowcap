@@ -3,6 +3,9 @@
 //! incomplete suffix waits in the session's `feed_tail`, and a paused tail
 //! resumes as its own Host drive.
 //!
+//! A refusal that leaves the session open has committed nothing: it is the
+//! frame's own allocation or the tail's.
+//!
 //! This is an internal owner. Consumers reach these verbs through `host.zig`.
 
 const std = @import("std");
@@ -49,26 +52,61 @@ pub fn feedBorrowedCommitted(session: *HostSession, frame: foundation.FrameView)
     };
 }
 
-/// Feed one plaintext stream chunk through the tail-and-parse machinery: with
-/// no pending tail, parse the borrowed chunk in place and retain only an
-/// incomplete suffix. While a tail is active, extend it (the one bounded
-/// copy) and parse from there. The one body both `Host.feedBytes` arms share:
-/// the unsealed verb hands it the caller's bytes, the sealed arm each opened
-/// record's plaintext.
+/// Feed one plaintext stream chunk through the tail-and-parse machinery. The
+/// tail holds the front of one incomplete frame or, while dispatch is paused
+/// (the opening hello, outbound pressure), every byte behind the pause. A
+/// chunk arriving behind an incomplete frame gives up only the bytes that
+/// complete it. Once the frame dispatches, the tail empties and the rest of the
+/// chunk parses in place when nothing pauses. A paused tail absorbs the chunk
+/// behind it, so order holds. An `OutOfMemory` before any frame dispatched
+/// leaves the tail as it was on entry, so the caller's chunk is retryable. Once
+/// a frame has dispatched, pressure retains the unread suffix in the tail and
+/// schedules its resume. A suffix the tail cannot retain returns
+/// `error.StreamTailOutOfMemory`, which retires the session and is never
+/// retryable, because the stream position is lost with the suffix.
+/// The one body both `Host.feedBytes` arms share: the unsealed verb hands it
+/// the caller's bytes, the sealed arm each opened record's plaintext.
 pub fn feedStreamChunk(gpa: std.mem.Allocator, session: *HostSession, bytes: []const u8, was_open: bool) !void {
     const tail = &session.feed_tail;
-    if (!tail.isActive()) {
-        const parsed = try parseOuterStreamPrefix(session, bytes, was_open);
-        if (parsed.consumed < bytes.len) {
-            try tail.absorbBytes(gpa, bytes[parsed.consumed..]);
+    if (!tail.isActive()) return feedBorrowed(gpa, session, bytes, was_open, false);
+    const peer = session.served.port.peer;
+    const mark = tail.len;
+    switch (try foundation.stream_framing.completeFirstFrame(tail, gpa, bytes, peer.limits().max_frame_bytes)) {
+        .waiting => return,
+        .frame => |frame| {
+            // The frame's own allocation is the one refusal here that leaves
+            // the session open, and it commits nothing.
+            dispatchBody(session, frame.body) catch |err| {
+                tail.truncate(mark);
+                return err;
+            };
+            tail.consume(gpa, tail.len, steady_feed_tail_bytes);
+            return feedBorrowed(gpa, session, bytes[frame.used..], was_open, true);
+        },
+        .parse => |used| {
+            errdefer tail.truncate(mark);
+            try tail.absorbBytes(gpa, bytes[used..]);
+            const parsed = try parseOuterStreamPrefix(session, tail.bytes(), was_open, false);
+            tail.consume(gpa, parsed.consumed, steady_feed_tail_bytes);
             if (parsed.needs_resume) host_pump.scheduleFeedResume(session.host, session);
-        }
-        return;
+        },
     }
-    try tail.absorbBytes(gpa, bytes);
-    const parsed = try parseOuterStreamPrefix(session, tail.bytes(), was_open);
-    tail.consume(gpa, parsed.consumed, steady_feed_tail_bytes);
-    if (parsed.needs_resume) host_pump.scheduleFeedResume(session.host, session);
+}
+
+/// Parse `bytes` in place and retain only the unread suffix in the tail.
+/// `committed` says a frame of this same call already dispatched. A suffix
+/// the tail cannot hold is a retryable `OutOfMemory` while nothing dispatched
+/// and `StreamTailOutOfMemory` once a frame did, because the stream position
+/// is lost with the suffix.
+fn feedBorrowed(gpa: std.mem.Allocator, session: *HostSession, bytes: []const u8, was_open: bool, committed: bool) !void {
+    const parsed = try parseOuterStreamPrefix(session, bytes, was_open, committed);
+    if (parsed.consumed < bytes.len) {
+        session.feed_tail.absorbBytes(gpa, bytes[parsed.consumed..]) catch |err| {
+            if (!committed and parsed.consumed == 0) return err;
+            return error.StreamTailOutOfMemory;
+        };
+        if (parsed.needs_resume) host_pump.scheduleFeedResume(session.host, session);
+    }
 }
 
 /// Delimit and dispatch complete outer Syrup byte strings from `bytes`. Each
@@ -81,50 +119,59 @@ const StreamParse = struct {
     needs_resume: bool = false,
 };
 
-fn parseOuterStreamPrefix(session: *HostSession, bytes: []const u8, was_open: bool) !StreamParse {
+/// The first outer frame of `bytes`, or null while it is incomplete. A
+/// malformed or oversize prefix projects its abort and returns its error.
+fn nextFrame(session: *HostSession, bytes: []const u8) !?struct { body: []const u8, consumed: usize } {
+    const peer = session.served.port.peer;
+    switch (foundation.stream_framing.parsePrefix(bytes, peer.limits().max_frame_bytes)) {
+        .incomplete => return null,
+        .malformed => return refuse(peer, error.MalformedFrame),
+        .too_large => return refuse(peer, error.FrameTooLarge),
+        .decoded => |decoded| return .{ .body = decoded.body, .consumed = decoded.consumed },
+    }
+}
+
+const Refusal = error{ MalformedFrame, FrameTooLarge };
+
+fn refuse(peer: *engine.Peer, err: Refusal) Refusal {
+    peer.emitFailure(err);
+    peer.stepToIdle() catch |step_err| peer.recordFailure(step_err);
+    return err;
+}
+
+/// Apply one frame body, then drive what it committed.
+fn dispatchBody(session: *HostSession, body: []const u8) !void {
+    const peer = session.served.port.peer;
+    const shape = engine.frameShape(peer.inboundCodec()) orelse return refuse(peer, error.MalformedFrame);
+    try feedBorrowedCommitted(session, .{ .bytes = body, .shape = shape });
+}
+
+/// Dispatch whole outer frames from the front of `bytes`. `committed` says a
+/// frame of this same call already dispatched, so pressure on the first frame
+/// here keeps the unread suffix instead of returning a retryable error.
+fn parseOuterStreamPrefix(session: *HostSession, bytes: []const u8, was_open: bool, committed: bool) !StreamParse {
     var consumed: usize = 0;
     while (consumed < bytes.len) {
-        // A prior frame in this same chunk may have crossed the waterline.
+        const dispatched = committed or consumed != 0;
+        // The opening hello is the pause boundary: later frames wait in the
+        // tail until the session's own drive resumes them.
+        if (dispatched and !was_open and session.served.port.peer.sessionIsOpen()) break;
+        // A prior frame in this same call may have crossed the waterline.
         // Stop before dispatching another frame. The caller retains the suffix
         // in `feed_tail`, so replay is neither required nor permitted.
-        if (consumed != 0 and session.served.queuedOutboundBytes() >= session.outbound_high_water_bytes)
+        if (dispatched and session.served.queuedOutboundBytes() >= session.outbound_high_water_bytes)
             return .{ .consumed = consumed, .needs_resume = true };
-        const outer = switch (foundation.stream_framing.parsePrefix(
-            bytes[consumed..],
-            session.served.port.peer.limits().max_frame_bytes,
-        )) {
-            .incomplete => break,
-            .malformed => {
-                session.served.port.peer.emitFailure(error.MalformedFrame);
-                session.served.port.peer.stepToIdle() catch |err| session.served.port.peer.recordFailure(err);
-                return error.MalformedFrame;
-            },
-            .too_large => {
-                session.served.port.peer.emitFailure(error.FrameTooLarge);
-                session.served.port.peer.stepToIdle() catch |err| session.served.port.peer.recordFailure(err);
-                return error.FrameTooLarge;
-            },
-            .decoded => |decoded| decoded,
-        };
-        const shape = engine.frameShape(session.served.port.peer.inboundCodec()) orelse {
-            session.served.port.peer.emitFailure(error.MalformedFrame);
-            session.served.port.peer.stepToIdle() catch |err| session.served.port.peer.recordFailure(err);
-            return error.MalformedFrame;
-        };
-        feedBorrowedCommitted(session, .{
-            .bytes = outer.body,
-            .shape = shape,
-        }) catch |err| {
-            // A prior prefix already applied makes this chunk committed. Keep
+        const outer = (try nextFrame(session, bytes[consumed..])) orelse break;
+        dispatchBody(session, outer.body) catch |err| {
+            // A prior frame already applied makes this call committed. Keep
             // the unapplied suffix and resume it from the core-issued wake. An
-            // OOM on the first direct frame still leaves the borrowed chunk
-            // retryable by its caller.
-            if (err == error.OutOfMemory and consumed != 0)
+            // OOM on the first direct frame of an uncommitted call still
+            // leaves the borrowed chunk retryable by its caller.
+            if (err == error.OutOfMemory and dispatched)
                 return .{ .consumed = consumed, .needs_resume = true };
             return err;
         };
         consumed += outer.consumed;
-        if (!was_open and session.served.port.peer.sessionIsOpen()) break;
     }
     return .{ .consumed = consumed };
 }
