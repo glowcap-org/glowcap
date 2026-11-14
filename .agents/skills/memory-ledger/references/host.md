@@ -75,6 +75,11 @@ custody costs.
   - A link may retain one outbound frame across a full write window, an owned
     transfer from `takeOutbound`, resumed at its offset on `ev_writable`, never a
     copy.
+  - Inbound that arrives before the embedder attends the session is copied
+    once into the link's `parked` buffer, bounded by
+    `unattended_parked_cap_bytes` and freed when the session is attended. A
+    message-framed wire keeps each packet behind its length in that buffer,
+    with no allocation per packet.
   - An EOF marks the wire closed and breaks its vows **without freeing**, because
     a view still holds the pointers: the close-and-release split.
   - Poll scratch grows once and then allocates nothing.

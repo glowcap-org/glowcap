@@ -21,6 +21,8 @@ const AcceptOwnershipResident = fixtures.AcceptOwnershipResident;
 const IgnoreSessionOpen = fixtures.IgnoreSessionOpen;
 const Treasure = fixtures.Treasure;
 const Introducer = fixtures.Introducer;
+const ExternalAdoptionResident = fixtures.ExternalAdoptionResident;
+const ObservedOpen = fixtures.ObservedOpen;
 const prepareAcceptOwnershipRuntime = fixtures.prepareAcceptOwnershipRuntime;
 const frame_cap = fixtures.frame_cap;
 const opts = fixtures.opts;
@@ -74,144 +76,6 @@ const ListenerCapture = struct {
             .ready = ready,
             .failed = failed,
         };
-    }
-};
-
-const ImmediateClosedExternalResident = struct {
-    wake: net.wake_channel.WakeChannel,
-    close_calls: usize = 0,
-    close_ready: bool = false,
-
-    const transport = "external-close";
-    const conn_id: usize = 9;
-
-    fn multiplexedResident(self: *ImmediateClosedExternalResident) net.MultiplexedResident {
-        return .{ .ctx = self, .vtable = &vtable };
-    }
-
-    const vtable = net.MultiplexedResident.VTable{
-        .readiness_fd = readinessFd,
-        .drain_ready = drainReady,
-        .external_claim = .{ .claim_external = claimExternal },
-        .try_read = tryRead,
-        .try_write = tryWrite,
-        .conn_close = connClose,
-        .conn_remote_key = connRemoteKey,
-    };
-
-    fn of(ctx: *anyopaque) *ImmediateClosedExternalResident {
-        return @ptrCast(@alignCast(ctx));
-    }
-
-    fn readinessFd(ctx: *anyopaque) i32 {
-        return of(ctx).wake.read;
-    }
-
-    fn drainReady(ctx: *anyopaque, out: []net.multiplexed_resident.ReadyEvent) net.multiplexed_resident.ContractError!usize {
-        const self = of(ctx);
-        self.wake.drain() catch return error.ProviderContract;
-        if (!self.close_ready or out.len == 0) return 0;
-        out[0] = .{ .subject = conn_id, .events = net.multiplexed_resident.ev_closed };
-        return 1;
-    }
-
-    fn claimExternal(_: *anyopaque, subject: usize) net.MultiplexedExternalClaimRawOutcome {
-        if (subject != conn_id) return .{ .failed = .init(error.InvalidAddress) };
-        return .{ .claimed = conn_id };
-    }
-
-    fn tryRead(_: *anyopaque, _: usize, _: []u8) isize {
-        return 0;
-    }
-
-    fn tryWrite(_: *anyopaque, _: usize, bytes: []const u8) isize {
-        return @intCast(bytes.len);
-    }
-
-    fn connClose(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
-        std.debug.assert(conn == conn_id);
-        const self = of(ctx);
-        self.close_calls += 1;
-        if (!self.close_ready) return .pending;
-        var failure = glowcap.foundation.FailureChain.init(error.ResidentCloseFailed);
-        failure.note(error.ResidentCloseCleanupFailed);
-        return .{ .failed = failure };
-    }
-
-    fn connRemoteKey(_: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
-        std.debug.assert(conn == conn_id);
-        return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x5d))).publicKey();
-    }
-};
-
-const ObservedOpen = struct {
-    reservations: usize = 0,
-    did_open: bool = false,
-    failure: ?anyerror = null,
-    failure_detail: ?driver.OperationFailure = null,
-    close_events: usize = 0,
-
-    fn of(ctx: *anyopaque) *ObservedOpen {
-        return @ptrCast(@alignCast(ctx));
-    }
-
-    fn reserve(ctx: *anyopaque, _: u64) anyerror!void {
-        of(ctx).reservations += 1;
-    }
-
-    fn release(ctx: *anyopaque, _: u64) void {
-        const self = of(ctx);
-        std.debug.assert(self.reservations != 0);
-        self.reservations -= 1;
-    }
-
-    fn reserveClose(ctx: *anyopaque) anyerror!void {
-        of(ctx).reservations += 1;
-    }
-
-    fn releaseClose(ctx: *anyopaque) void {
-        const self = of(ctx);
-        std.debug.assert(self.reservations != 0);
-        self.reservations -= 1;
-    }
-
-    fn opened(ctx: *anyopaque, _: u64, _: *driver_core.HostSession) !void {
-        const self = of(ctx);
-        release(ctx, 0);
-        self.did_open = true;
-    }
-
-    fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
-        const self = of(ctx);
-        release(ctx, 0);
-        self.failure = failure.chain.cause;
-        self.failure_detail = failure;
-    }
-
-    fn closed(ctx: *anyopaque, _: *driver_core.HostSession, _: ?driver.OperationFailure) void {
-        const self = of(ctx);
-        releaseClose(ctx);
-        self.close_events += 1;
-    }
-
-    /// Completions are not under test here: refuse each, so the drain frees it.
-    fn discard(_: *anyopaque, _: driver_core.HostAction) bool {
-        return false;
-    }
-
-    /// `opts` on the stepped face, publishing closes to this recorder.
-    fn steppedOpts(self: *ObservedOpen) driver.SessionOptions {
-        var options = opts;
-        options.drive = .{ .stepped = .{
-            .completion_sink = .{ .ctx = self, .take = discard },
-            .close_observer = .{
-                .ctx = self,
-                .reserve = reserveClose,
-                .release = releaseClose,
-                .closed = closed,
-            },
-        } };
-        return options;
     }
 };
 
@@ -402,7 +266,7 @@ test "external adoption commits its pending-open owner before immediate EOF" {
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
 
-    var resident = ImmediateClosedExternalResident{
+    var resident = ExternalAdoptionResident{
         .wake = try net.wake_channel.WakeChannel.open(),
     };
     defer resident.wake.deinit();
@@ -411,13 +275,13 @@ test "external adoption commits its pending-open owner before immediate EOF" {
     var runtime = try driver.HostRuntime.init(allocator, threaded.io(), .{}, .ephemeral, observed.steppedOpts());
     defer runtime.deinit();
     _ = try runtime.addResident(.{
-        .symbol = ImmediateClosedExternalResident.transport,
+        .symbol = ExternalAdoptionResident.transport,
         .designator_scheme = .key,
     }, resident.multiplexedResident());
 
     try runtime.startAdoptExternal(
-        ImmediateClosedExternalResident.transport,
-        ImmediateClosedExternalResident.conn_id,
+        ExternalAdoptionResident.transport,
+        ExternalAdoptionResident.conn_id,
         .dialed,
         41,
         .{
@@ -457,7 +321,7 @@ test "message resident adoption sizes reads from the transport packet cap" {
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
 
-    var resident = ImmediateClosedExternalResident{
+    var resident = ExternalAdoptionResident{
         .wake = try net.wake_channel.WakeChannel.open(),
     };
     defer resident.wake.deinit();
@@ -466,7 +330,7 @@ test "message resident adoption sizes reads from the transport packet cap" {
     defer runtime.deinit();
     const packet_cap = frame_cap + 2048;
     _ = try runtime.addResident(.{
-        .symbol = ImmediateClosedExternalResident.transport,
+        .symbol = ExternalAdoptionResident.transport,
         .designator_scheme = .key,
         .wire_framing = .message,
         .max_packet_bytes = packet_cap,
@@ -474,8 +338,8 @@ test "message resident adoption sizes reads from the transport packet cap" {
 
     var observed = ObservedOpen{};
     try runtime.startAdoptExternal(
-        ImmediateClosedExternalResident.transport,
-        ImmediateClosedExternalResident.conn_id,
+        ExternalAdoptionResident.transport,
+        ExternalAdoptionResident.conn_id,
         .dialed,
         41,
         .{

@@ -410,3 +410,7 @@ const accept_ownership = @import("residents/accept_ownership.zig");
 pub const AcceptOwnershipResident = accept_ownership.AcceptOwnershipResident;
 pub const IgnoreSessionOpen = accept_ownership.IgnoreSessionOpen;
 pub const prepareAcceptOwnershipRuntime = accept_ownership.prepareAcceptOwnershipRuntime;
+
+const external_adoption = @import("residents/external_adoption.zig");
+pub const ExternalAdoptionResident = external_adoption.ExternalAdoptionResident;
+pub const ObservedOpen = external_adoption.ObservedOpen;

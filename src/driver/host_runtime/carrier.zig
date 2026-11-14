@@ -84,8 +84,6 @@ pub fn freeWire(self: *HostRuntime, wire: *Wire) void {
     std.debug.assert(self.resident_wires.remove(.{ .resident = rl.index, .conn = rl.conn }));
     if (rl.pending) |*pending| pending.frame.deinit();
     rl.parked.deinit(self.allocator);
-    for (rl.parked_packets.items) |packet| self.allocator.free(packet);
-    rl.parked_packets.deinit(self.allocator);
     self.allocator.destroy(wire);
 }
 
