@@ -1,6 +1,7 @@
 //! A WebSocket as a byte channel: each binary message is a run of stream
-//! bytes, in order, and each write goes out as one binary message. That is
-//! all a CapTP session or an opaque byte relay needs from its socket.
+//! bytes, in order, and each write goes out as one binary message no larger
+//! than a glowcap WebSocket adapter admits. That is all a CapTP session or an
+//! opaque byte relay needs from its socket.
 use futures_util::{Sink, Stream};
 use std::{
 	cell::RefCell,
@@ -11,8 +12,67 @@ use std::{
 	task::{Context, Poll},
 	time::Duration,
 };
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
+use tokio_tungstenite::{
+	WebSocketStream,
+	tungstenite::{
+		Error, Message,
+		error::CapacityError,
+		protocol::{CloseFrame, WebSocketConfig, frame::coding::CloseCode},
+	},
+};
+
+/// How long a peer closed for its message's size may go quiet before its
+/// connection is dropped.
+const LINGER: Duration = Duration::from_secs(1);
+
+/// A socket that reads no message larger than `largest`, and holds little
+/// more than one such message waiting to be written.
+#[must_use]
+pub fn config(largest: usize) -> WebSocketConfig {
+	WebSocketConfig::default()
+		.max_message_size(Some(largest))
+		.max_frame_size(Some(largest))
+		.max_write_buffer_size(largest + 256 * 1024)
+}
+
+/// The bound a socket's `config` set, when the socket stopped reading because
+/// a message passed it.
+#[must_use]
+pub fn oversized(error: &Error) -> Option<usize> {
+	match error {
+		Error::Capacity(CapacityError::MessageTooLong { max_size, .. }) => Some(*max_size),
+		_ => None,
+	}
+}
+
+/// Close a socket whose peer sent a message past `largest`, the bound
+/// `oversized` read from its failure, and say so. The socket stops reading at
+/// the frame that passes the bound, so what the peer still writes is discarded
+/// unparsed until the peer goes quiet or `within` passes. Dropping the
+/// connection with those bytes unread would reset it and discard the close
+/// before the peer reads it.
+pub async fn close_oversized<S: AsyncRead + AsyncWrite + Unpin>(
+	socket: &mut WebSocketStream<S>,
+	largest: usize,
+	within: Duration,
+) {
+	use futures_util::SinkExt;
+	let frame = CloseFrame {
+		code: CloseCode::Size,
+		reason: format!("a message may be at most {largest} bytes").into(),
+	};
+	// tolerant: a peer that cannot take its close frame, or is still writing
+	// when `within` passes, is dropped. It was closed either way, and only its
+	// view of the reason is lost.
+	let _ = tokio::time::timeout(within, async {
+		if socket.send(Message::Close(Some(frame))).await.is_ok() {
+			let mut discarded = [0; 8192];
+			while let Ok(Ok(1..)) = tokio::time::timeout(LINGER, socket.get_mut().read(&mut discarded)).await {}
+		}
+	})
+	.await;
+}
 
 pub struct WsBytes<S> {
 	inner: Rc<RefCell<Inner<S>>>,
@@ -197,6 +257,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsBytes<S> {
 		let shared = self.get_mut();
 		let mut inner = shared.inner.borrow_mut();
 		let this = &mut *inner;
+		// The caller writes what one message does not take.
+		let buf = &buf[..buf.len().min(glowcap::BINDING_WEBSOCKET_MESSAGE_CAP_BYTES)];
 		if buf.len() > this.remaining {
 			return Poll::Ready(Err(io::Error::other("WebSocket byte budget exceeded")));
 		}

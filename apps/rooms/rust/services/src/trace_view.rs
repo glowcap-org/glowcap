@@ -108,9 +108,7 @@ async fn follow(
 	mut emit: impl FnMut(Output) -> Result<(), String> + 'static,
 ) -> Result<(), String> {
 	let opened = async {
-		let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
-			.max_message_size(Some(8 << 20))
-			.max_frame_size(Some(8 << 20));
+		let config = rooms_platform::websocket::config(rooms_application::server::trace::MAX_SOCKET_MESSAGE_BYTES);
 		let (socket, _) = tokio_tungstenite::connect_async_with_config(endpoint, Some(config), false)
 			.await
 			.map_err(|e| e.to_string())?;

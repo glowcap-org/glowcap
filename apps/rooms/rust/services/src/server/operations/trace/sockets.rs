@@ -18,6 +18,8 @@ use tokio_tungstenite::tungstenite::{
 	handshake::server::{Request, Response},
 	protocol::{CloseFrame, frame::coding::CloseCode},
 };
+// A viewer's byte channel sends no message larger than a timeline socket admits.
+const _: () = assert!(glowcap::BINDING_WEBSOCKET_MESSAGE_CAP_BYTES <= trace::MAX_SOCKET_MESSAGE_BYTES);
 const HANDSHAKE: Duration = Duration::from_secs(10);
 const HEAD_DEADLINE: Duration = Duration::from_secs(5);
 /// The connection prefix held for admission, see `connection_head`.
@@ -124,7 +126,9 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 		return;
 	}
 	let asked = Asked::default();
-	let ws = tokio::time::timeout(HANDSHAKE, tokio_tungstenite::accept_hdr_async(stream, asked.clone())).await;
+	let config = rooms_platform::websocket::config(trace::MAX_SOCKET_MESSAGE_BYTES);
+	let accepting = tokio_tungstenite::accept_hdr_async_with_config(stream, asked.clone(), Some(config));
+	let ws = tokio::time::timeout(HANDSHAKE, accepting).await;
 	let Ok(Ok(mut ws)) = ws else {
 		return;
 	};
@@ -175,7 +179,11 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 			}
 			return;
 		}
-		while let Some(Ok(message)) = ws.next().await {
+		let ended = loop {
+			let message = match ws.next().await {
+				Some(Ok(message)) => message,
+				ended => break ended,
+			};
 			let Message::Text(text) = message else {
 				continue;
 			};
@@ -196,11 +204,18 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 			// the socket never parks this loop; the drains get their turn
 			// between records rather than after the whole burst.
 			tokio::task::yield_now().await;
+		};
+		{
+			let mut feed = feed.borrow_mut();
+			let now = feed.now_ns();
+			for stamped in feed.endpoint.drop_producer(&scope, true, now) {
+				feed.broadcast(&stamped.line);
+			}
 		}
-		let mut feed = feed.borrow_mut();
-		let now = feed.now_ns();
-		for stamped in feed.endpoint.drop_producer(&scope, true, now) {
-			feed.broadcast(&stamped.line);
+		if let Some(Err(error)) = ended
+			&& let Some(largest) = rooms_platform::websocket::oversized(&error)
+		{
+			rooms_platform::websocket::close_oversized(&mut ws, largest, HANDSHAKE).await;
 		}
 		return;
 	}

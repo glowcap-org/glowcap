@@ -1,10 +1,17 @@
 use super::{limits::SITE_PAGE, *};
 
 #[test]
-fn defaults_derive_from_the_http_fronts_connection_budget() {
+fn an_operator_sets_each_socket_limit_and_an_unset_one_keeps_its_default() {
 	let limits = Limits::read(|_| None).unwrap();
-	assert_eq!(limits.sessions, super::super::http::MAX_CONNECTIONS * 7 / 8);
-	assert_eq!(limits.registrations, super::super::http::MAX_CONNECTIONS);
+	assert_eq!((limits.sessions, limits.registrations, limits.iroh), (256, 256, 16));
+	let limits = Limits::read(|name| match name {
+		"GLOWCAP_RELAY_MAX_SESSIONS" => Some("3".into()),
+		"GLOWCAP_RELAY_MAX_REGISTRATIONS" => Some("5".into()),
+		_ => None,
+	})
+	.unwrap();
+	assert_eq!((limits.sessions, limits.registrations, limits.iroh), (3, 5, 16));
+	assert!(Limits::read(|name| (name == "GLOWCAP_RELAY_MAX_SESSIONS").then(|| "0".into())).is_err());
 }
 
 #[test]

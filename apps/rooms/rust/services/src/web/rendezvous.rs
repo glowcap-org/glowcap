@@ -17,7 +17,8 @@ type Socket = WsBytes<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>;
 /// What a registration keeps for its dialer before one arrives. A glowcap
 /// listener sends nothing until a dialer's bytes reach it, so this is room
 /// for another implementation's hello. A message still arriving is held by
-/// the socket under `upgrade::MAX_MESSAGE`, as on every relay socket.
+/// the socket under `BINDING_WEBSOCKET_MESSAGE_CAP_BYTES`, as on every relay
+/// socket.
 const MAX_EARLY_BYTES: usize = 64 * 1024;
 type Claim = oneshot::Sender<Held>;
 pub(super) struct Held {

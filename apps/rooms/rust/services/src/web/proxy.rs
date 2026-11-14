@@ -19,10 +19,11 @@ pub(super) async fn run(
 	target: String,
 	mut stop: watch::Receiver<bool>,
 ) -> Result<(), String> {
+	let config = rooms_platform::websocket::config(rooms_application::server::trace::MAX_SOCKET_MESSAGE_BYTES);
 	let connected = tokio::select! {
 		_ = super::stopped(&mut stop) => return close(&mut near, None, false).await,
 		result = tokio::time::timeout(Duration::from_secs(5), tokio_tungstenite::connect_async_with_config(
-			target, Some(super::upgrade::config()), false)) => result
+			target, Some(config), false)) => result
 				.map_err(|_| "timeline dial timed out".to_owned()).and_then(|r| r.map_err(|_| "timeline endpoint is not reachable".to_owned())),
 	};
 	let (mut far, _) = match connected {
@@ -51,24 +52,41 @@ pub(super) async fn run(
 			reason: "timeline socket failed".into(),
 		}),
 	};
+	let oversized = match ended {
+		Err(Failed::Oversized(largest)) => Some(largest),
+		_ => None,
+	};
 	let (near_closed, far_closed) = tokio::join!(
-		close(&mut near, reason.clone(), near_ended),
-		close(&mut far, reason, far_ended)
+		end(&mut near, reason.clone(), near_ended, oversized),
+		end(&mut far, reason, far_ended, oversized)
 	);
-	crate::cleanup::combine(ended.map(|_| ()), crate::cleanup::combine(near_closed, far_closed))
+	let ended = ended.map(|_| ()).map_err(|failed| match failed {
+		Failed::Oversized(_) => "timeline socket was sent a message past its bound".to_owned(),
+		Failed::Other(reason) => reason.to_owned(),
+	});
+	crate::cleanup::combine(ended, crate::cleanup::combine(near_closed, far_closed))
 }
-async fn forward<R, W>(mut read: R, mut write: W) -> Result<Option<CloseFrame>, String>
+/// Why a direction stopped with no close to carry across.
+enum Failed {
+	/// Its reader was sent a message past the socket's bound, which this is.
+	Oversized(usize),
+	Other(&'static str),
+}
+async fn forward<R, W>(mut read: R, mut write: W) -> Result<Option<CloseFrame>, Failed>
 where
 	R: Stream<Item = Result<Message, Error>> + Unpin,
 	W: Sink<Message, Error = Error> + Unpin,
 {
+	const FAILED: Failed = Failed::Other("timeline socket failed");
 	while let Some(message) = read.next().await {
-		match message.map_err(|_| "timeline socket failed")? {
+		let message =
+			message.map_err(|error| rooms_platform::websocket::oversized(&error).map_or(FAILED, Failed::Oversized))?;
+		match message {
 			message @ (Message::Binary(_) | Message::Text(_)) => {
 				tokio::time::timeout(Duration::from_secs(10), write.send(message))
 					.await
-					.map_err(|_| "timeline socket stopped draining")?
-					.map_err(|_| "timeline socket failed")?;
+					.map_err(|_| Failed::Other("timeline socket stopped draining"))?
+					.map_err(|_| FAILED)?;
 			}
 			Message::Close(frame) => {
 				return Ok(frame.filter(|frame| {
@@ -80,6 +98,20 @@ where
 		}
 	}
 	Ok(None)
+}
+/// Close one side of the proxy. The side whose reader was sent a message
+/// past its bound is told so, and every other side takes `reason`.
+async fn end<S: AsyncRead + AsyncWrite + Unpin>(
+	socket: &mut WebSocketStream<S>,
+	reason: Option<CloseFrame>,
+	read_ended: bool,
+	oversized: Option<usize>,
+) -> Result<(), String> {
+	if let Some(largest) = oversized.filter(|_| read_ended) {
+		rooms_platform::websocket::close_oversized(socket, largest, Duration::from_secs(3)).await;
+		return Ok(());
+	}
+	close(socket, reason, read_ended).await
 }
 async fn close<S: AsyncRead + AsyncWrite + Unpin>(
 	socket: &mut WebSocketStream<S>,

@@ -6,13 +6,9 @@ use hyper::{Request, body::Incoming};
 use hyper_util::rt::TokioIo;
 use std::time::Duration;
 use tokio::sync::watch;
-use tokio_tungstenite::{
-	WebSocketStream,
-	tungstenite::protocol::{Role, WebSocketConfig},
-};
+use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
 
 pub(super) type Socket = WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>;
-pub(super) const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 
 pub(super) fn prepare(request: &mut Request<Incoming>) -> Result<(Reply, hyper::upgrade::OnUpgrade), &'static str> {
 	let mut handshake = Request::new(());
@@ -25,9 +21,13 @@ pub(super) fn prepare(request: &mut Request<Incoming>) -> Result<(Reply, hyper::
 		.map(|_| Full::new(Bytes::new()));
 	Ok((response, hyper::upgrade::on(request)))
 }
+/// Take the upgraded socket, which reads no message larger than `largest`. A
+/// socket holds one arriving message of that size before any byte budget
+/// sees it.
 pub(super) async fn accept(
 	upgrading: hyper::upgrade::OnUpgrade,
 	mut stop: watch::Receiver<bool>,
+	largest: usize,
 ) -> Result<Socket, String> {
 	let upgraded = tokio::select! {
 		biased;
@@ -35,12 +35,6 @@ pub(super) async fn accept(
 		result = tokio::time::timeout(Duration::from_secs(10), upgrading) => result
 			.map_err(|_| "WebSocket upgrade timed out")?.map_err(|e| e.to_string())?,
 	};
-	Ok(WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(config())).await)
-}
-
-pub(super) fn config() -> WebSocketConfig {
-	WebSocketConfig::default()
-		.max_message_size(Some(MAX_MESSAGE))
-		.max_frame_size(Some(MAX_MESSAGE))
-		.max_write_buffer_size(MAX_MESSAGE + 256 * 1024)
+	let config = rooms_platform::websocket::config(largest);
+	Ok(WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(config)).await)
 }

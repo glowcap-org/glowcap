@@ -31,6 +31,14 @@ pub const websocket_message_cap_bytes: Policy = .{ .value = 1024 * 1024, .doc = 
 
 pub const websocket_send_high_water_bytes: Policy = .{ .value = 1024 * 1024, .doc = "WebSocket send buffer waterline before the shared adapter parks another write." };
 
+comptime {
+    // An adapter sends a write in pieces of the send waterline, and each piece
+    // is one message its peer must admit.
+    if (websocket_send_high_water_bytes.value > websocket_message_cap_bytes.value) {
+        @compileError("a WebSocket adapter's send waterline is larger than the message its peer admits");
+    }
+}
+
 pub const websocket_drain_poll_ms: Policy = .{ .value = 4, .doc = "Poll interval in milliseconds while a WebSocket send buffer drains." };
 
 pub const browser_channel_close_timeout_ms: Policy = .{ .value = relay_tcp_dial_timeout_ms.value, .doc = "Deadline in milliseconds for observing retirement of an embedder-owned browser channel." };

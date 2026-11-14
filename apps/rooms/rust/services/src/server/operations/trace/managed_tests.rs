@@ -280,6 +280,51 @@ async fn trace_web_channel_requires_swiss_at_fetch_and_refuses_unknown_routes() 
 }
 
 #[tokio::test]
+async fn a_publisher_socket_takes_a_record_line_and_closes_a_longer_message_by_its_size() {
+	use rooms_application::server::trace::{MAX_SOCKET_MESSAGE_BYTES, PUBLISH_PATH};
+	rooms_testing::local_set::run_within(Duration::from_secs(20), async {
+		let swiss = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+		let timeline = super::Trace::start(
+			"127.0.0.1:0".parse().unwrap(),
+			swiss.into(),
+			None,
+			None,
+			Rc::new(|_| {}),
+		)
+		.await
+		.unwrap();
+		let route = format!("ws://127.0.0.1:{}{PUBLISH_PATH}", timeline.address.port());
+		let (mut ws, _) = tokio_tungstenite::connect_async(route).await.unwrap();
+		ws.send(Message::Text(swiss.into())).await.unwrap();
+		assert!(
+			matches!(ws.next().await, Some(Ok(Message::Text(_)))),
+			"an admitted publisher is told it may publish"
+		);
+		// A message as long as a record line may be is read, and refused only
+		// as a record. The socket still answers.
+		ws.send(Message::Text("x".repeat(MAX_SOCKET_MESSAGE_BYTES).into()))
+			.await
+			.unwrap();
+		ws.send(Message::Ping(Vec::new().into())).await.unwrap();
+		assert!(matches!(ws.next().await, Some(Ok(Message::Pong(_)))));
+		// One byte more is refused at its header. The endpoint still takes the
+		// rest of the message off the connection, so its close arrives.
+		ws.send(Message::Text("x".repeat(MAX_SOCKET_MESSAGE_BYTES + 1).into()))
+			.await
+			.unwrap();
+		let Some(Ok(Message::Close(Some(close)))) = ws.next().await else {
+			panic!("a publisher past the bound was not told why it was closed");
+		};
+		assert_eq!(close.code, CloseCode::Size);
+		assert!(close.reason.contains(&MAX_SOCKET_MESSAGE_BYTES.to_string()));
+		// The endpoint lets the connection go once the publisher is quiet.
+		while let Some(Ok(_)) = ws.next().await {}
+		timeline.close().await;
+	})
+	.await;
+}
+
+#[tokio::test]
 async fn trace_bind_selects_interface_and_preserves_capability_admission() {
 	rooms_testing::local_set::run_within(Duration::from_secs(15), async {
 		for bind in ["127.0.0.2:0", "0.0.0.0:0", "[::1]:0", "[::]:0"] {
