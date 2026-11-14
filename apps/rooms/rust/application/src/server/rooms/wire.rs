@@ -43,6 +43,7 @@ pub fn attachment<A: crate::room::ArgumentView>(
 			FailureCode::AttachmentRefused,
 			match error {
 				FileError::Size => "file exceeds the room attachment limit",
+				FileError::NameCharacters => crate::files::NAME_CHARACTERS,
 				_ => "room attachment description is invalid",
 			},
 		)

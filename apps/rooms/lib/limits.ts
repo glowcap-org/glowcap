@@ -54,21 +54,36 @@ export const MAX_LINE = APPLICATION_DATA.MAX_LINE;
  * them, so the words stay vocabulary and never become people. */
 export const ROOM_MENTIONS = APPLICATION_DATA.ROOM_MENTIONS;
 
+/** A control character, or a direction character that reorders the text
+ * around it. Letters of every script, combining marks, and the emoji joiners
+ * are not among them, so an international or emoji name is untouched.
+ *   \u0000-\u001F,\u007F-\u009F  C0/C1 controls, incl. ESC, newline, tab, DEL
+ *   \u061C,\u200E,\u200F          Arabic letter, LTR, and RTL marks
+ *   \u2028,\u2029                 line / paragraph separators
+ *   \u202A-\u202E,\u2066-\u2069  bidi embeddings, overrides, isolates
+ * The control characters are the subject, so matching them is intended. */
+// deno-lint-ignore no-control-regex
+const CONTROL_OR_DIRECTION = /[\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069]/;
+
 /** Why a room will not take a file described this way, or null when it will.
  *
  * Both sides ask: a sender so it fails before a byte moves, and the room
- * because it cannot trust a sender. The checks run in both places and the
- * sentences live here, so the two cannot give different answers. An archived
+ * because it cannot trust a sender. A reader of a message or an archived
  * line asks too, and holds the same file rules without holding a session.
  *
- * Each sentence names its file, because a message may carry several and a
- * reader looking at eight chips cannot act on a rule stated in the abstract. */
+ * A sentence names its file where the name is fit to show, because a message
+ * may carry several and a reader looking at eight chips cannot act on a rule
+ * stated in the abstract. */
 export function attachmentRefusal(name: string, mime: string, size: number): string | null {
-	const shown = name.length > 60 ? name.slice(0, 57) + "…" : name;
 	if (name.length === 0) return "a file needs a name";
 	if (name.length > MAX_FILE_NAME) {
 		return `a file name may be at most ${MAX_FILE_NAME} characters, and this one is ${name.length}`;
 	}
+	// A reader sees the name beside the file and saves under it. A direction
+	// override draws `photo` and `gpj.exe` as `photoexe.jpg`, so the refusal
+	// does not repeat the name it refuses.
+	if (CONTROL_OR_DIRECTION.test(name)) return "a file name may not contain control or text-direction characters";
+	const shown = name.length > 60 ? name.slice(0, 57) + "…" : name;
 	if (mime.length > MAX_MIME) return `"${shown}" declares a media type longer than ${MAX_MIME} characters`;
 	if (!Number.isSafeInteger(size) || size < 0) return `"${shown}" declares a size that is not a file size`;
 	if (size > MAX_ATTACHMENT_BYTES) {
@@ -106,16 +121,8 @@ export function nickRefusal(nick: string): string | null {
 	// terminal clients, straight to stdout. A control character in a name is
 	// an ANSI escape injected into every reader's terminal (`rooms-chat`
 	// prints `${from}: ${text}`), and a text-direction override makes one name
-	// look like another. Refuse those categories. Letters of every script,
-	// combining marks, and the emoji joiners stay, so an international or emoji
-	// name is untouched.
-	//   \u0000-\u001F,\u007F-\u009F  C0/C1 controls, incl. ESC, newline, tab, DEL
-	//   \u061C,\u200E,\u200F          Arabic letter, LTR, and RTL marks
-	//   \u2028,\u2029                 line / paragraph separators
-	//   \u202A-\u202E,\u2066-\u2069  bidi embeddings, overrides, isolates
-	// The control characters are the subject, so matching them is intended.
-	// deno-lint-ignore no-control-regex
-	if (/[\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069]/.test(nick)) {
+	// look like another. Refuse those categories.
+	if (CONTROL_OR_DIRECTION.test(nick)) {
 		return "a name may not contain control or text-direction characters";
 	}
 	return null;

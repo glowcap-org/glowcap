@@ -88,13 +88,16 @@ pub enum Node {
 	Delete {
 		children: Vec<Node>,
 	},
+	/// `opens` is where the link goes, for a label that does not say.
 	Link {
 		destination: String,
+		opens: Option<String>,
 		title: Option<String>,
 		children: Vec<Node>,
 	},
 	Image {
 		destination: Option<String>,
+		opens: Option<String>,
 		title: Option<String>,
 		alt: String,
 	},
@@ -398,20 +401,27 @@ impl Projection<'_> {
 		depth: usize,
 	) -> Result<Option<Node>, ()> {
 		let children = self.children(children, depth)?;
-		if safe_destination(destination).is_none() {
+		let Some(address) = safe_destination(destination) else {
 			self.bump()?;
 			return Ok(Some(Node::Group { children }));
-		}
+		};
+		let mut label = String::new();
+		let words = said(&children, &mut label);
 		self.leaf(Node::Link {
 			destination: String::from(destination),
+			opens: opens(&address, words.then_some(&label)),
 			title,
 			children,
 		})
 	}
 
 	fn image(&mut self, destination: &str, title: Option<String>, alt: String) -> Result<Option<Node>, ()> {
+		let address = safe_destination(destination);
+		// An image with no words of its own is labelled with its destination.
+		let label = if alt.is_empty() { destination } else { &alt };
 		self.leaf(Node::Image {
-			destination: safe_destination(destination).map(String::from),
+			opens: address.as_ref().and_then(|address| opens(address, Some(label))),
+			destination: address.map(|_| String::from(destination)),
 			title,
 			alt,
 		})
@@ -436,9 +446,88 @@ impl Projection<'_> {
 	}
 }
 
-fn safe_destination(value: &str) -> Option<&str> {
+/// An address a link may open: a web address or a mail link, written so that
+/// the page's browser reads the place this parse read.
+fn safe_destination(value: &str) -> Option<Url> {
 	let parsed = Url::parse(value).ok()?;
-	matches!(parsed.scheme(), "http" | "https" | "mailto").then_some(value)
+	let safe = match parsed.scheme() {
+		// Without `//` after its scheme, a browser reads a web address as a
+		// path on the page's own host.
+		"http" | "https" => value
+			.get(parsed.scheme().len()..)
+			.is_some_and(|written| written.starts_with("://")),
+		// A mail link's place is the mailbox in its path. One written with a
+		// host has none. Its query may fill in a subject and a body, and holds
+		// nothing a mail program could read as a recipient the mailbox does not show.
+		"mailto" => {
+			!parsed.has_authority()
+				&& !parsed.path().is_empty()
+				&& parsed.fragment().is_none()
+				&& parsed.query_pairs().all(|(field, _)| {
+					["subject", "body"]
+						.iter()
+						.any(|filled| field.eq_ignore_ascii_case(filled))
+				})
+		}
+		_ => false,
+	};
+	safe.then_some(parsed)
+}
+
+/// Where an address leads: the host of a web address, with its port when
+/// that is not the scheme's own, or the mailbox of a `mailto`.
+fn place(address: &Url) -> Option<String> {
+	if address.scheme() == "mailto" {
+		return Some(String::from(address.path()));
+	}
+	let host = address.host_str()?;
+	Some(match address.port() {
+		Some(port) => alloc::format!("{host}:{port}"),
+		None => String::from(host),
+	})
+}
+
+/// The place a link opens, for the reader to see beside a label that does not
+/// say it. A label is the author's words, and "example.com" over a link to
+/// another host is the oldest lie a link tells. `None` when the label is
+/// words that read as an address at that place, with no user name or password
+/// before the host. A pasted address in ASCII is such a label. One whose host
+/// has letters outside ASCII shows its encoded host, because two scripts can
+/// draw the same word. `label` is `None` when the label shows more than words.
+fn opens(destination: &Url, label: Option<&str>) -> Option<String> {
+	let place = place(destination)?;
+	let mailbox = destination.scheme() == "mailto";
+	let says = label.map(str::trim).is_some_and(|label| {
+		label.to_ascii_lowercase().contains(&place.to_ascii_lowercase())
+			&& [
+				Url::parse(label),
+				Url::parse(&alloc::format!("https://{label}")),
+				Url::parse(&alloc::format!("mailto:{label}")),
+			]
+			.iter()
+			.flatten()
+			.any(|read| {
+				(read.scheme() == "mailto") == mailbox
+					&& read.username().is_empty()
+					&& read.password().is_none()
+					&& self::place(read).is_some_and(|read| read.eq_ignore_ascii_case(&place))
+			})
+	});
+	(!says).then_some(place)
+}
+
+/// The words of a label, and whether words are all it shows. A spoiler covers
+/// its words, and an image or a mention draws text of its own, so a label
+/// that holds one says nothing a reader can check against the place.
+fn said(nodes: &[Node], label: &mut String) -> bool {
+	nodes.iter().all(|node| match node {
+		Node::Text { text } | Node::InlineCode { text } => {
+			label.push_str(text);
+			true
+		}
+		Node::Emphasis { children } | Node::Strong { children } | Node::Delete { children } => said(children, label),
+		_ => false,
+	})
 }
 
 #[cfg(test)]

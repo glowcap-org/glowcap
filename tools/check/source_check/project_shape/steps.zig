@@ -3,6 +3,7 @@
 //! documentation. `ci/groups_test.py` holds the commands CI runs.
 
 const std = @import("std");
+const doc_kinds = @import("../docs/kinds.zig");
 const markdown = @import("../markdown.zig");
 const inventory = @import("build_steps_doc");
 const violation_log = @import("../violation_log.zig");
@@ -143,8 +144,9 @@ pub fn checkDocumentedBuildSteps(
     // The command-citing corpus: the fixed surfaces outside the walked trees,
     // plus every Markdown file under `docs/**` and `.agents/**`, plus every
     // SuperMD page under `site/content/**` (the site cites the same
-    // `zig build` steps and drifts the same way). Paths are duped into an
-    // arena so they outlive the directory walkers.
+    // `zig build` steps and drifts the same way). A changelog is left out,
+    // because its entries name the steps a release renamed or removed. Paths
+    // are duped into an arena so they outlive the directory walkers.
     var command_docs: std.ArrayList([]const u8) = .empty;
     defer command_docs.deinit(gpa);
     for (fixed_command_docs) |path| try command_docs.append(gpa, path);
@@ -198,7 +200,7 @@ fn collectCommandDocsUnder(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ext)) continue;
+        if (!std.mem.endsWith(u8, entry.path, ext) or doc_kinds.isChangelog(entry.path)) continue;
         try out.append(gpa, try arena.print("{s}/{s}", .{ dir_path, entry.path }));
     }
 }

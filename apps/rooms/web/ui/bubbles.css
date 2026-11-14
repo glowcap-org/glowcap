@@ -140,8 +140,10 @@
 /* On a line of yours the ground is warmed paper, a shade darker than the paper
    the soft ink was chosen against, so the note takes a step toward the full
    ink to keep its 4.5:1. The browser proof measures it over both stops. A
-   withdrawn line stands on no tint and keeps the soft ink above. */
-.row.mine .edited-said {
+   withdrawn line stands on no tint and keeps the soft ink above. The place a
+   link opens is soft ink too and takes the same step. */
+.row.mine .edited-said,
+.row.mine .markdown-link-opens {
 	color: color-mix(in srgb, var(--ink-soft) 55%, var(--ink));
 }
 /* After the words rather than among them, because it qualifies what was said
@@ -179,6 +181,11 @@
 	background: color-mix(in srgb, currentColor 12%, transparent);
 	color: inherit;
 	cursor: auto;
+}
+/* Covered means all of it. An element under the slab brings its own color,
+   and a link its own press, so each keeps its room and draws nothing. */
+.spoiler:not(.shown) > * {
+	visibility: hidden;
 }
 
 /* A call to the whole room. Addressed to you, so it carries the weight a

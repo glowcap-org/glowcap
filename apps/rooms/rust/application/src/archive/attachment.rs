@@ -21,8 +21,7 @@ impl Attachment {
 		height: u64,
 		blob: Option<String>,
 	) -> Result<Self, Error> {
-		files::validate_description(name.utf16().take(161).count(), mime.utf16().take(81).count(), size)
-			.map_err(|_| Error::Record)?;
+		files::validate_description(name.utf16(), mime.utf16(), size).map_err(|_| Error::Record)?;
 		if width > 65535 || height > 65535 || blob.as_deref().is_some_and(|s| !digest(s)) {
 			return Err(Error::Record);
 		}

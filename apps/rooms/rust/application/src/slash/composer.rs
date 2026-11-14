@@ -117,11 +117,9 @@ pub fn prepare(submission: &Submission) -> Prepared {
 	}
 	let mut file_bytes = 0_u64;
 	for file in &submission.files {
-		if let Err(error) = crate::files::validate_description(
-			file.name.text().utf16().take(161).count(),
-			file.mime.text().utf16().take(81).count(),
-			file.size,
-		) {
+		if let Err(error) =
+			crate::files::validate_description(file.name.text().utf16(), file.mime.text().utf16(), file.size)
+		{
 			return refuse(error.to_string());
 		}
 		file_bytes = file_bytes.saturating_add(file.size);

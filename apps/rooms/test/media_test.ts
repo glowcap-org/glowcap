@@ -77,6 +77,17 @@ Deno.test("a file a room will not take is refused in words that name it", () => 
 	assertEquals(big !== null && big.includes("holiday.mov"), true, `the refusal did not name the file: ${big}`);
 	assertEquals(big !== null && big.includes("MB"), true, `the refusal spoke in bytes: ${big}`);
 
+	// A direction override draws this name as `photoexe.jpg`. The refusal does
+	// not repeat the name, because repeating it would draw the same lie.
+	for (const hidden of ["photo\u202Egpj.exe", "a\u2066b", "a\nb", "a\u200F.txt", "\u061C"]) {
+		assertEquals(
+			attachmentRefusal(hidden, "image/jpeg", 12),
+			"a file name may not contain control or text-direction characters",
+			JSON.stringify(hidden),
+		);
+	}
+	assertEquals(attachmentRefusal("صورة.jpg", "image/jpeg", 12), null);
+
 	// A peer can put a value on the wire that is not a size at all.
 	assertEquals(attachmentRefusal("x.bin", "application/octet-stream", -1) !== null, true);
 	assertEquals(attachmentRefusal("x.bin", "application/octet-stream", Number.NaN) !== null, true);

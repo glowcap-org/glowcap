@@ -157,8 +157,13 @@ pub fn placeOf(path: []const u8) Place {
 fn livingByPlace(path: []const u8) bool {
     if (std.mem.startsWith(u8, path, "docs/decisions/")) return true;
     if (std.mem.find(u8, path, "/research/") != null) return true;
-    const base = std.Io.Dir.path.basename(path);
-    return std.mem.endsWith(u8, base, "results.md") or std.mem.eql(u8, base, "CHANGELOG.md");
+    return std.mem.endsWith(u8, std.Io.Dir.path.basename(path), "results.md") or isChangelog(path);
+}
+
+/// A changelog, at the root or beside the releases it holds. Its entries say
+/// what a release renamed or removed, so the names they cite need not exist.
+pub fn isChangelog(path: []const u8) bool {
+    return std.mem.eql(u8, std.Io.Dir.path.basename(path), "CHANGELOG.md");
 }
 
 fn kindByPlace(path: []const u8) Kind {
@@ -365,6 +370,9 @@ test "the place decides kind and audience where it can" {
     try std.testing.expectEqual(Kind.static, classify("docs/planning/plan-to-plan.md", "").kind);
     try std.testing.expectEqual(Kind.living, classify("bench/loam/results.md", "").kind);
     try std.testing.expectEqual(Kind.living, classify("docs/decisions/adr/ADR-0001-x.md", "").kind);
+    try std.testing.expectEqual(Kind.living, classify("docs/history/0.1.7/CHANGELOG.md", "").kind);
+    try std.testing.expect(isChangelog("CHANGELOG.md"));
+    try std.testing.expect(!isChangelog("docs/maintaining.md"));
     try std.testing.expectEqual(Audience.human, classify("site/content/why.smd", "").audience);
     try std.testing.expectEqual(Audience.human, classify("README.md", "").audience);
     try std.testing.expectEqual(Audience.agent, classify(".agents/rules/cli.md", "").audience);

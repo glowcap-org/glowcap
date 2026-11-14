@@ -104,6 +104,32 @@
 .markdown-image-link::before {
 	content: "↗ ";
 }
+/* Where a link goes, after a label that does not say. It is not the author's
+   text, so it takes the caption voice and none of the label's emphasis, and
+   a copied line holds the author's words alone. */
+.markdown-link-opens {
+	display: inline-block;
+	margin-inline-start: 0.3em;
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+	font-style: normal;
+	font-weight: 400;
+	overflow-wrap: anywhere;
+	user-select: none;
+}
+/* An IRC line's author paints their own words. The place keeps the bubble's
+   surface, so no color they pick can hide it. */
+[class*="irc-bg-"] .markdown-link-opens {
+	padding: 0 0.3em;
+	border-radius: 4px;
+	background: var(--paper-raised);
+}
+.markdown-link-opens::before {
+	content: "(";
+}
+.markdown-link-opens::after {
+	content: ")";
+}
 .markdown-footnote {
 	margin-top: 0.35rem;
 	padding-top: 0.35rem;
@@ -117,6 +143,28 @@
 	margin-left: 0.1rem;
 }
 
+/* A subject is one line that gives way at its end, and a link cut there would
+   lose the place it opens. A link in it is one piece no wider than the line,
+   and its label gives way before its place does. A place longer than the line
+   keeps its end, where the name that owns the host is written. The underline
+   moves to the label, because a link's own would run under its place as well. */
+.subject-said a {
+	display: inline-flex;
+	align-items: baseline;
+	justify-content: flex-end;
+	max-width: 100%;
+	overflow: hidden;
+	text-decoration: none;
+}
+.subject-said a > bdi {
+	min-width: 0;
+	overflow: hidden;
+	text-decoration: underline;
+	text-overflow: ellipsis;
+}
+.subject-said .markdown-link-opens {
+	flex: none;
+}
 /* A subject stays one line even when its source uses a block construct. */
 .subject-said p,
 .subject-said .markdown-heading,

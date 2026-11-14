@@ -2,6 +2,7 @@
 //! export.
 
 const std = @import("std");
+const doc_kinds = @import("../docs/kinds.zig");
 const json_files = @import("../json_files.zig");
 const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
@@ -34,6 +35,7 @@ const doc_c_abi_header_paths = [_][]const u8{
 
 /// Every `glowcap_[a-z0-9_]+` token inside backticks in docs and site content
 /// must exist in the generated headers (or name a wildcard family that does).
+/// A changelog is not read, because its entries name what a release removed.
 pub fn checkDocCAbiCites(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -62,7 +64,7 @@ pub fn checkDocCAbiCites(
     defer docs_walker.deinit();
     while (try docs_walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".md") or doc_kinds.isChangelog(entry.path)) continue;
         const path = try arena.print("docs/{s}", .{entry.path});
         const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for doc C-ABI cite check with {s}", .{ path, @errorName(err) });

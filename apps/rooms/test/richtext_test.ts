@@ -43,7 +43,9 @@ Deno.test("each inline kind becomes its own element", () => {
 	assertEquals(drawn("_soft_"), paragraph("<em>soft</em>"), "underscore emphasis");
 	assertEquals(
 		drawn("https://example.com"),
-		paragraph('<a href="https://example.com" target="_blank" rel="noopener noreferrer">https://example.com</a>'),
+		paragraph(
+			'<a href="https://example.com" target="_blank" rel="noopener noreferrer" dir="ltr"><bdi>https://example.com</bdi></a>',
+		),
 		"link",
 	);
 });
@@ -53,9 +55,39 @@ Deno.test("a link keeps the punctuation that ends the sentence", () => {
 	assertEquals(
 		drawn("see https://example.com."),
 		paragraph(
-			'see <a href="https://example.com" target="_blank" rel="noopener noreferrer">https://example.com</a>.',
+			'see <a href="https://example.com" target="_blank" rel="noopener noreferrer" dir="ltr"><bdi>https://example.com</bdi></a>.',
 		),
 	);
+});
+
+Deno.test("a link shows where it goes unless its label already says", () => {
+	// A link reads left to right with its label in a `bdi`, so a direction
+	// override earlier in the paragraph cannot draw the label backwards into
+	// another address or part it from its place.
+	const link = (label: string, place: string) =>
+		`<a href="https://example.org/bank.example" target="_blank" rel="noopener noreferrer" dir="ltr"><bdi>${label}</bdi>${place}</a>`;
+	const shown = '<span class="markdown-link-opens">example.org</span>';
+	assertEquals(
+		drawn("[the guide](https://example.org/bank.example)"),
+		paragraph(link("the guide", shown)),
+		"words",
+	);
+	assertEquals(
+		drawn("[bank.example](https://example.org/bank.example)"),
+		paragraph(link("bank.example", shown)),
+		"another place",
+	);
+	assertEquals(
+		drawn("[example.org](https://example.org/bank.example)"),
+		paragraph(link("example.org", "")),
+		"the place itself",
+	);
+	includes(
+		drawn("![bank.example](https://example.org/map.png)"),
+		`<bdi>Image: bank.example</bdi>${shown}</a>`,
+	);
+	// Without `//` a browser reads this address as a path on the page's own host.
+	assertEquals(drawn("[example.org](https:/example.org)"), paragraph("example.org"), "no link");
 });
 
 Deno.test("a spoiler is a control until it is asked", () => {
