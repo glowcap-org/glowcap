@@ -5,6 +5,7 @@
 //! or takes down durable names and answers the caller. A name recorded but
 //! not published is answered by the next restart. A name published but not
 //! recorded is gone with the process. Only one of those heals itself.
+pub(super) mod link_ask;
 pub(super) mod links;
 pub(super) mod queue;
 use super::{
@@ -13,6 +14,7 @@ use super::{
 	state::{Shared, State},
 };
 use glowcap::Argument;
+pub(super) use link_ask::{Asker, link, listed_link_name, no_link};
 pub(crate) use links::{AuthorityRefusal, Links, Swiss};
 use queue::{Commit, Prepare};
 pub(super) use queue::{Seat, request, submit};
@@ -25,10 +27,7 @@ use rooms_application::{
 		policy::{MembershipKind, RoomPolicy},
 		stewardship::Kind,
 	},
-	server::{
-		links::{Authority, Registration},
-		rooms::MAX_ROOM,
-	},
+	server::{links::Registration, rooms::room_name_refusal},
 };
 use rooms_glowcap::Value;
 
@@ -154,35 +153,6 @@ impl State {
 	pub(super) fn authority_ended(&mut self, name: &str, kind: Kind, token: &str) {
 		let effects = self.rooms.authority_changed(name, kind, token);
 		self.apply_rooms(effects);
-	}
-}
-
-/// `link(name)` from the directory or a manager: persist, publish, answer.
-pub(super) fn link(seat: Seat, name: String) -> Result<Argument, String> {
-	scoped_link(seat, name, None)
-}
-
-fn scoped_link(seat: Seat, name: String, generation: Option<u64>) -> Result<Argument, String> {
-	submit(
-		seat,
-		protocol_data::LINK,
-		prepare_link(name.clone(), generation),
-		move |state, caller| {
-			let swiss = state.publish_room(&name)?;
-			Ok(state.link_for(&swiss, Some(caller)).map_err(|e| e.to_string())?.into())
-		},
-	)
-}
-
-pub(super) fn prepare_link(
-	name: String,
-	generation: Option<u64>,
-) -> impl FnOnce(&State) -> Result<Option<Authority>, String> {
-	move |state| {
-		if let Some(generation) = generation {
-			require_manager(state, &name, generation)?;
-		}
-		Ok(state.authority.remembered(&name, false, false, None)?)
 	}
 }
 
@@ -325,7 +295,13 @@ fn manager(
 				if !args.is_empty() {
 					return Err("link takes no arguments".into());
 				}
-				scoped_link(seat, name.clone(), Some(generation))
+				link(
+					seat,
+					Asker::Manager {
+						name: name.clone(),
+						generation,
+					},
+				)
 			}
 			verbs::GIVE_STEWARD => {
 				if !args.is_empty() {
@@ -386,13 +362,10 @@ fn manager(
 				else {
 					return Err("setRoomPolicy takes three policy modes and a room name".into());
 				};
-				if public.is_empty() {
-					return Err("setRoomPolicy takes three policy modes and a room name".into());
-				}
 				let policy = RoomPolicy::parse(&[visibility, entry, speaking])
 					.ok_or("setRoomPolicy names no supported room access state")?;
-				if public.encode_utf16().count() > MAX_ROOM {
-					return Err(format!("a room name must be between 1 and {MAX_ROOM} characters"));
+				if let Some(refusal) = room_name_refusal(public) {
+					return Err(refusal.reason());
 				}
 				set_policy(seat, name.clone(), public.into(), policy, generation)
 			}
@@ -490,10 +463,9 @@ fn set_policy(seat: Seat, id: String, name: String, policy: RoomPolicy, generati
 			Ok(state.authority.with_managed_room_policy(&held_id, &held_name, policy)?)
 		},
 		move |state, _| {
-			let authority = state.authority.clone();
 			let effects = state
 				.rooms
-				.policy_changed(&id, &authority)
+				.policy_changed(&id, &state.authority)
 				.map_err(|refusal| refusal.reason())?;
 			state.apply_rooms(effects);
 			let managed = state

@@ -3,7 +3,7 @@
 //! entrance is what the adapter's room actor holds, and `seating` seats a
 //! member through it.
 use super::{
-	InvitationKey, MAX_ROOM, MAX_ROOMS_PER_CREATOR, Refusal, RoomKey, Rooms,
+	InvitationKey, MAX_ROOMS_PER_CREATOR, Refusal, RoomKey, Rooms,
 	state::{Room, folded},
 };
 use crate::{
@@ -81,29 +81,49 @@ pub struct Fresh {
 	pub private_key: RecoveryKey,
 }
 
+/// Whether `policy` lets the public in as `kind`.
+fn offers(policy: RoomPolicy, kind: MembershipKind) -> bool {
+	policy.is_listed() && policy.public_membership() == Some(kind)
+}
+
 pub(super) fn closed() -> Refusal {
 	Refusal::coded(FailureCode::NoSuchRoom, "this room is no longer open")
 }
 
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
-	/// Whether `entrance` still admits, for `connection`. A member already in
-	/// the room passes a closed gate: the room does not eject them for it.
-	pub fn gate_open(&self, connection: C, entrance: &Entrance, authority: &Authority) -> bool {
-		let room = self.rooms.get(&entrance.room);
-		let seated = room.is_some_and(|room| room.member_of(connection).is_some());
-		let open = match &entrance.gate {
+	/// Whether `entrance` would seat a caller who is not in the room.
+	pub fn offered(&self, entrance: &Entrance, authority: &Authority) -> bool {
+		match &entrance.gate {
 			Gate::Always => true,
-			Gate::Public => {
-				room.is_some_and(|room| room.policy.is_listed() && room.policy.public_membership().is_some())
-			}
-			Gate::Managed { id, generation } => authority.managed_room_generation_is_current(id, *generation),
+			Gate::Public => self
+				.rooms
+				.get(&entrance.room)
+				.is_some_and(|room| offers(room.policy, entrance.kind)),
+			// A generation counts one registration's changes and starts
+			// again when a forgotten room is registered again, so the
+			// entrance must also be what the room offers the public now.
+			Gate::Managed { id, generation } => authority
+				.managed_room(id)
+				.is_some_and(|room| room.generation == *generation && offers(room.policy, entrance.kind)),
 			Gate::Link { name, generation } => authority.room_link_generation_is_current(name, *generation),
 			Gate::Invitation(key) => self
 				.invitations
 				.get(key)
 				.is_some_and(|invitation| invitation.admission.is_open()),
-		};
-		open || (seated && !matches!(entrance.gate, Gate::Invitation(_)))
+		}
+	}
+
+	/// Whether `entrance` still answers `connection`. A member seated with
+	/// this entrance's kind passes a gate that is no longer offered, so the
+	/// room does not eject them. A seat of another kind does not pass, and a
+	/// spent invitation answers nobody.
+	pub fn gate_open(&self, connection: C, entrance: &Entrance, authority: &Authority) -> bool {
+		self.offered(entrance, authority)
+			|| (!matches!(entrance.gate, Gate::Invitation(_))
+				&& self.rooms.get(&entrance.room).is_some_and(|room| {
+					room.member_of(connection)
+						.is_some_and(|member| member.kind == entrance.kind)
+				}))
 	}
 
 	pub(super) fn register_room(&mut self, room: Room<C, R>) -> Result<(), Refusal> {
@@ -172,19 +192,21 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			recovery,
 			managed,
 		} = request;
-		if name.is_empty() {
-			return Err(Refusal::plain("open needs a room name"));
-		}
-		if name.encode_utf16().count() > MAX_ROOM {
-			return Err(Refusal::coded(
-				FailureCode::RoomTooLong,
-				format!("a room name may be at most {MAX_ROOM} characters"),
-			));
+		if let Some(refusal) = super::room_name_refusal(name) {
+			return Err(refusal);
 		}
 		if let Some(recovery) = recovery
 			&& !RecoveryKey::accepts(recovery)
 		{
 			return Err(Refusal::plain("a private room recovery key is invalid"));
+		}
+		let differs =
+			|| Refusal::plain("this room is recorded with another name or policy, and its manager changes them");
+		// A managed room opens as the authority records it, live or not.
+		if let Some(held) = recovery.and_then(|recovery| authority.managed_room(recovery))
+			&& (held.name != name || held.policy != policy)
+		{
+			return Err(differs());
 		}
 		if policy.is_listed() && (self.public_name_taken(name) || authority.public_name_taken(name)) {
 			return Err(Refusal::coded(
@@ -202,9 +224,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			&& let Some(recovered) = self.rooms.get(&RoomKey::managed(recovery))
 		{
 			if recovered.name != name || recovered.policy != policy {
-				return Err(Refusal::plain(
-					"that room id already belongs to a different managed room state",
-				));
+				return Err(differs());
 			}
 			return Ok(Opening {
 				entrance: Entrance {

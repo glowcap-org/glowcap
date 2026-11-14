@@ -94,6 +94,17 @@ fn positive(value: u64) -> SafeInteger<true> {
 	SafeInteger::new(value).expect("generations stay within the safe range")
 }
 
+/// Who makes the next link of a room that has none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkMaker {
+	Manager,
+	/// The holder of the room's key, where the room has no manager.
+	KeyHolder,
+	/// Anyone who asks the directory by the room's name, where the room has
+	/// no manager and no key.
+	Name,
+}
+
 impl Authority {
 	/// Read the document. The derivations below hash the UTF-8 bytes of a
 	/// name, so a name carrying an isolated surrogate is refused here.
@@ -272,6 +283,20 @@ impl Authority {
 	pub fn room_link_active(&self, name: &str) -> bool {
 		self.linked.contains_key(&fold(name))
 	}
+	/// Whether the room's link was revoked and none was made after it.
+	pub fn room_link_revoked(&self, name: &str) -> bool {
+		self.revoked.contains_key(&fold(name))
+	}
+	/// Who makes the next link of the room filed under `durable`.
+	pub fn room_link_maker(&self, durable: &str) -> LinkMaker {
+		if self.has_manager(durable) {
+			LinkMaker::Manager
+		} else if RecoveryKey::accepts(durable) {
+			LinkMaker::KeyHolder
+		} else {
+			LinkMaker::Name
+		}
+	}
 	pub fn room_link_generation(&self, name: &str) -> u64 {
 		self.generations.get(&fold(name)).copied().unwrap_or(0)
 	}
@@ -335,9 +360,6 @@ impl Authority {
 	pub fn owned_name(&self, asked: &str) -> Option<&str> {
 		let folded = fold(asked);
 		self.owned_names().find(|name| fold(name) == folded)
-	}
-	pub fn managed_room_generation_is_current(&self, id: &str, generation: u64) -> bool {
-		self.managed_room(id).is_some_and(|room| room.generation == generation)
 	}
 	pub fn managed_room_id_for_name(&self, name: &str) -> Option<&str> {
 		self.managed_by_name.get(&fold(name)).map(String::as_str)

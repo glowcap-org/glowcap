@@ -14,6 +14,7 @@ use rooms_application::{
 		ArgumentView,
 		authority::{LINK, MANAGED_IDENTITY},
 		membership::SUBSCRIBE,
+		policy::MembershipKind,
 		queries::{CALLED, POLICY, PRIVATE},
 	},
 	server::{
@@ -101,12 +102,14 @@ fn call(
 	if verb != SUBSCRIBE && args.iter().any(|arg| Value(arg).contains_capability()) {
 		return Err(format!("room {verb} does not take capability arguments"));
 	}
-	if !state.rooms.gate_open(connection, entrance, &state.authority) {
-		let detail = match entrance.gate {
+	let withdrawn = || {
+		FailureCode::NoSuchRoom.line(match entrance.gate {
 			Gate::Link { .. } => "this room link was revoked",
 			_ => "this room entrance is no longer offered",
-		};
-		return Err(FailureCode::NoSuchRoom.line(format_args!("{detail}")));
+		})
+	};
+	if !state.rooms.gate_open(connection, entrance, &state.authority) {
+		return Err(withdrawn());
 	}
 	if verb != SUBSCRIBE {
 		state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
@@ -144,13 +147,41 @@ fn call(
 			if !args.is_empty() {
 				return Err("link takes no arguments".into());
 			}
+			// A seat keeps a member in the room. It does not earn the link
+			// that came after the one the member's entrance was.
+			if !state.rooms.offered(entrance, &state.authority) {
+				return Err(withdrawn());
+			}
+			if matches!(entrance.gate, Gate::Invitation(_)) {
+				return Err(INVITATION_TELLS_NO_LINK.into());
+			}
+			may_tell_link(entrance.kind)?;
 			let durable = durable_name(state, entrance);
 			state
 				.current_room_link(&durable)
 				.map(Argument::String)
-				.ok_or_else(|| "this room has no link; a room manager must create one".into())
+				.ok_or_else(|| authority::no_link(state.authority.room_link_maker(&durable)).into())
 		}
 		_ => Err(format!("room has no method {verb}")),
+	}
+}
+
+/// An invitation lets one person in once, and the link lets in everyone who
+/// holds it, so an invitation's entrance is not told the link whatever kind
+/// it seats.
+pub(in crate::server) const INVITATION_TELLS_NO_LINK: &str =
+	"an invitation lets one person in, so it is not told this room's link";
+
+/// Whether a room's link may be told. The link seats a participant, so it is
+/// told only to an asker whose way in seats one: `kind` is an entrance's own
+/// kind, or the kind a listed name offers the public.
+pub(in crate::server) fn may_tell_link(kind: MembershipKind) -> Result<(), String> {
+	match kind {
+		MembershipKind::Participant => Ok(()),
+		MembershipKind::Observer => {
+			Err(FailureCode::ReadOnlyMembership
+				.line("this room's link lets its holder post, and this way in only watches"))
+		}
 	}
 }
 
@@ -202,14 +233,17 @@ fn subscribe(
 	if Value(&args[0]).contains_capability() {
 		return Err(shape());
 	}
-	let fresh = fresh(state)?;
-	let generation: [u8; 36] = state
-		.rooms
-		.generation(&entrance.room)
-		.unwrap_or(fresh.entry_id.as_str())
-		.as_bytes()
-		.try_into()
-		.map_err(|_| "room generation is not a canonical identifier")?;
+	let canonical = |generation: &str| {
+		<[u8; 36]>::try_from(generation.as_bytes()).map_err(|_| "room generation is not a canonical identifier")
+	};
+	// Only a room this join creates takes a fresh identity.
+	let (generation, fresh) = match state.rooms.generation(&entrance.room) {
+		Some(live) => (canonical(live)?, None),
+		None => {
+			let fresh = fresh(state)?;
+			(canonical(fresh.entry_id.as_str())?, Some(fresh))
+		}
+	};
 	state.admit_join(
 		connection,
 		core::str::from_utf8(&generation).map_err(|_| "room generation is not text")?,
@@ -238,16 +272,7 @@ fn subscribe(
 		),
 		rooms_application::room::policy::MembershipKind::Observer => (None, None),
 	};
-	let authority = state.authority.clone();
-	let claimants = state.claimants();
-	let same = |a: u64, b: u64| {
-		a == b
-			|| matches!(
-				(claimants.get(&a), claimants.get(&b)),
-				(Some(Some(left)), Some(Some(right))) if left == right
-			)
-	};
-	let State { rooms, policy, .. } = state;
+	let (rooms, policy, authority, same) = state.seating();
 	let seated = rooms
 		.subscribe(
 			connection,
@@ -259,8 +284,8 @@ fn subscribe(
 			subject.clone(),
 			policy,
 			same,
-			&authority,
-			Some(fresh),
+			authority,
+			fresh,
 		)
 		.map_err(|refused| refusal(refused.refusal))?;
 	membership.set(Some(seated.membership));
@@ -341,7 +366,7 @@ pub(super) fn directory_verb(
 				return Err(FailureCode::RoomExists.line(format_args!("room \"{name}\" already exists")));
 			}
 			let fresh = fresh(&state)?;
-			let authority = state.authority.clone();
+			let state = &mut *state;
 			let opening = state
 				.rooms
 				.open(
@@ -353,7 +378,7 @@ pub(super) fn directory_verb(
 						managed,
 					},
 					fresh,
-					&authority,
+					&state.authority,
 				)
 				.map_err(refusal)?;
 			let session = state
@@ -404,18 +429,12 @@ pub(super) fn directory_verb(
 		}
 		creation::LINK => {
 			let seat = link_seat(&mut state, connection)?;
-			let (Some(name), 1) = (text(0), args.len()) else {
-				return Err(format!(
-					"link needs one room name of at most {} characters",
-					rooms_application::server::rooms::MAX_ROOM
-				));
+			let max = rooms_application::server::rooms::MAX_ROOM;
+			let Some(name) =
+				text(0).filter(|name| args.len() == 1 && !name.is_empty() && name.encode_utf16().count() <= max)
+			else {
+				return Err(format!("link needs one room name of at most {max} characters"));
 			};
-			if name.is_empty() || name.encode_utf16().count() > rooms_application::server::rooms::MAX_ROOM {
-				return Err(format!(
-					"link needs one room name of at most {} characters",
-					rooms_application::server::rooms::MAX_ROOM
-				));
-			}
 			if let Some((key, _)) = state.irc.core.borrow().by_room_name(name) {
 				let publication = state.irc.publications.get(key).ok_or("IRC room is not published")?;
 				return state
@@ -431,25 +450,17 @@ pub(super) fn directory_verb(
 			if state.foreign.holds_name(name) {
 				return Err("a foreign room is linked by its source directory".into());
 			}
-			let Some(key) = state.rooms.public_key_of(name) else {
-				return Err(FailureCode::NoSuchRoom.line(format_args!("no room named \"{name}\"")));
-			};
-			let durable = state
-				.rooms
-				.durable_name(&key)
-				.map(String::from)
-				.unwrap_or_else(|| name.into());
-			authority::link(seat, durable)
+			// Refuse in this turn without queuing. The job resolves the name
+			// again, because the room can change while it waits.
+			authority::listed_link_name(&state, name)?;
+			authority::link(seat, authority::Asker::Name(name.into()))
 		}
 		creation::PRIVATE_LINK => {
 			let seat = link_seat(&mut state, connection)?;
-			let (Some(key), 1) = (text(0), args.len()) else {
+			let Some(key) = text(0).filter(|key| args.len() == 1 && RecoveryKey::accepts(key)) else {
 				return Err("openPrivateLink needs one opaque private room key".into());
 			};
-			if !RecoveryKey::accepts(key) {
-				return Err("openPrivateLink needs one opaque private room key".into());
-			}
-			authority::link(seat, key.into())
+			authority::link(seat, authority::Asker::Key(key.into()))
 		}
 		_ => Err(format!("directory has no method {verb}")),
 	}

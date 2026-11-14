@@ -13,6 +13,18 @@ use terminal::Terminal;
 
 pub const HELP: &str = "usage: rooms-chat <locator> <room> <nick>\n\nLocator: host:port or an ocapn:// TCP or iroh URI.\nCommands: /list /open <name> /enter <name> /leave /help\nCtrl-D, Ctrl-C, or SIGTERM closes the session.\n";
 
+/// One room line as the terminal shows it. A peer's text may hold newlines,
+/// so every line after the first is marked as a continuation of this speaker's
+/// line and never begins as a line of its own.
+fn peer_line(from: &str, text: &str) -> String {
+	let text = text.replace('\n', "\n  | ");
+	if from == rooms_application::room::inbox::ROOM {
+		format!("* {text}")
+	} else {
+		format!("{}: {text}", terminal::one_line(from))
+	}
+}
+
 struct Chat {
 	directory: Directory<HostPlatform>,
 	room: Option<Room<HostPlatform>>,
@@ -102,12 +114,11 @@ impl Chat {
 				});
 				for row in rows {
 					terminal
-						.print(format!(
-							"* {} ({})",
+						.print(room_row(
 							row.name.text().as_str().unwrap_or(""),
-							row.count
+							&row.count
 								.as_ref()
-								.map_or_else(|| "unknown".into(), |n| n.get().to_string())
+								.map_or_else(|| "unknown".into(), |n| n.get().to_string()),
 						))
 						.await?;
 				}
@@ -145,7 +156,7 @@ impl Chat {
 						Ok(line) => self.command(&line, &rooms, terminal).await,
 						Err(error) => Err(error),
 					};
-					if let Err(error) = result { terminal.print(format!("* {error}")).await?; }
+					if let Err(error) = result { terminal.print(error_line(&error)).await?; }
 				}
 				next = async {
 					match &mut self.messages {
@@ -154,14 +165,11 @@ impl Chat {
 					}
 				} => match next {
 					Ok(Some(message)) => {
-						let text = if message.from == rooms_application::room::inbox::ROOM {
-							format!("* {}", message.text)
-						} else { format!("{}: {}", message.from, message.text) };
 						// Control bytes in peer text must not become terminal escape sequences.
-						terminal.print(text).await?;
+						terminal.print(peer_line(&message.from, &message.text)).await?;
 					}
 					Ok(None) => { self.messages = None; terminal.print("* room membership ended".into()).await?; }
-					Err(error) => { self.messages = None; terminal.print(format!("* message stream: {error}")).await?; }
+					Err(error) => { self.messages = None; terminal.print(error_line(&format!("message stream: {error}"))).await?; }
 				},
 				event = updates.next() => match event.map_err(|e| e.to_string())? {
 					Some(Event::Room { kind, entry }) => {
@@ -182,7 +190,16 @@ impl Chat {
 		}
 	}
 }
+/// Chat in a room until the person leaves or the connection ends. The error
+/// can carry what a server said, so it is one escaped line, ready for the
+/// terminal the chat ends on.
 pub async fn run(locator: &str, room: &str, nick: &str) -> Result<(), String> {
+	session(locator, room, nick)
+		.await
+		.map_err(|cause| terminal::one_line(&cause))
+}
+
+async fn session(locator: &str, room: &str, nick: &str) -> Result<(), String> {
 	if let Some(error) = rooms_application::room::inbox::nick_refusal(nick) {
 		return Err(error);
 	}
@@ -243,4 +260,68 @@ pub async fn run(locator: &str, room: &str, nick: &str) -> Result<(), String> {
 	);
 	cleanup::retain(&mut result, terminal.close().await);
 	result
+}
+
+/// One row of the room list.
+fn room_row(name: &str, count: &str) -> String {
+	format!("* {} ({count})", terminal::one_line(name))
+}
+
+/// A refusal or failure the client reports. Its text came from the server.
+fn error_line(error: &str) -> String {
+	format!("* {}", terminal::one_line(error))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{
+		error_line, peer_line, room_row,
+		terminal::{escaped, one_line},
+	};
+
+	fn shown_lines(record: String) -> usize {
+		escaped(&record).unwrap().lines().count()
+	}
+
+	#[test]
+	fn a_room_name_a_speaker_name_and_an_error_each_stay_on_their_own_line() {
+		assert_eq!(shown_lines(room_row("Lounge\n* Bob left", "3")), 1);
+		assert_eq!(shown_lines(peer_line("Mallory\nAlice", "hi")), 1);
+		assert_eq!(shown_lines(error_line("refused\n* room membership ended")), 1);
+		assert_eq!(shown_lines(room_row("a\tb", "1")), 1);
+		assert!(escaped(&room_row("a\tb", "1")).unwrap().contains("\\t"));
+	}
+
+	#[test]
+	fn a_failure_that_ends_the_chat_prints_as_one_escaped_line() {
+		let shown = one_line("no-such-room: x\n* room membership ended\u{1b}[2J\u{202e}");
+		assert_eq!(shown.lines().count(), 1);
+		assert!(!shown.chars().any(|c| c.is_control() || c == '\u{202e}'), "{shown:?}");
+		assert_eq!(one_line("plain refusal"), "plain refusal");
+	}
+
+	#[test]
+	fn a_newline_in_a_line_cannot_pose_as_another_speaker_or_the_room() {
+		let shown = peer_line("Mallory", "hi\nAlice: I agree\n* Alice left");
+		for (n, line) in shown.lines().enumerate().skip(1) {
+			assert!(
+				line.starts_with("  | "),
+				"continuation {n} reads as its own line: {line:?}"
+			);
+		}
+		assert_eq!(shown.lines().count(), 3);
+		assert_eq!(peer_line("room", "a\nb"), "* a\n  | b");
+		assert_eq!(peer_line("Bob", "one line"), "Bob: one line");
+	}
+
+	#[test]
+	fn direction_characters_in_a_name_or_text_are_written_out() {
+		let shown = escaped(&peer_line("Eve\u{202e}", "evil\u{2066}text\u{200f}")).unwrap();
+		assert!(
+			shown
+				.chars()
+				.all(|c| !rooms_application::text::is_control_or_direction(c) || c == '\n')
+		);
+		assert!(shown.contains("\\u{202e}"), "{shown}");
+	}
 }

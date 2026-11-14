@@ -30,6 +30,8 @@ use tokio::{sync::mpsc, task::JoinSet, time::Instant};
 mod authority_wait_tests;
 #[cfg(test)]
 mod name_tests;
+#[cfg(test)]
+mod writer_running;
 
 pub struct Peer {
 	owners: Owners,

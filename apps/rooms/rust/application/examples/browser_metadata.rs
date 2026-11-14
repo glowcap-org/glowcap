@@ -68,7 +68,6 @@ fn main() -> Result<(), String> {
 		("MAX_SUBJECT_LINK", room::subject::MAX_LINK),
 		("MAX_FORM_FIELDS", bridge::MAX_FIELDS),
 		("MAX_FORM_ACTIONS", bridge::MAX_ACTIONS),
-		("MAX_FORM_JSON", bridge::MAX_JSON),
 		("MAX_FORM_SCOPE", bridge::MAX_FORM_SCOPE),
 		("MAX_FORM_TITLE", bridge::MAX_FORM_TITLE),
 		("MAX_FORM_SAID", bridge::MAX_FORM_SAID),

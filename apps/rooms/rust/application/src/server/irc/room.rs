@@ -96,11 +96,12 @@ fn valid_network(network: &str) -> bool {
 		&& chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
 }
 
+/// IRC's rule for a channel name, and the room-name rule with it, because
+/// the channel is part of the name the room is listed and shown under.
 fn valid_channel(channel: &str) -> bool {
 	channel.starts_with('#')
-		&& !channel
-			.chars()
-			.any(|c| matches!(c, '\0' | '\u{7}' | '\n' | '\r' | ' ' | ',' | ':'))
+		&& !channel.chars().any(|c| matches!(c, ' ' | ',' | ':'))
+		&& !crate::text::carries_control_or_direction(channel)
 }
 
 impl<C: Copy + Ord, R: Clone> Room<C, R> {

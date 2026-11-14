@@ -59,6 +59,22 @@ struct Inner {
 	dirty: watch::Sender<()>,
 	ended: watch::Receiver<Option<Result<(), Error>>>,
 }
+impl Inner {
+	/// A publisher that is not connected and holds nothing.
+	fn idle(dirty: watch::Sender<()>, ended: watch::Receiver<Option<Result<(), Error>>>) -> Self {
+		Self {
+			pending: RefCell::new(VecDeque::new()),
+			pending_bytes: Cell::new(0),
+			opens: RefCell::new(HashMap::new()),
+			metas: RefCell::new(HashMap::new()),
+			connected: Cell::new(false),
+			refusal: RefCell::new(None),
+			stopped: Cell::new(false),
+			dirty,
+			ended,
+		}
+	}
+}
 impl Publisher {
 	pub fn start<T: Transport>(
 		transport: T,
@@ -69,17 +85,7 @@ impl Publisher {
 	) -> Self {
 		let (dirty, changes) = watch::channel(());
 		let (finished, ended) = watch::channel(None);
-		let inner = Rc::new(Inner {
-			pending: RefCell::new(VecDeque::new()),
-			pending_bytes: Cell::new(0),
-			opens: RefCell::new(HashMap::new()),
-			metas: RefCell::new(HashMap::new()),
-			connected: Cell::new(false),
-			refusal: RefCell::new(None),
-			stopped: Cell::new(false),
-			dirty,
-			ended,
-		});
+		let inner = Rc::new(Inner::idle(dirty, ended));
 		let publisher = Self(inner.clone());
 		let target = match publish_target(&scope) {
 			Ok(target) => target,
@@ -116,12 +122,13 @@ impl Publisher {
 			self.refuse(Error::invalid("visualizer trace record exceeds its text budget"));
 			return;
 		}
-		if matches!(event.kind, TraceKind::SessionOpened | TraceKind::SessionMeta) {
-			let records = if event.kind == TraceKind::SessionOpened {
-				&self.0.opens
-			} else {
-				&self.0.metas
-			};
+		// The records the next viewer replays, by the kind that writes them.
+		let replayed = match event.kind {
+			TraceKind::SessionOpened => Some(&self.0.opens),
+			TraceKind::SessionMeta => Some(&self.0.metas),
+			TraceKind::SessionClosed | TraceKind::MessageDecoded => None,
+		};
+		if let Some(records) = replayed {
 			let full = {
 				let records = records.borrow();
 				records.len() >= MAX_SESSIONS && !records.contains_key(&event.session)
@@ -131,24 +138,27 @@ impl Publisher {
 				return;
 			}
 		}
-		let line = record_line(event);
-		match event.kind {
-			TraceKind::SessionOpened => {
-				self.0.opens.borrow_mut().insert(event.session.clone(), line.clone());
-			}
-			TraceKind::SessionMeta => {
-				self.0.metas.borrow_mut().insert(event.session.clone(), line.clone());
-			}
-			TraceKind::SessionClosed => {
-				self.0.opens.borrow_mut().remove(&event.session);
-				self.0.metas.borrow_mut().remove(&event.session);
-			}
-			TraceKind::MessageDecoded => {}
+		if event.kind == TraceKind::SessionClosed {
+			self.0.opens.borrow_mut().remove(&event.session);
+			self.0.metas.borrow_mut().remove(&event.session);
 		}
-		// A new publisher receives current sessions once, then live events.
-		// Queuing the same opens while disconnected would replay them twice.
-		if !self.0.connected.get() {
+		// A line is built only for a viewer to receive or for a record the
+		// next viewer replays. A decoded message or a close is retained
+		// nowhere, so while disconnected it has no reader.
+		let connected = self.0.connected.get();
+		if !connected && replayed.is_none() {
 			return;
+		}
+		let line = record_line(event);
+		if let Some(records) = replayed {
+			let mut records = records.borrow_mut();
+			// A new viewer receives current sessions once, then live events.
+			// Queuing the same record while disconnected would replay it twice.
+			if !connected {
+				records.insert(event.session.clone(), line);
+				return;
+			}
+			records.insert(event.session.clone(), line.clone());
 		}
 		let mut pending = self.0.pending.borrow_mut();
 		self.0.pending_bytes.set(self.0.pending_bytes.get() + line.len());

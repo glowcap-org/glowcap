@@ -11,6 +11,20 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+### Breaking
+
+- A Rooms room name holds no control or text-direction character, as a
+  nickname does not. The directory refuses one when a room is opened,
+  renamed, or published from another directory, and an IRC bridge refuses a
+  channel named with one. A Rooms server whose `rooms.json` holds such a
+  name does not start: remove that room's rows from the file, or start from
+  a new state directory. The name of a room published from another
+  directory is measured as every other room name is, in UTF-16 code units.
+- A Rooms nickname or room name may not hold U+061C (the Arabic letter mark),
+  which joins the other text-direction characters Rooms refuses. A saved
+  archive or session checkpoint that holds such a nickname no longer opens.
+  Remove that state directory to start it again.
+
 ### Added
 
 - The website serves ocapnviz at `/ocapnviz/`. Play works as it does from a
@@ -22,6 +36,9 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
+- The terminal Rooms client prints a name, a room name, and an error on one
+  line with control and text-direction characters written out, and marks
+  each further line of a message that has several.
 - ocapnviz serves the Inter typeface itself, so the page asks no other site
   for a font. Its build names every file relative to the entry document, so
   it works from any directory, and carries no service worker.
@@ -55,6 +72,21 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Rooms room tells its link only through a way in that would seat the
+  caller to post now. The link of a room that lets the public in to watch is
+  not told by name or to a member who watches. A member who entered through
+  a revoked link is not told the link that replaced it, and an invitation's
+  entrance is not told the link.
+- After a Rooms room's link is revoked, its manager or the holder of its
+  room key makes the next one. Asking the directory by name made it. The
+  name still makes it for a room that has no manager and no room key.
+- An entrance to a Rooms room taken by name admits what the room offers the
+  public now.
+  One taken while a room was open let its holder in to post after the room
+  turned moderated, or after it was forgotten and opened again as moderated.
+- Opening a managed Rooms room with its key under a name or policy other
+  than the recorded one is refused while the room is empty too. It opened a
+  live room that contradicted the record.
 - A session on a message-framed transport replays the packets that arrived
   before the application attended it in one pass. The replay took time that
   grew with the square of the packet count, so a peer sending many small

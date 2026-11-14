@@ -12,7 +12,7 @@ use rooms_application::{
 	directory::{OriginProof, registration::Id},
 	server::{
 		directory::Effects,
-		peering::{MAX_ROOM, READY_TIMEOUT_MS, Source},
+		peering::{READY_TIMEOUT_MS, Source},
 	},
 };
 use std::time::Duration;
@@ -39,12 +39,11 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 				format!("directory peering has no method {verb}")
 			});
 		}
-		let shape = "publishDurableRoom needs a name of at most 32 characters and one room capability";
 		let [Argument::String(name), Argument::Reference(room)] = args else {
-			return Err(shape.into());
+			return Err("publishDurableRoom needs a room name and one room capability".into());
 		};
-		if name.is_empty() || name.chars().count() > MAX_ROOM {
-			return Err(shape.into());
+		if let Some(refusal) = rooms_application::server::rooms::room_name_refusal(name) {
+			return Err(refusal.reason());
 		}
 		publish(&shared, &session, name, room.clone())
 	}

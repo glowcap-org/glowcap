@@ -42,6 +42,15 @@ impl World {
 			authority: authority(),
 		}
 	}
+	/// Record a managed room under `id`, as its manager bootstrap does.
+	pub(super) fn register(&mut self, id: &str, name: &str, policy: RoomPolicy) {
+		let registration = crate::server::links::Registration { name, policy };
+		self.authority = self
+			.authority
+			.remembered(id, false, true, Some(registration))
+			.unwrap()
+			.unwrap();
+	}
 	pub(super) fn open(&mut self, c: u32, name: &str, policy: RoomPolicy) -> Entrance {
 		self.rooms
 			.open(c, open(name, policy), fresh(c * 10), &self.authority)

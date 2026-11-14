@@ -282,13 +282,21 @@ impl State {
 			.find(|(_, held)| held.operator_id == id)
 			.map(|(connection, _)| *connection)
 	}
-	/// The proved peer of every connection, for a policy call that must
-	/// compare claims while this owner is already borrowed.
-	pub fn claimants(&self) -> BTreeMap<u64, Option<String>> {
-		self.connections
-			.iter()
-			.map(|(id, held)| (*id, held.claimant.clone()))
-			.collect()
+	/// What a seating changes and reads, borrowed apart so nothing is
+	/// copied, and whether two connections are one proved peer.
+	pub fn seating(
+		&mut self,
+	) -> (
+		&mut Rooms<u64, Ref>,
+		&mut Policy,
+		&Authority,
+		impl Fn(u64, u64) -> bool + '_,
+	) {
+		let connections = &self.connections;
+		let claimant = move |id: u64| connections.get(&id).and_then(|held| held.claimant.as_ref());
+		let same =
+			move |a, b| a == b || matches!((claimant(a), claimant(b)), (Some(left), Some(right)) if left == right);
+		(&mut self.rooms, &mut self.policy, &self.authority, same)
 	}
 	/// Every accepted session as the inventories read it: a closing session
 	/// says so in place of its transport.

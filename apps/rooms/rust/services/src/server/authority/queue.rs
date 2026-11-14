@@ -14,11 +14,13 @@ mod names;
 pub(super) type Prepare = Box<dyn FnOnce(&State) -> Result<Option<Authority>, String>>;
 pub(super) type Commit = Box<dyn FnOnce(&mut State) -> Result<Argument, String>>;
 type Outcome = Result<Argument, String>;
+/// A job's prepare half. It answers the successor authority to save and the
+/// commit that finishes the job, which owns whatever prepare resolved.
+type Stage = Box<dyn FnOnce(&State) -> Result<(Option<Authority>, Commit), String>>;
 const LIMIT: usize = 256;
 struct Job {
 	verb: &'static str,
-	prepare: Prepare,
-	commit: Commit,
+	prepare: Stage,
 	answer: Answer,
 }
 enum Answer {
@@ -92,6 +94,22 @@ pub(in crate::server) fn submit(
 	prepare: impl FnOnce(&State) -> Result<Option<Authority>, String> + 'static,
 	commit: impl FnOnce(&mut State, &Session) -> Outcome + 'static,
 ) -> Outcome {
+	submit_resolved(
+		seat,
+		verb,
+		move |state| Ok((prepare(state)?, ())),
+		move |state, caller, ()| commit(state, caller),
+	)
+}
+
+/// `submit` for a job whose prepare resolves a value its commit needs. The
+/// commit receives exactly what prepare returned for this job.
+pub(in crate::server) fn submit_resolved<T: 'static>(
+	seat: Seat,
+	verb: &'static str,
+	prepare: impl FnOnce(&State) -> Result<(Option<Authority>, T), String> + 'static,
+	commit: impl FnOnce(&mut State, &Session, T) -> Outcome + 'static,
+) -> Outcome {
 	let caller = current_session()
 		.map_err(|e| e.to_string())?
 		.ok_or("a room authority is reachable only over a session")?
@@ -100,8 +118,11 @@ pub(in crate::server) fn submit(
 	let resolver = caller.host().defer_turn().map_err(|e| e.to_string())?;
 	seat.0.send(Job {
 		verb,
-		prepare: Box::new(prepare),
-		commit: Box::new(move |state| commit(state, &context)),
+		prepare: Box::new(move |state| {
+			let (next, resolved) = prepare(state)?;
+			let commit: Commit = Box::new(move |state| commit(state, &context, resolved));
+			Ok((next, commit))
+		}),
 		answer: Answer::Turn(resolver, caller),
 	});
 	Ok(Argument::Void)
@@ -130,8 +151,7 @@ where
 		let (answer, reply) = oneshot::channel();
 		seat.send(Job {
 			verb,
-			prepare: Box::new(prepare),
-			commit: Box::new(commit),
+			prepare: Box::new(move |state| Ok((prepare(state)?, Box::new(commit) as Commit))),
 			answer: Answer::Observed(answer),
 		});
 		reply
@@ -148,27 +168,22 @@ impl Writer {
 				_ = self.stop.changed(), if !stopping => { self.jobs.close(); stopping = true; continue; }
 				job = self.jobs.recv() => match job { Some(job) => job, None => return },
 			};
-			let Job {
-				verb,
-				prepare,
-				commit,
-				answer,
-			} = job;
+			let Job { verb, prepare, answer } = job;
 			let prepared = self
 				.server
 				.require_current()
 				.map_err(|error| error.to_string())
 				.and_then(|()| {
 					let state = shared.borrow();
-					let next = prepare(&state)?;
+					let (next, commit) = prepare(&state)?;
 					if let Some(next) = &next {
 						self.names.reserve(&state, next)?;
 					}
-					Ok(next)
+					Ok((next, commit))
 				});
 			let outcome = match prepared {
 				Err(reason) => Err(reason),
-				Ok(next) => {
+				Ok((next, commit)) => {
 					let installed = match next {
 						Some(next) => self.server.install(next.clone()).await.map(|()| Some(next)),
 						None => Ok(None),

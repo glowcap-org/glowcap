@@ -86,7 +86,8 @@ the password is stored.
 
 ## One-shot invitations
 
-An invitation is a link that lets one person into a room, once. A room holds
+An invitation is a link that lets one person into a room, once. It does not
+tell that person the room's entry link. A room holds
 at most <!-- value rust/application/src/server/rooms.rs MAX_ROOM_INVITATIONS -->64<!-- /value --> live invitations, and an IRC bridge holds the same number.
 An invitation ends when someone is admitted with it, when the member who made
 it leaves, or when the room closes. A server restart does not keep
@@ -131,6 +132,8 @@ moderators.
   keep yours.
 - Revoking an entry link blocks later admission through every old copy, and
   members who already subscribed stay.
+- An entry link lets its holder in to post. Moderating a room leaves a link
+  told while it was open working, so revoke the link to close that way in.
 - The current manager can unregister the room. That retires its public
   entrance and moves it to private access while its room link, moderator,
   manager, and existing memberships remain. Another room can then take the

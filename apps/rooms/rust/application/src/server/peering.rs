@@ -15,7 +15,6 @@ use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
 pub const MAX_PEERED_ROOMS: usize = 4096;
 /// Foreign rooms one publishing session may hold.
 pub const MAX_PEERED_ROOMS_PER_SOURCE: usize = 256;
-pub const MAX_ROOM: usize = super::document::MAX_ROOM;
 /// How long a handed room may take to resolve.
 pub const READY_TIMEOUT_MS: u64 = 15_000;
 

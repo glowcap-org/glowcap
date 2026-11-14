@@ -58,7 +58,7 @@ async fn peering() {
 			&[Argument::String("garden".into())]
 		)
 		.await
-		.contains("needs a name of at most 32 characters")
+		.contains("needs a room name and one room capability")
 	);
 	assert!(
 		refused(&at_destination, &peering, "nope", &[])

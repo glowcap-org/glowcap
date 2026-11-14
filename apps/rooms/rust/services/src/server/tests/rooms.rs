@@ -26,8 +26,10 @@ use rooms_testing::scratch::Scratch;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 type Line = Message<String, glowcap::Ref>;
+mod link_told;
 mod listing_pages;
 mod public_membership;
+mod room_names;
 mod subject_link;
 
 async fn next(messages: &mut Messages) -> Line {
