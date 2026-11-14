@@ -150,9 +150,6 @@ fn byte_len(text: &DocumentText) -> usize {
 		.map(|c| c.unwrap_or(core::char::REPLACEMENT_CHARACTER).len_utf8())
 		.sum()
 }
-fn out<B: BuildArguments>(text: &DocumentText) -> B::Value {
-	B::text(text.utf8_lossy().into_owned())
-}
 type Projection<'a> = (Access, &'a DocumentText, &'a [(Field, Field)]);
 
 pub(super) fn encode<B: BuildArguments>(
@@ -297,35 +294,35 @@ pub(super) fn encode<B: BuildArguments>(
 	}
 	let mut issue_values: Vec<_> = issues()
 		.take(retained)
-		.map(|(a, b)| B::list(alloc::vec![out::<B>(&a.0), out::<B>(&b.0)]))
+		.map(|(a, b)| B::list(alloc::vec![B::document(&a.0), B::document(&b.0)]))
 		.collect();
 	if overflow {
-		issue_values.push(B::list(OVERFLOW.into_iter().map(|s| B::text(s.into())).collect()));
+		issue_values.push(B::list(OVERFLOW.into_iter().map(B::text).collect()));
 	}
 	let [checkpoint, rooms, shares, directories, access, handed] = json;
 	Ok(alloc::vec![
 		B::integer(s.revision.get()),
-		B::text(checkpoint),
-		B::list(pending.iter().map(|v| out::<B>(&v.0)).collect()),
+		B::text(&checkpoint),
+		B::list(pending.iter().map(|v| B::document(&v.0)).collect()),
 		B::list(issue_values),
-		B::list(connected.iter().map(|v| out::<B>(&v.0)).collect()),
+		B::list(connected.iter().map(|v| B::document(&v.0)).collect()),
 		B::list(
 			details
 				.iter()
 				.map(|(a, b, c, d)| B::list(alloc::vec![
-					out::<B>(&a.0),
-					out::<B>(&b.0),
-					out::<B>(&c.0),
-					B::text(d.as_str().into())
+					B::document(&a.0),
+					B::document(&b.0),
+					B::document(&c.0),
+					B::text(d.as_str())
 				]))
 				.collect()
 		),
-		member.map_or_else(B::null, |v| out::<B>(&v.0)),
-		B::text(rooms),
-		B::text(shares),
-		B::text(directories),
-		B::text(access),
-		B::text(handed),
+		member.map_or_else(B::null, |v| B::document(&v.0)),
+		B::text(&rooms),
+		B::text(&shares),
+		B::text(&directories),
+		B::text(&access),
+		B::text(&handed),
 	])
 }
 

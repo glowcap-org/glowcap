@@ -10,7 +10,10 @@ use glowcap::{Argument, Ref, Session};
 use rooms_application::{
 	failure::FailureCode,
 	files::{Blob, FileError, FileStore, ReadOutcome, ReadTicket},
-	server::rooms::{MembershipKey, RoomKey, UploadKey, wire::Encoder},
+	server::rooms::{
+		MembershipKey, RoomKey, UploadKey,
+		wire::{DataEncoder, Encoder},
+	},
 };
 use rooms_glowcap::Value;
 use std::{
@@ -91,16 +94,17 @@ impl<'a> Minter<'a> {
 	}
 }
 
-impl rooms_application::server::rooms::wire::DataEncoder for Minter<'_> {
+/// Data is built as every other Rooms argument is, and only a blob mints.
+impl DataEncoder for Minter<'_> {
 	type Value = Argument;
 	fn text(&mut self, value: String) -> Argument {
-		Argument::String(value)
+		DataEncoder::text(&mut rooms_glowcap::Arguments, value)
 	}
 	fn integer(&mut self, value: u64) -> Argument {
-		Argument::Integer(value as i64)
+		DataEncoder::integer(&mut rooms_glowcap::Arguments, value)
 	}
 	fn boolean(&mut self, value: bool) -> Argument {
-		Argument::Boolean(value)
+		DataEncoder::boolean(&mut rooms_glowcap::Arguments, value)
 	}
 }
 impl Encoder for Minter<'_> {

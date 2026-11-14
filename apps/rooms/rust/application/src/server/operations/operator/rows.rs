@@ -1,6 +1,6 @@
 //! What each inventory row says on the wire.
 use super::super::faces::{StewardshipRow, Visibility};
-use super::super::listeners::Wire;
+use crate::room::BuildArguments;
 use alloc::{string::String, vec, vec::Vec};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,7 +69,7 @@ impl RoomKind {
 	}
 }
 
-pub fn wire<W: Wire>(row: &Row) -> W::Value {
+pub fn wire<W: BuildArguments>(row: &Row) -> W::Value {
 	match row {
 		Row::Stewardship(row) => wire_stewardship::<W>(row),
 		Row::Link {
@@ -130,7 +130,7 @@ pub fn wire<W: Wire>(row: &Row) -> W::Value {
 	}
 }
 
-pub fn wire_stewardship<W: Wire>(row: &StewardshipRow) -> W::Value {
+pub fn wire_stewardship<W: BuildArguments>(row: &StewardshipRow) -> W::Value {
 	W::list(vec![
 		W::text(&row.name),
 		W::text(&row.label),
@@ -149,7 +149,7 @@ pub fn wire_stewardship<W: Wire>(row: &StewardshipRow) -> W::Value {
 }
 
 /// One page as the wire carries it: `[revision, next|null, rows, total]`.
-pub fn wire_page<W: Wire>(revision: u64, page: &super::page::Page<Row>) -> W::Value {
+pub fn wire_page<W: BuildArguments>(revision: u64, page: &super::page::Page<Row>) -> W::Value {
 	W::list(vec![
 		W::integer(revision),
 		match page.next {
@@ -162,7 +162,7 @@ pub fn wire_page<W: Wire>(revision: u64, page: &super::page::Page<Row>) -> W::Va
 }
 
 /// The whole inventory: `[revision, [[category, next|null, rows, total]…]]`.
-pub fn wire_whole<W: Wire>(revision: u64, pages: &[(super::Category, super::page::Page<Row>)]) -> W::Value {
+pub fn wire_whole<W: BuildArguments>(revision: u64, pages: &[(super::Category, super::page::Page<Row>)]) -> W::Value {
 	W::list(vec![
 		W::integer(revision),
 		W::list(

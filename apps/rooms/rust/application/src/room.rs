@@ -65,6 +65,24 @@ impl ArgumentView for alloc::string::String {
 	}
 }
 
+/// Builds a consumer's owned values, the write side of `ArgumentView`: a
+/// binding's arguments, a store's records, a proof's fixture. The application
+/// keeps no CapTP value tree or capability representation of its own.
+pub trait BuildArguments {
+	type Value;
+	fn text(value: &str) -> Self::Value;
+	/// Text that may hold an isolated UTF-16 surrogate. A builder of UTF-8
+	/// values replaces each one, and a builder whose values hold UTF-16
+	/// overrides this to keep them.
+	fn document(value: &crate::text::DocumentText) -> Self::Value {
+		Self::text(&value.utf8_lossy())
+	}
+	fn integer(value: u64) -> Self::Value;
+	fn boolean(value: bool) -> Self::Value;
+	fn null() -> Self::Value;
+	fn list(values: alloc::vec::Vec<Self::Value>) -> Self::Value;
+}
+
 /// A borrowed nested value. Returning another view must not clone a capability
 /// or copy a decoded list. Only admitted application data is retained.
 pub trait ListArgument: ArgumentView + Sized {

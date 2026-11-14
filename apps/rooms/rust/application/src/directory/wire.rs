@@ -2,8 +2,8 @@
 //! the readers in `discovery`, kept beside them so a directory answers in
 //! exactly the shape a client reads, and one round trip proves both.
 use super::{Event, Member, Page, RoomInfo, Snapshot};
-use crate::{session::snapshot::BuildArguments, text::DocumentText};
-use alloc::{string::String, vec, vec::Vec};
+use crate::room::BuildArguments;
+use alloc::{vec, vec::Vec};
 
 /// How room rows are drawn for one reader: the two-field baseline `list` and
 /// `watch` answer, or the full publication record `listPublications` and
@@ -12,15 +12,6 @@ use alloc::{string::String, vec, vec::Vec};
 pub enum Shape {
 	Baseline,
 	Publication,
-}
-
-fn owned(text: &DocumentText) -> String {
-	match text.as_str() {
-		Some(text) => text.into(),
-		None => char::decode_utf16(text.utf16())
-			.map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
-			.collect(),
-	}
 }
 
 fn count<B: BuildArguments>(entry: &RoomInfo) -> B::Value {
@@ -32,15 +23,15 @@ fn count<B: BuildArguments>(entry: &RoomInfo) -> B::Value {
 
 /// One room row under `shape`.
 pub fn room_row<B: BuildArguments>(entry: &RoomInfo, shape: Shape) -> Vec<B::Value> {
-	let mut row = vec![B::text(owned(entry.name.text())), count::<B>(entry)];
+	let mut row = vec![B::document(entry.name.text()), count::<B>(entry)];
 	if shape == Shape::Publication {
 		row.extend([
-			B::text(owned(entry.id.text())),
-			B::text(entry.kind.wire().into()),
-			B::text(owned(entry.origin.text())),
-			B::text(entry.proof.wire().into()),
+			B::document(entry.id.text()),
+			B::text(entry.kind.wire()),
+			B::document(entry.origin.text()),
+			B::text(entry.proof.wire()),
 			match entry.offers.as_ref() {
-				Some(kind) => B::text(kind.as_str().into()),
+				Some(kind) => B::text(kind.as_str()),
 				None => B::null(),
 			},
 		]);
@@ -58,7 +49,7 @@ pub fn page<B: BuildArguments>(page: &Page) -> B::Value {
 	B::list(vec![
 		rooms::<B>(&page.rooms, Shape::Publication),
 		match &page.next {
-			Some(next) => B::text(next.text()),
+			Some(next) => B::text(&next.text()),
 			None => B::null(),
 		},
 	])
@@ -66,8 +57,8 @@ pub fn page<B: BuildArguments>(page: &Page) -> B::Value {
 
 fn member_row<B: BuildArguments>(member: &Member) -> B::Value {
 	B::list(vec![
-		B::text(owned(member.name.text())),
-		B::text(owned(&member.registration_id)),
+		B::document(member.name.text()),
+		B::document(&member.registration_id),
 	])
 }
 
@@ -88,17 +79,17 @@ pub fn snapshot<B: BuildArguments>(snapshot: &Snapshot, shape: Shape) -> B::Valu
 pub fn event<B: BuildArguments>(event: &Event, shape: Shape) -> Vec<B::Value> {
 	match event {
 		Event::Room { kind, entry } => {
-			let mut args = vec![B::text(kind.wire().into())];
+			let mut args = vec![B::text(kind.wire())];
 			args.extend(room_row::<B>(entry, shape));
 			args
 		}
 		Event::Member { kind, peer, count } => vec![
-			B::text(kind.wire().into()),
-			B::text(owned(peer.name.text())),
+			B::text(kind.wire()),
+			B::document(peer.name.text()),
 			B::integer(*count),
-			B::text(owned(&peer.registration_id)),
+			B::document(&peer.registration_id),
 		],
-		Event::Truncated(count) => vec![B::text(crate::protocol_data::TRUNCATED.into()), B::integer(*count)],
+		Event::Truncated(count) => vec![B::text(crate::protocol_data::TRUNCATED), B::integer(*count)],
 	}
 }
 
@@ -114,11 +105,14 @@ mod tests {
 	struct Build;
 	impl BuildArguments for Build {
 		type Value = Value;
-		fn text(value: String) -> Value {
-			Value::Text(value)
+		fn text(value: &str) -> Value {
+			Value::Text(value.into())
 		}
 		fn integer(value: u64) -> Value {
 			Value::Integer(value)
+		}
+		fn boolean(value: bool) -> Value {
+			Value::Boolean(value)
 		}
 		fn null() -> Value {
 			Value::Null

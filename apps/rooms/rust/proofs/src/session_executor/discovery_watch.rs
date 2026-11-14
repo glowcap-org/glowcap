@@ -138,7 +138,7 @@ pub(super) async fn run() {
 												core::iter::empty(),
 											)
 											.unwrap();
-										Ok(directory::wire::snapshot::<rooms_glowcap::snapshot::Arguments>(
+										Ok(directory::wire::snapshot::<rooms_glowcap::Arguments>(
 											&snapshot,
 											directory::Shape::Publication,
 										))

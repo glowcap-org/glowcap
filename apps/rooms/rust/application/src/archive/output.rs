@@ -1,25 +1,13 @@
 //! Build the existing passable rows through the binding's own value constructors.
 use super::*;
+use crate::room::BuildArguments;
 use alloc::{vec, vec::Vec};
-pub trait Output {
-	type Value;
-	/// The wire's text encoder replaces isolated UTF-16 surrogates. Retained
-	/// records keep their original text. Only this passable projection converts.
-	fn document(value: &crate::text::DocumentText) -> Self::Value {
-		Self::text(&value.utf8_lossy())
-	}
-	fn text(value: &str) -> Self::Value;
-	fn integer(value: u64) -> Self::Value;
-	fn boolean(value: bool) -> Self::Value;
-	fn null() -> Self::Value;
-	fn list(values: Vec<Self::Value>) -> Self::Value;
-}
-pub fn record<O: Output>(record: &Record) -> Vec<O::Value> {
+pub fn record<O: BuildArguments>(record: &Record) -> Vec<O::Value> {
 	let mut row = Vec::with_capacity(if record.kind() == Kind::Standing { 8 } else { 15 });
 	append::<O>(record, &mut row);
 	row
 }
-fn append<O: Output>(record: &Record, row: &mut Vec<O::Value>) {
+fn append<O: BuildArguments>(record: &Record, row: &mut Vec<O::Value>) {
 	let c = record.coordinates();
 	row.extend([
 		O::text(if record.kind() == Kind::Standing {
@@ -82,7 +70,7 @@ fn append<O: Output>(record: &Record, row: &mut Vec<O::Value>) {
 		}
 	}
 }
-pub fn filter<O: Output>(filter: &Filter) -> Result<O::Value, Error> {
+pub fn filter<O: BuildArguments>(filter: &Filter) -> Result<O::Value, Error> {
 	filter.validate()?;
 	let optional = |s: Option<&str>| s.map_or_else(O::null, O::text);
 	Ok(O::list(vec![
@@ -99,7 +87,12 @@ pub fn filter<O: Output>(filter: &Filter) -> Result<O::Value, Error> {
 		optional(filter.digest.as_deref()),
 	]))
 }
-pub fn page<O: Output>(page: &index::Page, filter: &Filter, after: u64, limit: usize) -> Result<O::Value, Error> {
+pub fn page<O: BuildArguments>(
+	page: &index::Page,
+	filter: &Filter,
+	after: u64,
+	limit: usize,
+) -> Result<O::Value, Error> {
 	page.validate(filter, after, limit.min(MAX_READ))?;
 	Ok(O::list(vec![
 		O::integer(page.next),

@@ -14,11 +14,11 @@ fn share(n: usize) -> Share {
 }
 pub fn run() {
 	use crate::{
-		archive::Passables,
+		archive::Args,
 		arguments::{Arg, text},
 	};
 	use rooms_application::archive::{output, shares::protocol};
-	let filter = output::filter::<Passables>(&Filter::default()).unwrap();
+	let filter = output::filter::<Args>(&Filter::default()).unwrap();
 	let args = [text(ID), text("Garden"), filter];
 	let args: Vec<_> = args.iter().collect();
 	assert!(matches!(

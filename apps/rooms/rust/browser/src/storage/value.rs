@@ -3,8 +3,7 @@
 use super::Error;
 use js_sys::{Array, JsString, Object, Reflect};
 use rooms_application::{
-	archive::output::Output,
-	room::{ArgumentView, ListArgument},
+	room::{ArgumentView, BuildArguments, ListArgument},
 	text::DocumentText,
 };
 use std::cell::OnceCell;
@@ -80,7 +79,7 @@ pub(super) fn text(value: &DocumentText) -> JsValue {
 	}
 }
 pub(super) struct Values;
-impl Output for Values {
+impl BuildArguments for Values {
 	type Value = JsValue;
 	fn document(value: &DocumentText) -> JsValue {
 		text(value)

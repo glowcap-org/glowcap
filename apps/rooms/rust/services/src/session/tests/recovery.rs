@@ -17,7 +17,7 @@ async fn directory_server(port: u16, watches: Rc<Cell<usize>>) -> (Rc<tcp::Serve
 		Box::new(move |verb, _args| match verb.ok_or("fixture requires a method")? {
 			directory::WATCH => {
 				watches.set(watches.get() + 1);
-				Ok(directory::wire::snapshot::<rooms_glowcap::snapshot::Arguments>(
+				Ok(directory::wire::snapshot::<rooms_glowcap::Arguments>(
 					&directory::Snapshot {
 						rooms: Vec::new(),
 						peers: Vec::new(),

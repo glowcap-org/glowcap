@@ -1,5 +1,5 @@
 //! The one argument value tests decode wire shapes into: text, naturals,
-//! bytes, null and lists, read through the same views a binding supplies.
+//! booleans, bytes, null and lists, read through the same views a binding supplies.
 use super::{ArgumentView, ListArgument};
 use crate::files::FileArgument;
 use alloc::{string::String, vec::Vec};
@@ -8,13 +8,17 @@ use alloc::{string::String, vec::Vec};
 pub(crate) enum Value {
 	Text(String),
 	Integer(u64),
+	Boolean(bool),
 	Bytes(Vec<u8>),
 	Null,
 	List(Vec<Value>),
 }
 impl ArgumentView for Value {
 	fn boolean(&self) -> Option<bool> {
-		None
+		match self {
+			Self::Boolean(value) => Some(*value),
+			_ => None,
+		}
 	}
 	fn is_null(&self) -> bool {
 		matches!(self, Self::Null)

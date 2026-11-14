@@ -158,9 +158,9 @@ pub(in crate::server) fn change(
 				}
 				let row = row(&shared.borrow(), &publication, &locator)?;
 				Ok(
-					rooms_application::server::operations::operator::rows::wire_stewardship::<
-						super::super::operations::operator::Wire,
-					>(&row),
+					rooms_application::server::operations::operator::rows::wire_stewardship::<rooms_glowcap::Arguments>(
+						&row,
+					),
 				)
 			})
 		},
