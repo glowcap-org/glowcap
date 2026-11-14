@@ -76,6 +76,15 @@ pub const Args = sequence.LazySequence(model.Argument, Argument, IntegerRun);
 
 pub const ValueSlab = @import("view_slab.zig").ValueSlab;
 
+/// One byte leaf of a materialized tree: a duplicate when `copied`, the
+/// view's own slice when `lent`.
+fn leaf(allocator: std.mem.Allocator, bytes: []const u8, comptime leaves: Leaves) std.mem.Allocator.Error![]const u8 {
+    return switch (leaves) {
+        .copied => try allocator.dupe(u8, bytes),
+        .lent => bytes,
+    };
+}
+
 /// A borrowed sequence of `StructEntry` pairs, the lazy backing of an OCapN
 /// `Argument.@"struct"`. One cursor walks (key, value) pairs off the wire, the
 /// same shape `Args` walks single values, so a struct projects with no per-entry
@@ -91,10 +100,12 @@ pub const StructEntry = struct {
         return .{ .key = owned.key, .value = Argument.fromOwned(&owned.value) };
     }
 
-    pub fn toOwnedDepth(self: *const StructEntry, allocator: std.mem.Allocator, depth: usize) Error!model.StructEntry {
-        const key = try allocator.dupe(u8, self.key);
-        errdefer allocator.free(key);
-        return .{ .key = key, .value = try self.value.toOwnedDepth(allocator, depth) };
+    /// The entry's owned form at `depth`, its key and its value's byte leaves
+    /// treated as `leaves` says.
+    pub fn toTreeDepth(self: *const StructEntry, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves) Error!model.StructEntry {
+        const key = try leaf(allocator, self.key, leaves);
+        errdefer if (leaves == .copied) allocator.free(key);
+        return .{ .key = key, .value = try self.value.toTreeDepth(allocator, depth, leaves) };
     }
 };
 
@@ -171,6 +182,7 @@ pub fn borrowHandoff(source: anytype) ProjectError!Handoff {
     return source.project();
 }
 
+pub const Leaves = sequence.Leaves;
 pub const OwnedSlice = sequence.OwnedSlice;
 pub const sequenceOf = sequence.sequenceOf;
 
@@ -328,7 +340,7 @@ pub const Argument = union(enum) {
     }
 
     pub fn toOwned(self: *const Argument, allocator: std.mem.Allocator) Error!model.Argument {
-        return self.toOwnedDepth(allocator, 0);
+        return self.toTreeDepth(allocator, 0, .copied);
     }
 
     /// Whether this tree names an answer position, the borrowed twin of
@@ -347,36 +359,41 @@ pub const Argument = union(enum) {
         }
     }
 
-    pub fn toOwnedDepth(self: *const Argument, allocator: std.mem.Allocator, depth: usize) Error!model.Argument {
+    /// The tree this view reads, built by the one materializing walk. Its
+    /// spines come from `allocator`, and `leaves` says whether its byte leaves
+    /// are duplicates or the view's own slices (`Leaves`). A reference or a
+    /// handoff takes its owned conversion in both modes, bytes included, so a
+    /// lent tree's allocator is an arena that reclaims them with the spines.
+    pub fn toTreeDepth(self: *const Argument, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves) Error!model.Argument {
         return switch (self.*) {
-            .bytes => |bytes| .{ .bytes = try allocator.dupe(u8, bytes) },
-            .symbol => |symbol| .{ .symbol = try allocator.dupe(u8, symbol) },
+            .bytes => |bytes| .{ .bytes = try leaf(allocator, bytes, leaves) },
+            .symbol => |symbol| .{ .symbol = try leaf(allocator, symbol, leaves) },
             .reference => |reference| .{ .reference = try reference.toOwned(allocator) },
-            .@"error" => |err| .{ .@"error" = try err.toOwned(allocator) },
+            .@"error" => |err| .{ .@"error" = .{ .message = try leaf(allocator, err.message, leaves) } },
             .handoff => |handoff| blk: {
                 const boxed = try allocator.create(model.Handoff);
                 errdefer allocator.destroy(boxed);
                 boxed.* = try (try handoff.project()).toOwned(allocator);
                 break :blk .{ .handoff = boxed };
             },
-            .string => |string| .{ .string = try allocator.dupe(u8, string) },
+            .string => |string| .{ .string = try leaf(allocator, string, leaves) },
             .integer => |integer| .{ .integer = integer },
             .boolean => |boolean| .{ .boolean = boolean },
-            .list => |items| .{ .list = try items.toOwnedSliceDepth(allocator, depth + 1) },
+            .list => |items| .{ .list = try items.toSliceDepth(allocator, depth + 1, leaves) },
             .void => .{ .void = {} },
             .float64 => |float64| .{ .float64 = float64 },
-            .set => |items| .{ .set = try items.toOwnedSliceDepth(allocator, depth + 1) },
+            .set => |items| .{ .set = try items.toSliceDepth(allocator, depth + 1, leaves) },
             .tagged => |tagged| blk: {
-                const tag = try allocator.dupe(u8, tagged.tag);
-                errdefer allocator.free(tag);
-                const value = try tagged.value.toOwnedSliceDepth(allocator, depth + 1);
+                const tag = try leaf(allocator, tagged.tag, leaves);
+                errdefer if (leaves == .copied) allocator.free(tag);
+                const value = try tagged.value.toSliceDepth(allocator, depth + 1, leaves);
                 break :blk .{ .tagged = .{ .tag = tag, .value = value } };
             },
-            .keyword => |keyword| .{ .keyword = try allocator.dupe(u8, keyword) },
-            .@"struct" => |entries| .{ .@"struct" = try entries.toOwnedSliceDepth(allocator, depth + 1) },
+            .keyword => |keyword| .{ .keyword = try leaf(allocator, keyword, leaves) },
+            .@"struct" => |entries| .{ .@"struct" = try entries.toSliceDepth(allocator, depth + 1, leaves) },
             .big_integer => |big| .{ .big_integer = .{
                 .negative = big.negative,
-                .digits = try allocator.dupe(u8, big.digits),
+                .digits = try leaf(allocator, big.digits, leaves),
             } },
         };
     }

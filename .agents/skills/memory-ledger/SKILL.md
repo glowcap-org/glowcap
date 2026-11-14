@@ -516,12 +516,13 @@ declaration under `src/`.
   indexed storage: its larger header supports O(1) bulk removal while other
   listeners remain cancellable. Bulk failure frees the store without allocating.
   A Port cutoff refuses old vows, with no completed-answer map.
-- **Settle clones**: `Vat.settle_arena`. Each defends two hazards, which is why
-  it can be re-homed but never deleted: a listener may open a top-level turn
-  whose depth-0 reset frees a turn-arena value mid-call, and the value may borrow
-  the settling actor's own state, which a listener-run turn can mutate or
-  `become`-free. Depth-guarded, so it covers a nested drive and a far listener
-  re-entering `serve` through a driver pump.
+- **Settle clones**: `Vat.settle_arena`, filled by `settleLocal` and
+  `fireFulfilledFar`, whose docs hold the two hazards the clone defends and why
+  it can be re-homed but never deleted. A local settle and `settleFar` clone
+  the whole value. A wire resolve (`serveResolve`) builds its tree there with
+  the byte leaves lent from the event's frame (`model.view.Leaves`).
+  Depth-guarded, so it covers a nested drive and a far listener re-entering
+  `serve` through a driver pump.
 - **Far send verb splice**: `farDeliverTo`. Stack buffer to seven args, then one
   immediately-freed gpa spine, **never the turn arena, because the path is
   callable at depth 0**, where a bump pins until the next outermost turn.

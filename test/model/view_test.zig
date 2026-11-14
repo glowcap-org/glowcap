@@ -13,6 +13,7 @@ const model = glowcap.ocapn.model;
 const view = model.view;
 const codec = glowcap.ocapn.codec;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
+const FailingOnce = @import("../support/failing_once.zig").FailingOnce;
 
 /// Round-trip one owned message through the neutral view and assert the
 /// materialized copy is structurally equal, with no leak.
@@ -291,5 +292,149 @@ test "from skips a prefix on slice, view, run, and both codec backings and refus
         const body = try codec.dispatch.decodeBodyForProfile(encoding, .v1_0, frame.view());
         try expectTail(try body.deliver.args.from(1));
         try expectTail((try body.deliver.args.at(0)).list);
+    }
+}
+
+/// An allocator over `backing` that records each live block, so a test sees a
+/// free of memory it never handed out.
+const Audit = struct {
+    backing: std.mem.Allocator,
+    live: std.AutoHashMapUnmanaged(usize, void) = .empty,
+    invalid_free: bool = false,
+
+    fn deinit(self: *Audit) void {
+        self.live.deinit(std.testing.allocator);
+    }
+
+    fn allocator(self: *Audit) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, address: usize) ?[*]u8 {
+        const self: *Audit = @ptrCast(@alignCast(ctx));
+        const block = self.backing.rawAlloc(len, alignment, address) orelse return null;
+        // tolerant: a record the test cannot keep refuses the allocation, which the walk surfaces as OutOfMemory.
+        self.live.put(std.testing.allocator, @intFromPtr(block), {}) catch return null;
+        return block;
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, len: usize, address: usize) bool {
+        const self: *Audit = @ptrCast(@alignCast(ctx));
+        return self.backing.rawResize(memory, alignment, len, address);
+    }
+
+    fn remap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+        return null;
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, address: usize) void {
+        const self: *Audit = @ptrCast(@alignCast(ctx));
+        if (!self.live.remove(@intFromPtr(memory.ptr))) self.invalid_free = true;
+        self.backing.rawFree(memory, alignment, address);
+    }
+};
+
+fn lentTreeSource() model.Argument {
+    const tagged_value = comptime [_]model.Argument{.{ .bytes = "tagged-bytes" }};
+    const entries = comptime [_]model.StructEntry{.{ .key = "entry-key", .value = .{ .bytes = "entry-bytes" } }};
+    const members = comptime [_]model.Argument{.{ .string = "member" }};
+    const items = comptime [_]model.Argument{
+        .{ .string = "string-leaf" },
+        .{ .bytes = "bytes-leaf" },
+        .{ .symbol = "symbol-leaf" },
+        .{ .keyword = "keyword-leaf" },
+        .{ .@"error" = .{ .message = "error-leaf" } },
+        .{ .big_integer = .{ .negative = true, .digits = "123456789" } },
+        .{ .tagged = .{ .tag = "tag-leaf", .value = &tagged_value } },
+        .{ .@"struct" = &entries },
+        .{ .set = &members },
+        .{ .reference = .{ .far = model.FarRef.object(9) } },
+    };
+    return .{ .list = &items };
+}
+
+fn expectLentLeaf(source: []const u8, lent: []const u8) !void {
+    try std.testing.expectEqualStrings(source, lent);
+    try std.testing.expectEqual(@intFromPtr(source.ptr), @intFromPtr(lent.ptr));
+}
+
+fn expectLentSpine(audit: *const Audit, source: anytype, lent: anytype) !void {
+    try std.testing.expect(source.ptr != lent.ptr);
+    try std.testing.expect(audit.live.contains(@intFromPtr(lent.ptr)));
+}
+
+fn expectLent(audit: *const Audit, source: model.Argument, lent: model.Argument) !void {
+    try std.testing.expectEqual(std.meta.activeTag(source), std.meta.activeTag(lent));
+    switch (source) {
+        .string => |v| try expectLentLeaf(v, lent.string),
+        .bytes => |v| try expectLentLeaf(v, lent.bytes),
+        .symbol => |v| try expectLentLeaf(v, lent.symbol),
+        .keyword => |v| try expectLentLeaf(v, lent.keyword),
+        .@"error" => |v| try expectLentLeaf(v.message, lent.@"error".message),
+        .big_integer => |v| {
+            try std.testing.expectEqual(v.negative, lent.big_integer.negative);
+            try expectLentLeaf(v.digits, lent.big_integer.digits);
+        },
+        .list, .set => |v| {
+            const got = if (source == .list) lent.list else lent.set;
+            try expectLentSpine(audit, v, got);
+            for (v, got) |a, b| try expectLent(audit, a, b);
+        },
+        .tagged => |v| {
+            try expectLentLeaf(v.tag, lent.tagged.tag);
+            try expectLentSpine(audit, v.value, lent.tagged.value);
+            for (v.value, lent.tagged.value) |a, b| try expectLent(audit, a, b);
+        },
+        .@"struct" => |v| {
+            try expectLentSpine(audit, v, lent.@"struct");
+            for (v, lent.@"struct") |a, b| {
+                try expectLentLeaf(a.key, b.key);
+                try expectLent(audit, a.value, b.value);
+            }
+        },
+        .reference => |v| try std.testing.expect(std.meta.eql(v.far, lent.reference.far)),
+        else => unreachable,
+    }
+}
+
+test "a lent tree allocates its spines in the arena and aliases every byte leaf" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var audit: Audit = .{ .backing = arena.allocator() };
+    defer audit.deinit();
+
+    const source = lentTreeSource();
+    const root = view.Argument.fromOwned(&source);
+    const lent = try root.toTreeDepth(audit.allocator(), 0, .lent);
+    try expectLent(&audit, source, lent);
+    try std.testing.expect(!audit.invalid_free);
+}
+
+/// The spines of `lentTreeSource()`: the root list, the tagged value, the
+/// struct entries, and the set. Its reference allocates nothing.
+const lent_tree_spines = 4;
+
+test "a lent walk reports OutOfMemory at every allocation and frees only what it allocated" {
+    const source = lentTreeSource();
+    const root = view.Argument.fromOwned(&source);
+
+    var counting_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer counting_arena.deinit();
+    var counting: Audit = .{ .backing = counting_arena.allocator() };
+    defer counting.deinit();
+    var counter = FailingOnce.init(counting.allocator(), std.math.maxInt(usize));
+    _ = try root.toTreeDepth(counter.allocator(), 0, .lent);
+    const total = counter.alloc_index;
+    try std.testing.expect(total >= lent_tree_spines);
+
+    for (0..total) |index| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        var audit: Audit = .{ .backing = arena.allocator() };
+        defer audit.deinit();
+        var failing = FailingOnce.init(audit.allocator(), index);
+        try std.testing.expectError(error.OutOfMemory, root.toTreeDepth(failing.allocator(), 0, .lent));
+        try std.testing.expect(failing.induced);
+        try std.testing.expect(!audit.invalid_free);
     }
 }

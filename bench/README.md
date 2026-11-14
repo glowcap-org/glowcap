@@ -101,7 +101,9 @@ and [schema](capnp/echo.capnp) define the comparison:
 The glowcap comparison uses `bench-transports --transport=tcp` with both Syrup
 and Cap'n Proto codecs. A growth sweep uses `--row=report --readings=N` and
 an explicit `--frame-cap` large enough for both encodings. The frame limit
-also bounds the logical value tree before encoding.
+also bounds the logical value tree before encoding. `--row=blob` times a call
+whose reply is one large byte string settling on its caller, and needs a
+`--frame-cap` above that reply.
 
 Each harness builds and sends its request and reads the reply inside the
 timed window, then checks the answer after timing stops. Use the same call

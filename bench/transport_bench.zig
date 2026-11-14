@@ -60,12 +60,19 @@ var opts: driver.SessionOptions = .{
     .settle = .{ .ms = 60_000 },
 };
 
-/// The two call shapes, the same two `bench/capnp/echo.capnp` declares for
-/// the comparison harnesses. `greet` is the smallest message that is still a
-/// call. `report` is one application batch: a source name, eight tags,
-/// sixty-four integer readings, and a timestamp, answered with a count and a
-/// sum the server computes by reading every reading.
-const Call = enum { greet, report };
+/// The call shapes. `greet` and `report` are the two `bench/capnp/echo.capnp`
+/// declares for the comparison harnesses. `greet` is the smallest message that
+/// is still a call. `report` is one application batch: a source name, eight
+/// tags, sixty-four integer readings, and a timestamp, answered with a count
+/// and a sum the server computes by reading every reading. `blob` is a call
+/// with no arguments whose reply is one `blob_bytes` byte string, the cost of
+/// a large reply settling a far vow. Its frame outgrows the default
+/// `--frame-cap`, so it runs only when `--row=blob` names it, with a cap
+/// large enough.
+const Call = enum { greet, report, blob };
+
+const blob_bytes = 16 * 1024;
+var blob_payload: [blob_bytes]u8 = undefined;
 
 const report_source = "sensor-17/humidity";
 const report_tags = [_]driver.Value{
@@ -93,6 +100,7 @@ const Greeter = struct {
         const verb = selector orelse return error.NoSuchMethod;
         if (std.mem.eql(u8, verb, "greet")) return .{ .string = greeting };
         if (std.mem.eql(u8, verb, "report")) return reportReply(ht, args);
+        if (std.mem.eql(u8, verb, "blob")) return .{ .bytes = &blob_payload };
         return error.NoSuchMethod;
     }
 };
@@ -120,10 +128,11 @@ var pin: ?affinity.Pair = null;
 
 /// `--row=<row>` runs one row of a transport alone, so a profiler sees only
 /// that row's syscalls and samples. The default runs every row.
-const Row = enum { all, greet, report, @"session-open" };
+const Row = enum { all, greet, report, blob, @"session-open" };
 var row: Row = .all;
 
 fn rowWanted(call: Call) bool {
+    if (call == .blob) return row == .blob;
     return row == .all or std.mem.eql(u8, @tagName(row), @tagName(call));
 }
 
@@ -222,6 +231,7 @@ const Read = struct { text: []const u8 = "", count: i64 = 0, sum: i64 = 0 };
 fn readReply(call: Call, reply: driver.Value) Read {
     switch (call) {
         .greet => return .{ .text = if (reply == .string) reply.string else "" },
+        .blob => return .{ .text = if (reply == .bytes) reply.bytes else "" },
         .report => {
             var read: Read = .{};
             if (reply != .@"struct") return read;
@@ -238,6 +248,8 @@ fn readReply(call: Call, reply: driver.Value) Read {
 fn expected(call: Call, read: Read) bool {
     return switch (call) {
         .greet => std.mem.eql(u8, read.text, greeting),
+        .blob => read.text.len == blob_bytes and std.mem.eql(u8, read.text[0..8], blob_payload[0..8]) and
+            std.mem.eql(u8, read.text[blob_bytes - 8 ..], blob_payload[blob_bytes - 8 ..]),
         .report => read.count == report_samples.len and read.sum == report_sum,
     };
 }
@@ -277,6 +289,7 @@ fn callOnce(session: *driver.Session, greeter: driver.Capability, call: Call, ar
     const outcome = switch (call) {
         .greet => try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena),
         .report => try session.call(greeter, "report", &report_args, arena),
+        .blob => try session.call(greeter, "blob", &.{}, arena),
     };
     return switch (outcome) {
         .fulfilled => |value| value,
@@ -301,10 +314,10 @@ fn report(transport: []const u8, call: []const u8, warmup: usize, samples: []u64
     );
 }
 
-/// The call rows `--row=` admits for one transport, `greet` then `report`,
-/// each served and timed on its own.
+/// The call rows `--row=` admits for one transport, `greet`, `report`, then
+/// `blob`, each served and timed on its own.
 fn callRows(io: std.Io, allocator: std.mem.Allocator, server: *driver.Server, transports: driver.Transports, locator: model.PeerLocator, name: []const u8, warmup: usize, samples: []u64) !void {
-    inline for (.{ Call.greet, Call.report }) |call| {
+    inline for (.{ Call.greet, Call.report, Call.blob }) |call| {
         if (rowWanted(call)) {
             try withServer(io, server, clientMeasure, .{ io, allocator, transports, locator, name, call, warmup, samples });
             report(name, @tagName(call), warmup, samples);
@@ -592,6 +605,7 @@ pub fn main(init: std.process.Init) !void {
             return error.UnknownArgument;
         }
     }
+    for (&blob_payload, 0..) |*byte, i| byte.* = @truncate(i *% 31 +% 7);
     const values = try allocator.alloc(i64, readings);
     defer allocator.free(values);
     for (values, 0..) |*value, i| {
