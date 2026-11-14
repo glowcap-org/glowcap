@@ -25,7 +25,7 @@ import type { Locator, Page } from "playwright";
 import { waitForFiniteAnimations } from "../support/animations.ts";
 import { fail } from "../support/fail.ts";
 import { ROOT, SERVER } from "../support/paths.ts";
-import { openDirectoryCardFromCaption, waitForPostedLine } from "./harness.ts";
+import { openDirectoryCardFromCaption, openLineMenu, waitForPostedLine } from "./harness.ts";
 import { proveRecoveryDialogLayout } from "./recovery_layout.ts";
 import { inkContrast } from "../ink_contrast.ts";
 import { spawnOwned } from "../support/children.ts";
@@ -526,8 +526,7 @@ export async function run(
 		// than staying to refuse.
 		const kept = tab.locator(`.row.mine .bubble:has-text("${keptLine}")`).last();
 		if (await kept.count() === 0) fail("the line said before the server went was lost with it");
-		await kept.hover();
-		await kept.getByLabel(/More for this message/).click();
+		await openLineMenu(kept);
 		const stillOffered = await tab.locator(".line-menu [role=menuitem]").allTextContents();
 		await tab.keyboard.press("Escape");
 		if (stillOffered.some((item) => /Edit|Delete/.test(item))) {

@@ -6,7 +6,7 @@
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
 import { fail } from "../support/fail.ts";
-import { bubbleInkContrast } from "./harness.ts";
+import { bubbleInkContrast, openLineMenu } from "./harness.ts";
 import { png } from "./png.ts";
 import { runChrome } from "./chrome.ts";
 
@@ -58,8 +58,7 @@ export async function runChange(
 		).catch(() => fail("the sender never acknowledged the original file line before editing"));
 
 		const line = tab.locator('.bubble:has-text("refile-me.txt")').last();
-		await line.hover();
-		await line.getByLabel("More for this message").click();
+		await openLineMenu(line);
 		await tab.locator('.line-menu [role=menuitem]:has-text("Edit")').click();
 		await tab.waitForSelector('#changing:has-text("files")', { timeout: 10_000 })
 			.catch(() => fail("editing a file line did not open the composer on its files"));
@@ -101,8 +100,7 @@ export async function runChange(
 		// withdraws like any other, its file going with it, and leaves no file row
 		// behind for the picture and download tests below to trip over.
 		const refiled = tab.locator('.bubble:has-text("after refile")').last();
-		await refiled.hover();
-		await refiled.getByLabel("More for this message").click();
+		await openLineMenu(refiled);
 		await tab.locator('.line-menu [role=menuitem]:has-text("Edit")').click();
 		await tab.click('.composer-file:has-text("refiled.txt") .composer-file-remove');
 		await tab.fill("#line", "");
