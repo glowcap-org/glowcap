@@ -124,7 +124,7 @@ function decodeRecord(code: number, bytes: Uint8Array, operation: string): Drive
 }
 
 /** Invoke one driver barrier with a fresh versioned caller-owned record. */
-export function driverCall(
+function driverCall(
 	operation: string,
 	call: (out: Uint8Array<ArrayBuffer>) => number,
 ): DriverCallOutcome {

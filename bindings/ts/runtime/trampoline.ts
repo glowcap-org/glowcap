@@ -47,7 +47,7 @@ const utf8Encoder = new TextEncoder();
 // hosts, run that behavior in the same turn (a caretaker over an attenuator
 // composes as it does over the wire). Returns the terminal: a plain
 // value (or void), or the first `Forward` whose target is not hosted here
-// (far, promise, or an unknown near id). `runHosted` is the public face.
+// (far, promise, or an unknown near id). `runHosted` is the entry point.
 /** A behavior result carried between dispatch and settle: a plain value, a
  * forward, a bare ack, or an async behavior's pending promise. */
 type BehaviorResult = Argument | Forward | void | PromiseLike<Argument | void>;
@@ -90,7 +90,7 @@ function chaseLocalForwards(
  * an unknown near id): the trampoline defers it through the host's
  * turn-forward, a local send onto the forwarded send's reply, a local tell as
  * a far tell. */
-export function runHosted(
+function runHosted(
 	id: bigint,
 	verb: string | null,
 	args: Argument[],
@@ -195,7 +195,7 @@ export async function tellLocal(
 
 /** Far tell mint: encode args, call `glowcap_host_session_tell`, kick the drain. Local
  * targets stay behind `dispatchTell` / `tellLocal`. */
-export async function tellFar(
+async function tellFar(
 	h: PromiseFactoryHandle,
 	target: Ref | RemotePromise,
 	verb: string | null,
@@ -579,7 +579,7 @@ export function publishHosted(
 
 /** Spawn a hosted object from INSIDE a turn. This is the turn-time form the host
  * allows where the top-level spawn is refused. Returns its opaque Host id. */
-export function turnSpawn(turn: Ptr, ctxId: bigint): bigint {
+function turnSpawn(turn: Ptr, ctxId: bigint): bigint {
 	const out = new Uint8Array(8);
 	checkHost(hostS.glowcap_host_turn_spawn(turn, trampolinePointer(), ctxId, NULL, ab(out)));
 	return outU64(out);

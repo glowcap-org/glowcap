@@ -71,8 +71,6 @@ export class IrohLoop {
 	#conns = new Map<bigint, ConnWaiters>();
 	#dials = new Map<bigint, DialWaiter>();
 	#nextRequest = 1n;
-	#acceptWaiter: (() => void) | null = null;
-	#acceptPending = 0;
 	#closed = false;
 	#socket: Socket | null = null;
 	// Reused across `drain_ready` calls; held by the dispatcher so it stays live
@@ -152,18 +150,6 @@ export class IrohLoop {
 		});
 	}
 
-	/** Resolve true when an accepted connection may be claimed; false on close. */
-	nextAccept(): Promise<boolean> {
-		if (this.#closed) return Promise.resolve(false);
-		if (this.#acceptPending > 0) {
-			this.#acceptPending--;
-			return Promise.resolve(true);
-		}
-		return new Promise<boolean>((res) => {
-			this.#acceptWaiter = () => res(!this.#closed);
-		});
-	}
-
 	/** Stop the loop (destroying its readiness socket, closing the dup), wake every
 	 * waiter so parked pumps unwind, and release the sidecar handle of every
 	 * connection still registered here. The caller releases the netlayer after this
@@ -193,11 +179,6 @@ export class IrohLoop {
 			waiter.reject(new GlowcapError(CLOSED, "iroh loop closed"));
 		}
 		this.#dials.clear();
-		if (this.#acceptWaiter !== null) {
-			const a = this.#acceptWaiter;
-			this.#acceptWaiter = null;
-			a();
-		}
 	}
 
 	#shutdownSocket(): void {
@@ -246,13 +227,7 @@ export class IrohLoop {
 
 	#dispatch(subject: bigint, events: number): void {
 		if ((events & IROH_EV_ACCEPT) !== 0) {
-			if (this.#acceptWaiter !== null) {
-				const a = this.#acceptWaiter;
-				this.#acceptWaiter = null;
-				a();
-			} else {
-				this.#acceptPending++;
-			}
+			// An accept record carries no connection for this loop to route.
 			return;
 		}
 		if ((events & IROH_EV_CONNECT) !== 0) {

@@ -268,11 +268,12 @@
   ;; tripping `keyword-apply`'s sorted-keywords contract. Calling `serve` with
   ;; literal keywords sidesteps that and still gives us the ephemeral port.
   (define conf (make-async-channel))
-  (define _shutdown
-    (serve #:dispatch (make-general-websockets-dispatcher handle)
-           #:port listen-port
-           #:listen-ip "127.0.0.1"
-           #:confirmation-channel conf))
+  ;; `serve` returns a shutdown thunk. The relay runs until killed, so it is dropped.
+  (void
+   (serve #:dispatch (make-general-websockets-dispatcher handle)
+          #:port listen-port
+          #:listen-ip "127.0.0.1"
+          #:confirmation-channel conf))
   (define result (async-channel-get conf))
   (when (exn? result) (raise result))
   (printf "RACKET-RELAY-READY ~a\n" result)

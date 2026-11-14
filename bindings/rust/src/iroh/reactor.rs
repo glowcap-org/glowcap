@@ -43,8 +43,6 @@ pub(super) struct ConnSlot {
 pub(super) struct LoopState {
 	pub(super) conns: HashMap<usize, ConnSlot>,
 	dials: HashMap<usize, oneshot::Sender<Result<usize>>>,
-	accept_waker: Option<Waker>,
-	accept_pending: usize,
 	closed: bool,
 }
 
@@ -266,9 +264,6 @@ impl IrohLoop {
 		{
 			let mut st = lock_iroh(&self.state, "iroh-loop-state-lock-poison");
 			st.closed = true;
-			if let Some(w) = st.accept_waker.take() {
-				wakers.push(w);
-			}
 			for slot in st.conns.values_mut() {
 				slot.closed = true;
 				wakers.extend(slot.read_waker.take());
@@ -376,10 +371,8 @@ impl ReadyWakers {
 // released). An accept record carries a null connection.
 fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut ReadyWakers) {
 	if events & GLOWCAP_IROH_EV_ACCEPT != 0 {
-		// Record the pending accept first, then wake the byte-fed channel waiter;
-		// the count survives a wake that races waiter registration.
-		st.accept_pending += 1;
-		wakers.push(st.accept_waker.take());
+		// The server's `accept` claims the connection, so no task waits on
+		// this record.
 		return;
 	}
 	if let Some(slot) = st.conns.get_mut(&conn_key) {
