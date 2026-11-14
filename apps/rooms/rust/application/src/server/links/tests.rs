@@ -423,10 +423,10 @@ fn a_managed_room_takes_no_public_name_with_control_characters() {
 		"{}",
 		renamed.reason()
 	);
-	let registered = Authority::read(&Document::fresh([1; 32], [2; 32]))
-		.unwrap()
+	// An id the kept document holds no record under, so the name is new.
+	let registered = authority
 		.remembered(
-			MANAGED,
+			"~00000000000000000000000000000002",
 			false,
 			true,
 			Some(Registration {
