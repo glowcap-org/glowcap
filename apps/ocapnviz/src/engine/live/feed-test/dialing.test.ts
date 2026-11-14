@@ -25,6 +25,7 @@ Deno.test("startLiveMode: an invalid sturdyref still returns a live handle", () 
 	const handle = startLiveMode({
 		sturdyref: "ws:/",
 		onError: (e) => seen.push(e.detail),
+		onFull: () => {},
 	});
 	assertEquals(seen.length, 1);
 	assert(handle.engine.doc.id === "live");

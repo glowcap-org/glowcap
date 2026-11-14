@@ -22,12 +22,12 @@
  * - The engine's `duration` is set to a generous upper bound (1
  *   simulated hour by default). Long-running live sessions may hit
  *   it and require a re-mount.
- * - The live doc retains every observation for the session's life,
- *   and message payloads (up to the producer's cap, base64) ride
- *   the observations, payload capture accelerates that known
- *   growth. Clear (remount) is the relief valve. A producer that
- *   doesn't need the Payload pane can turn payloads off
- *   (`enableTrace`'s `payloadCap: 0`).
+ * - The live doc retains every observation of a capture, up to
+ *   `MAX_CAPTURE_CHARS`, and message payloads (up to the producer's
+ *   cap, base64) ride the observations. A capture that reaches the
+ *   ceiling ends as Stop ends one. A producer that doesn't need the
+ *   Payload pane can turn payloads off (`enableTrace`'s
+ *   `payloadCap: 0`) and record for longer.
  * - Playback runs at wall-clock speed (`speed = 1`) without a live-head control.
  */
 
@@ -35,7 +35,7 @@ import { Engine } from "../engine.ts";
 import type { LiveConnectionState } from "./status.ts";
 import type { EngineError } from "../errors.ts";
 import { LiveFeed, type LivePeerFactory } from "./connection.ts";
-import { primaryObservations } from "../temporal/recording-access.ts";
+import { primaryObservations, savedObservationChars } from "../temporal/recording-access.ts";
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 
 /** How far ahead of the clock an event may land: the worst-case
@@ -43,6 +43,14 @@ import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
  * within which producer spacing is preserved verbatim. Well above
  * live jitter, well below human patience. */
 const FORWARD_SLACK_MS = 250;
+
+/** How much trace one capture holds, counted as the characters its
+ * observations take in the saved file (`savedObservationChars`). The file
+ * also holds what the engine derives from them, which comes to more than the
+ * observations again for a message with no payload. A save builds the file
+ * as one string and an open reads it as one, and the shortest string limit
+ * among browsers is about four times this. */
+export const MAX_CAPTURE_CHARS = 128 * 1024 * 1024;
 
 /**
  * Build the feed-event handler that the live engine subscribes
@@ -69,14 +77,24 @@ const FORWARD_SLACK_MS = 250;
  * Between the boundaries the offset holds still, which is the
  * point: the live tail's inter-event spacing survives exactly.
  *
+ * The capture holds `ceilingChars` of observations. The arrival that would
+ * pass that is not kept, `onFull` runs once, and nothing after it is kept
+ * either, so a full capture is a recording that ends at a known event.
+ * Measuring an arrival serializes it once, as a save would.
+ *
  * Exported so tests can exercise the stamping without opening a real peer.
  */
 export function makeLiveAppender(opts: {
 	liveDoc: TimelineDocument;
 	clock: { t: number };
+	ceilingChars: number;
+	onFull: () => void;
 }): (ev: TimelineEvent) => void {
 	let offset: number | null = null;
+	let held = 0;
+	let full = false;
 	return (ev) => {
+		if (full) return;
 		const minT = opts.clock.t + 1;
 		const maxT = opts.clock.t + FORWARD_SLACK_MS;
 		if (offset === null || ev.t + offset < minT) offset = minT - ev.t;
@@ -87,6 +105,13 @@ export function makeLiveAppender(opts: {
 		const stamped: TimelineEvent = ev.kind === "message-sent"
 			? { ...ev, t: ev.t + offset, arrivalT: ev.arrivalT + offset }
 			: { ...ev, t: ev.t + offset };
+		const cost = savedObservationChars(stamped);
+		if (cost > opts.ceilingChars - held) {
+			full = true;
+			opts.onFull();
+			return;
+		}
+		held += cost;
 		primaryObservations(opts.liveDoc).push(stamped);
 	};
 }
@@ -156,6 +181,11 @@ export function startLiveMode(
 	opts: FeedDial & {
 		/** Upper bound on simulated time, in milliseconds. Defaults to 1 hour. */
 		durationMs?: number;
+		/** How much trace the capture holds. Defaults to `MAX_CAPTURE_CHARS`. */
+		ceilingChars?: number;
+		/** Called once when the capture is full. Nothing arriving after it is
+		 *  kept, so the caller ends the capture. */
+		onFull: () => void;
 	},
 ): {
 	engine: Engine;
@@ -189,10 +219,28 @@ export function startLiveMode(
 	// returns because a failed dial delivers no events at all, the socket
 	// either opens and the subscription runs, or it does not and nothing does.
 	const dialed = dialLiveFeed(opts);
-	dialed.feed.subscribe(makeLiveAppender({ liveDoc, clock: engine.clock }));
+	dialed.feed.subscribe(makeLiveAppender({
+		liveDoc,
+		clock: engine.clock,
+		ceilingChars: opts.ceilingChars ?? MAX_CAPTURE_CHARS,
+		onFull: opts.onFull,
+	}));
 
 	return { engine, feed: dialed.feed, dispose: dialed.dispose };
 }
+
+/** How a capture ended: its user pressed Stop, or it reached
+ *  `MAX_CAPTURE_CHARS`. */
+export type CaptureEnd = "stopped" | "full";
+
+/** What a claimed recording says about itself, in the document panel and in
+ *  a saved file. The toast that reports a full capture is gone in seconds,
+ *  and this stays with the recording for a reader who was away. Like
+ *  `LIVE_DESCRIPTION`, neither names an address. */
+const RECORDING_DESCRIPTION: Record<CaptureEnd, string> = {
+	stopped: "Recorded from a live feed.",
+	full: "Recorded from a live feed until the recording was full.",
+};
 
 /** Breathing room past the last observation, so a claimed
  *  recording's final flights land inside its duration. */
@@ -227,6 +275,7 @@ const CAPTURE_TAIL_MS = 1_000;
 export function claimRecording(
 	liveDoc: TimelineDocument,
 	id: string,
+	ended: CaptureEnd,
 ): TimelineDocument | null {
 	const observations = primaryObservations(liveDoc);
 	if (observations.length === 0) return null;
@@ -238,7 +287,11 @@ export function claimRecording(
 	return {
 		...liveDoc,
 		id,
-		metadata: { ...liveDoc.metadata, "dct:title": "Live recording" },
+		metadata: {
+			...liveDoc.metadata,
+			"dct:title": "Live recording",
+			"dct:description": RECORDING_DESCRIPTION[ended],
+		},
 		duration: end + CAPTURE_TAIL_MS,
 		recording: {
 			...liveDoc.recording,
@@ -247,6 +300,16 @@ export function claimRecording(
 				observations: [...source.observations],
 			})),
 		},
+	};
+}
+
+/** The toast the App raises when a capture reaches `MAX_CAPTURE_CHARS` and ends. */
+export function captureFullError(): EngineError {
+	return {
+		code: "validation",
+		title: "Recording stopped",
+		detail: `A recording holds about ${MAX_CAPTURE_CHARS / (1024 * 1024)} MiB of events, and this one is full.`,
+		recovery: "Review it in Play. Record again in Live to capture more.",
 	};
 }
 

@@ -405,9 +405,13 @@ export function useLiveConnection(input: {
 	/** The engine capturing arriving events, or null when nothing is
 	 * recording. Its document is what Stop claims as the buffer. */
 	captureEngine: Engine | null;
+	/** The running capture holds all the trace one may, and keeps nothing
+	 * more. The caller ends it as Stop does. */
+	captureFull: boolean;
 } {
 	const { sturdyref, recording } = input;
 	const [captureEngine, setCaptureEngine] = useState<Engine | null>(null);
+	const [captureFull, setCaptureFull] = useState(false);
 	const [connection, setConnection] = useState<LiveConnectionState>("connecting");
 	const requiresReload = useRef(false);
 	const [observed, setObserved] = useState(false);
@@ -448,13 +452,16 @@ export function useLiveConnection(input: {
 			engine: Engine | null;
 			feed: LiveFeed;
 			dispose: () => void;
-		} = recording ? startLiveMode(dial) : { ...dialLiveFeed(dial), engine: null };
+		} = recording
+			? startLiveMode({ ...dial, onFull: () => setCaptureFull(true) })
+			: { ...dialLiveFeed(dial), engine: null };
 		setCaptureEngine(handle.engine);
 		const unsubObserved = handle.feed.subscribe(() => setObserved(true));
 		return () => {
 			unsubObserved();
 			handle.dispose();
 			setCaptureEngine(null);
+			setCaptureFull(false);
 			setConnection("connecting");
 			setObserved(false);
 		};
@@ -464,5 +471,5 @@ export function useLiveConnection(input: {
 		// one of them throws a running capture away.
 	}, [sturdyref, recording]);
 
-	return { connection, observed, captureEngine };
+	return { connection, observed, captureEngine, captureFull };
 }
