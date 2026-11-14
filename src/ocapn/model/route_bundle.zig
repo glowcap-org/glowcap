@@ -57,15 +57,7 @@ pub fn validateCombinedListBytes(first: []const u8, second: []const u8) ViewErro
 }
 
 const decodedByte = uri_shape.decodedByte;
-
-fn decodedEqual(left: []const u8, right: []const u8) bool {
-    var left_at: usize = 0;
-    var right_at: usize = 0;
-    while (left_at < left.len and right_at < right.len) {
-        if (decodedByte(left, &left_at) != decodedByte(right, &right_at)) return false;
-    }
-    return left_at == left.len and right_at == right.len;
-}
+const decodedEqual = uri_shape.decodedEqual;
 
 fn decodedContains(bytes: []const u8, needle: u8) bool {
     var at: usize = 0;

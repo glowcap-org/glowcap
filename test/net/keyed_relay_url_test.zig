@@ -127,6 +127,8 @@ test "RelayUrl refuses unsupported or ambiguous HTTP endpoints" {
         "ws://relay.example:80/relay?x=1&id=shadow",
         "ws://relay.example:80/relay?%72endezvous=shadow",
         "ws://relay.example:80/relay?%69%64=shadow",
+        "ws://relay.example:80/relay?re%6Edezvous=shadow",
+        "ws://relay.example:80/relay?re%6edezvous=shadow",
     };
     for (invalid) |url|
         try std.testing.expectError(error.InvalidRelayUrl, keyed_relay.RelayUrl.parse(url));

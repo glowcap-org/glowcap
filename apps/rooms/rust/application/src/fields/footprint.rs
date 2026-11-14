@@ -4,6 +4,26 @@ use alloc::{boxed::Box, vec::Vec};
 pub(crate) trait HeapBytes {
 	fn heap_bytes(&self) -> usize;
 }
+/// Values that own no heap.
+macro_rules! scalar {
+	($($kind:ty),* $(,)?) => { $(impl $crate::fields::footprint::HeapBytes for $kind {
+		fn heap_bytes(&self) -> usize { 0 }
+	})* };
+}
+/// The heap a struct's fields own: those named before the `;` are summed and
+/// those after it own none. Naming every field makes a new one require an
+/// accounting decision.
+macro_rules! graph {
+	($kind:ident { $($owned:ident),* $(,)? $(; $($scalar:ident),* $(,)?)? }) => {
+		impl $crate::fields::footprint::HeapBytes for $kind {
+			fn heap_bytes(&self) -> usize {
+				let Self { $($owned,)* $($($scalar: _,)*)? } = self;
+				0usize $(.saturating_add($crate::fields::footprint::HeapBytes::heap_bytes($owned)))*
+			}
+		}
+	};
+}
+pub(crate) use {graph, scalar};
 impl<const N: usize, const NONEMPTY: bool> HeapBytes for Text<N, NONEMPTY> {
 	fn heap_bytes(&self) -> usize {
 		self.text().heap_bytes()
