@@ -91,6 +91,12 @@ Releases before 0.1.7 are in the
   was being saved: a session that connected, a room that opened, a name that
   was claimed. Such a session stayed connected and could hold a capability
   the reset retired.
+- A manager, a moderator, or a link entrance issued before a factory reset of
+  a Rooms directory never reads as current after it. The reset started
+  generation numbers over, so one held by a session the reset left connected
+  worked again once the same name was linked, moderated, or managed again.
+  Numbering continues above everything the reset cleared, and the server's
+  stored document records where in `generationFloor`.
 - A session on a message-framed transport replays the packets that arrived
   before the application attended it in one pass. The replay took time that
   grew with the square of the packet count, so a peer sending many small

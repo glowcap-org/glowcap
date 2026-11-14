@@ -188,7 +188,7 @@ pub(super) fn factory_reset(state: &State) -> Pending {
 	observe(authority::request(
 		state,
 		verbs::RESET_SCOPE,
-		move |state| Ok(Some(state.authority.factory_reset(secret))),
+		move |state| Ok(Some(state.authority.factory_reset(secret)?)),
 		move |state| {
 			let retired: Vec<(Kind, String, String)> = [Kind::Room, Kind::Steward, Kind::Manager]
 				.into_iter()

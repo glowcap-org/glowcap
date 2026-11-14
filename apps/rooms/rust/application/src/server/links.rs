@@ -64,6 +64,10 @@ pub struct Authority {
 	linked: BTreeMap<String, String>,
 	revoked: BTreeMap<String, String>,
 	generations: BTreeMap<String, u64>,
+	/// The generation of a link with no row in `generations`. Every other
+	/// generation is above it, so no link entrance, steward, or manager
+	/// issued before a factory reset reads as current after one.
+	floor: u64,
 	stewards: BTreeMap<String, Issue>,
 	managers: BTreeMap<String, Issue>,
 	managed: BTreeMap<String, Managed>,
@@ -89,7 +93,7 @@ fn durable(name: &str) -> DurableName {
 fn positive(value: u64) -> SafeInteger<true> {
 	#[expect(
 		clippy::expect_used,
-		reason = "generations start at one and advance by one per change, far inside the 2^53 bound"
+		reason = "every site that issues a generation refuses one past the 2^53 bound"
 	)]
 	SafeInteger::new(value).expect("generations stay within the safe range")
 }
@@ -116,6 +120,7 @@ impl Authority {
 			linked: BTreeMap::new(),
 			revoked: BTreeMap::new(),
 			generations: BTreeMap::new(),
+			floor: document.generation_floor.map_or(0, SafeInteger::get),
 			stewards: BTreeMap::new(),
 			managers: BTreeMap::new(),
 			managed: BTreeMap::new(),
@@ -190,6 +195,8 @@ impl Authority {
 			version: document::VERSION,
 			identity_seed: Hex(self.identity_seed),
 			room_link_secret: Hex(self.secret),
+			// A positive integer has no zero, so a floor of zero is absent.
+			generation_floor: SafeInteger::new(self.floor),
 			linked_rooms: List(self.linked.values().map(|name| durable(name)).collect()),
 			revoked_rooms: List(self.revoked.values().map(|name| durable(name)).collect()),
 			room_link_generations: List(
@@ -298,7 +305,7 @@ impl Authority {
 		}
 	}
 	pub fn room_link_generation(&self, name: &str) -> u64 {
-		self.generations.get(&fold(name)).copied().unwrap_or(0)
+		self.generations.get(&fold(name)).copied().unwrap_or(self.floor)
 	}
 	pub fn room_link_generation_is_current(&self, name: &str, generation: u64) -> bool {
 		self.room_link_active(name) && self.room_link_generation(name) == generation

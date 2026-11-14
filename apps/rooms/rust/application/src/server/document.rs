@@ -68,6 +68,11 @@ pub struct Document {
 	pub version: u64,
 	pub identity_seed: Hex<KEY_BYTES>,
 	pub room_link_secret: Hex<KEY_BYTES>,
+	/// Where generations start. A link with no generation row is at this
+	/// generation, and every other generation is above it. A factory reset
+	/// moves it above every generation it clears. Absent is zero.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub generation_floor: Option<SafeInteger<true>>,
 	pub linked_rooms: List<DurableName, MAX_ROOM_LINKS>,
 	pub revoked_rooms: List<DurableName, MAX_ROOM_LINKS>,
 	pub room_link_generations: List<Generation, MAX_ROOM_LINKS>,
@@ -125,6 +130,7 @@ impl Document {
 			version: VERSION,
 			identity_seed: Hex(identity_seed),
 			room_link_secret: Hex(room_link_secret),
+			generation_floor: None,
 			linked_rooms: List(Vec::new()),
 			revoked_rooms: List(Vec::new()),
 			room_link_generations: List(Vec::new()),
@@ -161,11 +167,12 @@ impl Document {
 	/// The relations a server document holds: names fold case-insensitively,
 	/// stewards only over linked rooms, managers over linked or revoked ones,
 	/// managed rooms under a manager with distinct listed names, generations
-	/// and subjects over rooms this document knows, each link a sturdyref's
-	/// shape. No room name carries a control or direction character. A link's
-	/// token derives from a label that joins its fields with NUL, so a name
-	/// holding one could spell another link's label. Every stored document and
-	/// every successor passes here, so no name the server holds does.
+	/// and subjects over rooms this document knows, every generation above
+	/// the floor, each link a sturdyref's shape. No room name carries a
+	/// control or direction character. A link's token derives from a label
+	/// that joins its fields with NUL, so a name holding one could spell
+	/// another link's label. Every stored document and every successor passes
+	/// here, so no name the server holds does.
 	pub fn validate(&self) -> Result<(), Error> {
 		let fold = |name: &DurableName| name.text().lowercase();
 		let names = self.linked_rooms.0.iter().chain(&self.revoked_rooms.0);
@@ -174,6 +181,14 @@ impl Document {
 			|| (self.managed_rooms.0.iter()).any(|room| room.name.text().carries_control_or_direction())
 		{
 			return Err(Error::Name);
+		}
+		let floor = self.generation_floor.map_or(0, SafeInteger::get);
+		let issues = self.stewards.0.iter().chain(&self.managers.0);
+		let mut issued = (self.room_link_generations.0.iter().map(|row| row.generation))
+			.chain(issues.map(|row| row.generation))
+			.chain(self.managed_rooms.0.iter().map(|room| room.generation));
+		if issued.any(|generation| generation.get() <= floor) {
+			return Err(Error::Relations);
 		}
 		let mut linked = BTreeSet::new();
 		for name in &self.linked_rooms.0 {
@@ -303,6 +318,22 @@ mod tests {
 		}
 		let undescribed = KEPT.replace("\"description\":\"seedlings\",", "\"description\":\"\",");
 		assert_eq!(Document::decode(&undescribed).unwrap_err(), Error::Shape);
+		// A generation at or below the floor, and a floor of zero written out.
+		let floored = |floor: &str| {
+			KEPT.replace(
+				"\"linkedRooms\"",
+				&format!("\"generationFloor\":{floor},\"linkedRooms\""),
+			)
+		};
+		assert_eq!(Document::decode(&floored("1")).unwrap_err(), Error::Relations);
+		assert_eq!(Document::decode(&floored("0")).unwrap_err(), Error::Shape);
+		assert!(
+			!Document::decode(KEPT)
+				.unwrap()
+				.encode()
+				.unwrap()
+				.contains("generationFloor")
+		);
 	}
 
 	/// Every row may be full at once, so the encoder, not the row caps, keeps a
