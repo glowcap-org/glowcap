@@ -9,14 +9,27 @@ and stream costs.
   for a whole frame. **It is bytes and nothing else, which is what
   lets `net` and `driver_core` share it** when neither can import the other, and
   each tier names only what a drained spill keeps. Deleting it relocates the cost
-  into `max_frame_bytes`-sized per-connection read buffers. `Spill.consume`
-  moves bytes only after a nonzero prefix is consumed. An incomplete frame
-  leaves its accumulated bytes untouched instead of copying them onto themselves.
+  into `max_frame_bytes`-sized per-connection read buffers.
+  - The reader pump (`fillThroughSpill`) copies its read buffer in while a
+    frame outgrows it, and frees the spill when it empties.
+  - The loop drain (`drainWholeFrames`) parks the front of one frame per
+    straddling chunk. `completeFirstFrame` then takes from the next chunk only
+    the bytes that finish it, and every later frame reads in place. A frame
+    cut inside its body costs one allocation to park and one exact growth to
+    complete, and a frame spread over more chunks doubles until its last. The
+    drain frees the block when the frame completes.
+  - `Spill.consume` moves bytes only after a nonzero prefix is consumed, so an
+    incomplete frame is never copied onto itself.
 - **Byte-fed stream tail**: `HostSession.feed_tail` via `Host.feedBytes`. The
-  one owner of the tail four binding pumps each kept by hand. Zero copies with no
-  pending tail, and one bounded coalesce per chunk while one is pending. A
-  straddled chunk is ordinary here, so this tier retains
-  `steady_feed_tail_bytes` instead of freeing outright.
+  one owner of the tail four binding pumps each kept by hand. Whole frames
+  dispatch in place from the caller's chunk. A straddling frame copies its front
+  into the tail, and the next chunk gives up only the bytes that complete it,
+  and no body byte when the tail holds only the prefix and the chunk carries
+  the body.
+  A tail holding a whole frame behind a paused dispatch (the opening hello,
+  outbound pressure) absorbs the chunk behind it. A straddled chunk is ordinary
+  here, so this tier retains `steady_feed_tail_bytes` instead of freeing
+  outright.
 - **Sealed byte channel**: `foundation.sealed.SealedChannel` (ADR-0041), one
   channel type with one owner: the byte-fed `HostSession` boxes one per sealed
   session (the unsealed shell pays one null pointer), so every transport

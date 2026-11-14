@@ -145,3 +145,16 @@ test "spill append refusal preserves storage and bytes for both growth policies"
         try std.testing.expectEqualStrings("pending tail", spill.bytes());
     }
 }
+
+test "truncate drops the bytes absorbed after a mark and keeps the buffer" {
+    const allocator = std.testing.allocator;
+    var spill: Spill = .{};
+    defer spill.deinit(allocator);
+    try spill.absorbBytes(allocator, "12:ab");
+    const mark = spill.len;
+    try spill.absorbBytes(allocator, "cdef");
+    const capacity = spill.buf.len;
+    spill.truncate(mark);
+    try std.testing.expectEqualStrings("12:ab", spill.bytes());
+    try std.testing.expectEqual(capacity, spill.buf.len);
+}

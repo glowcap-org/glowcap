@@ -32,8 +32,9 @@ The base is extracted once under `zig-out/scratch/ab/<rev>` and reused.
 ## Profiles
 
 A `profile-<bench>` step runs the bench under callgrind. Steps exist for
-`bench-loam`, `bench-outbound`, `bench-dispatch-scaling`, `bench-transports`, and the
-paired interface bench (`profile-interface`), and each writes
+`bench-loam`, `bench-outbound`, `bench-dispatch-scaling`, `bench-stream-drain`,
+`bench-transports`, and the paired interface bench (`profile-interface`), and
+each writes
 `zig-out/bench-reports/<bench>-profile.md`: for each phase the bench marks,
 the self cost per source file and per function, ranked, and the callers of the
 leaf functions at the top. Read it this way:

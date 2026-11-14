@@ -129,6 +129,47 @@ test "sealed host consumes a coalesced read larger than one Noise record" {
     try std.testing.expectEqual(@as(usize, 0), pair.b.sealed.?.staged.len);
 }
 
+test "sealed channel: a sealed frame leaves no tail once its prefix record and body record have both arrived" {
+    const allocator = std.testing.allocator;
+    const seed_a = @as([32]u8, @splat(0x43));
+    const seed_b = @as([32]u8, @splat(0x44));
+    var a = sealedHost(allocator, seed_a, 0xa4);
+    defer a.deinit();
+    var b = sealedHost(allocator, seed_b, 0xb4);
+    defer b.deinit();
+    const pair = try openSealedPair(allocator, &a, seed_a, &b, seed_b, null, null);
+    _ = try pair.b.served.publish(&b.vat, "greeter", Greeter, .{});
+
+    // A name wider than any capacity the handshake left in the tail, so a body
+    // byte copied into the tail shows as growth.
+    const wide_name = try allocator.alloc(u8, 2000);
+    defer allocator.free(wide_name);
+    @memset(wide_name, 'g');
+
+    for (0..3) |_| {
+        _ = try a.fetch(pair.a, wide_name);
+        var sealed_frame = (try pair.a.takeOutbound()) orelse return error.MissingFetch;
+        defer sealed_frame.deinit();
+        // `sealFrame` seals the outer prefix as its own record, so the first
+        // record carries the prefix alone and the next the whole body.
+        const wire = sealed_frame.bytes();
+        const first_len = noise.record_header_bytes + noise.recordBodyLen(wire[0..noise.record_header_bytes].*);
+        try std.testing.expect(first_len < wire.len);
+
+        try b.feedBytes(pair.b, wire[0..first_len]);
+        try std.testing.expect(pair.b.feed_tail.len > 0);
+        try std.testing.expect(pair.b.feed_tail.len < noise.max_record_plaintext_bytes);
+        const capacity_after_prefix = pair.b.feed_tail.buf.len;
+        try b.feedBytes(pair.b, wire[first_len..]);
+        try std.testing.expectEqual(@as(usize, 0), pair.b.feed_tail.len);
+        // The body record dispatched from the opened record in place, so no
+        // body byte entered the tail.
+        try std.testing.expectEqual(capacity_after_prefix, pair.b.feed_tail.buf.len);
+        // Pump the replies back so the next fetch starts from a quiet pair.
+        try pumpSealedPair(allocator, pair, null, null);
+    }
+}
+
 test "sealed channel: the same pair over keyed-tcp reports unauthenticated" {
     // Evidence item two's second row: the identical topology minus the
     // channel. The keyed dial demands the same durable key, yet nothing on a

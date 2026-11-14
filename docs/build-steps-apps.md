@@ -134,6 +134,7 @@ zig build bench-set-uniqueness -Doptimize=fast # borrowed set validation and col
 zig build bench-rooms-projection      # Count conversation and line-custody visits in the production Rooms projection
 zig build bench-codec                 # Run codec/dispatch throughput benchmark
 zig build bench-dispatch-scaling      # Measure inbound dispatch ns/turn across N peers (cold-cache regime) with p50/p99
+zig build bench-stream-drain          # Measure the connection drain over a pipelined stream cut into chunks: ns per frame, aligned against 4 KiB and 64 KiB cuts, with the spill's peak buffer
 zig build bench-outbound              # Measure the outbound engine path (send/step/takeOutbound) and the op:gc-answers release storm
 zig build bench-peer-scaling          # Measure per-session memory and live authenticated socket scale
 zig build bench-snapshot              # Measure vat snapshot/restore: O(objects), flat in object size, off by default
@@ -165,6 +166,7 @@ beside the callgrind parts, and `bench/README.md` says how to read it.
 zig build profile-loam             # Profile bench-loam under callgrind: self cost per file and function for each marked phase, taking bench-loam's filters after -- (needs valgrind)
 zig build profile-outbound         # Profile bench-outbound under callgrind: self cost per file and function for each marked phase (needs valgrind)
 zig build profile-dispatch-scaling # Profile bench-dispatch-scaling under callgrind: self cost per file and function for each marked phase (needs valgrind)
+zig build profile-stream-drain     # Profile bench-stream-drain under callgrind: self cost per file and function for each marked phase (needs valgrind)
 zig build profile-transports       # Profile bench-transports under callgrind: self cost per file and function for each marked phase, taking bench-transports' filters after -- (needs cargo + valgrind)
 zig build profile-report-test      # Unit-test the callgrind part reader behind the profile-* reports; part of check
 zig build bench-ab-test            # Unit-test the row reader behind bench-ab; part of check

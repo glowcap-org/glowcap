@@ -61,6 +61,7 @@ pub const HostFailure = struct {
             error.ResourceExhausted,
             error.RetainOverflow,
             error.EventServeOutOfMemory,
+            error.StreamTailOutOfMemory,
             error.PreparedSettlementConsumed,
         } },
         .{ .kind = .not_found, .causes = &.{

@@ -117,6 +117,10 @@ Releases before 0.1.7 are in the
 - Past its ceiling, the Rooms directory evicts the oldest signaling exchange
   among the members that hold the most, where it evicted the oldest of all.
   One member's flood of offers takes its own exchanges first.
+- A frame split across reads takes only the bytes it lacks from the next
+  read, in the connection loop and in a byte-fed Host session, and the frames
+  behind it are read where they arrived. Each read behind a split frame was
+  copied whole.
 
 ### Fixed
 
@@ -222,6 +226,12 @@ Releases before 0.1.7 are in the
   **Stop** does, and says the recording is full in a notice and in its
   description. A recording grew for as long as it ran, until the page ran
   out of memory.
+- A byte-fed Host session (`glowcap_host_session_feed_bytes`) that refuses a
+  chunk for memory keeps its pending bytes as they were, so the same chunk
+  fed again applies each frame once. When one frame of a chunk has applied
+  and the unread rest cannot be kept, the session closes with a
+  resource-exhausted abort. It returned a retryable error, and the retry
+  applied that frame twice.
 
 ## [0.1.7] - 2026-11-11
 

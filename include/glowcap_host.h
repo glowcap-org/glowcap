@@ -608,12 +608,14 @@ int32_t glowcap_host_session_feed(GlowcapHostSession *session, const GlowcapFram
    and glowcap_host_session_resume_feed feeds them once that post-open authority
    is installed. GLOWCAP_ERR_WOULD_BLOCK is the preflight high-water refusal and
    consumes no bytes from this call. Internal pressure after any prefix commits is
-   retained in the session tail and returns success; GLOWCAP_ERR_INTERNAL with no
-   last-abort therefore means the first direct frame was not admitted and the same
-   chunk is retryable. A recorded last-abort means the input was consumed and the
-   session is closing; drain the typed abort and release it. A declared body
-   exceeding the session's frame cap is GLOWCAP_ERR_FRAME_TOO_LARGE; malformed or
-   non-canonical outer syntax is a codec error. */
+   retained in the session tail and returns success. A tail that cannot hold it
+   closes the session with a resource-exhausted abort and also returns success.
+   GLOWCAP_ERR_INTERNAL with no last-abort therefore means the first direct frame
+   was not admitted and the same chunk is retryable. A recorded last-abort means
+   the input was consumed and the session is closing; drain the typed abort and
+   release it. A declared body exceeding the session's frame cap is
+   GLOWCAP_ERR_FRAME_TOO_LARGE; malformed or non-canonical outer syntax is a codec
+   error. */
 int32_t glowcap_host_session_feed_bytes(GlowcapHostSession *session, const uint8_t *bytes, size_t len);
 /* Feed one transport packet (borrowed for the call). Byte-stream transports pass
    arbitrary chunks carrying ADR-0012's outer Syrup byte-string envelope;
