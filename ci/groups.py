@@ -323,6 +323,7 @@ LOCAL = {
     "gen-*": WRITES,
     "*-fmt": WRITES,
     "fmt": WRITES,
+    "gen": WRITES,
     "set-version": WRITES,
     "bench-*": MEASURES,
     "profile-*": MEASURES,

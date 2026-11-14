@@ -8,8 +8,8 @@ and Deno lock file,
 and the pages that state the release version. This rewrites all of them from
 the current version to the requested one, cuts the entries under Unreleased in
 CHANGELOG.md into the version's dated section with its compare link, and the
-build step then regenerates the header and binding constants that embed the
-version, so a release bump is one command and one diff. It edits the checkout
+build step then regenerates every generated mirror, so a release bump is one
+command and one diff. It edits the checkout
 in place from the repository root, lists files with git, and exits 1 without
 writing when the request is malformed, is the current version, Unreleased
 lists nothing, or a mirror does not state the current version exactly once.

@@ -59,6 +59,9 @@ const HeaderGen = struct {
     extra_imports: []const AbiImport = &.{},
     /// Binding-owned declaration omissions, outside published package roots.
     omissions: ?[]const u8 = null,
+    /// The generator reads parameter names from the committed headers, so its
+    /// write runs after every `gen-header-*` write step. Headers register first.
+    reads_headers: bool = false,
     test_step: ?*std.Build.Step = null,
 };
 
@@ -133,6 +136,10 @@ const ReflectedArchives = struct {
     onion: *std.Build.Module,
 };
 
+/// Set once a generator that reads the headers has taken its edges, after
+/// which a header generator would register too late to be one of them.
+var headers_read = false;
+
 fn addHeaderGen(
     bb: *std.Build,
     check_agg: *std.Build.Step,
@@ -206,6 +213,18 @@ fn addHeaderGen(
     write_run.has_side_effects = true;
     const write_step_h = bb.step(hg.name, hg.write_desc);
     write_step_h.dependOn(&write_run.step);
+    const is_header = std.mem.startsWith(u8, hg.name, "gen-header-");
+    if (is_header and headers_read) std.debug.panic("{s} registered after a generator that reads the headers; register it before them", .{hg.name});
+    if (hg.reads_headers) {
+        headers_read = true;
+        // The edge is on the run, because a step's dependencies run in parallel
+        // with each other.
+        for (bb.top_level_steps.values()) |top| {
+            if (std.mem.startsWith(u8, top.step.name, "gen-header-") and !std.mem.endsWith(u8, top.step.name, "-check")) {
+                write_run.step.dependOn(&top.step);
+            }
+        }
+    }
 }
 
 pub const Context = struct {
@@ -490,9 +509,10 @@ pub fn registerMirrors(
     addHeaderGen(b, check_step, target, optimize, support, .{
         .name = "gen-binding-rust-ffi",
         .check_desc = "Verify the generated Rust extern blocks match src/c_abi and " ++ rust_omissions ++ " (fails if stale)",
-        .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi and " ++ rust_omissions ++ " (types reflected, names from the generated headers)",
+        .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi and " ++ rust_omissions ++ " (types reflected, names from the generated headers, which it regenerates first)",
         .generator = "tools/gen/binding/rust_ffi.zig",
         .omissions = rust_omissions,
+        .reads_headers = true,
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &(ffi_extra_imports ++ [_]AbiImport{
             .{ .name = "c_abi_loam", .module = ctx.loam.portable },
@@ -504,9 +524,10 @@ pub fn registerMirrors(
     addHeaderGen(b, check_step, target, optimize, support, .{
         .name = "gen-binding-racket-ffi",
         .check_desc = "Verify the generated Racket FFI tables match src/c_abi and " ++ racket_omissions ++ " (fails if stale)",
-        .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi and " ++ racket_omissions ++ " (types reflected, wrapper argument names from the generated headers)",
+        .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi and " ++ racket_omissions ++ " (types reflected, wrapper argument names from the generated headers, which it regenerates first)",
         .generator = "tools/gen/binding/racket_ffi.zig",
         .omissions = racket_omissions,
+        .reads_headers = true,
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &ffi_extra_imports,
     });

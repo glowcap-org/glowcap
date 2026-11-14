@@ -11,9 +11,10 @@
 //!
 //! `gen-build-steps` rewrites both documents. `gen-build-steps-check`, part
 //! of `source-check`, refuses a stale document, a row that names no step, and
-//! a step with no row in either. Both register last, after every other registrar, so the
-//! graph they read is complete, and each document is a configure input, so an
-//! edit to it reruns the configure phase that reads it.
+//! a step with no row in either. Both register after every other registrar,
+//! followed only by the `gen` aggregate that lists them, so the graph they
+//! read is complete, and each document is a configure input, so an edit to it
+//! reruns the configure phase that reads it.
 //! Optioned invocations delegate only these documentation steps to an option-free
 //! build. Product gates keep their configured graph. The inventory has one
 //! reference graph rather than changing membership with its caller's options.
@@ -21,6 +22,7 @@ const std = @import("std");
 const commands = @import("commands.zig");
 const execution = @import("execution.zig");
 const listing = @import("listing.zig");
+const gen_all = @import("gen_all.zig");
 const Step = std.Build.Step;
 
 /// The library inventory first, then the applications, demos, and benchmarks.
@@ -35,6 +37,10 @@ pub fn register(b: *std.Build, source_check_step: *Step) void {
     const gen_step = b.step("gen-build-steps", "Rewrite every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md from the build graph");
     const tests = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("tools/build/build_steps_doc.zig"), .target = b.graph.host }) });
     source_check_step.dependOn(&execution.addZigTest(b, tests, .unit_test).step);
+    // The aggregate takes `gen-build-steps` as a member and is itself a row of
+    // the inventory, so it registers after that step and before the inventory
+    // reads the graph.
+    gen_all.register(b);
     // A cold configure with lazy dependencies still to fetch is run again by
     // the build runner once they are present, with their steps in the graph.
     if (b.graph.needed_lazy_dependencies.count() > 0) return;
@@ -133,7 +139,7 @@ fn isBuiltin(name: []const u8) bool {
 }
 
 /// Every step reachable from `root` through dependencies, `root` included.
-fn collectReach(gpa: std.mem.Allocator, out: *std.AutoHashMap(*Step, void), root: *Step) void {
+pub fn collectReach(gpa: std.mem.Allocator, out: *std.AutoHashMap(*Step, void), root: *Step) void {
     var stack: std.ArrayList(*Step) = .empty;
     stack.append(gpa, root) catch @panic("OOM");
     while (stack.pop()) |step| {
@@ -146,7 +152,7 @@ fn collectReach(gpa: std.mem.Allocator, out: *std.AutoHashMap(*Step, void), root
 /// Whether a gate whose reach is `reach` runs everything `step` runs: the
 /// step itself, or, when the gate wires the step's work directly, each of
 /// its dependencies.
-fn runs(reach: *const std.AutoHashMap(*Step, void), step: *Step) bool {
+pub fn runs(reach: *const std.AutoHashMap(*Step, void), step: *Step) bool {
     if (reach.contains(step)) return true;
     if (step.dependencies.items.len == 0) return false;
     for (step.dependencies.items) |dep| if (!reach.contains(dep)) return false;

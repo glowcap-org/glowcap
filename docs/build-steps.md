@@ -121,7 +121,7 @@ zig build glowcap-package-test              # Prove release rollback and reject 
 zig build portable-pack                     # Package prebuilt browser JavaScript, Wasm, examples, and Rust Wasm archives; part of portable-package-test
 zig build portable-package-test             # Run the extracted browser example and link a Rust Wasm consumer through the library downloader
 zig build product-manifest-test             # Generate and parse a sealed staged product without a release package build; part of check
-zig build set-version                       # Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants, and dates the Unreleased changelog entries as the version's section
+zig build set-version                       # Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and every generated mirror, and dates the Unreleased changelog entries as the version's section
 zig build mbedtls-build                     # Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)
 ```
 
@@ -143,7 +143,7 @@ zig build ocapnviz-dev          # Serve ocapnviz from Vite for development; open
 ## Interface contract fixtures
 
 ```sh
-zig build gen-interface-fixtures       # Generate interface qualification projections from authored Syrup fixtures
+zig build gen-interface-fixtures       # Generate interface qualification projections from authored Syrup fixtures; part of gen
 zig build gen-interface-fixtures-check # Verify interface qualification projections match the authored Syrup fixtures; part of check
 zig build interface-test               # Test bounded interface descriptions and generation allocation failures; part of check
 zig build interface-goblins-check      # Prove generated recipient handoff and plain Goblins calling the generated Tasks server boundary (needs cargo + racket + Goblins + deno); part of check-external
@@ -162,31 +162,34 @@ returned capability, pipelining, exact replay, and UTF-8 byte bounds.
 
 ## Generated headers and binding mirrors
 
-Each `gen-*` step writes a committed mirror, and its `-check` sibling is part
-of `check`, so a hand edit shows up as staleness.
+Each `gen-*` step writes a committed mirror. Where its `-check` sibling is part
+of `check`, a hand edit shows up as staleness, and `gen` runs every such step in
+dependency order. Run `gen` after a C signature or a generator input changes.
+`gen-mark` and `gen-capnp-fixtures` have no check in `check` and run by name.
 
 ```sh
-zig build gen-header-ocapn                    # Regenerate include/glowcap_ocapn.h from src/c_abi/ocapn
+zig build gen                                 # Regenerate every committed mirror whose gen-*-check sibling `check` runs, in dependency order
+zig build gen-header-ocapn                    # Regenerate include/glowcap_ocapn.h from src/c_abi/ocapn; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-ocapn-check              # Verify include/glowcap_ocapn.h matches src/c_abi/ocapn (fails if stale); part of check
-zig build gen-header-locator                  # Regenerate include/glowcap_locator.h from c_abi/shared/locator.zig
+zig build gen-header-locator                  # Regenerate include/glowcap_locator.h from c_abi/shared/locator.zig; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-locator-check            # Verify include/glowcap_locator.h matches the shared locator ABI (fails if stale); part of check
-zig build gen-header-loam                     # Generate portable Loam header
+zig build gen-header-loam                     # Generate portable Loam header; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-loam-check               # Verify portable Loam header; part of check
-zig build gen-header-loam-lmdb                # Generate LMDB Loam companion header
+zig build gen-header-loam-lmdb                # Generate LMDB Loam companion header; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-loam-lmdb-check          # Verify LMDB Loam companion header; part of check
-zig build gen-header-loam-sqlite              # Generate SQLite Loam companion header
+zig build gen-header-loam-sqlite              # Generate SQLite Loam companion header; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-loam-sqlite-check        # Verify SQLite Loam companion header; part of check
-zig build gen-header-loam-volatile            # Generate in-memory Loam companion header
+zig build gen-header-loam-volatile            # Generate in-memory Loam companion header; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-loam-volatile-check      # Verify in-memory Loam companion header; part of check
-zig build gen-binding-loam-layout             # Generate Rust Loam layouts and fingerprints
+zig build gen-binding-loam-layout             # Generate Rust Loam layouts and fingerprints; part of gen
 zig build gen-binding-loam-layout-check       # Verify reflected Rust Loam layouts and fingerprints; part of check
-zig build gen-header-host                     # Regenerate include/glowcap_host.h from src/c_abi/host
+zig build gen-header-host                     # Regenerate include/glowcap_host.h from src/c_abi/host; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-host-check               # Verify include/glowcap_host.h matches src/c_abi/host (fails if stale); part of check
-zig build gen-own-wire                        # Regenerate the own-wire fingerprint in src/ocapn/model/own_wire.zig from the Syrup and Cap'n Proto encoders
+zig build gen-own-wire                        # Regenerate the own-wire fingerprint in src/ocapn/model/own_wire.zig from the Syrup and Cap'n Proto encoders; part of gen
 zig build gen-own-wire-check                  # Verify src/ocapn/model/own_wire.zig fingerprints what the encoders write (fails if stale); part of check
-zig build gen-header-transport-provider       # Regenerate include/glowcap_transport_provider.h from c_abi/shared
+zig build gen-header-transport-provider       # Regenerate include/glowcap_transport_provider.h from c_abi/shared; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-transport-provider-check # Verify include/glowcap_transport_provider.h matches the shared provider ABI (fails if stale); part of check
-zig build gen-header-driver                   # Regenerate include/glowcap_driver.h from src/c_abi/driver
+zig build gen-header-driver                   # Regenerate include/glowcap_driver.h from src/c_abi/driver; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-driver-check             # Verify include/glowcap_driver.h matches src/c_abi/driver (fails if stale); part of check
 zig build iroh-driver-provider                # Live proof (ADR-0024) that the driver archive dials a real iroh endpoint through the C multiplexed-transport table (needs cargo)
 zig build iroh-managed                        # Zig Session and Server over real iroh: identity, fetch, call and accepted-session lifetime (needs cargo); part of iroh-driver-provider
@@ -195,51 +198,51 @@ zig build iroh-managed                        # Zig Session and Server over real
 The transport archives each carry their own header.
 
 ```sh
-zig build gen-header-net-transport-tcp          # Regenerate include/glowcap_net_transport_tcp.h from src/c_abi/net_transport/tcp
+zig build gen-header-net-transport-tcp          # Regenerate include/glowcap_net_transport_tcp.h from src/c_abi/net_transport/tcp; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-net-transport-tcp-check    # Verify include/glowcap_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale); part of check
-zig build gen-header-net-transport-inproc       # Regenerate include/glowcap_net_transport_inproc.h from src/c_abi/net_transport/inproc
+zig build gen-header-net-transport-inproc       # Regenerate include/glowcap_net_transport_inproc.h from src/c_abi/net_transport/inproc; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-net-transport-inproc-check # Verify include/glowcap_net_transport_inproc.h matches src/c_abi/net_transport/inproc (fails if stale); part of check
-zig build gen-header-net-transport-onion        # Regenerate include/glowcap_net_transport_onion.h from src/c_abi/net_transport/onion
+zig build gen-header-net-transport-onion        # Regenerate include/glowcap_net_transport_onion.h from src/c_abi/net_transport/onion; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-net-transport-onion-check  # Verify include/glowcap_net_transport_onion.h matches src/c_abi/net_transport/onion (fails if stale); part of check
-zig build gen-header-net-transport-iroh         # Regenerate include/glowcap_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig
+zig build gen-header-net-transport-iroh         # Regenerate include/glowcap_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-net-transport-iroh-check   # Verify include/glowcap_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale); part of check
-zig build gen-iroh-sidecar-constants            # Regenerate the iroh sidecar's Rust constants from iroh transport policy and frame-stream policy
+zig build gen-iroh-sidecar-constants            # Regenerate the iroh sidecar's Rust constants from iroh transport policy and frame-stream policy; part of gen
 zig build gen-iroh-sidecar-constants-check      # Verify the iroh sidecar's generated Rust constants match iroh transport policy and frame-stream policy (fails if stale); part of check
-zig build gen-header-net-transport-webrtc       # Regenerate include/glowcap_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig
+zig build gen-header-net-transport-webrtc       # Regenerate include/glowcap_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-net-transport-webrtc-check # Verify include/glowcap_net_transport_webrtc.h matches src/c_abi/net_transport/webrtc/mod.zig (fails if stale); part of check
-zig build gen-webrtc-sidecar-constants          # Regenerate the WebRTC sidecar's Rust constants from src/net/transport/webrtc.zig
+zig build gen-webrtc-sidecar-constants          # Regenerate the WebRTC sidecar's Rust constants from src/net/transport/webrtc.zig; part of gen
 zig build gen-webrtc-sidecar-constants-check    # Verify the WebRTC sidecar's generated Rust constants match src/net/transport/webrtc.zig (fails if stale); part of check
-zig build gen-header-net-transport-relay        # Regenerate include/glowcap_net_transport_relay.h from src/c_abi/net_transport/relay
+zig build gen-header-net-transport-relay        # Regenerate include/glowcap_net_transport_relay.h from src/c_abi/net_transport/relay; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-net-transport-relay-check  # Verify include/glowcap_net_transport_relay.h matches src/c_abi/net_transport/relay (fails if stale); part of check
 ```
 
 The bindings read the same facts out of generated mirrors.
 
 ```sh
-zig build gen-ts-abi                    # Regenerate the TypeScript ABI mirror from src/c_abi and bindings/ffi_omissions/ts.zig (every reflected archive)
+zig build gen-ts-abi                    # Regenerate the TypeScript ABI mirror from src/c_abi and bindings/ffi_omissions/ts.zig (every reflected archive); part of gen
 zig build gen-ts-abi-check              # Verify the generated TypeScript ABI mirror files match src/c_abi and bindings/ffi_omissions/ts.zig (fails if stale); part of check
-zig build gen-site-examples             # Assemble site/examples snippets into SuperMD code-tabs on binding, Start, and transport pages; part of site-serve
+zig build gen-site-examples             # Assemble site/examples snippets into SuperMD code-tabs on binding, Start, and transport pages; part of gen, site-serve
 zig build gen-site-examples-check       # Verify site transport example tabs match site/examples snippets (fails if stale); part of check
-zig build gen-build-steps               # Rewrite every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md from the build graph
+zig build gen-build-steps               # Rewrite every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md from the build graph; part of gen
 zig build gen-build-steps-check         # Verify every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md carries its step's description and containing steps, and every step has a row (fails if stale); part of source-check
 zig build site-zig-examples-check       # Compile the authoritative Zig transport site examples; part of check
 zig build site-ts-examples-check        # Type-check the authoritative TypeScript transport site examples; part of check-build
 zig build site-python-examples-check    # Type-check the authoritative Python transport site examples (needs python3 + mypy); part of bindings
 zig build site-rust-examples-check      # Type-check the authoritative Rust transport site examples (needs python3 + cargo); part of bindings
 zig build site-racket-examples-check    # Compile the authoritative Racket transport site examples (needs python3 + racket); part of bindings
-zig build gen-binding-constants         # Regenerate binding ABI constants from src/c_abi (every reflected archive)
+zig build gen-binding-constants         # Regenerate binding ABI constants from src/c_abi (every reflected archive); part of gen
 zig build gen-binding-constants-check   # Verify binding ABI constants match src/c_abi (fails if stale); part of check
-zig build gen-binding-host-action       # Regenerate binding HostAction decode/types from src/c_abi/host
+zig build gen-binding-host-action       # Regenerate binding HostAction decode/types from src/c_abi/host; part of gen
 zig build gen-binding-host-action-check # Verify binding HostAction decode/types match src/c_abi/host (fails if stale); part of check
-zig build gen-binding-rust-ffi          # Regenerate the Rust binding's extern blocks from src/c_abi and bindings/ffi_omissions/rust.zig (types reflected, names from the generated headers)
+zig build gen-binding-rust-ffi          # Regenerate the Rust binding's extern blocks from src/c_abi and bindings/ffi_omissions/rust.zig (types reflected, names from the generated headers, which it regenerates first); part of gen
 zig build gen-binding-rust-ffi-check    # Verify the generated Rust extern blocks match src/c_abi and bindings/ffi_omissions/rust.zig (fails if stale); part of check
-zig build gen-binding-python-ffi        # Regenerate the Python binding's ctypes signature tables from src/c_abi and bindings/ffi_omissions/python.zig (types are reflected and the sigs dicts are positional)
+zig build gen-binding-python-ffi        # Regenerate the Python binding's ctypes signature tables from src/c_abi and bindings/ffi_omissions/python.zig (types are reflected and the sigs dicts are positional); part of gen
 zig build gen-binding-python-ffi-check  # Verify the generated Python ctypes signature tables match src/c_abi and bindings/ffi_omissions/python.zig (fails if stale); part of check
-zig build gen-binding-racket-ffi        # Regenerate the Racket binding's FFI tables from src/c_abi and bindings/ffi_omissions/racket.zig (types reflected, wrapper argument names from the generated headers)
+zig build gen-binding-racket-ffi        # Regenerate the Racket binding's FFI tables from src/c_abi and bindings/ffi_omissions/racket.zig (types reflected, wrapper argument names from the generated headers, which it regenerates first); part of gen
 zig build gen-binding-racket-ffi-check  # Verify the generated Racket FFI tables match src/c_abi and bindings/ffi_omissions/racket.zig (fails if stale); part of check
 zig build gen-binding-ffi-layouts       # Regenerate binding FFI layout facts from src/c_abi (every reflected archive); part of gen-rust-wasm-layouts
 zig build gen-binding-ffi-layouts-check # Verify binding FFI layout facts match src/c_abi (fails if stale); part of gen-rust-wasm-layouts-check
-zig build gen-rust-wasm-layouts         # Generate Rust layout constants and fingerprints from the compiled wasm32 C ABI
+zig build gen-rust-wasm-layouts         # Generate Rust layout constants and fingerprints from the compiled wasm32 C ABI; part of gen
 zig build gen-rust-wasm-layouts-check   # Verify Rust layout constants and fingerprints match the compiled wasm32 C ABI; part of check, rooms-browser-build, rooms-managed-rooms-browser-test, rooms-managed-sharing-browser-test, rooms-rust-contract-browser-test, rooms-session-executor-browser-test, rooms-session-foreign-browser-reload-test, rooms-session-foreign-browser-test, rooms-session-graph-browser-test
 ```
 
@@ -260,13 +263,13 @@ generated tables. `tools/gen/rooms_protocol.zig` declares it,
 `apps/rooms/test/protocol_gen_test.ts` checks them against the app's readers.
 
 ```sh
-zig build gen-rooms-protocol       # Regenerate the Rooms application and client protocol tables from tools/gen/rooms_protocol.zig
+zig build gen-rooms-protocol       # Regenerate the Rooms application and client protocol tables from tools/gen/rooms_protocol.zig; part of gen
 zig build gen-rooms-protocol-check # Verify the Rooms application and client protocol tables match tools/gen/rooms_protocol.zig (fails if stale); part of check
-zig build gen-agent-index          # Regenerate the agent scaffolding index from each rule, skill and hook
+zig build gen-agent-index          # Regenerate the agent scaffolding index from each rule, skill and hook; part of gen
 zig build gen-agent-index-check    # Verify the agent scaffolding index matches each rule, skill and hook (fails if stale or a file states no purpose); part of source-check
-zig build gen-dependencies         # Regenerate docs/dependencies.md from the dep comments in every manifest
+zig build gen-dependencies         # Regenerate docs/dependencies.md from the dep comments in every manifest; part of gen
 zig build gen-dependencies-check   # Verify docs/dependencies.md matches the dep comments in every manifest (fails if stale or a dependency has no comment); part of source-check
-zig build gen-doc-values           # Rewrite every value a doc quotes from a code constant
+zig build gen-doc-values           # Rewrite every value a doc quotes from a code constant; part of gen
 zig build gen-doc-values-check     # Verify every value a doc quotes from a code constant is current (fails if stale or unreadable); part of source-check
 zig build doc-impact               # List the docs that explain code changed since the fork from dev (or `-- <base>`)
 ```

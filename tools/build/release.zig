@@ -20,16 +20,16 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.l
     // The version a release states lives in build.zig and is mirrored into the
     // C ABI, the manifests, the resolution contract, and the pages; one step
     // moves them all, and source-check holds them in lockstep.
-    const set_version = b.step("set-version", "Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants, and dates the Unreleased changelog entries as the version's section");
+    const set_version = b.step("set-version", "Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and every generated mirror, and dates the Unreleased changelog entries as the version's section");
     if (b.option([]const u8, "version", "The version set-version writes everywhere, such as 0.1.2")) |requested| {
         const bump = commands.addRootedSystemCommand(b, .build_tool, &.{ "python3", "tools/gen/set_version.py", requested });
         bump.has_side_effects = true;
-        // The generated header and binding constants embed the version, so the
-        // bump regenerates them in the same command, from the same cache.
+        // Generated mirrors embed the version, so the bump regenerates every
+        // one in the same command, from the same cache.
         const regenerate = commands.addRootedSystemCommand(b, .build_tool, &.{ b.graph.zig_exe, "build" });
         regenerate.addArg("--cache-dir");
         regenerate.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
-        regenerate.addArgs(&.{ "gen-header-ocapn", "gen-binding-constants", "gen-ts-abi", "gen-rust-wasm-layouts" });
+        regenerate.addArg("gen");
         regenerate.has_side_effects = true;
         regenerate.step.dependOn(&bump.step);
         set_version.dependOn(&regenerate.step);

@@ -246,7 +246,7 @@ release itself is two commands and two workflows.
    stated version in one diff: `abi_version` in `build.zig`, the C ABI
    constants and header, `build.zig.zon`, the archive-resolution contract and
    its package copies, every tracked package manifest and lock file, the pages
-   that state the release version, and the binding constants that embed it.
+   that state the release version, and the generated mirrors that embed it.
    It dates the `Unreleased` entries as the version's changelog section.
    `source-check` and the locked builds refuse a tree where one disagrees.
    Land the bump on `dev` and let promotion move `main`.
