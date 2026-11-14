@@ -1,6 +1,6 @@
 //! Event time governs files even before the host delivers an idle timer.
 use super::*;
-use crate::files::{FileDescription, ReadOutcome, UPLOAD_IDLE_MS};
+use crate::files::{CHUNK_BYTES, FileDescription, ReadOutcome, UPLOAD_IDLE_MS};
 
 #[test]
 fn failed_adapter_publication_releases_only_its_reservation_without_a_timer() {
@@ -37,7 +37,7 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 	let entrance = world.open(1, "Garden", RoomPolicy::Open);
 	let alice = world.join(1, &entrance, "Alice").membership;
 	let start = 10 * UPLOAD_IDLE_MS;
-	let description = FileDescription::parse("slow.bin", "", 3, 0, 0).unwrap();
+	let description = FileDescription::parse("slow.bin", "", CHUNK_BYTES as u64 + 3, 0, 0).unwrap();
 	let upload = world.rooms.attach(&entrance.room, alice, description, start).unwrap();
 	assert_eq!(world.rooms.next_upload_deadline(), Some(start + UPLOAD_IDLE_MS));
 	let (_, posted) = world.rooms.post_files(&entrance.room, alice, "", 123, start).unwrap();
@@ -52,10 +52,16 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 	let write_at = start + UPLOAD_IDLE_MS - 1;
 	world
 		.rooms
-		.upload_verb(upload, "write", &[Value::Bytes(vec![1])], write_at)
+		.upload_verb(upload, "write", &[Value::Bytes(vec![1; CHUNK_BYTES])], write_at)
 		.unwrap();
 	assert_eq!(world.rooms.next_upload_deadline(), Some(write_at + UPLOAD_IDLE_MS));
-	// The original deadline is now harmless: successful progress renewed it.
+	// A sender cannot hold its reservation by a byte in each window.
+	world
+		.rooms
+		.upload_verb(upload, "write", &[Value::Bytes(vec![1])], write_at + 1)
+		.unwrap();
+	assert_eq!(world.rooms.next_upload_deadline(), Some(write_at + UPLOAD_IDLE_MS));
+	// The original deadline is now harmless: a chunk of the file renewed it.
 	world.rooms.advance(start + UPLOAD_IDLE_MS);
 	match world
 		.rooms

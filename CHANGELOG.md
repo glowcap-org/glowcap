@@ -43,6 +43,12 @@ Releases before 0.1.7 are in the
   binding's adapter admits. It read one of up to 8 MiB before any byte budget
   counted it. Every glowcap adapter already sends less. A client of another
   implementation sends messages of at most 1 MiB through a Rooms relay.
+- A Rooms upload `write` carries at least one byte, and an upload's window
+  starts again only when the bytes received reach a multiple of the chunk
+  size. Any write started a new window before, an empty one included, so a
+  member could hold a reserved upload without sending it. A client of
+  another implementation writes whole chunks, or at least one chunk's worth
+  of bytes in each window.
 
 ### Added
 
@@ -108,6 +114,9 @@ Releases before 0.1.7 are in the
   and opens nothing. A web address written without `//` is one. So is a mail
   link written with a host, with no mailbox in its path, with a fragment, or
   with a query field other than a subject and a body.
+- Past its ceiling, the Rooms directory evicts the oldest signaling exchange
+  among the members that hold the most, where it evicted the oldest of all.
+  One member's flood of offers takes its own exchanges first.
 
 ### Fixed
 

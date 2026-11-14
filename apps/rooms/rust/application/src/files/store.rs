@@ -200,6 +200,9 @@ impl FileStore {
 			Phase::Held => return Err(FileError::Spent),
 			Phase::Streaming => {}
 		}
+		if chunk.is_empty() {
+			return Err(FileError::EmptyChunk);
+		}
 		if chunk.len() > CHUNK_BYTES {
 			return Err(FileError::ChunkTooLarge);
 		}
@@ -208,8 +211,11 @@ impl FileStore {
 		}
 		let end = record.written + chunk.len();
 		record.bytes[record.written..end].copy_from_slice(chunk);
+		// A reservation lasts while its sender brings a chunk in each window.
+		if end / CHUNK_BYTES > record.written / CHUNK_BYTES {
+			record.deadline = self.now.saturating_add(UPLOAD_IDLE_MS);
+		}
 		record.written = end;
-		record.deadline = self.now.saturating_add(UPLOAD_IDLE_MS);
 		record.wake(false);
 		if end == record.bytes.len() {
 			self.finish(upload.blob.key.id);

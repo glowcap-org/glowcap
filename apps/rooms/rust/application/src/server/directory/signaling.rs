@@ -1,7 +1,8 @@
 //! WebRTC signaling relayed between exact live registrations: opaque strings
 //! routed between two members the directory already reaches, parsed by
 //! nobody. An exchange lives from an offer until it is done, dropped, timed
-//! out, or evicted by a newer one past the ceiling.
+//! out, or evicted past the ceiling, which takes from the originators that
+//! hold the most.
 use super::{Dropped, MAX_SIGNAL_EXCHANGES, Refusal, SIGNAL_EXCHANGE_TIMEOUT_MS};
 use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
 
@@ -98,9 +99,10 @@ impl<C: Copy + Ord, R: Clone> Exchanges<C, R> {
 			},
 		);
 		self.order.push(id.clone());
-		while self.rows.len() > MAX_SIGNAL_EXCHANGES {
-			let oldest = self.order[0].clone();
-			dropped.extend(self.drop(&oldest, Some("signaling exchange was evicted".into())));
+		while self.rows.len() > MAX_SIGNAL_EXCHANGES
+			&& let Some(taken) = self.heaviest()
+		{
+			dropped.extend(self.drop(&taken, Some("signaling exchange was evicted".into())));
 		}
 		Offered {
 			id,
@@ -111,6 +113,25 @@ impl<C: Copy + Ord, R: Clone> Exchanges<C, R> {
 			from,
 			dropped,
 		}
+	}
+	/// The exchange the ceiling takes: the oldest among the originators that
+	/// hold the most. A flood of offers from one member displaces its own
+	/// exchanges before another member's, and a member dialing several peers
+	/// into a full table gives up its own oldest dial.
+	fn heaviest(&self) -> Option<String> {
+		let mut held = BTreeMap::new();
+		for row in self.rows.values() {
+			*held.entry(row.originator).or_insert(0_usize) += 1;
+		}
+		let most = held.values().copied().max()?;
+		self.order
+			.iter()
+			.find(|id| {
+				self.rows
+					.get(*id)
+					.is_some_and(|row| held.get(&row.originator) == Some(&most))
+			})
+			.cloned()
 	}
 	/// The answering member's reply, routed to the originator.
 	pub fn answer(

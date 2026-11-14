@@ -508,9 +508,11 @@ export { SIG_ACCEPTED, SIG_ANSWER, SIG_CANDIDATE, SIG_OFFER, SIG_REJECT } from "
  * Once that one publication settles, the sender calls `write(chunk)` on each
  * upload capability as many times as its file needs. Writes within one file
  * remain ordered, and separate file capabilities progress concurrently. A
- * blob read beyond the bytes received so far waits for that file alone. An upload
- * that goes quiet past `UPLOAD_IDLE_MS` or loses its sender breaks its parked
- * readers, without disturbing completed siblings in the same message.
+ * blob read beyond the bytes received so far waits for that file alone. A
+ * write carries at least one byte. An upload has `UPLOAD_IDLE_MS` to bring its
+ * bytes to the next multiple of `BLOB_CHUNK` or to finish. One that misses
+ * that window, or loses its sender, breaks its parked readers without
+ * disturbing completed siblings in the same message.
  *
  * `width` and `height` are the picture's size in pixels, zero for anything
  * that is not a picture or whose size the sender did not measure. A reader
