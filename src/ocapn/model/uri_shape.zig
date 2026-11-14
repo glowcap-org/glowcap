@@ -63,8 +63,9 @@ fn validScheme(scheme: []const u8) bool {
 }
 
 /// One decoded byte at `at`, advancing past it. Every span that reaches here
-/// came through `inspect`, which refuses a `%` without two hex digits behind
-/// it, so the escape branch is the only one a validated span takes. The
+/// came through `inspect` or `validatePercentEncoding`, which refuse a `%`
+/// without two hex digits behind it, so the escape branch is the only one a
+/// validated span takes. The
 /// decoder still checks the two digits itself: a span that skipped that gate
 /// reads a bad or truncated escape as the literal `%` instead of slicing past
 /// the end, so this function is total and no caller has to remember the gate.
@@ -80,6 +81,16 @@ pub fn decodedByte(bytes: []const u8, at: *usize) u8 {
     }
     at.* += 1;
     return byte;
+}
+
+/// Whether two spans decode to the same bytes, with no decoding allocated.
+pub fn decodedEqual(left: []const u8, right: []const u8) bool {
+    var left_at: usize = 0;
+    var right_at: usize = 0;
+    while (left_at < left.len and right_at < right.len) {
+        if (decodedByte(left, &left_at) != decodedByte(right, &right_at)) return false;
+    }
+    return left_at == left.len and right_at == right.len;
 }
 
 /// How many bytes `bytes` decodes to.

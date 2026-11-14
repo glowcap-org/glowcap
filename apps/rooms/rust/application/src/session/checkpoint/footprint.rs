@@ -1,6 +1,7 @@
 //! Owned graph capacity, without serializing or copying bearer material.
 use super::{fields::*, model::*};
 pub(crate) use crate::fields::footprint::HeapBytes;
+use crate::fields::footprint::{graph, scalar};
 impl<T: HeapBytes> HeapBytes for Presence<T> {
 	fn heap_bytes(&self) -> usize {
 		match self {
@@ -22,9 +23,6 @@ impl HeapBytes for Conversation {
 		}
 	}
 }
-macro_rules! scalar {
-	($($t:ty),* $(,)?) => { $(impl HeapBytes for $t { fn heap_bytes(&self) -> usize { 0 } })* };
-}
 scalar!(
 	u8,
 	bool,
@@ -36,17 +34,6 @@ scalar!(
 	Operation,
 	crate::directory::registration::NicknameAllocation
 );
-// Exhaustive destructuring makes a newly added field require an accounting decision.
-macro_rules! graph {
-	($t:ident { $($field:ident),* $(,)? }) => {
-		impl HeapBytes for $t {
-			fn heap_bytes(&self) -> usize {
-				let Self { $($field),* } = self;
-				0usize $(.saturating_add($field.heap_bytes()))*
-			}
-		}
-	};
-}
 graph!(State {
 	version,
 	directories,
