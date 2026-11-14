@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const MessageArm = struct {
+const MessageArm = struct {
     name: []const u8,
 };
 
@@ -17,7 +17,7 @@ pub const message_arms = [_]MessageArm{
     .{ .name = "Untag" },
 };
 
-pub const OracleFixture = struct {
+const OracleFixture = struct {
     name: []const u8,
     data: []const u8,
 

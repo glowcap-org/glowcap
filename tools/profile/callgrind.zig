@@ -21,7 +21,7 @@ pub const Part = struct {
     /// Each callee's call sites, by callee then caller `file:function`.
     call_sites: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(CallSite)) = .empty,
 
-    pub const CallSite = struct { calls: u64 = 0, cost: u64 = 0 };
+    const CallSite = struct { calls: u64 = 0, cost: u64 = 0 };
 
     pub fn deinit(self: *Part, gpa: std.mem.Allocator) void {
         self.files.deinit(gpa);

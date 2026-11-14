@@ -68,7 +68,7 @@ pub fn Emit(comptime Spec: type) type {
         /// parameter type change in the module flows into the header. `Spec.special`
         /// gets first refusal (it names the function-pointer typedefs the base
         /// spelling has no case for). Everything else is the shared table.
-        pub fn cType(comptime T: type) []const u8 {
+        fn cType(comptime T: type) []const u8 {
             if (@hasDecl(Spec, "special")) {
                 if (Spec.special(T)) |s| return s;
             }

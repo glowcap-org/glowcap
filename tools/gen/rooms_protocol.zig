@@ -16,7 +16,7 @@ const Output = @import("output").Output;
 pub const step_name = "gen-rooms-protocol";
 
 /// Where the grammar is explained to a person.
-pub const human_spec = "apps/rooms/lib/protocol.ts";
+const human_spec = "apps/rooms/lib/protocol.ts";
 
 /// Where this table lives, named in every generated header.
 pub const source = "tools/gen/rooms_protocol.zig";
