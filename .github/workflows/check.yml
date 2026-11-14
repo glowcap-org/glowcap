@@ -26,7 +26,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.suite || 'check' }}
-  cancel-in-progress: true
+  # A dev push run finishes when a newer push arrives, because its success is
+  # what moves main. The newest waiting push runs next. Any other event's newer
+  # run replaces the one in progress.
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
