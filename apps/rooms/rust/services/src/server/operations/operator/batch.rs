@@ -120,6 +120,16 @@ pub(super) fn reset(shared: &Shared, caller: u64, scope: ResetScope) -> Result<A
 					&[Category::Rooms, Category::Registrations, Category::Sessions]
 				}
 			};
+			if scope == ResetScope::All {
+				// Durable retirement must finish while memberships can still
+				// receive authority changes. Preparing room removals already
+				// mutates their state, even before their futures are awaited.
+				let retirement = acts::factory_reset(&shared.borrow());
+				retirement.await?;
+			}
+			// Read what to retire after the durable retirement. Whatever arrived
+			// while a factory reset was being saved is retired with the rest: a
+			// session that connected then could redeem a link the reset retires.
 			let mut selected = Vec::new();
 			for category in categories {
 				selected.extend(
@@ -127,13 +137,6 @@ pub(super) fn reset(shared: &Shared, caller: u64, scope: ResetScope) -> Result<A
 						.into_iter()
 						.filter_map(|source| source.retire),
 				);
-			}
-			if scope == ResetScope::All {
-				// Durable retirement must finish while memberships can still
-				// receive authority changes. Preparing room removals already
-				// mutates their state, even before their futures are awaited.
-				let retirement = acts::factory_reset(&shared.borrow());
-				retirement.await?;
 			}
 			if matches!(scope, ResetScope::Runtime | ResetScope::All) {
 				shared.borrow().journal.borrow_mut().clear();

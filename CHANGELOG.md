@@ -87,6 +87,10 @@ Releases before 0.1.7 are in the
 - Opening a managed Rooms room with its key under a name or policy other
   than the recorded one is refused while the room is empty too. It opened a
   live room that contradicted the record.
+- A factory reset of a Rooms directory retires what arrived while the reset
+  was being saved: a session that connected, a room that opened, a name that
+  was claimed. Such a session stayed connected and could hold a capability
+  the reset retired.
 - A session on a message-framed transport replays the packets that arrived
   before the application attended it in one pass. The replay took time that
   grew with the square of the packet count, so a peer sending many small
