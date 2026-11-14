@@ -50,6 +50,7 @@ pub fn run() {
 	wrong_store_refuses_without_effect();
 	empty_files_and_limits();
 	chunk_bounds();
+	upload_window();
 	line_mutations();
 	attachment_custody();
 	current_attachment_fixtures();
@@ -366,7 +367,8 @@ fn streaming_and_readers() {
 	assert_eq!(bytes(&mut store, &blob), [1, 2, 3, 4]);
 	store.advance(UPLOAD_IDLE_MS - 1).unwrap();
 	store.write(&upload, &[5, 6]).unwrap();
-	assert_eq!(store.next_deadline(), Some(2 * UPLOAD_IDLE_MS - 1));
+	// Bytes short of a chunk renew no window.
+	assert_eq!(store.next_deadline(), Some(UPLOAD_IDLE_MS));
 	assert_eq!(
 		store.poll_read(&tickets[0], &mut cx),
 		Poll::Ready(Ok([5, 6].as_slice()))
@@ -478,6 +480,28 @@ fn empty_files_and_limits() {
 	);
 }
 
+/// An upload's window starts again only when its bytes reach a multiple of
+/// the chunk size, whatever the size of the write that carries them there.
+fn upload_window() {
+	let mut store = FileStore::default();
+	let room = store.room().unwrap();
+	let member = store.member(&room).unwrap();
+	let upload = store.attach(&member, description(2 * CHUNK_BYTES as u64)).unwrap();
+	let _file = store.post(&member).unwrap().pop().unwrap();
+	store.advance(5).unwrap();
+	store.write(&upload, &vec![7; CHUNK_BYTES - 1]).unwrap();
+	assert_eq!(store.next_deadline(), Some(UPLOAD_IDLE_MS));
+	store.advance(6).unwrap();
+	store.write(&upload, &[7, 7]).unwrap();
+	assert_eq!(store.next_deadline(), Some(6 + UPLOAD_IDLE_MS));
+	store.advance(7).unwrap();
+	store.write(&upload, &vec![7; CHUNK_BYTES - 2]).unwrap();
+	assert_eq!(store.next_deadline(), Some(6 + UPLOAD_IDLE_MS));
+	store.advance(6 + UPLOAD_IDLE_MS).unwrap();
+	assert_eq!(store.write(&upload, &[7]), Err(FileError::Spent));
+	assert_eq!(store.usage(), FileUsage::default());
+}
+
 fn chunk_bounds() {
 	let mut store = FileStore::default();
 	let room = store.room().unwrap();
@@ -488,6 +512,7 @@ fn chunk_bounds() {
 		store.write(&upload, &vec![0; CHUNK_BYTES + 1]),
 		Err(FileError::ChunkTooLarge)
 	);
+	assert_eq!(store.write(&upload, &[]), Err(FileError::EmptyChunk));
 	store.write(&upload, &vec![7; CHUNK_BYTES]).unwrap();
 	assert_eq!(store.write(&upload, &[8, 9]), Err(FileError::PastEnd));
 	store.write(&upload, &[8]).unwrap();

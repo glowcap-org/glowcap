@@ -107,6 +107,59 @@ fn a_repeated_offer_replaces_and_the_oldest_is_evicted_past_the_ceiling() {
 }
 
 #[test]
+fn a_flood_of_offers_past_the_ceiling_displaces_its_own_exchanges() {
+	let mut dir = Dir::default();
+	signaling_pair(&mut dir);
+	dir.offer_signaling(2, "b-signaling").expect("offers");
+	let bystander = dir.signal_offer(1, "db", "reply", 0).expect("offers");
+	let mut flooder = request("Mallory", "m-inbox");
+	flooder.host_key = Some("dm".into());
+	dir.register(3, flooder, id(3), 0).expect("registers");
+	let mut first = None;
+	for n in 0..=MAX_SIGNAL_EXCHANGES as u32 {
+		let key = format!("d{n}");
+		let mut target = request(&format!("m{n}"), "inbox");
+		target.host_key = Some(key.clone());
+		dir.register(100 + n, target, id(100 + n), 0).expect("registers");
+		dir.offer_signaling(100 + n, "signaling").expect("offers");
+		let offered = dir.signal_offer(3, &key, "r", 0).expect("offers");
+		let first = first.get_or_insert(offered.id.clone());
+		// The table holds the bystander's exchange and the ceiling less one of
+		// the flooder's before an offer displaces anything.
+		assert_eq!(offered.dropped.is_empty(), n + 1 < MAX_SIGNAL_EXCHANGES as u32);
+		if n + 1 == MAX_SIGNAL_EXCHANGES as u32 {
+			assert_eq!(&offered.dropped[0].id, first);
+			assert_eq!(offered.dropped[0].originator, 3);
+		}
+		assert!(offered.dropped.iter().all(|dropped| dropped.originator == 3));
+	}
+	assert!(dir.signaling_open(&bystander.id));
+}
+
+#[test]
+fn originators_that_hold_the_same_give_up_the_oldest_exchange() {
+	let mut dir = Dir::default();
+	signaling_pair(&mut dir);
+	dir.offer_signaling(2, "b-signaling").expect("offers");
+	// Two retired exchanges leave the oldest live one neither first by its id
+	// as text nor held by the lowest connection.
+	for id in ["x0", "x1"] {
+		dir.signal_offer(1, "db", "reply", 0).expect("offers");
+		dir.signal_done(1, id).expect("the originator retires it");
+	}
+	registered(&mut dir, 900, "late", "inbox");
+	assert_eq!(dir.signal_offer(900, "db", "r", 0).expect("offers").id, "x2");
+	for n in 0..MAX_SIGNAL_EXCHANGES as u32 {
+		registered(&mut dir, 100 + n, &format!("m{n}"), "inbox");
+		let offered = dir.signal_offer(100 + n, "db", "r", 0).expect("offers");
+		assert_eq!(offered.dropped.is_empty(), n + 1 < MAX_SIGNAL_EXCHANGES as u32);
+		if let Some(dropped) = offered.dropped.first() {
+			assert_eq!((dropped.id.as_str(), dropped.originator), ("x2", 900));
+		}
+	}
+}
+
+#[test]
 fn an_exchange_times_out_and_the_adapter_learns_when() {
 	let mut dir = Dir::default();
 	signaling_pair(&mut dir);

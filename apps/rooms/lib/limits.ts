@@ -359,15 +359,20 @@ export const MAX_MESSAGE_FILES = APPLICATION_DATA.MAX_MESSAGE_FILES;
 export const MAX_SERVER_ATTACHMENT_BYTES = APPLICATION_DATA.MAX_SERVER_ATTACHMENT_BYTES;
 export const MAX_SERVER_PENDING_BYTES = APPLICATION_DATA.MAX_SERVER_PENDING_BYTES;
 
-/** How long an upload may sit without being written to or posted.
+/** How long an upload has to bring the bytes it has sent to the next
+ * multiple of `BLOB_CHUNK`, or to finish. The window starts at `attach` and
+ * starts again at each multiple the bytes reach.
  *
  * A reservation is taken against the size an upload declares. Without this
  * limit a member could declare the largest file the room takes, write nothing,
  * and hold that share of the server's in-flight budget until it disconnected.
- * An upload that has gone quiet this long is dropped, its reservation
- * released and its capability handed back. The member sees its next `write`
- * refused and can start again. The window is generous next to the round trips
- * of a real upload, because every chunk re-arms it. */
+ * An upload that misses the window is dropped, its reservation released and
+ * its capability handed back. The member sees its next `write` refused and can
+ * start again. The window is generous next to the round trips of a real
+ * upload, because `fillUpload` writes a whole `BLOB_CHUNK` at a time. A write
+ * that reaches no multiple starts no new window, so a member cannot hold a
+ * reservation with one byte in each. A file smaller than `BLOB_CHUNK`, and the
+ * last part of any file, must arrive within one window. */
 export const UPLOAD_IDLE_MS = APPLICATION_DATA.UPLOAD_IDLE_MS;
 
 /** How long one chunk of a transfer may take before the side waiting on it
@@ -430,10 +435,13 @@ export const DIRECT_REQUEST_COALESCE_MS = APPLICATION_DATA.DIRECT_REQUEST_COALES
 export const DIRECT_CONVERSATION_ROUTE_TIMEOUT_MS = APPLICATION_DATA.DIRECT_CONVERSATION_ROUTE_TIMEOUT_MS;
 
 /** How many WebRTC signaling exchanges the directory holds at once. An
- * exchange is transient scratch for one channel bring-up. The oldest is
- * evicted when the cap is hit, so a flood of offers cannot pin unbounded
- * routing rows. A candidate for an evicted exchange is dropped, which a
- * caller experiences as a failed dial, not a wedged directory. */
+ * exchange is transient scratch for one channel bring-up. When the cap is hit
+ * the directory evicts the oldest exchange among the members that hold the
+ * most, so a flood of offers cannot pin unbounded routing rows and one
+ * member's flood takes its own exchanges first. A member dialing several peers
+ * while the table is full gives up its own oldest dial for the same reason. A
+ * candidate for an evicted exchange is dropped, which a caller experiences as
+ * a failed dial, not a wedged directory. */
 export const MAX_SIGNAL_EXCHANGES = APPLICATION_DATA.MAX_SIGNAL_EXCHANGES;
 
 /** Durable attenuated grants issued by one Rooms session. Active grants cost a

@@ -10,7 +10,7 @@ impl FileError {
 			Self::Capacity | Self::StagedLimit | Self::Allocation | Self::ReadersFull => {
 				Some(FailureCode::AttachmentRefused)
 			}
-			Self::Spent | Self::NotPublished | Self::ChunkTooLarge | Self::PastEnd => {
+			Self::Spent | Self::NotPublished | Self::EmptyChunk | Self::ChunkTooLarge | Self::PastEnd => {
 				Some(FailureCode::UploadIncomplete)
 			}
 			Self::Expired => Some(FailureCode::BlobExpired),
@@ -37,6 +37,7 @@ impl fmt::Display for FileError {
 			Self::Expired => "this file is no longer held by the room",
 			Self::Spent => "this upload is spent; attach again",
 			Self::NotPublished => "publish this upload before writing its bytes",
+			Self::EmptyChunk => "a chunk carries at least one byte",
 			Self::ChunkTooLarge => return write!(f, "a chunk may be at most {CHUNK_BYTES} bytes"),
 			Self::PastEnd => "write runs past the declared file size",
 			Self::InvalidRead => "read needs a positive maximum length",

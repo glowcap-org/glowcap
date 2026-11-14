@@ -554,8 +554,9 @@ The server therefore enforces limits:
 
 - `FileLimits` in `rust/application/src/files.rs` bounds pending bytes, held
   bytes, and file counts, server-wide and per room.
-- `UPLOAD_IDLE_MS` reclaims an upload that declared a size and then wrote
-  nothing.
+- `UPLOAD_IDLE_MS` reclaims an upload that declared a size and stopped
+  sending it. The window starts again each time the bytes received reach a
+  multiple of the chunk size.
 - A dropped file's reference stays valid and answers `blob-expired`.
 - Bytes still being uploaded are refused rather than evicted, because their
   message may already be visible.
