@@ -128,7 +128,7 @@ bounds. A quota key never establishes authority.
 | External surface and verbs | Subject and admission owner | Effect boundary |
 | --- | --- | --- |
 | Directory list, lookup, watch, location and room links | Proved calling peer, or live unproved connection. `services/src/server/behavior.rs` | Before result construction and watcher retention. |
-| Register, offer inbox, open and open managed | Calling peer. Root registration/creation classes | Before actors, durable authority submission and handoff worker launch. |
+| Register, offer inbox, open, open managed and open private link | Calling peer. Root registration/creation classes | Before actors, durable authority submission and handoff worker launch. |
 | Local room entrance subscribe and public publication subscribe | Calling peer plus exact room generation. `services/src/server/rooms.rs` and `services/src/server/rooms/public_membership.rs` | Before seat creation or foreign subscription launch. |
 | Room posts, edits, refiles and subject changes | Current caller of the bearer facet. `services/src/server/seat.rs`, `services/src/server/lines.rs`, `services/src/server/files.rs` | Count and scalar bytes admitted together before broadcast or storage mutation. |
 | History, membership queries and invitation claim/mint | Current caller. Seat, entrance and invitation owners | Before encoding, actor issuance and claim. |
@@ -141,7 +141,7 @@ bounds. A quota key never establishes authority.
 | Shared commands, uploads, reads and dependent forwarding | Validated grant lineage plus session pool. `runtime/src/session/managed/admission.rs` | Before command receipt/worker admission or forwarding a public held target. Private command/upload/bridge continuations recheck authority without spending the admitted gesture twice. |
 | Incoming direct callbacks and line updates | Proved channel sender plus receiving session pool. `runtime/src/session/managed/incoming.rs` | Before copying input across the callback worker wait. No directory is on this payload path. |
 | Relay upgrades, preview fetch and refresh | HTTP deployment, optionally actual socket address. `services/src/web/admission.rs` | Before worker launch and remote fetch. Cache hits need no new fetch allowance. |
-| Rendezvous registrations and claims | Destination identity with aggregate registration capacity. `services/src/web/rendezvous.rs` | Claim debt survives unregister/re-register until full refill. |
+| Rendezvous registrations and claims | Destination identity with aggregate registration capacity. `services/src/web/rendezvous.rs` | A waiting registration keeps a bounded hello for its dialer. Claim debt survives unregister/re-register until full refill. |
 | Leave, unwatch, discard, withdraw, close and revocation | Exact capability/source plus independent cleanup allowance | No data quota wait. Internal authority release and admitted receipt settlement retain their existing owner. |
 | Operator capabilities and Loam access controls | Separately held management authority | Existing bounded operator and authority queues and Host limits provide reserved capacity. Data admission confers no management rights. |
 

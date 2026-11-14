@@ -287,6 +287,8 @@ export { CLAIM_INVITATION } from "./protocol_data.ts";
  * to set the subject, so the room asks nobody whether they may. Because it is
  * a reference and not a rank, a member can hand it to somebody who is not even
  * here, which lets a bot keep a subject with no concept of a bot in the room.
+ * It comes with one seat and answers for as long as that seat lasts. A
+ * member who joins again is answered with a new one.
  *
  * A description alone is a whole subject. A link is the sturdyref of an object
  * the room is about, hosted wherever its owner hosts it. The room keeps and
