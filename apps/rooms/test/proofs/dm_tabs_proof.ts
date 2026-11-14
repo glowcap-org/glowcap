@@ -17,7 +17,8 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // query flag on the page URL. Reaching a tab through the relay's rendezvous
 // instead has its own proofs: `dm_deno_dial_proof.ts` cold-dials a
 // `?dm=relay` tab from a Deno peer, and `dm_reopen_proof.ts`
-// drives both DM transports against the live timeline.
+// drives both DM transports against the live timeline. Both tabs here share
+// one relay (ADR-0034), so this is no claim about cold-dialing a stranger.
 //
 // Then Alice closes the conversation and starts a second one with the same
 // person. Closing a direct line ends its route and keeps its history; it says

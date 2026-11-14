@@ -421,80 +421,8 @@ pub fn register(ctx: Context) Registered {
     // The rooms-web proof family: every row is a Deno harness needing the wasm
     // module and the installed archives, plus a real headless Playwright
     // Chromium, and the rows that run the room over iroh add the iroh C ABI
-    // companion (cargo). All are siblings of `check`, never members. What each
-    // proves:
-    //
-    //   rooms-web-page: the whole rooms page as a browser peer: load the
-    //     served page, join a room through /relay, and round-trip a chat line
-    //     over the room capability, no JSON bridge on the page's path.
-    //   rooms-web-hosted-session: one browser promotes its local session and
-    //     a browser on another Rooms origin follows the capability's signaling
-    //     directory to attach to that in-tab Host over WebRTC.
-    //   rooms-web-reconnect: the page surviving the loss of its room server.
-    //     Which state belongs to a directory session is only observable when
-    //     one dies, so this kills the room out from under a joined page: it
-    //     must notice, come back, re-enter a listed room by name and a private
-    //     room by its retained sturdyref, keep both conversations the dead
-    //     session delivered, and reach both rooms over the new one. Runs the
-    //     room over iroh so a restart changes its routing hints while preserving
-    //     its durable authority.
-    //   rooms-web-manager: a managed room's authority across a reload: the
-    //     card draws the workspace's saved manager sturdyref, while the acts
-    //     beside it need the capability the room took on entry, and re-entering
-    //     a name the directory already knows answers with no authority to take.
-    //     Presses the act rather than reading the card.
-    //   rooms-web-dm: the browser sends a direct message end to end: redeem
-    //     a room introduction and dial the member's iroh endpoint through the
-    //     relay, delivering off-room.
-    //   rooms-web-dm-tabs: two browser tabs cold-dial each other by relay
-    //     rendezvous (ADR-0034 capability 5): each registers its durable
-    //     identity on the default Fastest route (WebRTC and the relay raced), one redeems the
-    //     room's introduction by cold-dialing the other tab-to-tab off-room,
-    //     the sealed session opens end to end, and the reply rides back over
-    //     the arriving connection. Browser-to-browser on a shared relay, not
-    //     a general stranger cold-dial.
-    //   rooms-web-dm-trace: the DM conversation appears on the live timeline
-    //     (ADR-0040). The room server serves the endpoint; each tab publishes
-    //     its OWN trace to it, because the DM is a session the room does not
-    //     carry and must not start carrying.
-    //   rooms-web-trace-lifecycle: the whole picture over a member's life in a
-    //     room, counted after every step through ocapnviz's OWN converter:
-    //     joins, a DM, leaving, closing, reopening, going away.
-    //   rooms-web-dm-deno: a Deno peer cold-dials a browser member by
-    //     relay rendezvous (ADR-0034, the Deno-dialer row): the tab
-    //     registers its Noise-sealed relay identity, the Deno Host redeems the room's
-    //     introduction and bridges onto the held socket through the relay
-    //     provider it composes for rendezvous dials.
-    //   rooms-web-dm-noise: two browser tabs use that same sealed rendezvous
-    //     in both directions, pinning the managed browser connector as dialer.
-    //   rooms-web-dm-webrtc: the live webrtc handoff-redeem proof
-    //     (ADR-0035): the give's exporter locator names a bare webrtc
-    //     designator, the redeeming host signals through the room directory
-    //     by its composed webrtc connector, and the DM crosses the
-    //     DataChannel with the room out of the byte path. The live timeline
-    //     must name `webrtc`, so relay delivery cannot impersonate this proof.
-    //   rooms-web-private: a room nobody can look up: in no list, answering
-    //     to no name, taking no name from anybody; its Capabilities control
-    //     mints the bearer link another tab uses to enter it.
-    //   rooms-web-dm-foreign: starting a direct message from somebody else's
-    //     room. A visitor holds two directories, their own page's and the one
-    //     they joined, and a `webrtc` locator names a designator and nothing
-    //     else, so the redeeming connector has to ask which directory to
-    //     signal through, and answering with the first one meant a visitor
-    //     could receive direct messages and never start one.
-    //   rooms-web-dm-retarget: a nickname is a claim the room grants and
-    //     takes back, so a conversation cannot be keyed on one: talk to ada,
-    //     ada leaves, somebody else is granted the name, then type into the
-    //     conversation you already had.
-    //   rooms-web-dm-reopen: closing a direct conversation and reopening it
-    //     has to open a second connection, and the second one has to carry.
-    //     The sibling proofs ask only whether the message arrived, which a
-    //     reopen resolving to the connection the close was supposed to end
-    //     also satisfies, so this one watches the live timeline and requires
-    //     a session id nobody had seen.
-    //   rooms-web-archive: a member selects a durable archive peer, writes a
-    //     direct-message history through it, closes the whole browser profile,
-    //     then recovers that history through the same authority in a fresh one.
+    // companion (cargo). All are siblings of `check`, never members. Each
+    // row's `.source` header says what its proof claims.
     const web_proofs = [_]WebProof{
         .{ .step_name = "rooms-web-page", .description = "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/page_proof.ts", .wrapper_deadline_seconds = 480 },
         .{ .step_name = "rooms-web-admission", .description = "Prove browser admission preserves drafts, attachment custody, cleanup and unrelated progress", .source = "apps/rooms/test/proofs/admission_proof.ts", .wrapper_deadline_seconds = 120 },
