@@ -8,7 +8,7 @@
 
 import { fail } from "./fail.ts";
 
-export interface Deadline {
+interface Deadline {
 	/** Names the part of the scenario that starts here. */
 	at(part: string): void;
 	clear(): void;

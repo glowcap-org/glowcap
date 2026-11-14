@@ -15,7 +15,7 @@ import {
 	accessTitle,
 } from "../../../lib/text/conversation.ts";
 
-export function roomPresetFace(preset: RoomPreset): { label: string; icon: IconName; description: string } {
+function roomPresetFace(preset: RoomPreset): { label: string; icon: IconName; description: string } {
 	if (preset === "moderated") {
 		return {
 			label: accessModerated,

@@ -12,7 +12,7 @@ export function Choices({ labelledBy, children }: { labelledBy: string; children
 	return <div className="choices" role="radiogroup" aria-labelledby={labelledBy}>{children}</div>;
 }
 
-export type ChoiceProps = Omit<ComponentPropsWithRef<"input">, "type" | "children"> & { children: ReactNode };
+type ChoiceProps = Omit<ComponentPropsWithRef<"input">, "type" | "children"> & { children: ReactNode };
 
 export function Choice({ children, ...input }: ChoiceProps) {
 	return (

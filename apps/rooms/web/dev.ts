@@ -12,7 +12,7 @@ const denoConfig = fileURLToPath(new URL("../deno.json", import.meta.url));
 const viteConfig = fileURLToPath(new URL("./vite.config.ts", import.meta.url));
 const handledSignals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
-export interface DevelopmentLaunch {
+interface DevelopmentLaunch {
 	web: string;
 	port: number;
 	args: string[];

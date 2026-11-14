@@ -48,7 +48,8 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // Run: `zig build rooms-web-private`.
 
 import { SERVER } from "../support/paths.ts";
-import { formatRoomsSturdyref, parseRoomsSturdyref } from "../../lib/locator.ts";
+import { parseRoomsSturdyref } from "../../lib/locator.ts";
+import { formatRoomsSturdyref } from "../support/sturdyref.ts";
 import {
 	inviteWithoutTheRoom,
 	kickWithoutModerator,

@@ -23,7 +23,7 @@
 import type { ReactNode } from "react";
 import { Said } from "./Said.tsx";
 
-export interface FieldWiring {
+interface FieldWiring {
 	id: string;
 	/** The ids the control should announce with itself, or undefined when
 	 * nothing qualifies it. */

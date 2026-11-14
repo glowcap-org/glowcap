@@ -87,7 +87,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		self.post_with_previews(room, membership, text, crate::open_graph::Selection::default(), now)
 	}
 
-	pub fn post_with_previews(
+	fn post_with_previews(
 		&mut self,
 		room: &RoomKey,
 		membership: MembershipKey,

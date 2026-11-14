@@ -24,10 +24,10 @@ pub const FOREIGN_SAID: &str = "IRC only";
 
 pub const LINK_ACTION: &str = "link";
 pub const DISCONNECT_ACTION: &str = "disconnect";
-pub const NICK_FIELD: &str = "nick";
-pub const REGISTERED_FIELD: &str = "registered";
-pub const ACCOUNT_FIELD: &str = "account";
-pub const PASSWORD_FIELD: &str = "password";
+const NICK_FIELD: &str = "nick";
+const REGISTERED_FIELD: &str = "registered";
+const ACCOUNT_FIELD: &str = "account";
+const PASSWORD_FIELD: &str = "password";
 
 /// The server-owned lifecycle of one member's projection onto IRC. Link
 /// states rather than words: IRC writes what its badge says and does not

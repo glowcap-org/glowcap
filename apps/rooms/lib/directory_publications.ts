@@ -35,7 +35,7 @@ export type RoomInfo = z.infer<typeof RoomInfoSchema>;
 
 /** One live directory registration. `registrationId` distinguishes successive
  * holders of the same nickname and is not bearer authority. */
-export const RegistrationIdSchema = z.uuid();
+const RegistrationIdSchema = z.uuid();
 
 export function isRegistrationId(raw: unknown): raw is string {
 	return z.safeParse(RegistrationIdSchema, raw).success;
@@ -46,7 +46,7 @@ export function parseRegistrationId(raw: unknown, context: string): string {
 	return raw;
 }
 
-export const DirectoryMemberSchema = z.strictObject({
+const DirectoryMemberSchema = z.strictObject({
 	name: nonemptyText(MAX_NICK),
 	registrationId: RegistrationIdSchema,
 });

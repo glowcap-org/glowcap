@@ -63,7 +63,7 @@ impl<D: Deadline> Session<D> {
 	) -> Result<view::RetireBatch, Error> {
 		self.operator_retire_at(scope, category, query, limit, kind, None).await
 	}
-	pub async fn operator_retire_at(
+	async fn operator_retire_at(
 		&self,
 		scope: &str,
 		category: Category,

@@ -21,7 +21,7 @@ import {
 	throwUnlessCommitted,
 } from "./acquisition.ts";
 
-export interface PolicyView {
+interface PolicyView {
 	permissions: RoomsPermission[];
 	bounds: { key: string; operator: string; value: string }[];
 }
@@ -36,7 +36,7 @@ export interface GrantView {
 	ceiling: PolicyView;
 	delegationDepth: number;
 }
-export interface ManagementView {
+interface ManagementView {
 	available: boolean;
 	status?: "active" | "paused" | "revoked";
 	revision?: string;
@@ -48,7 +48,7 @@ export interface ManagementView {
 	editCeiling?: PolicyView | null;
 	issueCeiling?: PolicyView | null;
 }
-export interface ManagementPowers {
+interface ManagementPowers {
 	inspect: boolean;
 	pause: boolean;
 	resume: boolean;
@@ -152,7 +152,7 @@ export type EditIntent =
 	| { kind: "policy"; permissions: RoomsPermission[] }
 	| { kind: "label"; label: string }
 	| { kind: "pause" | "resume" | "revoke" };
-export interface PendingEdit {
+interface PendingEdit {
 	readonly intent: EditIntent;
 	readonly base: string;
 	readonly request: RoomsManagedEdit;

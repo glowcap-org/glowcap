@@ -31,8 +31,7 @@ import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { tracePortOf } from "../../lib/trace_view.ts";
-import { acquireTraceCapability, connectTraceViewer } from "../trace/viewer.ts";
+import { acquireTraceCapability, connectTraceViewer, tracePortOf } from "../trace/viewer.ts";
 import { reapOwned } from "../support/children.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";

@@ -3,7 +3,7 @@
 // the same way the Settings control sits pressed while its layer is up.
 
 import { type MouseEvent, type ReactNode, type Ref, useState } from "react";
-import { modalClose, themeToggle } from "../../../lib/text/controls.ts";
+import { themeToggle } from "../../../lib/text/controls.ts";
 import { IconButton } from "../IconButton.tsx";
 import { ModalHead } from "../ModalHead.tsx";
 import { useOpenModal } from "../modal.ts";
@@ -32,7 +32,6 @@ export function SettingsHead(
 		ops,
 		named = true,
 		closeId,
-		closeLabel = modalClose,
 		closeRef,
 		onClose,
 		children,
@@ -54,7 +53,6 @@ export function SettingsHead(
 		 * card's, so every modal is left the same way. A form's own Cancel
 		 * beside its submit is an action and stays in the form. */
 		closeId?: string;
-		closeLabel?: string;
 		closeRef?: Ref<HTMLButtonElement>;
 		onClose?: () => void;
 		/** Stable ids belong to the dialog that is the top layer. */
@@ -73,7 +71,6 @@ export function SettingsHead(
 				titleId={id(titleId)}
 				title={title}
 				closeId={closeId}
-				closeLabel={closeLabel}
 				closeRef={closeRef}
 				onClose={onClose}
 			/>

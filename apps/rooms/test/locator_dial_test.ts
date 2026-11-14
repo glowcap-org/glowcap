@@ -3,14 +3,8 @@
 
 import type { Locator, Session } from "@glowcap/runtime";
 import { formatLocatorUri, TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@glowcap/runtime";
-import {
-	dial,
-	formatRoomsSturdyref,
-	roomsAddress,
-	roomsLocator,
-	type RoomsRuntime,
-	roomsSturdyrefLocator,
-} from "../lib/locator.ts";
+import { dial, roomsLocator, type RoomsRuntime } from "../lib/locator.ts";
+import { formatRoomsSturdyref, roomsAddress, roomsSturdyrefLocator } from "./support/sturdyref.ts";
 import { assertEquals } from "./assert.ts";
 
 const DESIGNATOR = "aa".repeat(32);

@@ -8,14 +8,9 @@ pub use chunk::Chunk;
 #[derive(Clone)]
 pub struct Captured {
 	description: FileDescription,
-	storage: Storage,
-}
-#[derive(Clone)]
-enum Storage {
 	// One shared chunk index per capture. Observers clone one Arc rather than
 	// walking the file and incrementing every chunk's reference count.
-	Chunks(Arc<Vec<Arc<Box<[u8]>>>>),
-	Contiguous(Arc<Box<[u8]>>),
+	chunks: Arc<Vec<Arc<Box<[u8]>>>>,
 }
 impl Captured {
 	pub fn description(&self) -> &FileDescription {
@@ -26,17 +21,6 @@ impl Captured {
 			source.read(offset, length).await.map_err(|error| error.to_string())
 		})
 		.await
-	}
-	/// A local immutable source can share its original allocation with captures
-	/// and disk spans instead of assembling a second whole-file buffer.
-	pub fn from_shared(description: FileDescription, bytes: Arc<Box<[u8]>>) -> Result<Self, String> {
-		if description.size() != bytes.len() {
-			return Err("capture source size does not match its description".into());
-		}
-		Ok(Self {
-			description,
-			storage: Storage::Contiguous(bytes),
-		})
 	}
 	pub async fn read_with<F: core::future::Future<Output = Result<Vec<u8>, String>>>(
 		description: FileDescription,
@@ -57,7 +41,7 @@ impl Captured {
 		}
 		Ok(Self {
 			description,
-			storage: Storage::Chunks(Arc::new(chunks)),
+			chunks: Arc::new(chunks),
 		})
 	}
 	pub fn span(&self, offset: u64, maximum: usize) -> Result<Chunk, String> {
@@ -67,10 +51,7 @@ impl Captured {
 			return Ok(Vec::new().into());
 		}
 		let offset = offset as usize;
-		let chunks = match &self.storage {
-			Storage::Contiguous(bytes) => return Chunk::shared(bytes.clone(), offset..offset + length),
-			Storage::Chunks(chunks) => chunks,
-		};
+		let chunks = &self.chunks;
 		let index = offset / CHUNK_BYTES;
 		let start = offset % CHUNK_BYTES;
 		let first = &chunks[index];
@@ -91,25 +72,16 @@ mod tests {
 		let size = CHUNK_BYTES + 3;
 		let captured = Captured {
 			description: FileDescription::new("file".into(), "text/plain".into(), size as u64, 0, 0).unwrap(),
-			storage: Storage::Chunks(Arc::new(vec![
+			chunks: Arc::new(vec![
 				Arc::new(vec![1; CHUNK_BYTES].into_boxed_slice()),
 				Arc::new(vec![2, 3, 4].into_boxed_slice()),
-			])),
+			]),
 		};
 		let aligned = captured.span(0, CHUNK_BYTES).unwrap();
 		let clone = captured.clone();
-		match (&captured.storage, &clone.storage) {
-			(Storage::Chunks(original), Storage::Chunks(copy)) => assert!(Arc::ptr_eq(original, copy)),
-			_ => unreachable!(),
-		}
+		assert!(Arc::ptr_eq(&captured.chunks, &clone.chunks));
 		drop(clone);
-		assert_eq!(
-			aligned.as_ref().as_ptr(),
-			match &captured.storage {
-				Storage::Chunks(chunks) => chunks[0].as_ptr(),
-				_ => unreachable!(),
-			}
-		);
+		assert_eq!(aligned.as_ref().as_ptr(), captured.chunks[0].as_ptr());
 		assert_eq!(
 			captured.span((CHUNK_BYTES - 2) as u64, 5).unwrap().into_vec(),
 			[1, 1, 2, 3, 4]

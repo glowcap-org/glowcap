@@ -124,23 +124,6 @@ impl RoomsManagedApplication {
 			Ok(JsValue::UNDEFINED)
 		})
 	}
-	#[wasm_bindgen(js_name = retryRooms)]
-	pub fn retry_rooms(&self) -> js_sys::Promise {
-		self.driver.submit(0, move |environment| async move {
-			let owner = owner(&environment)?;
-			if let Some(signaling) = owner.signaling.lock().await.as_ref() {
-				signaling.retry();
-			}
-			owner
-				.opened
-				.lock()
-				.await
-				.activity()
-				.ok_or_else(|| RuntimeError::invalid("Rooms activity is not running"))?
-				.retry();
-			Ok(JsValue::UNDEFINED)
-		})
-	}
 	#[wasm_bindgen(js_name = stopRooms)]
 	pub fn stop_rooms(&self) -> js_sys::Promise {
 		self.driver.submit(0, move |environment| async move {

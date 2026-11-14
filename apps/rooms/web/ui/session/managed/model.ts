@@ -39,7 +39,7 @@ export interface DirectoryIntent {
 	nickAllocation: "exact" | "automatic";
 	standing: string | null;
 }
-export interface PostedLine {
+interface PostedLine {
 	id: number;
 	handle: FieldKey;
 }
@@ -176,7 +176,7 @@ export const HistoryCoordinateSchema = z.object({
  * rendered line. The Rust producer in session/managed/activity/projection.rs
  * owns these shapes. Its reader merges recorded history into the line
  * notice. */
-export const ActivityNoticeSchema = z.discriminatedUnion("kind", [
+const ActivityNoticeSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("unavailable") }),
 	z.object({
 		kind: z.literal("discoverySnapshot"),

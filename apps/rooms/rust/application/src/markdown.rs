@@ -11,7 +11,7 @@ use url::Url;
 mod extensions;
 use extensions::{extensions, spoilers};
 
-pub const DOCUMENT_VERSION: u8 = 1;
+const DOCUMENT_VERSION: u8 = 1;
 pub const MAX_SOURCE_BYTES: usize = 8_192;
 pub const MAX_NODES: usize = 4_096;
 pub const MAX_DEPTH: usize = 64;

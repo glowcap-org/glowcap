@@ -40,7 +40,7 @@ impl Attachment {
 			.filter(|prior| self.metadata_matches(prior))
 			.and_then(|prior| prior.blob.clone());
 	}
-	pub fn metadata_matches(&self, other: &Self) -> bool {
+	fn metadata_matches(&self, other: &Self) -> bool {
 		self.name == other.name
 			&& self.mime == other.mime
 			&& self.size == other.size

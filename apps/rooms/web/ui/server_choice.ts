@@ -47,7 +47,7 @@ export function chooseServer(base: string | null, storage: PageStorage = localAr
 
 /** The parameter a link uses to offer this browser a server, such as the link a
  * Rooms server prints for a page hosted elsewhere. */
-export const SERVER_OFFER = "server";
+const SERVER_OFFER = "server";
 
 /** A server a link offers, read from `page` and taken out of it: `rest` is the
  * address without the offer, so a reload or a shared link does not repeat it.
@@ -71,7 +71,7 @@ export function serverOffer(
 /** The fragment key a link uses to offer a shared session's use link. The
  * link is a capability, so it rides in the fragment, which a browser never
  * sends to the page's host, and never in the query. */
-export const SESSION_OFFER = "attach";
+const SESSION_OFFER = "attach";
 
 /** The fragment's `&`-separated fields as written, split into the offer and
  * the rest. Fields beside the offer are another address's to read, so they
@@ -139,7 +139,7 @@ export type ServerProbe =
  * on the first try, refused, allowed, or null in a browser that never asks. */
 export type LocalNetworkPermission = LocalNetworkRefusal | "granted" | null;
 /** The two answers under which the browser lets nothing through. */
-export type LocalNetworkRefusal = "prompt" | "denied";
+type LocalNetworkRefusal = "prompt" | "denied";
 
 /** The one question asked of the browser's permissions. The name is a
  * string because lib.dom lags the names browsers answer to. */
@@ -192,7 +192,7 @@ export function localNetworkBlock(
 }
 
 /** What a server probe reaches through, each replaceable in a test. */
-export interface ProbeEffects {
+interface ProbeEffects {
 	read?: (address: URL, init: RequestInit) => Promise<Response>;
 	timeoutMs?: number;
 	blocked?: (target: URL) => Promise<LocalNetworkPermission>;

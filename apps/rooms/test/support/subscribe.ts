@@ -1,30 +1,6 @@
-// The two directory-and-room moves a rooms test makes over a raw session:
-// enter or open a room the way every client does, and read its stream until
-// one message matches.
+// Read a room's stream until one message matches.
 
-import { Ref } from "@glowcap/runtime";
-import type { Session } from "@glowcap/runtime";
-import { DIRECTORY, ENTER, OPEN } from "../../lib/protocol.ts";
-import { NO_SUCH_ROOM, ROOM_EXISTS, roomsErrorOf } from "../../lib/errors.ts";
 import type { Message, Room } from "../../lib/room/client.ts";
-
-/** Enter the named room over `session`, opening it if it does not exist, the
- * directory dance every client does, inlined here so the tests drive the same
- * wire the clients do. */
-export async function enterOrOpen(session: Session, room: string): Promise<Ref> {
-	const directory = await session.fetch(DIRECTORY);
-	try {
-		return await session.send(directory, ENTER, [room]) as Ref;
-	} catch (err) {
-		if (roomsErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
-	}
-	try {
-		return await session.send(directory, OPEN, [room]) as Ref;
-	} catch (err) {
-		if (roomsErrorOf(err)?.code !== ROOM_EXISTS) throw err;
-		return await session.send(directory, ENTER, [room]) as Ref;
-	}
-}
 
 /** Pull messages from a room's stream until one matches, reading past the
  * welcome and roster a subscribe always delivers first. Bounded so a test that

@@ -19,7 +19,7 @@ import type { Conv } from "./conversation.ts";
 import { liveRoomNames, type LiveRooms } from "./directory.ts";
 import { foreignName } from "./member_identity.ts";
 
-export type TriggerKind = "nick" | "room" | "emoji" | "command";
+type TriggerKind = "nick" | "room" | "emoji" | "command";
 
 /** The completable token under the caret: which sigil, where it starts, and
  * the query typed so far (without the sigil). */

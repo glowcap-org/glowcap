@@ -65,7 +65,7 @@ function unreadAnswer(unread: Unread): string {
 }
 
 /** One answer a question offers, as a value and as the word for it. */
-export interface Choice {
+interface Choice {
 	value: string;
 	/** How this answer is said, both on the control and in what it announces. */
 	said: string;

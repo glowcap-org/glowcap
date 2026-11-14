@@ -2,11 +2,6 @@
 
 import { applicationModule } from "../application.ts";
 
-/** Whether `who` is a room-wide word rather than a person. */
-export function addressesEveryone(who: string): boolean {
-	return applicationModule().addressesEveryone(who);
-}
-
 /** The sentences themselves live in the catalog. These are the names the
  * command modules read them by. */
 export {

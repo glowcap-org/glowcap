@@ -281,7 +281,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 	}
 	/// Recording intent comes from the same canonical invocation that admits
 	/// this exact callback. Consumers use it only during synchronous delivery.
-	pub async fn inbox_recording(&self, selected: &workspace::InboxSelection, inbox: &Ref) -> Result<bool, Error> {
+	async fn inbox_recording(&self, selected: &workspace::InboxSelection, inbox: &Ref) -> Result<bool, Error> {
 		self.inbox_recording_at(selected, inbox, None).await
 	}
 	/// Fresh callback authorization for the private owner, independent of public

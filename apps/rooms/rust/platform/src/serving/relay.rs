@@ -9,7 +9,7 @@ use std::time::Duration;
 
 /// How long the relay has to answer the probe before the listener refuses
 /// instead of standing behind a row nothing answers.
-pub const REGISTER_DEADLINE: Duration = Duration::from_secs(5);
+const REGISTER_DEADLINE: Duration = Duration::from_secs(5);
 /// The identity the probe registers under: not a designator, so a Rooms
 /// relay refuses it before any effect, and that refusal is the proof.
 const PROBE_IDENTITY: &str = "probe";

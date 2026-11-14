@@ -14,7 +14,7 @@ pub mod relay;
 pub use opening::{BindError, OpenError};
 
 /// iroh's idle timeout for a peer's listener and its dial endpoint alike.
-pub const IROH_IDLE_TIMEOUT_MS: u64 = 8_000;
+const IROH_IDLE_TIMEOUT_MS: u64 = 8_000;
 
 /// Accepted connections a peer serves at once. Beyond this it stops accepting
 /// until one ends, so a flood parks in the kernel backlog rather than in the

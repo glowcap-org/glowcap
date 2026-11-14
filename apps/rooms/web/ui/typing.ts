@@ -12,7 +12,7 @@ import { TYPING_CLEAR_MS, TYPING_IDLE_MS, TYPING_RENEW_MS } from "./limits.ts";
 import type { RoomsPageContext } from "./page.ts";
 
 /** The clock a typing signal waits on. `after` answers the way to call it off. */
-export interface TypingClock {
+interface TypingClock {
 	after(ms: number, run: () => void): () => void;
 }
 

@@ -50,7 +50,6 @@ pub enum Error {
 	Conflict,
 	NamedDirectory,
 	Generation,
-	Publication,
 	Checkpoint(super::Refusal),
 }
 impl From<super::Refusal> for Error {
@@ -68,7 +67,6 @@ impl core::fmt::Display for Error {
 			Self::Conflict => "Rooms command conflicts with the current checkpoint",
 			Self::NamedDirectory => "choose an acceptable directory nickname before continuing",
 			Self::Generation => "the room's retained capability generation changed",
-			Self::Publication => "the room's source has no matching current publication",
 			Self::Checkpoint(error) => return error.fmt(f),
 		})
 	}

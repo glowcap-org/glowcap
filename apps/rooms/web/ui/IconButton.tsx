@@ -13,10 +13,10 @@ import { ControlProgress, useProgress } from "./presentation.ts";
 import type { ComponentPropsWithRef, ReactNode } from "react";
 import { Icon, type IconName } from "./icons.tsx";
 
-export type IconButtonSize = "small" | "normal" | "large";
-export type IconButtonVariant = "ghost" | "outline" | "solid";
+type IconButtonSize = "small" | "normal" | "large";
+type IconButtonVariant = "ghost" | "outline" | "solid";
 export type IconButtonTone = "neutral" | "accent" | "teal" | "danger" | "inverse" | "on-accent";
-export type IconButtonShape = "rounded" | "circle";
+type IconButtonShape = "rounded" | "circle";
 
 export type IconButtonProps =
 	& Omit<ComponentPropsWithRef<"button">, "aria-label" | "children">

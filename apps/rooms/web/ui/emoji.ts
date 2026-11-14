@@ -7,7 +7,7 @@
 // named in `developing.md`. The shape here is already the one a generator
 // would fill.
 
-export interface EmojiEntry {
+interface EmojiEntry {
 	/** The emoji itself, what insertion puts in the draft. */
 	glyph: string;
 	/** The canonical shortcode without colons: `smile` for `:smile:`. */

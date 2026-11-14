@@ -40,7 +40,7 @@ const Hint = boundedText(MAX_FORM_HINT);
 /** A line of text. It gets identifier treatment when drawn, since a mobile
  * keyboard that capitalizes a nick has changed it, and every field any real
  * bridge has asked for so far is an identifier and not prose. */
-export const BridgeTextFieldSchema = z.strictObject({
+const BridgeTextFieldSchema = z.strictObject({
 	kind: z.literal("text"),
 	id: FormId,
 	label: Label,
@@ -65,7 +65,7 @@ export const BridgeTextFieldSchema = z.strictObject({
  * There is no starting value, because offering one would mean Rooms had kept a
  * credential in order to put it back. What `secret` means is a promise Rooms
  * makes, not a hint the bridge gives. See the renderer. */
-export const BridgeSecretFieldSchema = z.strictObject({
+const BridgeSecretFieldSchema = z.strictObject({
 	kind: z.literal("secret"),
 	id: FormId,
 	label: Label,
@@ -85,7 +85,7 @@ const BridgeLeafFieldSchema = z.union([BridgeTextFieldSchema, BridgeSecretFieldS
  * level is what the real case needs (IRC's "log in to a registered account"
  * showing an account and a password), and a form that wants a tree is asking
  * to be a layout language. */
-export const BridgeToggleFieldSchema = z.strictObject({
+const BridgeToggleFieldSchema = z.strictObject({
 	kind: z.literal("toggle"),
 	id: FormId,
 	label: Label,
@@ -103,7 +103,7 @@ export const BridgeFieldSchema = z.union([
 /** Something the reader can press. The tone picks from the three the product
  * already has: the commitment, the quiet way out, and the one that takes
  * something away. A bridge chooses which of the three and never how one looks. */
-export const BridgeActionSchema = z.strictObject({
+const BridgeActionSchema = z.strictObject({
 	id: FormId,
 	label: Label,
 	/** What the label becomes while this action is in flight. */
@@ -157,97 +157,7 @@ export type BridgeForm = z.infer<typeof BridgeFormSchema>;
 
 /** What a reader typed, by field id. Values only. Which action was pressed
  * travels beside this, because it is a different kind of fact. */
-export const BridgeAnswersSchema = z.record(FormId, boundedText(MAX_FORM_VALUE)).check(
+const BridgeAnswersSchema = z.record(FormId, boundedText(MAX_FORM_VALUE)).check(
 	z.refine((answers) => Object.keys(answers).length <= MAX_FORM_FIELDS * 2),
 );
 export type BridgeAnswers = z.infer<typeof BridgeAnswersSchema>;
-
-/** Every field a form holds, revealed ones included, in the order drawn.
- *
- * One walk, so the renderer, the submission, and anything checking a form agree
- * about what is in it. A reveal's fields count whether or not the toggle is on.
- * They are part of the form either way, and the toggle decides only whether a
- * reader is being asked. */
-export function bridgeFormFields(form: BridgeForm): BridgeField[] {
-	const all: BridgeField[] = [];
-	for (const field of form.fields) {
-		all.push(field);
-		if (field.kind === "toggle") all.push(...field.reveals);
-	}
-	return all;
-}
-
-/** Which of a form's fields Rooms must not keep, by id. */
-export function bridgeFormSecretIds(form: BridgeForm): ReadonlySet<string> {
-	return new Set(bridgeFormFields(form).filter((field) => field.kind === "secret").map((field) => field.id));
-}
-
-/** Split what a reader typed into the half that may be remembered and the half
- * that may not.
- *
- * The declaration decides, so no caller has to remember which of a bridge's
- * fields was a credential. What a `secret` field collected goes to `secrets`,
- * which the session stages for this run alone. Everything else goes to
- * `answers`, which is the saved intent a reconnect replays.
- *
- * Without this, each surface would build the two halves by hand and have to
- * remember to leave the password out of one of them. That is a convention, and
- * a convention that fails writes a credential to disk. Take the ids from
- * `bridgeFormSecretIds` so the split and the drawn form read the same
- * declaration. */
-export function splitBridgeSubmission(
-	secretIds: ReadonlySet<string>,
-	typed: BridgeAnswers,
-): { answers: BridgeAnswers; secrets: BridgeAnswers } {
-	const answers: BridgeAnswers = {};
-	const secrets: BridgeAnswers = {};
-	for (const [id, value] of Object.entries(typed)) {
-		if (secretIds.has(id)) secrets[id] = value;
-		else answers[id] = value;
-	}
-	return { answers, secrets };
-}
-
-/** Build one action's submission from a drawn form and what the reader typed.
- *
- * A toggle's state travels as `"on"` or `""`, because a toggle is an answer in
- * its own right: IRC's TLS decides whether the connection is encrypted, not
- * only whether more fields show. Its reveals ride only when it is on, so a
- * disclosure toggle keeps its hidden fields out when off while its state is
- * recorded either way. The primary action carries the answers. The quiet and
- * danger tones stand alone, so pressing a way out never sends a credential the
- * act does not need. A required visible field left empty refuses with the
- * field's label and is not submitted. */
-export function bridgeFormSubmission(
-	form: BridgeForm,
-	action: BridgeAction,
-	typed: BridgeAnswers,
-	toggles: ReadonlySet<string>,
-): { answers: BridgeAnswers; secrets: BridgeAnswers } | { why: string } {
-	if (action.tone !== "primary") return { answers: {}, secrets: {} };
-	const asked: BridgeAnswers = {};
-	const visit = (field: BridgeField): string | null => {
-		if (field.kind === "toggle") {
-			const on = toggles.has(field.id);
-			asked[field.id] = on ? "on" : "";
-			if (!on) return null;
-			for (const leaf of field.reveals) {
-				const refused = visit(leaf);
-				if (refused != null) return refused;
-			}
-			return null;
-		}
-		const value = typed[field.id] ?? "";
-		if (value === "") {
-			if (field.required) return `${field.label} is required.`;
-			return null;
-		}
-		asked[field.id] = value;
-		return null;
-	};
-	for (const field of form.fields) {
-		const refused = visit(field);
-		if (refused != null) return { why: refused };
-	}
-	return splitBridgeSubmission(bridgeFormSecretIds(form), asked);
-}

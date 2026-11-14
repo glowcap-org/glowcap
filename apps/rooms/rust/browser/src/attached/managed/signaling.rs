@@ -59,24 +59,18 @@ impl Routes {
 }
 pub(super) struct Owner {
 	stop: watch::Sender<bool>,
-	retry: watch::Sender<u64>,
 	ended: watch::Receiver<Option<Result<()>>>,
 }
 impl Owner {
 	pub fn start(environment: &Rc<Environment>, changes: SessionChanges) -> Self {
 		let (stop, stopping) = watch::channel(false);
 		let (finished, ended) = watch::channel(None);
-		let (retry, retrying) = watch::channel(0);
 		let environment = Rc::downgrade(environment);
 		let shutdown = stop.clone();
 		tokio::task::spawn_local(async move {
-			finished.send_replace(Some(run(environment, changes, stopping, shutdown, retrying).await));
+			finished.send_replace(Some(run(environment, changes, stopping, shutdown).await));
 		});
-		Self { stop, retry, ended }
-	}
-	pub fn retry(&self) {
-		self.retry
-			.send_modify(|generation| *generation = generation.wrapping_add(1));
+		Self { stop, ended }
 	}
 	pub async fn close(&self) -> Result<()> {
 		self.stop.send_replace(true);
@@ -97,7 +91,6 @@ async fn run(
 	mut changes: SessionChanges,
 	mut stop: watch::Receiver<bool>,
 	shutdown: watch::Sender<bool>,
-	mut retry: watch::Receiver<u64>,
 ) -> Result<()> {
 	let mut held = BTreeMap::<String, Preparation>::new();
 	let mut workers = JoinSet::new();
@@ -119,7 +112,7 @@ async fn run(
 				.await
 				.map_err(RuntimeError::from)?;
 			// Refused preparation belongs to its original scalar selection. Only
-			// replacement, removal or an explicit retry permits another attempt.
+			// replacement or removal permits another attempt.
 			// Running registrations retain their own shared retirement barrier.
 			held.retain(|_, state| match state {
 				Preparation::Running => true,
@@ -186,10 +179,6 @@ async fn run(
 		drop(environment);
 		tokio::select! { biased;
 			() = stopped(&mut stop) => break,
-			_ = retry.changed() => {
-				held.retain(|_, state| matches!(state, Preparation::Running));
-				changes.retry();
-			},
 			changed = changes.changed() => {
 				if let Err(error) = changed
 					&& let Some(environment) = embedding.upgrade()

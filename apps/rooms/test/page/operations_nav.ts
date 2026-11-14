@@ -7,7 +7,7 @@ import type { Page } from "playwright";
 import { saveCapabilitySet, savedCapabilityNames } from "./capability_set.ts";
 import { fail } from "../support/fail.ts";
 
-export interface OperationSecrets {
+interface OperationSecrets {
 	listeners: string;
 	diagnostics: string;
 	irc: string;

@@ -36,7 +36,7 @@ pub enum Event<'a> {
 	Policy(RoomPolicy),
 	Ended(&'a str),
 }
-pub type EventHandler = Box<dyn for<'a> FnMut(Event<'a>)>;
+type EventHandler = Box<dyn for<'a> FnMut(Event<'a>)>;
 pub struct SubscribeOptions {
 	pub voucher: Option<Vec<u8>>,
 	pub on_event: EventHandler,

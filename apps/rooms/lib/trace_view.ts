@@ -3,7 +3,6 @@
 
 import {
 	type Channel,
-	designatorHostPort,
 	HANDSHAKE_TIMEOUT_MS,
 	Host,
 	openWebSocketChannel,
@@ -25,23 +24,6 @@ function isTraceRecord(raw: unknown): raw is TraceRecord {
  * mid-conversation. */
 const SUBSCRIBE_MS = 15_000;
 
-/** The endpoint's port, read out of the announcement.
- *
- * A viewer needs two things that are one fact: the byte channel to open, and
- * the peer to establish a session with. The endpoint states both in the
- * announcement, so a caller holding it needs nothing else. That is what lets a
- * caller that asked for an ephemeral port connect at all. */
-export function tracePortOf(sturdyref: string): number {
-	return designatorHostPort(parseSturdyRef(sturdyref, "v1_0").locator.designator).port;
-}
-
-/** The trace capability inside the announcement. The sturdyref's swissnum is
- * the same swiss the endpoint requires of every socket, so a holder of the
- * announcement needs no second secret. */
-export function traceCapOf(sturdyref: string): string {
-	return new TextDecoder().decode(parseSturdyRef(sturdyref, "v1_0").swissnum);
-}
-
 /** The advertised viewer channel, proxy prefix included. The endpoint always
  * advertises it, so a link without it is refused rather than guessed. */
 export function traceUrlOf(sturdyref: string): string {
@@ -51,16 +33,6 @@ export function traceUrlOf(sturdyref: string): string {
 	if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
 		throw new Error("trace channel must be a WebSocket URL without credentials, query or fragment");
 	}
-	return endpoint;
-}
-
-/** The producer route the link advertises. A producer presents
- * `traceCapOf(sturdyref)` as its first message there.
- * The endpoint always advertises the route, as the server's own reader
- * requires, so a link without it is refused. */
-export function tracePublishUrlOf(sturdyref: string): string {
-	const endpoint = parseSturdyRef(sturdyref, "v1_0").locator.hints.get("trace-publish");
-	if (typeof endpoint !== "string") throw new Error("the trace link must advertise its trace-publish endpoint");
 	return endpoint;
 }
 

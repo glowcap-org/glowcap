@@ -8,7 +8,7 @@
 // failure names the process rather than the deadline.
 import { within } from "./wait.ts";
 
-export interface Announcement {
+interface Announcement {
 	/** The flush-left token, such as `ROOMS-SERVER-LISTENING`. */
 	token: string;
 	/** Who is expected to announce, for the sentence a failure reports. */

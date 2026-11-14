@@ -30,7 +30,7 @@ export interface Group {
 	showTime: boolean;
 }
 
-export type SysLine = { key: string; text: string };
+type SysLine = { key: string; text: string };
 
 export type Block =
 	| { kind: "day"; key: string; label: string }

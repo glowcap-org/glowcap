@@ -8,7 +8,7 @@ import { type PageStorage, sessionArea } from "../../page_storage.ts";
 import type { WorkspaceSnapshot } from "./model.ts";
 import type { RoomsManagedWorkspace } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 
-export const ACTIVE_VIEW = "active-view";
+const ACTIVE_VIEW = "active-view";
 const TAB = "rooms.managed-tab";
 
 export class ManagedSessionStartupFailure extends LocalRefusal {

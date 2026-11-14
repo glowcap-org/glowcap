@@ -19,23 +19,18 @@
   },
   "imports": {
     "@glowcap/abi": "../../bindings/ts/abi/constants.ts",
-    "@glowcap/runtime/cleanup": "../../bindings/ts/runtime/cleanup.ts",
     "@glowcap/runtime/text": "../../bindings/ts/runtime/text.ts",
     "@glowcap/runtime": "../../bindings/ts/runtime/mod.ts",
     "@glowcap/runtime/ffi": "../../bindings/ts/runtime/ffi.ts",
     "@glowcap/runtime/adapter": "../../bindings/ts/runtime/adapter.ts",
     "@glowcap/runtime/websocket": "../../bindings/ts/runtime/websocket.ts",
     "@glowcap/runtime/transport": "../../bindings/ts/runtime/transport.ts",
-    "@glowcap/inproc": "../../bindings/ts/inproc/mod.ts",
     "@glowcap/onion": "../../bindings/ts/onion/mod.ts",
     "@glowcap/tcp": "../../bindings/ts/tcp/mod.ts",
-    "@glowcap/tcp/transport": "../../bindings/ts/tcp/transport.ts",
     "@glowcap/iroh": "../../bindings/ts/iroh/mod.ts",
-    "@glowcap/iroh/internal": "../../bindings/ts/iroh/internal.ts",
     "@glowcap/relay": "../../bindings/ts/relay/mod.ts",
     "@glowcap/web": "../../bindings/ts/web/mod.ts",
     "@glowcap/webrtc": "../../bindings/ts/webrtc/mod.ts",
-    "@glowcap/webrtc/driver": "../../bindings/ts/webrtc/driver.ts",
     // dep react: The UI library for the Rooms web client.
     "react": "npm:react@19.3.1",
     // dep @types/react: React's types for the type checker.

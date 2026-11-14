@@ -13,7 +13,7 @@ export const OPERATOR_CATEGORIES = [
 ] as const;
 export type OperatorCategory = (typeof OPERATOR_CATEGORIES)[number];
 
-export const OPERATOR_REFERENCE_KINDS = [
+const OPERATOR_REFERENCE_KINDS = [
 	"membership",
 	"line",
 	"upload",

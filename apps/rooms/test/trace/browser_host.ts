@@ -1,5 +1,4 @@
-import { scrapeTraceSturdyref, tracePortOf } from "./viewer.ts";
-import { traceCapOf, tracePublishUrlOf } from "../../lib/trace_view.ts";
+import { scrapeTraceSturdyref, traceCapOf, tracePortOf, tracePublishUrlOf } from "./viewer.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 
 const SERVER = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") ??

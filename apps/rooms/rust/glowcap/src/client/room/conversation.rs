@@ -41,7 +41,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 	) -> Result<Option<PostedLine<D>>, Error> {
 		self.say_retained(text, previews, self.next_request()?).await
 	}
-	pub async fn say_retained(
+	async fn say_retained(
 		&self,
 		text: &str,
 		previews: &rooms_application::open_graph::Selection,
@@ -89,7 +89,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 	) -> Result<Option<PostedLine<D>>, Error> {
 		self.post_files_retained(caption, previews, self.next_request()?).await
 	}
-	pub async fn post_files_retained(
+	async fn post_files_retained(
 		&self,
 		caption: &str,
 		previews: &rooms_application::open_graph::Selection,

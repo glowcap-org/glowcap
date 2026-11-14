@@ -170,7 +170,7 @@ pub struct BridgeAuthority {
 	pub issued: bool,
 }
 
-pub fn is_entropy(hex: &str) -> bool {
+fn is_entropy(hex: &str) -> bool {
 	hex.len() == ENTROPY_BYTES * 2 && hex.bytes().all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
 }
 

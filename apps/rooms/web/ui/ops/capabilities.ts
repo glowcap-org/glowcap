@@ -23,7 +23,7 @@ import { OPERATIONS_CAPABILITIES } from "../application_data.ts";
 /** One durable room this tab published into this directory while it holds the
  * peering capability. The lease behind the row lives in the data layer. What
  * the pane needs is the words and where the publication stands. */
-export interface PeeringPublication {
+interface PeeringPublication {
 	/** The row's handle for revoking, minted by the data layer. */
 	id: string | number;
 	/** The name the destination lists the room under. */

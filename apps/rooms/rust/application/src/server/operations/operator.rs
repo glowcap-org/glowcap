@@ -36,7 +36,7 @@ pub enum Category {
 	Trouble,
 }
 
-pub const CATEGORIES: [Category; 7] = [
+const CATEGORIES: [Category; 7] = [
 	Category::Stewardships,
 	Category::Links,
 	Category::Registrations,
@@ -78,7 +78,7 @@ pub enum ReferenceKind {
 	SignalExchange,
 }
 
-pub const REFERENCE_KINDS: [ReferenceKind; 9] = [
+const REFERENCE_KINDS: [ReferenceKind; 9] = [
 	ReferenceKind::Membership,
 	ReferenceKind::Line,
 	ReferenceKind::Upload,

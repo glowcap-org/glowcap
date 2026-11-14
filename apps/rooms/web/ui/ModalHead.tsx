@@ -12,11 +12,10 @@ import { IconButton } from "./IconButton.tsx";
 import { modalClose } from "../../lib/text/controls.ts";
 
 export function ModalHead(
-	{ titleId, title, closeId, closeLabel = modalClose, closeRef, actions, onClose }: {
+	{ titleId, title, closeId, closeRef, actions, onClose }: {
 		titleId?: string;
 		title: ReactNode;
 		closeId?: string;
-		closeLabel?: string;
 		closeRef?: Ref<HTMLButtonElement>;
 		/** Marks that act on the whole card, drawn before the dismiss. */
 		actions?: ReactNode;
@@ -34,8 +33,8 @@ export function ModalHead(
 							id={closeId}
 							ref={closeRef}
 							icon="close"
-							label={closeLabel}
-							title={closeLabel}
+							label={modalClose}
+							title={modalClose}
 							size="small"
 							variant="ghost"
 							onClick={onClose}

@@ -1,7 +1,7 @@
 //! Application-authored browser byte-channel advice preserves the deployment's
 //! exact route. Channel reachability supplies no capability or peer proof.
 pub const HINT: &str = "captp-websocket";
-pub const MAX_ENDPOINT_BYTES: usize = 2048;
+const MAX_ENDPOINT_BYTES: usize = 2048;
 
 /// Credentials and capability tokens stay outside channel routing. Validate
 /// without rewriting the supplied endpoint, including deployment prefixes.

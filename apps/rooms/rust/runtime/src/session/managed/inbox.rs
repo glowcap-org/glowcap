@@ -168,10 +168,6 @@ impl Budget {
 		self.inboxes.get()
 	}
 }
-struct Failure {
-	first: glowcap::Error,
-	count: usize,
-}
 struct Pending {
 	verb: &'static str,
 	args: Vec<Argument>,
@@ -183,7 +179,6 @@ struct Live {
 	budget: Rc<Budget>,
 	closed: Cell<bool>,
 	active: Cell<bool>,
-	refused: Cell<usize>,
 }
 impl Live {
 	fn retire(&self) {
@@ -207,7 +202,7 @@ pub struct Inbox<P: Tasks> {
 	live: Rc<Live>,
 	stop: watch::Sender<bool>,
 	ended: watch::Receiver<bool>,
-	failure: Rc<RefCell<Option<Failure>>>,
+	failure: Rc<RefCell<Option<glowcap::Error>>>,
 	origin: InboxOrigin,
 	publication: Option<(Host, String)>,
 }
@@ -236,15 +231,9 @@ impl<P: Tasks> Inbox<P> {
 		self.task.take();
 		self.live.retire();
 		match self.failure.borrow().as_ref() {
-			Some(error) => Err(error.first.clone()),
+			Some(error) => Err(error.clone()),
 			None => Ok(()),
 		}
-	}
-	pub fn resolution_failures(&self) -> usize {
-		self.failure.borrow().as_ref().map_or(0, |failure| failure.count)
-	}
-	pub fn refused_notices(&self) -> usize {
-		self.live.refused.get()
 	}
 	pub(super) fn publish(&mut self, host: &Host, entropy: [u8; Host::DURABLE_ENTROPY_BYTES]) -> Result<()> {
 		if self.publication.is_some() || self.live.closed.get() {
@@ -385,7 +374,6 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 		budget,
 		closed: Cell::new(false),
 		active: Cell::new(true),
-		refused: Cell::new(0),
 	});
 	let weak = Rc::downgrade(&live);
 	let (cleanup_sender, mut cleanups) = mpsc::channel::<Pending>(2);
@@ -528,11 +516,10 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 				Ok(_) => Err("Original callback owner has closed".into()),
 				Err(error) => Err(error.to_string()),
 			};
-			if let Err(reason) = &result {
-				receiving.refused.set(receiving.refused.get().saturating_add(1));
-				if let Some(writer) = receiving.budget.writer.upgrade() {
-					writer.report(request.verb, &loam::refusal(reason));
-				}
+			if let Err(reason) = &result
+				&& let Some(writer) = receiving.budget.writer.upgrade()
+			{
+				writer.report(request.verb, &loam::refusal(reason));
 			}
 			resolve(&mut request, result, &failures);
 		}
@@ -558,7 +545,11 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 	})
 }
 
-fn resolve(request: &mut Pending, result: std::result::Result<Argument, String>, failure: &RefCell<Option<Failure>>) {
+fn resolve(
+	request: &mut Pending,
+	result: std::result::Result<Argument, String>,
+	failure: &RefCell<Option<glowcap::Error>>,
+) {
 	let Some(resolver) = request.resolver.as_mut() else {
 		return;
 	};
@@ -571,11 +562,6 @@ fn resolve(request: &mut Pending, result: std::result::Result<Argument, String>,
 		// real cause at both the caller and lifecycle owner before releasing it.
 		let reason = error.to_string();
 		let error = error.with_cleanup(resolver.break_with(&reason));
-		let mut previous = failure.borrow_mut();
-		if let Some(previous) = previous.as_mut() {
-			previous.count = previous.count.saturating_add(1);
-		} else {
-			*previous = Some(Failure { first: error, count: 1 });
-		}
+		failure.borrow_mut().get_or_insert(error);
 	}
 }

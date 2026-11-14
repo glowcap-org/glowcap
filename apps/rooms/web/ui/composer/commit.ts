@@ -13,7 +13,7 @@ import {
 	type PreparedComposerSend,
 } from "./send.ts";
 
-export type CommittedComposerSend = Extract<PreparedComposerSend, { kind: "handled" | "send" }>;
+type CommittedComposerSend = Extract<PreparedComposerSend, { kind: "handled" | "send" }>;
 
 /** Interpret a submission and display immediate refusals. `null` means no effect. */
 export function interpretComposerSend(

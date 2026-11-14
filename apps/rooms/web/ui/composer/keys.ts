@@ -12,20 +12,20 @@
 import { commandKeyApple, commandKeyControl } from "../../../lib/text/controls.ts";
 
 /** The Markdown a chord wraps the selection in. */
-export type Marker = "**" | "*" | "`" | "~~";
+type Marker = "**" | "*" | "`" | "~~";
 
 /** Whether the command key is ⌘: Apple hardware, including phones and tablets
  * with a keyboard attached. Everywhere else the command key is Ctrl. Read from
  * the platform rather than guessed from the modifier that arrived, so the
  * label the hint shows and the key the chord expects cannot disagree. */
-export function isApple(): boolean {
+function isApple(): boolean {
 	const platform = (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ??
 		navigator.platform ?? "";
 	return /mac|iphone|ipad|ipod/i.test(platform);
 }
 
 /** How the hint spells the command key. */
-export function modifierLabel(apple = isApple()): string {
+function modifierLabel(apple = isApple()): string {
 	return apple ? commandKeyApple : commandKeyControl;
 }
 

@@ -39,7 +39,7 @@ import { toastShow } from "../../lib/text/controls.ts";
 /** Failure stays with a field that would not take the value. Warning stays with
  * a control whose standing condition the reader can still act on. Success says
  * an act went through, where its button is. */
-export type SaidKind = "failure" | "warning" | "success";
+type SaidKind = "failure" | "warning" | "success";
 
 /** Whether the clamped text is being cut, measured on the element itself and
  * again whenever its content or box width changes. A node with no layout, the card it

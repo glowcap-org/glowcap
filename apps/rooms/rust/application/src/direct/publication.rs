@@ -121,7 +121,7 @@ pub struct Ledger {
 	closed: Rc<RefCell<BTreeSet<u64>>>,
 }
 impl Ledger {
-	pub fn validate_limit(limit: usize) -> Result<(), Error> {
+	fn validate_limit(limit: usize) -> Result<(), Error> {
 		if limit == 0 { Err(Error::Limit) } else { Ok(()) }
 	}
 	pub fn new(limit: usize) -> Result<Self, Error> {

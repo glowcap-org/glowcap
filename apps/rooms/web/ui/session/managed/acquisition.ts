@@ -44,7 +44,7 @@ export type SubmissionOutcome = SettledOutcome | {
 
 /** A session command the session settled: a proved conflict, a refusal that
  * admitted nothing, or the status of the receipt it admitted. */
-export type CommandAdmission =
+type CommandAdmission =
 	| { readonly status: "conflict" | "refused"; readonly reason?: string; readonly failure?: unknown }
 	| { readonly status: "pending" | "committed" | "unsent" | "unknown" };
 

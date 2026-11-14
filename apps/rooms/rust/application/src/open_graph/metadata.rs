@@ -8,12 +8,12 @@ pub const MAX_PROPERTIES: usize = 128;
 pub const MAX_PROPERTY_KEY_BYTES: usize = 64;
 pub const MAX_PROPERTY_CONTENT_BYTES: usize = 2_048;
 pub const MAX_TITLE_BYTES: usize = 512;
-pub const MAX_DESCRIPTION_BYTES: usize = 2_048;
-pub const MAX_SITE_BYTES: usize = 256;
-pub const MAX_TYPE_BYTES: usize = 128;
-pub const MAX_IMAGES: usize = 4;
-pub const MAX_IMAGE_ALT_BYTES: usize = 512;
-pub const MAX_METADATA_JSON_BYTES: usize = 32 * 1024;
+const MAX_DESCRIPTION_BYTES: usize = 2_048;
+const MAX_SITE_BYTES: usize = 256;
+const MAX_TYPE_BYTES: usize = 128;
+const MAX_IMAGES: usize = 4;
+const MAX_IMAGE_ALT_BYTES: usize = 512;
+const MAX_METADATA_JSON_BYTES: usize = 32 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Property {

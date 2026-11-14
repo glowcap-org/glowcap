@@ -10,7 +10,7 @@ pub const OPENED: &str = "ocapn.session-opened";
 pub const MESSAGE: &str = "ocapn.message-decoded";
 pub const CLOSED: &str = "ocapn.session-closed";
 pub const META: &str = "ocapn.session-meta";
-pub const KINDS: [&str; 4] = [OPENED, MESSAGE, CLOSED, META];
+const KINDS: [&str; 4] = [OPENED, MESSAGE, CLOSED, META];
 
 fn allowed(kind: &str) -> &'static [&'static str] {
 	match kind {
@@ -79,7 +79,7 @@ fn base64_value(byte: u8) -> Option<u8> {
 /// The decoded length of canonical RFC 4648 base64, or `None` for text that
 /// is not that: wrong length, a stray character, or padding that leaves set
 /// bits beyond the decoded bytes.
-pub fn base64_decoded_length(text: &str) -> Option<usize> {
+pub(crate) fn base64_decoded_length(text: &str) -> Option<usize> {
 	let bytes = text.as_bytes();
 	if bytes.is_empty() {
 		return Some(0);

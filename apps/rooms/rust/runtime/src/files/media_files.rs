@@ -443,40 +443,6 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 		}
 		Ok(())
 	}
-	/// Retain a validated local source batch for outgoing messages. Selected
-	/// existing views survive pressure. Failure leaves all prior custody intact.
-	pub fn retain_sources(
-		&self,
-		sources: Vec<rooms_glowcap::client::sources::Source>,
-		protected: &[FileView],
-	) -> Result<Vec<FileView>, Error> {
-		if self.closed.get() {
-			return Err(Error::closed("media file owner is closed"));
-		}
-		if !rooms_application::files::receiving::selection_fits(sources.iter().map(|source| source.description())) {
-			return Err(Error::invalid("media selection exceeds its file count or byte ceiling"));
-		}
-		let bytes = sources.iter().map(|source| source.description().size()).sum();
-		let selected: Vec<_> = protected.iter().map(|file| file.entry.clone()).collect();
-		let mut rows = self.rows.borrow_mut();
-		self.make_space(&mut rows, sources.len(), bytes, &selected)?;
-		sources
-			.into_iter()
-			.map(|source| {
-				let platform = self.platform.clone();
-				let row = self.capture_with(source.description().clone(), None, async move {
-					source.materialize(&platform).await
-				})?;
-				let file = FileView {
-					entry: row.entry.clone(),
-					description: row.description.clone(),
-				};
-				rows.push_back(row);
-				Ok(file)
-			})
-			.collect()
-	}
-
 	fn capture(&self, session: &Session, attachment: Attachment<Ref>) -> Result<Row, Error> {
 		let identity = Some((session.host(), attachment.blob.clone()));
 		let description = attachment.description.clone();

@@ -51,7 +51,7 @@ impl<E: core::fmt::Display> core::fmt::Display for AdmissionError<E> {
 		}
 	}
 }
-pub type AdmissionResult<'line, 'call, C, R, E> =
+type AdmissionResult<'line, 'call, C, R, E> =
 	Result<Option<(R, LineChange<'line, 'call, Attachment<C>>)>, AdmissionError<E>>;
 
 /// Reserve against the validated full selection before the shared line commits.

@@ -41,7 +41,7 @@ import { utf8Fits } from "../../lib/limits.ts";
 const DEFAULT_STUN = "stun:stun.cloudflare.com:3478";
 
 /** One entry of what the browser hands to `RTCPeerConnection`. */
-export interface IceServer {
+interface IceServer {
 	urls: string | string[];
 	username?: string;
 	credential?: string;

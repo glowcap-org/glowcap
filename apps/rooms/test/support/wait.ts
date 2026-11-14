@@ -9,11 +9,6 @@
  * a condition is correct only while the thing it waits for stays faster. */
 export const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Let everything already queued run: one turn of the event loop, so a store
- * that applies an act on the next tick has applied it. No amount of time a
- * test should depend on passes here. */
-export const settled = (): Promise<void> => delay(0);
-
 /** Poll `ready` until it holds, or fail after `ms` naming `what`. `ready` may
  * look something up, so it may answer late: each answer is awaited before the
  * deadline is read again. */

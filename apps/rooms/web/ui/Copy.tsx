@@ -71,7 +71,7 @@ function Said({ copied }: { copied: boolean }) {
 	return <span className="copy-said" role="status">{copied ? "Copied" : ""}</span>;
 }
 
-export type CopyButtonProps =
+type CopyButtonProps =
 	& Omit<IconButtonProps, "icon" | "label" | "onClick">
 	& {
 		/** What lands on the clipboard, or null while it is not known yet. */
@@ -98,7 +98,7 @@ export function CopyButton({ text, label, disabled, ...button }: CopyButtonProps
 	);
 }
 
-export type CopyFieldProps = {
+type CopyFieldProps = {
 	/** What the field shows and what lands on the clipboard, or null while it is
 	 * not known yet. A locator this window has not settled on has nothing to
 	 * copy, and the field says so by being unpressable rather than by copying

@@ -46,7 +46,7 @@ import type { ComponentPropsWithRef } from "react";
 export type ButtonVariant = "primary" | "danger" | "quiet" | "link" | "caption";
 
 /** The in-row height, or the field height. Only the boxed variants have one. */
-export type ButtonSize = "normal" | "large";
+type ButtonSize = "normal" | "large";
 
 export type ButtonProps = ComponentPropsWithRef<"button"> & {
 	variant?: ButtonVariant;

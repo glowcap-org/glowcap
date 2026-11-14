@@ -8,7 +8,7 @@ import { ControlProgress, useProgress } from "./presentation.ts";
 
 import type { ComponentPropsWithRef } from "react";
 
-export type SwitchProps = Omit<ComponentPropsWithRef<"button">, "aria-checked" | "role" | "children"> & {
+type SwitchProps = Omit<ComponentPropsWithRef<"button">, "aria-checked" | "role" | "children"> & {
 	checked: boolean;
 	/** Accessible name. The visible row label is separate so the switch can sit
 	 * at the end of a line without repeating it to the eye. */

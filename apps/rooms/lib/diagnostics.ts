@@ -18,7 +18,7 @@ const diagnosticKind = nonemptyText(64 * 1024);
 const diagnosticName = nonemptyText(64 * 1024);
 const diagnosticNote = boundedText(64 * 1024);
 
-export const DiagnosticRowSchema = z.strictObject({
+const DiagnosticRowSchema = z.strictObject({
 	kind: diagnosticKind,
 	name: diagnosticName,
 	note: diagnosticNote,

@@ -8,7 +8,7 @@ import type { DirId, DirView } from "./directory.ts";
  * counts once it has been seen connected, because the arrival already grew the
  * network for its first connection and a first dial that fails lost nothing.
  * A directory the page forgets stops counting. */
-export interface Connections {
+interface Connections {
 	/** All directories held, including those whose first connection is pending. */
 	readonly total: number;
 	/** Directories this page has seen connected and still holds. */

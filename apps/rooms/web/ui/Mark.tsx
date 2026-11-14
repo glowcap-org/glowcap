@@ -13,7 +13,7 @@ import type { MarkLive, MarkPlay } from "../../../../ui/mark/live.ts";
  * lockup's, lit from the start; `unlit` is a control's, dark until the pointer
  * reaches the control and lit while it is there. The opening screen's loop is
  * not here, because it belongs to the boot markup rather than to a component. */
-export type MarkStance = Exclude<MarkPlay, "loop">;
+type MarkStance = Exclude<MarkPlay, "loop">;
 
 export function Mark({ size, play = "stand" }: { size: number; play?: MarkStance }) {
 	const host = useRef<HTMLSpanElement>(null);

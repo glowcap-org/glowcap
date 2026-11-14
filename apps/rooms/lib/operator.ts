@@ -34,36 +34,20 @@ export {
 import { cleanupSettledBySessionClose } from "./capability_cleanup.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 
-export {
-	isOperatorCategory,
-	isOperatorReferenceKind,
-	OPERATOR_CATEGORIES,
-	type OperatorCategory,
-	type OperatorReferenceKind,
-	type OperatorResetScope,
-} from "./operator_vocabulary.ts";
+export { type OperatorCategory, type OperatorReferenceKind, type OperatorResetScope } from "./operator_vocabulary.ts";
 
 export {
 	type OperatorLinkRow,
-	OperatorLinkRowSchema,
 	type OperatorPage,
 	operatorPageAnswer,
-	type OperatorPageOf,
-	type OperatorPageRows,
 	type OperatorReferenceRow,
-	OperatorReferenceRowSchema,
 	type OperatorRegistrationRow,
-	OperatorRegistrationRowSchema,
 	type OperatorRoomKind,
 	type OperatorRoomRow,
-	OperatorRoomRowSchema,
 	type OperatorSessionRow,
-	OperatorSessionRowSchema,
 	type OperatorTroubleRow,
-	OperatorTroubleRowSchema,
 	parseOperatorPageAnswer,
 	type StewardshipRow,
-	StewardshipRowSchema,
 } from "./operator_rows.ts";
 import {
 	type OperatorPage,
@@ -73,7 +57,7 @@ import {
 	type StewardshipRow,
 } from "./operator_rows.ts";
 
-export { type OperatorSnapshot, OperatorSnapshotJsonSchema, parseOperatorSnapshotJson } from "./operator_snapshot.ts";
+export type { OperatorSnapshot } from "./operator_snapshot.ts";
 import type { OperatorSnapshot } from "./operator_snapshot.ts";
 
 export async function operatorPage<C extends OperatorCategory>(
@@ -135,7 +119,7 @@ export async function operatorRetireMatching(
 
 /** The answer a bulk retire gives, whether it came from the operator itself or
  * was relayed by a durable session. */
-export function parseOperatorRetireAnswer(raw: unknown): OperatorRetireBatch {
+function parseOperatorRetireAnswer(raw: unknown): OperatorRetireBatch {
 	if (
 		!Array.isArray(raw) || raw.length !== 3 || typeof raw[0] !== "bigint" || typeof raw[1] !== "bigint" ||
 		typeof raw[2] !== "string" || raw[0] < 0n || raw[1] < 0n

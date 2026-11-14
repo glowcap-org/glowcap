@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useReducer } from "react";
 import { refusalText } from "../../lib/text/failure.ts";
 
-export type ActionWork<A extends unknown[]> = (signal: AbortSignal, ...args: A) => Promise<unknown>;
+type ActionWork<A extends unknown[]> = (signal: AbortSignal, ...args: A) => Promise<unknown>;
 
 export class ActionRun<A extends unknown[]> {
 	#running: AbortController | null = null;

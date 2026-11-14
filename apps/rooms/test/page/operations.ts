@@ -28,7 +28,8 @@ import { takeAndInspectDiagnostics } from "./operations_diagnostics.ts";
 import * as archiveOffline from "./archive_offline.ts";
 import { opsDiagnosticsLabel, opsListenersLabel } from "../../lib/text/ops.ts";
 import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
-import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
+import { roomsLocator } from "../../lib/locator.ts";
+import { formatRoomsSturdyref } from "../support/sturdyref.ts";
 
 export async function run(tab: Page, statePath: string, foreignLocator: string): Promise<void> {
 	const locator = roomsLocator((await (await fetch(new URL("/locator", tab.url()))).text()).trim());

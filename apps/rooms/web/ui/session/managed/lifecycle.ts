@@ -1,7 +1,7 @@
 // One coordination record follows a retained request through all local workers.
 // Losing observation is evidence about ownership, never evidence of rollback.
-export type OperationPhase = "queued" | "preparing" | "admitting" | "settling" | "acquiring" | "completing";
-export type OutcomeEvidence = "notAdmitted" | "unknown" | "pending" | "committed";
+type OperationPhase = "queued" | "preparing" | "admitting" | "settling" | "acquiring" | "completing";
+type OutcomeEvidence = "notAdmitted" | "unknown" | "pending" | "committed";
 
 export class OperationLifecycle {
 	readonly started = performance.now();

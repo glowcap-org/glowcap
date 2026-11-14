@@ -19,7 +19,7 @@ use alloc::{borrow::Cow, string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
 
 const MAX_FIELD_UNITS: usize = 65536;
-pub const HEADER_FIELDS: usize = 16;
+const HEADER_FIELDS: usize = 16;
 pub const MAX_FIELDS: usize = HEADER_FIELDS + attachment::RECORD_SPAN * crate::room::line::MAX_MESSAGE_FILES;
 
 #[derive(Clone, Debug, Serialize)]

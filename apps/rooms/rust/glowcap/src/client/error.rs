@@ -122,7 +122,7 @@ pub fn binding_admission_refusal(error: &glowcap::Error) -> Option<Failure<'_>> 
 /// The failure an uncertain receipt's reason names. An admission code is
 /// proof that nothing was dispatched, which an uncertain outcome never has,
 /// so a reason that leads with one names no failure here.
-pub fn uncertain_failure(reason: &str) -> Option<Failure<'_>> {
+fn uncertain_failure(reason: &str) -> Option<Failure<'_>> {
 	Failure::parse(reason).filter(|failure| !failure.refused_before_dispatch())
 }
 

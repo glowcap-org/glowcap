@@ -22,6 +22,17 @@ use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 use tokio::sync::mpsc;
 
+pub(super) struct Bytes(pub Vec<u8>);
+impl rooms_glowcap::client::sources::Reader for Bytes {
+	fn read(
+		&self,
+		offset: usize,
+		length: usize,
+	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, String>>>> {
+		let span = self.0[offset..offset + length].to_vec();
+		Box::pin(async move { Ok(span) })
+	}
+}
 pub(super) fn description(name: &str, size: usize) -> FileDescription {
 	FileDescription::new(name.into(), "application/octet-stream".into(), size as u64, 0, 0).unwrap()
 }
@@ -69,7 +80,7 @@ async fn scenario() {
 		.send_files(
 			"one read",
 			&sources,
-			vec![Source::bytes(description("file", size), vec![9; size]).unwrap()],
+			vec![Source::reader(description("file", size), Bytes(vec![9; size]))],
 		)
 		.await
 		.unwrap();

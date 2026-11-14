@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 pub const ISSUE: &str = "issueGrant";
 pub const SET_POLICY: &str = "setGrantPolicy";
 pub const REVOKE: &str = "revokeGrant";
-pub const MAX_GRANT_LINK_UNITS: usize = 16 * 1024;
-pub const MAX_GRANT_VIEW_BYTES: usize =
+const MAX_GRANT_LINK_UNITS: usize = 16 * 1024;
+const MAX_GRANT_VIEW_BYTES: usize =
 	6 * (36 + super::MAX_GRANT_LABEL_UNITS + super::MAX_GRANT_NOTE_UNITS + MAX_GRANT_LINK_UNITS) + 256;
 
 #[derive(Debug, PartialEq, Eq)]

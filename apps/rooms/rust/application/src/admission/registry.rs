@@ -80,9 +80,6 @@ impl<K: Copy + Ord, P: Policy<K>> Registry<K, P> {
 		let count = &mut self.statistics.classes[class as usize].coalesced;
 		*count = count.saturating_add(1);
 	}
-	pub fn maintain(&mut self, now: u64) {
-		self.maintain_excluding(now, &[]);
-	}
 	fn maintain_excluding(&mut self, now: u64, active: &[Charge<K>]) {
 		for _ in 0..MAINTENANCE_ROWS {
 			let next = match self.cursor {

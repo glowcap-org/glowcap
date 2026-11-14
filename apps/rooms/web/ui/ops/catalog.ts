@@ -27,7 +27,7 @@ import {
 	opsTraceShort,
 } from "../../../lib/text/ops.ts";
 
-export interface OpsCapFace {
+interface OpsCapFace {
 	/** The capability-set toggle's row label and value-modal title. */
 	label: string;
 	/** The toggle's DOM id, which the browser proofs press. */

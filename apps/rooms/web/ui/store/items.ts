@@ -56,7 +56,7 @@ function lineIndexOf(history: readonly Item[]): LineIndex {
 }
 
 /** The position of the line this tab calls `id`, or -1. */
-export function linePosition(history: readonly Item[], id: number): number {
+function linePosition(history: readonly Item[], id: number): number {
 	return lineIndexOf(history).byId.get(id) ?? -1;
 }
 
@@ -190,7 +190,7 @@ export function attachmentView(projection: PageProjection, fields: Omit<Attachme
 	return { id: projection.allocItemId(), ...fields };
 }
 
-export type AttachmentFields = Omit<Partial<AttachmentView>, "id">;
+type AttachmentFields = Omit<Partial<AttachmentView>, "id">;
 
 /** Change any number of files in one conversation with one history scan, one
  * immutable copy, and one store notification. Parallel transfers arrive as a

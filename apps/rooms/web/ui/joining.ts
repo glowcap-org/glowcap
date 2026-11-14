@@ -47,7 +47,7 @@ export const JOIN_DEFAULT_NICK = "guest";
 /** Shape of an address, used when this page's own address is not known yet. */
 export const JOIN_ADDRESS_SHAPE = "ocapn://designator.transport";
 
-export interface DirectoryDestination {
+interface DirectoryDestination {
 	readonly id: DirId;
 	readonly address: string;
 }
@@ -91,11 +91,11 @@ export function privateRoomNameRefusal(name: string, liveNames: Iterable<string>
  * by name. Null when the field is empty. Never "the room I am in": a join is
  * a destination. The schema is the one definition: the type and the
  * validator both derive from it. */
-export const AskedJoinSchema = z.discriminatedUnion("kind", [
+const AskedJoinSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("link"), link: z.string(), label: z.string() }),
 	z.object({ kind: z.literal("name"), name: z.string() }),
 ]);
-export type AskedJoin = z.infer<typeof AskedJoinSchema>;
+type AskedJoin = z.infer<typeof AskedJoinSchema>;
 
 export function askedJoin(asked: string): AskedJoin | null {
 	const encoded = applicationModule().readRoomJoin(asked);
@@ -126,7 +126,7 @@ export function typedRoomLink(address: string, room: string): { link: string; la
  * pasted link, nothing for a link still wearing a remembered name, or the
  * room field itself, defaulting when empty. A remembered room name is from a
  * previous join, not a name for this link. */
-export function submittedRoomName(
+function submittedRoomName(
 	linked: { link: string; label: string } | null,
 	typedRoom: string,
 	roomFrom: Firmness,
@@ -167,10 +167,10 @@ export function submittedRoomDestination(
 /** One submitted join, classified before either the local or attached owner
  * performs it. A room sturdyref remains authority. It never falls through to
  * the directory-address path merely because that owner is remote. */
-export type JoinDestinationPlan =
+type JoinDestinationPlan =
 	| { kind: "room-link"; link: string; label: string; directory: DirId; address: string }
 	| { kind: "directory"; room: string; address: string; policy: RoomPolicy };
-export type RoomLinkDestination = Extract<JoinDestinationPlan, { kind: "room-link" }>;
+type RoomLinkDestination = Extract<JoinDestinationPlan, { kind: "room-link" }>;
 
 export function planJoinDestination(destination: RoomDestination): JoinDestinationPlan {
 	const linked = typedRoomLink(destination.address, destination.room);
@@ -415,7 +415,7 @@ function addressAnswer(
  * already on its way is the same offer as reaching one that is not: the open
  * runs once per directory and a second ask waits on the first, so the card
  * does not need a state for a wait nobody has to sit out. */
-export type JoinAct = "connect" | "create" | "join";
+type JoinAct = "connect" | "create" | "join";
 
 /** What the world says about what the reader asked for.
  *

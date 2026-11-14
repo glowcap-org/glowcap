@@ -16,7 +16,7 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
 	woff2: "font/woff2",
 };
 
-export interface StaticHost {
+interface StaticHost {
 	/** The page's origin, with no trailing slash. */
 	readonly origin: string;
 	close(): Promise<void>;
