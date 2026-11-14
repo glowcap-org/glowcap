@@ -229,20 +229,15 @@ pub(super) async fn receive<P: Tasks + Deadline + Clone + 'static>(
 		if cursor > end {
 			return Err(loam::refusal("activity cursor belongs to another incarnation"));
 		}
-		let selected = activity
-			.entries
-			.borrow()
-			.iter()
-			.find(|entry| entry.id > cursor)
-			.map(|entry| {
-				(
-					entry.id,
-					Accepted {
-						at: entry.at,
-						event: entry.event.clone(),
-					},
-				)
-			});
+		let selected = first_after(&activity.entries.borrow(), cursor).map(|entry| {
+			(
+				entry.id,
+				Accepted {
+					at: entry.at,
+					event: entry.event.clone(),
+				},
+			)
+		});
 		let oldest = activity.entries.borrow().front().map(|entry| entry.id);
 		drop(activity);
 		if let Some(oldest) = oldest

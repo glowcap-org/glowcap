@@ -50,6 +50,19 @@ fn the_room_is_built_on_ircs_terms() {
 	assert!(Room::<u32, u8>::new("bad name", "#c", "n", "p", "o").is_err());
 	assert!(Room::<u32, u8>::new("net", "chan", "n", "p", "o").is_err());
 	assert!(Room::<u32, u8>::new("net", "#a b", "n", "p", "o").is_err());
+	for channel in [
+		"#a\0b",
+		"#bell\u{7}",
+		"#clear\u{1b}[2J",
+		"#flip\u{202e}",
+		"#mark\u{61c}",
+	] {
+		assert_eq!(
+			Room::<u32, u8>::new("net", channel, "n", "p", "o").err(),
+			Some(Invalid::Channel),
+			"{channel:?}"
+		);
+	}
 	let room = room();
 	assert_eq!(room.name(), "fixture/#news");
 	assert_eq!(room.info().kind, PublicationKind::Bridge);

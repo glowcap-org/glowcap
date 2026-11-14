@@ -119,7 +119,12 @@ export { PUBLICATION_READY, REVOKE } from "./protocol_data.ts";
  * answers the complete link, composing its durable entrance publication with
  * the location it authors for this exact session. Redeeming the link answers
  * an entrance. The first successful subscription reconstitutes the live room
- * after it has emptied or the server has restarted. */
+ * after it has emptied or the server has restarted.
+ *
+ * The link lets its holder post, so the name is told it only where the name
+ * lets the public in to post. A room that lets the public in to watch
+ * refuses with `read-only-membership`, and a private room answers as a name
+ * with no room. */
 export { LINK, LINK_PUBLICATION } from "./protocol_data.ts";
 
 /** Room and membership methods a client sends. `subscribe(nick, inboxCap,
@@ -292,18 +297,26 @@ export { SET_SUBJECT } from "./protocol_data.ts";
 
 /** Ask a room or its manager for the current durable entry link: `link()`.
  *
- * An ordinary room reference returns only a link that already exists. The
- * separate room manager capability may create or reissue one. What comes back
- * is a complete sturdyref, and whoever holds that string can redeem it into
- * the room's entrance over any channel, including after everybody has left.
+ * An ordinary room reference returns only a link that already exists, and
+ * only where that reference would seat a caller to post now. A reference
+ * that seats its holder to watch is refused with `read-only-membership`. One
+ * the room has withdrawn, such as a revoked link, is refused whether or not
+ * the caller already sits in the room. An invitation lets one person in, so
+ * its entrance is refused too. The separate room manager capability may
+ * create or reissue one. What comes back is a complete sturdyref, and whoever
+ * holds that string can redeem it into the room's entrance over any channel,
+ * including after everybody has left.
  * The link retains admission authority and stable room identity, not a live
  * room allocation or membership.
  *
  * A private room derives one from its unguessable name, not its label, so the
  * link says nothing about what the room is called and the label says nothing
- * about the link. The directory's `link` verb asks for the same existing link
- * by public name, so it answers nothing for a private room and never conveys
- * management authority. */
+ * about the link. The directory's `link` verb answers the same link by
+ * public name and makes it when the room has none. After a link is revoked,
+ * the name makes the next one only for a room with no manager and no key.
+ * For any other room the manager or the holder of the room's key makes it.
+ * The verb answers nothing for a private room and never conveys management
+ * authority. */
 
 export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_handover.ts";
 

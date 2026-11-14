@@ -10,9 +10,7 @@ pub(super) fn nick(text: &DocumentText, empty: bool) -> bool {
 	}
 	units <= 32
 		&& !text.as_str().is_some_and(crate::room::inbox::addresses_everyone)
-		&& !text
-			.utf16()
-			.any(|v| matches!(v, 0..=31 | 127..=159 | 0x200e..=0x200f | 0x2028..=0x202e | 0x2066..=0x2069))
+		&& !text.carries_control_or_direction()
 }
 pub(super) fn route(text: &DocumentText, routes: &impl Routes, link: bool) -> Result<DocumentText, Refusal> {
 	let scalar = text.utf8_lossy();

@@ -1,6 +1,8 @@
-//! Shutdown must observe socket retirement, including failed setup.
-use super::{Input, Publisher, Socket, Transport};
+//! Shutdown must observe socket retirement, including failed setup, and a
+//! publisher that is not connected keeps only what a connect replays.
+use super::{Inner, Input, Publisher, Socket, Transport, announce, set_connected};
 use crate::Error;
+use glowcap::{DurableProvenance, SessionMeta, TraceEvent, TraceKind};
 use rooms_glowcap::client::Deadline;
 use std::{cell::RefCell, future::Future, rc::Rc};
 use tokio::sync::watch;
@@ -128,4 +130,66 @@ async fn publisher_joins_close_and_preserves_failure_after_open_or_setup_failure
 		}
 	})
 	.await;
+}
+
+fn event(kind: TraceKind, session: &str) -> TraceEvent {
+	TraceEvent {
+		sim_t_ns: 7,
+		kind,
+		session: session.into(),
+		a: None,
+		b: None,
+		transport: None,
+		a_label: None,
+		a_profile: None,
+		session_id: None,
+		codec: None,
+		captp_version: None,
+		provenance: DurableProvenance::Unauthenticated,
+		outbound: false,
+		op: Some("op:deliver".into()),
+		len: None,
+		bytes_b64: None,
+		summary: None,
+		digest: None,
+		meta: (kind == TraceKind::SessionMeta).then(|| SessionMeta {
+			label: Some("kept".into()),
+		}),
+	}
+}
+
+#[test]
+fn a_disconnected_publisher_queues_no_decoded_message_and_retains_opens_and_metas_for_replay() {
+	let (dirty, _changes) = watch::channel(());
+	let (_finished, ended) = watch::channel(None);
+	let inner = Rc::new(Inner::idle(dirty, ended));
+	let publisher = Publisher(inner.clone());
+	publisher.record(&event(TraceKind::SessionOpened, "s"));
+	publisher.record(&event(TraceKind::SessionMeta, "s"));
+	publisher.record(&event(TraceKind::MessageDecoded, "s"));
+	assert!(
+		inner.pending.borrow().is_empty(),
+		"a disconnected publisher queues nothing"
+	);
+	assert_eq!(inner.pending_bytes.get(), 0);
+	assert_eq!(inner.opens.borrow().len(), 1, "an open is retained for replay");
+	assert_eq!(inner.metas.borrow().len(), 1, "a meta is retained for replay");
+	assert!(inner.refusal.borrow().is_none());
+	let replay = announce(&inner);
+	assert_eq!(replay.len(), 2, "a decoded message adds nothing to the replay");
+	assert!(replay[0].contains("ocapn.session-opened"));
+	let unheard: Rc<dyn Fn(bool)> = Rc::new(|_| {});
+	set_connected(&inner, true, &unheard);
+	assert_eq!(
+		announce(&inner),
+		replay,
+		"the retained lines are what a connect announces"
+	);
+	publisher.record(&event(TraceKind::MessageDecoded, "s"));
+	assert_eq!(
+		inner.pending.borrow().len(),
+		1,
+		"a connected publisher still queues a decoded message"
+	);
+	assert!(inner.pending.borrow()[0].contains("deliver"));
 }

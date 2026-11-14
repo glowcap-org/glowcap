@@ -110,12 +110,12 @@ export function nickRefusal(nick: string): string | null {
 	// combining marks, and the emoji joiners stay, so an international or emoji
 	// name is untouched.
 	//   \u0000-\u001F,\u007F-\u009F  C0/C1 controls, incl. ESC, newline, tab, DEL
-	//   \u200E,\u200F                 LTR/RTL marks
+	//   \u061C,\u200E,\u200F          Arabic letter, LTR, and RTL marks
 	//   \u2028,\u2029                 line / paragraph separators
 	//   \u202A-\u202E,\u2066-\u2069  bidi embeddings, overrides, isolates
 	// The control characters are the subject, so matching them is intended.
 	// deno-lint-ignore no-control-regex
-	if (/[\u0000-\u001F\u007F-\u009F\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069]/.test(nick)) {
+	if (/[\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069]/.test(nick)) {
 		return "a name may not contain control or text-direction characters";
 	}
 	return null;
@@ -188,18 +188,10 @@ export const MAX_FORM_VALUE = APPLICATION_DATA.MAX_FORM_VALUE;
 export const MAX_FORM_FIELDS = APPLICATION_DATA.MAX_FORM_FIELDS;
 export const MAX_FORM_ACTIONS = APPLICATION_DATA.MAX_FORM_ACTIONS;
 
-/** The JSON one form, or one set of answers to it, may cross as.
- *
- * Derived from the other bounds. The widest form they allow is a title, a
- * sentence, eight fields carrying a label, a hint and a value each, and three
- * actions, which is a few kilobytes with its punctuation. This is that with
- * room to spare, and it is still a ceiling. */
-export const MAX_FORM_JSON = APPLICATION_DATA.MAX_FORM_JSON;
-
 /** The JSON one whole gateway description may cross as.
  *
  * A gateway carries its two forms plus every connection with its leases, so
- * `MAX_FORM_JSON` is far too small for a loaded one, and the schema's
+ * the bound on one form is far too small for a loaded one, and the schema's
  * theoretical product (a thousand connections of a thousand leases) is not a
  * deployment size. A quarter mebibyte holds hundreds of fully loaded
  * connections and is checked before the description is parsed. */

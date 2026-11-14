@@ -13,8 +13,44 @@ use std::{
 	time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-pub const MAX_INPUT: usize = rooms_application::room::line::MAX_LINE_BYTES;
+const MAX_INPUT: usize = rooms_application::room::line::MAX_LINE_BYTES;
 const MAX_OUTPUT: usize = 64 * 1024;
+
+/// A value a peer or the server supplied that must stay on one line, such as
+/// a name or an error: every control and direction character, a newline and
+/// a tab included, is written out. Only a message's text spans lines, and
+/// `peer_line` marks its continuation lines.
+pub(super) fn one_line(value: &str) -> String {
+	let mut line = String::with_capacity(value.len());
+	value.chars().for_each(|c| spell(&mut line, c, false));
+	line
+}
+
+/// One output record with its control and direction characters written out.
+/// A newline and a tab stay, because a record may span lines.
+pub(super) fn escaped(text: &str) -> Result<String, String> {
+	if text.len() > MAX_OUTPUT {
+		return Err("terminal output exceeds its 64 KiB record budget".into());
+	}
+	let mut escaped = String::with_capacity(text.len());
+	for c in text.chars() {
+		spell(&mut escaped, c, true);
+		if escaped.len() > MAX_OUTPUT {
+			return Err("escaped terminal output exceeds its 64 KiB record budget".into());
+		}
+	}
+	Ok(escaped)
+}
+
+/// Push `c`, written out when it is a control or direction character. A
+/// newline and a tab stay when `layout` is set.
+fn spell(out: &mut String, c: char, layout: bool) {
+	if rooms_application::text::is_control_or_direction(c) && !(layout && matches!(c, '\n' | '\t')) {
+		out.extend(c.escape_default());
+	} else {
+		out.push(c);
+	}
+}
 
 struct Descriptor {
 	file: File,
@@ -136,20 +172,7 @@ impl Terminal {
 		self.input.recv().await
 	}
 	pub async fn print(&self, text: String) -> Result<(), String> {
-		if text.len() > MAX_OUTPUT {
-			return Err("terminal output exceeds its 64 KiB record budget".into());
-		}
-		let mut escaped = String::with_capacity(text.len());
-		for c in text.chars() {
-			if c.is_control() && c != '\n' && c != '\t' {
-				escaped.extend(c.escape_default());
-			} else {
-				escaped.push(c);
-			}
-			if escaped.len() > MAX_OUTPUT {
-				return Err("escaped terminal output exceeds its 64 KiB record budget".into());
-			}
-		}
+		let escaped = escaped(&text)?;
 		self.output
 			.send(escaped)
 			.await

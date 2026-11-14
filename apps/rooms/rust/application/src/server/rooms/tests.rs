@@ -12,8 +12,11 @@ use alloc::{format, vec};
 use support::*;
 
 mod file_clock;
+mod gate;
+mod names;
 mod presence;
 mod receipts;
+mod recorded;
 mod support;
 
 #[test]
@@ -580,19 +583,7 @@ fn durable_entrances_rebuild_a_room_and_follow_its_authority() {
 	assert_eq!(refused.refusal.reason(), "no-such-room: this room link was revoked");
 	// A managed room enters by its public name under its generation.
 	let id = "~00000000000000000000000000000007";
-	world.authority = world
-		.authority
-		.remembered(
-			id,
-			false,
-			true,
-			Some(crate::server::links::Registration {
-				name: "Yard",
-				policy: RoomPolicy::Moderated,
-			}),
-		)
-		.unwrap()
-		.unwrap();
+	world.register(id, "Yard", RoomPolicy::Moderated);
 	let managed = world.rooms.enter("yard", &world.authority).unwrap();
 	assert_eq!(
 		managed.gate,

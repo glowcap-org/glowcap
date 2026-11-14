@@ -60,6 +60,7 @@ pub struct LiveMember<'a, C> {
 use super::history;
 use crate::{
 	directory::{RoomInfo, registration::Id},
+	failure::FailureCode,
 	files::{FileLimits, FileStore},
 	room::policy::{MembershipKind, RoomPolicy},
 };
@@ -74,6 +75,22 @@ pub const MAX_ROOMS_PER_CREATOR: usize = 256;
 pub const MAX_ROOM_INVITATIONS: usize = 64;
 pub use crate::room::membership::MAX_AWAY;
 pub const MAX_ROOM: usize = super::document::MAX_ROOM;
+
+/// Why no room takes `name`, or `None` when one may. A room's name is shown
+/// unescaped in every reader's display, and the server document refuses the
+/// same characters in every name it keeps.
+pub fn room_name_refusal(name: &str) -> Option<Refusal> {
+	if name.is_empty() {
+		return Some(Refusal::plain("a room name may not be empty"));
+	}
+	if name.encode_utf16().count() > MAX_ROOM {
+		return Some(Refusal::coded(
+			FailureCode::RoomTooLong,
+			alloc::format!("a room name may be at most {MAX_ROOM} characters"),
+		));
+	}
+	crate::text::carries_control_or_direction(name).then(|| Refusal::plain(super::document::NAME_CHARACTERS))
+}
 /// The lines a room membership's `history` answers.
 pub const HISTORY_ANSWERED: usize = 100;
 

@@ -73,13 +73,8 @@ pub fn nick_refusal(nick: &str) -> Option<alloc::string::String> {
 	// A granted name flows unescaped into every reader's display; a control
 	// character is an escape injected there, and a direction override is one
 	// name worn to look like another.
-	if nick.chars().any(|c| {
-		matches!(c,
-			'\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{200e}' | '\u{200f}' |
-			'\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
-		)
-	}) {
-		return Some("a name may not carry control or direction characters".into());
+	if crate::text::carries_control_or_direction(nick) {
+		return Some("a name may not contain control or text-direction characters".into());
 	}
 	None
 }
@@ -222,5 +217,22 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 				attachments,
 			}))
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::nick_refusal;
+
+	#[test]
+	fn a_name_with_a_control_or_direction_character_is_refused() {
+		for nick in ["Eve\u{61c}", "Eve\u{7}", "\u{202e}evE"] {
+			assert_eq!(
+				nick_refusal(nick).as_deref(),
+				Some("a name may not contain control or text-direction characters"),
+				"{nick:?}"
+			);
+		}
+		assert_eq!(nick_refusal("Ève"), None);
 	}
 }

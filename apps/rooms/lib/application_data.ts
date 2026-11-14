@@ -11,7 +11,6 @@ export const MAX_SUBJECT_DESCRIPTION = 300;
 export const MAX_SUBJECT_LINK = 1024;
 export const MAX_FORM_FIELDS = 8;
 export const MAX_FORM_ACTIONS = 3;
-export const MAX_FORM_JSON = 16384;
 export const MAX_FORM_SCOPE = 64;
 export const MAX_FORM_TITLE = 60;
 export const MAX_FORM_SAID = 240;

@@ -44,6 +44,9 @@ pub(super) fn gated_entrance(
 		{
 			return Err("this room invitation entrance has ended".into());
 		}
+		if verb == LINK && admission.is_some() {
+			return Err(super::super::rooms::INVITATION_TELLS_NO_LINK.into());
+		}
 		let (connection, session) = {
 			let mut state = shared.borrow_mut();
 			let caller = super::super::rooms::caller(&mut state)?;
@@ -91,9 +94,12 @@ pub(in crate::server) fn call(
 		CALLED => Ok(bridge.room.name().into()),
 		PRIVATE => Ok("listed".into()),
 		POLICY => Ok(Argument::List(vec!["listed".into(), "open".into(), "open".into()])),
-		LINK => state
-			.link(publication.swiss.borrow().as_deref().ok_or_else(retired)?)
-			.map(Argument::from),
+		LINK => {
+			super::super::rooms::may_tell_link(kind)?;
+			state
+				.link(publication.swiss.borrow().as_deref().ok_or_else(retired)?)
+				.map(Argument::from)
+		}
 		_ => Err(format!("IRC room has no method {verb}")),
 	}
 }

@@ -128,6 +128,14 @@ struct Entry<P: Tasks> {
 	event: Rc<Event<P>>,
 	files: Vec<Ref>,
 }
+/// Entries are pushed in the order their ids are assigned and leave only from
+/// the front, so ids ascend and a search by id is a bisection.
+fn first_after<P: Tasks>(entries: &VecDeque<Entry<P>>, cursor: u64) -> Option<&Entry<P>> {
+	entries.get(entries.partition_point(|entry| entry.id <= cursor))
+}
+fn with_id<P: Tasks>(entries: &VecDeque<Entry<P>>, id: u64) -> Option<&Entry<P>> {
+	first_after(entries, id.checked_sub(1)?).filter(|entry| entry.id == id)
+}
 pub(in crate::session::managed) struct PreparedEvent<P: Tasks> {
 	activity: Rc<Activity<P>>,
 	pub(in crate::session::managed) event: Rc<Event<P>>,
@@ -310,19 +318,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			.ok_or_else(|| loam::refusal("activity reader is not initialized"))
 	}
 	pub(super) fn file(&self, id: u64, index: usize) -> Result<Ref> {
-		self.entries
-			.borrow()
-			.iter()
-			.find(|entry| entry.id == id)
+		with_id(&self.entries.borrow(), id)
 			.and_then(|entry| entry.files.get(index))
 			.cloned()
 			.ok_or_else(|| loam::refusal("activity file token has expired"))
 	}
 	pub(in crate::session::managed) fn event(&self, id: u64) -> Result<Rc<Event<P>>> {
-		self.entries
-			.borrow()
-			.iter()
-			.find(|entry| entry.id == id)
+		with_id(&self.entries.borrow(), id)
 			.map(|entry| entry.event.clone())
 			.ok_or_else(|| loam::refusal("activity token has expired"))
 	}

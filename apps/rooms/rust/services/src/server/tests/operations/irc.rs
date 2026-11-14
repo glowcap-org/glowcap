@@ -487,6 +487,12 @@ async fn scenario() {
 			.await
 			.is_err()
 	);
+	// An invitation's entrance is not told the room's link.
+	let refused = session.send(&again, "link", &[]).await.unwrap_err();
+	assert!(
+		refused.to_string().contains("an invitation lets one person in"),
+		"{refused}"
+	);
 	let observer = member(
 		session
 			.send(

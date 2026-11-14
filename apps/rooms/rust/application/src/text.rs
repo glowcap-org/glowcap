@@ -174,6 +174,21 @@ fn append_json_run(json: &mut String, run: &mut String) -> Result<(), serde_json
 	Ok(())
 }
 
+/// Whether `c` is a control character, or a direction character that
+/// reorders the text around it. One predicate serves every place that takes a
+/// name from a peer or shows peer text where an escape would act.
+pub fn is_control_or_direction(c: char) -> bool {
+	matches!(c,
+		'\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{61c}' | '\u{200e}' | '\u{200f}' |
+		'\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+	)
+}
+
+/// Whether `text` holds any character `is_control_or_direction` names.
+pub fn carries_control_or_direction(text: &str) -> bool {
+	text.chars().any(is_control_or_direction)
+}
+
 pub(crate) fn js_whitespace(c: char) -> bool {
 	matches!(c, '\u{0009}'..='\u{000d}' | ' ' | '\u{00a0}' | '\u{1680}'
 		| '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}'
@@ -191,6 +206,12 @@ impl Ord for DocumentText {
 	}
 }
 impl DocumentText {
+	/// Whether any unit is a character `is_control_or_direction` names. Each
+	/// of those is one UTF-16 unit, and a lone surrogate is no character.
+	pub fn carries_control_or_direction(&self) -> bool {
+		self.utf16()
+			.any(|unit| char::from_u32(u32::from(unit)).is_some_and(is_control_or_direction))
+	}
 	pub fn lowercase(&self) -> Self {
 		if let Some(text) = self.as_str() {
 			return text.to_lowercase().into();
@@ -226,5 +247,26 @@ impl DocumentText {
 				units.drain(..start);
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{DocumentText, carries_control_or_direction, is_control_or_direction};
+
+	#[test]
+	fn every_control_and_direction_character_is_named_and_ordinary_text_is_not() {
+		for c in [
+			'\0', '\u{1f}', '\u{7f}', '\u{9f}', '\u{61c}', '\u{200e}', '\u{200f}', '\u{202e}', '\u{2066}',
+		] {
+			assert!(is_control_or_direction(c), "{c:?}");
+		}
+		for c in ['a', ' ', '\u{a0}', 'é', '\u{200b}', '\u{2065}', '\u{2070}'] {
+			assert!(!is_control_or_direction(c), "{c:?}");
+		}
+		assert!(carries_control_or_direction("Eve\u{61c}"));
+		assert!(!carries_control_or_direction("Ève"));
+		assert!(DocumentText::from("Eve\u{61c}").carries_control_or_direction());
+		assert!(!DocumentText::from_utf16(&[0xd800, 0x45]).carries_control_or_direction());
 	}
 }

@@ -125,7 +125,7 @@ fn the_kept_document_reads_and_writes_back_the_same_relations() {
 	assert!(authority.has_manager("old"));
 	assert_eq!(authority.managed_room(MANAGED).unwrap().name, "Garden");
 	assert_eq!(authority.managed_room_id_for_name("garden"), Some(MANAGED));
-	assert!(authority.managed_room_generation_is_current(MANAGED, 2));
+	assert_eq!(authority.managed_room(MANAGED).unwrap().generation, 2);
 	assert_eq!(description(&authority, "Garden"), Some("seedlings"));
 	assert_eq!(
 		authority.subject("garden").and_then(Subject::link),
@@ -376,4 +376,97 @@ fn the_link_registry_is_bounded() {
 	assert!(authority.remembered("r1", false, false, None).unwrap().is_none());
 	// A revoked name comes back without spending a row.
 	assert!(authority.remembered("gone", false, false, None).unwrap().is_some());
+}
+
+/// Entropy is derived from a label with no escaping, so a room name that
+/// carries control characters spells another authority's label. A server
+/// that took such a name would publish two durable names under one token,
+/// which is why a room name never carries them.
+#[test]
+fn a_name_spelling_a_steward_or_manager_label_derives_that_authoritys_entropy() {
+	let authority = kept();
+	assert_eq!(
+		authority.room_entropy("steward\0vault", 0),
+		authority.steward_entropy("vault", 0)
+	);
+	assert_eq!(
+		authority.room_entropy("manager\u{0}0\u{0}vault", 0),
+		authority.manager_entropy("vault", 0)
+	);
+	assert_ne!(
+		authority.room_entropy("vault", 0),
+		authority.steward_entropy("vault", 0)
+	);
+}
+
+#[test]
+fn a_durable_name_with_control_characters_is_never_remembered() {
+	let authority = kept();
+	for name in ["steward\0vault", "manager\u{0}0\u{0}vault", "bell\u{7}", "flip\u{202e}"] {
+		let refused = authority.remembered(name, false, false, None).unwrap_err();
+		assert!(
+			refused.reason().contains("control or text-direction"),
+			"{name:?}: {}",
+			refused.reason()
+		);
+	}
+}
+
+#[test]
+fn a_managed_room_takes_no_public_name_with_control_characters() {
+	let authority = kept().remembered(MANAGED, false, true, None).unwrap().unwrap();
+	let renamed = authority
+		.with_managed_room_policy(MANAGED, "bell\u{7}", RoomPolicy::Open)
+		.unwrap_err();
+	assert!(
+		renamed.reason().contains("control or text-direction"),
+		"{}",
+		renamed.reason()
+	);
+	let registered = Authority::read(&Document::fresh([1; 32], [2; 32]))
+		.unwrap()
+		.remembered(
+			MANAGED,
+			false,
+			true,
+			Some(Registration {
+				name: "flip\u{202e}",
+				policy: RoomPolicy::Open,
+			}),
+		)
+		.unwrap_err();
+	assert!(
+		registered.reason().contains("control or text-direction"),
+		"{}",
+		registered.reason()
+	);
+}
+
+#[test]
+fn a_stored_document_with_a_control_name_does_not_load() {
+	for (held, with) in [
+		(
+			r#""linkedRooms":["Garden","#,
+			r#""linkedRooms":["bell\u0007","Garden","#,
+		),
+		(
+			r#""revokedRooms":["old"]"#,
+			r#""revokedRooms":["old","steward\u0000vault"]"#,
+		),
+		(
+			r#""name":"Garden","generation":2"#,
+			r#""name":"bell\u0007","generation":2"#,
+		),
+		(
+			r#"{"name":"garden","description""#,
+			r#"{"name":"flip\u202e","description":"x"},{"name":"garden","description""#,
+		),
+	] {
+		assert_eq!(KEPT.matches(held).count(), 1, "{held}");
+		assert_eq!(
+			Document::decode(&KEPT.replace(held, with)).err(),
+			Some(crate::server::document::Error::Name),
+			"{with}"
+		);
+	}
 }

@@ -20,6 +20,8 @@ pub const MAX_ROOM_LINKS: usize = 4096;
 /// A durable room name: a public name, or a managed room's opaque key.
 pub const MAX_DURABLE_ROOM: usize = 33;
 pub const MAX_ROOM: usize = 32;
+/// The line every refusal of a room name's characters says.
+pub const NAME_CHARACTERS: &str = "a room name may not contain control or text-direction characters";
 
 pub type DurableName = Text<MAX_DURABLE_ROOM, true>;
 
@@ -96,6 +98,8 @@ pub enum Error {
 	Shape,
 	/// Linked, revoked, and stewarded room authority disagree.
 	Relations,
+	/// A room name carries a control or direction character.
+	Name,
 	/// The encoded document would not fit `MAX_BYTES`, the most a server reads
 	/// back at startup.
 	Size,
@@ -107,6 +111,7 @@ impl core::fmt::Display for Error {
 			Self::Version => "rooms state version is not supported",
 			Self::Shape => "rooms state is invalid",
 			Self::Relations => "linked, revoked, and stewarded room authority is inconsistent",
+			Self::Name => NAME_CHARACTERS,
 			Self::Size => "rooms state would grow past what the server reads back, so this change is refused",
 		})
 	}
@@ -157,9 +162,19 @@ impl Document {
 	/// stewards only over linked rooms, managers over linked or revoked ones,
 	/// managed rooms under a manager with distinct listed names, generations
 	/// and subjects over rooms this document knows, each link a sturdyref's
-	/// shape.
+	/// shape. No room name carries a control or direction character. A link's
+	/// token derives from a label that joins its fields with NUL, so a name
+	/// holding one could spell another link's label. Every stored document and
+	/// every successor passes here, so no name the server holds does.
 	pub fn validate(&self) -> Result<(), Error> {
 		let fold = |name: &DurableName| name.text().lowercase();
+		let names = self.linked_rooms.0.iter().chain(&self.revoked_rooms.0);
+		let mut names = names.chain(self.subjects.0.iter().map(|row| &row.name));
+		if names.any(|name| name.text().carries_control_or_direction())
+			|| (self.managed_rooms.0.iter()).any(|room| room.name.text().carries_control_or_direction())
+		{
+			return Err(Error::Name);
+		}
 		let mut linked = BTreeSet::new();
 		for name in &self.linked_rooms.0 {
 			if !linked.insert(fold(name)) {
