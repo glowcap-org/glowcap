@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const markdown = @import("../markdown.zig");
-const source_tree = @import("../source_tree.zig");
+const inventory = @import("build_steps_doc");
 const violation_log = @import("../violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -53,6 +53,24 @@ fn collectCommandRegions(gpa: std.mem.Allocator, contents: []const u8, out: *std
     }
 }
 
+/// The step the next `zig build <step>` citation in `rest` names, advancing
+/// `rest` past that `zig build`. A bare flag such as `zig build --help` names
+/// no step.
+fn nextStepCitation(rest: *[]const u8) ?[]const u8 {
+    while (std.mem.find(u8, rest.*, "zig build")) |start| {
+        const after = rest.*[start + "zig build".len ..];
+        rest.* = after;
+
+        const span = std.mem.trimStart(u8, after, " \t");
+        if (span.len == 0 or isCommandTerminator(span[0])) continue;
+
+        const step = std.mem.trim(u8, span[0..firstCommandTokenEnd(span)], "`'\".,);]");
+        if (step.len == 0 or std.mem.startsWith(u8, step, "-")) continue;
+        return step;
+    }
+    return null;
+}
+
 /// Scans one command-context region (a fenced line or an inline backtick span)
 /// for `zig build <step>` and `bash <script>` citations, flagging any that
 /// does not resolve.
@@ -66,20 +84,13 @@ const CommandScan = struct {
 
     fn region(self: CommandScan, text: []const u8) !void {
         var rest = text;
-        while (std.mem.find(u8, rest, "zig build")) |start| {
-            const after = rest[start + "zig build".len ..];
-            rest = after;
-
-            const span = std.mem.trimStart(u8, after, " \t");
-            if (span.len == 0 or isCommandTerminator(span[0])) continue;
-
-            const documented_step = std.mem.trim(u8, span[0..firstCommandTokenEnd(span)], "`'\".,);]");
-            if (documented_step.len == 0 or std.mem.startsWith(u8, documented_step, "-")) continue;
+        while (nextStepCitation(&rest)) |documented_step| {
             if (!self.steps.contains(documented_step)) {
-                try appendViolation(self.gpa, self.violations, "{s}: documents `zig build {s}`, but build.zig has no step named `{s}`", .{
+                try appendViolation(self.gpa, self.violations, "{s}: documents `zig build {s}`, but {s} and {s} have no row for it: the citation is wrong, or the step is missing from the inventory", .{
                     self.path,
                     documented_step,
-                    documented_step,
+                    inventory.doc_paths[0],
+                    inventory.doc_paths[1],
                 });
             }
         }
@@ -115,22 +126,25 @@ pub fn checkDocumentedBuildSteps(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const build_zig = source_tree.readBuildStepSources(io, gpa, root) catch |err|
-        return appendViolation(gpa, violations, "build.zig + tools/build: failed to read with {s}", .{@errorName(err)});
-    defer gpa.free(build_zig);
-
+    var docs_arena = std.heap.ArenaAllocator.init(gpa);
+    defer docs_arena.deinit();
+    // The step set is the bare rows of the inventories, which
+    // `gen-build-steps-check` holds to the build graph.
     var steps = std.StringHashMap(void).init(gpa);
     defer steps.deinit();
-    try steps.put("build", {});
-    try collectBuildSteps(gpa, build_zig, &steps);
+    for (inventory.builtin_steps) |name| try steps.put(name, {});
+    for (inventory.doc_paths) |path| {
+        const text = root.readFileAlloc(io, path, docs_arena.allocator(), .limited(1 << 20)) catch |err|
+            return appendViolation(gpa, violations, "{s}: failed to read the step inventory with {s}", .{ path, @errorName(err) });
+        var names = inventory.rows(text);
+        while (names.next()) |name| try steps.put(name, {});
+    }
 
     // The command-citing corpus: the fixed surfaces outside the walked trees,
     // plus every Markdown file under `docs/**` and `.agents/**`, plus every
     // SuperMD page under `site/content/**` (the site cites the same
     // `zig build` steps and drifts the same way). Paths are duped into an
     // arena so they outlive the directory walkers.
-    var docs_arena = std.heap.ArenaAllocator.init(gpa);
-    defer docs_arena.deinit();
     var command_docs: std.ArrayList([]const u8) = .empty;
     defer command_docs.deinit(gpa);
     for (fixed_command_docs) |path| try command_docs.append(gpa, path);
@@ -187,32 +201,6 @@ fn collectCommandDocsUnder(
         if (!std.mem.endsWith(u8, entry.path, ext)) continue;
         try out.append(gpa, try arena.print("{s}/{s}", .{ dir_path, entry.path }));
     }
-}
-
-fn collectBuildSteps(gpa: std.mem.Allocator, build_zig: []const u8, steps: *std.StringHashMap(void)) !void {
-    // Steps are declared as `b.step("name", …)`, table-driven `.step_name = "name"`
-    // and `.profile_step = "name"` rows, header-gen `.check_step_name` /
-    // `.write_step_name` pairs, and binding-family `.aggregate_name = "name"`
-    // rows passed to `addBindingFamily`.
-    const patterns = [_][]const u8{
-        "b.step(\"",
-        ".step_name = \"",
-        ".profile_step = \"",
-        ".check_step_name = \"",
-        ".write_step_name = \"",
-        ".aggregate_name = \"",
-    };
-    for (patterns) |pattern| {
-        var rest = build_zig;
-        while (std.mem.find(u8, rest, pattern)) |start| {
-            const after = rest[start + pattern.len ..];
-            const end = std.mem.findScalar(u8, after, '"') orelse break;
-            const name = after[0..end];
-            try steps.put(name, {});
-            rest = after[end..];
-        }
-    }
-    _ = gpa;
 }
 
 fn firstCommandTokenEnd(text: []const u8) usize {
@@ -323,4 +311,11 @@ test "a step cited inside an HTML code span ends at the closing tag" {
     const text = "zig build bench-site-report</code> repeats it.";
     const after = std.mem.trimStart(u8, text["zig build".len..], " ");
     try std.testing.expectEqualStrings("bench-site-report", after[0..firstCommandTokenEnd(after)]);
+}
+
+test "each cited step is named and a bare flag names none" {
+    var rest: []const u8 = "zig build check, then `zig build nope` and zig build --help";
+    try std.testing.expectEqualStrings("check", nextStepCitation(&rest).?);
+    try std.testing.expectEqualStrings("nope", nextStepCitation(&rest).?);
+    try std.testing.expect(nextStepCitation(&rest) == null);
 }

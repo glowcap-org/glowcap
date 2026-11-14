@@ -124,10 +124,13 @@ pub fn create(b: *Build) *Step {
 /// check joins.
 pub fn checkImports(b: *Build, target: Build.ResolvedTarget, optimize: std.lang.Optimize) []const Build.Module.Import {
     const policies = [_][]const u8{ "python", "racket" };
-    const imports = b.allocator.alloc(Build.Module.Import, 2 + policies.len) catch @panic("OOM");
+    const imports = b.allocator.alloc(Build.Module.Import, 3 + policies.len) catch @panic("OOM");
     imports[0] = .{ .name = "model", .module = leafModule(b, target, optimize, "src/ocapn/model/mod.zig", &.{}) };
     imports[1] = .{ .name = "host_inventory", .module = hostInventoryModule(b, target, optimize) };
-    inline for (policies, 2..) |binding, i| {
+    // The inventory writer owns how a row names a step, so the documented-step
+    // check reads rows through it.
+    imports[2] = .{ .name = "build_steps_doc", .module = leafModule(b, target, optimize, "tools/build/build_steps_doc.zig", &.{}) };
+    inline for (policies, 3..) |binding, i| {
         imports[i] = .{ .name = "ffi_omissions_" ++ binding, .module = leafModule(b, target, optimize, ffi_omissions.path(binding), &.{}) };
     }
     return imports;

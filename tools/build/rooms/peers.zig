@@ -209,7 +209,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     compile_platform.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
     compile_platform.step.dependOn(&compile_units.step);
     const platform_unit = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-    platform_unit.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
+    commands.addLoaderPathArg(platform_unit);
     commands.addLibDirArg(platform_unit, .host);
     platform_unit.addArgs(platform_unit_args);
     platform_unit.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
@@ -225,7 +225,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     var previous_unit: *std.Build.Step = &platform_unit.step;
     for (unit_filters) |filter| {
         const unit = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-        unit.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
+        commands.addLoaderPathArg(unit);
         commands.addLibDirArg(unit, .host);
         unit.addArgs(service_unit_args);
         unit.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
@@ -235,7 +235,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     }
 
     const process_run = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-    process_run.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
+    commands.addLoaderPathArg(process_run);
     commands.addLibDirArg(process_run, .host);
     Binary.archive.addTestEnv(process_run);
     Binary.session.addTestEnv(process_run);

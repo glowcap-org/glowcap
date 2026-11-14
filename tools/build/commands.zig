@@ -4,6 +4,7 @@
 //! bounded run.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const execution = @import("execution.zig");
 
 /// The pinned mypy and the flags every first-party Python type check runs
@@ -112,14 +113,38 @@ pub fn addLibDirArg(run: *std.Build.Step.Run, which: LibDir) void {
     }, .{ .prefix = lib_dir_variable ++ "=", .make_absolute = true });
 }
 
-/// Bind `GLOWCAP_LIB_DIR` to an archive set in the command's environment. The
-/// build API gives configure no install path, so this names the default prefix.
+/// The host archive set under the default install prefix. The build API gives
+/// configure no install path, so an environment value names this one.
+pub fn hostLibDir(b: *std.Build) []const u8 {
+    return rootPath(b, "zig-out/lib");
+}
+
+/// Bind `GLOWCAP_LIB_DIR` to an archive set in the command's environment.
 pub fn setLibDir(run: *std.Build.Step.Run, which: LibDir) void {
     const b = run.step.owner;
     run.setEnvironmentVariable(lib_dir_variable, switch (which) {
-        .host => rootPath(b, "zig-out/lib"),
+        .host => hostLibDir(b),
         .wasm => rootPath(b, "zig-out/wasm/lib"),
     });
+}
+
+/// The shared-library search path a loader reads: the installed archives, under
+/// the variable the build host's OS names. Other OSes set none.
+pub fn setLoaderPath(run: *std.Build.Step.Run) void {
+    const directory = hostLibDir(run.step.owner);
+    switch (builtin.target.os.tag) {
+        .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", directory),
+        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", directory),
+        else => {},
+    }
+}
+
+/// Point a command started through `env` at the installed archives: appends
+/// the `LD_LIBRARY_PATH=<directory>` argument, whatever the build host. The
+/// directory resolves when the command runs, so it follows a custom install
+/// prefix, which `hostLibDir` does not.
+pub fn addLoaderPathArg(run: *std.Build.Step.Run) void {
+    run.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
 }
 
 /// Absolute path under the repository root, for environment variables passed
