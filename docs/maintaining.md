@@ -179,8 +179,9 @@ repositories, including divergent and checked-out branches.
 
 `main` is a fast-forward of `dev`, so the commit the checks ran on is the
 commit that publishes: the same hash, signature, and evidence note. Every push
-to `dev` runs full validation, and a push to `dev` cancels any `dev` run still
-in progress, so only the newest `dev` commit becomes a candidate.
+to `dev` runs full validation. A run in progress finishes when a newer push
+arrives, and the newest waiting push runs next, so `main` trails `dev` by at
+most two runs however often `dev` moves.
 
 When a push run on `dev` succeeds, the
 [promote workflow](../.github/workflows/promote.yml) fast-forwards `main` to
