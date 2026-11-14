@@ -1,8 +1,9 @@
-// Shared assertions and ledger open/close for live-feed tests.
+// Shared assertions, ledger open/close, an empty capture, and a ceiling no
+// test reaches, for live-feed tests.
 
 import { assert } from "@std/assert";
 import type { BaseTimelineEvent } from "../record.ts";
-import type { TimelineEvent } from "../../timeline.ts";
+import type { TimelineDocument, TimelineEvent } from "../../timeline.ts";
 
 /**
  * Narrow `TimelineEvent | undefined` to a specific `kind`. Returns
@@ -57,3 +58,21 @@ export function closeSession(
 		session,
 	});
 }
+
+/** An empty document a live capture appends to. */
+export function newLiveDoc(): TimelineDocument {
+	return {
+		id: "live-test",
+		duration: 60 * 1000,
+		recording: {
+			sources: [{
+				id: "live",
+				meta: { kind: "glowcap-host" },
+				observations: [],
+			}],
+		},
+	};
+}
+
+/** A capture no test can fill. */
+export const UNBOUNDED = { ceilingChars: Infinity, onFull: () => {} };

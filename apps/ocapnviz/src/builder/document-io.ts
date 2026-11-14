@@ -6,6 +6,7 @@
  * could not skip a transaction that changed nothing.
  */
 
+import { SAVED_INDENT } from "../engine/temporal/recording-access.ts";
 import { TimelineDocument } from "../engine/timeline.ts";
 
 /** How long a document starts out. Ten seconds is enough timeline to place a few
@@ -54,15 +55,17 @@ export function saveStampedDoc(
 	return { ...doc, metadata: { ...doc.metadata, "dct:modified": now } };
 }
 
+/** The text of the file a save writes, built as one string. A live capture
+ *  counts its observations in this form against `MAX_CAPTURE_CHARS`. */
+export function savedText(doc: TimelineDocument, now: string): string {
+	return JSON.stringify(saveStampedDoc(doc, now), null, SAVED_INDENT);
+}
+
 /** Serialize the current doc and trigger a browser download.
  * Filename is the doc id with a `.json` suffix (slashes scrubbed
  * so the OS doesn't reject the suggested name). */
 export function downloadDocAsJson(doc: TimelineDocument): void {
-	const json = JSON.stringify(
-		saveStampedDoc(doc, new Date().toISOString()),
-		null,
-		2,
-	);
+	const json = savedText(doc, new Date().toISOString());
 	const blob = new Blob([json], { type: "application/json" });
 	const url = URL.createObjectURL(blob);
 	try {

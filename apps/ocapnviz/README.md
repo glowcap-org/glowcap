@@ -87,7 +87,8 @@ paste the live link again before recording.
 
 Connecting does not start a capture. Press **Record** to start one, and from then on every session and message
 the room carries draws as it happens. **Stop** hands the capture to Play, where
-it replays like any other recording.
+it replays like any other recording. A capture that reaches the size limit
+stops itself the same way and says so.
 
 The trace first replays the sessions already open, so the picture is complete
 from the first frame. A viewer that disconnects or falls behind reconnects and

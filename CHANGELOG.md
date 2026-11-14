@@ -197,6 +197,10 @@ Releases before 0.1.7 are in the
   fault. It returned `GLOWCAP_ERR_IO` for both once the channel had opened,
   and `GLOWCAP_ERR_WOULD_BLOCK` on every call for a channel that ended before
   it opened.
+- ocapnviz ends a Live recording when it holds 128 MiB of events, as
+  **Stop** does, and says the recording is full in a notice and in its
+  description. A recording grew for as long as it ran, until the page ran
+  out of memory.
 
 ## [0.1.7] - 2026-11-11
 

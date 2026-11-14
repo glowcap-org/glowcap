@@ -12,7 +12,7 @@ import { Engine } from "./engine/engine.ts";
 import { docTitle, TimelineDocument } from "./engine/timeline.ts";
 import { useStoreSelection } from "./interactions/use-store-selection.ts";
 import { UnifiedCanvas } from "./render/UnifiedCanvas.tsx";
-import { claimRecording, emptyCaptureError } from "./engine/live/mode.ts";
+import { type CaptureEnd, captureFullError, claimRecording, emptyCaptureError } from "./engine/live/mode.ts";
 import { BusErrorModal } from "./ui/error/ErrorModal.tsx";
 import { ConfirmDialog } from "./ui/ConfirmDialog.tsx";
 import { ErrorToast } from "./ui/error/ErrorToast.tsx";
@@ -248,6 +248,7 @@ export function App() {
 		connection: liveConnection,
 		observed: liveObserved,
 		captureEngine,
+		captureFull,
 	} = useLiveConnection({
 		sturdyref: state.mode === "live" ? state.liveSturdyref : "",
 		recording,
@@ -255,29 +256,48 @@ export function App() {
 
 	const recordingsClaimed = useRef(0);
 	const handleStartRecord = useCallback(() => setRecording(true), []);
-	const handleDiscardRecording = useCallback(() => setRecording(false), []);
+	// A capture ends once. It can fill in the moment its user presses Stop or
+	// Discard, before the page has drawn either, and the first of them to
+	// run is the one that ends it. Each capture has its own engine, so the
+	// engine names the capture that ended.
+	const endedCapture = useRef<Engine | null>(null);
+	const handleDiscardRecording = useCallback(() => {
+		endedCapture.current = captureEngine;
+		setRecording(false);
+	}, [captureEngine]);
 	// Stop claims the recording as the unsaved buffer source and
 	// lands in Play, record, stop, review. Consent to replace the
 	// buffer was given at the Record press (the confirm lives in
-	// LiveControls).
-	const handleStopRecord = useCallback(() => {
+	// LiveControls). Says whether this call claimed a recording.
+	const endRecording = useCallback((ended: CaptureEnd): boolean => {
+		if (captureEngine !== null && endedCapture.current === captureEngine) return false;
+		endedCapture.current = captureEngine;
 		setRecording(false);
 		const claimed = captureEngine !== null
 			? claimRecording(
 				captureEngine.doc,
 				`live-recording-${++recordingsClaimed.current}`,
+				ended,
 			)
 			: null;
 		if (claimed === null) {
 			pushError({ error: emptyCaptureError(), source: "engine" });
-			return;
+			return false;
 		}
 		setRecordedDoc(claimed);
 		setLoadedFile(null);
 		setEditedDoc(null);
 		setNewDoc(null);
 		dispatch({ type: "set-mode", mode: "play" });
+		return true;
 	}, [captureEngine, dispatch]);
+	const handleStopRecord = useCallback(() => {
+		endRecording("stopped");
+	}, [endRecording]);
+	// A full capture ends as Stop ends one, and says why it ended.
+	useEffect(() => {
+		if (captureFull && endRecording("full")) pushError({ error: captureFullError(), source: "engine" });
+	}, [captureFull, endRecording]);
 
 	// Leaving Build with edits puts the working document ahead of the
 	// fixture in the source order, so the picker names what you built
@@ -285,8 +305,9 @@ export function App() {
 	// mode flip with no edits keeps the source pristine.
 	//
 	// Mode and source controls are inert while a capture is in flight, so
-	// every exit is explicit: Stop claims the capture and Discard throws it
-	// away. This callback therefore never owns recording finalization.
+	// a capture ends only where `endRecording` and Discard say: Stop or a
+	// full capture claims it, and Discard throws it away. This callback
+	// therefore never owns recording finalization.
 	const handleModeChange = useCallback(
 		(mode: AppMode) => {
 			if (

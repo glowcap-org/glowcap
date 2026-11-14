@@ -2,11 +2,9 @@ import { assert, assertEquals } from "@std/assert";
 import { Engine } from "../engine.ts";
 import { engineTest } from "../engine-test/harness.ts";
 import { makeBaseEventConverter } from "./feed.ts";
-import { claimRecording, emptyCaptureError, makeLiveAppender, startLiveMode } from "./mode.ts";
-import { saveStampedDoc } from "../../builder/document-io.ts";
-import type { LivePeerFactory } from "./connection.ts";
+import { makeLiveAppender } from "./mode.ts";
+import { newLiveDoc, UNBOUNDED } from "./feed-test/harness.ts";
 import { findPeer, findSession } from "../world.ts";
-import type { TimelineDocument } from "../timeline.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
 
 /**
@@ -19,20 +17,6 @@ import { primaryObservations } from "../temporal/recording-access.ts";
  * `feed-test/dialing.test.ts`). Conversion is covered by the
  * rest of `feed-test/`. Focuses on the renderer-side fold.
  */
-
-function newLiveDoc(): TimelineDocument {
-	return {
-		id: "live-test",
-		duration: 60 * 1000,
-		recording: {
-			sources: [{
-				id: "live",
-				meta: { kind: "glowcap-host" },
-				observations: [],
-			}],
-		},
-	};
-}
 
 engineTest(
 	"live mode: ocapn.session-opened produces peer + session entities",
@@ -305,7 +289,7 @@ Deno.test("makeLiveAppender shifts a message's whole time base", () => {
 	// shift by the same delta or the flight duration goes nonsense
 	// (arrivalT left on the producer's base gives negative flights).
 	const liveDoc = newLiveDoc();
-	const append = makeLiveAppender({ liveDoc, clock: { t: 42 } });
+	const append = makeLiveAppender({ liveDoc, clock: { t: 42 }, ...UNBOUNDED });
 	append({
 		id: "m1",
 		kind: "message-sent",
@@ -326,7 +310,7 @@ Deno.test("makeLiveAppender shifts a message's whole time base", () => {
 
 Deno.test("makeLiveAppender lands the first event at clock.t + 1", () => {
 	const liveDoc = newLiveDoc();
-	const append = makeLiveAppender({ liveDoc, clock: { t: 42 } });
+	const append = makeLiveAppender({ liveDoc, clock: { t: 42 }, ...UNBOUNDED });
 	append({
 		id: "e1",
 		kind: "peer-joined",
@@ -346,7 +330,7 @@ Deno.test("makeLiveAppender preserves producer inter-event spacing", () => {
 	// the "our floats aren't precise enough" symptom.
 	const liveDoc = newLiveDoc();
 	const clock = { t: 42 };
-	const append = makeLiveAppender({ liveDoc, clock });
+	const append = makeLiveAppender({ liveDoc, clock, ...UNBOUNDED });
 	const join = (id: string, t: number) => ({
 		id,
 		kind: "peer-joined" as const,
@@ -369,7 +353,7 @@ Deno.test("makeLiveAppender collapses a backlog burst to now, then resumes caden
 	// the live tail afterwards keeps its true spacing.
 	const liveDoc = newLiveDoc();
 	const clock = { t: 100 };
-	const append = makeLiveAppender({ liveDoc, clock });
+	const append = makeLiveAppender({ liveDoc, clock, ...UNBOUNDED });
 	const join = (id: string, t: number) => ({
 		id,
 		kind: "peer-joined" as const,
@@ -398,113 +382,4 @@ Deno.test("makeLiveAppender collapses a backlog burst to now, then resumes caden
 	append(join("live2", 62_000.125));
 	const ts = primaryObservations(liveDoc).map((o) => o.t);
 	assertEquals(ts[4]! - ts[3]!, 0.125);
-});
-
-// claimRecording: the whole accumulated doc IS the recording, the
-// engine connects at the Record press, so its t=0 is the press.
-
-Deno.test("claimRecording: fresh id, content-derived duration", () => {
-	const doc = newLiveDoc();
-	primaryObservations(doc).push(
-		{
-			id: "e1",
-			t: 0,
-			kind: "peer-joined",
-			peerId: "alice",
-			profile: "glowcap",
-		},
-		{
-			id: "e2",
-			t: 500,
-			kind: "message-sent",
-			messageId: "m1",
-			sessionId: "s1",
-			from: "alice",
-			to: "bob",
-			arrivalT: 900,
-		},
-	);
-	const claimed = claimRecording(doc, "rec-1")!;
-	assert(claimed !== null, "a non-empty recording claims");
-	assertEquals(claimed.id, "rec-1");
-	assertEquals(primaryObservations(claimed).length, 2);
-	// Duration covers the last flight's arrival plus breathing room,
-	// instead of the live view's one-hour ceiling.
-	assert(
-		claimed.duration >= 900 && claimed.duration < 60_000,
-		`duration derives from content, got ${claimed.duration}`,
-	);
-});
-
-Deno.test("claimRecording: an empty recording claims nothing", () => {
-	assertEquals(claimRecording(newLiveDoc(), "rec-2"), null);
-	const error = emptyCaptureError();
-	assertEquals(error.code, "validation");
-	assertEquals(error.title, "Nothing to review");
-});
-
-Deno.test("claimRecording: the claim owns its observations", () => {
-	// A shallow spread hands the claimed document the very array the live
-	// appender is still pushing into, so a feed that keeps arriving after Stop
-	// goes on writing into what the reader is scrubbing. The one caller
-	// unmounts the capture in the same commit, which makes it safe and
-	// is a coupling nothing states. This holds the sever instead.
-	//
-	// Validated against the defect: restoring the shallow
-	// `{ ...liveDoc, id, duration }` return fails this and nothing else.
-	const doc = newLiveDoc();
-	primaryObservations(doc).push({
-		id: "e1",
-		t: 0,
-		kind: "peer-joined",
-		peerId: "alice",
-		profile: "glowcap",
-	});
-	const claimed = claimRecording(doc, "rec-3")!;
-	assertEquals(primaryObservations(claimed).length, 1);
-	// The live side goes on doing what a live side does.
-	primaryObservations(doc).push({
-		id: "e2",
-		t: 10,
-		kind: "peer-joined",
-		peerId: "bob",
-		profile: "glowcap",
-	});
-	assertEquals(
-		primaryObservations(claimed).length,
-		1,
-		"an arrival after the claim reached the claimed recording",
-	);
-	assertEquals(primaryObservations(doc).length, 2);
-});
-
-Deno.test("a saved recording holds no part of the link it was captured with", async () => {
-	const marker = "SECRET-SWISSNUM-MARKER";
-	const link = `ocapn://node.keyed-tcp?h=127.0.0.1:9/s/${marker}`;
-	const records: Array<(line: string) => void> = [];
-	const factory: LivePeerFactory = (_ref, onRecord) => {
-		records.push(onRecord);
-		return Promise.resolve({ closed: new Promise<void>(() => {}), close: () => Promise.resolve() });
-	};
-	const handle = startLiveMode({ sturdyref: link, peerFactory: factory });
-	await new Promise((resolve) => setTimeout(resolve, 0));
-	const record = records[0];
-	if (record === undefined) throw new Error("the dial must reach the peer factory");
-	record(JSON.stringify({
-		v: 1,
-		sim_t_ns: 5_000_000,
-		kind: "ocapn.session-opened",
-		transport: "tcp",
-		captp_version: "1.0",
-		session: "alice--bob",
-		a: "alice",
-		b: "bob",
-		codec: "syrup",
-	}));
-	const claimed = claimRecording(handle.engine.doc, "claimed");
-	handle.dispose();
-	assert(claimed !== null, "the capture must hold an observation");
-	const saved = JSON.stringify(saveStampedDoc(claimed, "2026-01-01T00:00:00.000Z"), null, 2);
-	assertEquals(saved.includes(marker), false);
-	assertEquals(saved.includes("ocapn://"), false);
 });

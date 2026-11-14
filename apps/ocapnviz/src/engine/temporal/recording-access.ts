@@ -11,6 +11,25 @@
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import type { Observation, RecordingSource } from "./recording.ts";
 
+/** The indent a saved document is written with. */
+export const SAVED_INDENT = 2;
+
+/** How deep a primary observation sits in a document: under the document,
+ *  `recording`, `sources`, its source, and `observations`. */
+const OBSERVATION_DEPTH = 5;
+
+/**
+ * How many characters one more primary observation adds to a saved document:
+ * its own indented text, the indent of the array it sits in on each of its
+ * lines, and the comma and line break that set it apart from the one before.
+ */
+export function savedObservationChars(observation: TimelineEvent): number {
+	const text = JSON.stringify(observation, null, SAVED_INDENT);
+	let lines = 1;
+	for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) lines++;
+	return text.length + lines * OBSERVATION_DEPTH * SAVED_INDENT + ",\n".length;
+}
+
 /**
  * Mutable primary observation array. The home for new observations
  * from authoring or live-feed. Lazy-creates `recording.sources[0]`

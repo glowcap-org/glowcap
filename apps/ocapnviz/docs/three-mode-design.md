@@ -47,6 +47,7 @@ The three modes are three verbs against that buffer.
 | Live to Play/Build | When idle, disconnect and preserve the buffer. While recording, these transitions are unavailable.     |
 | Record starts      | If the buffer is non-empty and unsaved, warn before clearing it.                                        |
 | Record stops       | Claim the recording as the buffer and enter Play.                                                       |
+| Record fills       | End as Record stops does, and say the recording is full in a notice and in its description.             |
 | Record discards    | Throw away the capture and remain connected in Live.                                                    |
 
 The loaded document means the same thing in every mode, so Play replaying a
