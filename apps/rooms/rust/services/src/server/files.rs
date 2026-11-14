@@ -10,10 +10,8 @@ use glowcap::{Argument, Ref, Session};
 use rooms_application::{
 	failure::FailureCode,
 	files::{Blob, FileError, FileStore, ReadOutcome, ReadTicket},
-	server::rooms::{
-		MembershipKey, RoomKey, UploadKey,
-		wire::{DataEncoder, Encoder},
-	},
+	room::DataEncoder,
+	server::rooms::{MembershipKey, RoomKey, UploadKey, wire::Encoder},
 };
 use rooms_glowcap::Value;
 use std::{

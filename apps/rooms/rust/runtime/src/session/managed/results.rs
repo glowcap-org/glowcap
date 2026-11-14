@@ -3,6 +3,7 @@
 mod creation;
 mod direct;
 mod invitation;
+mod live;
 mod manager;
 mod membership;
 mod moderator;
@@ -18,7 +19,7 @@ use glowcap::{
 use rooms_application::{
 	content::session::{
 		custody::{self, Coordinate, FieldKey, Outcome},
-		results::{PostedLine, RoomLink, RoomPolicyUpdate, Stewardship},
+		results::{Acceptance, Connection, Direct, PostedLine, Publication, RoomLink, RoomPolicyUpdate, Stewardship},
 	},
 	fields::{List, Text},
 	room::authority,
@@ -104,13 +105,13 @@ impl Prepared {
 			(Reply::RoomManager, value) => manager::read(value, intent).map(Self::Capability),
 			(Reply::RoomModerator, value) => moderator::read(value).map(Self::Capability),
 			(Reply::DirectoryRegistration, value) => registration::read(value, intent).map(Self::Complete),
-			(Reply::DirectAccess, value) => direct::read(value).map(Self::Complete),
-			(Reply::IrcConnection, value) => operations::connection(value).map(Self::Complete),
+			(Reply::DirectAccess, value) => live::read::<Direct>(value).map(Self::Complete),
+			(Reply::IrcConnection, value) => live::read::<Connection>(value).map(Self::Complete),
 			(Reply::Text | Reply::Listener | Reply::RetireBatch, value) => {
 				operations::read(reply, value).map(Self::Complete)
 			}
-			(Reply::AcceptedAccess, value) => invitation::read(value).map(Self::Complete),
-			(Reply::PublicationLease, value) => publication::read(value).map(Self::Complete),
+			(Reply::AcceptedAccess, value) => live::read::<Acceptance>(value).map(Self::Complete),
+			(Reply::PublicationLease, value) => live::read::<Publication>(value).map(Self::Complete),
 			(Reply::ManagedRoom, value) => creation::prepare(value).map(Self::Capability),
 			(Reply::Membership, value) => membership::read(value).map(Self::Complete),
 			(Reply::Line, value) => {
@@ -359,11 +360,11 @@ pub(super) fn outcome(
 	let valid = match reply {
 		Reply::Upload => super::uploads::matches(data, &coordinates)?,
 		Reply::DirectoryRegistration => registration::matches(data, &coordinates)?,
-		Reply::DirectAccess => direct::matches(data, &coordinates)?,
-		Reply::IrcConnection => operations::matches_connection(data, &coordinates)?,
+		Reply::DirectAccess => live::matches::<Direct>(data, &coordinates)?,
+		Reply::IrcConnection => live::matches::<Connection>(data, &coordinates)?,
 		Reply::Text | Reply::Listener | Reply::RetireBatch => operations::matches(reply, data, &coordinates)?,
-		Reply::AcceptedAccess => invitation::matches(data, &coordinates)?,
-		Reply::PublicationLease => publication::matches(data, &coordinates)?,
+		Reply::AcceptedAccess => live::matches::<Acceptance>(data, &coordinates)?,
+		Reply::PublicationLease => live::matches::<Publication>(data, &coordinates)?,
 		Reply::ManagedRoom => creation::matches(data, &coordinates)?,
 		Reply::Membership => membership::matches(data, &coordinates)?,
 		Reply::Line => {

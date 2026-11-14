@@ -1,36 +1,15 @@
 //! A returned lease is exact live custody, independently of listing readiness.
-use super::*;
-use rooms_application::content::session::results::Publication;
+use super::{live::LiveRow, *};
 
-fn coordinate() -> Coordinate {
-	Coordinate {
-		role: custody::Role::PublicationLease,
-		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
+impl LiveRow for Publication {
+	const ROLE: custody::Role = custody::Role::PublicationLease;
+	const NO_CAPABILITY: &'static str = "publication returned no lease capability";
+	const INVALID_RESULT: &'static str = "invalid publication result";
+	const INVALID_COORDINATE: &'static str = "invalid lease coordinate";
+	fn with_key(key: FieldKey<()>) -> Self {
+		Self { lease: key.retag() }
 	}
-}
-pub(super) fn read(value: &Argument) -> Result<Settlement> {
-	let reference = Ref::try_from(value).map_err(|_| loam::refusal("publication returned no lease capability"))?;
-	let coordinate = coordinate();
-	let row = Publication {
-		lease: coordinate.key.retag(),
-	};
-	Ok(Settlement(Argument::List(vec![
-		serde_json::to_string(&row)
-			.map_err(|_| loam::refusal("invalid publication result"))?
-			.into(),
-		Argument::List(vec![Argument::List(vec![
-			serde_json::to_string(&coordinate)
-				.map_err(|_| loam::refusal("invalid lease coordinate"))?
-				.into(),
-			Argument::Reference(reference),
-			Argument::List(vec!["live".into()]),
-		])]),
-	])))
-}
-pub(super) fn matches(data: &str, actual: &[Coordinate]) -> Result<bool> {
-	let row: Publication = serde_json::from_str(data).map_err(|_| loam::refusal("invalid publication result"))?;
-	let expected = coordinate();
-	Ok(actual == [expected]
-		&& row.lease.slot() == expected.key.slot()
-		&& row.lease.generation() == expected.key.generation())
+	fn key(&self) -> FieldKey<()> {
+		self.lease.retag()
+	}
 }

@@ -216,16 +216,7 @@ impl<D: Deadline> File<D> {
 	}
 }
 
-/// The binding's single renderer for a live Rooms attachment suffix.
+/// Append one live attachment record as binding arguments.
 pub(crate) fn append_attachment(args: &mut Vec<Argument>, description: &FileDescription, blob: &Ref) {
-	let (width, height) = description.dimensions();
-	args.extend([
-		"file".into(),
-		description.name().into(),
-		description.mime().into(),
-		Argument::Integer(description.size() as i64),
-		blob.clone().into(),
-		Argument::Integer(width.into()),
-		Argument::Integer(height.into()),
-	]);
+	rooms_application::room::attachment::append(&mut crate::Arguments, description, blob.clone().into(), args);
 }

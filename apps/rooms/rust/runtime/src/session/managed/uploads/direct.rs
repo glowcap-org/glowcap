@@ -46,16 +46,7 @@ impl Pipeline {
 			let reader = self
 				.continuation
 				.project_reads_copying(intent.target_count() + index, &interfaces, 0)?;
-			let (width, height) = file.dimensions();
-			args.extend([
-				"file".into(),
-				file.name().into(),
-				file.mime().into(),
-				Argument::Integer(file.size() as i64),
-				reader.into(),
-				Argument::Integer(width.into()),
-				Argument::Integer(height.into()),
-			]);
+			attachment::append(&mut rooms_glowcap::Arguments, &file, reader.into(), &mut args);
 		}
 		let (index, verb) = match intent.upload {
 			Kind::Post => {

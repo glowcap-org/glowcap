@@ -18,6 +18,16 @@ pub mod subject;
 #[cfg(test)]
 pub(crate) mod test_value;
 
+/// Builds the data fields of an outgoing protocol argument list, the writing
+/// counterpart of `ArgumentView`. The binding adapter implements this over its
+/// own value type.
+pub trait DataEncoder {
+	type Value;
+	fn text(&mut self, value: alloc::string::String) -> Self::Value;
+	fn integer(&mut self, value: u64) -> Self::Value;
+	fn boolean(&mut self, value: bool) -> Self::Value;
+}
+
 /// A borrowed view of an already decoded protocol argument. The binding adapter
 /// implements this over its own value type. Rooms never serializes references
 /// into identifiers or owns a second CapTP value representation.

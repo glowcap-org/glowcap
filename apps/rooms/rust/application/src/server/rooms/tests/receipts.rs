@@ -10,7 +10,7 @@ enum Encoded {
 	Boolean(bool),
 }
 struct Encoder;
-impl wire::DataEncoder for Encoder {
+impl crate::room::DataEncoder for Encoder {
 	type Value = Encoded;
 	fn text(&mut self, value: String) -> Encoded {
 		Encoded::Text(value)

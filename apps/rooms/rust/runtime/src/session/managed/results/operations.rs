@@ -1,38 +1,20 @@
 //! Operation answers retain bounded data and private exact connection custody.
-use super::*;
-use rooms_application::content::session::results::Connection;
+use super::{live::LiveRow, *};
 use rooms_application::session::operations::{Listener, wire};
 
-fn connection_coordinate() -> Coordinate {
-	Coordinate {
-		role: custody::Role::IrcConnection,
-		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
+impl LiveRow for Connection {
+	const ROLE: custody::Role = custody::Role::IrcConnection;
+	const NO_CAPABILITY: &'static str = "gateway returned no connection capability";
+	const INVALID_RESULT: &'static str = "invalid connection result";
+	const INVALID_COORDINATE: &'static str = "invalid connection coordinate";
+	fn with_key(key: FieldKey<()>) -> Self {
+		Self {
+			connection: key.retag(),
+		}
 	}
-}
-pub(super) fn connection(value: &Argument) -> Result<Settlement> {
-	let reference = Ref::try_from(value).map_err(|_| loam::refusal("gateway returned no connection capability"))?;
-	let coordinate = connection_coordinate();
-	let data = serde_json::to_string(&Connection {
-		connection: coordinate.key.retag(),
-	})
-	.map_err(|_| loam::refusal("invalid connection result"))?;
-	Ok(Settlement(Argument::List(vec![
-		data.into(),
-		Argument::List(vec![Argument::List(vec![
-			serde_json::to_string(&coordinate)
-				.map_err(|_| loam::refusal("invalid connection coordinate"))?
-				.into(),
-			Argument::Reference(reference),
-			Argument::List(vec!["live".into()]),
-		])]),
-	])))
-}
-pub(super) fn matches_connection(data: &str, fields: &[Coordinate]) -> Result<bool> {
-	let row: Connection = serde_json::from_str(data).map_err(|_| loam::refusal("invalid connection result"))?;
-	let expected = connection_coordinate();
-	Ok(fields == [expected]
-		&& row.connection.slot() == expected.key.slot()
-		&& row.connection.generation() == expected.key.generation())
+	fn key(&self) -> FieldKey<()> {
+		self.connection.retag()
+	}
 }
 
 pub(super) fn read(reply: Reply, value: &Argument) -> Result<Settlement> {

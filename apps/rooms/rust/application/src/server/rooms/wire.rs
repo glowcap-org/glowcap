@@ -3,6 +3,7 @@
 //! connection, so the adapter supplies the encoder, one blob at a time.
 use super::notice::{Blob, Notice};
 use crate::room::{
+	DataEncoder,
 	inbox::{AUTHORITY_CHANGED, ENDED, POLICY_CHANGED, ROOM},
 	message::ChangeKind,
 };
@@ -47,13 +48,6 @@ pub fn attachment<A: crate::room::ArgumentView>(
 			},
 		)
 	})
-}
-
-pub trait DataEncoder {
-	type Value;
-	fn text(&mut self, value: String) -> Self::Value;
-	fn integer(&mut self, value: u64) -> Self::Value;
-	fn boolean(&mut self, value: bool) -> Self::Value;
 }
 
 pub trait Encoder: DataEncoder {
@@ -232,15 +226,8 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 
 fn attachments<E: Encoder>(files: &[Blob], e: &mut E, out: &mut Vec<E::Value>) -> Result<(), E::Error> {
 	for blob in files {
-		let description = blob.description();
-		let (width, height) = description.dimensions();
-		out.push(e.text("file".into()));
-		out.push(e.text(description.name().into()));
-		out.push(e.text(description.mime().into()));
-		out.push(e.integer(description.size() as u64));
-		out.push(e.blob(blob)?);
-		out.push(e.integer(width as u64));
-		out.push(e.integer(height as u64));
+		let capability = e.blob(blob)?;
+		crate::room::attachment::append(e, blob.description(), capability, out);
 	}
 	Ok(())
 }
