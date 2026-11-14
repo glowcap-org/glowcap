@@ -5,7 +5,7 @@ const std = @import("std");
 const model = @import("model");
 
 /// A CapTP version's Zig enum tag and the word it puts on the wire.
-pub const CaptpWireWord = struct { tag: []const u8, wire: []const u8 };
+const CaptpWireWord = struct { tag: []const u8, wire: []const u8 };
 
 /// Every `model.CaptpVersion` with its `wireString`. Two checks hold their
 /// files to these words: `c_abi.checkTraceVocabulary` the four producers, and

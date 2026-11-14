@@ -4,7 +4,7 @@ const Io = std.Io;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
 pub const filename = "share/glowcap/installation.manifest";
-pub const max_path_len = 4096;
+const max_path_len = 4096;
 pub const max_line_len = 64 + 3 + max_path_len + 1;
 pub const Entry = struct { path: []const u8, digest: [32]u8, executable: bool };
 

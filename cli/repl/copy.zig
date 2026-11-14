@@ -40,7 +40,7 @@ pub const empty_exports = "No exports yet. publish a builtin, or wait for a part
 pub const empty_imports = "No imports yet. fetch a published name from the peer.";
 pub const empty_answers = "No answers yet. call creates an answered deliver.";
 
-pub const tip_quoted_uri = "Inside the REPL, paste the locator without quotes.";
+const tip_quoted_uri = "Inside the REPL, paste the locator without quotes.";
 pub const tip_missing_verb = "call needs name|#N, verb, then args: call greeter greet world  or  call #1 greet world";
 pub const tip_no_session = "No open session. dial an ocapn:// locator, or run listen to accept one.";
 

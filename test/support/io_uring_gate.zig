@@ -12,7 +12,7 @@ const std = @import("std");
 const net = @import("glowcap").net;
 
 /// The variable that makes a refused io_uring a failure instead of a skip.
-pub const require_variable = "GLOWCAP_REQUIRE_IO_URING";
+const require_variable = "GLOWCAP_REQUIRE_IO_URING";
 
 /// The outcome of an io_uring setup failure `err`: `error.SkipZigTest` when
 /// the host refused io_uring and nothing requires it, else `err` itself.

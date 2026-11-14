@@ -17,7 +17,7 @@ pub const Step = enum { received, closed };
 
 pub fn Harness(comptime Transport: type) type {
     return struct {
-        pub fn pumpStep(peer: *engine.Peer, conn: Transport.Conn) !Step {
+        fn pumpStep(peer: *engine.Peer, conn: Transport.Conn) !Step {
             while ((try peer.step()) != .idle) {}
             while (peer.takeOutbound()) |frame_value| {
                 var frame = frame_value;

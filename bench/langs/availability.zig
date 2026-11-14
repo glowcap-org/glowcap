@@ -108,7 +108,7 @@ pub fn buildRust(ctx: *Ctx) !bool {
 
 /// Probe whether the `goblins` collection is importable, so the reference row
 /// is skipped with a note when Goblins is not installed.
-pub fn goblinsPresent(ctx: *Ctx) !bool {
+fn goblinsPresent(ctx: *Ctx) !bool {
     const racket = ctx.racket_path orelse return false;
     var child = std.process.spawn(ctx.io, .{
         .argv = &.{ racket, "-e", "(require goblins)" },

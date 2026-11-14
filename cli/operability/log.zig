@@ -10,7 +10,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const Divert = struct {
+const Divert = struct {
     ptr: *anyopaque,
     writeFn: *const fn (ptr: *anyopaque, msg: []const u8) void,
 };
@@ -52,7 +52,7 @@ pub fn TestCapture(comptime tag: @TypeOf(.enum_literal)) type {
         /// tag, and one type is one `storage`, so the stdout and diagnostics
         /// captures would silently share bytes. Naming the tag here is what
         /// makes each instantiation its own type with its own storage.
-        pub const stream_tag = tag;
+        const stream_tag = tag;
 
         var storage: [64 << 10]u8 = undefined;
         var len: usize = 0;

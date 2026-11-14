@@ -11,7 +11,7 @@ const driver = glowcap.driver;
 /// One row per demo verb: dispatch below and REPL Tab completion share this
 /// table, so a new verb lands in both in the same change. Say-verbs carry
 /// their balloon figure. The null-figure rows have bespoke arms in `handle`.
-pub const DemoVerb = struct {
+const DemoVerb = struct {
     name: []const u8,
     blurb: []const u8,
     figure: ?[]const u8 = null,

@@ -160,7 +160,6 @@ const errToCodeFn = errToCode;
 const claimHostFn = claimHost;
 const adoptionErrorCodeFn = adoptionErrorCode;
 const adoptionOptionsFn = adoptionOptions;
-const operationOptionsFn = operationOptions;
 const operationOptionsCodeFn = operationOptionsCode;
 
 pub const Internal = struct {
@@ -171,7 +170,6 @@ pub const Internal = struct {
     pub const claimHost = claimHostFn;
     pub const adoptionErrorCode = adoptionErrorCodeFn;
     pub const adoptionOptions = adoptionOptionsFn;
-    pub const operationOptions = operationOptionsFn;
     pub const operationOptionsCode = operationOptionsCodeFn;
 };
 

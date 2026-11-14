@@ -24,7 +24,7 @@ const listing = @import("listing.zig");
 const Step = std.Build.Step;
 
 /// The library inventory first, then the applications, demos, and benchmarks.
-pub const doc_paths = [_][]const u8{ "docs/build-steps.md", "docs/build-steps-apps.md" };
+const doc_paths = [_][]const u8{ "docs/build-steps.md", "docs/build-steps-apps.md" };
 
 /// Zig's own top-level steps: never declared here, never listed.
 const builtin_steps = [_][]const u8{ "install", "uninstall" };

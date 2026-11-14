@@ -215,11 +215,8 @@ test "log divert captures Ctx.logErr off stderr" {
     try std.testing.expect(std.mem.find(u8, list.items, "glowcap: error:") != null);
 }
 
-test "layout transcriptInnerH and emergency row sum" {
+test "layout emergency row sum" {
     const L = cli.repl_layout;
-    // Outer 7 = border(2) + title(1) + content(4).
-    try std.testing.expectEqual(@as(u16, 4), L.transcriptInnerH(7));
-    try std.testing.expectEqual(@as(u16, 0), L.transcriptInnerH(2));
     const tiny = L.compute(40, 3, false, 0, false);
     try std.testing.expect(tiny.status_h + tiny.stage_h + tiny.strip_h + tiny.main_h <= 3);
 }
@@ -237,6 +234,8 @@ test "layout contentBelowTitle matches border+title inset" {
     try std.testing.expect(!c.contains(0, 12)); // left border
     try std.testing.expect(!c.contains(1, 11)); // title row
     try std.testing.expect(!c.contains(1, 21)); // past content
+    // A frame shorter than its border and title holds no content rows.
+    try std.testing.expectEqual(@as(u16, 0), L.contentBelowTitle(0, 0, 80, 2).h);
 }
 
 test "complete advertises listen (backgrounded) but not argv-only leaves" {
@@ -444,6 +443,22 @@ test "select Selection phase is a sum" {
     try std.testing.expectEqual(@as(u16, 2), sel.cellDist(1, 4));
     sel.clear();
     try std.testing.expect(sel.phase == .idle);
+}
+
+test "reduced motion shows no flash and holds the spinner" {
+    const F = cli.repl_flash;
+    try std.testing.expectEqual(F.Flash.exports, F.shown(.exports, false));
+    try std.testing.expectEqual(F.Flash.none, F.shown(.exports, true));
+    const q = cli.repl_await_queue;
+    try std.testing.expectEqual(@as(usize, 4), q.nextSpinnerFrame(3, false));
+    var wrapped = false;
+    var i: usize = 0;
+    for (0..64) |_| {
+        i = q.nextSpinnerFrame(i, false);
+        if (i == 0) wrapped = true;
+    }
+    try std.testing.expect(wrapped);
+    try std.testing.expectEqual(@as(usize, 0), q.nextSpinnerFrame(3, true));
 }
 
 test "flashForVerb maps CapTP verbs" {

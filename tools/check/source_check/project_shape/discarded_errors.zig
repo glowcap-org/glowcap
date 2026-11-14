@@ -11,7 +11,7 @@ const appendViolation = violation_log.appendViolation;
 
 /// The first-party trees the check reads. `test` is whole because a test that
 /// discards a failed step passes without running the step it claims to check.
-pub const scanned_trees = [_][]const u8{ "src", "cli", "apps", "examples", "tools", "interop", "test", "bench", "conformance" };
+const scanned_trees = [_][]const u8{ "src", "cli", "apps", "examples", "tools", "interop", "test", "bench", "conformance" };
 
 /// The markers that open a justification comment.
 const markers = [_][]const u8{ "best-effort:", "tolerant:" };
@@ -128,7 +128,7 @@ const Line = struct {
 
 /// The 1-based line numbers in `contents` holding a discard with no
 /// justification. The caller frees the slice.
-pub fn unjustifiedDiscards(gpa: std.mem.Allocator, contents: []const u8, language: Language, unwind_needs_no_marker: bool) ![]usize {
+fn unjustifiedDiscards(gpa: std.mem.Allocator, contents: []const u8, language: Language, unwind_needs_no_marker: bool) ![]usize {
     const code = try gpa.dupe(u8, contents);
     defer gpa.free(code);
     var lines: std.ArrayList(Line) = .empty;

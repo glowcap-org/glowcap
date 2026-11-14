@@ -331,7 +331,7 @@ pub fn fetchRef(
     return captured.require();
 }
 
-pub fn sendAndExpectString(
+fn sendAndExpectString(
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     pump: *PacketPump,
@@ -455,7 +455,7 @@ pub fn dialAndGreet(
     peer.close();
 }
 
-pub fn atomicFlagDone(ctx: *anyopaque) bool {
+fn atomicFlagDone(ctx: *anyopaque) bool {
     const done: *std.atomic.Value(bool) = @ptrCast(@alignCast(ctx));
     return done.load(.acquire);
 }
@@ -464,7 +464,7 @@ pub fn atomicFlagDone(ctx: *anyopaque) bool {
 /// `timeout_ms` well under the step's process deadline: when the partner has
 /// already failed, this wait running out is what lets the run report the
 /// partner's error instead of being killed with none.
-pub fn serveUntil(
+fn serveUntil(
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     pump: *PacketPump,
@@ -497,7 +497,7 @@ pub fn serveUntil(
     try pump.flushOutbound(resident, peer, session, timeout_ms);
 }
 
-pub fn strArg(value: driver.Value) ?[]const u8 {
+fn strArg(value: driver.Value) ?[]const u8 {
     return switch (value) {
         .string => |s| s,
         else => null,

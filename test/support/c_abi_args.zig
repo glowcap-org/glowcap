@@ -13,7 +13,7 @@ pub fn expectOk(rc: i32) !void {
     try std.testing.expectEqual(c.GLOWCAP_OK, rc);
 }
 
-pub fn zeroRef() c.GlowcapReference {
+fn zeroRef() c.GlowcapReference {
     return .{ .id = 0 };
 }
 

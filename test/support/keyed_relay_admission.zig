@@ -18,7 +18,7 @@ const ip = std.Io.net;
 
 pub const frame_cap = 4096;
 
-pub const AdmissionPlatform = struct {
+const AdmissionPlatform = struct {
     pub const Fd = i32;
     pub const adapter_depth = 0;
     pub const ConnectTarget = ip.IpAddress;

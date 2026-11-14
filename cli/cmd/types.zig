@@ -2,7 +2,7 @@
 const std = @import("std");
 const Ctx = @import("../ctx.zig").Ctx;
 
-pub const FlagKind = enum { bool_flag, string_flag };
+const FlagKind = enum { bool_flag, string_flag };
 
 pub const Flag = struct {
     long: []const u8,
@@ -27,7 +27,7 @@ pub const Positional = struct {
 /// What one flag was given as. A flag's declaration fixes its kind, so the
 /// union is the whole story: a name cannot be present as both a switch and a
 /// value, and a reader of a stored flag always knows which it holds.
-pub const FlagValue = union(FlagKind) {
+const FlagValue = union(FlagKind) {
     bool_flag: bool,
     string_flag: []const u8,
 };

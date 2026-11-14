@@ -42,7 +42,7 @@ const BindingFamily = struct {
 };
 
 /// The WebRTC steps a live dial-and-listen family depends on.
-pub const WebrtcSteps = struct {
+const WebrtcSteps = struct {
     abi_step: *std.Build.Step,
     answerer_step: *std.Build.Step,
     offerer_step: *std.Build.Step,

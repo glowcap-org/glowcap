@@ -279,7 +279,7 @@ test "a doc comment holds to the reader punctuation rule outside code" {
     try std.testing.expectEqual(@as(usize, 3), violations.items.len);
 }
 
-pub const ProseFlaw = union(enum) {
+const ProseFlaw = union(enum) {
     none,
     /// The punctuation, named for the message.
     mark: []const u8,

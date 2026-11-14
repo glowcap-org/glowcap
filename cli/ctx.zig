@@ -13,7 +13,7 @@ const OperationFailure = glowcap.driver.OperationFailure;
 const Io = std.Io;
 const exit_codes = @import("exit_codes.zig");
 
-pub const JsonMode = enum { human, json };
+const JsonMode = enum { human, json };
 
 /// Which product front owns this process context.
 pub const Front = enum { argv, repl, mcp };
@@ -230,7 +230,7 @@ pub const Ctx = struct {
     /// Join the context-owned relay provider. Refusal consumes nothing, so the
     /// slot remains populated and a later explicit close or process teardown
     /// can retry the same barrier.
-    pub fn closeRelayProvider(self: *Ctx) ?FailureChain {
+    fn closeRelayProvider(self: *Ctx) ?FailureChain {
         if (self.rendezvous_provider) |*provider| {
             const failure = relay_runtime.deinitAndReport(self, provider);
             if (failure != null) return failure;

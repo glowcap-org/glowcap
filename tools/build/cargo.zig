@@ -15,7 +15,7 @@ pub fn rustFmtCheck(b: *std.Build, manifest: []const u8) *std.Build.Step.Run {
     return commands.addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--all", "--check", "--manifest-path", manifest });
 }
 
-pub const RustSidecar = struct {
+const RustSidecar = struct {
     /// The cargo build. Flags such as `--features` go here.
     build: *std.Build.Step.Run,
     /// Cargo's target directory, for the binaries it builds beside the archive.

@@ -147,7 +147,7 @@ pub fn find(name: []const u8) ?*const Command {
     return null;
 }
 
-pub fn dispatchParsed(ctx: *Ctx, name: []const u8, parsed: *Parsed) !u8 {
+fn dispatchParsed(ctx: *Ctx, name: []const u8, parsed: *Parsed) !u8 {
     const cmd = find(name) orelse {
         ctx.logErr("unknown ocapn command \"{s}\"", .{name});
         return @import("exit_codes.zig").usage;

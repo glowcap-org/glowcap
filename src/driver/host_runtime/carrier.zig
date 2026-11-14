@@ -217,8 +217,9 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     switch (outcome) {
         .complete => finishWireCarrierClose(self, wire),
         // An abort never reports pending, so this is the close waiting on
-        // the resident.
-        .pending => wire.carrier_close = .wait_resident,
+        // the resident. The carrier stays open until the resident reports
+        // complete or failed.
+        .pending => {},
         .failed => |reported| {
             noteWireCloseChain(wire, reported);
             finishWireCarrierClose(self, wire);
@@ -228,7 +229,7 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
 
 fn finishWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     if (wire.carrierClosed()) return;
-    wire.carrier_close = .complete;
+    wire.carrier_closed = true;
     clearCarrierCloseDeadline(self, wire);
     if (self.open_wire_count == 0)
         Internal.retainAndReportUnhandledFailure(self, .fromError(error.ProviderContract))

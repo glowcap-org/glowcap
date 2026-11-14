@@ -9,7 +9,7 @@ const site_build = @import("site.zig");
 const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 
-pub fn engineModule(
+fn engineModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.lang.Optimize,
@@ -56,7 +56,7 @@ fn probeEngineModule(
     return module;
 }
 
-pub fn tlsMbedtlsModule(
+fn tlsMbedtlsModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.lang.Optimize,
@@ -80,7 +80,7 @@ pub const Family = struct {
     secure_check: *std.Build.Step,
 };
 
-pub const RelayAbiModules = struct {
+const RelayAbiModules = struct {
     production: *std.Build.Module,
     check: *std.Build.Module,
 };

@@ -81,7 +81,7 @@ pub fn receiveResolverCallback(peer: *engine.Peer, answer: model.AnswerPosition,
     event.deinit();
 }
 
-pub fn listenerPosition(answer: model.AnswerPosition) u64 {
+fn listenerPosition(answer: model.AnswerPosition) u64 {
     return 0x1000_0000 + answer.int();
 }
 

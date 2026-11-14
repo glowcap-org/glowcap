@@ -17,7 +17,7 @@ const std = @import("std");
 /// The byte written over freed memory. Chosen to differ from the `0xaa` that
 /// safe builds already write into undefined memory, so a failure message tells
 //  you which mechanism caught it.
-pub const poison_byte: u8 = 0x5a;
+const poison_byte: u8 = 0x5a;
 
 pub const PoisonOnFree = struct {
     inner: std.mem.Allocator,

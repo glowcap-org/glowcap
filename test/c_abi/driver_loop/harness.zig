@@ -442,7 +442,7 @@ pub fn serveBoth(
 /// Two loops joined by one served TCP session, with the client's fetched
 /// reference to a name the server published. The caller publishes on
 /// `server.host` before `connectAndFetch`, which then owns both loops.
-pub const FetchedPair = struct {
+const FetchedPair = struct {
     server: TestLoop,
     client: TestLoop,
     listener: u64,

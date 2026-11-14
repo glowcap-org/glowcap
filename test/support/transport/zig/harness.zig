@@ -123,9 +123,9 @@ pub fn untilAcceptable(io: std.Io, deadline_ms: u64, listener: anytype) !void {
     }
 }
 
-pub const PortFlagError = error{ BadPort, BadArgument };
+const PortFlagError = error{ BadPort, BadArgument };
 
-pub const PortFlagOptions = struct {
+const PortFlagOptions = struct {
     /// Highest acceptable port. A driver whose sibling binds `port + 1` passes
     /// 65534 so the pair stays in range.
     max: u16 = 65535,

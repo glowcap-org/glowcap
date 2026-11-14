@@ -88,7 +88,7 @@ fn fail(io: Io, message: []const u8) noreturn {
 /// list --installed` is the only thing that knows the difference. A probe that
 /// cannot run at all counts as the capability being absent, because from the
 /// gate's side the two are the same missing container layer.
-pub fn probeReports(
+fn probeReports(
     gpa: std.mem.Allocator,
     io: Io,
     probe: []const []const u8,
@@ -114,7 +114,7 @@ pub fn probeReports(
 /// `execvp` treats it. A candidate counts only when it is a file with an
 /// execute bit, so a directory of the same name, which every `access` for
 /// execution accepts because directories are searchable, is not the program.
-pub fn resolvesOnPath(
+fn resolvesOnPath(
     gpa: std.mem.Allocator,
     io: Io,
     environ: *const std.process.Environ.Map,
@@ -144,7 +144,7 @@ fn isExecutableFile(io: Io, path: []const u8) bool {
 }
 
 /// The report for what this `check` needs and this machine does not have.
-pub fn renderReport(gpa: std.mem.Allocator, missing: []const [2][]const u8) ![]const u8 {
+fn renderReport(gpa: std.mem.Allocator, missing: []const [2][]const u8) ![]const u8 {
     var report: std.ArrayList(u8) = .empty;
     errdefer report.deinit(gpa);
     try report.appendSlice(gpa, "`zig build check` needs a toolchain that is not installed here:\n");

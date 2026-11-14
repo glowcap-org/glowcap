@@ -19,7 +19,7 @@ const ip = Io.net;
 
 /// The relay never re-frames more than this per frame. A test frame larger
 /// than the cap is a test bug, refused loudly.
-pub const max_frame_payload = 64 * 1024;
+const max_frame_payload = 64 * 1024;
 
 /// One upgraded server-side leg: the accepted stream plus its reader/writer
 /// stores, pinned by value inside the test's frame.
@@ -117,7 +117,7 @@ pub fn serveUpgradeSized(leg: *Leg, response_bytes: ?usize) !void {
 }
 
 /// One frame read off a client leg, unmasked into `payload_buf`.
-pub const ClientFrame = struct {
+const ClientFrame = struct {
     opcode: keyed_relay.Opcode,
     payload: []const u8,
 };

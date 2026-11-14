@@ -20,14 +20,14 @@ const appendViolation = violation_log.appendViolation;
 /// Product stylesheets the browser loads. Symlinked copies of `ui/tokens.css`
 /// and `ui/mark.css` are not listed: the canonical file is enough, and a fault
 /// there is one fault, not three.
-pub const css_files = [_][]const u8{
+const css_files = [_][]const u8{
     "ui/tokens.css",
     "ui/mark.css",
     "apps/ocapnviz/src/styles.css",
     "apps/ocapnviz/src/controls.css",
 };
 
-pub const css_dirs = [_][]const u8{
+const css_dirs = [_][]const u8{
     "apps/rooms/web/ui",
     "site/assets",
 };

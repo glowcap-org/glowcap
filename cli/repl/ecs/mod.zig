@@ -10,7 +10,7 @@ pub const Mode = resources.Mode;
 pub const PanelFocus = resources.PanelFocus;
 pub const Resources = resources.Resources;
 pub const Intent = intent.Intent;
-pub const IntentQueue = intent.Queue;
+const IntentQueue = intent.Queue;
 
 pub const max_entities: u16 = 256;
 

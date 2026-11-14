@@ -99,7 +99,7 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
 
 /// Which installed C ABI archive set a command links or loads: the host set
 /// under `zig-out/lib`, or the Wasm set under `zig-out/wasm/lib`.
-pub const LibDir = enum { host, wasm };
+const LibDir = enum { host, wasm };
 
 const lib_dir_variable = "GLOWCAP_LIB_DIR";
 

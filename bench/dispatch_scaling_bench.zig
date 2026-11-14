@@ -47,7 +47,7 @@ const driveOneTurn = @import("warm_turn").driveOneTurn;
 /// path leaking into hot code, an asymptotic slip), never machine noise,
 /// which is also why it gates: a threshold tight enough to catch a 20% drift
 /// would flake across hardware, and a gate that flakes is worse than a print.
-pub const gate_warm_dispatch_ceiling_ns: f64 = 2_000;
+const gate_warm_dispatch_ceiling_ns: f64 = 2_000;
 
 const gate_batches = 5;
 const gate_turns_per_batch = 20_000;

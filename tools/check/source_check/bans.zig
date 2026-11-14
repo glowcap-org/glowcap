@@ -28,7 +28,7 @@ pub const Ban = struct {
     why: []const u8,
 
     pub const Kind = enum { forbid, require, file_present };
-    pub const OnMissing = enum { violate, skip };
+    const OnMissing = enum { violate, skip };
 };
 
 const read_limit: std.Io.Limit = .limited(4 << 20);
@@ -156,7 +156,7 @@ fn contains(haystack: []const u8, needle: []const u8, insensitive: bool) bool {
 /// `.agents/` link ban treat it. The phrase rows below and the bespoke
 /// `banConnectiveArrowOutsideFences` walk in `source_check.zig` both drive off
 /// this one list, so the scopes exist once.
-pub const HumanDocScope = struct {
+const HumanDocScope = struct {
     where: Where,
     on_missing: Ban.OnMissing = .violate,
     /// `CONTRIBUTING.md` and `.devcontainer/README.md` are contributor /

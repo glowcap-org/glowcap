@@ -57,7 +57,7 @@ pub const message_seeds = [_][]const u8{
 };
 
 /// Passable CapTP descriptors that are valid nested values, not messages.
-pub const descriptor_seeds = [_][]const u8{
+const descriptor_seeds = [_][]const u8{
     seed(@embedFile("../oracle/corpus/desc_handoff_give_signed.bin")),
     seed(@embedFile("../oracle/corpus/desc_handoff_receive_signed.bin")),
 };
@@ -68,7 +68,7 @@ pub const descriptor_seeds = [_][]const u8{
 /// Syrup that the message decoder must still refuse, which is a different and
 /// useful starting shape, so they are seeds but not subject to
 /// `ratifySyrupSeeds`.
-pub const primitive_seeds = [_][]const u8{
+const primitive_seeds = [_][]const u8{
     seed(@embedFile("../oracle/corpus/prim_dict_str_to_int.bin")),
     seed(@embedFile("../oracle/corpus/prim_integer_big_neg.bin")),
     seed(@embedFile("../oracle/corpus/prim_integer_neg_7.bin")),

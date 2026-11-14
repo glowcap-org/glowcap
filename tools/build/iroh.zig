@@ -35,7 +35,7 @@ pub fn abiModule(
     });
 }
 
-pub const AbiContext = struct {
+const AbiContext = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.lang.Optimize,
@@ -47,7 +47,7 @@ pub const AbiContext = struct {
     sidecar_archive: std.Build.LazyPath,
 };
 
-pub const AbiRegistration = struct {
+const AbiRegistration = struct {
     install: *std.Build.Step,
     step: *std.Build.Step,
 };
@@ -55,7 +55,7 @@ pub const AbiRegistration = struct {
 /// Build the public frame-level companion around the private Rust byte-level
 /// sidecar. The ELF map is a correctness boundary: leaking the sidecar's Rust
 /// runtime can interpose on a Rust consumer's own panic runtime.
-pub fn registerAbi(ctx: AbiContext) AbiRegistration {
+fn registerAbi(ctx: AbiContext) AbiRegistration {
     const b = ctx.b;
     const link_mod = abiModule(
         b,
@@ -104,7 +104,7 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
 /// driver table, the ADR-0024 seam proof, the site snippet compiles and the
 /// locator suite that ride the site's Zig example check, the companion
 /// registration, and its deno-driven ABI test.
-pub const StepsContext = struct {
+const StepsContext = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.lang.Optimize,
@@ -119,7 +119,7 @@ pub const StepsContext = struct {
     profiles: profile_build.Profiles,
 };
 
-pub const StepsRegistration = struct {
+const StepsRegistration = struct {
     resident_mod: *std.Build.Module,
     /// The cargo-built sidecar staticlib as a build-graph path: link it and
     /// the cargo step runs first.
