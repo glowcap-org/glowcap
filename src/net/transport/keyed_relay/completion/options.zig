@@ -35,7 +35,9 @@ pub const RelayOptions = struct {
     tls_owner: ?tls_runtime_owner.Owner = null,
     /// Total retained storage for one masked WebSocket frame, including its
     /// header. This is transport staging, never an application or CapTP frame
-    /// limit.
+    /// limit. A relay bounds the WebSocket message it reads and closes a
+    /// connection that sends a larger one, so a value above the bound of the
+    /// relay at `url` ends every session there.
     send_staging_bytes: usize = default_send_staging_bytes,
     /// Hold a registration at a relay so dialers of `identity` reach this
     /// backend's listener. Without it, `openListener` serves the platform.

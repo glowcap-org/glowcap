@@ -19,6 +19,9 @@ pub const MAX_REMOTE_PRODUCERS: usize = 64;
 const MAX_REPLAY_ROWS: usize = 4096;
 pub const MAX_FIELD_BYTES: usize = 4096;
 pub const MAX_LINE_BYTES: usize = 1 << 20;
+/// The largest message a timeline socket carries: one record line. A viewer's
+/// socket carries the messages of a CapTP byte channel, which are no larger.
+pub const MAX_SOCKET_MESSAGE_BYTES: usize = MAX_LINE_BYTES;
 pub const MAX_SUBSCRIBERS: usize = 64;
 pub const MAX_SUBSCRIBER_QUEUE: usize = 256;
 const MAX_SUBSCRIBER_QUEUE_BYTES: usize = 8 << 20;

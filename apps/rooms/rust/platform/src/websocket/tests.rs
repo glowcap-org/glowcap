@@ -33,6 +33,61 @@ async fn shutdown_waits_for_the_peer_close_and_survives_observer_cancellation() 
 }
 
 #[tokio::test]
+async fn a_write_larger_than_one_message_goes_out_as_several() {
+	let cap = glowcap::BINDING_WEBSOCKET_MESSAGE_CAP_BYTES;
+	let (a, b) = tokio::io::duplex(64 * 1024);
+	let mut channel = WsBytes::new(WebSocketStream::from_raw_socket(a, Role::Server, None).await);
+	let mut peer = WebSocketStream::from_raw_socket(b, Role::Client, None).await;
+	let bytes = vec![7; cap + 1];
+	let wrote = async {
+		channel.write_all(&bytes).await.unwrap();
+		channel.flush().await.unwrap();
+	};
+	let read = async {
+		let mut lengths = Vec::new();
+		while lengths.iter().sum::<usize>() < cap + 1 {
+			let Message::Binary(message) = peer.next().await.unwrap().unwrap() else {
+				panic!("the peer received something other than stream bytes")
+			};
+			lengths.push(message.len());
+		}
+		lengths
+	};
+	let ((), lengths) = tokio::join!(wrote, read);
+	assert_eq!(lengths, [cap, 1]);
+}
+
+#[tokio::test]
+async fn a_bounded_socket_reads_a_message_at_its_bound_and_closes_one_past_it_by_its_size() {
+	let bound = 64 * 1024;
+	// The connection holds far less than the message, so the peer finishes
+	// writing it only if the bounded socket keeps taking bytes off.
+	let (a, b) = tokio::io::duplex(1024);
+	let mut bounded = WebSocketStream::from_raw_socket(a, Role::Server, Some(config(bound))).await;
+	let mut peer = WebSocketStream::from_raw_socket(b, Role::Client, None).await;
+	let sent = async {
+		peer.send(Message::Binary(vec![7; bound].into())).await.unwrap();
+		peer.send(Message::Binary(vec![7; bound + 1].into())).await.unwrap();
+		let Some(Ok(Message::Close(Some(close)))) = peer.next().await else {
+			panic!("the peer was not told why it was closed");
+		};
+		assert_eq!(close.code, CloseCode::Size);
+		assert!(close.reason.contains(&bound.to_string()));
+	};
+	let read = async move {
+		assert_eq!(bounded.next().await.unwrap().unwrap().len(), bound);
+		let refused = bounded.next().await.unwrap().unwrap_err();
+		assert_eq!(
+			oversized(&refused),
+			Some(bound),
+			"the bounded socket failed another way: {refused}"
+		);
+		close_oversized(&mut bounded, bound, Duration::from_secs(5)).await;
+	};
+	tokio::join!(sent, read);
+}
+
+#[tokio::test]
 async fn explicit_close_intent_survives_observer_cancellation() {
 	let (a, b) = tokio::io::duplex(1024);
 	let mut channel = WsBytes::new(WebSocketStream::from_raw_socket(a, Role::Server, None).await);

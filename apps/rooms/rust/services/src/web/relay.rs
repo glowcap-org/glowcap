@@ -268,7 +268,8 @@ impl Relay {
 		let stop = self.stop.clone();
 		queue.send(Box::pin(async move {
 			let _slot = slot;
-			let socket = super::upgrade::accept(upgrading, stop.clone()).await?;
+			let largest = rooms_application::server::trace::MAX_SOCKET_MESSAGE_BYTES;
+			let socket = super::upgrade::accept(upgrading, stop.clone(), largest).await?;
 			super::proxy::run(socket, target, stop).await
 		}));
 		response
@@ -306,7 +307,8 @@ impl Relay {
 		};
 		let stop = self.stop.clone();
 		queue.send(Box::pin(async move {
-			let socket = super::upgrade::accept(upgrading, stop.clone()).await?;
+			let socket =
+				super::upgrade::accept(upgrading, stop.clone(), glowcap::BINDING_WEBSOCKET_MESSAGE_CAP_BYTES).await?;
 			let socket =
 				WsBytes::new(socket).bounded(glowcap::BINDING_RELAY_MAX_BYTES_PER_SESSION, Duration::from_secs(30));
 			registration.hold(socket, stop).await
@@ -399,7 +401,7 @@ async fn run_relay(
 	stop: watch::Receiver<bool>,
 	registry: Rc<super::rendezvous::Registry>,
 ) -> Result<(), String> {
-	let ws = super::upgrade::accept(upgrading, stop.clone()).await?;
+	let ws = super::upgrade::accept(upgrading, stop.clone(), glowcap::BINDING_WEBSOCKET_MESSAGE_CAP_BYTES).await?;
 	let mut ws = WsBytes::new(ws).bounded(glowcap::BINDING_RELAY_MAX_BYTES_PER_SESSION, Duration::from_secs(120));
 	let destination = target.to_string();
 	let result = connect_and_pump(&mut ws, target, stop, registry).await;

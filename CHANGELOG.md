@@ -39,6 +39,10 @@ Releases before 0.1.7 are in the
   kind a page declares, and a page that declares only those makes no preview.
   The Rooms page refuses a preview that carries one of them. Update a Rooms
   server and the page that uses it together, or previews fail.
+- A Rooms relay reads no WebSocket message larger than 1 MiB, the largest a
+  binding's adapter admits. It read one of up to 8 MiB before any byte budget
+  counted it. Every glowcap adapter already sends less. A client of another
+  implementation sends messages of at most 1 MiB through a Rooms relay.
 
 ### Added
 
@@ -48,9 +52,18 @@ Releases before 0.1.7 are in the
   blocks a WebSocket without TLS from an https page unless it goes to the
   computer's own address.
   `zig build site-ocapnviz-page` builds the page into the site's assets.
+- The Rust binding exports `BINDING_WEBSOCKET_MESSAGE_CAP_BYTES`, the largest
+  WebSocket message a binding's adapter admits.
 
 ### Changed
 
+- A Rooms timeline socket reads no message larger than one record line, at
+  the endpoint, through the web address, and in the viewer. A timeline
+  producer that sends a longer message is closed with code 1009 and the
+  bound, where a line of up to 16 MiB was skipped. The Rooms Rust WebSocket
+  byte channel sends a large write as several messages.
+- A Rooms relay with `GLOWCAP_RELAY_MAX_SESSIONS` unset runs 256 sessions at
+  once, where it ran 224.
 - The terminal Rooms client prints a name, a room name, and an error on one
   line with control and text-direction characters written out, and marks
   each further line of a message that has several.
@@ -103,8 +116,7 @@ Releases before 0.1.7 are in the
   meant to uncover it.
 - A Rooms relay keeps only a short hello from a registered peer that no
   dialer has reached yet, and closes one that sends more. It kept up to
-  8 MiB of received messages for each waiting registration. A message still
-  arriving is bounded by the WebSocket message limit, as before.
+  8 MiB of received messages for each waiting registration.
 - A Rooms member asked to leave a room can no longer change its subject. The
   subject reference a participant is handed comes with that seat and answers
   for as long as the seat lasts. One handed on to somebody outside the room

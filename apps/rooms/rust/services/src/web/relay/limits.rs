@@ -3,6 +3,14 @@
 use hyper::Request;
 use tokio::sync::Semaphore;
 
+/// Relay sessions and timeline proxies a relay runs at once unless the
+/// operator sets a limit. Each is an upgraded socket, outside the HTTP front's
+/// connection table, and the connection it carries onward. A socket holds at
+/// most one arriving message and one message waiting to be written.
+const DEFAULT_SESSIONS: usize = 256;
+/// Rendezvous registrations a relay holds at once unless the operator sets a
+/// limit, each a waiting socket of the same cost.
+const DEFAULT_REGISTRATIONS: usize = 256;
 /// iroh sessions a relay runs at once unless the operator sets a limit.
 const DEFAULT_IROH_SESSIONS: usize = 16;
 #[derive(Clone)]
@@ -36,12 +44,6 @@ pub(super) const SITE_PAGE: &str = site_page!();
 
 impl Limits {
 	pub fn read(env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
-		// Relays share the HTTP front's connection table. Reserve one eighth for
-		// page assets, locators, ICE, status, and proxy requests; rendezvous rows
-		// each retain one of the same HTTP connections, so their independent cap
-		// cannot usefully exceed the table itself.
-		const DEFAULT_SESSIONS: usize = super::super::http::MAX_CONNECTIONS * 7 / 8;
-		const DEFAULT_REGISTRATIONS: usize = super::super::http::MAX_CONNECTIONS;
 		let cap = |name, fallback| match env(name).filter(|s| !s.is_empty()) {
 			None => Ok(fallback),
 			Some(value) => value

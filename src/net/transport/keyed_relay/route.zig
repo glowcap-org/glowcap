@@ -197,7 +197,7 @@ fn validateTarget(path: []const u8, query: ?[]const u8) error{InvalidRelayUrl}!v
     while (fields.next()) |field| {
         const equals = std.mem.findScalar(u8, field, '=') orelse field.len;
         const name = field[0..equals];
-        if (encodedEquals(name, rendezvous_query) or encodedEquals(name, register_query))
+        if (model.uri.decodedEqual(name, rendezvous_query) or model.uri.decodedEqual(name, register_query))
             return error.InvalidRelayUrl;
     }
 }
@@ -206,35 +206,6 @@ fn validatePercentEncoding(target: []const u8) error{InvalidRelayUrl}!void {
     // The same RFC 3986 escape shape the URI reader owns; only the error
     // name is this transport's.
     model.uri.validatePercentEncoding(target) catch return error.InvalidRelayUrl;
-}
-
-fn encodedEquals(encoded: []const u8, expected: []const u8) bool {
-    var encoded_at: usize = 0;
-    var expected_at: usize = 0;
-    while (encoded_at < encoded.len and expected_at < expected.len) : (expected_at += 1) {
-        const byte = if (encoded[encoded_at] == '%') blk: {
-            if (encoded_at + 2 >= encoded.len) return false;
-            const high = hexValue(encoded[encoded_at + 1]) orelse return false;
-            const low = hexValue(encoded[encoded_at + 2]) orelse return false;
-            encoded_at += 3;
-            break :blk (high << 4) | low;
-        } else blk: {
-            const literal = encoded[encoded_at];
-            encoded_at += 1;
-            break :blk literal;
-        };
-        if (byte != expected[expected_at]) return false;
-    }
-    return encoded_at == encoded.len and expected_at == expected.len;
-}
-
-fn hexValue(byte: u8) ?u8 {
-    return switch (byte) {
-        '0'...'9' => byte - '0',
-        'a'...'f' => byte - 'a' + 10,
-        'A'...'F' => byte - 'A' + 10,
-        else => null,
-    };
 }
 
 /// Parse the optional relay-route hint once for every relay execution model. A

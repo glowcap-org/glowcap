@@ -51,6 +51,9 @@ const sturdyref_path_prefix = "/s/";
 /// every `%` must carry two hex digits. Transports validating their own URL
 /// forms call through here rather than growing a second copy of the shape.
 pub const validatePercentEncoding = uri_shape.validatePercentEncoding;
+/// Whether two spans that passed `validatePercentEncoding` decode to the same
+/// bytes, for a transport that compares an escaped name without allocating.
+pub const decodedEqual = uri_shape.decodedEqual;
 
 pub const ParseAllocationBound = struct { bytes: usize, allocations: usize };
 
