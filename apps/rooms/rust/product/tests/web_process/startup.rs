@@ -92,10 +92,12 @@ fn retired(value: &serde_json::Value) {
 async fn web_retires_a_server_that_has_not_announced_readiness() {
 	tokio::time::timeout(Duration::from_secs(45), async {
         let fixture = Fixture::new();
-        let script = fixture.script("waiting-server", r#"import json, os, pathlib, signal, sys
-signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        let script = fixture.script("waiting-server", r#"import json, os, pathlib, signal
+# Blocked, so a SIGTERM sent before sigwait stays pending. A handler with
+# signal.pause() loses one that lands between the marker and the pause.
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
 pathlib.Path(os.environ['GLOWCAP_ROOMS_TEST_FIXTURE'], 'waiting').write_text(json.dumps({'pid': os.getpid(), 'owned': os.environ['GLOWCAP_ROOMS_STATE']}))
-while True: signal.pause()
+signal.sigwait({signal.SIGTERM})
 "#);
         let mut options = Web::options(0);
         options.insert("server", script.display().to_string());
@@ -188,10 +190,12 @@ async fn web_cancels_private_tor_before_its_endpoints_appear() {
 		fixture.script(
 			"tor",
 			r#"import json, os, pathlib, signal, sys
-signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+# Blocked, so a SIGTERM sent before sigwait stays pending. A handler with
+# signal.pause() loses one that lands between the marker and the pause.
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
 owned = pathlib.Path(sys.argv[sys.argv.index('-f') + 1]).parent
 pathlib.Path(os.environ['GLOWCAP_ROOMS_TEST_FIXTURE'], 'waiting').write_text(json.dumps({'pid': os.getpid(), 'owned': str(owned)}))
-while True: signal.pause()
+signal.sigwait({signal.SIGTERM})
 "#,
 		);
 		let mut options = Web::options(0);

@@ -278,17 +278,17 @@ Deno.test("rooms-dev retires its backend when the status output closes", async (
 	await Deno.writeTextFile(
 		fixture.executable,
 		`#!/usr/bin/env python3
-import os, signal, sys
+import os, signal
 from pathlib import Path
 retired = Path(${JSON.stringify(fixture.retired)})
 Path(str(retired) + ".pid").write_text(str(os.getpid()))
-def retire(_signal, _frame):
-    retired.write_text("retired\\n")
-    sys.exit(0)
-signal.signal(signal.SIGTERM, retire)
+# The front sends SIGTERM the moment it sees the close. Blocked, the signal
+# stays pending for sigwait. A handler with signal.pause() loses one that
+# lands between the close and the pause, and the front waits out its grace.
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
 os.close(1)
-while True:
-    signal.pause()
+signal.sigwait({signal.SIGTERM})
+retired.write_text("retired\\n")
 `,
 	);
 	const child = developmentCommand(fixture, nonEphemeralPort()).spawn();
