@@ -5,7 +5,7 @@ use rooms_application::{
 	protocol_data,
 	room::ArgumentView,
 };
-use rooms_glowcap::{Value, snapshot::Arguments};
+use rooms_glowcap::{Arguments, Value};
 type Reply = Result<Argument, String>;
 
 fn data(args: &[Argument]) -> Result<(), String> {

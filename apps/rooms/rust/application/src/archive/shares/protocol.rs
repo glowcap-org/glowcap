@@ -47,7 +47,7 @@ impl Request {
 }
 
 /// The three immutable issuance fields also prefix each listed share.
-pub fn issue<O: crate::archive::output::Output>(share: &Share) -> Result<alloc::vec::Vec<O::Value>, Error> {
+pub fn issue<O: crate::room::BuildArguments>(share: &Share) -> Result<alloc::vec::Vec<O::Value>, Error> {
 	share.validate()?;
 	Ok(alloc::vec![
 		O::text(share.id()),
@@ -55,7 +55,7 @@ pub fn issue<O: crate::archive::output::Output>(share: &Share) -> Result<alloc::
 		crate::archive::output::filter::<O>(share.filter()).map_err(|_| Error::Invalid)?
 	])
 }
-pub fn row<O: crate::archive::output::Output>(share: &Share, link: &str) -> Result<O::Value, Error> {
+pub fn row<O: crate::room::BuildArguments>(share: &Share, link: &str) -> Result<O::Value, Error> {
 	let mut row = issue::<O>(share)?;
 	row.push(O::text(link));
 	Ok(O::list(row))

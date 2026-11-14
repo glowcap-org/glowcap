@@ -8,7 +8,7 @@ use super::super::{
 	notice::Notice,
 	state::{Shared, State, Work},
 };
-use super::{document::Store, operator::Wire};
+use super::document::Store;
 use glowcap::Argument;
 use rooms_application::server::operations::listeners::{self, Ask, Environment, Refusal, Seats, Transport};
 use rooms_platform::serving::{self, Listener};
@@ -405,7 +405,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 						up(&shared, &writer, transport, ask, true).await?;
 						let state = shared.borrow();
 						let seat = state.listeners.seats.seat(transport, &Env);
-						Ok(listeners::row::<Wire>(&seat))
+						Ok(listeners::row::<rooms_glowcap::Arguments>(&seat))
 					})
 				})
 			}
@@ -434,7 +434,7 @@ fn rows(shared: &Shared) -> Argument {
 			.seats
 			.seats(&Env)
 			.iter()
-			.map(listeners::row::<Wire>)
+			.map(listeners::row::<rooms_glowcap::Arguments>)
 			.collect(),
 	)
 }

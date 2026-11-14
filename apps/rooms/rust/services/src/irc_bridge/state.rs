@@ -14,7 +14,7 @@ use rooms_application::{
 		},
 	},
 };
-use rooms_glowcap::snapshot::Arguments;
+use rooms_glowcap::Arguments;
 use std::{
 	cell::RefCell,
 	collections::{BTreeMap, BTreeSet, VecDeque},

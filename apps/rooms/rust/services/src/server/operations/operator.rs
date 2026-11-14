@@ -28,27 +28,6 @@ use rooms_application::{
 };
 use rooms_glowcap::Value;
 
-/// The verbs answer through this wire form.
-pub(in crate::server) struct Wire;
-impl rooms_application::server::operations::listeners::Wire for Wire {
-	type Value = Argument;
-	fn text(value: &str) -> Argument {
-		Argument::String(value.into())
-	}
-	fn integer(value: u64) -> Argument {
-		Argument::Integer(i64::try_from(value).unwrap_or(i64::MAX))
-	}
-	fn boolean(value: bool) -> Argument {
-		Argument::Boolean(value)
-	}
-	fn null() -> Argument {
-		Argument::Void
-	}
-	fn list(values: Vec<Argument>) -> Argument {
-		Argument::List(values)
-	}
-}
-
 pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
 		let verb = verb.ok_or("direct invocation is not supported")?;
@@ -329,7 +308,7 @@ fn stewardship_row(state: &State, name: &str, caller: &Session) -> Result<Argume
 		|kind, name| state.held_link(kind, name, Some(caller)),
 		name,
 	);
-	Ok(rows::wire_stewardship::<Wire>(&row))
+	Ok(rows::wire_stewardship::<rooms_glowcap::Arguments>(&row))
 }
 
 /// The inventories' view of the live state, for `connection`'s read.
@@ -393,7 +372,7 @@ fn snapshot(shared: &Shared, connection: u64, values: &[Value<'_>]) -> Result<Ar
 			let pages = operator::whole_pages(&query, kind, |category, query, kind| {
 				page_of(&view, &state, category, (0, MAX_PAGE, query, kind))
 			});
-			Ok(rows::wire_whole::<Wire>(revision, &pages))
+			Ok(rows::wire_whole::<rooms_glowcap::Arguments>(revision, &pages))
 		}
 		SnapshotAsk::Page {
 			category,
@@ -403,7 +382,7 @@ fn snapshot(shared: &Shared, connection: u64, values: &[Value<'_>]) -> Result<Ar
 			kind,
 		} => {
 			let page = page_of(&view, &state, category, (cursor, limit, &query, kind));
-			Ok(rows::wire_page::<Wire>(revision, &page))
+			Ok(rows::wire_page::<rooms_glowcap::Arguments>(revision, &page))
 		}
 	}
 }

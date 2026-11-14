@@ -2,12 +2,14 @@
 //! Shared by services and browser Wasm. Platform adapters own I/O.
 
 pub mod archive;
+mod arguments;
 pub mod client;
 #[cfg(feature = "loam")]
 pub mod policy;
 pub mod routes;
 pub mod snapshot;
 
+pub use arguments::Arguments;
 use glowcap::{Argument, Ref};
 use rooms_application::{
 	files::FileArgument,

@@ -7,7 +7,7 @@ use super::checkpoint::{Checkpoint, Routes};
 pub use super::fields::{Field, Id, List, Nullable, Presence, SafeInteger, Text};
 use crate::{
 	grants::{Access, protocol::GrantView},
-	room::ArgumentView,
+	room::{ArgumentView, BuildArguments},
 	text::DocumentText,
 };
 use alloc::{rc::Rc, string::String, vec::Vec};
@@ -22,15 +22,6 @@ pub trait SnapshotArgument: ArgumentView {
 	where
 		Self: 'a;
 	fn list(&self) -> Option<impl ExactSizeIterator<Item = Self::Item<'_>>>;
-}
-/// Constructs the binding's existing owned values directly. No parallel CapTP
-/// value tree or capability representation exists in the application.
-pub trait BuildArguments {
-	type Value;
-	fn text(value: String) -> Self::Value;
-	fn integer(value: u64) -> Self::Value;
-	fn null() -> Self::Value;
-	fn list(values: Vec<Self::Value>) -> Self::Value;
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {

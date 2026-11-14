@@ -1,6 +1,6 @@
 //! Reader authority and file admission execute unchanged on the host and in Wasm.
 use crate::{
-	archive::Passables,
+	archive::Args,
 	arguments::{Arg, text},
 };
 use rooms_application::{
@@ -107,7 +107,7 @@ pub fn run() {
 	assert!(reader.resolve(&index).is_err());
 	index.clear();
 	assert!(reader.resolve(&index).is_err());
-	let wire = Arg::List(output::record::<Passables>(&record));
+	let wire = Arg::List(output::record::<Args>(&record));
 	let at = Arg::Integer(0);
 	assert!(matches!(
 		facet.admit_blob("attachment", &[&wire, &at]).unwrap(),

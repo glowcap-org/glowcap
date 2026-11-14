@@ -1,10 +1,10 @@
 use super::arguments::{Arg, from_fixture};
 use rooms_application::{
 	grants::Access,
-	room::ArgumentView,
+	room::{ArgumentView, BuildArguments},
 	session::{
 		checkpoint::Routes,
-		snapshot::{self, BuildArguments, Snapshot, SnapshotArgument, views::*},
+		snapshot::{self, Snapshot, SnapshotArgument, views::*},
 	},
 };
 use serde_json::Value;
@@ -63,14 +63,17 @@ fn read(value: &Value) -> Result<Snapshot, snapshot::Refusal> {
 	let args: Vec<_> = value.as_array().unwrap().iter().map(arg).collect();
 	Snapshot::read(&args.iter().map(View).collect::<Vec<_>>(), &NoRoutes)
 }
-struct Output;
-impl BuildArguments for Output {
+struct Json;
+impl BuildArguments for Json {
 	type Value = Value;
-	fn text(value: String) -> Value {
+	fn text(value: &str) -> Value {
 		value.into()
 	}
 	fn integer(value: u64) -> Value {
 		serde_json::json!({"integer":value.to_string()})
+	}
+	fn boolean(value: bool) -> Value {
+		Value::Bool(value)
 	}
 	fn null() -> Value {
 		Value::Null
@@ -107,7 +110,7 @@ pub fn run() {
 		);
 		if let Ok(snapshot) = parsed {
 			same(
-				snapshot.encode::<Output>().unwrap(),
+				snapshot.encode::<Json>().unwrap(),
 				&row["raw"],
 				row["name"].as_str().unwrap(),
 			);
@@ -123,7 +126,7 @@ pub fn run() {
 	] {
 		same(
 			snapshot
-				.project::<Output>(
+				.project::<Json>(
 					access,
 					&"Paused".into(),
 					&[(
@@ -137,7 +140,7 @@ pub fn run() {
 		);
 	}
 	same(
-		snapshot.encode::<Output>().unwrap(),
+		snapshot.encode::<Json>().unwrap(),
 		baseline,
 		"projection leaves owner intact",
 	);
@@ -178,7 +181,7 @@ pub fn run() {
 			)
 			.unwrap();
 		}
-		let result = snapshot.encode::<Output>();
+		let result = snapshot.encode::<Json>();
 		assert_eq!(result.is_ok(), fit["accepted"].as_bool().unwrap(), "{name}");
 		if let Ok(result) = result {
 			same(result, &fit["result"], name);
@@ -202,7 +205,7 @@ pub fn run() {
 			.collect(),
 	)
 	.unwrap();
-	let fitted = oversized_room_view.encode::<Output>().unwrap();
+	let fitted = oversized_room_view.encode::<Json>().unwrap();
 	assert_eq!(fitted[7], "[]");
 	assert_eq!(fitted[3].as_array().unwrap().last().unwrap()[0], "snapshot-overflow");
 	assert!(
@@ -227,8 +230,8 @@ fn captured_snapshot_contract() {
 fn host_snapshot_constructs_binding_arguments() {
 	let fixture: Value = serde_json::from_str(include_str!("../fixtures/snapshots.json")).unwrap();
 	let snapshot = read(&fixture["rows"][0]["raw"]).unwrap();
-	let args = snapshot.encode::<rooms_glowcap::snapshot::Arguments>().unwrap();
+	let args = snapshot.encode::<rooms_glowcap::Arguments>().unwrap();
 	let values: Vec<_> = rooms_glowcap::values(&args).collect();
 	let decoded = Snapshot::read(&values, &rooms_glowcap::routes::CheckpointRoutes).unwrap();
-	same(decoded.encode::<Output>().unwrap(), &fixture["rows"][0]["raw"], "host");
+	same(decoded.encode::<Json>().unwrap(), &fixture["rows"][0]["raw"], "host");
 }

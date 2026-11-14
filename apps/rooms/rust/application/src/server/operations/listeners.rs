@@ -530,16 +530,7 @@ pub fn register_url(relay_url: &str) -> Result<String, Refusal> {
 
 /// The wire form of a seat row:
 /// `[transport, summary, reference, referenceName, takes, unavailable, id, locator, serving]`.
-pub trait Wire {
-	type Value;
-	fn text(value: &str) -> Self::Value;
-	fn integer(value: u64) -> Self::Value;
-	fn boolean(value: bool) -> Self::Value;
-	fn null() -> Self::Value;
-	fn list(values: Vec<Self::Value>) -> Self::Value;
-}
-
-pub fn row<W: Wire>(seat: &Seat) -> W::Value {
+pub fn row<W: crate::room::BuildArguments>(seat: &Seat) -> W::Value {
 	let (reference, reference_name) = seat.transport.reference();
 	W::list(alloc::vec![
 		W::text(seat.transport.name()),

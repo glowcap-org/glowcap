@@ -5,9 +5,8 @@ use super::super::{
 	value::{self, Stored, Values},
 };
 use super::MAX_SAFE;
-use rooms_application::archive::{
-	self, ConversationKind, Filter, Kind, Record, blobs::Address, index::Entry, output::Output,
-};
+use rooms_application::archive::{self, ConversationKind, Filter, Kind, Record, blobs::Address, index::Entry};
+use rooms_application::room::BuildArguments;
 use std::sync::Arc;
 use wasm_bindgen::{JsCast, JsValue};
 fn kind(record: &Record) -> &'static str {

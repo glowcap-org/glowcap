@@ -9,7 +9,7 @@ use rooms_application::{
 	server::directory::Introduction,
 	signaling as signal,
 };
-use rooms_glowcap::{Value, snapshot::Arguments};
+use rooms_glowcap::{Arguments, Value};
 
 pub(super) use super::state::Shared;
 pub(super) type Reply = Result<Argument, String>;

@@ -4,13 +4,12 @@ use crate::arguments::{Arg, from_fixture};
 use rooms_application::archive::{
 	Access, Body, ConversationKind, Coordinates, Facet, Filter, Kind, LineState, Record, ShareKind,
 	index::{Entry, Index, Page, Scan},
-	output::{self, Output},
-	protocol,
+	output, protocol,
 };
-use rooms_application::open_graph::Selection;
+use rooms_application::{open_graph::Selection, room::BuildArguments};
 use std::{cell::Cell, rc::Rc, sync::Arc};
-pub(super) struct Passables;
-impl Output for Passables {
+pub(super) struct Args;
+impl BuildArguments for Args {
 	type Value = Arg;
 	fn text(v: &str) -> Arg {
 		Arg::Text(v.into())
@@ -76,7 +75,7 @@ pub fn run() {
 			case["input"]
 		);
 		if let Ok(record) = parsed {
-			let row = Arg::List(output::record::<Passables>(&record));
+			let row = Arg::List(output::record::<Args>(&record));
 			assert_eq!(json(&row), case["output"]);
 			assert_eq!(protocol::record(&&row).unwrap(), record);
 		}
@@ -91,12 +90,12 @@ pub fn run() {
 			case["input"]
 		);
 		if let Ok(filter) = parsed {
-			assert_eq!(json(&output::filter::<Passables>(&filter).unwrap()), case["output"]);
+			assert_eq!(json(&output::filter::<Args>(&filter).unwrap()), case["output"]);
 		}
 	}
 	for at in 0..15 {
 		let drops = Rc::new(Cell::new(0));
-		let mut row = output::record::<Passables>(&line("dir", "garden", "hello", 1));
+		let mut row = output::record::<Args>(&line("dir", "garden", "hello", 1));
 		row[at] = Arg::Capability(drops.clone());
 		let row = Arg::List(row);
 		assert!(protocol::record(&&row).is_err());
@@ -133,15 +132,15 @@ fn wire_previews() {
 		body,
 	)
 	.unwrap();
-	let row = output::record::<Passables>(&selected);
+	let row = output::record::<Args>(&selected);
 	assert_eq!(json(&row[14]), serde_json::json!(["https://example.com/article"]));
 	assert_eq!(protocol::record(&&Arg::List(row)).unwrap(), selected);
 
-	let mut unrelated = output::record::<Passables>(&selected);
+	let mut unrelated = output::record::<Args>(&selected);
 	unrelated[14] = Arg::List(vec![Arg::Text("https://other.example/".into())]);
 	assert!(protocol::record(&&Arg::List(unrelated)).is_err());
 
-	let mut prior_shape = output::record::<Passables>(&selected);
+	let mut prior_shape = output::record::<Args>(&selected);
 	prior_shape.pop();
 	let prior_shape = Arg::List(prior_shape);
 	let restored = protocol::record(&&prior_shape).unwrap();
@@ -173,7 +172,7 @@ fn index() {
 	assert!(
 		matches!(page.records[2].record.body(), Body::Line { at:10, order:10, text, .. } if text.as_str()==Some("edited"))
 	);
-	let row = output::page::<Passables>(&page, &all, 1, 128).unwrap();
+	let row = output::page::<Args>(&page, &all, 1, 128).unwrap();
 	let parsed = protocol::page(&&row, &all, 1, 128).unwrap();
 	assert_eq!(parsed.next, 4);
 	assert!(!parsed.more);
@@ -374,7 +373,7 @@ fn identities() {
 fn wire_projection() {
 	use rooms_application::room::ArgumentView;
 	let record: Record = serde_json::from_str(r#"{"kind":"line","source":"source","generation":"generation","id":"\ud800","directory":"directory","conversationKind":"room","conversation":"garden","from":"alice","text":"a\ud801b","mine":false,"at":1,"order":1,"state":"present","attachments":[{"name":"\ud802","mime":"text/plain","size":1,"width":0,"height":0,"blob":null}]}"#).unwrap();
-	let row = output::record::<Passables>(&record);
+	let row = output::record::<Args>(&record);
 	assert_eq!(row[3].text(), Some("�"));
 	assert_eq!(row[8].text(), Some("a�b"));
 	let Arg::List(files) = &row[13] else { panic!("files") };

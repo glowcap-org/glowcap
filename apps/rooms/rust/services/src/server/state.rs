@@ -21,7 +21,7 @@ use rooms_application::{
 		rooms::{self, Rooms},
 	},
 };
-use rooms_glowcap::snapshot::Arguments;
+use rooms_glowcap::Arguments;
 use std::{cell::RefCell, collections::BTreeMap, future::Future, pin::Pin, rc::Rc};
 use tokio::{sync::mpsc, time::Instant};
 
