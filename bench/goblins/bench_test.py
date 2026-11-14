@@ -22,22 +22,30 @@ with open(os.environ["CALLS"], "a") as calls:
 scenario = os.environ.get("SCENARIO", "failure")
 server = Path(sys.argv[2]).name == "server.rkt"
 if server:
-    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+    # Blocked, so an interrupt sent before sigwait stays pending. A handler
+    # with signal.pause() loses one that lands between the two.
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+
+    def serve_until_interrupted():
+        signal.sigwait({signal.SIGINT})
+        sys.exit(0)
+
     if scenario == "startup-exit":
         print("original startup failure", file=sys.stderr, flush=True)
         sys.exit(7)
     if scenario == "startup-hang":
         print("startup stalled", file=sys.stderr, flush=True)
-        signal.pause()
+        serve_until_interrupted()
     if scenario == "stderr-flood":
         print("x" * 131072, file=sys.stderr, flush=True)
-    if scenario == "ignore-interrupt":
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
     print('{"event":"ready"}', flush=True)
     if scenario == "server-runtime-exit":
         print("original server runtime failure", file=sys.stderr, flush=True)
         sys.exit(7)
-    signal.pause()
+    if scenario == "ignore-interrupt":
+        # Nothing takes the blocked interrupt, so only a kill ends this.
+        signal.pause()
+    serve_until_interrupted()
 else:
     mode = sys.argv[7]
     if scenario in ("stdout-hang", "connections-hang"):
