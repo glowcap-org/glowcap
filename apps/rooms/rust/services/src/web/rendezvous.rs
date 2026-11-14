@@ -14,6 +14,11 @@ use tokio::{
 };
 
 type Socket = WsBytes<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>;
+/// What a registration keeps for its dialer before one arrives. A glowcap
+/// listener sends nothing until a dialer's bytes reach it, so this is room
+/// for another implementation's hello. A message still arriving is held by
+/// the socket under `upgrade::MAX_MESSAGE`, as on every relay socket.
+const MAX_EARLY_BYTES: usize = 64 * 1024;
 type Claim = oneshot::Sender<Held>;
 pub(super) struct Held {
 	pub socket: Socket,
@@ -174,8 +179,7 @@ impl Registration {
 				},
 				read = socket.read(&mut buffer) => match read {
 					Ok(0) => break Ok(()),
-					Ok(n) if n <= super::upgrade::MAX_MESSAGE - early.len() => early.extend_from_slice(&buffer[..n]),
-					Ok(_) => break Err("rendezvous early bytes exceed their budget".into()),
+					Ok(n) => if let Err(refusal) = keep(&mut early, &buffer[..n]) { break Err(refusal.into()) },
 					Err(error) => break Err(error.to_string()),
 				}
 			}
@@ -187,6 +191,15 @@ impl Registration {
 		crate::cleanup::combine(result, closed)
 	}
 }
+/// Keep what a registered peer sent before its dialer arrived, or refuse the
+/// bytes that would pass `MAX_EARLY_BYTES` and keep none of them.
+fn keep(early: &mut Vec<u8>, read: &[u8]) -> Result<(), &'static str> {
+	if read.len() > MAX_EARLY_BYTES - early.len() {
+		return Err("rendezvous early bytes exceed their budget");
+	}
+	early.extend_from_slice(read);
+	Ok(())
+}
 pub(super) fn designator(value: &str) -> bool {
 	value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
@@ -194,6 +207,16 @@ pub(super) fn designator(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn a_waiting_registration_keeps_a_hello_and_refuses_the_byte_past_it() {
+		let mut early = Vec::new();
+		keep(&mut early, &[7; 8192]).unwrap();
+		keep(&mut early, &vec![7; MAX_EARLY_BYTES - 8192]).unwrap();
+		assert_eq!(early.len(), MAX_EARLY_BYTES);
+		assert!(keep(&mut early, &[7]).is_err());
+		keep(&mut early, &[]).unwrap();
+		assert_eq!(early.len(), MAX_EARLY_BYTES, "a refusal keeps none of what it refused");
+	}
 	#[test]
 	fn claim_accounting_does_not_grow_with_retired_registrations() {
 		let registry = Registry::new(2, 1);

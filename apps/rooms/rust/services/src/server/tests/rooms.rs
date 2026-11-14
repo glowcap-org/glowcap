@@ -6,7 +6,9 @@ use super::{closing_tolerated, runtime, start, tcp};
 use glowcap::{ConnectOptions, PendingWork};
 use rooms_application::{
 	directory::creation::RecoveryKey,
+	failure::FailureCode,
 	files::FileDescription,
+	protocol_data::SET_SUBJECT,
 	room::{
 		inbox::{Message, metadata::Presence},
 		message::ChangeKind,
@@ -16,7 +18,7 @@ use rooms_application::{
 	session::checkpoint::commands::CommandRoutes,
 };
 use rooms_glowcap::client::{
-	Client,
+	Client, binding_failure,
 	directory::Directory,
 	invitation::Invitation,
 	room::{Event, Messages, Room, SubscribeOptions},
@@ -344,7 +346,7 @@ async fn rooms() {
 	// Use the exact raw subscribe result to exercise duplicate wire retirement,
 	// independently of the higher-level client's cached goodbye result.
 	let inbox = bob.session().spawn_owned(|_, _| Ok(glowcap::Argument::Void)).unwrap();
-	let mut seats = Vec::new();
+	let mut seats: Vec<(glowcap::Ref, glowcap::Ref)> = Vec::new();
 	for _ in 0..2 {
 		let result = bob
 			.session()
@@ -355,15 +357,36 @@ async fn rooms() {
 			)
 			.await
 			.unwrap();
-		let seat = glowcap::Ref::try_from(&result.as_list().unwrap()[0]).unwrap();
-		for old in &seats {
+		let answer = result.as_list().unwrap();
+		let seat = glowcap::Ref::try_from(&answer[0]).unwrap();
+		let subject = glowcap::Ref::try_from(&answer[2]).unwrap();
+		// A subject's reference answers for as long as the seat it came with,
+		// and the reference of an earlier seat stays refused beside a new one.
+		let set_subject = |subject: glowcap::Ref| {
+			let session = bob.session();
+			async move { session.send(&subject, SET_SUBJECT, &["compost".into()]).await }
+		};
+		set_subject(subject.clone()).await.unwrap();
+		for (old, ended) in &seats {
 			bob.session().send(old, "leave", &[]).await.unwrap();
+			let refused = set_subject(ended.clone()).await.expect_err("an earlier seat's subject");
+			assert_eq!(
+				binding_failure(&refused).map(|failure| failure.code),
+				Some(FailureCode::NotRoomMember),
+				"{refused}"
+			);
 		}
 		bob.session().send(&seat, "membershipKind", &[]).await.unwrap();
 		bob.session().send(&seat, "leave", &[]).await.unwrap();
 		bob.session().send(&seat, "leave", &[]).await.unwrap();
 		assert!(bob.session().send(&seat, "typing", &[true.into()]).await.is_err());
-		seats.push(seat);
+		let refused = set_subject(subject.clone()).await.expect_err("the seat has ended");
+		assert_eq!(
+			binding_failure(&refused).map(|failure| failure.code),
+			Some(FailureCode::NotRoomMember),
+			"{refused}"
+		);
+		seats.push((seat, subject));
 	}
 	drop((
 		bob_secret,

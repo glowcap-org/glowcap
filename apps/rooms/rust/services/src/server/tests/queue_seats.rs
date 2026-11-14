@@ -6,6 +6,7 @@ use super::{closing_tolerated, config, runtime, tcp};
 use glowcap::{Argument, ConnectOptions, PendingWork};
 use rooms_application::{
 	admission::{Class, Settings},
+	directory::creation::RecoveryKey,
 	failure::FailureCode,
 	room::subject::Subject,
 };
@@ -379,6 +380,50 @@ async fn a_saved_publication_costs_one_read_whether_or_not_it_names_a_room() {
 		for runtime in [keeper_runtime, reader_runtime] {
 			runtime.close(PendingWork::Cancel).await.unwrap();
 		}
+	})
+	.await;
+}
+
+/// Asking for a private room's link records the room, so it spends what
+/// opening a room spends. A repeat of a recorded key spends it too, because
+/// the charge comes before the answer.
+#[tokio::test]
+async fn a_private_rooms_link_is_charged_as_a_creation() {
+	// One creation comes back every thirty seconds, which is longer than the
+	// counting takes.
+	rooms_testing::local_set::run_within(Duration::from_secs(20), async {
+		let served = Served::start("private-link-charge", Some("create=2/2")).await;
+		let runtime = runtime().await;
+		let client = Client::new(
+			runtime
+				.connect(
+					&glowcap::parse_locator(&served.location).unwrap(),
+					ConnectOptions::default(),
+				)
+				.await
+				.unwrap(),
+			HostPlatform,
+		);
+		let directory = Directory::fetch(client.clone()).await.unwrap();
+		let key = |room: u8| RecoveryKey::from_entropy([room; 16]);
+		// Opening a room and asking for a private room's link draw on one
+		// allowance.
+		directory.open("Charged").await.unwrap();
+		directory.private_link(&key(0)).await.unwrap();
+		for room in [1, 0] {
+			let refused = directory
+				.private_link(&key(room))
+				.await
+				.expect_err("the creation allowance is spent");
+			assert_eq!(refused.failure_code(), Some(FailureCode::RateLimited), "{refused}");
+		}
+		// The refused key was never recorded, and a read still answers.
+		assert!(!served.state.borrow().authority.room_link_active(key(1).as_str()));
+		assert!(served.state.borrow().authority.room_link_active(key(0).as_str()));
+		directory.list(None).await.unwrap();
+		closing_tolerated(client.session().close(PendingWork::Cancel).await);
+		served.stop().await;
+		runtime.close(PendingWork::Cancel).await.unwrap();
 	})
 	.await;
 }

@@ -485,7 +485,9 @@ away, and the subject.
 
 The subject facet carries `setSubject(description, link?)`. Every participant
 is answered with one, and because it is a reference rather than a rank, a
-member can pass it to somebody who is not even in the room.
+member can pass it to somebody who is not even in the room. It comes with
+one seat and answers for as long as that seat lasts. A member who joins
+again is answered with a new one.
 
 A subject is a description every client can show. It may also carry the
 sturdyref of an object the room is about, such as a shared board or a game.

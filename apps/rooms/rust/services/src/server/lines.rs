@@ -1,15 +1,16 @@
 //! What holding a line's reference lets somebody do to it, and the same one
 //! level up for the room's subject. Neither asks who is calling: possession
-//! already answered the question. The subject persists before it is announced
-//! when the room has a durable name.
+//! already answered the question. A subject's reference comes with a
+//! participant's seat and answers for as long as that seat lasts. The subject
+//! persists before it is announced when the room has a durable name.
 use super::{
-	authority, history, rooms,
+	authority, history, rooms, seat,
 	state::{Shared, State},
 };
 use glowcap::Argument;
 use rooms_application::{
 	room::{ArgumentView, membership::SET_SUBJECT, subject::Subject},
-	server::rooms::{LineKey, RoomKey},
+	server::rooms::{LineKey, MembershipKey, RoomKey},
 };
 use rooms_glowcap::Value;
 use std::{cell::Cell, rc::Rc};
@@ -60,10 +61,13 @@ pub(super) fn line(
 
 /// What this room is about, as a capability every participant holds.
 /// `setSubject(description, link?)` takes the subject exactly or refuses it,
-/// and the room keeps a link without ever calling it.
+/// and the room keeps a link without ever calling it. The reference comes
+/// with one seat, `membership`, and answers for as long as that seat lasts,
+/// so a member asked to leave keeps the reference and not what it did.
 pub(super) fn subject(
 	shared: Shared,
 	room: RoomKey,
+	membership: Rc<Cell<Option<MembershipKey>>>,
 ) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
 		let verb = verb.ok_or("direct invocation is not supported")?;
@@ -74,13 +78,20 @@ pub(super) fn subject(
 			return Err(format!("a subject has no method {verb}"));
 		}
 		let subject = read_subject(args)?;
+		let membership = seat::current(&membership)?;
 		let mut state = shared.borrow_mut();
 		let (connection, _) = rooms::caller(&mut state)?;
 		state.ingress(connection)?;
-		// The seat comes before the charge, so a full writer refuses with the
-		// allowance intact. The charge comes before any answer, and an
-		// unchanged subject is one, so the seat is taken whether or not the
-		// writer is used.
+		// An ended membership is refused before the writer's seat is reserved
+		// or the message charged.
+		state
+			.rooms
+			.require_participant(&room, membership)
+			.map_err(seat::refusal)?;
+		// The writer's seat comes before the charge, so a full writer refuses
+		// with the allowance intact. The charge comes before any answer, and
+		// an unchanged subject is one, so the seat is taken whether or not
+		// the writer is used.
 		let seat = state.authority_writer.reserve()?;
 		state.admit_message(
 			connection,
@@ -88,7 +99,7 @@ pub(super) fn subject(
 		)?;
 		match state
 			.rooms
-			.prepare_subject(&room, &subject, &state.authority)
+			.prepare_subject(&room, membership, &subject, &state.authority)
 			.map_err(|refusal| refusal.reason())?
 		{
 			None => Ok(Argument::Void),
@@ -105,7 +116,7 @@ pub(super) fn subject(
 						let (room, subject) = prepared;
 						Ok(state
 							.rooms
-							.prepare_subject(&room, &subject, &state.authority)
+							.prepare_subject(&room, membership, &subject, &state.authority)
 							.map_err(|refusal| refusal.reason())?
 							.flatten())
 					},

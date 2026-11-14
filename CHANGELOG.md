@@ -72,6 +72,18 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Rooms relay keeps only a short hello from a registered peer that no
+  dialer has reached yet, and closes one that sends more. It kept up to
+  8 MiB of received messages for each waiting registration. A message still
+  arriving is bounded by the WebSocket message limit, as before.
+- A Rooms member asked to leave a room can no longer change its subject. The
+  subject reference a participant is handed comes with that seat and answers
+  for as long as the seat lasts. One handed on to somebody outside the room
+  stops answering when the seat ends, which a reconnect does too, and the
+  member's next seat comes with a new one.
+- Asking a Rooms directory for a private room's link spends the allowance
+  that opening a room spends. It spent a read, so one connection could record
+  private rooms until the server had no room link left to make.
 - A Rooms room tells its link only through a way in that would seat the
   caller to post now. The link of a room that lets the public in to watch is
   not told by name or to a member who watches. A member who entered through

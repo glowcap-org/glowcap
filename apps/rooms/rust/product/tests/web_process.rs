@@ -437,6 +437,16 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 			other => panic!("failed dial must close with a reason: {other:?}"),
 		}
 		let _ = absent.flush().await;
+		// A registration that sends far more than a hello before any dialer
+		// is closed, and its place is free for the two below.
+		let (mut flood, _) = tokio_tungstenite::connect_async(&register).await.unwrap();
+		flood.send(Message::Binary(vec![0; 1024 * 1024].into())).await.unwrap();
+		while let Some(Ok(frame)) = flood.next().await {
+			assert!(
+				frame.is_close() || frame.is_ping(),
+				"a flooding registration is only closed: {frame:?}"
+			);
+		}
 		let (mut first, _) = tokio_tungstenite::connect_async(&register).await.unwrap();
 		first
 			.send(Message::Binary(b"early hello".to_vec().into()))

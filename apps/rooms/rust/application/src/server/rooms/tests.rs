@@ -481,7 +481,7 @@ fn presence_subject_away_typing_and_kick_say_the_rooms_word() {
 	let seeds = Subject::new("seeds".into(), Some("ocapn://host.tcp/s/c2VlZHM".into())).unwrap();
 	let remembered = world
 		.rooms
-		.prepare_subject(&entrance.room, &seeds, &world.authority)
+		.prepare_subject(&entrance.room, alice, &seeds, &world.authority)
 		.unwrap()
 		.expect("a change")
 		.expect("persisted first");
@@ -492,7 +492,7 @@ fn presence_subject_away_typing_and_kick_say_the_rooms_word() {
 	assert_eq!(
 		world
 			.rooms
-			.prepare_subject(&entrance.room, &seeds, &world.authority)
+			.prepare_subject(&entrance.room, alice, &seeds, &world.authority)
 			.unwrap(),
 		None
 	);
@@ -520,6 +520,20 @@ fn presence_subject_away_typing_and_kick_say_the_rooms_word() {
 			&& matches!(&t.notice, Notice::Ended(text) if text == "You were asked to leave #Garden."))
 	);
 	assert_eq!(world.rooms.member_count(&entrance.room), 1);
+	// The subject's reference Bob was handed stops answering with his seat.
+	let weeds = Subject::new("weeds".into(), None).unwrap();
+	let refused = world
+		.rooms
+		.prepare_subject(&entrance.room, bob.membership, &weeds, &world.authority)
+		.unwrap_err();
+	assert_eq!(refused.code, Some(FailureCode::NotRoomMember));
+	assert!(
+		world
+			.rooms
+			.prepare_subject(&entrance.room, alice, &weeds, &world.authority)
+			.unwrap()
+			.is_some()
+	);
 	assert_eq!(
 		world.rooms.kick(&entrance.room, "nobody").unwrap_err().reason(),
 		"nobody here answers to \"nobody\""

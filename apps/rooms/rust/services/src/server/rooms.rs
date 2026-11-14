@@ -261,7 +261,11 @@ fn subscribe(
 		rooms_application::room::policy::MembershipKind::Participant => (
 			Some(
 				session
-					.spawn_owned(lines::subject(shared.clone(), entrance.room.clone()))
+					.spawn_owned(lines::subject(
+						shared.clone(),
+						entrance.room.clone(),
+						membership.clone(),
+					))
 					.map_err(|e| e.to_string())?,
 			),
 			Some(
@@ -301,10 +305,16 @@ fn subscribe(
 /// A room's durable link is written by the authority writer and answered
 /// later, so the verb charges itself once it has its seat there. The charge
 /// comes before any answer, a refusal included, so the seat is taken whether
-/// or not the writer is used.
-fn link_seat(state: &mut State, connection: u64) -> Result<authority::Seat, String> {
+/// or not the writer is used. `class` is a read for the link of a room
+/// somebody opened, and a creation for a private room's link, which the ask
+/// alone records.
+fn link_seat(
+	state: &mut State,
+	connection: u64,
+	class: rooms_application::admission::Class,
+) -> Result<authority::Seat, String> {
 	let seat = state.authority_writer.reserve()?;
-	state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
+	state.admit_work(connection, class, 1)?;
 	Ok(seat)
 }
 
@@ -428,7 +438,7 @@ pub(super) fn directory_verb(
 			.map_err(|e| e.to_string())
 		}
 		creation::LINK => {
-			let seat = link_seat(&mut state, connection)?;
+			let seat = link_seat(&mut state, connection, rooms_application::admission::Class::Read)?;
 			let max = rooms_application::server::rooms::MAX_ROOM;
 			let Some(name) =
 				text(0).filter(|name| args.len() == 1 && !name.is_empty() && name.encode_utf16().count() <= max)
@@ -456,7 +466,7 @@ pub(super) fn directory_verb(
 			authority::link(seat, authority::Asker::Name(name.into()))
 		}
 		creation::PRIVATE_LINK => {
-			let seat = link_seat(&mut state, connection)?;
+			let seat = link_seat(&mut state, connection, rooms_application::admission::Class::Create)?;
 			let Some(key) = text(0).filter(|key| args.len() == 1 && RecoveryKey::accepts(key)) else {
 				return Err("openPrivateLink needs one opaque private room key".into());
 			};

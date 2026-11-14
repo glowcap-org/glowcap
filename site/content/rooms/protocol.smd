@@ -140,7 +140,8 @@ The reference determines which object you can call, and that object's
 methods enforce its limits. Editing a line requires its line reference.
 You can pass that reference to someone else, giving them access to edit or
 take down the line. A bot holding the subject reference can update the
-subject through the same methods as any other holder.
+subject through the same methods as any other holder. A subject reference
+works for as long as the seat it came with, and joining again gives a new one.
 
 A subject is a description, and it can also link an object the room is about,
 such as a board or a game, by its `ocapn://` sturdyref. The room checks that

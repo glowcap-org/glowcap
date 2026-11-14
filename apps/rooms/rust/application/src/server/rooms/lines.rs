@@ -1,7 +1,9 @@
 //! What holding a line's reference lets somebody do to it, and the same one
 //! level up for the room's subject. Neither asks who is calling: possession
-//! already answered the question, so the authority can be passed on.
-use super::{Effects, LineKey, Refusal, RoomKey, Rooms, notice::Notice};
+//! already answered the question, so the authority can be passed on. A
+//! subject's reference comes with a participant's seat and answers for as
+//! long as that seat lasts.
+use super::{Effects, LineKey, MembershipKey, Refusal, RoomKey, Rooms, notice::Notice};
 use crate::{
 	files::FileLineError,
 	room::{ArgumentView, message::ChangeKind, subject::Subject},
@@ -103,12 +105,16 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 
 	/// The authority successor a subject change persists first, when the room
 	/// has a durable name. `Ok(None)` when the subject already stands so.
+	/// `membership` is the seat the subject's reference came with, and a
+	/// change is refused once that seat has ended.
 	pub fn prepare_subject(
 		&self,
 		room: &RoomKey,
+		membership: MembershipKey,
 		subject: &Subject,
 		authority: &Authority,
 	) -> Result<Option<Option<Authority>>, Refusal> {
+		self.require_participant(room, membership)?;
 		let held = self
 			.rooms
 			.get(room)

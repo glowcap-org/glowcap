@@ -31,6 +31,14 @@ pub(super) fn refusal(refusal: rooms_application::server::rooms::Refusal) -> Str
 	refusal.reason()
 }
 
+/// The membership a facet was minted for. Its cell fills before the seat is
+/// answered, and the room table says whether that membership still stands.
+pub(super) fn current(membership: &Cell<Option<MembershipKey>>) -> Result<MembershipKey, String> {
+	membership
+		.get()
+		.ok_or_else(|| FailureCode::NotRoomMember.line("this room membership has ended"))
+}
+
 /// The membership a call on one of its facets is for, and the session it
 /// arrived on. Shared by the seat and the files facet, so both refuse a
 /// capability argument, an ended membership, and a sessionless caller in
@@ -44,9 +52,7 @@ pub(super) fn admitted(
 	if args.iter().any(|arg| Value(arg).contains_capability()) {
 		return Err(format!("{what} {verb} does not take capability arguments"));
 	}
-	let Some(membership) = membership.get() else {
-		return Err(FailureCode::NotRoomMember.line("this room membership has ended"));
-	};
+	let membership = current(membership)?;
 	let session = current_session()
 		.map_err(|e| e.to_string())?
 		.ok_or_else(|| format!("a {what} is reachable only over a session"))?;
